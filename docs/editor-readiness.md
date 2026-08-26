@@ -13,6 +13,9 @@ Working today:
 - layer selection, visibility, locking, step ordering, duplicate, and delete
 - multi-selection alignment, distribution, front/back ordering, and copy/paste
 - zoom, fit, page switching, and single-artboard PNG export
+- hand-tool, Space-drag, and middle-button workspace panning
+- page-edge, page-center, and object snapping with visible guides
+- align-to-page and zoom-to-selection controls
 - local image restoration through IndexedDB without serializing blob URLs
 - basic text, shape, image source, geometry, opacity, and field controls
 
@@ -36,11 +39,14 @@ or pasting an image URL.
 
 ### 2. Canvas precision
 
-- hand-tool pan and space-drag pan
-- page-edge, center, and object snapping
-- visible alignment and equal-spacing guides
-- align to selection and align to page
-- zoom to selection and reliable keyboard nudging
+- [x] hand-tool pan, Space-drag pan, and middle-button pan
+- [x] page-edge, center, and object snapping
+- [x] visible alignment guides
+- [ ] equal-spacing guides
+- [x] align to selection
+- [x] align to page
+- [x] reliable keyboard nudging
+- [x] zoom to selection
 
 Exit condition: a designer can create a clean layout without typing every
 coordinate in the inspector.

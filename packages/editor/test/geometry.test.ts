@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest"
 import type { SceneNode } from "@webmcp/document"
-import { alignNodes, distributeNodes, getNodeBounds } from "../src/geometry"
+import {
+  alignNodes,
+  alignNodesToBounds,
+  distributeNodes,
+  getNodeBounds,
+} from "../src/geometry"
 
 const rect = (
   id: string,
@@ -59,6 +64,27 @@ describe("editor geometry", () => {
       { nodeId: "a", patch: { x: 0, y: 0 } },
       { nodeId: "b", patch: { x: 115, y: 10 } },
       { nodeId: "c", patch: { x: 200, y: 20 } },
+    ])
+  })
+
+  it("aligns a selection as a group to page bounds", () => {
+    const changes = alignNodesToBounds(
+      [rect("a", 20, 40, 100, 80), rect("b", 240, 160, 60, 30)],
+      "right",
+      {
+        left: 0,
+        top: 0,
+        right: 1000,
+        bottom: 800,
+        width: 1000,
+        height: 800,
+        centerX: 500,
+        centerY: 400,
+      }
+    )
+    expect(changes).toEqual([
+      { nodeId: "a", patch: { x: 720, y: 40 } },
+      { nodeId: "b", patch: { x: 940, y: 160 } },
     ])
   })
 })

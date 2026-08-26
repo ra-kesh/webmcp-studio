@@ -8,7 +8,9 @@ import {
   CopyPlus,
   Circle,
   Download,
+  Focus,
   Heart,
+  Hand,
   ImagePlus,
   Layers3,
   Minus,
@@ -27,6 +29,7 @@ import {
   X,
 } from "lucide-react"
 import type { SceneNode } from "@webmcp/document"
+import { getSelectionBounds } from "@webmcp/editor/geometry"
 import { Badge } from "@webmcp/ui/components/badge"
 import { Button } from "@webmcp/ui/components/button"
 import {
@@ -56,6 +59,11 @@ import { useDocumentEditor } from "./editor/use-document-editor"
 
 const HEART_ICON_PATH =
   "M12 21.35 10.55 20.03C5.4 15.36 2 12.27 2 8.5 2 5.41 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.08C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.41 22 8.5c0 3.77-3.4 6.86-8.55 11.54Z"
+
+const isEditableTarget = (target: EventTarget | null) =>
+  target instanceof HTMLInputElement ||
+  target instanceof HTMLTextAreaElement ||
+  (target instanceof HTMLElement && target.isContentEditable)
 
 function IconButton({
   label,
@@ -89,6 +97,13 @@ export function StudioShell() {
   const editor = useDocumentEditor()
   const [zoom, setZoom] = useState(0.34)
   const [autoFit, setAutoFit] = useState(true)
+  const [focusGutter, setFocusGutter] = useState<{
+    x: number
+    y: number
+  } | null>(null)
+  const [tool, setTool] = useState<"select" | "hand">("select")
+  const [spacePressed, setSpacePressed] = useState(false)
+  const [isPanning, setIsPanning] = useState(false)
   const [apiCopied, setApiCopied] = useState(false)
   const [compactPanel, setCompactPanel] = useState<
     "document" | "inspector" | null
@@ -96,9 +111,41 @@ export function StudioShell() {
   const workspaceRef = useRef<HTMLDivElement>(null)
   const artboardRef = useRef<FabricArtboardHandle>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
+  const panSessionRef = useRef<{
+    pointerId: number
+    clientX: number
+    clientY: number
+    scrollLeft: number
+    scrollTop: number
+  } | null>(null)
   const activePage = editor.document.pages.find(
     (page) => page.id === editor.activePageId
   )
+
+  const centerCanvasInWorkspace = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const workspace = workspaceRef.current
+        const canvas = workspace?.querySelector<HTMLElement>(".upper-canvas")
+        if (!workspace || !canvas) return
+        const workspaceRect = workspace.getBoundingClientRect()
+        const canvasRect = canvas.getBoundingClientRect()
+        workspace.scrollTo({
+          left:
+            workspace.scrollLeft +
+            canvasRect.left +
+            canvasRect.width / 2 -
+            (workspaceRect.left + workspaceRect.width / 2),
+          top:
+            workspace.scrollTop +
+            canvasRect.top +
+            canvasRect.height / 2 -
+            (workspaceRect.top + workspaceRect.height / 2),
+          behavior: "auto",
+        })
+      })
+    })
+  }, [])
 
   const fitCanvas = useCallback(() => {
     const workspace = workspaceRef.current
@@ -108,8 +155,46 @@ export function StudioShell() {
       (workspace.clientHeight - 112) / activePage.height,
       0.7
     )
+    setFocusGutter(null)
     setZoom(Math.max(0.22, nextZoom))
-  }, [activePage])
+    centerCanvasInWorkspace()
+  }, [activePage, centerCanvasInWorkspace])
+
+  const zoomToSelection = useCallback(() => {
+    const workspace = workspaceRef.current
+    const bounds = getSelectionBounds(editor.selectedNodes)
+    if (!workspace || !bounds) return
+    const nextZoom = Math.min(
+      (workspace.clientWidth - 128) / Math.max(bounds.width, 1),
+      (workspace.clientHeight - 128) / Math.max(bounds.height, 1),
+      0.7
+    )
+    setAutoFit(false)
+    setFocusGutter({
+      x: workspace.clientWidth / 2,
+      y: workspace.clientHeight / 2,
+    })
+    setZoom(Math.max(0.12, nextZoom))
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const canvas = workspace.querySelector<HTMLElement>(".upper-canvas")
+        if (!canvas) return
+        const workspaceRect = workspace.getBoundingClientRect()
+        const canvasRect = canvas.getBoundingClientRect()
+        const selectedCenterX =
+          canvasRect.left - workspaceRect.left + bounds.centerX * nextZoom
+        const selectedCenterY =
+          canvasRect.top - workspaceRect.top + bounds.centerY * nextZoom
+        workspace.scrollTo({
+          left:
+            workspace.scrollLeft + selectedCenterX - workspace.clientWidth / 2,
+          top:
+            workspace.scrollTop + selectedCenterY - workspace.clientHeight / 2,
+          behavior: "auto",
+        })
+      })
+    })
+  }, [editor.selectedNodes])
 
   useEffect(() => {
     const workspace = workspaceRef.current
@@ -121,6 +206,40 @@ export function StudioShell() {
     if (autoFit) fitCanvas()
     return () => observer.disconnect()
   }, [autoFit, fitCanvas])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (isEditableTarget(event.target)) return
+      if (event.code === "Space") {
+        event.preventDefault()
+        setSpacePressed(true)
+      } else if (
+        !event.metaKey &&
+        !event.ctrlKey &&
+        event.key.toLowerCase() === "h"
+      ) {
+        setTool("hand")
+      } else if (
+        !event.metaKey &&
+        !event.ctrlKey &&
+        event.key.toLowerCase() === "v"
+      ) {
+        setTool("select")
+      }
+    }
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.code === "Space") setSpacePressed(false)
+    }
+    const releaseSpace = () => setSpacePressed(false)
+    window.addEventListener("keydown", onKeyDown)
+    window.addEventListener("keyup", onKeyUp)
+    window.addEventListener("blur", releaseSpace)
+    return () => {
+      window.removeEventListener("keydown", onKeyDown)
+      window.removeEventListener("keyup", onKeyUp)
+      window.removeEventListener("blur", releaseSpace)
+    }
+  }, [])
 
   if (!activePage) return null
 
@@ -173,6 +292,46 @@ export function StudioShell() {
   const updateNode = (nodeId: string, patch: Partial<SceneNode>) =>
     editor.updateNode(nodeId, patch)
 
+  const startPanning = (event: React.PointerEvent<HTMLDivElement>) => {
+    const shouldPan = tool === "hand" || spacePressed || event.button === 1
+    if (!shouldPan) return
+    event.preventDefault()
+    event.stopPropagation()
+    const workspace = event.currentTarget
+    panSessionRef.current = {
+      pointerId: event.pointerId,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      scrollLeft: workspace.scrollLeft,
+      scrollTop: workspace.scrollTop,
+    }
+    workspace.setPointerCapture(event.pointerId)
+    setIsPanning(true)
+  }
+
+  const continuePanning = (event: React.PointerEvent<HTMLDivElement>) => {
+    const session = panSessionRef.current
+    if (!session || session.pointerId !== event.pointerId) return
+    event.preventDefault()
+    event.stopPropagation()
+    event.currentTarget.scrollLeft =
+      session.scrollLeft - (event.clientX - session.clientX)
+    event.currentTarget.scrollTop =
+      session.scrollTop - (event.clientY - session.clientY)
+  }
+
+  const finishPanning = (event: React.PointerEvent<HTMLDivElement>) => {
+    const session = panSessionRef.current
+    if (!session || session.pointerId !== event.pointerId) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+    panSessionRef.current = null
+    setIsPanning(false)
+  }
+
   return (
     <main className="flex h-dvh min-h-dvh w-full min-w-0 flex-col overflow-hidden bg-background text-foreground">
       <header className="flex h-(--studio-topbar-height) shrink-0 items-center gap-3 border-b px-3">
@@ -195,9 +354,21 @@ export function StudioShell() {
           <IconButton
             label="Select"
             shortcut="V"
-            onClick={() => editor.setSelection(null)}
+            variant={tool === "select" ? "secondary" : "ghost"}
+            onClick={() => {
+              setTool("select")
+              editor.setSelection(null)
+            }}
           >
             <MousePointer2 />
+          </IconButton>
+          <IconButton
+            label="Hand tool"
+            shortcut="H"
+            variant={tool === "hand" ? "secondary" : "ghost"}
+            onClick={() => setTool("hand")}
+          >
+            <Hand />
           </IconButton>
           <IconButton label="Add text" shortcut="T" onClick={editor.addText}>
             <Type />
@@ -419,21 +590,44 @@ export function StudioShell() {
           </EditorPanelHeader>
           <div
             ref={workspaceRef}
-            className="workspace-grid flex min-h-0 flex-1 items-center justify-center overflow-auto p-6 min-[1120px]:p-14 sm:p-10"
-            onMouseDown={(event) => {
-              if (event.target === event.currentTarget)
-                editor.setSelection(null)
-            }}
+            className={`workspace-grid min-h-0 flex-1 overflow-auto ${
+              isPanning
+                ? "cursor-grabbing select-none"
+                : tool === "hand" || spacePressed
+                  ? "cursor-grab"
+                  : ""
+            }`}
+            onPointerDownCapture={startPanning}
+            onPointerMoveCapture={continuePanning}
+            onPointerUpCapture={finishPanning}
+            onPointerCancelCapture={finishPanning}
           >
-            <FabricArtboard
-              ref={artboardRef}
-              document={editor.previewDocument}
-              pageId={activePage.id}
-              selection={editor.selection}
-              zoom={zoom}
-              onSelectionChange={editor.setSelection}
-              onNodesChange={editor.updateNodes}
-            />
+            <div
+              className="flex h-max min-h-full w-max min-w-full items-center justify-center p-6 min-[1120px]:p-14 sm:p-10"
+              style={
+                focusGutter
+                  ? {
+                      paddingInline: focusGutter.x,
+                      paddingBlock: focusGutter.y,
+                    }
+                  : undefined
+              }
+              onMouseDown={(event) => {
+                if (event.target === event.currentTarget) {
+                  editor.setSelection(null)
+                }
+              }}
+            >
+              <FabricArtboard
+                ref={artboardRef}
+                document={editor.previewDocument}
+                pageId={activePage.id}
+                selection={editor.selection}
+                zoom={zoom}
+                onSelectionChange={editor.setSelection}
+                onNodesChange={editor.updateNodes}
+              />
+            </div>
           </div>
 
           <div className="absolute bottom-3 left-1/2 flex h-9 -translate-x-1/2 items-center gap-1 rounded-lg border bg-background/96 px-1.5 shadow-sm backdrop-blur-sm">
@@ -473,6 +667,13 @@ export function StudioShell() {
             >
               <Scan />
             </IconButton>
+            <IconButton
+              label="Zoom to selection"
+              disabled={!editor.selectedNodes.length}
+              onClick={zoomToSelection}
+            >
+              <Focus />
+            </IconButton>
           </div>
         </section>
 
@@ -483,6 +684,7 @@ export function StudioShell() {
           onUpdateNode={updateNode}
           onUpdateField={editor.updateField}
           onAlignSelection={editor.alignSelection}
+          onAlignSelectionToPage={editor.alignSelectionToPage}
           onDistributeSelection={editor.distributeSelection}
           onSetSelectionLocked={editor.setSelectionLocked}
           onSetSelectionVisible={editor.setSelectionVisible}
@@ -542,6 +744,7 @@ export function StudioShell() {
                   onUpdateNode={updateNode}
                   onUpdateField={editor.updateField}
                   onAlignSelection={editor.alignSelection}
+                  onAlignSelectionToPage={editor.alignSelectionToPage}
                   onDistributeSelection={editor.distributeSelection}
                   onSetSelectionLocked={editor.setSelectionLocked}
                   onSetSelectionVisible={editor.setSelectionVisible}

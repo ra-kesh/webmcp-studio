@@ -25,4 +25,19 @@ describe("Fabric document boundary", () => {
       rotation: 15,
     })
   })
+
+  it("uses a standalone object's canonical origin instead of control bounds", () => {
+    const object = new Rect({
+      left: 470,
+      top: 727,
+      width: 300,
+      height: 300,
+      originX: "left",
+      originY: "top",
+      padding: 10,
+      strokeWidth: 0,
+    })
+
+    expect(fabricObjectToNodePatch(object)).toMatchObject({ x: 470, y: 727 })
+  })
 })

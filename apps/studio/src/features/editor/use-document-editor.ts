@@ -9,6 +9,7 @@ import {
 import type { CanvasNodeChange, CommandDraft, Selection } from "@webmcp/editor"
 import {
   alignNodes,
+  alignNodesToBounds,
   distributeNodes,
   type Alignment,
   type Distribution,
@@ -484,6 +485,32 @@ export function useDocumentEditor() {
     [selection, updateNodes]
   )
 
+  const alignSelectionToPage = useCallback(
+    (alignment: Alignment) => {
+      const page = historyRef.current.document.pages.find(
+        (candidate) => candidate.id === activePageId
+      )
+      if (!page) return
+      const nodes = (selection?.nodeIds ?? []).flatMap((nodeId) => {
+        const node = findNode(historyRef.current.document, nodeId)
+        return node && !node.locked ? [node] : []
+      })
+      updateNodes(
+        alignNodesToBounds(nodes, alignment, {
+          left: 0,
+          top: 0,
+          right: page.width,
+          bottom: page.height,
+          width: page.width,
+          height: page.height,
+          centerX: page.width / 2,
+          centerY: page.height / 2,
+        })
+      )
+    },
+    [activePageId, selection, updateNodes]
+  )
+
   const setSelectionLocked = useCallback(
     (locked: boolean) => {
       if (!selection?.nodeIds.length) return
@@ -734,6 +761,7 @@ export function useDocumentEditor() {
     copySelection,
     pasteSelection,
     alignSelection,
+    alignSelectionToPage,
     distributeSelection,
     setSelectionLocked,
     setSelectionVisible,

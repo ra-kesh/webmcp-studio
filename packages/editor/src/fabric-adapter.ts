@@ -17,15 +17,34 @@ import type {
   CanvasNodeChange,
   Selection,
 } from "./index"
+import { calculateSnap, type SnapGuide } from "./snapping"
 
 const SELECTION_COLOR = "#18181b"
+const GUIDE_COLOR = "#2563eb"
 
 const round = (value: number) => Math.round(value * 10) / 10
+
+function snapBoundsForObject(object: FabricObject) {
+  if (
+    !(object instanceof ActiveSelection) &&
+    Math.abs(object.angle % 360) < 0.01
+  ) {
+    return {
+      left: object.left ?? 0,
+      top: object.top ?? 0,
+      width: (object.width || 1) * Math.abs(object.scaleX),
+      height: (object.height || 1) * Math.abs(object.scaleY),
+    }
+  }
+  return object.getBoundingRect()
+}
 
 export function fabricObjectToNodePatch(
   object: FabricObject
 ): Pick<SceneNode, "x" | "y" | "width" | "height" | "rotation"> {
-  const position = object.getXY()
+  const position = object.group
+    ? object.getXY()
+    : { x: object.left ?? 0, y: object.top ?? 0 }
   return {
     x: round(position.x),
     y: round(position.y),
@@ -215,6 +234,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
   private pageId: string | null = null
   private generation = 0
   private syncing = false
+  private activeGuides: SnapGuide[] = []
   private readonly objectByNodeId = new Map<string, FabricObject>()
   private readonly nodeIdByObject = new WeakMap<FabricObject, string>()
 
@@ -235,7 +255,9 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     this.canvas.on("selection:updated", this.onSelection)
     this.canvas.on("selection:cleared", this.onSelectionCleared)
     this.canvas.on("object:modified", this.onObjectModified)
+    this.canvas.on("object:moving", this.onObjectMoving)
     this.canvas.on("text:editing:exited", this.onTextEditingExited)
+    this.canvas.on("after:render", this.onAfterRender)
     this.canvas.upperCanvasEl.setAttribute(
       "aria-label",
       "Interactive design canvas"
@@ -254,7 +276,9 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     canvas.off("selection:updated", this.onSelection)
     canvas.off("selection:cleared", this.onSelectionCleared)
     canvas.off("object:modified", this.onObjectModified)
+    canvas.off("object:moving", this.onObjectMoving)
     canvas.off("text:editing:exited", this.onTextEditingExited)
+    canvas.off("after:render", this.onAfterRender)
     await canvas.dispose()
   }
 
@@ -265,6 +289,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     const generation = ++this.generation
     const previousSelection = this.getSelection()?.nodeIds ?? []
     this.syncing = true
+    this.activeGuides = []
 
     try {
       if (this.pageId !== pageId) {
@@ -366,10 +391,71 @@ export class FabricCanvasAdapter implements CanvasAdapter {
   }
 
   private onSelectionCleared = () => {
+    this.clearGuides()
     if (!this.syncing) this.events.onSelectionChange(null)
   }
 
+  private onObjectMoving = ({ target }: { target?: FabricObject }) => {
+    const canvas = this.canvas
+    if (this.syncing || !canvas || !target) return
+    const movingObjects = new Set(
+      target instanceof ActiveSelection ? target.getObjects() : [target]
+    )
+    const bounds = snapBoundsForObject(target)
+    const peers = [...this.objectByNodeId.values()]
+      .filter((object) => !movingObjects.has(object) && object.visible)
+      .map(snapBoundsForObject)
+    const snap = calculateSnap(
+      {
+        left: bounds.left,
+        top: bounds.top,
+        width: bounds.width,
+        height: bounds.height,
+      },
+      { width: canvas.getWidth(), height: canvas.getHeight() },
+      peers
+    )
+    if (snap.deltaX || snap.deltaY) {
+      target.set({
+        left: (target.left ?? 0) + snap.deltaX,
+        top: (target.top ?? 0) + snap.deltaY,
+      })
+      target.setCoords()
+    }
+    this.activeGuides = snap.guides
+    canvas.requestRenderAll()
+  }
+
+  private onAfterRender = () => {
+    const canvas = this.canvas
+    if (!canvas || !this.activeGuides.length) return
+    const context = canvas.contextTop
+    context.save()
+    context.strokeStyle = GUIDE_COLOR
+    context.lineWidth = 2
+    context.setLineDash([8, 6])
+    for (const guide of this.activeGuides) {
+      context.beginPath()
+      if (guide.axis === "x") {
+        context.moveTo(guide.value, 0)
+        context.lineTo(guide.value, canvas.getHeight())
+      } else {
+        context.moveTo(0, guide.value)
+        context.lineTo(canvas.getWidth(), guide.value)
+      }
+      context.stroke()
+    }
+    context.restore()
+  }
+
+  private clearGuides() {
+    if (!this.activeGuides.length) return
+    this.activeGuides = []
+    this.canvas?.requestRenderAll()
+  }
+
   private onObjectModified = ({ target }: ModifiedEvent) => {
+    this.clearGuides()
     if (this.syncing || !target) return
     const targets =
       target instanceof ActiveSelection ? target.getObjects() : [target]

@@ -97,6 +97,30 @@ export function alignNodes(
   })
 }
 
+export function alignNodesToBounds(
+  nodes: SceneNode[],
+  alignment: Alignment,
+  target: NodeBounds
+): NodePositionChange[] {
+  const selection = getSelectionBounds(nodes)
+  if (!selection) return []
+  let deltaX = 0
+  let deltaY = 0
+  if (alignment === "left") deltaX = target.left - selection.left
+  if (alignment === "horizontal-center")
+    deltaX = target.centerX - selection.centerX
+  if (alignment === "right") deltaX = target.right - selection.right
+  if (alignment === "top") deltaY = target.top - selection.top
+  if (alignment === "vertical-center")
+    deltaY = target.centerY - selection.centerY
+  if (alignment === "bottom") deltaY = target.bottom - selection.bottom
+
+  return nodes.map((node) => ({
+    nodeId: node.id,
+    patch: { x: round(node.x + deltaX), y: round(node.y + deltaY) },
+  }))
+}
+
 export function distributeNodes(
   nodes: SceneNode[],
   distribution: Distribution

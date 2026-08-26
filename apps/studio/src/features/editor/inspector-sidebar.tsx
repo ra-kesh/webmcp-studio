@@ -25,6 +25,7 @@ import {
   X,
 } from "lucide-react"
 import type { Document, SceneNode } from "@webmcp/document"
+import type { Alignment } from "@webmcp/editor/geometry"
 import { toolCatalog } from "@webmcp/webmcp"
 import { Badge } from "@webmcp/ui/components/badge"
 import { Button } from "@webmcp/ui/components/button"
@@ -163,12 +164,53 @@ function ColorField({
   )
 }
 
+const alignmentActions = [
+  ["Align left", "left", AlignHorizontalJustifyStart],
+  [
+    "Align horizontal centers",
+    "horizontal-center",
+    AlignHorizontalJustifyCenter,
+  ],
+  ["Align right", "right", AlignHorizontalJustifyEnd],
+  ["Align top", "top", AlignVerticalJustifyStart],
+  ["Align vertical centers", "vertical-center", AlignVerticalJustifyCenter],
+  ["Align bottom", "bottom", AlignVerticalJustifyEnd],
+] as const
+
+function AlignmentGrid({
+  onAlign,
+  disabled = false,
+}: {
+  onAlign(alignment: Alignment): void
+  disabled?: boolean
+}) {
+  return (
+    <div className="grid grid-cols-6 gap-1">
+      {alignmentActions.map(([label, alignment, Icon]) => (
+        <Button
+          key={alignment}
+          aria-label={label}
+          title={label}
+          disabled={disabled}
+          size="icon"
+          variant="outline"
+          onClick={() => onAlign(alignment)}
+        >
+          <Icon />
+        </Button>
+      ))}
+    </div>
+  )
+}
+
 function NodeInspector({
   node,
   onUpdate,
+  onAlignToPage,
 }: {
   node: SceneNode
   onUpdate(patch: Partial<SceneNode>): void
+  onAlignToPage(alignment: Alignment): void
 }) {
   return (
     <div className="flex flex-col">
@@ -198,6 +240,12 @@ function NodeInspector({
             {node.locked ? <Lock /> : <Unlock />}
           </Button>
         </div>
+      </section>
+
+      <Separator />
+      <section className="flex flex-col gap-3 p-4">
+        <FieldLabel>Align to page</FieldLabel>
+        <AlignmentGrid onAlign={onAlignToPage} disabled={node.locked} />
       </section>
 
       <Separator />
@@ -399,22 +447,10 @@ function NodeInspector({
   )
 }
 
-const alignmentActions = [
-  ["Align left", "left", AlignHorizontalJustifyStart],
-  [
-    "Align horizontal centers",
-    "horizontal-center",
-    AlignHorizontalJustifyCenter,
-  ],
-  ["Align right", "right", AlignHorizontalJustifyEnd],
-  ["Align top", "top", AlignVerticalJustifyStart],
-  ["Align vertical centers", "vertical-center", AlignVerticalJustifyCenter],
-  ["Align bottom", "bottom", AlignVerticalJustifyEnd],
-] as const
-
 function MultiSelectionInspector({
   nodes,
   onAlign,
+  onAlignToPage,
   onDistribute,
   onSetLocked,
   onSetVisible,
@@ -423,15 +459,8 @@ function MultiSelectionInspector({
   onDelete,
 }: {
   nodes: SceneNode[]
-  onAlign(
-    alignment:
-      | "left"
-      | "horizontal-center"
-      | "right"
-      | "top"
-      | "vertical-center"
-      | "bottom"
-  ): void
+  onAlign(alignment: Alignment): void
+  onAlignToPage(alignment: Alignment): void
   onDistribute(distribution: "horizontal" | "vertical"): void
   onSetLocked(locked: boolean): void
   onSetVisible(visible: boolean): void
@@ -481,21 +510,7 @@ function MultiSelectionInspector({
       <Separator />
       <section className="flex flex-col gap-3 p-4">
         <FieldLabel>Align</FieldLabel>
-        <div className="grid grid-cols-6 gap-1">
-          {alignmentActions.map(([label, alignment, Icon]) => (
-            <Button
-              key={alignment}
-              aria-label={label}
-              title={label}
-              disabled={movableCount < 2}
-              size="icon"
-              variant="outline"
-              onClick={() => onAlign(alignment)}
-            >
-              <Icon />
-            </Button>
-          ))}
-        </div>
+        <AlignmentGrid onAlign={onAlign} disabled={movableCount < 2} />
         <div className="grid grid-cols-2 gap-2">
           <Button
             disabled={movableCount < 3}
@@ -516,6 +531,8 @@ function MultiSelectionInspector({
             Space down
           </Button>
         </div>
+        <FieldLabel>Align selection to page</FieldLabel>
+        <AlignmentGrid onAlign={onAlignToPage} disabled={!movableCount} />
       </section>
 
       <Separator />
@@ -714,6 +731,7 @@ export function InspectorSidebar({
   onUpdateNode,
   onUpdateField,
   onAlignSelection,
+  onAlignSelectionToPage,
   onDistributeSelection,
   onSetSelectionLocked,
   onSetSelectionVisible,
@@ -726,15 +744,8 @@ export function InspectorSidebar({
   selectedNodes: SceneNode[]
   onUpdateNode(nodeId: string, patch: Partial<SceneNode>): void
   onUpdateField(fieldId: string, value: string | number | boolean): void
-  onAlignSelection(
-    alignment:
-      | "left"
-      | "horizontal-center"
-      | "right"
-      | "top"
-      | "vertical-center"
-      | "bottom"
-  ): void
+  onAlignSelection(alignment: Alignment): void
+  onAlignSelectionToPage(alignment: Alignment): void
   onDistributeSelection(distribution: "horizontal" | "vertical"): void
   onSetSelectionLocked(locked: boolean): void
   onSetSelectionVisible(visible: boolean): void
@@ -766,11 +777,13 @@ export function InspectorSidebar({
               <NodeInspector
                 node={selectedNode}
                 onUpdate={(patch) => onUpdateNode(selectedNode.id, patch)}
+                onAlignToPage={onAlignSelectionToPage}
               />
             ) : selectedNodes.length > 1 ? (
               <MultiSelectionInspector
                 nodes={selectedNodes}
                 onAlign={onAlignSelection}
+                onAlignToPage={onAlignSelectionToPage}
                 onDistribute={onDistributeSelection}
                 onSetLocked={onSetSelectionLocked}
                 onSetVisible={onSetSelectionVisible}

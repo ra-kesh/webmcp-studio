@@ -39,10 +39,12 @@ Status: partially implemented. Selection, multi-selection, drag, resize, rotate,
 inline text editing, text/rectangle/ellipse/line/icon insertion, local image
 upload and restoration, layer ordering, lock, hide, duplicate, delete,
 copy/paste, alignment, distribution, zoom, fit, autosave, undo, and redo work.
-The editor still needs the asset library, crop and fitting tools, grouping,
-freeform pan, snapping and visible guides, page/output management, richer text
-controls, and export parity. Day 3 infrastructure does not start until the
-editor gate in `docs/editor-readiness.md` passes.
+Hand/Space/middle-button panning, page/object snapping, and visible alignment
+guides also work, alongside align-to-page and zoom-to-selection. The editor
+still needs the asset library, crop and fitting tools, equal-spacing guides,
+grouping, page/output management, richer text controls, and export parity. Day
+3 infrastructure does not start until the editor gate in
+`docs/editor-readiness.md` passes.
 
 ## Day 3
 
