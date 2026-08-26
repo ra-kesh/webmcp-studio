@@ -9,6 +9,23 @@ import {
 
 type FieldValue = string | number | boolean
 
+function groupNodeIds(
+  groups: Document["groups"],
+  groupId: string,
+  visited = new Set<string>()
+): string[] {
+  if (visited.has(groupId)) return []
+  visited.add(groupId)
+  const group = groups.find((candidate) => candidate.id === groupId)
+  if (!group) return []
+  return [
+    ...group.nodeIds,
+    ...groups
+      .filter((candidate) => candidate.parentGroupId === groupId)
+      .flatMap((candidate) => groupNodeIds(groups, candidate.id, visited)),
+  ]
+}
+
 function applyValue(
   node: SceneNode,
   property: string,
@@ -119,6 +136,10 @@ export function applyCommand(
         bindings: document.bindings.filter(
           (binding) => binding.nodeId !== command.nodeId
         ),
+        groups: document.groups.map((group) => ({
+          ...group,
+          nodeIds: group.nodeIds.filter((nodeId) => nodeId !== command.nodeId),
+        })),
       }
       break
     }
@@ -144,6 +165,120 @@ export function applyCommand(
             ? { ...candidate, nodeIds }
             : candidate
         ),
+      }
+      break
+    }
+    case "group_nodes": {
+      if (document.groups.some((group) => group.id === command.groupId)) {
+        throw new Error(`Group already exists: ${command.groupId}`)
+      }
+      const page = document.pages.find(
+        (candidate) => candidate.id === command.pageId
+      )
+      if (!page) throw new Error(`Unknown page: ${command.pageId}`)
+      const selected = new Set(command.nodeIds)
+      if (command.nodeIds.some((nodeId) => !page.nodeIds.includes(nodeId))) {
+        throw new Error("Every grouped node must belong to the same page")
+      }
+
+      const memberships = new Map(
+        document.groups.map((group) => [
+          group.id,
+          groupNodeIds(document.groups, group.id),
+        ])
+      )
+      const containedGroups = document.groups.filter((group) => {
+        const nodeIds = memberships.get(group.id) ?? []
+        return (
+          group.pageId === command.pageId &&
+          nodeIds.length > 0 &&
+          nodeIds.every((nodeId) => selected.has(nodeId))
+        )
+      })
+      const partiallySelectedGroup = document.groups.find((group) => {
+        const nodeIds = memberships.get(group.id) ?? []
+        return (
+          group.pageId === command.pageId &&
+          nodeIds.some((nodeId) => selected.has(nodeId)) &&
+          !nodeIds.every((nodeId) => selected.has(nodeId))
+        )
+      })
+      if (partiallySelectedGroup) {
+        throw new Error(
+          `Select every member of ${partiallySelectedGroup.name} before nesting it`
+        )
+      }
+      const containedNodeIds = new Set(
+        containedGroups.flatMap((group) => memberships.get(group.id) ?? [])
+      )
+      const directNodeIds = command.nodeIds.filter(
+        (nodeId) => !containedNodeIds.has(nodeId)
+      )
+      const childGroups = containedGroups.filter(
+        (group) =>
+          !containedGroups.some(
+            (candidate) => candidate.id === group.parentGroupId
+          )
+      )
+      if (directNodeIds.length + childGroups.length < 2) {
+        throw new Error("A group needs at least two layers or child groups")
+      }
+      next = {
+        ...document,
+        groups: [
+          ...document.groups.map((group) =>
+            childGroups.some((child) => child.id === group.id)
+              ? { ...group, parentGroupId: command.groupId }
+              : group
+          ),
+          {
+            id: command.groupId,
+            pageId: command.pageId,
+            name: command.name,
+            nodeIds: directNodeIds,
+          },
+        ],
+      }
+      break
+    }
+    case "update_group": {
+      if (!document.groups.some((group) => group.id === command.groupId)) {
+        throw new Error(`Unknown group: ${command.groupId}`)
+      }
+      next = {
+        ...document,
+        groups: document.groups.map((group) =>
+          group.id === command.groupId
+            ? { ...group, name: command.name }
+            : group
+        ),
+      }
+      break
+    }
+    case "ungroup_nodes": {
+      const group = document.groups.find(
+        (candidate) => candidate.id === command.groupId
+      )
+      if (!group) throw new Error(`Unknown group: ${command.groupId}`)
+      next = {
+        ...document,
+        groups: document.groups
+          .filter((candidate) => candidate.id !== group.id)
+          .map((candidate) => {
+            if (candidate.id === group.parentGroupId) {
+              return {
+                ...candidate,
+                nodeIds: [...new Set([...candidate.nodeIds, ...group.nodeIds])],
+              }
+            }
+            if (candidate.parentGroupId === group.id) {
+              return {
+                ...candidate,
+                parentGroupId: group.parentGroupId,
+              }
+            }
+            return candidate
+          }),
       }
       break
     }

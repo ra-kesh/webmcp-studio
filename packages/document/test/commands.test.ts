@@ -155,4 +155,78 @@ describe("canonical document commands", () => {
       validateDocument(updated).filter((issue) => issue.severity === "error")
     ).toEqual([])
   })
+
+  it("stores groups canonically without changing renderer layer order", () => {
+    const grouped = applyCommand(northstarSeed, {
+      id: "cmd-group-cover-title",
+      type: "group_nodes",
+      actor: "human",
+      at: "2026-08-26T09:30:00.000Z",
+      groupId: "cover-heading-group",
+      pageId: "cover",
+      name: "Cover heading",
+      nodeIds: ["cover-eyebrow", "cover-title", "cover-date"],
+    })
+
+    expect(grouped.groups).toContainEqual({
+      id: "cover-heading-group",
+      pageId: "cover",
+      name: "Cover heading",
+      nodeIds: ["cover-eyebrow", "cover-title", "cover-date"],
+    })
+    expect(grouped.pages.find((page) => page.id === "cover")?.nodeIds).toEqual(
+      northstarSeed.pages.find((page) => page.id === "cover")?.nodeIds
+    )
+
+    const ungrouped = applyCommand(grouped, {
+      id: "cmd-ungroup-cover-title",
+      type: "ungroup_nodes",
+      actor: "human",
+      at: "2026-08-26T09:31:00.000Z",
+      groupId: "cover-heading-group",
+    })
+    expect(ungrouped.groups).toEqual([])
+  })
+
+  it("supports nested canonical groups", () => {
+    const first = applyCommand(northstarSeed, {
+      id: "cmd-group-cover-copy",
+      type: "group_nodes",
+      actor: "human",
+      at: "2026-08-26T09:30:00.000Z",
+      groupId: "cover-copy-group",
+      pageId: "cover",
+      name: "Cover copy",
+      nodeIds: ["cover-eyebrow", "cover-title"],
+    })
+    const second = applyCommand(first, {
+      id: "cmd-group-cover-meta",
+      type: "group_nodes",
+      actor: "human",
+      at: "2026-08-26T09:31:00.000Z",
+      groupId: "cover-meta-group",
+      pageId: "cover",
+      name: "Cover meta",
+      nodeIds: ["cover-date", "cover-studio"],
+    })
+    const nested = applyCommand(second, {
+      id: "cmd-group-cover-content",
+      type: "group_nodes",
+      actor: "human",
+      at: "2026-08-26T09:32:00.000Z",
+      groupId: "cover-content-group",
+      pageId: "cover",
+      name: "Cover content",
+      nodeIds: ["cover-eyebrow", "cover-title", "cover-date", "cover-studio"],
+    })
+
+    expect(
+      nested.groups.filter(
+        (group) => group.parentGroupId === "cover-content-group"
+      )
+    ).toHaveLength(2)
+    expect(
+      nested.groups.find((group) => group.id === "cover-content-group")?.nodeIds
+    ).toEqual([])
+  })
 })

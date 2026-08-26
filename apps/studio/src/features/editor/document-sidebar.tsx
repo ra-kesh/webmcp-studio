@@ -1,9 +1,13 @@
+import { useEffect, useState } from "react"
 import {
+  ChevronRight,
   ChevronDown,
   ChevronUp,
   Circle,
   Eye,
   EyeOff,
+  Folder,
+  FolderOpen,
   ImageIcon,
   Lock,
   Minus,
@@ -12,7 +16,12 @@ import {
   Type,
   Unlock,
 } from "lucide-react"
-import type { Document, SceneNode } from "@webmcp/document"
+import {
+  getGroupNodeIds,
+  type Document,
+  type GroupDefinition,
+  type SceneNode,
+} from "@webmcp/document"
 import type { Selection } from "@webmcp/editor"
 import { Artboard } from "@webmcp/render-view"
 import { Badge } from "@webmcp/ui/components/badge"
@@ -30,6 +39,23 @@ const nodeIcon = {
   icon: Shapes,
   image: ImageIcon,
 } as const
+
+type LayerTreeEntry =
+  { type: "node"; node: SceneNode } | { type: "group"; group: GroupDefinition }
+
+function entryLayerIndex(
+  entry: LayerTreeEntry,
+  document: Document,
+  layerIndex: Map<string, number>
+) {
+  return entry.type === "node"
+    ? (layerIndex.get(entry.node.id) ?? -1)
+    : Math.max(
+        ...getGroupNodeIds(document, entry.group.id).map(
+          (nodeId) => layerIndex.get(nodeId) ?? -1
+        )
+      )
+}
 
 function OutputList({
   document,
@@ -84,17 +110,20 @@ function LayerRow({
   selected,
   onSelect,
   onUpdate,
+  depth = 0,
 }: {
   node: SceneNode
   selected: boolean
   onSelect(additive: boolean): void
   onUpdate(patch: Partial<SceneNode>): void
+  depth?: number
 }) {
   const Icon = nodeIcon[node.type]
   return (
     <div
       className="group flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-xs transition-colors hover:bg-muted data-[selected=true]:bg-secondary"
       data-selected={selected}
+      style={{ paddingLeft: 8 + depth * 18 }}
     >
       <button
         type="button"
@@ -140,13 +169,207 @@ function LayerRow({
   )
 }
 
+function GroupName({
+  group,
+  onCommit,
+}: {
+  group: GroupDefinition
+  onCommit(name: string): void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(group.name)
+  useEffect(() => setDraft(group.name), [group.name])
+  if (!editing) {
+    return (
+      <span
+        className="min-w-0 flex-1 truncate"
+        onDoubleClick={(event) => {
+          event.stopPropagation()
+          setEditing(true)
+        }}
+      >
+        {group.name}
+      </span>
+    )
+  }
+  return (
+    <input
+      aria-label={`Rename ${group.name}`}
+      autoFocus
+      className="h-6 min-w-0 flex-1 rounded border bg-background px-1.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+      value={draft}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => {
+        if (draft.trim() && draft.trim() !== group.name) onCommit(draft)
+        else setDraft(group.name)
+        setEditing(false)
+      }}
+      onClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.currentTarget.blur()
+        if (event.key === "Escape") {
+          setDraft(group.name)
+          setEditing(false)
+        }
+      }}
+    />
+  )
+}
+
+function GroupRow({
+  document,
+  group,
+  depth,
+  selection,
+  nodesById,
+  layerIndex,
+  onSelectNode,
+  onSelectGroup,
+  onUpdateNode,
+  onUpdateGroup,
+  onUpdateGroupNodes,
+}: {
+  document: Document
+  group: GroupDefinition
+  depth: number
+  selection: Selection | null
+  nodesById: Map<string, SceneNode>
+  layerIndex: Map<string, number>
+  onSelectNode(nodeId: string, additive: boolean): void
+  onSelectGroup(groupId: string, additive: boolean): void
+  onUpdateNode(nodeId: string, patch: Partial<SceneNode>): void
+  onUpdateGroup(groupId: string, name: string): void
+  onUpdateGroupNodes(groupId: string, patch: Partial<SceneNode>): void
+}) {
+  const [expanded, setExpanded] = useState(true)
+  const memberIds = getGroupNodeIds(document, group.id)
+  const members = memberIds.flatMap((nodeId) => {
+    const node = nodesById.get(nodeId)
+    return node ? [node] : []
+  })
+  const selected =
+    memberIds.length > 0 &&
+    memberIds.every((nodeId) => selection?.nodeIds.includes(nodeId))
+  const visible = members.every((node) => node.visible)
+  const locked = members.every((node) => node.locked)
+  const childGroups = document.groups.filter(
+    (candidate) => candidate.parentGroupId === group.id
+  )
+  const entries: LayerTreeEntry[] = [
+    ...childGroups.map((child) => ({ type: "group" as const, group: child })),
+    ...group.nodeIds.flatMap((nodeId) => {
+      const node = nodesById.get(nodeId)
+      return node ? [{ type: "node" as const, node }] : []
+    }),
+  ].sort(
+    (first, second) =>
+      entryLayerIndex(second, document, layerIndex) -
+      entryLayerIndex(first, document, layerIndex)
+  )
+
+  return (
+    <div>
+      <div
+        className="group flex h-9 w-full items-center gap-1 rounded-lg pr-2 text-left text-xs transition-colors hover:bg-muted data-[selected=true]:bg-secondary"
+        data-selected={selected}
+        style={{ paddingLeft: 4 + depth * 18 }}
+      >
+        <Button
+          aria-label={
+            expanded ? `Collapse ${group.name}` : `Expand ${group.name}`
+          }
+          size="icon-xs"
+          variant="ghost"
+          onClick={() => setExpanded((current) => !current)}
+        >
+          <ChevronRight
+            className={`transition-transform ${expanded ? "rotate-90" : ""}`}
+          />
+        </Button>
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-2 self-stretch text-left"
+          onClick={(event) =>
+            onSelectGroup(
+              group.id,
+              event.metaKey || event.ctrlKey || event.shiftKey
+            )
+          }
+        >
+          {expanded ? (
+            <FolderOpen className="size-3.5 shrink-0 text-muted-foreground" />
+          ) : (
+            <Folder className="size-3.5 shrink-0 text-muted-foreground" />
+          )}
+          <GroupName
+            group={group}
+            onCommit={(name) => onUpdateGroup(group.id, name)}
+          />
+        </button>
+        <span className="hidden items-center gap-0.5 group-focus-within:flex group-hover:flex">
+          <Button
+            aria-label={visible ? `Hide ${group.name}` : `Show ${group.name}`}
+            size="icon-xs"
+            variant="ghost"
+            onClick={() => onUpdateGroupNodes(group.id, { visible: !visible })}
+          >
+            {visible ? <Eye /> : <EyeOff />}
+          </Button>
+          <Button
+            aria-label={locked ? `Unlock ${group.name}` : `Lock ${group.name}`}
+            size="icon-xs"
+            variant="ghost"
+            onClick={() => onUpdateGroupNodes(group.id, { locked: !locked })}
+          >
+            {locked ? <Lock /> : <Unlock />}
+          </Button>
+        </span>
+      </div>
+      {expanded ? (
+        <div>
+          {entries.map((entry) =>
+            entry.type === "group" ? (
+              <GroupRow
+                key={entry.group.id}
+                document={document}
+                group={entry.group}
+                depth={depth + 1}
+                selection={selection}
+                nodesById={nodesById}
+                layerIndex={layerIndex}
+                onSelectNode={onSelectNode}
+                onSelectGroup={onSelectGroup}
+                onUpdateNode={onUpdateNode}
+                onUpdateGroup={onUpdateGroup}
+                onUpdateGroupNodes={onUpdateGroupNodes}
+              />
+            ) : (
+              <LayerRow
+                key={entry.node.id}
+                node={entry.node}
+                depth={depth + 1}
+                selected={selection?.nodeIds.includes(entry.node.id) ?? false}
+                onSelect={(additive) => onSelectNode(entry.node.id, additive)}
+                onUpdate={(patch) => onUpdateNode(entry.node.id, patch)}
+              />
+            )
+          )}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export function DocumentSidebar({
   document,
   activePageId,
   selection,
   onSelectPage,
   onSelectNode,
+  onSelectGroup,
   onUpdateNode,
+  onUpdateGroup,
+  onUpdateGroupNodes,
   onReorderNode,
   className,
 }: {
@@ -155,16 +378,38 @@ export function DocumentSidebar({
   selection: Selection | null
   onSelectPage(pageId: string): void
   onSelectNode(nodeId: string, additive: boolean): void
+  onSelectGroup(groupId: string, additive: boolean): void
   onUpdateNode(nodeId: string, patch: Partial<SceneNode>): void
+  onUpdateGroup(groupId: string, name: string): void
+  onUpdateGroupNodes(groupId: string, patch: Partial<SceneNode>): void
   onReorderNode(nodeId: string, direction: "forward" | "backward"): void
   className?: string
 }) {
   const page = document.pages.find((candidate) => candidate.id === activePageId)
   const nodesById = new Map(document.nodes.map((node) => [node.id, node]))
-  const layers = (page?.nodeIds ?? [])
-    .map((nodeId) => nodesById.get(nodeId))
-    .filter((node): node is SceneNode => Boolean(node))
-    .reverse()
+  const layerIndex = new Map(
+    (page?.nodeIds ?? []).map((nodeId, index) => [nodeId, index])
+  )
+  const pageGroups = document.groups.filter(
+    (group) => group.pageId === activePageId
+  )
+  const directlyGroupedNodeIds = new Set(
+    pageGroups.flatMap((group) => group.nodeIds)
+  )
+  const rootEntries: LayerTreeEntry[] = [
+    ...pageGroups
+      .filter((group) => !group.parentGroupId)
+      .map((group) => ({ type: "group" as const, group })),
+    ...(page?.nodeIds ?? []).flatMap((nodeId) => {
+      if (directlyGroupedNodeIds.has(nodeId)) return []
+      const node = nodesById.get(nodeId)
+      return node ? [{ type: "node" as const, node }] : []
+    }),
+  ].sort(
+    (first, second) =>
+      entryLayerIndex(second, document, layerIndex) -
+      entryLayerIndex(first, document, layerIndex)
+  )
   const selectedNodeId = selection?.nodeIds.at(-1)
 
   return (
@@ -192,7 +437,8 @@ export function DocumentSidebar({
         <TabsContent value="layers" className="min-h-0">
           <div className="flex h-9 items-center border-b px-3">
             <span className="text-[11px] text-muted-foreground">
-              {layers.length} objects
+              {page?.nodeIds.length ?? 0} objects
+              {pageGroups.length ? ` · ${pageGroups.length} groups` : ""}
             </span>
             <div className="ml-auto flex items-center gap-0.5">
               <Button
@@ -221,15 +467,36 @@ export function DocumentSidebar({
           </div>
           <ScrollArea className="h-[calc(100%-2.25rem)]">
             <div className="flex flex-col gap-0.5 p-2">
-              {layers.map((node) => (
-                <LayerRow
-                  key={node.id}
-                  node={node}
-                  selected={selection?.nodeIds.includes(node.id) ?? false}
-                  onSelect={(additive) => onSelectNode(node.id, additive)}
-                  onUpdate={(patch) => onUpdateNode(node.id, patch)}
-                />
-              ))}
+              {rootEntries.map((entry) =>
+                entry.type === "group" ? (
+                  <GroupRow
+                    key={entry.group.id}
+                    document={document}
+                    group={entry.group}
+                    depth={0}
+                    selection={selection}
+                    nodesById={nodesById}
+                    layerIndex={layerIndex}
+                    onSelectNode={onSelectNode}
+                    onSelectGroup={onSelectGroup}
+                    onUpdateNode={onUpdateNode}
+                    onUpdateGroup={onUpdateGroup}
+                    onUpdateGroupNodes={onUpdateGroupNodes}
+                  />
+                ) : (
+                  <LayerRow
+                    key={entry.node.id}
+                    node={entry.node}
+                    selected={
+                      selection?.nodeIds.includes(entry.node.id) ?? false
+                    }
+                    onSelect={(additive) =>
+                      onSelectNode(entry.node.id, additive)
+                    }
+                    onUpdate={(patch) => onUpdateNode(entry.node.id, patch)}
+                  />
+                )
+              )}
             </div>
           </ScrollArea>
         </TabsContent>

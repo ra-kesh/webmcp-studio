@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   documentSchema,
+  findSelectedGroupId,
+  getGroupNodeIds,
   northstarSeed,
   type Document,
   type DocumentCommand,
@@ -695,6 +697,61 @@ export function useDocumentEditor() {
     [activePageId, commit]
   )
 
+  const groupSelection = useCallback(() => {
+    const nodeIds = selection?.nodeIds ?? []
+    if (nodeIds.length < 2) return
+    commit([
+      {
+        type: "group_nodes",
+        groupId: `group-${crypto.randomUUID()}`,
+        pageId: activePageId,
+        name: "Group",
+        nodeIds,
+      },
+    ])
+  }, [activePageId, commit, selection])
+
+  const selectedGroupId = findSelectedGroupId(
+    history.document,
+    selection?.nodeIds ?? []
+  )
+
+  const selectGroup = useCallback(
+    (groupId: string, additive: boolean) => {
+      const groupNodeIds = getGroupNodeIds(historyRef.current.document, groupId)
+      if (!groupNodeIds.length) return
+      const current = additive ? (selection?.nodeIds ?? []) : []
+      const nodeIds = [...new Set([...current, ...groupNodeIds])]
+      setSelection({ pageId: activePageId, nodeIds })
+    },
+    [activePageId, selection]
+  )
+
+  const updateGroup = useCallback(
+    (groupId: string, name: string) => {
+      if (!name.trim()) return
+      commit([{ type: "update_group", groupId, name: name.trim() }])
+    },
+    [commit]
+  )
+
+  const updateGroupNodes = useCallback(
+    (groupId: string, patch: Partial<SceneNode>) => {
+      updateNodes(
+        getGroupNodeIds(historyRef.current.document, groupId).map((nodeId) => ({
+          nodeId,
+          patch,
+        }))
+      )
+    },
+    [updateNodes]
+  )
+
+  const ungroupSelection = useCallback(() => {
+    if (!selectedGroupId) return
+    commit([{ type: "ungroup_nodes", groupId: selectedGroupId }])
+  }, [commit, selectedGroupId])
+
   const undo = useCallback(() => {
     setHistory((current) => undoDocument(current))
     setSelection(null)
@@ -745,6 +802,12 @@ export function useDocumentEditor() {
       if (modifier && event.key.toLowerCase() === "d") {
         event.preventDefault()
         duplicateSelection()
+        return
+      }
+      if (modifier && event.key.toLowerCase() === "g") {
+        event.preventDefault()
+        if (event.shiftKey) ungroupSelection()
+        else groupSelection()
         return
       }
       if (modifier && event.key.toLowerCase() === "c") {
@@ -825,10 +888,12 @@ export function useDocumentEditor() {
     copySelection,
     deleteSelection,
     duplicateSelection,
+    groupSelection,
     nudgeSelection,
     pasteSelection,
     redo,
     selectAll,
+    ungroupSelection,
     undo,
   ])
 
@@ -856,6 +921,7 @@ export function useDocumentEditor() {
     activePageId,
     selection,
     selectedNodes,
+    selectedGroupId,
     saveStatus,
     canUndo: history.past.length > 0,
     canRedo: history.future.length > 0,
@@ -888,6 +954,11 @@ export function useDocumentEditor() {
     setSelectionVisible,
     reorderSelection,
     reorderNode,
+    groupSelection,
+    ungroupSelection,
+    selectGroup,
+    updateGroup,
+    updateGroupNodes,
     undo,
     redo,
   }

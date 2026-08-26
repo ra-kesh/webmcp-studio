@@ -10,6 +10,7 @@ import {
   Download,
   FileJson2,
   Focus,
+  Group,
   Heart,
   Hand,
   ImagePlus,
@@ -26,6 +27,7 @@ import {
   Trash2,
   Type,
   Undo2,
+  Ungroup,
   ZoomIn,
   ZoomOut,
   X,
@@ -528,6 +530,22 @@ export function StudioShell() {
                 <CopyPlus />
               </IconButton>
               <IconButton
+                label="Group selection"
+                shortcut="⌘G"
+                disabled={editor.selectedNodes.length < 2}
+                onClick={editor.groupSelection}
+              >
+                <Group />
+              </IconButton>
+              <IconButton
+                label="Ungroup selection"
+                shortcut="⇧⌘G"
+                disabled={!editor.selectedGroupId}
+                onClick={editor.ungroupSelection}
+              >
+                <Ungroup />
+              </IconButton>
+              <IconButton
                 label="Delete"
                 shortcut="⌫"
                 onClick={editor.deleteSelection}
@@ -636,7 +654,10 @@ export function StudioShell() {
           selection={editor.selection}
           onSelectPage={editor.selectPage}
           onSelectNode={selectNode}
+          onSelectGroup={editor.selectGroup}
           onUpdateNode={updateNode}
+          onUpdateGroup={editor.updateGroup}
+          onUpdateGroupNodes={editor.updateGroupNodes}
           onReorderNode={editor.reorderNode}
         />
 
@@ -820,7 +841,10 @@ export function StudioShell() {
                     setCompactPanel(null)
                   }}
                   onSelectNode={selectNode}
+                  onSelectGroup={editor.selectGroup}
                   onUpdateNode={updateNode}
+                  onUpdateGroup={editor.updateGroup}
+                  onUpdateGroupNodes={editor.updateGroupNodes}
                   onReorderNode={editor.reorderNode}
                 />
               ) : (

@@ -57,11 +57,11 @@ coordinate in the inspector.
 
 ### 3. Structure and document management
 
-- canonical groups with group and ungroup
-- complete layer ordering, rename, lock, hide, and nested group rows
-- add, duplicate, rename, reorder, and delete pages
-- create and manage named output groups and page dimensions
-- gallery and blank-document entry flow
+- [x] canonical groups with group and ungroup
+- [x] complete layer ordering, rename, lock, hide, and nested group rows
+- [ ] add, duplicate, rename, reorder, and delete pages
+- [ ] create and manage named output groups and page dimensions
+- [ ] gallery and blank-document entry flow
 
 Exit condition: the user can build and reorganize a multi-output pack entirely
 inside the product.

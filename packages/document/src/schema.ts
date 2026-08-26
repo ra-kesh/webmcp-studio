@@ -95,6 +95,14 @@ export const fieldBindingSchema = z.object({
   property: z.enum(["text", "src", "visible", "fill"]),
 })
 
+export const groupDefinitionSchema = z.object({
+  id,
+  pageId: id,
+  name: z.string().min(1),
+  nodeIds: z.array(id),
+  parentGroupId: id.optional(),
+})
+
 export const documentSchema = z.object({
   schemaVersion: z.literal(1),
   id,
@@ -105,6 +113,7 @@ export const documentSchema = z.object({
   outputs: z.array(outputVariantSchema).min(1),
   pages: z.array(pageSchema).min(1),
   nodes: z.array(sceneNodeSchema),
+  groups: z.array(groupDefinitionSchema).default([]),
   fields: z.array(fieldDefinitionSchema),
   fieldValues: z.record(
     z.string(),
@@ -145,6 +154,22 @@ export const documentCommandSchema = z.discriminatedUnion("type", [
     nodeId: id,
     toIndex: z.number().int().nonnegative(),
   }),
+  commandBaseSchema.extend({
+    type: z.literal("group_nodes"),
+    groupId: id,
+    pageId: id,
+    name: z.string().min(1),
+    nodeIds: z.array(id).min(2),
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("update_group"),
+    groupId: id,
+    name: z.string().min(1),
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("ungroup_nodes"),
+    groupId: id,
+  }),
 ])
 
 export const changeOperationSchema = z.object({
@@ -178,6 +203,7 @@ export type Page = z.infer<typeof pageSchema>
 export type OutputVariant = z.infer<typeof outputVariantSchema>
 export type FieldDefinition = z.infer<typeof fieldDefinitionSchema>
 export type FieldBinding = z.infer<typeof fieldBindingSchema>
+export type GroupDefinition = z.infer<typeof groupDefinitionSchema>
 export type Document = z.infer<typeof documentSchema>
 export type DocumentCommand = z.infer<typeof documentCommandSchema>
 export type ChangeOperation = z.infer<typeof changeOperationSchema>
