@@ -1450,6 +1450,7 @@ function ReviewPanel({
 }) {
   const registeredToolNames = new Set([
     "inspect_design",
+    "search_assets",
     "validate_design",
     "propose_field_updates",
     "propose_canvas_edits",

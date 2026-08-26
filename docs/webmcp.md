@@ -14,7 +14,7 @@ Read-only. Returns revision, the active page, its complete canonical layers, sel
 
 ### `search_assets`
 
-Read-only. Searches the current workspace assets by query, orientation, dominant color, and tags. Results include asset ID, thumbnail, dimensions, alt text, license, and attribution.
+Read-only. Searches the approved, renderer-safe Studio catalog by query, orientation, and tags. Results include a stable asset ID, dimensions, description, tags, and license while source URLs remain private to the product service.
 
 ### `validate_design`
 
@@ -26,7 +26,7 @@ Creates a pending change set from typed field values. Input includes document ID
 
 ### `propose_canvas_edits`
 
-Creates a pending change set of validated updates to existing layers. It supports geometry, visibility, typography, shape styling, and image fit/crop properties. Bound content is rejected and routed through `propose_field_updates`; arbitrary asset URLs and raw Fabric properties are not accepted.
+Creates a pending change set of validated updates to existing layers. It supports geometry, visibility, typography, shape styling, image fit/crop, and replacement by an approved ID from `search_assets`. Bound content is rejected and routed through `propose_field_updates`; arbitrary asset URLs and raw Fabric properties are not accepted.
 
 ### `propose_output_variant`
 

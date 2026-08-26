@@ -1,18 +1,47 @@
 import { describe, expect, it } from "vitest"
-import { northstarSeed, type ChangeSet } from "@webmcp/document"
+import {
+  applyCommand,
+  northstarSeed,
+  type ChangeSet,
+  type Document,
+} from "@webmcp/document"
 import { createTemplateVersion } from "@webmcp/document"
 import { registerStudioWebMcpTools, type WebMcpTool } from "../src"
 
-function setup() {
+const assets = [
+  {
+    id: "sandstone-arches",
+    name: "Sandstone arches",
+    description: "Architectural arches with restrained earth tones",
+    tags: ["architecture", "arches", "sandstone"],
+    width: 1600,
+    height: 1200,
+    license: "Original Studio artwork",
+    src: "data:image/svg+xml,approved",
+  },
+  {
+    id: "olive-botanical",
+    name: "Olive botanical",
+    description: "Soft botanical composition on warm ivory",
+    tags: ["botanical", "olive", "wedding"],
+    width: 1200,
+    height: 1500,
+    license: "Original Studio artwork",
+    src: "data:image/svg+xml,botanical",
+  },
+]
+
+function setup(document: Document = northstarSeed) {
   const registered = new Map<string, WebMcpTool>()
   let proposed: ChangeSet | null = null
   const controller = new AbortController()
   const services = {
     getSnapshot: () => ({
-      document: northstarSeed,
+      document,
       activePageId: "cover",
       selection: null,
       pendingChangeSet: proposed,
+      assets,
     }),
     proposeChangeSet: (changeSet: ChangeSet) => {
       proposed = changeSet
@@ -48,9 +77,10 @@ describe("WebMCP registration", () => {
       state.controller.signal
     )
 
-    expect(count).toBe(6)
+    expect(count).toBe(7)
     expect([...state.registered.keys()]).toEqual([
       "inspect_design",
+      "search_assets",
       "validate_design",
       "propose_field_updates",
       "propose_canvas_edits",
@@ -75,6 +105,111 @@ describe("WebMCP registration", () => {
       templateId: "northstar-wedding-proposal",
       version: 1,
       sourceRevision: northstarSeed.revision,
+    })
+  })
+
+  it("searches approved assets without exposing their source URLs", async () => {
+    const state = setup()
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const result = await state.registered.get("search_assets")?.execute({
+      query: "arches",
+      orientation: "landscape",
+    })
+    expect(result?.structuredContent).toEqual({
+      assets: [
+        expect.objectContaining({
+          id: "sandstone-arches",
+          orientation: "landscape",
+          license: "Original Studio artwork",
+        }),
+      ],
+    })
+    expect(JSON.stringify(result?.structuredContent)).not.toContain("src")
+    expect(JSON.stringify(result?.structuredContent)).not.toContain(
+      "data:image"
+    )
+  })
+
+  it("resolves approved asset IDs into reviewable image replacements", async () => {
+    const document = applyCommand(northstarSeed, {
+      id: "add-test-image",
+      type: "add_node",
+      actor: "human",
+      at: "2026-08-26T09:30:00.000Z",
+      pageId: "cover",
+      node: {
+        id: "cover-photo",
+        type: "image",
+        name: "Cover photo",
+        assetId: "current",
+        src: "data:image/svg+xml,current",
+        alt: "Current image",
+        fit: "cover",
+        cropX: 0.5,
+        cropY: 0.5,
+        x: 610,
+        y: 0,
+        width: 630,
+        height: 800,
+        rotation: 0,
+        opacity: 1,
+        visible: true,
+        locked: false,
+      },
+    })
+    const state = setup(document)
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const result = await state.registered.get("propose_canvas_edits")?.execute({
+      documentId: document.id,
+      baseRevision: document.revision,
+      edits: [
+        {
+          nodeId: "cover-photo",
+          assetId: "sandstone-arches",
+          patch: { cropY: 0.42 },
+        },
+      ],
+    })
+
+    expect(result?.isError).toBeUndefined()
+    expect(JSON.stringify(result?.structuredContent)).not.toContain(
+      "data:image"
+    )
+    expect(state.proposed()).toMatchObject({
+      operations: [
+        {
+          command: {
+            type: "update_node",
+            nodeId: "cover-photo",
+            patch: {
+              assetId: "sandstone-arches",
+              src: "data:image/svg+xml,approved",
+              alt: "Architectural arches with restrained earth tones",
+              cropY: 0.42,
+            },
+          },
+        },
+      ],
     })
   })
 

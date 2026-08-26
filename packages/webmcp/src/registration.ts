@@ -42,6 +42,18 @@ export type StudioWebMcpSnapshot = {
   activePageId: string
   selection: { pageId: string; nodeIds: string[] } | null
   pendingChangeSet: ChangeSet | null
+  assets: readonly StudioWebMcpAsset[]
+}
+
+export type StudioWebMcpAsset = {
+  id: string
+  name: string
+  description: string
+  tags: readonly string[]
+  width: number
+  height: number
+  license: string
+  src: string
 }
 
 export type StudioWebMcpServices = {
@@ -70,6 +82,68 @@ const errorResult = (error: unknown): WebMcpToolResult => ({
     },
   ],
   isError: true,
+})
+
+const publicChangeSet = (changeSet: ChangeSet) => ({
+  id: changeSet.id,
+  documentId: changeSet.documentId,
+  baseRevision: changeSet.baseRevision,
+  title: changeSet.title,
+  status: changeSet.status,
+  operations: changeSet.operations.map((operation) => {
+    const command = operation.command
+    if (command.type === "set_field") {
+      return {
+        id: operation.id,
+        status: operation.status,
+        summary: operation.summary,
+        command: {
+          type: command.type,
+          fieldId: command.fieldId,
+          value: command.value,
+        },
+      }
+    }
+    if (command.type === "update_node") {
+      return {
+        id: operation.id,
+        status: operation.status,
+        summary: operation.summary,
+        command: {
+          type: command.type,
+          nodeId: command.nodeId,
+          patch: Object.fromEntries(
+            Object.entries(command.patch).filter(([key]) => key !== "src")
+          ),
+        },
+      }
+    }
+    if (command.type === "add_output_variant") {
+      return {
+        id: operation.id,
+        status: operation.status,
+        summary: operation.summary,
+        command: {
+          type: command.type,
+          output: command.output,
+          page: {
+            id: command.page.id,
+            name: command.page.name,
+            width: command.page.width,
+            height: command.page.height,
+          },
+          layerCount: command.nodes.length,
+          bindingCount: command.bindings.length,
+        },
+      }
+    }
+    return {
+      id: operation.id,
+      status: operation.status,
+      summary: operation.summary,
+      command: { type: command.type },
+    }
+  }),
 })
 
 function parseFieldProposalInput(input: unknown): FieldUpdateProposalInput {
@@ -152,6 +226,7 @@ function parseCanvasProposalInput(input: unknown): CanvasEditProposalInput {
       nodeId: edit.nodeId,
       patch: edit.patch as Record<string, unknown>,
       summary: typeof edit.summary === "string" ? edit.summary : undefined,
+      assetId: typeof edit.assetId === "string" ? edit.assetId : undefined,
     }
   })
   return {
@@ -198,6 +273,78 @@ function parseOutputProposalInput(input: unknown): OutputVariantProposalInput {
     exportFormats: value.exportFormats as Array<"png" | "pdf">,
     reason: typeof value.reason === "string" ? value.reason : undefined,
   }
+}
+
+function assetOrientation(asset: StudioWebMcpAsset) {
+  const ratio = asset.width / asset.height
+  if (Math.abs(ratio - 1) <= 0.08) return "square" as const
+  return ratio > 1 ? ("landscape" as const) : ("portrait" as const)
+}
+
+function searchAssets(assets: readonly StudioWebMcpAsset[], input: unknown) {
+  if (!input || typeof input !== "object") {
+    throw new Error("Expected an asset search object.")
+  }
+  const value = input as Record<string, unknown>
+  const query = typeof value.query === "string" ? value.query.trim() : ""
+  const orientation =
+    value.orientation === "portrait" ||
+    value.orientation === "landscape" ||
+    value.orientation === "square"
+      ? value.orientation
+      : undefined
+  if (value.orientation !== undefined && !orientation) {
+    throw new Error("orientation must be portrait, landscape, or square.")
+  }
+  const tags = Array.isArray(value.tags)
+    ? value.tags.map((tag) => {
+        if (typeof tag !== "string" || !tag.trim()) {
+          throw new Error("Every asset tag must be a non-empty string.")
+        }
+        return tag.trim().toLowerCase()
+      })
+    : []
+  const limit = value.limit === undefined ? 8 : value.limit
+  if (
+    typeof limit !== "number" ||
+    !Number.isInteger(limit) ||
+    limit < 1 ||
+    limit > 20
+  ) {
+    throw new Error("limit must be an integer from 1 to 20.")
+  }
+  const tokens = query.toLowerCase().split(/\s+/).filter(Boolean)
+  return assets
+    .flatMap((asset, position) => {
+      const normalizedTags = asset.tags.map((tag) => tag.toLowerCase())
+      if (orientation && assetOrientation(asset) !== orientation) return []
+      if (tags.some((tag) => !normalizedTags.includes(tag))) return []
+      const name = asset.name.toLowerCase()
+      const description = asset.description.toLowerCase()
+      const score = tokens.reduce((total, token) => {
+        if (name.includes(token)) return total + 6
+        if (normalizedTags.some((tag) => tag.includes(token))) return total + 3
+        if (description.includes(token)) return total + 1
+        return total
+      }, 0)
+      if (tokens.length && score === 0) return []
+      return [{ asset, position, score }]
+    })
+    .sort(
+      (left, right) =>
+        right.score - left.score || left.position - right.position
+    )
+    .slice(0, limit)
+    .map(({ asset }) => ({
+      id: asset.id,
+      name: asset.name,
+      description: asset.description,
+      tags: asset.tags,
+      width: asset.width,
+      height: asset.height,
+      orientation: assetOrientation(asset),
+      license: asset.license,
+    }))
 }
 
 export function studioWebMcpTools(
@@ -254,6 +401,41 @@ export function studioWebMcpTools(
           `Inspected ${current.document.name} at revision ${current.document.revision}.`,
           result
         )
+      },
+    },
+    {
+      name: "search_assets",
+      title: "Search approved assets",
+      description:
+        "Search the renderer-safe Studio asset catalog by text, tags, and orientation. Returns stable asset IDs and licensing metadata without exposing source URLs. Use an asset ID with propose_canvas_edits to replace an image safely.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          query: { type: "string" },
+          orientation: {
+            type: "string",
+            enum: ["portrait", "landscape", "square"],
+          },
+          tags: {
+            type: "array",
+            items: { type: "string" },
+            uniqueItems: true,
+          },
+          limit: { type: "integer", minimum: 1, maximum: 20 },
+        },
+      },
+      annotations: { readOnlyHint: true },
+      execute: (input) => {
+        try {
+          const matches = searchAssets(services.getSnapshot().assets, input)
+          return textResult(
+            `Found ${matches.length} approved asset${matches.length === 1 ? "" : "s"}.`,
+            { assets: matches }
+          )
+        } catch (error) {
+          return errorResult(error)
+        }
       },
     },
     {
@@ -321,7 +503,7 @@ export function studioWebMcpTools(
           services.proposeChangeSet(changeSet)
           return textResult(
             `Created change set ${changeSet.id} with ${changeSet.operations.length} operation${changeSet.operations.length === 1 ? "" : "s"}. The design is previewing these changes, but nothing has been applied. Ask the user to review the Review panel.`,
-            changeSet
+            publicChangeSet(changeSet)
           )
         } catch (error) {
           return errorResult(error)
@@ -332,7 +514,7 @@ export function studioWebMcpTools(
       name: "propose_canvas_edits",
       title: "Propose canvas edits",
       description:
-        "Create a non-destructive visual preview of precise layout and style edits to existing layers on the inspected document revision. Bound content must be changed with propose_field_updates. A human reviews every layer operation before applying it.",
+        "Create a non-destructive visual preview of precise layout, style, crop, and approved asset-replacement edits to existing layers on the inspected document revision. Bound content must be changed with propose_field_updates. A human reviews every layer operation before applying it.",
       inputSchema: {
         type: "object",
         additionalProperties: false,
@@ -358,6 +540,11 @@ export function studioWebMcpTools(
                     "Allowed geometry, visibility, typography, shape, or crop properties for this node type.",
                   additionalProperties: true,
                 },
+                assetId: {
+                  type: "string",
+                  description:
+                    "Approved asset ID returned by search_assets. Only valid for image layers.",
+                },
                 summary: { type: "string" },
               },
               required: ["nodeId", "patch"],
@@ -369,15 +556,33 @@ export function studioWebMcpTools(
       execute: (input) => {
         try {
           const current = services.getSnapshot()
+          const proposal = parseCanvasProposalInput(input)
+          const edits = proposal.edits.map((edit) => {
+            if (!edit.assetId) return edit
+            const asset = current.assets.find(
+              (candidate) => candidate.id === edit.assetId
+            )
+            if (!asset) {
+              throw new Error(`Unknown approved asset: ${edit.assetId}`)
+            }
+            return {
+              ...edit,
+              replacementAsset: {
+                id: asset.id,
+                src: asset.src,
+                alt: asset.description,
+              },
+            }
+          })
           const changeSet = createCanvasEditChangeSet(
             current.document,
-            parseCanvasProposalInput(input),
+            { ...proposal, edits },
             services
           )
           services.proposeChangeSet(changeSet)
           return textResult(
             `Previewing ${changeSet.operations.length} canvas edit${changeSet.operations.length === 1 ? "" : "s"}. Nothing has been applied; ask the user to review the Review panel.`,
-            changeSet
+            publicChangeSet(changeSet)
           )
         } catch (error) {
           return errorResult(error)
@@ -437,7 +642,7 @@ export function studioWebMcpTools(
           services.proposeChangeSet(changeSet)
           return textResult(
             "Previewing one complete output adaptation. Nothing has been applied; ask the user to review the Review panel.",
-            changeSet
+            publicChangeSet(changeSet)
           )
         } catch (error) {
           return errorResult(error)

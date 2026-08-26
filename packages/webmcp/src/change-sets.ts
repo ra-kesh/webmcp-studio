@@ -28,6 +28,12 @@ export type CanvasEditProposalInput = {
     nodeId: string
     patch: Record<string, unknown>
     summary?: string
+    assetId?: string
+    replacementAsset?: {
+      id: string
+      src: string
+      alt: string
+    }
   }>
 }
 
@@ -201,20 +207,28 @@ export function createCanvasEditChangeSet(
       (candidate) => candidate.id === edit.nodeId
     )
     if (!node) throw new Error(`Unknown node: ${edit.nodeId}`)
+    if (edit.assetId && !edit.replacementAsset) {
+      throw new Error(`Asset ${edit.assetId} was not resolved by the studio.`)
+    }
+    const requestedPatch = edit.replacementAsset
+      ? {
+          ...edit.patch,
+          assetId: edit.replacementAsset.id,
+          src: edit.replacementAsset.src,
+          alt: edit.replacementAsset.alt,
+        }
+      : edit.patch
+    if (edit.replacementAsset && node.type !== "image") {
+      throw new Error(`${node.name} is not an image layer.`)
+    }
     const patch = Object.fromEntries(
-      Object.entries(edit.patch).filter(
+      Object.entries(requestedPatch).filter(
         ([key, value]) => node[key as keyof SceneNode] !== value
       )
     )
     const keys = Object.keys(patch)
     if (!keys.length) throw new Error(`${node.name} already has those values.`)
     for (const key of keys) {
-      if (
-        !commonCanvasProperties.has(key) &&
-        !nodeCanvasProperties[node.type].has(key)
-      ) {
-        throw new Error(`${key} cannot be changed on ${node.name}.`)
-      }
       if (
         document.bindings.some(
           (binding) => binding.nodeId === node.id && binding.property === key
@@ -223,6 +237,17 @@ export function createCanvasEditChangeSet(
         throw new Error(
           `${node.name}.${key} is bound. Use propose_field_updates instead.`
         )
+      }
+      const trustedAssetProperty =
+        Boolean(edit.replacementAsset) &&
+        node.type === "image" &&
+        (key === "assetId" || key === "src")
+      if (
+        !trustedAssetProperty &&
+        !commonCanvasProperties.has(key) &&
+        !nodeCanvasProperties[node.type].has(key)
+      ) {
+        throw new Error(`${key} cannot be changed on ${node.name}.`)
       }
     }
     return {

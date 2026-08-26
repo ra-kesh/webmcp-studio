@@ -58,6 +58,7 @@ import {
 import { DocumentSidebar } from "./editor/document-sidebar"
 import { AssetLibraryDialog } from "./editor/asset-library-dialog"
 import { ApiPlaygroundDialog } from "./editor/api-playground-dialog"
+import { studioAssets } from "./editor/asset-catalog"
 import { NewDocumentDialog } from "./editor/new-document-dialog"
 import { PublishDialog } from "./editor/publish-dialog"
 import {
@@ -131,6 +132,7 @@ export function StudioShell() {
       : editor.document.pages[0]!.id,
     selection: editor.selection,
     pendingChangeSet: editor.pendingChangeSet,
+    assets: studioAssets,
     proposeChangeSet: editor.proposeChangeSet,
     publishTemplate: editor.publishTemplate,
   })

@@ -30,8 +30,8 @@ The challenge demo uses synthetic data for a fictional wedding photography studi
 
 Draft editing stays local for fast recovery; publishing is complete only after
 D1 accepts the immutable snapshot. Browser-local published snapshots are a
-cache, not the API source of truth. Asset search and route-specific WebMCP
-render/history tools remain planned.
+cache, not the API source of truth. Route-specific WebMCP render/history tools
+remain planned.
 
 ## Start locally
 
