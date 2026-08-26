@@ -6,6 +6,7 @@ import {
   type SceneNode,
   type TemplateVersion,
 } from "./schema"
+import { fieldCanBindToProperty, fieldValueMatchesType } from "./fields"
 
 type FieldValue = string | number | boolean
 
@@ -79,8 +80,14 @@ export function applyCommand(
 
   switch (command.type) {
     case "set_field": {
-      if (!document.fields.some((field) => field.id === command.fieldId)) {
+      const field = document.fields.find(
+        (candidate) => candidate.id === command.fieldId
+      )
+      if (!field) {
         throw new Error(`Unknown field: ${command.fieldId}`)
+      }
+      if (!fieldValueMatchesType(field, command.value)) {
+        throw new Error(`Invalid value for ${field.label}`)
       }
       next = applyFieldValues({
         ...document,
@@ -89,6 +96,128 @@ export function applyCommand(
           [command.fieldId]: command.value,
         },
       })
+      break
+    }
+    case "add_field": {
+      if (
+        document.fields.some(
+          (field) =>
+            field.id === command.field.id || field.key === command.field.key
+        )
+      ) {
+        throw new Error(`Field already exists: ${command.field.key}`)
+      }
+      if (!fieldValueMatchesType(command.field, command.field.defaultValue)) {
+        throw new Error(`Invalid default value for ${command.field.label}`)
+      }
+      next = {
+        ...document,
+        fields: [...document.fields, command.field],
+        fieldValues: {
+          ...document.fieldValues,
+          [command.field.id]: command.field.defaultValue,
+        },
+      }
+      break
+    }
+    case "update_field": {
+      const field = document.fields.find(
+        (candidate) => candidate.id === command.fieldId
+      )
+      if (!field) throw new Error(`Unknown field: ${command.fieldId}`)
+      const updated = { ...field, ...command.patch, id: field.id }
+      if (
+        document.fields.some(
+          (candidate) =>
+            candidate.id !== field.id && candidate.key === updated.key
+        )
+      ) {
+        throw new Error(`Field key already exists: ${updated.key}`)
+      }
+      if (!fieldValueMatchesType(updated, updated.defaultValue)) {
+        throw new Error(`Invalid default value for ${updated.label}`)
+      }
+      const currentValue = document.fieldValues[field.id]
+      next = {
+        ...document,
+        fields: document.fields.map((candidate) =>
+          candidate.id === field.id ? updated : candidate
+        ),
+        fieldValues: {
+          ...document.fieldValues,
+          [field.id]:
+            currentValue !== undefined &&
+            fieldValueMatchesType(updated, currentValue)
+              ? currentValue
+              : updated.defaultValue,
+        },
+        bindings: document.bindings.filter((binding) => {
+          if (binding.fieldId !== field.id) return true
+          const node = document.nodes.find(
+            (candidate) => candidate.id === binding.nodeId
+          )
+          return node
+            ? fieldCanBindToProperty(updated, node, binding.property)
+            : false
+        }),
+      }
+      break
+    }
+    case "remove_field": {
+      if (!document.fields.some((field) => field.id === command.fieldId)) {
+        throw new Error(`Unknown field: ${command.fieldId}`)
+      }
+      const fieldValues = { ...document.fieldValues }
+      delete fieldValues[command.fieldId]
+      next = {
+        ...document,
+        fields: document.fields.filter((field) => field.id !== command.fieldId),
+        fieldValues,
+        bindings: document.bindings.filter(
+          (binding) => binding.fieldId !== command.fieldId
+        ),
+      }
+      break
+    }
+    case "bind_field": {
+      const field = document.fields.find(
+        (candidate) => candidate.id === command.binding.fieldId
+      )
+      const node = document.nodes.find(
+        (candidate) => candidate.id === command.binding.nodeId
+      )
+      if (!field || !node) throw new Error("The field or layer does not exist")
+      if (
+        document.bindings.some(
+          (binding) =>
+            binding.id === command.binding.id ||
+            (binding.nodeId === command.binding.nodeId &&
+              binding.property === command.binding.property)
+        )
+      ) {
+        throw new Error("That layer property is already bound")
+      }
+      if (!fieldCanBindToProperty(field, node, command.binding.property)) {
+        throw new Error(`${field.label} cannot bind to ${node.name}`)
+      }
+      next = applyFieldValues({
+        ...document,
+        bindings: [...document.bindings, command.binding],
+      })
+      break
+    }
+    case "unbind_field": {
+      if (
+        !document.bindings.some((binding) => binding.id === command.bindingId)
+      ) {
+        throw new Error(`Unknown binding: ${command.bindingId}`)
+      }
+      next = {
+        ...document,
+        bindings: document.bindings.filter(
+          (binding) => binding.id !== command.bindingId
+        ),
+      }
       break
     }
     case "add_node": {
@@ -479,11 +608,13 @@ export function applyCommand(
     }
   }
 
-  return documentSchema.parse({
-    ...next,
-    revision: document.revision + 1,
-    updatedAt: command.at,
-  })
+  return documentSchema.parse(
+    applyFieldValues({
+      ...next,
+      revision: document.revision + 1,
+      updatedAt: command.at,
+    })
+  )
 }
 
 export function createTemplateVersion(

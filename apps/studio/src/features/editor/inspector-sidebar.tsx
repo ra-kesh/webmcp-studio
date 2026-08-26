@@ -14,25 +14,81 @@ import {
   BringToFront,
   Check,
   CopyPlus,
+  Database,
   Eye,
   EyeOff,
   ImageUp,
   Lock,
+  Link2,
+  Plus,
   SendToBack,
   Sparkles,
   Square,
+  Settings2,
   Trash2,
   Unlock,
+  Unlink,
   X,
 } from "lucide-react"
-import type { Document, SceneNode } from "@webmcp/document"
+import {
+  bindingPropertiesForNode,
+  fieldCanBindToProperty,
+  type BindableProperty,
+  type Document,
+  type FieldDefinition,
+  type SceneNode,
+} from "@webmcp/document"
 import type { Alignment } from "@webmcp/editor/geometry"
 import { toolCatalog } from "@webmcp/webmcp"
 import { Badge } from "@webmcp/ui/components/badge"
 import { Button } from "@webmcp/ui/components/button"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@webmcp/ui/components/alert-dialog"
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@webmcp/ui/components/dialog"
 import { EditorPanelTabsList } from "@webmcp/ui/components/editor-chrome"
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@webmcp/ui/components/empty"
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel as FormFieldLabel,
+} from "@webmcp/ui/components/field"
 import { Input } from "@webmcp/ui/components/input"
 import { ScrollArea } from "@webmcp/ui/components/scroll-area"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@webmcp/ui/components/select"
 import { Separator } from "@webmcp/ui/components/separator"
 import { Slider } from "@webmcp/ui/components/slider"
 import { Tabs, TabsContent, TabsTrigger } from "@webmcp/ui/components/tabs"
@@ -691,33 +747,621 @@ function MultiSelectionInspector({
   )
 }
 
+const fieldTypes: Array<{
+  value: FieldDefinition["type"]
+  label: string
+}> = [
+  { value: "text", label: "Text" },
+  { value: "number", label: "Number" },
+  { value: "currency", label: "Currency" },
+  { value: "date", label: "Date" },
+  { value: "asset", label: "Image asset" },
+  { value: "boolean", label: "Boolean" },
+]
+
+const bindingPropertyLabels: Record<BindableProperty, string> = {
+  text: "Text content",
+  src: "Image source",
+  visible: "Visibility",
+  fill: "Fill color",
+}
+
+const fieldKeyFromLabel = (label: string) =>
+  label
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/^[^a-z]+/, "")
+
+const defaultValueForType = (
+  type: FieldDefinition["type"]
+): string | number | boolean => {
+  if (type === "boolean") return true
+  if (type === "number") return 0
+  return ""
+}
+
+const parseFieldDraft = (
+  type: FieldDefinition["type"],
+  value: string
+): string | number | boolean => {
+  if (type === "boolean") return value === "true"
+  if (type === "number") return Number(value)
+  return value
+}
+
+function FieldDefinitionDialog({
+  field,
+  fields,
+  trigger,
+  onSave,
+}: {
+  field?: FieldDefinition
+  fields: FieldDefinition[]
+  trigger: React.ReactNode
+  onSave(field: Omit<FieldDefinition, "id">): void
+}) {
+  const [open, setOpen] = useState(false)
+  const [label, setLabel] = useState("")
+  const [key, setKey] = useState("")
+  const [keyEdited, setKeyEdited] = useState(false)
+  const [type, setType] = useState<FieldDefinition["type"]>("text")
+  const [required, setRequired] = useState(false)
+  const [defaultDraft, setDefaultDraft] = useState("")
+
+  useEffect(() => {
+    if (!open) return
+    setLabel(field?.label ?? "")
+    setKey(field?.key ?? "")
+    setKeyEdited(Boolean(field))
+    setType(field?.type ?? "text")
+    setRequired(field?.required ?? false)
+    setDefaultDraft(String(field?.defaultValue ?? ""))
+  }, [field, open])
+
+  const parsedDefault = parseFieldDraft(type, defaultDraft)
+  const keyMalformed = Boolean(key) && !/^[a-z][a-z0-9_]*$/.test(key)
+  const keyDuplicate = fields.some(
+    (candidate) => candidate.id !== field?.id && candidate.key === key
+  )
+  const keyInvalid = keyMalformed || keyDuplicate
+  const valid =
+    label.trim().length > 0 &&
+    /^[a-z][a-z0-9_]*$/.test(key) &&
+    !keyDuplicate &&
+    !(type === "number" && !Number.isFinite(parsedDefault))
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{field ? "Edit field" : "Create field"}</DialogTitle>
+          <DialogDescription>
+            Shared values keep repeated content synchronized across outputs.
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (!valid) return
+            onSave({
+              key,
+              label: label.trim(),
+              type,
+              required,
+              defaultValue: parsedDefault,
+            })
+            setOpen(false)
+          }}
+        >
+          <FieldGroup className="gap-4">
+            <Field>
+              <FormFieldLabel htmlFor={`${field?.id ?? "new"}-field-label`}>
+                Label
+              </FormFieldLabel>
+              <Input
+                id={`${field?.id ?? "new"}-field-label`}
+                value={label}
+                placeholder="Package name"
+                onChange={(event) => {
+                  const nextLabel = event.target.value
+                  setLabel(nextLabel)
+                  if (!keyEdited) setKey(fieldKeyFromLabel(nextLabel))
+                }}
+              />
+            </Field>
+            <Field data-invalid={keyInvalid}>
+              <FormFieldLabel htmlFor={`${field?.id ?? "new"}-field-key`}>
+                API key
+              </FormFieldLabel>
+              <Input
+                id={`${field?.id ?? "new"}-field-key`}
+                aria-invalid={keyInvalid}
+                value={key}
+                placeholder="package_name"
+                onChange={(event) => {
+                  setKey(event.target.value.toLowerCase())
+                  setKeyEdited(true)
+                }}
+              />
+              {keyDuplicate ? (
+                <FieldError>That API key is already in use.</FieldError>
+              ) : (
+                <FieldDescription>
+                  Lowercase letters, numbers, and underscores.
+                </FieldDescription>
+              )}
+            </Field>
+            <Field>
+              <FormFieldLabel>Value type</FormFieldLabel>
+              <Select
+                value={type}
+                onValueChange={(nextType: FieldDefinition["type"]) => {
+                  setType(nextType)
+                  setDefaultDraft(String(defaultValueForType(nextType)))
+                }}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  <SelectGroup>
+                    {fieldTypes.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field>
+              <FormFieldLabel>Default value</FormFieldLabel>
+              {type === "boolean" ? (
+                <ToggleGroup
+                  type="single"
+                  value={defaultDraft || "true"}
+                  variant="outline"
+                  spacing={1}
+                  onValueChange={(value) => value && setDefaultDraft(value)}
+                >
+                  <ToggleGroupItem className="flex-1" value="true">
+                    True
+                  </ToggleGroupItem>
+                  <ToggleGroupItem className="flex-1" value="false">
+                    False
+                  </ToggleGroupItem>
+                </ToggleGroup>
+              ) : (
+                <Input
+                  value={defaultDraft}
+                  type={type === "number" ? "number" : "text"}
+                  placeholder={type === "asset" ? "https://…" : "Value"}
+                  onChange={(event) => setDefaultDraft(event.target.value)}
+                />
+              )}
+            </Field>
+            <Field>
+              <FormFieldLabel>Requirement</FormFieldLabel>
+              <ToggleGroup
+                type="single"
+                value={required ? "required" : "optional"}
+                variant="outline"
+                spacing={1}
+                onValueChange={(value) =>
+                  value && setRequired(value === "required")
+                }
+              >
+                <ToggleGroupItem className="flex-1" value="optional">
+                  Optional
+                </ToggleGroupItem>
+                <ToggleGroupItem className="flex-1" value="required">
+                  Required
+                </ToggleGroupItem>
+              </ToggleGroup>
+            </Field>
+          </FieldGroup>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline">
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button type="submit" disabled={!valid}>
+              {field ? "Save changes" : "Create field"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function FieldValueEditor({
+  field,
+  value,
+  onCommit,
+}: {
+  field: FieldDefinition
+  value: string | number | boolean
+  onCommit(value: string | number | boolean): void
+}) {
+  if (field.type === "boolean") {
+    return (
+      <ToggleGroup
+        type="single"
+        value={value ? "true" : "false"}
+        variant="outline"
+        spacing={1}
+        onValueChange={(next) => next && onCommit(next === "true")}
+      >
+        <ToggleGroupItem className="flex-1" value="true">
+          True
+        </ToggleGroupItem>
+        <ToggleGroupItem className="flex-1" value="false">
+          False
+        </ToggleGroupItem>
+      </ToggleGroup>
+    )
+  }
+  return (
+    <CommitInput
+      value={String(value)}
+      inputMode={field.type === "number" ? "decimal" : undefined}
+      onCommit={(next) => {
+        if (field.type !== "number") return onCommit(next)
+        const parsed = Number(next)
+        if (Number.isFinite(parsed)) onCommit(parsed)
+      }}
+    />
+  )
+}
+
 function FieldsPanel({
   document,
+  selectedNodes,
   onUpdateField,
+  onCreateField,
+  onUpdateFieldDefinition,
+  onRemoveField,
+  onBindField,
+  onUnbindField,
 }: {
   document: Document
+  selectedNodes: SceneNode[]
   onUpdateField(fieldId: string, value: string | number | boolean): void
+  onCreateField(field: Omit<FieldDefinition, "id">): void
+  onUpdateFieldDefinition(
+    fieldId: string,
+    patch: Partial<Omit<FieldDefinition, "id">>
+  ): void
+  onRemoveField(fieldId: string): void
+  onBindField(fieldId: string, nodeId: string, property: BindableProperty): void
+  onUnbindField(bindingId: string): void
 }) {
+  const selectedNode = selectedNodes.length === 1 ? selectedNodes[0] : undefined
+  const properties = selectedNode
+    ? bindingPropertiesForNode(selectedNode)
+    : ([] as BindableProperty[])
+  const [property, setProperty] = useState<BindableProperty>(
+    properties[0] ?? "text"
+  )
+  const compatibleFields = selectedNode
+    ? document.fields.filter((field) =>
+        fieldCanBindToProperty(field, selectedNode, property)
+      )
+    : []
+  const [bindingFieldId, setBindingFieldId] = useState("")
+
+  useEffect(() => {
+    const nextProperty = selectedNode
+      ? bindingPropertiesForNode(selectedNode)[0]
+      : undefined
+    if (nextProperty) setProperty(nextProperty)
+    setBindingFieldId("")
+  }, [selectedNode?.id])
+
+  useEffect(() => {
+    if (
+      bindingFieldId &&
+      !compatibleFields.some((field) => field.id === bindingFieldId)
+    ) {
+      setBindingFieldId("")
+    }
+  }, [bindingFieldId, compatibleFields])
+
+  const selectedBindings = selectedNode
+    ? document.bindings.filter((binding) => binding.nodeId === selectedNode.id)
+    : []
+  const boundProperties = new Set(
+    selectedBindings.map((binding) => binding.property)
+  )
+  const outputByNode = new Map(
+    document.pages.flatMap((page) =>
+      page.nodeIds.map((nodeId) => [nodeId, page.outputId] as const)
+    )
+  )
+
   return (
-    <section className="flex flex-col gap-4 p-4">
-      <div>
-        <h2 className="text-xs font-medium">Template fields</h2>
-        <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-          Change one value and every bound output stays in sync.
-        </p>
-      </div>
-      <div className="flex flex-col gap-3">
-        {document.fields.map((field) => (
-          <label key={field.id} className="flex flex-col gap-1.5">
-            <FieldLabel>{field.label}</FieldLabel>
-            <CommitInput
-              value={String(document.fieldValues[field.id] ?? "")}
-              onCommit={(value) => onUpdateField(field.id, value)}
-            />
-          </label>
-        ))}
-      </div>
-    </section>
+    <div className="flex flex-col">
+      <section className="flex flex-col gap-4 p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-xs font-medium">Shared fields</h2>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+              Change one value and every bound output stays in sync.
+            </p>
+          </div>
+          <FieldDefinitionDialog
+            fields={document.fields}
+            trigger={
+              <Button size="sm" variant="outline">
+                <Plus data-icon="inline-start" />
+                New
+              </Button>
+            }
+            onSave={onCreateField}
+          />
+        </div>
+
+        {document.fields.length ? (
+          <div className="flex flex-col gap-2">
+            {document.fields.map((field) => {
+              const bindings = document.bindings.filter(
+                (binding) => binding.fieldId === field.id
+              )
+              const outputCount = new Set(
+                bindings.flatMap((binding) => {
+                  const outputId = outputByNode.get(binding.nodeId)
+                  return outputId ? [outputId] : []
+                })
+              ).size
+              return (
+                <div key={field.id} className="rounded-lg border">
+                  <div className="flex items-start gap-2 p-2.5">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <p className="truncate text-xs font-medium">
+                          {field.label}
+                        </p>
+                        {field.required ? (
+                          <Badge variant="secondary">Required</Badge>
+                        ) : null}
+                      </div>
+                      <p className="mt-0.5 truncate font-mono text-[9px] text-muted-foreground">
+                        {field.key} · {field.type}
+                      </p>
+                    </div>
+                    <FieldDefinitionDialog
+                      field={field}
+                      fields={document.fields}
+                      trigger={
+                        <Button
+                          aria-label={`Edit ${field.label}`}
+                          size="icon-xs"
+                          variant="ghost"
+                        >
+                          <Settings2 />
+                        </Button>
+                      }
+                      onSave={(updated) =>
+                        onUpdateFieldDefinition(field.id, updated)
+                      }
+                    />
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          aria-label={`Delete ${field.label}`}
+                          size="icon-xs"
+                          variant="ghost"
+                        >
+                          <Trash2 />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>
+                            Delete {field.label}?
+                          </AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This removes the field and its {bindings.length}{" "}
+                            layer
+                            {bindings.length === 1 ? " binding" : " bindings"}.
+                            Existing layer content stays in place.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            variant="destructive"
+                            onClick={() => onRemoveField(field.id)}
+                          >
+                            Delete field
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                  <Separator />
+                  <div className="flex flex-col gap-2 p-2.5">
+                    <FieldValueEditor
+                      field={field}
+                      value={
+                        document.fieldValues[field.id] ?? field.defaultValue
+                      }
+                      onCommit={(value) => onUpdateField(field.id, value)}
+                    />
+                    <p className="text-[9px] text-muted-foreground">
+                      {bindings.length} layer{bindings.length === 1 ? "" : "s"}
+                      {outputCount
+                        ? ` across ${outputCount} output${outputCount === 1 ? "" : "s"}`
+                        : ""}
+                    </p>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <Empty className="border">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <Database />
+              </EmptyMedia>
+              <EmptyTitle>No shared fields</EmptyTitle>
+              <EmptyDescription>
+                Create a field for content that repeats across outputs.
+              </EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+              <FieldDefinitionDialog
+                fields={document.fields}
+                trigger={
+                  <Button size="sm">
+                    <Plus data-icon="inline-start" />
+                    Create field
+                  </Button>
+                }
+                onSave={onCreateField}
+              />
+            </EmptyContent>
+          </Empty>
+        )}
+      </section>
+
+      <Separator />
+
+      <section className="flex flex-col gap-3 p-4">
+        <div>
+          <h2 className="text-xs font-medium">Selected layer bindings</h2>
+          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+            {selectedNode
+              ? `Connect ${selectedNode.name} to a shared value.`
+              : "Select one layer to manage its field connections."}
+          </p>
+        </div>
+
+        {selectedNode ? (
+          <>
+            {selectedBindings.length ? (
+              <div className="flex flex-col gap-1.5">
+                {selectedBindings.map((binding) => {
+                  const field = document.fields.find(
+                    (candidate) => candidate.id === binding.fieldId
+                  )
+                  return (
+                    <div
+                      key={binding.id}
+                      className="flex items-center gap-2 rounded-lg border p-2"
+                    >
+                      <Link2 className="size-3.5 text-muted-foreground" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[11px] font-medium">
+                          {field?.label ?? "Missing field"}
+                        </p>
+                        <p className="text-[9px] text-muted-foreground">
+                          {bindingPropertyLabels[binding.property]}
+                        </p>
+                      </div>
+                      <Button
+                        aria-label={`Unbind ${field?.label ?? "field"}`}
+                        size="icon-xs"
+                        variant="ghost"
+                        onClick={() => onUnbindField(binding.id)}
+                      >
+                        <Unlink />
+                      </Button>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : null}
+
+            <FieldGroup className="gap-3">
+              <Field>
+                <FormFieldLabel>Layer property</FormFieldLabel>
+                <Select
+                  value={property}
+                  onValueChange={(next: BindableProperty) => setProperty(next)}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent position="popper">
+                    <SelectGroup>
+                      {properties.map((candidate) => (
+                        <SelectItem
+                          key={candidate}
+                          value={candidate}
+                          disabled={boundProperties.has(candidate)}
+                        >
+                          {bindingPropertyLabels[candidate]}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field data-disabled={!compatibleFields.length}>
+                <FormFieldLabel>Shared field</FormFieldLabel>
+                <Select
+                  value={bindingFieldId}
+                  onValueChange={setBindingFieldId}
+                  disabled={!compatibleFields.length}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Choose a compatible field" />
+                  </SelectTrigger>
+                  <SelectContent position="popper">
+                    <SelectGroup>
+                      {compatibleFields.map((field) => (
+                        <SelectItem key={field.id} value={field.id}>
+                          {field.label}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+                {!compatibleFields.length ? (
+                  <FieldDescription>
+                    Create a compatible{" "}
+                    {property === "visible" ? "boolean" : "value"} field first.
+                  </FieldDescription>
+                ) : null}
+              </Field>
+            </FieldGroup>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!bindingFieldId || boundProperties.has(property)}
+              onClick={() => {
+                if (!bindingFieldId) return
+                onBindField(bindingFieldId, selectedNode.id, property)
+                setBindingFieldId("")
+              }}
+            >
+              <Link2 data-icon="inline-start" />
+              Bind property
+            </Button>
+          </>
+        ) : (
+          <Empty>
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <Link2 />
+              </EmptyMedia>
+              <EmptyTitle>No layer selected</EmptyTitle>
+              <EmptyDescription>
+                Select one layer on the canvas or in Layers.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        )}
+      </section>
+    </div>
   )
 }
 
@@ -846,6 +1490,11 @@ export function InspectorSidebar({
   selectedNodes,
   onUpdateNode,
   onUpdateField,
+  onCreateField,
+  onUpdateFieldDefinition,
+  onRemoveField,
+  onBindField,
+  onUnbindField,
   onAlignSelection,
   onAlignSelectionToPage,
   onDistributeSelection,
@@ -861,6 +1510,14 @@ export function InspectorSidebar({
   selectedNodes: SceneNode[]
   onUpdateNode(nodeId: string, patch: Partial<SceneNode>): void
   onUpdateField(fieldId: string, value: string | number | boolean): void
+  onCreateField(field: Omit<FieldDefinition, "id">): void
+  onUpdateFieldDefinition(
+    fieldId: string,
+    patch: Partial<Omit<FieldDefinition, "id">>
+  ): void
+  onRemoveField(fieldId: string): void
+  onBindField(fieldId: string, nodeId: string, property: BindableProperty): void
+  onUnbindField(bindingId: string): void
   onAlignSelection(alignment: Alignment): void
   onAlignSelectionToPage(alignment: Alignment): void
   onDistributeSelection(distribution: "horizontal" | "vertical"): void
@@ -926,7 +1583,16 @@ export function InspectorSidebar({
         </TabsContent>
         <TabsContent value="fields" className="min-h-0">
           <ScrollArea className="h-full">
-            <FieldsPanel document={document} onUpdateField={onUpdateField} />
+            <FieldsPanel
+              document={document}
+              selectedNodes={selectedNodes}
+              onUpdateField={onUpdateField}
+              onCreateField={onCreateField}
+              onUpdateFieldDefinition={onUpdateFieldDefinition}
+              onRemoveField={onRemoveField}
+              onBindField={onBindField}
+              onUnbindField={onUnbindField}
+            />
           </ScrollArea>
         </TabsContent>
         <TabsContent value="review" className="min-h-0">

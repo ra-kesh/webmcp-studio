@@ -138,6 +138,38 @@ export const documentCommandSchema = z.discriminatedUnion("type", [
     value: z.union([z.string(), z.number(), z.boolean()]),
   }),
   commandBaseSchema.extend({
+    type: z.literal("add_field"),
+    field: fieldDefinitionSchema,
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("update_field"),
+    fieldId: id,
+    patch: z.object({
+      key: z
+        .string()
+        .regex(/^[a-z][a-z0-9_]*$/)
+        .optional(),
+      label: z.string().min(1).optional(),
+      type: z
+        .enum(["text", "number", "currency", "date", "asset", "boolean"])
+        .optional(),
+      required: z.boolean().optional(),
+      defaultValue: z.union([z.string(), z.number(), z.boolean()]).optional(),
+    }),
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("remove_field"),
+    fieldId: id,
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("bind_field"),
+    binding: fieldBindingSchema,
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("unbind_field"),
+    bindingId: id,
+  }),
+  commandBaseSchema.extend({
     type: z.literal("add_node"),
     pageId: id,
     node: sceneNodeSchema,

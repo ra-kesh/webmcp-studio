@@ -6,6 +6,8 @@ import {
   northstarSeed,
   type Document,
   type DocumentCommand,
+  type FieldBinding,
+  type FieldDefinition,
   type SceneNode,
 } from "@webmcp/document"
 import type { CanvasNodeChange, CommandDraft, Selection } from "@webmcp/editor"
@@ -200,6 +202,56 @@ export function useDocumentEditor() {
   const updateField = useCallback(
     (fieldId: string, value: string | number | boolean) => {
       commit([{ type: "set_field", fieldId, value }])
+    },
+    [commit]
+  )
+
+  const createField = useCallback(
+    (field: Omit<FieldDefinition, "id">) => {
+      commit([
+        {
+          type: "add_field",
+          field: { ...field, id: `field-${crypto.randomUUID()}` },
+        },
+      ])
+    },
+    [commit]
+  )
+
+  const updateFieldDefinition = useCallback(
+    (fieldId: string, patch: Partial<Omit<FieldDefinition, "id">>) => {
+      commit([{ type: "update_field", fieldId, patch }])
+    },
+    [commit]
+  )
+
+  const removeField = useCallback(
+    (fieldId: string) => {
+      commit([{ type: "remove_field", fieldId }])
+    },
+    [commit]
+  )
+
+  const bindField = useCallback(
+    (fieldId: string, nodeId: string, property: FieldBinding["property"]) => {
+      commit([
+        {
+          type: "bind_field",
+          binding: {
+            id: `binding-${crypto.randomUUID()}`,
+            fieldId,
+            nodeId,
+            property,
+          },
+        },
+      ])
+    },
+    [commit]
+  )
+
+  const unbindField = useCallback(
+    (bindingId: string) => {
+      commit([{ type: "unbind_field", bindingId }])
     },
     [commit]
   )
@@ -1174,6 +1226,11 @@ export function useDocumentEditor() {
     updateNodes,
     updateNode,
     updateField,
+    createField,
+    updateFieldDefinition,
+    removeField,
+    bindField,
+    unbindField,
     addText,
     addRectangle,
     addEllipse,

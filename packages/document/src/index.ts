@@ -1,4 +1,5 @@
 export * from "./commands"
+export * from "./fields"
 export * from "./groups"
 export * from "./schema"
 export * from "./seed"

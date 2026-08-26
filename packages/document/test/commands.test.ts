@@ -28,6 +28,145 @@ describe("canonical document commands", () => {
     })
   })
 
+  it("creates, edits, and removes typed shared fields", () => {
+    const added = applyCommand(northstarSeed, {
+      id: "cmd-add-visibility-field",
+      type: "add_field",
+      actor: "human",
+      at: "2026-08-26T09:30:00.000Z",
+      field: {
+        id: "show-cover-panel",
+        key: "show_cover_panel",
+        label: "Show cover panel",
+        type: "boolean",
+        required: false,
+        defaultValue: true,
+      },
+    })
+    expect(added.fieldValues["show-cover-panel"]).toBe(true)
+
+    const updated = applyCommand(added, {
+      id: "cmd-update-visibility-field",
+      type: "update_field",
+      actor: "human",
+      at: "2026-08-26T09:31:00.000Z",
+      fieldId: "show-cover-panel",
+      patch: { label: "Display cover panel", required: true },
+    })
+    expect(
+      updated.fields.find((field) => field.id === "show-cover-panel")
+    ).toMatchObject({ label: "Display cover panel", required: true })
+
+    const removed = applyCommand(updated, {
+      id: "cmd-remove-visibility-field",
+      type: "remove_field",
+      actor: "human",
+      at: "2026-08-26T09:32:00.000Z",
+      fieldId: "show-cover-panel",
+    })
+    expect(
+      removed.fields.some((field) => field.id === "show-cover-panel")
+    ).toBe(false)
+    expect(removed.fieldValues["show-cover-panel"]).toBeUndefined()
+  })
+
+  it("binds and unbinds compatible layer properties", () => {
+    const withField = applyCommand(northstarSeed, {
+      id: "cmd-add-panel-field",
+      type: "add_field",
+      actor: "human",
+      at: "2026-08-26T09:30:00.000Z",
+      field: {
+        id: "show-cover-panel",
+        key: "show_cover_panel",
+        label: "Show cover panel",
+        type: "boolean",
+        required: false,
+        defaultValue: true,
+      },
+    })
+    const bound = applyCommand(withField, {
+      id: "cmd-bind-panel-field",
+      type: "bind_field",
+      actor: "human",
+      at: "2026-08-26T09:31:00.000Z",
+      binding: {
+        id: "bind-cover-panel-visible",
+        fieldId: "show-cover-panel",
+        nodeId: "cover-panel",
+        property: "visible",
+      },
+    })
+    const hidden = applyCommand(bound, {
+      id: "cmd-hide-panel-field",
+      type: "set_field",
+      actor: "human",
+      at: "2026-08-26T09:32:00.000Z",
+      fieldId: "show-cover-panel",
+      value: false,
+    })
+    expect(
+      hidden.nodes.find((node) => node.id === "cover-panel")?.visible
+    ).toBe(false)
+
+    const authoritative = applyCommand(hidden, {
+      id: "cmd-edit-bound-panel",
+      type: "update_node",
+      actor: "human",
+      at: "2026-08-26T09:33:00.000Z",
+      nodeId: "cover-panel",
+      patch: { visible: true },
+    })
+    expect(
+      authoritative.nodes.find((node) => node.id === "cover-panel")?.visible
+    ).toBe(false)
+
+    const unbound = applyCommand(authoritative, {
+      id: "cmd-unbind-panel-field",
+      type: "unbind_field",
+      actor: "human",
+      at: "2026-08-26T09:34:00.000Z",
+      bindingId: "bind-cover-panel-visible",
+    })
+    expect(unbound.bindings).not.toContainEqual(
+      expect.objectContaining({ id: "bind-cover-panel-visible" })
+    )
+  })
+
+  it("rejects invalid field values and incompatible bindings", () => {
+    expect(() =>
+      applyCommand(northstarSeed, {
+        id: "cmd-invalid-number-field",
+        type: "add_field",
+        actor: "human",
+        at: "2026-08-26T09:30:00.000Z",
+        field: {
+          id: "guest-count",
+          key: "guest_count",
+          label: "Guest count",
+          type: "number",
+          required: false,
+          defaultValue: "two hundred",
+        },
+      })
+    ).toThrow("Invalid default value")
+
+    expect(() =>
+      applyCommand(northstarSeed, {
+        id: "cmd-invalid-binding",
+        type: "bind_field",
+        actor: "human",
+        at: "2026-08-26T09:30:00.000Z",
+        binding: {
+          id: "bind-date-to-image",
+          fieldId: "event_date",
+          nodeId: "cover-panel",
+          property: "visible",
+        },
+      })
+    ).toThrow("cannot bind")
+  })
+
   it("ships a structurally valid synthetic demo document", () => {
     const structuralErrors = validateDocument(northstarSeed).filter(
       (issue) => issue.severity === "error"

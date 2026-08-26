@@ -1,4 +1,5 @@
 import type { Document } from "./schema"
+import { fieldCanBindToProperty, fieldValueMatchesType } from "./fields"
 
 export type ValidationIssue = {
   id: string
@@ -11,6 +12,7 @@ export type ValidationIssue = {
     | "off_canvas"
     | "missing_asset"
     | "invalid_binding"
+    | "invalid_field_value"
   message: string
   pageId?: string
   nodeId?: string
@@ -170,6 +172,14 @@ export function validateDocument(document: Document): ValidationIssue[] {
         message: `${field.label} is required`,
       })
     }
+    if (value !== undefined && !fieldValueMatchesType(field, value)) {
+      issues.push({
+        id: `field:${field.id}:type`,
+        severity: "error",
+        code: "invalid_field_value",
+        message: `${field.label} has the wrong value type`,
+      })
+    }
   }
 
   for (const binding of document.bindings) {
@@ -184,12 +194,10 @@ export function validateDocument(document: Document): ValidationIssue[] {
       })
       continue
     }
-    const compatible =
-      (binding.property === "text" && node.type === "text") ||
-      (binding.property === "src" && node.type === "image") ||
-      binding.property === "visible" ||
-      (binding.property === "fill" &&
-        (node.type === "rect" || node.type === "ellipse" || node.type === "icon"))
+    const field = fields.get(binding.fieldId)
+    const compatible = field
+      ? fieldCanBindToProperty(field, node, binding.property)
+      : false
     if (!compatible) {
       issues.push({
         id: `binding:${binding.id}:property`,

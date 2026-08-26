@@ -900,6 +900,11 @@ export function StudioShell() {
           selectedNodes={editor.selectedNodes}
           onUpdateNode={updateNode}
           onUpdateField={editor.updateField}
+          onCreateField={editor.createField}
+          onUpdateFieldDefinition={editor.updateFieldDefinition}
+          onRemoveField={editor.removeField}
+          onBindField={editor.bindField}
+          onUnbindField={editor.unbindField}
           onAlignSelection={editor.alignSelection}
           onAlignSelectionToPage={editor.alignSelectionToPage}
           onDistributeSelection={editor.distributeSelection}
@@ -972,6 +977,11 @@ export function StudioShell() {
                   selectedNodes={editor.selectedNodes}
                   onUpdateNode={updateNode}
                   onUpdateField={editor.updateField}
+                  onCreateField={editor.createField}
+                  onUpdateFieldDefinition={editor.updateFieldDefinition}
+                  onRemoveField={editor.removeField}
+                  onBindField={editor.bindField}
+                  onUnbindField={editor.unbindField}
                   onAlignSelection={editor.alignSelection}
                   onAlignSelectionToPage={editor.alignSelectionToPage}
                   onDistributeSelection={editor.distributeSelection}

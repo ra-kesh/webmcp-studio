@@ -81,7 +81,14 @@ thumbnail, PNG, and PDF.
 
 ## Product loop after the editor gate
 
-Once the four blocks pass, finish shared field creation and binding, agent change
-set previews, operation-level review, immutable publishing, the API playground,
-and render history. D1 and R2 then support a proven workflow instead of defining
-one prematurely.
+- [x] create and edit typed shared fields
+- [x] bind and unbind compatible layer properties
+- [x] propagate field values through every bound output
+- [ ] preview agent change sets without mutating the document
+- [ ] accept or reject operations individually, then apply once
+- [ ] publish immutable template versions
+- [ ] exercise published templates through the API playground
+- [ ] inspect render requests and generated assets in render history
+
+D1 and R2 support this proven workflow after the product loop is complete; they
+do not define it prematurely.
