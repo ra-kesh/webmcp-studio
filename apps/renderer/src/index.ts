@@ -73,13 +73,17 @@ async function handleRender(request: Request, env: Env): Promise<Response> {
       },
     })
 
-    return Response.json({
-      renderId: parsed.data.renderId,
-      pageId: page.id,
-      key,
-      format: "png",
-      width: page.width,
-      height: page.height,
+    return new Response(png, {
+      headers: {
+        "Content-Type": "image/png",
+        "Content-Disposition": `attachment; filename="${page.id}.png"`,
+        "Cache-Control": "no-store",
+        "X-Render-Id": parsed.data.renderId,
+        "X-Render-Key": key,
+        "X-Page-Id": page.id,
+        "X-Width": String(page.width),
+        "X-Height": String(page.height),
+      },
     })
   } finally {
     await browser.close()

@@ -19,6 +19,8 @@ The challenge demo uses synthetic data for a fictional wedding photography studi
   local draft autosave
 - live, abortable WebMCP registration for inspection, validation, and
   reviewable shared-field proposals, plus explicit immutable publishing
+- published-version API playground with strict parameter materialization,
+  multi-output requests, downloadable artifacts, and render history
 - public API route contracts for templates and render jobs
 - private renderer Worker that turns the canonical document into HTML, captures PNG with Cloudflare Browser Run, and writes it to R2
 

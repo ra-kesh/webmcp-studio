@@ -3,7 +3,7 @@ import {
   Check,
   ClipboardCopy,
   ClipboardPaste,
-  Clipboard,
+  Code2,
   Cloud,
   CopyPlus,
   Circle,
@@ -57,6 +57,7 @@ import {
 } from "@webmcp/ui/components/tooltip"
 import { DocumentSidebar } from "./editor/document-sidebar"
 import { AssetLibraryDialog } from "./editor/asset-library-dialog"
+import { ApiPlaygroundDialog } from "./editor/api-playground-dialog"
 import { NewDocumentDialog } from "./editor/new-document-dialog"
 import { PublishDialog } from "./editor/publish-dialog"
 import {
@@ -138,7 +139,7 @@ export function StudioShell() {
   const [tool, setTool] = useState<"select" | "hand">("select")
   const [spacePressed, setSpacePressed] = useState(false)
   const [isPanning, setIsPanning] = useState(false)
-  const [apiCopied, setApiCopied] = useState(false)
+  const [apiPlaygroundOpen, setApiPlaygroundOpen] = useState(false)
   const [assetLibraryOpen, setAssetLibraryOpen] = useState(false)
   const [newDocumentOpen, setNewDocumentOpen] = useState(false)
   const [publishDialogOpen, setPublishDialogOpen] = useState(false)
@@ -388,14 +389,6 @@ export function StudioShell() {
   const openImagePicker = (replacementNodeId: string | null = null) => {
     pendingImageReplacementRef.current = replacementNodeId
     imageInputRef.current?.click()
-  }
-
-  const copyApiExample = async () => {
-    await navigator.clipboard.writeText(
-      `curl -X POST https://your-studio.example/v1/studio/render \\\n+  -H "Authorization: Bearer $STUDIO_API_KEY" \\\n+  -H "Content-Type: application/json" \\\n+  -d '{"templateId":"northstar-wedding","data":{"couple_names":"Aditi & Kabir"},"formats":["png"]}'`
-    )
-    setApiCopied(true)
-    window.setTimeout(() => setApiCopied(false), 1600)
   }
 
   const setManualZoom = (nextZoom: number) => {
@@ -698,14 +691,10 @@ export function StudioShell() {
             size="sm"
             variant="outline"
             className="hidden min-[760px]:inline-flex"
-            onClick={() => void copyApiExample()}
+            onClick={() => setApiPlaygroundOpen(true)}
           >
-            {apiCopied ? (
-              <Check data-icon="inline-start" />
-            ) : (
-              <Clipboard data-icon="inline-start" />
-            )}
-            {apiCopied ? "Copied" : "API example"}
+            <Code2 data-icon="inline-start" />
+            API playground
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -1062,6 +1051,15 @@ export function StudioShell() {
         pendingChangeSet={Boolean(editor.pendingChangeSet)}
         publishError={editor.publishError}
         onPublish={editor.publishTemplate}
+      />
+      <ApiPlaygroundDialog
+        open={apiPlaygroundOpen}
+        onOpenChange={setApiPlaygroundOpen}
+        version={editor.latestPublishedVersion}
+        onRequestPublish={() => {
+          setApiPlaygroundOpen(false)
+          setPublishDialogOpen(true)
+        }}
       />
     </main>
   )

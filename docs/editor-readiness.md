@@ -87,8 +87,8 @@ thumbnail, PNG, and PDF.
 - [x] preview agent change sets without mutating the document
 - [x] accept or reject operations individually, then apply once
 - [x] publish immutable template versions
-- [ ] exercise published templates through the API playground
-- [ ] inspect render requests and generated assets in render history
+- [x] exercise published templates through the API playground
+- [x] inspect render requests and generated assets in render history
 
 D1 and R2 support this proven workflow after the product loop is complete; they
 do not define it prematurely.

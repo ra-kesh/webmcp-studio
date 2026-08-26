@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as V1RendersRenderIdRouteImport } from './routes/v1/renders/$renderId'
 import { Route as V1StudioExportPdfRouteImport } from './routes/v1/studio/export-pdf'
+import { Route as V1StudioExportPngRouteImport } from './routes/v1/studio/export-png'
 import { Route as V1StudioRenderRouteImport } from './routes/v1/studio/render'
 import { Route as V1StudioTemplatesIndexRouteImport } from './routes/v1/studio/templates/index'
 import { Route as V1StudioTemplatesTemplateIdRouteImport } from './routes/v1/studio/templates/$templateId'
@@ -37,6 +38,11 @@ const V1StudioExportPdfRoute = V1StudioExportPdfRouteImport.update({
   path: '/v1/studio/export-pdf',
   getParentRoute: () => rootRouteImport,
 } as any)
+const V1StudioExportPngRoute = V1StudioExportPngRouteImport.update({
+  id: '/v1/studio/export-png',
+  path: '/v1/studio/export-png',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const V1StudioRenderRoute = V1StudioRenderRouteImport.update({
   id: '/v1/studio/render',
   path: '/v1/studio/render',
@@ -59,6 +65,7 @@ export interface FileRoutesByFullPath {
   '/api/health': typeof ApiHealthRoute
   '/v1/renders/$renderId': typeof V1RendersRenderIdRoute
   '/v1/studio/export-pdf': typeof V1StudioExportPdfRoute
+  '/v1/studio/export-png': typeof V1StudioExportPngRoute
   '/v1/studio/render': typeof V1StudioRenderRoute
   '/v1/studio/templates/$templateId': typeof V1StudioTemplatesTemplateIdRoute
   '/v1/studio/templates/': typeof V1StudioTemplatesIndexRoute
@@ -68,6 +75,7 @@ export interface FileRoutesByTo {
   '/api/health': typeof ApiHealthRoute
   '/v1/renders/$renderId': typeof V1RendersRenderIdRoute
   '/v1/studio/export-pdf': typeof V1StudioExportPdfRoute
+  '/v1/studio/export-png': typeof V1StudioExportPngRoute
   '/v1/studio/render': typeof V1StudioRenderRoute
   '/v1/studio/templates/$templateId': typeof V1StudioTemplatesTemplateIdRoute
   '/v1/studio/templates': typeof V1StudioTemplatesIndexRoute
@@ -78,6 +86,7 @@ export interface FileRoutesById {
   '/api/health': typeof ApiHealthRoute
   '/v1/renders/$renderId': typeof V1RendersRenderIdRoute
   '/v1/studio/export-pdf': typeof V1StudioExportPdfRoute
+  '/v1/studio/export-png': typeof V1StudioExportPngRoute
   '/v1/studio/render': typeof V1StudioRenderRoute
   '/v1/studio/templates/$templateId': typeof V1StudioTemplatesTemplateIdRoute
   '/v1/studio/templates/': typeof V1StudioTemplatesIndexRoute
@@ -89,6 +98,7 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/v1/renders/$renderId'
     | '/v1/studio/export-pdf'
+    | '/v1/studio/export-png'
     | '/v1/studio/render'
     | '/v1/studio/templates/$templateId'
     | '/v1/studio/templates/'
@@ -98,6 +108,7 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/v1/renders/$renderId'
     | '/v1/studio/export-pdf'
+    | '/v1/studio/export-png'
     | '/v1/studio/render'
     | '/v1/studio/templates/$templateId'
     | '/v1/studio/templates'
@@ -107,6 +118,7 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/v1/renders/$renderId'
     | '/v1/studio/export-pdf'
+    | '/v1/studio/export-png'
     | '/v1/studio/render'
     | '/v1/studio/templates/$templateId'
     | '/v1/studio/templates/'
@@ -117,6 +129,7 @@ export interface RootRouteChildren {
   ApiHealthRoute: typeof ApiHealthRoute
   V1RendersRenderIdRoute: typeof V1RendersRenderIdRoute
   V1StudioExportPdfRoute: typeof V1StudioExportPdfRoute
+  V1StudioExportPngRoute: typeof V1StudioExportPngRoute
   V1StudioRenderRoute: typeof V1StudioRenderRoute
   V1StudioTemplatesTemplateIdRoute: typeof V1StudioTemplatesTemplateIdRoute
   V1StudioTemplatesIndexRoute: typeof V1StudioTemplatesIndexRoute
@@ -152,6 +165,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof V1StudioExportPdfRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/v1/studio/export-png': {
+      id: '/v1/studio/export-png'
+      path: '/v1/studio/export-png'
+      fullPath: '/v1/studio/export-png'
+      preLoaderRoute: typeof V1StudioExportPngRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/v1/studio/render': {
       id: '/v1/studio/render'
       path: '/v1/studio/render'
@@ -181,6 +201,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiHealthRoute: ApiHealthRoute,
   V1RendersRenderIdRoute: V1RendersRenderIdRoute,
   V1StudioExportPdfRoute: V1StudioExportPdfRoute,
+  V1StudioExportPngRoute: V1StudioExportPngRoute,
   V1StudioRenderRoute: V1StudioRenderRoute,
   V1StudioTemplatesTemplateIdRoute: V1StudioTemplatesTemplateIdRoute,
   V1StudioTemplatesIndexRoute: V1StudioTemplatesIndexRoute,

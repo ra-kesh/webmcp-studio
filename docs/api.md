@@ -43,8 +43,8 @@ Returns the immutable version metadata, output sizes, export formats, complete p
   "response": {
     "type": "url",
     "outputs": [
-      { "variant": "proposal", "format": "pdf" },
-      { "variant": "whatsapp", "format": "png", "scale": 2 }
+      { "outputId": "proposal", "format": "pdf" },
+      { "outputId": "whatsapp", "format": "png", "scale": 2 }
     ]
   }
 }
@@ -66,7 +66,7 @@ Accepted response:
 
 `GET /v1/renders/:renderId`
 
-States are `queued`, `rendering`, `completed`, and `failed`. A completed job returns each output's variant, format, dimensions, bytes, checksum, and signed URL.
+States are `queued`, `rendering`, `completed`, and `failed`. A completed job returns each output's stable ID, format, dimensions, bytes, checksum, and signed URL.
 
 ## Parameter manifest
 

@@ -13,7 +13,7 @@ const renderRequestSchema = z.object({
     outputs: z
       .array(
         z.object({
-          variant: z.string().min(1),
+          outputId: z.string().min(1),
           format: z.enum(["png", "pdf"]),
           scale: z.number().positive().max(4).optional(),
         })
