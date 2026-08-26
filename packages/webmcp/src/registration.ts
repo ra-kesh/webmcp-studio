@@ -7,6 +7,7 @@ import {
   type TemplateVersion,
 } from "@webmcp/document"
 import {
+  createAssetInsertionChangeSet,
   createCanvasEditChangeSet,
   createFieldUpdateChangeSet,
   createOutputVariantChangeSet,
@@ -169,6 +170,35 @@ const publicChangeSet = (changeSet: ChangeSet) => ({
           },
           layerCount: command.nodes.length,
           bindingCount: command.bindings.length,
+        },
+      }
+    }
+    if (command.type === "add_node") {
+      return {
+        id: operation.id,
+        status: operation.status,
+        summary: operation.summary,
+        command: {
+          type: command.type,
+          pageId: command.pageId,
+          node: {
+            id: command.node.id,
+            type: command.node.type,
+            name: command.node.name,
+            x: command.node.x,
+            y: command.node.y,
+            width: command.node.width,
+            height: command.node.height,
+            ...(command.node.type === "image"
+              ? {
+                  assetId: command.node.assetId,
+                  alt: command.node.alt,
+                  fit: command.node.fit,
+                  cropX: command.node.cropX,
+                  cropY: command.node.cropY,
+                }
+              : {}),
+          },
         },
       }
     }
@@ -623,6 +653,117 @@ export function studioWebMcpTools(
           `Validation found ${errors.length} error${errors.length === 1 ? "" : "s"} and ${warnings.length} warning${warnings.length === 1 ? "" : "s"}.`,
           { errors, warnings }
         )
+      },
+    },
+    {
+      name: "propose_asset_insertion",
+      title: "Propose asset insertion",
+      description:
+        "Create one coordinated review containing shared-field updates and an approved search_assets result inserted as an image layer. Geometry must fit inside the page, and Studio privately resolves the renderer source.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          documentId: { type: "string" },
+          baseRevision: { type: "integer", minimum: 0 },
+          pageId: { type: "string" },
+          assetId: { type: "string" },
+          x: { type: "number", minimum: 0 },
+          y: { type: "number", minimum: 0 },
+          width: { type: "number", exclusiveMinimum: 0 },
+          height: { type: "number", exclusiveMinimum: 0 },
+          fit: { type: "string", enum: ["cover", "contain"] },
+          cropX: { type: "number", minimum: 0, maximum: 1 },
+          cropY: { type: "number", minimum: 0, maximum: 1 },
+          values: {
+            type: "object",
+            description:
+              "Optional shared-field values keyed by stable field key, combined into the same human review.",
+            additionalProperties: {
+              oneOf: [
+                { type: "string" },
+                { type: "number" },
+                { type: "boolean" },
+              ],
+            },
+          },
+          reason: { type: "string" },
+        },
+        required: [
+          "documentId",
+          "baseRevision",
+          "pageId",
+          "assetId",
+          "x",
+          "y",
+          "width",
+          "height",
+          "fit",
+        ],
+      },
+      execute: (input) => {
+        try {
+          const value = parseProposalIdentity(input)
+          const current = services.getSnapshot()
+          const asset = current.assets.find(
+            (candidate) => candidate.id === value.assetId
+          )
+          if (!asset)
+            throw new Error(`Unknown approved asset: ${value.assetId}`)
+          const number = (key: string) => {
+            const candidate = value[key]
+            if (typeof candidate !== "number") {
+              throw new Error(`${key} must be a number.`)
+            }
+            return candidate
+          }
+          if (typeof value.pageId !== "string" || !value.pageId) {
+            throw new Error("pageId is required.")
+          }
+          if (value.fit !== "cover" && value.fit !== "contain") {
+            throw new Error("fit must be cover or contain.")
+          }
+          const values =
+            value.values === undefined
+              ? undefined
+              : parseFieldProposalInput({
+                  documentId: value.documentId,
+                  baseRevision: value.baseRevision,
+                  values: value.values,
+                }).values
+          const changeSet = createAssetInsertionChangeSet(
+            current.document,
+            {
+              documentId: value.documentId as string,
+              baseRevision: value.baseRevision as number,
+              pageId: value.pageId,
+              asset: {
+                id: asset.id,
+                src: asset.src,
+                alt: asset.description,
+                name: asset.name,
+              },
+              x: number("x"),
+              y: number("y"),
+              width: number("width"),
+              height: number("height"),
+              fit: value.fit,
+              cropX: value.cropX === undefined ? undefined : number("cropX"),
+              cropY: value.cropY === undefined ? undefined : number("cropY"),
+              values,
+              reason:
+                typeof value.reason === "string" ? value.reason : undefined,
+            },
+            services
+          )
+          services.proposeChangeSet(changeSet)
+          return textResult(
+            `Previewing ${asset.name} on ${value.pageId}. Nothing has been applied; ask the user to review the Review panel.`,
+            publicChangeSet(changeSet)
+          )
+        } catch (error) {
+          return errorResult(error)
+        }
       },
     },
     {

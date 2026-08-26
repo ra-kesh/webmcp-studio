@@ -50,6 +50,22 @@ export type OutputVariantProposalInput = {
   reason?: string
 }
 
+export type AssetInsertionProposalInput = {
+  documentId: string
+  baseRevision: number
+  pageId: string
+  asset: { id: string; src: string; alt: string; name: string }
+  x: number
+  y: number
+  width: number
+  height: number
+  fit: "cover" | "contain"
+  cropX?: number
+  cropY?: number
+  values?: Record<string, string | number | boolean>
+  reason?: string
+}
+
 const commonCanvasProperties = new Set([
   "name",
   "x",
@@ -274,6 +290,91 @@ export function createCanvasEditChangeSet(
     createdBy: "agent",
     status: "pending",
     operations,
+  })
+}
+
+export function createAssetInsertionChangeSet(
+  document: Document,
+  input: AssetInsertionProposalInput,
+  identity: ChangeSetIdentityFactory
+): ChangeSet {
+  const page = document.pages.find((candidate) => candidate.id === input.pageId)
+  if (!page) throw new Error(`Unknown page: ${input.pageId}`)
+  const geometry = [input.x, input.y, input.width, input.height]
+  if (geometry.some((value) => !Number.isFinite(value))) {
+    throw new Error("Asset geometry must contain finite numbers.")
+  }
+  if (
+    input.x < 0 ||
+    input.y < 0 ||
+    input.width < 1 ||
+    input.height < 1 ||
+    input.x + input.width > page.width ||
+    input.y + input.height > page.height
+  ) {
+    throw new Error(`Asset geometry must fit inside ${page.name}.`)
+  }
+  const cropX = input.cropX ?? 0.5
+  const cropY = input.cropY ?? 0.5
+  if (cropX < 0 || cropX > 1 || cropY < 0 || cropY > 1) {
+    throw new Error("Asset crop focus must be between 0 and 1.")
+  }
+  const node: SceneNode = {
+    id: `image-${identity.id()}`,
+    type: "image",
+    name: input.asset.name,
+    assetId: input.asset.id,
+    src: input.asset.src,
+    alt: input.asset.alt,
+    fit: input.fit,
+    cropX,
+    cropY,
+    x: input.x,
+    y: input.y,
+    width: input.width,
+    height: input.height,
+    rotation: 0,
+    opacity: 1,
+    visible: true,
+    locked: false,
+  }
+  const at = identity.now()
+  const fieldOperations = input.values
+    ? createFieldUpdateChangeSet(
+        document,
+        {
+          documentId: input.documentId,
+          baseRevision: input.baseRevision,
+          values: input.values,
+          reason: input.reason,
+        },
+        identity
+      ).operations
+    : []
+  return checkedChangeSet(document, {
+    id: `change-set-${identity.id()}`,
+    documentId: input.documentId,
+    baseRevision: input.baseRevision,
+    title: input.reason?.trim() || `Add ${input.asset.name}`,
+    createdAt: at,
+    createdBy: "agent",
+    status: "pending",
+    operations: [
+      ...fieldOperations,
+      {
+        id: `operation-${identity.id()}`,
+        status: "pending",
+        summary: `Add ${input.asset.name} to ${page.name}`,
+        command: {
+          id: `command-${identity.id()}`,
+          type: "add_node",
+          actor: "agent",
+          at,
+          pageId: page.id,
+          node,
+        },
+      },
+    ],
   })
 }
 

@@ -5,6 +5,7 @@ export const toolNames = [
   "inspect_design",
   "search_assets",
   "validate_design",
+  "propose_asset_insertion",
   "propose_field_updates",
   "propose_canvas_edits",
   "propose_output_variant",
@@ -51,6 +52,13 @@ export const toolCatalog: readonly ToolDescriptor[] = [
   {
     name: "propose_field_updates",
     description: "Create reviewable changes to shared template fields.",
+    mutates: false,
+    requiresHumanReview: true,
+    routes: ["editor", "review"],
+  },
+  {
+    name: "propose_asset_insertion",
+    description: "Insert an approved asset as a reviewable image layer.",
     mutates: false,
     requiresHumanReview: true,
     routes: ["editor", "review"],

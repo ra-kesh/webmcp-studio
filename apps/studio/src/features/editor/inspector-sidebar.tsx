@@ -14,6 +14,7 @@ import {
   AlignVerticalSpaceBetween,
   BringToFront,
   Check,
+  ClipboardCopy,
   CopyPlus,
   Database,
   Eye,
@@ -103,6 +104,9 @@ import {
   ToggleGroupItem,
 } from "@webmcp/ui/components/toggle-group"
 import { cn } from "@webmcp/ui/lib/utils"
+
+const DEMO_AGENT_BRIEF =
+  "Inspect and validate the open design. Adapt it for Mira & Dev, 14 February 2027 in Udaipur, using The Moonlit Weekend package at ₹4,25,000, valid until 30 November 2026. Search the approved asset library for warm sandstone architecture. Then create one coordinated human-reviewed proposal that updates those shared fields and inserts the best asset on the Cover at x 620, y 120, width 540, height 900 with cover fit. Do not apply or publish anything. Summarize the affected outputs and wait for my review."
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -1413,6 +1417,14 @@ function operationDetails(document: Document, operation: ChangeOperation) {
       after: `${command.output.kind.replaceAll("_", " ")} · ${command.output.exportFormats.join(" + ").toUpperCase()}`,
     }
   }
+  if (command.type === "add_node") {
+    return {
+      label: command.node.name,
+      context: `${command.node.width} × ${command.node.height} image layer`,
+      before: "Layer does not exist",
+      after: `Add to ${command.pageId} at ${command.node.x}, ${command.node.y}`,
+    }
+  }
   return {
     label: command.type.replaceAll("_", " "),
     context: "Canonical document command",
@@ -1453,6 +1465,7 @@ function ReviewPanel({
     "inspect_design",
     "search_assets",
     "validate_design",
+    "propose_asset_insertion",
     "propose_field_updates",
     "propose_canvas_edits",
     "propose_output_variant",
@@ -1460,6 +1473,7 @@ function ReviewPanel({
     "inspect_render_history",
     "render_template",
   ])
+  const [briefCopied, setBriefCopied] = useState(false)
   const acceptedCount =
     pendingChangeSet?.operations.filter(
       (operation) => operation.status === "accepted"
@@ -1635,13 +1649,26 @@ function ReviewPanel({
                 canvas updates.
               </EmptyDescription>
             </EmptyHeader>
-            {lastResolvedChangeSet ? (
-              <EmptyContent>
+            <EmptyContent className="flex flex-col gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={webMcpStatus !== "ready"}
+                onClick={() => {
+                  void navigator.clipboard.writeText(DEMO_AGENT_BRIEF)
+                  setBriefCopied(true)
+                  window.setTimeout(() => setBriefCopied(false), 1600)
+                }}
+              >
+                {briefCopied ? <Check /> : <ClipboardCopy />}
+                {briefCopied ? "Brief copied" : "Copy demo brief"}
+              </Button>
+              {lastResolvedChangeSet ? (
                 <Badge variant="outline">
                   Last review: {lastResolvedChangeSet.status.replace("_", " ")}
                 </Badge>
-              </EmptyContent>
-            ) : null}
+              ) : null}
+            </EmptyContent>
           </Empty>
         )}
       </section>

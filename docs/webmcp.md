@@ -20,6 +20,10 @@ Read-only. Searches the approved, renderer-safe Studio catalog by query, orienta
 
 Read-only. Validates the current page, one output, or the complete document. The result separates blocking errors from warnings and names affected fields, pages, and nodes.
 
+### `propose_asset_insertion`
+
+Creates one pending review that can combine typed shared-field updates with an image-layer insertion from an approved `search_assets` ID. Studio resolves the private renderer source; the agent supplies page-bound geometry, fit, and crop focus, and the human reviews each resulting operation before application.
+
 ### `propose_field_updates`
 
 Creates a pending change set from typed field values. Input includes document ID, base revision, values, and optional reason. Output names every affected binding.
@@ -46,13 +50,13 @@ Read-only. Returns recent persisted render jobs, request selections, status, dim
 
 ## Route map
 
-| Route state        | Tools                                                                                                                           |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
-| Library            | `search_assets`                                                                                                                 |
-| Editor             | `inspect_design`, `search_assets`, `validate_design`, `propose_field_updates`, `propose_canvas_edits`, `propose_output_variant` |
-| Review             | Editor read tools; acceptance and rejection remain human-only in the Review panel                                               |
-| Published template | `validate_design`, `publish_template`, `render_template`, `inspect_render_history`                                              |
-| Render history     | `render_template`, `inspect_render_history`                                                                                     |
+| Route state        | Tools                                                                                                                                                      |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Library            | `search_assets`                                                                                                                                            |
+| Editor             | `inspect_design`, `search_assets`, `validate_design`, `propose_asset_insertion`, `propose_field_updates`, `propose_canvas_edits`, `propose_output_variant` |
+| Review             | Editor read tools; acceptance and rejection remain human-only in the Review panel                                                                          |
+| Published template | `validate_design`, `publish_template`, `render_template`, `inspect_render_history`                                                                         |
+| Render history     | `render_template`, `inspect_render_history`                                                                                                                |
 
 Registration cleans up with the Studio surface and remains safe under React Strict Mode. Tool handlers capture current services through stable references rather than stale render closures.
 

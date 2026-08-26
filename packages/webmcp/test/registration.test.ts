@@ -149,11 +149,12 @@ describe("WebMCP registration", () => {
       state.controller.signal
     )
 
-    expect(count).toBe(9)
+    expect(count).toBe(10)
     expect([...state.registered.keys()]).toEqual([
       "inspect_design",
       "search_assets",
       "validate_design",
+      "propose_asset_insertion",
       "propose_field_updates",
       "propose_canvas_edits",
       "propose_output_variant",
@@ -212,6 +213,66 @@ describe("WebMCP registration", () => {
     expect(JSON.stringify(result?.structuredContent)).not.toContain(
       "data:image"
     )
+  })
+
+  it("inserts an approved asset as a private reviewable layer", async () => {
+    const state = setup()
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const result = await state.registered
+      .get("propose_asset_insertion")
+      ?.execute({
+        documentId: northstarSeed.id,
+        baseRevision: northstarSeed.revision,
+        pageId: "cover",
+        assetId: "sandstone-arches",
+        x: 620,
+        y: 120,
+        width: 540,
+        height: 900,
+        fit: "cover",
+        values: {
+          couple_names: "Mira & Dev",
+          package_name: "The Moonlit Weekend",
+        },
+      })
+
+    expect(result?.isError).toBeUndefined()
+    expect(JSON.stringify(result?.structuredContent)).not.toContain(
+      "data:image"
+    )
+    expect(state.proposed()).toMatchObject({
+      operations: [
+        { command: { type: "set_field", value: "Mira & Dev" } },
+        {
+          command: { type: "set_field", value: "The Moonlit Weekend" },
+        },
+        {
+          command: {
+            type: "add_node",
+            pageId: "cover",
+            node: {
+              type: "image",
+              assetId: "sandstone-arches",
+              src: "data:image/svg+xml,approved",
+              x: 620,
+              y: 120,
+              width: 540,
+              height: 900,
+            },
+          },
+        },
+      ],
+    })
   })
 
   it("inspects compact render history with stable artifact URLs", async () => {
