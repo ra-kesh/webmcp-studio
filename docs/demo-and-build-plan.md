@@ -35,10 +35,13 @@ Exit condition: `bun run check` passes, both Workers deploy, and one R2 PNG matc
 
 Exit condition: manual editing survives reload and undo.
 
-Status: implemented except freeform canvas panning. The current workspace uses
-scrolling plus fit/slider zoom because that is the clearer interaction for the fixed
-artboards in the demo. Drafts survive reload in local storage; D1 autosave replaces
-that checkpoint on Day 3.
+Status: partially implemented. Selection, multi-selection, drag, resize, rotate,
+inline text editing, layer ordering, lock, hide, duplicate, delete, copy/paste,
+alignment, distribution, zoom, fit, autosave, undo, and redo work. The editor still
+needs the remaining node types, image upload and asset insertion, grouping,
+freeform pan, snapping and visible guides, page/output management, and export
+parity. Day 3 infrastructure does not start until the editor gate in
+`docs/editor-readiness.md` passes.
 
 ## Day 3
 

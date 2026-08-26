@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import {
   Check,
+  ClipboardCopy,
+  ClipboardPaste,
   Clipboard,
   Cloud,
-  Copy,
+  CopyPlus,
   Download,
   Layers3,
   MousePointer2,
@@ -215,11 +217,18 @@ export function StudioShell() {
             <Separator orientation="vertical" />
             <div className="flex items-center gap-0.5">
               <IconButton
+                label="Copy"
+                shortcut="⌘C"
+                onClick={editor.copySelection}
+              >
+                <ClipboardCopy />
+              </IconButton>
+              <IconButton
                 label="Duplicate"
                 shortcut="⌘D"
                 onClick={editor.duplicateSelection}
               >
-                <Copy />
+                <CopyPlus />
               </IconButton>
               <IconButton
                 label="Delete"
@@ -230,6 +239,16 @@ export function StudioShell() {
               </IconButton>
             </div>
           </>
+        ) : null}
+
+        {editor.canPaste ? (
+          <IconButton
+            label="Paste"
+            shortcut="⌘V"
+            onClick={editor.pasteSelection}
+          >
+            <ClipboardPaste />
+          </IconButton>
         ) : null}
 
         <div className="ml-auto flex items-center gap-2">
@@ -381,6 +400,13 @@ export function StudioShell() {
           selectedNodes={editor.selectedNodes}
           onUpdateNode={updateNode}
           onUpdateField={editor.updateField}
+          onAlignSelection={editor.alignSelection}
+          onDistributeSelection={editor.distributeSelection}
+          onSetSelectionLocked={editor.setSelectionLocked}
+          onSetSelectionVisible={editor.setSelectionVisible}
+          onReorderSelection={editor.reorderSelection}
+          onDuplicateSelection={editor.duplicateSelection}
+          onDeleteSelection={editor.deleteSelection}
         />
 
         {compactPanel ? (
@@ -433,6 +459,13 @@ export function StudioShell() {
                   selectedNodes={editor.selectedNodes}
                   onUpdateNode={updateNode}
                   onUpdateField={editor.updateField}
+                  onAlignSelection={editor.alignSelection}
+                  onDistributeSelection={editor.distributeSelection}
+                  onSetSelectionLocked={editor.setSelectionLocked}
+                  onSetSelectionVisible={editor.setSelectionVisible}
+                  onReorderSelection={editor.reorderSelection}
+                  onDuplicateSelection={editor.duplicateSelection}
+                  onDeleteSelection={editor.deleteSelection}
                 />
               )}
             </div>

@@ -8,6 +8,12 @@ import {
 } from "@webmcp/document"
 import type { CanvasNodeChange, CommandDraft, Selection } from "@webmcp/editor"
 import {
+  alignNodes,
+  distributeNodes,
+  type Alignment,
+  type Distribution,
+} from "@webmcp/editor/geometry"
+import {
   commitCommands,
   createDocumentHistory,
   redoDocument,
@@ -44,7 +50,9 @@ export function useDocumentEditor() {
   const [activePageId, setActivePageId] = useState("cover")
   const [selection, setSelection] = useState<Selection | null>(null)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("saved")
+  const [clipboardCount, setClipboardCount] = useState(0)
   const didRestore = useRef(false)
+  const clipboardRef = useRef<SceneNode[]>([])
   const historyRef = useRef(history)
   historyRef.current = history
 
@@ -200,6 +208,107 @@ export function useDocumentEditor() {
     setSelection({ pageId: page.id, nodeIds: copies.map((node) => node.id) })
   }, [activePageId, commit, selection])
 
+  const copySelection = useCallback(() => {
+    if (!selection?.nodeIds.length) return
+    const nodes = selection.nodeIds.flatMap((nodeId) => {
+      const node = findNode(historyRef.current.document, nodeId)
+      return node ? [{ ...node } as SceneNode] : []
+    })
+    clipboardRef.current = nodes
+    setClipboardCount(nodes.length)
+  }, [selection])
+
+  const pasteSelection = useCallback(() => {
+    const page = historyRef.current.document.pages.find(
+      (candidate) => candidate.id === activePageId
+    )
+    if (!page || !clipboardRef.current.length) return
+    const copies = clipboardRef.current.map(
+      (node) =>
+        ({
+          ...node,
+          id: `${node.type}-${crypto.randomUUID()}`,
+          name: `${node.name} copy`,
+          x: node.x + 24,
+          y: node.y + 24,
+        }) as SceneNode
+    )
+    commit(copies.map((node) => ({ type: "add_node", pageId: page.id, node })))
+    clipboardRef.current = copies
+    setSelection({ pageId: page.id, nodeIds: copies.map((node) => node.id) })
+  }, [activePageId, commit])
+
+  const alignSelection = useCallback(
+    (alignment: Alignment) => {
+      const nodes = (selection?.nodeIds ?? []).flatMap((nodeId) => {
+        const node = findNode(historyRef.current.document, nodeId)
+        return node && !node.locked ? [node] : []
+      })
+      updateNodes(alignNodes(nodes, alignment))
+    },
+    [selection, updateNodes]
+  )
+
+  const distributeSelection = useCallback(
+    (distribution: Distribution) => {
+      const nodes = (selection?.nodeIds ?? []).flatMap((nodeId) => {
+        const node = findNode(historyRef.current.document, nodeId)
+        return node && !node.locked ? [node] : []
+      })
+      updateNodes(distributeNodes(nodes, distribution))
+    },
+    [selection, updateNodes]
+  )
+
+  const setSelectionLocked = useCallback(
+    (locked: boolean) => {
+      if (!selection?.nodeIds.length) return
+      updateNodes(
+        selection.nodeIds.map((nodeId) => ({ nodeId, patch: { locked } }))
+      )
+      if (locked) setSelection(null)
+    },
+    [selection, updateNodes]
+  )
+
+  const setSelectionVisible = useCallback(
+    (visible: boolean) => {
+      if (!selection?.nodeIds.length) return
+      updateNodes(
+        selection.nodeIds.map((nodeId) => ({ nodeId, patch: { visible } }))
+      )
+      if (!visible) setSelection(null)
+    },
+    [selection, updateNodes]
+  )
+
+  const reorderSelection = useCallback(
+    (edge: "front" | "back") => {
+      const document = historyRef.current.document
+      const page = document.pages.find(
+        (candidate) => candidate.id === activePageId
+      )
+      if (!page || !selection?.nodeIds.length) return
+      const selected = new Set(
+        selection.nodeIds.filter(
+          (nodeId) => !findNode(document, nodeId)?.locked
+        )
+      )
+      const nodeIds = page.nodeIds.filter((nodeId) => selected.has(nodeId))
+      if (!nodeIds.length) return
+      if (edge === "back") nodeIds.reverse()
+      commit(
+        nodeIds.map((nodeId) => ({
+          type: "reorder_node",
+          pageId: page.id,
+          nodeId,
+          toIndex: edge === "front" ? page.nodeIds.length - 1 : 0,
+        }))
+      )
+    },
+    [activePageId, commit, selection]
+  )
+
   const reorderNode = useCallback(
     (nodeId: string, direction: "forward" | "backward") => {
       const page = historyRef.current.document.pages.find(
@@ -270,6 +379,16 @@ export function useDocumentEditor() {
         duplicateSelection()
         return
       }
+      if (modifier && event.key.toLowerCase() === "c") {
+        event.preventDefault()
+        copySelection()
+        return
+      }
+      if (modifier && event.key.toLowerCase() === "v") {
+        event.preventDefault()
+        pasteSelection()
+        return
+      }
       if (modifier && event.key.toLowerCase() === "a") {
         event.preventDefault()
         selectAll()
@@ -323,9 +442,11 @@ export function useDocumentEditor() {
   }, [
     addRectangle,
     addText,
+    copySelection,
     deleteSelection,
     duplicateSelection,
     nudgeSelection,
+    pasteSelection,
     redo,
     selectAll,
     undo,
@@ -344,6 +465,7 @@ export function useDocumentEditor() {
     saveStatus,
     canUndo: history.past.length > 0,
     canRedo: history.future.length > 0,
+    canPaste: clipboardCount > 0,
     selectPage,
     setSelection,
     updateNodes,
@@ -353,6 +475,13 @@ export function useDocumentEditor() {
     addRectangle,
     deleteSelection,
     duplicateSelection,
+    copySelection,
+    pasteSelection,
+    alignSelection,
+    distributeSelection,
+    setSelectionLocked,
+    setSelectionVisible,
+    reorderSelection,
     reorderNode,
     undo,
     redo,

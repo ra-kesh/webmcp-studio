@@ -1,14 +1,26 @@
 import { useEffect, useState, type ComponentProps } from "react"
 import {
   AlignCenter,
+  AlignHorizontalJustifyCenter,
+  AlignHorizontalJustifyEnd,
+  AlignHorizontalJustifyStart,
+  AlignHorizontalSpaceBetween,
   AlignLeft,
   AlignRight,
+  AlignVerticalJustifyCenter,
+  AlignVerticalJustifyEnd,
+  AlignVerticalJustifyStart,
+  AlignVerticalSpaceBetween,
+  BringToFront,
   Check,
+  CopyPlus,
   Eye,
   EyeOff,
   Lock,
+  SendToBack,
   Sparkles,
   Square,
+  Trash2,
   Unlock,
   X,
 } from "lucide-react"
@@ -330,6 +342,165 @@ function NodeInspector({
   )
 }
 
+const alignmentActions = [
+  ["Align left", "left", AlignHorizontalJustifyStart],
+  [
+    "Align horizontal centers",
+    "horizontal-center",
+    AlignHorizontalJustifyCenter,
+  ],
+  ["Align right", "right", AlignHorizontalJustifyEnd],
+  ["Align top", "top", AlignVerticalJustifyStart],
+  ["Align vertical centers", "vertical-center", AlignVerticalJustifyCenter],
+  ["Align bottom", "bottom", AlignVerticalJustifyEnd],
+] as const
+
+function MultiSelectionInspector({
+  nodes,
+  onAlign,
+  onDistribute,
+  onSetLocked,
+  onSetVisible,
+  onReorder,
+  onDuplicate,
+  onDelete,
+}: {
+  nodes: SceneNode[]
+  onAlign(
+    alignment:
+      | "left"
+      | "horizontal-center"
+      | "right"
+      | "top"
+      | "vertical-center"
+      | "bottom"
+  ): void
+  onDistribute(distribution: "horizontal" | "vertical"): void
+  onSetLocked(locked: boolean): void
+  onSetVisible(visible: boolean): void
+  onReorder(edge: "front" | "back"): void
+  onDuplicate(): void
+  onDelete(): void
+}) {
+  const movableCount = nodes.filter((node) => !node.locked).length
+  const allLocked = nodes.every((node) => node.locked)
+  return (
+    <div className="flex flex-col">
+      <section className="flex flex-col gap-3 p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-xs font-medium">{nodes.length} layers</h2>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              Transform and arrange as one selection.
+            </p>
+          </div>
+          <div className="flex items-center gap-1">
+            <Button
+              aria-label="Hide selected layers"
+              title="Hide selected layers"
+              size="icon-sm"
+              variant="outline"
+              onClick={() => onSetVisible(false)}
+            >
+              <EyeOff />
+            </Button>
+            <Button
+              aria-label={
+                allLocked ? "Unlock selected layers" : "Lock selected layers"
+              }
+              title={
+                allLocked ? "Unlock selected layers" : "Lock selected layers"
+              }
+              size="icon-sm"
+              variant="outline"
+              onClick={() => onSetLocked(!allLocked)}
+            >
+              {allLocked ? <Unlock /> : <Lock />}
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      <Separator />
+      <section className="flex flex-col gap-3 p-4">
+        <FieldLabel>Align</FieldLabel>
+        <div className="grid grid-cols-6 gap-1">
+          {alignmentActions.map(([label, alignment, Icon]) => (
+            <Button
+              key={alignment}
+              aria-label={label}
+              title={label}
+              disabled={movableCount < 2}
+              size="icon"
+              variant="outline"
+              onClick={() => onAlign(alignment)}
+            >
+              <Icon />
+            </Button>
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <Button
+            disabled={movableCount < 3}
+            size="sm"
+            variant="outline"
+            onClick={() => onDistribute("horizontal")}
+          >
+            <AlignHorizontalSpaceBetween data-icon="inline-start" />
+            Space across
+          </Button>
+          <Button
+            disabled={movableCount < 3}
+            size="sm"
+            variant="outline"
+            onClick={() => onDistribute("vertical")}
+          >
+            <AlignVerticalSpaceBetween data-icon="inline-start" />
+            Space down
+          </Button>
+        </div>
+      </section>
+
+      <Separator />
+      <section className="flex flex-col gap-3 p-4">
+        <FieldLabel>Layer order</FieldLabel>
+        <div className="grid grid-cols-2 gap-2">
+          <Button
+            disabled={!movableCount}
+            size="sm"
+            variant="outline"
+            onClick={() => onReorder("front")}
+          >
+            <BringToFront data-icon="inline-start" />
+            To front
+          </Button>
+          <Button
+            disabled={!movableCount}
+            size="sm"
+            variant="outline"
+            onClick={() => onReorder("back")}
+          >
+            <SendToBack data-icon="inline-start" />
+            To back
+          </Button>
+        </div>
+      </section>
+
+      <Separator />
+      <section className="grid grid-cols-2 gap-2 p-4">
+        <Button size="sm" variant="outline" onClick={onDuplicate}>
+          <CopyPlus data-icon="inline-start" />
+          Duplicate
+        </Button>
+        <Button size="sm" variant="destructive" onClick={onDelete}>
+          <Trash2 data-icon="inline-start" />
+          Delete
+        </Button>
+      </section>
+    </div>
+  )
+}
+
 function FieldsPanel({
   document,
   onUpdateField,
@@ -485,12 +656,34 @@ export function InspectorSidebar({
   selectedNodes,
   onUpdateNode,
   onUpdateField,
+  onAlignSelection,
+  onDistributeSelection,
+  onSetSelectionLocked,
+  onSetSelectionVisible,
+  onReorderSelection,
+  onDuplicateSelection,
+  onDeleteSelection,
   className,
 }: {
   document: Document
   selectedNodes: SceneNode[]
   onUpdateNode(nodeId: string, patch: Partial<SceneNode>): void
   onUpdateField(fieldId: string, value: string | number | boolean): void
+  onAlignSelection(
+    alignment:
+      | "left"
+      | "horizontal-center"
+      | "right"
+      | "top"
+      | "vertical-center"
+      | "bottom"
+  ): void
+  onDistributeSelection(distribution: "horizontal" | "vertical"): void
+  onSetSelectionLocked(locked: boolean): void
+  onSetSelectionVisible(visible: boolean): void
+  onReorderSelection(edge: "front" | "back"): void
+  onDuplicateSelection(): void
+  onDeleteSelection(): void
   className?: string
 }) {
   const selectedNode = selectedNodes.length === 1 ? selectedNodes[0] : undefined
@@ -517,26 +710,26 @@ export function InspectorSidebar({
                 node={selectedNode}
                 onUpdate={(patch) => onUpdateNode(selectedNode.id, patch)}
               />
+            ) : selectedNodes.length > 1 ? (
+              <MultiSelectionInspector
+                nodes={selectedNodes}
+                onAlign={onAlignSelection}
+                onDistribute={onDistributeSelection}
+                onSetLocked={onSetSelectionLocked}
+                onSetVisible={onSetSelectionVisible}
+                onReorder={onReorderSelection}
+                onDuplicate={onDuplicateSelection}
+                onDelete={onDeleteSelection}
+              />
             ) : (
               <div className="flex min-h-56 flex-col items-center justify-center px-8 text-center">
                 <div className="mb-3 flex size-9 items-center justify-center rounded-lg border bg-muted/40">
-                  {selectedNodes.length > 1 ? (
-                    <span className="text-xs font-medium">
-                      {selectedNodes.length}
-                    </span>
-                  ) : (
-                    <Square className="size-4 text-muted-foreground" />
-                  )}
+                  <Square className="size-4 text-muted-foreground" />
                 </div>
-                <p className="text-xs font-medium">
-                  {selectedNodes.length > 1
-                    ? "Multiple layers selected"
-                    : "Nothing selected"}
-                </p>
+                <p className="text-xs font-medium">Nothing selected</p>
                 <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                  {selectedNodes.length > 1
-                    ? "Move or delete these layers together. Select one layer for detailed controls."
-                    : "Select an object on the canvas or in Layers to edit its properties."}
+                  Select an object on the canvas or in Layers to edit its
+                  properties.
                 </p>
               </div>
             )}
