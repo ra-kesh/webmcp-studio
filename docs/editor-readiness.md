@@ -15,6 +15,7 @@ Working today:
 - zoom, fit, page switching, and single-artboard PNG export
 - hand-tool, Space-drag, and middle-button workspace panning
 - page-edge, page-center, and object snapping with visible guides
+- equal-spacing snapping with measured horizontal and vertical gap guides
 - align-to-page and zoom-to-selection controls
 - local image restoration through IndexedDB without serializing blob URLs
 - searchable original asset library with self-contained renderer-safe artwork
@@ -45,7 +46,7 @@ or pasting an image URL.
 - [x] hand-tool pan, Space-drag pan, and middle-button pan
 - [x] page-edge, center, and object snapping
 - [x] visible alignment guides
-- [ ] equal-spacing guides
+- [x] equal-spacing guides
 - [x] align to selection
 - [x] align to page
 - [x] reliable keyboard nudging

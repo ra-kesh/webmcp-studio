@@ -56,4 +56,85 @@ describe("canvas snapping", () => {
       source: "page",
     })
   })
+
+  it("snaps an object to equal horizontal spacing between two peers", () => {
+    const result = calculateSnap(
+      { left: 294, top: 100, width: 100, height: 80 },
+      { width: 1200, height: 1000 },
+      [
+        { left: 100, top: 100, width: 100, height: 80 },
+        { left: 500, top: 100, width: 100, height: 80 },
+      ]
+    )
+
+    expect(result.deltaX).toBe(6)
+    expect(result.guides).toContainEqual({
+      axis: "x",
+      source: "spacing",
+      gap: 100,
+      spans: [
+        { start: 200, end: 300, cross: 78 },
+        { start: 400, end: 500, cross: 78 },
+      ],
+    })
+  })
+
+  it("extends an existing horizontal rhythm after the last peer", () => {
+    const result = calculateSnap(
+      { left: 394, top: 100, width: 100, height: 80 },
+      { width: 1200, height: 1000 },
+      [
+        { left: 100, top: 100, width: 100, height: 80 },
+        { left: 250, top: 100, width: 100, height: 80 },
+      ]
+    )
+
+    expect(result.deltaX).toBe(6)
+    expect(result.guides).toContainEqual({
+      axis: "x",
+      source: "spacing",
+      gap: 50,
+      spans: [
+        { start: 200, end: 250, cross: 78 },
+        { start: 350, end: 400, cross: 78 },
+      ],
+    })
+  })
+
+  it("snaps an object to equal vertical spacing", () => {
+    const result = calculateSnap(
+      { left: 100, top: 294, width: 80, height: 100 },
+      { width: 1000, height: 1200 },
+      [
+        { left: 100, top: 100, width: 80, height: 100 },
+        { left: 100, top: 500, width: 80, height: 100 },
+      ]
+    )
+
+    expect(result.deltaY).toBe(6)
+    expect(result.guides).toContainEqual({
+      axis: "y",
+      source: "spacing",
+      gap: 100,
+      spans: [
+        { start: 200, end: 300, cross: 78 },
+        { start: 400, end: 500, cross: 78 },
+      ],
+    })
+  })
+
+  it("does not offer spacing guides across unrelated rows", () => {
+    const result = calculateSnap(
+      { left: 294, top: 500, width: 100, height: 80 },
+      { width: 1200, height: 1000 },
+      [
+        { left: 100, top: 100, width: 100, height: 80 },
+        { left: 500, top: 100, width: 100, height: 80 },
+      ]
+    )
+
+    expect(result.guides).not.toContainEqual(
+      expect.objectContaining({ source: "spacing" })
+    )
+  })
 })

@@ -542,8 +542,48 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     context.save()
     context.strokeStyle = GUIDE_COLOR
     context.lineWidth = 2
-    context.setLineDash([8, 6])
     for (const guide of this.activeGuides) {
+      if (guide.source === "spacing") {
+        context.setLineDash([])
+        context.lineWidth = 2
+        context.font = "500 28px 'Geist Mono', ui-monospace, monospace"
+        context.textAlign = "center"
+        context.textBaseline = "middle"
+        for (const span of guide.spans) {
+          context.beginPath()
+          if (guide.axis === "x") {
+            context.moveTo(span.start, span.cross)
+            context.lineTo(span.end, span.cross)
+            context.moveTo(span.start, span.cross - 8)
+            context.lineTo(span.start, span.cross + 8)
+            context.moveTo(span.end, span.cross - 8)
+            context.lineTo(span.end, span.cross + 8)
+          } else {
+            context.moveTo(span.cross, span.start)
+            context.lineTo(span.cross, span.end)
+            context.moveTo(span.cross - 8, span.start)
+            context.lineTo(span.cross + 8, span.start)
+            context.moveTo(span.cross - 8, span.end)
+            context.lineTo(span.cross + 8, span.end)
+          }
+          context.stroke()
+
+          const label = `${Math.round(guide.gap)}`
+          const labelX =
+            guide.axis === "x" ? (span.start + span.end) / 2 : span.cross
+          const labelY =
+            guide.axis === "x" ? span.cross : (span.start + span.end) / 2
+          const labelWidth = context.measureText(label).width + 14
+          context.fillStyle = "rgba(255,255,255,0.96)"
+          context.fillRect(labelX - labelWidth / 2, labelY - 18, labelWidth, 36)
+          context.fillStyle = GUIDE_COLOR
+          context.fillText(label, labelX, labelY + 1)
+        }
+        continue
+      }
+
+      context.setLineDash([8, 6])
+      context.lineWidth = 2
       context.beginPath()
       if (guide.axis === "x") {
         context.moveTo(guide.value, 0)
