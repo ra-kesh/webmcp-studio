@@ -12,7 +12,7 @@ Working today:
 - text, rectangle, ellipse, line, SVG icon, and uploaded image insertion
 - layer selection, visibility, locking, step ordering, duplicate, and delete
 - multi-selection alignment, distribution, front/back ordering, and copy/paste
-- zoom, fit, page switching, and single-artboard PNG export
+- zoom, fit, page switching, single-artboard PNG export, and ordered multi-page PDF export
 - hand-tool, Space-drag, and middle-button workspace panning
 - page-edge, page-center, and object snapping with visible guides
 - equal-spacing snapping with measured horizontal and vertical gap guides
@@ -74,7 +74,7 @@ inside the product.
 - [x] fill, stroke color, stroke width, opacity, and corner radius
 - [x] deterministic image fitting and crop position
 - [x] validation for overflow, off-canvas nodes, missing assets, and invalid bindings
-- [ ] preview parity between Fabric, DOM render view, PNG, and multi-page PDF
+- [x] preview parity between Fabric, DOM render view, PNG, and multi-page PDF
 
 Exit condition: the same document looks materially identical in the editor,
 thumbnail, PNG, and PDF.

@@ -1,5 +1,10 @@
 import type { Document, SceneNode } from "@webmcp/document"
 
+const GEIST_FONT_URL =
+  "https://cdn.jsdelivr.net/npm/@fontsource-variable/geist@5.3.0/files/geist-latin-wght-normal.woff2"
+const geistFontFace = `@font-face{font-family:"Geist Variable";font-style:normal;font-display:block;font-weight:100 900;src:url("${GEIST_FONT_URL}") format("woff2")}`
+const fontReadyScript = `<script>document.fonts.ready.then(()=>document.documentElement.setAttribute("data-fonts-ready","true"))</script>`
+
 const escapeHtml = (value: string): string =>
   value
     .replaceAll("&", "&amp;")
@@ -62,18 +67,54 @@ function nodeMarkup(node: SceneNode): string {
   return `<div data-node-id="${escapeHtml(node.id)}" style="${textStyle}">${escapeHtml(node.text)}</div>`
 }
 
+function pageNodesMarkup(document: Document, pageId: string): string {
+  const page = document.pages.find((candidate) => candidate.id === pageId)
+  if (!page) throw new Error(`Unknown page: ${pageId}`)
+  const nodesById = new Map(document.nodes.map((node) => [node.id, node]))
+  return page.nodeIds
+    .map((nodeId) => nodesById.get(nodeId))
+    .filter((node): node is SceneNode => node !== undefined)
+    .map(nodeMarkup)
+    .join("")
+}
+
 export function renderDocumentToHtml(
   document: Document,
   pageId: string
 ): string {
   const page = document.pages.find((candidate) => candidate.id === pageId)
   if (!page) throw new Error(`Unknown page: ${pageId}`)
-  const nodesById = new Map(document.nodes.map((node) => [node.id, node]))
-  const nodes = page.nodeIds
-    .map((nodeId) => nodesById.get(nodeId))
-    .filter((node): node is SceneNode => node !== undefined)
-    .map(nodeMarkup)
+  const nodes = pageNodesMarkup(document, page.id)
+
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(page.name)}</title><style>${geistFontFace}*{box-sizing:border-box}html,body{margin:0;width:${page.width}px;height:${page.height}px;overflow:hidden}body{background:${escapeHtml(page.background)};-webkit-print-color-adjust:exact;print-color-adjust:exact}</style></head><body data-page-id="${escapeHtml(page.id)}">${nodes}${fontReadyScript}</body></html>`
+}
+
+export function renderOutputToHtml(
+  document: Document,
+  outputId: string
+): string {
+  const output = document.outputs.find((candidate) => candidate.id === outputId)
+  if (!output) throw new Error(`Unknown output: ${outputId}`)
+
+  const pages = output.pageIds.map((pageId) => {
+    const page = document.pages.find((candidate) => candidate.id === pageId)
+    if (!page || page.outputId !== output.id) {
+      throw new Error(`Unknown page ${pageId} for output ${outputId}`)
+    }
+    return page
+  })
+  const pageRules = pages
+    .map(
+      (page, index) =>
+        `@page studio-page-${index}{size:${page.width}px ${page.height}px;margin:0}.studio-page-${index}{page:studio-page-${index};width:${page.width}px;height:${page.height}px}`
+    )
+    .join("")
+  const sheets = pages
+    .map(
+      (page, index) =>
+        `<section class="studio-page studio-page-${index}" data-page-id="${escapeHtml(page.id)}" aria-label="${escapeHtml(page.name)}" style="background:${escapeHtml(page.background)}">${pageNodesMarkup(document, page.id)}</section>`
+    )
     .join("")
 
-  return `<!doctype html><html><head><meta charset="utf-8"><style>*{box-sizing:border-box}html,body{margin:0;width:${page.width}px;height:${page.height}px;overflow:hidden}body{background:${escapeHtml(page.background)}}</style></head><body>${nodes}</body></html>`
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(document.name)} — ${escapeHtml(output.name)}</title><style>${geistFontFace}*{box-sizing:border-box}html,body{margin:0;padding:0}.studio-page{position:relative;overflow:hidden;break-after:page;page-break-after:always;-webkit-print-color-adjust:exact;print-color-adjust:exact}.studio-page:last-child{break-after:auto;page-break-after:auto}${pageRules}</style></head><body>${sheets}${fontReadyScript}</body></html>`
 }

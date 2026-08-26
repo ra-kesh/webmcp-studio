@@ -63,6 +63,10 @@ import {
 } from "./editor/fabric-artboard"
 import { InspectorSidebar } from "./editor/inspector-sidebar"
 import { useDocumentEditor } from "./editor/use-document-editor"
+import {
+  loadLocalAsset,
+  localAssetIdFromSource,
+} from "./editor/local-asset-store"
 
 const HEART_ICON_PATH =
   "M12 21.35 10.55 20.03C5.4 15.36 2 12.27 2 8.5 2 5.41 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.08C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.41 22 8.5c0 3.77-3.4 6.86-8.55 11.54Z"
@@ -71,6 +75,18 @@ const isEditableTarget = (target: EventTarget | null) =>
   target instanceof HTMLInputElement ||
   target instanceof HTMLTextAreaElement ||
   (target instanceof HTMLElement && target.isContentEditable)
+
+const blobToDataUrl = (blob: Blob) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () =>
+      typeof reader.result === "string"
+        ? resolve(reader.result)
+        : reject(new Error("The image could not be prepared for export."))
+    reader.onerror = () =>
+      reject(reader.error ?? new Error("The image could not be read."))
+    reader.readAsDataURL(blob)
+  })
 
 function IconButton({
   label,
@@ -114,6 +130,9 @@ export function StudioShell() {
   const [apiCopied, setApiCopied] = useState(false)
   const [assetLibraryOpen, setAssetLibraryOpen] = useState(false)
   const [newDocumentOpen, setNewDocumentOpen] = useState(false)
+  const [pdfExportState, setPdfExportState] = useState<
+    "idle" | "exporting" | "error"
+  >("idle")
   const [compactPanel, setCompactPanel] = useState<
     "document" | "inspector" | null
   >(null)
@@ -131,6 +150,9 @@ export function StudioShell() {
   } | null>(null)
   const activePage = editor.document.pages.find(
     (page) => page.id === editor.activePageId
+  )
+  const activeOutput = editor.document.outputs.find(
+    (output) => output.id === activePage?.outputId
   )
 
   const centerCanvasInWorkspace = useCallback(() => {
@@ -285,6 +307,49 @@ export function StudioShell() {
     link.click()
     link.remove()
     window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+  }
+
+  const exportPdf = async () => {
+    if (!activeOutput || !activeOutput.exportFormats.includes("pdf")) return
+    setPdfExportState("exporting")
+    try {
+      const exportNodes = await Promise.all(
+        editor.document.nodes.map(async (node) => {
+          if (node.type !== "image") return node
+          const localAssetId = localAssetIdFromSource(node.src)
+          if (!localAssetId) return node
+          const blob = await loadLocalAsset(localAssetId)
+          if (!blob) {
+            throw new Error(`The local image “${node.name}” is unavailable.`)
+          }
+          return { ...node, src: await blobToDataUrl(blob) }
+        })
+      )
+      const response = await fetch("/v1/studio/export-pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          outputId: activeOutput.id,
+          document: { ...editor.document, nodes: exportNodes },
+        }),
+      })
+      if (!response.ok) {
+        throw new Error(`PDF export failed (${response.status}).`)
+      }
+      const objectUrl = URL.createObjectURL(await response.blob())
+      const link = document.createElement("a")
+      link.download = `${activeOutput.name.toLowerCase().replaceAll(" ", "-")}.pdf`
+      link.href = objectUrl
+      link.hidden = true
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+      setPdfExportState("idle")
+    } catch {
+      setPdfExportState("error")
+      window.setTimeout(() => setPdfExportState("idle"), 3000)
+    }
   }
 
   const exportDocumentJson = () => {
@@ -646,10 +711,40 @@ export function StudioShell() {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <Button size="sm" onClick={exportPng}>
-            <Download data-icon="inline-start" />
-            Export PNG
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="sm"
+                disabled={pdfExportState === "exporting"}
+                aria-label="Export output"
+              >
+                <Download data-icon="inline-start" />
+                {pdfExportState === "exporting"
+                  ? "Exporting…"
+                  : pdfExportState === "error"
+                    ? "Export failed"
+                    : "Export"}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-64">
+              <DropdownMenuLabel>
+                {activeOutput?.name ?? "Current output"}
+              </DropdownMenuLabel>
+              <DropdownMenuItem onSelect={exportPng}>
+                <Download />
+                Current page as PNG
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={!activeOutput?.exportFormats.includes("pdf")}
+                onSelect={() => void exportPdf()}
+              >
+                <Download />
+                {activeOutput
+                  ? `${activeOutput.pageIds.length}-page PDF`
+                  : "Output PDF"}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </header>
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { applyCommand, northstarSeed, type SceneNode } from "@webmcp/document"
-import { renderDocumentToHtml } from "../src/html"
+import { renderDocumentToHtml, renderOutputToHtml } from "../src/html"
 
 describe("renderer HTML", () => {
   it("renders canonical nodes without a Fabric dependency", () => {
@@ -116,5 +116,47 @@ describe("renderer HTML", () => {
     expect(html).toContain('alt="Sandstone arches"')
     expect(html).toContain("object-fit:contain")
     expect(html).toContain("object-position:25% 75%")
+  })
+
+  it("renders every output page in canonical order for mixed-size PDFs", () => {
+    const html = renderOutputToHtml(northstarSeed, "proposal")
+
+    expect(html).toContain("@page studio-page-0{size:1240px 1754px;margin:0}")
+    expect(html).toContain('data-page-id="cover"')
+    expect(html).toContain('data-page-id="story"')
+    expect(html).toContain('data-page-id="terms"')
+    expect(html.indexOf('data-page-id="cover"')).toBeLessThan(
+      html.indexOf('data-page-id="story"')
+    )
+    expect(html).toContain("break-after:page")
+    expect(html).toContain("print-color-adjust:exact")
+    expect(html).not.toContain('data-page-id="whatsapp-card"')
+  })
+
+  it("keeps canonical typography and stroke values in export HTML", () => {
+    const withTypography = applyCommand(northstarSeed, {
+      id: "cmd-render-typography",
+      type: "update_node",
+      actor: "human",
+      at: "2026-08-26T09:30:00.000Z",
+      nodeId: "cover-title",
+      patch: { lineHeight: 1.04, letterSpacing: -1.2 },
+    })
+    const document = applyCommand(withTypography, {
+      id: "cmd-render-stroke",
+      type: "update_node",
+      actor: "human",
+      at: "2026-08-26T09:31:00.000Z",
+      nodeId: "cover-panel",
+      patch: { stroke: "#ffffff", strokeWidth: 3 },
+    })
+    const html = renderDocumentToHtml(document, "cover")
+
+    expect(html).toContain("line-height:1.04")
+    expect(html).toContain("letter-spacing:-1.2px")
+    expect(html).toContain("font-weight:600")
+    expect(html).toContain("border:3px solid #ffffff")
+    expect(html).toContain('@font-face{font-family:"Geist Variable"')
+    expect(html).toContain("@fontsource-variable/geist@5.3.0")
   })
 })
