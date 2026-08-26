@@ -1,6 +1,7 @@
 import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router"
+import { TooltipProvider } from "@webmcp/ui/components/tooltip"
 
-import appCss from "@workspace/ui/globals.css?url"
+import appCss from "@webmcp/ui/globals.css?url"
 
 export const Route = createRootRoute({
   head: () => ({
@@ -13,7 +14,12 @@ export const Route = createRootRoute({
         content: "width=device-width, initial-scale=1",
       },
       {
-        title: "TanStack Start Starter",
+        title: "Proposal studio",
+      },
+      {
+        name: "description",
+        content:
+          "A programmable visual document studio built for the WebMCP Challenge.",
       },
     ],
     links: [
@@ -39,7 +45,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <HeadContent />
       </head>
       <body>
-        {children}
+        <TooltipProvider>{children}</TooltipProvider>
         <Scripts />
       </body>
     </html>

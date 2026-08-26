@@ -1,0 +1,22 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "webmcp-studio-renderer",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-26",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "upload_source_maps": true,
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+  },
+  "browser": {
+    "binding": "BROWSER",
+  },
+  "r2_buckets": [
+    {
+      "binding": "RENDERS",
+      "bucket_name": "webmcp-studio-renders",
+    },
+  ],
+}

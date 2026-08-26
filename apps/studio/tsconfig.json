@@ -14,7 +14,10 @@
     "types": ["vite/client"],
     "paths": {
       "@/*": ["./src/*"],
-      "@workspace/ui/*": ["../../packages/ui/src/*"]
+      "@webmcp/document": ["../../packages/document/src/index.ts"],
+      "@webmcp/render-view": ["../../packages/render-view/src/index.tsx"],
+      "@webmcp/ui/*": ["../../packages/ui/src/*"],
+      "@webmcp/webmcp": ["../../packages/webmcp/src/index.ts"]
     },
 
     /* Bundler mode */
