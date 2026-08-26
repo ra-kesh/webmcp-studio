@@ -16,16 +16,12 @@ import type { Document, SceneNode } from "@webmcp/document"
 import { toolCatalog } from "@webmcp/webmcp"
 import { Badge } from "@webmcp/ui/components/badge"
 import { Button } from "@webmcp/ui/components/button"
+import { EditorPanelTabsList } from "@webmcp/ui/components/editor-chrome"
 import { Input } from "@webmcp/ui/components/input"
 import { ScrollArea } from "@webmcp/ui/components/scroll-area"
 import { Separator } from "@webmcp/ui/components/separator"
 import { Slider } from "@webmcp/ui/components/slider"
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@webmcp/ui/components/tabs"
+import { Tabs, TabsContent, TabsTrigger } from "@webmcp/ui/components/tabs"
 import { Textarea } from "@webmcp/ui/components/textarea"
 import { cn } from "@webmcp/ui/lib/utils"
 
@@ -503,20 +499,17 @@ export function InspectorSidebar({
       className={cn("flex min-h-0 flex-col border-l bg-background", className)}
     >
       <Tabs defaultValue="design" className="min-h-0 flex-1 gap-0">
-        <div className="flex h-11 items-center px-3">
-          <TabsList variant="line" className="h-8 w-full justify-start">
-            <TabsTrigger value="design" className="flex-none px-2.5 text-xs">
-              Design
-            </TabsTrigger>
-            <TabsTrigger value="fields" className="flex-none px-2.5 text-xs">
-              Fields
-            </TabsTrigger>
-            <TabsTrigger value="review" className="flex-none px-2.5 text-xs">
-              Review
-            </TabsTrigger>
-          </TabsList>
-        </div>
-        <Separator />
+        <EditorPanelTabsList aria-label="Inspector panels">
+          <TabsTrigger value="design" className="flex-none px-2.5 text-xs">
+            Design
+          </TabsTrigger>
+          <TabsTrigger value="fields" className="flex-none px-2.5 text-xs">
+            Fields
+          </TabsTrigger>
+          <TabsTrigger value="review" className="flex-none px-2.5 text-xs">
+            Review
+          </TabsTrigger>
+        </EditorPanelTabsList>
         <TabsContent value="design" className="min-h-0">
           <ScrollArea className="h-full">
             {selectedNode ? (

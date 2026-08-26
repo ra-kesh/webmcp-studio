@@ -14,14 +14,9 @@ import type { Selection } from "@webmcp/editor"
 import { Artboard } from "@webmcp/render-view"
 import { Badge } from "@webmcp/ui/components/badge"
 import { Button } from "@webmcp/ui/components/button"
+import { EditorPanelTabsList } from "@webmcp/ui/components/editor-chrome"
 import { ScrollArea } from "@webmcp/ui/components/scroll-area"
-import { Separator } from "@webmcp/ui/components/separator"
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@webmcp/ui/components/tabs"
+import { Tabs, TabsContent, TabsTrigger } from "@webmcp/ui/components/tabs"
 import { cn } from "@webmcp/ui/lib/utils"
 
 const nodeIcon = {
@@ -171,17 +166,14 @@ export function DocumentSidebar({
       className={cn("flex min-h-0 flex-col border-r bg-background", className)}
     >
       <Tabs defaultValue="outputs" className="min-h-0 flex-1 gap-0">
-        <div className="flex h-11 items-center px-3">
-          <TabsList variant="line" className="h-8 w-full justify-start">
-            <TabsTrigger value="outputs" className="flex-none px-2.5 text-xs">
-              Outputs
-            </TabsTrigger>
-            <TabsTrigger value="layers" className="flex-none px-2.5 text-xs">
-              Layers
-            </TabsTrigger>
-          </TabsList>
-        </div>
-        <Separator />
+        <EditorPanelTabsList aria-label="Document panels">
+          <TabsTrigger value="outputs" className="flex-none px-2.5 text-xs">
+            Outputs
+          </TabsTrigger>
+          <TabsTrigger value="layers" className="flex-none px-2.5 text-xs">
+            Layers
+          </TabsTrigger>
+        </EditorPanelTabsList>
         <TabsContent value="outputs" className="min-h-0">
           <ScrollArea className="h-full">
             <OutputList

@@ -22,6 +22,7 @@ import {
 import type { SceneNode } from "@webmcp/document"
 import { Badge } from "@webmcp/ui/components/badge"
 import { Button } from "@webmcp/ui/components/button"
+import { EditorPanelHeader } from "@webmcp/ui/components/editor-chrome"
 import { Separator } from "@webmcp/ui/components/separator"
 import { Slider } from "@webmcp/ui/components/slider"
 import {
@@ -154,7 +155,7 @@ export function StudioShell() {
 
   return (
     <main className="flex h-dvh min-h-dvh w-full min-w-0 flex-col overflow-hidden bg-background text-foreground">
-      <header className="flex h-12 shrink-0 items-center gap-3 border-b px-3">
+      <header className="flex h-(--studio-topbar-height) shrink-0 items-center gap-3 border-b px-3">
         <div className="flex w-44 min-w-0 items-center gap-2.5 sm:w-60">
           <div className="flex size-7 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <Sparkles className="size-3.5" />
@@ -169,7 +170,7 @@ export function StudioShell() {
           </div>
         </div>
 
-        <Separator className="h-5" orientation="vertical" />
+        <Separator orientation="vertical" />
         <div className="flex items-center gap-0.5">
           <IconButton
             label="Select"
@@ -189,7 +190,7 @@ export function StudioShell() {
             <Square />
           </IconButton>
         </div>
-        <Separator className="h-5" orientation="vertical" />
+        <Separator orientation="vertical" />
         <div className="flex items-center gap-0.5">
           <IconButton
             label="Undo"
@@ -211,7 +212,7 @@ export function StudioShell() {
 
         {editor.selection?.nodeIds.length ? (
           <>
-            <Separator className="h-5" orientation="vertical" />
+            <Separator orientation="vertical" />
             <div className="flex items-center gap-0.5">
               <IconButton
                 label="Duplicate"
@@ -282,7 +283,7 @@ export function StudioShell() {
         />
 
         <section className="relative flex min-h-0 flex-col bg-workspace">
-          <div className="flex h-11 shrink-0 items-center border-b bg-background/92 px-3 backdrop-blur-sm">
+          <EditorPanelHeader className="bg-background/92 backdrop-blur-sm">
             <IconButton
               label="Open outputs and layers"
               className="mr-1 min-[1120px]:hidden"
@@ -314,7 +315,7 @@ export function StudioShell() {
             >
               <SlidersHorizontal />
             </IconButton>
-          </div>
+          </EditorPanelHeader>
           <div
             ref={workspaceRef}
             className="workspace-grid flex min-h-0 flex-1 items-center justify-center overflow-auto p-6 min-[1120px]:p-14 sm:p-10"
@@ -395,7 +396,7 @@ export function StudioShell() {
                 compactPanel === "document" ? "left-0" : "right-0"
               }`}
             >
-              <div className="flex h-11 shrink-0 items-center border-b px-3">
+              <EditorPanelHeader>
                 <span className="text-xs font-medium">
                   {compactPanel === "document"
                     ? "Document navigator"
@@ -410,7 +411,7 @@ export function StudioShell() {
                 >
                   <X />
                 </Button>
-              </div>
+              </EditorPanelHeader>
               {compactPanel === "document" ? (
                 <DocumentSidebar
                   className="min-h-0 flex-1 border-r-0"
