@@ -18,6 +18,7 @@ import {
   commitCommands,
   createDocumentHistory,
   redoDocument,
+  replaceDocument,
   undoDocument,
   type DocumentHistory,
 } from "@webmcp/editor/history"
@@ -28,6 +29,7 @@ import {
   localAssetSource,
   saveLocalAsset,
 } from "./local-asset-store"
+import type { StudioAsset } from "./asset-catalog"
 
 const STORAGE_KEY = "webmcp-studio:northstar-document:v1"
 
@@ -62,6 +64,7 @@ export function useDocumentEditor() {
   const [assetVersion, setAssetVersion] = useState(0)
   const [isImportingAsset, setIsImportingAsset] = useState(false)
   const [assetError, setAssetError] = useState<string | null>(null)
+  const [documentError, setDocumentError] = useState<string | null>(null)
   const didRestore = useRef(false)
   const clipboardRef = useRef<SceneNode[]>([])
   const assetUrlsRef = useRef(new Map<string, string>())
@@ -383,6 +386,8 @@ export function useDocumentEditor() {
           src: localAssetSource(assetId),
           alt: file.name,
           fit: "cover",
+          cropX: 0.5,
+          cropY: 0.5,
           x: Math.round((page.width - width) / 2),
           y: Math.round((page.height - height) / 2),
           width,
@@ -404,6 +409,118 @@ export function useDocumentEditor() {
     },
     [activePageId, commit]
   )
+
+  const addLibraryAsset = useCallback(
+    (asset: StudioAsset) => {
+      const page = historyRef.current.document.pages.find(
+        (candidate) => candidate.id === activePageId
+      )
+      if (!page) return
+      const maxWidth = Math.min(640, page.width * 0.64)
+      const maxHeight = Math.min(640, page.height * 0.64)
+      const scale = Math.min(
+        maxWidth / asset.width,
+        maxHeight / asset.height,
+        1
+      )
+      const width = Math.max(1, Math.round(asset.width * scale))
+      const height = Math.max(1, Math.round(asset.height * scale))
+      const id = `image-${crypto.randomUUID()}`
+      const node: SceneNode = {
+        id,
+        type: "image",
+        name: asset.name,
+        assetId: `library-${asset.id}`,
+        src: asset.src,
+        alt: asset.description,
+        fit: "cover",
+        cropX: 0.5,
+        cropY: 0.5,
+        x: Math.round((page.width - width) / 2),
+        y: Math.round((page.height - height) / 2),
+        width,
+        height,
+        rotation: 0,
+        opacity: 1,
+        visible: true,
+        locked: false,
+      }
+      commit([{ type: "add_node", pageId: page.id, node }])
+      setSelection({ pageId: page.id, nodeIds: [id] })
+    },
+    [activePageId, commit]
+  )
+
+  const replaceImageFile = useCallback(
+    async (nodeId: string, file: File) => {
+      setAssetError(null)
+      if (!file.type.startsWith("image/")) {
+        setAssetError("Choose a PNG, JPEG, WebP, GIF, or SVG image.")
+        return
+      }
+      if (file.size > 25 * 1024 * 1024) {
+        setAssetError("Images must be smaller than 25 MB.")
+        return
+      }
+      const node = findNode(historyRef.current.document, nodeId)
+      if (!node || node.type !== "image") return
+      setIsImportingAsset(true)
+      try {
+        await getImageDimensions(file)
+        const assetId = `asset-${crypto.randomUUID()}`
+        await saveLocalAsset(file, assetId)
+        assetUrlsRef.current.set(assetId, URL.createObjectURL(file))
+        setAssetVersion((current) => current + 1)
+        commit([
+          {
+            type: "update_node",
+            nodeId,
+            patch: {
+              assetId,
+              src: localAssetSource(assetId),
+              alt: file.name,
+            },
+          },
+        ])
+      } catch {
+        setAssetError(
+          "The image could not be replaced. The local asset store may be unavailable."
+        )
+      } finally {
+        setIsImportingAsset(false)
+      }
+    },
+    [commit]
+  )
+
+  const importDocumentFile = useCallback(async (file: File) => {
+    setDocumentError(null)
+    try {
+      const parsedJson = JSON.parse(await file.text()) as unknown
+      const parsed = documentSchema.safeParse(parsedJson)
+      if (!parsed.success) {
+        const issue = parsed.error.issues[0]
+        const location = issue?.path.length ? issue.path.join(".") : "document"
+        throw new Error(`${location}: ${issue?.message ?? "Invalid document"}`)
+      }
+      setHistory((current) => replaceDocument(current, parsed.data))
+      setActivePageId((current) =>
+        parsed.data.pages.some((page) => page.id === current)
+          ? current
+          : (parsed.data.pages[0]?.id ?? current)
+      )
+      setSelection(null)
+      setSaveStatus("saving")
+    } catch (error) {
+      setDocumentError(
+        error instanceof SyntaxError
+          ? "This file is not valid JSON."
+          : error instanceof Error
+            ? `The document could not be imported: ${error.message}`
+            : "The document could not be imported."
+      )
+    }
+  }, [])
 
   const deleteSelection = useCallback(() => {
     if (!selection?.nodeIds.length) return
@@ -745,6 +862,7 @@ export function useDocumentEditor() {
     canPaste: clipboardCount > 0,
     isImportingAsset,
     assetError,
+    documentError,
     selectPage,
     setSelection,
     updateNodes,
@@ -756,6 +874,9 @@ export function useDocumentEditor() {
     addLine,
     addIcon,
     addImageFile,
+    addLibraryAsset,
+    replaceImageFile,
+    importDocumentFile,
     deleteSelection,
     duplicateSelection,
     copySelection,

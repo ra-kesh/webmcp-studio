@@ -16,6 +16,7 @@ import {
   CopyPlus,
   Eye,
   EyeOff,
+  ImageUp,
   Lock,
   SendToBack,
   Sparkles,
@@ -36,6 +37,10 @@ import { Separator } from "@webmcp/ui/components/separator"
 import { Slider } from "@webmcp/ui/components/slider"
 import { Tabs, TabsContent, TabsTrigger } from "@webmcp/ui/components/tabs"
 import { Textarea } from "@webmcp/ui/components/textarea"
+import {
+  ToggleGroup,
+  ToggleGroupItem,
+} from "@webmcp/ui/components/toggle-group"
 import { cn } from "@webmcp/ui/lib/utils"
 
 type Decision = "pending" | "accepted" | "rejected" | "applied"
@@ -207,10 +212,12 @@ function NodeInspector({
   node,
   onUpdate,
   onAlignToPage,
+  onReplaceImage,
 }: {
   node: SceneNode
   onUpdate(patch: Partial<SceneNode>): void
   onAlignToPage(alignment: Alignment): void
+  onReplaceImage(nodeId: string): void
 }) {
   return (
     <div className="flex flex-col">
@@ -421,11 +428,72 @@ function NodeInspector({
         <>
           <Separator />
           <section className="flex flex-col gap-3 p-4">
-            {node.src.startsWith("asset:local/") ? (
+            <div className="flex items-center justify-between gap-3">
+              <FieldLabel>Image fit</FieldLabel>
+              <ToggleGroup
+                type="single"
+                size="sm"
+                spacing={0}
+                variant="outline"
+                value={node.fit}
+                onValueChange={(fit) =>
+                  fit && onUpdate({ fit: fit as "cover" | "contain" })
+                }
+              >
+                <ToggleGroupItem value="cover">Cover</ToggleGroupItem>
+                <ToggleGroupItem value="contain">Contain</ToggleGroupItem>
+              </ToggleGroup>
+            </div>
+            <label className="flex flex-col gap-2">
+              <span className="flex items-center justify-between">
+                <FieldLabel>Horizontal focus</FieldLabel>
+                <span className="font-mono text-[10px] text-muted-foreground">
+                  {Math.round(node.cropX * 100)}%
+                </span>
+              </span>
+              <Slider
+                value={[node.cropX * 100]}
+                max={100}
+                step={1}
+                onValueCommit={([value]) =>
+                  value !== undefined && onUpdate({ cropX: value / 100 })
+                }
+              />
+            </label>
+            <label className="flex flex-col gap-2">
+              <span className="flex items-center justify-between">
+                <FieldLabel>Vertical focus</FieldLabel>
+                <span className="font-mono text-[10px] text-muted-foreground">
+                  {Math.round(node.cropY * 100)}%
+                </span>
+              </span>
+              <Slider
+                value={[node.cropY * 100]}
+                max={100}
+                step={1}
+                onValueCommit={([value]) =>
+                  value !== undefined && onUpdate({ cropY: value / 100 })
+                }
+              />
+            </label>
+            <label className="space-y-1.5">
+              <FieldLabel>Alternative text</FieldLabel>
+              <CommitInput
+                placeholder="Describe the image"
+                value={node.alt}
+                onCommit={(alt) => onUpdate({ alt })}
+              />
+            </label>
+            {node.src.startsWith("asset:local/") ||
+            node.assetId.startsWith("library-") ? (
               <div className="space-y-1.5">
                 <FieldLabel>Source</FieldLabel>
                 <div className="rounded-lg border bg-muted/40 px-2.5 py-2">
-                  <p className="text-xs font-medium">Uploaded image</p>
+                  <p className="text-xs font-medium">
+                    {node.assetId.startsWith("library-")
+                      ? "Studio library asset"
+                      : "Uploaded image"}
+                  </p>
                   <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
                     {node.assetId}
                   </p>
@@ -440,6 +508,14 @@ function NodeInspector({
                 />
               </label>
             )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onReplaceImage(node.id)}
+            >
+              <ImageUp data-icon="inline-start" />
+              Replace image…
+            </Button>
           </section>
         </>
       ) : null}
@@ -738,6 +814,7 @@ export function InspectorSidebar({
   onReorderSelection,
   onDuplicateSelection,
   onDeleteSelection,
+  onReplaceImage,
   className,
 }: {
   document: Document
@@ -752,6 +829,7 @@ export function InspectorSidebar({
   onReorderSelection(edge: "front" | "back"): void
   onDuplicateSelection(): void
   onDeleteSelection(): void
+  onReplaceImage(nodeId: string): void
   className?: string
 }) {
   const selectedNode = selectedNodes.length === 1 ? selectedNodes[0] : undefined
@@ -778,6 +856,7 @@ export function InspectorSidebar({
                 node={selectedNode}
                 onUpdate={(patch) => onUpdateNode(selectedNode.id, patch)}
                 onAlignToPage={onAlignSelectionToPage}
+                onReplaceImage={onReplaceImage}
               />
             ) : selectedNodes.length > 1 ? (
               <MultiSelectionInspector

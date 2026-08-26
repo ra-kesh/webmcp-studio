@@ -27,6 +27,17 @@ export function commitCommands(
   }
 }
 
+export function replaceDocument(
+  history: DocumentHistory,
+  document: Document
+): DocumentHistory {
+  return {
+    document,
+    past: [...history.past.slice(-99), history.document],
+    future: [],
+  }
+}
+
 export function undoDocument(history: DocumentHistory): DocumentHistory {
   const document = history.past.at(-1)
   if (!document) return history

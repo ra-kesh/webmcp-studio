@@ -55,6 +55,8 @@ export const sceneNodeSchema = z.discriminatedUnion("type", [
     assetId: id,
     src: z.string(),
     fit: z.enum(["cover", "contain"]).default("cover"),
+    cropX: z.number().min(0).max(1).default(0.5),
+    cropY: z.number().min(0).max(1).default(0.5),
     alt: z.string().default(""),
   }),
 ])

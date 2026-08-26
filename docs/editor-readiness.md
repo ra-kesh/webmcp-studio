@@ -17,7 +17,10 @@ Working today:
 - page-edge, page-center, and object snapping with visible guides
 - align-to-page and zoom-to-selection controls
 - local image restoration through IndexedDB without serializing blob URLs
-- basic text, shape, image source, geometry, opacity, and field controls
+- searchable original asset library with self-contained renderer-safe artwork
+- deterministic image cover/contain, focal position, replacement, and alt text
+- undoable Studio JSON import and self-contained document export
+- basic text, shape, geometry, opacity, and field controls
 
 This is a useful interaction base, not a finished editor.
 
@@ -30,9 +33,9 @@ until all four blocks below pass their exit conditions.
 
 - [x] ellipse, line, and simple SVG/icon nodes in the canonical schema
 - [x] image upload with durable local asset storage
-- [ ] seeded licensed asset library, search, and insertion
-- [ ] image cover/contain, crop position, replace, and alt text
-- [ ] own-format JSON import and export
+- [x] seeded licensed asset library, search, and insertion
+- [x] image cover/contain, crop position, replace, and alt text
+- [x] own-format JSON import and export
 
 Exit condition: a new blank artboard can be designed without editing source code
 or pasting an image URL.

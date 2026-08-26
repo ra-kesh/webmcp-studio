@@ -108,7 +108,11 @@ function RenderNode({ node }: { node: SceneNode }) {
       data-node-id={node.id}
       alt={node.alt}
       src={node.src}
-      style={{ ...nodeStyle(node), objectFit: node.fit }}
+      style={{
+        ...nodeStyle(node),
+        objectFit: node.fit,
+        objectPosition: `${node.cropX * 100}% ${node.cropY * 100}%`,
+      }}
     />
   )
 }

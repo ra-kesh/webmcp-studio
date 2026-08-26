@@ -8,10 +8,12 @@ import {
   CopyPlus,
   Circle,
   Download,
+  FileJson2,
   Focus,
   Heart,
   Hand,
   ImagePlus,
+  Images,
   Layers3,
   Minus,
   MousePointer2,
@@ -50,6 +52,7 @@ import {
   TooltipTrigger,
 } from "@webmcp/ui/components/tooltip"
 import { DocumentSidebar } from "./editor/document-sidebar"
+import { AssetLibraryDialog } from "./editor/asset-library-dialog"
 import {
   FabricArtboard,
   type FabricArtboardHandle,
@@ -105,12 +108,15 @@ export function StudioShell() {
   const [spacePressed, setSpacePressed] = useState(false)
   const [isPanning, setIsPanning] = useState(false)
   const [apiCopied, setApiCopied] = useState(false)
+  const [assetLibraryOpen, setAssetLibraryOpen] = useState(false)
   const [compactPanel, setCompactPanel] = useState<
     "document" | "inspector" | null
   >(null)
   const workspaceRef = useRef<HTMLDivElement>(null)
   const artboardRef = useRef<FabricArtboardHandle>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
+  const documentInputRef = useRef<HTMLInputElement>(null)
+  const pendingImageReplacementRef = useRef<string | null>(null)
   const panSessionRef = useRef<{
     pointerId: number
     clientX: number
@@ -276,6 +282,32 @@ export function StudioShell() {
     window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
   }
 
+  const exportDocumentJson = () => {
+    const contents = JSON.stringify(editor.document, null, 2)
+    const objectUrl = URL.createObjectURL(
+      new Blob([contents], { type: "application/json" })
+    )
+    const link = document.createElement("a")
+    const slug =
+      editor.document.name
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "") || "studio-document"
+    link.download = `${slug}.studio.json`
+    link.href = objectUrl
+    link.hidden = true
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+  }
+
+  const openImagePicker = (replacementNodeId: string | null = null) => {
+    pendingImageReplacementRef.current = replacementNodeId
+    imageInputRef.current?.click()
+  }
+
   const copyApiExample = async () => {
     await navigator.clipboard.writeText(
       `curl -X POST https://your-studio.example/v1/studio/render \\\n+  -H "Authorization: Bearer $STUDIO_API_KEY" \\\n+  -H "Content-Type: application/json" \\\n+  -d '{"templateId":"northstar-wedding","data":{"couple_names":"Aditi & Kabir"},"formats":["png"]}'`
@@ -416,10 +448,14 @@ export function StudioShell() {
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   disabled={editor.isImportingAsset}
-                  onSelect={() => imageInputRef.current?.click()}
+                  onSelect={() => openImagePicker()}
                 >
                   <ImagePlus />
                   {editor.isImportingAsset ? "Adding image…" : "Upload image…"}
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setAssetLibraryOpen(true)}>
+                  <Images />
+                  Asset library…
                 </DropdownMenuItem>
               </DropdownMenuGroup>
             </DropdownMenuContent>
@@ -431,7 +467,24 @@ export function StudioShell() {
             accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
             onChange={(event) => {
               const file = event.currentTarget.files?.[0]
-              if (file) void editor.addImageFile(file)
+              const replacementNodeId = pendingImageReplacementRef.current
+              if (file && replacementNodeId) {
+                void editor.replaceImageFile(replacementNodeId, file)
+              } else if (file) {
+                void editor.addImageFile(file)
+              }
+              pendingImageReplacementRef.current = null
+              event.currentTarget.value = ""
+            }}
+          />
+          <input
+            ref={documentInputRef}
+            className="sr-only"
+            type="file"
+            accept=".json,application/json"
+            onChange={(event) => {
+              const file = event.currentTarget.files?.[0]
+              if (file) void editor.importDocumentFile(file)
               event.currentTarget.value = ""
             }}
           />
@@ -505,6 +558,15 @@ export function StudioShell() {
               {editor.assetError}
             </Badge>
           ) : null}
+          {editor.documentError ? (
+            <Badge
+              variant="destructive"
+              className="hidden max-w-64 truncate font-normal min-[1050px]:inline-flex"
+              title={editor.documentError}
+            >
+              {editor.documentError}
+            </Badge>
+          ) : null}
           <Badge
             variant={editor.saveStatus === "error" ? "destructive" : "outline"}
             className="hidden font-normal text-muted-foreground min-[900px]:inline-flex"
@@ -535,6 +597,30 @@ export function StudioShell() {
             )}
             {apiCopied ? "Copied" : "API example"}
           </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                aria-label="Document file actions"
+                size="icon-sm"
+                variant="outline"
+              >
+                <FileJson2 />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuLabel>Studio document</DropdownMenuLabel>
+              <DropdownMenuItem onSelect={exportDocumentJson}>
+                <Download />
+                Export document JSON
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => documentInputRef.current?.click()}
+              >
+                <FileJson2 />
+                Import document JSON…
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button size="sm" onClick={exportPng}>
             <Download data-icon="inline-start" />
             Export PNG
@@ -691,6 +777,7 @@ export function StudioShell() {
           onReorderSelection={editor.reorderSelection}
           onDuplicateSelection={editor.duplicateSelection}
           onDeleteSelection={editor.deleteSelection}
+          onReplaceImage={openImagePicker}
         />
 
         {compactPanel ? (
@@ -751,12 +838,19 @@ export function StudioShell() {
                   onReorderSelection={editor.reorderSelection}
                   onDuplicateSelection={editor.duplicateSelection}
                   onDeleteSelection={editor.deleteSelection}
+                  onReplaceImage={openImagePicker}
                 />
               )}
             </div>
           </div>
         ) : null}
       </div>
+      <AssetLibraryDialog
+        open={assetLibraryOpen}
+        onOpenChange={setAssetLibraryOpen}
+        onInsert={editor.addLibraryAsset}
+        onUpload={() => openImagePicker()}
+      />
     </main>
   )
 }

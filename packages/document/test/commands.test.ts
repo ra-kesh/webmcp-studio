@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { applyCommand, northstarSeed, validateDocument } from "../src"
+import {
+  applyCommand,
+  northstarSeed,
+  sceneNodeSchema,
+  validateDocument,
+} from "../src"
 
 describe("canonical document commands", () => {
   it("applies one shared field to every bound output", () => {
@@ -28,6 +33,27 @@ describe("canonical document commands", () => {
       (issue) => issue.severity === "error"
     )
     expect(structuralErrors).toEqual([])
+  })
+
+  it("normalizes legacy image nodes to a centered crop", () => {
+    const image = sceneNodeSchema.parse({
+      id: "image-one",
+      type: "image",
+      name: "Editorial image",
+      assetId: "asset-one",
+      src: "https://example.com/image.jpg",
+      x: 0,
+      y: 0,
+      width: 640,
+      height: 480,
+    })
+
+    expect(image).toMatchObject({
+      fit: "cover",
+      cropX: 0.5,
+      cropY: 0.5,
+      alt: "",
+    })
   })
 
   it("reorders nodes without coupling the document to a renderer", () => {

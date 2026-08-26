@@ -4,6 +4,7 @@ import {
   Ellipse,
   FabricImage,
   FabricObject,
+  Group,
   Line,
   Path,
   Rect,
@@ -147,18 +148,113 @@ function createSyncObject(node: Exclude<SceneNode, { type: "image" }>) {
 }
 
 async function createImageObject(node: Extract<SceneNode, { type: "image" }>) {
-  const image = await FabricImage.fromURL(
-    node.src,
-    { crossOrigin: "anonymous" },
-    sharedOptions(node)
-  )
-  const naturalWidth = image.width || node.width
-  const naturalHeight = image.height || node.height
-  image.set({
-    scaleX: node.width / naturalWidth,
-    scaleY: node.height / naturalHeight,
+  const image = await FabricImage.fromURL(node.src, {
+    crossOrigin: "anonymous",
   })
-  return image
+  return createImageGroup(node, image)
+}
+
+function imageFrame(node: Extract<SceneNode, { type: "image" }>) {
+  return new Rect({
+    left: 0,
+    top: 0,
+    width: node.width,
+    height: node.height,
+    originX: "left",
+    originY: "top",
+    fill: "rgba(0,0,0,0)",
+    strokeWidth: 0,
+    selectable: false,
+    evented: false,
+  })
+}
+
+function layoutImage(
+  image: FabricImage,
+  node: Extract<SceneNode, { type: "image" }>
+) {
+  const element = image.getElement()
+  const naturalWidth =
+    ("naturalWidth" in element ? element.naturalWidth : element.width) ||
+    image.width ||
+    1
+  const naturalHeight =
+    ("naturalHeight" in element ? element.naturalHeight : element.height) ||
+    image.height ||
+    1
+  const focusX = Math.min(1, Math.max(0, node.cropX))
+  const focusY = Math.min(1, Math.max(0, node.cropY))
+
+  if (node.fit === "cover") {
+    const scale = Math.max(
+      node.width / naturalWidth,
+      node.height / naturalHeight
+    )
+    const sourceWidth = node.width / scale
+    const sourceHeight = node.height / scale
+    image.set({
+      left: 0,
+      top: 0,
+      width: sourceWidth,
+      height: sourceHeight,
+      cropX: (naturalWidth - sourceWidth) * focusX,
+      cropY: (naturalHeight - sourceHeight) * focusY,
+      scaleX: scale,
+      scaleY: scale,
+    })
+  } else {
+    const scale = Math.min(
+      node.width / naturalWidth,
+      node.height / naturalHeight
+    )
+    const renderedWidth = naturalWidth * scale
+    const renderedHeight = naturalHeight * scale
+    image.set({
+      left: (node.width - renderedWidth) * focusX,
+      top: (node.height - renderedHeight) * focusY,
+      width: naturalWidth,
+      height: naturalHeight,
+      cropX: 0,
+      cropY: 0,
+      scaleX: scale,
+      scaleY: scale,
+    })
+  }
+  image.set({
+    originX: "left",
+    originY: "top",
+    selectable: false,
+    evented: false,
+  })
+  image.setCoords()
+}
+
+function imageGroupOptions(node: Extract<SceneNode, { type: "image" }>) {
+  const { width: _width, height: _height, ...options } = sharedOptions(node)
+  return { ...options, scaleX: 1, scaleY: 1, subTargetCheck: false }
+}
+
+function createImageGroup(
+  node: Extract<SceneNode, { type: "image" }>,
+  image: FabricImage
+) {
+  layoutImage(image, node)
+  return new Group([imageFrame(node), image], imageGroupOptions(node))
+}
+
+function syncImageGroup(
+  group: Group,
+  node: Extract<SceneNode, { type: "image" }>
+) {
+  const image = group
+    .getObjects()
+    .find((object): object is FabricImage => object instanceof FabricImage)
+  if (!image) return
+  layoutImage(image, node)
+  group.removeAll()
+  group.add(imageFrame(node), image)
+  group.set(imageGroupOptions(node))
+  group.setCoords()
 }
 
 function syncObjectFromNode(object: FabricObject, node: SceneNode) {
@@ -216,13 +312,9 @@ function syncObjectFromNode(object: FabricObject, node: SceneNode) {
       textAlign: node.align,
       editable: !node.locked,
     })
-  } else if (node.type === "image" && object instanceof FabricImage) {
-    const naturalWidth = object.width || node.width
-    const naturalHeight = object.height || node.height
-    delete options.width
-    delete options.height
-    options.scaleX = node.width / naturalWidth
-    options.scaleY = node.height / naturalHeight
+  } else if (node.type === "image" && object instanceof Group) {
+    syncImageGroup(object, node)
+    return
   }
 
   object.set(options)
@@ -315,6 +407,23 @@ export class FabricCanvasAdapter implements CanvasAdapter {
         const node = nodesById.get(nodeId)
         if (!node) continue
         let object = this.objectByNodeId.get(nodeId)
+
+        if (object && node.type === "image") {
+          const image =
+            object instanceof Group
+              ? object
+                  .getObjects()
+                  .find(
+                    (child): child is FabricImage =>
+                      child instanceof FabricImage
+                  )
+              : undefined
+          if (!image || image.getSrc() !== node.src) {
+            canvas.remove(object)
+            this.objectByNodeId.delete(nodeId)
+            object = undefined
+          }
+        }
 
         if (!object) {
           object =

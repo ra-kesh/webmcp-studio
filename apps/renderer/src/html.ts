@@ -45,7 +45,7 @@ function nodeMarkup(node: SceneNode): string {
   }
 
   if (node.type === "image") {
-    return `<img data-node-id="${escapeHtml(node.id)}" src="${escapeHtml(node.src)}" alt="${escapeHtml(node.alt)}" style="${common};object-fit:${node.fit}" />`
+    return `<img data-node-id="${escapeHtml(node.id)}" src="${escapeHtml(node.src)}" alt="${escapeHtml(node.alt)}" style="${common};object-fit:${node.fit};object-position:${node.cropX * 100}% ${node.cropY * 100}%" />`
   }
 
   const textStyle = [

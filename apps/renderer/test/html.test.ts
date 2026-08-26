@@ -83,4 +83,38 @@ describe("renderer HTML", () => {
     expect(html).toContain('viewBox="0 0 24 24"')
     expect(html).toContain("transform-origin:top left")
   })
+
+  it("renders image fit, focal position, and alternative text", () => {
+    const document = applyCommand(northstarSeed, {
+      id: "cmd-render-image",
+      type: "add_node",
+      actor: "human",
+      at: "2026-08-26T09:30:00.000Z",
+      pageId: "cover",
+      node: {
+        id: "test-image",
+        type: "image",
+        name: "Editorial image",
+        assetId: "asset-one",
+        src: "https://example.com/image.jpg",
+        alt: "Sandstone arches",
+        fit: "contain",
+        cropX: 0.25,
+        cropY: 0.75,
+        x: 100,
+        y: 120,
+        width: 640,
+        height: 480,
+        rotation: 0,
+        opacity: 1,
+        visible: true,
+        locked: false,
+      },
+    })
+
+    const html = renderDocumentToHtml(document, "cover")
+    expect(html).toContain('alt="Sandstone arches"')
+    expect(html).toContain("object-fit:contain")
+    expect(html).toContain("object-position:25% 75%")
+  })
 })

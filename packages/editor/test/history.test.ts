@@ -4,6 +4,7 @@ import {
   commitCommands,
   createDocumentHistory,
   redoDocument,
+  replaceDocument,
   undoDocument,
 } from "../src/history"
 
@@ -33,5 +34,19 @@ describe("document history", () => {
     const undone = undoDocument(changed)
     expect(undone.document).toEqual(northstarSeed)
     expect(redoDocument(undone).document).toEqual(changed.document)
+  })
+
+  it("imports a replacement document as one undoable change", () => {
+    const initial = createDocumentHistory(northstarSeed)
+    const imported = {
+      ...northstarSeed,
+      id: "imported-document",
+      name: "Imported document",
+    }
+    const changed = replaceDocument(initial, imported)
+
+    expect(changed.document).toEqual(imported)
+    expect(changed.future).toEqual([])
+    expect(undoDocument(changed).document).toEqual(northstarSeed)
   })
 })
