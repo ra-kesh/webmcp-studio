@@ -9,13 +9,16 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@webmcp/document": "workspace:*"
+    "@webmcp/document": "workspace:*",
+    "fabric": "^7.4.0"
   },
   "devDependencies": {
     "typescript": "^6",
     "vitest": "latest"
   },
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./fabric": "./src/fabric-adapter.ts",
+    "./history": "./src/history.ts"
   }
 }

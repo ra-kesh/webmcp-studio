@@ -130,9 +130,36 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-feature-settings: "ss01", "cv02", "cv11";
   }
   button:not(:disabled),
   [role="button"]:not(:disabled) {
     cursor: pointer;
+  }
+}
+
+@layer utilities {
+  .workspace-grid {
+    background-image: radial-gradient(
+      circle at center,
+      color-mix(in oklch, var(--foreground) 9%, transparent) 0.75px,
+      transparent 0.8px
+    );
+    background-size: 18px 18px;
+  }
+
+  .canvas-container {
+    touch-action: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      scroll-behavior: auto !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 }

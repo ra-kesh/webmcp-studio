@@ -13,12 +13,18 @@ The challenge demo uses synthetic data for a fictional wedding photography studi
 - shared shadcn/ui package using Radix Nova, Geist Sans, and Geist Mono
 - canonical TypeScript document schema, commands, bindings, validation, and tests
 - seven-artboard synthetic proposal pack shared by UI and renderer
-- interactive editor shell with output rail, preview, fields, and operation review
+- Fabric-powered editor with drag, resize, rotate, inline text editing, selection,
+  layers, property controls, shared fields, zoom, PNG export, and review
+- canonical undo/redo, batched multi-object edits, keyboard controls, and resilient
+  local draft autosave
 - route-aware WebMCP tool catalog
 - public API route contracts for templates and render jobs
 - private renderer Worker that turns the canonical document into HTML, captures PNG with Cloudflare Browser Run, and writes it to R2
 
-The editor interaction adapter, persistence, live WebMCP registration, immutable publishing, and complete render-job lifecycle are planned work. The current API render route returns a queued contract response but does not persist the job yet.
+D1 persistence, live WebMCP registration, immutable publishing, and the complete
+render-job lifecycle are planned work. The current browser draft is stored locally,
+and the API render route returns a queued contract response but does not persist the
+job yet.
 
 ## Start locally
 
@@ -58,7 +64,7 @@ apps/
   renderer/      private Browser Run Worker
 packages/
   document/      canonical schema, commands, field bindings, validation
-  editor/        canvas adapter boundary and editor state contracts
+  editor/        Fabric adapter, canonical history, and editor state contracts
   render-view/   deterministic React view of the canonical document
   ui/            shadcn source components and design tokens
   webmcp/        route-aware tool catalog and service boundary

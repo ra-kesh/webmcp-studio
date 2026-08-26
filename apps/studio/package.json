@@ -21,6 +21,7 @@
     "@tanstack/react-start": "latest",
     "@tanstack/router-plugin": "latest",
     "@webmcp/document": "workspace:*",
+    "@webmcp/editor": "workspace:*",
     "@webmcp/render-view": "workspace:*",
     "@webmcp/ui": "workspace:*",
     "@webmcp/webmcp": "workspace:*",

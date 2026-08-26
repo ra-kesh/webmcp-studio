@@ -39,6 +39,10 @@ Owns schemas, types, commands, reducer behavior, revisions, field application, v
 
 Defines editor state and the canvas adapter boundary. The Fabric implementation converts user gestures into document commands and projects canonical nodes into Fabric objects. Fabric JSON never crosses the persistence boundary.
 
+The adapter reconciles Fabric objects by stable node ID, preserves selection during
+document updates, and batches multi-object transforms into one history checkpoint.
+Undo and redo restore canonical `Document` snapshots rather than renderer state.
+
 ### `packages/render-view`
 
 Renders a canonical page as deterministic DOM. The studio uses it for the current vertical slice and non-interactive previews. The Browser Run renderer builds equivalent HTML for export.

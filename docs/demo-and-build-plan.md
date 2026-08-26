@@ -35,6 +35,11 @@ Exit condition: `bun run check` passes, both Workers deploy, and one R2 PNG matc
 
 Exit condition: manual editing survives reload and undo.
 
+Status: implemented except freeform canvas panning. The current workspace uses
+scrolling plus fit/slider zoom because that is the clearer interaction for the fixed
+artboards in the demo. Drafts survive reload in local storage; D1 autosave replaces
+that checkpoint on Day 3.
+
 ## Day 3
 
 - output and page management

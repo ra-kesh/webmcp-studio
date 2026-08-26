@@ -118,6 +118,12 @@ export const documentCommandSchema = z.discriminatedUnion("type", [
     type: z.literal("remove_node"),
     nodeId: id,
   }),
+  commandBaseSchema.extend({
+    type: z.literal("reorder_node"),
+    pageId: id,
+    nodeId: id,
+    toIndex: z.number().int().nonnegative(),
+  }),
 ])
 
 export const changeOperationSchema = z.object({

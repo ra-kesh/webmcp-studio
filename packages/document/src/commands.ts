@@ -119,6 +119,31 @@ export function applyCommand(
       }
       break
     }
+    case "reorder_node": {
+      const page = document.pages.find(
+        (candidate) => candidate.id === command.pageId
+      )
+      if (!page) throw new Error(`Unknown page: ${command.pageId}`)
+      const currentIndex = page.nodeIds.indexOf(command.nodeId)
+      if (currentIndex < 0) {
+        throw new Error(
+          `Node ${command.nodeId} is not on page ${command.pageId}`
+        )
+      }
+      const nodeIds = [...page.nodeIds]
+      const [nodeId] = nodeIds.splice(currentIndex, 1)
+      if (!nodeId) throw new Error(`Unknown node: ${command.nodeId}`)
+      nodeIds.splice(Math.min(command.toIndex, nodeIds.length), 0, nodeId)
+      next = {
+        ...document,
+        pages: document.pages.map((candidate) =>
+          candidate.id === command.pageId
+            ? { ...candidate, nodeIds }
+            : candidate
+        ),
+      }
+      break
+    }
   }
 
   return documentSchema.parse({

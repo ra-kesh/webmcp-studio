@@ -29,4 +29,28 @@ describe("canonical document commands", () => {
     )
     expect(structuralErrors).toEqual([])
   })
+
+  it("reorders nodes without coupling the document to a renderer", () => {
+    const page = northstarSeed.pages.find(
+      (candidate) => candidate.id === "cover"
+    )
+    expect(page).toBeDefined()
+    const nodeId = page?.nodeIds[0]
+    expect(nodeId).toBeDefined()
+
+    const updated = applyCommand(northstarSeed, {
+      id: "cmd-reorder-cover",
+      type: "reorder_node",
+      actor: "human",
+      at: "2026-08-26T09:30:00.000Z",
+      pageId: "cover",
+      nodeId: nodeId ?? "",
+      toIndex: 2,
+    })
+
+    const updatedPage = updated.pages.find(
+      (candidate) => candidate.id === "cover"
+    )
+    expect(updatedPage?.nodeIds[2]).toBe(nodeId)
+  })
 })
