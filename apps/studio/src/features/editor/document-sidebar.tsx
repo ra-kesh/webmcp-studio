@@ -1,10 +1,13 @@
 import {
   ChevronDown,
   ChevronUp,
+  Circle,
   Eye,
   EyeOff,
   ImageIcon,
   Lock,
+  Minus,
+  Shapes,
   Square,
   Type,
   Unlock,
@@ -22,6 +25,9 @@ import { cn } from "@webmcp/ui/lib/utils"
 const nodeIcon = {
   text: Type,
   rect: Square,
+  ellipse: Circle,
+  line: Minus,
+  icon: Shapes,
   image: ImageIcon,
 } as const
 

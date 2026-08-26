@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   documentSchema,
   northstarSeed,
@@ -20,6 +20,13 @@ import {
   undoDocument,
   type DocumentHistory,
 } from "@webmcp/editor/history"
+import {
+  getImageDimensions,
+  loadLocalAsset,
+  localAssetIdFromSource,
+  localAssetSource,
+  saveLocalAsset,
+} from "./local-asset-store"
 
 const STORAGE_KEY = "webmcp-studio:northstar-document:v1"
 
@@ -51,8 +58,13 @@ export function useDocumentEditor() {
   const [selection, setSelection] = useState<Selection | null>(null)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("saved")
   const [clipboardCount, setClipboardCount] = useState(0)
+  const [assetVersion, setAssetVersion] = useState(0)
+  const [isImportingAsset, setIsImportingAsset] = useState(false)
+  const [assetError, setAssetError] = useState<string | null>(null)
   const didRestore = useRef(false)
   const clipboardRef = useRef<SceneNode[]>([])
+  const assetUrlsRef = useRef(new Map<string, string>())
+  const loadingAssetIdsRef = useRef(new Set<string>())
   const historyRef = useRef(history)
   historyRef.current = history
 
@@ -85,6 +97,66 @@ export function useDocumentEditor() {
     }, 450)
     return () => window.clearTimeout(timeout)
   }, [history.document])
+
+  useEffect(() => {
+    let cancelled = false
+    const missingAssetIds = history.document.nodes.flatMap((node) => {
+      if (node.type !== "image") return []
+      const assetId = localAssetIdFromSource(node.src)
+      return assetId &&
+        !assetUrlsRef.current.has(assetId) &&
+        !loadingAssetIdsRef.current.has(assetId)
+        ? [assetId]
+        : []
+    })
+    if (!missingAssetIds.length) return
+    const uniqueAssetIds = [...new Set(missingAssetIds)]
+    for (const assetId of uniqueAssetIds) {
+      loadingAssetIdsRef.current.add(assetId)
+    }
+    void Promise.all(
+      uniqueAssetIds.map(async (assetId) => {
+        const blob = await loadLocalAsset(assetId)
+        return blob ? ([assetId, URL.createObjectURL(blob)] as const) : null
+      })
+    )
+      .then((assets) => {
+        if (cancelled) {
+          for (const asset of assets) {
+            if (asset) URL.revokeObjectURL(asset[1])
+          }
+          return
+        }
+        let changed = false
+        for (const asset of assets) {
+          if (!asset || assetUrlsRef.current.has(asset[0])) continue
+          assetUrlsRef.current.set(asset[0], asset[1])
+          changed = true
+        }
+        if (changed) setAssetVersion((current) => current + 1)
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAssetError("A saved image could not be restored on this device.")
+        }
+      })
+      .finally(() => {
+        for (const assetId of uniqueAssetIds) {
+          loadingAssetIdsRef.current.delete(assetId)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [history.document.nodes])
+
+  useEffect(
+    () => () => {
+      for (const url of assetUrlsRef.current.values()) URL.revokeObjectURL(url)
+      assetUrlsRef.current.clear()
+    },
+    []
+  )
 
   const commit = useCallback((drafts: CommandDraft[]) => {
     if (!drafts.length) return
@@ -179,6 +251,158 @@ export function useDocumentEditor() {
     commit([{ type: "add_node", pageId: page.id, node }])
     setSelection({ pageId: page.id, nodeIds: [id] })
   }, [activePageId, commit])
+
+  const addEllipse = useCallback(() => {
+    const page = historyRef.current.document.pages.find(
+      (candidate) => candidate.id === activePageId
+    )
+    if (!page) return
+    const id = `ellipse-${crypto.randomUUID()}`
+    const node: SceneNode = {
+      id,
+      type: "ellipse",
+      name: "Ellipse",
+      x: Math.round(page.width / 2 - 150),
+      y: Math.round(page.height / 2 - 150),
+      width: 300,
+      height: 300,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+      fill: "#d9c9b2",
+      strokeWidth: 0,
+    }
+    commit([{ type: "add_node", pageId: page.id, node }])
+    setSelection({ pageId: page.id, nodeIds: [id] })
+  }, [activePageId, commit])
+
+  const addLine = useCallback(() => {
+    const page = historyRef.current.document.pages.find(
+      (candidate) => candidate.id === activePageId
+    )
+    if (!page) return
+    const id = `line-${crypto.randomUUID()}`
+    const node: SceneNode = {
+      id,
+      type: "line",
+      name: "Line",
+      x: Math.round(page.width / 2 - 180),
+      y: Math.round(page.height / 2),
+      width: 360,
+      height: 1,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+      stroke: "#1e2622",
+      strokeWidth: 4,
+    }
+    commit([{ type: "add_node", pageId: page.id, node }])
+    setSelection({ pageId: page.id, nodeIds: [id] })
+  }, [activePageId, commit])
+
+  const addIcon = useCallback(
+    ({
+      name,
+      path,
+      viewBox,
+    }: {
+      name: string
+      path: string
+      viewBox: string
+    }) => {
+      const page = historyRef.current.document.pages.find(
+        (candidate) => candidate.id === activePageId
+      )
+      if (!page) return
+      const id = `icon-${crypto.randomUUID()}`
+      const node: SceneNode = {
+        id,
+        type: "icon",
+        name,
+        path,
+        viewBox,
+        x: Math.round(page.width / 2 - 90),
+        y: Math.round(page.height / 2 - 90),
+        width: 180,
+        height: 180,
+        rotation: 0,
+        opacity: 1,
+        visible: true,
+        locked: false,
+        fill: "#8a5d38",
+        strokeWidth: 0,
+      }
+      commit([{ type: "add_node", pageId: page.id, node }])
+      setSelection({ pageId: page.id, nodeIds: [id] })
+    },
+    [activePageId, commit]
+  )
+
+  const addImageFile = useCallback(
+    async (file: File) => {
+      setAssetError(null)
+      if (!file.type.startsWith("image/")) {
+        setAssetError("Choose a PNG, JPEG, WebP, GIF, or SVG image.")
+        return
+      }
+      if (file.size > 25 * 1024 * 1024) {
+        setAssetError("Images must be smaller than 25 MB.")
+        return
+      }
+      const page = historyRef.current.document.pages.find(
+        (candidate) => candidate.id === activePageId
+      )
+      if (!page) return
+      setIsImportingAsset(true)
+      try {
+        const assetId = `asset-${crypto.randomUUID()}`
+        const dimensions = await getImageDimensions(file)
+        await saveLocalAsset(file, assetId)
+        const objectUrl = URL.createObjectURL(file)
+        assetUrlsRef.current.set(assetId, objectUrl)
+        setAssetVersion((current) => current + 1)
+
+        const maxWidth = Math.min(640, page.width * 0.64)
+        const maxHeight = Math.min(640, page.height * 0.64)
+        const scale = Math.min(
+          maxWidth / dimensions.width,
+          maxHeight / dimensions.height,
+          1
+        )
+        const width = Math.max(1, Math.round(dimensions.width * scale))
+        const height = Math.max(1, Math.round(dimensions.height * scale))
+        const id = `image-${crypto.randomUUID()}`
+        const node: SceneNode = {
+          id,
+          type: "image",
+          name: file.name.replace(/\.[^.]+$/, "") || "Image",
+          assetId,
+          src: localAssetSource(assetId),
+          alt: file.name,
+          fit: "cover",
+          x: Math.round((page.width - width) / 2),
+          y: Math.round((page.height - height) / 2),
+          width,
+          height,
+          rotation: 0,
+          opacity: 1,
+          visible: true,
+          locked: false,
+        }
+        commit([{ type: "add_node", pageId: page.id, node }])
+        setSelection({ pageId: page.id, nodeIds: [id] })
+      } catch {
+        setAssetError(
+          "The image could not be added. The local asset store may be unavailable."
+        )
+      } finally {
+        setIsImportingAsset(false)
+      }
+    },
+    [activePageId, commit]
+  )
 
   const deleteSelection = useCallback(() => {
     if (!selection?.nodeIds.length) return
@@ -404,6 +628,16 @@ export function useDocumentEditor() {
         addRectangle()
         return
       }
+      if (!modifier && event.key.toLowerCase() === "o") {
+        event.preventDefault()
+        addEllipse()
+        return
+      }
+      if (!modifier && event.key.toLowerCase() === "l") {
+        event.preventDefault()
+        addLine()
+        return
+      }
       if (!modifier && event.key.toLowerCase() === "v") {
         event.preventDefault()
         setSelection(null)
@@ -441,6 +675,8 @@ export function useDocumentEditor() {
     return () => window.removeEventListener("keydown", onKeyDown)
   }, [
     addRectangle,
+    addEllipse,
+    addLine,
     addText,
     copySelection,
     deleteSelection,
@@ -457,8 +693,22 @@ export function useDocumentEditor() {
     return node ? [node] : []
   })
 
+  const previewDocument = useMemo(
+    () => ({
+      ...history.document,
+      nodes: history.document.nodes.map((node) => {
+        if (node.type !== "image") return node
+        const assetId = localAssetIdFromSource(node.src)
+        const previewUrl = assetId ? assetUrlsRef.current.get(assetId) : null
+        return previewUrl ? { ...node, src: previewUrl } : node
+      }),
+    }),
+    [assetVersion, history.document]
+  )
+
   return {
     document: history.document,
+    previewDocument,
     activePageId,
     selection,
     selectedNodes,
@@ -466,6 +716,8 @@ export function useDocumentEditor() {
     canUndo: history.past.length > 0,
     canRedo: history.future.length > 0,
     canPaste: clipboardCount > 0,
+    isImportingAsset,
+    assetError,
     selectPage,
     setSelection,
     updateNodes,
@@ -473,6 +725,10 @@ export function useDocumentEditor() {
     updateField,
     addText,
     addRectangle,
+    addEllipse,
+    addLine,
+    addIcon,
+    addImageFile,
     deleteSelection,
     duplicateSelection,
     copySelection,

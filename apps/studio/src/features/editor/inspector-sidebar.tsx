@@ -324,17 +324,74 @@ function NodeInspector({
         </>
       ) : null}
 
+      {node.type === "ellipse" || node.type === "icon" ? (
+        <>
+          <Separator />
+          <section className="flex flex-col gap-3 p-4">
+            <ColorField
+              label="Fill"
+              value={node.fill}
+              onCommit={(fill) => onUpdate({ fill })}
+            />
+            <ColorField
+              label="Stroke"
+              value={node.stroke ?? "#1e2622"}
+              onCommit={(stroke) => onUpdate({ stroke })}
+            />
+            <NumberField
+              label="Stroke width"
+              value={node.strokeWidth}
+              onCommit={(strokeWidth) =>
+                onUpdate({ strokeWidth: Math.max(0, strokeWidth) })
+              }
+            />
+          </section>
+        </>
+      ) : null}
+
+      {node.type === "line" ? (
+        <>
+          <Separator />
+          <section className="flex flex-col gap-3 p-4">
+            <ColorField
+              label="Stroke"
+              value={node.stroke}
+              onCommit={(stroke) => onUpdate({ stroke })}
+            />
+            <NumberField
+              label="Stroke width"
+              value={node.strokeWidth}
+              onCommit={(strokeWidth) =>
+                strokeWidth > 0 && onUpdate({ strokeWidth })
+              }
+            />
+          </section>
+        </>
+      ) : null}
+
       {node.type === "image" ? (
         <>
           <Separator />
           <section className="flex flex-col gap-3 p-4">
-            <label className="space-y-1.5">
-              <FieldLabel>Image URL</FieldLabel>
-              <CommitInput
-                value={node.src}
-                onCommit={(src) => onUpdate({ src })}
-              />
-            </label>
+            {node.src.startsWith("asset:local/") ? (
+              <div className="space-y-1.5">
+                <FieldLabel>Source</FieldLabel>
+                <div className="rounded-lg border bg-muted/40 px-2.5 py-2">
+                  <p className="text-xs font-medium">Uploaded image</p>
+                  <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
+                    {node.assetId}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <label className="space-y-1.5">
+                <FieldLabel>Image URL</FieldLabel>
+                <CommitInput
+                  value={node.src}
+                  onCommit={(src) => onUpdate({ src })}
+                />
+              </label>
+            )}
           </section>
         </>
       ) : null}

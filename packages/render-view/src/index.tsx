@@ -9,7 +9,7 @@ const nodeStyle = (node: SceneNode): CSSProperties => ({
   height: node.height,
   opacity: node.opacity,
   transform: `rotate(${node.rotation}deg)`,
-  transformOrigin: "center",
+  transformOrigin: "top left",
   display: node.visible ? undefined : "none",
 })
 
@@ -45,6 +45,61 @@ function RenderNode({ node }: { node: SceneNode }) {
           borderRadius: node.radius,
         }}
       />
+    )
+  }
+
+  if (node.type === "ellipse") {
+    return (
+      <div
+        data-node-id={node.id}
+        style={{
+          ...nodeStyle(node),
+          background: node.fill,
+          border: node.stroke
+            ? `${node.strokeWidth}px solid ${node.stroke}`
+            : undefined,
+          borderRadius: "50%",
+        }}
+      />
+    )
+  }
+
+  if (node.type === "line") {
+    return (
+      <svg
+        data-node-id={node.id}
+        style={{ ...nodeStyle(node), overflow: "visible" }}
+        viewBox={`0 0 ${node.width} ${node.height}`}
+        preserveAspectRatio="none"
+      >
+        <line
+          x1="0"
+          y1="0"
+          x2={node.width}
+          y2={node.height}
+          stroke={node.stroke}
+          strokeWidth={node.strokeWidth}
+          vectorEffect="non-scaling-stroke"
+        />
+      </svg>
+    )
+  }
+
+  if (node.type === "icon") {
+    return (
+      <svg
+        data-node-id={node.id}
+        style={nodeStyle(node)}
+        viewBox={node.viewBox}
+        preserveAspectRatio="xMidYMid meet"
+      >
+        <path
+          d={node.path}
+          fill={node.fill}
+          stroke={node.stroke}
+          strokeWidth={node.strokeWidth}
+        />
+      </svg>
     )
   }
 

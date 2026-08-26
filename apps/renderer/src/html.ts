@@ -17,11 +17,31 @@ function nodeMarkup(node: SceneNode): string {
     `height:${node.height}px`,
     `opacity:${node.opacity}`,
     `transform:rotate(${node.rotation}deg)`,
+    "transform-origin:top left",
     `display:${node.visible ? "block" : "none"}`,
   ].join(";")
 
   if (node.type === "rect") {
-    return `<div data-node-id="${escapeHtml(node.id)}" style="${common};background:${escapeHtml(node.fill)};border-radius:${node.radius}px"></div>`
+    const border = node.stroke
+      ? `;border:1px solid ${escapeHtml(node.stroke)}`
+      : ""
+    return `<div data-node-id="${escapeHtml(node.id)}" style="${common};background:${escapeHtml(node.fill)};border-radius:${node.radius}px${border}"></div>`
+  }
+
+  if (node.type === "ellipse") {
+    const border = node.stroke
+      ? `;border:${node.strokeWidth}px solid ${escapeHtml(node.stroke)}`
+      : ""
+    return `<div data-node-id="${escapeHtml(node.id)}" style="${common};background:${escapeHtml(node.fill)};border-radius:50%${border}"></div>`
+  }
+
+  if (node.type === "line") {
+    return `<svg data-node-id="${escapeHtml(node.id)}" viewBox="0 0 ${node.width} ${node.height}" preserveAspectRatio="none" style="${common};overflow:visible"><line x1="0" y1="0" x2="${node.width}" y2="${node.height}" stroke="${escapeHtml(node.stroke)}" stroke-width="${node.strokeWidth}" vector-effect="non-scaling-stroke" /></svg>`
+  }
+
+  if (node.type === "icon") {
+    const stroke = node.stroke ? ` stroke="${escapeHtml(node.stroke)}"` : ""
+    return `<svg data-node-id="${escapeHtml(node.id)}" viewBox="${escapeHtml(node.viewBox)}" preserveAspectRatio="xMidYMid meet" style="${common}"><path d="${escapeHtml(node.path)}" fill="${escapeHtml(node.fill)}"${stroke} stroke-width="${node.strokeWidth}" /></svg>`
   }
 
   if (node.type === "image") {

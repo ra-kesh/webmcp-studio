@@ -32,6 +32,25 @@ export const sceneNodeSchema = z.discriminatedUnion("type", [
     stroke: z.string().optional(),
   }),
   baseNodeSchema.extend({
+    type: z.literal("ellipse"),
+    fill: z.string(),
+    stroke: z.string().optional(),
+    strokeWidth: z.number().nonnegative().default(0),
+  }),
+  baseNodeSchema.extend({
+    type: z.literal("line"),
+    stroke: z.string(),
+    strokeWidth: z.number().positive().default(2),
+  }),
+  baseNodeSchema.extend({
+    type: z.literal("icon"),
+    path: z.string().min(1),
+    viewBox: z.string().default("0 0 24 24"),
+    fill: z.string(),
+    stroke: z.string().optional(),
+    strokeWidth: z.number().nonnegative().default(0),
+  }),
+  baseNodeSchema.extend({
     type: z.literal("image"),
     assetId: id,
     src: z.string(),

@@ -23,7 +23,10 @@ function applyValue(
   if (property === "visible") {
     return { ...node, visible: Boolean(value) }
   }
-  if (property === "fill" && node.type === "rect") {
+  if (
+    property === "fill" &&
+    (node.type === "rect" || node.type === "ellipse" || node.type === "icon")
+  ) {
     return { ...node, fill: String(value) }
   }
   return node

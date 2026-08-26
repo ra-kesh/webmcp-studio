@@ -36,12 +36,13 @@ Exit condition: `bun run check` passes, both Workers deploy, and one R2 PNG matc
 Exit condition: manual editing survives reload and undo.
 
 Status: partially implemented. Selection, multi-selection, drag, resize, rotate,
-inline text editing, layer ordering, lock, hide, duplicate, delete, copy/paste,
-alignment, distribution, zoom, fit, autosave, undo, and redo work. The editor still
-needs the remaining node types, image upload and asset insertion, grouping,
-freeform pan, snapping and visible guides, page/output management, and export
-parity. Day 3 infrastructure does not start until the editor gate in
-`docs/editor-readiness.md` passes.
+inline text editing, text/rectangle/ellipse/line/icon insertion, local image
+upload and restoration, layer ordering, lock, hide, duplicate, delete,
+copy/paste, alignment, distribution, zoom, fit, autosave, undo, and redo work.
+The editor still needs the asset library, crop and fitting tools, grouping,
+freeform pan, snapping and visible guides, page/output management, richer text
+controls, and export parity. Day 3 infrastructure does not start until the
+editor gate in `docs/editor-readiness.md` passes.
 
 ## Day 3
 
@@ -95,4 +96,7 @@ Exit condition: public repository, hosted app, video, and submission text agree 
 
 ## Cut order when time slips
 
-Cut ellipse and line editing first, then grouping, custom-size blank documents, JSON import UI, extra gallery templates, smart output proposal, and non-demo API response modes. Do not cut shared fields, human review, immutable publishing, real API rendering, or render history. Those make this a product rather than a canvas demo.
+Cut custom-size blank documents first, then grouping, JSON import UI, extra
+gallery templates, smart output proposal, and non-demo API response modes. Do
+not cut shared fields, human review, immutable publishing, real API rendering,
+or render history. Those make this a product rather than a canvas demo.

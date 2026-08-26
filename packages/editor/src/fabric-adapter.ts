@@ -1,8 +1,11 @@
 import {
   ActiveSelection,
   Canvas,
+  Ellipse,
   FabricImage,
   FabricObject,
+  Line,
+  Path,
   Rect,
   Textbox,
   type ModifiedEvent,
@@ -75,6 +78,41 @@ function createSyncObject(node: Exclude<SceneNode, { type: "image" }>) {
     })
   }
 
+  if (node.type === "ellipse") {
+    return new Ellipse({
+      ...sharedOptions(node),
+      fill: node.fill,
+      rx: node.width / 2,
+      ry: node.height / 2,
+      stroke: node.stroke,
+      strokeWidth: node.strokeWidth,
+    })
+  }
+
+  if (node.type === "line") {
+    return new Line([0, 0, node.width, node.height], {
+      ...sharedOptions(node),
+      fill: undefined,
+      stroke: node.stroke,
+      strokeWidth: node.strokeWidth,
+    })
+  }
+
+  if (node.type === "icon") {
+    const { width: _width, height: _height, ...options } = sharedOptions(node)
+    const path = new Path(node.path, {
+      ...options,
+      fill: node.fill,
+      stroke: node.stroke,
+      strokeWidth: node.strokeWidth,
+    })
+    path.set({
+      scaleX: node.width / (path.width || node.width),
+      scaleY: node.height / (path.height || node.height),
+    })
+    return path
+  }
+
   return new Textbox(node.text, {
     ...sharedOptions(node),
     fill: node.color,
@@ -118,6 +156,36 @@ function syncObjectFromNode(object: FabricObject, node: SceneNode) {
       ry: node.radius,
       stroke: node.stroke,
       strokeWidth: node.stroke ? 1 : 0,
+    })
+  } else if (node.type === "ellipse" && object instanceof Ellipse) {
+    Object.assign(options, {
+      fill: node.fill,
+      rx: node.width / 2,
+      ry: node.height / 2,
+      stroke: node.stroke,
+      strokeWidth: node.strokeWidth,
+    })
+  } else if (node.type === "line" && object instanceof Line) {
+    Object.assign(options, {
+      x1: 0,
+      y1: 0,
+      x2: node.width,
+      y2: node.height,
+      fill: undefined,
+      stroke: node.stroke,
+      strokeWidth: node.strokeWidth,
+    })
+  } else if (node.type === "icon" && object instanceof Path) {
+    const naturalWidth = object.width || node.width
+    const naturalHeight = object.height || node.height
+    delete options.width
+    delete options.height
+    Object.assign(options, {
+      fill: node.fill,
+      stroke: node.stroke,
+      strokeWidth: node.strokeWidth,
+      scaleX: node.width / naturalWidth,
+      scaleY: node.height / naturalHeight,
     })
   } else if (node.type === "text" && object instanceof Textbox) {
     if (!object.isEditing) options.text = node.text

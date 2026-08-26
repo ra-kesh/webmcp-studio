@@ -9,11 +9,12 @@ Working today:
 
 - canonical document history with autosave, undo, and redo
 - Fabric selection, multi-selection, drag, resize, rotate, and inline text editing
-- text and rectangle insertion
+- text, rectangle, ellipse, line, SVG icon, and uploaded image insertion
 - layer selection, visibility, locking, step ordering, duplicate, and delete
 - multi-selection alignment, distribution, front/back ordering, and copy/paste
 - zoom, fit, page switching, and single-artboard PNG export
-- basic text, rectangle, image URL, geometry, opacity, and field controls
+- local image restoration through IndexedDB without serializing blob URLs
+- basic text, shape, image source, geometry, opacity, and field controls
 
 This is a useful interaction base, not a finished editor.
 
@@ -24,11 +25,11 @@ until all four blocks below pass their exit conditions.
 
 ### 1. Authoring primitives and assets
 
-- ellipse, line, and simple SVG/icon nodes in the canonical schema
-- image upload with durable local asset storage
-- seeded licensed asset library, search, and insertion
-- image cover/contain, crop position, replace, and alt text
-- own-format JSON import and export
+- [x] ellipse, line, and simple SVG/icon nodes in the canonical schema
+- [x] image upload with durable local asset storage
+- [ ] seeded licensed asset library, search, and insertion
+- [ ] image cover/contain, crop position, replace, and alt text
+- [ ] own-format JSON import and export
 
 Exit condition: a new blank artboard can be designed without editing source code
 or pasting an image URL.

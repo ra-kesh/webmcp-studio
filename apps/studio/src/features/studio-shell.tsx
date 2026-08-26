@@ -6,11 +6,16 @@ import {
   Clipboard,
   Cloud,
   CopyPlus,
+  Circle,
   Download,
+  Heart,
+  ImagePlus,
   Layers3,
+  Minus,
   MousePointer2,
   Redo2,
   Scan,
+  Shapes,
   Sparkles,
   Square,
   SlidersHorizontal,
@@ -24,6 +29,15 @@ import {
 import type { SceneNode } from "@webmcp/document"
 import { Badge } from "@webmcp/ui/components/badge"
 import { Button } from "@webmcp/ui/components/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger,
+} from "@webmcp/ui/components/dropdown-menu"
 import { EditorPanelHeader } from "@webmcp/ui/components/editor-chrome"
 import { Separator } from "@webmcp/ui/components/separator"
 import { Slider } from "@webmcp/ui/components/slider"
@@ -39,6 +53,9 @@ import {
 } from "./editor/fabric-artboard"
 import { InspectorSidebar } from "./editor/inspector-sidebar"
 import { useDocumentEditor } from "./editor/use-document-editor"
+
+const HEART_ICON_PATH =
+  "M12 21.35 10.55 20.03C5.4 15.36 2 12.27 2 8.5 2 5.41 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.08C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.41 22 8.5c0 3.77-3.4 6.86-8.55 11.54Z"
 
 function IconButton({
   label,
@@ -78,6 +95,7 @@ export function StudioShell() {
   >(null)
   const workspaceRef = useRef<HTMLDivElement>(null)
   const artboardRef = useRef<FabricArtboardHandle>(null)
+  const imageInputRef = useRef<HTMLInputElement>(null)
   const activePage = editor.document.pages.find(
     (page) => page.id === editor.activePageId
   )
@@ -184,13 +202,68 @@ export function StudioShell() {
           <IconButton label="Add text" shortcut="T" onClick={editor.addText}>
             <Type />
           </IconButton>
-          <IconButton
-            label="Add rectangle"
-            shortcut="R"
-            onClick={editor.addRectangle}
-          >
-            <Square />
-          </IconButton>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                aria-label="Insert shape"
+                title="Insert shape"
+                size="icon-sm"
+                variant="ghost"
+              >
+                <Shapes />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-52">
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>Add to canvas</DropdownMenuLabel>
+                <DropdownMenuItem onSelect={editor.addRectangle}>
+                  <Square />
+                  Rectangle
+                  <DropdownMenuShortcut>R</DropdownMenuShortcut>
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={editor.addEllipse}>
+                  <Circle />
+                  Ellipse
+                  <DropdownMenuShortcut>O</DropdownMenuShortcut>
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={editor.addLine}>
+                  <Minus />
+                  Line
+                  <DropdownMenuShortcut>L</DropdownMenuShortcut>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() =>
+                    editor.addIcon({
+                      name: "Heart icon",
+                      path: HEART_ICON_PATH,
+                      viewBox: "0 0 24 24",
+                    })
+                  }
+                >
+                  <Heart />
+                  Heart icon
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={editor.isImportingAsset}
+                  onSelect={() => imageInputRef.current?.click()}
+                >
+                  <ImagePlus />
+                  {editor.isImportingAsset ? "Adding image…" : "Upload image…"}
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <input
+            ref={imageInputRef}
+            className="sr-only"
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+            onChange={(event) => {
+              const file = event.currentTarget.files?.[0]
+              if (file) void editor.addImageFile(file)
+              event.currentTarget.value = ""
+            }}
+          />
         </div>
         <Separator orientation="vertical" />
         <div className="flex items-center gap-0.5">
@@ -252,6 +325,15 @@ export function StudioShell() {
         ) : null}
 
         <div className="ml-auto flex items-center gap-2">
+          {editor.assetError ? (
+            <Badge
+              variant="destructive"
+              className="hidden max-w-64 truncate font-normal min-[1050px]:inline-flex"
+              title={editor.assetError}
+            >
+              {editor.assetError}
+            </Badge>
+          ) : null}
           <Badge
             variant={editor.saveStatus === "error" ? "destructive" : "outline"}
             className="hidden font-normal text-muted-foreground min-[900px]:inline-flex"
@@ -292,7 +374,7 @@ export function StudioShell() {
       <div className="relative grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] min-[1120px]:grid-cols-[236px_minmax(540px,1fr)_320px]">
         <DocumentSidebar
           className="hidden min-[1120px]:flex"
-          document={editor.document}
+          document={editor.previewDocument}
           activePageId={editor.activePageId}
           selection={editor.selection}
           onSelectPage={editor.selectPage}
@@ -345,7 +427,7 @@ export function StudioShell() {
           >
             <FabricArtboard
               ref={artboardRef}
-              document={editor.document}
+              document={editor.previewDocument}
               pageId={activePage.id}
               selection={editor.selection}
               zoom={zoom}
@@ -441,7 +523,7 @@ export function StudioShell() {
               {compactPanel === "document" ? (
                 <DocumentSidebar
                   className="min-h-0 flex-1 border-r-0"
-                  document={editor.document}
+                  document={editor.previewDocument}
                   activePageId={editor.activePageId}
                   selection={editor.selection}
                   onSelectPage={(pageId) => {
