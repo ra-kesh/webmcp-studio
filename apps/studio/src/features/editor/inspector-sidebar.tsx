@@ -314,6 +314,16 @@ function NodeInspector({
               value={node.text}
               onCommit={(text) => onUpdate({ text })}
             />
+            <label className="space-y-1.5">
+              <FieldLabel>Font family</FieldLabel>
+              <CommitInput
+                value={node.fontFamily}
+                onCommit={(fontFamily) =>
+                  fontFamily.trim() &&
+                  onUpdate({ fontFamily: fontFamily.trim() })
+                }
+              />
+            </label>
             <div className="grid grid-cols-2 gap-2">
               <NumberField
                 label="Font size"
@@ -329,6 +339,24 @@ function NodeInspector({
                       900,
                       Math.max(100, Math.round(fontWeight / 100) * 100)
                     ),
+                  })
+                }
+              />
+              <NumberField
+                label="Line height"
+                value={node.lineHeight}
+                onCommit={(lineHeight) =>
+                  onUpdate({
+                    lineHeight: Math.min(3, Math.max(0.5, lineHeight)),
+                  })
+                }
+              />
+              <NumberField
+                label="Letter spacing"
+                value={node.letterSpacing}
+                onCommit={(letterSpacing) =>
+                  onUpdate({
+                    letterSpacing: Math.min(200, Math.max(-20, letterSpacing)),
                   })
                 }
               />
@@ -374,6 +402,18 @@ function NodeInspector({
               label="Corner radius"
               value={node.radius}
               onCommit={(radius) => onUpdate({ radius: Math.max(0, radius) })}
+            />
+            <ColorField
+              label="Stroke"
+              value={node.stroke ?? "#1e2622"}
+              onCommit={(stroke) => onUpdate({ stroke })}
+            />
+            <NumberField
+              label="Stroke width"
+              value={node.strokeWidth}
+              onCommit={(strokeWidth) =>
+                onUpdate({ strokeWidth: Math.max(0, strokeWidth) })
+              }
             />
           </section>
         </>

@@ -227,6 +227,8 @@ export function useDocumentEditor() {
       fontFamily: "Geist Variable",
       fontSize: 44,
       fontWeight: 500,
+      lineHeight: 1.18,
+      letterSpacing: 0,
       align: "left",
     }
     commit([{ type: "add_node", pageId: page.id, node }])
@@ -253,6 +255,7 @@ export function useDocumentEditor() {
       locked: false,
       fill: "#d9c9b2",
       radius: 24,
+      strokeWidth: 0,
     }
     commit([{ type: "add_node", pageId: page.id, node }])
     setSelection({ pageId: page.id, nodeIds: [id] })

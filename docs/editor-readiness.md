@@ -70,11 +70,11 @@ inside the product.
 
 ### 4. Appearance and export fidelity
 
-- font family, weight, size, line height, letter spacing, and text alignment
-- fill, stroke color, stroke width, opacity, and corner radius
-- deterministic image fitting and crop position
-- validation for overflow, off-canvas nodes, missing assets, and invalid bindings
-- preview parity between Fabric, DOM render view, PNG, and multi-page PDF
+- [x] font family, weight, size, line height, letter spacing, and text alignment
+- [x] fill, stroke color, stroke width, opacity, and corner radius
+- [x] deterministic image fitting and crop position
+- [x] validation for overflow, off-canvas nodes, missing assets, and invalid bindings
+- [ ] preview parity between Fabric, DOM render view, PNG, and multi-page PDF
 
 Exit condition: the same document looks materially identical in the editor,
 thumbnail, PNG, and PDF.

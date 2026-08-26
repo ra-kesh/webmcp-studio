@@ -23,7 +23,7 @@ function nodeMarkup(node: SceneNode): string {
 
   if (node.type === "rect") {
     const border = node.stroke
-      ? `;border:1px solid ${escapeHtml(node.stroke)}`
+      ? `;border:${node.strokeWidth}px solid ${escapeHtml(node.stroke)}`
       : ""
     return `<div data-node-id="${escapeHtml(node.id)}" style="${common};background:${escapeHtml(node.fill)};border-radius:${node.radius}px${border}"></div>`
   }
@@ -54,7 +54,8 @@ function nodeMarkup(node: SceneNode): string {
     `font-family:${escapeHtml(node.fontFamily)},sans-serif`,
     `font-size:${node.fontSize}px`,
     `font-weight:${node.fontWeight}`,
-    "line-height:1.18",
+    `line-height:${node.lineHeight}`,
+    `letter-spacing:${node.letterSpacing}px`,
     `text-align:${node.align}`,
     "white-space:pre-line",
   ].join(";")

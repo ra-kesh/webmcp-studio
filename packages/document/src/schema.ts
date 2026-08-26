@@ -23,6 +23,8 @@ export const sceneNodeSchema = z.discriminatedUnion("type", [
     fontFamily: z.string(),
     fontSize: z.number().positive(),
     fontWeight: z.number().int().min(100).max(900),
+    lineHeight: z.number().min(0.5).max(3).default(1.18),
+    letterSpacing: z.number().min(-20).max(200).default(0),
     align: z.enum(["left", "center", "right"]).default("left"),
   }),
   baseNodeSchema.extend({
@@ -30,6 +32,7 @@ export const sceneNodeSchema = z.discriminatedUnion("type", [
     fill: z.string(),
     radius: z.number().min(0).default(0),
     stroke: z.string().optional(),
+    strokeWidth: z.number().nonnegative().default(0),
   }),
   baseNodeSchema.extend({
     type: z.literal("ellipse"),

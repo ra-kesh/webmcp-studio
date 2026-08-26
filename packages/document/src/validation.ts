@@ -8,6 +8,9 @@ export type ValidationIssue = {
     | "text_overflow"
     | "empty_required_field"
     | "invalid_group"
+    | "off_canvas"
+    | "missing_asset"
+    | "invalid_binding"
   message: string
   pageId?: string
   nodeId?: string
@@ -57,6 +60,31 @@ export function validateDocument(document: Document): ValidationIssue[] {
           severity: "warning",
           code: "text_overflow",
           message: `${node.name} may overflow its text box`,
+          pageId: page.id,
+          nodeId: node.id,
+        })
+      }
+      if (
+        node.x < 0 ||
+        node.y < 0 ||
+        node.x + node.width > page.width ||
+        node.y + node.height > page.height
+      ) {
+        issues.push({
+          id: `node:${node.id}:off-canvas`,
+          severity: "warning",
+          code: "off_canvas",
+          message: `${node.name} extends beyond ${page.name}`,
+          pageId: page.id,
+          nodeId: node.id,
+        })
+      }
+      if (node.type === "image" && !node.src.trim()) {
+        issues.push({
+          id: `node:${node.id}:asset`,
+          severity: "error",
+          code: "missing_asset",
+          message: `${node.name} has no image source`,
           pageId: page.id,
           nodeId: node.id,
         })
@@ -145,13 +173,30 @@ export function validateDocument(document: Document): ValidationIssue[] {
   }
 
   for (const binding of document.bindings) {
-    if (!fields.has(binding.fieldId) || !nodes.has(binding.nodeId)) {
+    const node = nodes.get(binding.nodeId)
+    if (!fields.has(binding.fieldId) || !node) {
       issues.push({
         id: `binding:${binding.id}:reference`,
         severity: "error",
         code: "missing_reference",
         message: `Binding ${binding.id} has a missing field or node`,
         nodeId: binding.nodeId,
+      })
+      continue
+    }
+    const compatible =
+      (binding.property === "text" && node.type === "text") ||
+      (binding.property === "src" && node.type === "image") ||
+      binding.property === "visible" ||
+      (binding.property === "fill" &&
+        (node.type === "rect" || node.type === "ellipse" || node.type === "icon"))
+    if (!compatible) {
+      issues.push({
+        id: `binding:${binding.id}:property`,
+        severity: "error",
+        code: "invalid_binding",
+        message: `${binding.property} cannot be bound to ${node.type}`,
+        nodeId: node.id,
       })
     }
   }

@@ -24,7 +24,8 @@ function RenderNode({ node }: { node: SceneNode }) {
           fontFamily: node.fontFamily,
           fontSize: node.fontSize,
           fontWeight: node.fontWeight,
-          lineHeight: 1.18,
+          lineHeight: node.lineHeight,
+          letterSpacing: node.letterSpacing,
           textAlign: node.align,
           whiteSpace: "pre-line",
         }}
@@ -41,7 +42,9 @@ function RenderNode({ node }: { node: SceneNode }) {
         style={{
           ...nodeStyle(node),
           background: node.fill,
-          border: node.stroke ? `1px solid ${node.stroke}` : undefined,
+          border: node.stroke
+            ? `${node.strokeWidth}px solid ${node.stroke}`
+            : undefined,
           borderRadius: node.radius,
         }}
       />

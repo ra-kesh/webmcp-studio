@@ -94,7 +94,7 @@ function createSyncObject(node: Exclude<SceneNode, { type: "image" }>) {
       rx: node.radius,
       ry: node.radius,
       stroke: node.stroke,
-      strokeWidth: node.stroke ? 1 : 0,
+      strokeWidth: node.strokeWidth,
     })
   }
 
@@ -140,7 +140,8 @@ function createSyncObject(node: Exclude<SceneNode, { type: "image" }>) {
     fontSize: node.fontSize,
     fontWeight: node.fontWeight,
     textAlign: node.align,
-    lineHeight: 1.18,
+    lineHeight: node.lineHeight,
+    charSpacing: (node.letterSpacing / node.fontSize) * 1000,
     splitByGrapheme: false,
     editable: !node.locked,
     strokeWidth: 0,
@@ -270,7 +271,7 @@ function syncObjectFromNode(object: FabricObject, node: SceneNode) {
       rx: node.radius,
       ry: node.radius,
       stroke: node.stroke,
-      strokeWidth: node.stroke ? 1 : 0,
+      strokeWidth: node.strokeWidth,
     })
   } else if (node.type === "ellipse" && object instanceof Ellipse) {
     Object.assign(options, {
@@ -310,6 +311,8 @@ function syncObjectFromNode(object: FabricObject, node: SceneNode) {
       fontSize: node.fontSize,
       fontWeight: node.fontWeight,
       textAlign: node.align,
+      lineHeight: node.lineHeight,
+      charSpacing: (node.letterSpacing / node.fontSize) * 1000,
       editable: !node.locked,
     })
   } else if (node.type === "image" && object instanceof Group) {

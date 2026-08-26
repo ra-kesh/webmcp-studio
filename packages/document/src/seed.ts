@@ -30,6 +30,8 @@ const text = (
   fontFamily: "Geist Variable",
   fontSize,
   fontWeight: fontSize >= 52 ? 600 : 450,
+  lineHeight: 1.18,
+  letterSpacing: 0,
   align,
 })
 
@@ -56,6 +58,7 @@ const rect = (
   locked: false,
   fill,
   radius,
+  strokeWidth: 0,
 })
 
 const nodes: SceneNode[] = [
