@@ -63,6 +63,7 @@ import {
 } from "./editor/fabric-artboard"
 import { InspectorSidebar } from "./editor/inspector-sidebar"
 import { useDocumentEditor } from "./editor/use-document-editor"
+import { useStudioWebMcp } from "./editor/use-studio-webmcp"
 import {
   loadLocalAsset,
   localAssetIdFromSource,
@@ -118,6 +119,13 @@ function IconButton({
 
 export function StudioShell() {
   const editor = useDocumentEditor()
+  const webMcp = useStudioWebMcp({
+    document: editor.document,
+    activePageId: editor.activePageId,
+    selection: editor.selection,
+    pendingChangeSet: editor.pendingChangeSet,
+    proposeChangeSet: editor.proposeChangeSet,
+  })
   const [zoom, setZoom] = useState(0.34)
   const [autoFit, setAutoFit] = useState(true)
   const [focusGutter, setFocusGutter] = useState<{
@@ -898,6 +906,12 @@ export function StudioShell() {
           className="hidden min-[1120px]:flex"
           document={editor.document}
           selectedNodes={editor.selectedNodes}
+          pendingChangeSet={editor.pendingChangeSet}
+          lastResolvedChangeSet={editor.lastResolvedChangeSet}
+          changeSetConflict={editor.changeSetConflict}
+          changeSetError={editor.changeSetError}
+          webMcpStatus={webMcp.status}
+          webMcpError={webMcp.error}
           onUpdateNode={updateNode}
           onUpdateField={editor.updateField}
           onCreateField={editor.createField}
@@ -905,6 +919,10 @@ export function StudioShell() {
           onRemoveField={editor.removeField}
           onBindField={editor.bindField}
           onUnbindField={editor.unbindField}
+          onDecideChangeOperation={editor.decideOperation}
+          onDecideAllChangeOperations={editor.decideAllOperations}
+          onApplyChangeSet={editor.applyChangeSet}
+          onDiscardChangeSet={editor.discardChangeSet}
           onAlignSelection={editor.alignSelection}
           onAlignSelectionToPage={editor.alignSelectionToPage}
           onDistributeSelection={editor.distributeSelection}
@@ -975,6 +993,12 @@ export function StudioShell() {
                   className="min-h-0 flex-1 border-l-0"
                   document={editor.document}
                   selectedNodes={editor.selectedNodes}
+                  pendingChangeSet={editor.pendingChangeSet}
+                  lastResolvedChangeSet={editor.lastResolvedChangeSet}
+                  changeSetConflict={editor.changeSetConflict}
+                  changeSetError={editor.changeSetError}
+                  webMcpStatus={webMcp.status}
+                  webMcpError={webMcp.error}
                   onUpdateNode={updateNode}
                   onUpdateField={editor.updateField}
                   onCreateField={editor.createField}
@@ -982,6 +1006,10 @@ export function StudioShell() {
                   onRemoveField={editor.removeField}
                   onBindField={editor.bindField}
                   onUnbindField={editor.unbindField}
+                  onDecideChangeOperation={editor.decideOperation}
+                  onDecideAllChangeOperations={editor.decideAllOperations}
+                  onApplyChangeSet={editor.applyChangeSet}
+                  onDiscardChangeSet={editor.discardChangeSet}
                   onAlignSelection={editor.alignSelection}
                   onAlignSelectionToPage={editor.alignSelectionToPage}
                   onDistributeSelection={editor.distributeSelection}

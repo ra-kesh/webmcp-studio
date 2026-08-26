@@ -34,6 +34,8 @@ import {
   bindingPropertiesForNode,
   fieldCanBindToProperty,
   type BindableProperty,
+  type ChangeOperation,
+  type ChangeSet,
   type Document,
   type FieldDefinition,
   type SceneNode,
@@ -98,23 +100,6 @@ import {
   ToggleGroupItem,
 } from "@webmcp/ui/components/toggle-group"
 import { cn } from "@webmcp/ui/lib/utils"
-
-type Decision = "pending" | "accepted" | "rejected" | "applied"
-
-const proposals = [
-  {
-    id: "proposal-name",
-    fieldId: "package_name",
-    value: "The Saffron Weekend",
-    summary: "Rename the package across proposal and WhatsApp card",
-  },
-  {
-    id: "proposal-price",
-    fieldId: "package_price",
-    value: "₹4,10,000",
-    summary: "Update package price across both bound outputs",
-  },
-] as const
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -1365,32 +1350,113 @@ function FieldsPanel({
   )
 }
 
-function ReviewPanel({
-  revision,
-  onUpdateField,
-}: {
-  revision: number
-  onUpdateField(fieldId: string, value: string): void
-}) {
-  const [decisions, setDecisions] = useState<Record<string, Decision>>({})
-  const accepted = proposals.filter(
-    (proposal) => decisions[proposal.id] === "accepted"
-  )
-  const applyAccepted = () => {
-    for (const proposal of accepted) {
-      onUpdateField(proposal.fieldId, proposal.value)
-    }
-    setDecisions((current) => ({
-      ...current,
-      ...Object.fromEntries(
-        accepted.map((proposal) => [proposal.id, "applied"])
-      ),
-    }))
+const displayChangeValue = (value: unknown) => {
+  if (typeof value === "string") return value
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value)
   }
+  return JSON.stringify(value)
+}
+
+function operationDetails(document: Document, operation: ChangeOperation) {
+  const command = operation.command
+  if (command.type === "set_field") {
+    const field = document.fields.find(
+      (candidate) => candidate.id === command.fieldId
+    )
+    const bindings = document.bindings.filter(
+      (binding) => binding.fieldId === command.fieldId
+    )
+    const pageByNode = new Map(
+      document.pages.flatMap((page) =>
+        page.nodeIds.map((nodeId) => [nodeId, page] as const)
+      )
+    )
+    const outputCount = new Set(
+      bindings.flatMap((binding) => {
+        const page = pageByNode.get(binding.nodeId)
+        return page ? [page.outputId] : []
+      })
+    ).size
+    return {
+      label: field?.label ?? command.fieldId,
+      context: `${bindings.length} layer${bindings.length === 1 ? "" : "s"} across ${outputCount} output${outputCount === 1 ? "" : "s"}`,
+      before: displayChangeValue(document.fieldValues[command.fieldId]),
+      after: displayChangeValue(command.value),
+    }
+  }
+  if (command.type === "update_node") {
+    const node = document.nodes.find(
+      (candidate) => candidate.id === command.nodeId
+    )
+    const keys = Object.keys(command.patch)
+    return {
+      label: node?.name ?? command.nodeId,
+      context: `${keys.length} layer propert${keys.length === 1 ? "y" : "ies"}`,
+      before: keys
+        .map(
+          (key) =>
+            `${key}: ${displayChangeValue(node?.[key as keyof typeof node])}`
+        )
+        .join(" · "),
+      after: keys
+        .map((key) => `${key}: ${displayChangeValue(command.patch[key])}`)
+        .join(" · "),
+    }
+  }
+  return {
+    label: command.type.replaceAll("_", " "),
+    context: "Canonical document command",
+    before: "Current document",
+    after: operation.summary,
+  }
+}
+
+function ReviewPanel({
+  document,
+  pendingChangeSet,
+  lastResolvedChangeSet,
+  conflict,
+  error,
+  webMcpStatus,
+  webMcpError,
+  onDecideOperation,
+  onDecideAll,
+  onApply,
+  onDiscard,
+}: {
+  document: Document
+  pendingChangeSet: ChangeSet | null
+  lastResolvedChangeSet: ChangeSet | null
+  conflict: { message: string } | null
+  error: string | null
+  webMcpStatus: "unavailable" | "registering" | "ready" | "error"
+  webMcpError: string | null
+  onDecideOperation(
+    operationId: string,
+    status: ChangeOperation["status"]
+  ): void
+  onDecideAll(status: "accepted" | "rejected"): void
+  onApply(): void
+  onDiscard(): void
+}) {
+  const registeredToolNames = new Set([
+    "inspect_design",
+    "validate_design",
+    "propose_field_updates",
+  ])
+  const acceptedCount =
+    pendingChangeSet?.operations.filter(
+      (operation) => operation.status === "accepted"
+    ).length ?? 0
+  const decidedCount =
+    pendingChangeSet?.operations.filter(
+      (operation) => operation.status !== "pending"
+    ).length ?? 0
 
   return (
-    <div className="flex flex-col">
-      <section className="flex flex-col gap-3 p-4">
+    <div className="flex w-full min-w-0 flex-col overflow-hidden">
+      <section className="flex min-w-0 flex-col gap-3 overflow-hidden p-4">
         <div className="flex items-start gap-2.5">
           <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-secondary">
             <Sparkles className="size-3.5" />
@@ -1398,83 +1464,204 @@ function ReviewPanel({
           <div>
             <h2 className="text-xs font-medium">Agent change set</h2>
             <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-              Review changes against revision {revision} before they touch the
-              document.
+              Proposals preview on canvas but never change the saved document
+              until you apply them.
             </p>
           </div>
         </div>
-        <div className="flex flex-col gap-2">
-          {proposals.map((proposal) => {
-            const decision = decisions[proposal.id] ?? "pending"
-            return (
-              <div key={proposal.id} className="rounded-lg border p-2.5">
-                <div className="flex items-start gap-2">
-                  <p className="min-w-0 flex-1 text-[11px] leading-relaxed">
-                    {proposal.summary}
+        {pendingChangeSet ? (
+          <>
+            <div className="min-w-0 rounded-lg border bg-muted/30 p-2.5">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-xs leading-relaxed font-medium break-words">
+                    {pendingChangeSet.title}
                   </p>
-                  {decision === "applied" ? (
-                    <Badge variant="secondary">Applied</Badge>
-                  ) : (
-                    <div className="flex shrink-0 items-center gap-0.5">
-                      <Button
-                        aria-label={`Reject ${proposal.summary}`}
-                        size="icon-xs"
-                        variant={
-                          decision === "rejected" ? "destructive" : "ghost"
-                        }
-                        onClick={() =>
-                          setDecisions((current) => ({
-                            ...current,
-                            [proposal.id]: "rejected",
-                          }))
-                        }
-                      >
-                        <X />
-                      </Button>
-                      <Button
-                        aria-label={`Accept ${proposal.summary}`}
-                        size="icon-xs"
-                        variant={decision === "accepted" ? "default" : "ghost"}
-                        onClick={() =>
-                          setDecisions((current) => ({
-                            ...current,
-                            [proposal.id]: "accepted",
-                          }))
-                        }
-                      >
-                        <Check />
-                      </Button>
-                    </div>
-                  )}
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    Revision {pendingChangeSet.baseRevision} · {decidedCount} of{" "}
+                    {pendingChangeSet.operations.length} reviewed
+                  </p>
                 </div>
-                <div className="mt-2 rounded-md bg-muted px-2 py-1.5 font-mono text-[10px] text-muted-foreground">
-                  {proposal.value}
-                </div>
+                <Badge variant="secondary">Previewing</Badge>
               </div>
-            )
-          })}
-        </div>
-        <Button size="sm" disabled={!accepted.length} onClick={applyAccepted}>
-          Apply {accepted.length || "accepted"} change
-          {accepted.length === 1 ? "" : "s"}
-        </Button>
+            </div>
+
+            {conflict || error ? (
+              <div
+                role="alert"
+                className="rounded-lg border border-destructive/30 bg-destructive/5 p-2.5 text-[11px] leading-relaxed text-destructive"
+              >
+                {error ?? conflict?.message}
+              </div>
+            ) : null}
+
+            <div className="grid grid-cols-2 gap-1.5">
+              <Button
+                className="flex-1"
+                size="sm"
+                variant="outline"
+                onClick={() => onDecideAll("rejected")}
+              >
+                Reject all
+              </Button>
+              <Button
+                className="flex-1"
+                size="sm"
+                variant="outline"
+                onClick={() => onDecideAll("accepted")}
+              >
+                Accept all
+              </Button>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              {pendingChangeSet.operations.map((operation) => {
+                const details = operationDetails(document, operation)
+                return (
+                  <div
+                    key={operation.id}
+                    className={cn(
+                      "min-w-0 overflow-hidden rounded-lg border p-2.5",
+                      operation.status === "rejected" &&
+                        "bg-muted/30 opacity-70"
+                    )}
+                  >
+                    <div className="flex items-start gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <p className="truncate text-[11px] font-medium">
+                            {details.label}
+                          </p>
+                          {operation.status !== "pending" ? (
+                            <Badge
+                              variant={
+                                operation.status === "accepted"
+                                  ? "secondary"
+                                  : "outline"
+                              }
+                            >
+                              {operation.status}
+                            </Badge>
+                          ) : null}
+                        </div>
+                        <p className="mt-1 text-[10px] leading-relaxed break-words text-muted-foreground">
+                          {operation.summary}
+                        </p>
+                        <p className="mt-1 text-[9px] text-muted-foreground">
+                          {details.context}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-0.5">
+                        <Button
+                          aria-label={`Reject ${operation.summary}`}
+                          size="icon-xs"
+                          variant={
+                            operation.status === "rejected"
+                              ? "destructive"
+                              : "ghost"
+                          }
+                          onClick={() =>
+                            onDecideOperation(operation.id, "rejected")
+                          }
+                        >
+                          <X />
+                        </Button>
+                        <Button
+                          aria-label={`Accept ${operation.summary}`}
+                          size="icon-xs"
+                          variant={
+                            operation.status === "accepted"
+                              ? "default"
+                              : "ghost"
+                          }
+                          onClick={() =>
+                            onDecideOperation(operation.id, "accepted")
+                          }
+                        >
+                          <Check />
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="mt-2 grid min-w-0 gap-1 overflow-hidden rounded-md bg-muted/70 p-2 font-mono text-[9px] leading-relaxed">
+                      <p className="break-words line-through opacity-60">
+                        − {details.before}
+                      </p>
+                      <p className="break-words">+ {details.after}</p>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-1.5">
+              <Button size="sm" variant="outline" onClick={onDiscard}>
+                Discard
+              </Button>
+              <Button
+                className="flex-1"
+                size="sm"
+                disabled={!acceptedCount || Boolean(conflict)}
+                onClick={onApply}
+              >
+                Apply {acceptedCount || "accepted"} change
+                {acceptedCount === 1 ? "" : "s"}
+              </Button>
+            </div>
+          </>
+        ) : (
+          <Empty className="border">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <Sparkles />
+              </EmptyMedia>
+              <EmptyTitle>No changes waiting</EmptyTitle>
+              <EmptyDescription>
+                Ask a browser agent to inspect the design and propose field or
+                canvas updates.
+              </EmptyDescription>
+            </EmptyHeader>
+            {lastResolvedChangeSet ? (
+              <EmptyContent>
+                <Badge variant="outline">
+                  Last review: {lastResolvedChangeSet.status.replace("_", " ")}
+                </Badge>
+              </EmptyContent>
+            ) : null}
+          </Empty>
+        )}
       </section>
       <Separator />
-      <section className="flex flex-col gap-2.5 p-4">
-        <div>
-          <h2 className="text-xs font-medium">WebMCP tools on this route</h2>
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            The same document commands are exposed to browser agents.
-          </p>
+      <section className="flex min-w-0 flex-col gap-2.5 overflow-hidden p-4">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <h2 className="text-xs font-medium">WebMCP tools on this route</h2>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              The tools call the same product services as this editor.
+            </p>
+          </div>
+          <Badge variant={webMcpStatus === "ready" ? "secondary" : "outline"}>
+            {webMcpStatus === "ready"
+              ? "3 live"
+              : webMcpStatus === "registering"
+                ? "Starting"
+                : webMcpStatus === "error"
+                  ? "Error"
+                  : "Unavailable"}
+          </Badge>
         </div>
+        {webMcpError ? (
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            {webMcpError}
+          </p>
+        ) : null}
         <div className="flex flex-wrap gap-1.5">
           {toolCatalog
-            .filter((tool) => tool.routes.includes("editor"))
+            .filter((tool) => registeredToolNames.has(tool.name))
             .map((tool) => (
               <Badge
                 key={tool.name}
                 variant="outline"
-                className="font-mono text-[9px]"
+                className="max-w-full font-mono text-[9px] break-all"
               >
                 {tool.name}
               </Badge>
@@ -1488,6 +1675,12 @@ function ReviewPanel({
 export function InspectorSidebar({
   document,
   selectedNodes,
+  pendingChangeSet,
+  lastResolvedChangeSet,
+  changeSetConflict,
+  changeSetError,
+  webMcpStatus,
+  webMcpError,
   onUpdateNode,
   onUpdateField,
   onCreateField,
@@ -1495,6 +1688,10 @@ export function InspectorSidebar({
   onRemoveField,
   onBindField,
   onUnbindField,
+  onDecideChangeOperation,
+  onDecideAllChangeOperations,
+  onApplyChangeSet,
+  onDiscardChangeSet,
   onAlignSelection,
   onAlignSelectionToPage,
   onDistributeSelection,
@@ -1508,6 +1705,12 @@ export function InspectorSidebar({
 }: {
   document: Document
   selectedNodes: SceneNode[]
+  pendingChangeSet: ChangeSet | null
+  lastResolvedChangeSet: ChangeSet | null
+  changeSetConflict: { message: string } | null
+  changeSetError: string | null
+  webMcpStatus: "unavailable" | "registering" | "ready" | "error"
+  webMcpError: string | null
   onUpdateNode(nodeId: string, patch: Partial<SceneNode>): void
   onUpdateField(fieldId: string, value: string | number | boolean): void
   onCreateField(field: Omit<FieldDefinition, "id">): void
@@ -1518,6 +1721,13 @@ export function InspectorSidebar({
   onRemoveField(fieldId: string): void
   onBindField(fieldId: string, nodeId: string, property: BindableProperty): void
   onUnbindField(bindingId: string): void
+  onDecideChangeOperation(
+    operationId: string,
+    status: ChangeOperation["status"]
+  ): void
+  onDecideAllChangeOperations(status: "accepted" | "rejected"): void
+  onApplyChangeSet(): void
+  onDiscardChangeSet(): void
   onAlignSelection(alignment: Alignment): void
   onAlignSelectionToPage(alignment: Alignment): void
   onDistributeSelection(distribution: "horizontal" | "vertical"): void
@@ -1598,8 +1808,17 @@ export function InspectorSidebar({
         <TabsContent value="review" className="min-h-0">
           <ScrollArea className="h-full">
             <ReviewPanel
-              revision={document.revision}
-              onUpdateField={onUpdateField}
+              document={document}
+              pendingChangeSet={pendingChangeSet}
+              lastResolvedChangeSet={lastResolvedChangeSet}
+              conflict={changeSetConflict}
+              error={changeSetError}
+              webMcpStatus={webMcpStatus}
+              webMcpError={webMcpError}
+              onDecideOperation={onDecideChangeOperation}
+              onDecideAll={onDecideAllChangeOperations}
+              onApply={onApplyChangeSet}
+              onDiscard={onDiscardChangeSet}
             />
           </ScrollArea>
         </TabsContent>

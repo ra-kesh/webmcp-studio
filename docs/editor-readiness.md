@@ -84,8 +84,8 @@ thumbnail, PNG, and PDF.
 - [x] create and edit typed shared fields
 - [x] bind and unbind compatible layer properties
 - [x] propagate field values through every bound output
-- [ ] preview agent change sets without mutating the document
-- [ ] accept or reject operations individually, then apply once
+- [x] preview agent change sets without mutating the document
+- [x] accept or reject operations individually, then apply once
 - [ ] publish immutable template versions
 - [ ] exercise published templates through the API playground
 - [ ] inspect render requests and generated assets in render history

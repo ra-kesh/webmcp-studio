@@ -5,6 +5,9 @@ import type {
   ValidationIssue,
 } from "@webmcp/document"
 
+export * from "./change-sets"
+export * from "./registration"
+
 export const toolNames = [
   "inspect_design",
   "search_assets",

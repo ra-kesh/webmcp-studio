@@ -1,9 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
+  changeSetSchema,
+  decideAllChangeOperations,
+  decideChangeOperation,
   documentSchema,
   findSelectedGroupId,
+  getChangeSetConflict,
   getGroupNodeIds,
   northstarSeed,
+  previewChangeSet,
+  type ChangeOperation,
+  type ChangeSet,
   type Document,
   type DocumentCommand,
   type FieldBinding,
@@ -69,12 +76,20 @@ export function useDocumentEditor() {
   const [isImportingAsset, setIsImportingAsset] = useState(false)
   const [assetError, setAssetError] = useState<string | null>(null)
   const [documentError, setDocumentError] = useState<string | null>(null)
+  const [pendingChangeSet, setPendingChangeSet] = useState<ChangeSet | null>(
+    null
+  )
+  const [lastResolvedChangeSet, setLastResolvedChangeSet] =
+    useState<ChangeSet | null>(null)
+  const [changeSetError, setChangeSetError] = useState<string | null>(null)
   const didRestore = useRef(false)
   const clipboardRef = useRef<SceneNode[]>([])
   const assetUrlsRef = useRef(new Map<string, string>())
   const loadingAssetIdsRef = useRef(new Set<string>())
   const historyRef = useRef(history)
   historyRef.current = history
+  const pendingChangeSetRef = useRef(pendingChangeSet)
+  pendingChangeSetRef.current = pendingChangeSet
 
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY)
@@ -255,6 +270,74 @@ export function useDocumentEditor() {
     },
     [commit]
   )
+
+  const proposeChangeSet = useCallback((changeSetInput: ChangeSet) => {
+    if (pendingChangeSetRef.current) {
+      throw new Error("Resolve or discard the pending change set first.")
+    }
+    const changeSet = changeSetSchema.parse(changeSetInput)
+    const conflict = getChangeSetConflict(
+      historyRef.current.document,
+      changeSet
+    )
+    if (conflict) throw new Error(conflict.message)
+    previewChangeSet(historyRef.current.document, changeSet)
+    setPendingChangeSet(changeSet)
+    setChangeSetError(null)
+    return changeSet
+  }, [])
+
+  const decideOperation = useCallback(
+    (operationId: string, status: ChangeOperation["status"]) => {
+      setPendingChangeSet((current) =>
+        current ? decideChangeOperation(current, operationId, status) : current
+      )
+      setChangeSetError(null)
+    },
+    []
+  )
+
+  const decideAllOperations = useCallback(
+    (status: Exclude<ChangeOperation["status"], "pending">) => {
+      setPendingChangeSet((current) =>
+        current ? decideAllChangeOperations(current, status) : current
+      )
+      setChangeSetError(null)
+    },
+    []
+  )
+
+  const discardChangeSet = useCallback(() => {
+    const current = pendingChangeSetRef.current
+    if (!current) return
+    const rejected = decideAllChangeOperations(current, "rejected")
+    setLastResolvedChangeSet(rejected)
+    setPendingChangeSet(null)
+    setChangeSetError(null)
+  }, [])
+
+  const applyChangeSet = useCallback(() => {
+    const current = pendingChangeSetRef.current
+    if (!current) return
+    const conflict = getChangeSetConflict(historyRef.current.document, current)
+    if (conflict) {
+      setChangeSetError(conflict.message)
+      return
+    }
+    const commands = current.operations
+      .filter((operation) => operation.status === "accepted")
+      .map((operation) => operation.command)
+    if (!commands.length) {
+      setChangeSetError("Accept at least one operation before applying.")
+      return
+    }
+    setHistory((history) => commitCommands(history, commands))
+    setLastResolvedChangeSet(current)
+    setPendingChangeSet(null)
+    setChangeSetError(null)
+    setSaveStatus("saving")
+    setSelection(null)
+  }, [])
 
   const addText = useCallback(() => {
     const page = historyRef.current.document.pages.find(
@@ -1194,18 +1277,25 @@ export function useDocumentEditor() {
     return node ? [node] : []
   })
 
-  const previewDocument = useMemo(
-    () => ({
-      ...history.document,
-      nodes: history.document.nodes.map((node) => {
+  const changeSetConflict = pendingChangeSet
+    ? getChangeSetConflict(history.document, pendingChangeSet)
+    : null
+
+  const previewDocument = useMemo(() => {
+    const changeSetPreview =
+      pendingChangeSet && !changeSetConflict
+        ? previewChangeSet(history.document, pendingChangeSet)
+        : history.document
+    return {
+      ...changeSetPreview,
+      nodes: changeSetPreview.nodes.map((node) => {
         if (node.type !== "image") return node
         const assetId = localAssetIdFromSource(node.src)
         const previewUrl = assetId ? assetUrlsRef.current.get(assetId) : null
         return previewUrl ? { ...node, src: previewUrl } : node
       }),
-    }),
-    [assetVersion, history.document]
-  )
+    }
+  }, [assetVersion, changeSetConflict, history.document, pendingChangeSet])
 
   return {
     document: history.document,
@@ -1221,6 +1311,10 @@ export function useDocumentEditor() {
     isImportingAsset,
     assetError,
     documentError,
+    pendingChangeSet,
+    lastResolvedChangeSet,
+    changeSetConflict,
+    changeSetError,
     selectPage,
     setSelection,
     updateNodes,
@@ -1231,6 +1325,11 @@ export function useDocumentEditor() {
     removeField,
     bindField,
     unbindField,
+    proposeChangeSet,
+    decideOperation,
+    decideAllOperations,
+    applyChangeSet,
+    discardChangeSet,
     addText,
     addRectangle,
     addEllipse,

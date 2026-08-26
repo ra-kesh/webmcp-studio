@@ -17,14 +17,15 @@ The challenge demo uses synthetic data for a fictional wedding photography studi
   layers, property controls, shared fields, zoom, PNG export, and review
 - canonical undo/redo, batched multi-object edits, keyboard controls, and resilient
   local draft autosave
-- route-aware WebMCP tool catalog
+- live, abortable WebMCP registration for inspection, validation, and
+  reviewable shared-field proposals
 - public API route contracts for templates and render jobs
 - private renderer Worker that turns the canonical document into HTML, captures PNG with Cloudflare Browser Run, and writes it to R2
 
-D1 persistence, live WebMCP registration, immutable publishing, and the complete
-render-job lifecycle are planned work. The current browser draft is stored locally,
-and the API render route returns a queued contract response but does not persist the
-job yet.
+D1 persistence, canvas/output proposal tools, immutable publishing, and the
+complete render-job lifecycle are planned work. The current browser draft is
+stored locally, and the API render route returns a queued contract response but
+does not persist the job yet.
 
 ## Start locally
 
