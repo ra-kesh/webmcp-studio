@@ -170,6 +170,52 @@ export const documentCommandSchema = z.discriminatedUnion("type", [
     type: z.literal("ungroup_nodes"),
     groupId: id,
   }),
+  commandBaseSchema.extend({
+    type: z.literal("add_page"),
+    outputId: id,
+    page: pageSchema,
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("duplicate_page"),
+    outputId: id,
+    page: pageSchema,
+    nodes: z.array(sceneNodeSchema),
+    groups: z.array(groupDefinitionSchema),
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("update_page"),
+    pageId: id,
+    patch: z.object({
+      name: z.string().min(1).optional(),
+      width: z.number().positive().optional(),
+      height: z.number().positive().optional(),
+      background: z.string().optional(),
+    }),
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("remove_page"),
+    pageId: id,
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("reorder_page"),
+    outputId: id,
+    pageId: id,
+    toIndex: z.number().int().nonnegative(),
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("add_output"),
+    output: outputVariantSchema,
+    page: pageSchema,
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("update_output"),
+    outputId: id,
+    name: z.string().min(1),
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("remove_output"),
+    outputId: id,
+  }),
 ])
 
 export const changeOperationSchema = z.object({

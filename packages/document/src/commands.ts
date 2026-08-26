@@ -282,6 +282,201 @@ export function applyCommand(
       }
       break
     }
+    case "add_page": {
+      const output = document.outputs.find(
+        (candidate) => candidate.id === command.outputId
+      )
+      if (!output) throw new Error(`Unknown output: ${command.outputId}`)
+      if (document.pages.some((page) => page.id === command.page.id)) {
+        throw new Error(`Page already exists: ${command.page.id}`)
+      }
+      if (command.page.outputId !== output.id || command.page.nodeIds.length) {
+        throw new Error("A new page must be empty and belong to its output")
+      }
+      next = {
+        ...document,
+        pages: [...document.pages, command.page],
+        outputs: document.outputs.map((candidate) =>
+          candidate.id === output.id
+            ? { ...candidate, pageIds: [...candidate.pageIds, command.page.id] }
+            : candidate
+        ),
+      }
+      break
+    }
+    case "duplicate_page": {
+      const output = document.outputs.find(
+        (candidate) => candidate.id === command.outputId
+      )
+      if (!output) throw new Error(`Unknown output: ${command.outputId}`)
+      if (
+        command.page.outputId !== output.id ||
+        document.pages.some((page) => page.id === command.page.id) ||
+        command.nodes.some((node) =>
+          document.nodes.some((existing) => existing.id === node.id)
+        ) ||
+        command.groups.some((group) =>
+          document.groups.some((existing) => existing.id === group.id)
+        )
+      ) {
+        throw new Error("The duplicated page contains conflicting identifiers")
+      }
+      const nodeIds = new Set(command.nodes.map((node) => node.id))
+      const groupIds = new Set(command.groups.map((group) => group.id))
+      if (
+        command.page.nodeIds.some((nodeId) => !nodeIds.has(nodeId)) ||
+        command.groups.some(
+          (group) =>
+            group.pageId !== command.page.id ||
+            group.nodeIds.some((nodeId) => !nodeIds.has(nodeId)) ||
+            (group.parentGroupId && !groupIds.has(group.parentGroupId))
+        )
+      ) {
+        throw new Error("The duplicated page contains invalid references")
+      }
+      next = {
+        ...document,
+        nodes: [...document.nodes, ...command.nodes],
+        groups: [...document.groups, ...command.groups],
+        pages: [...document.pages, command.page],
+        outputs: document.outputs.map((candidate) =>
+          candidate.id === output.id
+            ? { ...candidate, pageIds: [...candidate.pageIds, command.page.id] }
+            : candidate
+        ),
+      }
+      break
+    }
+    case "update_page": {
+      if (!document.pages.some((page) => page.id === command.pageId)) {
+        throw new Error(`Unknown page: ${command.pageId}`)
+      }
+      next = {
+        ...document,
+        pages: document.pages.map((page) =>
+          page.id === command.pageId ? { ...page, ...command.patch } : page
+        ),
+      }
+      break
+    }
+    case "remove_page": {
+      const page = document.pages.find(
+        (candidate) => candidate.id === command.pageId
+      )
+      if (!page) throw new Error(`Unknown page: ${command.pageId}`)
+      const output = document.outputs.find(
+        (candidate) => candidate.id === page.outputId
+      )
+      if (!output || output.pageIds.length <= 1) {
+        throw new Error("An output must keep at least one page")
+      }
+      const removedNodeIds = new Set(page.nodeIds)
+      next = {
+        ...document,
+        pages: document.pages.filter((candidate) => candidate.id !== page.id),
+        nodes: document.nodes.filter((node) => !removedNodeIds.has(node.id)),
+        groups: document.groups.filter((group) => group.pageId !== page.id),
+        bindings: document.bindings.filter(
+          (binding) => !removedNodeIds.has(binding.nodeId)
+        ),
+        outputs: document.outputs.map((candidate) =>
+          candidate.id === output.id
+            ? {
+                ...candidate,
+                pageIds: candidate.pageIds.filter(
+                  (pageId) => pageId !== page.id
+                ),
+              }
+            : candidate
+        ),
+      }
+      break
+    }
+    case "reorder_page": {
+      const output = document.outputs.find(
+        (candidate) => candidate.id === command.outputId
+      )
+      if (!output || !output.pageIds.includes(command.pageId)) {
+        throw new Error("The page does not belong to this output")
+      }
+      const pageIds = output.pageIds.filter(
+        (pageId) => pageId !== command.pageId
+      )
+      pageIds.splice(
+        Math.min(command.toIndex, pageIds.length),
+        0,
+        command.pageId
+      )
+      next = {
+        ...document,
+        outputs: document.outputs.map((candidate) =>
+          candidate.id === output.id ? { ...candidate, pageIds } : candidate
+        ),
+      }
+      break
+    }
+    case "add_output": {
+      if (
+        document.outputs.some((output) => output.id === command.output.id) ||
+        document.pages.some((page) => page.id === command.page.id) ||
+        command.page.outputId !== command.output.id ||
+        command.output.pageIds.length !== 1 ||
+        command.output.pageIds[0] !== command.page.id ||
+        command.page.nodeIds.length
+      ) {
+        throw new Error("The new output or its first page is invalid")
+      }
+      next = {
+        ...document,
+        outputs: [...document.outputs, command.output],
+        pages: [...document.pages, command.page],
+      }
+      break
+    }
+    case "update_output": {
+      if (!document.outputs.some((output) => output.id === command.outputId)) {
+        throw new Error(`Unknown output: ${command.outputId}`)
+      }
+      next = {
+        ...document,
+        outputs: document.outputs.map((output) =>
+          output.id === command.outputId
+            ? { ...output, name: command.name }
+            : output
+        ),
+      }
+      break
+    }
+    case "remove_output": {
+      const output = document.outputs.find(
+        (candidate) => candidate.id === command.outputId
+      )
+      if (!output) throw new Error(`Unknown output: ${command.outputId}`)
+      if (document.outputs.length <= 1) {
+        throw new Error("A document must keep at least one output")
+      }
+      const removedPageIds = new Set(output.pageIds)
+      const removedNodeIds = new Set(
+        document.pages
+          .filter((page) => removedPageIds.has(page.id))
+          .flatMap((page) => page.nodeIds)
+      )
+      next = {
+        ...document,
+        outputs: document.outputs.filter(
+          (candidate) => candidate.id !== output.id
+        ),
+        pages: document.pages.filter((page) => !removedPageIds.has(page.id)),
+        nodes: document.nodes.filter((node) => !removedNodeIds.has(node.id)),
+        groups: document.groups.filter(
+          (group) => !removedPageIds.has(group.pageId)
+        ),
+        bindings: document.bindings.filter(
+          (binding) => !removedNodeIds.has(binding.nodeId)
+        ),
+      }
+      break
+    }
   }
 
   return documentSchema.parse({

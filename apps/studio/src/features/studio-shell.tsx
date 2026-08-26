@@ -9,6 +9,7 @@ import {
   Circle,
   Download,
   FileJson2,
+  FilePlus2,
   Focus,
   Group,
   Heart,
@@ -55,6 +56,7 @@ import {
 } from "@webmcp/ui/components/tooltip"
 import { DocumentSidebar } from "./editor/document-sidebar"
 import { AssetLibraryDialog } from "./editor/asset-library-dialog"
+import { NewDocumentDialog } from "./editor/new-document-dialog"
 import {
   FabricArtboard,
   type FabricArtboardHandle,
@@ -111,6 +113,7 @@ export function StudioShell() {
   const [isPanning, setIsPanning] = useState(false)
   const [apiCopied, setApiCopied] = useState(false)
   const [assetLibraryOpen, setAssetLibraryOpen] = useState(false)
+  const [newDocumentOpen, setNewDocumentOpen] = useState(false)
   const [compactPanel, setCompactPanel] = useState<
     "document" | "inspector" | null
   >(null)
@@ -627,6 +630,10 @@ export function StudioShell() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuLabel>Studio document</DropdownMenuLabel>
+              <DropdownMenuItem onSelect={() => setNewDocumentOpen(true)}>
+                <FilePlus2 />
+                New document…
+              </DropdownMenuItem>
               <DropdownMenuItem onSelect={exportDocumentJson}>
                 <Download />
                 Export document JSON
@@ -659,6 +666,14 @@ export function StudioShell() {
           onUpdateGroup={editor.updateGroup}
           onUpdateGroupNodes={editor.updateGroupNodes}
           onReorderNode={editor.reorderNode}
+          onAddPage={editor.addPage}
+          onDuplicatePage={editor.duplicatePage}
+          onUpdatePage={editor.updatePage}
+          onRemovePage={editor.removePage}
+          onReorderPage={editor.reorderPage}
+          onAddOutput={editor.addOutput}
+          onUpdateOutput={editor.updateOutput}
+          onRemoveOutput={editor.removeOutput}
         />
 
         <section className="relative flex min-h-0 flex-col bg-workspace">
@@ -846,6 +861,14 @@ export function StudioShell() {
                   onUpdateGroup={editor.updateGroup}
                   onUpdateGroupNodes={editor.updateGroupNodes}
                   onReorderNode={editor.reorderNode}
+                  onAddPage={editor.addPage}
+                  onDuplicatePage={editor.duplicatePage}
+                  onUpdatePage={editor.updatePage}
+                  onRemovePage={editor.removePage}
+                  onReorderPage={editor.reorderPage}
+                  onAddOutput={editor.addOutput}
+                  onUpdateOutput={editor.updateOutput}
+                  onRemoveOutput={editor.removeOutput}
                 />
               ) : (
                 <InspectorSidebar
@@ -874,6 +897,12 @@ export function StudioShell() {
         onOpenChange={setAssetLibraryOpen}
         onInsert={editor.addLibraryAsset}
         onUpload={() => openImagePicker()}
+      />
+      <NewDocumentDialog
+        open={newDocumentOpen}
+        onOpenChange={setNewDocumentOpen}
+        onCreateBlank={editor.createBlankDocument}
+        onRestoreDemo={editor.restoreDemoDocument}
       />
     </main>
   )

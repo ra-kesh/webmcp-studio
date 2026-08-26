@@ -229,4 +229,101 @@ describe("canonical document commands", () => {
       nested.groups.find((group) => group.id === "cover-content-group")?.nodeIds
     ).toEqual([])
   })
+
+  it("adds, updates, reorders, and removes pages canonically", () => {
+    const page = {
+      id: "proposal-extra-page",
+      outputId: "proposal",
+      name: "Extra page",
+      width: 1240,
+      height: 1754,
+      background: "#ffffff",
+      nodeIds: [],
+    }
+    const added = applyCommand(northstarSeed, {
+      id: "cmd-add-page",
+      type: "add_page",
+      actor: "human",
+      at: "2026-08-26T09:30:00.000Z",
+      outputId: "proposal",
+      page,
+    })
+    expect(added.outputs[0]?.pageIds.at(-1)).toBe(page.id)
+
+    const updated = applyCommand(added, {
+      id: "cmd-update-page",
+      type: "update_page",
+      actor: "human",
+      at: "2026-08-26T09:31:00.000Z",
+      pageId: page.id,
+      patch: { name: "Renamed page", width: 1080, height: 1080 },
+    })
+    expect(
+      updated.pages.find((candidate) => candidate.id === page.id)
+    ).toMatchObject({
+      name: "Renamed page",
+      width: 1080,
+      height: 1080,
+    })
+
+    const reordered = applyCommand(updated, {
+      id: "cmd-reorder-page",
+      type: "reorder_page",
+      actor: "human",
+      at: "2026-08-26T09:32:00.000Z",
+      outputId: "proposal",
+      pageId: page.id,
+      toIndex: 0,
+    })
+    expect(reordered.outputs[0]?.pageIds[0]).toBe(page.id)
+
+    const removed = applyCommand(reordered, {
+      id: "cmd-remove-page",
+      type: "remove_page",
+      actor: "human",
+      at: "2026-08-26T09:33:00.000Z",
+      pageId: page.id,
+    })
+    expect(removed.pages.some((candidate) => candidate.id === page.id)).toBe(
+      false
+    )
+  })
+
+  it("adds and removes a named output with its first page", () => {
+    const added = applyCommand(northstarSeed, {
+      id: "cmd-add-output",
+      type: "add_output",
+      actor: "human",
+      at: "2026-08-26T09:30:00.000Z",
+      output: {
+        id: "social-story",
+        name: "Social story",
+        kind: "square",
+        pageIds: ["social-story-page"],
+        exportFormats: ["png"],
+      },
+      page: {
+        id: "social-story-page",
+        outputId: "social-story",
+        name: "Page 1",
+        width: 1080,
+        height: 1920,
+        background: "#ffffff",
+        nodeIds: [],
+      },
+    })
+    expect(added.outputs.at(-1)?.name).toBe("Social story")
+
+    const removed = applyCommand(added, {
+      id: "cmd-remove-output",
+      type: "remove_output",
+      actor: "human",
+      at: "2026-08-26T09:31:00.000Z",
+      outputId: "social-story",
+    })
+    expect(removed.outputs).toHaveLength(northstarSeed.outputs.length)
+    expect(removed.pages.some((page) => page.outputId === "social-story")).toBe(
+      false
+    )
+  })
 })

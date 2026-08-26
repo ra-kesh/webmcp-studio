@@ -4,6 +4,7 @@ import {
   ChevronDown,
   ChevronUp,
   Circle,
+  Copy,
   Eye,
   EyeOff,
   Folder,
@@ -11,9 +12,12 @@ import {
   ImageIcon,
   Lock,
   Minus,
+  Plus,
+  Settings2,
   Shapes,
   Square,
   Type,
+  Trash2,
   Unlock,
 } from "lucide-react"
 import {
@@ -27,6 +31,15 @@ import { Artboard } from "@webmcp/render-view"
 import { Badge } from "@webmcp/ui/components/badge"
 import { Button } from "@webmcp/ui/components/button"
 import { EditorPanelTabsList } from "@webmcp/ui/components/editor-chrome"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@webmcp/ui/components/dialog"
+import { Input } from "@webmcp/ui/components/input"
 import { ScrollArea } from "@webmcp/ui/components/scroll-area"
 import { Tabs, TabsContent, TabsTrigger } from "@webmcp/ui/components/tabs"
 import { cn } from "@webmcp/ui/lib/utils"
@@ -57,50 +70,363 @@ function entryLayerIndex(
       )
 }
 
+function EditableLabel({
+  value,
+  ariaLabel,
+  className,
+  onCommit,
+}: {
+  value: string
+  ariaLabel: string
+  className?: string
+  onCommit(value: string): void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value)
+  useEffect(() => setDraft(value), [value])
+  if (!editing) {
+    return (
+      <span
+        className={className}
+        title="Double-click to rename"
+        onDoubleClick={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          setEditing(true)
+        }}
+      >
+        {value}
+      </span>
+    )
+  }
+  return (
+    <Input
+      aria-label={ariaLabel}
+      autoFocus
+      className="h-7 min-w-0 flex-1 px-2 text-xs"
+      value={draft}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => {
+        if (draft.trim() && draft.trim() !== value) onCommit(draft.trim())
+        else setDraft(value)
+        setEditing(false)
+      }}
+      onClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.currentTarget.blur()
+        if (event.key === "Escape") {
+          setDraft(value)
+          setEditing(false)
+        }
+      }}
+    />
+  )
+}
+
 function OutputList({
   document,
   activePageId,
   onSelectPage,
+  onAddPage,
+  onDuplicatePage,
+  onUpdatePage,
+  onRemovePage,
+  onReorderPage,
+  onAddOutput,
+  onUpdateOutput,
+  onRemoveOutput,
 }: {
   document: Document
   activePageId: string
   onSelectPage(pageId: string): void
+  onAddPage(outputId: string): void
+  onDuplicatePage(pageId: string): void
+  onUpdatePage(
+    pageId: string,
+    patch: {
+      name?: string
+      width?: number
+      height?: number
+      background?: string
+    }
+  ): void
+  onRemovePage(pageId: string): void
+  onReorderPage(outputId: string, pageId: string, toIndex: number): void
+  onAddOutput(options: { name: string; width: number; height: number }): void
+  onUpdateOutput(outputId: string, name: string): void
+  onRemoveOutput(outputId: string): void
 }) {
+  const [settingsPageId, setSettingsPageId] = useState<string | null>(null)
+  const [newOutputOpen, setNewOutputOpen] = useState(false)
+  const [newOutputName, setNewOutputName] = useState("New output")
+  const [newOutputWidth, setNewOutputWidth] = useState(1080)
+  const [newOutputHeight, setNewOutputHeight] = useState(1080)
+  const settingsPage = document.pages.find((page) => page.id === settingsPageId)
+
   return (
-    <div className="flex flex-col gap-3 p-2">
+    <div className="flex flex-col gap-3 p-2 pb-4">
       {document.outputs.map((output) => (
         <section key={output.id}>
-          <div className="flex items-center justify-between px-2 py-1.5">
-            <span className="text-[11px] font-medium">{output.name}</span>
+          <div className="group flex items-center gap-1 px-2 py-1.5">
+            <EditableLabel
+              ariaLabel={`Rename ${output.name}`}
+              className="min-w-0 flex-1 truncate text-[11px] font-medium"
+              value={output.name}
+              onCommit={(name) => onUpdateOutput(output.id, name)}
+            />
             <Badge variant="ghost">{output.pageIds.length}</Badge>
+            <Button
+              aria-label={`Add page to ${output.name}`}
+              size="icon-xs"
+              variant="ghost"
+              onClick={() => onAddPage(output.id)}
+            >
+              <Plus />
+            </Button>
+            <Button
+              aria-label={`Delete ${output.name}`}
+              disabled={document.outputs.length <= 1}
+              size="icon-xs"
+              variant="ghost"
+              onClick={() => onRemoveOutput(output.id)}
+            >
+              <Trash2 />
+            </Button>
           </div>
           <div className="flex flex-col gap-1">
-            {output.pageIds.map((pageId) => {
+            {output.pageIds.map((pageId, pageIndex) => {
               const page = document.pages.find(
                 (candidate) => candidate.id === pageId
               )
               if (!page) return null
               const scale = 52 / page.width
               return (
-                <Button
+                <div
                   key={page.id}
-                  className="h-auto w-full justify-start gap-3 p-2"
-                  variant={activePageId === page.id ? "secondary" : "ghost"}
-                  onClick={() => onSelectPage(page.id)}
+                  className="group/page flex items-center rounded-lg data-[active=true]:bg-secondary"
+                  data-active={activePageId === page.id}
                 >
-                  <Artboard
-                    className="shrink-0 overflow-hidden rounded-[3px] border bg-white shadow-sm"
-                    document={document}
-                    pageId={page.id}
-                    scale={scale}
-                  />
-                  <span className="min-w-0 truncate text-xs">{page.name}</span>
-                </Button>
+                  <button
+                    type="button"
+                    className="shrink-0 p-2 pr-1"
+                    onClick={() => onSelectPage(page.id)}
+                  >
+                    <Artboard
+                      className="shrink-0 overflow-hidden rounded-[3px] border bg-white shadow-sm"
+                      document={document}
+                      pageId={page.id}
+                      scale={scale}
+                    />
+                  </button>
+                  <div
+                    className="flex min-w-0 flex-1 items-center self-stretch px-2"
+                    onClick={() => onSelectPage(page.id)}
+                  >
+                    <EditableLabel
+                      ariaLabel={`Rename ${page.name}`}
+                      className="min-w-0 flex-1 truncate text-xs"
+                      value={page.name}
+                      onCommit={(name) => onUpdatePage(page.id, { name })}
+                    />
+                  </div>
+                  <div className="mr-1 hidden items-center group-focus-within/page:flex group-hover/page:flex">
+                    <Button
+                      aria-label={`Move ${page.name} up`}
+                      disabled={pageIndex === 0}
+                      size="icon-xs"
+                      variant="ghost"
+                      onClick={() =>
+                        onReorderPage(output.id, page.id, pageIndex - 1)
+                      }
+                    >
+                      <ChevronUp />
+                    </Button>
+                    <Button
+                      aria-label={`Move ${page.name} down`}
+                      disabled={pageIndex === output.pageIds.length - 1}
+                      size="icon-xs"
+                      variant="ghost"
+                      onClick={() =>
+                        onReorderPage(output.id, page.id, pageIndex + 1)
+                      }
+                    >
+                      <ChevronDown />
+                    </Button>
+                    <Button
+                      aria-label={`Duplicate ${page.name}`}
+                      size="icon-xs"
+                      variant="ghost"
+                      onClick={() => onDuplicatePage(page.id)}
+                    >
+                      <Copy />
+                    </Button>
+                    <Button
+                      aria-label={`Edit ${page.name} settings`}
+                      size="icon-xs"
+                      variant="ghost"
+                      onClick={() => setSettingsPageId(page.id)}
+                    >
+                      <Settings2 />
+                    </Button>
+                    <Button
+                      aria-label={`Delete ${page.name}`}
+                      disabled={output.pageIds.length <= 1}
+                      size="icon-xs"
+                      variant="ghost"
+                      onClick={() => onRemovePage(page.id)}
+                    >
+                      <Trash2 />
+                    </Button>
+                  </div>
+                </div>
               )
             })}
           </div>
         </section>
       ))}
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => setNewOutputOpen(true)}
+      >
+        <Plus data-icon="inline-start" />
+        Add output
+      </Button>
+
+      <Dialog
+        open={Boolean(settingsPage)}
+        onOpenChange={(open) => !open && setSettingsPageId(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Page settings</DialogTitle>
+            <DialogDescription>
+              Rename the page or change its canonical canvas dimensions.
+            </DialogDescription>
+          </DialogHeader>
+          {settingsPage ? (
+            <div className="grid gap-3">
+              <label className="grid gap-1.5 text-xs">
+                Name
+                <Input
+                  value={settingsPage.name}
+                  onChange={(event) =>
+                    onUpdatePage(settingsPage.id, { name: event.target.value })
+                  }
+                />
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="grid gap-1.5 text-xs">
+                  Width
+                  <Input
+                    type="number"
+                    min={1}
+                    value={settingsPage.width}
+                    onChange={(event) =>
+                      onUpdatePage(settingsPage.id, {
+                        width: Math.max(1, Number(event.target.value)),
+                      })
+                    }
+                  />
+                </label>
+                <label className="grid gap-1.5 text-xs">
+                  Height
+                  <Input
+                    type="number"
+                    min={1}
+                    value={settingsPage.height}
+                    onChange={(event) =>
+                      onUpdatePage(settingsPage.id, {
+                        height: Math.max(1, Number(event.target.value)),
+                      })
+                    }
+                  />
+                </label>
+              </div>
+              <label className="grid gap-1.5 text-xs">
+                Background
+                <Input
+                  type="color"
+                  className="p-1"
+                  value={settingsPage.background}
+                  onChange={(event) =>
+                    onUpdatePage(settingsPage.id, {
+                      background: event.target.value,
+                    })
+                  }
+                />
+              </label>
+            </div>
+          ) : null}
+          <DialogFooter showCloseButton />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={newOutputOpen} onOpenChange={setNewOutputOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>New output</DialogTitle>
+            <DialogDescription>
+              Add a named output with its own page dimensions.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <label className="grid gap-1.5 text-xs">
+              Output name
+              <Input
+                value={newOutputName}
+                onChange={(event) => setNewOutputName(event.target.value)}
+              />
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="grid gap-1.5 text-xs">
+                Width
+                <Input
+                  type="number"
+                  min={1}
+                  value={newOutputWidth}
+                  onChange={(event) =>
+                    setNewOutputWidth(Number(event.target.value))
+                  }
+                />
+              </label>
+              <label className="grid gap-1.5 text-xs">
+                Height
+                <Input
+                  type="number"
+                  min={1}
+                  value={newOutputHeight}
+                  onChange={(event) =>
+                    setNewOutputHeight(Number(event.target.value))
+                  }
+                />
+              </label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNewOutputOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={
+                !newOutputName.trim() ||
+                newOutputWidth < 1 ||
+                newOutputHeight < 1
+              }
+              onClick={() => {
+                onAddOutput({
+                  name: newOutputName,
+                  width: newOutputWidth,
+                  height: newOutputHeight,
+                })
+                setNewOutputOpen(false)
+              }}
+            >
+              Create output
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -371,6 +697,14 @@ export function DocumentSidebar({
   onUpdateGroup,
   onUpdateGroupNodes,
   onReorderNode,
+  onAddPage,
+  onDuplicatePage,
+  onUpdatePage,
+  onRemovePage,
+  onReorderPage,
+  onAddOutput,
+  onUpdateOutput,
+  onRemoveOutput,
   className,
 }: {
   document: Document
@@ -383,6 +717,22 @@ export function DocumentSidebar({
   onUpdateGroup(groupId: string, name: string): void
   onUpdateGroupNodes(groupId: string, patch: Partial<SceneNode>): void
   onReorderNode(nodeId: string, direction: "forward" | "backward"): void
+  onAddPage(outputId: string): void
+  onDuplicatePage(pageId: string): void
+  onUpdatePage(
+    pageId: string,
+    patch: {
+      name?: string
+      width?: number
+      height?: number
+      background?: string
+    }
+  ): void
+  onRemovePage(pageId: string): void
+  onReorderPage(outputId: string, pageId: string, toIndex: number): void
+  onAddOutput(options: { name: string; width: number; height: number }): void
+  onUpdateOutput(outputId: string, name: string): void
+  onRemoveOutput(outputId: string): void
   className?: string
 }) {
   const page = document.pages.find((candidate) => candidate.id === activePageId)
@@ -431,6 +781,14 @@ export function DocumentSidebar({
               document={document}
               activePageId={activePageId}
               onSelectPage={onSelectPage}
+              onAddPage={onAddPage}
+              onDuplicatePage={onDuplicatePage}
+              onUpdatePage={onUpdatePage}
+              onRemovePage={onRemovePage}
+              onReorderPage={onReorderPage}
+              onAddOutput={onAddOutput}
+              onUpdateOutput={onUpdateOutput}
+              onRemoveOutput={onRemoveOutput}
             />
           </ScrollArea>
         </TabsContent>

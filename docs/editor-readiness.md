@@ -21,6 +21,8 @@ Working today:
 - searchable original asset library with self-contained renderer-safe artwork
 - deterministic image cover/contain, focal position, replacement, and alt text
 - undoable Studio JSON import and self-contained document export
+- canonical nested groups and full page/output management
+- blank-format and proposal-starter document gallery
 - basic text, shape, geometry, opacity, and field controls
 
 This is a useful interaction base, not a finished editor.
@@ -59,9 +61,9 @@ coordinate in the inspector.
 
 - [x] canonical groups with group and ungroup
 - [x] complete layer ordering, rename, lock, hide, and nested group rows
-- [ ] add, duplicate, rename, reorder, and delete pages
-- [ ] create and manage named output groups and page dimensions
-- [ ] gallery and blank-document entry flow
+- [x] add, duplicate, rename, reorder, and delete pages
+- [x] create and manage named output groups and page dimensions
+- [x] gallery and blank-document entry flow
 
 Exit condition: the user can build and reorganize a multi-output pack entirely
 inside the product.

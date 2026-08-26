@@ -752,6 +752,243 @@ export function useDocumentEditor() {
     commit([{ type: "ungroup_nodes", groupId: selectedGroupId }])
   }, [commit, selectedGroupId])
 
+  const addPage = useCallback(
+    (outputId: string) => {
+      const document = historyRef.current.document
+      const output = document.outputs.find(
+        (candidate) => candidate.id === outputId
+      )
+      const referencePage = output
+        ? document.pages.find((page) => page.id === output.pageIds.at(-1))
+        : undefined
+      if (!output) return
+      const pageId = `page-${crypto.randomUUID()}`
+      commit([
+        {
+          type: "add_page",
+          outputId,
+          page: {
+            id: pageId,
+            outputId,
+            name: `Page ${output.pageIds.length + 1}`,
+            width: referencePage?.width ?? 1080,
+            height: referencePage?.height ?? 1080,
+            background: referencePage?.background ?? "#ffffff",
+            nodeIds: [],
+          },
+        },
+      ])
+      setActivePageId(pageId)
+      setSelection(null)
+    },
+    [commit]
+  )
+
+  const duplicatePage = useCallback(
+    (pageId: string) => {
+      const document = historyRef.current.document
+      const page = document.pages.find((candidate) => candidate.id === pageId)
+      if (!page) return
+      const nextPageId = `page-${crypto.randomUUID()}`
+      const nodeIdMap = new Map(
+        page.nodeIds.map((nodeId) => [nodeId, `node-${crypto.randomUUID()}`])
+      )
+      const nodes = page.nodeIds.flatMap((nodeId) => {
+        const node = findNode(document, nodeId)
+        const nextNodeId = nodeIdMap.get(nodeId)
+        return node && nextNodeId
+          ? [{ ...node, id: nextNodeId, name: node.name } as SceneNode]
+          : []
+      })
+      const groupIdMap = new Map(
+        document.groups
+          .filter((group) => group.pageId === page.id)
+          .map((group) => [group.id, `group-${crypto.randomUUID()}`])
+      )
+      const groups = document.groups
+        .filter((group) => group.pageId === page.id)
+        .map((group) => ({
+          ...group,
+          id: groupIdMap.get(group.id) ?? group.id,
+          pageId: nextPageId,
+          nodeIds: group.nodeIds.flatMap((nodeId) => {
+            const nextNodeId = nodeIdMap.get(nodeId)
+            return nextNodeId ? [nextNodeId] : []
+          }),
+          parentGroupId: group.parentGroupId
+            ? groupIdMap.get(group.parentGroupId)
+            : undefined,
+        }))
+      commit([
+        {
+          type: "duplicate_page",
+          outputId: page.outputId,
+          page: {
+            ...page,
+            id: nextPageId,
+            name: `${page.name} copy`,
+            nodeIds: page.nodeIds.flatMap((nodeId) => {
+              const nextNodeId = nodeIdMap.get(nodeId)
+              return nextNodeId ? [nextNodeId] : []
+            }),
+          },
+          nodes,
+          groups,
+        },
+      ])
+      setActivePageId(nextPageId)
+      setSelection(null)
+    },
+    [commit]
+  )
+
+  const updatePage = useCallback(
+    (
+      pageId: string,
+      patch: {
+        name?: string
+        width?: number
+        height?: number
+        background?: string
+      }
+    ) => commit([{ type: "update_page", pageId, patch }]),
+    [commit]
+  )
+
+  const removePage = useCallback(
+    (pageId: string) => {
+      const document = historyRef.current.document
+      const page = document.pages.find((candidate) => candidate.id === pageId)
+      const output = page
+        ? document.outputs.find((candidate) => candidate.id === page.outputId)
+        : undefined
+      if (!page || !output || output.pageIds.length <= 1) return
+      const nextPageId =
+        output.pageIds.find((candidate) => candidate !== pageId) ?? activePageId
+      commit([{ type: "remove_page", pageId }])
+      if (activePageId === pageId) setActivePageId(nextPageId)
+      setSelection(null)
+    },
+    [activePageId, commit]
+  )
+
+  const reorderPage = useCallback(
+    (outputId: string, pageId: string, toIndex: number) =>
+      commit([{ type: "reorder_page", outputId, pageId, toIndex }]),
+    [commit]
+  )
+
+  const addOutput = useCallback(
+    (options: { name: string; width: number; height: number }) => {
+      const outputId = `output-${crypto.randomUUID()}`
+      const pageId = `page-${crypto.randomUUID()}`
+      commit([
+        {
+          type: "add_output",
+          output: {
+            id: outputId,
+            name: options.name.trim() || "Untitled output",
+            kind: "square",
+            pageIds: [pageId],
+            exportFormats: ["png"],
+          },
+          page: {
+            id: pageId,
+            outputId,
+            name: "Page 1",
+            width: options.width,
+            height: options.height,
+            background: "#ffffff",
+            nodeIds: [],
+          },
+        },
+      ])
+      setActivePageId(pageId)
+      setSelection(null)
+    },
+    [commit]
+  )
+
+  const updateOutput = useCallback(
+    (outputId: string, name: string) => {
+      if (name.trim())
+        commit([{ type: "update_output", outputId, name: name.trim() }])
+    },
+    [commit]
+  )
+
+  const removeOutput = useCallback(
+    (outputId: string) => {
+      const document = historyRef.current.document
+      const output = document.outputs.find(
+        (candidate) => candidate.id === outputId
+      )
+      if (!output || document.outputs.length <= 1) return
+      const nextPageId = document.outputs.find(
+        (candidate) => candidate.id !== outputId
+      )?.pageIds[0]
+      commit([{ type: "remove_output", outputId }])
+      if (output.pageIds.includes(activePageId) && nextPageId) {
+        setActivePageId(nextPageId)
+        setSelection(null)
+      }
+    },
+    [activePageId, commit]
+  )
+
+  const createBlankDocument = useCallback(
+    (options: { name: string; width: number; height: number }) => {
+      const now = new Date().toISOString()
+      const outputId = `output-${crypto.randomUUID()}`
+      const pageId = `page-${crypto.randomUUID()}`
+      const document = documentSchema.parse({
+        schemaVersion: 1,
+        id: `document-${crypto.randomUUID()}`,
+        name: options.name,
+        revision: 0,
+        createdAt: now,
+        updatedAt: now,
+        outputs: [
+          {
+            id: outputId,
+            name: options.name,
+            kind: "square",
+            pageIds: [pageId],
+            exportFormats: ["png"],
+          },
+        ],
+        pages: [
+          {
+            id: pageId,
+            outputId,
+            name: "Page 1",
+            width: options.width,
+            height: options.height,
+            background: "#ffffff",
+            nodeIds: [],
+          },
+        ],
+        nodes: [],
+        groups: [],
+        fields: [],
+        fieldValues: {},
+        bindings: [],
+      })
+      setHistory((current) => replaceDocument(current, document))
+      setActivePageId(pageId)
+      setSelection(null)
+      setSaveStatus("saving")
+    },
+    []
+  )
+
+  const restoreDemoDocument = useCallback(() => {
+    setHistory((current) => replaceDocument(current, northstarSeed))
+    setActivePageId(northstarSeed.pages[0]?.id ?? "cover")
+    setSelection(null)
+    setSaveStatus("saving")
+  }, [])
+
   const undo = useCallback(() => {
     setHistory((current) => undoDocument(current))
     setSelection(null)
@@ -959,6 +1196,16 @@ export function useDocumentEditor() {
     selectGroup,
     updateGroup,
     updateGroupNodes,
+    addPage,
+    duplicatePage,
+    updatePage,
+    removePage,
+    reorderPage,
+    addOutput,
+    updateOutput,
+    removeOutput,
+    createBlankDocument,
+    restoreDemoDocument,
     undo,
     redo,
   }
