@@ -64,6 +64,8 @@ const formatBytes = (bytes: number) => {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
+const shellQuote = (value: string) => `'${value.replaceAll("'", `'"'"'`)}'`
+
 function ParameterInput({
   parameter,
   value,
@@ -135,6 +137,11 @@ export function ApiPlaygroundDialog({
   const [outputs, setOutputs] = useState<Record<string, OutputChoice>>({})
   const [copied, setCopied] = useState(false)
   const [running, setRunning] = useState(false)
+  const [apiAccess, setApiAccess] = useState<{
+    origin: string
+    token: string
+  } | null>(null)
+  const [apiAccessError, setApiAccessError] = useState<string | null>(null)
   const { records, historyError, runRender } = renderHistory
 
   useEffect(() => {
@@ -163,6 +170,38 @@ export function ApiPlaygroundDialog({
     )
   }, [version?.id])
 
+  useEffect(() => {
+    if (!version || !open) {
+      setApiAccess(null)
+      setApiAccessError(null)
+      return
+    }
+    const controller = new AbortController()
+    void fetch("/v1/studio/session/token", { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`Demo API access returned ${response.status}.`)
+        }
+        return (await response.json()) as { token?: string }
+      })
+      .then((payload) => {
+        if (!payload.token)
+          throw new Error("Demo API access returned no token.")
+        setApiAccess({ origin: window.location.origin, token: payload.token })
+        setApiAccessError(null)
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return
+        setApiAccess(null)
+        setApiAccessError(
+          error instanceof Error
+            ? error.message
+            : "Demo API access could not be prepared."
+        )
+      })
+    return () => controller.abort()
+  }, [open, version?.id])
+
   const selections = useMemo<RenderSelection[]>(
     () =>
       Object.entries(outputs).flatMap(([outputId, choice]) =>
@@ -179,9 +218,10 @@ export function ApiPlaygroundDialog({
       }
     : null
   const requestJson = requestBody ? JSON.stringify(requestBody, null, 2) : ""
-  const curl = requestBody
-    ? `curl -X POST https://studio.example/v1/studio/render \\\n  -H "Authorization: Bearer $STUDIO_API_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '${JSON.stringify(requestBody)}'`
-    : ""
+  const curl =
+    requestBody && apiAccess
+      ? `curl --fail-with-body -X POST ${apiAccess.origin}/v1/studio/render \\\n  -H "Authorization: Bearer ${apiAccess.token}" \\\n  -H "Content-Type: application/json" \\\n  -d ${shellQuote(JSON.stringify(requestBody))}`
+      : ""
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -355,6 +395,8 @@ export function ApiPlaygroundDialog({
                   <Button
                     size="sm"
                     variant="outline"
+                    disabled={!curl}
+                    title={apiAccessError ?? undefined}
                     onClick={() => {
                       void navigator.clipboard.writeText(curl)
                       setCopied(true)

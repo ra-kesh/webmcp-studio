@@ -129,7 +129,7 @@ The challenge starts without Durable Objects, KV, Queues, Containers, or Workflo
 
 ## Demo isolation
 
-Each judge receives a synthetic demo workspace cloned from a read-only seed. Reset creates another clone rather than rewriting the seed. No login is required for the challenge path. A signed, short-lived demo-session cookie isolates changes and render history.
+Each judge receives a synthetic demo workspace cloned from a read-only seed. Reset rotates to another workspace rather than rewriting the seed. No login is required for the challenge path. An opaque, random, HttpOnly 24-hour demo-session cookie isolates published versions and render history. The API playground can exchange that same-origin cookie for the same short-lived opaque value as a bearer token so its copied cURL operates on the judge's workspace.
 
 ## Deployment order
 

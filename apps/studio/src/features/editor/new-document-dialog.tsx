@@ -105,7 +105,8 @@ export function NewDocumentDialog({
                 </div>
                 <p className="mt-1 text-xs leading-relaxed text-[#5f6f66]">
                   Five proposal pages plus WhatsApp and follow-up outputs,
-                  fields, bindings, and production-ready structure.
+                  fields, and bindings. Starts a fresh demo API session and
+                  clears this browser&apos;s render history.
                 </p>
               </div>
               <Button
@@ -116,7 +117,7 @@ export function NewDocumentDialog({
                   onOpenChange(false)
                 }}
               >
-                Use starter
+                Reset to starter
               </Button>
             </div>
           </section>

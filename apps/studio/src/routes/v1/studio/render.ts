@@ -3,9 +3,10 @@ import { createFileRoute } from "@tanstack/react-router"
 import { materializeTemplateVersion } from "@webmcp/document"
 import { z } from "zod"
 import {
-  DEMO_WORKSPACE_ID,
-  getTemplateVersion,
-} from "../../../server/template-repository"
+  databaseTemplateId,
+  resolveDemoSession,
+} from "../../../server/demo-session"
+import { getTemplateVersion } from "../../../server/template-repository"
 
 const renderRequestSchema = z.object({
   templateId: z.string().min(1),
@@ -45,6 +46,7 @@ type RenderArtifact = {
 type ExistingJobRow = {
   id: string
   template_id: string
+  template_public_id: string
   template_version: number
   status: "queued" | "rendering" | "completed" | "failed"
   request_hash: string | null
@@ -98,7 +100,7 @@ async function existingRenderResponse(job: ExistingJobRow) {
   const responseBody = {
     id: job.id,
     status: job.status,
-    templateId: job.template_id,
+    templateId: job.template_public_id,
     version: job.template_version,
     createdAt: job.created_at,
     completedAt: job.completed_at,
@@ -174,15 +176,18 @@ export const Route = createFileRoute("/v1/studio/render")({
   server: {
     handlers: {
       POST: async ({ request }) => {
+        const session = await resolveDemoSession(env.DB, request)
+        const json = (body: unknown, init?: ResponseInit) =>
+          session.respond(Response.json(body, init))
         const contentLength = Number(request.headers.get("content-length") ?? 0)
         if (!contentLength) {
-          return Response.json(
+          return json(
             { error: { code: "content_length_required" } },
             { status: 411 }
           )
         }
         if (contentLength > MAX_REQUEST_BYTES) {
-          return Response.json(
+          return json(
             {
               error: {
                 code: "request_too_large",
@@ -194,7 +199,7 @@ export const Route = createFileRoute("/v1/studio/render")({
         }
         const parsed = renderRequestSchema.safeParse(await request.json())
         if (!parsed.success) {
-          return Response.json(
+          return json(
             {
               error: {
                 code: "invalid_render_request",
@@ -210,7 +215,7 @@ export const Route = createFileRoute("/v1/studio/render")({
           (idempotencyKey.length > 128 ||
             !/^[A-Za-z0-9._:-]+$/.test(idempotencyKey))
         ) {
-          return Response.json(
+          return json(
             { error: { code: "invalid_idempotency_key" } },
             { status: 400 }
           )
@@ -220,30 +225,34 @@ export const Route = createFileRoute("/v1/studio/render")({
           : null
         if (idempotencyKey) {
           const existing = await env.DB.prepare(
-            `SELECT id, template_id, template_version, status, request_hash,
-                    error_code, error_message, created_at, completed_at
-             FROM render_jobs
-             WHERE workspace_id = ?1 AND idempotency_key = ?2`
+            `SELECT jobs.id, jobs.template_id, templates.public_id AS template_public_id,
+                    jobs.template_version, jobs.status, jobs.request_hash,
+                    jobs.error_code, jobs.error_message, jobs.created_at,
+                    jobs.completed_at
+             FROM render_jobs jobs
+             JOIN templates ON templates.id = jobs.template_id
+             WHERE jobs.workspace_id = ?1 AND jobs.idempotency_key = ?2`
           )
-            .bind(DEMO_WORKSPACE_ID, idempotencyKey)
+            .bind(session.workspaceId, idempotencyKey)
             .first<ExistingJobRow>()
           if (existing) {
             if (existing.request_hash !== normalizedRequestHash) {
-              return Response.json(
+              return json(
                 { error: { code: "idempotency_key_reused" } },
                 { status: 409 }
               )
             }
-            return existingRenderResponse(existing)
+            return session.respond(await existingRenderResponse(existing))
           }
         }
         const version = await getTemplateVersion(
           env.DB,
+          session.workspaceId,
           parsed.data.templateId,
           parsed.data.version
         )
         if (!version) {
-          return Response.json(
+          return json(
             { error: { code: "template_not_found" } },
             { status: 404 }
           )
@@ -256,7 +265,7 @@ export const Route = createFileRoute("/v1/studio/render")({
             parsed.data.modifications
           )
         } catch (error) {
-          return Response.json(
+          return json(
             {
               error: {
                 code: "invalid_modification",
@@ -275,7 +284,7 @@ export const Route = createFileRoute("/v1/studio/render")({
             (candidate) => candidate.id === selection.outputId
           )
           if (!output) {
-            return Response.json(
+            return json(
               {
                 error: {
                   code: "unknown_output",
@@ -286,7 +295,7 @@ export const Route = createFileRoute("/v1/studio/render")({
             )
           }
           if (!output.exportFormats.includes(selection.format)) {
-            return Response.json(
+            return json(
               {
                 error: {
                   code: "unsupported_format",
@@ -310,8 +319,8 @@ export const Route = createFileRoute("/v1/studio/render")({
           )
             .bind(
               renderId,
-              DEMO_WORKSPACE_ID,
-              version.templateId,
+              session.workspaceId,
+              databaseTemplateId(session.workspaceId, version.templateId),
               version.version,
               JSON.stringify(parsed.data),
               idempotencyKey ?? null,
@@ -322,20 +331,23 @@ export const Route = createFileRoute("/v1/studio/render")({
         } catch (error) {
           if (!idempotencyKey) throw error
           const existing = await env.DB.prepare(
-            `SELECT id, template_id, template_version, status, request_hash,
-                    error_code, error_message, created_at, completed_at
-             FROM render_jobs
-             WHERE workspace_id = ?1 AND idempotency_key = ?2`
+            `SELECT jobs.id, jobs.template_id, templates.public_id AS template_public_id,
+                    jobs.template_version, jobs.status, jobs.request_hash,
+                    jobs.error_code, jobs.error_message, jobs.created_at,
+                    jobs.completed_at
+             FROM render_jobs jobs
+             JOIN templates ON templates.id = jobs.template_id
+             WHERE jobs.workspace_id = ?1 AND jobs.idempotency_key = ?2`
           )
-            .bind(DEMO_WORKSPACE_ID, idempotencyKey)
+            .bind(session.workspaceId, idempotencyKey)
             .first<ExistingJobRow>()
           if (!existing || existing.request_hash !== normalizedRequestHash) {
-            return Response.json(
+            return json(
               { error: { code: "idempotency_key_reused" } },
               { status: 409 }
             )
           }
-          return existingRenderResponse(existing)
+          return session.respond(await existingRenderResponse(existing))
         }
 
         const artifacts: RenderArtifact[] = []
@@ -392,7 +404,7 @@ export const Route = createFileRoute("/v1/studio/render")({
               "UPDATE render_jobs SET status = 'completed', completed_at = ?2 WHERE id = ?1"
             ).bind(renderId, completedAt),
           ])
-          return Response.json(
+          return json(
             {
               id: renderId,
               status: "completed",
@@ -429,7 +441,7 @@ export const Route = createFileRoute("/v1/studio/render")({
           )
             .bind(renderId, message, new Date().toISOString())
             .run()
-          return Response.json(
+          return json(
             {
               id: renderId,
               status: "failed",

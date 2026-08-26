@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers"
 import { createFileRoute } from "@tanstack/react-router"
-import { DEMO_WORKSPACE_ID } from "../../../../server/template-repository"
+import { resolveDemoSession } from "../../../../server/demo-session"
 
 type HistoryRow = {
   id: string
@@ -45,6 +45,7 @@ export const Route = createFileRoute("/v1/studio/renders/")({
   server: {
     handlers: {
       GET: async ({ request }) => {
+        const session = await resolveDemoSession(env.DB, request)
         const requestedLimit = Number(
           new URL(request.url).searchParams.get("limit") ?? 30
         )
@@ -52,7 +53,8 @@ export const Route = createFileRoute("/v1/studio/renders/")({
           ? Math.min(Math.max(requestedLimit, 1), 100)
           : 30
         const result = await env.DB.prepare(
-          `SELECT jobs.id, jobs.template_id, jobs.template_version, jobs.status,
+          `SELECT jobs.id, templates.public_id AS template_id,
+                  jobs.template_version, jobs.status,
                   jobs.request_json, jobs.error_message, jobs.created_at,
                   jobs.completed_at, outputs.id AS artifact_id,
                   outputs.output_id, outputs.page_id, outputs.format,
@@ -63,10 +65,11 @@ export const Route = createFileRoute("/v1/studio/renders/")({
              ORDER BY created_at DESC
              LIMIT ?2
            ) jobs
+           JOIN templates ON templates.id = jobs.template_id
            LEFT JOIN render_outputs outputs ON outputs.render_job_id = jobs.id
            ORDER BY jobs.created_at DESC, outputs.created_at, outputs.id`
         )
-          .bind(DEMO_WORKSPACE_ID, limit)
+          .bind(session.workspaceId, limit)
           .all<HistoryRow>()
 
         const records = new Map<string, HistoryRecord>()
@@ -111,7 +114,7 @@ export const Route = createFileRoute("/v1/studio/renders/")({
           }
         }
 
-        return Response.json({ data: [...records.values()] })
+        return session.respond(Response.json({ data: [...records.values()] }))
       },
     },
   },

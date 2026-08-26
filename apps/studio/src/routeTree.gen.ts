@@ -16,6 +16,8 @@ import { Route as V1StudioExportPdfRouteImport } from './routes/v1/studio/export
 import { Route as V1StudioExportPngRouteImport } from './routes/v1/studio/export-png'
 import { Route as V1StudioRenderRouteImport } from './routes/v1/studio/render'
 import { Route as V1StudioRendersIndexRouteImport } from './routes/v1/studio/renders/index'
+import { Route as V1StudioSessionResetRouteImport } from './routes/v1/studio/session/reset'
+import { Route as V1StudioSessionTokenRouteImport } from './routes/v1/studio/session/token'
 import { Route as V1StudioTemplatesIndexRouteImport } from './routes/v1/studio/templates/index'
 import { Route as V1StudioTemplatesTemplateIdRouteImport } from './routes/v1/studio/templates/$templateId'
 import { Route as V1RendersRenderIdOutputsOutputIdRouteImport } from './routes/v1/renders/$renderId/outputs/$outputId'
@@ -55,6 +57,16 @@ const V1StudioRendersIndexRoute = V1StudioRendersIndexRouteImport.update({
   path: '/v1/studio/renders/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const V1StudioSessionResetRoute = V1StudioSessionResetRouteImport.update({
+  id: '/v1/studio/session/reset',
+  path: '/v1/studio/session/reset',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const V1StudioSessionTokenRoute = V1StudioSessionTokenRouteImport.update({
+  id: '/v1/studio/session/token',
+  path: '/v1/studio/session/token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const V1StudioTemplatesIndexRoute = V1StudioTemplatesIndexRouteImport.update({
   id: '/v1/studio/templates/',
   path: '/v1/studio/templates/',
@@ -80,6 +92,8 @@ export interface FileRoutesByFullPath {
   '/v1/studio/export-pdf': typeof V1StudioExportPdfRoute
   '/v1/studio/export-png': typeof V1StudioExportPngRoute
   '/v1/studio/render': typeof V1StudioRenderRoute
+  '/v1/studio/session/reset': typeof V1StudioSessionResetRoute
+  '/v1/studio/session/token': typeof V1StudioSessionTokenRoute
   '/v1/studio/templates/$templateId': typeof V1StudioTemplatesTemplateIdRoute
   '/v1/studio/renders/': typeof V1StudioRendersIndexRoute
   '/v1/studio/templates/': typeof V1StudioTemplatesIndexRoute
@@ -92,6 +106,8 @@ export interface FileRoutesByTo {
   '/v1/studio/export-pdf': typeof V1StudioExportPdfRoute
   '/v1/studio/export-png': typeof V1StudioExportPngRoute
   '/v1/studio/render': typeof V1StudioRenderRoute
+  '/v1/studio/session/reset': typeof V1StudioSessionResetRoute
+  '/v1/studio/session/token': typeof V1StudioSessionTokenRoute
   '/v1/studio/templates/$templateId': typeof V1StudioTemplatesTemplateIdRoute
   '/v1/studio/renders': typeof V1StudioRendersIndexRoute
   '/v1/studio/templates': typeof V1StudioTemplatesIndexRoute
@@ -105,6 +121,8 @@ export interface FileRoutesById {
   '/v1/studio/export-pdf': typeof V1StudioExportPdfRoute
   '/v1/studio/export-png': typeof V1StudioExportPngRoute
   '/v1/studio/render': typeof V1StudioRenderRoute
+  '/v1/studio/session/reset': typeof V1StudioSessionResetRoute
+  '/v1/studio/session/token': typeof V1StudioSessionTokenRoute
   '/v1/studio/templates/$templateId': typeof V1StudioTemplatesTemplateIdRoute
   '/v1/studio/renders/': typeof V1StudioRendersIndexRoute
   '/v1/studio/templates/': typeof V1StudioTemplatesIndexRoute
@@ -119,6 +137,8 @@ export interface FileRouteTypes {
     | '/v1/studio/export-pdf'
     | '/v1/studio/export-png'
     | '/v1/studio/render'
+    | '/v1/studio/session/reset'
+    | '/v1/studio/session/token'
     | '/v1/studio/templates/$templateId'
     | '/v1/studio/renders/'
     | '/v1/studio/templates/'
@@ -131,6 +151,8 @@ export interface FileRouteTypes {
     | '/v1/studio/export-pdf'
     | '/v1/studio/export-png'
     | '/v1/studio/render'
+    | '/v1/studio/session/reset'
+    | '/v1/studio/session/token'
     | '/v1/studio/templates/$templateId'
     | '/v1/studio/renders'
     | '/v1/studio/templates'
@@ -143,6 +165,8 @@ export interface FileRouteTypes {
     | '/v1/studio/export-pdf'
     | '/v1/studio/export-png'
     | '/v1/studio/render'
+    | '/v1/studio/session/reset'
+    | '/v1/studio/session/token'
     | '/v1/studio/templates/$templateId'
     | '/v1/studio/renders/'
     | '/v1/studio/templates/'
@@ -156,6 +180,8 @@ export interface RootRouteChildren {
   V1StudioExportPdfRoute: typeof V1StudioExportPdfRoute
   V1StudioExportPngRoute: typeof V1StudioExportPngRoute
   V1StudioRenderRoute: typeof V1StudioRenderRoute
+  V1StudioSessionResetRoute: typeof V1StudioSessionResetRoute
+  V1StudioSessionTokenRoute: typeof V1StudioSessionTokenRoute
   V1StudioTemplatesTemplateIdRoute: typeof V1StudioTemplatesTemplateIdRoute
   V1StudioRendersIndexRoute: typeof V1StudioRendersIndexRoute
   V1StudioTemplatesIndexRoute: typeof V1StudioTemplatesIndexRoute
@@ -212,6 +238,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof V1StudioRendersIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/v1/studio/session/reset': {
+      id: '/v1/studio/session/reset'
+      path: '/v1/studio/session/reset'
+      fullPath: '/v1/studio/session/reset'
+      preLoaderRoute: typeof V1StudioSessionResetRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/v1/studio/session/token': {
+      id: '/v1/studio/session/token'
+      path: '/v1/studio/session/token'
+      fullPath: '/v1/studio/session/token'
+      preLoaderRoute: typeof V1StudioSessionTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/v1/studio/templates/': {
       id: '/v1/studio/templates/'
       path: '/v1/studio/templates'
@@ -254,6 +294,8 @@ const rootRouteChildren: RootRouteChildren = {
   V1StudioExportPdfRoute: V1StudioExportPdfRoute,
   V1StudioExportPngRoute: V1StudioExportPngRoute,
   V1StudioRenderRoute: V1StudioRenderRoute,
+  V1StudioSessionResetRoute: V1StudioSessionResetRoute,
+  V1StudioSessionTokenRoute: V1StudioSessionTokenRoute,
   V1StudioTemplatesTemplateIdRoute: V1StudioTemplatesTemplateIdRoute,
   V1StudioRendersIndexRoute: V1StudioRendersIndexRoute,
   V1StudioTemplatesIndexRoute: V1StudioTemplatesIndexRoute,

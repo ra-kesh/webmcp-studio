@@ -35,16 +35,8 @@ Exit condition: `bun run check` passes, both Workers deploy, and one R2 PNG matc
 
 Exit condition: manual editing survives reload and undo.
 
-Status: partially implemented. Selection, multi-selection, drag, resize, rotate,
-inline text editing, text/rectangle/ellipse/line/icon insertion, local image
-upload and restoration, layer ordering, lock, hide, duplicate, delete,
-copy/paste, alignment, distribution, zoom, fit, autosave, undo, and redo work.
-Hand/Space/middle-button panning, page/object snapping, and visible alignment
-guides also work, alongside align-to-page and zoom-to-selection. The editor
-still needs the asset library, crop and fitting tools, equal-spacing guides,
-grouping, page/output management, richer text controls, and export parity. Day
-3 infrastructure does not start until the editor gate in
-`docs/editor-readiness.md` passes.
+Status: complete. The editor gate in `docs/editor-readiness.md` covers the
+shipped authoring, precision, structure, appearance, and export behavior.
 
 ## Day 3
 
@@ -85,6 +77,9 @@ Exit condition: the complete demo works once without developer intervention.
 - deployed smoke tests and logging
 
 Exit condition: three consecutive clean runs on the hosted URL.
+
+Status: demo workspace isolation and reset are implemented. Hosted browser
+smoke runs and production logging verification remain deployment work.
 
 ## Day 7
 

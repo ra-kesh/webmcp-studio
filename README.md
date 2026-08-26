@@ -24,6 +24,8 @@ The challenge demo uses synthetic data for a fictional wedding photography studi
   multi-output requests, downloadable artifacts, and render history
 - D1-backed immutable template versions, idempotent render jobs, failure state,
   and reload-safe history
+- isolated 24-hour demo workspaces with a fresh-session reset and short-lived
+  bearer access for copied API requests
 - public template, render, status, history, and artifact-download routes
 - private renderer Worker that turns the canonical document into deterministic
   HTML, captures PNG/PDF with Cloudflare Browser Rendering, and writes it to R2
@@ -31,7 +33,8 @@ The challenge demo uses synthetic data for a fictional wedding photography studi
 Draft editing stays local for fast recovery; publishing is complete only after
 D1 accepts the immutable snapshot. Browser-local published snapshots are a
 cache, not the API source of truth. WebMCP render calls use that same published
-version and flow into the API playground's persisted render history.
+version and flow into the API playground's persisted, session-isolated render
+history.
 
 ## Start locally
 

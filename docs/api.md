@@ -111,4 +111,4 @@ Clients may supply an `Idempotency-Key` header. The server returns the first mat
 
 ## Demo access
 
-The challenge UI can call the seeded template through its isolated demo session without asking the judge for an API key. The copied cURL example uses a short-lived demo token. Production API-key management is outside the challenge scope.
+The challenge UI calls the seeded template through an isolated 24-hour demo session without asking the judge for an API key. `GET /v1/studio/session/token` returns that session's opaque value to the same-origin API playground, which places it in the copied cURL as a bearer token. Reset rotates both the cookie and workspace. This convenience token is challenge-only; production API-key management remains outside scope.

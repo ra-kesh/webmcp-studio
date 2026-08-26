@@ -1268,11 +1268,34 @@ export function useDocumentEditor() {
     []
   )
 
-  const restoreDemoDocument = useCallback(() => {
+  const restoreDemoDocument = useCallback(async () => {
+    localStorage.removeItem(PUBLISHED_STORAGE_KEY)
+    attemptedVersionSyncRef.current.clear()
+    setPublishedVersions([])
+    setPublishSyncStatus("idle")
+    setPublishError(null)
+    setPendingChangeSet(null)
+    setLastResolvedChangeSet(null)
+    setChangeSetError(null)
     setHistory((current) => replaceDocument(current, northstarSeed))
     setActivePageId(northstarSeed.pages[0]?.id ?? "cover")
     setSelection(null)
     setSaveStatus("saving")
+    try {
+      const response = await fetch("/v1/studio/session/reset", {
+        method: "POST",
+      })
+      if (!response.ok) {
+        throw new Error(`Demo reset returned ${response.status}.`)
+      }
+      setDocumentError(null)
+    } catch (error) {
+      setDocumentError(
+        error instanceof Error
+          ? `${error.message} The starter was still restored locally.`
+          : "The server session could not be reset. The starter was still restored locally."
+      )
+    }
   }, [])
 
   const undo = useCallback(() => {

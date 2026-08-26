@@ -103,7 +103,19 @@ export function useRenderHistory(version?: TemplateVersion) {
   )
 
   useEffect(() => {
-    if (!version) return
+    if (!version) {
+      setRecords((current) => {
+        if (!current.length) return current
+        for (const record of current) {
+          for (const artifact of record.artifacts) {
+            revokeObjectUrl(artifact.objectUrl)
+          }
+        }
+        return []
+      })
+      setHistoryError(null)
+      return
+    }
     const controller = new AbortController()
     void fetch("/v1/studio/renders/?limit=30", { signal: controller.signal })
       .then(async (response) => {
