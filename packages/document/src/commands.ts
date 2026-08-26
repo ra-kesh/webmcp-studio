@@ -561,6 +561,81 @@ export function applyCommand(
       }
       break
     }
+    case "add_output_variant": {
+      const nodeIds = new Set(command.nodes.map((node) => node.id))
+      const groupIds = new Set(command.groups.map((group) => group.id))
+      const bindingIds = new Set(command.bindings.map((binding) => binding.id))
+      const pageNodeIds = new Set(command.page.nodeIds)
+      if (
+        document.outputs.some((output) => output.id === command.output.id) ||
+        document.pages.some((page) => page.id === command.page.id) ||
+        command.page.outputId !== command.output.id ||
+        command.output.pageIds.length !== 1 ||
+        command.output.pageIds[0] !== command.page.id ||
+        command.page.nodeIds.length !== command.nodes.length ||
+        nodeIds.size !== command.nodes.length ||
+        pageNodeIds.size !== command.page.nodeIds.length ||
+        command.page.nodeIds.some((nodeId) => !nodeIds.has(nodeId)) ||
+        command.nodes.some((node) =>
+          document.nodes.some((existing) => existing.id === node.id)
+        ) ||
+        groupIds.size !== command.groups.length ||
+        command.groups.some((group) =>
+          document.groups.some((existing) => existing.id === group.id)
+        ) ||
+        bindingIds.size !== command.bindings.length ||
+        command.bindings.some((binding) =>
+          document.bindings.some((existing) => existing.id === binding.id)
+        )
+      ) {
+        throw new Error("The adapted output contains conflicting identifiers")
+      }
+      if (
+        command.groups.some(
+          (group) =>
+            group.pageId !== command.page.id ||
+            group.nodeIds.some((nodeId) => !nodeIds.has(nodeId)) ||
+            (group.parentGroupId && !groupIds.has(group.parentGroupId))
+        )
+      ) {
+        throw new Error("The adapted output contains invalid group references")
+      }
+      for (const binding of command.bindings) {
+        const field = document.fields.find(
+          (candidate) => candidate.id === binding.fieldId
+        )
+        const node = command.nodes.find(
+          (candidate) => candidate.id === binding.nodeId
+        )
+        if (
+          !field ||
+          !node ||
+          !fieldCanBindToProperty(field, node, binding.property) ||
+          document.bindings.some(
+            (existing) =>
+              existing.nodeId === binding.nodeId &&
+              existing.property === binding.property
+          ) ||
+          command.bindings.some(
+            (candidate) =>
+              candidate.id !== binding.id &&
+              candidate.nodeId === binding.nodeId &&
+              candidate.property === binding.property
+          )
+        ) {
+          throw new Error("The adapted output contains an invalid binding")
+        }
+      }
+      next = {
+        ...document,
+        outputs: [...document.outputs, command.output],
+        pages: [...document.pages, command.page],
+        nodes: [...document.nodes, ...command.nodes],
+        groups: [...document.groups, ...command.groups],
+        bindings: [...document.bindings, ...command.bindings],
+      }
+      break
+    }
     case "update_output": {
       if (!document.outputs.some((output) => output.id === command.outputId)) {
         throw new Error(`Unknown output: ${command.outputId}`)

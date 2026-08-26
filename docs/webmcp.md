@@ -10,7 +10,7 @@ Tools register according to the current route and state. The library route expos
 
 ### `inspect_design`
 
-Read-only. Returns revision, active output and page, selection, compact layer tree, shared fields, bindings, page sizes, pending changes, and current warnings. Stable node IDs replace DOM selectors and Fabric serialization.
+Read-only. Returns revision, the active page, its complete canonical layers, selection, shared fields, bindings, outputs, and pending changes. Stable node IDs replace DOM selectors and Fabric serialization.
 
 ### `search_assets`
 
@@ -26,11 +26,11 @@ Creates a pending change set from typed field values. Input includes document ID
 
 ### `propose_canvas_edits`
 
-Creates a pending change set of typed commands. Week-one operations are set text, replace image, set style, move, resize, show, hide, add, duplicate, delete, and reorder.
+Creates a pending change set of validated updates to existing layers. It supports geometry, visibility, typography, shape styling, and image fit/crop properties. Bound content is rejected and routed through `propose_field_updates`; arbitrary asset URLs and raw Fabric properties are not accepted.
 
 ### `propose_output_variant`
 
-Proposes a new fixed output preset using a seeded companion layout. It does not claim general responsive design.
+Adapts one inspected source page into a fixed output size as a single atomic proposal. Geometry scales deterministically while layer order, groups, asset references, and shared-field bindings are cloned with fresh stable IDs. The tool does not claim unconstrained responsive design.
 
 ### `resolve_change_set`
 

@@ -1404,6 +1404,14 @@ function operationDetails(document: Document, operation: ChangeOperation) {
         .join(" · "),
     }
   }
+  if (command.type === "add_output_variant") {
+    return {
+      label: command.output.name,
+      context: `${command.page.width} × ${command.page.height} · ${command.nodes.length} adapted layer${command.nodes.length === 1 ? "" : "s"}`,
+      before: "Output does not exist",
+      after: `${command.output.kind.replaceAll("_", " ")} · ${command.output.exportFormats.join(" + ").toUpperCase()}`,
+    }
+  }
   return {
     label: command.type.replaceAll("_", " "),
     context: "Canonical document command",
@@ -1444,6 +1452,8 @@ function ReviewPanel({
     "inspect_design",
     "validate_design",
     "propose_field_updates",
+    "propose_canvas_edits",
+    "propose_output_variant",
     "publish_template",
   ])
   const acceptedCount =
@@ -1642,7 +1652,7 @@ function ReviewPanel({
           </div>
           <Badge variant={webMcpStatus === "ready" ? "secondary" : "outline"}>
             {webMcpStatus === "ready"
-              ? "4 live"
+              ? `${registeredToolNames.size} live`
               : webMcpStatus === "registering"
                 ? "Starting"
                 : webMcpStatus === "error"

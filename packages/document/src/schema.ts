@@ -243,6 +243,14 @@ export const documentCommandSchema = z.discriminatedUnion("type", [
     page: pageSchema,
   }),
   commandBaseSchema.extend({
+    type: z.literal("add_output_variant"),
+    output: outputVariantSchema,
+    page: pageSchema,
+    nodes: z.array(sceneNodeSchema),
+    groups: z.array(groupDefinitionSchema),
+    bindings: z.array(fieldBindingSchema),
+  }),
+  commandBaseSchema.extend({
     type: z.literal("update_output"),
     outputId: id,
     name: z.string().min(1),

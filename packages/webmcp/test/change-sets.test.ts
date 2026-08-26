@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { northstarSeed } from "@webmcp/document"
-import { createFieldUpdateChangeSet } from "../src"
+import { northstarSeed, previewChangeSet } from "@webmcp/document"
+import {
+  createCanvasEditChangeSet,
+  createFieldUpdateChangeSet,
+  createOutputVariantChangeSet,
+} from "../src"
 
 const identity = () => {
   let sequence = 0
@@ -69,5 +73,120 @@ describe("field update proposals", () => {
         identity()
       )
     ).toThrow("document changed")
+  })
+})
+
+describe("canvas edit proposals", () => {
+  it("creates validated per-layer operations without mutating the source", () => {
+    const proposal = createCanvasEditChangeSet(
+      northstarSeed,
+      {
+        documentId: northstarSeed.id,
+        baseRevision: northstarSeed.revision,
+        reason: "Give the cover more breathing room",
+        edits: [
+          {
+            nodeId: "cover-title",
+            patch: { y: 760, color: "#f3eadc" },
+          },
+        ],
+      },
+      identity()
+    )
+
+    expect(proposal.operations[0]?.command).toMatchObject({
+      type: "update_node",
+      nodeId: "cover-title",
+      patch: { y: 760, color: "#f3eadc" },
+    })
+    expect(
+      northstarSeed.nodes.find((node) => node.id === "cover-title")?.y
+    ).not.toBe(760)
+    expect(
+      previewChangeSet(northstarSeed, proposal).nodes.find(
+        (node) => node.id === "cover-title"
+      )
+    ).toMatchObject({ y: 760, color: "#f3eadc" })
+  })
+
+  it("rejects bound, unsafe, and duplicate layer edits", () => {
+    const base = {
+      documentId: northstarSeed.id,
+      baseRevision: northstarSeed.revision,
+    }
+    expect(() =>
+      createCanvasEditChangeSet(
+        northstarSeed,
+        {
+          ...base,
+          edits: [{ nodeId: "cover-title", patch: { text: "Bypass" } }],
+        },
+        identity()
+      )
+    ).toThrow("propose_field_updates")
+    expect(() =>
+      createCanvasEditChangeSet(
+        northstarSeed,
+        {
+          ...base,
+          edits: [{ nodeId: "cover-title", patch: { src: "https://bad" } }],
+        },
+        identity()
+      )
+    ).toThrow("cannot be changed")
+    expect(() =>
+      createCanvasEditChangeSet(
+        northstarSeed,
+        {
+          ...base,
+          edits: [
+            { nodeId: "cover-title", patch: { y: 700 } },
+            { nodeId: "cover-title", patch: { x: 100 } },
+          ],
+        },
+        identity()
+      )
+    ).toThrow("Combine duplicate edits")
+  })
+})
+
+describe("output variant proposals", () => {
+  it("adapts one source page with cloned bindings as one atomic operation", () => {
+    const proposal = createOutputVariantChangeSet(
+      northstarSeed,
+      {
+        documentId: northstarSeed.id,
+        baseRevision: northstarSeed.revision,
+        sourcePageId: "cover",
+        name: "Instagram portrait",
+        kind: "whatsapp_portrait",
+        width: 1080,
+        height: 1350,
+        exportFormats: ["png"],
+      },
+      identity()
+    )
+    expect(proposal.operations).toHaveLength(1)
+    expect(proposal.operations[0]?.command).toMatchObject({
+      type: "add_output_variant",
+      output: { name: "Instagram portrait" },
+      page: { width: 1080, height: 1350 },
+    })
+
+    const preview = previewChangeSet(northstarSeed, proposal)
+    const output = preview.outputs.at(-1)
+    const page = preview.pages.find(
+      (candidate) => candidate.id === output?.pageIds[0]
+    )
+    expect(output?.name).toBe("Instagram portrait")
+    expect(page?.nodeIds).toHaveLength(
+      northstarSeed.pages.find((candidate) => candidate.id === "cover")?.nodeIds
+        .length
+    )
+    expect(
+      preview.bindings.filter((binding) =>
+        page?.nodeIds.includes(binding.nodeId)
+      )
+    ).not.toHaveLength(0)
   })
 })

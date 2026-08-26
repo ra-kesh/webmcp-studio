@@ -4,8 +4,12 @@ import {
   type Document,
 } from "@webmcp/document"
 import {
+  createCanvasEditChangeSet,
   createFieldUpdateChangeSet,
+  createOutputVariantChangeSet,
+  type CanvasEditProposalInput,
   type FieldUpdateProposalInput,
+  type OutputVariantProposalInput,
 } from "./change-sets"
 
 export type WebMcpToolResult = {
@@ -108,6 +112,94 @@ function parseFieldProposalInput(input: unknown): FieldUpdateProposalInput {
   }
 }
 
+function parseProposalIdentity(input: unknown) {
+  if (!input || typeof input !== "object") {
+    throw new Error("Expected a proposal object.")
+  }
+  const value = input as Record<string, unknown>
+  if (typeof value.documentId !== "string" || !value.documentId) {
+    throw new Error("documentId is required.")
+  }
+  if (
+    typeof value.baseRevision !== "number" ||
+    !Number.isInteger(value.baseRevision) ||
+    value.baseRevision < 0
+  ) {
+    throw new Error("baseRevision must be a non-negative integer.")
+  }
+  return value
+}
+
+function parseCanvasProposalInput(input: unknown): CanvasEditProposalInput {
+  const value = parseProposalIdentity(input)
+  if (!Array.isArray(value.edits)) throw new Error("edits must be an array.")
+  const edits = value.edits.map((candidate, index) => {
+    if (!candidate || typeof candidate !== "object") {
+      throw new Error(`edits[${index}] must be an object.`)
+    }
+    const edit = candidate as Record<string, unknown>
+    if (typeof edit.nodeId !== "string" || !edit.nodeId) {
+      throw new Error(`edits[${index}].nodeId is required.`)
+    }
+    if (
+      !edit.patch ||
+      typeof edit.patch !== "object" ||
+      Array.isArray(edit.patch)
+    ) {
+      throw new Error(`edits[${index}].patch must be an object.`)
+    }
+    return {
+      nodeId: edit.nodeId,
+      patch: edit.patch as Record<string, unknown>,
+      summary: typeof edit.summary === "string" ? edit.summary : undefined,
+    }
+  })
+  return {
+    documentId: value.documentId as string,
+    baseRevision: value.baseRevision as number,
+    reason: typeof value.reason === "string" ? value.reason : undefined,
+    edits,
+  }
+}
+
+function parseOutputProposalInput(input: unknown): OutputVariantProposalInput {
+  const value = parseProposalIdentity(input)
+  if (typeof value.sourcePageId !== "string" || !value.sourcePageId) {
+    throw new Error("sourcePageId is required.")
+  }
+  if (typeof value.name !== "string" || !value.name.trim()) {
+    throw new Error("name is required.")
+  }
+  if (
+    value.kind !== "proposal" &&
+    value.kind !== "whatsapp_portrait" &&
+    value.kind !== "square"
+  ) {
+    throw new Error("kind is invalid.")
+  }
+  if (typeof value.width !== "number" || typeof value.height !== "number") {
+    throw new Error("width and height are required numbers.")
+  }
+  if (
+    !Array.isArray(value.exportFormats) ||
+    value.exportFormats.some((format) => format !== "png" && format !== "pdf")
+  ) {
+    throw new Error("exportFormats must contain png or pdf.")
+  }
+  return {
+    documentId: value.documentId as string,
+    baseRevision: value.baseRevision as number,
+    sourcePageId: value.sourcePageId,
+    name: value.name,
+    pageName: typeof value.pageName === "string" ? value.pageName : undefined,
+    kind: value.kind,
+    width: value.width,
+    height: value.height,
+    exportFormats: value.exportFormats as Array<"png" | "pdf">,
+    reason: typeof value.reason === "string" ? value.reason : undefined,
+  }
+}
+
 export function studioWebMcpTools(
   services: StudioWebMcpServices
 ): WebMcpTool[] {
@@ -131,6 +223,12 @@ export function studioWebMcpTools(
             revision: current.document.revision,
           },
           activePage,
+          activePageNodes: activePage?.nodeIds.flatMap((nodeId) => {
+            const node = current.document.nodes.find(
+              (candidate) => candidate.id === nodeId
+            )
+            return node ? [node] : []
+          }),
           selection: current.selection,
           outputs: current.document.outputs,
           fields: current.document.fields.map((field) => ({
@@ -223,6 +321,122 @@ export function studioWebMcpTools(
           services.proposeChangeSet(changeSet)
           return textResult(
             `Created change set ${changeSet.id} with ${changeSet.operations.length} operation${changeSet.operations.length === 1 ? "" : "s"}. The design is previewing these changes, but nothing has been applied. Ask the user to review the Review panel.`,
+            changeSet
+          )
+        } catch (error) {
+          return errorResult(error)
+        }
+      },
+    },
+    {
+      name: "propose_canvas_edits",
+      title: "Propose canvas edits",
+      description:
+        "Create a non-destructive visual preview of precise layout and style edits to existing layers on the inspected document revision. Bound content must be changed with propose_field_updates. A human reviews every layer operation before applying it.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          documentId: { type: "string" },
+          baseRevision: { type: "integer", minimum: 0 },
+          reason: { type: "string" },
+          edits: {
+            type: "array",
+            minItems: 1,
+            maxItems: 24,
+            items: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                nodeId: {
+                  type: "string",
+                  description: "Stable node ID returned by inspect_design.",
+                },
+                patch: {
+                  type: "object",
+                  description:
+                    "Allowed geometry, visibility, typography, shape, or crop properties for this node type.",
+                  additionalProperties: true,
+                },
+                summary: { type: "string" },
+              },
+              required: ["nodeId", "patch"],
+            },
+          },
+        },
+        required: ["documentId", "baseRevision", "edits"],
+      },
+      execute: (input) => {
+        try {
+          const current = services.getSnapshot()
+          const changeSet = createCanvasEditChangeSet(
+            current.document,
+            parseCanvasProposalInput(input),
+            services
+          )
+          services.proposeChangeSet(changeSet)
+          return textResult(
+            `Previewing ${changeSet.operations.length} canvas edit${changeSet.operations.length === 1 ? "" : "s"}. Nothing has been applied; ask the user to review the Review panel.`,
+            changeSet
+          )
+        } catch (error) {
+          return errorResult(error)
+        }
+      },
+    },
+    {
+      name: "propose_output_variant",
+      title: "Propose output variant",
+      description:
+        "Adapt one inspected source page into a new output size as one atomic, reviewable operation. The proposal clones its layers, groups, and shared-field bindings, scales geometry deterministically, and does not change saved state until a human accepts it.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          documentId: { type: "string" },
+          baseRevision: { type: "integer", minimum: 0 },
+          sourcePageId: {
+            type: "string",
+            description: "Page ID returned by inspect_design.",
+          },
+          name: { type: "string" },
+          pageName: { type: "string" },
+          kind: {
+            type: "string",
+            enum: ["proposal", "whatsapp_portrait", "square"],
+          },
+          width: { type: "integer", minimum: 256, maximum: 4096 },
+          height: { type: "integer", minimum: 256, maximum: 4096 },
+          exportFormats: {
+            type: "array",
+            minItems: 1,
+            uniqueItems: true,
+            items: { type: "string", enum: ["png", "pdf"] },
+          },
+          reason: { type: "string" },
+        },
+        required: [
+          "documentId",
+          "baseRevision",
+          "sourcePageId",
+          "name",
+          "kind",
+          "width",
+          "height",
+          "exportFormats",
+        ],
+      },
+      execute: (input) => {
+        try {
+          const current = services.getSnapshot()
+          const changeSet = createOutputVariantChangeSet(
+            current.document,
+            parseOutputProposalInput(input),
+            services
+          )
+          services.proposeChangeSet(changeSet)
+          return textResult(
+            "Previewing one complete output adaptation. Nothing has been applied; ask the user to review the Review panel.",
             changeSet
           )
         } catch (error) {

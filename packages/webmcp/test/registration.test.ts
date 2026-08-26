@@ -48,11 +48,13 @@ describe("WebMCP registration", () => {
       state.controller.signal
     )
 
-    expect(count).toBe(4)
+    expect(count).toBe(6)
     expect([...state.registered.keys()]).toEqual([
       "inspect_design",
       "validate_design",
       "propose_field_updates",
+      "propose_canvas_edits",
+      "propose_output_variant",
       "publish_template",
     ])
 
@@ -60,6 +62,9 @@ describe("WebMCP registration", () => {
     expect(inspected?.structuredContent).toMatchObject({
       document: { id: northstarSeed.id, revision: northstarSeed.revision },
       activePage: { id: "cover" },
+      activePageNodes: expect.arrayContaining([
+        expect.objectContaining({ id: "cover-title", type: "text" }),
+      ]),
     })
 
     const published = await state.registered.get("publish_template")?.execute({
@@ -108,5 +113,85 @@ describe("WebMCP registration", () => {
       ],
     })
     expect(result?.content[0]?.text).toContain("nothing has been applied")
+  })
+
+  it("creates a reviewable canvas proposal from stable node IDs", async () => {
+    const state = setup()
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const result = await state.registered.get("propose_canvas_edits")?.execute({
+      documentId: northstarSeed.id,
+      baseRevision: northstarSeed.revision,
+      reason: "Refine the cover hierarchy",
+      edits: [
+        {
+          nodeId: "cover-title",
+          patch: { y: 760, fontSize: 76 },
+        },
+      ],
+    })
+
+    expect(result?.isError).toBeUndefined()
+    expect(state.proposed()).toMatchObject({
+      title: "Refine the cover hierarchy",
+      operations: [
+        {
+          command: {
+            type: "update_node",
+            nodeId: "cover-title",
+            patch: { y: 760, fontSize: 76 },
+          },
+        },
+      ],
+    })
+  })
+
+  it("creates one atomic output adaptation proposal", async () => {
+    const state = setup()
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const result = await state.registered
+      .get("propose_output_variant")
+      ?.execute({
+        documentId: northstarSeed.id,
+        baseRevision: northstarSeed.revision,
+        sourcePageId: "cover",
+        name: "Instagram portrait",
+        kind: "whatsapp_portrait",
+        width: 1080,
+        height: 1350,
+        exportFormats: ["png"],
+      })
+
+    expect(result?.isError).toBeUndefined()
+    expect(state.proposed()).toMatchObject({
+      operations: [
+        {
+          command: {
+            type: "add_output_variant",
+            output: { name: "Instagram portrait" },
+            page: { width: 1080, height: 1350 },
+          },
+        },
+      ],
+    })
   })
 })

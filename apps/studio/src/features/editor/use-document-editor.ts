@@ -249,6 +249,10 @@ export function useDocumentEditor() {
 
   const commit = useCallback((drafts: CommandDraft[]) => {
     if (!drafts.length) return
+    if (pendingChangeSetRef.current) {
+      setChangeSetError("Resolve or discard the preview before editing.")
+      return
+    }
     setHistory((current) =>
       commitCommands(current, drafts.map(commandFromDraft))
     )
@@ -348,8 +352,15 @@ export function useDocumentEditor() {
     )
     if (conflict) throw new Error(conflict.message)
     previewChangeSet(historyRef.current.document, changeSet)
+    const proposedPage = changeSet.operations.find(
+      (operation) => operation.command.type === "add_output_variant"
+    )?.command
     setPendingChangeSet(changeSet)
     setChangeSetError(null)
+    setSelection(null)
+    if (proposedPage?.type === "add_output_variant") {
+      setActivePageId(proposedPage.page.id)
+    }
     return changeSet
   }, [])
 
@@ -380,7 +391,14 @@ export function useDocumentEditor() {
     setLastResolvedChangeSet(rejected)
     setPendingChangeSet(null)
     setChangeSetError(null)
-  }, [])
+    if (
+      !historyRef.current.document.pages.some(
+        (page) => page.id === activePageId
+      )
+    ) {
+      setActivePageId(historyRef.current.document.pages[0]!.id)
+    }
+  }, [activePageId])
 
   const applyChangeSet = useCallback(() => {
     const current = pendingChangeSetRef.current

@@ -18,7 +18,8 @@ The challenge demo uses synthetic data for a fictional wedding photography studi
 - canonical undo/redo, batched multi-object edits, keyboard controls, and resilient
   local draft autosave
 - live, abortable WebMCP registration for inspection, validation, and
-  reviewable shared-field proposals, plus explicit immutable publishing
+  reviewable shared-field, canvas, and output-variant proposals, plus explicit
+  immutable publishing
 - published-version API playground with strict parameter materialization,
   multi-output requests, downloadable artifacts, and render history
 - D1-backed immutable template versions, idempotent render jobs, failure state,
@@ -27,10 +28,10 @@ The challenge demo uses synthetic data for a fictional wedding photography studi
 - private renderer Worker that turns the canonical document into deterministic
   HTML, captures PNG/PDF with Cloudflare Browser Rendering, and writes it to R2
 
-Canvas and output proposal tools remain planned work. Draft editing stays local
-for fast recovery; publishing is complete only after D1 accepts the immutable
-snapshot. Browser-local published snapshots are a cache, not the API source of
-truth.
+Draft editing stays local for fast recovery; publishing is complete only after
+D1 accepts the immutable snapshot. Browser-local published snapshots are a
+cache, not the API source of truth. Asset search and route-specific WebMCP
+render/history tools remain planned.
 
 ## Start locally
 

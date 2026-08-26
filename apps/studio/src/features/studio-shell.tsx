@@ -124,7 +124,11 @@ export function StudioShell() {
   const editor = useDocumentEditor()
   const webMcp = useStudioWebMcp({
     document: editor.document,
-    activePageId: editor.activePageId,
+    activePageId: editor.document.pages.some(
+      (page) => page.id === editor.activePageId
+    )
+      ? editor.activePageId
+      : editor.document.pages[0]!.id,
     selection: editor.selection,
     pendingChangeSet: editor.pendingChangeSet,
     proposeChangeSet: editor.proposeChangeSet,
@@ -161,10 +165,11 @@ export function StudioShell() {
     scrollLeft: number
     scrollTop: number
   } | null>(null)
-  const activePage = editor.document.pages.find(
-    (page) => page.id === editor.activePageId
-  )
-  const activeOutput = editor.document.outputs.find(
+  const activePage =
+    editor.previewDocument.pages.find(
+      (page) => page.id === editor.activePageId
+    ) ?? editor.previewDocument.pages[0]!
+  const activeOutput = editor.previewDocument.outputs.find(
     (output) => output.id === activePage?.outputId
   )
 
@@ -733,7 +738,10 @@ export function StudioShell() {
             <DropdownMenuTrigger asChild>
               <Button
                 size="sm"
-                disabled={pdfExportState === "exporting"}
+                disabled={
+                  pdfExportState === "exporting" ||
+                  Boolean(editor.pendingChangeSet)
+                }
                 aria-label="Export output"
               >
                 <Download data-icon="inline-start" />
@@ -859,6 +867,7 @@ export function StudioShell() {
                 pageId={activePage.id}
                 selection={editor.selection}
                 zoom={zoom}
+                interactive={!editor.pendingChangeSet}
                 onSelectionChange={editor.setSelection}
                 onNodesChange={editor.updateNodes}
               />

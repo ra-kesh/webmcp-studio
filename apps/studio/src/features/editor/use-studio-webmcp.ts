@@ -74,5 +74,5 @@ export function useStudioWebMcp(services: StudioWebMcpServices) {
     }
   }, [])
 
-  return { status, error, registeredToolCount: status === "ready" ? 4 : 0 }
+  return { status, error, registeredToolCount: status === "ready" ? 6 : 0 }
 }

@@ -19,11 +19,20 @@ export const FabricArtboard = forwardRef<
     pageId: string
     selection: Selection | null
     zoom: number
+    interactive?: boolean
     onSelectionChange(selection: Selection | null): void
     onNodesChange(changes: CanvasNodeChange[]): void
   }
 >(function FabricArtboard(
-  { document, pageId, selection, zoom, onSelectionChange, onNodesChange },
+  {
+    document,
+    pageId,
+    selection,
+    zoom,
+    interactive = true,
+    onSelectionChange,
+    onNodesChange,
+  },
   ref
 ) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -79,7 +88,7 @@ export const FabricArtboard = forwardRef<
 
   return (
     <div
-      className="relative shrink-0 shadow-[0_24px_70px_rgba(35,31,25,0.18)] ring-1 ring-black/10"
+      className={`relative shrink-0 shadow-[0_24px_70px_rgba(35,31,25,0.18)] ring-1 ring-black/10 ${interactive ? "" : "pointer-events-none"}`}
       style={{ width: page.width * zoom, height: page.height * zoom }}
     >
       <div

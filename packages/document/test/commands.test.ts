@@ -465,4 +465,66 @@ describe("canonical document commands", () => {
       false
     )
   })
+
+  it("adds an adapted output atomically with layers and shared bindings", () => {
+    const adapted = applyCommand(northstarSeed, {
+      id: "cmd-add-adapted-output",
+      type: "add_output_variant",
+      actor: "agent",
+      at: "2026-08-26T09:30:00.000Z",
+      output: {
+        id: "agent-story",
+        name: "Agent story",
+        kind: "whatsapp_portrait",
+        pageIds: ["agent-story-page"],
+        exportFormats: ["png"],
+      },
+      page: {
+        id: "agent-story-page",
+        outputId: "agent-story",
+        name: "Story",
+        width: 1080,
+        height: 1920,
+        background: "#ffffff",
+        nodeIds: ["agent-story-title"],
+      },
+      nodes: [
+        {
+          id: "agent-story-title",
+          type: "text",
+          name: "Couple names",
+          text: "Placeholder",
+          x: 96,
+          y: 120,
+          width: 888,
+          height: 120,
+          rotation: 0,
+          opacity: 1,
+          visible: true,
+          locked: false,
+          color: "#111111",
+          fontFamily: "Geist Variable",
+          fontSize: 64,
+          fontWeight: 600,
+          lineHeight: 1.1,
+          letterSpacing: -1,
+          align: "center",
+        },
+      ],
+      groups: [],
+      bindings: [
+        {
+          id: "bind-agent-story-couple",
+          fieldId: "couple_names",
+          nodeId: "agent-story-title",
+          property: "text",
+        },
+      ],
+    })
+
+    expect(adapted.outputs.at(-1)?.id).toBe("agent-story")
+    expect(adapted.pages.at(-1)?.nodeIds).toEqual(["agent-story-title"])
+    expect(adapted.nodes.at(-1)).toMatchObject({ text: "Aditi & Kabir" })
+    expect(adapted.bindings.at(-1)?.nodeId).toBe("agent-story-title")
+  })
 })
