@@ -26,5 +26,9 @@
       "binding": "ASSETS",
       "bucket_name": "webmcp-studio-assets",
     },
+    {
+      "binding": "RENDERS",
+      "bucket_name": "webmcp-studio-renders",
+    },
   ],
 }

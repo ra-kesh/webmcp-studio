@@ -43,7 +43,9 @@ export type StudioWebMcpSnapshot = {
 export type StudioWebMcpServices = {
   getSnapshot(): StudioWebMcpSnapshot
   proposeChangeSet(changeSet: ChangeSet): ChangeSet
-  publishTemplate(): import("@webmcp/document").TemplateVersion
+  publishTemplate():
+    | import("@webmcp/document").TemplateVersion
+    | Promise<import("@webmcp/document").TemplateVersion>
   id(): string
   now(): string
 }
@@ -249,7 +251,7 @@ export function studioWebMcpTools(
         },
         required: ["documentId", "expectedRevision"],
       },
-      execute: (input) => {
+      execute: async (input) => {
         try {
           if (!input || typeof input !== "object") {
             throw new Error("Expected publishing confirmation input.")
@@ -264,7 +266,7 @@ export function studioWebMcpTools(
               `The document changed to revision ${current.document.revision}. Inspect it again before publishing.`
             )
           }
-          const version = services.publishTemplate()
+          const version = await services.publishTemplate()
           return textResult(
             `Published ${version.templateId} version ${version.version} from revision ${version.sourceRevision}.`,
             {

@@ -47,9 +47,16 @@ export const Route = createFileRoute("/v1/studio/export-png")({
         if (!page) {
           return Response.json({ error: "page_not_found" }, { status: 404 })
         }
+        const output = parsed.data.document.outputs.find((candidate) =>
+          candidate.pageIds.includes(page.id)
+        )
+        if (!output) {
+          return Response.json({ error: "output_not_found" }, { status: 404 })
+        }
 
         const body = JSON.stringify({
           renderId: crypto.randomUUID(),
+          outputId: output.id,
           pageId: page.id,
           document: parsed.data.document,
         })

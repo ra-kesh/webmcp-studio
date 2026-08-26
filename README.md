@@ -21,13 +21,16 @@ The challenge demo uses synthetic data for a fictional wedding photography studi
   reviewable shared-field proposals, plus explicit immutable publishing
 - published-version API playground with strict parameter materialization,
   multi-output requests, downloadable artifacts, and render history
-- public API route contracts for templates and render jobs
-- private renderer Worker that turns the canonical document into HTML, captures PNG with Cloudflare Browser Run, and writes it to R2
+- D1-backed immutable template versions, idempotent render jobs, failure state,
+  and reload-safe history
+- public template, render, status, history, and artifact-download routes
+- private renderer Worker that turns the canonical document into deterministic
+  HTML, captures PNG/PDF with Cloudflare Browser Rendering, and writes it to R2
 
-D1 persistence, canvas/output proposal tools, and the complete render-job
-lifecycle are planned work. The current browser draft and immutable published
-versions are stored locally, and the API render route returns a queued contract
-response but does not persist the job yet.
+Canvas and output proposal tools remain planned work. Draft editing stays local
+for fast recovery; publishing is complete only after D1 accepts the immutable
+snapshot. Browser-local published snapshots are a cache, not the API source of
+truth.
 
 ## Start locally
 
@@ -35,6 +38,7 @@ Requirements: Bun 1.2 or later, Node 22.12 or later, and a current Wrangler 4 re
 
 ```bash
 bun install
+bunx --bun wrangler d1 migrations apply webmcp-studio --local -c apps/studio/wrangler.jsonc
 bun run dev
 ```
 

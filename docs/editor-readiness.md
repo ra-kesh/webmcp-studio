@@ -90,5 +90,6 @@ thumbnail, PNG, and PDF.
 - [x] exercise published templates through the API playground
 - [x] inspect render requests and generated assets in render history
 
-D1 and R2 support this proven workflow after the product loop is complete; they
-do not define it prematurely.
+D1 now persists immutable versions and render history after this product loop;
+R2 owns generated PNG/PDF artifacts. The editor remains canonical and does not
+depend on storage-specific document shapes.

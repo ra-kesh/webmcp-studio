@@ -6,9 +6,9 @@
 - Every render names an immutable template version.
 - Modifications stay flat and copyable.
 - Field keys belong to the published parameter manifest.
-- Dot notation may address approved style properties, for example `hero_photo.objectPosition`.
 - Multi-output rendering is one request.
-- Asynchronous responses are the default because PDF and Browser Run may take time.
+- The challenge path renders synchronously and still persists every job before
+  invoking the private Renderer Worker.
 
 ## Endpoints
 
@@ -37,28 +37,35 @@ Returns the immutable version metadata, output sizes, export formats, complete p
     "event_date": "18 February 2027 · Udaipur",
     "package_name": "The Monsoon Weekend",
     "package_price": "₹4,10,000",
-    "hero_photo": "asset:palace-evening-04",
-    "hero_photo.objectPosition": "center 35%"
+    "valid_until": "30 September 2026"
   },
   "response": {
     "type": "url",
     "outputs": [
       { "outputId": "proposal", "format": "pdf" },
-      { "outputId": "whatsapp", "format": "png", "scale": 2 }
+      { "outputId": "whatsapp", "format": "png" }
     ]
   }
 }
 ```
 
-Accepted response:
+Completed response:
 
 ```json
 {
-  "id": "render_01J...",
-  "status": "queued",
+  "id": "render-01J...",
+  "status": "completed",
   "templateId": "northstar-wedding-proposal",
   "version": 1,
-  "statusUrl": "/v1/renders/render_01J..."
+  "artifacts": [
+    {
+      "id": "render-output-01J...",
+      "outputId": "proposal",
+      "pageId": null,
+      "format": "pdf",
+      "downloadUrl": "/v1/renders/render-01J.../outputs/render-output-01J..."
+    }
+  ]
 }
 ```
 
@@ -66,7 +73,7 @@ Accepted response:
 
 `GET /v1/renders/:renderId`
 
-States are `queued`, `rendering`, `completed`, and `failed`. A completed job returns each output's stable ID, format, dimensions, bytes, checksum, and signed URL.
+States are `queued`, `rendering`, `completed`, and `failed`. A completed job returns each artifact's stable ID, output and page identity, format, dimensions, bytes, checksum, and R2-backed download URL.
 
 ## Parameter manifest
 
@@ -81,7 +88,7 @@ Each parameter includes:
 - maximum text length when applicable
 - bound pages, nodes, and properties
 
-The render API rejects unknown keys. It does not silently ignore spelling errors. Dot-notation overrides are limited to properties explicitly enabled by the published manifest.
+The render API rejects unknown keys and type mismatches. It does not silently ignore spelling errors or permit arbitrary node/style overrides.
 
 ## Error shape
 
@@ -96,11 +103,11 @@ The render API rejects unknown keys. It does not silently ignore spelling errors
 }
 ```
 
-Use `400` for malformed requests, `401` for missing API credentials outside the public demo, `404` for unknown resources, `409` for version conflicts, `422` for valid JSON that violates the manifest, `429` for rate limits, and `500` for internal render failures.
+Use `400` for malformed requests, `401` for missing API credentials outside the public demo, `404` for unknown resources, `409` for version or idempotency conflicts, `422` for valid JSON that violates the manifest, `429` for rate limits, and `502` when the private renderer fails.
 
 ## Idempotency and retention
 
-Clients may supply an `Idempotency-Key` header. The server returns the first matching job for the same workspace, key, and normalized request body. Render metadata stays longer than signed R2 URLs. The API can issue a fresh signed URL while the object remains inside its retention window.
+Clients may supply an `Idempotency-Key` header. The server returns the first matching job for the same workspace, key, and canonical request body; reusing the key with another request returns `409`. Render metadata is stored in D1 and artifacts in R2.
 
 ## Demo access
 

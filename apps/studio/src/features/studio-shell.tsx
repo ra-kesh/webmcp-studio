@@ -682,10 +682,15 @@ export function StudioShell() {
             onClick={() => setPublishDialogOpen(true)}
           >
             <Rocket data-icon="inline-start" />
-            {editor.latestPublishedVersion?.sourceRevision ===
-            editor.document.revision
-              ? `Published v${editor.latestPublishedVersion.version}`
-              : "Publish"}
+            {editor.publishSyncStatus === "syncing"
+              ? "Publishing…"
+              : editor.publishSyncStatus === "error"
+                ? "Publish sync failed"
+                : editor.publishSyncStatus === "synced" &&
+                    editor.latestPublishedVersion?.sourceRevision ===
+                      editor.document.revision
+                  ? `Published v${editor.latestPublishedVersion.version}`
+                  : "Publish"}
           </Button>
           <Button
             size="sm"
@@ -1050,12 +1055,17 @@ export function StudioShell() {
         latestVersion={editor.latestPublishedVersion}
         pendingChangeSet={Boolean(editor.pendingChangeSet)}
         publishError={editor.publishError}
+        publishSyncStatus={editor.publishSyncStatus}
         onPublish={editor.publishTemplate}
       />
       <ApiPlaygroundDialog
         open={apiPlaygroundOpen}
         onOpenChange={setApiPlaygroundOpen}
-        version={editor.latestPublishedVersion}
+        version={
+          editor.publishSyncStatus === "synced"
+            ? editor.latestPublishedVersion
+            : undefined
+        }
         onRequestPublish={() => {
           setApiPlaygroundOpen(false)
           setPublishDialogOpen(true)

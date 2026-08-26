@@ -5,6 +5,7 @@ import { renderDocumentToHtml, renderOutputToHtml } from "./html"
 
 const renderRequestSchema = z.object({
   renderId: z.string().min(1),
+  outputId: z.string().min(1),
   pageId: z.string().min(1),
   document: documentSchema,
 })
@@ -64,14 +65,16 @@ async function handleRender(request: Request, env: Env): Promise<Response> {
       timeout: 30_000,
     })
     const png = await browserPage.screenshot({ type: "png" })
-    const key = `${parsed.data.renderId}/${page.id}.png`
+    const key = `${parsed.data.renderId}/${parsed.data.outputId}/${page.id}.png`
     await env.RENDERS.put(key, png, {
       httpMetadata: { contentType: "image/png" },
       customMetadata: {
         documentId: parsed.data.document.id,
+        outputId: parsed.data.outputId,
         revision: String(parsed.data.document.revision),
       },
     })
+    const stored = await env.RENDERS.head(key)
 
     return new Response(png, {
       headers: {
@@ -81,8 +84,11 @@ async function handleRender(request: Request, env: Env): Promise<Response> {
         "X-Render-Id": parsed.data.renderId,
         "X-Render-Key": key,
         "X-Page-Id": page.id,
+        "X-Output-Id": parsed.data.outputId,
         "X-Width": String(page.width),
         "X-Height": String(page.height),
+        "X-Bytes": String(stored?.size ?? png.byteLength),
+        "X-Checksum": stored?.etag ?? "",
       },
     })
   } finally {
@@ -147,6 +153,7 @@ async function handlePdfRender(request: Request, env: Env): Promise<Response> {
       revision: String(parsed.data.document.revision),
     },
   })
+  const stored = await env.RENDERS.head(key)
 
   return new Response(downloadBody, {
     headers: {
@@ -156,6 +163,8 @@ async function handlePdfRender(request: Request, env: Env): Promise<Response> {
       "X-Render-Id": parsed.data.renderId,
       "X-Render-Key": key,
       "X-Page-Count": String(output.pageIds.length),
+      "X-Bytes": String(stored?.size ?? 0),
+      "X-Checksum": stored?.etag ?? "",
     },
   })
 }

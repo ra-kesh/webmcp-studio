@@ -15,8 +15,10 @@ import { Route as V1RendersRenderIdRouteImport } from './routes/v1/renders/$rend
 import { Route as V1StudioExportPdfRouteImport } from './routes/v1/studio/export-pdf'
 import { Route as V1StudioExportPngRouteImport } from './routes/v1/studio/export-png'
 import { Route as V1StudioRenderRouteImport } from './routes/v1/studio/render'
+import { Route as V1StudioRendersIndexRouteImport } from './routes/v1/studio/renders/index'
 import { Route as V1StudioTemplatesIndexRouteImport } from './routes/v1/studio/templates/index'
 import { Route as V1StudioTemplatesTemplateIdRouteImport } from './routes/v1/studio/templates/$templateId'
+import { Route as V1RendersRenderIdOutputsOutputIdRouteImport } from './routes/v1/renders/$renderId/outputs/$outputId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -48,6 +50,11 @@ const V1StudioRenderRoute = V1StudioRenderRouteImport.update({
   path: '/v1/studio/render',
   getParentRoute: () => rootRouteImport,
 } as any)
+const V1StudioRendersIndexRoute = V1StudioRendersIndexRouteImport.update({
+  id: '/v1/studio/renders/',
+  path: '/v1/studio/renders/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const V1StudioTemplatesIndexRoute = V1StudioTemplatesIndexRouteImport.update({
   id: '/v1/studio/templates/',
   path: '/v1/studio/templates/',
@@ -59,37 +66,49 @@ const V1StudioTemplatesTemplateIdRoute =
     path: '/v1/studio/templates/$templateId',
     getParentRoute: () => rootRouteImport,
   } as any)
+const V1RendersRenderIdOutputsOutputIdRoute =
+  V1RendersRenderIdOutputsOutputIdRouteImport.update({
+    id: '/outputs/$outputId',
+    path: '/outputs/$outputId',
+    getParentRoute: () => V1RendersRenderIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/api/health': typeof ApiHealthRoute
-  '/v1/renders/$renderId': typeof V1RendersRenderIdRoute
+  '/v1/renders/$renderId': typeof V1RendersRenderIdRouteWithChildren
   '/v1/studio/export-pdf': typeof V1StudioExportPdfRoute
   '/v1/studio/export-png': typeof V1StudioExportPngRoute
   '/v1/studio/render': typeof V1StudioRenderRoute
   '/v1/studio/templates/$templateId': typeof V1StudioTemplatesTemplateIdRoute
+  '/v1/studio/renders/': typeof V1StudioRendersIndexRoute
   '/v1/studio/templates/': typeof V1StudioTemplatesIndexRoute
+  '/v1/renders/$renderId/outputs/$outputId': typeof V1RendersRenderIdOutputsOutputIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/api/health': typeof ApiHealthRoute
-  '/v1/renders/$renderId': typeof V1RendersRenderIdRoute
+  '/v1/renders/$renderId': typeof V1RendersRenderIdRouteWithChildren
   '/v1/studio/export-pdf': typeof V1StudioExportPdfRoute
   '/v1/studio/export-png': typeof V1StudioExportPngRoute
   '/v1/studio/render': typeof V1StudioRenderRoute
   '/v1/studio/templates/$templateId': typeof V1StudioTemplatesTemplateIdRoute
+  '/v1/studio/renders': typeof V1StudioRendersIndexRoute
   '/v1/studio/templates': typeof V1StudioTemplatesIndexRoute
+  '/v1/renders/$renderId/outputs/$outputId': typeof V1RendersRenderIdOutputsOutputIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/api/health': typeof ApiHealthRoute
-  '/v1/renders/$renderId': typeof V1RendersRenderIdRoute
+  '/v1/renders/$renderId': typeof V1RendersRenderIdRouteWithChildren
   '/v1/studio/export-pdf': typeof V1StudioExportPdfRoute
   '/v1/studio/export-png': typeof V1StudioExportPngRoute
   '/v1/studio/render': typeof V1StudioRenderRoute
   '/v1/studio/templates/$templateId': typeof V1StudioTemplatesTemplateIdRoute
+  '/v1/studio/renders/': typeof V1StudioRendersIndexRoute
   '/v1/studio/templates/': typeof V1StudioTemplatesIndexRoute
+  '/v1/renders/$renderId/outputs/$outputId': typeof V1RendersRenderIdOutputsOutputIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -101,7 +120,9 @@ export interface FileRouteTypes {
     | '/v1/studio/export-png'
     | '/v1/studio/render'
     | '/v1/studio/templates/$templateId'
+    | '/v1/studio/renders/'
     | '/v1/studio/templates/'
+    | '/v1/renders/$renderId/outputs/$outputId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -111,7 +132,9 @@ export interface FileRouteTypes {
     | '/v1/studio/export-png'
     | '/v1/studio/render'
     | '/v1/studio/templates/$templateId'
+    | '/v1/studio/renders'
     | '/v1/studio/templates'
+    | '/v1/renders/$renderId/outputs/$outputId'
   id:
     | '__root__'
     | '/'
@@ -121,17 +144,20 @@ export interface FileRouteTypes {
     | '/v1/studio/export-png'
     | '/v1/studio/render'
     | '/v1/studio/templates/$templateId'
+    | '/v1/studio/renders/'
     | '/v1/studio/templates/'
+    | '/v1/renders/$renderId/outputs/$outputId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ApiHealthRoute: typeof ApiHealthRoute
-  V1RendersRenderIdRoute: typeof V1RendersRenderIdRoute
+  V1RendersRenderIdRoute: typeof V1RendersRenderIdRouteWithChildren
   V1StudioExportPdfRoute: typeof V1StudioExportPdfRoute
   V1StudioExportPngRoute: typeof V1StudioExportPngRoute
   V1StudioRenderRoute: typeof V1StudioRenderRoute
   V1StudioTemplatesTemplateIdRoute: typeof V1StudioTemplatesTemplateIdRoute
+  V1StudioRendersIndexRoute: typeof V1StudioRendersIndexRoute
   V1StudioTemplatesIndexRoute: typeof V1StudioTemplatesIndexRoute
 }
 
@@ -179,6 +205,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof V1StudioRenderRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/v1/studio/renders/': {
+      id: '/v1/studio/renders/'
+      path: '/v1/studio/renders'
+      fullPath: '/v1/studio/renders/'
+      preLoaderRoute: typeof V1StudioRendersIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/v1/studio/templates/': {
       id: '/v1/studio/templates/'
       path: '/v1/studio/templates'
@@ -193,17 +226,36 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof V1StudioTemplatesTemplateIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/v1/renders/$renderId/outputs/$outputId': {
+      id: '/v1/renders/$renderId/outputs/$outputId'
+      path: '/outputs/$outputId'
+      fullPath: '/v1/renders/$renderId/outputs/$outputId'
+      preLoaderRoute: typeof V1RendersRenderIdOutputsOutputIdRouteImport
+      parentRoute: typeof V1RendersRenderIdRoute
+    }
   }
 }
+
+interface V1RendersRenderIdRouteChildren {
+  V1RendersRenderIdOutputsOutputIdRoute: typeof V1RendersRenderIdOutputsOutputIdRoute
+}
+
+const V1RendersRenderIdRouteChildren: V1RendersRenderIdRouteChildren = {
+  V1RendersRenderIdOutputsOutputIdRoute: V1RendersRenderIdOutputsOutputIdRoute,
+}
+
+const V1RendersRenderIdRouteWithChildren =
+  V1RendersRenderIdRoute._addFileChildren(V1RendersRenderIdRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApiHealthRoute: ApiHealthRoute,
-  V1RendersRenderIdRoute: V1RendersRenderIdRoute,
+  V1RendersRenderIdRoute: V1RendersRenderIdRouteWithChildren,
   V1StudioExportPdfRoute: V1StudioExportPdfRoute,
   V1StudioExportPngRoute: V1StudioExportPngRoute,
   V1StudioRenderRoute: V1StudioRenderRoute,
   V1StudioTemplatesTemplateIdRoute: V1StudioTemplatesTemplateIdRoute,
+  V1StudioRendersIndexRoute: V1StudioRendersIndexRoute,
   V1StudioTemplatesIndexRoute: V1StudioTemplatesIndexRoute,
 }
 export const routeTree = rootRouteImport

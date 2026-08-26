@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Check, CircleAlert, Code2, Rocket } from "lucide-react"
+import { Check, CircleAlert, Code2, LoaderCircle, Rocket } from "lucide-react"
 import {
   getPublishReadiness,
   type Document,
@@ -26,6 +26,7 @@ export function PublishDialog({
   latestVersion,
   pendingChangeSet,
   publishError,
+  publishSyncStatus,
   onPublish,
 }: {
   open: boolean
@@ -35,15 +36,18 @@ export function PublishDialog({
   latestVersion?: TemplateVersion
   pendingChangeSet: boolean
   publishError: string | null
-  onPublish(): TemplateVersion | undefined
+  publishSyncStatus: "idle" | "syncing" | "synced" | "error"
+  onPublish(): Promise<TemplateVersion | undefined>
 }) {
   const [published, setPublished] = useState<TemplateVersion | null>(null)
   const [localError, setLocalError] = useState<string | null>(null)
+  const [publishing, setPublishing] = useState(false)
 
   useEffect(() => {
     if (!open) {
       setPublished(null)
       setLocalError(null)
+      setPublishing(false)
     }
   }, [open])
 
@@ -56,6 +60,23 @@ export function PublishDialog({
     ? "Resolve the pending agent change set before publishing."
     : readiness.blocking[0]?.message
   const blocked = Boolean(blockingMessage)
+  const syncing = publishing || publishSyncStatus === "syncing"
+  const needsSync = Boolean(currentVersion && publishSyncStatus === "error")
+
+  const handlePublish = async () => {
+    setPublishing(true)
+    setLocalError(null)
+    try {
+      const version = await onPublish()
+      if (version) setPublished(version)
+    } catch (error) {
+      setLocalError(
+        error instanceof Error ? error.message : "Publishing failed."
+      )
+    } finally {
+      setPublishing(false)
+    }
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -69,14 +90,18 @@ export function PublishDialog({
             )}
           </div>
           <DialogTitle>
-            {currentVersion
-              ? `Version ${currentVersion.version} is published`
-              : `Publish version ${nextVersion}`}
+            {needsSync
+              ? `Version ${currentVersion?.version} needs to sync`
+              : currentVersion
+                ? `Version ${currentVersion.version} is published`
+                : `Publish version ${nextVersion}`}
           </DialogTitle>
           <DialogDescription>
-            {currentVersion
-              ? "This immutable snapshot is ready for API rendering."
-              : "Freeze the current document and its public parameter manifest for API use."}
+            {needsSync
+              ? "The immutable snapshot is safe locally, but the API publishing service has not accepted it yet."
+              : currentVersion
+                ? "This immutable snapshot is ready for API rendering."
+                : "Freeze the current document and its public parameter manifest for API use."}
           </DialogDescription>
         </DialogHeader>
 
@@ -110,7 +135,9 @@ export function PublishDialog({
                 templateId}
             </p>
             {currentVersion ? (
-              <Badge variant="secondary">Immutable</Badge>
+              <Badge variant="secondary">
+                {syncing ? "Syncing" : needsSync ? "Local only" : "Immutable"}
+              </Badge>
             ) : null}
           </div>
         </div>
@@ -141,28 +168,28 @@ export function PublishDialog({
 
         <DialogFooter>
           <DialogClose asChild>
-            <Button variant="outline">
+            <Button variant="outline" disabled={publishing}>
               {currentVersion ? "Done" : "Cancel"}
             </Button>
           </DialogClose>
-          {!currentVersion ? (
+          {!currentVersion || needsSync ? (
             <Button
-              disabled={blocked}
-              onClick={() => {
-                try {
-                  const version = onPublish()
-                  if (version) setPublished(version)
-                } catch (error) {
-                  setLocalError(
-                    error instanceof Error
-                      ? error.message
-                      : "Publishing failed."
-                  )
-                }
-              }}
+              disabled={blocked || syncing}
+              onClick={() => void handlePublish()}
             >
-              <Rocket data-icon="inline-start" />
-              Publish version {nextVersion}
+              {syncing ? (
+                <LoaderCircle
+                  className="animate-spin"
+                  data-icon="inline-start"
+                />
+              ) : (
+                <Rocket data-icon="inline-start" />
+              )}
+              {syncing
+                ? "Publishing…"
+                : needsSync
+                  ? "Retry API sync"
+                  : `Publish version ${nextVersion}`}
             </Button>
           ) : null}
         </DialogFooter>

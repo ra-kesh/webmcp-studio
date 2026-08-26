@@ -130,7 +130,7 @@ export function ApiPlaygroundDialog({
   const [outputs, setOutputs] = useState<Record<string, OutputChoice>>({})
   const [copied, setCopied] = useState(false)
   const [running, setRunning] = useState(false)
-  const { records, runRender } = useRenderHistory()
+  const { records, historyError, runRender } = useRenderHistory(version)
 
   useEffect(() => {
     if (!version) return
@@ -436,23 +436,26 @@ export function ApiPlaygroundDialog({
                                 <p className="text-[11px] leading-relaxed text-destructive">
                                   {record.error}
                                 </p>
-                                <Button
-                                  className="shrink-0"
-                                  size="sm"
-                                  variant="outline"
-                                  disabled={running}
-                                  onClick={() => {
-                                    setRunning(true)
-                                    void runRender(
-                                      version,
-                                      record.modifications,
-                                      record.selections
-                                    ).then(() => setRunning(false))
-                                  }}
-                                >
-                                  <RotateCw data-icon="inline-start" />
-                                  Retry
-                                </Button>
+                                {record.templateId === version.templateId &&
+                                record.version === version.version ? (
+                                  <Button
+                                    className="shrink-0"
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={running}
+                                    onClick={() => {
+                                      setRunning(true)
+                                      void runRender(
+                                        version,
+                                        record.modifications,
+                                        record.selections
+                                      ).then(() => setRunning(false))
+                                    }}
+                                  >
+                                    <RotateCw data-icon="inline-start" />
+                                    Retry
+                                  </Button>
+                                ) : null}
                               </div>
                             ) : null}
                           </div>
@@ -489,7 +492,9 @@ export function ApiPlaygroundDialog({
                       No render requests
                     </p>
                     <p className="mt-1 max-w-sm text-xs text-muted-foreground">
-                      Run the published template to create downloadable outputs.
+                      {historyError
+                        ? "Saved render history is temporarily unavailable. New requests will still appear here."
+                        : "Run the published template to create downloadable outputs."}
                     </p>
                   </div>
                 )}

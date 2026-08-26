@@ -49,6 +49,23 @@ const STORAGE_KEY = "webmcp-studio:northstar-document:v1"
 const PUBLISHED_STORAGE_KEY = "webmcp-studio:published-versions:v1"
 
 type SaveStatus = "saved" | "saving" | "restored" | "error"
+type PublishSyncStatus = "idle" | "syncing" | "synced" | "error"
+
+async function syncPublishedVersion(version: TemplateVersion) {
+  const response = await fetch("/v1/studio/templates/", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(version),
+  })
+  if (response.ok) return
+  const payload = (await response.json().catch(() => null)) as {
+    error?: { code?: string }
+  } | null
+  const detail = payload?.error?.code
+    ? payload.error.code.replaceAll("_", " ")
+    : `status ${response.status}`
+  throw new Error(`Publishing service: ${detail}.`)
+}
 
 const isTypingTarget = (target: EventTarget | null) =>
   target instanceof HTMLInputElement ||
@@ -90,10 +107,13 @@ export function useDocumentEditor() {
     []
   )
   const [publishError, setPublishError] = useState<string | null>(null)
+  const [publishSyncStatus, setPublishSyncStatus] =
+    useState<PublishSyncStatus>("idle")
   const didRestore = useRef(false)
   const clipboardRef = useRef<SceneNode[]>([])
   const assetUrlsRef = useRef(new Map<string, string>())
   const loadingAssetIdsRef = useRef(new Set<string>())
+  const attemptedVersionSyncRef = useRef(new Set<string>())
   const historyRef = useRef(history)
   historyRef.current = history
   const pendingChangeSetRef = useRef(pendingChangeSet)
@@ -125,6 +145,33 @@ export function useDocumentEditor() {
     }
     didRestore.current = true
   }, [])
+
+  useEffect(() => {
+    const unsynced = [...publishedVersions]
+      .sort((a, b) => a.version - b.version)
+      .filter((version) => !attemptedVersionSyncRef.current.has(version.id))
+    if (!unsynced.length) return
+    setPublishSyncStatus("syncing")
+    void unsynced
+      .reduce(
+        (pending, version) =>
+          pending.then(async () => {
+            await syncPublishedVersion(version)
+            attemptedVersionSyncRef.current.add(version.id)
+          }),
+        Promise.resolve()
+      )
+      .then(() => {
+        setPublishSyncStatus("synced")
+        setPublishError(null)
+      })
+      .catch((error: unknown) => {
+        setPublishSyncStatus("error")
+        setPublishError(
+          error instanceof Error ? error.message : "Publishing sync failed."
+        )
+      })
+  }, [publishedVersions])
 
   useEffect(() => {
     if (!didRestore.current) return
@@ -358,7 +405,7 @@ export function useDocumentEditor() {
     setSelection(null)
   }, [])
 
-  const publishTemplate = useCallback(() => {
+  const publishTemplate = useCallback(async () => {
     if (pendingChangeSetRef.current) {
       const message = "Resolve the pending change set before publishing."
       setPublishError(message)
@@ -373,7 +420,26 @@ export function useDocumentEditor() {
       .filter((version) => version.templateId === templateId)
       .sort((a, b) => b.version - a.version)
     const latest = existing[0]
-    if (latest?.sourceRevision === document.revision) return latest
+    if (latest?.sourceRevision === document.revision) {
+      try {
+        setPublishSyncStatus("syncing")
+        for (const version of [...existing].sort(
+          (a, b) => a.version - b.version
+        )) {
+          await syncPublishedVersion(version)
+          attemptedVersionSyncRef.current.add(version.id)
+        }
+        setPublishSyncStatus("synced")
+        setPublishError(null)
+        return latest
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Publishing sync failed."
+        setPublishSyncStatus("error")
+        setPublishError(message)
+        throw error
+      }
+    }
     try {
       const version = createTemplateVersion(document, {
         id: `template-version-${crypto.randomUUID()}`,
@@ -381,15 +447,24 @@ export function useDocumentEditor() {
         version: (latest?.version ?? 0) + 1,
         publishedAt: new Date().toISOString(),
       })
+      setPublishSyncStatus("syncing")
+      for (const candidate of [...existing, version].sort(
+        (a, b) => a.version - b.version
+      )) {
+        await syncPublishedVersion(candidate)
+        attemptedVersionSyncRef.current.add(candidate.id)
+      }
       const next = [...publishedVersions, version]
       localStorage.setItem(PUBLISHED_STORAGE_KEY, JSON.stringify(next))
       setPublishedVersions(next)
+      setPublishSyncStatus("synced")
       setPublishError(null)
       return version
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Publishing failed."
       setPublishError(message)
+      setPublishSyncStatus("error")
       throw error
     }
   }, [publishedVersions])
@@ -1382,6 +1457,7 @@ export function useDocumentEditor() {
     latestPublishedVersion,
     currentTemplateId,
     publishError,
+    publishSyncStatus,
     selectPage,
     setSelection,
     updateNodes,

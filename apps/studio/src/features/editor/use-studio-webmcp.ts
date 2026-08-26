@@ -16,7 +16,7 @@ type WebMcpStatus = "unavailable" | "registering" | "ready" | "error"
 
 type StudioWebMcpServices = StudioWebMcpSnapshot & {
   proposeChangeSet(changeSet: ChangeSet): ChangeSet
-  publishTemplate(): import("@webmcp/document").TemplateVersion
+  publishTemplate(): Promise<import("@webmcp/document").TemplateVersion>
 }
 
 export function useStudioWebMcp(services: StudioWebMcpServices) {
