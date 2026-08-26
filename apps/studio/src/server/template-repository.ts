@@ -1,4 +1,5 @@
-import { templateVersionSchema, type TemplateVersion } from "@webmcp/document"
+import { templateVersionSchema } from "@webmcp/document"
+import type { TemplateVersion } from "@webmcp/document"
 import { databaseDocumentId, databaseTemplateId } from "./demo-session"
 
 type VersionRow = {

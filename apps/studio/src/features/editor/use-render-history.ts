@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { TemplateModifications, TemplateVersion } from "@webmcp/document"
+import { z } from "zod"
 
 export type RenderSelection = {
   outputId: string
@@ -31,38 +32,62 @@ export type RenderRecord = {
   error?: string
 }
 
-type RenderApiResponse = {
-  id?: string
-  completedAt?: string
-  error?: { code?: string; message?: string }
-  artifacts?: Array<{
-    id: string
-    outputId: string
-    pageId: string | null
-    format: "png" | "pdf"
-    width: number | null
-    height: number | null
-    bytes: number
-    downloadUrl: string
-  }>
-}
+const renderSelectionSchema = z.object({
+  outputId: z.string(),
+  format: z.enum(["png", "pdf"]),
+})
 
-type RenderHistoryResponse = {
-  data?: Array<{
-    id: string
-    templateId: string
-    version: number
-    createdAt: string
-    completedAt: string | null
-    status: "rendering" | "completed" | "failed"
-    error: string | null
-    request: {
-      modifications?: TemplateModifications
-      response?: { outputs?: RenderSelection[] }
-    } | null
-    artifacts: NonNullable<RenderApiResponse["artifacts"]>
-  }>
-}
+const renderArtifactResponseSchema = z.object({
+  id: z.string(),
+  outputId: z.string(),
+  pageId: z.string().nullable(),
+  format: z.enum(["png", "pdf"]),
+  width: z.number().nullable(),
+  height: z.number().nullable(),
+  bytes: z.number(),
+  downloadUrl: z.string(),
+})
+
+const renderApiResponseSchema = z.object({
+  id: z.string().optional(),
+  completedAt: z.string().optional(),
+  error: z
+    .object({ code: z.string().optional(), message: z.string().optional() })
+    .optional(),
+  artifacts: z.array(renderArtifactResponseSchema).optional(),
+})
+
+const renderHistoryResponseSchema = z.object({
+  data: z
+    .array(
+      z.object({
+        id: z.string(),
+        templateId: z.string(),
+        version: z.number(),
+        createdAt: z.string(),
+        completedAt: z.string().nullable(),
+        status: z.enum(["rendering", "completed", "failed"]),
+        error: z.string().nullable(),
+        request: z
+          .object({
+            modifications: z
+              .record(
+                z.string(),
+                z.union([z.string(), z.number(), z.boolean()])
+              )
+              .optional(),
+            response: z
+              .object({ outputs: z.array(renderSelectionSchema).optional() })
+              .optional(),
+          })
+          .nullable(),
+        artifacts: z.array(renderArtifactResponseSchema),
+      })
+    )
+    .optional(),
+})
+
+type RenderApiResponse = z.infer<typeof renderApiResponseSchema>
 
 const artifactFilename = (
   version: TemplateVersion | undefined,
@@ -122,7 +147,7 @@ export function useRenderHistory(version?: TemplateVersion) {
         if (!response.ok) {
           throw new Error(`Render history returned ${response.status}.`)
         }
-        return (await response.json()) as RenderHistoryResponse
+        return renderHistoryResponseSchema.parse(await response.json())
       })
       .then((payload) => {
         const restored = (payload.data ?? []).map<RenderRecord>((record) => {
@@ -176,7 +201,7 @@ export function useRenderHistory(version?: TemplateVersion) {
 
   const runRender = useCallback(
     async (
-      version: TemplateVersion,
+      publishedVersion: TemplateVersion,
       modifications: TemplateModifications,
       selections: RenderSelection[]
     ) => {
@@ -184,8 +209,8 @@ export function useRenderHistory(version?: TemplateVersion) {
       const localId = `local-render-${crypto.randomUUID()}`
       const record: RenderRecord = {
         id: localId,
-        templateId: version.templateId,
-        version: version.version,
+        templateId: publishedVersion.templateId,
+        version: publishedVersion.version,
         createdAt: new Date().toISOString(),
         status: "rendering",
         modifications: structuredClone(modifications),
@@ -204,13 +229,13 @@ export function useRenderHistory(version?: TemplateVersion) {
             "Idempotency-Key": localId,
           },
           body: JSON.stringify({
-            templateId: version.templateId,
-            version: version.version,
+            templateId: publishedVersion.templateId,
+            version: publishedVersion.version,
             modifications,
             response: { type: "url", outputs: selections },
           }),
         })
-        const payload = (await response.json()) as RenderApiResponse
+        const payload = renderApiResponseSchema.parse(await response.json())
         serverId = payload.id ?? localId
         if (!response.ok) {
           const message = payload.error?.message
@@ -228,7 +253,7 @@ export function useRenderHistory(version?: TemplateVersion) {
               outputId: artifact.outputId,
               pageId: artifact.pageId ?? undefined,
               format: artifact.format,
-              filename: artifactFilename(version, artifact),
+              filename: artifactFilename(publishedVersion, artifact),
               bytes: artifact.bytes,
               width: artifact.width ?? undefined,
               height: artifact.height ?? undefined,

@@ -32,7 +32,7 @@ export type DemoSession = {
   workspaceId: string
   expiresAt: string
   isNew: boolean
-  respond(response: Response): Response
+  respond: (response: Response) => Response
 }
 
 async function createDemoSession(

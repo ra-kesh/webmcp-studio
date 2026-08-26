@@ -4,12 +4,12 @@ import type {
   TemplateModifications,
   TemplateVersion,
 } from "@webmcp/document"
-import {
-  registerStudioWebMcpTools,
-  type StudioWebMcpRenderRecord,
-  type StudioWebMcpRenderSelection,
-  type StudioWebMcpSnapshot,
-  type WebMcpModelContext,
+import { registerStudioWebMcpTools } from "@webmcp/webmcp"
+import type {
+  StudioWebMcpRenderRecord,
+  StudioWebMcpRenderSelection,
+  StudioWebMcpSnapshot,
+  WebMcpModelContext,
 } from "@webmcp/webmcp"
 
 declare global {
@@ -21,13 +21,13 @@ declare global {
 type WebMcpStatus = "unavailable" | "registering" | "ready" | "error"
 
 type StudioWebMcpServices = StudioWebMcpSnapshot & {
-  proposeChangeSet(changeSet: ChangeSet): ChangeSet
-  publishTemplate(): Promise<TemplateVersion>
-  renderTemplate(
+  proposeChangeSet: (changeSet: ChangeSet) => ChangeSet
+  publishTemplate: () => Promise<TemplateVersion>
+  renderTemplate: (
     version: TemplateVersion,
     modifications: TemplateModifications,
     selections: StudioWebMcpRenderSelection[]
-  ): Promise<StudioWebMcpRenderRecord>
+  ) => Promise<StudioWebMcpRenderRecord>
 }
 
 export function useStudioWebMcp(services: StudioWebMcpServices) {
@@ -38,6 +38,7 @@ export function useStudioWebMcp(services: StudioWebMcpServices) {
 
   useEffect(() => {
     const controller = new AbortController()
+    let active = true
     let registrationStarted = false
     let interval = 0
 
@@ -67,12 +68,12 @@ export function useStudioWebMcp(services: StudioWebMcpServices) {
           },
           controller.signal
         )
-        if (controller.signal.aborted) return
+        if (!active) return
         window.clearInterval(interval)
         setStatus("ready")
         setError(null)
       } catch (registrationError) {
-        if (controller.signal.aborted) return
+        if (!active) return
         window.clearInterval(interval)
         setStatus("error")
         setError(
@@ -86,6 +87,7 @@ export function useStudioWebMcp(services: StudioWebMcpServices) {
     void register()
     interval = window.setInterval(() => void register(), 500)
     return () => {
+      active = false
       window.clearInterval(interval)
       controller.abort()
     }

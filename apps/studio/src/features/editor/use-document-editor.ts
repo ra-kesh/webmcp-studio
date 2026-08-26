@@ -11,31 +11,32 @@ import {
   northstarSeed,
   previewChangeSet,
   templateVersionSchema,
-  type ChangeOperation,
-  type ChangeSet,
-  type Document,
-  type DocumentCommand,
-  type FieldBinding,
-  type FieldDefinition,
-  type SceneNode,
-  type TemplateVersion,
+} from "@webmcp/document"
+import type {
+  ChangeOperation,
+  ChangeSet,
+  Document,
+  DocumentCommand,
+  FieldBinding,
+  FieldDefinition,
+  SceneNode,
+  TemplateVersion,
 } from "@webmcp/document"
 import type { CanvasNodeChange, CommandDraft, Selection } from "@webmcp/editor"
 import {
   alignNodes,
   alignNodesToBounds,
   distributeNodes,
-  type Alignment,
-  type Distribution,
 } from "@webmcp/editor/geometry"
+import type { Alignment, Distribution } from "@webmcp/editor/geometry"
 import {
   commitCommands,
   createDocumentHistory,
   redoDocument,
   replaceDocument,
   undoDocument,
-  type DocumentHistory,
 } from "@webmcp/editor/history"
+import type { DocumentHistory } from "@webmcp/editor/history"
 import {
   getImageDimensions,
   loadLocalAsset,
@@ -78,7 +79,7 @@ function commandFromDraft(draft: CommandDraft): DocumentCommand {
     id: crypto.randomUUID(),
     at: new Date().toISOString(),
     actor: "human",
-  } as DocumentCommand
+  }
 }
 
 function findNode(document: Document, nodeId: string) {
@@ -396,7 +397,7 @@ export function useDocumentEditor() {
         (page) => page.id === activePageId
       )
     ) {
-      setActivePageId(historyRef.current.document.pages[0]!.id)
+      setActivePageId(historyRef.current.document.pages[0].id)
     }
   }, [activePageId])
 
@@ -415,7 +416,7 @@ export function useDocumentEditor() {
       setChangeSetError("Accept at least one operation before applying.")
       return
     }
-    setHistory((history) => commitCommands(history, commands))
+    setHistory((currentHistory) => commitCommands(currentHistory, commands))
     setLastResolvedChangeSet(current)
     setPendingChangeSet(null)
     setChangeSetError(null)
@@ -437,7 +438,7 @@ export function useDocumentEditor() {
     const existing = publishedVersions
       .filter((version) => version.templateId === templateId)
       .sort((a, b) => b.version - a.version)
-    const latest = existing[0]
+    const latest = existing.at(0)
     if (latest?.sourceRevision === document.revision) {
       try {
         setPublishSyncStatus("syncing")
@@ -787,7 +788,7 @@ export function useDocumentEditor() {
       const parsedJson = JSON.parse(await file.text()) as unknown
       const parsed = documentSchema.safeParse(parsedJson)
       if (!parsed.success) {
-        const issue = parsed.error.issues[0]
+        const issue = parsed.error.issues.at(0)
         const location = issue?.path.length ? issue.path.join(".") : "document"
         throw new Error(`${location}: ${issue?.message ?? "Invalid document"}`)
       }
@@ -831,7 +832,7 @@ export function useDocumentEditor() {
           name: `${node.name} copy`,
           x: node.x + 24,
           y: node.y + 24,
-        } as SceneNode,
+        },
       ]
     })
     commit(copies.map((node) => ({ type: "add_node", pageId: page.id, node })))
@@ -842,7 +843,7 @@ export function useDocumentEditor() {
     if (!selection?.nodeIds.length) return
     const nodes = selection.nodeIds.flatMap((nodeId) => {
       const node = findNode(historyRef.current.document, nodeId)
-      return node ? [{ ...node } as SceneNode] : []
+      return node ? [{ ...node }] : []
     })
     clipboardRef.current = nodes
     setClipboardCount(nodes.length)
@@ -853,16 +854,13 @@ export function useDocumentEditor() {
       (candidate) => candidate.id === activePageId
     )
     if (!page || !clipboardRef.current.length) return
-    const copies = clipboardRef.current.map(
-      (node) =>
-        ({
-          ...node,
-          id: `${node.type}-${crypto.randomUUID()}`,
-          name: `${node.name} copy`,
-          x: node.x + 24,
-          y: node.y + 24,
-        }) as SceneNode
-    )
+    const copies = clipboardRef.current.map((node) => ({
+      ...node,
+      id: `${node.type}-${crypto.randomUUID()}`,
+      name: `${node.name} copy`,
+      x: node.x + 24,
+      y: node.y + 24,
+    }))
     commit(copies.map((node) => ({ type: "add_node", pageId: page.id, node })))
     clipboardRef.current = copies
     setSelection({ pageId: page.id, nodeIds: copies.map((node) => node.id) })
@@ -1083,7 +1081,7 @@ export function useDocumentEditor() {
         const node = findNode(document, nodeId)
         const nextNodeId = nodeIdMap.get(nodeId)
         return node && nextNodeId
-          ? [{ ...node, id: nextNodeId, name: node.name } as SceneNode]
+          ? [{ ...node, id: nextNodeId, name: node.name }]
           : []
       })
       const groupIdMap = new Map(
@@ -1458,7 +1456,8 @@ export function useDocumentEditor() {
       : `template-${history.document.id}`
   const latestPublishedVersion = publishedVersions
     .filter((version) => version.templateId === currentTemplateId)
-    .sort((a, b) => b.version - a.version)[0]
+    .sort((a, b) => b.version - a.version)
+    .at(0)
 
   const previewDocument = useMemo(() => {
     const changeSetPreview =

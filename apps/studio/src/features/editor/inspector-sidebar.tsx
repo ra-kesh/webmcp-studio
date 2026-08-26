@@ -1,4 +1,5 @@
-import { useEffect, useState, type ComponentProps } from "react"
+import { useEffect, useState } from "react"
+import type { ComponentProps } from "react"
 import {
   AlignCenter,
   AlignHorizontalJustifyCenter,
@@ -33,12 +34,14 @@ import {
 import {
   bindingPropertiesForNode,
   fieldCanBindToProperty,
-  type BindableProperty,
-  type ChangeOperation,
-  type ChangeSet,
-  type Document,
-  type FieldDefinition,
-  type SceneNode,
+} from "@webmcp/document"
+import type {
+  BindableProperty,
+  ChangeOperation,
+  ChangeSet,
+  Document,
+  FieldDefinition,
+  SceneNode,
 } from "@webmcp/document"
 import type { Alignment } from "@webmcp/editor/geometry"
 import { toolCatalog } from "@webmcp/webmcp"
@@ -115,7 +118,7 @@ function CommitInput({
   ...props
 }: Omit<ComponentProps<typeof Input>, "value" | "onChange"> & {
   value: string | number
-  onCommit(value: string): void
+  onCommit: (value: string) => void
 }) {
   const [draft, setDraft] = useState(String(value))
   useEffect(() => setDraft(String(value)), [value])
@@ -144,7 +147,7 @@ function CommitTextarea({
   onCommit,
 }: {
   value: string
-  onCommit(value: string): void
+  onCommit: (value: string) => void
 }) {
   const [draft, setDraft] = useState(value)
   useEffect(() => setDraft(value), [value])
@@ -165,7 +168,7 @@ function NumberField({
 }: {
   label: string
   value: number
-  onCommit(value: number): void
+  onCommit: (value: number) => void
 }) {
   return (
     <label className="flex min-w-0 flex-col gap-1.5">
@@ -189,7 +192,7 @@ function ColorField({
 }: {
   label: string
   value: string
-  onCommit(value: string): void
+  onCommit: (value: string) => void
 }) {
   return (
     <label className="flex flex-col gap-1.5">
@@ -227,7 +230,7 @@ function AlignmentGrid({
   onAlign,
   disabled = false,
 }: {
-  onAlign(alignment: Alignment): void
+  onAlign: (alignment: Alignment) => void
   disabled?: boolean
 }) {
   return (
@@ -256,9 +259,9 @@ function NodeInspector({
   onReplaceImage,
 }: {
   node: SceneNode
-  onUpdate(patch: Partial<SceneNode>): void
-  onAlignToPage(alignment: Alignment): void
-  onReplaceImage(nodeId: string): void
+  onUpdate: (patch: Partial<SceneNode>) => void
+  onAlignToPage: (alignment: Alignment) => void
+  onReplaceImage: (nodeId: string) => void
 }) {
   return (
     <div className="flex flex-col">
@@ -340,9 +343,7 @@ function NodeInspector({
           value={[node.opacity * 100]}
           max={100}
           step={1}
-          onValueCommit={([value]) =>
-            value !== undefined && onUpdate({ opacity: value / 100 })
-          }
+          onValueCommit={([value]) => onUpdate({ opacity: value / 100 })}
         />
       </section>
 
@@ -536,9 +537,7 @@ function NodeInspector({
                 value={[node.cropX * 100]}
                 max={100}
                 step={1}
-                onValueCommit={([value]) =>
-                  value !== undefined && onUpdate({ cropX: value / 100 })
-                }
+                onValueCommit={([value]) => onUpdate({ cropX: value / 100 })}
               />
             </label>
             <label className="flex flex-col gap-2">
@@ -552,9 +551,7 @@ function NodeInspector({
                 value={[node.cropY * 100]}
                 max={100}
                 step={1}
-                onValueCommit={([value]) =>
-                  value !== undefined && onUpdate({ cropY: value / 100 })
-                }
+                onValueCommit={([value]) => onUpdate({ cropY: value / 100 })}
               />
             </label>
             <label className="space-y-1.5">
@@ -616,14 +613,14 @@ function MultiSelectionInspector({
   onDelete,
 }: {
   nodes: SceneNode[]
-  onAlign(alignment: Alignment): void
-  onAlignToPage(alignment: Alignment): void
-  onDistribute(distribution: "horizontal" | "vertical"): void
-  onSetLocked(locked: boolean): void
-  onSetVisible(visible: boolean): void
-  onReorder(edge: "front" | "back"): void
-  onDuplicate(): void
-  onDelete(): void
+  onAlign: (alignment: Alignment) => void
+  onAlignToPage: (alignment: Alignment) => void
+  onDistribute: (distribution: "horizontal" | "vertical") => void
+  onSetLocked: (locked: boolean) => void
+  onSetVisible: (visible: boolean) => void
+  onReorder: (edge: "front" | "back") => void
+  onDuplicate: () => void
+  onDelete: () => void
 }) {
   const movableCount = nodes.filter((node) => !node.locked).length
   const allLocked = nodes.every((node) => node.locked)
@@ -785,7 +782,7 @@ function FieldDefinitionDialog({
   field?: FieldDefinition
   fields: FieldDefinition[]
   trigger: React.ReactNode
-  onSave(field: Omit<FieldDefinition, "id">): void
+  onSave: (field: Omit<FieldDefinition, "id">) => void
 }) {
   const [open, setOpen] = useState(false)
   const [label, setLabel] = useState("")
@@ -972,7 +969,7 @@ function FieldValueEditor({
 }: {
   field: FieldDefinition
   value: string | number | boolean
-  onCommit(value: string | number | boolean): void
+  onCommit: (value: string | number | boolean) => void
 }) {
   if (field.type === "boolean") {
     return (
@@ -1017,15 +1014,19 @@ function FieldsPanel({
 }: {
   document: Document
   selectedNodes: SceneNode[]
-  onUpdateField(fieldId: string, value: string | number | boolean): void
-  onCreateField(field: Omit<FieldDefinition, "id">): void
-  onUpdateFieldDefinition(
+  onUpdateField: (fieldId: string, value: string | number | boolean) => void
+  onCreateField: (field: Omit<FieldDefinition, "id">) => void
+  onUpdateFieldDefinition: (
     fieldId: string,
     patch: Partial<Omit<FieldDefinition, "id">>
-  ): void
-  onRemoveField(fieldId: string): void
-  onBindField(fieldId: string, nodeId: string, property: BindableProperty): void
-  onUnbindField(bindingId: string): void
+  ) => void
+  onRemoveField: (fieldId: string) => void
+  onBindField: (
+    fieldId: string,
+    nodeId: string,
+    property: BindableProperty
+  ) => void
+  onUnbindField: (bindingId: string) => void
 }) {
   const selectedNode = selectedNodes.length === 1 ? selectedNodes[0] : undefined
   const properties = selectedNode
@@ -1440,13 +1441,13 @@ function ReviewPanel({
   error: string | null
   webMcpStatus: "unavailable" | "registering" | "ready" | "error"
   webMcpError: string | null
-  onDecideOperation(
+  onDecideOperation: (
     operationId: string,
     status: ChangeOperation["status"]
-  ): void
-  onDecideAll(status: "accepted" | "rejected"): void
-  onApply(): void
-  onDiscard(): void
+  ) => void
+  onDecideAll: (status: "accepted" | "rejected") => void
+  onApply: () => void
+  onDiscard: () => void
 }) {
   const registeredToolNames = new Set([
     "inspect_design",
@@ -1725,32 +1726,36 @@ export function InspectorSidebar({
   changeSetError: string | null
   webMcpStatus: "unavailable" | "registering" | "ready" | "error"
   webMcpError: string | null
-  onUpdateNode(nodeId: string, patch: Partial<SceneNode>): void
-  onUpdateField(fieldId: string, value: string | number | boolean): void
-  onCreateField(field: Omit<FieldDefinition, "id">): void
-  onUpdateFieldDefinition(
+  onUpdateNode: (nodeId: string, patch: Partial<SceneNode>) => void
+  onUpdateField: (fieldId: string, value: string | number | boolean) => void
+  onCreateField: (field: Omit<FieldDefinition, "id">) => void
+  onUpdateFieldDefinition: (
     fieldId: string,
     patch: Partial<Omit<FieldDefinition, "id">>
-  ): void
-  onRemoveField(fieldId: string): void
-  onBindField(fieldId: string, nodeId: string, property: BindableProperty): void
-  onUnbindField(bindingId: string): void
-  onDecideChangeOperation(
+  ) => void
+  onRemoveField: (fieldId: string) => void
+  onBindField: (
+    fieldId: string,
+    nodeId: string,
+    property: BindableProperty
+  ) => void
+  onUnbindField: (bindingId: string) => void
+  onDecideChangeOperation: (
     operationId: string,
     status: ChangeOperation["status"]
-  ): void
-  onDecideAllChangeOperations(status: "accepted" | "rejected"): void
-  onApplyChangeSet(): void
-  onDiscardChangeSet(): void
-  onAlignSelection(alignment: Alignment): void
-  onAlignSelectionToPage(alignment: Alignment): void
-  onDistributeSelection(distribution: "horizontal" | "vertical"): void
-  onSetSelectionLocked(locked: boolean): void
-  onSetSelectionVisible(visible: boolean): void
-  onReorderSelection(edge: "front" | "back"): void
-  onDuplicateSelection(): void
-  onDeleteSelection(): void
-  onReplaceImage(nodeId: string): void
+  ) => void
+  onDecideAllChangeOperations: (status: "accepted" | "rejected") => void
+  onApplyChangeSet: () => void
+  onDiscardChangeSet: () => void
+  onAlignSelection: (alignment: Alignment) => void
+  onAlignSelectionToPage: (alignment: Alignment) => void
+  onDistributeSelection: (distribution: "horizontal" | "vertical") => void
+  onSetSelectionLocked: (locked: boolean) => void
+  onSetSelectionVisible: (visible: boolean) => void
+  onReorderSelection: (edge: "front" | "back") => void
+  onDuplicateSelection: () => void
+  onDeleteSelection: () => void
+  onReplaceImage: (nodeId: string) => void
   className?: string
 }) {
   const selectedNode = selectedNodes.length === 1 ? selectedNodes[0] : undefined

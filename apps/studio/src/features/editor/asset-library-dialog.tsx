@@ -15,7 +15,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@webmcp/ui/components/dialog"
-import { studioAssets, type StudioAsset } from "./asset-catalog"
+import { studioAssets } from "./asset-catalog"
+import type { StudioAsset } from "./asset-catalog"
 
 export function AssetLibraryDialog({
   open,
@@ -24,9 +25,9 @@ export function AssetLibraryDialog({
   onUpload,
 }: {
   open: boolean
-  onOpenChange(open: boolean): void
-  onInsert(asset: StudioAsset): void
-  onUpload(): void
+  onOpenChange: (open: boolean) => void
+  onInsert: (asset: StudioAsset) => void
+  onUpload: () => void
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

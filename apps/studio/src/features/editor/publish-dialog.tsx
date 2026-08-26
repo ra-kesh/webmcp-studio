@@ -1,10 +1,7 @@
 import { useEffect, useState } from "react"
 import { Check, CircleAlert, Code2, LoaderCircle, Rocket } from "lucide-react"
-import {
-  getPublishReadiness,
-  type Document,
-  type TemplateVersion,
-} from "@webmcp/document"
+import { getPublishReadiness } from "@webmcp/document"
+import type { Document, TemplateVersion } from "@webmcp/document"
 import { Badge } from "@webmcp/ui/components/badge"
 import { Button } from "@webmcp/ui/components/button"
 import {
@@ -30,14 +27,14 @@ export function PublishDialog({
   onPublish,
 }: {
   open: boolean
-  onOpenChange(open: boolean): void
+  onOpenChange: (open: boolean) => void
   document: Document
   templateId: string
   latestVersion?: TemplateVersion
   pendingChangeSet: boolean
   publishError: string | null
   publishSyncStatus: "idle" | "syncing" | "synced" | "error"
-  onPublish(): Promise<TemplateVersion | undefined>
+  onPublish: () => Promise<TemplateVersion | undefined>
 }) {
   const [published, setPublished] = useState<TemplateVersion | null>(null)
   const [localError, setLocalError] = useState<string | null>(null)

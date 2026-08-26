@@ -7,9 +7,10 @@
     "dev": "bun run --filter @webmcp/studio dev",
     "dev:workers": "bunx --bun wrangler dev -c apps/studio/wrangler.jsonc -c apps/renderer/wrangler.jsonc",
     "build": "bun run --filter '@webmcp/*' build",
+    "lint": "bun run --filter '@webmcp/*' lint",
     "typecheck": "bun run --filter '@webmcp/*' typecheck",
     "test": "bun run --filter '@webmcp/*' test",
-    "check": "bun run typecheck && bun run test && bun run build",
+    "check": "bun run lint && bun run typecheck && bun run test && bun run build",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

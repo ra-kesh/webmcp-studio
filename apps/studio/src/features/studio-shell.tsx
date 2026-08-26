@@ -61,10 +61,8 @@ import { ApiPlaygroundDialog } from "./editor/api-playground-dialog"
 import { studioAssets } from "./editor/asset-catalog"
 import { NewDocumentDialog } from "./editor/new-document-dialog"
 import { PublishDialog } from "./editor/publish-dialog"
-import {
-  FabricArtboard,
-  type FabricArtboardHandle,
-} from "./editor/fabric-artboard"
+import { FabricArtboard } from "./editor/fabric-artboard"
+import type { FabricArtboardHandle } from "./editor/fabric-artboard"
 import { InspectorSidebar } from "./editor/inspector-sidebar"
 import { useDocumentEditor } from "./editor/use-document-editor"
 import { useRenderHistory } from "./editor/use-render-history"
@@ -135,7 +133,7 @@ export function StudioShell() {
       (page) => page.id === editor.activePageId
     )
       ? editor.activePageId
-      : editor.document.pages[0]!.id,
+      : editor.document.pages[0].id,
     selection: editor.selection,
     pendingChangeSet: editor.pendingChangeSet,
     assets: studioAssets,
@@ -179,9 +177,9 @@ export function StudioShell() {
   const activePage =
     editor.previewDocument.pages.find(
       (page) => page.id === editor.activePageId
-    ) ?? editor.previewDocument.pages[0]!
+    ) ?? editor.previewDocument.pages[0]
   const activeOutput = editor.previewDocument.outputs.find(
-    (output) => output.id === activePage?.outputId
+    (output) => output.id === activePage.outputId
   )
 
   const centerCanvasInWorkspace = useCallback(() => {
@@ -211,7 +209,7 @@ export function StudioShell() {
 
   const fitCanvas = useCallback(() => {
     const workspace = workspaceRef.current
-    if (!workspace || !activePage) return
+    if (!workspace) return
     const nextZoom = Math.min(
       (workspace.clientWidth - 112) / activePage.width,
       (workspace.clientHeight - 112) / activePage.height,
@@ -302,8 +300,6 @@ export function StudioShell() {
       window.removeEventListener("blur", releaseSpace)
     }
   }, [])
-
-  if (!activePage) return null
 
   const selectNode = (nodeId: string, additive: boolean) => {
     const current = editor.selection?.nodeIds ?? []
@@ -899,9 +895,7 @@ export function StudioShell() {
               max={70}
               step={1}
               value={[zoom * 100]}
-              onValueChange={([value]) =>
-                value !== undefined && setManualZoom(value / 100)
-              }
+              onValueChange={([value]) => setManualZoom(value / 100)}
             />
             <span className="w-10 text-center font-mono text-[10px] text-muted-foreground">
               {Math.round(zoom * 100)}%

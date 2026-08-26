@@ -9,7 +9,7 @@ import type { Document } from "@webmcp/document"
 import type { CanvasAdapter, CanvasNodeChange, Selection } from "@webmcp/editor"
 
 export type FabricArtboardHandle = {
-  exportPng(): string | null
+  exportPng: () => string | null
 }
 
 export const FabricArtboard = forwardRef<
@@ -20,8 +20,8 @@ export const FabricArtboard = forwardRef<
     selection: Selection | null
     zoom: number
     interactive?: boolean
-    onSelectionChange(selection: Selection | null): void
-    onNodesChange(changes: CanvasNodeChange[]): void
+    onSelectionChange: (selection: Selection | null) => void
+    onNodesChange: (changes: CanvasNodeChange[]) => void
   }
 >(function FabricArtboard(
   {

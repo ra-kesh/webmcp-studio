@@ -47,9 +47,13 @@ export function NewDocumentDialog({
   onRestoreDemo,
 }: {
   open: boolean
-  onOpenChange(open: boolean): void
-  onCreateBlank(options: { name: string; width: number; height: number }): void
-  onRestoreDemo(): void
+  onOpenChange: (open: boolean) => void
+  onCreateBlank: (options: {
+    name: string
+    width: number
+    height: number
+  }) => void
+  onRestoreDemo: () => void
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

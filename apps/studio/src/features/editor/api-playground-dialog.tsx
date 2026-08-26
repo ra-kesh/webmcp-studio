@@ -73,7 +73,7 @@ function ParameterInput({
 }: {
   parameter: TemplateParameter
   value: string | number | boolean
-  onChange(value: string | number | boolean): void
+  onChange: (value: string | number | boolean) => void
 }) {
   if (parameter.type === "boolean") {
     return (
@@ -127,9 +127,9 @@ export function ApiPlaygroundDialog({
   renderHistory,
 }: {
   open: boolean
-  onOpenChange(open: boolean): void
+  onOpenChange: (open: boolean) => void
   version?: TemplateVersion
-  onRequestPublish(): void
+  onRequestPublish: () => void
   renderHistory: RenderHistoryController
 }) {
   const [tab, setTab] = useState("request")
@@ -182,12 +182,19 @@ export function ApiPlaygroundDialog({
         if (!response.ok) {
           throw new Error(`Demo API access returned ${response.status}.`)
         }
-        return (await response.json()) as { token?: string }
-      })
-      .then((payload) => {
-        if (!payload.token)
+        const payload: unknown = await response.json()
+        if (
+          !payload ||
+          typeof payload !== "object" ||
+          !("token" in payload) ||
+          typeof payload.token !== "string"
+        ) {
           throw new Error("Demo API access returned no token.")
-        setApiAccess({ origin: window.location.origin, token: payload.token })
+        }
+        return payload.token
+      })
+      .then((token) => {
+        setApiAccess({ origin: window.location.origin, token })
         setApiAccessError(null)
       })
       .catch((error: unknown) => {

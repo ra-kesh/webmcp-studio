@@ -20,12 +20,8 @@ import {
   Trash2,
   Unlock,
 } from "lucide-react"
-import {
-  getGroupNodeIds,
-  type Document,
-  type GroupDefinition,
-  type SceneNode,
-} from "@webmcp/document"
+import { getGroupNodeIds } from "@webmcp/document"
+import type { Document, GroupDefinition, SceneNode } from "@webmcp/document"
 import type { Selection } from "@webmcp/editor"
 import { Artboard } from "@webmcp/render-view"
 import { Badge } from "@webmcp/ui/components/badge"
@@ -79,7 +75,7 @@ function EditableLabel({
   value: string
   ariaLabel: string
   className?: string
-  onCommit(value: string): void
+  onCommit: (value: string) => void
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value)
@@ -138,10 +134,10 @@ function OutputList({
 }: {
   document: Document
   activePageId: string
-  onSelectPage(pageId: string): void
-  onAddPage(outputId: string): void
-  onDuplicatePage(pageId: string): void
-  onUpdatePage(
+  onSelectPage: (pageId: string) => void
+  onAddPage: (outputId: string) => void
+  onDuplicatePage: (pageId: string) => void
+  onUpdatePage: (
     pageId: string,
     patch: {
       name?: string
@@ -149,12 +145,16 @@ function OutputList({
       height?: number
       background?: string
     }
-  ): void
-  onRemovePage(pageId: string): void
-  onReorderPage(outputId: string, pageId: string, toIndex: number): void
-  onAddOutput(options: { name: string; width: number; height: number }): void
-  onUpdateOutput(outputId: string, name: string): void
-  onRemoveOutput(outputId: string): void
+  ) => void
+  onRemovePage: (pageId: string) => void
+  onReorderPage: (outputId: string, pageId: string, toIndex: number) => void
+  onAddOutput: (options: {
+    name: string
+    width: number
+    height: number
+  }) => void
+  onUpdateOutput: (outputId: string, name: string) => void
+  onRemoveOutput: (outputId: string) => void
 }) {
   const [settingsPageId, setSettingsPageId] = useState<string | null>(null)
   const [newOutputOpen, setNewOutputOpen] = useState(false)
@@ -440,8 +440,8 @@ function LayerRow({
 }: {
   node: SceneNode
   selected: boolean
-  onSelect(additive: boolean): void
-  onUpdate(patch: Partial<SceneNode>): void
+  onSelect: (additive: boolean) => void
+  onUpdate: (patch: Partial<SceneNode>) => void
   depth?: number
 }) {
   const Icon = nodeIcon[node.type]
@@ -500,7 +500,7 @@ function GroupName({
   onCommit,
 }: {
   group: GroupDefinition
-  onCommit(name: string): void
+  onCommit: (name: string) => void
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(group.name)
@@ -561,11 +561,11 @@ function GroupRow({
   selection: Selection | null
   nodesById: Map<string, SceneNode>
   layerIndex: Map<string, number>
-  onSelectNode(nodeId: string, additive: boolean): void
-  onSelectGroup(groupId: string, additive: boolean): void
-  onUpdateNode(nodeId: string, patch: Partial<SceneNode>): void
-  onUpdateGroup(groupId: string, name: string): void
-  onUpdateGroupNodes(groupId: string, patch: Partial<SceneNode>): void
+  onSelectNode: (nodeId: string, additive: boolean) => void
+  onSelectGroup: (groupId: string, additive: boolean) => void
+  onUpdateNode: (nodeId: string, patch: Partial<SceneNode>) => void
+  onUpdateGroup: (groupId: string, name: string) => void
+  onUpdateGroupNodes: (groupId: string, patch: Partial<SceneNode>) => void
 }) {
   const [expanded, setExpanded] = useState(true)
   const memberIds = getGroupNodeIds(document, group.id)
@@ -710,16 +710,16 @@ export function DocumentSidebar({
   document: Document
   activePageId: string
   selection: Selection | null
-  onSelectPage(pageId: string): void
-  onSelectNode(nodeId: string, additive: boolean): void
-  onSelectGroup(groupId: string, additive: boolean): void
-  onUpdateNode(nodeId: string, patch: Partial<SceneNode>): void
-  onUpdateGroup(groupId: string, name: string): void
-  onUpdateGroupNodes(groupId: string, patch: Partial<SceneNode>): void
-  onReorderNode(nodeId: string, direction: "forward" | "backward"): void
-  onAddPage(outputId: string): void
-  onDuplicatePage(pageId: string): void
-  onUpdatePage(
+  onSelectPage: (pageId: string) => void
+  onSelectNode: (nodeId: string, additive: boolean) => void
+  onSelectGroup: (groupId: string, additive: boolean) => void
+  onUpdateNode: (nodeId: string, patch: Partial<SceneNode>) => void
+  onUpdateGroup: (groupId: string, name: string) => void
+  onUpdateGroupNodes: (groupId: string, patch: Partial<SceneNode>) => void
+  onReorderNode: (nodeId: string, direction: "forward" | "backward") => void
+  onAddPage: (outputId: string) => void
+  onDuplicatePage: (pageId: string) => void
+  onUpdatePage: (
     pageId: string,
     patch: {
       name?: string
@@ -727,12 +727,16 @@ export function DocumentSidebar({
       height?: number
       background?: string
     }
-  ): void
-  onRemovePage(pageId: string): void
-  onReorderPage(outputId: string, pageId: string, toIndex: number): void
-  onAddOutput(options: { name: string; width: number; height: number }): void
-  onUpdateOutput(outputId: string, name: string): void
-  onRemoveOutput(outputId: string): void
+  ) => void
+  onRemovePage: (pageId: string) => void
+  onReorderPage: (outputId: string, pageId: string, toIndex: number) => void
+  onAddOutput: (options: {
+    name: string
+    width: number
+    height: number
+  }) => void
+  onUpdateOutput: (outputId: string, name: string) => void
+  onRemoveOutput: (outputId: string) => void
   className?: string
 }) {
   const page = document.pages.find((candidate) => candidate.id === activePageId)
