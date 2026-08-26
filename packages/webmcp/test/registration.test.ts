@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { northstarSeed, type ChangeSet } from "@webmcp/document"
+import { createTemplateVersion } from "@webmcp/document"
 import { registerStudioWebMcpTools, type WebMcpTool } from "../src"
 
 function setup() {
@@ -17,6 +18,13 @@ function setup() {
       proposed = changeSet
       return changeSet
     },
+    publishTemplate: () =>
+      createTemplateVersion(northstarSeed, {
+        id: "version-1",
+        templateId: "northstar-wedding-proposal",
+        version: 1,
+        publishedAt: "2026-08-26T10:00:00.000Z",
+      }),
     id: (() => {
       let sequence = 0
       return () => String(++sequence)
@@ -40,17 +48,28 @@ describe("WebMCP registration", () => {
       state.controller.signal
     )
 
-    expect(count).toBe(3)
+    expect(count).toBe(4)
     expect([...state.registered.keys()]).toEqual([
       "inspect_design",
       "validate_design",
       "propose_field_updates",
+      "publish_template",
     ])
 
     const inspected = await state.registered.get("inspect_design")?.execute({})
     expect(inspected?.structuredContent).toMatchObject({
       document: { id: northstarSeed.id, revision: northstarSeed.revision },
       activePage: { id: "cover" },
+    })
+
+    const published = await state.registered.get("publish_template")?.execute({
+      documentId: northstarSeed.id,
+      expectedRevision: northstarSeed.revision,
+    })
+    expect(published?.structuredContent).toMatchObject({
+      templateId: "northstar-wedding-proposal",
+      version: 1,
+      sourceRevision: northstarSeed.revision,
     })
   })
 

@@ -271,12 +271,53 @@ export const changeSetSchema = z.object({
   operations: z.array(changeOperationSchema).min(1),
 })
 
+export const templateParameterSchema = z.object({
+  id,
+  key: z.string().regex(/^[a-z][a-z0-9_]*$/),
+  label: z.string().min(1),
+  type: z.enum(["text", "number", "currency", "date", "asset", "boolean"]),
+  required: z.boolean(),
+  defaultValue: z.union([z.string(), z.number(), z.boolean()]),
+  exampleValue: z.union([z.string(), z.number(), z.boolean()]),
+  bindings: z.array(
+    z.object({
+      outputId: id,
+      pageId: id,
+      nodeId: id,
+      property: z.enum(["text", "src", "visible", "fill"]),
+    })
+  ),
+})
+
+export const templateManifestSchema = z.object({
+  schemaVersion: z.literal(1),
+  parameters: z.array(templateParameterSchema),
+  outputs: z.array(
+    z.object({
+      id,
+      name: z.string().min(1),
+      kind: z.enum(["proposal", "whatsapp_portrait", "square"]),
+      exportFormats: z.array(z.enum(["png", "pdf"])).min(1),
+      pages: z.array(
+        z.object({
+          id,
+          name: z.string().min(1),
+          width: z.number().positive(),
+          height: z.number().positive(),
+        })
+      ),
+    })
+  ),
+})
+
 export const templateVersionSchema = z.object({
   id,
   templateId: id,
   version: z.number().int().positive(),
+  sourceRevision: z.number().int().nonnegative(),
   publishedAt: z.string().datetime(),
   document: documentSchema,
+  manifest: templateManifestSchema,
 })
 
 export type SceneNode = z.infer<typeof sceneNodeSchema>
@@ -289,4 +330,6 @@ export type Document = z.infer<typeof documentSchema>
 export type DocumentCommand = z.infer<typeof documentCommandSchema>
 export type ChangeOperation = z.infer<typeof changeOperationSchema>
 export type ChangeSet = z.infer<typeof changeSetSchema>
+export type TemplateParameter = z.infer<typeof templateParameterSchema>
+export type TemplateManifest = z.infer<typeof templateManifestSchema>
 export type TemplateVersion = z.infer<typeof templateVersionSchema>

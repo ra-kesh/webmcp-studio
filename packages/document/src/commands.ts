@@ -4,7 +4,6 @@ import {
   type Document,
   type DocumentCommand,
   type SceneNode,
-  type TemplateVersion,
 } from "./schema"
 import { fieldCanBindToProperty, fieldValueMatchesType } from "./fields"
 
@@ -615,22 +614,4 @@ export function applyCommand(
       updatedAt: command.at,
     })
   )
-}
-
-export function createTemplateVersion(
-  document: Document,
-  options: {
-    id: string
-    templateId: string
-    version: number
-    publishedAt: string
-  }
-): TemplateVersion {
-  return {
-    id: options.id,
-    templateId: options.templateId,
-    version: options.version,
-    publishedAt: options.publishedAt,
-    document: documentSchema.parse(document),
-  }
 }

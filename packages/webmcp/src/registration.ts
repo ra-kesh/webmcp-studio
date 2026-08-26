@@ -43,6 +43,7 @@ export type StudioWebMcpSnapshot = {
 export type StudioWebMcpServices = {
   getSnapshot(): StudioWebMcpSnapshot
   proposeChangeSet(changeSet: ChangeSet): ChangeSet
+  publishTemplate(): import("@webmcp/document").TemplateVersion
   id(): string
   now(): string
 }
@@ -221,6 +222,59 @@ export function studioWebMcpTools(
           return textResult(
             `Created change set ${changeSet.id} with ${changeSet.operations.length} operation${changeSet.operations.length === 1 ? "" : "s"}. The design is previewing these changes, but nothing has been applied. Ask the user to review the Review panel.`,
             changeSet
+          )
+        } catch (error) {
+          return errorResult(error)
+        }
+      },
+    },
+    {
+      name: "publish_template",
+      title: "Publish immutable template version",
+      description:
+        "Publish the exact current document revision as an immutable API template version. Only call this consequential tool after the user explicitly asks to publish and after all pending change sets are resolved.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          documentId: {
+            type: "string",
+            description: "Document ID returned by inspect_design.",
+          },
+          expectedRevision: {
+            type: "integer",
+            minimum: 0,
+            description: "Exact revision the user approved for publishing.",
+          },
+        },
+        required: ["documentId", "expectedRevision"],
+      },
+      execute: (input) => {
+        try {
+          if (!input || typeof input !== "object") {
+            throw new Error("Expected publishing confirmation input.")
+          }
+          const value = input as Record<string, unknown>
+          const current = services.getSnapshot()
+          if (value.documentId !== current.document.id) {
+            throw new Error("The approved document ID no longer matches.")
+          }
+          if (value.expectedRevision !== current.document.revision) {
+            throw new Error(
+              `The document changed to revision ${current.document.revision}. Inspect it again before publishing.`
+            )
+          }
+          const version = services.publishTemplate()
+          return textResult(
+            `Published ${version.templateId} version ${version.version} from revision ${version.sourceRevision}.`,
+            {
+              id: version.id,
+              templateId: version.templateId,
+              version: version.version,
+              sourceRevision: version.sourceRevision,
+              publishedAt: version.publishedAt,
+              manifest: version.manifest,
+            }
           )
         } catch (error) {
           return errorResult(error)

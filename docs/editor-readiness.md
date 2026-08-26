@@ -86,7 +86,7 @@ thumbnail, PNG, and PDF.
 - [x] propagate field values through every bound output
 - [x] preview agent change sets without mutating the document
 - [x] accept or reject operations individually, then apply once
-- [ ] publish immutable template versions
+- [x] publish immutable template versions
 - [ ] exercise published templates through the API playground
 - [ ] inspect render requests and generated assets in render history
 

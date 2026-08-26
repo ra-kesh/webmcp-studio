@@ -16,6 +16,7 @@ type WebMcpStatus = "unavailable" | "registering" | "ready" | "error"
 
 type StudioWebMcpServices = StudioWebMcpSnapshot & {
   proposeChangeSet(changeSet: ChangeSet): ChangeSet
+  publishTemplate(): import("@webmcp/document").TemplateVersion
 }
 
 export function useStudioWebMcp(services: StudioWebMcpServices) {
@@ -43,6 +44,7 @@ export function useStudioWebMcp(services: StudioWebMcpServices) {
             getSnapshot: () => servicesRef.current,
             proposeChangeSet: (changeSet) =>
               servicesRef.current.proposeChangeSet(changeSet),
+            publishTemplate: () => servicesRef.current.publishTemplate(),
             id: () => crypto.randomUUID(),
             now: () => new Date().toISOString(),
           },
@@ -72,5 +74,5 @@ export function useStudioWebMcp(services: StudioWebMcpServices) {
     }
   }, [])
 
-  return { status, error, registeredToolCount: status === "ready" ? 3 : 0 }
+  return { status, error, registeredToolCount: status === "ready" ? 4 : 0 }
 }

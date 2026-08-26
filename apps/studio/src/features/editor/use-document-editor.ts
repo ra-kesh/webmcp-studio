@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   changeSetSchema,
+  createTemplateVersion,
   decideAllChangeOperations,
   decideChangeOperation,
   documentSchema,
@@ -9,6 +10,7 @@ import {
   getGroupNodeIds,
   northstarSeed,
   previewChangeSet,
+  templateVersionSchema,
   type ChangeOperation,
   type ChangeSet,
   type Document,
@@ -16,6 +18,7 @@ import {
   type FieldBinding,
   type FieldDefinition,
   type SceneNode,
+  type TemplateVersion,
 } from "@webmcp/document"
 import type { CanvasNodeChange, CommandDraft, Selection } from "@webmcp/editor"
 import {
@@ -43,6 +46,7 @@ import {
 import type { StudioAsset } from "./asset-catalog"
 
 const STORAGE_KEY = "webmcp-studio:northstar-document:v1"
+const PUBLISHED_STORAGE_KEY = "webmcp-studio:published-versions:v1"
 
 type SaveStatus = "saved" | "saving" | "restored" | "error"
 
@@ -82,6 +86,10 @@ export function useDocumentEditor() {
   const [lastResolvedChangeSet, setLastResolvedChangeSet] =
     useState<ChangeSet | null>(null)
   const [changeSetError, setChangeSetError] = useState<string | null>(null)
+  const [publishedVersions, setPublishedVersions] = useState<TemplateVersion[]>(
+    []
+  )
+  const [publishError, setPublishError] = useState<string | null>(null)
   const didRestore = useRef(false)
   const clipboardRef = useRef<SceneNode[]>([])
   const assetUrlsRef = useRef(new Map<string, string>())
@@ -102,6 +110,17 @@ export function useDocumentEditor() {
         }
       } catch {
         setSaveStatus("error")
+      }
+    }
+    const storedVersions = localStorage.getItem(PUBLISHED_STORAGE_KEY)
+    if (storedVersions) {
+      try {
+        const parsed = templateVersionSchema
+          .array()
+          .safeParse(JSON.parse(storedVersions) as unknown)
+        if (parsed.success) setPublishedVersions(parsed.data)
+      } catch {
+        setPublishError("Published versions could not be restored.")
       }
     }
     didRestore.current = true
@@ -338,6 +357,42 @@ export function useDocumentEditor() {
     setSaveStatus("saving")
     setSelection(null)
   }, [])
+
+  const publishTemplate = useCallback(() => {
+    if (pendingChangeSetRef.current) {
+      const message = "Resolve the pending change set before publishing."
+      setPublishError(message)
+      throw new Error(message)
+    }
+    const document = historyRef.current.document
+    const templateId =
+      document.id === northstarSeed.id
+        ? "northstar-wedding-proposal"
+        : `template-${document.id}`
+    const existing = publishedVersions
+      .filter((version) => version.templateId === templateId)
+      .sort((a, b) => b.version - a.version)
+    const latest = existing[0]
+    if (latest?.sourceRevision === document.revision) return latest
+    try {
+      const version = createTemplateVersion(document, {
+        id: `template-version-${crypto.randomUUID()}`,
+        templateId,
+        version: (latest?.version ?? 0) + 1,
+        publishedAt: new Date().toISOString(),
+      })
+      const next = [...publishedVersions, version]
+      localStorage.setItem(PUBLISHED_STORAGE_KEY, JSON.stringify(next))
+      setPublishedVersions(next)
+      setPublishError(null)
+      return version
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Publishing failed."
+      setPublishError(message)
+      throw error
+    }
+  }, [publishedVersions])
 
   const addText = useCallback(() => {
     const page = historyRef.current.document.pages.find(
@@ -1281,6 +1336,14 @@ export function useDocumentEditor() {
     ? getChangeSetConflict(history.document, pendingChangeSet)
     : null
 
+  const currentTemplateId =
+    history.document.id === northstarSeed.id
+      ? "northstar-wedding-proposal"
+      : `template-${history.document.id}`
+  const latestPublishedVersion = publishedVersions
+    .filter((version) => version.templateId === currentTemplateId)
+    .sort((a, b) => b.version - a.version)[0]
+
   const previewDocument = useMemo(() => {
     const changeSetPreview =
       pendingChangeSet && !changeSetConflict
@@ -1315,6 +1378,10 @@ export function useDocumentEditor() {
     lastResolvedChangeSet,
     changeSetConflict,
     changeSetError,
+    publishedVersions,
+    latestPublishedVersion,
+    currentTemplateId,
+    publishError,
     selectPage,
     setSelection,
     updateNodes,
@@ -1330,6 +1397,7 @@ export function useDocumentEditor() {
     decideAllOperations,
     applyChangeSet,
     discardChangeSet,
+    publishTemplate,
     addText,
     addRectangle,
     addEllipse,

@@ -20,6 +20,7 @@ import {
   Minus,
   MousePointer2,
   Redo2,
+  Rocket,
   Scan,
   Shapes,
   Sparkles,
@@ -57,6 +58,7 @@ import {
 import { DocumentSidebar } from "./editor/document-sidebar"
 import { AssetLibraryDialog } from "./editor/asset-library-dialog"
 import { NewDocumentDialog } from "./editor/new-document-dialog"
+import { PublishDialog } from "./editor/publish-dialog"
 import {
   FabricArtboard,
   type FabricArtboardHandle,
@@ -125,6 +127,7 @@ export function StudioShell() {
     selection: editor.selection,
     pendingChangeSet: editor.pendingChangeSet,
     proposeChangeSet: editor.proposeChangeSet,
+    publishTemplate: editor.publishTemplate,
   })
   const [zoom, setZoom] = useState(0.34)
   const [autoFit, setAutoFit] = useState(true)
@@ -138,6 +141,7 @@ export function StudioShell() {
   const [apiCopied, setApiCopied] = useState(false)
   const [assetLibraryOpen, setAssetLibraryOpen] = useState(false)
   const [newDocumentOpen, setNewDocumentOpen] = useState(false)
+  const [publishDialogOpen, setPublishDialogOpen] = useState(false)
   const [pdfExportState, setPdfExportState] = useState<
     "idle" | "exporting" | "error"
   >("idle")
@@ -681,6 +685,18 @@ export function StudioShell() {
           <Button
             size="sm"
             variant="outline"
+            className="hidden min-[900px]:inline-flex"
+            onClick={() => setPublishDialogOpen(true)}
+          >
+            <Rocket data-icon="inline-start" />
+            {editor.latestPublishedVersion?.sourceRevision ===
+            editor.document.revision
+              ? `Published v${editor.latestPublishedVersion.version}`
+              : "Publish"}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
             className="hidden min-[760px]:inline-flex"
             onClick={() => void copyApiExample()}
           >
@@ -1036,6 +1052,16 @@ export function StudioShell() {
         onOpenChange={setNewDocumentOpen}
         onCreateBlank={editor.createBlankDocument}
         onRestoreDemo={editor.restoreDemoDocument}
+      />
+      <PublishDialog
+        open={publishDialogOpen}
+        onOpenChange={setPublishDialogOpen}
+        document={editor.document}
+        templateId={editor.currentTemplateId}
+        latestVersion={editor.latestPublishedVersion}
+        pendingChangeSet={Boolean(editor.pendingChangeSet)}
+        publishError={editor.publishError}
+        onPublish={editor.publishTemplate}
       />
     </main>
   )

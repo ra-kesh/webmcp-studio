@@ -1444,6 +1444,7 @@ function ReviewPanel({
     "inspect_design",
     "validate_design",
     "propose_field_updates",
+    "publish_template",
   ])
   const acceptedCount =
     pendingChangeSet?.operations.filter(
@@ -1641,7 +1642,7 @@ function ReviewPanel({
           </div>
           <Badge variant={webMcpStatus === "ready" ? "secondary" : "outline"}>
             {webMcpStatus === "ready"
-              ? "3 live"
+              ? "4 live"
               : webMcpStatus === "registering"
                 ? "Starting"
                 : webMcpStatus === "error"
