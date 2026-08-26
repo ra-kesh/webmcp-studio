@@ -1,12 +1,18 @@
 import { describe, expect, it } from "vitest"
 import {
   applyCommand,
+  createTemplateVersion,
   northstarSeed,
   type ChangeSet,
   type Document,
+  type TemplateModifications,
 } from "@webmcp/document"
-import { createTemplateVersion } from "@webmcp/document"
-import { registerStudioWebMcpTools, type WebMcpTool } from "../src"
+import {
+  registerStudioWebMcpTools,
+  type StudioWebMcpRenderRecord,
+  type StudioWebMcpRenderSelection,
+  type WebMcpTool,
+} from "../src"
 
 const assets = [
   {
@@ -35,6 +41,42 @@ function setup(document: Document = northstarSeed) {
   const registered = new Map<string, WebMcpTool>()
   let proposed: ChangeSet | null = null
   const controller = new AbortController()
+  const publishedVersion = createTemplateVersion(northstarSeed, {
+    id: "version-1",
+    templateId: "northstar-wedding-proposal",
+    version: 1,
+    publishedAt: "2026-08-26T10:00:00.000Z",
+  })
+  const renderHistory: StudioWebMcpRenderRecord[] = [
+    {
+      id: "render-existing",
+      templateId: publishedVersion.templateId,
+      version: publishedVersion.version,
+      createdAt: "2026-08-26T10:05:00.000Z",
+      completedAt: "2026-08-26T10:05:01.000Z",
+      status: "completed",
+      modifications: { couple_names: "Mira & Dev" },
+      selections: [{ outputId: "whatsapp", format: "png" }],
+      artifacts: [
+        {
+          id: "artifact-existing",
+          outputId: "whatsapp",
+          pageId: "whatsapp-card",
+          format: "png",
+          filename: "whatsapp-package-card.png",
+          bytes: 18420,
+          width: 1080,
+          height: 1350,
+        },
+      ],
+    },
+  ]
+  let renderedWith:
+    | {
+        modifications: TemplateModifications
+        selections: StudioWebMcpRenderSelection[]
+      }
+    | undefined
   const services = {
     getSnapshot: () => ({
       document,
@@ -42,25 +84,55 @@ function setup(document: Document = northstarSeed) {
       selection: null,
       pendingChangeSet: proposed,
       assets,
+      publishedVersion,
+      renderHistory,
     }),
     proposeChangeSet: (changeSet: ChangeSet) => {
       proposed = changeSet
       return changeSet
     },
-    publishTemplate: () =>
-      createTemplateVersion(northstarSeed, {
-        id: "version-1",
-        templateId: "northstar-wedding-proposal",
-        version: 1,
-        publishedAt: "2026-08-26T10:00:00.000Z",
-      }),
+    publishTemplate: () => publishedVersion,
+    renderTemplate: async (
+      _version: typeof publishedVersion,
+      modifications: TemplateModifications,
+      selections: StudioWebMcpRenderSelection[]
+    ) => {
+      renderedWith = { modifications, selections }
+      const record: StudioWebMcpRenderRecord = {
+        id: "render-new",
+        templateId: publishedVersion.templateId,
+        version: publishedVersion.version,
+        createdAt: "2026-08-26T10:10:00.000Z",
+        completedAt: "2026-08-26T10:10:01.000Z",
+        status: "completed",
+        modifications,
+        selections,
+        artifacts: [
+          {
+            id: "artifact-new",
+            outputId: selections[0]!.outputId,
+            format: selections[0]!.format,
+            filename: "five-page-proposal.pdf",
+            bytes: 72500,
+          },
+        ],
+      }
+      renderHistory.unshift(record)
+      return record
+    },
     id: (() => {
       let sequence = 0
       return () => String(++sequence)
     })(),
     now: () => "2026-08-26T10:00:00.000Z",
   }
-  return { registered, controller, services, proposed: () => proposed }
+  return {
+    registered,
+    controller,
+    services,
+    proposed: () => proposed,
+    renderedWith: () => renderedWith,
+  }
 }
 
 describe("WebMCP registration", () => {
@@ -77,7 +149,7 @@ describe("WebMCP registration", () => {
       state.controller.signal
     )
 
-    expect(count).toBe(7)
+    expect(count).toBe(9)
     expect([...state.registered.keys()]).toEqual([
       "inspect_design",
       "search_assets",
@@ -86,6 +158,8 @@ describe("WebMCP registration", () => {
       "propose_canvas_edits",
       "propose_output_variant",
       "publish_template",
+      "inspect_render_history",
+      "render_template",
     ])
 
     const inspected = await state.registered.get("inspect_design")?.execute({})
@@ -138,6 +212,104 @@ describe("WebMCP registration", () => {
     expect(JSON.stringify(result?.structuredContent)).not.toContain(
       "data:image"
     )
+  })
+
+  it("inspects compact render history with stable artifact URLs", async () => {
+    const state = setup()
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const result = await state.registered
+      .get("inspect_render_history")
+      ?.execute({ status: "completed", limit: 1 })
+
+    expect(result?.structuredContent).toEqual({
+      renders: [
+        expect.objectContaining({
+          id: "render-existing",
+          status: "completed",
+          artifacts: [
+            expect.objectContaining({
+              id: "artifact-existing",
+              downloadUrl:
+                "/v1/renders/render-existing/outputs/artifact-existing",
+            }),
+          ],
+        }),
+      ],
+    })
+    expect(JSON.stringify(result?.structuredContent)).not.toContain("r2_key")
+    expect(JSON.stringify(result?.structuredContent)).not.toContain("objectUrl")
+  })
+
+  it("renders the exact published version through the shared history service", async () => {
+    const state = setup()
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const result = await state.registered.get("render_template")?.execute({
+      templateId: "northstar-wedding-proposal",
+      version: 1,
+      modifications: { couple_names: "Mira & Dev" },
+      outputs: [{ outputId: "proposal", format: "pdf" }],
+    })
+
+    expect(result?.isError).toBeUndefined()
+    expect(state.renderedWith()).toEqual({
+      modifications: { couple_names: "Mira & Dev" },
+      selections: [{ outputId: "proposal", format: "pdf" }],
+    })
+    expect(result?.structuredContent).toMatchObject({
+      id: "render-new",
+      status: "completed",
+      artifacts: [
+        {
+          id: "artifact-new",
+          downloadUrl: "/v1/renders/render-new/outputs/artifact-new",
+        },
+      ],
+    })
+  })
+
+  it("rejects unknown parameters before starting a render", async () => {
+    const state = setup()
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const result = await state.registered.get("render_template")?.execute({
+      templateId: "northstar-wedding-proposal",
+      version: 1,
+      modifications: { invented_parameter: "unsafe" },
+      outputs: [{ outputId: "proposal", format: "pdf" }],
+    })
+
+    expect(result?.isError).toBe(true)
+    expect(result?.content[0]?.text).toContain("Unknown template parameter")
+    expect(state.renderedWith()).toBeUndefined()
   })
 
   it("resolves approved asset IDs into reviewable image replacements", async () => {

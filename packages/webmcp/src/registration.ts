@@ -1,7 +1,10 @@
 import {
+  materializeTemplateVersion,
   validateDocument,
   type ChangeSet,
   type Document,
+  type TemplateModifications,
+  type TemplateVersion,
 } from "@webmcp/document"
 import {
   createCanvasEditChangeSet,
@@ -43,6 +46,8 @@ export type StudioWebMcpSnapshot = {
   selection: { pageId: string; nodeIds: string[] } | null
   pendingChangeSet: ChangeSet | null
   assets: readonly StudioWebMcpAsset[]
+  publishedVersion: TemplateVersion | null
+  renderHistory: readonly StudioWebMcpRenderRecord[]
 }
 
 export type StudioWebMcpAsset = {
@@ -56,12 +61,42 @@ export type StudioWebMcpAsset = {
   src: string
 }
 
+export type StudioWebMcpRenderSelection = {
+  outputId: string
+  format: "png" | "pdf"
+}
+
+export type StudioWebMcpRenderRecord = {
+  id: string
+  templateId: string
+  version: number
+  createdAt: string
+  completedAt?: string
+  status: "rendering" | "completed" | "failed"
+  modifications: TemplateModifications
+  selections: readonly StudioWebMcpRenderSelection[]
+  artifacts: readonly {
+    id: string
+    outputId: string
+    pageId?: string
+    format: "png" | "pdf"
+    filename: string
+    bytes: number
+    width?: number
+    height?: number
+  }[]
+  error?: string
+}
+
 export type StudioWebMcpServices = {
   getSnapshot(): StudioWebMcpSnapshot
   proposeChangeSet(changeSet: ChangeSet): ChangeSet
-  publishTemplate():
-    | import("@webmcp/document").TemplateVersion
-    | Promise<import("@webmcp/document").TemplateVersion>
+  publishTemplate(): TemplateVersion | Promise<TemplateVersion>
+  renderTemplate(
+    version: TemplateVersion,
+    modifications: TemplateModifications,
+    selections: StudioWebMcpRenderSelection[]
+  ): Promise<StudioWebMcpRenderRecord>
   id(): string
   now(): string
 }
@@ -144,6 +179,28 @@ const publicChangeSet = (changeSet: ChangeSet) => ({
       command: { type: command.type },
     }
   }),
+})
+
+const publicRenderRecord = (record: StudioWebMcpRenderRecord) => ({
+  id: record.id,
+  templateId: record.templateId,
+  version: record.version,
+  status: record.status,
+  createdAt: record.createdAt,
+  completedAt: record.completedAt,
+  modifications: record.modifications,
+  selections: record.selections,
+  artifacts: record.artifacts.map((artifact) => ({
+    id: artifact.id,
+    outputId: artifact.outputId,
+    pageId: artifact.pageId,
+    format: artifact.format,
+    filename: artifact.filename,
+    bytes: artifact.bytes,
+    width: artifact.width,
+    height: artifact.height,
+    downloadUrl: `/v1/renders/${record.id}/outputs/${artifact.id}`,
+  })),
 })
 
 function parseFieldProposalInput(input: unknown): FieldUpdateProposalInput {
@@ -345,6 +402,119 @@ function searchAssets(assets: readonly StudioWebMcpAsset[], input: unknown) {
       orientation: assetOrientation(asset),
       license: asset.license,
     }))
+}
+
+function parseRenderInput(input: unknown, version: TemplateVersion) {
+  if (!input || typeof input !== "object") {
+    throw new Error("Expected a render request object.")
+  }
+  const value = input as Record<string, unknown>
+  if (value.templateId !== version.templateId) {
+    throw new Error(
+      `Only published template ${version.templateId} is available in this Studio session.`
+    )
+  }
+  if (value.version !== version.version) {
+    throw new Error(
+      `Only published version ${version.version} is available. Inspect the design again before rendering.`
+    )
+  }
+  if (!value.modifications || typeof value.modifications !== "object") {
+    throw new Error("modifications must be an object keyed by parameter key.")
+  }
+  const modifications = Object.fromEntries(
+    Object.entries(value.modifications as Record<string, unknown>).map(
+      ([key, item]) => {
+        if (
+          typeof item !== "string" &&
+          typeof item !== "number" &&
+          typeof item !== "boolean"
+        ) {
+          throw new Error(`${key} must be a string, number, or boolean.`)
+        }
+        return [key, item]
+      }
+    )
+  ) satisfies TemplateModifications
+  materializeTemplateVersion(version, modifications)
+
+  if (!Array.isArray(value.outputs) || value.outputs.length === 0) {
+    throw new Error("Choose at least one published output.")
+  }
+  if (value.outputs.length > 12) {
+    throw new Error("Choose no more than 12 output and format pairs.")
+  }
+  const seen = new Set<string>()
+  const selections = value.outputs.map((candidate, index) => {
+    if (!candidate || typeof candidate !== "object") {
+      throw new Error(`outputs[${index}] must be an object.`)
+    }
+    const selection = candidate as Record<string, unknown>
+    if (typeof selection.outputId !== "string" || !selection.outputId) {
+      throw new Error(`outputs[${index}].outputId is required.`)
+    }
+    if (selection.format !== "png" && selection.format !== "pdf") {
+      throw new Error(`outputs[${index}].format must be png or pdf.`)
+    }
+    const output = version.manifest.outputs.find(
+      (item) => item.id === selection.outputId
+    )
+    if (!output)
+      throw new Error(`Unknown published output: ${selection.outputId}`)
+    if (!output.exportFormats.includes(selection.format)) {
+      throw new Error(
+        `${output.name} cannot be rendered as ${selection.format.toUpperCase()}.`
+      )
+    }
+    const key = `${output.id}:${selection.format}`
+    if (seen.has(key)) throw new Error(`Duplicate render selection: ${key}`)
+    seen.add(key)
+    return {
+      outputId: output.id,
+      format: selection.format,
+    } satisfies StudioWebMcpRenderSelection
+  })
+  return { modifications, selections }
+}
+
+function selectRenderHistory(
+  records: readonly StudioWebMcpRenderRecord[],
+  input: unknown
+) {
+  if (input !== undefined && (!input || typeof input !== "object")) {
+    throw new Error("Expected a render history query object.")
+  }
+  const value = (input ?? {}) as Record<string, unknown>
+  const limit = value.limit === undefined ? 10 : value.limit
+  if (
+    typeof limit !== "number" ||
+    !Number.isInteger(limit) ||
+    limit < 1 ||
+    limit > 30
+  ) {
+    throw new Error("limit must be an integer from 1 to 30.")
+  }
+  const status = value.status
+  if (
+    status !== undefined &&
+    status !== "rendering" &&
+    status !== "completed" &&
+    status !== "failed"
+  ) {
+    throw new Error("status must be rendering, completed, or failed.")
+  }
+  if (value.templateId !== undefined && typeof value.templateId !== "string") {
+    throw new Error("templateId must be a string.")
+  }
+  return records
+    .filter(
+      (record) =>
+        (status === undefined || record.status === status) &&
+        (value.templateId === undefined ||
+          record.templateId === value.templateId)
+    )
+    .slice(0, limit)
+    .map(publicRenderRecord)
 }
 
 export function studioWebMcpTools(
@@ -696,6 +866,125 @@ export function studioWebMcpTools(
               publishedAt: version.publishedAt,
               manifest: version.manifest,
             }
+          )
+        } catch (error) {
+          return errorResult(error)
+        }
+      },
+    },
+    {
+      name: "inspect_render_history",
+      title: "Inspect render history",
+      description:
+        "Inspect recent persisted render jobs and their downloadable artifacts without starting another render. Results contain product-level metadata, not storage keys or database records.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          templateId: { type: "string" },
+          status: {
+            type: "string",
+            enum: ["rendering", "completed", "failed"],
+          },
+          limit: { type: "integer", minimum: 1, maximum: 30 },
+        },
+      },
+      annotations: { readOnlyHint: true },
+      execute: (input) => {
+        try {
+          const records = selectRenderHistory(
+            services.getSnapshot().renderHistory,
+            input
+          )
+          return textResult(
+            `Found ${records.length} render job${records.length === 1 ? "" : "s"}.`,
+            { renders: records }
+          )
+        } catch (error) {
+          return errorResult(error)
+        }
+      },
+    },
+    {
+      name: "render_template",
+      title: "Render published template",
+      description:
+        "Render the exact immutable template version currently published by Studio with typed parameter modifications and explicit output formats. This creates a persisted render job visible in the API playground history.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          templateId: {
+            type: "string",
+            description: "Published template ID returned by publish_template.",
+          },
+          version: {
+            type: "integer",
+            minimum: 1,
+            description: "Exact immutable published version.",
+          },
+          modifications: {
+            type: "object",
+            description:
+              "Typed values keyed by parameter keys in the published manifest.",
+            additionalProperties: {
+              oneOf: [
+                { type: "string" },
+                { type: "number" },
+                { type: "boolean" },
+              ],
+            },
+          },
+          outputs: {
+            type: "array",
+            minItems: 1,
+            maxItems: 12,
+            items: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                outputId: { type: "string" },
+                format: { type: "string", enum: ["png", "pdf"] },
+              },
+              required: ["outputId", "format"],
+            },
+          },
+        },
+        required: ["templateId", "version", "modifications", "outputs"],
+      },
+      execute: async (input) => {
+        try {
+          const current = services.getSnapshot()
+          if (!current.publishedVersion) {
+            throw new Error(
+              "No server-synced published version is available. Publish the design before rendering."
+            )
+          }
+          const { modifications, selections } = parseRenderInput(
+            input,
+            current.publishedVersion
+          )
+          const record = await services.renderTemplate(
+            current.publishedVersion,
+            modifications,
+            selections
+          )
+          const result = publicRenderRecord(record)
+          if (record.status === "failed") {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Render ${record.id} failed. Inspect render history in Studio for the user-facing failure detail.`,
+                },
+              ],
+              structuredContent: result,
+              isError: true,
+            }
+          }
+          return textResult(
+            `Completed render ${record.id} with ${record.artifacts.length} artifact${record.artifacts.length === 1 ? "" : "s"}.`,
+            result
           )
         } catch (error) {
           return errorResult(error)

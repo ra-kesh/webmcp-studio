@@ -1456,6 +1456,8 @@ function ReviewPanel({
     "propose_canvas_edits",
     "propose_output_variant",
     "publish_template",
+    "inspect_render_history",
+    "render_template",
   ])
   const acceptedCount =
     pendingChangeSet?.operations.filter(

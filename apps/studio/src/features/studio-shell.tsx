@@ -67,6 +67,7 @@ import {
 } from "./editor/fabric-artboard"
 import { InspectorSidebar } from "./editor/inspector-sidebar"
 import { useDocumentEditor } from "./editor/use-document-editor"
+import { useRenderHistory } from "./editor/use-render-history"
 import { useStudioWebMcp } from "./editor/use-studio-webmcp"
 import {
   loadLocalAsset,
@@ -123,6 +124,11 @@ function IconButton({
 
 export function StudioShell() {
   const editor = useDocumentEditor()
+  const publishedVersion =
+    editor.publishSyncStatus === "synced"
+      ? editor.latestPublishedVersion
+      : undefined
+  const renderHistory = useRenderHistory(publishedVersion)
   const webMcp = useStudioWebMcp({
     document: editor.document,
     activePageId: editor.document.pages.some(
@@ -133,8 +139,11 @@ export function StudioShell() {
     selection: editor.selection,
     pendingChangeSet: editor.pendingChangeSet,
     assets: studioAssets,
+    publishedVersion: publishedVersion ?? null,
+    renderHistory: renderHistory.records,
     proposeChangeSet: editor.proposeChangeSet,
     publishTemplate: editor.publishTemplate,
+    renderTemplate: renderHistory.runRender,
   })
   const [zoom, setZoom] = useState(0.34)
   const [autoFit, setAutoFit] = useState(true)
@@ -1072,11 +1081,8 @@ export function StudioShell() {
       <ApiPlaygroundDialog
         open={apiPlaygroundOpen}
         onOpenChange={setApiPlaygroundOpen}
-        version={
-          editor.publishSyncStatus === "synced"
-            ? editor.latestPublishedVersion
-            : undefined
-        }
+        version={publishedVersion}
+        renderHistory={renderHistory}
         onRequestPublish={() => {
           setApiPlaygroundOpen(false)
           setPublishDialogOpen(true)

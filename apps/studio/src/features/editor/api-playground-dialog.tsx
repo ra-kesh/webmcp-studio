@@ -48,7 +48,10 @@ import {
   TabsTrigger,
 } from "@webmcp/ui/components/tabs"
 import { cn } from "@webmcp/ui/lib/utils"
-import { useRenderHistory, type RenderSelection } from "./use-render-history"
+import type {
+  RenderHistoryController,
+  RenderSelection,
+} from "./use-render-history"
 
 type OutputChoice = {
   selected: boolean
@@ -119,18 +122,20 @@ export function ApiPlaygroundDialog({
   onOpenChange,
   version,
   onRequestPublish,
+  renderHistory,
 }: {
   open: boolean
   onOpenChange(open: boolean): void
   version?: TemplateVersion
   onRequestPublish(): void
+  renderHistory: RenderHistoryController
 }) {
   const [tab, setTab] = useState("request")
   const [values, setValues] = useState<TemplateModifications>({})
   const [outputs, setOutputs] = useState<Record<string, OutputChoice>>({})
   const [copied, setCopied] = useState(false)
   const [running, setRunning] = useState(false)
-  const { records, historyError, runRender } = useRenderHistory(version)
+  const { records, historyError, runRender } = renderHistory
 
   useEffect(() => {
     if (!version) return

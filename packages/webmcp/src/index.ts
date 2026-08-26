@@ -1,10 +1,3 @@
-import type {
-  ChangeSet,
-  Document,
-  TemplateVersion,
-  ValidationIssue,
-} from "@webmcp/document"
-
 export * from "./change-sets"
 export * from "./registration"
 
@@ -15,8 +8,8 @@ export const toolNames = [
   "propose_field_updates",
   "propose_canvas_edits",
   "propose_output_variant",
-  "resolve_change_set",
   "publish_template",
+  "inspect_render_history",
   "render_template",
 ] as const
 
@@ -78,20 +71,20 @@ export const toolCatalog: readonly ToolDescriptor[] = [
     routes: ["editor", "review"],
   },
   {
-    name: "resolve_change_set",
-    description:
-      "Accept or reject individual operations in a pending change set.",
-    mutates: true,
-    requiresHumanReview: true,
-    routes: ["review"],
-  },
-  {
     name: "publish_template",
     description:
       "Publish the accepted document revision as an immutable template version.",
     mutates: true,
     requiresHumanReview: true,
     routes: ["template"],
+  },
+  {
+    name: "inspect_render_history",
+    description:
+      "Inspect recent persisted render jobs and their downloadable artifacts.",
+    mutates: false,
+    requiresHumanReview: false,
+    routes: ["render"],
   },
   {
     name: "render_template",
@@ -102,17 +95,6 @@ export const toolCatalog: readonly ToolDescriptor[] = [
     routes: ["template", "render"],
   },
 ]
-
-export interface StudioToolService {
-  inspectDesign(): Promise<Document>
-  validateDesign(): Promise<ValidationIssue[]>
-  proposeChangeSet(changeSet: ChangeSet): Promise<ChangeSet>
-  publishTemplate(changeSetId: string): Promise<TemplateVersion>
-  renderTemplate(
-    templateVersionId: string,
-    values: Record<string, unknown>
-  ): Promise<{ renderId: string }>
-}
 
 export function toolsForRoute(
   route: ToolDescriptor["routes"][number]

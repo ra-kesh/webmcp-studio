@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import type { TemplateModifications, TemplateVersion } from "@webmcp/document"
 
 export type RenderSelection = {
@@ -81,6 +81,10 @@ const artifactFilename = (
   return `${baseName || "render"}.${artifact.format}`
 }
 
+const revokeObjectUrl = (url: string) => {
+  if (url.startsWith("blob:")) URL.revokeObjectURL(url)
+}
+
 export function useRenderHistory(version?: TemplateVersion) {
   const [records, setRecords] = useState<RenderRecord[]>([])
   const [historyError, setHistoryError] = useState<string | null>(null)
@@ -91,7 +95,7 @@ export function useRenderHistory(version?: TemplateVersion) {
     () => () => {
       for (const record of recordsRef.current) {
         for (const artifact of record.artifacts) {
-          URL.revokeObjectURL(artifact.objectUrl)
+          revokeObjectUrl(artifact.objectUrl)
         }
       }
     },
@@ -158,103 +162,104 @@ export function useRenderHistory(version?: TemplateVersion) {
     return () => controller.abort()
   }, [version?.id])
 
-  const runRender = async (
-    version: TemplateVersion,
-    modifications: TemplateModifications,
-    selections: RenderSelection[]
-  ) => {
-    if (!selections.length) throw new Error("Choose at least one output.")
-    const localId = `local-render-${crypto.randomUUID()}`
-    const record: RenderRecord = {
-      id: localId,
-      templateId: version.templateId,
-      version: version.version,
-      createdAt: new Date().toISOString(),
-      status: "rendering",
-      modifications: structuredClone(modifications),
-      selections: structuredClone(selections),
-      artifacts: [],
-    }
-    setRecords((current) => [record, ...current])
-
-    const artifacts: RenderArtifact[] = []
-    let serverId = localId
-    try {
-      const response = await fetch("/v1/studio/render", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Idempotency-Key": localId,
-        },
-        body: JSON.stringify({
-          templateId: version.templateId,
-          version: version.version,
-          modifications,
-          response: { type: "url", outputs: selections },
-        }),
-      })
-      const payload = (await response.json()) as RenderApiResponse
-      serverId = payload.id ?? localId
-      if (!response.ok) {
-        const message = payload.error?.message
-        throw new Error(
-          message?.includes("not found")
-            ? "The Renderer Worker is not running in this local session. Start the full Worker topology and try again."
-            : message || `Render API returned ${response.status}.`
-        )
+  const runRender = useCallback(
+    async (
+      version: TemplateVersion,
+      modifications: TemplateModifications,
+      selections: RenderSelection[]
+    ) => {
+      if (!selections.length) throw new Error("Choose at least one output.")
+      const localId = `local-render-${crypto.randomUUID()}`
+      const record: RenderRecord = {
+        id: localId,
+        templateId: version.templateId,
+        version: version.version,
+        createdAt: new Date().toISOString(),
+        status: "rendering",
+        modifications: structuredClone(modifications),
+        selections: structuredClone(selections),
+        artifacts: [],
       }
+      setRecords((current) => [record, ...current])
 
-      for (const artifact of payload.artifacts ?? []) {
-        const download = await fetch(artifact.downloadUrl)
-        if (!download.ok) {
-          throw new Error(`Artifact download returned ${download.status}.`)
-        }
-        const blob = await download.blob()
-        artifacts.push({
-          id: artifact.id,
-          outputId: artifact.outputId,
-          pageId: artifact.pageId ?? undefined,
-          format: artifact.format,
-          filename: artifactFilename(version, artifact),
-          bytes: blob.size || artifact.bytes,
-          width: artifact.width ?? undefined,
-          height: artifact.height ?? undefined,
-          objectUrl: URL.createObjectURL(blob),
+      let artifacts: RenderArtifact[] = []
+      let serverId = localId
+      try {
+        const response = await fetch("/v1/studio/render", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": localId,
+          },
+          body: JSON.stringify({
+            templateId: version.templateId,
+            version: version.version,
+            modifications,
+            response: { type: "url", outputs: selections },
+          }),
         })
-      }
+        const payload = (await response.json()) as RenderApiResponse
+        serverId = payload.id ?? localId
+        if (!response.ok) {
+          const message = payload.error?.message
+          throw new Error(
+            message?.includes("not found")
+              ? "The Renderer Worker is not running in this local session. Start the full Worker topology and try again."
+              : message || `Render API returned ${response.status}.`
+          )
+        }
 
-      const completed: RenderRecord = {
-        ...record,
-        id: serverId,
-        status: "completed",
-        completedAt: payload.completedAt ?? new Date().toISOString(),
-        artifacts,
-      }
-      setRecords((current) =>
-        current.map((candidate) =>
-          candidate.id === localId ? completed : candidate
+        artifacts = (payload.artifacts ?? []).map(
+          (artifact) =>
+            ({
+              id: artifact.id,
+              outputId: artifact.outputId,
+              pageId: artifact.pageId ?? undefined,
+              format: artifact.format,
+              filename: artifactFilename(version, artifact),
+              bytes: artifact.bytes,
+              width: artifact.width ?? undefined,
+              height: artifact.height ?? undefined,
+              objectUrl: artifact.downloadUrl,
+            }) satisfies RenderArtifact
         )
-      )
-      return completed
-    } catch (error) {
-      for (const artifact of artifacts) {
-        URL.revokeObjectURL(artifact.objectUrl)
-      }
-      const failed: RenderRecord = {
-        ...record,
-        id: serverId,
-        status: "failed",
-        completedAt: new Date().toISOString(),
-        error: error instanceof Error ? error.message : "Rendering failed.",
-      }
-      setRecords((current) =>
-        current.map((candidate) =>
-          candidate.id === localId ? failed : candidate
+
+        const completed: RenderRecord = {
+          ...record,
+          id: serverId,
+          status: "completed",
+          completedAt: payload.completedAt ?? new Date().toISOString(),
+          artifacts,
+        }
+        setRecords((current) =>
+          current.map((candidate) =>
+            candidate.id === localId ? completed : candidate
+          )
         )
-      )
-      return failed
-    }
-  }
+        return completed
+      } catch (error) {
+        for (const artifact of artifacts) {
+          revokeObjectUrl(artifact.objectUrl)
+        }
+        const failed: RenderRecord = {
+          ...record,
+          id: serverId,
+          status: "failed",
+          completedAt: new Date().toISOString(),
+          error: error instanceof Error ? error.message : "Rendering failed.",
+        }
+        setRecords((current) =>
+          current.map((candidate) =>
+            candidate.id === localId ? failed : candidate
+          )
+        )
+        return failed
+      }
+    },
+    []
+  )
 
   return { records, historyError, runRender }
 }
+
+export type RenderHistoryController = ReturnType<typeof useRenderHistory>

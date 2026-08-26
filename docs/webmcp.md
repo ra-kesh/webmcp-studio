@@ -4,7 +4,7 @@
 
 WebMCP is an adapter over product services. It does not maintain another document, mutate Fabric objects directly, or duplicate validation and publishing logic.
 
-Tools register according to the current route and state. The library route exposes discovery. The editor exposes inspection and proposal. The review route adds resolution. A published template exposes rendering.
+The Studio registers one stable tool surface because editing, review, publishing, and render history share a single application route. Every state-dependent handler reads the current service snapshot when called. The human resolves proposals in the visible Review panel; an agent cannot approve its own changes.
 
 ## Tool catalog
 
@@ -32,10 +32,6 @@ Creates a pending change set of validated updates to existing layers. It support
 
 Adapts one inspected source page into a fixed output size as a single atomic proposal. Geometry scales deterministically while layer order, groups, asset references, and shared-field bindings are cloned with fresh stable IDs. The tool does not claim unconstrained responsive design.
 
-### `resolve_change_set`
-
-Accepts or rejects individual operations, applies accepted operations, or discards the change set. It requires the change-set ID and expected document revision.
-
 ### `publish_template`
 
 Runs blocking validation and creates an immutable version. Returns version, parameter manifest, API playground route, and any blocking errors. Tool metadata marks it as consequential and human-confirmed.
@@ -44,23 +40,27 @@ Runs blocking validation and creates an immutable version. Returns version, para
 
 Renders one published version with supplied field values and output choices. The render appears in the same history panel used by API requests.
 
+### `inspect_render_history`
+
+Read-only. Returns recent persisted render jobs, request selections, status, dimensions, byte sizes, and stable artifact download routes. Storage keys, object URLs, and database records remain private.
+
 ## Route map
 
 | Route state        | Tools                                                                                                                           |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
 | Library            | `search_assets`                                                                                                                 |
 | Editor             | `inspect_design`, `search_assets`, `validate_design`, `propose_field_updates`, `propose_canvas_edits`, `propose_output_variant` |
-| Review             | Editor read tools plus `resolve_change_set`                                                                                     |
-| Published template | `validate_design`, `publish_template`, `render_template`                                                                        |
-| Render history     | `render_template`                                                                                                               |
+| Review             | Editor read tools; acceptance and rejection remain human-only in the Review panel                                               |
+| Published template | `validate_design`, `publish_template`, `render_template`, `inspect_render_history`                                              |
+| Render history     | `render_template`, `inspect_render_history`                                                                                     |
 
-Registration cleans up on navigation and remains safe under React Strict Mode. Tool handlers capture current services through stable references rather than stale render closures.
+Registration cleans up with the Studio surface and remains safe under React Strict Mode. Tool handlers capture current services through stable references rather than stale render closures.
 
 ## Human review contract
 
 Proposal tools never write saved state. Their result creates a visible pending preview. The tool result should tell the agent that a human decision is required and give the change-set ID. A browser agent may continue inspecting and validating while the change set is pending, but it cannot describe the proposal as applied.
 
-Resolution may accept a subset. Rejected operations remain in the audit record. If the current revision no longer matches the change set, resolution returns a conflict with enough state for another inspection.
+The human may accept a subset in the Review panel. Rejected operations remain in the audit record. If the current revision no longer matches the change set, the UI blocks application and the agent must inspect again.
 
 ## Security and privacy
 

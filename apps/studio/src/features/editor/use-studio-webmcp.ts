@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from "react"
-import type { ChangeSet } from "@webmcp/document"
+import type {
+  ChangeSet,
+  TemplateModifications,
+  TemplateVersion,
+} from "@webmcp/document"
 import {
   registerStudioWebMcpTools,
+  type StudioWebMcpRenderRecord,
+  type StudioWebMcpRenderSelection,
   type StudioWebMcpSnapshot,
   type WebMcpModelContext,
 } from "@webmcp/webmcp"
@@ -16,7 +22,12 @@ type WebMcpStatus = "unavailable" | "registering" | "ready" | "error"
 
 type StudioWebMcpServices = StudioWebMcpSnapshot & {
   proposeChangeSet(changeSet: ChangeSet): ChangeSet
-  publishTemplate(): Promise<import("@webmcp/document").TemplateVersion>
+  publishTemplate(): Promise<TemplateVersion>
+  renderTemplate(
+    version: TemplateVersion,
+    modifications: TemplateModifications,
+    selections: StudioWebMcpRenderSelection[]
+  ): Promise<StudioWebMcpRenderRecord>
 }
 
 export function useStudioWebMcp(services: StudioWebMcpServices) {
@@ -45,6 +56,12 @@ export function useStudioWebMcp(services: StudioWebMcpServices) {
             proposeChangeSet: (changeSet) =>
               servicesRef.current.proposeChangeSet(changeSet),
             publishTemplate: () => servicesRef.current.publishTemplate(),
+            renderTemplate: (version, modifications, selections) =>
+              servicesRef.current.renderTemplate(
+                version,
+                modifications,
+                selections
+              ),
             id: () => crypto.randomUUID(),
             now: () => new Date().toISOString(),
           },
@@ -74,5 +91,5 @@ export function useStudioWebMcp(services: StudioWebMcpServices) {
     }
   }, [])
 
-  return { status, error, registeredToolCount: status === "ready" ? 7 : 0 }
+  return { status, error, registeredToolCount: status === "ready" ? 9 : 0 }
 }
