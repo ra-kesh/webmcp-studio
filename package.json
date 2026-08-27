@@ -5,7 +5,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "bun run --filter @webmcp/studio dev",
-    "dev:workers": "bunx --bun wrangler dev -c apps/studio/wrangler.jsonc -c apps/renderer/wrangler.jsonc",
+    "dev:workers": "bun run --filter @webmcp/studio dev",
     "build": "bun run --filter '@webmcp/*' build",
     "lint": "bun run --filter '@webmcp/*' lint",
     "typecheck": "bun run --filter '@webmcp/*' typecheck",

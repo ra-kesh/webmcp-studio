@@ -10,7 +10,10 @@ const config = defineConfig({
   plugins: [
     devtools(),
     tailwindcss(),
-    cloudflare({ viteEnvironment: { name: "ssr" } }),
+    cloudflare({
+      viteEnvironment: { name: "ssr" },
+      auxiliaryWorkers: [{ configPath: "../renderer/wrangler.jsonc" }],
+    }),
     tanstackStart(),
     viteReact(),
   ],

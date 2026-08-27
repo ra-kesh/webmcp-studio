@@ -12,6 +12,7 @@
   },
   "browser": {
     "binding": "BROWSER",
+    "remote": true,
   },
   "r2_buckets": [
     {

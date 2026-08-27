@@ -48,7 +48,7 @@ bun run dev
 
 Open `http://localhost:3000`.
 
-Run the full local Worker topology when Cloudflare bindings are configured:
+Run the Studio and its renderer auxiliary Worker together through the Cloudflare Vite plugin:
 
 ```bash
 bun run dev:workers
