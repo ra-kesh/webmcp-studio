@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import "fake-indexeddb/auto"
+import { builtInDesignTemplateRepository } from "@webmcp/document"
 import { act, StrictMode, useLayoutEffect } from "react"
 import { createRoot } from "react-dom/client"
 import type { Root } from "react-dom/client"
@@ -161,12 +162,55 @@ describe("StudioPersistenceProvider StrictMode lifecycle", () => {
     expect(channelPostMessage).not.toHaveBeenCalled()
     expect(captured.current?.repository).toBe(repositories[0]?.repository)
 
+    const routeDocument = builtInDesignTemplateRepository.materialize(
+      "editorial-one-pager",
+      1,
+      { identity: "canonical" }
+    )
+    let created: Awaited<ReturnType<DocumentDraftRepository["create"]>> | null =
+      null
+    await act(async () => {
+      created = await captured.current!.repository.create({
+        document: {
+          ...routeDocument,
+          id: "strict-mode-route-document",
+          name: "Strict mode route document",
+        },
+        sourceContext: {
+          quotationSource: null,
+          quotationTemplateId: "editorial-olive",
+          designTemplate: { id: "editorial-one-pager", version: 1 },
+        },
+      })
+    })
+    expect(created).not.toBeNull()
+    expect(created).toMatchObject({ ok: true })
+    let admitted: Awaited<
+      ReturnType<StudioPersistenceApi["documentRouteAdmission"]["admit"]>
+    > | null = null
+    await act(async () => {
+      admitted = await captured.current!.documentRouteAdmission.admit(
+        "strict-mode-route-document"
+      )
+    })
+    expect(admitted).not.toBeNull()
+    expect(admitted).toMatchObject({
+      status: "opened",
+      record: {
+        summary: { documentId: "strict-mode-route-document" },
+        envelope: { document: { id: "strict-mode-route-document" } },
+      },
+    })
+    expect(captured.current!.documentRouteAdmission.disposed).toBe(false)
+
     const releaseChildLease = captured.current!.acquireLease()
     await act(async () => {
       root.unmount()
       rootUnmounted = true
       await Promise.resolve()
     })
+
+    expect(captured.current!.documentRouteAdmission.disposed).toBe(true)
 
     expect(repositories[0]?.activeListeners).toBe(0)
     expect(repositories[0]?.unsubscribeCalls).toBe(1)
@@ -178,7 +222,7 @@ describe("StudioPersistenceProvider StrictMode lifecycle", () => {
     releaseChildLease()
     expect(repositories[0]?.close).toHaveBeenCalledTimes(1)
     expect(channelClose).toHaveBeenCalledTimes(1)
-    expect(channelPostMessage).not.toHaveBeenCalled()
+    expect(channelPostMessage).toHaveBeenCalledTimes(2)
     expect(() => captured.current?.repository).toThrow(
       "Studio persistence is closed."
     )

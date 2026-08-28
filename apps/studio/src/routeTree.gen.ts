@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as StudioRouteRouteImport } from './routes/_studio/route'
 import { Route as StudioIndexRouteImport } from './routes/_studio/index'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
+import { Route as StudioDocumentsDocumentIdRouteImport } from './routes/_studio/documents/$documentId'
 import { Route as V1RendersRenderIdRouteImport } from './routes/v1/renders/$renderId'
 import { Route as V1StudioExportPdfRouteImport } from './routes/v1/studio/export-pdf'
 import { Route as V1StudioExportPngRouteImport } from './routes/v1/studio/export-png'
@@ -45,6 +46,12 @@ const ApiHealthRoute = ApiHealthRouteImport.update({
   path: '/api/health',
   getParentRoute: () => rootRouteImport,
 } as any)
+const StudioDocumentsDocumentIdRoute =
+  StudioDocumentsDocumentIdRouteImport.update({
+    id: '/documents/$documentId',
+    path: '/documents/$documentId',
+    getParentRoute: () => StudioRouteRoute,
+  } as any)
 const V1RendersRenderIdRoute = V1RendersRenderIdRouteImport.update({
   id: '/v1/renders/$renderId',
   path: '/v1/renders/$renderId',
@@ -146,6 +153,7 @@ const V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute =
 export interface FileRoutesByFullPath {
   '/': typeof StudioIndexRoute
   '/api/health': typeof ApiHealthRoute
+  '/documents/$documentId': typeof StudioDocumentsDocumentIdRoute
   '/v1/renders/$renderId': typeof V1RendersRenderIdRouteWithChildren
   '/v1/studio/export-pdf': typeof V1StudioExportPdfRoute
   '/v1/studio/export-png': typeof V1StudioExportPngRoute
@@ -168,6 +176,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/api/health': typeof ApiHealthRoute
   '/': typeof StudioIndexRoute
+  '/documents/$documentId': typeof StudioDocumentsDocumentIdRoute
   '/v1/renders/$renderId': typeof V1RendersRenderIdRouteWithChildren
   '/v1/studio/export-pdf': typeof V1StudioExportPdfRoute
   '/v1/studio/export-png': typeof V1StudioExportPngRoute
@@ -192,6 +201,7 @@ export interface FileRoutesById {
   '/_studio': typeof StudioRouteRouteWithChildren
   '/api/health': typeof ApiHealthRoute
   '/_studio/': typeof StudioIndexRoute
+  '/_studio/documents/$documentId': typeof StudioDocumentsDocumentIdRoute
   '/v1/renders/$renderId': typeof V1RendersRenderIdRouteWithChildren
   '/v1/studio/export-pdf': typeof V1StudioExportPdfRoute
   '/v1/studio/export-png': typeof V1StudioExportPngRoute
@@ -216,6 +226,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/api/health'
+    | '/documents/$documentId'
     | '/v1/renders/$renderId'
     | '/v1/studio/export-pdf'
     | '/v1/studio/export-png'
@@ -238,6 +249,7 @@ export interface FileRouteTypes {
   to:
     | '/api/health'
     | '/'
+    | '/documents/$documentId'
     | '/v1/renders/$renderId'
     | '/v1/studio/export-pdf'
     | '/v1/studio/export-png'
@@ -261,6 +273,7 @@ export interface FileRouteTypes {
     | '/_studio'
     | '/api/health'
     | '/_studio/'
+    | '/_studio/documents/$documentId'
     | '/v1/renders/$renderId'
     | '/v1/studio/export-pdf'
     | '/v1/studio/export-png'
@@ -322,6 +335,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/health'
       preLoaderRoute: typeof ApiHealthRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_studio/documents/$documentId': {
+      id: '/_studio/documents/$documentId'
+      path: '/documents/$documentId'
+      fullPath: '/documents/$documentId'
+      preLoaderRoute: typeof StudioDocumentsDocumentIdRouteImport
+      parentRoute: typeof StudioRouteRoute
     }
     '/v1/renders/$renderId': {
       id: '/v1/renders/$renderId'
@@ -454,10 +474,12 @@ declare module '@tanstack/react-router' {
 
 interface StudioRouteRouteChildren {
   StudioIndexRoute: typeof StudioIndexRoute
+  StudioDocumentsDocumentIdRoute: typeof StudioDocumentsDocumentIdRoute
 }
 
 const StudioRouteRouteChildren: StudioRouteRouteChildren = {
   StudioIndexRoute: StudioIndexRoute,
+  StudioDocumentsDocumentIdRoute: StudioDocumentsDocumentIdRoute,
 }
 
 const StudioRouteRouteWithChildren = StudioRouteRoute._addFileChildren(

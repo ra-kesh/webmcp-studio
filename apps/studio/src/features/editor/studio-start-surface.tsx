@@ -68,6 +68,7 @@ export type StudioStartSurfaceProps = {
   hasQuotationSource: boolean
   pendingIntent?: StudioStartIntent | null
   actionError?: string | null
+  onDismissActionError?: () => void
   initialFocus?: "heading" | "document-library"
   onCreateBlank: () => void
   onCreateFromTemplate: (template: DesignTemplateCatalogItem) => void
@@ -736,6 +737,7 @@ export function StudioStartSurface({
   hasQuotationSource,
   pendingIntent = null,
   actionError = null,
+  onDismissActionError,
   initialFocus = "heading",
   onCreateBlank,
   onCreateFromTemplate,
@@ -826,15 +828,28 @@ export function StudioStartSurface({
 
         {actionError ? (
           <section
-            className="border border-destructive/25 bg-destructive/5 p-4"
+            className="flex items-start justify-between gap-4 border border-destructive/25 bg-destructive/5 p-4"
             role="alert"
           >
-            <p className="text-sm font-medium">
-              Studio could not start that document
-            </p>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              {actionError}
-            </p>
+            <div>
+              <p className="text-sm font-medium">
+                Studio could not start that document
+              </p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                {actionError}
+              </p>
+            </div>
+            {onDismissActionError ? (
+              <Button
+                className="shrink-0"
+                size="sm"
+                type="button"
+                variant="ghost"
+                onClick={onDismissActionError}
+              >
+                Dismiss
+              </Button>
+            ) : null}
           </section>
         ) : null}
 

@@ -169,12 +169,14 @@ import { projectNumericImageCropFrameEdit } from "./editor/image-crop-frame-nume
 import type { ImageCropArrowKey } from "./editor/image-crop-keyboard"
 import { imageReplacementConstraintsByNodeId } from "./editor/image-replacement-binding"
 import { useDocumentEditor } from "./editor/use-document-editor"
+import type { DocumentDraftRecord } from "./editor/document-draft-repository"
 import { useStudioPersistence } from "./persistence/studio-persistence-provider"
 import { useCriticalActionOwner } from "./editor/use-critical-action-owner"
 import { exportPagePng } from "./editor/export-page-png"
 import { useRenderHistory } from "./editor/use-render-history"
 import { useStudioWebMcp } from "./editor/use-studio-webmcp"
 import { useDraftReplacement } from "./editor/use-draft-replacement"
+import { useDocumentRouteNavigationGuard } from "./editor/use-document-route-navigation-guard"
 import { useCanvasGestureNavigation } from "./editor/use-canvas-gesture-navigation"
 import { CanvasRulerGuideOverlay } from "./editor/canvas-ruler-guide-overlay"
 import type { CanvasRulerGuideOverlayHandle } from "./editor/canvas-ruler-guide-overlay"
@@ -343,8 +345,31 @@ function IconButton({
   )
 }
 
-export function StudioShell() {
+export type StudioShellProps = Readonly<{
+  initialDocumentRecord?: DocumentDraftRecord | null
+  initialDocumentWarning?: string | null
+  routeDocumentId?: string | null
+  routeNotice?: string | null
+  onDismissRouteNotice?: () => void | Promise<void>
+  onHome?: () => void | Promise<void>
+  onOpenDocument?: (documentId: string) => boolean | Promise<boolean>
+  onSessionOpened?: (
+    documentId: string
+  ) => boolean | void | Promise<boolean | void>
+}>
+
+export function StudioShell({
+  initialDocumentRecord = null,
+  initialDocumentWarning = null,
+  routeDocumentId = null,
+  routeNotice = null,
+  onDismissRouteNotice,
+  onHome,
+  onOpenDocument,
+  onSessionOpened,
+}: StudioShellProps = {}) {
   const persistence = useStudioPersistence()
+  const [routeTransitionPending, setRouteTransitionPending] = useState(false)
   const [initialShellLayoutState] = useState(() => {
     if (typeof window === "undefined") {
       return {
@@ -499,10 +524,14 @@ export function StudioShell() {
     [recordSessionAction]
   )
   const editor = useDocumentEditor({
+    initialRecord: initialDocumentRecord,
+    initialRecordWarning: initialDocumentWarning,
     persistence,
     onHistoryCommit: onDocumentHistoryCommit,
   })
-  useRecentDocumentsVisibility(editor.sessionMode === "start")
+  useRecentDocumentsVisibility(
+    routeDocumentId === null && editor.sessionMode === "start"
+  )
   const sessionDocumentIdRef = useRef(editor.document.id)
   const pageThumbnailSnapshotId = useMemo(() => {
     const review = editor.pendingChangeSet
@@ -846,6 +875,47 @@ export function StudioShell() {
     return committed
   }, [textEditingNodeId])
 
+  const prepareDocumentRouteExit = useCallback(async () => {
+    if (editor.imageCropSession || editor.pendingChangeSet) return false
+    if (!commitActiveTextEditing()) return false
+    return editor.flushActiveDraft()
+  }, [
+    commitActiveTextEditing,
+    editor.flushActiveDraft,
+    editor.imageCropSession,
+    editor.pendingChangeSet,
+  ])
+  const projectBlockedDocumentRouteExit = useCallback(
+    (error: unknown | null) => {
+      setRouteTransitionPending(false)
+      setCriticalActionError(
+        error instanceof Error
+          ? error.message
+          : "Navigation was cancelled because the current document could not be safely saved."
+      )
+    },
+    []
+  )
+  const shouldWarnBeforeDocumentUnload = useCallback(
+    () =>
+      textEditingNodeId !== null ||
+      editor.imageCropSession !== null ||
+      editor.pendingChangeSet !== null ||
+      editor.localSaveState.status !== "saved",
+    [
+      editor.imageCropSession,
+      editor.localSaveState.status,
+      editor.pendingChangeSet,
+      textEditingNodeId,
+    ]
+  )
+  useDocumentRouteNavigationGuard({
+    enabled: routeDocumentId !== null,
+    shouldWarnBeforeUnload: shouldWarnBeforeDocumentUnload,
+    prepareToLeave: prepareDocumentRouteExit,
+    onBlocked: projectBlockedDocumentRouteExit,
+  })
+
   const beginImageCrop = useCallback(
     (
       nodeId: string,
@@ -963,7 +1033,7 @@ export function StudioShell() {
     applyCamera(camera)
   }, [activePage.height, activePage.width, applyCamera])
 
-  const focusWorkspaceAfterOpen = useCallback(() => {
+  const focusWorkspace = useCallback(() => {
     setAutoFit(true)
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => {
@@ -976,12 +1046,51 @@ export function StudioShell() {
     })
   }, [])
 
+  const finishOpenedSession = useCallback(() => {
+    const openedDocumentId = editor.getActiveDocumentId()
+    if (!onSessionOpened || !openedDocumentId) {
+      focusWorkspace()
+      return
+    }
+    setRouteTransitionPending(true)
+    void Promise.resolve(onSessionOpened(openedDocumentId)).catch(
+      (error: unknown) => {
+        setRouteTransitionPending(false)
+        setCriticalActionError(
+          error instanceof Error
+            ? error.message
+            : "Studio created the document but could not open its route."
+        )
+      }
+    )
+  }, [editor.getActiveDocumentId, focusWorkspace, onSessionOpened])
+
+  const routedFocusHandledRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (
+      !routeDocumentId ||
+      editor.routeSessionStatus !== "ready" ||
+      editor.sessionMode !== "workspace" ||
+      editor.document.id !== routeDocumentId ||
+      routedFocusHandledRef.current === routeDocumentId
+    )
+      return
+    routedFocusHandledRef.current = routeDocumentId
+    focusWorkspace()
+  }, [
+    editor.document.id,
+    editor.routeSessionStatus,
+    editor.sessionMode,
+    focusWorkspace,
+    routeDocumentId,
+  ])
+
   const draftReplacement = useDraftReplacement({
     hasCurrentDraft: editor.sessionMode === "workspace",
     workspaceActive: editor.sessionMode === "workspace",
     settleWorkspaceEdits: commitActiveTextEditing,
     flushCurrentDraft: editor.flushActiveDraft,
-    onOpened: focusWorkspaceAfterOpen,
+    onOpened: finishOpenedSession,
     onQueued: () => setNewDocumentOpen(false),
   })
   const pendingDraftReplacement = draftReplacement.pending
@@ -2027,18 +2136,33 @@ export function StudioShell() {
           releaseCriticalAction(action)
           return false
         }
+        if (onHome) {
+          setRouteTransitionPending(true)
+          void Promise.resolve(onHome())
+            .catch((error: unknown) => {
+              setRouteTransitionPending(false)
+              setCriticalActionError(
+                error instanceof Error
+                  ? error.message
+                  : "Studio could not finish returning Home."
+              )
+            })
+            .finally(() => releaseCriticalAction(action))
+          return true
+        }
         void editor
           .returnToStart()
           .then((returned) => {
-            if (returned) {
-              setStartInitialFocus("document-library")
+            if (!returned) {
+              setCriticalActionError(
+                "Home was cancelled because the current document could not be safely saved."
+              )
               return
             }
-            setCriticalActionError(
-              "Home was cancelled because the current document could not be safely saved."
-            )
+            setStartInitialFocus("document-library")
           })
           .catch((error: unknown) => {
+            setRouteTransitionPending(false)
             setCriticalActionError(
               error instanceof Error
                 ? error.message
@@ -2276,6 +2400,67 @@ export function StudioShell() {
       })
     )
 
+  if (routeTransitionPending) {
+    return (
+      <main
+        aria-busy="true"
+        className="grid min-h-dvh place-items-center bg-muted/20"
+      >
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+          <span>Opening the document route…</span>
+        </div>
+      </main>
+    )
+  }
+
+  if (
+    routeDocumentId &&
+    (editor.routeSessionStatus === "installing" ||
+      editor.sessionMode !== "workspace" ||
+      editor.document.id !== routeDocumentId)
+  ) {
+    if (editor.routeSessionStatus === "failed") {
+      return (
+        <main className="grid min-h-dvh place-items-center bg-muted/20 p-4">
+          <section
+            aria-labelledby="route-session-error-heading"
+            className="w-full max-w-sm border bg-background p-5 text-center shadow-sm"
+            role="alert"
+          >
+            <h1
+              className="text-base font-semibold"
+              id="route-session-error-heading"
+              tabIndex={-1}
+            >
+              Studio could not start this document
+            </h1>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              {editor.documentError ??
+                "The verified document could not acquire a local editing session."}
+            </p>
+            {onHome ? (
+              <Button className="mt-4" onClick={() => void onHome()}>
+                Return to documents
+              </Button>
+            ) : null}
+          </section>
+        </main>
+      )
+    }
+    return (
+      <main
+        aria-busy="true"
+        className="grid min-h-dvh place-items-center bg-muted/20"
+      >
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+          <span>Starting the verified document session…</span>
+        </div>
+      </main>
+    )
+  }
+
   if (editor.sessionMode === "start") {
     if (editor.startModel.status === "opening") {
       return (
@@ -2310,10 +2495,17 @@ export function StudioShell() {
     return (
       <>
         <StudioStartSurface
-          actionError={editor.documentError ?? editor.templateActionError}
+          actionError={
+            routeNotice ?? editor.documentError ?? editor.templateActionError
+          }
           hasQuotationSource={Boolean(editor.quotationSource)}
           initialFocus={startInitialFocus}
           model={editor.startModel}
+          onDismissActionError={
+            routeNotice && onDismissRouteNotice
+              ? () => void onDismissRouteNotice()
+              : undefined
+          }
           pendingIntent={startPendingIntent}
           templateLoadState={
             editor.designTemplateCatalog.status === "error"
@@ -2346,7 +2538,7 @@ export function StudioShell() {
               () => editor.openDocumentFile(file)
             )) !== false
           }
-          onOpenDocument={editor.openStoredDocument}
+          onOpenDocument={onOpenDocument ?? editor.openStoredDocument}
           onOpenSample={() => {
             void requestDraftReplacement(
               { kind: "sample" },
@@ -2366,7 +2558,7 @@ export function StudioShell() {
               () => editor.createBlankDocument(options)
             )
           }
-          onCreated={focusWorkspaceAfterOpen}
+          onCreated={finishOpenedSession}
           onOpenChange={setNewDocumentOpen}
           onRestoreDemo={() =>
             requestDraftReplacement(

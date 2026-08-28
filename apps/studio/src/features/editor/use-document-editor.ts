@@ -218,8 +218,11 @@ type ActivePersistenceSession = Readonly<{
 
 type SessionTransition = Readonly<{
   token: number
-  kind: "continue" | "replace" | "recovery" | "home"
+  kind: "continue" | "replace" | "recovery" | "home" | "route"
 }>
+
+export type RouteSessionStatus =
+  "not_requested" | "installing" | "ready" | "failed"
 
 type OpeningInvalidationEvent =
   | Extract<DraftRepositoryEvent, { type: "saved" }>
@@ -381,9 +384,13 @@ export type DocumentHistoryCommit = Readonly<{
 }>
 
 export function useDocumentEditor({
+  initialRecord = null,
+  initialRecordWarning = null,
   onHistoryCommit,
   persistence,
 }: {
+  initialRecord?: DocumentDraftRecord | null
+  initialRecordWarning?: string | null
   onHistoryCommit?: (entry: DocumentHistoryCommit) => void
   persistence: StudioPersistenceApi
 }) {
@@ -396,6 +403,8 @@ export function useDocumentEditor({
   const [sessionMode, setSessionMode] = useState<StudioSessionMode>("start")
   const sessionModeRef = useRef<StudioSessionMode>(sessionMode)
   sessionModeRef.current = sessionMode
+  const [routeSessionStatus, setRouteSessionStatus] =
+    useState<RouteSessionStatus>(initialRecord ? "installing" : "not_requested")
   const [history, setHistory] = useState<DocumentHistory>(() =>
     createDocumentHistory(createNeutralBootstrapDocument())
   )
@@ -427,7 +436,9 @@ export function useDocumentEditor({
   const [assetError, setAssetError] = useState<string | null>(null)
   const [pendingImageReplacement, setPendingImageReplacement] =
     useState<PendingRendererReplacement | null>(null)
-  const [documentError, setDocumentError] = useState<string | null>(null)
+  const [documentError, setDocumentError] = useState<string | null>(
+    initialRecordWarning
+  )
   const [templateActionError, setTemplateActionError] = useState<string | null>(
     null
   )
@@ -924,6 +935,7 @@ export function useDocumentEditor({
         record.envelope.sourceContext ?? null
       projectLocalSaveState(nextSession.controller.state)
       installEditorSession(record.envelope)
+      if (initialRecordWarning) setDocumentError(initialRecordWarning)
       return true
     },
     [
@@ -932,6 +944,7 @@ export function useDocumentEditor({
       ownsSessionTransition,
       projectLocalSaveState,
       retirePersistenceSession,
+      initialRecordWarning,
     ]
   )
 
@@ -1229,6 +1242,10 @@ export function useDocumentEditor({
     () => structuredClone(historyRef.current.document),
     []
   )
+  const getActiveDocumentId = useCallback(
+    () => activeRecordRef.current?.summary.documentId ?? null,
+    []
+  )
 
   const returnToStart = useCallback(async () => {
     if (imageCropSessionRef.current) {
@@ -1401,6 +1418,54 @@ export function useDocumentEditor({
       })().catch(() => undefined)
     }
   }, [])
+
+  useEffect(() => {
+    if (!initialRecord) {
+      setRouteSessionStatus("not_requested")
+      return
+    }
+    let active = true
+    let transition: SessionTransition | null = null
+    setRouteSessionStatus("installing")
+    void Promise.resolve().then(async () => {
+      if (!active) return
+      transition = claimSessionTransition("route")
+      if (!transition) {
+        setRouteSessionStatus("failed")
+        return
+      }
+      const canInstall = () => active && ownsSessionTransition(transition!)
+      try {
+        const installed = await installDraftRecord(
+          initialRecord,
+          transition,
+          canInstall
+        )
+        if (!canInstall()) return
+        setRouteSessionStatus(installed ? "ready" : "failed")
+      } catch (error: unknown) {
+        if (!canInstall()) return
+        setDocumentError(
+          error instanceof Error
+            ? error.message
+            : "Studio could not start the routed document session."
+        )
+        setRouteSessionStatus("failed")
+      } finally {
+        releaseSessionTransition(transition)
+      }
+    })
+    return () => {
+      active = false
+      if (transition) releaseSessionTransition(transition)
+    }
+  }, [
+    claimSessionTransition,
+    initialRecord,
+    installDraftRecord,
+    ownsSessionTransition,
+    releaseSessionTransition,
+  ])
 
   const loadDesignTemplateCatalog = useCallback(() => {
     setDesignTemplateCatalog((current) => ({
@@ -4606,6 +4671,7 @@ export function useDocumentEditor({
 
   return {
     sessionMode,
+    routeSessionStatus,
     startModel,
     document: history.document,
     starterMetadata: quotationStarter.metadata,
@@ -4744,6 +4810,7 @@ export function useDocumentEditor({
     openStoredDocument,
     continueSessionDocument,
     flushActiveDraft,
+    getActiveDocumentId,
     getCurrentDocumentSnapshot,
     retryActiveDraftSave,
     returnToStart,

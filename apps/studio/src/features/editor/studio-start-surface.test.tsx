@@ -222,6 +222,26 @@ describe("StudioStartSurface", () => {
     ).toBe("true")
   })
 
+  it("keeps a routed document notice visible until its owner dismisses it", async () => {
+    const onDismissActionError = vi.fn()
+    await act(async () => {
+      root.render(
+        <StudioStartSurface
+          {...defaultProps}
+          actionError="The document “document-a” could not be found."
+          model={currentModel()}
+          onDismissActionError={onDismissActionError}
+        />
+      )
+    })
+
+    expect(document.body.textContent).toContain(
+      "The document “document-a” could not be found."
+    )
+    await act(async () => buttonNamed("Dismiss")?.click())
+    expect(onDismissActionError).toHaveBeenCalledTimes(1)
+  })
+
   it("requires explicit session-only acknowledgement when browser saving fails", async () => {
     const onCreateBlank = vi.fn()
     const unavailableModel = {

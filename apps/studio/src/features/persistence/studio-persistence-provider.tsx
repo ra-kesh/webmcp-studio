@@ -11,6 +11,7 @@ import type {
   DocumentDraftRepository,
   DraftRepositoryEvent,
 } from "../editor/document-draft-repository"
+import { DocumentRouteAdmissionController } from "../editor/document-route-admission"
 import { StudioPersistenceRuntime } from "./studio-persistence-runtime"
 import type { StudioPersistenceState } from "./studio-persistence-runtime"
 
@@ -23,6 +24,7 @@ export type StudioPersistenceApi = Readonly<{
     listener: (event: DraftRepositoryEvent) => void
   ) => () => void
   acquireLease: () => () => void
+  documentRouteAdmission: DocumentRouteAdmissionController
 }>
 
 const StudioPersistenceContext = createContext<StudioPersistenceApi | null>(
@@ -40,6 +42,13 @@ export function StudioPersistenceProvider({
   const [runtime] = useState<StudioPersistenceRuntime>(
     () => createRuntime?.() ?? new StudioPersistenceRuntime()
   )
+  const [documentRouteAdmission] = useState(
+    () =>
+      new DocumentRouteAdmissionController({
+        get: (documentId) => runtime.repository.get(documentId),
+        touchOpened: (documentId) => runtime.repository.touchOpened(documentId),
+      })
+  )
   const state = useSyncExternalStore(
     runtime.subscribe,
     runtime.getSnapshot,
@@ -47,6 +56,17 @@ export function StudioPersistenceProvider({
   )
 
   useEffect(() => runtime.retain(), [runtime])
+  const [admissionLifecycle] = useState(() => ({ generation: 0 }))
+  useEffect(() => {
+    const generation = ++admissionLifecycle.generation
+    return () => {
+      globalThis.queueMicrotask(() => {
+        if (admissionLifecycle.generation === generation) {
+          documentRouteAdmission.dispose()
+        }
+      })
+    }
+  }, [admissionLifecycle, documentRouteAdmission])
 
   const api = useMemo<StudioPersistenceApi>(
     () => ({
@@ -59,8 +79,9 @@ export function StudioPersistenceProvider({
       subscribeRepositoryEvents: (listener) =>
         runtime.subscribeRepositoryEvents(listener),
       acquireLease: () => runtime.acquireLease(),
+      documentRouteAdmission,
     }),
-    [runtime, state]
+    [documentRouteAdmission, runtime, state]
   )
 
   return (

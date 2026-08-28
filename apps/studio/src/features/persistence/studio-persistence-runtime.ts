@@ -164,7 +164,9 @@ export class StudioPersistenceRuntime {
     this.#migrate =
       options.migrate ??
       ((repository) => migrateCurrentDraftToRepository({ repository }))
-    this.#scheduleMicrotask = options.scheduleMicrotask ?? queueMicrotask
+    this.#scheduleMicrotask =
+      options.scheduleMicrotask ??
+      ((callback) => globalThis.queueMicrotask(callback))
   }
 
   get repository() {

@@ -356,12 +356,14 @@ const captureDownload = () => {
 function MountedEditor({
   capture,
   capturePersistence,
+  initialRecord = null,
 }: {
   capture: (editor: Editor) => void
   capturePersistence: (persistence: StudioPersistenceApi) => void
+  initialRecord?: DocumentDraftRecord | null
 }) {
   const persistence = useStudioPersistence()
-  const editor = useDocumentEditor({ persistence })
+  const editor = useDocumentEditor({ initialRecord, persistence })
   useLayoutEffect(() => {
     capture(editor)
     capturePersistence(persistence)
@@ -399,7 +401,8 @@ describe.sequential("useDocumentEditor repository persistence", () => {
 
   async function mount(
     createDraftRepository: () => DocumentDraftRepository = () =>
-      repository("hook-default")
+      repository("hook-default"),
+    initialRecord: DocumentDraftRecord | null = null
   ) {
     const captured: {
       current: Editor | null
@@ -421,6 +424,7 @@ describe.sequential("useDocumentEditor repository persistence", () => {
             capturePersistence={(persistence) => {
               captured.persistence = persistence
             }}
+            initialRecord={initialRecord}
           />
         </StudioPersistenceTestWrapper>
       )
@@ -484,6 +488,34 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     }
     return result.record
   }
+
+  it("installs an admitted route record before exposing a workspace session", async () => {
+    const draftRepository = repository("route-admitted")
+    const envelope = quotationEnvelope()
+    const created = await draftRepository.create(
+      { document: envelope.document, sourceContext: envelope.sourceContext },
+      { kind: "quotation" }
+    )
+    if (!created.ok) {
+      throw new Error(
+        `Expected route fixture creation: ${JSON.stringify(created)}`
+      )
+    }
+
+    const captured = await mount(() => draftRepository, created.record)
+    await vi.waitFor(() => {
+      expect({
+        error: captured.current?.documentError,
+        status: captured.current?.routeSessionStatus,
+      }).toEqual({ error: null, status: "ready" })
+      expect(captured.current?.sessionMode).toBe("workspace")
+    })
+    expect(captured.current?.document).toEqual(created.record.envelope.document)
+    expect(captured.current?.getActiveDocumentId()).toBe(
+      created.record.summary.documentId
+    )
+    expect(captured.current?.localSaveState.status).toBe("saved")
+  })
 
   it("keeps an empty repository on Start and never persists the private bootstrap", async () => {
     const captured = await mount()

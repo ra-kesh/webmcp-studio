@@ -138,6 +138,40 @@ const savedEvent: DraftRepositoryEvent = {
 }
 
 describe("StudioPersistenceRuntime", () => {
+  it("calls the default browser microtask scheduler with its global receiver", async () => {
+    const harness = repositoryHarness()
+    const originalQueueMicrotask = globalThis.queueMicrotask
+    const receivers: unknown[] = []
+    Object.defineProperty(globalThis, "queueMicrotask", {
+      configurable: true,
+      writable: true,
+      value: function (this: unknown, callback: () => void) {
+        receivers.push(this)
+        callback()
+      },
+    })
+
+    try {
+      const runtime = new StudioPersistenceRuntime({
+        createRepository: () => harness.repository,
+        migrate: async () => emptyMigration,
+      })
+      const release = runtime.retain()
+      await runtime.start()
+
+      release()
+
+      expect(receivers).toEqual([globalThis])
+      expect(harness.close).toHaveBeenCalledTimes(1)
+    } finally {
+      Object.defineProperty(globalThis, "queueMicrotask", {
+        configurable: true,
+        writable: true,
+        value: originalQueueMicrotask,
+      })
+    }
+  })
+
   it("is inert until start or retain and memoizes one migration per generation", async () => {
     const harness = repositoryHarness()
     const createRepository = vi.fn(() => harness.repository)

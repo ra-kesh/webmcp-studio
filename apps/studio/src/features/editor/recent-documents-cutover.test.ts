@@ -16,10 +16,10 @@ const shellSource = readFileSync(
 
 describe("Recent documents Start cutover", () => {
   it("uses one retained library owner and exact-ID document opening", () => {
+    expect(shellSource).toContain("routeDocumentId === null")
     expect(shellSource).toContain(
-      'useRecentDocumentsVisibility(editor.sessionMode === "start")'
+      "onOpenDocument={onOpenDocument ?? editor.openStoredDocument}"
     )
-    expect(shellSource).toContain("onOpenDocument={editor.openStoredDocument}")
     expect(startSurfaceSource).toContain("<RecentDocuments")
     expect(startSurfaceSource).not.toContain("CurrentDraftCard")
     expect(startSurfaceSource).not.toContain("Current browser draft")

@@ -1363,7 +1363,7 @@ Open evidence and next boundary:
 
 ## 2026-08-28 — Routed document library and conflict recovery (PERSIST-01B)
 
-Status: **repository closure, persistence ownership/layout cutover, visible Recent/Trash library, and exact-ID opening independently approved; canonical document routes and routed conflict/recovery UI remain open**
+Status: **repository closure, persistence ownership/layout cutover, visible Recent/Trash library, exact-ID opening, and canonical document routes independently approved; routed conflict/recovery UI remains open**
 
 Phase-entry evidence:
 
@@ -1440,6 +1440,17 @@ Visible Recent/Trash library and Start cutover evidence:
 - Independent review rejected hidden replacement semantics, unmeasured virtualization, incomplete action gating, missing mounted interaction proof, duplicate announcements, final-pagination focus, competing Open ownership, coarse targets, detached failure identity/recovery, reduced-motion/icon semantics, disconnected failure focus, menu failure focus ownership, virtual-list semantics, breakpoint drift, and persistence-preemption focus loss. Each finding received a product repair and mounted regression. `persist-01b-recent-library-review.md` preserves the review history. The final reviewer verdict is **APPROVE with zero P0/P1/P2**.
 - The final focused component/mounted gate passes **27/27**. The complete all-package gate passes **1,436/1,436 tests**: Studio **863**, document **173**, editor **284**, WebMCP **42**, render-view **12**, Renderer **51**, and worker-boundary **11**. Studio and all-package typecheck, Studio and UI lint, root format check, and `git diff --check` pass. The production build passes; its existing route-warning and chunk-size warning remain separately open.
 
+Canonical document route evidence:
+
+- Added `/documents/$documentId` under the retained client-only persistence layout. The route validates the actual TanStack parameter, admits one exact repository record, and mounts the complete Studio session only after `get -> validate -> touchOpened` succeeds. Route, summary, canonical document, session, and shell identity remain exact for ordinary and encoded IDs.
+- One provider-owned admission controller survives keyed route children and serializes final touch mutations. Stale results cannot install; when an already-running A touch completes late, B touches afterward and remains the final Recent ordering mutation. Generation-delayed disposal survives React StrictMode replay and disposes on real provider unmount.
+- Missing, deleted, invalid, recovery-required, and unavailable targets never expose the bootstrap document. They redirect once to `/` with a typed persistent notice that survives invalidation until dismissed. Admission failures retain an in-route Retry/Home surface with deterministic heading focus.
+- TanStack's async blocker now owns every routed SPA/history exit. It blocks crop/review, commits text, and drains `flushActiveDraft()` without retiring the session. The URL and exact editor owner remain intact on false/rejected preparation; committed route unmount owns controller close and lease release. Routed Home delegates to the same boundary.
+- Real mounted router tests cover direct deep linking, encoded slash/percent/space/Unicode IDs, A -> B -> Back ordering, persistent missing redirects, and dismissal. Mounted guard tests cover deferred success plus failed/rejected exits. StrictMode provider proof performs an exact create/admit after effect replay and proves final disposal.
+- Independent review rejected premature unmount, stale recency, source-only tests, focus loss, redirect identity, StrictMode disposal, and pre-commit session retirement. Every finding received a repair and regression. `persist-01b-canonical-route-review.md` records the complete history and final **APPROVE with zero P0/P1/P2** verdict.
+- A focused Chrome pass created `Route gate document`, observed navigation to its canonical `/documents/<id>` route, reloaded directly into the same exact editor, returned Home to the same Recent card, and used browser Back to reopen the exact route with a clean final console. The first load exposed an unbound browser `queueMicrotask` receiver in persistence-runtime finalization; the scheduler now calls `globalThis.queueMicrotask`, and a receiver-sensitive regression prevents recurrence.
+- After that browser repair, the complete Studio suite passes **890/890 across 116 files**. The all-package suite passes **1,463/1,463**: Studio **890**, document **173**, editor **284**, WebMCP **42**, render-view **12**, Renderer **51**, and worker-boundary **11**. Focused reviewer proof passes **14/14**; root format, lint, every package typecheck, production build, and `git diff --check` pass.
+
 Open evidence and next boundary:
 
-- Canonical `/documents/$documentId` routing, route-owned navigation blocking, persistent conflict/external-change recovery actions, PERSIST-01C durable preview production/loading, and healthy-browser Back/Forward, compact, keyboard, two-tab IndexedDB, blocked-upgrade, quota, navigation, and shutdown acceptance remain open. The in-app browser could not provide a trustworthy localhost reload gate in this pass, so browser acceptance is not claimed.
+- Persistent conflict/external-change recovery actions, PERSIST-01C durable preview production/loading, and healthy-browser Back/Forward, compact, keyboard, two-tab IndexedDB, blocked-upgrade, quota, navigation, and shutdown acceptance remain open. Browser acceptance is not claimed by the code gate.
