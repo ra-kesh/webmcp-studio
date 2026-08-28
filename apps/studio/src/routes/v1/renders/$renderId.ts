@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers"
 import { createFileRoute } from "@tanstack/react-router"
-import { resolveDemoSession } from "../../../server/demo-session"
+import { requireStudioPrincipal } from "../../../server/studio-principal"
 
 type RenderJobRow = {
   id: string
@@ -29,7 +29,8 @@ export const Route = createFileRoute("/v1/renders/$renderId")({
   server: {
     handlers: {
       GET: async ({ params, request }) => {
-        const session = await resolveDemoSession(env.DB, request)
+        const session = await requireStudioPrincipal(env, request)
+        if (session instanceof Response) return session
         const json = (body: unknown, init?: ResponseInit) =>
           session.respond(Response.json(body, init))
         const job = await env.DB.prepare(

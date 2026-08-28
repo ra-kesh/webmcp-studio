@@ -1,16 +1,21 @@
 import {
+  analyzeFieldDeletion,
   changeSetSchema,
   fieldValueMatchesType,
   getChangeSetConflict,
+  normalizeFieldValueForStorage,
   previewChangeSet,
   type ChangeSet,
   type Document,
+  type ImageFrameMask,
+  type ImagePlacement,
   type SceneNode,
 } from "@webmcp/document"
 
 export type FieldUpdateProposalInput = {
   documentId: string
   baseRevision: number
+  baseSnapshotId: string
   values: Record<string, string | number | boolean>
   reason?: string
 }
@@ -23,8 +28,10 @@ export type ChangeSetIdentityFactory = {
 export type CanvasEditProposalInput = {
   documentId: string
   baseRevision: number
+  baseSnapshotId: string
   reason?: string
   edits: Array<{
+    nodeType: SceneNode["type"]
     nodeId: string
     patch: Record<string, unknown>
     summary?: string
@@ -32,7 +39,6 @@ export type CanvasEditProposalInput = {
     replacementAsset?: {
       id: string
       src: string
-      alt: string
     }
   }>
 }
@@ -40,10 +46,11 @@ export type CanvasEditProposalInput = {
 export type OutputVariantProposalInput = {
   documentId: string
   baseRevision: number
+  baseSnapshotId: string
   sourcePageId: string
   name: string
   pageName?: string
-  kind: "proposal" | "whatsapp_portrait" | "square"
+  kind: "proposal" | "whatsapp_portrait" | "square" | "custom"
   width: number
   height: number
   exportFormats: Array<"png" | "pdf">
@@ -53,17 +60,55 @@ export type OutputVariantProposalInput = {
 export type AssetInsertionProposalInput = {
   documentId: string
   baseRevision: number
+  baseSnapshotId: string
   pageId: string
   asset: { id: string; src: string; alt: string; name: string }
   x: number
   y: number
   width: number
   height: number
-  fit: "cover" | "contain"
-  cropX?: number
-  cropY?: number
+  placement: ImagePlacement
+  frameMask?: ImageFrameMask
+  decorative?: boolean
   values?: Record<string, string | number | boolean>
   reason?: string
+}
+
+export function canvasPatchValuesEqual(
+  current: unknown,
+  proposed: unknown
+): boolean {
+  if (Object.is(current, proposed)) return true
+  if (
+    current === null ||
+    proposed === null ||
+    typeof current !== "object" ||
+    typeof proposed !== "object"
+  ) {
+    return false
+  }
+  if (Array.isArray(current) || Array.isArray(proposed)) {
+    return (
+      Array.isArray(current) &&
+      Array.isArray(proposed) &&
+      current.length === proposed.length &&
+      current.every((value, index) =>
+        canvasPatchValuesEqual(value, proposed[index])
+      )
+    )
+  }
+  const currentRecord = current as Record<string, unknown>
+  const proposedRecord = proposed as Record<string, unknown>
+  const currentKeys = Object.keys(currentRecord)
+  const proposedKeys = Object.keys(proposedRecord)
+  return (
+    currentKeys.length === proposedKeys.length &&
+    currentKeys.every(
+      (key) =>
+        Object.hasOwn(proposedRecord, key) &&
+        canvasPatchValuesEqual(currentRecord[key], proposedRecord[key])
+    )
+  )
 }
 
 const commonCanvasProperties = new Set([
@@ -88,12 +133,13 @@ const nodeCanvasProperties: Record<SceneNode["type"], Set<string>> = {
     "lineHeight",
     "letterSpacing",
     "align",
+    "sizingMode",
   ]),
   rect: new Set(["fill", "radius", "stroke", "strokeWidth"]),
   ellipse: new Set(["fill", "stroke", "strokeWidth"]),
   line: new Set(["stroke", "strokeWidth"]),
   icon: new Set(["fill", "stroke", "strokeWidth"]),
-  image: new Set(["fit", "cropX", "cropY", "alt"]),
+  image: new Set(["placement", "frameMask", "alt", "decorative"]),
 }
 
 const rounded = (value: number) => Math.round(value * 100) / 100
@@ -152,7 +198,7 @@ function scaleNode(
 
 function checkedChangeSet(document: Document, changeSet: ChangeSet) {
   const parsed = changeSetSchema.parse(changeSet)
-  const conflict = getChangeSetConflict(document, parsed)
+  const conflict = getChangeSetConflict(document, parsed, parsed.baseSnapshotId)
   if (conflict) throw new Error(conflict.message)
   previewChangeSet(document, parsed)
   return parsed
@@ -167,6 +213,7 @@ export function createFieldUpdateChangeSet(
     id: `change-set-${identity.id()}`,
     documentId: input.documentId,
     baseRevision: input.baseRevision,
+    baseSnapshotId: input.baseSnapshotId,
     title: input.reason?.trim() || "Update shared content",
     createdAt: identity.now(),
     createdBy: "agent",
@@ -174,26 +221,35 @@ export function createFieldUpdateChangeSet(
     operations: Object.entries(input.values).flatMap(([key, value]) => {
       const field = document.fields.find((candidate) => candidate.key === key)
       if (!field) throw new Error(`Unknown shared field: ${key}`)
+      if (field.type === "currency" && typeof value !== "string") {
+        throw new Error(
+          `${field.label} must use an exact decimal string at the public API boundary`
+        )
+      }
       if (!fieldValueMatchesType(field, value)) {
         throw new Error(`Invalid value for ${field.label}`)
       }
-      if (document.fieldValues[field.id] === value) return []
-      const bindingCount = document.bindings.filter(
-        (binding) => binding.fieldId === field.id
-      ).length
+      const normalizedValue = normalizeFieldValueForStorage(field, value)
+      const currentValue = document.fieldValues[field.id]
+      const normalizedCurrentValue =
+        currentValue === undefined
+          ? undefined
+          : normalizeFieldValueForStorage(field, currentValue)
+      if (normalizedCurrentValue === normalizedValue) return []
+      const impact = analyzeFieldDeletion(document, field.id)
       const at = identity.now()
       return [
         {
           id: `operation-${identity.id()}`,
           status: "pending" as const,
-          summary: `Update ${field.label} in ${bindingCount} bound layer${bindingCount === 1 ? "" : "s"}`,
+          summary: `Update ${field.label} in ${impact.bindingCount} bound layer${impact.bindingCount === 1 ? "" : "s"} across ${impact.outputCount} output${impact.outputCount === 1 ? "" : "s"}`,
           command: {
             id: `command-${identity.id()}`,
             type: "set_field" as const,
             actor: "agent" as const,
             at,
             fieldId: field.id,
-            value,
+            value: normalizedValue,
           },
         },
       ]
@@ -223,6 +279,11 @@ export function createCanvasEditChangeSet(
       (candidate) => candidate.id === edit.nodeId
     )
     if (!node) throw new Error(`Unknown node: ${edit.nodeId}`)
+    if (edit.nodeType !== node.type) {
+      throw new Error(
+        `${node.name} is a ${node.type} layer, not ${edit.nodeType}. Inspect the design again before proposing edits.`
+      )
+    }
     if (edit.assetId && !edit.replacementAsset) {
       throw new Error(`Asset ${edit.assetId} was not resolved by the studio.`)
     }
@@ -231,7 +292,6 @@ export function createCanvasEditChangeSet(
           ...edit.patch,
           assetId: edit.replacementAsset.id,
           src: edit.replacementAsset.src,
-          alt: edit.replacementAsset.alt,
         }
       : edit.patch
     if (edit.replacementAsset && node.type !== "image") {
@@ -239,7 +299,8 @@ export function createCanvasEditChangeSet(
     }
     const patch = Object.fromEntries(
       Object.entries(requestedPatch).filter(
-        ([key, value]) => node[key as keyof SceneNode] !== value
+        ([key, value]) =>
+          !canvasPatchValuesEqual(node[key as keyof SceneNode], value)
       )
     )
     const keys = Object.keys(patch)
@@ -285,6 +346,7 @@ export function createCanvasEditChangeSet(
     id: `change-set-${identity.id()}`,
     documentId: input.documentId,
     baseRevision: input.baseRevision,
+    baseSnapshotId: input.baseSnapshotId,
     title: input.reason?.trim() || "Refine canvas layout",
     createdAt: identity.now(),
     createdBy: "agent",
@@ -314,11 +376,6 @@ export function createAssetInsertionChangeSet(
   ) {
     throw new Error(`Asset geometry must fit inside ${page.name}.`)
   }
-  const cropX = input.cropX ?? 0.5
-  const cropY = input.cropY ?? 0.5
-  if (cropX < 0 || cropX > 1 || cropY < 0 || cropY > 1) {
-    throw new Error("Asset crop focus must be between 0 and 1.")
-  }
   const node: SceneNode = {
     id: `image-${identity.id()}`,
     type: "image",
@@ -326,9 +383,9 @@ export function createAssetInsertionChangeSet(
     assetId: input.asset.id,
     src: input.asset.src,
     alt: input.asset.alt,
-    fit: input.fit,
-    cropX,
-    cropY,
+    placement: input.placement,
+    frameMask: input.frameMask ?? { shape: "rectangle" },
+    decorative: input.decorative ?? false,
     x: input.x,
     y: input.y,
     width: input.width,
@@ -345,6 +402,7 @@ export function createAssetInsertionChangeSet(
         {
           documentId: input.documentId,
           baseRevision: input.baseRevision,
+          baseSnapshotId: input.baseSnapshotId,
           values: input.values,
           reason: input.reason,
         },
@@ -355,6 +413,7 @@ export function createAssetInsertionChangeSet(
     id: `change-set-${identity.id()}`,
     documentId: input.documentId,
     baseRevision: input.baseRevision,
+    baseSnapshotId: input.baseSnapshotId,
     title: input.reason?.trim() || `Add ${input.asset.name}`,
     createdAt: at,
     createdBy: "agent",
@@ -441,6 +500,7 @@ export function createOutputVariantChangeSet(
     id: `change-set-${identity.id()}`,
     documentId: input.documentId,
     baseRevision: input.baseRevision,
+    baseSnapshotId: input.baseSnapshotId,
     title: input.reason?.trim() || `Adapt ${sourcePage.name} to ${input.name}`,
     createdAt: identity.now(),
     createdBy: "agent",

@@ -1,0 +1,549 @@
+// @vitest-environment jsdom
+
+import "fake-indexeddb/auto"
+import { webcrypto } from "node:crypto"
+import { act, useLayoutEffect } from "react"
+import { createRoot } from "react-dom/client"
+import type { Root } from "react-dom/client"
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
+import type { CurrentDraftRepositoryMigrationResult } from "./document-draft-migration"
+import { DocumentDraftRepository } from "./document-draft-repository"
+import { DRAFT_RECOVERY_STORAGE_KEY } from "./draft-recovery"
+import { quotationStarter } from "./quotation-starter"
+import { CURRENT_DRAFT_STORAGE_KEY } from "./current-draft-repository"
+import type { CurrentDraftEnvelope } from "./current-draft-repository"
+import {
+  StudioPersistenceTestWrapper,
+  useStudioPersistence,
+} from "./studio-persistence-test-wrapper"
+import type { StudioPersistenceTestWrapperProps } from "./studio-persistence-test-wrapper"
+import type { StudioPersistenceApi } from "../persistence/studio-persistence-provider"
+import { useDocumentEditor } from "./use-document-editor"
+
+type Editor = ReturnType<typeof useDocumentEditor>
+type MountedCapture = Readonly<{
+  editor: Editor
+  persistence: StudioPersistenceApi
+}>
+type MountOptions = Pick<
+  StudioPersistenceTestWrapperProps,
+  "createRepository" | "migrate"
+>
+
+const emptyMigration = {
+  status: "empty",
+} as const satisfies CurrentDraftRepositoryMigrationResult
+
+const unavailableFailure = {
+  kind: "storage_unavailable",
+  message: "Studio document storage is unavailable for this test.",
+} as const
+
+const unavailableMigration = {
+  status: "repository_unavailable",
+  failure: unavailableFailure,
+} as const satisfies CurrentDraftRepositoryMigrationResult
+
+const blockedFailure = {
+  kind: "blocked",
+  message: "Another Studio tab is upgrading document storage.",
+} as const
+
+const blockedMigration = {
+  status: "blocked",
+  failure: blockedFailure,
+} as const satisfies CurrentDraftRepositoryMigrationResult
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
+
+function recoveryMigrationFor(envelope: CurrentDraftEnvelope) {
+  const recovery = {
+    schemaVersion: 1 as const,
+    sourceStorageKey: CURRENT_DRAFT_STORAGE_KEY,
+    capturedAt: "2026-08-29T01:00:00.000Z",
+    failure: {
+      kind: "malformed_json" as const,
+      message: "The saved draft needs explicit recovery approval.",
+    },
+    raw: JSON.stringify(envelope),
+  }
+  return {
+    recovery,
+    migration: {
+      status: "recovery_required" as const,
+      recovery,
+      recoveryStored: true,
+    } satisfies CurrentDraftRepositoryMigrationResult,
+  }
+}
+
+function MountedEditor({
+  capture,
+}: {
+  capture: (value: MountedCapture) => void
+}) {
+  const persistence = useStudioPersistence()
+  const editor = useDocumentEditor({ persistence })
+  useLayoutEffect(
+    () => capture({ editor, persistence }),
+    [capture, editor, persistence]
+  )
+  return null
+}
+
+describe("useDocumentEditor start session", () => {
+  let host: HTMLDivElement
+  let root: Root
+  let repositorySequence = 0
+
+  beforeAll(() => {
+    Object.defineProperty(globalThis, "crypto", {
+      configurable: true,
+      value: webcrypto,
+    })
+    Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+  })
+
+  beforeEach(() => {
+    localStorage.clear()
+    host = document.createElement("div")
+    document.body.appendChild(host)
+    root = createRoot(host)
+  })
+
+  afterEach(async () => {
+    await act(async () => root.unmount())
+    host.remove()
+    localStorage.clear()
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  function createRepository(label = "start") {
+    repositorySequence += 1
+    return new DocumentDraftRepository({
+      databaseName: `webmcp-studio-start-mounted-${label}-${repositorySequence}`,
+      indexedDB: globalThis.indexedDB,
+      sessionId: `start-mounted-${label}-${repositorySequence}`,
+    })
+  }
+
+  async function mount(options: MountOptions = {}) {
+    const captured: { current: MountedCapture | null } = { current: null }
+    const createRepositoryForMount =
+      options.createRepository ?? (() => createRepository())
+    await act(async () => {
+      root.render(
+        <StudioPersistenceTestWrapper
+          createRepository={createRepositoryForMount}
+          migrate={options.migrate}
+        >
+          <MountedEditor
+            capture={(value) => {
+              captured.current = value
+            }}
+          />
+        </StudioPersistenceTestWrapper>
+      )
+    })
+    return captured
+  }
+
+  async function waitForPersistenceStatus(
+    captured: { current: MountedCapture | null },
+    status: StudioPersistenceApi["state"]["status"]
+  ) {
+    await vi.waitFor(() => {
+      expect(captured.current?.persistence.state.status).toBe(status)
+    })
+  }
+
+  async function advanceAutosaveWindow() {
+    vi.useFakeTimers()
+    await act(async () => vi.advanceTimersByTimeAsync(1_000))
+    vi.useRealTimers()
+  }
+
+  it("keeps first-run state neutral and never autosaves the sample", async () => {
+    const captured = await mount({ migrate: async () => emptyMigration })
+
+    expect(captured.current?.editor.sessionMode).toBe("start")
+    expect(captured.current?.editor.document.id).toBe(
+      "private-bootstrap-document"
+    )
+    expect(captured.current?.editor.quotationSource).toBeNull()
+
+    await advanceAutosaveWindow()
+    expect(localStorage.getItem(CURRENT_DRAFT_STORAGE_KEY)).toBeNull()
+  })
+
+  it("preserves the exact legacy envelope when the repository cannot open", async () => {
+    const envelope: CurrentDraftEnvelope = {
+      schemaVersion: 1,
+      document: quotationStarter.document,
+      sourceContext: {
+        quotationSource: quotationStarter.source,
+        quotationTemplateId: quotationStarter.templateId,
+        designTemplate: null,
+      },
+    }
+    const raw = JSON.stringify(envelope)
+    localStorage.setItem(CURRENT_DRAFT_STORAGE_KEY, raw)
+    const migration = deferred<CurrentDraftRepositoryMigrationResult>()
+    const captured = await mount({
+      migrate: () => migration.promise,
+    })
+
+    expect(captured.current?.persistence.state).toEqual({ status: "opening" })
+    expect(captured.current?.editor.sessionMode).toBe("start")
+    await act(async () => {
+      expect(await captured.current?.editor.continueCurrentDraft()).toBe(false)
+      migration.resolve({
+        status: "legacy_storage_unavailable",
+        failure: {
+          operation: "get_storage",
+          message: "Legacy local storage is unavailable.",
+        },
+        recoverableDraft: envelope,
+      })
+    })
+    await waitForPersistenceStatus(captured, "unavailable")
+
+    expect(captured.current?.editor.startModel).toMatchObject({
+      status: "unavailable",
+      durable: false,
+      storageWarning: "Legacy local storage is unavailable.",
+    })
+    if (captured.current?.editor.startModel.status !== "unavailable") {
+      throw new Error("Expected unavailable Start state")
+    }
+    expect(captured.current.editor.startModel.recoverableEnvelope).toBe(
+      envelope
+    )
+    expect(captured.current.editor.sessionMode).toBe("start")
+    expect(captured.current.editor.document.id).toBe(
+      "private-bootstrap-document"
+    )
+
+    await advanceAutosaveWindow()
+    expect(localStorage.getItem(CURRENT_DRAFT_STORAGE_KEY)).toBe(raw)
+  })
+
+  it.each([
+    ["blocked", blockedMigration, blockedFailure],
+    ["unavailable", unavailableMigration, unavailableFailure],
+  ] as const)(
+    "projects the exact %s provider failure without replacing the neutral bootstrap",
+    async (status, migration, failure) => {
+      const captured = await mount({ migrate: async () => migration })
+      await waitForPersistenceStatus(captured, status)
+
+      expect(captured.current?.editor.repositoryLifecycle).toEqual({
+        status,
+        failure,
+      })
+      expect(captured.current?.editor.startModel).toEqual({
+        status,
+        durable: false,
+        storageWarning: failure.message,
+        currentDraft: null,
+        recoverableEnvelope: null,
+      })
+      expect(captured.current?.editor.sessionMode).toBe("start")
+      expect(captured.current?.editor.document.id).toBe(
+        "private-bootstrap-document"
+      )
+    }
+  )
+
+  it("validates a session-only blank document before opening it", async () => {
+    const captured = await mount({ migrate: async () => unavailableMigration })
+    await waitForPersistenceStatus(captured, "unavailable")
+
+    let created = false
+    await act(async () => {
+      created =
+        (await captured.current?.editor.createBlankDocument({
+          name: "Client proof",
+          width: 1600,
+          height: 900,
+        })) ?? false
+    })
+    expect({ created, error: captured.current?.editor.documentError }).toEqual({
+      created: true,
+      error: null,
+    })
+
+    expect(captured.current?.editor.sessionMode).toBe("workspace")
+    expect(localStorage.getItem(CURRENT_DRAFT_STORAGE_KEY)).toBeNull()
+    expect(captured.current?.editor).toMatchObject({
+      document: {
+        name: "Client proof",
+        outputs: [{ kind: "custom", exportFormats: ["png", "pdf"] }],
+        pages: [{ width: 1600, height: 900 }],
+      },
+    })
+
+    await act(async () => {
+      expect(await captured.current?.editor.returnToStart()).toBe(true)
+    })
+    expect(captured.current?.editor.sessionMode).toBe("start")
+    expect(captured.current?.editor.startModel).toMatchObject({
+      status: "unavailable",
+      currentDraft: { name: "Client proof", pageCount: 1, outputCount: 1 },
+    })
+  })
+
+  it("opens the sample locally without waiting for the best-effort server reset", async () => {
+    let resolveReset: ((response: Response) => void) | undefined
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveReset = resolve
+          })
+      )
+    )
+    const captured = await mount({ migrate: async () => emptyMigration })
+    await waitForPersistenceStatus(captured, "ready")
+    let opened = false
+
+    await act(async () => {
+      opened = (await captured.current?.editor.restoreDemoDocument()) ?? false
+    })
+
+    expect(opened).toBe(true)
+    expect(captured.current?.editor.sessionMode).toBe("workspace")
+    expect(captured.current?.editor.document.id).toBe(
+      quotationStarter.document.id
+    )
+
+    await act(async () => resolveReset?.(new Response(null, { status: 204 })))
+  })
+
+  it("keeps session-only work in memory when returning home", async () => {
+    const getItem = vi
+      .spyOn(Storage.prototype, "getItem")
+      .mockImplementation(() => {
+        throw new DOMException("Storage blocked", "SecurityError")
+      })
+    const captured = await mount()
+    await waitForPersistenceStatus(captured, "unavailable")
+    getItem.mockRestore()
+
+    expect(captured.current?.editor.startModel).toMatchObject({
+      status: "unavailable",
+      durable: false,
+    })
+    await act(async () => {
+      expect(
+        await captured.current?.editor.createBlankDocument({
+          name: "Session only",
+          width: 1080,
+          height: 1080,
+        })
+      ).toBe(true)
+    })
+    await act(async () => {
+      captured.current?.editor.addRectangle()
+      expect(await captured.current?.editor.returnToStart()).toBe(true)
+    })
+
+    expect(captured.current?.editor.sessionMode).toBe("start")
+    expect(captured.current?.editor.startModel).toMatchObject({
+      status: "unavailable",
+      durable: false,
+      currentDraft: { name: "Session only" },
+    })
+    expect(localStorage.getItem(CURRENT_DRAFT_STORAGE_KEY)).toBeNull()
+
+    await act(async () => {
+      expect(await captured.current?.editor.continueCurrentDraft()).toBe(true)
+    })
+    expect(captured.current?.editor.sessionMode).toBe("workspace")
+    expect(
+      captured.current?.editor.document.nodes.some(
+        (node) => node.type === "rect" && node.name === "Rectangle"
+      )
+    ).toBe(true)
+  })
+
+  it.each(["retry", "reset"] as const)(
+    "keeps authoritative recovery and source bytes when %s durable create fails",
+    async (action) => {
+      const envelope: CurrentDraftEnvelope = {
+        schemaVersion: 1,
+        document: quotationStarter.document,
+        sourceContext: null,
+      }
+      const { recovery, migration } = recoveryMigrationFor(envelope)
+      localStorage.setItem(CURRENT_DRAFT_STORAGE_KEY, recovery.raw)
+      localStorage.setItem(DRAFT_RECOVERY_STORAGE_KEY, "recovery-marker")
+      const repository = createRepository(`failed-${action}`)
+      const create = vi.spyOn(repository, "create").mockResolvedValue({
+        ok: false,
+        reason: "storage_unavailable",
+        failure: unavailableFailure,
+      })
+      const captured = await mount({
+        createRepository: () => repository,
+        migrate: async () => migration,
+      })
+      await waitForPersistenceStatus(captured, "recovery_required")
+
+      let result: boolean | undefined
+      await act(async () => {
+        result =
+          action === "retry"
+            ? await captured.current?.editor.retryDraftRecovery()
+            : await captured.current?.editor.resetDraftRecovery()
+      })
+
+      expect(result).toBe(false)
+      expect(create).toHaveBeenCalledTimes(1)
+      expect(captured.current?.persistence.state).toEqual({
+        status: "recovery_required",
+        recovery,
+      })
+      expect(captured.current?.editor.draftRecovery).toBe(recovery)
+      expect(localStorage.getItem(CURRENT_DRAFT_STORAGE_KEY)).toBe(recovery.raw)
+      expect(localStorage.getItem(DRAFT_RECOVERY_STORAGE_KEY)).toBe(
+        "recovery-marker"
+      )
+    }
+  )
+
+  it("completes Retry only after durable create and keeps cleanup failure visible", async () => {
+    const envelope: CurrentDraftEnvelope = {
+      schemaVersion: 1,
+      document: quotationStarter.document,
+      sourceContext: null,
+    }
+    const { recovery, migration } = recoveryMigrationFor(envelope)
+    localStorage.setItem(CURRENT_DRAFT_STORAGE_KEY, recovery.raw)
+    const repository = createRepository("retry-order")
+    const originalCreate = repository.create.bind(repository)
+    const createGate = deferred<void>()
+    const create = vi
+      .spyOn(repository, "create")
+      .mockImplementation(async (...args) => {
+        await createGate.promise
+        return originalCreate(...args)
+      })
+    const captured = await mount({
+      createRepository: () => repository,
+      migrate: async () => migration,
+    })
+    await waitForPersistenceStatus(captured, "recovery_required")
+    const originalRemoveItem = Storage.prototype.removeItem
+    const removeItem = vi.spyOn(Storage.prototype, "removeItem")
+    removeItem.mockImplementation(function (this: Storage, key: string) {
+      if (key === CURRENT_DRAFT_STORAGE_KEY) {
+        throw new DOMException("Cleanup blocked", "SecurityError")
+      }
+      return originalRemoveItem.call(this, key)
+    })
+
+    let retryPromise: Promise<boolean | void> | null = null
+    await act(async () => {
+      retryPromise = captured.current!.editor.retryDraftRecovery()
+      await Promise.resolve()
+    })
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(captured.current?.persistence.state).toEqual({
+      status: "recovery_required",
+      recovery,
+    })
+
+    let result: boolean | void = false
+    await act(async () => {
+      createGate.resolve()
+      result = await retryPromise!
+    })
+
+    const cleanupWarning =
+      "The document was restored, but one legacy recovery key could not be removed."
+    expect(result).toBe(true)
+    expect(captured.current?.persistence.state).toEqual({
+      status: "ready",
+      migration: { status: "empty" },
+      warning: cleanupWarning,
+    })
+    expect(captured.current?.editor.draftRecovery).toBeNull()
+    expect(captured.current?.editor.draftRecoveryNotice).toBe(cleanupWarning)
+    await vi.waitFor(() => {
+      expect(captured.current?.editor.startModel).toMatchObject({
+        status: "ready",
+        storageWarning: cleanupWarning,
+      })
+    })
+  })
+
+  it("completes Reset only after its durable starter create", async () => {
+    const envelope: CurrentDraftEnvelope = {
+      schemaVersion: 1,
+      document: quotationStarter.document,
+      sourceContext: null,
+    }
+    const { recovery, migration } = recoveryMigrationFor(envelope)
+    localStorage.setItem(CURRENT_DRAFT_STORAGE_KEY, recovery.raw)
+    const repository = createRepository("reset-order")
+    const originalCreate = repository.create.bind(repository)
+    const createGate = deferred<void>()
+    const create = vi
+      .spyOn(repository, "create")
+      .mockImplementation(async (...args) => {
+        await createGate.promise
+        return originalCreate(...args)
+      })
+    const captured = await mount({
+      createRepository: () => repository,
+      migrate: async () => migration,
+    })
+    await waitForPersistenceStatus(captured, "recovery_required")
+
+    let resetPromise: Promise<boolean> | null = null
+    await act(async () => {
+      resetPromise = captured.current!.editor.resetDraftRecovery()
+      await Promise.resolve()
+    })
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(captured.current?.persistence.state).toEqual({
+      status: "recovery_required",
+      recovery,
+    })
+
+    let result = false
+    await act(async () => {
+      createGate.resolve()
+      result = await resetPromise!
+    })
+
+    expect(result).toBe(true)
+    expect(captured.current?.persistence.state).toEqual({
+      status: "ready",
+      migration: { status: "empty" },
+      warning: null,
+    })
+    expect(captured.current?.editor.draftRecovery).toBeNull()
+    expect(captured.current?.editor.draftRecoveryNotice).toBeNull()
+    expect(localStorage.getItem(CURRENT_DRAFT_STORAGE_KEY)).toBeNull()
+  })
+})

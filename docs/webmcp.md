@@ -10,7 +10,7 @@ The Studio registers one stable tool surface because editing, review, publishing
 
 ### `inspect_design`
 
-Read-only. Returns revision, the active page, its complete canonical layers, selection, shared fields, bindings, outputs, and pending changes. Stable node IDs replace DOM selectors and Fabric serialization.
+Read-only. Returns revision, the active page, its public canonical layers, selection, shared fields, bindings, outputs, pending changes, and the host's current typed command capabilities. Stable node IDs replace DOM selectors and Fabric serialization. Image layers expose stable asset IDs and crop metadata, never private renderer sources. Every field includes its agent description, executable validation contract, display value, and exact binding targets across pages and outputs. Command availability is projected by the same runtime policy used by Studio controls, including transient reasons such as image decode readiness; clients must not infer enablement from document shape alone.
 
 ### `search_assets`
 
@@ -18,7 +18,7 @@ Read-only. Searches the approved, renderer-safe Studio catalog by query, orienta
 
 ### `validate_design`
 
-Read-only. Validates the current page, one output, or the complete document. The result separates blocking errors from warnings and names affected fields, pages, and nodes.
+Read-only. Runs both aggregate document validation and the publication/render policy. The result separates blocking errors from warnings and names affected fields, pages, and nodes, so a design cannot pass agent validation and then fail the same policy at publish time.
 
 ### `propose_asset_insertion`
 
@@ -26,7 +26,7 @@ Creates one pending review that can combine typed shared-field updates with an i
 
 ### `propose_field_updates`
 
-Creates a pending change set from typed field values. Input includes document ID, base revision, values, and optional reason. Output names every affected binding.
+Creates a pending change set from typed field values. Input includes document ID, base revision, values, and optional reason. Values must honor the inspected field type and validation metadata. Dates use ISO `YYYY-MM-DD`, quotation currency uses canonical INR decimals, colors use the safe CSS subset, choices use configured values, and asset fields accept only approved IDs returned by `search_assets`. Output names every affected binding without exposing renderer sources.
 
 ### `propose_canvas_edits`
 
@@ -38,11 +38,11 @@ Adapts one inspected source page into a fixed output size as a single atomic pro
 
 ### `publish_template`
 
-Runs blocking validation and creates an immutable version. Returns version, parameter manifest, API playground route, and any blocking errors. Tool metadata marks it as consequential and human-confirmed.
+Runs blocking validation and creates an immutable version. The call must include the exact document ID, revision, and snapshot ID returned by `inspect_design`; revision equality alone is not enough because Undo branches can reuse a revision number for different bytes. Returns version, parameter manifest, API playground route, and any blocking errors. Registration metadata marks it as a non-read-only, non-destructive, idempotent open-world operation; Studio policy still requires explicit human intent before calling it.
 
 ### `render_template`
 
-Renders one published version with supplied field values and output choices. The render appears in the same history panel used by API requests.
+Renders one published version with supplied field values and output choices. The render appears in the same history panel used by API requests. Registration metadata marks it as a non-read-only, non-destructive, non-idempotent open-world operation because each call creates a persisted job.
 
 ### `inspect_render_history`
 
@@ -70,7 +70,7 @@ The human may accept a subset in the Review panel. Rejected operations remain in
 
 - Tool output returns compact product data, not database records or secret URLs.
 - Asset search returns only assets in the current demo workspace.
-- External asset URLs pass an allowlist and renderer fetch check.
+- WebMCP asset writes accept approved catalog IDs; arbitrary external URLs are rejected before a proposal is created.
 - Consequential tools state their side effects in metadata.
 - Published versions cannot reference local blobs or private browser-only URLs.
 - Tool errors never include secrets, binding names, SQL, or stack traces.

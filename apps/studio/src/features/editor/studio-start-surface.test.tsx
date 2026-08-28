@@ -1,0 +1,371 @@
+// @vitest-environment jsdom
+
+import { act } from "react"
+import { createRoot } from "react-dom/client"
+import type { Root } from "react-dom/client"
+import { renderToStaticMarkup } from "react-dom/server"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { builtInDesignTemplateRepository } from "@webmcp/document"
+import { StudioStartSurface } from "./studio-start-surface"
+import type { StudioStartSurfaceProps } from "./studio-start-surface"
+import { projectStudioStartModel } from "./studio-start-model"
+import type { CurrentDraftEnvelope } from "./current-draft-repository"
+
+const templates = builtInDesignTemplateRepository.list()
+const emptyModel = projectStudioStartModel({ status: "empty" })
+
+if (emptyModel.status !== "ready") {
+  throw new Error("An empty draft repository must project a ready start model.")
+}
+
+const defaultProps: StudioStartSurfaceProps = {
+  model: emptyModel,
+  templates,
+  templateLoadState: { status: "ready" },
+  hasQuotationSource: false,
+  onContinue: vi.fn(),
+  onCreateBlank: vi.fn(),
+  onCreateFromTemplate: vi.fn(),
+  onImportFile: vi.fn(() => true),
+  onOpenSample: vi.fn(),
+  onRetryTemplates: vi.fn(),
+}
+
+const renderSurface = (overrides: Partial<StudioStartSurfaceProps> = {}) =>
+  renderToStaticMarkup(<StudioStartSurface {...defaultProps} {...overrides} />)
+
+const currentModel = () => {
+  const document = builtInDesignTemplateRepository.materialize(
+    "editorial-one-pager",
+    1,
+    { identity: "canonical" }
+  )
+  const envelope: CurrentDraftEnvelope = {
+    schemaVersion: 1,
+    document,
+    sourceContext: {
+      quotationSource: null,
+      quotationTemplateId: "editorial-olive",
+      designTemplate: { id: "editorial-one-pager", version: 1 },
+    },
+  }
+  const model = projectStudioStartModel({
+    status: "current",
+    envelope,
+    source: "envelope",
+    migrated: false,
+    warnings: [],
+  })
+  if (model.status !== "ready") {
+    throw new Error("A valid current draft must project a ready start model.")
+  }
+  return model
+}
+
+function buttonNamed(name: string) {
+  return [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+    (button) => button.textContent.includes(name)
+  )
+}
+
+function setInputValue(input: HTMLInputElement, value: string) {
+  Object.getOwnPropertyDescriptor(
+    HTMLInputElement.prototype,
+    "value"
+  )?.set?.call(input, value)
+  input.dispatchEvent(new Event("input", { bubbles: true }))
+}
+
+describe("StudioStartSurface", () => {
+  let host: HTMLDivElement
+  let root: Root
+
+  beforeEach(() => {
+    Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+    host = document.createElement("div")
+    document.body.appendChild(host)
+    root = createRoot(host)
+  })
+
+  afterEach(async () => {
+    await act(async () => root.unmount())
+    host.remove()
+  })
+
+  it("shows explicit first-run choices and teaches the canonical product model", () => {
+    const html = renderSurface()
+
+    expect(html).toContain("What are you making?")
+    expect(html).toContain("How Studio files work")
+    expect(html).toContain("Document")
+    expect(html).toContain("Outputs")
+    expect(html).toContain("Pages")
+    expect(html).toContain("Start from a template")
+    expect(html).toContain("Blank document")
+    expect(html).toContain("Import Studio JSON")
+    expect(html).toContain("Northstar sample proposal")
+    expect(html).toContain("Open sample")
+    expect(html).not.toContain("Current browser draft")
+    expect(html).not.toContain("Recent")
+    expect(html).not.toContain("Apply to this design")
+  })
+
+  it("renders exactly one truthful current browser draft without a fabricated preview", () => {
+    const model = currentModel()
+    const html = renderSurface({ model })
+
+    expect(html.match(/Current browser draft/g)).toHaveLength(1)
+    expect(html).toContain(model.currentDraft?.name)
+    expect(html).toContain(`${model.currentDraft?.outputCount} output`)
+    expect(html).toContain(`${model.currentDraft?.pageCount} page`)
+    expect(html).toContain(
+      `${model.currentDraft?.firstPage.width} × ${model.currentDraft?.firstPage.height} px`
+    )
+    expect(html).toContain("Template based")
+    expect(html).not.toContain("Recent documents")
+
+    const currentSection = html.slice(
+      html.indexOf('aria-labelledby="current-draft-heading"'),
+      html.indexOf('aria-labelledby="start-template-heading"')
+    )
+    expect(currentSection).not.toContain('role="img"')
+    expect(currentSection).not.toContain("<img")
+  })
+
+  it("renders loading, retryable error, and honest empty catalog states", () => {
+    expect(
+      renderSurface({ templateLoadState: { status: "loading" } })
+    ).toContain("Loading design templates")
+
+    const retry = renderSurface({
+      templateLoadState: {
+        status: "error",
+        message: "The template service did not respond.",
+      },
+    })
+    expect(retry).toContain("Templates could not be loaded")
+    expect(retry).toContain("The template service did not respond.")
+    expect(retry).toContain("Try again")
+
+    const empty = renderSurface({ templates: [] })
+    expect(empty).toContain("No templates available")
+    expect(empty).toContain("Start with a blank document")
+  })
+
+  it("keeps quotation-only styles visible, explained, and unavailable without a source", () => {
+    const quotation = templates.find(
+      (template) => template.kind === "quotation_style"
+    )
+    expect(quotation).toBeDefined()
+    if (!quotation) return
+
+    const html = renderSurface({ templates: [quotation] })
+    expect(html).toContain("Quotation required")
+    expect(html).toContain("Link a Stuwiz quotation")
+    expect(html).toContain('disabled=""')
+    expect(html).not.toContain("Apply to this design")
+  })
+
+  it("uses one current draft action and dispatches the selected template", async () => {
+    const onContinue = vi.fn()
+    const onCreateFromTemplate = vi.fn()
+    await act(async () => {
+      root.render(
+        <StudioStartSurface
+          {...defaultProps}
+          hasQuotationSource
+          model={currentModel()}
+          onContinue={onContinue}
+          onCreateFromTemplate={onCreateFromTemplate}
+        />
+      )
+    })
+
+    expect(document.activeElement).toBe(
+      document.body.querySelector("#studio-start-heading")
+    )
+
+    await act(async () => buttonNamed("Continue")?.click())
+    expect(onContinue).toHaveBeenCalledTimes(1)
+
+    const general = templates.find(
+      (template) => template.id === "editorial-one-pager"
+    )
+    expect(general).toBeDefined()
+    if (!general) return
+    await act(async () => buttonNamed(general.name)?.click())
+    await act(async () => buttonNamed("Create from template")?.click())
+    expect(onCreateFromTemplate).toHaveBeenCalledWith(general)
+  })
+
+  it("returns focus to the current draft when the editor sends the user home", async () => {
+    await act(async () => {
+      root.render(
+        <StudioStartSurface
+          {...defaultProps}
+          initialFocus="current-draft"
+          model={currentModel()}
+        />
+      )
+    })
+
+    expect(document.activeElement).toBe(buttonNamed("Continue"))
+  })
+
+  it("requires explicit session-only acknowledgement when browser saving fails", async () => {
+    const onCreateBlank = vi.fn()
+    const unavailableModel = {
+      ...emptyModel,
+      durable: false,
+      storageWarning: "Browser storage is full.",
+    }
+    await act(async () => {
+      root.render(
+        <StudioStartSurface
+          {...defaultProps}
+          model={unavailableModel}
+          onCreateBlank={onCreateBlank}
+        />
+      )
+    })
+
+    const blank = buttonNamed("Blank document")
+    expect(document.body.textContent).toContain("Browser saving is unavailable")
+    expect(document.body.textContent).toContain("Browser storage is full.")
+    expect(blank?.disabled).toBe(true)
+
+    await act(async () => buttonNamed("Use this session")?.click())
+    expect(blank?.disabled).toBe(false)
+    await act(async () => {
+      await new Promise<void>((resolve) =>
+        window.requestAnimationFrame(() => resolve())
+      )
+    })
+    expect(document.activeElement).toBe(blank)
+    await act(async () => blank?.click())
+    expect(onCreateBlank).toHaveBeenCalledTimes(1)
+    expect(document.body.textContent).toContain("Session-only mode")
+  })
+
+  it("resets the import input, restores focus, and permits the same file again", async () => {
+    const onImportFile = vi.fn(async () => true)
+    await act(async () => {
+      root.render(
+        <StudioStartSurface {...defaultProps} onImportFile={onImportFile} />
+      )
+    })
+
+    const input =
+      document.body.querySelector<HTMLInputElement>('input[type="file"]')
+    const importButton = buttonNamed("Import Studio JSON")
+    if (!input || !importButton) throw new Error("Expected the import controls")
+    const file = new File(["{}"], "document.json", {
+      type: "application/json",
+    })
+
+    for (let index = 0; index < 2; index += 1) {
+      Object.defineProperty(input, "files", {
+        configurable: true,
+        value: [file],
+      })
+      await act(async () => {
+        input.dispatchEvent(new Event("change", { bubbles: true }))
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+      await act(async () => {
+        await new Promise<void>((resolve) => setTimeout(resolve, 0))
+      })
+      expect(input.value).toBe("")
+      expect(document.activeElement).toBe(importButton)
+    }
+
+    expect(onImportFile).toHaveBeenCalledTimes(2)
+    expect(onImportFile).toHaveBeenNthCalledWith(1, file)
+    expect(onImportFile).toHaveBeenNthCalledWith(2, file)
+  })
+
+  it("locks every competing start action while an import is settling", async () => {
+    let resolveImport: ((accepted: boolean) => void) | undefined
+    const importResult = new Promise<boolean>((resolve) => {
+      resolveImport = resolve
+    })
+    await act(async () => {
+      root.render(
+        <StudioStartSurface
+          {...defaultProps}
+          onImportFile={() => importResult}
+        />
+      )
+    })
+    const input =
+      document.body.querySelector<HTMLInputElement>('input[type="file"]')
+    if (!input) throw new Error("Expected the import input")
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: [new File(["{}"], "document.json")],
+    })
+
+    await act(async () => {
+      input.dispatchEvent(new Event("change", { bubbles: true }))
+      await Promise.resolve()
+    })
+
+    expect(buttonNamed("Blank document")?.disabled).toBe(true)
+    expect(buttonNamed("Create from template")?.disabled).toBe(true)
+    expect(buttonNamed("Open sample")?.disabled).toBe(true)
+
+    await act(async () => resolveImport?.(true))
+    expect(buttonNamed("Blank document")?.disabled).toBe(false)
+  })
+
+  it("keeps import and controller failures in persistent alert regions", async () => {
+    await act(async () => {
+      root.render(
+        <StudioStartSurface
+          {...defaultProps}
+          actionError="The current draft could not be flushed."
+          onImportFile={async () => {
+            throw new Error("The selected file is malformed.")
+          }}
+        />
+      )
+    })
+    expect(document.body.textContent).toContain(
+      "The current draft could not be flushed."
+    )
+
+    const input =
+      document.body.querySelector<HTMLInputElement>('input[type="file"]')
+    if (!input) throw new Error("Expected the import input")
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: [new File(["{"], "broken.json")],
+    })
+    await act(async () => {
+      input.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+
+    expect(document.body.textContent).toContain(
+      "The selected file is malformed."
+    )
+    expect(document.body.querySelectorAll('[role="alert"]')).toHaveLength(2)
+  })
+
+  it("filters templates without moving focus away from the search field", async () => {
+    await act(async () => {
+      root.render(<StudioStartSurface {...defaultProps} />)
+    })
+    const search = document.body.querySelector<HTMLInputElement>(
+      'input[aria-label="Search design templates"]'
+    )
+    if (!search) throw new Error("Expected the template search input")
+    search.focus()
+    await act(async () => setInputValue(search, "editorial one-pager"))
+
+    expect(document.activeElement).toBe(search)
+    expect(document.body.textContent).toContain("1 template")
+    expect(document.body.textContent).toContain("Editorial one-pager")
+    expect(document.body.textContent).not.toContain("Midnight Film")
+  })
+})

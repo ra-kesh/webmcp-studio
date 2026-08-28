@@ -1,13 +1,15 @@
 import { env } from "cloudflare:workers"
 import { createFileRoute } from "@tanstack/react-router"
-import { resolveDemoSession } from "../../../../server/demo-session"
+import { requireStudioPrincipal } from "../../../../server/studio-principal"
 import { getTemplateVersion } from "../../../../server/template-repository"
+import { publicTemplateVersion } from "../../../../server/render-field-assets"
 
 export const Route = createFileRoute("/v1/studio/templates/$templateId")({
   server: {
     handlers: {
       GET: async ({ params, request }) => {
-        const session = await resolveDemoSession(env.DB, request)
+        const session = await requireStudioPrincipal(env, request)
+        if (session instanceof Response) return session
         const json = (body: unknown, init?: ResponseInit) =>
           session.respond(Response.json(body, init))
         const versionValue = new URL(request.url).searchParams.get("version")
@@ -30,13 +32,18 @@ export const Route = createFileRoute("/v1/studio/templates/$templateId")({
             { status: 404 }
           )
         }
+        const publicVersion = publicTemplateVersion(published)
         return json({
-          id: published.templateId,
-          name: published.document.name,
-          version: published.version,
-          sourceRevision: published.sourceRevision,
-          publishedAt: published.publishedAt,
-          manifest: published.manifest,
+          id: publicVersion.templateId,
+          versionId: publicVersion.id,
+          templateId: publicVersion.templateId,
+          name: publicVersion.document.name,
+          version: publicVersion.version,
+          sourceRevision: publicVersion.sourceRevision,
+          sourceSnapshotId: publicVersion.sourceSnapshotId,
+          publishedAt: publicVersion.publishedAt,
+          document: publicVersion.document,
+          manifest: publicVersion.manifest,
         })
       },
     },

@@ -10,6 +10,7 @@ import {
   RotateCw,
 } from "lucide-react"
 import type {
+  FieldValue,
   TemplateModifications,
   TemplateParameter,
   TemplateVersion,
@@ -31,7 +32,6 @@ import {
   FieldLabel,
   FieldTitle,
 } from "@webmcp/ui/components/field"
-import { Input } from "@webmcp/ui/components/input"
 import { ScrollArea } from "@webmcp/ui/components/scroll-area"
 import {
   Select,
@@ -52,6 +52,8 @@ import type {
   RenderHistoryController,
   RenderSelection,
 } from "./use-render-history"
+import { studioAssets } from "./asset-catalog"
+import { TypedFieldValueControl } from "./typed-field-value-control"
 
 type OutputChoice = {
   selected: boolean
@@ -66,33 +68,29 @@ const formatBytes = (bytes: number) => {
 
 const shellQuote = (value: string) => `'${value.replaceAll("'", `'"'"'`)}'`
 
+export const publicParameterExampleValue = (
+  parameter: TemplateParameter
+): FieldValue => {
+  if (parameter.type !== "asset" || parameter.exampleValue === "") {
+    return parameter.exampleValue
+  }
+  const asset = studioAssets.find(
+    (candidate) => candidate.src === parameter.exampleValue
+  )
+  return asset?.id ?? parameter.exampleValue
+}
+
 function ParameterInput({
   parameter,
   value,
   onChange,
+  onValidityChange,
 }: {
   parameter: TemplateParameter
-  value: string | number | boolean
-  onChange: (value: string | number | boolean) => void
+  value: FieldValue
+  onChange: (value: FieldValue) => void
+  onValidityChange: (valid: boolean) => void
 }) {
-  if (parameter.type === "boolean") {
-    return (
-      <FieldLabel className="w-full">
-        <Field orientation="horizontal">
-          <Checkbox
-            checked={Boolean(value)}
-            onCheckedChange={(checked) => onChange(checked === true)}
-          />
-          <FieldContent>
-            <FieldTitle>{parameter.label}</FieldTitle>
-            <p className="font-mono text-[9px] text-muted-foreground">
-              {parameter.key}
-            </p>
-          </FieldContent>
-        </Field>
-      </FieldLabel>
-    )
-  }
   return (
     <Field>
       <div className="flex items-center justify-between gap-2">
@@ -103,17 +101,15 @@ function ParameterInput({
           {parameter.key}
         </span>
       </div>
-      <Input
+      <TypedFieldValueControl
         id={`parameter-${parameter.id}`}
-        value={String(value)}
-        type={parameter.type === "number" ? "number" : "text"}
-        onChange={(event) =>
-          onChange(
-            parameter.type === "number"
-              ? Number(event.target.value)
-              : event.target.value
-          )
-        }
+        ariaLabel={parameter.label}
+        field={parameter}
+        value={value}
+        assetValueMode="id"
+        assetCanBeEmpty={!parameter.required && parameter.bindings.length === 0}
+        onCommit={onChange}
+        onDraftValidityChange={onValidityChange}
       />
     </Field>
   )
@@ -137,6 +133,9 @@ export function ApiPlaygroundDialog({
   const [outputs, setOutputs] = useState<Record<string, OutputChoice>>({})
   const [copied, setCopied] = useState(false)
   const [running, setRunning] = useState(false)
+  const [invalidParameterIds, setInvalidParameterIds] = useState<Set<string>>(
+    new Set()
+  )
   const [apiAccess, setApiAccess] = useState<{
     origin: string
     token: string
@@ -146,11 +145,12 @@ export function ApiPlaygroundDialog({
 
   useEffect(() => {
     if (!version) return
+    setInvalidParameterIds(new Set())
     setValues(
       Object.fromEntries(
         version.manifest.parameters.map((parameter) => [
           parameter.key,
-          parameter.exampleValue,
+          publicParameterExampleValue(parameter),
         ])
       )
     )
@@ -283,9 +283,9 @@ export function ApiPlaygroundDialog({
 
             <TabsContent
               value="request"
-              className="grid min-h-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] overflow-hidden"
+              className="grid min-h-0 grid-cols-1 overflow-hidden md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"
             >
-              <ScrollArea className="min-h-0 border-r">
+              <ScrollArea className="min-h-0 border-b md:border-r md:border-b-0">
                 <div className="flex flex-col gap-5 p-5">
                   <section>
                     <div className="mb-3">
@@ -307,6 +307,14 @@ export function ApiPlaygroundDialog({
                               ...current,
                               [parameter.key]: value,
                             }))
+                          }
+                          onValidityChange={(valid) =>
+                            setInvalidParameterIds((current) => {
+                              const next = new Set(current)
+                              if (valid) next.delete(parameter.id)
+                              else next.add(parameter.id)
+                              return next
+                            })
                           }
                         />
                       ))}
@@ -370,7 +378,10 @@ export function ApiPlaygroundDialog({
                                 }))
                               }
                             >
-                              <SelectTrigger className="w-full">
+                              <SelectTrigger
+                                aria-label={`Format for ${output.name}`}
+                                className="w-full"
+                              >
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent position="popper">
@@ -424,9 +435,23 @@ export function ApiPlaygroundDialog({
                   </pre>
                 </ScrollArea>
                 <div className="border-t bg-background p-4">
+                  {invalidParameterIds.size ? (
+                    <p
+                      className="mb-2 text-[11px] text-destructive"
+                      role="alert"
+                    >
+                      Fix {invalidParameterIds.size} invalid parameter
+                      {invalidParameterIds.size === 1 ? "" : "s"} before
+                      rendering.
+                    </p>
+                  ) : null}
                   <Button
                     className="w-full"
-                    disabled={running || !selections.length}
+                    disabled={
+                      running ||
+                      !selections.length ||
+                      invalidParameterIds.size > 0
+                    }
                     onClick={() => {
                       setRunning(true)
                       void runRender(version, values, selections).then(() => {

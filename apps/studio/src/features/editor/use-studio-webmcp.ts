@@ -8,9 +8,13 @@ import { registerStudioWebMcpTools } from "@webmcp/webmcp"
 import type {
   StudioWebMcpRenderRecord,
   StudioWebMcpRenderSelection,
+  StudioWebMcpCommandCapability,
   StudioWebMcpSnapshot,
   WebMcpModelContext,
 } from "@webmcp/webmcp"
+import type { StudioAsset } from "./asset-catalog"
+import { createManagedWebMcpCatalog } from "./managed-webmcp-catalog"
+import type { ManagedWebMcpCatalog } from "./managed-webmcp-catalog"
 
 declare global {
   interface Document {
@@ -20,7 +24,12 @@ declare global {
 
 type WebMcpStatus = "unavailable" | "registering" | "ready" | "error"
 
-type StudioWebMcpServices = StudioWebMcpSnapshot & {
+type StudioWebMcpServices = Omit<
+  StudioWebMcpSnapshot,
+  "assets" | "commandCapabilities"
+> & {
+  assets: readonly StudioAsset[]
+  getCommandCapabilities: () => readonly StudioWebMcpCommandCapability[]
   proposeChangeSet: (changeSet: ChangeSet) => ChangeSet
   publishTemplate: () => Promise<TemplateVersion>
   renderTemplate: (
@@ -30,17 +39,47 @@ type StudioWebMcpServices = StudioWebMcpSnapshot & {
   ) => Promise<StudioWebMcpRenderRecord>
 }
 
-export function useStudioWebMcp(services: StudioWebMcpServices) {
+export function projectStudioWebMcpSnapshot(
+  services: StudioWebMcpServices
+): StudioWebMcpSnapshot {
+  const {
+    getCommandCapabilities,
+    proposeChangeSet: _proposeChangeSet,
+    publishTemplate: _publishTemplate,
+    renderTemplate: _renderTemplate,
+    ...current
+  } = services
+  return {
+    ...current,
+    commandCapabilities: getCommandCapabilities(),
+    assets: current.assets.map((asset) => ({
+      ...asset,
+      ownership: "built_in" as const,
+      selectable: true,
+    })),
+  }
+}
+
+export function useStudioWebMcp(
+  services: StudioWebMcpServices,
+  { enabled = true }: { enabled?: boolean } = {}
+) {
   const servicesRef = useRef(services)
   servicesRef.current = services
   const [status, setStatus] = useState<WebMcpStatus>("unavailable")
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    if (!enabled) {
+      setStatus("unavailable")
+      setError(null)
+      return
+    }
     const controller = new AbortController()
     let active = true
     let registrationStarted = false
     let interval = 0
+    let catalog: ManagedWebMcpCatalog | null = null
 
     const register = async () => {
       const modelContext = document.modelContext
@@ -48,12 +87,18 @@ export function useStudioWebMcp(services: StudioWebMcpServices) {
         return
       }
       registrationStarted = true
+      const registeredCatalog = createManagedWebMcpCatalog(
+        servicesRef.current.assets
+      )
+      catalog = registeredCatalog
       setStatus("registering")
       try {
         await registerStudioWebMcpTools(
           modelContext,
           {
-            getSnapshot: () => servicesRef.current,
+            getSnapshot: () => projectStudioWebMcpSnapshot(servicesRef.current),
+            searchAssets: (input) => registeredCatalog.search(input),
+            resolveAsset: (assetId) => registeredCatalog.resolve(assetId),
             proposeChangeSet: (changeSet) =>
               servicesRef.current.proposeChangeSet(changeSet),
             publishTemplate: () => servicesRef.current.publishTemplate(),
@@ -90,8 +135,9 @@ export function useStudioWebMcp(services: StudioWebMcpServices) {
       active = false
       window.clearInterval(interval)
       controller.abort()
+      catalog?.dispose()
     }
-  }, [])
+  }, [enabled])
 
   return { status, error, registeredToolCount: status === "ready" ? 10 : 0 }
 }

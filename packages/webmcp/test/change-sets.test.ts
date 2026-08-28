@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 import { northstarSeed, previewChangeSet } from "@webmcp/document"
+import type { Document, SceneNode } from "@webmcp/document"
 import {
+  canvasPatchValuesEqual,
   createCanvasEditChangeSet,
   createFieldUpdateChangeSet,
   createOutputVariantChangeSet,
@@ -21,6 +23,7 @@ describe("field update proposals", () => {
       {
         documentId: northstarSeed.id,
         baseRevision: northstarSeed.revision,
+        baseSnapshotId: "snapshot-northstar",
         reason: "Adapt the package for a smaller celebration",
         values: {
           package_name: "The Saffron Weekend",
@@ -38,12 +41,18 @@ describe("field update proposals", () => {
       fieldId: "package_name",
       value: "The Saffron Weekend",
     })
+    expect(proposal.operations[1]?.command).toMatchObject({
+      type: "set_field",
+      fieldId: "package_price",
+      value: "410000",
+    })
   })
 
   it("rejects unknown, invalid, unchanged, and stale values", () => {
     const base = {
       documentId: northstarSeed.id,
       baseRevision: northstarSeed.revision,
+      baseSnapshotId: "snapshot-northstar",
     }
     expect(() =>
       createFieldUpdateChangeSet(
@@ -69,6 +78,13 @@ describe("field update proposals", () => {
     expect(() =>
       createFieldUpdateChangeSet(
         northstarSeed,
+        { ...base, values: { package_price: "₹3,85,000" } },
+        identity()
+      )
+    ).toThrow("already match")
+    expect(() =>
+      createFieldUpdateChangeSet(
+        northstarSeed,
         { ...base, baseRevision: 0, values: { package_name: "New" } },
         identity()
       )
@@ -77,15 +93,88 @@ describe("field update proposals", () => {
 })
 
 describe("canvas edit proposals", () => {
+  const imageNode: Extract<SceneNode, { type: "image" }> = {
+    id: "image-noop",
+    type: "image",
+    name: "No-op image",
+    x: 40,
+    y: 60,
+    width: 320,
+    height: 180,
+    rotation: 0,
+    opacity: 1,
+    visible: true,
+    locked: false,
+    assetId: "asset-noop",
+    src: "https://example.com/noop.png",
+    placement: {
+      mode: "manual",
+      focalX: 0.25,
+      focalY: 0.75,
+      zoom: 1.4,
+      rotation: 15,
+      flipX: true,
+      flipY: false,
+    },
+    frameMask: { shape: "rounded_rectangle", radius: 0.16 },
+    alt: "No-op image",
+    decorative: false,
+  }
+  const documentWithImage: Document = {
+    ...northstarSeed,
+    pages: northstarSeed.pages.map((page, index) =>
+      index === 0 ? { ...page, nodeIds: [...page.nodeIds, imageNode.id] } : page
+    ),
+    nodes: [...northstarSeed.nodes, imageNode],
+  }
+
+  it("compares canonical structured patch values by content", () => {
+    expect(
+      canvasPatchValuesEqual(
+        { mode: "fill", focal: [0.5, 0.5] },
+        { focal: [0.5, 0.5], mode: "fill" }
+      )
+    ).toBe(true)
+    expect(
+      canvasPatchValuesEqual({ shape: "ellipse" }, { shape: "rectangle" })
+    ).toBe(false)
+  })
+
+  it.each([
+    ["placement", { ...imageNode.placement }],
+    ["frameMask", { ...imageNode.frameMask }],
+  ])("rejects a structured %s no-op", (property, value) => {
+    expect(() =>
+      createCanvasEditChangeSet(
+        documentWithImage,
+        {
+          documentId: documentWithImage.id,
+          baseRevision: documentWithImage.revision,
+          baseSnapshotId: "snapshot-image-noop",
+          edits: [
+            {
+              nodeType: "image",
+              nodeId: imageNode.id,
+              patch: { [property]: value },
+            },
+          ],
+        },
+        identity()
+      )
+    ).toThrow("already has those values")
+  })
+
   it("creates validated per-layer operations without mutating the source", () => {
     const proposal = createCanvasEditChangeSet(
       northstarSeed,
       {
         documentId: northstarSeed.id,
         baseRevision: northstarSeed.revision,
+        baseSnapshotId: "snapshot-northstar",
         reason: "Give the cover more breathing room",
         edits: [
           {
+            nodeType: "text",
             nodeId: "cover-title",
             patch: { y: 760, color: "#f3eadc" },
           },
@@ -113,13 +202,20 @@ describe("canvas edit proposals", () => {
     const base = {
       documentId: northstarSeed.id,
       baseRevision: northstarSeed.revision,
+      baseSnapshotId: "snapshot-northstar",
     }
     expect(() =>
       createCanvasEditChangeSet(
         northstarSeed,
         {
           ...base,
-          edits: [{ nodeId: "cover-title", patch: { text: "Bypass" } }],
+          edits: [
+            {
+              nodeType: "text",
+              nodeId: "cover-title",
+              patch: { text: "Bypass" },
+            },
+          ],
         },
         identity()
       )
@@ -129,7 +225,13 @@ describe("canvas edit proposals", () => {
         northstarSeed,
         {
           ...base,
-          edits: [{ nodeId: "cover-title", patch: { src: "https://bad" } }],
+          edits: [
+            {
+              nodeType: "text",
+              nodeId: "cover-title",
+              patch: { src: "https://bad" },
+            },
+          ],
         },
         identity()
       )
@@ -140,8 +242,8 @@ describe("canvas edit proposals", () => {
         {
           ...base,
           edits: [
-            { nodeId: "cover-title", patch: { y: 700 } },
-            { nodeId: "cover-title", patch: { x: 100 } },
+            { nodeType: "text", nodeId: "cover-title", patch: { y: 700 } },
+            { nodeType: "text", nodeId: "cover-title", patch: { x: 100 } },
           ],
         },
         identity()
@@ -157,6 +259,7 @@ describe("output variant proposals", () => {
       {
         documentId: northstarSeed.id,
         baseRevision: northstarSeed.revision,
+        baseSnapshotId: "snapshot-northstar",
         sourcePageId: "cover",
         name: "Instagram portrait",
         kind: "whatsapp_portrait",

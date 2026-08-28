@@ -1,5 +1,11 @@
-import { useEffect, useState } from "react"
-import type { ComponentProps } from "react"
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react"
 import {
   AlignCenter,
   AlignHorizontalJustifyCenter,
@@ -12,17 +18,25 @@ import {
   AlignVerticalJustifyEnd,
   AlignVerticalJustifyStart,
   AlignVerticalSpaceBetween,
+  AlertTriangle,
   BringToFront,
   Check,
   ClipboardCopy,
   CopyPlus,
+  Crop,
   Database,
   Eye,
   EyeOff,
+  FlipHorizontal2,
+  FlipVertical2,
   ImageUp,
   Lock,
   Link2,
+  List,
+  ListOrdered,
+  LoaderCircleIcon,
   Plus,
+  RefreshCw,
   SendToBack,
   Sparkles,
   Square,
@@ -33,8 +47,17 @@ import {
   X,
 } from "lucide-react"
 import {
+  analyzeFieldDeletion,
   bindingPropertiesForNode,
+  defaultFieldValue,
+  fieldDefinitionSchema,
+  fieldDefinitionValidationMessage,
+  isManagedRendererFont,
+  managedRendererFonts,
   fieldCanBindToProperty,
+  parseCurrencyValue,
+  projectTextLayout,
+  repairTextOverflowPatch,
 } from "@webmcp/document"
 import type {
   BindableProperty,
@@ -42,12 +65,28 @@ import type {
   ChangeSet,
   Document,
   FieldDefinition,
+  FieldBindingImpact,
+  FieldValue,
+  ImageFrameMask,
+  ImagePlacement,
   SceneNode,
 } from "@webmcp/document"
 import type { Alignment } from "@webmcp/editor/geometry"
+import type { NodeGeometryPatch } from "@webmcp/editor"
+import type {
+  EditorImageCommandId,
+  EditorImageFrameCommandId,
+} from "@webmcp/editor/commands"
+import type { ImageCropPreviewStore } from "@webmcp/editor/image-crop-preview-store"
+import { createInspectorSelectionModel } from "@webmcp/editor/inspector"
+import type {
+  InspectorCapabilityContext,
+  InspectorSharedValue,
+} from "@webmcp/editor/inspector"
 import { toolCatalog } from "@webmcp/webmcp"
 import { Badge } from "@webmcp/ui/components/badge"
 import { Button } from "@webmcp/ui/components/button"
+import { Checkbox } from "@webmcp/ui/components/checkbox"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -96,7 +135,6 @@ import {
   SelectValue,
 } from "@webmcp/ui/components/select"
 import { Separator } from "@webmcp/ui/components/separator"
-import { Slider } from "@webmcp/ui/components/slider"
 import { Tabs, TabsContent, TabsTrigger } from "@webmcp/ui/components/tabs"
 import { Textarea } from "@webmcp/ui/components/textarea"
 import {
@@ -104,118 +142,52 @@ import {
   ToggleGroupItem,
 } from "@webmcp/ui/components/toggle-group"
 import { cn } from "@webmcp/ui/lib/utils"
+import {
+  CommitInput,
+  CommitPercentSlider,
+  CommitTextarea,
+  InspectorColorField,
+  InspectorNumberField,
+  InspectorSectionLabel,
+} from "./inspector-controls"
+import {
+  applyStudioTextListStyle,
+  detectStudioTextListStyle,
+} from "./text-lists"
+import {
+  fieldDraftValue,
+  TypedFieldValueControl,
+} from "./typed-field-value-control"
+import {
+  analyzeFieldDefinitionChange,
+  fieldDefinitionsEqual,
+  validateFieldBoundDrafts,
+} from "./field-definition-change-model"
+import { operationDetails } from "./review-operation-details"
+import { projectMissingImageRecoveryActions } from "./missing-image-recovery"
 
 const DEMO_AGENT_BRIEF =
   "Inspect and validate the open design. Adapt it for Mira & Dev, 14 February 2027 in Udaipur, using The Moonlit Weekend package at ₹4,25,000, valid until 30 November 2026. Search the approved asset library for warm sandstone architecture. Then create one coordinated human-reviewed proposal that updates those shared fields and inserts the best asset on the Cover at x 620, y 120, width 540, height 900 with cover fit. Do not apply or publish anything. Summarize the affected outputs and wait for my review."
 
-function FieldLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
-      {children}
-    </span>
-  )
+const FieldLabel = InspectorSectionLabel
+
+const inspectorValue = (value: number): InspectorSharedValue<number> => ({
+  kind: "value",
+  value,
+})
+
+export function imageFlipValues(placement: Readonly<ImagePlacement>) {
+  return [
+    ...(placement.flipX ? ["horizontal"] : []),
+    ...(placement.flipY ? ["vertical"] : []),
+  ]
 }
 
-function CommitInput({
-  value,
-  onCommit,
-  ...props
-}: Omit<ComponentProps<typeof Input>, "value" | "onChange"> & {
-  value: string | number
-  onCommit: (value: string) => void
-}) {
-  const [draft, setDraft] = useState(String(value))
-  useEffect(() => setDraft(String(value)), [value])
-  const commit = () => {
-    if (draft !== String(value)) onCommit(draft)
-  }
-  return (
-    <Input
-      {...props}
-      value={draft}
-      onChange={(event) => setDraft(event.target.value)}
-      onBlur={commit}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") event.currentTarget.blur()
-        if (event.key === "Escape") {
-          setDraft(String(value))
-          event.currentTarget.blur()
-        }
-      }}
-    />
-  )
-}
-
-function CommitTextarea({
-  value,
-  onCommit,
-}: {
-  value: string
-  onCommit: (value: string) => void
-}) {
-  const [draft, setDraft] = useState(value)
-  useEffect(() => setDraft(value), [value])
-  return (
-    <Textarea
-      className="min-h-24 resize-y text-xs leading-relaxed"
-      value={draft}
-      onChange={(event) => setDraft(event.target.value)}
-      onBlur={() => draft !== value && onCommit(draft)}
-    />
-  )
-}
-
-function NumberField({
-  label,
-  value,
-  onCommit,
-}: {
-  label: string
-  value: number
-  onCommit: (value: number) => void
-}) {
-  return (
-    <label className="flex min-w-0 flex-col gap-1.5">
-      <FieldLabel>{label}</FieldLabel>
-      <CommitInput
-        inputMode="decimal"
-        value={Math.round(value * 10) / 10}
-        onCommit={(next) => {
-          const parsed = Number(next)
-          if (Number.isFinite(parsed)) onCommit(parsed)
-        }}
-      />
-    </label>
-  )
-}
-
-function ColorField({
-  label,
-  value,
-  onCommit,
-}: {
-  label: string
-  value: string
-  onCommit: (value: string) => void
-}) {
-  return (
-    <label className="flex flex-col gap-1.5">
-      <FieldLabel>{label}</FieldLabel>
-      <div className="flex h-8 items-center gap-2 rounded-lg border px-2">
-        <input
-          aria-label={`${label} color picker`}
-          type="color"
-          className="size-4 cursor-pointer appearance-none overflow-hidden rounded-sm border-0 bg-transparent p-0"
-          value={value}
-          onChange={(event) => onCommit(event.target.value)}
-        />
-        <span className="font-mono text-[11px] text-muted-foreground">
-          {value.toUpperCase()}
-        </span>
-      </div>
-    </label>
-  )
-}
+const mapInspectorValue = <TFrom, TTo>(
+  value: InspectorSharedValue<TFrom>,
+  map: (value: TFrom) => TTo
+): InspectorSharedValue<TTo> =>
+  value.kind === "value" ? { kind: "value", value: map(value.value) } : value
 
 const alignmentActions = [
   ["Align left", "left", AlignHorizontalJustifyStart],
@@ -258,23 +230,123 @@ function AlignmentGrid({
 
 function NodeInspector({
   node,
+  focusedProperty,
   onUpdate,
   onAlignToPage,
-  onReplaceImage,
+  onUpdateImageFrameGeometry,
+  onSetImagePlacement,
+  onSetImageFrameMask,
+  onRunImageCommand,
+  isImageCommandEnabled,
+  onRetryImageSource,
+  onRemoveImageLayer,
+  capabilityContext,
 }: {
   node: SceneNode
+  focusedProperty?: BindableProperty
   onUpdate: (patch: Partial<SceneNode>) => void
   onAlignToPage: (alignment: Alignment) => void
-  onReplaceImage: (nodeId: string) => void
+  onUpdateImageFrameGeometry: (
+    nodeId: string,
+    patch: Partial<NodeGeometryPatch>
+  ) => void
+  onSetImagePlacement: (nodeId: string, placement: ImagePlacement) => void
+  onSetImageFrameMask: (nodeId: string, frameMask: ImageFrameMask) => void
+  onRunImageCommand: (commandId: EditorImageCommandId) => void
+  isImageCommandEnabled: (commandId: EditorImageCommandId) => boolean
+  onRetryImageSource: (nodeId: string) => void
+  onRemoveImageLayer: () => void
+  capabilityContext?: InspectorCapabilityContext
 }) {
+  const inspector = useMemo(
+    () => createInspectorSelectionModel([node], capabilityContext),
+    [capabilityContext, node]
+  )
+  const decorativeCheckboxId = useId()
+  const imageReplacementReasonId = useId()
+  const nodeTypeLabel =
+    node.type === "text"
+      ? "Text"
+      : node.type === "image"
+        ? "Image"
+        : node.type === "rect"
+          ? "Rectangle"
+          : node.type === "ellipse"
+            ? "Ellipse"
+            : node.type === "line"
+              ? "Line"
+              : "Icon"
+  const textLayout = node.type === "text" ? projectTextLayout(node) : null
+  const textWidthIsManaged =
+    node.type === "text" && node.sizingMode === "auto_width"
+  const textHeightIsManaged =
+    node.type === "text" && node.sizingMode !== "fixed"
+  const textListStyle =
+    node.type === "text" ? detectStudioTextListStyle(node.text) : "none"
+  const imageCropBarOwnsTransforms =
+    node.type === "image" &&
+    capabilityContext?.activeImageCropNodeId === node.id
+  const nodeMutationDisabled = node.locked || imageCropBarOwnsTransforms
+  const commitFrameGeometry = (patch: Partial<NodeGeometryPatch>) => {
+    if (imageCropBarOwnsTransforms) {
+      onUpdateImageFrameGeometry(node.id, patch)
+      return
+    }
+    onUpdate(patch)
+  }
+  const imageTransformDisabled = !inspector.capabilities.canFlipImage
+  const imageFrameDisabled = !inspector.capabilities.canApplyFrameMask
+  const imageSourceState =
+    node.type === "image"
+      ? capabilityContext?.imageSourceStateByNodeId?.[node.id]
+      : undefined
+  const imageSourceReadiness =
+    node.type === "image" && imageSourceState?.src === node.src
+      ? imageSourceState.readiness
+      : "unknown"
+  const missingImageRecovery =
+    node.type === "image"
+      ? projectMissingImageRecoveryActions({
+          readiness: imageSourceReadiness,
+          documentEditable: capabilityContext?.documentEditable ?? true,
+          imageLocked: node.locked,
+          canReplaceImage: inspector.capabilities.canReplaceImage,
+          replacementDisabledReason:
+            inspector.capabilities.replaceImageDisabledReason,
+        })
+      : []
+  const missingImageRecoveryById = Object.fromEntries(
+    missingImageRecovery.map((action) => [action.id, action])
+  )
+
   return (
     <div className="flex flex-col">
-      <section className="flex flex-col gap-3 p-4">
+      <section
+        data-inspector-property="visible"
+        tabIndex={-1}
+        className={cn(
+          "flex scroll-mt-2 flex-col gap-3 p-4 transition-colors outline-none",
+          focusedProperty === "visible" &&
+            "bg-accent/70 ring-2 ring-ring ring-inset"
+        )}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-medium">Selected layer</p>
+            <p className="mt-0.5 text-[10px] text-muted-foreground">
+              Edit its identity or visible properties below.
+            </p>
+          </div>
+          <Badge variant="outline" className="font-normal">
+            {nodeTypeLabel}
+          </Badge>
+        </div>
         <div className="flex items-end gap-2">
           <label className="min-w-0 flex-1 space-y-1.5">
             <FieldLabel>Layer name</FieldLabel>
             <CommitInput
               value={node.name}
+              disabled={nodeMutationDisabled}
               onCommit={(name) => name.trim() && onUpdate({ name })}
             />
           </label>
@@ -282,6 +354,7 @@ function NodeInspector({
             aria-label={node.visible ? "Hide layer" : "Show layer"}
             size="icon"
             variant="outline"
+            disabled={imageCropBarOwnsTransforms}
             onClick={() => onUpdate({ visible: !node.visible })}
           >
             {node.visible ? <Eye /> : <EyeOff />}
@@ -290,282 +363,660 @@ function NodeInspector({
             aria-label={node.locked ? "Unlock layer" : "Lock layer"}
             size="icon"
             variant="outline"
+            disabled={imageCropBarOwnsTransforms}
             onClick={() => onUpdate({ locked: !node.locked })}
           >
             {node.locked ? <Lock /> : <Unlock />}
           </Button>
         </div>
+        <p className="text-[10px] leading-4 text-muted-foreground">
+          Used to identify this object in Layers. It does not change the visible
+          content.
+        </p>
+        {node.locked ? (
+          <p
+            className="rounded-lg border bg-muted/40 px-2.5 py-2 text-[10px] leading-4 text-muted-foreground"
+            role="status"
+          >
+            This layer is locked. Visibility and unlock remain available; its
+            content and properties cannot be changed.
+          </p>
+        ) : null}
       </section>
 
       <Separator />
       <section className="flex flex-col gap-3 p-4">
         <FieldLabel>Align to page</FieldLabel>
-        <AlignmentGrid onAlign={onAlignToPage} disabled={node.locked} />
+        <AlignmentGrid
+          onAlign={onAlignToPage}
+          disabled={nodeMutationDisabled}
+        />
       </section>
 
       <Separator />
       <section className="flex flex-col gap-3 p-4">
         <FieldLabel>Position &amp; size</FieldLabel>
         <div className="grid grid-cols-2 gap-2">
-          <NumberField
+          <InspectorNumberField
             label="X"
-            value={node.x}
-            onCommit={(x) => onUpdate({ x })}
+            value={inspector.values.x}
+            disabled={node.locked}
+            onCommit={(x) => commitFrameGeometry({ x })}
           />
-          <NumberField
+          <InspectorNumberField
             label="Y"
-            value={node.y}
-            onCommit={(y) => onUpdate({ y })}
+            value={inspector.values.y}
+            disabled={node.locked}
+            onCommit={(y) => commitFrameGeometry({ y })}
           />
-          <NumberField
+          <InspectorNumberField
             label="Width"
-            value={node.width}
-            onCommit={(width) => width > 0 && onUpdate({ width })}
+            value={inspector.values.width}
+            min={1}
+            disabled={node.locked || textWidthIsManaged}
+            onCommit={(width) => commitFrameGeometry({ width })}
           />
-          <NumberField
+          <InspectorNumberField
             label="Height"
-            value={node.height}
-            onCommit={(height) => height > 0 && onUpdate({ height })}
+            value={inspector.values.height}
+            min={1}
+            disabled={node.locked || textHeightIsManaged}
+            onCommit={(height) => commitFrameGeometry({ height })}
           />
         </div>
-        <NumberField
+        <InspectorNumberField
           label="Rotation"
-          value={node.rotation}
-          onCommit={(rotation) => onUpdate({ rotation })}
+          value={inspector.values.rotation}
+          disabled={node.locked}
+          onCommit={(rotation) => commitFrameGeometry({ rotation })}
         />
       </section>
 
       <Separator />
       <section className="flex flex-col gap-3 p-4">
-        <div className="flex items-center justify-between">
-          <FieldLabel>Opacity</FieldLabel>
-          <span className="font-mono text-[10px] text-muted-foreground">
-            {Math.round(node.opacity * 100)}%
-          </span>
-        </div>
-        <Slider
-          value={[node.opacity * 100]}
-          max={100}
-          step={1}
-          onValueCommit={([value]) => onUpdate({ opacity: value / 100 })}
+        <CommitPercentSlider
+          label="Opacity"
+          value={node.opacity * 100}
+          disabled={nodeMutationDisabled}
+          onCommit={(opacity) => onUpdate({ opacity: opacity / 100 })}
         />
       </section>
 
-      {node.type === "text" ? (
+      {inspector.capabilities.text && node.type === "text" ? (
         <>
           <Separator />
-          <section className="flex flex-col gap-3 p-4">
-            <FieldLabel>Text</FieldLabel>
-            <CommitTextarea
-              value={node.text}
-              onCommit={(text) => onUpdate({ text })}
-            />
-            <label className="space-y-1.5">
-              <FieldLabel>Font family</FieldLabel>
-              <CommitInput
-                value={node.fontFamily}
-                onCommit={(fontFamily) =>
-                  fontFamily.trim() &&
-                  onUpdate({ fontFamily: fontFamily.trim() })
-                }
+          <section
+            data-inspector-property="text"
+            tabIndex={-1}
+            className={cn(
+              "flex scroll-mt-2 flex-col gap-3 p-4 transition-colors outline-none",
+              focusedProperty === "text" &&
+                "bg-accent/70 ring-2 ring-ring ring-inset"
+            )}
+          >
+            <label className="flex flex-col gap-1.5">
+              <FieldLabel>Content</FieldLabel>
+              <span className="text-[10px] text-muted-foreground">
+                Text shown on the canvas.
+              </span>
+              <CommitTextarea
+                value={node.text}
+                disabled={imageTransformDisabled}
+                onCommit={(text) => onUpdate({ text })}
               />
             </label>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <FieldLabel>Text box</FieldLabel>
+                  <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
+                    {node.sizingMode === "auto_width"
+                      ? "Width and height follow the content."
+                      : node.sizingMode === "auto_height"
+                        ? "Text wraps at the set width; height grows to fit."
+                        : "Width and height stay fixed."}
+                  </p>
+                </div>
+              </div>
+              <ToggleGroup
+                aria-label="Text box resizing"
+                className="grid w-full grid-cols-3"
+                type="single"
+                size="sm"
+                spacing={0}
+                variant="outline"
+                value={node.sizingMode}
+                disabled={node.locked}
+                onValueChange={(sizingMode) =>
+                  sizingMode &&
+                  onUpdate({
+                    sizingMode: sizingMode as typeof node.sizingMode,
+                  })
+                }
+              >
+                <ToggleGroupItem
+                  aria-label="Auto width"
+                  className="min-h-11 px-2 text-[10px] min-[1280px]:min-h-0"
+                  value="auto_width"
+                >
+                  Auto width
+                </ToggleGroupItem>
+                <ToggleGroupItem
+                  aria-label="Auto height"
+                  className="min-h-11 px-2 text-[10px] min-[1280px]:min-h-0"
+                  value="auto_height"
+                >
+                  Auto height
+                </ToggleGroupItem>
+                <ToggleGroupItem
+                  aria-label="Fixed text box"
+                  className="min-h-11 px-2 text-[10px] min-[1280px]:min-h-0"
+                  value="fixed"
+                >
+                  Fixed
+                </ToggleGroupItem>
+              </ToggleGroup>
+            </div>
+            {textLayout?.overflow ? (
+              <div
+                className="rounded-lg border border-amber-500/35 bg-amber-500/8 p-3"
+                data-overflow-x={textLayout.overflowX ? "true" : "false"}
+                data-overflow-y={textLayout.overflowY ? "true" : "false"}
+                role="status"
+              >
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-700 dark:text-amber-400" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[11px] font-medium">
+                      {textLayout.overflowX && textLayout.overflowY
+                        ? "Text is clipped horizontally and vertically"
+                        : textLayout.overflowX
+                          ? "Text is clipped horizontally"
+                          : "Text is clipped vertically"}
+                    </p>
+                    <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
+                      {textLayout.overflowX
+                        ? "The fixed box is too narrow for its content. Let the box follow the text dimensions."
+                        : "The fixed box is too short for its content. Let the height grow so every line remains visible."}
+                    </p>
+                    <Button
+                      className="mt-2 min-h-11 px-2 text-[10px] min-[1280px]:min-h-7"
+                      size="sm"
+                      variant="outline"
+                      disabled={node.locked}
+                      onClick={() => onUpdate(repairTextOverflowPatch(node))}
+                    >
+                      {textLayout.overflowX
+                        ? "Resize box to fit"
+                        : "Resize height to fit"}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+            <label className="space-y-1.5">
+              <FieldLabel>Font family</FieldLabel>
+              <Select
+                value={node.fontFamily}
+                disabled={node.locked}
+                onValueChange={(fontFamily) => {
+                  if (isManagedRendererFont(fontFamily)) {
+                    onUpdate({ fontFamily })
+                  }
+                }}
+              >
+                <SelectTrigger className="min-h-11 min-[1280px]:min-h-0">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {managedRendererFonts.map((fontFamily) => (
+                      <SelectItem key={fontFamily} value={fontFamily}>
+                        {fontFamily}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </label>
             <div className="grid grid-cols-2 gap-2">
-              <NumberField
+              <InspectorNumberField
                 label="Font size"
-                value={node.fontSize}
-                onCommit={(fontSize) => fontSize > 0 && onUpdate({ fontSize })}
+                value={inspectorValue(node.fontSize)}
+                min={0.1}
+                disabled={node.locked}
+                onCommit={(fontSize) => onUpdate({ fontSize })}
               />
-              <NumberField
+              <InspectorNumberField
                 label="Weight"
-                value={node.fontWeight}
-                onCommit={(fontWeight) =>
-                  onUpdate({
-                    fontWeight: Math.min(
-                      900,
-                      Math.max(100, Math.round(fontWeight / 100) * 100)
-                    ),
-                  })
-                }
+                value={inspectorValue(node.fontWeight)}
+                min={100}
+                max={900}
+                integer
+                disabled={node.locked}
+                onCommit={(fontWeight) => onUpdate({ fontWeight })}
               />
-              <NumberField
+              <InspectorNumberField
                 label="Line height"
-                value={node.lineHeight}
-                onCommit={(lineHeight) =>
-                  onUpdate({
-                    lineHeight: Math.min(3, Math.max(0.5, lineHeight)),
-                  })
-                }
+                value={inspectorValue(node.lineHeight)}
+                min={0.5}
+                max={3}
+                disabled={node.locked}
+                onCommit={(lineHeight) => onUpdate({ lineHeight })}
               />
-              <NumberField
+              <InspectorNumberField
                 label="Letter spacing"
-                value={node.letterSpacing}
-                onCommit={(letterSpacing) =>
-                  onUpdate({
-                    letterSpacing: Math.min(200, Math.max(-20, letterSpacing)),
-                  })
-                }
+                value={inspectorValue(node.letterSpacing)}
+                min={-20}
+                max={200}
+                disabled={node.locked}
+                onCommit={(letterSpacing) => onUpdate({ letterSpacing })}
               />
             </div>
-            <ColorField
+            <InspectorColorField
               label="Text color"
               value={node.color}
+              disabled={imageTransformDisabled}
               onCommit={(color) => onUpdate({ color })}
             />
-            <div className="grid grid-cols-3 gap-1 rounded-lg bg-muted p-1">
-              {[
-                ["left", AlignLeft],
-                ["center", AlignCenter],
-                ["right", AlignRight],
-              ].map(([align, Icon]) => (
-                <Button
-                  key={align as string}
-                  aria-label={`Align ${align as string}`}
+            <div className="space-y-2">
+              <FieldLabel>Paragraph</FieldLabel>
+              <div className="grid grid-cols-3 gap-1 rounded-lg bg-muted p-1">
+                {[
+                  ["left", AlignLeft],
+                  ["center", AlignCenter],
+                  ["right", AlignRight],
+                ].map(([align, Icon]) => (
+                  <Button
+                    key={align as string}
+                    aria-label={`Align ${align as string}`}
+                    className="min-h-11 min-[1280px]:min-h-0"
+                    size="sm"
+                    disabled={node.locked}
+                    variant={node.align === align ? "secondary" : "ghost"}
+                    onClick={() =>
+                      onUpdate({
+                        align: align as "left" | "center" | "right",
+                      })
+                    }
+                  >
+                    <Icon />
+                  </Button>
+                ))}
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[10px] leading-4 text-muted-foreground">
+                  Apply a list to each non-empty paragraph.
+                </span>
+                <ToggleGroup
+                  aria-label="Paragraph list style"
+                  className="shrink-0"
+                  type="single"
                   size="sm"
-                  variant={node.align === align ? "secondary" : "ghost"}
-                  onClick={() =>
-                    onUpdate({ align: align as "left" | "center" | "right" })
+                  spacing={0}
+                  variant="outline"
+                  value={
+                    textListStyle === "bulleted" || textListStyle === "numbered"
+                      ? textListStyle
+                      : ""
                   }
+                  disabled={node.locked}
+                  onValueChange={(value) => {
+                    const text = applyStudioTextListStyle(
+                      node.text,
+                      value === "bulleted" || value === "numbered"
+                        ? value
+                        : "none"
+                    )
+                    if (text !== node.text) onUpdate({ text })
+                  }}
                 >
-                  <Icon />
-                </Button>
-              ))}
+                  <ToggleGroupItem
+                    aria-label="Bulleted list"
+                    className="min-h-11 min-w-11 min-[1280px]:min-h-0 min-[1280px]:min-w-0"
+                    value="bulleted"
+                  >
+                    <List />
+                  </ToggleGroupItem>
+                  <ToggleGroupItem
+                    aria-label="Numbered list"
+                    className="min-h-11 min-w-11 min-[1280px]:min-h-0 min-[1280px]:min-w-0"
+                    value="numbered"
+                  >
+                    <ListOrdered />
+                  </ToggleGroupItem>
+                </ToggleGroup>
+              </div>
             </div>
           </section>
         </>
       ) : null}
 
-      {node.type === "rect" ? (
+      {inspector.capabilities.cornerRadius && node.type === "rect" ? (
         <>
           <Separator />
-          <section className="flex flex-col gap-3 p-4">
-            <ColorField
+          <section
+            data-inspector-property="fill"
+            tabIndex={-1}
+            className={cn(
+              "flex scroll-mt-2 flex-col gap-3 p-4 transition-colors outline-none",
+              focusedProperty === "fill" &&
+                "bg-accent/70 ring-2 ring-ring ring-inset"
+            )}
+          >
+            <InspectorColorField
               label="Fill"
               value={node.fill}
+              disabled={imageTransformDisabled}
               onCommit={(fill) => onUpdate({ fill })}
             />
-            <NumberField
+            <InspectorNumberField
               label="Corner radius"
-              value={node.radius}
-              onCommit={(radius) => onUpdate({ radius: Math.max(0, radius) })}
+              value={inspectorValue(node.radius)}
+              min={0}
+              disabled={node.locked}
+              onCommit={(radius) => onUpdate({ radius })}
             />
-            <ColorField
+            <InspectorColorField
               label="Stroke"
               value={node.stroke ?? "#1e2622"}
+              disabled={node.locked}
               onCommit={(stroke) => onUpdate({ stroke })}
             />
-            <NumberField
+            <InspectorNumberField
               label="Stroke width"
-              value={node.strokeWidth}
-              onCommit={(strokeWidth) =>
-                onUpdate({ strokeWidth: Math.max(0, strokeWidth) })
-              }
+              value={inspectorValue(node.strokeWidth)}
+              min={0}
+              disabled={node.locked}
+              onCommit={(strokeWidth) => onUpdate({ strokeWidth })}
             />
           </section>
         </>
       ) : null}
 
-      {node.type === "ellipse" || node.type === "icon" ? (
+      {inspector.capabilities.fill &&
+      (node.type === "ellipse" || node.type === "icon") ? (
         <>
           <Separator />
-          <section className="flex flex-col gap-3 p-4">
-            <ColorField
+          <section
+            data-inspector-property="fill"
+            tabIndex={-1}
+            className={cn(
+              "flex scroll-mt-2 flex-col gap-3 p-4 transition-colors outline-none",
+              focusedProperty === "fill" &&
+                "bg-accent/70 ring-2 ring-ring ring-inset"
+            )}
+          >
+            <InspectorColorField
               label="Fill"
               value={node.fill}
+              disabled={node.locked}
               onCommit={(fill) => onUpdate({ fill })}
             />
-            <ColorField
+            <InspectorColorField
               label="Stroke"
               value={node.stroke ?? "#1e2622"}
+              disabled={node.locked}
               onCommit={(stroke) => onUpdate({ stroke })}
             />
-            <NumberField
+            <InspectorNumberField
               label="Stroke width"
-              value={node.strokeWidth}
-              onCommit={(strokeWidth) =>
-                onUpdate({ strokeWidth: Math.max(0, strokeWidth) })
-              }
+              value={inspectorValue(node.strokeWidth)}
+              min={0}
+              disabled={node.locked}
+              onCommit={(strokeWidth) => onUpdate({ strokeWidth })}
             />
           </section>
         </>
       ) : null}
 
-      {node.type === "line" ? (
+      {inspector.capabilities.stroke && node.type === "line" ? (
         <>
           <Separator />
           <section className="flex flex-col gap-3 p-4">
-            <ColorField
+            <InspectorColorField
               label="Stroke"
               value={node.stroke}
+              disabled={node.locked}
               onCommit={(stroke) => onUpdate({ stroke })}
             />
-            <NumberField
+            <InspectorNumberField
               label="Stroke width"
-              value={node.strokeWidth}
-              onCommit={(strokeWidth) =>
-                strokeWidth > 0 && onUpdate({ strokeWidth })
-              }
+              value={inspectorValue(node.strokeWidth)}
+              min={0.1}
+              disabled={node.locked}
+              onCommit={(strokeWidth) => onUpdate({ strokeWidth })}
             />
           </section>
         </>
       ) : null}
 
-      {node.type === "image" ? (
+      {inspector.capabilities.image && node.type === "image" ? (
         <>
           <Separator />
-          <section className="flex flex-col gap-3 p-4">
+          <section
+            data-inspector-property="src"
+            tabIndex={-1}
+            className={cn(
+              "flex scroll-mt-2 flex-col gap-3 p-4 transition-colors outline-none",
+              focusedProperty === "src" &&
+                "bg-accent/70 ring-2 ring-ring ring-inset"
+            )}
+          >
             <div className="flex items-center justify-between gap-3">
-              <FieldLabel>Image fit</FieldLabel>
+              <FieldLabel>Image placement</FieldLabel>
               <ToggleGroup
                 type="single"
                 size="sm"
                 spacing={0}
                 variant="outline"
-                value={node.fit}
-                onValueChange={(fit) =>
-                  fit && onUpdate({ fit: fit as "cover" | "contain" })
-                }
+                value={node.placement.mode}
+                disabled={imageTransformDisabled}
+                onValueChange={(mode) => {
+                  if (mode === "fill") onRunImageCommand("image.fill")
+                  if (mode === "fit") onRunImageCommand("image.fit")
+                }}
               >
-                <ToggleGroupItem value="cover">Cover</ToggleGroupItem>
-                <ToggleGroupItem value="contain">Contain</ToggleGroupItem>
+                <ToggleGroupItem
+                  value="fill"
+                  disabled={!isImageCommandEnabled("image.fill")}
+                >
+                  Fill
+                </ToggleGroupItem>
+                <ToggleGroupItem
+                  value="fit"
+                  disabled={!isImageCommandEnabled("image.fit")}
+                >
+                  Fit
+                </ToggleGroupItem>
               </ToggleGroup>
             </div>
-            <label className="flex flex-col gap-2">
-              <span className="flex items-center justify-between">
-                <FieldLabel>Horizontal focus</FieldLabel>
-                <span className="font-mono text-[10px] text-muted-foreground">
-                  {Math.round(node.cropX * 100)}%
-                </span>
-              </span>
-              <Slider
-                value={[node.cropX * 100]}
-                max={100}
-                step={1}
-                onValueCommit={([value]) => onUpdate({ cropX: value / 100 })}
+            <CommitPercentSlider
+              label="Horizontal focus"
+              value={node.placement.focalX * 100}
+              disabled={imageTransformDisabled}
+              onCommit={(focalX) =>
+                onSetImagePlacement(node.id, {
+                  ...node.placement,
+                  focalX: focalX / 100,
+                })
+              }
+            />
+            <CommitPercentSlider
+              label="Vertical focus"
+              value={node.placement.focalY * 100}
+              disabled={imageTransformDisabled}
+              onCommit={(focalY) =>
+                onSetImagePlacement(node.id, {
+                  ...node.placement,
+                  focalY: focalY / 100,
+                })
+              }
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <InspectorNumberField
+                label="Image zoom"
+                value={inspectorValue(node.placement.zoom * 100)}
+                min={5}
+                max={6400}
+                suffix="%"
+                disabled={imageTransformDisabled}
+                onCommit={(zoom) =>
+                  onSetImagePlacement(node.id, {
+                    ...node.placement,
+                    mode:
+                      node.placement.mode === "fill"
+                        ? "manual"
+                        : node.placement.mode,
+                    zoom: zoom / 100,
+                  })
+                }
               />
-            </label>
-            <label className="flex flex-col gap-2">
-              <span className="flex items-center justify-between">
-                <FieldLabel>Vertical focus</FieldLabel>
-                <span className="font-mono text-[10px] text-muted-foreground">
-                  {Math.round(node.cropY * 100)}%
-                </span>
-              </span>
-              <Slider
-                value={[node.cropY * 100]}
-                max={100}
-                step={1}
-                onValueCommit={([value]) => onUpdate({ cropY: value / 100 })}
+              <InspectorNumberField
+                label="Image rotation"
+                value={inspectorValue(node.placement.rotation)}
+                min={-180}
+                max={180}
+                suffix="°"
+                disabled={imageTransformDisabled}
+                onCommit={(rotation) =>
+                  onSetImagePlacement(node.id, {
+                    ...node.placement,
+                    rotation,
+                  })
+                }
               />
-            </label>
-            <label className="space-y-1.5">
-              <FieldLabel>Alternative text</FieldLabel>
-              <CommitInput
-                placeholder="Describe the image"
-                value={node.alt}
-                onCommit={(alt) => onUpdate({ alt })}
-              />
-            </label>
+            </div>
+            <div className="space-y-2">
+              <FieldLabel>Flip image</FieldLabel>
+              <ToggleGroup
+                type="multiple"
+                size="sm"
+                spacing={0}
+                variant="outline"
+                value={imageFlipValues(node.placement)}
+                disabled={imageTransformDisabled}
+                aria-label="Flip image"
+                onValueChange={(values) => {
+                  if (values.includes("horizontal") !== node.placement.flipX) {
+                    onRunImageCommand("image.flip-horizontal")
+                  }
+                  if (values.includes("vertical") !== node.placement.flipY) {
+                    onRunImageCommand("image.flip-vertical")
+                  }
+                }}
+              >
+                <ToggleGroupItem
+                  value="horizontal"
+                  aria-label="Flip image horizontally"
+                  className="flex-1"
+                  disabled={!isImageCommandEnabled("image.flip-horizontal")}
+                >
+                  <FlipHorizontal2 aria-hidden="true" />
+                  Horizontal
+                </ToggleGroupItem>
+                <ToggleGroupItem
+                  value="vertical"
+                  aria-label="Flip image vertically"
+                  className="flex-1"
+                  disabled={!isImageCommandEnabled("image.flip-vertical")}
+                >
+                  <FlipVertical2 aria-hidden="true" />
+                  Vertical
+                </ToggleGroupItem>
+              </ToggleGroup>
+            </div>
+            <div className="space-y-2 border-t pt-3">
+              <div className="flex items-center justify-between gap-3">
+                <FieldLabel>Image frame</FieldLabel>
+                <ToggleGroup
+                  type="single"
+                  size="sm"
+                  spacing={0}
+                  variant="outline"
+                  value={node.frameMask.shape}
+                  disabled={imageFrameDisabled}
+                  onValueChange={(type) => {
+                    const commandByShape: Partial<
+                      Record<string, EditorImageFrameCommandId>
+                    > = {
+                      rectangle: "image.frame.rectangle",
+                      rounded_rectangle: "image.frame.rounded-rectangle",
+                      ellipse: "image.frame.ellipse",
+                    }
+                    const commandId = commandByShape[type]
+                    if (commandId) onRunImageCommand(commandId)
+                  }}
+                >
+                  <ToggleGroupItem
+                    value="rectangle"
+                    disabled={!isImageCommandEnabled("image.frame.rectangle")}
+                  >
+                    Rectangle
+                  </ToggleGroupItem>
+                  <ToggleGroupItem
+                    value="rounded_rectangle"
+                    disabled={
+                      !isImageCommandEnabled("image.frame.rounded-rectangle")
+                    }
+                  >
+                    Rounded
+                  </ToggleGroupItem>
+                  <ToggleGroupItem
+                    value="ellipse"
+                    disabled={!isImageCommandEnabled("image.frame.ellipse")}
+                  >
+                    Ellipse
+                  </ToggleGroupItem>
+                </ToggleGroup>
+              </div>
+              {node.frameMask.shape === "rounded_rectangle" ? (
+                <CommitPercentSlider
+                  label="Corner radius"
+                  value={node.frameMask.radius * 200}
+                  disabled={imageFrameDisabled}
+                  onCommit={(radius) =>
+                    onSetImageFrameMask(node.id, {
+                      shape: "rounded_rectangle",
+                      radius: radius / 200,
+                    })
+                  }
+                />
+              ) : null}
+            </div>
+            <div className="space-y-2 border-t pt-3">
+              <div className="flex items-start gap-2.5 text-xs">
+                <Checkbox
+                  id={decorativeCheckboxId}
+                  className="mt-0.5"
+                  checked={node.decorative}
+                  disabled={nodeMutationDisabled}
+                  onCheckedChange={(checked) =>
+                    onUpdate({
+                      decorative: checked === true,
+                      ...(checked === true ? { alt: "" } : {}),
+                    })
+                  }
+                />
+                <label htmlFor={decorativeCheckboxId}>
+                  <span className="block font-medium">Decorative image</span>
+                  <span className="mt-0.5 block text-muted-foreground">
+                    Screen readers will skip this image.
+                  </span>
+                </label>
+              </div>
+              {!node.decorative ? (
+                <label className="space-y-1.5">
+                  <FieldLabel>Alternative text</FieldLabel>
+                  <CommitInput
+                    placeholder="Describe the image"
+                    value={node.alt}
+                    disabled={nodeMutationDisabled}
+                    onCommit={(alt) => onUpdate({ alt })}
+                  />
+                </label>
+              ) : null}
+            </div>
             {node.src.startsWith("asset:local/") ||
             node.assetId.startsWith("library-") ? (
               <div className="space-y-1.5">
@@ -582,22 +1033,138 @@ function NodeInspector({
                 </div>
               </div>
             ) : (
-              <label className="space-y-1.5">
+              <div className="space-y-1.5">
                 <FieldLabel>Image URL</FieldLabel>
-                <CommitInput
-                  value={node.src}
-                  onCommit={(src) => onUpdate({ src })}
-                />
-              </label>
+                <div className="rounded-lg border bg-muted/40 px-2.5 py-2">
+                  <p className="text-xs font-medium">External image</p>
+                  <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
+                    {node.src}
+                  </p>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Use Replace image to change this source safely.
+                </p>
+              </div>
             )}
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => onReplaceImage(node.id)}
-            >
-              <ImageUp data-icon="inline-start" />
-              Replace image…
-            </Button>
+            {imageSourceReadiness !== "ready" ? (
+              <div
+                className="space-y-2 rounded-lg border bg-muted/40 p-2.5"
+                role={
+                  imageSourceReadiness === "unavailable" ? "alert" : "status"
+                }
+              >
+                <div className="flex items-start gap-2">
+                  {imageSourceReadiness === "unavailable" ? (
+                    <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-600" />
+                  ) : (
+                    <LoaderCircleIcon className="mt-0.5 size-3.5 shrink-0 animate-spin text-muted-foreground" />
+                  )}
+                  <div>
+                    <p className="text-[11px] font-medium text-foreground">
+                      {imageSourceReadiness === "unavailable"
+                        ? "Image unavailable"
+                        : imageSourceReadiness === "loading"
+                          ? "Preparing image"
+                          : "Checking image"}
+                    </p>
+                    <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
+                      {imageSourceReadiness === "loading"
+                        ? "Preparing this image for direct editing…"
+                        : imageSourceReadiness === "unavailable"
+                          ? "The frame and layer position are preserved. Retry the source, locate a replacement, or remove the layer."
+                          : "Image editing becomes available after the canvas verifies this source."}
+                    </p>
+                  </div>
+                </div>
+                {imageSourceReadiness === "unavailable" ? (
+                  <div className="grid grid-cols-3 gap-1.5">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      aria-label="Retry image source"
+                      disabled={!missingImageRecoveryById.retry.enabled}
+                      title={
+                        missingImageRecoveryById.retry.disabledReason ??
+                        undefined
+                      }
+                      onClick={() => onRetryImageSource(node.id)}
+                    >
+                      <RefreshCw data-icon="inline-start" />
+                      Retry
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      aria-label="Locate replacement image"
+                      aria-describedby={
+                        inspector.capabilities.replaceImageDisabledReason
+                          ? imageReplacementReasonId
+                          : undefined
+                      }
+                      disabled={!missingImageRecoveryById.locate.enabled}
+                      title={
+                        missingImageRecoveryById.locate.disabledReason ??
+                        undefined
+                      }
+                      onClick={() => onRunImageCommand("image.replace")}
+                    >
+                      <ImageUp data-icon="inline-start" />
+                      Locate
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      aria-label="Remove image layer"
+                      disabled={!missingImageRecoveryById.remove.enabled}
+                      title={
+                        missingImageRecoveryById.remove.disabledReason ??
+                        undefined
+                      }
+                      onClick={onRemoveImageLayer}
+                    >
+                      <Trash2 data-icon="inline-start" />
+                      Remove
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+            {inspector.capabilities.replaceImageDisabledReason ? (
+              <p
+                id={imageReplacementReasonId}
+                className="rounded-lg border bg-muted/40 px-2.5 py-2 text-[11px] leading-4 text-muted-foreground"
+                role="status"
+              >
+                {inspector.capabilities.replaceImageDisabledReason}
+              </p>
+            ) : null}
+            {imageSourceReadiness !== "unavailable" ? (
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!isImageCommandEnabled("image.crop")}
+                  onClick={() => onRunImageCommand("image.crop")}
+                >
+                  <Crop data-icon="inline-start" />
+                  Crop image
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  aria-describedby={
+                    inspector.capabilities.replaceImageDisabledReason
+                      ? imageReplacementReasonId
+                      : undefined
+                  }
+                  disabled={!isImageCommandEnabled("image.replace")}
+                  onClick={() => onRunImageCommand("image.replace")}
+                >
+                  <ImageUp data-icon="inline-start" />
+                  Replace image…
+                </Button>
+              </div>
+            ) : null}
           </section>
         </>
       ) : null}
@@ -607,6 +1174,7 @@ function NodeInspector({
 
 function MultiSelectionInspector({
   nodes,
+  onUpdateSelection,
   onAlign,
   onAlignToPage,
   onDistribute,
@@ -617,6 +1185,7 @@ function MultiSelectionInspector({
   onDelete,
 }: {
   nodes: SceneNode[]
+  onUpdateSelection: (patch: Partial<SceneNode>) => void
   onAlign: (alignment: Alignment) => void
   onAlignToPage: (alignment: Alignment) => void
   onDistribute: (distribution: "horizontal" | "vertical") => void
@@ -626,8 +1195,18 @@ function MultiSelectionInspector({
   onDuplicate: () => void
   onDelete: () => void
 }) {
-  const movableCount = nodes.filter((node) => !node.locked).length
-  const allLocked = nodes.every((node) => node.locked)
+  const inspector = useMemo(() => createInspectorSelectionModel(nodes), [nodes])
+  const movableCount = inspector.editableCount
+  const hasManagedWidth = nodes.some(
+    (node) =>
+      !node.locked && node.type === "text" && node.sizingMode === "auto_width"
+  )
+  const hasManagedHeight = nodes.some(
+    (node) =>
+      !node.locked && node.type === "text" && node.sizingMode !== "fixed"
+  )
+  const allVisible =
+    inspector.values.visible.kind === "value" && inspector.values.visible.value
   return (
     <div className="flex flex-col">
       <section className="flex flex-col gap-3 p-4">
@@ -640,29 +1219,119 @@ function MultiSelectionInspector({
           </div>
           <div className="flex items-center gap-1">
             <Button
-              aria-label="Hide selected layers"
-              title="Hide selected layers"
+              aria-label={
+                allVisible ? "Hide selected layers" : "Show selected layers"
+              }
+              title={
+                allVisible ? "Hide selected layers" : "Show selected layers"
+              }
               size="icon-sm"
               variant="outline"
-              onClick={() => onSetVisible(false)}
+              onClick={() => onSetVisible(!allVisible)}
             >
-              <EyeOff />
+              {allVisible ? <EyeOff /> : <Eye />}
             </Button>
             <Button
               aria-label={
-                allLocked ? "Unlock selected layers" : "Lock selected layers"
+                inspector.allLocked
+                  ? "Unlock selected layers"
+                  : "Lock selected layers"
               }
               title={
-                allLocked ? "Unlock selected layers" : "Lock selected layers"
+                inspector.allLocked
+                  ? "Unlock selected layers"
+                  : "Lock selected layers"
               }
               size="icon-sm"
               variant="outline"
-              onClick={() => onSetLocked(!allLocked)}
+              onClick={() => onSetLocked(!inspector.allLocked)}
             >
-              {allLocked ? <Unlock /> : <Lock />}
+              {inspector.allLocked ? <Unlock /> : <Lock />}
             </Button>
           </div>
         </div>
+        {inspector.allLocked ? (
+          <p
+            className="rounded-lg border bg-muted/40 px-2.5 py-2 text-[10px] leading-4 text-muted-foreground"
+            role="status"
+          >
+            Unlock the selection to edit its properties or arrangement.
+          </p>
+        ) : inspector.someLocked ? (
+          <p
+            className="rounded-lg border border-amber-500/25 bg-amber-500/8 px-2.5 py-2 text-[10px] leading-4 text-muted-foreground"
+            role="status"
+          >
+            {inspector.lockedCount} locked layer
+            {inspector.lockedCount === 1 ? "" : "s"} will be skipped by property
+            changes. Unlock the complete selection before changing its layer
+            order.
+          </p>
+        ) : null}
+      </section>
+
+      <Separator />
+      <section className="flex flex-col gap-3 p-4">
+        <FieldLabel>Position &amp; size</FieldLabel>
+        <div className="grid grid-cols-2 gap-2">
+          <InspectorNumberField
+            label="X"
+            value={inspector.values.x}
+            disabled={!movableCount}
+            onCommit={(x) => onUpdateSelection({ x })}
+          />
+          <InspectorNumberField
+            label="Y"
+            value={inspector.values.y}
+            disabled={!movableCount}
+            onCommit={(y) => onUpdateSelection({ y })}
+          />
+          <InspectorNumberField
+            label="Width"
+            value={inspector.values.width}
+            min={1}
+            disabled={!movableCount || hasManagedWidth}
+            onCommit={(width) => onUpdateSelection({ width })}
+          />
+          <InspectorNumberField
+            label="Height"
+            value={inspector.values.height}
+            min={1}
+            disabled={!movableCount || hasManagedHeight}
+            onCommit={(height) => onUpdateSelection({ height })}
+          />
+          <InspectorNumberField
+            label="Rotation"
+            value={inspector.values.rotation}
+            disabled={!movableCount}
+            onCommit={(rotation) => onUpdateSelection({ rotation })}
+          />
+          <InspectorNumberField
+            label="Opacity"
+            value={mapInspectorValue(
+              inspector.values.opacity,
+              (opacity) => opacity * 100
+            )}
+            min={0}
+            max={100}
+            suffix="%"
+            disabled={!movableCount}
+            onCommit={(opacity) =>
+              onUpdateSelection({ opacity: opacity / 100 })
+            }
+          />
+        </div>
+        {hasManagedWidth || hasManagedHeight ? (
+          <p
+            className="rounded-lg border bg-muted/40 px-2.5 py-2 text-[10px] leading-4 text-muted-foreground"
+            role="status"
+          >
+            Auto-sizing text manages its {hasManagedWidth ? "width" : ""}
+            {hasManagedWidth && hasManagedHeight ? " and " : ""}
+            {hasManagedHeight ? "height" : ""}. Change that text box to Fixed
+            before resizing the complete selection on those axes.
+          </p>
+        ) : null}
       </section>
 
       <Separator />
@@ -698,7 +1367,7 @@ function MultiSelectionInspector({
         <FieldLabel>Layer order</FieldLabel>
         <div className="grid grid-cols-2 gap-2">
           <Button
-            disabled={!movableCount}
+            disabled={!movableCount || inspector.lockedCount > 0}
             size="sm"
             variant="outline"
             onClick={() => onReorder("front")}
@@ -707,7 +1376,7 @@ function MultiSelectionInspector({
             To front
           </Button>
           <Button
-            disabled={!movableCount}
+            disabled={!movableCount || inspector.lockedCount > 0}
             size="sm"
             variant="outline"
             onClick={() => onReorder("back")}
@@ -724,7 +1393,12 @@ function MultiSelectionInspector({
           <CopyPlus data-icon="inline-start" />
           Duplicate
         </Button>
-        <Button size="sm" variant="destructive" onClick={onDelete}>
+        <Button
+          size="sm"
+          variant="destructive"
+          disabled={!movableCount}
+          onClick={onDelete}
+        >
           <Trash2 data-icon="inline-start" />
           Delete
         </Button>
@@ -742,6 +1416,8 @@ const fieldTypes: Array<{
   { value: "currency", label: "Currency" },
   { value: "date", label: "Date" },
   { value: "asset", label: "Image asset" },
+  { value: "color", label: "Color" },
+  { value: "choice", label: "Choice" },
   { value: "boolean", label: "Boolean" },
 ]
 
@@ -760,33 +1436,24 @@ const fieldKeyFromLabel = (label: string) =>
     .replace(/^_+|_+$/g, "")
     .replace(/^[^a-z]+/, "")
 
-const defaultValueForType = (
-  type: FieldDefinition["type"]
-): string | number | boolean => {
-  if (type === "boolean") return true
-  if (type === "number") return 0
-  return ""
-}
-
-const parseFieldDraft = (
-  type: FieldDefinition["type"],
-  value: string
-): string | number | boolean => {
-  if (type === "boolean") return value === "true"
-  if (type === "number") return Number(value)
-  return value
-}
-
 function FieldDefinitionDialog({
   field,
+  document,
   fields,
+  controlIdPrefix,
   trigger,
   onSave,
+  onFocusBinding,
 }: {
   field?: FieldDefinition
+  document: Document
   fields: FieldDefinition[]
+  controlIdPrefix: string
   trigger: React.ReactNode
   onSave: (field: Omit<FieldDefinition, "id">) => void
+  onFocusBinding?: (
+    binding: Pick<FieldBindingImpact, "nodeId" | "property">
+  ) => void
 }) {
   const [open, setOpen] = useState(false)
   const [label, setLabel] = useState("")
@@ -794,7 +1461,22 @@ function FieldDefinitionDialog({
   const [keyEdited, setKeyEdited] = useState(false)
   const [type, setType] = useState<FieldDefinition["type"]>("text")
   const [required, setRequired] = useState(false)
-  const [defaultDraft, setDefaultDraft] = useState("")
+  const [agentDescription, setAgentDescription] = useState("")
+  const [minLength, setMinLength] = useState("")
+  const [maxLength, setMaxLength] = useState("")
+  const [minimum, setMinimum] = useState("")
+  const [maximum, setMaximum] = useState("")
+  const [choiceOptions, setChoiceOptions] = useState<
+    NonNullable<FieldDefinition["validation"]["options"]>
+  >([])
+  const [defaultValue, setDefaultValue] = useState<FieldValue>("")
+  const [defaultDraftValid, setDefaultDraftValid] = useState(true)
+  const [confirmingChange, setConfirmingChange] = useState(false)
+  const pendingFocusRef = useRef<Pick<
+    FieldBindingImpact,
+    "nodeId" | "property"
+  > | null>(null)
+  const controlId = `${controlIdPrefix}-${field?.id ?? "new"}`
 
   useEffect(() => {
     if (!open) return
@@ -803,10 +1485,76 @@ function FieldDefinitionDialog({
     setKeyEdited(Boolean(field))
     setType(field?.type ?? "text")
     setRequired(field?.required ?? false)
-    setDefaultDraft(String(field?.defaultValue ?? ""))
+    setAgentDescription(field?.agentDescription ?? "")
+    setMinLength(
+      field?.validation.minLength === undefined
+        ? ""
+        : String(field.validation.minLength)
+    )
+    setMaxLength(
+      field?.validation.maxLength === undefined
+        ? ""
+        : String(field.validation.maxLength)
+    )
+    setMinimum(
+      field?.validation.minimum === undefined
+        ? ""
+        : fieldDraftValue(field.type, field.validation.minimum)
+    )
+    setMaximum(
+      field?.validation.maximum === undefined
+        ? ""
+        : fieldDraftValue(field.type, field.validation.maximum)
+    )
+    setChoiceOptions(field?.validation.options ?? [])
+    setDefaultValue(field?.defaultValue ?? "")
+    setDefaultDraftValid(true)
+    setConfirmingChange(false)
   }, [field, open])
 
-  const parsedDefault = parseFieldDraft(type, defaultDraft)
+  const parsedMinimum =
+    minimum === ""
+      ? undefined
+      : type === "number"
+        ? Number(minimum)
+        : type === "currency"
+          ? parseCurrencyValue(minimum)?.decimal
+          : minimum
+  const parsedMaximum =
+    maximum === ""
+      ? undefined
+      : type === "number"
+        ? Number(maximum)
+        : type === "currency"
+          ? parseCurrencyValue(maximum)?.decimal
+          : maximum
+  const validation: FieldDefinition["validation"] =
+    type === "text"
+      ? {
+          minLength: minLength === "" ? undefined : Number(minLength),
+          maxLength: maxLength === "" ? undefined : Number(maxLength),
+        }
+      : type === "number" || type === "currency" || type === "date"
+        ? { minimum: parsedMinimum, maximum: parsedMaximum }
+        : type === "choice"
+          ? { options: choiceOptions }
+          : {}
+  const boundDraftErrors = validateFieldBoundDrafts(type, minimum, maximum)
+  const draftDefinition: FieldDefinition = {
+    id: field?.id ?? "draft_field",
+    key: key || "draft_field",
+    label: label.trim() || "Draft field",
+    type,
+    required,
+    defaultValue,
+    agentDescription,
+    validation,
+  }
+  const definitionResult = fieldDefinitionSchema.safeParse(draftDefinition)
+  const definitionError = definitionResult.success
+    ? fieldDefinitionValidationMessage(draftDefinition)
+    : (definitionResult.error.issues[0]?.message ?? "Review this field")
+
   const keyMalformed = Boolean(key) && !/^[a-z][a-z0-9_]*$/.test(key)
   const keyDuplicate = fields.some(
     (candidate) => candidate.id !== field?.id && candidate.key === key
@@ -816,12 +1564,55 @@ function FieldDefinitionDialog({
     label.trim().length > 0 &&
     /^[a-z][a-z0-9_]*$/.test(key) &&
     !keyDuplicate &&
-    !(type === "number" && !Number.isFinite(parsedDefault))
+    defaultDraftValid &&
+    !boundDraftErrors.minimum &&
+    !boundDraftErrors.maximum &&
+    definitionResult.success &&
+    !definitionError
+  const nextDefinition: Omit<FieldDefinition, "id"> = {
+    key,
+    label: label.trim(),
+    type,
+    required,
+    defaultValue,
+    agentDescription: agentDescription.trim(),
+    validation,
+  }
+  const definitionChanged =
+    !field || !fieldDefinitionsEqual(field, nextDefinition)
+  const canSave = valid && definitionChanged
+  const changeImpact =
+    field && definitionResult.success && !definitionError
+      ? analyzeFieldDefinitionChange(document, field, nextDefinition)
+      : null
+  const typeImpact = changeImpact?.typeImpact ?? null
+  const apiKeyChanged = changeImpact?.apiKeyChanged ?? false
+  const requiresChangeConfirmation = changeImpact?.requiresConfirmation ?? false
+  const save = () => {
+    onSave(nextDefinition)
+    setConfirmingChange(false)
+    setOpen(false)
+  }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen)
+        if (nextOpen) pendingFocusRef.current = null
+      }}
+    >
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent>
+      <DialogContent
+        className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-lg"
+        onCloseAutoFocus={(event) => {
+          const binding = pendingFocusRef.current
+          if (!binding) return
+          event.preventDefault()
+          pendingFocusRef.current = null
+          requestAnimationFrame(() => onFocusBinding?.(binding))
+        }}
+      >
         <DialogHeader>
           <DialogTitle>{field ? "Edit field" : "Create field"}</DialogTitle>
           <DialogDescription>
@@ -832,24 +1623,21 @@ function FieldDefinitionDialog({
           className="flex flex-col gap-4"
           onSubmit={(event) => {
             event.preventDefault()
-            if (!valid) return
-            onSave({
-              key,
-              label: label.trim(),
-              type,
-              required,
-              defaultValue: parsedDefault,
-            })
-            setOpen(false)
+            if (!canSave) return
+            if (requiresChangeConfirmation) {
+              setConfirmingChange(true)
+              return
+            }
+            save()
           }}
         >
           <FieldGroup className="gap-4">
             <Field>
-              <FormFieldLabel htmlFor={`${field?.id ?? "new"}-field-label`}>
+              <FormFieldLabel htmlFor={`${controlId}-field-label`}>
                 Label
               </FormFieldLabel>
               <Input
-                id={`${field?.id ?? "new"}-field-label`}
+                id={`${controlId}-field-label`}
                 value={label}
                 placeholder="Package name"
                 onChange={(event) => {
@@ -860,11 +1648,11 @@ function FieldDefinitionDialog({
               />
             </Field>
             <Field data-invalid={keyInvalid}>
-              <FormFieldLabel htmlFor={`${field?.id ?? "new"}-field-key`}>
+              <FormFieldLabel htmlFor={`${controlId}-field-key`}>
                 API key
               </FormFieldLabel>
               <Input
-                id={`${field?.id ?? "new"}-field-key`}
+                id={`${controlId}-field-key`}
                 aria-invalid={keyInvalid}
                 value={key}
                 placeholder="package_name"
@@ -882,15 +1670,53 @@ function FieldDefinitionDialog({
               )}
             </Field>
             <Field>
-              <FormFieldLabel>Value type</FormFieldLabel>
+              <FormFieldLabel htmlFor={`${controlId}-field-agent-description`}>
+                Agent guidance
+              </FormFieldLabel>
+              <Textarea
+                id={`${controlId}-field-agent-description`}
+                aria-label="Agent guidance"
+                className="min-h-20 resize-y"
+                maxLength={1000}
+                value={agentDescription}
+                placeholder="Explain when an agent should use this field and what a good value looks like."
+                onChange={(event) => setAgentDescription(event.target.value)}
+              />
+              <FieldDescription>
+                Sent with the field contract so agents understand its intent.
+              </FieldDescription>
+            </Field>
+            <Field>
+              <FormFieldLabel htmlFor={`${controlId}-field-type`}>
+                Value type
+              </FormFieldLabel>
               <Select
                 value={type}
                 onValueChange={(nextType: FieldDefinition["type"]) => {
+                  const firstChoice = {
+                    value: "option_1",
+                    label: "Option 1",
+                    agentDescription: "",
+                  }
+                  const nextDefaultValue =
+                    nextType === "choice" && required
+                      ? firstChoice.value
+                      : defaultFieldValue(nextType)
                   setType(nextType)
-                  setDefaultDraft(String(defaultValueForType(nextType)))
+                  setDefaultValue(nextDefaultValue)
+                  setMinLength("")
+                  setMaxLength("")
+                  setMinimum("")
+                  setMaximum("")
+                  setChoiceOptions(nextType === "choice" ? [firstChoice] : [])
+                  setDefaultDraftValid(true)
                 }}
               >
-                <SelectTrigger className="w-full">
+                <SelectTrigger
+                  id={`${controlId}-field-type`}
+                  aria-label="Value type"
+                  className="h-11 w-full"
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent position="popper">
@@ -904,51 +1730,269 @@ function FieldDefinitionDialog({
                 </SelectContent>
               </Select>
             </Field>
+            {type === "text" ? (
+              <div className="grid grid-cols-2 gap-3">
+                <Field>
+                  <FormFieldLabel htmlFor={`${controlId}-field-min-length`}>
+                    Minimum length
+                  </FormFieldLabel>
+                  <Input
+                    id={`${controlId}-field-min-length`}
+                    aria-label="Minimum text length"
+                    inputMode="numeric"
+                    min={0}
+                    step={1}
+                    type="number"
+                    value={minLength}
+                    placeholder="None"
+                    onChange={(event) => setMinLength(event.target.value)}
+                  />
+                </Field>
+                <Field>
+                  <FormFieldLabel htmlFor={`${controlId}-field-max-length`}>
+                    Maximum length
+                  </FormFieldLabel>
+                  <Input
+                    id={`${controlId}-field-max-length`}
+                    aria-label="Maximum text length"
+                    inputMode="numeric"
+                    min={0}
+                    step={1}
+                    type="number"
+                    value={maxLength}
+                    placeholder="None"
+                    onChange={(event) => setMaxLength(event.target.value)}
+                  />
+                </Field>
+              </div>
+            ) : null}
+            {type === "number" || type === "currency" || type === "date" ? (
+              <div className="grid grid-cols-2 gap-3">
+                <Field data-invalid={Boolean(boundDraftErrors.minimum)}>
+                  <FormFieldLabel htmlFor={`${controlId}-field-minimum`}>
+                    Minimum
+                  </FormFieldLabel>
+                  <Input
+                    id={`${controlId}-field-minimum`}
+                    aria-label="Minimum value"
+                    aria-invalid={Boolean(boundDraftErrors.minimum)}
+                    inputMode={type === "date" ? undefined : "decimal"}
+                    type={type === "date" ? "date" : "text"}
+                    value={minimum}
+                    placeholder="None"
+                    onChange={(event) => setMinimum(event.target.value)}
+                  />
+                  {boundDraftErrors.minimum ? (
+                    <FieldError>{boundDraftErrors.minimum}</FieldError>
+                  ) : null}
+                </Field>
+                <Field data-invalid={Boolean(boundDraftErrors.maximum)}>
+                  <FormFieldLabel htmlFor={`${controlId}-field-maximum`}>
+                    Maximum
+                  </FormFieldLabel>
+                  <Input
+                    id={`${controlId}-field-maximum`}
+                    aria-label="Maximum value"
+                    aria-invalid={Boolean(boundDraftErrors.maximum)}
+                    inputMode={type === "date" ? undefined : "decimal"}
+                    type={type === "date" ? "date" : "text"}
+                    value={maximum}
+                    placeholder="None"
+                    onChange={(event) => setMaximum(event.target.value)}
+                  />
+                  {boundDraftErrors.maximum ? (
+                    <FieldError>{boundDraftErrors.maximum}</FieldError>
+                  ) : null}
+                </Field>
+              </div>
+            ) : null}
+            {type === "choice" ? (
+              <Field>
+                <div className="flex items-center justify-between gap-3">
+                  <FormFieldLabel>Choice options</FormFieldLabel>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-11"
+                    onClick={() => {
+                      let index = choiceOptions.length + 1
+                      let value = `option_${index}`
+                      const values = new Set(
+                        choiceOptions.map((option) => option.value)
+                      )
+                      while (values.has(value)) {
+                        index += 1
+                        value = `option_${index}`
+                      }
+                      setChoiceOptions([
+                        ...choiceOptions,
+                        {
+                          value,
+                          label: `Option ${index}`,
+                          agentDescription: "",
+                        },
+                      ])
+                    }}
+                  >
+                    <Plus data-icon="inline-start" />
+                    Add option
+                  </Button>
+                </div>
+                <FieldDescription>
+                  Values are stable API identifiers. Labels are what people see.
+                </FieldDescription>
+                <div className="flex flex-col gap-3">
+                  {choiceOptions.map((option, index) => (
+                    <div
+                      key={`choice-${index}`}
+                      className="rounded-lg border p-3"
+                    >
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <span className="text-xs font-medium">
+                          Option {index + 1}
+                        </span>
+                        <Button
+                          type="button"
+                          aria-label={`Remove option ${index + 1}`}
+                          className="size-11"
+                          variant="ghost"
+                          onClick={() => {
+                            const remaining = choiceOptions.filter(
+                              (_, candidateIndex) => candidateIndex !== index
+                            )
+                            setChoiceOptions(remaining)
+                            if (defaultValue === option.value) {
+                              setDefaultValue(
+                                required ? (remaining[0]?.value ?? "") : ""
+                              )
+                            }
+                          }}
+                        >
+                          <Trash2 />
+                        </Button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <Field>
+                          <FormFieldLabel
+                            htmlFor={`${controlId}-choice-${index}-label`}
+                          >
+                            Label
+                          </FormFieldLabel>
+                          <Input
+                            id={`${controlId}-choice-${index}-label`}
+                            aria-label={`Option ${index + 1} label`}
+                            value={option.label}
+                            onChange={(event) => {
+                              const next = [...choiceOptions]
+                              next[index] = {
+                                ...option,
+                                label: event.target.value,
+                              }
+                              setChoiceOptions(next)
+                            }}
+                          />
+                        </Field>
+                        <Field>
+                          <FormFieldLabel
+                            htmlFor={`${controlId}-choice-${index}-value`}
+                          >
+                            API value
+                          </FormFieldLabel>
+                          <Input
+                            id={`${controlId}-choice-${index}-value`}
+                            aria-label={`Option ${index + 1} API value`}
+                            className="font-mono"
+                            value={option.value}
+                            onChange={(event) => {
+                              const nextValue = event.target.value
+                              const next = [...choiceOptions]
+                              next[index] = { ...option, value: nextValue }
+                              setChoiceOptions(next)
+                              if (defaultValue === option.value) {
+                                setDefaultValue(nextValue)
+                              }
+                            }}
+                          />
+                        </Field>
+                      </div>
+                      <Field className="mt-3">
+                        <FormFieldLabel
+                          htmlFor={`${controlId}-choice-${index}-description`}
+                        >
+                          Agent guidance
+                        </FormFieldLabel>
+                        <Textarea
+                          id={`${controlId}-choice-${index}-description`}
+                          aria-label={`Option ${index + 1} agent guidance`}
+                          className="min-h-16 resize-y"
+                          maxLength={1000}
+                          value={option.agentDescription}
+                          placeholder="When should an agent choose this option?"
+                          onChange={(event) => {
+                            const next = [...choiceOptions]
+                            next[index] = {
+                              ...option,
+                              agentDescription: event.target.value,
+                            }
+                            setChoiceOptions(next)
+                          }}
+                        />
+                      </Field>
+                    </div>
+                  ))}
+                </div>
+              </Field>
+            ) : null}
             <Field>
-              <FormFieldLabel>Default value</FormFieldLabel>
-              {type === "boolean" ? (
-                <ToggleGroup
-                  type="single"
-                  value={defaultDraft || "true"}
-                  variant="outline"
-                  spacing={1}
-                  onValueChange={(value) => value && setDefaultDraft(value)}
-                >
-                  <ToggleGroupItem className="flex-1" value="true">
-                    True
-                  </ToggleGroupItem>
-                  <ToggleGroupItem className="flex-1" value="false">
-                    False
-                  </ToggleGroupItem>
-                </ToggleGroup>
-              ) : (
-                <Input
-                  value={defaultDraft}
-                  type={type === "number" ? "number" : "text"}
-                  placeholder={type === "asset" ? "https://…" : "Value"}
-                  onChange={(event) => setDefaultDraft(event.target.value)}
-                />
-              )}
+              <FormFieldLabel htmlFor={`${controlId}-field-default`}>
+                Default value
+              </FormFieldLabel>
+              <TypedFieldValueControl
+                ariaLabel="Default value"
+                id={`${controlId}-field-default`}
+                field={draftDefinition}
+                value={defaultValue}
+                onCommit={setDefaultValue}
+                onDraftValidityChange={setDefaultDraftValid}
+              />
             </Field>
             <Field>
-              <FormFieldLabel>Requirement</FormFieldLabel>
+              <FormFieldLabel htmlFor={`${controlId}-field-requirement`}>
+                Requirement
+              </FormFieldLabel>
               <ToggleGroup
+                id={`${controlId}-field-requirement`}
                 type="single"
+                aria-label="Requirement"
                 value={required ? "required" : "optional"}
                 variant="outline"
                 spacing={1}
-                onValueChange={(value) =>
-                  value && setRequired(value === "required")
-                }
+                onValueChange={(value) => {
+                  if (!value) return
+                  const nextRequired = value === "required"
+                  setRequired(nextRequired)
+                  if (
+                    nextRequired &&
+                    type === "choice" &&
+                    defaultValue === "" &&
+                    choiceOptions[0]
+                  ) {
+                    setDefaultValue(choiceOptions[0].value)
+                    setDefaultDraftValid(true)
+                  }
+                }}
               >
-                <ToggleGroupItem className="flex-1" value="optional">
+                <ToggleGroupItem className="h-11 flex-1" value="optional">
                   Optional
                 </ToggleGroupItem>
-                <ToggleGroupItem className="flex-1" value="required">
+                <ToggleGroupItem className="h-11 flex-1" value="required">
                   Required
                 </ToggleGroupItem>
               </ToggleGroup>
             </Field>
+            {definitionError && !keyInvalid ? (
+              <FieldError>{definitionError}</FieldError>
+            ) : null}
           </FieldGroup>
           <DialogFooter>
             <DialogClose asChild>
@@ -956,11 +2000,58 @@ function FieldDefinitionDialog({
                 Cancel
               </Button>
             </DialogClose>
-            <Button type="submit" disabled={!valid}>
+            <Button type="submit" disabled={!canSave}>
               {field ? "Save changes" : "Create field"}
             </Button>
           </DialogFooter>
         </form>
+        <AlertDialog open={confirmingChange} onOpenChange={setConfirmingChange}>
+          <AlertDialogContent
+            onCloseAutoFocus={(event) => {
+              if (pendingFocusRef.current) event.preventDefault()
+            }}
+          >
+            <AlertDialogHeader>
+              <AlertDialogTitle>Review field contract changes</AlertDialogTitle>
+              <AlertDialogDescription>
+                {apiKeyChanged
+                  ? `The current draft API key changes from ${field?.key} to ${key}. Future published versions and integrations using them must use the new key; older immutable versions keep their original key. `
+                  : ""}
+                {typeImpact?.summary ?? ""}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            {typeImpact?.incompatibleBindings.length ? (
+              <div className="max-h-48 overflow-y-auto rounded-lg border p-2">
+                {typeImpact.incompatibleBindings.map((binding) => (
+                  <button
+                    key={binding.bindingId}
+                    type="button"
+                    className="flex min-h-11 w-full items-center justify-between gap-3 rounded-md border-b px-2 text-left text-[11px] last:border-b-0 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                    onClick={() => {
+                      pendingFocusRef.current = binding
+                      setConfirmingChange(false)
+                      setOpen(false)
+                    }}
+                  >
+                    <span className="truncate font-medium">
+                      {binding.nodeName ?? binding.nodeId}
+                    </span>
+                    <span className="shrink-0 text-muted-foreground">
+                      {binding.pageName ?? "Missing page"} ·{" "}
+                      {bindingPropertyLabels[binding.property]}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep current contract</AlertDialogCancel>
+              <AlertDialogAction onClick={save}>
+                Apply changes
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </DialogContent>
     </Dialog>
   )
@@ -969,55 +2060,133 @@ function FieldDefinitionDialog({
 function FieldValueEditor({
   field,
   value,
+  hasBindings,
+  controlIdPrefix,
   onCommit,
 }: {
   field: FieldDefinition
-  value: string | number | boolean
-  onCommit: (value: string | number | boolean) => void
+  value: FieldValue
+  hasBindings: boolean
+  controlIdPrefix: string
+  onCommit: (value: FieldValue) => void
 }) {
-  if (field.type === "boolean") {
-    return (
-      <ToggleGroup
-        type="single"
-        value={value ? "true" : "false"}
-        variant="outline"
-        spacing={1}
-        onValueChange={(next) => next && onCommit(next === "true")}
-      >
-        <ToggleGroupItem className="flex-1" value="true">
-          True
-        </ToggleGroupItem>
-        <ToggleGroupItem className="flex-1" value="false">
-          False
-        </ToggleGroupItem>
-      </ToggleGroup>
-    )
-  }
   return (
-    <CommitInput
-      value={String(value)}
-      inputMode={field.type === "number" ? "decimal" : undefined}
-      onCommit={(next) => {
-        if (field.type !== "number") return onCommit(next)
-        const parsed = Number(next)
-        if (Number.isFinite(parsed)) onCommit(parsed)
-      }}
+    <TypedFieldValueControl
+      ariaLabel={field.label}
+      id={`${controlIdPrefix}-field-value-${field.id}`}
+      field={field}
+      value={value}
+      assetCanBeEmpty={!field.required && !hasBindings}
+      onCommit={onCommit}
     />
+  )
+}
+
+function FieldDeletionDialog({
+  field,
+  impact,
+  onRemove,
+  onFocusBinding,
+}: {
+  field: FieldDefinition
+  impact: ReturnType<typeof analyzeFieldDeletion>
+  onRemove: () => void
+  onFocusBinding: (
+    binding: Pick<FieldBindingImpact, "nodeId" | "property">
+  ) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [pendingFocus, setPendingFocus] = useState<Pick<
+    FieldBindingImpact,
+    "nodeId" | "property"
+  > | null>(null)
+
+  return (
+    <AlertDialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen)
+        if (nextOpen) setPendingFocus(null)
+      }}
+    >
+      <AlertDialogTrigger asChild>
+        <Button
+          aria-label={`Delete ${field.label}`}
+          size="icon"
+          className="size-11"
+          variant="ghost"
+        >
+          <Trash2 />
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent
+        onCloseAutoFocus={(event) => {
+          if (!pendingFocus) return
+          event.preventDefault()
+          const binding = pendingFocus
+          setPendingFocus(null)
+          requestAnimationFrame(() => onFocusBinding(binding))
+        }}
+      >
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete {field.label}?</AlertDialogTitle>
+          <AlertDialogDescription>
+            {impact.requiresConfirmation
+              ? `This removes ${impact.bindingCount} binding${impact.bindingCount === 1 ? "" : "s"} across ${impact.outputCount} output${impact.outputCount === 1 ? "" : "s"} and ${impact.pageCount} page${impact.pageCount === 1 ? "" : "s"}.`
+              : "This field has no bindings."}{" "}
+            Existing layer content stays in place, and Undo restores the field,
+            value, and every binding together.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        {impact.bindings.length ? (
+          <div className="max-h-52 overflow-y-auto rounded-lg border p-2">
+            {impact.bindings.map((binding) => (
+              <button
+                key={binding.bindingId}
+                type="button"
+                className="flex min-h-11 w-full items-center justify-between gap-3 rounded-md px-2 text-left hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                onClick={() => {
+                  setPendingFocus(binding)
+                  setOpen(false)
+                }}
+              >
+                <span className="min-w-0 flex-1 truncate text-[11px] font-medium">
+                  {binding.nodeName ?? binding.nodeId}
+                </span>
+                <span className="shrink-0 text-[10px] text-muted-foreground">
+                  {binding.pageName ?? "Missing page"} ·{" "}
+                  {bindingPropertyLabels[binding.property]}
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction variant="destructive" onClick={onRemove}>
+            Delete field
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }
 
 function FieldsPanel({
   document,
   selectedNodes,
+  controlIdPrefix,
   onUpdateField,
   onCreateField,
   onUpdateFieldDefinition,
   onRemoveField,
   onBindField,
   onUnbindField,
+  onFocusBinding,
 }: {
   document: Document
   selectedNodes: SceneNode[]
+  controlIdPrefix: string
   onUpdateField: (fieldId: string, value: string | number | boolean) => void
   onCreateField: (field: Omit<FieldDefinition, "id">) => void
   onUpdateFieldDefinition: (
@@ -1031,6 +2200,9 @@ function FieldsPanel({
     property: BindableProperty
   ) => void
   onUnbindField: (bindingId: string) => void
+  onFocusBinding: (
+    binding: Pick<FieldBindingImpact, "nodeId" | "property">
+  ) => void
 }) {
   const selectedNode = selectedNodes.length === 1 ? selectedNodes[0] : undefined
   const properties = selectedNode
@@ -1069,12 +2241,6 @@ function FieldsPanel({
   const boundProperties = new Set(
     selectedBindings.map((binding) => binding.property)
   )
-  const outputByNode = new Map(
-    document.pages.flatMap((page) =>
-      page.nodeIds.map((nodeId) => [nodeId, page.outputId] as const)
-    )
-  )
-
   return (
     <div className="flex flex-col">
       <section className="flex flex-col gap-4 p-4">
@@ -1086,9 +2252,11 @@ function FieldsPanel({
             </p>
           </div>
           <FieldDefinitionDialog
+            document={document}
             fields={document.fields}
+            controlIdPrefix={controlIdPrefix}
             trigger={
-              <Button size="sm" variant="outline">
+              <Button className="h-11" variant="outline">
                 <Plus data-icon="inline-start" />
                 New
               </Button>
@@ -1103,12 +2271,7 @@ function FieldsPanel({
               const bindings = document.bindings.filter(
                 (binding) => binding.fieldId === field.id
               )
-              const outputCount = new Set(
-                bindings.flatMap((binding) => {
-                  const outputId = outputByNode.get(binding.nodeId)
-                  return outputId ? [outputId] : []
-                })
-              ).size
+              const impact = analyzeFieldDeletion(document, field.id)
               return (
                 <div key={field.id} className="rounded-lg border">
                   <div className="flex items-start gap-2 p-2.5">
@@ -1127,11 +2290,14 @@ function FieldsPanel({
                     </div>
                     <FieldDefinitionDialog
                       field={field}
+                      document={document}
                       fields={document.fields}
+                      controlIdPrefix={controlIdPrefix}
                       trigger={
                         <Button
                           aria-label={`Edit ${field.label}`}
-                          size="icon-xs"
+                          size="icon"
+                          className="size-11"
                           variant="ghost"
                         >
                           <Settings2 />
@@ -1140,45 +2306,21 @@ function FieldsPanel({
                       onSave={(updated) =>
                         onUpdateFieldDefinition(field.id, updated)
                       }
+                      onFocusBinding={onFocusBinding}
                     />
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button
-                          aria-label={`Delete ${field.label}`}
-                          size="icon-xs"
-                          variant="ghost"
-                        >
-                          <Trash2 />
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>
-                            Delete {field.label}?
-                          </AlertDialogTitle>
-                          <AlertDialogDescription>
-                            This removes the field and its {bindings.length}{" "}
-                            layer
-                            {bindings.length === 1 ? " binding" : " bindings"}.
-                            Existing layer content stays in place.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction
-                            variant="destructive"
-                            onClick={() => onRemoveField(field.id)}
-                          >
-                            Delete field
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
+                    <FieldDeletionDialog
+                      field={field}
+                      impact={impact}
+                      onFocusBinding={onFocusBinding}
+                      onRemove={() => onRemoveField(field.id)}
+                    />
                   </div>
                   <Separator />
                   <div className="flex flex-col gap-2 p-2.5">
                     <FieldValueEditor
                       field={field}
+                      hasBindings={bindings.length > 0}
+                      controlIdPrefix={controlIdPrefix}
                       value={
                         document.fieldValues[field.id] ?? field.defaultValue
                       }
@@ -1186,10 +2328,45 @@ function FieldsPanel({
                     />
                     <p className="text-[9px] text-muted-foreground">
                       {bindings.length} layer{bindings.length === 1 ? "" : "s"}
-                      {outputCount
-                        ? ` across ${outputCount} output${outputCount === 1 ? "" : "s"}`
+                      {impact.outputCount
+                        ? ` across ${impact.outputCount} output${impact.outputCount === 1 ? "" : "s"}`
                         : ""}
                     </p>
+                    {bindings.length ? (
+                      <div
+                        aria-label={`${field.label} bindings`}
+                        className="flex flex-col gap-1"
+                      >
+                        {bindings.map((binding) => {
+                          const node = document.nodes.find(
+                            (candidate) => candidate.id === binding.nodeId
+                          )
+                          const page = document.pages.find((candidate) =>
+                            candidate.nodeIds.includes(binding.nodeId)
+                          )
+                          if (!node || !page) return null
+                          return (
+                            <button
+                              key={binding.id}
+                              type="button"
+                              className="group flex min-h-11 w-full items-center gap-2 rounded-md px-2 text-left hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                              onClick={() => onFocusBinding(binding)}
+                            >
+                              <Link2 className="size-3 shrink-0 text-muted-foreground group-hover:text-foreground" />
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-[10px] font-medium">
+                                  {node.name}
+                                </span>
+                                <span className="block truncate text-[9px] text-muted-foreground">
+                                  {page.name} ·{" "}
+                                  {bindingPropertyLabels[binding.property]}
+                                </span>
+                              </span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               )
@@ -1208,9 +2385,11 @@ function FieldsPanel({
             </EmptyHeader>
             <EmptyContent>
               <FieldDefinitionDialog
+                document={document}
                 fields={document.fields}
+                controlIdPrefix={controlIdPrefix}
                 trigger={
-                  <Button size="sm">
+                  <Button className="h-11">
                     <Plus data-icon="inline-start" />
                     Create field
                   </Button>
@@ -1245,20 +2424,25 @@ function FieldsPanel({
                   return (
                     <div
                       key={binding.id}
-                      className="flex items-center gap-2 rounded-lg border p-2"
+                      className="flex min-h-11 items-center gap-1 rounded-lg border p-1"
                     >
                       <Link2 className="size-3.5 text-muted-foreground" />
-                      <div className="min-w-0 flex-1">
+                      <button
+                        type="button"
+                        className="min-h-11 min-w-0 flex-1 rounded-md px-1 text-left hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                        onClick={() => onFocusBinding(binding)}
+                      >
                         <p className="truncate text-[11px] font-medium">
                           {field?.label ?? "Missing field"}
                         </p>
                         <p className="text-[9px] text-muted-foreground">
                           {bindingPropertyLabels[binding.property]}
                         </p>
-                      </div>
+                      </button>
                       <Button
                         aria-label={`Unbind ${field?.label ?? "field"}`}
-                        size="icon-xs"
+                        size="icon"
+                        className="size-11"
                         variant="ghost"
                         onClick={() => onUnbindField(binding.id)}
                       >
@@ -1272,12 +2456,20 @@ function FieldsPanel({
 
             <FieldGroup className="gap-3">
               <Field>
-                <FormFieldLabel>Layer property</FormFieldLabel>
+                <FormFieldLabel
+                  htmlFor={`${controlIdPrefix}-field-binding-property`}
+                >
+                  Layer property
+                </FormFieldLabel>
                 <Select
                   value={property}
                   onValueChange={(next: BindableProperty) => setProperty(next)}
                 >
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger
+                    id={`${controlIdPrefix}-field-binding-property`}
+                    aria-label="Layer property"
+                    className="h-11 w-full"
+                  >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent position="popper">
@@ -1296,13 +2488,21 @@ function FieldsPanel({
                 </Select>
               </Field>
               <Field data-disabled={!compatibleFields.length}>
-                <FormFieldLabel>Shared field</FormFieldLabel>
+                <FormFieldLabel
+                  htmlFor={`${controlIdPrefix}-field-binding-shared-field`}
+                >
+                  Shared field
+                </FormFieldLabel>
                 <Select
                   value={bindingFieldId}
                   onValueChange={setBindingFieldId}
                   disabled={!compatibleFields.length}
                 >
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger
+                    id={`${controlIdPrefix}-field-binding-shared-field`}
+                    aria-label="Shared field"
+                    className="h-11 w-full"
+                  >
                     <SelectValue placeholder="Choose a compatible field" />
                   </SelectTrigger>
                   <SelectContent position="popper">
@@ -1324,7 +2524,7 @@ function FieldsPanel({
               </Field>
             </FieldGroup>
             <Button
-              size="sm"
+              className="h-11"
               variant="outline"
               disabled={!bindingFieldId || boundProperties.has(property)}
               onClick={() => {
@@ -1355,90 +2555,13 @@ function FieldsPanel({
   )
 }
 
-const displayChangeValue = (value: unknown) => {
-  if (typeof value === "string") return value
-  if (typeof value === "number" || typeof value === "boolean") {
-    return String(value)
-  }
-  return JSON.stringify(value)
-}
-
-function operationDetails(document: Document, operation: ChangeOperation) {
-  const command = operation.command
-  if (command.type === "set_field") {
-    const field = document.fields.find(
-      (candidate) => candidate.id === command.fieldId
-    )
-    const bindings = document.bindings.filter(
-      (binding) => binding.fieldId === command.fieldId
-    )
-    const pageByNode = new Map(
-      document.pages.flatMap((page) =>
-        page.nodeIds.map((nodeId) => [nodeId, page] as const)
-      )
-    )
-    const outputCount = new Set(
-      bindings.flatMap((binding) => {
-        const page = pageByNode.get(binding.nodeId)
-        return page ? [page.outputId] : []
-      })
-    ).size
-    return {
-      label: field?.label ?? command.fieldId,
-      context: `${bindings.length} layer${bindings.length === 1 ? "" : "s"} across ${outputCount} output${outputCount === 1 ? "" : "s"}`,
-      before: displayChangeValue(document.fieldValues[command.fieldId]),
-      after: displayChangeValue(command.value),
-    }
-  }
-  if (command.type === "update_node") {
-    const node = document.nodes.find(
-      (candidate) => candidate.id === command.nodeId
-    )
-    const keys = Object.keys(command.patch)
-    return {
-      label: node?.name ?? command.nodeId,
-      context: `${keys.length} layer propert${keys.length === 1 ? "y" : "ies"}`,
-      before: keys
-        .map(
-          (key) =>
-            `${key}: ${displayChangeValue(node?.[key as keyof typeof node])}`
-        )
-        .join(" · "),
-      after: keys
-        .map((key) => `${key}: ${displayChangeValue(command.patch[key])}`)
-        .join(" · "),
-    }
-  }
-  if (command.type === "add_output_variant") {
-    return {
-      label: command.output.name,
-      context: `${command.page.width} × ${command.page.height} · ${command.nodes.length} adapted layer${command.nodes.length === 1 ? "" : "s"}`,
-      before: "Output does not exist",
-      after: `${command.output.kind.replaceAll("_", " ")} · ${command.output.exportFormats.join(" + ").toUpperCase()}`,
-    }
-  }
-  if (command.type === "add_node") {
-    return {
-      label: command.node.name,
-      context: `${command.node.width} × ${command.node.height} image layer`,
-      before: "Layer does not exist",
-      after: `Add to ${command.pageId} at ${command.node.x}, ${command.node.y}`,
-    }
-  }
-  return {
-    label: command.type.replaceAll("_", " "),
-    context: "Canonical document command",
-    before: "Current document",
-    after: operation.summary,
-  }
-}
-
 function ReviewPanel({
   document,
   pendingChangeSet,
   lastResolvedChangeSet,
   conflict,
   error,
+  isApplying,
   webMcpStatus,
   webMcpError,
   onDecideOperation,
@@ -1451,6 +2574,7 @@ function ReviewPanel({
   lastResolvedChangeSet: ChangeSet | null
   conflict: { message: string } | null
   error: string | null
+  isApplying: boolean
   webMcpStatus: "unavailable" | "registering" | "ready" | "error"
   webMcpError: string | null
   onDecideOperation: (
@@ -1527,6 +2651,7 @@ function ReviewPanel({
             <div className="grid grid-cols-2 gap-1.5">
               <Button
                 className="flex-1"
+                disabled={isApplying}
                 size="sm"
                 variant="outline"
                 onClick={() => onDecideAll("rejected")}
@@ -1535,6 +2660,7 @@ function ReviewPanel({
               </Button>
               <Button
                 className="flex-1"
+                disabled={isApplying}
                 size="sm"
                 variant="outline"
                 onClick={() => onDecideAll("accepted")}
@@ -1583,7 +2709,9 @@ function ReviewPanel({
                       <div className="flex shrink-0 items-center gap-0.5">
                         <Button
                           aria-label={`Reject ${operation.summary}`}
-                          size="icon-xs"
+                          size="icon"
+                          className="size-11"
+                          disabled={isApplying}
                           variant={
                             operation.status === "rejected"
                               ? "destructive"
@@ -1597,7 +2725,9 @@ function ReviewPanel({
                         </Button>
                         <Button
                           aria-label={`Accept ${operation.summary}`}
-                          size="icon-xs"
+                          size="icon"
+                          className="size-11"
+                          disabled={isApplying}
                           variant={
                             operation.status === "accepted"
                               ? "default"
@@ -1623,17 +2753,31 @@ function ReviewPanel({
             </div>
 
             <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-1.5">
-              <Button size="sm" variant="outline" onClick={onDiscard}>
+              <Button
+                disabled={isApplying}
+                size="sm"
+                variant="outline"
+                onClick={onDiscard}
+              >
                 Discard
               </Button>
               <Button
                 className="flex-1"
                 size="sm"
-                disabled={!acceptedCount || Boolean(conflict)}
+                disabled={isApplying || !acceptedCount || Boolean(conflict)}
                 onClick={onApply}
               >
-                Apply {acceptedCount || "accepted"} change
-                {acceptedCount === 1 ? "" : "s"}
+                {isApplying ? (
+                  <>
+                    <LoaderCircleIcon className="animate-spin" />
+                    Checking images…
+                  </>
+                ) : (
+                  <>
+                    Apply {acceptedCount || "accepted"} change
+                    {acceptedCount === 1 ? "" : "s"}
+                  </>
+                )}
               </Button>
             </div>
           </>
@@ -1714,22 +2858,46 @@ function ReviewPanel({
   )
 }
 
+const subscribeToNoCropPreview = () => () => undefined
+const getNoCropPreview = () => null
+
+export function projectImageCropInspectorSelection(
+  selectedNodes: SceneNode[],
+  cropSession: ReturnType<ImageCropPreviewStore["getSnapshot"]> | null
+) {
+  if (!cropSession) return selectedNodes
+  return selectedNodes.map((node) =>
+    node.type === "image" && node.id === cropSession.target.nodeId
+      ? {
+          ...node,
+          ...cropSession.draftFrame,
+          placement: cropSession.draft,
+          frameMask: cropSession.draftFrameMask,
+        }
+      : node
+  )
+}
+
 export function InspectorSidebar({
   document,
-  selectedNodes,
+  selectedNodes: selectedNodesProp,
+  imageCropPreviewStore = null,
   pendingChangeSet,
   lastResolvedChangeSet,
   changeSetConflict,
   changeSetError,
+  isApplyingChangeSet,
   webMcpStatus,
   webMcpError,
   onUpdateNode,
+  onUpdateSelection,
   onUpdateField,
   onCreateField,
   onUpdateFieldDefinition,
   onRemoveField,
   onBindField,
   onUnbindField,
+  onFocusNode,
   onDecideChangeOperation,
   onDecideAllChangeOperations,
   onApplyChangeSet,
@@ -1742,18 +2910,28 @@ export function InspectorSidebar({
   onReorderSelection,
   onDuplicateSelection,
   onDeleteSelection,
-  onReplaceImage,
+  onUpdateImageFrameGeometry,
+  onSetImagePlacement,
+  onSetImageFrameMask,
+  onRunImageCommand,
+  isImageCommandEnabled,
+  onRetryImageSource,
+  onRemoveImageLayer,
+  capabilityContext,
   className,
 }: {
   document: Document
   selectedNodes: SceneNode[]
+  imageCropPreviewStore?: ImageCropPreviewStore | null
   pendingChangeSet: ChangeSet | null
   lastResolvedChangeSet: ChangeSet | null
   changeSetConflict: { message: string } | null
   changeSetError: string | null
+  isApplyingChangeSet: boolean
   webMcpStatus: "unavailable" | "registering" | "ready" | "error"
   webMcpError: string | null
   onUpdateNode: (nodeId: string, patch: Partial<SceneNode>) => void
+  onUpdateSelection: (patch: Partial<SceneNode>) => void
   onUpdateField: (fieldId: string, value: string | number | boolean) => void
   onCreateField: (field: Omit<FieldDefinition, "id">) => void
   onUpdateFieldDefinition: (
@@ -1767,6 +2945,7 @@ export function InspectorSidebar({
     property: BindableProperty
   ) => void
   onUnbindField: (bindingId: string) => void
+  onFocusNode: (nodeId: string) => void
   onDecideChangeOperation: (
     operationId: string,
     status: ChangeOperation["status"]
@@ -1782,20 +2961,106 @@ export function InspectorSidebar({
   onReorderSelection: (edge: "front" | "back") => void
   onDuplicateSelection: () => void
   onDeleteSelection: () => void
-  onReplaceImage: (nodeId: string) => void
+  onUpdateImageFrameGeometry: (
+    nodeId: string,
+    patch: Partial<NodeGeometryPatch>
+  ) => void
+  onSetImagePlacement: (nodeId: string, placement: ImagePlacement) => void
+  onSetImageFrameMask: (nodeId: string, frameMask: ImageFrameMask) => void
+  onRunImageCommand: (commandId: EditorImageCommandId) => void
+  isImageCommandEnabled: (commandId: EditorImageCommandId) => boolean
+  onRetryImageSource: (nodeId: string) => void
+  onRemoveImageLayer: () => void
+  capabilityContext?: InspectorCapabilityContext
   className?: string
 }) {
+  const cropSession = useSyncExternalStore(
+    imageCropPreviewStore?.subscribe ?? subscribeToNoCropPreview,
+    imageCropPreviewStore?.getSnapshot ?? getNoCropPreview,
+    imageCropPreviewStore?.getSnapshot ?? getNoCropPreview
+  )
+  const selectedNodes = useMemo(
+    () => projectImageCropInspectorSelection(selectedNodesProp, cropSession),
+    [cropSession, selectedNodesProp]
+  )
+  const controlIdPrefix = `inspector-${useId()}`
   const selectedNode = selectedNodes.length === 1 ? selectedNodes[0] : undefined
+  const [activeTab, setActiveTab] = useState("design")
+  const [focusedBinding, setFocusedBinding] = useState<{
+    nodeId: string
+    property: BindableProperty
+  } | null>(null)
+  const inspectorRootRef = useRef<HTMLElement>(null)
+  const previousSelectedNodeIdRef = useRef(selectedNode?.id)
+
+  useEffect(() => {
+    if (pendingChangeSet) setActiveTab("review")
+  }, [pendingChangeSet])
+
+  useEffect(() => {
+    if (
+      activeTab !== "design" ||
+      !focusedBinding ||
+      selectedNode?.id !== focusedBinding.nodeId
+    ) {
+      return
+    }
+    let clearTimer: ReturnType<typeof setTimeout> | undefined
+    const frame = requestAnimationFrame(() => {
+      const target = inspectorRootRef.current?.querySelector<HTMLElement>(
+        `[data-inspector-property="${focusedBinding.property}"]`
+      )
+      target?.scrollIntoView({ behavior: "smooth", block: "center" })
+      target?.focus({ preventScroll: true })
+      clearTimer = setTimeout(() => {
+        setFocusedBinding((current) =>
+          current?.nodeId === focusedBinding.nodeId &&
+          current.property === focusedBinding.property
+            ? null
+            : current
+        )
+      }, 1800)
+    })
+    return () => {
+      cancelAnimationFrame(frame)
+      if (clearTimer) clearTimeout(clearTimer)
+    }
+  }, [activeTab, focusedBinding, selectedNode?.id])
+
+  useEffect(() => {
+    if (previousSelectedNodeIdRef.current === selectedNode?.id) return
+    previousSelectedNodeIdRef.current = selectedNode?.id
+    setFocusedBinding((current) =>
+      current && current.nodeId !== selectedNode?.id ? null : current
+    )
+  }, [selectedNode?.id])
+
   return (
     <aside
+      ref={inspectorRootRef}
       className={cn("flex min-h-0 flex-col border-l bg-background", className)}
     >
-      <Tabs defaultValue="design" className="min-h-0 flex-1 gap-0">
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => {
+          setActiveTab(value)
+          if (value !== "design") setFocusedBinding(null)
+        }}
+        className="min-h-0 flex-1 gap-0"
+      >
         <EditorPanelTabsList aria-label="Inspector panels">
-          <TabsTrigger value="design" className="flex-none px-2.5 text-xs">
+          <TabsTrigger
+            value="design"
+            disabled={Boolean(pendingChangeSet)}
+            className="flex-none px-2.5 text-xs"
+          >
             Design
           </TabsTrigger>
-          <TabsTrigger value="fields" className="flex-none px-2.5 text-xs">
+          <TabsTrigger
+            value="fields"
+            disabled={Boolean(pendingChangeSet)}
+            className="flex-none px-2.5 text-xs"
+          >
             Fields
           </TabsTrigger>
           <TabsTrigger value="review" className="flex-none px-2.5 text-xs">
@@ -1807,13 +3072,26 @@ export function InspectorSidebar({
             {selectedNode ? (
               <NodeInspector
                 node={selectedNode}
+                focusedProperty={
+                  focusedBinding?.nodeId === selectedNode.id
+                    ? focusedBinding.property
+                    : undefined
+                }
                 onUpdate={(patch) => onUpdateNode(selectedNode.id, patch)}
                 onAlignToPage={onAlignSelectionToPage}
-                onReplaceImage={onReplaceImage}
+                onUpdateImageFrameGeometry={onUpdateImageFrameGeometry}
+                onSetImagePlacement={onSetImagePlacement}
+                onSetImageFrameMask={onSetImageFrameMask}
+                onRunImageCommand={onRunImageCommand}
+                isImageCommandEnabled={isImageCommandEnabled}
+                onRetryImageSource={onRetryImageSource}
+                onRemoveImageLayer={onRemoveImageLayer}
+                capabilityContext={capabilityContext}
               />
             ) : selectedNodes.length > 1 ? (
               <MultiSelectionInspector
                 nodes={selectedNodes}
+                onUpdateSelection={onUpdateSelection}
                 onAlign={onAlignSelection}
                 onAlignToPage={onAlignSelectionToPage}
                 onDistribute={onDistributeSelection}
@@ -1842,12 +3120,21 @@ export function InspectorSidebar({
             <FieldsPanel
               document={document}
               selectedNodes={selectedNodes}
+              controlIdPrefix={controlIdPrefix}
               onUpdateField={onUpdateField}
               onCreateField={onCreateField}
               onUpdateFieldDefinition={onUpdateFieldDefinition}
               onRemoveField={onRemoveField}
               onBindField={onBindField}
               onUnbindField={onUnbindField}
+              onFocusBinding={(binding) => {
+                setFocusedBinding({
+                  nodeId: binding.nodeId,
+                  property: binding.property,
+                })
+                onFocusNode(binding.nodeId)
+                setActiveTab("design")
+              }}
             />
           </ScrollArea>
         </TabsContent>
@@ -1859,6 +3146,7 @@ export function InspectorSidebar({
               lastResolvedChangeSet={lastResolvedChangeSet}
               conflict={changeSetConflict}
               error={changeSetError}
+              isApplying={isApplyingChangeSet}
               webMcpStatus={webMcpStatus}
               webMcpError={webMcpError}
               onDecideOperation={onDecideChangeOperation}

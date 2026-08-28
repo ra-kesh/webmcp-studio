@@ -7,15 +7,18 @@ import {
 } from "./schema"
 
 export type ChangeSetConflict = {
-  code: "document_mismatch" | "revision_mismatch"
+  code: "document_mismatch" | "revision_mismatch" | "snapshot_mismatch"
   message: string
   expectedRevision: number
   actualRevision: number
+  expectedSnapshotId: string
+  actualSnapshotId?: string
 }
 
 export function getChangeSetConflict(
   document: Document,
-  changeSet: ChangeSet
+  changeSet: ChangeSet,
+  currentSnapshotId?: string
 ): ChangeSetConflict | null {
   if (changeSet.documentId !== document.id) {
     return {
@@ -23,6 +26,8 @@ export function getChangeSetConflict(
       message: "This proposal belongs to another document.",
       expectedRevision: changeSet.baseRevision,
       actualRevision: document.revision,
+      expectedSnapshotId: changeSet.baseSnapshotId,
+      actualSnapshotId: currentSnapshotId,
     }
   }
   if (changeSet.baseRevision !== document.revision) {
@@ -31,6 +36,21 @@ export function getChangeSetConflict(
       message: `The document changed from revision ${changeSet.baseRevision} to ${document.revision}. Ask the agent to inspect it again.`,
       expectedRevision: changeSet.baseRevision,
       actualRevision: document.revision,
+      expectedSnapshotId: changeSet.baseSnapshotId,
+      actualSnapshotId: currentSnapshotId,
+    }
+  }
+  if (
+    currentSnapshotId !== undefined &&
+    changeSet.baseSnapshotId !== currentSnapshotId
+  ) {
+    return {
+      code: "snapshot_mismatch",
+      message: `The document snapshot changed from ${changeSet.baseSnapshotId} to ${currentSnapshotId}. Ask the agent to inspect it again.`,
+      expectedRevision: changeSet.baseRevision,
+      actualRevision: document.revision,
+      expectedSnapshotId: changeSet.baseSnapshotId,
+      actualSnapshotId: currentSnapshotId,
     }
   }
   return null
@@ -88,10 +108,11 @@ export function decideAllChangeOperations(
 
 export function previewChangeSet(
   document: Document,
-  changeSetInput: ChangeSet
+  changeSetInput: ChangeSet,
+  currentSnapshotId?: string
 ): Document {
   const changeSet = changeSetSchema.parse(changeSetInput)
-  const conflict = getChangeSetConflict(document, changeSet)
+  const conflict = getChangeSetConflict(document, changeSet, currentSnapshotId)
   if (conflict) throw new Error(conflict.message)
   return changeSet.operations
     .filter((operation) => operation.status !== "rejected")
@@ -103,10 +124,11 @@ export function previewChangeSet(
 
 export function applyAcceptedChangeSet(
   document: Document,
-  changeSetInput: ChangeSet
+  changeSetInput: ChangeSet,
+  currentSnapshotId?: string
 ): Document {
   const changeSet = changeSetSchema.parse(changeSetInput)
-  const conflict = getChangeSetConflict(document, changeSet)
+  const conflict = getChangeSetConflict(document, changeSet, currentSnapshotId)
   if (conflict) throw new Error(conflict.message)
   return changeSet.operations
     .filter((operation) => operation.status === "accepted")

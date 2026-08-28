@@ -10,6 +10,7 @@ dist-ssr
 .vinxi
 __unconfig*
 todos.json
+test-results
 
 # typescript
 *.tsbuildinfo

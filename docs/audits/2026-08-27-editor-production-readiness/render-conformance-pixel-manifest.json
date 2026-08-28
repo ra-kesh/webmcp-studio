@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "comparisons": [
+    {
+      "name": "properties page Fabric versus renderer PNG",
+      "baseline": "artifacts/renderer-png/properties-page.png",
+      "candidate": "artifacts/fabric/properties-page.png",
+      "diff": "artifacts/diff/properties-page-fabric.png",
+      "pixelDeltaThreshold": 24,
+      "maxDifferentPixelRatio": 0.015,
+      "maxRootMeanSquareError": 6
+    },
+    {
+      "name": "properties page React view versus renderer PNG",
+      "baseline": "artifacts/renderer-png/properties-page.png",
+      "candidate": "artifacts/render-view/properties-page.png",
+      "diff": "artifacts/diff/properties-page-render-view.png",
+      "pixelDeltaThreshold": 24,
+      "maxDifferentPixelRatio": 0.015,
+      "maxRootMeanSquareError": 6
+    },
+    {
+      "name": "properties page PDF raster versus renderer PNG",
+      "baseline": "artifacts/renderer-png/properties-page.png",
+      "candidate": "artifacts/renderer-pdf/properties-page.png",
+      "diff": "artifacts/diff/properties-page-pdf.png",
+      "pixelDeltaThreshold": 24,
+      "maxDifferentPixelRatio": 0.015,
+      "maxRootMeanSquareError": 6
+    },
+    {
+      "name": "long text page Fabric versus renderer PNG",
+      "baseline": "artifacts/renderer-png/long-text-page.png",
+      "candidate": "artifacts/fabric/long-text-page.png",
+      "diff": "artifacts/diff/long-text-page-fabric.png",
+      "pixelDeltaThreshold": 24,
+      "maxDifferentPixelRatio": 0.015,
+      "maxRootMeanSquareError": 6
+    },
+    {
+      "name": "long text page React view versus renderer PNG",
+      "baseline": "artifacts/renderer-png/long-text-page.png",
+      "candidate": "artifacts/render-view/long-text-page.png",
+      "diff": "artifacts/diff/long-text-page-render-view.png",
+      "pixelDeltaThreshold": 24,
+      "maxDifferentPixelRatio": 0.015,
+      "maxRootMeanSquareError": 6
+    },
+    {
+      "name": "long text page PDF raster versus renderer PNG",
+      "baseline": "artifacts/renderer-png/long-text-page.png",
+      "candidate": "artifacts/renderer-pdf/long-text-page.png",
+      "diff": "artifacts/diff/long-text-page-pdf.png",
+      "pixelDeltaThreshold": 24,
+      "maxDifferentPixelRatio": 0.015,
+      "maxRootMeanSquareError": 6
+    },
+    {
+      "name": "square output Fabric versus renderer PNG",
+      "baseline": "artifacts/renderer-png/square-page.png",
+      "candidate": "artifacts/fabric/square-page.png",
+      "diff": "artifacts/diff/square-page-fabric.png",
+      "pixelDeltaThreshold": 24,
+      "maxDifferentPixelRatio": 0.015,
+      "maxRootMeanSquareError": 6
+    },
+    {
+      "name": "square output React view versus renderer PNG",
+      "baseline": "artifacts/renderer-png/square-page.png",
+      "candidate": "artifacts/render-view/square-page.png",
+      "diff": "artifacts/diff/square-page-render-view.png",
+      "pixelDeltaThreshold": 24,
+      "maxDifferentPixelRatio": 0.015,
+      "maxRootMeanSquareError": 6
+    }
+  ]
+}

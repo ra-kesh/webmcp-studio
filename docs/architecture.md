@@ -60,7 +60,7 @@ Owns app chrome components and tokens. Document designs do not inherit app chrom
 The main records are:
 
 - `Document`: revisioned editable source
-- `OutputVariant`: proposal, portrait, or square output
+- `OutputVariant`: proposal, WhatsApp portrait, square, or general custom output
 - `Page`: fixed-size artboard and ordered node IDs
 - `SceneNode`: text, image, or shape geometry and style
 - `FieldDefinition`: typed public parameter

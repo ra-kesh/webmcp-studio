@@ -13,6 +13,7 @@ const changeSet = (): ChangeSet => ({
   id: "change-set-1",
   documentId: northstarSeed.id,
   baseRevision: northstarSeed.revision,
+  baseSnapshotId: "snapshot-northstar",
   title: "Adapt the proposal for the new brief",
   createdAt: "2026-08-26T10:00:00.000Z",
   createdBy: "agent",
@@ -54,7 +55,10 @@ describe("change sets", () => {
 
     expect(source.fieldValues.package_name).toBe("The Heirloom Weekend")
     expect(preview.fieldValues.package_name).toBe("The Saffron Weekend")
-    expect(preview.fieldValues.package_price).toBe("₹4,10,000")
+    expect(preview.fieldValues.package_price).toBe("410000")
+    expect(
+      preview.nodes.find((node) => node.id === "package-price")
+    ).toMatchObject({ text: "₹4,10,000" })
   })
 
   it("removes rejected operations from the preview and applies accepted ones", () => {
@@ -69,14 +73,14 @@ describe("change sets", () => {
     expect(previewChangeSet(northstarSeed, proposal).fieldValues).toMatchObject(
       {
         package_name: "The Saffron Weekend",
-        package_price: "₹3,85,000",
+        package_price: "385000",
       }
     )
     expect(
       applyAcceptedChangeSet(northstarSeed, proposal).fieldValues
     ).toMatchObject({
       package_name: "The Saffron Weekend",
-      package_price: "₹3,85,000",
+      package_price: "385000",
     })
   })
 
@@ -93,5 +97,16 @@ describe("change sets", () => {
     expect(() => previewChangeSet(edited, changeSet())).toThrow(
       "The document changed"
     )
+    expect(
+      getChangeSetConflict(
+        northstarSeed,
+        changeSet(),
+        "snapshot-abandoned-branch"
+      )
+    ).toMatchObject({
+      code: "snapshot_mismatch",
+      expectedSnapshotId: "snapshot-northstar",
+      actualSnapshotId: "snapshot-abandoned-branch",
+    })
   })
 })

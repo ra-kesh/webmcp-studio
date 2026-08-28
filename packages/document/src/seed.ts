@@ -33,6 +33,7 @@ const text = (
   lineHeight: 1.18,
   letterSpacing: 0,
   align,
+  sizingMode: "fixed",
 })
 
 const rect = (
@@ -380,7 +381,7 @@ const nodes: SceneNode[] = [
 ]
 
 export const northstarSeed: Document = documentSchema.parse({
-  schemaVersion: 1,
+  schemaVersion: 2,
   id: "doc-northstar-aditi-kabir",
   name: "Aditi & Kabir proposal pack",
   revision: 3,
@@ -551,7 +552,7 @@ export const northstarSeed: Document = documentSchema.parse({
       label: "Package price",
       type: "currency",
       required: true,
-      defaultValue: "₹3,85,000",
+      defaultValue: "385000",
     },
     {
       id: "valid_until",
@@ -566,7 +567,7 @@ export const northstarSeed: Document = documentSchema.parse({
     couple_names: "Aditi & Kabir",
     event_date: "18 January 2027 · Jaipur",
     package_name: "The Heirloom Weekend",
-    package_price: "₹3,85,000",
+    package_price: "385000",
     valid_until: "30 September 2026",
   },
   bindings: [

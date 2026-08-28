@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
   applyCommand,
   createTemplateVersion,
   northstarSeed,
+  previewChangeSet,
   type ChangeSet,
   type Document,
   type TemplateModifications,
@@ -23,6 +24,8 @@ const assets = [
     width: 1600,
     height: 1200,
     license: "Original Studio artwork",
+    ownership: "built_in" as const,
+    selectable: true,
     src: "data:image/svg+xml,approved",
   },
   {
@@ -33,18 +36,95 @@ const assets = [
     width: 1200,
     height: 1500,
     license: "Original Studio artwork",
+    ownership: "built_in" as const,
+    selectable: true,
     src: "data:image/svg+xml,botanical",
   },
 ]
 
-function setup(document: Document = northstarSeed) {
+const managedAsset = {
+  id: "asset-abcdefghij",
+  name: "Reception portrait.jpg",
+  description: undefined,
+  tags: [] as string[],
+  width: 1_600,
+  height: 1_200,
+  ownership: "workspace" as const,
+  selectable: true,
+  src: "asset:managed/asset-abcdefghij",
+}
+
+const archivedManagedAsset = {
+  ...managedAsset,
+  selectable: false,
+}
+
+const fillPlacement = {
+  mode: "fill" as const,
+  focalX: 0.5,
+  focalY: 0.5,
+  zoom: 1,
+  rotation: 0,
+  flipX: false,
+  flipY: false,
+}
+
+function withImageLayer({
+  id = "contract-image",
+  alt = "Authored alternative description",
+  decorative = false,
+}: {
+  id?: string
+  alt?: string
+  decorative?: boolean
+} = {}) {
+  return applyCommand(northstarSeed, {
+    id: `add-${id}`,
+    type: "add_node",
+    actor: "human",
+    at: "2026-08-26T09:30:00.000Z",
+    pageId: "cover",
+    node: {
+      id,
+      type: "image",
+      name: "Contract image",
+      assetId: "current-contract-asset",
+      src: "data:image/svg+xml,current-contract-asset",
+      alt,
+      placement: fillPlacement,
+      frameMask: { shape: "rectangle" },
+      decorative,
+      x: 610,
+      y: 0,
+      width: 630,
+      height: 800,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+    },
+  })
+}
+
+function setup(
+  document: Document = northstarSeed,
+  publishedDocument: Document = document,
+  catalogAssets = assets,
+  commandCapabilities: readonly {
+    id: string
+    label: string
+    enabled: boolean
+    reason?: string
+  }[] = []
+) {
   const registered = new Map<string, WebMcpTool>()
   let proposed: ChangeSet | null = null
   const controller = new AbortController()
-  const publishedVersion = createTemplateVersion(northstarSeed, {
+  const publishedVersion = createTemplateVersion(publishedDocument, {
     id: "version-1",
     templateId: "northstar-wedding-proposal",
     version: 1,
+    sourceSnapshotId: `sha256-${"a".repeat(64)}`,
     publishedAt: "2026-08-26T10:00:00.000Z",
   })
   const renderHistory: StudioWebMcpRenderRecord[] = [
@@ -80,13 +160,51 @@ function setup(document: Document = northstarSeed) {
   const services = {
     getSnapshot: () => ({
       document,
+      snapshotId: "snapshot-seed",
+      operationVersion: 0,
       activePageId: "cover",
       selection: null,
       pendingChangeSet: proposed,
       assets,
       publishedVersion,
       renderHistory,
+      commandCapabilities,
     }),
+    searchAssets: async ({
+      query,
+      orientation,
+      tags,
+      limit,
+    }: {
+      query: string
+      orientation?: "portrait" | "landscape" | "square"
+      tags: readonly string[]
+      limit: number
+    }) => {
+      const normalizedQuery = query.toLowerCase()
+      const matches = catalogAssets.filter((asset) => {
+        if (!asset.selectable) return false
+        const ratio = asset.width / asset.height
+        const assetOrientation =
+          Math.abs(ratio - 1) <= 0.08
+            ? "square"
+            : ratio > 1
+              ? "landscape"
+              : "portrait"
+        return (
+          (!orientation || orientation === assetOrientation) &&
+          tags.every((tag) => asset.tags.includes(tag)) &&
+          (!normalizedQuery ||
+            [asset.name, asset.description ?? "", ...asset.tags]
+              .join(" ")
+              .toLowerCase()
+              .includes(normalizedQuery))
+        )
+      })
+      return { assets: matches.slice(0, limit), nextCursor: null }
+    },
+    resolveAsset: async (assetId: string) =>
+      catalogAssets.find((asset) => asset.id === assetId) ?? null,
     proposeChangeSet: (changeSet: ChangeSet) => {
       proposed = changeSet
       return changeSet
@@ -162,24 +280,134 @@ describe("WebMCP registration", () => {
       "inspect_render_history",
       "render_template",
     ])
+    expect(state.registered.get("publish_template")?.annotations).toEqual({
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+      untrustedContentHint: true,
+    })
+    expect(state.registered.get("render_template")?.annotations).toEqual({
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+      untrustedContentHint: true,
+    })
+    for (const tool of state.registered.values()) {
+      expect(tool.annotations?.untrustedContentHint, tool.name).toBe(true)
+    }
 
     const inspected = await state.registered.get("inspect_design")?.execute({})
+    const inspectedNodes = (
+      inspected?.structuredContent as {
+        activePageNodes: Array<Record<string, unknown>>
+      }
+    ).activePageNodes
+    expect(Array.isArray(inspectedNodes)).toBe(true)
+    expect(
+      inspectedNodes.some((node) => node.type === "image" && "src" in node)
+    ).toBe(false)
     expect(inspected?.structuredContent).toMatchObject({
       document: { id: northstarSeed.id, revision: northstarSeed.revision },
       activePage: { id: "cover" },
       activePageNodes: expect.arrayContaining([
         expect.objectContaining({ id: "cover-title", type: "text" }),
       ]),
+      activePageGroups: expect.any(Array),
+      commandCapabilities: [],
+      fields: expect.arrayContaining([
+        expect.objectContaining({
+          id: "package_price",
+          value: "385000",
+          displayValue: "₹3,85,000",
+          bindings: 2,
+          bindingTargets: expect.arrayContaining([
+            expect.objectContaining({
+              bindingId: "bind-package-price",
+              nodeId: "package-price",
+              property: "text",
+              pageId: "package",
+              outputId: "proposal",
+            }),
+            expect.objectContaining({
+              bindingId: "bind-wa-price",
+              nodeId: "wa-price",
+              property: "text",
+              pageId: "whatsapp-card",
+              outputId: "whatsapp",
+            }),
+          ]),
+          affectedPages: expect.arrayContaining([
+            expect.objectContaining({ id: "package" }),
+            expect.objectContaining({ id: "whatsapp-card" }),
+          ]),
+          affectedOutputs: expect.arrayContaining([
+            expect.objectContaining({ id: "proposal" }),
+            expect.objectContaining({ id: "whatsapp" }),
+          ]),
+        }),
+      ]),
     })
-
+    expect(JSON.stringify(inspected?.structuredContent)).not.toContain(
+      "data:image"
+    )
     const published = await state.registered.get("publish_template")?.execute({
       documentId: northstarSeed.id,
       expectedRevision: northstarSeed.revision,
+      expectedSnapshotId: "snapshot-seed",
     })
     expect(published?.structuredContent).toMatchObject({
       templateId: "northstar-wedding-proposal",
       version: 1,
       sourceRevision: northstarSeed.revision,
+    })
+
+    const staleBranch = await state.registered
+      .get("publish_template")
+      ?.execute({
+        documentId: northstarSeed.id,
+        expectedRevision: northstarSeed.revision,
+        expectedSnapshotId: "snapshot-other-branch",
+      })
+    expect(staleBranch?.isError).toBe(true)
+    expect(staleBranch?.content[0]?.text).toContain("branch changed")
+  })
+
+  it("projects the host's exact command policy without inferring enablement", async () => {
+    const commandCapabilities = [
+      {
+        id: "image.crop",
+        label: "Crop image",
+        enabled: false,
+        reason: "Image pixels are still loading.",
+      },
+      {
+        id: "image.replace",
+        label: "Replace image",
+        enabled: true,
+      },
+    ] as const
+    const state = setup(
+      northstarSeed,
+      northstarSeed,
+      assets,
+      commandCapabilities
+    )
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const inspected = await state.registered.get("inspect_design")?.execute({})
+    expect(inspected?.structuredContent).toMatchObject({
+      commandCapabilities,
     })
   })
 
@@ -208,11 +436,528 @@ describe("WebMCP registration", () => {
           license: "Original Studio artwork",
         }),
       ],
+      nextCursor: null,
     })
     expect(JSON.stringify(result?.structuredContent)).not.toContain("src")
     expect(JSON.stringify(result?.structuredContent)).not.toContain(
       "data:image"
     )
+  })
+
+  it("searches workspace-owned assets without inventing a license or exposing private sources", async () => {
+    const state = setup(northstarSeed, northstarSeed, [...assets, managedAsset])
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const result = await state.registered.get("search_assets")?.execute({
+      query: "reception portrait",
+      orientation: "landscape",
+    })
+    expect(result?.structuredContent).toEqual({
+      assets: [
+        {
+          id: managedAsset.id,
+          name: managedAsset.name,
+          tags: [],
+          width: managedAsset.width,
+          height: managedAsset.height,
+          orientation: "landscape",
+          ownership: "workspace",
+        },
+      ],
+      nextCursor: null,
+    })
+    const serialized = JSON.stringify(result?.structuredContent)
+    expect(serialized).not.toContain("src")
+    expect(serialized).not.toContain("license")
+    expect(serialized).not.toContain("asset:managed/")
+    expect(serialized).not.toContain("r2")
+  })
+
+  it("passes opaque catalog cursors through without preloading later pages", async () => {
+    const state = setup()
+    const search = vi
+      .fn<typeof state.services.searchAssets>()
+      .mockResolvedValueOnce({
+        assets: [assets[0]!],
+        nextCursor: "catalog-page-2",
+      })
+      .mockResolvedValueOnce({
+        assets: [managedAsset],
+        nextCursor: null,
+      })
+    state.services.searchAssets = search
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const first = await state.registered.get("search_assets")?.execute({
+      query: "portrait",
+      limit: 1,
+    })
+    expect(first?.structuredContent).toMatchObject({
+      nextCursor: "catalog-page-2",
+    })
+    expect(search).toHaveBeenCalledTimes(1)
+
+    await state.registered.get("search_assets")?.execute({
+      query: "portrait",
+      limit: 1,
+      cursor: "catalog-page-2",
+    })
+    expect(search).toHaveBeenNthCalledWith(2, {
+      query: "portrait",
+      orientation: undefined,
+      tags: [],
+      limit: 1,
+      cursor: "catalog-page-2",
+    })
+  })
+
+  it("round-trips archived managed field identities for inspection and validation", async () => {
+    const document: Document = {
+      ...northstarSeed,
+      fields: [
+        ...northstarSeed.fields,
+        {
+          id: "hero_asset",
+          key: "hero_asset",
+          label: "Hero asset",
+          type: "asset",
+          required: true,
+          agentDescription: "",
+          validation: {},
+          defaultValue: archivedManagedAsset.src,
+        },
+      ],
+      fieldValues: {
+        ...northstarSeed.fieldValues,
+        hero_asset: archivedManagedAsset.src,
+      },
+    }
+    const state = setup(document, document, [...assets, archivedManagedAsset])
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const inspected = await state.registered.get("inspect_design")?.execute({})
+    const fields = (
+      inspected?.structuredContent as {
+        fields: Array<Record<string, unknown>>
+      }
+    ).fields
+    expect(fields.find((field) => field.id === "hero_asset")).toMatchObject({
+      defaultValue: archivedManagedAsset.id,
+      value: archivedManagedAsset.id,
+      displayValue: archivedManagedAsset.name,
+    })
+    const validation = await state.registered
+      .get("validate_design")
+      ?.execute({})
+    expect(validation?.structuredContent).toMatchObject({
+      errors: expect.not.arrayContaining([
+        expect.objectContaining({ code: "unmanaged_asset" }),
+      ]),
+    })
+    expect(JSON.stringify(inspected?.structuredContent)).not.toContain(
+      archivedManagedAsset.src
+    )
+  })
+
+  it("keeps device-local asset aliases and IDs unavailable to public tools", async () => {
+    const localSource = "asset:local/private-device-id"
+    const withImage = applyCommand(northstarSeed, {
+      id: "add-local-test-image",
+      type: "add_node",
+      actor: "human",
+      at: "2026-08-26T09:30:00.000Z",
+      pageId: "cover",
+      node: {
+        id: "local-cover-photo",
+        type: "image",
+        name: "Local cover photo",
+        assetId: "private-device-id",
+        src: localSource,
+        alt: "Local image",
+        placement: fillPlacement,
+        frameMask: { shape: "rectangle" },
+        decorative: false,
+        x: 610,
+        y: 0,
+        width: 630,
+        height: 800,
+        rotation: 0,
+        opacity: 1,
+        visible: true,
+        locked: false,
+      },
+    })
+    const document: Document = {
+      ...withImage,
+      fields: [
+        ...withImage.fields,
+        {
+          id: "hero_asset",
+          key: "hero_asset",
+          label: "Hero asset",
+          type: "asset",
+          required: true,
+          agentDescription: "",
+          validation: {},
+          defaultValue: localSource,
+        },
+      ],
+      fieldValues: { ...withImage.fieldValues, hero_asset: localSource },
+    }
+    const state = setup(document, northstarSeed)
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const inspected = await state.registered.get("inspect_design")?.execute({})
+    const serialized = JSON.stringify(inspected?.structuredContent)
+    expect(serialized).not.toContain(localSource)
+    expect(serialized).not.toContain("private-device-id")
+    expect(serialized).toContain("unavailable-local-asset")
+    const validation = await state.registered
+      .get("validate_design")
+      ?.execute({})
+    expect(validation?.structuredContent).toMatchObject({
+      errors: expect.arrayContaining([
+        expect.objectContaining({ code: "unmanaged_asset" }),
+      ]),
+    })
+  })
+
+  it("validates exact managed image-node ownership while allowing archived existing references", async () => {
+    const imageNode = {
+      id: "managed-cover-photo",
+      type: "image" as const,
+      name: "Managed cover photo",
+      assetId: archivedManagedAsset.id,
+      src: archivedManagedAsset.src,
+      alt: "Managed image",
+      placement: fillPlacement,
+      frameMask: { shape: "rectangle" as const },
+      decorative: false,
+      x: 610,
+      y: 0,
+      width: 630,
+      height: 800,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+    }
+    const knownDocument = applyCommand(northstarSeed, {
+      id: "add-managed-known-image",
+      type: "add_node",
+      actor: "human",
+      at: "2026-08-26T09:30:00.000Z",
+      pageId: "cover",
+      node: imageNode,
+    })
+    const known = setup(knownDocument, northstarSeed, [
+      ...assets,
+      archivedManagedAsset,
+    ])
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          known.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      known.services,
+      known.controller.signal
+    )
+    const knownValidation = await known.registered
+      .get("validate_design")
+      ?.execute({})
+    const knownErrors = (
+      knownValidation?.structuredContent as {
+        errors: Array<Record<string, unknown>>
+      }
+    ).errors
+    expect(knownErrors).toEqual([])
+
+    const unknownDocument: Document = {
+      ...knownDocument,
+      nodes: knownDocument.nodes.map((node) =>
+        node.id === imageNode.id
+          ? {
+              ...node,
+              assetId: "asset-unknown0000",
+              src: "asset:managed/asset-unknown0000",
+            }
+          : node
+      ),
+    }
+    const unknown = setup(unknownDocument, northstarSeed)
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          unknown.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      unknown.services,
+      unknown.controller.signal
+    )
+    const unknownValidation = await unknown.registered
+      .get("validate_design")
+      ?.execute({})
+    expect(unknownValidation?.structuredContent).toMatchObject({
+      errors: expect.arrayContaining([
+        expect.objectContaining({
+          code: "unmanaged_asset",
+          nodeId: imageNode.id,
+        }),
+      ]),
+    })
+  })
+
+  it("inspects the canonical managed source identity and reports an assetId mismatch", async () => {
+    const document = structuredClone(northstarSeed)
+    document.nodes.push({
+      id: "mismatched-managed-image",
+      type: "image",
+      name: "Mismatched managed image",
+      assetId: "asset-aaaaaaaaaa",
+      src: managedAsset.src,
+      alt: "Managed image",
+      placement: fillPlacement,
+      frameMask: { shape: "rectangle" },
+      decorative: false,
+      x: 610,
+      y: 0,
+      width: 630,
+      height: 800,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+    })
+    document.pages[0]!.nodeIds.push("mismatched-managed-image")
+    const conflictingAsset = {
+      ...managedAsset,
+      id: "asset-aaaaaaaaaa",
+      src: "asset:managed/asset-aaaaaaaaaa",
+    }
+    const state = setup(document, northstarSeed, [
+      ...assets,
+      conflictingAsset,
+      managedAsset,
+    ])
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const inspected = await state.registered.get("inspect_design")?.execute({})
+    expect(inspected?.structuredContent).toMatchObject({
+      activePageNodes: expect.arrayContaining([
+        expect.objectContaining({
+          id: "mismatched-managed-image",
+          assetId: managedAsset.id,
+        }),
+      ]),
+    })
+    expect(JSON.stringify(inspected?.structuredContent)).not.toContain(
+      managedAsset.src
+    )
+
+    const validation = await state.registered
+      .get("validate_design")
+      ?.execute({})
+    expect(validation?.structuredContent).toMatchObject({
+      errors: expect.arrayContaining([
+        expect.objectContaining({
+          code: "invalid_asset",
+          nodeId: "mismatched-managed-image",
+        }),
+      ]),
+    })
+  })
+
+  it("reports render-policy blockers through the canonical validation tool", async () => {
+    const document: Document = {
+      ...northstarSeed,
+      pages: northstarSeed.pages.map((page, index) =>
+        index === 0 ? { ...page, background: "url(https://evil.test)" } : page
+      ),
+    }
+    const state = setup(document, northstarSeed)
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const result = await state.registered.get("validate_design")?.execute({})
+    expect(result?.structuredContent).toMatchObject({
+      errors: expect.arrayContaining([
+        expect.objectContaining({ code: "unsafe_render_value" }),
+      ]),
+    })
+  })
+
+  it("reports asset fields without approved public identities before publish", async () => {
+    const inlineAsset =
+      "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%221%22%20height%3D%221%22%3E%3C%2Fsvg%3E"
+    const document: Document = {
+      ...northstarSeed,
+      fields: [
+        ...northstarSeed.fields,
+        {
+          id: "inline_asset",
+          key: "inline_asset",
+          label: "Inline asset",
+          type: "asset",
+          required: true,
+          defaultValue: inlineAsset,
+          agentDescription: "Hero artwork",
+          validation: {},
+        },
+      ],
+      fieldValues: {
+        ...northstarSeed.fieldValues,
+        inline_asset: inlineAsset,
+      },
+    }
+    const state = setup(document)
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const result = await state.registered.get("validate_design")?.execute({})
+
+    expect(result?.structuredContent).toMatchObject({
+      errors: expect.arrayContaining([
+        expect.objectContaining({ code: "unmanaged_asset" }),
+      ]),
+    })
+  })
+
+  it("uses approved asset IDs for field inspection and proposals without exposing sources", async () => {
+    const document: Document = {
+      ...northstarSeed,
+      fields: [
+        ...northstarSeed.fields,
+        {
+          id: "hero_asset",
+          key: "hero_asset",
+          label: "Hero asset",
+          type: "asset",
+          required: true,
+          defaultValue: assets[1]!.src,
+        },
+      ],
+      fieldValues: {
+        ...northstarSeed.fieldValues,
+        hero_asset: assets[1]!.src,
+      },
+    }
+    const state = setup(document)
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const inspected = await state.registered.get("inspect_design")?.execute({})
+    const fields = (
+      inspected?.structuredContent as {
+        fields: Array<Record<string, unknown>>
+      }
+    ).fields
+    expect(fields.find((field) => field.id === "hero_asset")).toMatchObject({
+      defaultValue: "olive-botanical",
+      value: "olive-botanical",
+      displayValue: "Olive botanical",
+    })
+
+    const proposed = await state.registered
+      .get("propose_field_updates")
+      ?.execute({
+        documentId: document.id,
+        baseRevision: document.revision,
+        baseSnapshotId: "snapshot-seed",
+        values: { hero_asset: "sandstone-arches" },
+      })
+
+    expect(proposed?.isError).toBeUndefined()
+    expect(JSON.stringify(proposed?.structuredContent)).not.toContain(
+      "data:image"
+    )
+    expect(state.proposed()?.operations[0]?.command).toMatchObject({
+      type: "set_field",
+      fieldId: "hero_asset",
+      value: assets[0]!.src,
+    })
+
+    const unapproved = await state.registered
+      .get("propose_field_updates")
+      ?.execute({
+        documentId: document.id,
+        baseRevision: document.revision,
+        baseSnapshotId: "snapshot-seed",
+        values: { hero_asset: "https://example.test/unapproved.png" },
+      })
+    expect(unapproved?.isError).toBe(true)
+    expect(unapproved?.content[0]?.text).toContain("Use search_assets first")
   })
 
   it("inserts an approved asset as a private reviewable layer", async () => {
@@ -233,13 +978,14 @@ describe("WebMCP registration", () => {
       ?.execute({
         documentId: northstarSeed.id,
         baseRevision: northstarSeed.revision,
+        baseSnapshotId: "snapshot-seed",
         pageId: "cover",
         assetId: "sandstone-arches",
         x: 620,
         y: 120,
         width: 540,
         height: 900,
-        fit: "cover",
+        placement: fillPlacement,
         values: {
           couple_names: "Mira & Dev",
           package_name: "The Moonlit Weekend",
@@ -348,6 +1094,208 @@ describe("WebMCP registration", () => {
     })
   })
 
+  it("keeps approved asset IDs public until the Studio render boundary", async () => {
+    const document: Document = {
+      ...northstarSeed,
+      fields: [
+        ...northstarSeed.fields,
+        {
+          id: "hero_asset",
+          key: "hero_asset",
+          label: "Hero asset",
+          type: "asset",
+          required: true,
+          defaultValue: assets[1]!.src,
+        },
+      ],
+      fieldValues: {
+        ...northstarSeed.fieldValues,
+        hero_asset: assets[1]!.src,
+      },
+    }
+    const state = setup(document)
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const result = await state.registered.get("render_template")?.execute({
+      templateId: "northstar-wedding-proposal",
+      version: 1,
+      modifications: { hero_asset: "sandstone-arches" },
+      outputs: [{ outputId: "proposal", format: "pdf" }],
+    })
+
+    expect(result?.isError).toBeUndefined()
+    expect(state.renderedWith()?.modifications).toEqual({
+      hero_asset: "sandstone-arches",
+    })
+    expect(result?.structuredContent).toMatchObject({
+      modifications: { hero_asset: "sandstone-arches" },
+    })
+    expect(JSON.stringify(result?.structuredContent)).not.toContain(
+      "data:image"
+    )
+  })
+
+  it("renders an existing archived managed field but rejects new archived, local, and unknown values", async () => {
+    const document: Document = {
+      ...northstarSeed,
+      fields: [
+        ...northstarSeed.fields,
+        {
+          id: "hero_asset",
+          key: "hero_asset",
+          label: "Hero asset",
+          type: "asset",
+          required: true,
+          agentDescription: "",
+          validation: {},
+          defaultValue: archivedManagedAsset.src,
+        },
+      ],
+      fieldValues: {
+        ...northstarSeed.fieldValues,
+        hero_asset: archivedManagedAsset.src,
+      },
+    }
+    const state = setup(document, document, [...assets, archivedManagedAsset])
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+    const render = state.registered.get("render_template")
+    const input = {
+      templateId: "northstar-wedding-proposal",
+      version: 1,
+      outputs: [{ outputId: "proposal", format: "pdf" }],
+    }
+
+    const existing = await render?.execute({
+      ...input,
+      modifications: { hero_asset: archivedManagedAsset.id },
+    })
+    expect(existing?.isError).toBeUndefined()
+    expect(state.renderedWith()?.modifications).toEqual({
+      hero_asset: archivedManagedAsset.id,
+    })
+    expect(JSON.stringify(existing?.structuredContent)).not.toContain(
+      archivedManagedAsset.src
+    )
+
+    const local = await render?.execute({
+      ...input,
+      modifications: { hero_asset: "asset:local/private-device-id" },
+    })
+    expect(local?.isError).toBe(true)
+
+    const unknown = await render?.execute({
+      ...input,
+      modifications: { hero_asset: "asset-unknown0000" },
+    })
+    expect(unknown?.isError).toBe(true)
+  })
+
+  it("does not borrow archived render eligibility from another asset parameter", async () => {
+    const document: Document = {
+      ...northstarSeed,
+      fields: [
+        ...northstarSeed.fields,
+        {
+          id: "existing_archived_asset",
+          key: "existing_archived_asset",
+          label: "Existing archived asset",
+          type: "asset",
+          required: true,
+          agentDescription: "",
+          validation: {},
+          defaultValue: archivedManagedAsset.src,
+        },
+        {
+          id: "new_asset_target",
+          key: "new_asset_target",
+          label: "New asset target",
+          type: "asset",
+          required: true,
+          agentDescription: "",
+          validation: {},
+          defaultValue: assets[0]!.src,
+        },
+      ],
+      fieldValues: {
+        ...northstarSeed.fieldValues,
+        existing_archived_asset: archivedManagedAsset.src,
+        new_asset_target: assets[0]!.src,
+      },
+    }
+    const state = setup(document, document, [...assets, archivedManagedAsset])
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const result = await state.registered.get("render_template")?.execute({
+      templateId: "northstar-wedding-proposal",
+      version: 1,
+      modifications: { new_asset_target: archivedManagedAsset.id },
+      outputs: [{ outputId: "proposal", format: "pdf" }],
+    })
+
+    expect(result?.isError).toBe(true)
+    expect(result?.content[0]?.text).toContain(
+      `Archived asset ${archivedManagedAsset.id} is not available as a new value for New asset target.`
+    )
+    expect(state.renderedWith()).toBeUndefined()
+  })
+
+  it("rejects duplicate output and format pairs before the render service", async () => {
+    const state = setup()
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const result = await state.registered.get("render_template")?.execute({
+      templateId: "northstar-wedding-proposal",
+      version: 1,
+      modifications: {},
+      outputs: [
+        { outputId: "proposal", format: "pdf" },
+        { outputId: "proposal", format: "pdf" },
+      ],
+    })
+
+    expect(result?.isError).toBe(true)
+    expect(result?.content[0]?.text).toContain(
+      "Duplicate render selection: proposal:pdf"
+    )
+    expect(state.renderedWith()).toBeUndefined()
+  })
+
   it("rejects unknown parameters before starting a render", async () => {
     const state = setup()
     await registerStudioWebMcpTools(
@@ -373,7 +1321,7 @@ describe("WebMCP registration", () => {
     expect(state.renderedWith()).toBeUndefined()
   })
 
-  it("resolves approved asset IDs into reviewable image replacements", async () => {
+  it("resolves approved replacements without overwriting authored alt text", async () => {
     const document = applyCommand(northstarSeed, {
       id: "add-test-image",
       type: "add_node",
@@ -387,9 +1335,9 @@ describe("WebMCP registration", () => {
         assetId: "current",
         src: "data:image/svg+xml,current",
         alt: "Current image",
-        fit: "cover",
-        cropX: 0.5,
-        cropY: 0.5,
+        placement: fillPlacement,
+        frameMask: { shape: "rectangle" },
+        decorative: false,
         x: 610,
         y: 0,
         width: 630,
@@ -415,11 +1363,15 @@ describe("WebMCP registration", () => {
     const result = await state.registered.get("propose_canvas_edits")?.execute({
       documentId: document.id,
       baseRevision: document.revision,
+      baseSnapshotId: "snapshot-seed",
       edits: [
         {
+          nodeType: "image",
           nodeId: "cover-photo",
           assetId: "sandstone-arches",
-          patch: { cropY: 0.42 },
+          patch: {
+            placement: { ...fillPlacement, focalY: 0.42 },
+          },
         },
       ],
     })
@@ -437,13 +1389,396 @@ describe("WebMCP registration", () => {
             patch: {
               assetId: "sandstone-arches",
               src: "data:image/svg+xml,approved",
-              alt: "Architectural arches with restrained earth tones",
-              cropY: 0.42,
+              placement: { ...fillPlacement, focalY: 0.42 },
             },
           },
         },
       ],
     })
+    const proposed = state.proposed()
+    expect(proposed).not.toBeNull()
+    expect(
+      previewChangeSet(document, proposed!).nodes.find(
+        (node) => node.id === "cover-photo"
+      )
+    ).toMatchObject({
+      assetId: "sandstone-arches",
+      alt: "Current image",
+      decorative: false,
+    })
+  })
+
+  it("changes image alt text only when the replacement request supplies it", async () => {
+    const document = withImageLayer()
+    const state = setup(document)
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const result = await state.registered.get("propose_canvas_edits")?.execute({
+      documentId: document.id,
+      baseRevision: document.revision,
+      baseSnapshotId: "snapshot-seed",
+      edits: [
+        {
+          nodeType: "image",
+          nodeId: "contract-image",
+          assetId: "sandstone-arches",
+          patch: { alt: "Couple beneath sandstone arches" },
+        },
+      ],
+    })
+
+    expect(result?.isError).toBeUndefined()
+    expect(state.proposed()?.operations[0]?.command).toMatchObject({
+      type: "update_node",
+      patch: {
+        assetId: "sandstone-arches",
+        src: "data:image/svg+xml,approved",
+        alt: "Couple beneath sandstone arches",
+      },
+    })
+  })
+
+  it("preserves decorative accessibility intent and rejects a conflicting alt", async () => {
+    const document = withImageLayer({
+      id: "decorative-contract-image",
+      alt: "",
+      decorative: true,
+    })
+    const state = setup(document)
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+    const tool = state.registered.get("propose_canvas_edits")
+
+    const replacement = await tool?.execute({
+      documentId: document.id,
+      baseRevision: document.revision,
+      baseSnapshotId: "snapshot-seed",
+      edits: [
+        {
+          nodeType: "image",
+          nodeId: "decorative-contract-image",
+          assetId: "sandstone-arches",
+        },
+      ],
+    })
+    expect(replacement?.isError).toBeUndefined()
+    const proposed = state.proposed()
+    expect(proposed).not.toBeNull()
+    expect(
+      previewChangeSet(document, proposed!).nodes.find(
+        (node) => node.id === "decorative-contract-image"
+      )
+    ).toMatchObject({ alt: "", decorative: true })
+
+    const conflict = await tool?.execute({
+      documentId: document.id,
+      baseRevision: document.revision,
+      baseSnapshotId: "snapshot-seed",
+      edits: [
+        {
+          nodeType: "image",
+          nodeId: "decorative-contract-image",
+          patch: { alt: "This must not coexist with decorative true" },
+        },
+      ],
+    })
+    expect(conflict?.isError).toBe(true)
+    expect(conflict?.content[0]?.text).toContain(
+      "Decorative images must use an empty alternative description"
+    )
+  })
+
+  it("advertises and accepts a discriminated canonical image patch", async () => {
+    const document = withImageLayer()
+    const state = setup(document)
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+    const tool = state.registered.get("propose_canvas_edits")
+    const schema = JSON.stringify(tool?.inputSchema)
+    expect(schema).toContain('"oneOf"')
+    expect(schema).toContain('"nodeType":{"const":"image"}')
+    expect(schema).toContain('"placement"')
+    expect(schema).toContain('"frameMask"')
+    expect(schema).not.toContain('"additionalProperties":true')
+    expect(schema).not.toContain('"cropX"')
+    expect(schema).not.toContain('"transformMatrix"')
+
+    const result = await tool?.execute({
+      documentId: document.id,
+      baseRevision: document.revision,
+      baseSnapshotId: "snapshot-seed",
+      edits: [
+        {
+          nodeType: "image",
+          nodeId: "contract-image",
+          patch: {
+            placement: {
+              ...fillPlacement,
+              mode: "manual",
+              focalX: 0.27,
+              zoom: 1.8,
+              rotation: 18,
+              flipX: true,
+            },
+            frameMask: { shape: "rounded_rectangle", radius: 0.16 },
+          },
+        },
+      ],
+    })
+
+    expect(result?.isError).toBeUndefined()
+    expect(state.proposed()?.operations[0]?.command).toMatchObject({
+      type: "update_node",
+      patch: {
+        placement: {
+          mode: "manual",
+          focalX: 0.27,
+          zoom: 1.8,
+          rotation: 18,
+          flipX: true,
+        },
+        frameMask: { shape: "rounded_rectangle", radius: 0.16 },
+      },
+    })
+  })
+
+  it("rejects untyped, malformed, legacy, and renderer-private image patches", async () => {
+    const document = withImageLayer()
+    const state = setup(document)
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+    const tool = state.registered.get("propose_canvas_edits")
+    const proposal = (edit: Record<string, unknown>) =>
+      tool?.execute({
+        documentId: document.id,
+        baseRevision: document.revision,
+        baseSnapshotId: "snapshot-seed",
+        edits: [edit],
+      })
+
+    const untyped = await proposal({
+      nodeId: "contract-image",
+      patch: { placement: fillPlacement },
+    })
+    expect(untyped?.isError).toBe(true)
+    expect(untyped?.content[0]?.text).toContain("nodeType")
+
+    const malformed = await proposal({
+      nodeType: "image",
+      nodeId: "contract-image",
+      patch: { placement: { mode: "fill" } },
+    })
+    expect(malformed?.isError).toBe(true)
+    expect(malformed?.content[0]?.text).toContain("patch is invalid")
+
+    for (const patch of [
+      { fit: "cover" },
+      { cropX: 0.25, cropY: 0.75 },
+      { transformMatrix: [1, 0, 0, 1, 20, 30] },
+    ]) {
+      const legacy = await proposal({
+        nodeType: "image",
+        nodeId: "contract-image",
+        patch,
+      })
+      expect(legacy?.isError).toBe(true)
+      expect(legacy?.content[0]?.text).toContain("is not canonical")
+    }
+  })
+
+  it("uses canonical managed identities in field, insertion, and replacement proposals", async () => {
+    const withImage = applyCommand(northstarSeed, {
+      id: "add-managed-test-image",
+      type: "add_node",
+      actor: "human",
+      at: "2026-08-26T09:30:00.000Z",
+      pageId: "cover",
+      node: {
+        id: "managed-cover-photo",
+        type: "image",
+        name: "Cover photo",
+        assetId: "olive-botanical",
+        src: assets[1]!.src,
+        alt: "Current image",
+        placement: fillPlacement,
+        frameMask: { shape: "rectangle" },
+        decorative: false,
+        x: 610,
+        y: 0,
+        width: 630,
+        height: 800,
+        rotation: 0,
+        opacity: 1,
+        visible: true,
+        locked: false,
+      },
+    })
+    const document: Document = {
+      ...withImage,
+      fields: [
+        ...withImage.fields,
+        {
+          id: "hero_asset",
+          key: "hero_asset",
+          label: "Hero asset",
+          type: "asset",
+          required: true,
+          agentDescription: "",
+          validation: {},
+          defaultValue: assets[1]!.src,
+        },
+      ],
+      fieldValues: {
+        ...withImage.fieldValues,
+        hero_asset: assets[1]!.src,
+      },
+    }
+    const state = setup(document, document, [...assets, managedAsset])
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const field = await state.registered.get("propose_field_updates")?.execute({
+      documentId: document.id,
+      baseRevision: document.revision,
+      baseSnapshotId: "snapshot-seed",
+      values: { hero_asset: managedAsset.id },
+    })
+    expect(field?.isError).toBeUndefined()
+    expect(state.proposed()?.operations[0]?.command).toMatchObject({
+      type: "set_field",
+      value: managedAsset.src,
+    })
+
+    const insertion = await state.registered
+      .get("propose_asset_insertion")
+      ?.execute({
+        documentId: document.id,
+        baseRevision: document.revision,
+        baseSnapshotId: "snapshot-seed",
+        pageId: "cover",
+        assetId: managedAsset.id,
+        x: 10,
+        y: 10,
+        width: 300,
+        height: 200,
+        placement: fillPlacement,
+      })
+    expect(insertion?.isError).toBeUndefined()
+    expect(state.proposed()?.operations[0]?.command).toMatchObject({
+      type: "add_node",
+      node: { assetId: managedAsset.id, src: managedAsset.src },
+    })
+
+    const replacement = await state.registered
+      .get("propose_canvas_edits")
+      ?.execute({
+        documentId: document.id,
+        baseRevision: document.revision,
+        baseSnapshotId: "snapshot-seed",
+        edits: [
+          {
+            nodeType: "image",
+            nodeId: "managed-cover-photo",
+            assetId: managedAsset.id,
+            patch: {
+              placement: { ...fillPlacement, focalX: 0.4 },
+            },
+          },
+        ],
+      })
+    expect(replacement?.isError).toBeUndefined()
+    expect(state.proposed()?.operations[0]?.command).toMatchObject({
+      type: "update_node",
+      patch: {
+        assetId: managedAsset.id,
+        src: managedAsset.src,
+        placement: { ...fillPlacement, focalX: 0.4 },
+      },
+    })
+    for (const result of [field, insertion, replacement]) {
+      const serialized = JSON.stringify(result?.structuredContent)
+      expect(serialized).not.toContain(managedAsset.src)
+      expect(serialized).not.toContain("data:image")
+    }
+  })
+
+  it("rejects archived, local, and unknown identities for new proposals", async () => {
+    const state = setup(northstarSeed, northstarSeed, [
+      ...assets,
+      archivedManagedAsset,
+    ])
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+    const base = {
+      documentId: northstarSeed.id,
+      baseRevision: northstarSeed.revision,
+      baseSnapshotId: "snapshot-seed",
+      pageId: "cover",
+      x: 10,
+      y: 10,
+      width: 100,
+      height: 100,
+      placement: fillPlacement,
+    }
+    for (const assetId of [
+      archivedManagedAsset.id,
+      "asset:local/private-device-id",
+      "asset-unknown0000",
+    ]) {
+      const result = await state.registered
+        .get("propose_asset_insertion")
+        ?.execute({ ...base, assetId })
+      expect(result?.isError).toBe(true)
+    }
   })
 
   it("creates a pending preview through the registered proposal handler", async () => {
@@ -464,6 +1799,7 @@ describe("WebMCP registration", () => {
       ?.execute({
         documentId: northstarSeed.id,
         baseRevision: northstarSeed.revision,
+        baseSnapshotId: "snapshot-seed",
         reason: "Adapt the pack for a smaller celebration",
         values: {
           package_name: "The Saffron Weekend",
@@ -477,10 +1813,115 @@ describe("WebMCP registration", () => {
       title: "Adapt the pack for a smaller celebration",
       operations: [
         { command: { type: "set_field", value: "The Saffron Weekend" } },
-        { command: { type: "set_field", value: "₹4,10,000" } },
+        { command: { type: "set_field", value: "410000" } },
       ],
     })
     expect(result?.content[0]?.text).toContain("nothing has been applied")
+  })
+
+  it("rejects field proposal values that violate the inspected field type", async () => {
+    const document: Document = {
+      ...northstarSeed,
+      fields: northstarSeed.fields.map((field) =>
+        field.id === "event_date"
+          ? {
+              ...field,
+              type: "date",
+              defaultValue: "2027-01-18",
+            }
+          : field
+      ),
+      fieldValues: {
+        ...northstarSeed.fieldValues,
+        event_date: "2027-01-18",
+      },
+    }
+    const state = setup(document)
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const result = await state.registered
+      .get("propose_field_updates")
+      ?.execute({
+        documentId: document.id,
+        baseRevision: document.revision,
+        baseSnapshotId: "snapshot-seed",
+        values: { event_date: "18 January 2027" },
+      })
+
+    expect(result?.isError).toBe(true)
+    expect(result?.content[0]?.text).toContain("Invalid value")
+    expect(state.proposed()).toBeNull()
+  })
+
+  it("rejects numeric currency at proposal and render boundaries", async () => {
+    const state = setup()
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const proposal = await state.registered
+      .get("propose_field_updates")
+      ?.execute({
+        documentId: northstarSeed.id,
+        baseRevision: northstarSeed.revision,
+        baseSnapshotId: "snapshot-seed",
+        values: { package_price: 9_007_199_254_740_992 },
+      })
+    expect(proposal?.isError).toBe(true)
+    expect(proposal?.content[0]?.text).toContain("exact decimal string")
+
+    const render = await state.registered.get("render_template")?.execute({
+      templateId: "northstar-wedding-proposal",
+      version: 1,
+      modifications: { package_price: 9_007_199_254_740_992 },
+      outputs: [{ outputId: "proposal", format: "pdf" }],
+    })
+    expect(render?.isError).toBe(true)
+    expect(render?.content[0]?.text).toContain("exact decimal string")
+    expect(state.renderedWith()).toBeUndefined()
+  })
+
+  it("rejects a stale snapshot even when the document revision matches", async () => {
+    const state = setup()
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const result = await state.registered
+      .get("propose_field_updates")
+      ?.execute({
+        documentId: northstarSeed.id,
+        baseRevision: northstarSeed.revision,
+        baseSnapshotId: "snapshot-from-abandoned-branch",
+        values: { package_name: "Stale package" },
+      })
+
+    expect(result?.isError).toBe(true)
+    expect(result?.content[0]?.text).toContain("document snapshot changed")
+    expect(state.proposed()).toBeNull()
   })
 
   it("creates a reviewable canvas proposal from stable node IDs", async () => {
@@ -499,9 +1940,11 @@ describe("WebMCP registration", () => {
     const result = await state.registered.get("propose_canvas_edits")?.execute({
       documentId: northstarSeed.id,
       baseRevision: northstarSeed.revision,
+      baseSnapshotId: "snapshot-seed",
       reason: "Refine the cover hierarchy",
       edits: [
         {
+          nodeType: "text",
           nodeId: "cover-title",
           patch: { y: 760, fontSize: 76 },
         },
@@ -541,6 +1984,7 @@ describe("WebMCP registration", () => {
       ?.execute({
         documentId: northstarSeed.id,
         baseRevision: northstarSeed.revision,
+        baseSnapshotId: "snapshot-seed",
         sourcePageId: "cover",
         name: "Instagram portrait",
         kind: "whatsapp_portrait",
@@ -557,6 +2001,50 @@ describe("WebMCP registration", () => {
             type: "add_output_variant",
             output: { name: "Instagram portrait" },
             page: { width: 1080, height: 1350 },
+          },
+        },
+      ],
+    })
+  })
+
+  it("accepts the canonical custom output kind through WebMCP", async () => {
+    const state = setup()
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const result = await state.registered
+      .get("propose_output_variant")
+      ?.execute({
+        documentId: northstarSeed.id,
+        baseRevision: northstarSeed.revision,
+        baseSnapshotId: "snapshot-seed",
+        sourcePageId: "cover",
+        name: "Custom document",
+        kind: "custom",
+        width: 1600,
+        height: 900,
+        exportFormats: ["png", "pdf"],
+      })
+
+    expect(result?.isError).toBeUndefined()
+    expect(state.proposed()).toMatchObject({
+      operations: [
+        {
+          command: {
+            type: "add_output_variant",
+            output: {
+              name: "Custom document",
+              kind: "custom",
+              exportFormats: ["png", "pdf"],
+            },
           },
         },
       ],

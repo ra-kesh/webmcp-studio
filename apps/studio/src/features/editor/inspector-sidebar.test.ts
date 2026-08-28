@@ -1,0 +1,130 @@
+import { createElement } from "react"
+import { renderToStaticMarkup } from "react-dom/server"
+import { renderConformanceDocument } from "@webmcp/document"
+import { describe, expect, it, vi } from "vitest"
+
+import { InspectorSidebar } from "./inspector-sidebar"
+
+const image = renderConformanceDocument.nodes.find(
+  (node) => node.type === "image"
+)!
+
+describe("InspectorSidebar image replacement capability", () => {
+  it("disables Replace and explains the host-projected source binding", () => {
+    const reason =
+      "“Cover image” gets its image from the “Client portrait” shared asset field. Change the field value in Fields or unbind Source."
+    const markup = renderToStaticMarkup(
+      createElement(InspectorSidebar, {
+        document: renderConformanceDocument,
+        selectedNodes: [image],
+        pendingChangeSet: null,
+        lastResolvedChangeSet: null,
+        changeSetConflict: null,
+        changeSetError: null,
+        isApplyingChangeSet: false,
+        webMcpStatus: "ready",
+        webMcpError: null,
+        capabilityContext: {
+          documentEditable: true,
+          imageSourceStateByNodeId: {
+            [image.id]: { src: image.src, readiness: "ready" },
+          },
+          imageReplacementConstraintByNodeId: {
+            [image.id]: { reason },
+          },
+        },
+        onUpdateNode: vi.fn(),
+        onUpdateSelection: vi.fn(),
+        onUpdateField: vi.fn(),
+        onCreateField: vi.fn(),
+        onUpdateFieldDefinition: vi.fn(),
+        onRemoveField: vi.fn(),
+        onBindField: vi.fn(),
+        onUnbindField: vi.fn(),
+        onFocusNode: vi.fn(),
+        onDecideChangeOperation: vi.fn(),
+        onDecideAllChangeOperations: vi.fn(),
+        onApplyChangeSet: vi.fn(),
+        onDiscardChangeSet: vi.fn(),
+        onAlignSelection: vi.fn(),
+        onAlignSelectionToPage: vi.fn(),
+        onDistributeSelection: vi.fn(),
+        onSetSelectionLocked: vi.fn(),
+        onSetSelectionVisible: vi.fn(),
+        onReorderSelection: vi.fn(),
+        onDuplicateSelection: vi.fn(),
+        onDeleteSelection: vi.fn(),
+        onUpdateImageFrameGeometry: vi.fn(),
+        onSetImagePlacement: vi.fn(),
+        onSetImageFrameMask: vi.fn(),
+        onRunImageCommand: vi.fn(),
+        isImageCommandEnabled: (commandId) => commandId !== "image.replace",
+        onRetryImageSource: vi.fn(),
+        onRemoveImageLayer: vi.fn(),
+      })
+    )
+
+    expect(markup).toContain(reason)
+    expect(markup).toMatch(
+      /<button[^>]*aria-describedby="[^"]+"[^>]*disabled=""[^>]*>[^<]*<svg[^>]*>.*Replace image…<\/button>/
+    )
+  })
+
+  it("renders complete in-place recovery for an unavailable image", () => {
+    const markup = renderToStaticMarkup(
+      createElement(InspectorSidebar, {
+        document: renderConformanceDocument,
+        selectedNodes: [image],
+        pendingChangeSet: null,
+        lastResolvedChangeSet: null,
+        changeSetConflict: null,
+        changeSetError: null,
+        isApplyingChangeSet: false,
+        webMcpStatus: "ready",
+        webMcpError: null,
+        capabilityContext: {
+          documentEditable: true,
+          imageSourceStateByNodeId: {
+            [image.id]: { src: image.src, readiness: "unavailable" },
+          },
+        },
+        onUpdateNode: vi.fn(),
+        onUpdateSelection: vi.fn(),
+        onUpdateField: vi.fn(),
+        onCreateField: vi.fn(),
+        onUpdateFieldDefinition: vi.fn(),
+        onRemoveField: vi.fn(),
+        onBindField: vi.fn(),
+        onUnbindField: vi.fn(),
+        onFocusNode: vi.fn(),
+        onDecideChangeOperation: vi.fn(),
+        onDecideAllChangeOperations: vi.fn(),
+        onApplyChangeSet: vi.fn(),
+        onDiscardChangeSet: vi.fn(),
+        onAlignSelection: vi.fn(),
+        onAlignSelectionToPage: vi.fn(),
+        onDistributeSelection: vi.fn(),
+        onSetSelectionLocked: vi.fn(),
+        onSetSelectionVisible: vi.fn(),
+        onReorderSelection: vi.fn(),
+        onDuplicateSelection: vi.fn(),
+        onDeleteSelection: vi.fn(),
+        onUpdateImageFrameGeometry: vi.fn(),
+        onSetImagePlacement: vi.fn(),
+        onSetImageFrameMask: vi.fn(),
+        onRunImageCommand: vi.fn(),
+        isImageCommandEnabled: () => true,
+        onRetryImageSource: vi.fn(),
+        onRemoveImageLayer: vi.fn(),
+      })
+    )
+
+    expect(markup).toContain('role="alert"')
+    expect(markup).toContain("Image unavailable")
+    expect(markup).toContain("The frame and layer position are preserved")
+    expect(markup).toContain("Retry")
+    expect(markup).toContain("Locate")
+    expect(markup).toContain("Remove")
+    expect(markup).not.toContain("Crop image")
+  })
+})

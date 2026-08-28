@@ -9,6 +9,7 @@ const published = createTemplateVersion(northstarSeed, {
   id: "version-1",
   templateId: "northstar-wedding-proposal",
   version: 1,
+  sourceSnapshotId: `sha256-${"a".repeat(64)}`,
   publishedAt: "2026-08-26T10:00:00.000Z",
 })
 
@@ -26,6 +27,10 @@ describe("template rendering", () => {
     expect(rendered.nodes.find((node) => node.id === "wa-title")).toMatchObject(
       { text: "The Monsoon Weekend" }
     )
+    expect(rendered.fieldValues.package_price).toBe("410000")
+    expect(
+      rendered.nodes.find((node) => node.id === "package-price")
+    ).toMatchObject({ text: "₹4,10,000" })
     expect(published.document.fieldValues.couple_names).toBe("Aditi & Kabir")
   })
 

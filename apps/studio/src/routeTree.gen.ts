@@ -9,23 +9,36 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
+import { Route as StudioRouteRouteImport } from './routes/_studio/route'
+import { Route as StudioIndexRouteImport } from './routes/_studio/index'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as V1RendersRenderIdRouteImport } from './routes/v1/renders/$renderId'
 import { Route as V1StudioExportPdfRouteImport } from './routes/v1/studio/export-pdf'
 import { Route as V1StudioExportPngRouteImport } from './routes/v1/studio/export-png'
+import { Route as V1StudioPageThumbnailRouteImport } from './routes/v1/studio/page-thumbnail'
+import { Route as V1StudioQuotationCompositionsRouteImport } from './routes/v1/studio/quotation-compositions'
 import { Route as V1StudioRenderRouteImport } from './routes/v1/studio/render'
+import { Route as V1StudioAssetsIndexRouteImport } from './routes/v1/studio/assets/index'
+import { Route as V1StudioAssetsAssetIdRouteImport } from './routes/v1/studio/assets/$assetId'
 import { Route as V1StudioRendersIndexRouteImport } from './routes/v1/studio/renders/index'
 import { Route as V1StudioSessionResetRouteImport } from './routes/v1/studio/session/reset'
 import { Route as V1StudioSessionTokenRouteImport } from './routes/v1/studio/session/token'
 import { Route as V1StudioTemplatesIndexRouteImport } from './routes/v1/studio/templates/index'
 import { Route as V1StudioTemplatesTemplateIdRouteImport } from './routes/v1/studio/templates/$templateId'
 import { Route as V1RendersRenderIdOutputsOutputIdRouteImport } from './routes/v1/renders/$renderId/outputs/$outputId'
+import { Route as V1StudioAssetsAssetIdContentRouteImport } from './routes/v1/studio/assets/$assetId/content'
+import { Route as V1StudioAssetsAssetIdDeletionImpactRouteImport } from './routes/v1/studio/assets/$assetId/deletion-impact'
+import { Route as V1StudioAssetsAssetIdUsedRouteImport } from './routes/v1/studio/assets/$assetId/used'
+import { Route as V1StudioDocumentsDocumentIdRevisionsSnapshotIdRouteImport } from './routes/v1/studio/documents/$documentId/revisions/$snapshotId'
 
-const IndexRoute = IndexRouteImport.update({
+const StudioRouteRoute = StudioRouteRouteImport.update({
+  id: '/_studio',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StudioIndexRoute = StudioIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
+  getParentRoute: () => StudioRouteRoute,
 } as any)
 const ApiHealthRoute = ApiHealthRouteImport.update({
   id: '/api/health',
@@ -47,9 +60,30 @@ const V1StudioExportPngRoute = V1StudioExportPngRouteImport.update({
   path: '/v1/studio/export-png',
   getParentRoute: () => rootRouteImport,
 } as any)
+const V1StudioPageThumbnailRoute = V1StudioPageThumbnailRouteImport.update({
+  id: '/v1/studio/page-thumbnail',
+  path: '/v1/studio/page-thumbnail',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const V1StudioQuotationCompositionsRoute =
+  V1StudioQuotationCompositionsRouteImport.update({
+    id: '/v1/studio/quotation-compositions',
+    path: '/v1/studio/quotation-compositions',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const V1StudioRenderRoute = V1StudioRenderRouteImport.update({
   id: '/v1/studio/render',
   path: '/v1/studio/render',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const V1StudioAssetsIndexRoute = V1StudioAssetsIndexRouteImport.update({
+  id: '/v1/studio/assets/',
+  path: '/v1/studio/assets/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const V1StudioAssetsAssetIdRoute = V1StudioAssetsAssetIdRouteImport.update({
+  id: '/v1/studio/assets/$assetId',
+  path: '/v1/studio/assets/$assetId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const V1StudioRendersIndexRoute = V1StudioRendersIndexRouteImport.update({
@@ -84,49 +118,98 @@ const V1RendersRenderIdOutputsOutputIdRoute =
     path: '/outputs/$outputId',
     getParentRoute: () => V1RendersRenderIdRoute,
   } as any)
+const V1StudioAssetsAssetIdContentRoute =
+  V1StudioAssetsAssetIdContentRouteImport.update({
+    id: '/content',
+    path: '/content',
+    getParentRoute: () => V1StudioAssetsAssetIdRoute,
+  } as any)
+const V1StudioAssetsAssetIdDeletionImpactRoute =
+  V1StudioAssetsAssetIdDeletionImpactRouteImport.update({
+    id: '/deletion-impact',
+    path: '/deletion-impact',
+    getParentRoute: () => V1StudioAssetsAssetIdRoute,
+  } as any)
+const V1StudioAssetsAssetIdUsedRoute =
+  V1StudioAssetsAssetIdUsedRouteImport.update({
+    id: '/used',
+    path: '/used',
+    getParentRoute: () => V1StudioAssetsAssetIdRoute,
+  } as any)
+const V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute =
+  V1StudioDocumentsDocumentIdRevisionsSnapshotIdRouteImport.update({
+    id: '/v1/studio/documents/$documentId/revisions/$snapshotId',
+    path: '/v1/studio/documents/$documentId/revisions/$snapshotId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
+  '/': typeof StudioIndexRoute
   '/api/health': typeof ApiHealthRoute
   '/v1/renders/$renderId': typeof V1RendersRenderIdRouteWithChildren
   '/v1/studio/export-pdf': typeof V1StudioExportPdfRoute
   '/v1/studio/export-png': typeof V1StudioExportPngRoute
+  '/v1/studio/page-thumbnail': typeof V1StudioPageThumbnailRoute
+  '/v1/studio/quotation-compositions': typeof V1StudioQuotationCompositionsRoute
   '/v1/studio/render': typeof V1StudioRenderRoute
+  '/v1/studio/assets/$assetId': typeof V1StudioAssetsAssetIdRouteWithChildren
   '/v1/studio/session/reset': typeof V1StudioSessionResetRoute
   '/v1/studio/session/token': typeof V1StudioSessionTokenRoute
   '/v1/studio/templates/$templateId': typeof V1StudioTemplatesTemplateIdRoute
+  '/v1/studio/assets/': typeof V1StudioAssetsIndexRoute
   '/v1/studio/renders/': typeof V1StudioRendersIndexRoute
   '/v1/studio/templates/': typeof V1StudioTemplatesIndexRoute
   '/v1/renders/$renderId/outputs/$outputId': typeof V1RendersRenderIdOutputsOutputIdRoute
+  '/v1/studio/assets/$assetId/content': typeof V1StudioAssetsAssetIdContentRoute
+  '/v1/studio/assets/$assetId/deletion-impact': typeof V1StudioAssetsAssetIdDeletionImpactRoute
+  '/v1/studio/assets/$assetId/used': typeof V1StudioAssetsAssetIdUsedRoute
+  '/v1/studio/documents/$documentId/revisions/$snapshotId': typeof V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
   '/api/health': typeof ApiHealthRoute
+  '/': typeof StudioIndexRoute
   '/v1/renders/$renderId': typeof V1RendersRenderIdRouteWithChildren
   '/v1/studio/export-pdf': typeof V1StudioExportPdfRoute
   '/v1/studio/export-png': typeof V1StudioExportPngRoute
+  '/v1/studio/page-thumbnail': typeof V1StudioPageThumbnailRoute
+  '/v1/studio/quotation-compositions': typeof V1StudioQuotationCompositionsRoute
   '/v1/studio/render': typeof V1StudioRenderRoute
+  '/v1/studio/assets/$assetId': typeof V1StudioAssetsAssetIdRouteWithChildren
   '/v1/studio/session/reset': typeof V1StudioSessionResetRoute
   '/v1/studio/session/token': typeof V1StudioSessionTokenRoute
   '/v1/studio/templates/$templateId': typeof V1StudioTemplatesTemplateIdRoute
+  '/v1/studio/assets': typeof V1StudioAssetsIndexRoute
   '/v1/studio/renders': typeof V1StudioRendersIndexRoute
   '/v1/studio/templates': typeof V1StudioTemplatesIndexRoute
   '/v1/renders/$renderId/outputs/$outputId': typeof V1RendersRenderIdOutputsOutputIdRoute
+  '/v1/studio/assets/$assetId/content': typeof V1StudioAssetsAssetIdContentRoute
+  '/v1/studio/assets/$assetId/deletion-impact': typeof V1StudioAssetsAssetIdDeletionImpactRoute
+  '/v1/studio/assets/$assetId/used': typeof V1StudioAssetsAssetIdUsedRoute
+  '/v1/studio/documents/$documentId/revisions/$snapshotId': typeof V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
+  '/_studio': typeof StudioRouteRouteWithChildren
   '/api/health': typeof ApiHealthRoute
+  '/_studio/': typeof StudioIndexRoute
   '/v1/renders/$renderId': typeof V1RendersRenderIdRouteWithChildren
   '/v1/studio/export-pdf': typeof V1StudioExportPdfRoute
   '/v1/studio/export-png': typeof V1StudioExportPngRoute
+  '/v1/studio/page-thumbnail': typeof V1StudioPageThumbnailRoute
+  '/v1/studio/quotation-compositions': typeof V1StudioQuotationCompositionsRoute
   '/v1/studio/render': typeof V1StudioRenderRoute
+  '/v1/studio/assets/$assetId': typeof V1StudioAssetsAssetIdRouteWithChildren
   '/v1/studio/session/reset': typeof V1StudioSessionResetRoute
   '/v1/studio/session/token': typeof V1StudioSessionTokenRoute
   '/v1/studio/templates/$templateId': typeof V1StudioTemplatesTemplateIdRoute
+  '/v1/studio/assets/': typeof V1StudioAssetsIndexRoute
   '/v1/studio/renders/': typeof V1StudioRendersIndexRoute
   '/v1/studio/templates/': typeof V1StudioTemplatesIndexRoute
   '/v1/renders/$renderId/outputs/$outputId': typeof V1RendersRenderIdOutputsOutputIdRoute
+  '/v1/studio/assets/$assetId/content': typeof V1StudioAssetsAssetIdContentRoute
+  '/v1/studio/assets/$assetId/deletion-impact': typeof V1StudioAssetsAssetIdDeletionImpactRoute
+  '/v1/studio/assets/$assetId/used': typeof V1StudioAssetsAssetIdUsedRoute
+  '/v1/studio/documents/$documentId/revisions/$snapshotId': typeof V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -136,65 +219,102 @@ export interface FileRouteTypes {
     | '/v1/renders/$renderId'
     | '/v1/studio/export-pdf'
     | '/v1/studio/export-png'
+    | '/v1/studio/page-thumbnail'
+    | '/v1/studio/quotation-compositions'
     | '/v1/studio/render'
+    | '/v1/studio/assets/$assetId'
     | '/v1/studio/session/reset'
     | '/v1/studio/session/token'
     | '/v1/studio/templates/$templateId'
+    | '/v1/studio/assets/'
     | '/v1/studio/renders/'
     | '/v1/studio/templates/'
     | '/v1/renders/$renderId/outputs/$outputId'
+    | '/v1/studio/assets/$assetId/content'
+    | '/v1/studio/assets/$assetId/deletion-impact'
+    | '/v1/studio/assets/$assetId/used'
+    | '/v1/studio/documents/$documentId/revisions/$snapshotId'
   fileRoutesByTo: FileRoutesByTo
   to:
-    | '/'
     | '/api/health'
+    | '/'
     | '/v1/renders/$renderId'
     | '/v1/studio/export-pdf'
     | '/v1/studio/export-png'
+    | '/v1/studio/page-thumbnail'
+    | '/v1/studio/quotation-compositions'
     | '/v1/studio/render'
+    | '/v1/studio/assets/$assetId'
     | '/v1/studio/session/reset'
     | '/v1/studio/session/token'
     | '/v1/studio/templates/$templateId'
+    | '/v1/studio/assets'
     | '/v1/studio/renders'
     | '/v1/studio/templates'
     | '/v1/renders/$renderId/outputs/$outputId'
+    | '/v1/studio/assets/$assetId/content'
+    | '/v1/studio/assets/$assetId/deletion-impact'
+    | '/v1/studio/assets/$assetId/used'
+    | '/v1/studio/documents/$documentId/revisions/$snapshotId'
   id:
     | '__root__'
-    | '/'
+    | '/_studio'
     | '/api/health'
+    | '/_studio/'
     | '/v1/renders/$renderId'
     | '/v1/studio/export-pdf'
     | '/v1/studio/export-png'
+    | '/v1/studio/page-thumbnail'
+    | '/v1/studio/quotation-compositions'
     | '/v1/studio/render'
+    | '/v1/studio/assets/$assetId'
     | '/v1/studio/session/reset'
     | '/v1/studio/session/token'
     | '/v1/studio/templates/$templateId'
+    | '/v1/studio/assets/'
     | '/v1/studio/renders/'
     | '/v1/studio/templates/'
     | '/v1/renders/$renderId/outputs/$outputId'
+    | '/v1/studio/assets/$assetId/content'
+    | '/v1/studio/assets/$assetId/deletion-impact'
+    | '/v1/studio/assets/$assetId/used'
+    | '/v1/studio/documents/$documentId/revisions/$snapshotId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
+  StudioRouteRoute: typeof StudioRouteRouteWithChildren
   ApiHealthRoute: typeof ApiHealthRoute
   V1RendersRenderIdRoute: typeof V1RendersRenderIdRouteWithChildren
   V1StudioExportPdfRoute: typeof V1StudioExportPdfRoute
   V1StudioExportPngRoute: typeof V1StudioExportPngRoute
+  V1StudioPageThumbnailRoute: typeof V1StudioPageThumbnailRoute
+  V1StudioQuotationCompositionsRoute: typeof V1StudioQuotationCompositionsRoute
   V1StudioRenderRoute: typeof V1StudioRenderRoute
+  V1StudioAssetsAssetIdRoute: typeof V1StudioAssetsAssetIdRouteWithChildren
   V1StudioSessionResetRoute: typeof V1StudioSessionResetRoute
   V1StudioSessionTokenRoute: typeof V1StudioSessionTokenRoute
   V1StudioTemplatesTemplateIdRoute: typeof V1StudioTemplatesTemplateIdRoute
+  V1StudioAssetsIndexRoute: typeof V1StudioAssetsIndexRoute
   V1StudioRendersIndexRoute: typeof V1StudioRendersIndexRoute
   V1StudioTemplatesIndexRoute: typeof V1StudioTemplatesIndexRoute
+  V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute: typeof V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
+    '/_studio': {
+      id: '/_studio'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof StudioRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_studio/': {
+      id: '/_studio/'
       path: '/'
       fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
+      preLoaderRoute: typeof StudioIndexRouteImport
+      parentRoute: typeof StudioRouteRoute
     }
     '/api/health': {
       id: '/api/health'
@@ -224,11 +344,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof V1StudioExportPngRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/v1/studio/page-thumbnail': {
+      id: '/v1/studio/page-thumbnail'
+      path: '/v1/studio/page-thumbnail'
+      fullPath: '/v1/studio/page-thumbnail'
+      preLoaderRoute: typeof V1StudioPageThumbnailRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/v1/studio/quotation-compositions': {
+      id: '/v1/studio/quotation-compositions'
+      path: '/v1/studio/quotation-compositions'
+      fullPath: '/v1/studio/quotation-compositions'
+      preLoaderRoute: typeof V1StudioQuotationCompositionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/v1/studio/render': {
       id: '/v1/studio/render'
       path: '/v1/studio/render'
       fullPath: '/v1/studio/render'
       preLoaderRoute: typeof V1StudioRenderRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/v1/studio/assets/': {
+      id: '/v1/studio/assets/'
+      path: '/v1/studio/assets'
+      fullPath: '/v1/studio/assets/'
+      preLoaderRoute: typeof V1StudioAssetsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/v1/studio/assets/$assetId': {
+      id: '/v1/studio/assets/$assetId'
+      path: '/v1/studio/assets/$assetId'
+      fullPath: '/v1/studio/assets/$assetId'
+      preLoaderRoute: typeof V1StudioAssetsAssetIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/v1/studio/renders/': {
@@ -273,8 +421,48 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof V1RendersRenderIdOutputsOutputIdRouteImport
       parentRoute: typeof V1RendersRenderIdRoute
     }
+    '/v1/studio/assets/$assetId/content': {
+      id: '/v1/studio/assets/$assetId/content'
+      path: '/content'
+      fullPath: '/v1/studio/assets/$assetId/content'
+      preLoaderRoute: typeof V1StudioAssetsAssetIdContentRouteImport
+      parentRoute: typeof V1StudioAssetsAssetIdRoute
+    }
+    '/v1/studio/assets/$assetId/deletion-impact': {
+      id: '/v1/studio/assets/$assetId/deletion-impact'
+      path: '/deletion-impact'
+      fullPath: '/v1/studio/assets/$assetId/deletion-impact'
+      preLoaderRoute: typeof V1StudioAssetsAssetIdDeletionImpactRouteImport
+      parentRoute: typeof V1StudioAssetsAssetIdRoute
+    }
+    '/v1/studio/assets/$assetId/used': {
+      id: '/v1/studio/assets/$assetId/used'
+      path: '/used'
+      fullPath: '/v1/studio/assets/$assetId/used'
+      preLoaderRoute: typeof V1StudioAssetsAssetIdUsedRouteImport
+      parentRoute: typeof V1StudioAssetsAssetIdRoute
+    }
+    '/v1/studio/documents/$documentId/revisions/$snapshotId': {
+      id: '/v1/studio/documents/$documentId/revisions/$snapshotId'
+      path: '/v1/studio/documents/$documentId/revisions/$snapshotId'
+      fullPath: '/v1/studio/documents/$documentId/revisions/$snapshotId'
+      preLoaderRoute: typeof V1StudioDocumentsDocumentIdRevisionsSnapshotIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
+
+interface StudioRouteRouteChildren {
+  StudioIndexRoute: typeof StudioIndexRoute
+}
+
+const StudioRouteRouteChildren: StudioRouteRouteChildren = {
+  StudioIndexRoute: StudioIndexRoute,
+}
+
+const StudioRouteRouteWithChildren = StudioRouteRoute._addFileChildren(
+  StudioRouteRouteChildren,
+)
 
 interface V1RendersRenderIdRouteChildren {
   V1RendersRenderIdOutputsOutputIdRoute: typeof V1RendersRenderIdOutputsOutputIdRoute
@@ -287,28 +475,43 @@ const V1RendersRenderIdRouteChildren: V1RendersRenderIdRouteChildren = {
 const V1RendersRenderIdRouteWithChildren =
   V1RendersRenderIdRoute._addFileChildren(V1RendersRenderIdRouteChildren)
 
+interface V1StudioAssetsAssetIdRouteChildren {
+  V1StudioAssetsAssetIdContentRoute: typeof V1StudioAssetsAssetIdContentRoute
+  V1StudioAssetsAssetIdDeletionImpactRoute: typeof V1StudioAssetsAssetIdDeletionImpactRoute
+  V1StudioAssetsAssetIdUsedRoute: typeof V1StudioAssetsAssetIdUsedRoute
+}
+
+const V1StudioAssetsAssetIdRouteChildren: V1StudioAssetsAssetIdRouteChildren = {
+  V1StudioAssetsAssetIdContentRoute: V1StudioAssetsAssetIdContentRoute,
+  V1StudioAssetsAssetIdDeletionImpactRoute:
+    V1StudioAssetsAssetIdDeletionImpactRoute,
+  V1StudioAssetsAssetIdUsedRoute: V1StudioAssetsAssetIdUsedRoute,
+}
+
+const V1StudioAssetsAssetIdRouteWithChildren =
+  V1StudioAssetsAssetIdRoute._addFileChildren(
+    V1StudioAssetsAssetIdRouteChildren,
+  )
+
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
+  StudioRouteRoute: StudioRouteRouteWithChildren,
   ApiHealthRoute: ApiHealthRoute,
   V1RendersRenderIdRoute: V1RendersRenderIdRouteWithChildren,
   V1StudioExportPdfRoute: V1StudioExportPdfRoute,
   V1StudioExportPngRoute: V1StudioExportPngRoute,
+  V1StudioPageThumbnailRoute: V1StudioPageThumbnailRoute,
+  V1StudioQuotationCompositionsRoute: V1StudioQuotationCompositionsRoute,
   V1StudioRenderRoute: V1StudioRenderRoute,
+  V1StudioAssetsAssetIdRoute: V1StudioAssetsAssetIdRouteWithChildren,
   V1StudioSessionResetRoute: V1StudioSessionResetRoute,
   V1StudioSessionTokenRoute: V1StudioSessionTokenRoute,
   V1StudioTemplatesTemplateIdRoute: V1StudioTemplatesTemplateIdRoute,
+  V1StudioAssetsIndexRoute: V1StudioAssetsIndexRoute,
   V1StudioRendersIndexRoute: V1StudioRendersIndexRoute,
   V1StudioTemplatesIndexRoute: V1StudioTemplatesIndexRoute,
+  V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute:
+    V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}

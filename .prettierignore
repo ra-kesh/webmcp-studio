@@ -6,6 +6,9 @@ node_modules/
 .tanstack/
 .vinxi/
 coverage/
+test-results/
 apps/studio/src/routeTree.gen.ts
+apps/studio/worker-configuration.d.ts
+apps/renderer/worker-configuration.d.ts
 pnpm-lock.yaml
 .pnpm-store/

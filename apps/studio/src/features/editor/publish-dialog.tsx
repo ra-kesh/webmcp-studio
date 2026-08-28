@@ -14,11 +14,13 @@ import {
   DialogTitle,
 } from "@webmcp/ui/components/dialog"
 import { Separator } from "@webmcp/ui/components/separator"
+import { studioAssetFieldPublicationIssues } from "./asset-catalog"
 
 export function PublishDialog({
   open,
   onOpenChange,
   document,
+  documentSnapshotId,
   templateId,
   latestVersion,
   pendingChangeSet,
@@ -29,6 +31,7 @@ export function PublishDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
   document: Document
+  documentSnapshotId: string | null
   templateId: string
   latestVersion?: TemplateVersion
   pendingChangeSet: boolean
@@ -49,13 +52,16 @@ export function PublishDialog({
   }, [open])
 
   const readiness = getPublishReadiness(document)
+  const studioAssetIssues = studioAssetFieldPublicationIssues(document)
   const currentVersion =
     published ??
-    (latestVersion?.sourceRevision === document.revision ? latestVersion : null)
+    (latestVersion?.sourceSnapshotId === documentSnapshotId
+      ? latestVersion
+      : null)
   const nextVersion = (latestVersion?.version ?? 0) + 1
   const blockingMessage = pendingChangeSet
     ? "Resolve the pending agent change set before publishing."
-    : readiness.blocking[0]?.message
+    : (readiness.blocking[0]?.message ?? studioAssetIssues[0]?.message)
   const blocked = Boolean(blockingMessage)
   const syncing = publishing || publishSyncStatus === "syncing"
   const needsSync = Boolean(currentVersion && publishSyncStatus === "error")

@@ -5,10 +5,18 @@ export type SnapBounds = {
   height: number
 }
 
+export type AlignmentSnapSource = "page" | "object" | "guide"
+
+export type AlignmentSnapTarget = {
+  axis: "x" | "y"
+  value: number
+  source: AlignmentSnapSource
+}
+
 export type AlignmentSnapGuide = {
   axis: "x" | "y"
   value: number
-  source: "page" | "object"
+  source: AlignmentSnapSource
 }
 
 export type SpacingSnapGuide = {
@@ -24,6 +32,7 @@ export type SnapResult = {
   deltaX: number
   deltaY: number
   guides: SnapGuide[]
+  latch: MoveSnapLatch | null
 }
 
 type Candidate = Omit<AlignmentSnapGuide, "axis">
@@ -32,7 +41,34 @@ type SpacingCandidate = {
   delta: number
   guide: SpacingSnapGuide
   score: number
+  targetStart: number
 }
+
+export type MoveSnapAxisLatch = Readonly<{
+  value: number
+  source: AlignmentSnapSource | "spacing"
+}>
+
+export type MoveSnapLatch = Readonly<{
+  x?: MoveSnapAxisLatch
+  y?: MoveSnapAxisLatch
+}>
+
+export type MoveSnapOptions = Readonly<{
+  targets?: readonly AlignmentSnapTarget[]
+  previousLatch?: MoveSnapLatch | null
+  threshold?: number
+  releaseThreshold?: number
+  screenThreshold?: Readonly<{
+    acquirePixels: number
+    releasePixels: number
+    zoom: number
+  }>
+}>
+
+const DEFAULT_ACQUIRE_THRESHOLD = 8
+const DEFAULT_RELEASE_THRESHOLD = 12
+const EPSILON = 1e-7
 
 const axisPoints = (start: number, size: number) => [
   start,
@@ -43,20 +79,53 @@ const axisPoints = (start: number, size: number) => [
 function closestSnap(
   movingPoints: number[],
   candidates: Candidate[],
-  threshold: number
+  acquireThreshold: number,
+  releaseThreshold: number,
+  previousLatch?: MoveSnapAxisLatch
 ) {
+  const heldTarget =
+    previousLatch && previousLatch.source !== "spacing"
+      ? candidates.find(
+          (candidate) =>
+            candidate.source === previousLatch.source &&
+            Math.abs(candidate.value - previousLatch.value) <= EPSILON
+        )
+      : undefined
+  if (heldTarget) {
+    let heldDelta: number | null = null
+    for (const movingPoint of movingPoints) {
+      const delta = heldTarget.value - movingPoint
+      if (
+        Math.abs(delta) <= releaseThreshold &&
+        (heldDelta === null || Math.abs(delta) < Math.abs(heldDelta))
+      ) {
+        heldDelta = delta
+      }
+    }
+    if (heldDelta !== null) {
+      return {
+        delta: heldDelta,
+        candidate: heldTarget,
+        score: Math.abs(heldDelta),
+        phase: "held" as const,
+      }
+    }
+  }
+
   let best: { delta: number; candidate: Candidate; score: number } | null = null
   for (const movingPoint of movingPoints) {
     for (const candidate of candidates) {
       const delta = candidate.value - movingPoint
-      if (Math.abs(delta) > threshold) continue
-      const score = Math.abs(delta) + (candidate.source === "object" ? 4 : 0)
+      if (Math.abs(delta) > acquireThreshold) continue
+      const score =
+        Math.abs(delta) +
+        (candidate.source === "guide" ? 0 : candidate.source === "page" ? 2 : 6)
       if (!best || score < best.score) {
         best = { delta, candidate, score }
       }
     }
   }
-  return best
+  return best ? { ...best, phase: "acquired" as const } : null
 }
 
 const right = (bounds: SnapBounds) => bounds.left + bounds.width
@@ -125,6 +194,7 @@ function spacingCandidate(
     const candidate: SpacingCandidate = {
       delta,
       score: Math.abs(delta) + 2,
+      targetStart: desiredStart,
       guide: {
         axis,
         source: "spacing",
@@ -210,8 +280,28 @@ export function calculateSnap(
   moving: SnapBounds,
   page: { width: number; height: number },
   peers: SnapBounds[],
-  threshold = 8
+  options: number | MoveSnapOptions = {}
 ): SnapResult {
+  const resolvedOptions =
+    typeof options === "number" ? { threshold: options } : options
+  const acquireThreshold = resolvedOptions.screenThreshold
+    ? resolvedOptions.screenThreshold.acquirePixels /
+      resolvedOptions.screenThreshold.zoom
+    : (resolvedOptions.threshold ?? DEFAULT_ACQUIRE_THRESHOLD)
+  const releaseThreshold = resolvedOptions.screenThreshold
+    ? resolvedOptions.screenThreshold.releasePixels /
+      resolvedOptions.screenThreshold.zoom
+    : (resolvedOptions.releaseThreshold ?? DEFAULT_RELEASE_THRESHOLD)
+  if (
+    !Number.isFinite(acquireThreshold) ||
+    acquireThreshold <= 0 ||
+    !Number.isFinite(releaseThreshold) ||
+    releaseThreshold < acquireThreshold
+  ) {
+    throw new RangeError(
+      "Move snap thresholds must be finite, positive, and release must be at least acquire."
+    )
+  }
   const xCandidates: Candidate[] = axisPoints(0, page.width).map((value) => ({
     value,
     source: "page",
@@ -236,21 +326,73 @@ export function calculateSnap(
     )
   }
 
+  for (const target of resolvedOptions.targets ?? []) {
+    if (!Number.isFinite(target.value)) continue
+    const candidate = { value: target.value, source: target.source }
+    if (target.axis === "x") xCandidates.push(candidate)
+    else yCandidates.push(candidate)
+  }
+
   const xSnap = closestSnap(
     axisPoints(moving.left, moving.width),
     xCandidates,
-    threshold
+    acquireThreshold,
+    releaseThreshold,
+    resolvedOptions.previousLatch?.x
   )
   const ySnap = closestSnap(
     axisPoints(moving.top, moving.height),
     yCandidates,
-    threshold
+    acquireThreshold,
+    releaseThreshold,
+    resolvedOptions.previousLatch?.y
   )
 
-  const xSpacing = spacingCandidate("x", moving, peers, threshold)
-  const ySpacing = spacingCandidate("y", moving, peers, threshold)
-  const useXSpacing = xSpacing && (!xSnap || xSpacing.score < xSnap.score)
-  const useYSpacing = ySpacing && (!ySnap || ySpacing.score < ySnap.score)
+  const xSpacing = spacingCandidate(
+    "x",
+    moving,
+    peers,
+    resolvedOptions.previousLatch?.x?.source === "spacing"
+      ? releaseThreshold
+      : acquireThreshold
+  )
+  const ySpacing = spacingCandidate(
+    "y",
+    moving,
+    peers,
+    resolvedOptions.previousLatch?.y?.source === "spacing"
+      ? releaseThreshold
+      : acquireThreshold
+  )
+  const heldXSpacing =
+    xSpacing &&
+    resolvedOptions.previousLatch?.x?.source === "spacing" &&
+    Math.abs(xSpacing.targetStart - resolvedOptions.previousLatch.x.value) <=
+      EPSILON
+  const heldYSpacing =
+    ySpacing &&
+    resolvedOptions.previousLatch?.y?.source === "spacing" &&
+    Math.abs(ySpacing.targetStart - resolvedOptions.previousLatch.y.value) <=
+      EPSILON
+  const useXSpacing =
+    xSpacing && (heldXSpacing || !xSnap || xSpacing.score < xSnap.score)
+  const useYSpacing =
+    ySpacing && (heldYSpacing || !ySnap || ySpacing.score < ySnap.score)
+
+  const xAlignmentGuide =
+    !useXSpacing && xSnap ? { axis: "x" as const, ...xSnap.candidate } : null
+  const yAlignmentGuide =
+    !useYSpacing && ySnap ? { axis: "y" as const, ...ySnap.candidate } : null
+  const xLatch = useXSpacing
+    ? { source: "spacing" as const, value: xSpacing.targetStart }
+    : xAlignmentGuide
+      ? { source: xAlignmentGuide.source, value: xAlignmentGuide.value }
+      : undefined
+  const yLatch = useYSpacing
+    ? { source: "spacing" as const, value: ySpacing.targetStart }
+    : yAlignmentGuide
+      ? { source: yAlignmentGuide.source, value: yAlignmentGuide.value }
+      : undefined
 
   return {
     deltaX: useXSpacing ? xSpacing.delta : (xSnap?.delta ?? 0),
@@ -258,14 +400,18 @@ export function calculateSnap(
     guides: [
       ...(useXSpacing
         ? [xSpacing.guide]
-        : xSnap
-          ? [{ axis: "x" as const, ...xSnap.candidate }]
+        : xAlignmentGuide
+          ? [xAlignmentGuide]
           : []),
       ...(useYSpacing
         ? [ySpacing.guide]
-        : ySnap
-          ? [{ axis: "y" as const, ...ySnap.candidate }]
+        : yAlignmentGuide
+          ? [yAlignmentGuide]
           : []),
     ],
+    latch:
+      xLatch || yLatch
+        ? { ...(xLatch ? { x: xLatch } : {}), ...(yLatch ? { y: yLatch } : {}) }
+        : null,
   }
 }

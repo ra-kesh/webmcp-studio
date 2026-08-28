@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers"
 import { createFileRoute } from "@tanstack/react-router"
-import { resolveDemoSession } from "../../../../server/demo-session"
+import { requireStudioPrincipal } from "../../../../server/studio-principal"
 
 type HistoryRow = {
   id: string
@@ -45,7 +45,8 @@ export const Route = createFileRoute("/v1/studio/renders/")({
   server: {
     handlers: {
       GET: async ({ request }) => {
-        const session = await resolveDemoSession(env.DB, request)
+        const session = await requireStudioPrincipal(env, request)
+        if (session instanceof Response) return session
         const requestedLimit = Number(
           new URL(request.url).searchParams.get("limit") ?? 30
         )

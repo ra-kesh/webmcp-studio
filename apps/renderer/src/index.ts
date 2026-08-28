@@ -1,52 +1,393 @@
-import { launch } from "@cloudflare/playwright"
-import { documentSchema } from "@webmcp/document"
+import { launch, type Page } from "@cloudflare/playwright"
+import {
+  assertPageThumbnailSize,
+  assertRenderImageResourceAdmission,
+  assertRenderableDocument,
+  DocumentValidationError,
+  documentSchema,
+  mediaAssetIdSchema,
+  pageThumbnailLimits,
+  PageThumbnailSizeError,
+  RenderImageResourceAdmissionError,
+} from "@webmcp/document"
 import { z } from "zod"
-import { renderDocumentToHtml, renderOutputToHtml } from "./html"
+import {
+  JsonBodyError,
+  jsonBodyErrorResponse,
+  readJsonBody,
+} from "@webmcp/worker-boundary"
+import { ArtifactSizeError, assertArtifactSize } from "./artifact-body"
+import {
+  renderDocumentThumbnailToHtml,
+  renderDocumentToHtml,
+  renderOutputToHtml,
+} from "./html"
 
-const renderRequestSchema = z.object({
-  renderId: z.string().min(1),
-  outputId: z.string().min(1),
-  pageId: z.string().min(1),
-  document: documentSchema,
-})
+const expectedImageResourceSchema = z
+  .object({
+    nodeId: z.string().min(1),
+    assetId: mediaAssetIdSchema,
+    width: z.number().int().positive(),
+    height: z.number().int().positive(),
+    contentHash: z.string().regex(/^[a-f0-9]{64}$/),
+    revision: z.number().int().positive(),
+  })
+  .strict()
 
-const pdfRenderRequestSchema = z.object({
-  renderId: z.string().min(1),
-  outputId: z.string().min(1),
-  document: documentSchema,
-})
+const expectedImageResourcesSchema = z
+  .array(expectedImageResourceSchema)
+  .max(5_000)
+
+const renderRequestSchema = z
+  .object({
+    renderId: z.string().min(1),
+    outputId: z.string().min(1),
+    pageId: z.string().min(1),
+    document: documentSchema,
+    expectedImageResources: expectedImageResourcesSchema,
+  })
+  .strict()
+
+const thumbnailSizeSchema = z
+  .object({
+    width: z
+      .number()
+      .int()
+      .min(pageThumbnailLimits.minDimension)
+      .max(pageThumbnailLimits.maxDimension),
+    height: z
+      .number()
+      .int()
+      .min(pageThumbnailLimits.minDimension)
+      .max(pageThumbnailLimits.maxDimension),
+  })
+  .strict()
+
+const thumbnailRenderRequestSchema = z
+  .object({
+    renderId: z.string().min(1),
+    outputId: z.string().min(1),
+    pageId: z.string().min(1),
+    size: thumbnailSizeSchema,
+    document: documentSchema,
+    expectedImageResources: expectedImageResourcesSchema,
+  })
+  .strict()
+
+const pdfRenderRequestSchema = z
+  .object({
+    renderId: z.string().min(1),
+    outputId: z.string().min(1),
+    document: documentSchema,
+    expectedImageResources: expectedImageResourcesSchema,
+  })
+  .strict()
 
 const MAX_RENDER_REQUEST_BYTES = 8_000_000
+const RESOURCE_READINESS_TIMEOUT_MS = 30_000
 
-function requestExceedsLimit(request: Request): boolean {
-  const header = request.headers.get("content-length")
-  if (!header) return false
-  const contentLength = Number(header)
-  return (
-    !Number.isFinite(contentLength) || contentLength > MAX_RENDER_REQUEST_BYTES
+type RenderResourceErrorCode =
+  | "image_decode_failed"
+  | "image_dimension_mismatch"
+  | "image_resource_duplicate"
+  | "image_resource_identity_mismatch"
+  | "image_resource_node_missing"
+  | "image_resource_source_mismatch"
+  | "image_resource_type_mismatch"
+  | "managed_font_failed"
+  | "resource_readiness_failed"
+  | "resource_readiness_timeout"
+
+export class RenderResourceError extends Error {
+  constructor(
+    readonly code: RenderResourceErrorCode,
+    readonly nodeId?: string,
+    readonly assetId?: string
+  ) {
+    super(
+      nodeId
+        ? `Required render resource failed for node ${nodeId}`
+        : "Required render resources did not become ready"
+    )
+    this.name = "RenderResourceError"
+  }
+}
+
+export async function waitForRenderResources(
+  page: Page,
+  timeout = RESOURCE_READINESS_TIMEOUT_MS,
+  expectedImageResources: readonly z.infer<
+    typeof expectedImageResourceSchema
+  >[] = []
+): Promise<void> {
+  try {
+    await page.waitForFunction(
+      () => {
+        const root = (
+          globalThis as unknown as {
+            document: {
+              documentElement: { hasAttribute(name: string): boolean }
+            }
+          }
+        ).document.documentElement
+        return (
+          root.hasAttribute("data-render-ready") ||
+          root.hasAttribute("data-render-error")
+        )
+      },
+      undefined,
+      { timeout }
+    )
+  } catch {
+    throw new RenderResourceError("resource_readiness_timeout")
+  }
+
+  const state = await page.evaluate((expectations) => {
+    const root = (
+      globalThis as unknown as {
+        document: {
+          documentElement: { getAttribute(name: string): string | null }
+        }
+      }
+    ).document.documentElement
+    const ready = root.getAttribute("data-render-ready") === "true"
+    if (ready) {
+      const document = (
+        globalThis as unknown as {
+          document: {
+            querySelectorAll(selector: string): ArrayLike<{
+              getAttribute(name: string): string | null
+              naturalWidth: number
+              naturalHeight: number
+            }>
+          }
+        }
+      ).document
+      const images = Array.from(document.querySelectorAll("img[data-node-id]"))
+      const imageByNodeId = new Map(
+        images.map((image) => [image.getAttribute("data-node-id"), image])
+      )
+      const mismatch = expectations.find((expectation) => {
+        const image = imageByNodeId.get(expectation.nodeId)
+        return (
+          !image ||
+          image.naturalWidth !== expectation.width ||
+          image.naturalHeight !== expectation.height
+        )
+      })
+      if (mismatch) {
+        return {
+          ready: false,
+          code: "image_dimension_mismatch",
+          nodeId: mismatch.nodeId,
+        }
+      }
+    }
+    return {
+      ready,
+      code: root.getAttribute("data-render-error"),
+      nodeId: root.getAttribute("data-render-error-node") ?? undefined,
+    }
+  }, expectedImageResources)
+  if (state.ready) return
+
+  const code =
+    state.code === "image_decode_failed" ||
+    state.code === "image_dimension_mismatch" ||
+    state.code === "managed_font_failed" ||
+    state.code === "resource_readiness_failed"
+      ? state.code
+      : "resource_readiness_failed"
+  throw new RenderResourceError(code, state.nodeId)
+}
+
+function renderResourceErrorResponse(error: RenderResourceError): Response {
+  return Response.json(
+    {
+      error: "render_resource_failed",
+      code: error.code,
+      message: error.message,
+      ...(error.nodeId ? { nodeId: error.nodeId } : {}),
+      ...(error.assetId ? { assetId: error.assetId } : {}),
+    },
+    { status: 422 }
   )
 }
 
-async function handleRender(request: Request, env: Env): Promise<Response> {
-  if (requestExceedsLimit(request)) {
+function thumbnailSizeErrorResponse(error: PageThumbnailSizeError): Response {
+  return Response.json(
+    {
+      error: "invalid_thumbnail_dimensions",
+      code: error.code,
+      message: error.message,
+    },
+    { status: 422 }
+  )
+}
+
+function pngDimensions(bytes: Uint8Array): {
+  width: number
+  height: number
+} | null {
+  if (
+    bytes.byteLength < 24 ||
+    bytes[0] !== 0x89 ||
+    bytes[1] !== 0x50 ||
+    bytes[2] !== 0x4e ||
+    bytes[3] !== 0x47 ||
+    bytes[4] !== 0x0d ||
+    bytes[5] !== 0x0a ||
+    bytes[6] !== 0x1a ||
+    bytes[7] !== 0x0a ||
+    bytes[12] !== 0x49 ||
+    bytes[13] !== 0x48 ||
+    bytes[14] !== 0x44 ||
+    bytes[15] !== 0x52
+  ) {
+    return null
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  return { width: view.getUint32(16), height: view.getUint32(20) }
+}
+
+async function admitExpectedImageResources(
+  document: z.infer<typeof documentSchema>,
+  expectedImageResources: readonly z.infer<typeof expectedImageResourceSchema>[]
+): Promise<void> {
+  try {
+    await assertRenderImageResourceAdmission(document, expectedImageResources)
+  } catch (error) {
+    if (error instanceof RenderImageResourceAdmissionError) {
+      throw new RenderResourceError(error.code, error.nodeId, error.assetId)
+    }
+    throw error
+  }
+}
+
+function artifactSizeErrorResponse(error: ArtifactSizeError): Response {
+  return Response.json(
+    {
+      error: "render_artifact_too_large",
+      code: error.code,
+      maxBytes: error.maxBytes,
+      receivedBytes: error.receivedBytes,
+    },
+    { status: 413 }
+  )
+}
+
+const prefersMetadataOnly = (request: Request) =>
+  request.headers
+    .get("Prefer")
+    ?.split(",")
+    .some((preference) => preference.trim() === "return=minimal") ?? false
+
+function storedArtifactHeaders({
+  contentType,
+  filename,
+  renderId,
+  key,
+  size,
+  checksum,
+  details,
+}: {
+  contentType: string
+  filename: string
+  renderId: string
+  key: string
+  size: number
+  checksum: string
+  details: Record<string, string>
+}) {
+  return new Headers({
+    "Content-Type": contentType,
+    "Content-Disposition": `attachment; filename="${filename}"`,
+    "Cache-Control": "no-store",
+    "X-Render-Id": renderId,
+    "X-Render-Key": key,
+    "X-Bytes": String(size),
+    "X-Checksum": checksum,
+    ...details,
+  })
+}
+
+async function storedArtifactResponse({
+  request,
+  env,
+  key,
+  headers,
+}: {
+  request: Request
+  env: Env
+  key: string
+  headers: Headers
+}) {
+  if (prefersMetadataOnly(request)) {
+    headers.set("Preference-Applied", "return=minimal")
+    return new Response(null, { status: 204, headers })
+  }
+  const stored = await env.RENDERS.get(key)
+  if (!stored) {
+    await env.RENDERS.delete(key)
     return Response.json(
-      { error: "request_too_large", maxBytes: MAX_RENDER_REQUEST_BYTES },
-      { status: 413 }
+      { error: "render_artifact_unavailable", key },
+      { status: 502 }
     )
   }
+  headers.set("Content-Length", String(stored.size))
+  return new Response(stored.body, { headers })
+}
 
-  const parsed = renderRequestSchema.safeParse(await request.json())
+async function rendererJson(
+  request: Request,
+  maxBytes = MAX_RENDER_REQUEST_BYTES
+): Promise<unknown | Response> {
+  try {
+    return await readJsonBody(request, { maxBytes })
+  } catch (error) {
+    if (error instanceof JsonBodyError) return jsonBodyErrorResponse(error)
+    throw error
+  }
+}
+
+async function handleRender(request: Request, env: Env): Promise<Response> {
+  const input = await rendererJson(request)
+  if (input instanceof Response) return input
+  const parsed = renderRequestSchema.safeParse(input)
   if (!parsed.success) {
     return Response.json(
       { error: "invalid_render_request", details: parsed.error.flatten() },
       { status: 400 }
     )
   }
+  try {
+    assertRenderableDocument(parsed.data.document)
+  } catch (error) {
+    if (error instanceof DocumentValidationError) {
+      return Response.json(
+        { error: "document_validation_failed", issues: error.issues },
+        { status: 422 }
+      )
+    }
+    throw error
+  }
 
   const page = parsed.data.document.pages.find(
     (candidate) => candidate.id === parsed.data.pageId
   )
   if (!page) return Response.json({ error: "page_not_found" }, { status: 404 })
+
+  try {
+    await admitExpectedImageResources(
+      parsed.data.document,
+      parsed.data.expectedImageResources
+    )
+  } catch (error) {
+    if (error instanceof RenderResourceError) {
+      return renderResourceErrorResponse(error)
+    }
+    throw error
+  }
 
   const browser = await launch(env.BROWSER)
   try {
@@ -61,12 +402,31 @@ async function handleRender(request: Request, env: Env): Promise<Response> {
         waitUntil: "networkidle",
       }
     )
-    await browserPage.waitForSelector('html[data-fonts-ready="true"]', {
-      timeout: 30_000,
-    })
+    try {
+      await waitForRenderResources(
+        browserPage,
+        RESOURCE_READINESS_TIMEOUT_MS,
+        parsed.data.expectedImageResources.filter((resource) =>
+          page.nodeIds.includes(resource.nodeId)
+        )
+      )
+    } catch (error) {
+      if (error instanceof RenderResourceError) {
+        return renderResourceErrorResponse(error)
+      }
+      throw error
+    }
     const png = await browserPage.screenshot({ type: "png" })
+    try {
+      assertArtifactSize(png.byteLength)
+    } catch (error) {
+      if (error instanceof ArtifactSizeError) {
+        return artifactSizeErrorResponse(error)
+      }
+      throw error
+    }
     const key = `${parsed.data.renderId}/${parsed.data.outputId}/${page.id}.png`
-    await env.RENDERS.put(key, png, {
+    const stored = await env.RENDERS.put(key, png, {
       httpMetadata: { contentType: "image/png" },
       customMetadata: {
         documentId: parsed.data.document.id,
@@ -74,42 +434,204 @@ async function handleRender(request: Request, env: Env): Promise<Response> {
         revision: String(parsed.data.document.revision),
       },
     })
-    const stored = await env.RENDERS.head(key)
-
-    return new Response(png, {
-      headers: {
-        "Content-Type": "image/png",
-        "Content-Disposition": `attachment; filename="${page.id}.png"`,
-        "Cache-Control": "no-store",
-        "X-Render-Id": parsed.data.renderId,
-        "X-Render-Key": key,
-        "X-Page-Id": page.id,
-        "X-Output-Id": parsed.data.outputId,
-        "X-Width": String(page.width),
-        "X-Height": String(page.height),
-        "X-Bytes": String(stored?.size ?? png.byteLength),
-        "X-Checksum": stored?.etag ?? "",
-      },
+    if (!stored) {
+      return Response.json(
+        { error: "render_artifact_store_failed" },
+        { status: 502 }
+      )
+    }
+    return storedArtifactResponse({
+      request,
+      env,
+      key,
+      headers: storedArtifactHeaders({
+        contentType: "image/png",
+        filename: `${page.id}.png`,
+        renderId: parsed.data.renderId,
+        key,
+        size: stored.size,
+        checksum: stored.etag,
+        details: {
+          "X-Page-Id": page.id,
+          "X-Output-Id": parsed.data.outputId,
+          "X-Width": String(page.width),
+          "X-Height": String(page.height),
+        },
+      }),
     })
   } finally {
     await browser.close()
   }
 }
 
-async function handlePdfRender(request: Request, env: Env): Promise<Response> {
-  if (requestExceedsLimit(request)) {
+async function handleThumbnailRender(
+  request: Request,
+  env: Env
+): Promise<Response> {
+  request.signal.throwIfAborted()
+  const input = await rendererJson(request)
+  if (input instanceof Response) return input
+  const parsed = thumbnailRenderRequestSchema.safeParse(input)
+  if (!parsed.success) {
     return Response.json(
-      { error: "request_too_large", maxBytes: MAX_RENDER_REQUEST_BYTES },
-      { status: 413 }
+      {
+        error: "invalid_thumbnail_render_request",
+        details: parsed.error.flatten(),
+      },
+      { status: 400 }
     )
   }
+  try {
+    assertRenderableDocument(parsed.data.document)
+  } catch (error) {
+    if (error instanceof DocumentValidationError) {
+      return Response.json(
+        { error: "document_validation_failed", issues: error.issues },
+        { status: 422 }
+      )
+    }
+    throw error
+  }
 
-  const parsed = pdfRenderRequestSchema.safeParse(await request.json())
+  const page = parsed.data.document.pages.find(
+    (candidate) => candidate.id === parsed.data.pageId
+  )
+  if (!page) return Response.json({ error: "page_not_found" }, { status: 404 })
+  const output = parsed.data.document.outputs.find(
+    (candidate) => candidate.id === parsed.data.outputId
+  )
+  if (
+    !output ||
+    page.outputId !== output.id ||
+    !output.pageIds.includes(page.id)
+  ) {
+    return Response.json({ error: "output_not_found" }, { status: 404 })
+  }
+  try {
+    assertPageThumbnailSize(page, parsed.data.size)
+  } catch (error) {
+    if (error instanceof PageThumbnailSizeError) {
+      return thumbnailSizeErrorResponse(error)
+    }
+    throw error
+  }
+  try {
+    await admitExpectedImageResources(
+      parsed.data.document,
+      parsed.data.expectedImageResources
+    )
+  } catch (error) {
+    if (error instanceof RenderResourceError) {
+      return renderResourceErrorResponse(error)
+    }
+    throw error
+  }
+
+  request.signal.throwIfAborted()
+  const browser = await launch(env.BROWSER)
+  let closePromise: Promise<void> | undefined
+  const closeBrowser = () => {
+    closePromise ??= browser.close()
+    return closePromise
+  }
+  const abortBrowser = () => {
+    void closeBrowser().catch(() => undefined)
+  }
+  request.signal.addEventListener("abort", abortBrowser, { once: true })
+  try {
+    request.signal.throwIfAborted()
+    const browserPage = await browser.newPage()
+    await browserPage.setViewportSize(parsed.data.size)
+    await browserPage.setContent(
+      renderDocumentThumbnailToHtml(
+        parsed.data.document,
+        page.id,
+        parsed.data.size
+      ),
+      { waitUntil: "networkidle" }
+    )
+    try {
+      await waitForRenderResources(
+        browserPage,
+        RESOURCE_READINESS_TIMEOUT_MS,
+        parsed.data.expectedImageResources.filter((resource) =>
+          page.nodeIds.includes(resource.nodeId)
+        )
+      )
+    } catch (error) {
+      if (error instanceof RenderResourceError) {
+        return renderResourceErrorResponse(error)
+      }
+      throw error
+    }
+    request.signal.throwIfAborted()
+    const png = await browserPage.screenshot({ type: "png", fullPage: false })
+    request.signal.throwIfAborted()
+    try {
+      assertArtifactSize(png.byteLength)
+    } catch (error) {
+      if (error instanceof ArtifactSizeError) {
+        return artifactSizeErrorResponse(error)
+      }
+      throw error
+    }
+    const dimensions = pngDimensions(png)
+    if (
+      !dimensions ||
+      dimensions.width !== parsed.data.size.width ||
+      dimensions.height !== parsed.data.size.height
+    ) {
+      return Response.json(
+        {
+          error: "thumbnail_dimension_mismatch",
+          expected: parsed.data.size,
+          received: dimensions,
+        },
+        { status: 502 }
+      )
+    }
+
+    return new Response(png, {
+      headers: {
+        "Cache-Control": "no-store",
+        "Content-Disposition": `inline; filename="${page.id}-thumbnail.png"`,
+        "Content-Length": String(png.byteLength),
+        "Content-Type": "image/png",
+        "X-Bytes": String(png.byteLength),
+        "X-Height": String(dimensions.height),
+        "X-Output-Id": output.id,
+        "X-Page-Id": page.id,
+        "X-Render-Id": parsed.data.renderId,
+        "X-Render-Mode": "ephemeral-thumbnail",
+        "X-Width": String(dimensions.width),
+      },
+    })
+  } finally {
+    request.signal.removeEventListener("abort", abortBrowser)
+    await closeBrowser()
+  }
+}
+
+async function handlePdfRender(request: Request, env: Env): Promise<Response> {
+  const input = await rendererJson(request)
+  if (input instanceof Response) return input
+  const parsed = pdfRenderRequestSchema.safeParse(input)
   if (!parsed.success) {
     return Response.json(
       { error: "invalid_pdf_render_request", details: parsed.error.flatten() },
       { status: 400 }
     )
+  }
+  try {
+    assertRenderableDocument(parsed.data.document)
+  } catch (error) {
+    if (error instanceof DocumentValidationError) {
+      return Response.json(
+        { error: "document_validation_failed", issues: error.issues },
+        { status: 422 }
+      )
+    }
+    throw error
   }
   const output = parsed.data.document.outputs.find(
     (candidate) => candidate.id === parsed.data.outputId
@@ -120,53 +642,97 @@ async function handlePdfRender(request: Request, env: Env): Promise<Response> {
     return Response.json({ error: "pdf_not_enabled" }, { status: 422 })
   }
 
-  const pdfResponse = await env.BROWSER.quickAction("pdf", {
-    html: renderOutputToHtml(parsed.data.document, output.id),
-    cacheTTL: 0,
-    gotoOptions: { waitUntil: "networkidle0", timeout: 30_000 },
-    waitForSelector: {
-      selector: 'html[data-fonts-ready="true"]',
-      timeout: 30_000,
-    },
-    pdfOptions: {
+  try {
+    await admitExpectedImageResources(
+      parsed.data.document,
+      parsed.data.expectedImageResources
+    )
+  } catch (error) {
+    if (error instanceof RenderResourceError) {
+      return renderResourceErrorResponse(error)
+    }
+    throw error
+  }
+
+  const browser = await launch(env.BROWSER)
+  try {
+    const browserPage = await browser.newPage()
+    await browserPage.setContent(
+      renderOutputToHtml(parsed.data.document, output.id),
+      {
+        waitUntil: "networkidle",
+      }
+    )
+    try {
+      const renderedNodeIds = new Set(
+        parsed.data.document.pages
+          .filter((page) => output.pageIds.includes(page.id))
+          .flatMap((page) => page.nodeIds)
+      )
+      await waitForRenderResources(
+        browserPage,
+        RESOURCE_READINESS_TIMEOUT_MS,
+        parsed.data.expectedImageResources.filter((resource) =>
+          renderedNodeIds.has(resource.nodeId)
+        )
+      )
+    } catch (error) {
+      if (error instanceof RenderResourceError) {
+        return renderResourceErrorResponse(error)
+      }
+      throw error
+    }
+    const pdfBytes = await browserPage.pdf({
       preferCSSPageSize: true,
       printBackground: true,
       tagged: true,
       margin: { top: 0, right: 0, bottom: 0, left: 0 },
-    },
-  })
-  if (!pdfResponse.ok || !pdfResponse.body) {
-    return new Response(pdfResponse.body, {
-      status: pdfResponse.status,
-      headers: pdfResponse.headers,
     })
+    try {
+      assertArtifactSize(pdfBytes.byteLength)
+    } catch (error) {
+      if (error instanceof ArtifactSizeError) {
+        return artifactSizeErrorResponse(error)
+      }
+      throw error
+    }
+
+    const key = `${parsed.data.renderId}/${output.id}.pdf`
+    const stored = await env.RENDERS.put(key, pdfBytes, {
+      httpMetadata: { contentType: "application/pdf" },
+      customMetadata: {
+        documentId: parsed.data.document.id,
+        outputId: output.id,
+        pageCount: String(output.pageIds.length),
+        revision: String(parsed.data.document.revision),
+      },
+    })
+    if (!stored) {
+      return Response.json(
+        { error: "render_artifact_store_failed" },
+        { status: 502 }
+      )
+    }
+    return storedArtifactResponse({
+      request,
+      env,
+      key,
+      headers: storedArtifactHeaders({
+        contentType: "application/pdf",
+        filename: `${output.id}.pdf`,
+        renderId: parsed.data.renderId,
+        key,
+        size: stored.size,
+        checksum: stored.etag,
+        details: {
+          "X-Page-Count": String(output.pageIds.length),
+          "X-Output-Id": output.id,
+        },
+      }),
+    })
+  } finally {
+    await browser.close()
   }
-
-  const key = `${parsed.data.renderId}/${output.id}.pdf`
-  const [storageBody, downloadBody] = pdfResponse.body.tee()
-  await env.RENDERS.put(key, storageBody, {
-    httpMetadata: { contentType: "application/pdf" },
-    customMetadata: {
-      documentId: parsed.data.document.id,
-      outputId: output.id,
-      pageCount: String(output.pageIds.length),
-      revision: String(parsed.data.document.revision),
-    },
-  })
-  const stored = await env.RENDERS.head(key)
-
-  return new Response(downloadBody, {
-    headers: {
-      "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="${output.id}.pdf"`,
-      "Cache-Control": "no-store",
-      "X-Render-Id": parsed.data.renderId,
-      "X-Render-Key": key,
-      "X-Page-Count": String(output.pageIds.length),
-      "X-Bytes": String(stored?.size ?? 0),
-      "X-Checksum": stored?.etag ?? "",
-    },
-  })
 }
 
 export default {
@@ -178,6 +744,9 @@ export default {
     if (request.method === "POST" && url.pathname === "/render") {
       return handleRender(request, env)
     }
+    if (request.method === "POST" && url.pathname === "/render/thumbnail") {
+      return handleThumbnailRender(request, env)
+    }
     if (request.method === "POST" && url.pathname === "/render/pdf") {
       return handlePdfRender(request, env)
     }
@@ -185,4 +754,8 @@ export default {
   },
 } satisfies ExportedHandler<Env>
 
-export { renderDocumentToHtml, renderOutputToHtml } from "./html"
+export {
+  renderDocumentThumbnailToHtml,
+  renderDocumentToHtml,
+  renderOutputToHtml,
+} from "./html"

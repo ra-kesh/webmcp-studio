@@ -1,10 +1,15 @@
 import { env } from "cloudflare:workers"
 import { createFileRoute } from "@tanstack/react-router"
-import { templateVersionSchema } from "@webmcp/document"
-import { resolveDemoSession } from "../../../../server/demo-session"
+import {
+  decodeDocument,
+  PublishValidationError,
+  templatePublishRequestSchema,
+} from "@webmcp/document"
+import { JsonBodyError, jsonBodyErrorResponse } from "@webmcp/worker-boundary"
+import { readStudioJsonBody } from "../../../../server/json-request-policy"
+import { requireStudioPrincipal } from "../../../../server/studio-principal"
 import { persistTemplateVersion } from "../../../../server/template-repository"
-
-const MAX_PUBLISH_REQUEST_BYTES = 8_000_000
+import { publicTemplateVersion } from "../../../../server/render-field-assets"
 
 type TemplateListRow = {
   id: string
@@ -18,7 +23,8 @@ export const Route = createFileRoute("/v1/studio/templates/")({
   server: {
     handlers: {
       GET: async ({ request }) => {
-        const session = await resolveDemoSession(env.DB, request)
+        const session = await requireStudioPrincipal(env, request)
+        if (session instanceof Response) return session
         const result = await env.DB.prepare(
           `SELECT t.public_id AS id, t.name, t.latest_version, tv.manifest_json, tv.published_at
            FROM templates t
@@ -49,63 +55,71 @@ export const Route = createFileRoute("/v1/studio/templates/")({
         )
       },
       POST: async ({ request }) => {
-        const session = await resolveDemoSession(env.DB, request)
-        const json = (body: unknown, init?: ResponseInit) =>
-          session.respond(Response.json(body, init))
-        const contentLength = Number(request.headers.get("content-length") ?? 0)
-        if (!contentLength) {
-          return json(
-            { error: { code: "content_length_required" } },
-            { status: 411 }
-          )
+        let input: unknown
+        try {
+          input = await readStudioJsonBody(request, "/v1/studio/templates/")
+        } catch (error) {
+          if (error instanceof JsonBodyError) {
+            return jsonBodyErrorResponse(error, true)
+          }
+          throw error
         }
-        if (contentLength > MAX_PUBLISH_REQUEST_BYTES) {
-          return json(
-            {
-              error: {
-                code: "request_too_large",
-                maxBytes: MAX_PUBLISH_REQUEST_BYTES,
-              },
-            },
-            { status: 413 }
-          )
+        let compatibleInput = input
+        try {
+          if (input && typeof input === "object" && "document" in input) {
+            compatibleInput = {
+              ...input,
+              document: decodeDocument(input.document).document,
+            }
+          }
+        } catch {
+          // The strict request parser below returns the public validation shape.
         }
-        const parsed = templateVersionSchema.safeParse(await request.json())
+        const parsed = templatePublishRequestSchema.safeParse(compatibleInput)
         if (!parsed.success) {
-          return json(
+          return Response.json(
             {
               error: {
-                code: "invalid_template_version",
+                code: "invalid_publish_request",
                 details: parsed.error.flatten(),
               },
             },
             { status: 400 }
           )
         }
+        const session = await requireStudioPrincipal(env, request)
+        if (session instanceof Response) return session
+        const json = (body: unknown, init?: ResponseInit) =>
+          session.respond(Response.json(body, init))
         try {
-          const version = await persistTemplateVersion(
+          const result = await persistTemplateVersion(
             env.DB,
+            env.ASSETS,
             session.workspaceId,
             parsed.data
           )
-          return json(
-            {
-              id: version.id,
-              templateId: version.templateId,
-              version: version.version,
-              sourceRevision: version.sourceRevision,
-              publishedAt: version.publishedAt,
-              manifest: version.manifest,
-            },
-            { status: 201 }
-          )
+          const version = result.version
+          return json(publicTemplateVersion(version), {
+            status: result.created ? 201 : 200,
+          })
         } catch (error) {
-          const message = error instanceof Error ? error.message : ""
-          if (message === "published_version_conflict") {
+          if (error instanceof PublishValidationError) {
             return json(
-              { error: { code: "published_version_conflict" } },
-              { status: 409 }
+              {
+                error: {
+                  code: "publish_validation_failed",
+                  issues: error.issues,
+                },
+              },
+              { status: 422 }
             )
+          }
+          const message = error instanceof Error ? error.message : ""
+          if (
+            message === "published_version_conflict" ||
+            message === "published_snapshot_conflict"
+          ) {
+            return json({ error: { code: message } }, { status: 409 })
           }
           if (message.startsWith("expected_version:")) {
             return json(

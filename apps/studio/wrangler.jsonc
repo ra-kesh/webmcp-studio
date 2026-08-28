@@ -1,8 +1,8 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "webmcp-studio",
-  "main": "@tanstack/react-start/server-entry",
-  "compatibility_date": "2026-08-26",
+  "main": "src/server-entry.ts",
+  "compatibility_date": "2026-08-27",
   "compatibility_flags": ["nodejs_compat"],
   "observability": {
     "enabled": true,
@@ -12,6 +12,25 @@
     {
       "binding": "RENDERER",
       "service": "webmcp-studio-renderer",
+    },
+  ],
+  "vars": {
+    "STUDIO_ACCESS_MODE": "cloudflare_access",
+    "ACCESS_TEAM_DOMAIN": "",
+    "ACCESS_POLICY_AUD": "",
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "RENDER_ADMISSION",
+        "class_name": "RenderAdmission",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "render-admission-v1",
+      "new_sqlite_classes": ["RenderAdmission"],
     },
   ],
   "d1_databases": [

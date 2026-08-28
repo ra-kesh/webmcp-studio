@@ -20,6 +20,16 @@
     ".": "./src/index.ts",
     "./fabric": "./src/fabric-adapter.ts",
     "./geometry": "./src/geometry.ts",
-    "./history": "./src/history.ts"
+    "./history": "./src/history.ts",
+    "./inspector": "./src/inspector.ts",
+    "./text-lists": "./src/text-lists.ts",
+    "./commands": "./src/commands.ts",
+    "./product-commands": "./src/product-commands.ts",
+    "./structure-commands": "./src/structure-commands.ts",
+    "./viewport": "./src/viewport.ts",
+    "./page-guides": "./src/page-guides.ts",
+    "./image-crop-session": "./src/image-crop-session.ts",
+    "./image-crop-preview-store": "./src/image-crop-preview-store.ts",
+    "./layer-tree": "./src/layer-tree.ts"
   }
 }

@@ -1,35 +1,92 @@
 import { env } from "cloudflare:workers"
 import { createFileRoute } from "@tanstack/react-router"
-import { materializeTemplateVersion } from "@webmcp/document"
-import { z } from "zod"
 import {
-  databaseTemplateId,
-  resolveDemoSession,
-} from "../../../server/demo-session"
+  assertRenderImageResourceAdmission,
+  createRenderResourcePlan,
+  materializeTemplateVersion,
+  RenderImageResourceAdmissionError,
+} from "@webmcp/document"
+import type { RenderResourcePlan } from "@webmcp/document"
+import { JsonBodyError, jsonBodyErrorResponse } from "@webmcp/worker-boundary"
+import { z } from "zod"
+import { databaseTemplateId } from "../../../server/demo-session"
+import { readStudioJsonBody } from "../../../server/json-request-policy"
+import { MediaAssetRepository } from "../../../server/media-asset-repository"
+import { MediaAssetError } from "../../../server/media-assets"
+import {
+  ManagedAssetMaterializationError,
+  materializeManagedDocumentAssets,
+  resolveRenderFieldAssetIdsForWorkspace,
+} from "../../../server/render-field-assets"
+import type { ManagedImageResourceExpectation } from "../../../server/render-field-assets"
+import {
+  RenderAdmissionError,
+  renderAdmissionErrorResponse,
+  reserveRenderCapacity,
+} from "../../../server/render-admission-service"
+import {
+  RendererInvocationError,
+  rendererInvocationErrorFromResponse,
+} from "../../../server/renderer-invocation-error"
+import {
+  StudioAccessError,
+  resolveStudioPrincipal,
+  studioAccessErrorResponse,
+} from "../../../server/studio-principal"
 import { getTemplateVersion } from "../../../server/template-repository"
 
-const renderRequestSchema = z.object({
-  templateId: z.string().min(1),
-  version: z.number().int().positive().optional(),
-  modifications: z.record(
-    z.string(),
-    z.union([z.string(), z.number(), z.boolean()])
-  ),
-  response: z.object({
-    type: z.literal("url"),
-    outputs: z
-      .array(
-        z.object({
-          outputId: z.string().min(1),
-          format: z.enum(["png", "pdf"]),
+const renderRequestSchema = z
+  .object({
+    templateId: z.string().min(1),
+    version: z.number().int().positive().optional(),
+    modifications: z.record(
+      z.string(),
+      z.union([z.string(), z.number(), z.boolean()])
+    ),
+    response: z
+      .object({
+        type: z.literal("url"),
+        outputs: z
+          .array(
+            z
+              .object({
+                outputId: z.string().min(1),
+                format: z.enum(["png", "pdf"]),
+              })
+              .strict()
+          )
+          .min(1)
+          .max(12),
+      })
+      .strict(),
+  })
+  .strict()
+  .superRefine((request, context) => {
+    const seen = new Set<string>()
+    for (const [index, output] of request.response.outputs.entries()) {
+      const key = `${output.outputId}:${output.format}`
+      if (seen.has(key)) {
+        context.addIssue({
+          code: "custom",
+          path: ["response", "outputs", index],
+          message: "Each output and format pair may be requested only once",
         })
-      )
-      .min(1)
-      .max(12),
-  }),
-})
+      }
+      seen.add(key)
+    }
+  })
 
-const MAX_REQUEST_BYTES = 256_000
+const combinePlans = (plans: RenderResourcePlan[]): RenderResourcePlan => ({
+  outputId: "render-batch",
+  format: plans[0]?.format ?? "pdf",
+  pageIds: plans.flatMap((plan) => plan.pageIds),
+  pageCount: plans.reduce((total, plan) => total + plan.pageCount, 0),
+  pixelArea: plans.reduce((total, plan) => total + plan.pixelArea, 0),
+  estimatedStorageBytes: plans.reduce(
+    (total, plan) => total + plan.estimatedStorageBytes,
+    0
+  ),
+})
 
 type RenderArtifact = {
   id: string
@@ -128,6 +185,7 @@ async function existingRenderResponse(job: ExistingJobRow) {
 
 async function invokeRenderer(
   document: ReturnType<typeof materializeTemplateVersion>,
+  expectedImageResources: readonly ManagedImageResourceExpectation[],
   renderId: string,
   outputId: string,
   format: "png" | "pdf",
@@ -140,18 +198,26 @@ async function invokeRenderer(
         : "https://renderer.internal/render",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Prefer: "return=minimal",
+        },
         body: JSON.stringify(
           format === "pdf"
-            ? { renderId, outputId, document }
-            : { renderId, outputId, pageId, document }
+            ? { renderId, outputId, document, expectedImageResources }
+            : {
+                renderId,
+                outputId,
+                pageId,
+                document,
+                expectedImageResources,
+              }
         ),
       }
     )
   )
   if (!response.ok) {
-    const detail = (await response.text()).trim().slice(0, 240)
-    throw new Error(detail || `Renderer returned ${response.status}`)
+    throw await rendererInvocationErrorFromResponse(response)
   }
   const key = response.headers.get("X-Render-Key")
   if (!key) throw new Error("Renderer did not return an artifact key")
@@ -176,30 +242,18 @@ export const Route = createFileRoute("/v1/studio/render")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const session = await resolveDemoSession(env.DB, request)
-        const json = (body: unknown, init?: ResponseInit) =>
-          session.respond(Response.json(body, init))
-        const contentLength = Number(request.headers.get("content-length") ?? 0)
-        if (!contentLength) {
-          return json(
-            { error: { code: "content_length_required" } },
-            { status: 411 }
-          )
+        let input: unknown
+        try {
+          input = await readStudioJsonBody(request, "/v1/studio/render")
+        } catch (error) {
+          if (error instanceof JsonBodyError) {
+            return jsonBodyErrorResponse(error, true)
+          }
+          throw error
         }
-        if (contentLength > MAX_REQUEST_BYTES) {
-          return json(
-            {
-              error: {
-                code: "request_too_large",
-                maxBytes: MAX_REQUEST_BYTES,
-              },
-            },
-            { status: 413 }
-          )
-        }
-        const parsed = renderRequestSchema.safeParse(await request.json())
+        const parsed = renderRequestSchema.safeParse(input)
         if (!parsed.success) {
-          return json(
+          return Response.json(
             {
               error: {
                 code: "invalid_render_request",
@@ -209,6 +263,17 @@ export const Route = createFileRoute("/v1/studio/render")({
             { status: 400 }
           )
         }
+        let session
+        try {
+          session = await resolveStudioPrincipal(env, request)
+        } catch (error) {
+          if (error instanceof StudioAccessError) {
+            return studioAccessErrorResponse(error)
+          }
+          throw error
+        }
+        const json = (body: unknown, init?: ResponseInit) =>
+          session.respond(Response.json(body, init))
         const idempotencyKey = request.headers.get("Idempotency-Key")?.trim()
         if (
           idempotencyKey &&
@@ -259,20 +324,65 @@ export const Route = createFileRoute("/v1/studio/render")({
         }
 
         let document: ReturnType<typeof materializeTemplateVersion>
+        let expectedImageResources: ManagedImageResourceExpectation[]
         try {
-          document = materializeTemplateVersion(
+          const mediaAssets = new MediaAssetRepository(env.DB, env.ASSETS)
+          const fieldAssets = await resolveRenderFieldAssetIdsForWorkspace(
             version,
-            parsed.data.modifications
+            parsed.data.modifications,
+            (assetId) =>
+              mediaAssets.resolveRendererSource(session.workspaceId, assetId)
+          )
+          const materialized = await materializeManagedDocumentAssets(
+            materializeTemplateVersion(version, fieldAssets.modifications),
+            (assetId) =>
+              mediaAssets.resolveRendererSource(session.workspaceId, assetId),
+            fieldAssets.resources
+          )
+          document = materialized.document
+          expectedImageResources = materialized.resources
+          await assertRenderImageResourceAdmission(
+            document,
+            expectedImageResources
           )
         } catch (error) {
+          const managedNodeFailure =
+            error instanceof ManagedAssetMaterializationError ? error : null
+          const managedAssetFailure =
+            error instanceof MediaAssetError ? error : null
+          const renderResourceFailure =
+            error instanceof RenderImageResourceAdmissionError ? error : null
           return json(
             {
               error: {
-                code: "invalid_modification",
-                message:
-                  error instanceof Error
-                    ? error.message
-                    : "Template values are invalid",
+                code: renderResourceFailure
+                  ? "render_resource_admission_failed"
+                  : managedNodeFailure
+                    ? managedNodeFailure.code
+                    : managedAssetFailure
+                      ? "managed_asset_integrity_failed"
+                      : "invalid_modification",
+                message: renderResourceFailure
+                  ? renderResourceFailure.message
+                  : managedNodeFailure
+                    ? managedNodeFailure.message
+                    : managedAssetFailure
+                      ? "A managed image failed resource integrity validation"
+                      : error instanceof Error
+                        ? error.message
+                        : "Template values are invalid",
+                ...(renderResourceFailure
+                  ? {
+                      resourceCode: renderResourceFailure.code,
+                      assetId: renderResourceFailure.assetId,
+                      nodeId: renderResourceFailure.nodeId,
+                    }
+                  : managedNodeFailure
+                    ? {
+                        assetId: managedNodeFailure.assetId,
+                        nodeId: managedNodeFailure.nodeId,
+                      }
+                    : {}),
               },
             },
             { status: 422 }
@@ -308,6 +418,40 @@ export const Route = createFileRoute("/v1/studio/render")({
           }
         }
 
+        let resourcePlan: RenderResourcePlan
+        try {
+          resourcePlan = combinePlans(
+            parsed.data.response.outputs.map((selection) =>
+              createRenderResourcePlan(document, {
+                outputId: selection.outputId,
+                format: selection.format,
+              })
+            )
+          )
+        } catch (error) {
+          return json(
+            {
+              error: {
+                code: "render_policy_rejected",
+                message:
+                  error instanceof Error
+                    ? error.message
+                    : "The materialized document is not render-safe",
+              },
+            },
+            { status: 422 }
+          )
+        }
+        let lease
+        try {
+          lease = await reserveRenderCapacity(env, session, resourcePlan)
+        } catch (error) {
+          if (error instanceof RenderAdmissionError) {
+            return session.respond(renderAdmissionErrorResponse(error))
+          }
+          throw error
+        }
+
         const renderId = `render-${crypto.randomUUID()}`
         const createdAt = new Date().toISOString()
         try {
@@ -329,7 +473,10 @@ export const Route = createFileRoute("/v1/studio/render")({
             )
             .run()
         } catch (error) {
-          if (!idempotencyKey) throw error
+          if (!idempotencyKey) {
+            await lease.fail()
+            throw error
+          }
           const existing = await env.DB.prepare(
             `SELECT jobs.id, jobs.template_id, templates.public_id AS template_public_id,
                     jobs.template_version, jobs.status, jobs.request_hash,
@@ -342,11 +489,13 @@ export const Route = createFileRoute("/v1/studio/render")({
             .bind(session.workspaceId, idempotencyKey)
             .first<ExistingJobRow>()
           if (!existing || existing.request_hash !== normalizedRequestHash) {
+            await lease.fail()
             return json(
               { error: { code: "idempotency_key_reused" } },
               { status: 409 }
             )
           }
+          await lease.fail()
           return session.respond(await existingRenderResponse(existing))
         }
 
@@ -360,6 +509,7 @@ export const Route = createFileRoute("/v1/studio/render")({
               artifacts.push(
                 await invokeRenderer(
                   document,
+                  expectedImageResources,
                   renderId,
                   output.id,
                   selection.format
@@ -370,6 +520,7 @@ export const Route = createFileRoute("/v1/studio/render")({
                 artifacts.push(
                   await invokeRenderer(
                     document,
+                    expectedImageResources,
                     renderId,
                     output.id,
                     selection.format,
@@ -380,6 +531,9 @@ export const Route = createFileRoute("/v1/studio/render")({
             }
           }
           const completedAt = new Date().toISOString()
+          await lease.complete(
+            artifacts.reduce((total, artifact) => total + artifact.bytes, 0)
+          )
           await env.DB.batch([
             ...artifacts.map((artifact) =>
               env.DB.prepare(
@@ -427,25 +581,42 @@ export const Route = createFileRoute("/v1/studio/render")({
             { status: 201 }
           )
         } catch (error) {
+          await lease.fail()
           await Promise.allSettled(
             artifacts.map((artifact) => env.RENDERS.delete(artifact.key))
           )
+          const rendererFailure =
+            error instanceof RendererInvocationError ? error : null
           const message =
             error instanceof Error
               ? error.message.slice(0, 500)
               : "Renderer failed"
           await env.DB.prepare(
             `UPDATE render_jobs
-             SET status = 'failed', error_code = 'renderer_failed', error_message = ?2, completed_at = ?3
+             SET status = 'failed', error_code = ?2, error_message = ?3, completed_at = ?4
              WHERE id = ?1`
           )
-            .bind(renderId, message, new Date().toISOString())
+            .bind(
+              renderId,
+              rendererFailure?.code ?? "renderer_failed",
+              message,
+              new Date().toISOString()
+            )
             .run()
           return json(
             {
               id: renderId,
               status: "failed",
-              error: { code: "renderer_failed", message },
+              error: {
+                code: rendererFailure?.code ?? "renderer_failed",
+                message,
+                ...(rendererFailure?.nodeId
+                  ? { nodeId: rendererFailure.nodeId }
+                  : {}),
+                ...(rendererFailure?.assetId
+                  ? { assetId: rendererFailure.assetId }
+                  : {}),
+              },
               statusUrl: `/v1/renders/${renderId}`,
             },
             { status: 502 }

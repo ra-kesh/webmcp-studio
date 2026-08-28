@@ -1,3 +1,6 @@
+import { validateAssetFieldPublicationIdentities } from "@webmcp/document"
+import type { Document, ValidationIssue } from "@webmcp/document"
+
 export type StudioAsset = {
   id: string
   name: string
@@ -91,3 +94,21 @@ export const studioAssets: StudioAsset[] = [
     `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#E7C1A4"/><stop offset=".48" stop-color="#B87961"/><stop offset="1" stop-color="#5B4642"/></linearGradient><filter id="n"><feTurbulence baseFrequency=".65" numOctaves="3" stitchTiles="stitch"/><feColorMatrix values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 .16 0"/></filter></defs><rect width="1600" height="1200" fill="url(#g)"/><rect width="1600" height="1200" filter="url(#n)" opacity=".34"/><circle cx="1270" cy="280" r="260" fill="#EAD5B5" opacity=".28"/>`
   ),
 ]
+
+export const studioAssetIdForValue = (value: unknown) =>
+  typeof value === "string"
+    ? studioAssets.find(
+        (candidate) => candidate.id === value || candidate.src === value
+      )?.id
+    : undefined
+
+export function studioAssetFieldPublicationIssues(
+  document: Document
+): ValidationIssue[] {
+  return validateAssetFieldPublicationIdentities(document, (value) =>
+    Boolean(studioAssetIdForValue(value))
+  ).map((issue) => ({
+    ...issue,
+    message: issue.message.replace("approved asset", "approved Studio asset"),
+  }))
+}

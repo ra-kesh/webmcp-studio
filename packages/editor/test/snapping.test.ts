@@ -39,7 +39,12 @@ describe("canvas snapping", () => {
       []
     )
 
-    expect(result).toEqual({ deltaX: 0, deltaY: 0, guides: [] })
+    expect(result).toEqual({
+      deltaX: 0,
+      deltaY: 0,
+      guides: [],
+      latch: null,
+    })
   })
 
   it("gives page geometry a small priority over near-identical object guides", () => {
@@ -136,5 +141,98 @@ describe("canvas snapping", () => {
     expect(result.guides).not.toContainEqual(
       expect.objectContaining({ source: "spacing" })
     )
+  })
+
+  it("prefers an explicit guide over automatic geometry at equal distance", () => {
+    const result = calculateSnap(
+      { left: 493, top: 100, width: 100, height: 80 },
+      { width: 1000, height: 800 },
+      [],
+      { targets: [{ axis: "x", value: 500, source: "guide" }] }
+    )
+
+    expect(result.deltaX).toBe(7)
+    expect(result.guides).toContainEqual({
+      axis: "x",
+      value: 500,
+      source: "guide",
+    })
+    expect(result.latch?.x).toEqual({ source: "guide", value: 500 })
+  })
+
+  it("converts acquire distance from screen pixels at every zoom", () => {
+    const moving = { left: 97, top: 100, width: 20, height: 20 }
+    const page = { width: 1000, height: 800 }
+    const targets = [
+      { axis: "x" as const, value: 100, source: "guide" as const },
+    ]
+
+    expect(
+      calculateSnap(moving, page, [], {
+        targets,
+        screenThreshold: { acquirePixels: 8, releasePixels: 12, zoom: 4 },
+      }).deltaX
+    ).toBe(0)
+    expect(
+      calculateSnap(moving, page, [], {
+        targets,
+        screenThreshold: { acquirePixels: 8, releasePixels: 12, zoom: 0.1 },
+      }).deltaX
+    ).toBe(3)
+  })
+
+  it("holds an acquired guide until the wider release threshold", () => {
+    const page = { width: 1000, height: 800 }
+    const targets = [
+      { axis: "x" as const, value: 100, source: "guide" as const },
+    ]
+    const acquired = calculateSnap(
+      { left: 97, top: 100, width: 20, height: 20 },
+      page,
+      [],
+      {
+        targets,
+        screenThreshold: { acquirePixels: 8, releasePixels: 12, zoom: 1 },
+      }
+    )
+    const held = calculateSnap(
+      { left: 109, top: 100, width: 20, height: 20 },
+      page,
+      [],
+      {
+        targets,
+        previousLatch: acquired.latch,
+        screenThreshold: { acquirePixels: 8, releasePixels: 12, zoom: 1 },
+      }
+    )
+    const released = calculateSnap(
+      { left: 113, top: 100, width: 20, height: 20 },
+      page,
+      [],
+      {
+        targets,
+        previousLatch: held.latch,
+        screenThreshold: { acquirePixels: 8, releasePixels: 12, zoom: 1 },
+      }
+    )
+
+    expect(acquired.latch?.x).toEqual({ source: "guide", value: 100 })
+    expect(held.deltaX).toBe(-9)
+    expect(held.latch?.x).toEqual({ source: "guide", value: 100 })
+    expect(released.deltaX).toBe(0)
+    expect(released.latch?.x).toBeUndefined()
+  })
+
+  it("latches equal-spacing results by their target start", () => {
+    const result = calculateSnap(
+      { left: 294, top: 100, width: 100, height: 80 },
+      { width: 1200, height: 1000 },
+      [
+        { left: 100, top: 100, width: 100, height: 80 },
+        { left: 500, top: 100, width: 100, height: 80 },
+      ]
+    )
+
+    expect(result.latch?.x).toEqual({ source: "spacing", value: 300 })
   })
 })
