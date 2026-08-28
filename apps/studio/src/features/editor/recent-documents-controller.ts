@@ -48,6 +48,7 @@ export type DocumentActionState =
       kind: "rename"
       phase: "editing"
       owner: "recent"
+      documentName: string
       expectedRecordVersion: number
       input: string
       error: string | null
@@ -56,6 +57,7 @@ export type DocumentActionState =
       kind: "rename"
       phase: "submitting"
       owner: "recent"
+      documentName: string
       expectedRecordVersion: number
       input: string
       token: number
@@ -65,6 +67,7 @@ export type DocumentActionState =
       kind: "duplicate" | "trash" | "restore" | "download"
       phase: "submitting"
       owner: DocumentsCollection
+      documentName: string
       token: number
       error: null
     }>
@@ -72,6 +75,7 @@ export type DocumentActionState =
       kind: "duplicate" | "trash" | "restore" | "download"
       phase: "failed"
       owner: DocumentsCollection
+      documentName: string
       token: number
       error: string
     }>
@@ -96,7 +100,12 @@ export type RecentDocumentsState = Readonly<{
   announcement: null | Readonly<{ id: number; message: string }>
   focusIntent: null | Readonly<{
     id: number
-    target: "search" | "collection-heading" | "load-more" | "document"
+    target:
+      | "search"
+      | "collection-heading"
+      | "load-more"
+      | "pagination-status"
+      | "document"
     documentId?: string
   }>
 }>
@@ -568,7 +577,7 @@ export class RecentDocumentsController {
               } added.`
             ),
             focusIntent: this.#nextFocus(
-              result.page.nextCursor ? "load-more" : "collection-heading"
+              result.page.nextCursor ? "load-more" : "pagination-status"
             ),
           })
         },
@@ -630,6 +639,7 @@ export class RecentDocumentsController {
       kind: "rename",
       phase: "editing",
       owner: "recent",
+      documentName: summary.name,
       expectedRecordVersion: summary.recordVersion,
       input: summary.name,
       error: null,
@@ -668,6 +678,7 @@ export class RecentDocumentsController {
         kind: "rename",
         phase: "editing",
         owner: action.owner,
+        documentName: action.documentName,
         expectedRecordVersion: action.expectedRecordVersion,
         input,
         error: "Document name is required.",
@@ -680,6 +691,7 @@ export class RecentDocumentsController {
       kind: "rename",
       phase: "submitting",
       owner: action.owner,
+      documentName: action.documentName,
       expectedRecordVersion: action.expectedRecordVersion,
       input,
       token,
@@ -711,6 +723,7 @@ export class RecentDocumentsController {
         kind: "rename",
         phase: "editing",
         owner: action.owner,
+        documentName: action.documentName,
         expectedRecordVersion: action.expectedRecordVersion,
         input,
         error: writeFailureMessage(result),
@@ -751,6 +764,7 @@ export class RecentDocumentsController {
       kind: "duplicate",
       phase: "submitting",
       owner: "recent",
+      documentName: summary.name,
       token,
       error: null,
     })
@@ -776,6 +790,7 @@ export class RecentDocumentsController {
         documentId,
         "duplicate",
         "recent",
+        summary.name,
         token,
         writeFailureMessage(result)
       )
@@ -835,6 +850,7 @@ export class RecentDocumentsController {
       kind: "download",
       phase: "submitting",
       owner,
+      documentName: summary.name,
       token,
       error: null,
     })
@@ -860,6 +876,7 @@ export class RecentDocumentsController {
         documentId,
         "download",
         owner,
+        summary.name,
         token,
         readFailureMessage(result)
       )
@@ -874,6 +891,7 @@ export class RecentDocumentsController {
         documentId,
         "download",
         owner,
+        summary.name,
         token,
         result.status === "missing"
           ? "This document no longer exists."
@@ -1342,6 +1360,7 @@ export class RecentDocumentsController {
       kind,
       phase: "submitting",
       owner,
+      documentName: target.name,
       token,
       error: null,
     })
@@ -1371,6 +1390,7 @@ export class RecentDocumentsController {
         documentId,
         kind,
         owner,
+        target.name,
         token,
         writeFailureMessage(result)
       )
@@ -1482,6 +1502,7 @@ export class RecentDocumentsController {
     documentId: string,
     kind: "duplicate" | "trash" | "restore" | "download",
     owner: DocumentsCollection,
+    documentName: string,
     token: number,
     error: string
   ) {
@@ -1489,6 +1510,7 @@ export class RecentDocumentsController {
       kind,
       phase: "failed",
       owner,
+      documentName,
       token,
       error,
     })
@@ -1502,7 +1524,12 @@ export class RecentDocumentsController {
   }
 
   #nextFocus(
-    target: "search" | "collection-heading" | "load-more" | "document",
+    target:
+      | "search"
+      | "collection-heading"
+      | "load-more"
+      | "pagination-status"
+      | "document",
     documentId?: string
   ) {
     if (!this.#state.active) return null

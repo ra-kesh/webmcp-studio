@@ -3,6 +3,7 @@ import {
   builtInDesignTemplateRepository,
   changeSetSchema,
   captureSemanticFragment,
+  cloneTemplateDocument,
   cloneSemanticFragment,
   createTemplateVersion,
   deriveDocumentSnapshotId,
@@ -142,17 +143,12 @@ import {
 import type { CurrentDraftEnvelope } from "./current-draft-repository"
 import type {
   DocumentDraftRecord,
-  DraftListRecoveryItem,
   DraftOrigin,
   DraftRepositoryEvent,
 } from "./document-draft-repository"
 import { DocumentDraftSaveController } from "./document-draft-save-controller"
 import type { LocalSaveState } from "./document-draft-save-controller"
 import type { StudioPersistenceApi } from "../persistence/studio-persistence-provider"
-import {
-  deriveCurrentDraftSummary,
-  deriveRepositoryDraftSummary,
-} from "./studio-start-model"
 import type { StudioStartModel } from "./studio-start-model"
 import { parseDocumentImportFile } from "./document-import"
 import { createStudioTextNode, defaultStudioTextPresetId } from "./text-presets"
@@ -281,29 +277,6 @@ function sourceContextsMatch(
     left.designTemplate?.id === right.designTemplate?.id &&
     left.designTemplate?.version === right.designTemplate?.version
   )
-}
-
-function describeDraftListRecovery(
-  recoveryItems: readonly DraftListRecoveryItem[]
-): string | null {
-  if (recoveryItems.length === 0) return null
-  const documentLabel =
-    recoveryItems.length === 1
-      ? "1 unreadable local document"
-      : `${recoveryItems.length} unreadable local documents`
-  const quarantinedCount = recoveryItems.filter(
-    (item) => item.status === "quarantined"
-  ).length
-  const retainedCount = recoveryItems.length - quarantinedCount
-  const outcomes = [
-    quarantinedCount > 0
-      ? `${quarantinedCount} ${quarantinedCount === 1 ? "was" : "were"} moved to Studio recovery storage.`
-      : null,
-    retainedCount > 0
-      ? `${retainedCount} ${retainedCount === 1 ? "remains" : "remain"} in browser storage because Studio could not safely move ${retainedCount === 1 ? "it" : "them"} to recovery.`
-      : null,
-  ].filter((outcome): outcome is string => outcome !== null)
-  return `Studio found ${documentLabel}. Affected documents were omitted from Recents. ${outcomes.join(" ")}`
 }
 
 type PendingRendererReplacement =
@@ -509,8 +482,6 @@ export function useDocumentEditor({
   })
   const persistenceBlockedRef = useRef(true)
   const repositoryReadyRef = useRef(false)
-  const repositoryRecoveryWarningRef = useRef<string | null>(null)
-  const startDocumentIdRef = useRef<string | null>(null)
   const openingDocumentIdRef = useRef<OpeningDocumentState | null>(null)
   const activeRecordRef = useRef<DocumentDraftRecord | null>(null)
   const activePersistenceSessionRef = useRef<ActivePersistenceSession | null>(
@@ -529,7 +500,6 @@ export function useDocumentEditor({
   } | null>(null)
   const documentImportRequestGenerationRef = useRef(0)
   const mountedRef = useRef(true)
-  const readyListRequestGenerationRef = useRef(0)
   const draftRecoveryRef = useRef(draftRecovery)
   draftRecoveryRef.current = draftRecovery
   const clipboardRef = useRef<SemanticFragment | null>(null)
@@ -604,49 +574,24 @@ export function useDocumentEditor({
   const rememberStartEnvelope = useCallback(
     (envelope: CurrentDraftEnvelope) => {
       setStartModel((current) =>
-        current.status === "ready" ||
-        current.status === "blocked" ||
-        current.status === "unavailable"
+        current.status === "blocked" || current.status === "unavailable"
           ? {
               ...current,
-              currentDraft: deriveCurrentDraftSummary(envelope),
-              recoverableEnvelope: current.durable ? null : envelope,
+              recoverableEnvelope: envelope,
             }
           : {
               status: "ready",
               durable: false,
               storageWarning:
-                "Browser document storage is unavailable. This draft exists only for this session.",
-              currentDraft: deriveCurrentDraftSummary(envelope),
+                current.status === "ready" && current.storageWarning
+                  ? current.storageWarning
+                  : "Browser document storage is unavailable. This draft exists only for this session.",
               recoverableEnvelope: envelope,
             }
       )
     },
     []
   )
-
-  const rememberStartRecord = useCallback((record: DocumentDraftRecord) => {
-    startDocumentIdRef.current = record.summary.documentId
-    setStartModel((current) => ({
-      status: "ready",
-      durable: true,
-      storageWarning:
-        current.status === "ready" ? current.storageWarning : null,
-      currentDraft: deriveRepositoryDraftSummary(record.summary),
-      recoverableEnvelope: null,
-    }))
-  }, [])
-
-  const clearTransitionalStartDocument = useCallback((documentId: string) => {
-    if (startDocumentIdRef.current !== documentId) return
-    startDocumentIdRef.current = null
-    setStartModel((current) =>
-      current.status === "ready" &&
-      current.currentDraft?.documentId === documentId
-        ? { ...current, currentDraft: null, recoverableEnvelope: null }
-        : current
-    )
-  }, [])
 
   const projectLocalSaveState = useCallback((state: LocalSaveState) => {
     localSaveStateRef.current = state
@@ -774,11 +719,6 @@ export function useDocumentEditor({
         session.controller.capture({ document, sourceContext })
         lastCapturedDocumentRef.current = document
         lastCapturedSourceContextRef.current = sourceContext
-        rememberStartEnvelope({
-          schemaVersion: 1,
-          document,
-          sourceContext,
-        })
         return true
       } catch (error) {
         setDocumentError(
@@ -789,7 +729,7 @@ export function useDocumentEditor({
         return false
       }
     },
-    [rememberStartEnvelope]
+    []
   )
 
   const settlePersistenceSession = useCallback(
@@ -983,7 +923,6 @@ export function useDocumentEditor({
       lastCapturedSourceContextRef.current =
         record.envelope.sourceContext ?? null
       projectLocalSaveState(nextSession.controller.state)
-      rememberStartRecord(record)
       installEditorSession(record.envelope)
       return true
     },
@@ -992,7 +931,6 @@ export function useDocumentEditor({
       installEditorSession,
       ownsSessionTransition,
       projectLocalSaveState,
-      rememberStartRecord,
       retirePersistenceSession,
     ]
   )
@@ -1051,25 +989,6 @@ export function useDocumentEditor({
         )
         if (!ownsSessionTransition(transition)) return false
         if (!created.ok) {
-          if (created.reason === "exists" && origin.kind === "quotation") {
-            const reset = await draftRepository.save(
-              {
-                document: envelope.document,
-                sourceContext: envelope.sourceContext,
-              },
-              created.current.recordVersion,
-              created.current.draftSnapshotId
-            )
-            if (!ownsSessionTransition(transition)) return false
-            if (reset.ok) {
-              const installed = await installDraftRecord(
-                reset.record,
-                transition
-              )
-              if (!ownsSessionTransition(transition)) return false
-              return installed
-            }
-          }
           const message =
             "failure" in created
               ? created.failure.message
@@ -1134,13 +1053,7 @@ export function useDocumentEditor({
         ownsOpening() &&
         repositoryReadyRef.current &&
         persistenceRef.current.state.status === "ready"
-      const clearTerminalOpeningCard = (event: OpeningInvalidationEvent) => {
-        if (event.type === "deleted" || event.type === "quarantined") {
-          clearTransitionalStartDocument(documentId)
-        }
-      }
       const rejectInvalidatedOpening = (event: OpeningInvalidationEvent) => {
-        clearTerminalOpeningCard(event)
         setDocumentError(
           event.type === "saved" || event.type === "restored"
             ? "This document changed in another Studio session while Studio was opening it. Open it again to load the latest version."
@@ -1173,7 +1086,6 @@ export function useDocumentEditor({
         )
         if (installed && lateInvalidation) {
           projectForeignActiveDocumentEvent(lateInvalidation, true)
-          clearTerminalOpeningCard(lateInvalidation)
         } else if (installed && touchWarning) {
           setDocumentError(touchWarning)
         }
@@ -1184,7 +1096,6 @@ export function useDocumentEditor({
         const result = await draftRepository.get(documentId)
         if (!canContinueOpening()) return false
         if (!result.ok || result.status !== "found") {
-          clearTransitionalStartDocument(documentId)
           const message = !result.ok
             ? result.failure.message
             : "That Studio document no longer exists in this browser."
@@ -1201,7 +1112,6 @@ export function useDocumentEditor({
           return false
         }
         if (result.record.summary.deletedAt !== null) {
-          clearTransitionalStartDocument(documentId)
           setDocumentError(
             "That Studio document is in Trash. Restore it before opening."
           )
@@ -1215,7 +1125,6 @@ export function useDocumentEditor({
             touched.value.envelope.document.id !== documentId ||
             touched.value.summary.deletedAt !== null
           ) {
-            clearTransitionalStartDocument(documentId)
             setDocumentError(
               "Studio refused to open a stored document whose identity or Trash state changed."
             )
@@ -1233,7 +1142,6 @@ export function useDocumentEditor({
           touched.reason === "missing"
             ? "That Studio document was removed before it could be opened."
             : touched.failure.message
-        clearTransitionalStartDocument(documentId)
         setDocumentError(message)
         return false
       } finally {
@@ -1245,7 +1153,6 @@ export function useDocumentEditor({
     },
     [
       claimSessionTransition,
-      clearTransitionalStartDocument,
       getDraftRepository,
       installDraftRecord,
       ownsSessionTransition,
@@ -1254,11 +1161,11 @@ export function useDocumentEditor({
     ]
   )
 
-  const continueSessionEnvelope = useCallback(async () => {
+  const continueSessionDocument = useCallback(async () => {
     if (
-      (startModel.status !== "blocked" &&
-        startModel.status !== "unavailable") ||
-      !startModel.currentDraft ||
+      startModel.status === "opening" ||
+      startModel.status === "recovery_required" ||
+      startModel.durable ||
       !startModel.recoverableEnvelope
     )
       return false
@@ -1266,18 +1173,6 @@ export function useDocumentEditor({
       kind: "import",
     })
   }, [persistAndInstallSession, startModel])
-
-  const continueCurrentDraft = useCallback(() => {
-    if (
-      startModel.status === "opening" ||
-      startModel.status === "recovery_required" ||
-      !startModel.currentDraft
-    )
-      return Promise.resolve(false)
-    if (!startModel.durable) return continueSessionEnvelope()
-    const documentId = startDocumentIdRef.current
-    return documentId ? openStoredDocument(documentId) : Promise.resolve(false)
-  }, [continueSessionEnvelope, openStoredDocument, startModel])
 
   const captureSettledDraft = useCallback(() => {
     if (sessionModeRef.current !== "workspace") return true
@@ -1371,62 +1266,7 @@ export function useDocumentEditor({
     retirePersistenceSession,
   ])
 
-  const refreshReadyList = useCallback(async () => {
-    const state = persistenceRef.current.state
-    if (state.status !== "ready") return
-    const requestGeneration = readyListRequestGenerationRef.current + 1
-    readyListRequestGenerationRef.current = requestGeneration
-    const listed = await getDraftRepository().list({ limit: 50 })
-    if (
-      !mountedRef.current ||
-      readyListRequestGenerationRef.current !== requestGeneration ||
-      persistenceRef.current.state.status !== "ready"
-    )
-      return
-    if (!listed.ok) {
-      repositoryReadyRef.current = false
-      persistenceBlockedRef.current = true
-      projectLocalSaveState({
-        status: "session_only",
-        message: listed.failure.message,
-      })
-      setRepositoryLifecycle({
-        status: "unavailable",
-        failure: listed.failure,
-      })
-      setStartModel({
-        status: "unavailable",
-        durable: false,
-        storageWarning: listed.failure.message,
-        currentDraft: null,
-        recoverableEnvelope: null,
-      })
-      return
-    }
-    const recoveryWarning = describeDraftListRecovery(listed.page.recoveryItems)
-    if (recoveryWarning) {
-      repositoryRecoveryWarningRef.current = recoveryWarning
-    }
-    const combinedStorageWarning = [
-      state.warning,
-      repositoryRecoveryWarningRef.current,
-    ]
-      .filter((warning): warning is string => Boolean(warning))
-      .join(" ")
-    const current = listed.page.items.at(0) ?? null
-    startDocumentIdRef.current = current ? current.documentId : null
-    setStartModel({
-      status: "ready",
-      durable: true,
-      storageWarning: combinedStorageWarning || null,
-      currentDraft: current ? deriveRepositoryDraftSummary(current) : null,
-      recoverableEnvelope: null,
-    })
-    setRepositoryLifecycle({ status: "ready" })
-  }, [getDraftRepository, projectLocalSaveState])
-
   useEffect(() => {
-    readyListRequestGenerationRef.current += 1
     const state = persistence.state
     if (state.status === "opening") {
       persistenceBlockedRef.current = true
@@ -1466,9 +1306,6 @@ export function useDocumentEditor({
         status: state.status,
         durable: false,
         storageWarning: state.failure.message,
-        currentDraft: state.recoverableEnvelope
-          ? deriveCurrentDraftSummary(state.recoverableEnvelope)
-          : null,
         recoverableEnvelope: state.recoverableEnvelope,
       })
       return
@@ -1477,8 +1314,14 @@ export function useDocumentEditor({
     persistenceBlockedRef.current = false
     repositoryReadyRef.current = true
     setDraftRecovery(null)
-    void refreshReadyList()
-  }, [persistence.state, projectLocalSaveState, refreshReadyList])
+    setRepositoryLifecycle({ status: "ready" })
+    setStartModel({
+      status: "ready",
+      durable: true,
+      storageWarning: state.warning,
+      recoverableEnvelope: null,
+    })
+  }, [persistence.state, projectLocalSaveState])
 
   useEffect(() => {
     const unsubscribeRepository =
@@ -1503,7 +1346,6 @@ export function useDocumentEditor({
           ) {
             opening.invalidatingEvents.push(event)
           }
-          void refreshReadyList()
           return
         }
         if (event.documentId === activeRecordRef.current?.summary.documentId) {
@@ -1511,21 +1353,14 @@ export function useDocumentEditor({
           projectForeignActiveDocumentEvent(event)
           return
         }
-        void refreshReadyList()
       })
     return unsubscribeRepository
-  }, [
-    clearTransitionalStartDocument,
-    getDraftRepository,
-    projectForeignActiveDocumentEvent,
-    refreshReadyList,
-  ])
+  }, [getDraftRepository, projectForeignActiveDocumentEvent])
 
   useEffect(() => {
     mountedRef.current = true
     return () => {
       mountedRef.current = false
-      readyListRequestGenerationRef.current += 1
       sessionTransitionSequenceRef.current += 1
       activeSessionTransitionRef.current = null
       const session = activePersistenceSessionRef.current
@@ -2652,7 +2487,6 @@ export function useDocumentEditor({
       throw new Error(message)
     }
     activeRecordRef.current = durableHead
-    rememberStartRecord(durableHead)
     const linkAuthoritativePublication = async (
       authoritative: TemplateVersion
     ) => {
@@ -2674,7 +2508,6 @@ export function useDocumentEditor({
         ) {
           const nextRecord = { ...active, summary: linked.summary }
           activeRecordRef.current = nextRecord
-          rememberStartRecord(nextRecord)
         }
         return
       }
@@ -2771,7 +2604,6 @@ export function useDocumentEditor({
     installPublishedVersions,
     publishedVersions,
     quotationSource,
-    rememberStartRecord,
   ])
 
   const addText = useCallback(
@@ -4487,6 +4319,7 @@ export function useDocumentEditor({
 
   const restoreDemoDocument = useCallback(async () => {
     if (!allowMutation()) return false
+    const document = cloneTemplateDocument(quotationStarter.document)
     const sourceContext: TemplateSourceContext = {
       quotationSource: quotationStarter.source,
       quotationTemplateId: quotationStarter.templateId,
@@ -4496,7 +4329,7 @@ export function useDocumentEditor({
       !(await persistAndInstallSession(
         {
           schemaVersion: 1,
-          document: quotationStarter.document,
+          document,
           sourceContext,
         },
         { kind: "quotation" }
@@ -4909,7 +4742,7 @@ export function useDocumentEditor({
     reloadDesignTemplateCatalog: loadDesignTemplateCatalog,
     restoreDemoDocument,
     openStoredDocument,
-    continueCurrentDraft,
+    continueSessionDocument,
     flushActiveDraft,
     getCurrentDocumentSnapshot,
     retryActiveDraftSave,

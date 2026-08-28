@@ -11,6 +11,25 @@ import type { StudioStartSurfaceProps } from "./studio-start-surface"
 import { projectStudioStartModel } from "./studio-start-model"
 import type { CurrentDraftEnvelope } from "./current-draft-repository"
 
+vi.mock("./recent-documents", () => ({
+  RecentDocuments: ({
+    initialFocusRequested,
+    onOpen,
+  }: {
+    initialFocusRequested?: boolean
+    onOpen: (documentId: string) => boolean | Promise<boolean>
+  }) => (
+    <section
+      aria-label="Studio document library"
+      data-initial-focus={initialFocusRequested || undefined}
+    >
+      <button type="button" onClick={() => void onOpen("recent-document-id")}>
+        Open recent document
+      </button>
+    </section>
+  ),
+}))
+
 const templates = builtInDesignTemplateRepository.list()
 const emptyModel = projectStudioStartModel({ status: "empty" })
 
@@ -23,10 +42,10 @@ const defaultProps: StudioStartSurfaceProps = {
   templates,
   templateLoadState: { status: "ready" },
   hasQuotationSource: false,
-  onContinue: vi.fn(),
   onCreateBlank: vi.fn(),
   onCreateFromTemplate: vi.fn(),
   onImportFile: vi.fn(() => true),
+  onOpenDocument: vi.fn(() => true),
   onOpenSample: vi.fn(),
   onRetryTemplates: vi.fn(),
 }
@@ -106,30 +125,17 @@ describe("StudioStartSurface", () => {
     expect(html).toContain("Northstar sample proposal")
     expect(html).toContain("Open sample")
     expect(html).not.toContain("Current browser draft")
-    expect(html).not.toContain("Recent")
+    expect(html).toContain("Studio document library")
     expect(html).not.toContain("Apply to this design")
   })
 
-  it("renders exactly one truthful current browser draft without a fabricated preview", () => {
-    const model = currentModel()
-    const html = renderSurface({ model })
+  it("renders the retained document library instead of the obsolete one-card adapter", () => {
+    const html = renderSurface({ model: currentModel() })
 
-    expect(html.match(/Current browser draft/g)).toHaveLength(1)
-    expect(html).toContain(model.currentDraft?.name)
-    expect(html).toContain(`${model.currentDraft?.outputCount} output`)
-    expect(html).toContain(`${model.currentDraft?.pageCount} page`)
-    expect(html).toContain(
-      `${model.currentDraft?.firstPage.width} × ${model.currentDraft?.firstPage.height} px`
-    )
-    expect(html).toContain("Template based")
-    expect(html).not.toContain("Recent documents")
-
-    const currentSection = html.slice(
-      html.indexOf('aria-labelledby="current-draft-heading"'),
-      html.indexOf('aria-labelledby="start-template-heading"')
-    )
-    expect(currentSection).not.toContain('role="img"')
-    expect(currentSection).not.toContain("<img")
+    expect(html).toContain("Studio document library")
+    expect(html).toContain("Open recent document")
+    expect(html).not.toContain("Current browser draft")
+    expect(html).not.toContain('aria-labelledby="current-draft-heading"')
   })
 
   it("renders loading, retryable error, and honest empty catalog states", () => {
@@ -166,8 +172,8 @@ describe("StudioStartSurface", () => {
     expect(html).not.toContain("Apply to this design")
   })
 
-  it("uses one current draft action and dispatches the selected template", async () => {
-    const onContinue = vi.fn()
+  it("opens an exact library document and dispatches the selected template", async () => {
+    const onOpenDocument = vi.fn(() => true)
     const onCreateFromTemplate = vi.fn()
     await act(async () => {
       root.render(
@@ -175,7 +181,7 @@ describe("StudioStartSurface", () => {
           {...defaultProps}
           hasQuotationSource
           model={currentModel()}
-          onContinue={onContinue}
+          onOpenDocument={onOpenDocument}
           onCreateFromTemplate={onCreateFromTemplate}
         />
       )
@@ -185,8 +191,8 @@ describe("StudioStartSurface", () => {
       document.body.querySelector("#studio-start-heading")
     )
 
-    await act(async () => buttonNamed("Continue")?.click())
-    expect(onContinue).toHaveBeenCalledTimes(1)
+    await act(async () => buttonNamed("Open recent document")?.click())
+    expect(onOpenDocument).toHaveBeenCalledWith("recent-document-id")
 
     const general = templates.find(
       (template) => template.id === "editorial-one-pager"
@@ -198,18 +204,22 @@ describe("StudioStartSurface", () => {
     expect(onCreateFromTemplate).toHaveBeenCalledWith(general)
   })
 
-  it("returns focus to the current draft when the editor sends the user home", async () => {
+  it("delegates return focus to the retained document library", async () => {
     await act(async () => {
       root.render(
         <StudioStartSurface
           {...defaultProps}
-          initialFocus="current-draft"
+          initialFocus="document-library"
           model={currentModel()}
         />
       )
     })
 
-    expect(document.activeElement).toBe(buttonNamed("Continue"))
+    expect(
+      document.body
+        .querySelector('[aria-label="Studio document library"]')
+        ?.getAttribute("data-initial-focus")
+    ).toBe("true")
   })
 
   it("requires explicit session-only acknowledgement when browser saving fails", async () => {

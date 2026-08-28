@@ -44,6 +44,7 @@ import {
   Sparkles,
 } from "lucide-react"
 import type { StudioStartIntent, StudioStartModel } from "./studio-start-model"
+import { RecentDocuments } from "./recent-documents"
 import {
   allTemplateCategoriesValue,
   filterTemplateCatalog,
@@ -67,22 +68,13 @@ export type StudioStartSurfaceProps = {
   hasQuotationSource: boolean
   pendingIntent?: StudioStartIntent | null
   actionError?: string | null
-  initialFocus?: "heading" | "current-draft"
-  onContinue: () => void
+  initialFocus?: "heading" | "document-library"
   onCreateBlank: () => void
   onCreateFromTemplate: (template: DesignTemplateCatalogItem) => void
   onImportFile: (file: File) => boolean | Promise<boolean>
   onOpenSample: () => void
+  onOpenDocument: (documentId: string) => boolean | Promise<boolean>
   onRetryTemplates: () => void
-}
-
-const formatUpdatedAt = (updatedAt: string) => {
-  const date = new Date(updatedAt)
-  if (Number.isNaN(date.getTime())) return "Update time unavailable"
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date)
 }
 
 const pendingMatchesTemplate = (
@@ -196,99 +188,6 @@ function StorageWarning({
           Use this session
         </Button>
       )}
-    </section>
-  )
-}
-
-function CurrentDraftCard({
-  model,
-  disabled,
-  pending,
-  buttonRef,
-  onContinue,
-}: {
-  model: ReadyStartModel
-  disabled: boolean
-  pending: boolean
-  buttonRef?: Ref<HTMLButtonElement>
-  onContinue: () => void
-}) {
-  const draft = model.currentDraft
-  if (!draft) return null
-
-  const sourceLabel =
-    draft.sourceKind === "quotation"
-      ? "Linked quotation"
-      : draft.sourceKind === "template"
-        ? "Template based"
-        : null
-
-  return (
-    <section aria-labelledby="current-draft-heading">
-      <div className="mb-3 flex items-end justify-between gap-4">
-        <div>
-          <p className="text-xs font-medium text-muted-foreground">
-            Pick up where you stopped
-          </p>
-          <h2
-            className="mt-1 text-lg leading-6 font-semibold tracking-tight"
-            id="current-draft-heading"
-          >
-            Current browser draft
-          </h2>
-        </div>
-        <Badge variant="outline">1 draft</Badge>
-      </div>
-      <button
-        ref={buttonRef}
-        aria-describedby="current-draft-metadata"
-        className="group grid min-h-36 w-full gap-5 border bg-background p-5 text-left transition-[border-color,background-color,transform,box-shadow] duration-150 outline-none hover:border-foreground/20 hover:bg-muted/20 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/40 active:translate-y-px disabled:pointer-events-none disabled:opacity-55 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:p-6"
-        disabled={disabled}
-        type="button"
-        onClick={onContinue}
-      >
-        <span className="min-w-0">
-          <span className="flex flex-wrap items-center gap-2">
-            <span className="truncate text-xl leading-7 font-semibold tracking-tight">
-              {draft.name}
-            </span>
-            {sourceLabel ? (
-              <Badge variant="secondary">{sourceLabel}</Badge>
-            ) : null}
-          </span>
-          <span
-            className="mt-4 grid gap-x-5 gap-y-1 text-xs text-muted-foreground sm:grid-cols-[repeat(3,max-content)]"
-            id="current-draft-metadata"
-          >
-            <span className="tabular-nums">
-              {draft.outputCount}{" "}
-              {draft.outputCount === 1 ? "output" : "outputs"}
-            </span>
-            <span className="tabular-nums">
-              {draft.pageCount} {draft.pageCount === 1 ? "page" : "pages"}
-            </span>
-            <span className="tabular-nums">
-              {draft.firstPage.width} × {draft.firstPage.height} px
-            </span>
-          </span>
-          <time
-            className="mt-2 block text-[11px] text-muted-foreground"
-            dateTime={draft.updatedAt}
-          >
-            Updated {formatUpdatedAt(draft.updatedAt)}
-          </time>
-        </span>
-        <span className="flex min-h-11 items-center gap-2 justify-self-start text-sm font-medium sm:justify-self-end">
-          {pending ? (
-            <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
-          ) : null}
-          Continue
-          <ArrowRight
-            aria-hidden="true"
-            className="size-4 transition-transform duration-150 group-hover:translate-x-0.5"
-          />
-        </span>
-      </button>
     </section>
   )
 }
@@ -838,15 +737,14 @@ export function StudioStartSurface({
   pendingIntent = null,
   actionError = null,
   initialFocus = "heading",
-  onContinue,
   onCreateBlank,
   onCreateFromTemplate,
   onImportFile,
+  onOpenDocument,
   onOpenSample,
   onRetryTemplates,
 }: StudioStartSurfaceProps) {
   const headingRef = useRef<HTMLHeadingElement>(null)
-  const currentDraftRef = useRef<HTMLButtonElement>(null)
   const blankActionRef = useRef<HTMLButtonElement>(null)
   const [ephemeralAcknowledged, setEphemeralAcknowledged] = useState(false)
   const [importSettling, setImportSettling] = useState(false)
@@ -855,11 +753,9 @@ export function StudioStartSurface({
   const actionsEnabled = sessionAllowed && !importSettling
 
   useEffect(() => {
-    const target =
-      initialFocus === "current-draft"
-        ? (currentDraftRef.current ?? headingRef.current)
-        : headingRef.current
-    target?.focus({ preventScroll: true })
+    if (initialFocus === "heading") {
+      headingRef.current?.focus({ preventScroll: true })
+    }
   }, [initialFocus])
 
   return (
@@ -898,8 +794,8 @@ export function StudioStartSurface({
               What are you making?
             </h1>
             <p className="mt-4 max-w-2xl text-sm leading-6 text-muted-foreground">
-              Continue the one draft stored in this browser, start with a
-              template, or open a clean page with exact dimensions.
+              Open recent work, start with a complete template, or create a
+              clean page with exact dimensions.
             </p>
           </section>
           <ProductModel />
@@ -912,10 +808,7 @@ export function StudioStartSurface({
             onAcknowledge={() => {
               setEphemeralAcknowledged(true)
               window.requestAnimationFrame(() =>
-                (model.currentDraft
-                  ? currentDraftRef.current
-                  : blankActionRef.current
-                )?.focus()
+                blankActionRef.current?.focus()
               )
             }}
           />
@@ -945,12 +838,11 @@ export function StudioStartSurface({
           </section>
         ) : null}
 
-        <CurrentDraftCard
-          buttonRef={currentDraftRef}
-          disabled={!actionsEnabled || actionInProgress}
-          model={model}
-          pending={pendingIntent?.kind === "continue"}
-          onContinue={onContinue}
+        <RecentDocuments
+          actionsEnabled={actionsEnabled && !actionInProgress}
+          initialFocusRequested={initialFocus === "document-library"}
+          onCreateBlank={onCreateBlank}
+          onOpen={onOpenDocument}
         />
 
         <Separator />

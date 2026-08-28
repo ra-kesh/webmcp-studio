@@ -402,13 +402,45 @@ describe("recent documents model", () => {
     )
     expect(loading).toMatchObject({
       status: "loading_more",
-      page: { hasMore: true },
+      page: {
+        hasMore: true,
+        pagination: {
+          status: "available",
+          label: "Load more documents",
+          focusRequested: false,
+        },
+      },
     })
     expect(failed).toMatchObject({
       status: "load_more_failed",
       canRetryLoadMore: true,
       failure: { message: "The next page failed." },
       rows: [{ documentId: "page-1" }],
+    })
+  })
+
+  it("projects a focusable settled pagination status after the final page", () => {
+    const model = project(
+      libraryState({
+        recent: readySlot([summary("last-page")]),
+        focusIntent: { id: 18, target: "pagination-status" },
+      })
+    )
+    expect(model.status).toBe("ready")
+    if (model.status !== "ready") {
+      throw new Error(`Expected ready, received ${model.status}.`)
+    }
+    expect(model.page).toMatchObject({
+      hasMore: false,
+      pagination: {
+        status: "complete",
+        label: "All documents loaded",
+        focusRequested: true,
+      },
+    })
+    expect(model.focusIntent).toEqual({
+      id: 18,
+      target: "pagination-status",
     })
   })
 
@@ -452,6 +484,7 @@ describe("recent documents model", () => {
       kind: "rename",
       phase: "editing",
       owner: "recent",
+      documentName: "Editing proposal",
       expectedRecordVersion: 3,
       input: "Renamed draft",
       error: "That name is already in use.",
@@ -460,6 +493,7 @@ describe("recent documents model", () => {
       kind: "duplicate",
       phase: "failed",
       owner: "recent",
+      documentName: "Failed proposal",
       token: 9,
       error: "The copy could not be saved.",
     }
@@ -502,6 +536,7 @@ describe("recent documents model", () => {
     expect(model.actionFailures).toEqual([
       {
         documentId: "editing",
+        documentName: "Editing proposal",
         owner: "recent",
         kind: "rename",
         message: "That name is already in use.",
@@ -509,6 +544,7 @@ describe("recent documents model", () => {
       },
       {
         documentId: "failed",
+        documentName: "Failed proposal",
         owner: "recent",
         kind: "duplicate",
         message: "The copy could not be saved.",
@@ -525,6 +561,7 @@ describe("recent documents model", () => {
           kind: "rename",
           phase: "editing",
           owner: "recent",
+          documentName: "Visible proposal",
           expectedRecordVersion: 2,
           input: "Visible edit",
           error: null,
@@ -536,6 +573,7 @@ describe("recent documents model", () => {
           kind: "rename",
           phase: "editing",
           owner: "recent",
+          documentName: "Hidden proposal",
           expectedRecordVersion: 4,
           input: "Hidden failure",
           error: "This document changed elsewhere.",
@@ -547,6 +585,7 @@ describe("recent documents model", () => {
           kind: "rename",
           phase: "submitting",
           owner: "recent",
+          documentName: "Submitting proposal",
           expectedRecordVersion: 6,
           input: "Visible submit",
           token: 10,
@@ -559,6 +598,7 @@ describe("recent documents model", () => {
           kind: "rename",
           phase: "submitting",
           owner: "recent",
+          documentName: "Hidden submitting proposal",
           expectedRecordVersion: 8,
           input: "Hidden submit",
           token: 11,
@@ -571,6 +611,7 @@ describe("recent documents model", () => {
           kind: "duplicate",
           phase: "submitting",
           owner: "recent",
+          documentName: "Concurrent proposal",
           token: 12,
           error: null,
         },
@@ -593,6 +634,7 @@ describe("recent documents model", () => {
     expect(model.renameActions).toEqual([
       {
         documentId: "visible-editing",
+        documentName: "Visible proposal",
         owner: "recent",
         phase: "editing",
         input: "Visible edit",
@@ -602,6 +644,7 @@ describe("recent documents model", () => {
       },
       {
         documentId: "hidden-failed",
+        documentName: "Hidden proposal",
         owner: "recent",
         phase: "editing",
         input: "Hidden failure",
@@ -611,6 +654,7 @@ describe("recent documents model", () => {
       },
       {
         documentId: "visible-submitting",
+        documentName: "Submitting proposal",
         owner: "recent",
         phase: "submitting",
         input: "Visible submit",
@@ -620,6 +664,7 @@ describe("recent documents model", () => {
       },
       {
         documentId: "hidden-submitting",
+        documentName: "Hidden submitting proposal",
         owner: "recent",
         phase: "submitting",
         input: "Hidden submit",
@@ -641,6 +686,7 @@ describe("recent documents model", () => {
     ).toEqual({ status: "submitting", kind: "duplicate" })
     expect(model.actionFailures).toContainEqual({
       documentId: "hidden-failed",
+      documentName: "Hidden proposal",
       owner: "recent",
       kind: "rename",
       message: "This document changed elsewhere.",
@@ -660,6 +706,7 @@ describe("recent documents model", () => {
         kind,
         phase: "submitting",
         owner,
+        documentName: `Submitting ${kind}`,
         token: index * 2 + 1,
         error: null,
       })
@@ -667,6 +714,7 @@ describe("recent documents model", () => {
         kind,
         phase: "failed",
         owner,
+        documentName: `Failed ${kind}`,
         token: index * 2 + 2,
         error: `${kind} failed.`,
       })
@@ -693,6 +741,7 @@ describe("recent documents model", () => {
     expect(model.actionFailures).toEqual(
       kinds.map((kind) => ({
         documentId: `${kind}-failed`,
+        documentName: `Failed ${kind}`,
         owner: kind === "restore" ? "trash" : "recent",
         kind,
         message: `${kind} failed.`,
@@ -967,6 +1016,7 @@ describe("recent documents model", () => {
       kind: "rename",
       phase: "editing",
       owner: "recent",
+      documentName: "Hidden proposal",
       expectedRecordVersion: 12,
       input: "Client proposal",
       error: "This document changed elsewhere.",
@@ -982,6 +1032,7 @@ describe("recent documents model", () => {
       renameActions: [
         {
           documentId: "hidden-document",
+          documentName: "Hidden proposal",
           owner: "recent",
           phase: "editing",
           input: "Client proposal",

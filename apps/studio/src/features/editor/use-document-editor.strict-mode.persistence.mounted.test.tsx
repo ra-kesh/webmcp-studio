@@ -189,11 +189,12 @@ describe("useDocumentEditor StrictMode controller lease lifecycle", () => {
     await vi.waitFor(() => {
       expect(captured.current?.startModel).toMatchObject({
         status: "ready",
-        currentDraft: { documentId: envelope.document.id },
       })
     })
     await act(async () => {
-      expect(await captured.current!.continueCurrentDraft()).toBe(true)
+      expect(
+        await captured.current!.openStoredDocument(envelope.document.id)
+      ).toBe(true)
     })
 
     const retainedRuntime = runtimes.find(

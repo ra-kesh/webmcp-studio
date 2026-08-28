@@ -616,7 +616,7 @@ describe("RecentDocumentsController opaque cursor pagination", () => {
     expect(failedSlot.paginationFailure?.message).toBe("page failed")
   })
 
-  it("focuses the stable collection heading when the final appended page exhausts Load more", async () => {
+  it("focuses the settled pagination status when the final appended page exhausts Load more", async () => {
     const harness = createHarness()
     harness.controller.activate()
     harness.listRequests[0].resolve(page([summary("base")], "last-cursor"))
@@ -626,7 +626,7 @@ describe("RecentDocumentsController opaque cursor pagination", () => {
     await append
 
     expect(harness.controller.getSnapshot().focusIntent).toMatchObject({
-      target: "collection-heading",
+      target: "pagination-status",
     })
     expect(
       ready(harness.controller.getSnapshot().recent).page.nextCursor
@@ -1324,6 +1324,7 @@ describe("RecentDocumentsController document actions", () => {
       kind: "trash",
       phase: "failed",
       owner: "recent",
+      documentName: "Proposal",
       token: 1,
       error: "Storage quota exceeded.",
     })
@@ -1361,8 +1362,40 @@ describe("RecentDocumentsController document actions", () => {
       kind: "duplicate",
       phase: "failed",
       owner: "recent",
+      documentName: "Proposal",
       token: 1,
       error: "Duplicate request failed",
+    })
+  })
+
+  it("retains the source name when a failed action outlives its visible row", async () => {
+    const harness = createHarness()
+    await loadActive(harness)
+    const duplicateRequest = deferred<DraftWriteResult>()
+    harness.duplicate.mockReturnValueOnce(duplicateRequest.promise)
+
+    const duplicate = harness.controller.duplicate("document-a")
+    harness.controller.refresh()
+    harness.listRequests[1].resolve(page([]))
+    await flushPromises()
+    expect(ready(harness.controller.getSnapshot().recent).page.items).toEqual(
+      []
+    )
+
+    duplicateRequest.resolve({
+      ok: false,
+      reason: "storage_unavailable",
+      failure: { kind: "quota_exceeded", message: "Storage is full." },
+    })
+    await duplicate
+
+    expect(harness.controller.getSnapshot().actions.get("document-a")).toEqual({
+      kind: "duplicate",
+      phase: "failed",
+      owner: "recent",
+      documentName: "Proposal",
+      token: 1,
+      error: "Storage is full.",
     })
   })
 

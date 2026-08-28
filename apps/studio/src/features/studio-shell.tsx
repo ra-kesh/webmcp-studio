@@ -139,6 +139,7 @@ import { ApiPlaygroundDialog } from "./editor/api-playground-dialog"
 import { studioAssets } from "./editor/asset-catalog"
 import { NewDocumentDialog } from "./editor/new-document-dialog"
 import { StudioStartSurface } from "./editor/studio-start-surface"
+import { useRecentDocumentsVisibility } from "./editor/recent-documents-provider"
 import { ReplaceCurrentDraftDialog } from "./editor/replace-current-draft-dialog"
 import { EmptyCanvasActions } from "./editor/empty-canvas-actions"
 import { DraftRecoveryDialog } from "./editor/draft-recovery-dialog"
@@ -501,6 +502,7 @@ export function StudioShell() {
     persistence,
     onHistoryCommit: onDocumentHistoryCommit,
   })
+  useRecentDocumentsVisibility(editor.sessionMode === "start")
   const sessionDocumentIdRef = useRef(editor.document.id)
   const pageThumbnailSnapshotId = useMemo(() => {
     const review = editor.pendingChangeSet
@@ -561,7 +563,7 @@ export function StudioShell() {
   const [mediaPicker, setMediaPicker] = useState<MediaPickerState | null>(null)
   const [newDocumentOpen, setNewDocumentOpen] = useState(false)
   const [startInitialFocus, setStartInitialFocus] = useState<
-    "heading" | "current-draft"
+    "heading" | "document-library"
   >("heading")
   const [publishDialogOpen, setPublishDialogOpen] = useState(false)
   const [guideManagerOpen, setGuideManagerOpen] = useState(false)
@@ -975,11 +977,7 @@ export function StudioShell() {
   }, [])
 
   const draftReplacement = useDraftReplacement({
-    hasCurrentDraft:
-      editor.sessionMode === "workspace" ||
-      (editor.startModel.status !== "opening" &&
-        editor.startModel.status !== "recovery_required" &&
-        editor.startModel.currentDraft !== null),
+    hasCurrentDraft: editor.sessionMode === "workspace",
     workspaceActive: editor.sessionMode === "workspace",
     settleWorkspaceEdits: commitActiveTextEditing,
     flushCurrentDraft: editor.flushActiveDraft,
@@ -2033,7 +2031,7 @@ export function StudioShell() {
           .returnToStart()
           .then((returned) => {
             if (returned) {
-              setStartInitialFocus("current-draft")
+              setStartInitialFocus("document-library")
               return
             }
             setCriticalActionError(
@@ -2328,13 +2326,6 @@ export function StudioShell() {
               : { status: editor.designTemplateCatalog.status }
           }
           templates={editor.designTemplateCatalog.items}
-          onContinue={() => {
-            void draftReplacement.open({
-              intent: { kind: "continue" },
-              nextActionLabel: "Continuing the current browser draft",
-              run: editor.continueCurrentDraft,
-            })
-          }}
           onCreateBlank={() => setNewDocumentOpen(true)}
           onCreateFromTemplate={(template: DesignTemplateCatalogItem) => {
             void requestDraftReplacement(
@@ -2355,6 +2346,7 @@ export function StudioShell() {
               () => editor.openDocumentFile(file)
             )) !== false
           }
+          onOpenDocument={editor.openStoredDocument}
           onOpenSample={() => {
             void requestDraftReplacement(
               { kind: "sample" },

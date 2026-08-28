@@ -213,7 +213,9 @@ describe("useDocumentEditor start session", () => {
     expect(captured.current?.persistence.state).toEqual({ status: "opening" })
     expect(captured.current?.editor.sessionMode).toBe("start")
     await act(async () => {
-      expect(await captured.current?.editor.continueCurrentDraft()).toBe(false)
+      expect(await captured.current?.editor.continueSessionDocument()).toBe(
+        false
+      )
       migration.resolve({
         status: "legacy_storage_unavailable",
         failure: {
@@ -262,7 +264,6 @@ describe("useDocumentEditor start session", () => {
         status,
         durable: false,
         storageWarning: failure.message,
-        currentDraft: null,
         recoverableEnvelope: null,
       })
       expect(captured.current?.editor.sessionMode).toBe("start")
@@ -306,7 +307,9 @@ describe("useDocumentEditor start session", () => {
     expect(captured.current?.editor.sessionMode).toBe("start")
     expect(captured.current?.editor.startModel).toMatchObject({
       status: "unavailable",
-      currentDraft: { name: "Client proof", pageCount: 1, outputCount: 1 },
+      recoverableEnvelope: {
+        document: { name: "Client proof" },
+      },
     })
   })
 
@@ -331,8 +334,11 @@ describe("useDocumentEditor start session", () => {
 
     expect(opened).toBe(true)
     expect(captured.current?.editor.sessionMode).toBe("workspace")
-    expect(captured.current?.editor.document.id).toBe(
+    expect(captured.current?.editor.document.id).not.toBe(
       quotationStarter.document.id
+    )
+    expect(captured.current?.editor.document.name).toBe(
+      quotationStarter.document.name
     )
 
     await act(async () => resolveReset?.(new Response(null, { status: 204 })))
@@ -370,12 +376,14 @@ describe("useDocumentEditor start session", () => {
     expect(captured.current?.editor.startModel).toMatchObject({
       status: "unavailable",
       durable: false,
-      currentDraft: { name: "Session only" },
+      recoverableEnvelope: { document: { name: "Session only" } },
     })
     expect(localStorage.getItem(CURRENT_DRAFT_STORAGE_KEY)).toBeNull()
 
     await act(async () => {
-      expect(await captured.current?.editor.continueCurrentDraft()).toBe(true)
+      expect(await captured.current?.editor.continueSessionDocument()).toBe(
+        true
+      )
     })
     expect(captured.current?.editor.sessionMode).toBe("workspace")
     expect(
@@ -383,6 +391,102 @@ describe("useDocumentEditor start session", () => {
         (node) => node.type === "rect" && node.name === "Rectangle"
       )
     ).toBe(true)
+  })
+
+  it("creates distinct durable blank, template, import, and sample records after Home", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 204 }))
+    )
+    const repository = createRepository("home-create-distinct")
+    const captured = await mount({
+      createRepository: () => repository,
+      migrate: async () => emptyMigration,
+    })
+    await waitForPersistenceStatus(captured, "ready")
+    const documentIds: string[] = []
+
+    const rememberAndReturnHome = async () => {
+      const documentId = captured.current?.editor.document.id
+      if (!documentId) throw new Error("Expected an active document")
+      documentIds.push(documentId)
+      return captured.current?.editor.returnToStart()
+    }
+    const expectReturnedHome = () => {
+      expect(captured.current?.editor.sessionMode).toBe("start")
+      expect(captured.current?.editor.startModel).toEqual({
+        status: "ready",
+        durable: true,
+        storageWarning: null,
+        recoverableEnvelope: null,
+      })
+    }
+
+    await act(async () => {
+      expect(
+        await captured.current?.editor.createBlankDocument({
+          name: "Blank from Home",
+          width: 1600,
+          height: 900,
+        })
+      ).toBe(true)
+    })
+    const importSource = structuredClone(captured.current!.editor.document)
+    await act(async () => {
+      expect(await rememberAndReturnHome()).toBe(true)
+    })
+    expectReturnedHome()
+
+    await act(async () => {
+      expect(
+        await captured.current?.editor.createDocumentFromTemplate(
+          "editorial-one-pager",
+          1
+        )
+      ).toBe(true)
+    })
+    await act(async () => {
+      expect(await rememberAndReturnHome()).toBe(true)
+    })
+    expectReturnedHome()
+
+    const importedDocument = {
+      ...importSource,
+      id: `import-${crypto.randomUUID()}`,
+      name: "Imported from Home",
+    }
+    const importedJson = JSON.stringify(importedDocument)
+    const importedFile = {
+      size: new TextEncoder().encode(importedJson).byteLength,
+      text: async () => importedJson,
+    } as File
+    await act(async () => {
+      const opened =
+        await captured.current?.editor.openDocumentFile(importedFile)
+      expect({ opened, error: captured.current?.editor.documentError }).toEqual(
+        { opened: true, error: null }
+      )
+    })
+    await act(async () => {
+      expect(await rememberAndReturnHome()).toBe(true)
+    })
+    expectReturnedHome()
+
+    await act(async () => {
+      expect(await captured.current?.editor.restoreDemoDocument()).toBe(true)
+    })
+    await act(async () => {
+      expect(await rememberAndReturnHome()).toBe(true)
+    })
+    expectReturnedHome()
+
+    expect(new Set(documentIds).size).toBe(4)
+    const listed = await repository.list({ state: "active", limit: 24 })
+    expect(listed.ok).toBe(true)
+    if (!listed.ok) throw new Error(listed.failure.message)
+    expect(new Set(listed.page.items.map((item) => item.documentId))).toEqual(
+      new Set(documentIds)
+    )
   })
 
   it.each(["retry", "reset"] as const)(

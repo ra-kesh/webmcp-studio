@@ -1,7 +1,7 @@
 # PERSIST-01B Recent and Trash phase map
 
 Date: 2026-08-29
-Status: phase-entry implementation map; no product code changed in this pass
+Status: visible library implemented and independently approved; canonical route and conflict/recovery slices remain open
 
 ## Decision
 

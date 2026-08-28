@@ -236,9 +236,7 @@ const mountComposition = async (): Promise<MountedHarness> => {
   for (let attempt = 0; attempt < 50; attempt += 1) {
     if (
       captured.current?.editor.repositoryLifecycle.status === "ready" &&
-      captured.current.editor.startModel.status === "ready" &&
-      captured.current.editor.startModel.currentDraft?.documentId ===
-        expectedDocument.id
+      captured.current.editor.startModel.status === "ready"
     )
       break
     await flushReact()
@@ -246,15 +244,15 @@ const mountComposition = async (): Promise<MountedHarness> => {
   if (
     !captured.current ||
     captured.current.editor.repositoryLifecycle.status !== "ready" ||
-    captured.current.editor.startModel.status !== "ready" ||
-    captured.current.editor.startModel.currentDraft?.documentId !==
-      expectedDocument.id
+    captured.current.editor.startModel.status !== "ready"
   ) {
     throw new Error("Mounted editor did not migrate the WebMCP crop fixture")
   }
   let continued = false
   await act(async () => {
-    continued = await captured.current!.editor.continueCurrentDraft()
+    continued = await captured.current!.editor.openStoredDocument(
+      expectedDocument.id
+    )
   })
   expect(continued).toBe(true)
   expect(captured.current.editor.document).toEqual(expectedDocument)

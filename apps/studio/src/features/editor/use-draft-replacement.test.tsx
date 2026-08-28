@@ -13,15 +13,19 @@ function MountedCoordinator({
   flushCurrentDraft,
   settleWorkspaceEdits,
   onOpened,
+  hasCurrentDraft = true,
+  workspaceActive = true,
 }: {
   capture: (value: Coordinator) => void
   flushCurrentDraft: () => boolean | Promise<boolean>
   settleWorkspaceEdits?: () => boolean
   onOpened: () => void
+  hasCurrentDraft?: boolean
+  workspaceActive?: boolean
 }) {
   const value = useDraftReplacement({
-    hasCurrentDraft: true,
-    workspaceActive: true,
+    hasCurrentDraft,
+    workspaceActive,
     settleWorkspaceEdits,
     flushCurrentDraft,
     onOpened,
@@ -88,6 +92,42 @@ describe("draft replacement coordinator", () => {
       expect(await captured.current?.confirm()).toBe(true)
     })
     expect(run).toHaveBeenCalledTimes(1)
+    expect(onOpened).toHaveBeenCalledTimes(1)
+    expect(captured.current?.pending).toBeNull()
+  })
+
+  it("runs a Home creation immediately without opening replacement state", async () => {
+    const run = vi.fn(() => true)
+    const flushCurrentDraft = vi.fn(() => true)
+    const onOpened = vi.fn()
+    const captured: { current: Coordinator | null } = { current: null }
+    await act(async () => {
+      root.render(
+        <MountedCoordinator
+          capture={(value) => {
+            captured.current = value
+          }}
+          flushCurrentDraft={flushCurrentDraft}
+          hasCurrentDraft={false}
+          onOpened={onOpened}
+          workspaceActive={false}
+        />
+      )
+    })
+
+    let result: boolean | "queued" = false
+    await act(async () => {
+      result =
+        (await captured.current?.request(
+          { kind: "blank" },
+          "Create a separate document",
+          run
+        )) ?? false
+    })
+
+    expect(result).toBe(true)
+    expect(run).toHaveBeenCalledTimes(1)
+    expect(flushCurrentDraft).not.toHaveBeenCalled()
     expect(onOpened).toHaveBeenCalledTimes(1)
     expect(captured.current?.pending).toBeNull()
   })

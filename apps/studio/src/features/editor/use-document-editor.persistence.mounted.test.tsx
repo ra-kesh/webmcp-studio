@@ -463,7 +463,9 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     beforeContinue?.(captured.persistence)
     let continued = false
     await act(async () => {
-      continued = await captured.current!.continueCurrentDraft()
+      continued = await captured.current!.openStoredDocument(
+        envelope.document.id
+      )
     })
     expect(continued).toBe(true)
     expect(captured.current?.sessionMode).toBe("workspace")
@@ -504,7 +506,7 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     expect(claimsDurableSave(captured.current!)).toBe(false)
   })
 
-  it("projects a corrupt-only repository as recovery-affected instead of clean empty", async () => {
+  it("leaves corrupt-list recovery to the retained document library owner", async () => {
     const hookRepository = repository("corrupt-only-list-hook")
     vi.spyOn(hookRepository, "list").mockResolvedValue({
       ok: true,
@@ -525,14 +527,12 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     expect(captured.current?.startModel).toMatchObject({
       status: "ready",
       durable: true,
-      currentDraft: null,
-      storageWarning: expect.stringMatching(
-        /1 unreadable local document.*omitted from Recents.*moved to Studio recovery storage/i
-      ),
+      storageWarning: null,
     })
+    expect(hookRepository.list).not.toHaveBeenCalled()
     expect(captured.current?.sessionMode).toBe("start")
     expect(captured.current?.document.id).toBe("private-bootstrap-document")
-    expect(await captured.current?.continueCurrentDraft()).toBe(false)
+    expect(await captured.current?.continueSessionDocument()).toBe(false)
     expect(claimsDurableSave(captured.current!)).toBe(false)
 
     let created = false
@@ -547,11 +547,11 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     expect(captured.current?.sessionMode).toBe("workspace")
     expect(captured.current!.startModel).toMatchObject({
       status: "ready",
-      storageWarning: expect.stringMatching(/unreadable local document/i),
+      storageWarning: null,
     })
   })
 
-  it("retains a healthy current draft while projecting mixed list recovery", async () => {
+  it("opens a healthy exact ID without creating a second Start list owner", async () => {
     const envelope = designEnvelope()
     const hookRepository = repository("mixed-recovery-list-hook")
     const created = await hookRepository.create(
@@ -580,24 +580,23 @@ describe.sequential("useDocumentEditor repository persistence", () => {
       expect(captured.current?.startModel).toMatchObject({
         status: "ready",
         durable: true,
-        currentDraft: { documentId: envelope.document.id },
-        storageWarning: expect.stringMatching(
-          /1 unreadable local document.*omitted from Recents.*remains in browser storage/i
-        ),
+        storageWarning: null,
       })
     })
+    expect(hookRepository.list).not.toHaveBeenCalled()
 
     let continued = false
     await act(async () => {
-      continued = await captured.current!.continueCurrentDraft()
+      continued = await captured.current!.openStoredDocument(
+        envelope.document.id
+      )
     })
     expect(continued).toBe(true)
     expect(captured.current?.sessionMode).toBe("workspace")
     expect(captured.current?.document.id).toBe(envelope.document.id)
     expect(captured.current?.startModel).toMatchObject({
       status: "ready",
-      currentDraft: { documentId: envelope.document.id },
-      storageWarning: expect.stringMatching(/unreadable local document/i),
+      storageWarning: null,
     })
     expect(captured.current?.localSaveState.status).toBe("saved")
   })
@@ -700,7 +699,7 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     let continued = false
     await act(async () => {
       continued = await Promise.resolve(
-        captured.current?.continueCurrentDraft() ?? false
+        captured.current?.openStoredDocument(envelope.document.id) ?? false
       )
     })
 
@@ -742,13 +741,12 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     expect(captured.current?.document.id).toBe("private-bootstrap-document")
     expect(captured.current?.startModel).toMatchObject({
       status: "ready",
-      currentDraft: { documentId: envelope.document.id },
     })
 
     let continued = false
     await act(async () => {
       continued = await Promise.resolve(
-        captured.current?.continueCurrentDraft() ?? false
+        captured.current?.openStoredDocument(envelope.document.id) ?? false
       )
     })
 
@@ -970,7 +968,7 @@ describe.sequential("useDocumentEditor repository persistence", () => {
   )
 
   it.each(["missing", "corrupt"] as const)(
-    "clears the matching transitional Start card when the initial exact read is %s",
+    "keeps the private Start session when the initial exact read is %s",
     async (caseName) => {
       const envelope = designEnvelope()
       const hookRepository = repository(`initial-${caseName}-start-card`)
@@ -990,7 +988,6 @@ describe.sequential("useDocumentEditor repository persistence", () => {
       await vi.waitFor(() => {
         expect(captured.current?.startModel).toMatchObject({
           status: "ready",
-          currentDraft: { documentId: created.record.summary.documentId },
         })
       })
       vi.spyOn(hookRepository, "get").mockResolvedValue(
@@ -1017,13 +1014,12 @@ describe.sequential("useDocumentEditor repository persistence", () => {
 
       expect(captured.current?.startModel).toMatchObject({
         status: "ready",
-        currentDraft: null,
       })
       expect(captured.current?.sessionMode).toBe("start")
     }
   )
 
-  it("does not clear a newer unrelated transitional Start card after an older exact read goes missing", async () => {
+  it("leaves an unrelated stored document untouched after another exact read goes missing", async () => {
     const firstEnvelope = quotationEnvelope()
     const secondEnvelope = designEnvelope()
     const hookRepository = repository("unrelated-newer-start-card")
@@ -1052,21 +1048,10 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     await vi.waitFor(() => {
       expect(captured.current?.startModel).toMatchObject({
         status: "ready",
-        currentDraft: { documentId: expect.any(String) },
       })
     })
-    if (
-      captured.current?.startModel.status !== "ready" ||
-      !captured.current.startModel.currentDraft
-    ) {
-      throw new Error("Expected a transitional Start card")
-    }
-    const retainedDocumentId =
-      captured.current.startModel.currentDraft.documentId
-    const requestedDocumentId =
-      retainedDocumentId === first.record.summary.documentId
-        ? second.record.summary.documentId
-        : first.record.summary.documentId
+    const requestedDocumentId = first.record.summary.documentId
+    const retainedDocumentId = second.record.summary.documentId
     const originalGet = hookRepository.get.bind(hookRepository)
     vi.spyOn(hookRepository, "get").mockImplementation(async (documentId) =>
       documentId === requestedDocumentId
@@ -1080,10 +1065,12 @@ describe.sequential("useDocumentEditor repository persistence", () => {
       ).toBe(false)
     })
 
-    expect(captured.current.startModel).toMatchObject({
+    expect(captured.current?.startModel).toMatchObject({
       status: "ready",
-      currentDraft: { documentId: retainedDocumentId },
     })
+    expect(await readRecord(hookRepository, retainedDocumentId)).toEqual(
+      second.record
+    )
   })
 
   it("opens verified bytes when touchOpened fails because storage is unavailable", async () => {
@@ -1304,7 +1291,7 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     )
   })
 
-  it("rejects a deferred exact-ID read when a different-document list invalidation makes repository admission unavailable", async () => {
+  it("keeps exact-ID admission independent from the library controller's list failures", async () => {
     const targetEnvelope = designEnvelope()
     const differentEnvelope = quotationEnvelope()
     const seeder = repository("opening-readiness-seeder")
@@ -1378,22 +1365,20 @@ describe.sequential("useDocumentEditor repository persistence", () => {
       )
     })
     expect(activity!.ok).toBe(true)
-    await vi.waitFor(() => {
-      expect(repositoryLifecycle(captured.current!)).toMatchObject({
-        status: "unavailable",
-      })
-    })
-
-    let opened = true
+    let opened = false
     await act(async () => {
       resolveGet?.(target.record)
       opened = await openPromise
     })
 
-    expect(opened).toBe(false)
-    expect(acquireLease).not.toHaveBeenCalled()
-    expect(captured.current?.sessionMode).toBe("start")
-    expect(captured.current?.document.id).toBe("private-bootstrap-document")
+    expect(opened).toBe(true)
+    expect(acquireLease).toHaveBeenCalledTimes(1)
+    expect(incoming.repository.list).not.toHaveBeenCalled()
+    expect(repositoryLifecycle(captured.current!)).toMatchObject({
+      status: "ready",
+    })
+    expect(captured.current?.sessionMode).toBe("workspace")
+    expect(captured.current?.document.id).toBe(target.record.summary.documentId)
   })
 
   it.each(["saved", "deleted", "restored", "quarantined"] as const)(
@@ -1679,7 +1664,7 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     }
   )
 
-  it("suppresses only the local opened event while foreign opened and publication events invalidate the Start list without dirtying the opening document", async () => {
+  it("keeps opening metadata events out of the removed Start list owner", async () => {
     const openEnvelopeFixture = quotationEnvelope()
     const targetEnvelope = designEnvelope()
     const seeder = repository("opening-metadata-seeder")
@@ -1779,8 +1764,9 @@ describe.sequential("useDocumentEditor repository persistence", () => {
         draftSnapshotId: target.record.summary.draftSnapshotId,
         sessionId: "foreign-publication-session",
       })
-      await vi.waitFor(() => expect(list.mock.calls.length).toBeGreaterThan(0))
+      await Promise.resolve()
     })
+    expect(list).not.toHaveBeenCalled()
 
     let opened = false
     await act(async () => {
@@ -2999,11 +2985,12 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     await vi.waitFor(() => {
       expect(captured.current?.startModel).toMatchObject({
         status: "ready",
-        currentDraft: { documentId: envelope.document.id },
       })
     })
     await act(async () => {
-      expect(await captured.current!.continueCurrentDraft()).toBe(true)
+      expect(
+        await captured.current!.openStoredDocument(envelope.document.id)
+      ).toBe(true)
     })
 
     await act(async () => {
@@ -3130,11 +3117,12 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     await vi.waitFor(() => {
       expect(captured.current?.startModel).toMatchObject({
         status: "ready",
-        currentDraft: { documentId: envelope.document.id },
       })
     })
     await act(async () => {
-      expect(await captured.current!.continueCurrentDraft()).toBe(true)
+      expect(
+        await captured.current!.openStoredDocument(envelope.document.id)
+      ).toBe(true)
     })
 
     await act(async () => {
@@ -3288,7 +3276,7 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     })
   })
 
-  it("refuses Continue when the durable record is deleted after get but before touch", async () => {
+  it("refuses an exact-ID open when the durable record is deleted after get but before touch", async () => {
     const envelope = designEnvelope()
     const hookRepository = repository("continue-delete-race-hook")
     const created = await hookRepository.create(
@@ -3321,13 +3309,14 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     await vi.waitFor(() => {
       expect(captured.current?.startModel).toMatchObject({
         status: "ready",
-        currentDraft: { documentId: envelope.document.id },
       })
     })
 
     let continued = true
     await act(async () => {
-      continued = await captured.current!.continueCurrentDraft()
+      continued = await captured.current!.openStoredDocument(
+        envelope.document.id
+      )
     })
 
     expect(deletionResult).toMatchObject({
@@ -3339,7 +3328,6 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     expect(captured.current?.document.id).toBe("private-bootstrap-document")
     expect(captured.current?.startModel).toMatchObject({
       status: "ready",
-      currentDraft: null,
     })
     expect(captured.current?.documentError).toMatch(/removed.*before.*opened/i)
     expect(claimsDurableSave(captured.current!)).toBe(false)
@@ -3663,7 +3651,7 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     let continuePromise: Promise<boolean> = Promise.resolve(false)
     await act(async () => {
       continuePromise = Promise.resolve(
-        captured.current?.continueCurrentDraft() ?? false
+        captured.current?.openStoredDocument(envelope.document.id) ?? false
       )
       await Promise.resolve()
     })

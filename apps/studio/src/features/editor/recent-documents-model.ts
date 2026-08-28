@@ -80,6 +80,7 @@ export type RecentDocumentActionModel =
 
 export type RecentDocumentRenameActionModel = Readonly<{
   documentId: string
+  documentName: string
   owner: "recent"
   phase: "editing" | "submitting"
   input: string
@@ -135,6 +136,7 @@ export type RecentDocumentRecoveryModel = Readonly<{
 
 export type RecentDocumentActionFailureModel = Readonly<{
   documentId: string
+  documentName: string
   owner: DocumentsCollection
   kind: RecentDocumentActionKind
   message: string
@@ -178,6 +180,11 @@ export type RecentDocumentsCollectionBase = Readonly<{
     lastConfirmedLabel: string
     stale: boolean
     hasMore: boolean
+    pagination: Readonly<{
+      status: "available" | "complete"
+      label: "Load more documents" | "All documents loaded"
+      focusRequested: boolean
+    }>
   }>
 }>
 
@@ -544,6 +551,7 @@ function actionFailureModels(
     if (!message) continue
     failures.push({
       documentId,
+      documentName: action.documentName,
       owner: action.owner,
       kind: action.kind,
       message,
@@ -562,6 +570,7 @@ function renameActionModels(
     if (action.kind !== "rename") continue
     renames.push({
       documentId,
+      documentName: action.documentName,
       owner: action.owner,
       phase: action.phase,
       input: action.input,
@@ -635,6 +644,14 @@ function collectionBase(
           ),
           stale,
           hasMore: confirmed.nextCursor !== null,
+          pagination: {
+            status: confirmed.nextCursor === null ? "complete" : "available",
+            label:
+              confirmed.nextCursor === null
+                ? "All documents loaded"
+                : "Load more documents",
+            focusRequested: state.focusIntent?.target === "pagination-status",
+          },
         }
       : null,
   }
