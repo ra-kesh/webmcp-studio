@@ -910,7 +910,7 @@ Open evidence and next dependency:
 
 ## 2026-08-28 — Authoritative workspace media repository (MEDIA-01 backend)
 
-Status: **backend/domain contract implemented and non-browser verified; visible browser acceptance remains open**
+Status: **backend/domain contract implemented; local real-browser acceptance passes; deployed D1/R2 acceptance remains open**
 
 Phase-entry evidence:
 
@@ -935,7 +935,7 @@ Verification evidence:
 
 ## 2026-08-28 — WebMCP managed-media parity (MEDIA-01)
 
-Status: **implemented and non-browser verified; deployed Worker/D1/R2 and real-browser acceptance remain open**
+Status: **implemented and local real-browser accepted; deployed Worker/D1/R2 acceptance remains open**
 
 Phase-entry evidence:
 
@@ -970,7 +970,7 @@ Independent-review remediation evidence:
 
 ## 2026-08-28 — Media library interaction integrity (MEDIA-01 UI)
 
-Status: **implemented and non-browser verified; authored browser acceptance remains unexecuted on the unhealthy host**
+Status: **implemented; authored production browser acceptance passes 18/18**
 
 Implementation evidence:
 
@@ -985,11 +985,14 @@ Verification evidence:
 
 - Focused media model/transaction/policy tests pass 24/24 across 6 files. The complete Studio suite passes 156/156 across 31 files. The complete workspace non-browser suite passes 438/438 across worker-boundary, render-view, WebMCP, Renderer, editor, document, and Studio.
 - All eight workspace package typechecks pass, including the authored Playwright TypeScript contract. The owned Media dialog/model/spec files pass ESLint and Prettier, and repository `git diff --check` passes.
-- No Vite, build, browser, or Playwright process was started. The authored browser cases remain release evidence to execute after host recovery; these non-browser results do not claim visible runtime completion.
+- The retained production Playwright contract now passes **18/18** against the existing Studio server on port 3001. It covers atomic built-in/managed/local insertion, geometry-safe replacement, source-binding protection, authoritative archive revalidation before local and WebMCP commits, reload-and-reuse, progress/retry/cancel, repository recovery, stale pagination, missing-file repair, reference navigation, reference-safe archive, storage refresh, bounded preview URL cleanup, and compact 320/390 focus and touch behavior.
+- Browser execution exposed and closed two production defects: Fabric now treats browser-resolved absolute image URLs as equivalent to their canonical document-relative sources at sync, readiness, and natural-size boundaries; compact image insertion returns focus to the stable top-bar trigger and the collection tabs meet the 44px touch target.
+- `media-01-browser-acceptance.md` records the exercised boundary and the remaining deployed-infrastructure limitation.
+- An independent reviewer read the production and browser diff and returned **ACCEPT with no P0/P1**. It confirmed complete Fabric source-comparison coverage, persistent compact focus ownership, the shared-tabs override, and truthful route/repository/privacy fixtures. `media-01-browser-independent-review.md` records the review and its nonblocking focus-race P2.
 
 ## 2026-08-28 — Integrated MEDIA-01 integrity closure
 
-Status: **no remaining P0/P1 findings after independent code review; real-browser and deployed-infrastructure acceptance remain open**
+Status: **no remaining P0/P1 findings; local real-browser acceptance passes; deployed-infrastructure acceptance remains open**
 
 Cross-boundary remediation evidence:
 
@@ -1006,9 +1009,10 @@ Verification evidence:
 - The independent reviewer separately reran canonical focused suites: WebMCP 33/33, local asset store 19/19, Studio media catalog/repository/model/preview 28/28, and the full Fabric adapter 21/21. It reports no remaining P0 or P1 issue in the integrated MEDIA-01 code.
 - Explicit local race regressions cover undecodable same-size/same-MIME bytes, authoritative dimension repair, archive winning while decode is pending, and two concurrent inventory reconciliation passes. Authored Playwright cases cover exactly one `/used`, indeterminate-to-determinate progress, archive-after-list exact revalidation, archive-after-WebMCP-proposal revalidation, and upload/selection close-lock navigation.
 
-Open evidence and known limitation:
+Browser closure and known limitation:
 
-- The authored Playwright suite has not been executed, and no Vite, production build, browser, or deployed Worker/D1/R2 process was started on the unhealthy host. Visible interaction, actual multipart/R2 behavior, deployed migration, and retained traces/screenshots remain mandatory release evidence after host recovery.
+- The authored production browser suite passes **18/18** against port 3001. This closes the retained visible-interaction gap for the local Studio, including exact managed-media revalidation, local reload continuity, upload lifecycle, deletion review, geometry-safe replacement, responsive focus restoration, and compact touch targets.
+- Actual multipart/R2 behavior, the deployed D1 migration, workspace isolation against the deployed principal, quota telemetry, and retained deployment artifacts remain mandatory infrastructure release evidence. The local route-mocked browser suite does not claim those deployed boundaries.
 - A very small eventual-consistency interval remains between the final exact metadata response and the synchronous local draft commit if a second client archives the same asset at that precise instant. Archive is non-destructive and existing references intentionally remain renderable, so this is not a data-loss or release-blocking defect. Strict elimination would require a server-issued lease/version token or a server-atomic draft mutation and belongs to a future collaborative-document consistency phase.
 
 ## 2026-08-28 — ASSET-02 phase-entry contract

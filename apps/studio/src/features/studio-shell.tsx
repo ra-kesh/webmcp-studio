@@ -648,6 +648,7 @@ export function StudioShell({
   const quotationInputRef = useRef<HTMLInputElement>(null)
   const compactPanelTriggerRef = useRef<HTMLButtonElement | null>(null)
   const insertShapeTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const studioMoreActionsTriggerRef = useRef<HTMLButtonElement | null>(null)
   const mediaPickerFocusReturnRef = useRef<HTMLElement | null>(null)
   const cropFocusSessionRef = useRef<ImageCropFocusSession | null>(null)
   const cropWasActiveRef = useRef(false)
@@ -1497,7 +1498,16 @@ export function StudioShell({
             node.type === "image"
         )
         const imageHandlers: EditorImageCommandHandlers = {
-          "image.insert": () => openMediaPicker("recent"),
+          "image.insert": () => {
+            const desktopInsertTrigger = insertShapeTriggerRef.current
+            openMediaPicker(
+              "recent",
+              undefined,
+              desktopInsertTrigger?.getClientRects().length
+                ? desktopInsertTrigger
+                : studioMoreActionsTriggerRef.current
+            )
+          },
           "image.replace": () => {
             if (!commandSelectedImage) return false
             openMediaPicker("recent", commandSelectedImage.id)
@@ -3134,6 +3144,7 @@ export function StudioShell({
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
+                  ref={studioMoreActionsTriggerRef}
                   aria-label={
                     studioErrors.length ||
                     saveNeedsAttention ||

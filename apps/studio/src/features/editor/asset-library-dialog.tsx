@@ -1134,7 +1134,7 @@ export function AssetLibraryDialog({
         >
           <TabsList
             aria-label="Media collections"
-            className="h-12 w-full justify-start gap-5 border-b px-4"
+            className="w-full justify-start gap-5 border-b px-4 py-0 group-data-horizontal/tabs:h-12"
             variant="line"
           >
             <TabsTrigger className="h-full flex-none px-0" value="recent">

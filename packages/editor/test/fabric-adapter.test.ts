@@ -28,6 +28,7 @@ import {
   cancelFabricTextEditing,
   constrainTextGeometryPatch,
   enterFabricTextEditing,
+  equivalentImageSources,
   FABRIC_TRANSFORM_MODIFIER_POLICY,
   fabricTextControlVisibility,
   fabricObjectToNodePatch,
@@ -64,6 +65,28 @@ function decodedFabricImage(
     naturalHeight: naturalSize.height,
   } as HTMLImageElement)
 }
+
+describe("equivalentImageSources", () => {
+  it("accepts a browser-resolved absolute URL for the same document-relative image", () => {
+    expect(
+      equivalentImageSources(
+        "http://localhost:3001/v1/studio/assets/asset-1/content",
+        "/v1/studio/assets/asset-1/content",
+        "http://localhost:3001/documents/document-1"
+      )
+    ).toBe(true)
+  })
+
+  it("rejects a different resolved image URL", () => {
+    expect(
+      equivalentImageSources(
+        "http://localhost:3001/v1/studio/assets/asset-2/content",
+        "/v1/studio/assets/asset-1/content",
+        "http://localhost:3001/documents/document-1"
+      )
+    ).toBe(false)
+  })
+})
 
 function expectFabricImageAffine(
   image: FabricImage,

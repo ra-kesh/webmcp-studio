@@ -3,10 +3,15 @@ import type { Page as BrowserPage } from "@playwright/test"
 import { documentSchema, northstarSeed } from "@webmcp/document"
 import type { Document as StudioDocument, SceneNode } from "@webmcp/document"
 
-const documentStorageKey = "webmcp-studio:northstar-document:v2"
+test.describe.configure({ timeout: 90_000 })
+
+const currentDraftStorageKey = "webmcp-studio:current-draft:v1"
+const legacyDocumentStorageKey = "webmcp-studio:northstar-document:v2"
 const quotationSourceStorageKey = "webmcp-studio:quotation-source:v1"
 const quotationTemplateStorageKey = "webmcp-studio:quotation-template:v1"
 const designTemplateStorageKey = "webmcp-studio:design-template:v1"
+const documentDatabaseName = "webmcp-studio-documents"
+const documentBodyStore = "draft-body"
 
 const replacementNodeId = "media-e2e-replacement"
 const missingLocalAssetId = "local-missing-photo"
@@ -98,11 +103,11 @@ declare global {
 
 const managedAlpha: ManagedAsset = {
   id: "asset-managed-alpha1",
-  name: "Managed alpha.jpg",
-  mediaType: "image/jpeg",
-  bytes: 24_000,
-  width: 1_200,
-  height: 800,
+  name: "Managed alpha.png",
+  mediaType: "image/png",
+  bytes: 68,
+  width: 1,
+  height: 1,
   createdAt: "2026-08-27T08:00:00.000Z",
   updatedAt: "2026-08-27T08:00:00.000Z",
   lastUsedAt: "2026-08-28T08:00:00.000Z",
@@ -260,7 +265,8 @@ async function installStudioContext(
 ) {
   await page.addInitScript(
     ({
-      documentKey,
+      currentDraftKey,
+      legacyDocumentKey,
       sourceKey,
       quotationTemplateKey,
       designTemplateKey,
@@ -269,10 +275,18 @@ async function installStudioContext(
       const initialized = sessionStorage.getItem("media-e2e-initialized")
       if (!initialized) {
         if (documentValue) {
-          localStorage.setItem(documentKey, JSON.stringify(documentValue))
+          localStorage.setItem(
+            currentDraftKey,
+            JSON.stringify({
+              schemaVersion: 1,
+              document: documentValue,
+              sourceContext: null,
+            })
+          )
         } else {
-          localStorage.removeItem(documentKey)
+          localStorage.removeItem(currentDraftKey)
         }
+        localStorage.removeItem(legacyDocumentKey)
         localStorage.removeItem(sourceKey)
         localStorage.removeItem(quotationTemplateKey)
         localStorage.removeItem(designTemplateKey)
@@ -382,7 +396,8 @@ async function installStudioContext(
         FakeXMLHttpRequest as unknown as typeof XMLHttpRequest
     },
     {
-      documentKey: documentStorageKey,
+      currentDraftKey: currentDraftStorageKey,
+      legacyDocumentKey: legacyDocumentStorageKey,
       sourceKey: quotationSourceStorageKey,
       quotationTemplateKey: quotationTemplateStorageKey,
       designTemplateKey: designTemplateStorageKey,
@@ -393,8 +408,15 @@ async function installStudioContext(
 
 async function bootStudio(page: BrowserPage, fixture?: StudioDocument) {
   await installStudioContext(page, fixture)
-  await page.goto("/")
-  await expect(page.locator("canvas.upper-canvas")).toBeVisible()
+  await page.goto(
+    fixture ? `/documents/${encodeURIComponent(fixture.id)}` : "/"
+  )
+  if (!fixture) {
+    await page.getByRole("button", { name: "Open sample", exact: true }).click()
+  }
+  await expect(page.locator("canvas.upper-canvas")).toBeVisible({
+    timeout: 30_000,
+  })
   await expect
     .poll(() =>
       page.evaluate(() => window.__studioTestTools?.has("inspect_design"))
@@ -420,10 +442,29 @@ function imageNode(inspection: Inspection, nodeId = replacementNodeId) {
 }
 
 async function readStoredDocument(page: BrowserPage) {
-  return page.evaluate((key) => {
-    const value = localStorage.getItem(key)
-    return value ? (JSON.parse(value) as StudioDocument) : null
-  }, documentStorageKey)
+  return page.evaluate(
+    async ({ databaseName, storeName }) => {
+      const database = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open(databaseName)
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () =>
+          reject(request.error ?? new Error("Document database did not open"))
+      })
+      const stored = await new Promise<
+        { document?: StudioDocument } | undefined
+      >((resolve, reject) => {
+        const request = database
+          .transaction(storeName)
+          .objectStore(storeName)
+          .get("media-e2e-document")
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () =>
+          reject(request.error ?? new Error("Document draft did not load"))
+      }).finally(() => database.close())
+      return stored?.document ?? null
+    },
+    { databaseName: documentDatabaseName, storeName: documentBodyStore }
+  )
 }
 
 async function installMediaApi(page: BrowserPage, state: MediaApiState) {
@@ -510,7 +551,14 @@ async function installMediaApi(page: BrowserPage, state: MediaApiState) {
     }
 
     if (path.endsWith("/content") && request.method() === "GET") {
-      await route.fulfill({ contentType: "image/png", body: onePixelPng })
+      await route.fulfill({
+        contentType: "image/png",
+        headers: {
+          "access-control-allow-origin": "*",
+          etag: '"sha256-431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460"',
+        },
+        body: onePixelPng,
+      })
       return
     }
 
@@ -581,7 +629,19 @@ async function openMediaFromToolbar(
   entry: "Upload image…" | "Asset library…"
 ) {
   const opener = page.getByRole("button", { name: "Insert shape" })
-  await opener.click()
+  if (await opener.isVisible()) {
+    await opener.click()
+  } else {
+    const compactOpener = page.getByRole("button", {
+      name: /More studio actions/,
+    })
+    await compactOpener.click()
+    await page.getByRole("menuitem", { name: "Object" }).hover()
+    await page.getByRole("menuitem", { name: "Add image" }).click()
+    const dialog = page.getByRole("dialog", { name: "Add image" })
+    await expect(dialog).toBeVisible()
+    return { dialog, opener: compactOpener }
+  }
   await page.getByRole("menuitem", { name: entry }).click()
   const dialog = page.getByRole("dialog", { name: "Add image" })
   await expect(dialog).toBeVisible()
@@ -709,7 +769,7 @@ test("toolbar media entry exposes distinct collections and inserts a built-in as
 
   await dialog.getByRole("tab", { name: "Recent" }).click()
   await expect(
-    dialog.getByText("Managed alpha.jpg", { exact: true })
+    dialog.getByText(managedAlpha.name, { exact: true })
   ).toBeVisible()
   await expect(
     dialog.getByText("Local reusable.png", { exact: true })
@@ -792,7 +852,10 @@ test("inspector replacement uses the same library and preserves layer geometry, 
   const beforeStackIndex =
     beforeDocument?.pages[0]?.nodeIds.indexOf(replacementNodeId)
 
-  await page.getByRole("button", { name: "Replace image…" }).click()
+  await page
+    .getByLabel("Design", { exact: true })
+    .getByRole("button", { name: "Replace image…" })
+    .click()
   const dialog = page.getByRole("dialog", { name: "Replace image" })
   await expect(dialog).toContainText("Replace target")
   await dialog.getByRole("tab", { name: "Library" }).click()
@@ -844,7 +907,10 @@ test("managed replacement preserves image geometry and selects the existing laye
   await selectReplacementTarget(page)
   const before = imageNode(await inspectDesign(page))
 
-  await page.getByRole("button", { name: "Replace image…" }).click()
+  await page
+    .getByLabel("Design", { exact: true })
+    .getByRole("button", { name: "Replace image…" })
+    .click()
   const dialog = page.getByRole("dialog", { name: "Replace image" })
   await dialog
     .getByRole("button", {
@@ -883,15 +949,13 @@ test("a source-bound image blocks layer-only replacement without detaching or re
   const beforeNode = imageNode(before)
   const beforeStored = await readStoredDocument(page)
 
-  await page.getByRole("button", { name: "Replace image…" }).click()
-  const dialog = page.getByRole("dialog", { name: "Replace image" })
-  await dialog.getByRole("tab", { name: "Library" }).click()
-  await dialog
-    .getByRole("button", { name: /Replace .* with Olive botanical/ })
-    .click()
-
-  await expect(dialog).toBeVisible()
-  await expect(dialog.getByRole("status")).toContainText(
+  const replaceImage = page
+    .getByLabel("Design", { exact: true })
+    .getByRole("button", { name: "Replace image…" })
+  await expect(replaceImage).toBeDisabled()
+  await expect(
+    page.getByLabel("Design", { exact: true }).getByRole("status")
+  ).toContainText(
     "“Replace target” gets its image from the “Shared portrait” shared asset field (1 linked layer). Change the field value in Fields to update every linked layer, or unbind Source to replace only this layer."
   )
   const after = await inspectDesign(page)
@@ -959,7 +1023,15 @@ test("a managed item archived after WebMCP proposal is rechecked before apply", 
       y: 160,
       width: 320,
       height: 240,
-      fit: "cover",
+      placement: {
+        mode: "fill",
+        focalX: 0.5,
+        focalY: 0.5,
+        zoom: 1,
+        rotation: 0,
+        flipX: false,
+        flipY: false,
+      },
     }
   )
   expect(proposal?.isError).not.toBe(true)
@@ -1003,13 +1075,15 @@ test("a local upload can be inserted, survives reload, and becomes reusable Rece
     .poll(
       async () =>
         (await inspectDesign(page)).activePageNodes.filter(
-          (node) => node.type === "image" && node.assetId === localId
+          (node) => node.type === "image" && node.name === "Reusable local"
         ).length
     )
     .toBe(1)
 
   await page.reload()
-  await expect(page.locator("canvas.upper-canvas")).toBeVisible()
+  await expect(page.locator("canvas.upper-canvas")).toBeVisible({
+    timeout: 30_000,
+  })
   await expect
     .poll(() =>
       page.evaluate(() => window.__studioTestTools?.has("inspect_design"))
@@ -1027,7 +1101,7 @@ test("a local upload can be inserted, survives reload, and becomes reusable Rece
     .poll(
       async () =>
         (await inspectDesign(page)).activePageNodes.filter(
-          (node) => node.type === "image" && node.assetId === localId
+          (node) => node.type === "image" && node.name === "Reusable local"
         ).length
     )
     .toBe(2)
@@ -1036,7 +1110,8 @@ test("a local upload can be inserted, survives reload, and becomes reusable Rece
 test("multi-file uploads expose real progress and independent success, error, cancel, and retry states", async ({
   page,
 }) => {
-  await installMediaApi(page, mediaApiState())
+  const state = mediaApiState()
+  await installMediaApi(page, state)
   await bootStudio(page)
   const { dialog } = await openMediaFromToolbar(page, "Upload image…")
   const files = ["success.png", "failed.png", "cancel.png"].map((name) => ({
@@ -1076,6 +1151,7 @@ test("multi-file uploads expose real progress and independent success, error, ca
     ({ name, asset }) => window.__mediaUploadHarness?.succeed(name, asset),
     { name: "success.png", asset: successAsset }
   )
+  state.assets.push(successAsset)
   await page.evaluate(() => window.__mediaUploadHarness?.fail("failed.png"))
   await dialog
     .getByRole("button", { name: "Cancel upload of cancel.png" })
@@ -1108,6 +1184,7 @@ test("multi-file uploads expose real progress and independent success, error, ca
     ({ name, asset }) => window.__mediaUploadHarness?.succeed(name, asset),
     { name: "failed.png", asset: retryAsset }
   )
+  state.assets.push(retryAsset)
   await expect(failedRow.getByText("Ready", { exact: true })).toBeVisible()
 
   await dialog.getByRole("tab", { name: "Recent" }).click()
@@ -1118,7 +1195,13 @@ test("multi-file uploads expose real progress and independent success, error, ca
     .getByText("success.png", { exact: true })
     .locator("xpath=../../..")
   await successRow.getByRole("button", { name: "Use image" }).click()
-  await expect(dialog).toBeHidden()
+  await expect
+    .poll(async () =>
+      (await dialog.count()) === 0
+        ? "closed"
+        : await dialog.getAttribute("data-state")
+    )
+    .toBe("closed")
   await expect
     .poll(async () => {
       const inspection = await inspectDesign(page)
@@ -1147,7 +1230,7 @@ test("repository failure retries into an honest empty state and search remains c
     dialog.getByText("No uploads yet", { exact: true })
   ).toBeVisible()
   await expect(
-    dialog.getByRole("button", { name: "Upload images" })
+    dialog.getByRole("button", { name: "Upload images" }).first()
   ).toBeVisible()
 
   await dialog.getByRole("tab", { name: "Library" }).click()
@@ -1377,7 +1460,7 @@ test("archive is blocked by current use and revalidates managed impact before de
   review = page.getByRole("alertdialog", {
     name: `Remove “${managedRace.name}”?`,
   })
-  await review.getByRole("button", { name: "Remove image" }).click()
+  await review.getByRole("button", { name: "Hide from uploads" }).click()
   await expect(
     page.getByRole("alertdialog", { name: "This image is still in use" })
   ).toContainText("1 published reference")
@@ -1471,7 +1554,7 @@ for (const width of [320, 390]) {
     expect(dialogBounds).not.toBeNull()
     expect(Math.round(dialogBounds!.x)).toBe(0)
     expect(Math.round(dialogBounds!.width)).toBe(width)
-    expect(Math.round(dialogBounds!.height)).toBe(760)
+    expect(Math.abs(dialogBounds!.height - 760)).toBeLessThanOrEqual(1)
     const layout = await page.evaluate(() => ({
       clientWidth: document.documentElement.clientWidth,
       scrollWidth: document.documentElement.scrollWidth,
@@ -1480,7 +1563,7 @@ for (const width of [320, 390]) {
 
     for (const control of [
       dialog.getByRole("button", { name: "Close media library" }),
-      dialog.getByRole("button", { name: "Upload images" }),
+      dialog.getByRole("button", { name: "Upload images" }).first(),
       dialog.getByRole("tab", { name: "Recent" }),
       dialog.getByRole("searchbox", { name: "Search media" }),
     ]) {

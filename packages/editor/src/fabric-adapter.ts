@@ -98,6 +98,23 @@ const round = (value: number) => Math.round(value * 10) / 10
 const normalizeDegrees = (value: number) =>
   ((((value + 180) % 360) + 360) % 360) - 180
 
+export function equivalentImageSources(
+  renderedSource: string,
+  documentSource: string,
+  baseUrl = typeof document === "undefined" ? undefined : document.baseURI
+) {
+  if (renderedSource === documentSource) return true
+  if (!baseUrl) return false
+  try {
+    return (
+      new URL(renderedSource, baseUrl).href ===
+      new URL(documentSource, baseUrl).href
+    )
+  } catch {
+    return false
+  }
+}
+
 export function fabricResizeHandle(corner: string): ResizeHandle | null {
   return corner === "nw" ||
     corner === "n" ||
@@ -1652,7 +1669,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
                       child instanceof FabricImage
                   )
               : undefined
-          if (!image || image.getSrc() !== node.src) {
+          if (!image || !equivalentImageSources(image.getSrc(), node.src)) {
             const previousObject = object
             const replacement = await createFabricObjectForSync(node)
             if (generation !== this.generation || !this.canvas) return
@@ -1978,7 +1995,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     const image = object
       .getObjects()
       .find((child): child is FabricImage => child instanceof FabricImage)
-    return image && image.getSrc() === node.src
+    return image && equivalentImageSources(image.getSrc(), node.src)
       ? ("ready" as const)
       : ("unavailable" as const)
   }
@@ -2030,7 +2047,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     const image = object
       .getObjects()
       .find((child): child is FabricImage => child instanceof FabricImage)
-    if (!image || image.getSrc() !== node.src) return null
+    if (!image || !equivalentImageSources(image.getSrc(), node.src)) return null
     return verifiedImageNaturalSize(image)
   }
 
