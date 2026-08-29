@@ -7,6 +7,7 @@ import type {
 } from "./current-draft-repository"
 import type { ReviewJournal } from "./review-journal"
 import type { DraftRecoveryFailure } from "./draft-recovery"
+import { quotationCompositionMismatch } from "./quotation-composition-context"
 
 /**
  * Browser JSON imports and durable drafts share one admission boundary. This
@@ -116,6 +117,21 @@ export async function prepareDraftAdmission(
       ok: false,
       reason: "validation_failed",
       failure: validated.failure,
+    }
+  }
+
+  const sourceContext = validated.envelope.sourceContext
+  if (sourceContext?.quotationSource && sourceContext.composition) {
+    const mismatch = await quotationCompositionMismatch(
+      sourceContext.quotationSource,
+      sourceContext.composition
+    )
+    if (mismatch) {
+      return {
+        ok: false,
+        reason: "validation_failed",
+        failure: { kind: "schema_invalid", message: mismatch },
+      }
     }
   }
 

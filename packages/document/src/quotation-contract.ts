@@ -304,6 +304,7 @@ const canonicalSourceValue = (value: unknown): string => {
     return `[${value.map(canonicalSourceValue).join(",")}]`
   }
   return `{${Object.entries(value as Record<string, unknown>)
+    .filter(([, child]) => child !== undefined)
     .sort(([left], [right]) => left.localeCompare(right))
     .map(
       ([key, child]) => `${JSON.stringify(key)}:${canonicalSourceValue(child)}`

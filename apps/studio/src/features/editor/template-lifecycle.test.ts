@@ -9,6 +9,7 @@ import {
   prepareCreateFromTemplate,
 } from "./template-lifecycle"
 import type { TemplateSourceContext } from "./template-lifecycle"
+import { createKnownQuotationComposition } from "./quotation-composition-context"
 
 const linkedContext: TemplateSourceContext = {
   quotationSource: northstarQuotationPayload,
@@ -74,7 +75,7 @@ describe("design-template lifecycle", () => {
     })
   })
 
-  it("restyles a linked quotation without replacing its structure or content", () => {
+  it("restyles a linked quotation without replacing its structure or composition lineage", async () => {
     const edited = structuredClone(quotationStarter.document)
     const title = edited.nodes.find(
       (node) => node.id === "text-4" && node.type === "text"
@@ -83,12 +84,16 @@ describe("design-template lifecycle", () => {
     title.text = "Client-approved copy"
     edited.pages[0].name = "Renamed by the user"
 
+    const composition = await createKnownQuotationComposition(
+      northstarQuotationPayload,
+      { id: "quotation-editorial-olive", version: 2 }
+    )
     const mutation = prepareApplyTemplate({
       repository: builtInDesignTemplateRepository,
       templateId: "quotation-midnight-film",
       version: 2,
       currentDocument: edited,
-      sourceContext: linkedContext,
+      sourceContext: { ...linkedContext, composition },
       now: "2026-08-28T12:00:00.000Z",
     })
 
@@ -105,6 +110,7 @@ describe("design-template lifecycle", () => {
       id: "quotation-midnight-film",
       version: 2,
     })
+    expect(mutation.sourceContext.composition).toEqual(composition)
     expect(mutation.impact.disconnectsQuotationSource).toBe(false)
     expect(mutation.impact.rebuildsFromQuotationSource).toBe(false)
   })

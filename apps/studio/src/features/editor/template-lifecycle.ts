@@ -11,11 +11,13 @@ import type {
   QuotationTemplateId,
   TemplateApplicationImpact,
 } from "@webmcp/document"
+import type { QuotationCompositionContext } from "./quotation-composition-context"
 
 export type TemplateSourceContext = {
   quotationSource: QuotationRenderPayloadV1 | null
   quotationTemplateId: QuotationTemplateId
   designTemplate: { id: string; version: number } | null
+  composition?: QuotationCompositionContext
 }
 
 export type PreparedTemplateMutation = {
@@ -143,6 +145,9 @@ export function prepareApplyTemplate(
           id: template.id,
           version: template.version,
         },
+        ...(options.sourceContext.composition
+          ? { composition: options.sourceContext.composition }
+          : {}),
       },
       impact: templateApplicationImpact(options.currentDocument, document, {
         currentHasQuotationSource: true,

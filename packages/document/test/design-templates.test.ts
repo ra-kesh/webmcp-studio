@@ -143,6 +143,18 @@ describe("design template repository", () => {
     ).not.toBe(await quotationSourceFingerprint(northstarQuotationPayload))
   })
 
+  it("fingerprints optional undefined values exactly like persisted JSON", async () => {
+    const withUndefined = structuredClone(northstarQuotationPayload)
+    withUndefined.branding.logoUrl = undefined
+    const roundTripped = JSON.parse(
+      JSON.stringify(withUndefined)
+    ) as typeof withUndefined
+
+    expect(await quotationSourceFingerprint(withUndefined)).toBe(
+      await quotationSourceFingerprint(roundTripped)
+    )
+  })
+
   it("rejects duplicate versions and aggregate-invalid starter snapshots", () => {
     expect(
       designTemplateDefinitionSchema.safeParse(

@@ -340,6 +340,17 @@ describe("useDocumentEditor start session", () => {
     expect(captured.current?.editor.document.name).toBe(
       quotationStarter.document.name
     )
+    expect(captured.current?.editor.activeQuotationComposition).toMatchObject({
+      status: "known",
+      composerId: "quotation",
+      composerVersion: 2,
+      sourceQuotationId: quotationStarter.source.source.quotationId,
+      sourceRevision: quotationStarter.source.source.revision,
+      template: {
+        id: "quotation-editorial-olive",
+        version: 2,
+      },
+    })
 
     await act(async () => resolveReset?.(new Response(null, { status: 204 })))
   })

@@ -175,6 +175,8 @@ import {
   prepareCreateFromTemplate,
 } from "./template-lifecycle"
 import type { TemplateSourceContext } from "./template-lifecycle"
+import { createKnownQuotationComposition } from "./quotation-composition-context"
+import type { QuotationCompositionContext } from "./quotation-composition-context"
 import { resolveUnavailableImageCrop } from "./image-crop-unavailable"
 import { imageCropInvalidationMessage } from "./image-crop-invalidation"
 import {
@@ -204,6 +206,18 @@ const designTemplateForQuotation = (templateId: QuotationTemplateId) => {
         candidate.quotationTemplateId === templateId
     )
   return item ? { id: item.id, version: item.version } : null
+}
+
+const requiredDesignTemplateForQuotation = (
+  templateId: QuotationTemplateId
+) => {
+  const identity = designTemplateForQuotation(templateId)
+  if (!identity) {
+    throw new Error(
+      `Studio has no active immutable design template for ${templateId}.`
+    )
+  }
+  return identity
 }
 
 type RepositoryLifecycle =
@@ -321,14 +335,16 @@ function sourceContextsMatch(
     return (
       right.quotationSource === null &&
       right.quotationTemplateId === quotationStarter.templateId &&
-      right.designTemplate === null
+      right.designTemplate === null &&
+      right.composition === undefined
     )
   }
   return (
     left.quotationSource === right.quotationSource &&
     left.quotationTemplateId === right.quotationTemplateId &&
     left.designTemplate?.id === right.designTemplate?.id &&
-    left.designTemplate?.version === right.designTemplate?.version
+    left.designTemplate?.version === right.designTemplate?.version &&
+    JSON.stringify(left.composition) === JSON.stringify(right.composition)
   )
 }
 
@@ -487,6 +503,9 @@ export function useDocumentEditor({
     id: string
     version: number
   } | null>(null)
+  const [activeQuotationComposition, setActiveQuotationComposition] = useState<
+    QuotationCompositionContext | undefined
+  >(undefined)
   const [selection, setSelection] = useState<Selection | null>(null)
   const [imageCropPreviewStore, setImageCropPreviewStore] =
     useState<ImageCropPreviewStore | null>(null)
@@ -627,11 +646,17 @@ export function useDocumentEditor({
     quotationSource,
     quotationTemplateId: activeQuotationTemplateId,
     designTemplate: activeDesignTemplate,
+    ...(activeQuotationComposition
+      ? { composition: activeQuotationComposition }
+      : {}),
   })
   templateSourceContextRef.current = {
     quotationSource,
     quotationTemplateId: activeQuotationTemplateId,
     designTemplate: activeDesignTemplate,
+    ...(activeQuotationComposition
+      ? { composition: activeQuotationComposition }
+      : {}),
   }
   const templateSourceBySnapshotRef = useRef(
     new Map<string, TemplateSourceContext>()
@@ -677,6 +702,7 @@ export function useDocumentEditor({
       setQuotationSource(context.quotationSource)
       setActiveQuotationTemplateId(context.quotationTemplateId)
       setActiveDesignTemplate(context.designTemplate)
+      setActiveQuotationComposition(context.composition)
       return true
     },
     []
@@ -2773,14 +2799,19 @@ export function useDocumentEditor({
     const transition = claimSessionTransition("recovery")
     if (!transition) return false
     try {
+      const designTemplate = requiredDesignTemplateForQuotation(
+        quotationStarter.templateId
+      )
       const envelope: CurrentDraftEnvelope = {
         schemaVersion: 1,
         document: quotationStarter.document,
         sourceContext: {
           quotationSource: quotationStarter.source,
           quotationTemplateId: quotationStarter.templateId,
-          designTemplate: designTemplateForQuotation(
-            quotationStarter.templateId
+          designTemplate,
+          composition: await createKnownQuotationComposition(
+            quotationStarter.source,
+            designTemplate
           ),
         },
       }
@@ -4663,6 +4694,24 @@ export function useDocumentEditor({
             activePersistenceSessionRef.current?.controller.documentId ??
             historyRef.current.document.id,
         }
+        const designTemplate = requiredDesignTemplateForQuotation(templateId)
+        const compositionContext = await createKnownQuotationComposition(
+          payloadResult.data,
+          designTemplate
+        )
+        if (
+          documentImportRequestGenerationRef.current !==
+            importRequestGeneration ||
+          sessionGenerationRef.current !== requestGeneration ||
+          historyRef.current.document.id !== requestDocumentId ||
+          historyRef.current.snapshotId !== requestSnapshotId
+        ) {
+          setDocumentError(
+            "The active document changed while this quotation was being prepared. Import it again into the document now open."
+          )
+          return
+        }
+        if (!allowMutation()) return
         templateSourceBySnapshotRef.current.set(
           historyRef.current.snapshotId,
           templateSourceContextRef.current
@@ -4673,7 +4722,8 @@ export function useDocumentEditor({
         const sourceContext: TemplateSourceContext = {
           quotationSource: payloadResult.data,
           quotationTemplateId: templateId,
-          designTemplate: designTemplateForQuotation(templateId),
+          designTemplate,
+          composition: compositionContext,
         }
         historyRef.current = nextHistory
         templateSourceBySnapshotRef.current.set(
@@ -5266,6 +5316,9 @@ export function useDocumentEditor({
   const createDocumentFromTemplate = useCallback(
     async (templateId: string, version: number) => {
       if (!allowMutation(false, true)) return false
+      const requestGeneration = sessionGenerationRef.current
+      const requestDocumentId = historyRef.current.document.id
+      const requestSnapshotId = historyRef.current.snapshotId
       try {
         const mutation = prepareCreateFromTemplate({
           repository: builtInDesignTemplateRepository,
@@ -5274,12 +5327,38 @@ export function useDocumentEditor({
           currentDocument: historyRef.current.document,
           sourceContext: templateSourceContextRef.current,
         })
+        const definition = builtInDesignTemplateRepository.get(
+          templateId,
+          version
+        )
+        const sourceContext =
+          definition.kind === "quotation_style" &&
+          mutation.sourceContext.quotationSource
+            ? {
+                ...mutation.sourceContext,
+                composition: await createKnownQuotationComposition(
+                  mutation.sourceContext.quotationSource,
+                  { id: templateId, version },
+                  definition.composerVersion
+                ),
+              }
+            : mutation.sourceContext
+        if (
+          sessionGenerationRef.current !== requestGeneration ||
+          historyRef.current.document.id !== requestDocumentId ||
+          historyRef.current.snapshotId !== requestSnapshotId
+        ) {
+          setDocumentError(
+            "The active document changed while this template was being prepared. Choose the template again for the document now open."
+          )
+          return false
+        }
         if (
           !(await persistAndInstallSession(
             {
               schemaVersion: 1,
               document: mutation.document,
-              sourceContext: mutation.sourceContext,
+              sourceContext,
             },
             { kind: "template", templateId, templateVersion: version }
           ))
@@ -5428,11 +5507,32 @@ export function useDocumentEditor({
 
   const restoreDemoDocument = useCallback(async () => {
     if (!allowMutation(false, true)) return false
+    const requestGeneration = sessionGenerationRef.current
+    const requestDocumentId = historyRef.current.document.id
+    const requestSnapshotId = historyRef.current.snapshotId
     const document = cloneTemplateDocument(quotationStarter.document)
+    const designTemplate = requiredDesignTemplateForQuotation(
+      quotationStarter.templateId
+    )
+    const composition = await createKnownQuotationComposition(
+      quotationStarter.source,
+      designTemplate
+    )
+    if (
+      sessionGenerationRef.current !== requestGeneration ||
+      historyRef.current.document.id !== requestDocumentId ||
+      historyRef.current.snapshotId !== requestSnapshotId
+    ) {
+      setDocumentError(
+        "The active document changed while the sample was being prepared. Open the sample again."
+      )
+      return false
+    }
     const sourceContext: TemplateSourceContext = {
       quotationSource: quotationStarter.source,
       quotationTemplateId: quotationStarter.templateId,
-      designTemplate: designTemplateForQuotation(quotationStarter.templateId),
+      designTemplate,
+      composition,
     }
     if (
       !(await persistAndInstallSession(
@@ -5846,6 +5946,7 @@ export function useDocumentEditor({
     quotationSource,
     activeQuotationTemplateId,
     activeDesignTemplate,
+    activeQuotationComposition,
     designTemplateCatalog,
     publishError,
     publishSyncStatus,

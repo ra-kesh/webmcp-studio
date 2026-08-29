@@ -238,6 +238,9 @@ const currentEnvelope = (editor: Editor): CurrentDraftEnvelope => ({
     quotationSource: structuredClone(editor.quotationSource),
     quotationTemplateId: editor.activeQuotationTemplateId,
     designTemplate: structuredClone(editor.activeDesignTemplate),
+    ...(editor.activeQuotationComposition
+      ? { composition: structuredClone(editor.activeQuotationComposition) }
+      : {}),
   },
 })
 
@@ -3334,6 +3337,18 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     })
     expect(captured.current?.quotationSource).toEqual(quotationSource)
     const exactImportedEnvelope = currentEnvelope(captured.current!)
+    expect(exactImportedEnvelope.sourceContext?.composition).toMatchObject({
+      status: "known",
+      composerId: "quotation",
+      composerVersion: 2,
+      sourceQuotationId: "quotation-from-another-system",
+      sourceRevision: quotationSource.source.revision,
+      quoteVersion: quotationSource.quote.quoteVersion,
+      template: {
+        id: "quotation-editorial-olive",
+        version: 2,
+      },
+    })
     await act(async () => {
       expect(await captured.current!.flushActiveDraft()).toBe(true)
     })

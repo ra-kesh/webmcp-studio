@@ -1701,13 +1701,19 @@ Status: **cause recorded; prevention boundary implemented**
 - The independent architecture review accepted the separation of source,
   composition, and appearance identity and required any legacy group repair to
   remain explicit, group-only, and undoable.
-- Document template/composer tests pass **15/15**, Studio template lifecycle and
+- Document template/composer tests pass **16/16**, Studio template lifecycle and
   catalog tests pass **13/13**, and both affected package typechecks pass.
 
 Next boundary:
 
-- Persist known composition identity for new quotation flows, then add the
-  explicit group-only legacy organization upgrade with exact Undo and reload.
+- Known composition identity now persists through new quotation template,
+  quotation import, sample restore, and recovery reset flows. Style-only
+  changes preserve structural lineage; admission rejects source/hash drift.
+- The independent code reviewer rejected an optional-`undefined` fingerprint
+  mismatch, verified its JSON-roundtrip repair, and returned **ACCEPT with no
+  remaining P0/P1 finding**.
+- Add the explicit group-only legacy organization upgrade with exact Undo and
+  reload.
 
 ## 2026-08-29 — Durable Review provenance and history (REVIEW-02)
 

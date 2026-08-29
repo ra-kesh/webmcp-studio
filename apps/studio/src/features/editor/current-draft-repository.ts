@@ -24,6 +24,8 @@ import {
   reviewJournalSchema,
 } from "./review-journal"
 import type { ReviewJournal } from "./review-journal"
+import { quotationCompositionContextSchema } from "./quotation-composition-context"
+import type { QuotationCompositionContext } from "./quotation-composition-context"
 
 export const CURRENT_DRAFT_STORAGE_KEY = "webmcp-studio:current-draft:v1"
 export const LEGACY_DOCUMENT_STORAGE_KEY = "webmcp-studio:northstar-document:v2"
@@ -52,6 +54,7 @@ const sourceContextSchema = z
     quotationSource: quotationRenderPayloadV1Schema.nullable(),
     quotationTemplateId: quotationTemplateIdSchema,
     designTemplate: designTemplateIdentitySchema.nullable(),
+    composition: quotationCompositionContextSchema.optional(),
   })
   .strict()
 
@@ -70,6 +73,7 @@ export type CurrentDraftSourceContext = {
   quotationSource: QuotationRenderPayloadV1 | null
   quotationTemplateId: QuotationTemplateId
   designTemplate: { id: string; version: number } | null
+  composition?: QuotationCompositionContext
 }
 
 export type CurrentDraftSnapshot = {
@@ -220,7 +224,37 @@ function schemaFailure(message: string): DraftRecoveryFailure {
 function validateSourceContext(
   sourceContext: CurrentDraftSourceContext | null
 ): DraftRecoveryFailure | null {
-  if (!sourceContext?.designTemplate) return null
+  if (!sourceContext) return null
+  if (sourceContext.composition && !sourceContext.quotationSource) {
+    return schemaFailure(
+      "The saved draft has quotation composition identity without linked quotation source data."
+    )
+  }
+  if (sourceContext.composition?.status === "known") {
+    let compositionTemplate: ReturnType<
+      typeof builtInDesignTemplateRepository.get
+    >
+    try {
+      compositionTemplate = builtInDesignTemplateRepository.get(
+        sourceContext.composition.template.id,
+        sourceContext.composition.template.version
+      )
+    } catch {
+      return schemaFailure(
+        `The saved draft references an unknown composition template: ${sourceContext.composition.template.id}@${sourceContext.composition.template.version}.`
+      )
+    }
+    if (
+      compositionTemplate.kind !== "quotation_style" ||
+      compositionTemplate.composerVersion !==
+        sourceContext.composition.composerVersion
+    ) {
+      return schemaFailure(
+        "The saved draft's composition identity does not match its immutable composition template."
+      )
+    }
+  }
+  if (!sourceContext.designTemplate) return null
 
   let definition: ReturnType<typeof builtInDesignTemplateRepository.get>
   try {
@@ -251,6 +285,11 @@ function validateSourceContext(
   if (sourceContext.quotationSource) {
     return schemaFailure(
       "The saved draft combines a document-starter identity with unrelated quotation source data."
+    )
+  }
+  if (sourceContext.composition) {
+    return schemaFailure(
+      "The saved draft combines quotation composition identity with a document starter."
     )
   }
   return null

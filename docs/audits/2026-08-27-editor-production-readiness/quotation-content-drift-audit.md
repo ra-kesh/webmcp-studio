@@ -69,14 +69,15 @@ code is imported.
 - Existing source contexts and document bytes are not rewritten by this
   boundary.
 
-Focused evidence: document template/composer tests pass 15/15, Studio template
+Focused evidence: document template/composer tests pass 16/16, Studio template
 lifecycle/catalog tests pass 13/13, and both affected package typechecks pass.
 
 ## Remaining quotation migration boundary
 
-- Persist exact known source/composition identity for every new quotation,
-  import, and demo creation path while continuing to admit legacy wire data
-  unchanged.
+- Exact known source/composition identity now persists for new quotation
+  template creation, quotation import, sample restore, and recovery reset.
+  Visual style application preserves the original structural lineage. Legacy
+  wire data continues to decode without metadata injection or rewrite.
 - Add a pure, non-mutating eligibility analyzer for the legacy group-only
   upgrade.
 - Surface an explicit "Layer organization update available" action, commit the
@@ -84,3 +85,12 @@ lifecycle/catalog tests pass 13/13, and both affected package typechecks pass.
   undo/reload behavior.
 - Define later Stuwiz source reconciliation and shared asset persistence. These
   are not implied by composition provenance.
+
+Focused provenance evidence: Studio draft admission/current-wire/template
+lifecycle tests pass 46/46, the mounted quotation-import and sample-restore
+regressions pass, and Studio typecheck passes.
+
+The independent code review initially rejected a JSON-roundtrip mismatch for
+explicit optional `undefined` values. Canonical source hashing now filters them
+exactly as persistence does, the reproduced regression passes, and the final
+review verdict is **ACCEPT with no remaining P0/P1 finding**.

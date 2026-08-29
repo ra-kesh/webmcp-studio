@@ -1,4 +1,7 @@
-import { builtInDesignTemplateRepository } from "@webmcp/document"
+import {
+  builtInDesignTemplateRepository,
+  northstarQuotationPayload,
+} from "@webmcp/document"
 import type { ChangeSet } from "@webmcp/document"
 import { describe, expect, it } from "vitest"
 import type { CurrentDraftSnapshot } from "./current-draft-repository"
@@ -14,6 +17,7 @@ import {
   createEmptyReviewJournal,
   createReviewProposal,
 } from "./review-journal"
+import { createKnownQuotationComposition } from "./quotation-composition-context"
 
 const snapshot = (): CurrentDraftSnapshot => ({
   document: builtInDesignTemplateRepository.materialize(
@@ -102,6 +106,44 @@ describe("draft admission", () => {
     if (!linked.ok || !unlinked.ok) return
     expect(unlinked.contentSnapshotId).toBe(linked.contentSnapshotId)
     expect(unlinked.draftSnapshotId).not.toBe(linked.draftSnapshotId)
+  })
+
+  it("admits exact quotation composition provenance and rejects source drift", async () => {
+    const designTemplate = {
+      id: "quotation-editorial-olive",
+      version: 2,
+    }
+    const composition = await createKnownQuotationComposition(
+      northstarQuotationPayload,
+      designTemplate
+    )
+    const candidate: CurrentDraftSnapshot = {
+      document: builtInDesignTemplateRepository.materialize(
+        designTemplate.id,
+        designTemplate.version,
+        { quotation: northstarQuotationPayload, identity: "canonical" }
+      ),
+      sourceContext: {
+        quotationSource: northstarQuotationPayload,
+        quotationTemplateId: "editorial-olive",
+        designTemplate,
+        composition,
+      },
+    }
+
+    expect(await prepareDraftAdmission(candidate)).toMatchObject({ ok: true })
+
+    const drifted = structuredClone(candidate)
+    if (!drifted.sourceContext?.quotationSource)
+      throw new Error("Expected quotation source")
+    drifted.sourceContext.quotationSource.source.revision += 1
+    expect(await prepareDraftAdmission(drifted)).toMatchObject({
+      ok: false,
+      reason: "validation_failed",
+      failure: {
+        message: expect.stringContaining("coordinates do not match"),
+      },
+    })
   })
 
   it("changes only draft identity when review history changes", async () => {
