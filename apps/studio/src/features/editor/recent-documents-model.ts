@@ -12,6 +12,8 @@ import type {
   DraftRepositoryFailure,
 } from "./document-draft-repository"
 import type { RecentDocumentsProviderState } from "./recent-documents-provider"
+import { createDocumentPreviewIdentity } from "./document-preview-contract"
+import type { DocumentPreviewIdentity } from "./document-preview-contract"
 
 export const RECENT_DOCUMENTS_VIRTUALIZATION_THRESHOLD = 48
 
@@ -107,6 +109,7 @@ export type RecentDocumentRowModel = Readonly<{
   documentId: string
   name: string
   recordVersion: number
+  previewIdentity: DocumentPreviewIdentity
   origin: DraftOrigin
   originLabel: string
   sourceKind: DocumentDraftSummary["sourceKind"]
@@ -482,6 +485,7 @@ function rowModel(
     documentId: summary.documentId,
     name: summary.name,
     recordVersion: summary.recordVersion,
+    previewIdentity: createDocumentPreviewIdentity(summary),
     origin: summary.origin,
     originLabel: recentDocumentOriginLabel(summary.origin),
     sourceKind: summary.sourceKind,

@@ -222,6 +222,39 @@ export type DocumentDraftPreview = Readonly<{
   blob: Blob
 }>
 
+export type DraftPreviewIdentity = Readonly<{
+  documentId: string
+  recordVersion: number
+  contentSnapshotId: string
+  pageId: string
+  pageWidth: number
+  pageHeight: number
+  rendererRevision: string
+  width: number
+  height: number
+}>
+
+export type DraftPreviewReadResult =
+  | Readonly<{
+      ok: true
+      status: "ready"
+      preview: DocumentDraftPreview
+    }>
+  | Readonly<{
+      ok: true
+      status: "missing" | "stale_preview" | "not_active"
+    }>
+  | Readonly<{
+      ok: false
+      reason: "stale_head"
+      current: DocumentDraftSummary
+    }>
+  | Readonly<{
+      ok: false
+      reason: "corrupt_preview" | "storage_unavailable"
+      failure: DraftRepositoryFailure
+    }>
+
 export type DocumentDraftConflict = Readonly<{
   schemaVersion: 1
   conflictId: string
@@ -552,6 +585,53 @@ const isBlob = (value: unknown): value is Blob =>
   typeof value.size === "number" &&
   typeof value.type === "string" &&
   typeof value.slice === "function"
+
+const validPreviewIdentity = (value: DraftPreviewIdentity) => {
+  if (
+    !isRecord(value) ||
+    !validRequiredString(value.documentId) ||
+    !validPositiveInteger(value.recordVersion) ||
+    !validSnapshotId(value.contentSnapshotId) ||
+    !validRequiredString(value.pageId) ||
+    !validPositiveInteger(value.pageWidth) ||
+    !validPositiveInteger(value.pageHeight) ||
+    !validRequiredString(value.rendererRevision) ||
+    !validPositiveInteger(value.width) ||
+    !validPositiveInteger(value.height)
+  ) {
+    return false
+  }
+  try {
+    assertPageThumbnailSize(
+      { width: value.pageWidth, height: value.pageHeight },
+      { width: value.width, height: value.height }
+    )
+    return true
+  } catch {
+    return false
+  }
+}
+
+const parsePreview = (value: unknown): DocumentDraftPreview | null => {
+  if (!isRecord(value) || value.schemaVersion !== 1) return null
+  if (
+    !validRequiredString(value.documentId) ||
+    !validSnapshotId(value.contentSnapshotId) ||
+    !validRequiredString(value.pageId) ||
+    !validRequiredString(value.rendererRevision) ||
+    !validPositiveInteger(value.width) ||
+    !validPositiveInteger(value.height) ||
+    value.mimeType !== "image/png" ||
+    !validPositiveInteger(value.byteLength) ||
+    !validTimestamp(value.createdAt) ||
+    !isBlob(value.blob) ||
+    value.blob.type !== "image/png" ||
+    value.blob.size !== value.byteLength
+  ) {
+    return null
+  }
+  return value as DocumentDraftPreview
+}
 
 const storedValueEqual = (left: unknown, right: unknown) => {
   if (left === undefined || right === undefined) return left === right
@@ -3584,6 +3664,111 @@ export class DocumentDraftRepository {
         }
       }
       return { ok: true, value: value as DocumentDraftPreview }
+    } catch (error) {
+      return {
+        ok: false,
+        reason: "storage_unavailable",
+        failure: storageFailure(error),
+      }
+    } finally {
+      database?.close()
+    }
+  }
+
+  async getPreviewForSummary(
+    identity: DraftPreviewIdentity
+  ): Promise<DraftPreviewReadResult> {
+    if (!validPreviewIdentity(identity)) {
+      return {
+        ok: false,
+        reason: "corrupt_preview",
+        failure: {
+          kind: "validation_failed",
+          message: "The document preview request identity is invalid.",
+        },
+      }
+    }
+
+    let database: IDBDatabase | null = null
+    try {
+      database = await this.#open()
+      const transaction = database.transaction([METADATA_STORE, PREVIEW_STORE])
+      const done = transactionDone(transaction)
+      const [rawSummary, rawPreview] = await Promise.all([
+        requestResult(
+          transaction.objectStore(METADATA_STORE).get(identity.documentId)
+        ),
+        requestResult(
+          transaction.objectStore(PREVIEW_STORE).get(identity.documentId)
+        ),
+      ])
+      await done
+
+      if (rawSummary === undefined) return { ok: true, status: "not_active" }
+      const summary = parseSummary(rawSummary)
+      if (!summary || summary.documentId !== identity.documentId) {
+        return {
+          ok: false,
+          reason: "corrupt_preview",
+          failure: {
+            kind: "corrupt_record",
+            message:
+              "The document metadata could not be verified for preview loading.",
+          },
+        }
+      }
+      if (summary.deletedAt !== null) return { ok: true, status: "not_active" }
+      if (
+        summary.recordVersion !== identity.recordVersion ||
+        summary.contentSnapshotId !== identity.contentSnapshotId ||
+        summary.firstPageId !== identity.pageId ||
+        summary.firstPageWidth !== identity.pageWidth ||
+        summary.firstPageHeight !== identity.pageHeight
+      ) {
+        return { ok: false, reason: "stale_head", current: summary }
+      }
+      if (rawPreview === undefined) return { ok: true, status: "missing" }
+
+      const preview = parsePreview(rawPreview)
+      if (!preview || preview.documentId !== identity.documentId) {
+        return {
+          ok: false,
+          reason: "corrupt_preview",
+          failure: {
+            kind: "corrupt_record",
+            message: "The stored document preview could not be decoded.",
+          },
+        }
+      }
+      if (
+        preview.contentSnapshotId !== identity.contentSnapshotId ||
+        preview.pageId !== identity.pageId
+      ) {
+        return { ok: true, status: "stale_preview" }
+      }
+      try {
+        assertPageThumbnailSize(
+          { width: identity.pageWidth, height: identity.pageHeight },
+          { width: preview.width, height: preview.height }
+        )
+      } catch {
+        return {
+          ok: false,
+          reason: "corrupt_preview",
+          failure: {
+            kind: "corrupt_record",
+            message: "The stored document preview dimensions are invalid.",
+          },
+        }
+      }
+      if (
+        preview.rendererRevision !== identity.rendererRevision ||
+        preview.width !== identity.width ||
+        preview.height !== identity.height
+      ) {
+        return { ok: true, status: "stale_preview" }
+      }
+      return { ok: true, status: "ready", preview }
     } catch (error) {
       return {
         ok: false,

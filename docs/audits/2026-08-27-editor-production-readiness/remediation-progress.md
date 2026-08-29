@@ -1478,3 +1478,40 @@ Routed conflict/external-change recovery evidence:
   both. The re-review verdict is **ACCEPT with no remaining P0/P1 finding**.
 - The final focused gate passes **125/125 across four files**. Studio typecheck,
   scoped production ESLint, Prettier, and `git diff --check` pass.
+
+## 2026-08-29 — Durable Recent previews (PERSIST-01C)
+
+Status: **completed and independently accepted for the PERSIST-01C boundary**
+
+- Added one summary-bound preview identity, a fixed raster contract, and a
+  metadata-plus-preview-only repository read. Listing remains metadata-first;
+  exact stored hits do not open or hash document bodies.
+- Extracted a stateless multi-document thumbnail producer and added a dedicated
+  preview controller with near-viewport admission, maximum-three production,
+  exact-key deduplication, cancellation, bounded retry, final preview CAS, and
+  card-local failure state.
+- Object URL ownership is ref-count aware. Active URLs cannot be evicted;
+  inactive LRU eviction removes the published ready state before revocation;
+  failed previews do not silently retry when scrolled away and back.
+- Development/local-only Artboard fallback is explicitly labelled and
+  materializes both local Blob URLs and managed workspace content URLs. Partial
+  load failure, cancellation, visibility loss, and provider disposal revoke
+  every temporary URL.
+- Grid and list share the same contained preview owner. The visual preview well
+  and title are valid independent Open controls; Retry and document actions stay
+  available without invalid nested controls.
+- The complete focused slice passes **120/120 across seven files**; controller
+  and mounted library evidence passes **24/24**. Studio typecheck, focused
+  ESLint, Prettier, and `git diff --check` pass. A live localhost check showed
+  the actual first-page preview and proved preview-click navigation to the exact
+  canonical document route.
+- The independent remediation reviewer reread the current repository,
+  controller, provider, fallback, and library code and returned **ACCEPT with
+  no remaining P0/P1 findings**. `persist-01c-preview-review.md` records the
+  rejected first candidate, repairs, and final verdict.
+
+Open evidence:
+
+- The bounded two-tab and deployed Renderer-versus-Artboard conformance journeys
+  remain tracked under CONFORM-01/browser acceptance and are not claimed by this
+  fast close-out.

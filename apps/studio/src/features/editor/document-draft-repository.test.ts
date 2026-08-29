@@ -3,7 +3,7 @@ import {
   builtInDesignTemplateRepository,
   fitPageThumbnailSize,
 } from "@webmcp/document"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import type {
   CurrentDraftSnapshot,
   CurrentDraftSourceContext,
@@ -14,6 +14,7 @@ import type {
   DocumentDraftPreview,
   DocumentDraftReadResult,
   DocumentDraftRecord,
+  DraftPreviewIdentity,
   DraftRepositoryEvent,
   DraftListResult,
 } from "./document-draft-repository"
@@ -308,6 +309,25 @@ const validPreview = (
     blob,
   }
 }
+
+const previewIdentity = (
+  preview: Omit<DocumentDraftPreview, "schemaVersion" | "createdAt">,
+  summary: {
+    recordVersion: number
+    firstPageWidth: number
+    firstPageHeight: number
+  }
+): DraftPreviewIdentity => ({
+  documentId: preview.documentId,
+  recordVersion: summary.recordVersion,
+  contentSnapshotId: preview.contentSnapshotId,
+  pageId: preview.pageId,
+  pageWidth: summary.firstPageWidth,
+  pageHeight: summary.firstPageHeight,
+  rendererRevision: preview.rendererRevision,
+  width: preview.width,
+  height: preview.height,
+})
 
 const deleteDatabase = (name: string) =>
   new Promise<void>((resolve) => {
@@ -1918,6 +1938,201 @@ describe("DocumentDraftRepository", () => {
     expect(await repository.getPreview(preview.documentId)).toEqual({
       ok: false,
       reason: "missing",
+    })
+  })
+
+  it("reads an exact summary-bound preview without opening the draft body store", async () => {
+    const initial = snapshot()
+    const { repository } = createRepository([
+      "2026-08-28T12:00:00.000Z",
+      "2026-08-28T12:00:10.000Z",
+    ])
+    const created = await repository.create(initial)
+    if (!created.ok) throw new Error("Expected a created draft")
+    const preview = validPreview(initial, created.record.summary)
+    const stored = await repository.putPreview(preview)
+    if (!stored.ok) throw new Error("Expected a stored preview")
+    const identity = previewIdentity(preview, created.record.summary)
+    const transactionSpy = vi.spyOn(IDBDatabase.prototype, "transaction")
+
+    try {
+      expect(await repository.getPreviewForSummary(identity)).toEqual({
+        ok: true,
+        status: "ready",
+        preview: stored.value,
+      })
+      expect(transactionSpy).toHaveBeenCalledTimes(1)
+      expect(transactionSpy.mock.calls[0]?.[0]).toEqual([
+        "draft-meta",
+        "draft-previews",
+      ])
+    } finally {
+      transactionSpy.mockRestore()
+    }
+  })
+
+  it("distinguishes missing, replaceable stale, stale-head, and inactive summary previews", async () => {
+    const initial = snapshot()
+    const { repository } = createRepository([
+      "2026-08-28T12:00:00.000Z",
+      "2026-08-28T12:00:10.000Z",
+      "2026-08-28T12:00:20.000Z",
+      "2026-08-28T12:00:30.000Z",
+      "2026-08-28T12:00:40.000Z",
+    ])
+    const created = await repository.create(initial)
+    if (!created.ok) throw new Error("Expected a created draft")
+    const preview = validPreview(initial, created.record.summary)
+    const initialIdentity = previewIdentity(preview, created.record.summary)
+
+    expect(await repository.getPreviewForSummary(initialIdentity)).toEqual({
+      ok: true,
+      status: "missing",
+    })
+    expect(await repository.putPreview(preview)).toMatchObject({ ok: true })
+    expect(
+      await repository.getPreviewForSummary({
+        ...initialIdentity,
+        rendererRevision: "renderer-v2",
+      })
+    ).toEqual({ ok: true, status: "stale_preview" })
+
+    const alternateSize = fitPageThumbnailSize(
+      {
+        width: created.record.summary.firstPageWidth,
+        height: created.record.summary.firstPageHeight,
+      },
+      { maxWidth: 100, maxHeight: 140 }
+    )
+    expect(
+      await repository.getPreviewForSummary({
+        ...initialIdentity,
+        ...alternateSize,
+      })
+    ).toEqual({ ok: true, status: "stale_preview" })
+
+    const sourceOnly = snapshotWith(initial, {
+      quotationTemplateId: "midnight-film",
+    })
+    const sourceSaved = await repository.save(
+      sourceOnly,
+      created.record.summary.recordVersion,
+      created.record.summary.draftSnapshotId
+    )
+    if (!sourceSaved.ok) throw new Error("Expected a source-only save")
+    expect(await repository.getPreviewForSummary(initialIdentity)).toEqual({
+      ok: false,
+      reason: "stale_head",
+      current: sourceSaved.record.summary,
+    })
+    const refreshedIdentity = previewIdentity(
+      preview,
+      sourceSaved.record.summary
+    )
+    expect(
+      await repository.getPreviewForSummary(refreshedIdentity)
+    ).toMatchObject({ ok: true, status: "ready" })
+
+    const deleted = await repository.softDelete(
+      initial.document.id,
+      sourceSaved.record.summary.recordVersion
+    )
+    if (!deleted.ok) throw new Error("Expected a deleted draft")
+    expect(await repository.getPreviewForSummary(refreshedIdentity)).toEqual({
+      ok: true,
+      status: "not_active",
+    })
+
+    const restored = await repository.restore(
+      initial.document.id,
+      deleted.record.summary.recordVersion
+    )
+    if (!restored.ok) throw new Error("Expected a restored draft")
+    expect(
+      await repository.getPreviewForSummary(
+        previewIdentity(preview, restored.record.summary)
+      )
+    ).toMatchObject({ ok: true, status: "ready" })
+  })
+
+  it("reports malformed stored preview bytes without reading or quarantining the document body", async () => {
+    const initial = snapshot()
+    const { databaseName, repository } = createRepository([
+      "2026-08-28T12:00:00.000Z",
+    ])
+    const created = await repository.create(initial)
+    if (!created.ok) throw new Error("Expected a created draft")
+    const preview = validPreview(initial, created.record.summary)
+    await putStoreValue(databaseName, "draft-previews", {
+      schemaVersion: 1,
+      ...preview,
+      createdAt: "2026-08-28T12:00:10.000Z",
+      byteLength: preview.byteLength + 1,
+    })
+
+    expect(
+      await repository.getPreviewForSummary(
+        previewIdentity(preview, created.record.summary)
+      )
+    ).toEqual({
+      ok: false,
+      reason: "corrupt_preview",
+      failure: {
+        kind: "corrupt_record",
+        message: "The stored document preview could not be decoded.",
+      },
+    })
+    expect(
+      await readStoreValue(databaseName, "draft-body", initial.document.id)
+    ).toBeDefined()
+    expect(await readAllStoreValues(databaseName, "draft-quarantine")).toEqual(
+      []
+    )
+
+    await putStoreValue(databaseName, "draft-previews", {
+      schemaVersion: 1,
+      ...preview,
+      createdAt: "2026-08-28T12:00:20.000Z",
+      height: preview.width,
+    })
+    expect(
+      await repository.getPreviewForSummary(
+        previewIdentity(preview, created.record.summary)
+      )
+    ).toMatchObject({
+      ok: false,
+      reason: "corrupt_preview",
+      failure: {
+        kind: "corrupt_record",
+        message: "The stored document preview dimensions are invalid.",
+      },
+    })
+  })
+
+  it("maps lightweight preview storage failures without throwing", async () => {
+    const initial = snapshot()
+    const { repository: source } = createRepository([
+      "2026-08-28T12:00:00.000Z",
+    ])
+    const created = await source.create(initial)
+    if (!created.ok) throw new Error("Expected a created draft")
+    const preview = validPreview(initial, created.record.summary)
+    const unavailable = new DocumentDraftRepository({
+      indexedDB: {
+        open: () => {
+          throw new DOMException("Storage denied", "SecurityError")
+        },
+      } as unknown as IDBFactory,
+    })
+
+    expect(
+      await unavailable.getPreviewForSummary(
+        previewIdentity(preview, created.record.summary)
+      )
+    ).toMatchObject({
+      ok: false,
+      reason: "storage_unavailable",
+      failure: { kind: "storage_unavailable" },
     })
   })
 

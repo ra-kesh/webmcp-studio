@@ -252,7 +252,7 @@ describe("recent documents model", () => {
     })
   })
 
-  it("preserves complete long names and projects truthful metadata without previews or bodies", () => {
+  it("preserves complete long names and projects exact preview identity without preview state or bodies", () => {
     const longName = "Quarterly campaign proposal ".repeat(14).trim()
     const row = summary("template-doc", {
       name: longName,
@@ -275,6 +275,15 @@ describe("recent documents model", () => {
     }
     expect(model.rows[0]).toMatchObject({
       name: longName,
+      previewIdentity: {
+        documentId: "template-doc",
+        recordVersion: 3,
+        contentSnapshotId: "content-template-doc",
+        documentRevision: 2,
+        pageId: "page-template-doc",
+        pageWidth: 1080,
+        pageHeight: 1920,
+      },
       originLabel: "Template editorial-one-pager, version 6",
       sourceLabel: "Template-backed",
       pageCountLabel: "1 page",
@@ -289,6 +298,8 @@ describe("recent documents model", () => {
       },
     })
     expect(model.rows[0]).not.toHaveProperty("preview")
+    expect(model.rows[0]).not.toHaveProperty("previewUrl")
+    expect(model.rows[0]).not.toHaveProperty("previewState")
     expect(model.rows[0]).not.toHaveProperty("thumbnail")
     expect(model.rows[0]).not.toHaveProperty("body")
     expect(model.rows[0]).not.toHaveProperty("envelope")

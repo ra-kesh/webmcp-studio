@@ -40,39 +40,52 @@ const createCommands = () =>
 const createRow = (
   index = 0,
   overrides: Partial<RecentDocumentRowModel> = {}
-): RecentDocumentRowModel => ({
-  documentId: `document-${index}`,
-  name: index === 0 ? "Northstar proposal" : `Document ${index}`,
-  recordVersion: index + 1,
-  origin: { kind: "blank" },
-  originLabel: "Started blank",
-  sourceKind: null,
-  sourceLabel: "Standalone",
-  pageCount: 3,
-  pageCountLabel: "3 pages",
-  outputCount: 2,
-  outputCountLabel: "2 outputs",
-  firstPageName: "Cover",
-  dimensionsLabel: "1,240 × 1,754 px",
-  exportFormatsLabel: "PNG, PDF",
-  activity: {
-    status: "valid",
-    dateTime: "2026-08-29T00:00:00.000Z",
-    label: "Aug 29, 2026, 5:30 AM",
-  },
-  deletedAt: null,
-  action: { status: "idle" },
-  capabilities: {
-    open: { visible: true, enabled: true },
-    rename: { visible: true, enabled: true },
-    duplicate: { visible: true, enabled: true },
-    download: { visible: true, enabled: true },
-    moveToTrash: { visible: true, enabled: true },
-    restore: { visible: false, enabled: false },
-  },
-  focusRequested: false,
-  ...overrides,
-})
+): RecentDocumentRowModel => {
+  const documentId = overrides.documentId ?? `document-${index}`
+  const recordVersion = overrides.recordVersion ?? index + 1
+  return {
+    documentId,
+    name: index === 0 ? "Northstar proposal" : `Document ${index}`,
+    recordVersion,
+    previewIdentity: {
+      documentId,
+      recordVersion,
+      contentSnapshotId: `content-${documentId}`,
+      documentRevision: index,
+      pageId: `page-${documentId}`,
+      pageWidth: 1240,
+      pageHeight: 1754,
+    },
+    origin: { kind: "blank" },
+    originLabel: "Started blank",
+    sourceKind: null,
+    sourceLabel: "Standalone",
+    pageCount: 3,
+    pageCountLabel: "3 pages",
+    outputCount: 2,
+    outputCountLabel: "2 outputs",
+    firstPageName: "Cover",
+    dimensionsLabel: "1,240 × 1,754 px",
+    exportFormatsLabel: "PNG, PDF",
+    activity: {
+      status: "valid",
+      dateTime: "2026-08-29T00:00:00.000Z",
+      label: "Aug 29, 2026, 5:30 AM",
+    },
+    deletedAt: null,
+    action: { status: "idle" },
+    capabilities: {
+      open: { visible: true, enabled: true },
+      rename: { visible: true, enabled: true },
+      duplicate: { visible: true, enabled: true },
+      download: { visible: true, enabled: true },
+      moveToTrash: { visible: true, enabled: true },
+      restore: { visible: false, enabled: false },
+    },
+    focusRequested: false,
+    ...overrides,
+  }
+}
 
 const createReadyModel = (
   overrides: Partial<Extract<RecentDocumentsModel, { status: "ready" }>> = {}
@@ -195,6 +208,16 @@ describe("RecentDocumentsView", () => {
     expect(props.onOpen).toHaveBeenCalledWith("document-0")
   })
 
+  it("opens a document from its visual preview well", async () => {
+    const props = baseProps()
+    await act(async () => root.render(<RecentDocumentsView {...props} />))
+
+    await act(async () =>
+      buttonWithLabel("Open preview for Northstar proposal")?.click()
+    )
+    expect(props.onOpen).toHaveBeenCalledWith("document-0")
+  })
+
   it("owns one pending exact-ID open and blocks competing library actions", async () => {
     const pending = deferred<boolean>()
     const props = {
@@ -282,10 +305,9 @@ describe("RecentDocumentsView", () => {
     await act(async () => buttonWithLabel("List view")?.click())
     expect(props.commands.setView).toHaveBeenCalledWith("list")
 
-    const tabButtons = [
-      ...document.body.querySelectorAll<HTMLButtonElement>("button"),
-    ]
+    const tabButtons = [...host.querySelectorAll<HTMLButtonElement>("button")]
     const recent = tabButtons.find((button) => button.textContent === "Recent")
+    expect(recent).not.toBeUndefined()
     await act(async () => {
       recent?.focus()
       recent?.dispatchEvent(

@@ -23,6 +23,14 @@ export type StudioPageThumbnailRasterProducerOptions = Readonly<{
   endpoint?: string
 }>
 
+export type ProduceStudioPageThumbnailRasterOptions = Readonly<{
+  key: PageThumbnailRasterKey
+  snapshot: PageThumbnailDocumentSnapshot
+  signal: AbortSignal
+  fetcher?: typeof fetch
+  endpoint?: string
+}>
+
 export class StudioPageThumbnailRasterError extends Error {
   constructor(
     readonly code:
@@ -131,75 +139,95 @@ function exactPositiveIntegerHeader(response: Response, name: string) {
 }
 
 /**
- * Authenticated, renderer-backed raster producer for inactive filmstrip pages.
- * The private renderer proves exact dimensions and resources; this client
- * repeats the response identity checks before the cache may publish a URL.
+ * Produces one renderer-backed raster from the immutable snapshot admitted by
+ * the caller. The operation keeps no active-editor state, so concurrent
+ * document preview jobs cannot read another job's document from a shared
+ * mutable closure.
+ */
+export async function produceStudioPageThumbnailRaster({
+  key,
+  snapshot,
+  signal,
+  fetcher = fetch,
+  endpoint = studioPageThumbnailEndpoint,
+}: ProduceStudioPageThumbnailRasterOptions): Promise<Blob> {
+  const outputId = assertExactSnapshot(key, snapshot)
+  const thumbnailDocument = createPageThumbnailDocument(
+    snapshot.document,
+    key.pageId
+  )
+  if (
+    thumbnailDocument.nodes.some(
+      (node) => node.type === "image" && node.src.startsWith("asset:local/")
+    )
+  ) {
+    throw new StudioPageThumbnailRasterError(
+      "local_asset_requires_live_preview",
+      "Local images use the viewport-bounded live thumbnail renderer."
+    )
+  }
+  const response = await fetcher(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      pageId: key.pageId,
+      size: { width: key.pixelWidth, height: key.pixelHeight },
+      document: thumbnailDocument,
+    }),
+    signal,
+  })
+  if (!response.ok) {
+    throw new StudioPageThumbnailRasterError(
+      "request_failed",
+      `Page thumbnail rendering failed with status ${response.status}.`,
+      responseRetryAfterMs(response)
+    )
+  }
+
+  const width = exactPositiveIntegerHeader(response, "X-Width")
+  const height = exactPositiveIntegerHeader(response, "X-Height")
+  const byteLength = exactPositiveIntegerHeader(response, "X-Bytes")
+  if (
+    response.headers.get("Content-Type")?.split(";", 1)[0] !== "image/png" ||
+    response.headers.get("X-Render-Mode") !== "ephemeral-thumbnail" ||
+    response.headers.get("X-Page-Id") !== key.pageId ||
+    response.headers.get("X-Output-Id") !== outputId ||
+    response.headers.has("X-Render-Key") ||
+    width !== key.pixelWidth ||
+    height !== key.pixelHeight ||
+    byteLength === null
+  ) {
+    throw new StudioPageThumbnailRasterError(
+      "invalid_response",
+      "The thumbnail renderer returned an invalid resource identity."
+    )
+  }
+  const blob = await response.blob()
+  if (blob.type !== "image/png" || blob.size !== byteLength) {
+    throw new StudioPageThumbnailRasterError(
+      "invalid_response",
+      "The thumbnail renderer returned invalid PNG bytes."
+    )
+  }
+  return blob
+}
+
+/**
+ * Active-editor adapter retained for the filmstrip. It reads the current
+ * editor snapshot once per cache job, then delegates to the stateless raster
+ * operation.
  */
 export function createStudioPageThumbnailRasterProducer({
   getSnapshot,
   fetcher = fetch,
   endpoint = studioPageThumbnailEndpoint,
 }: StudioPageThumbnailRasterProducerOptions): PageThumbnailRasterProducer {
-  return async (key, signal) => {
-    const snapshot = getSnapshot()
-    const outputId = assertExactSnapshot(key, snapshot)
-    const thumbnailDocument = createPageThumbnailDocument(
-      snapshot.document,
-      key.pageId
-    )
-    if (
-      thumbnailDocument.nodes.some(
-        (node) => node.type === "image" && node.src.startsWith("asset:local/")
-      )
-    ) {
-      throw new StudioPageThumbnailRasterError(
-        "local_asset_requires_live_preview",
-        "Local images use the viewport-bounded live thumbnail renderer."
-      )
-    }
-    const response = await fetcher(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        pageId: key.pageId,
-        size: { width: key.pixelWidth, height: key.pixelHeight },
-        document: thumbnailDocument,
-      }),
+  return (key, signal) =>
+    produceStudioPageThumbnailRaster({
+      key,
+      snapshot: getSnapshot(),
       signal,
+      fetcher,
+      endpoint,
     })
-    if (!response.ok) {
-      throw new StudioPageThumbnailRasterError(
-        "request_failed",
-        `Page thumbnail rendering failed with status ${response.status}.`,
-        responseRetryAfterMs(response)
-      )
-    }
-
-    const width = exactPositiveIntegerHeader(response, "X-Width")
-    const height = exactPositiveIntegerHeader(response, "X-Height")
-    const byteLength = exactPositiveIntegerHeader(response, "X-Bytes")
-    if (
-      response.headers.get("Content-Type")?.split(";", 1)[0] !== "image/png" ||
-      response.headers.get("X-Render-Mode") !== "ephemeral-thumbnail" ||
-      response.headers.get("X-Page-Id") !== key.pageId ||
-      response.headers.get("X-Output-Id") !== outputId ||
-      response.headers.has("X-Render-Key") ||
-      width !== key.pixelWidth ||
-      height !== key.pixelHeight ||
-      byteLength === null
-    ) {
-      throw new StudioPageThumbnailRasterError(
-        "invalid_response",
-        "The thumbnail renderer returned an invalid resource identity."
-      )
-    }
-    const blob = await response.blob()
-    if (blob.type !== "image/png" || blob.size !== byteLength) {
-      throw new StudioPageThumbnailRasterError(
-        "invalid_response",
-        "The thumbnail renderer returned invalid PNG bytes."
-      )
-    }
-    return blob
-  }
 }

@@ -53,6 +53,7 @@ import { Skeleton } from "@webmcp/ui/components/skeleton"
 import { Tabs, TabsList, TabsTrigger } from "@webmcp/ui/components/tabs"
 import { cn } from "@webmcp/ui/lib/utils"
 import { useStudioPersistence } from "../persistence/studio-persistence-provider"
+import { DocumentPreview } from "./document-preview"
 import type {
   DocumentsCollection,
   DocumentsView,
@@ -116,24 +117,6 @@ function actionFailureLabel(
 ) {
   if (kind === "trash") return "Move to Trash"
   return `${kind.slice(0, 1).toUpperCase()}${kind.slice(1)}`
-}
-
-function DocumentMetadataTile({ row }: { row: RecentDocumentRowModel }) {
-  return (
-    <div className="flex min-h-28 items-center justify-center border-b bg-muted/30 p-5 sm:min-h-32">
-      <div className="flex items-center gap-3 rounded-lg border bg-background px-4 py-3 shadow-xs">
-        <FileText aria-hidden="true" className="size-5 text-muted-foreground" />
-        <span className="flex flex-col gap-0.5">
-          <span className="text-xs font-medium tabular-nums">
-            {row.pageCountLabel}
-          </span>
-          <span className="text-[11px] text-muted-foreground tabular-nums">
-            {row.dimensionsLabel}
-          </span>
-        </span>
-      </div>
-    </div>
-  )
 }
 
 function DocumentActionsMenu({
@@ -306,14 +289,21 @@ function DocumentCard({
       data-document-id={row.documentId}
     >
       {grid ? (
-        <DocumentMetadataTile row={row} />
+        <DocumentPreview
+          identity={row.previewIdentity}
+          openDisabled={openDisabled}
+          openLabel={`Open preview for ${row.name}`}
+          view="grid"
+          onOpen={() => onOpen(row.documentId)}
+        />
       ) : (
-        <div className="grid place-items-center border-r bg-muted/30">
-          <FileText
-            aria-hidden="true"
-            className="size-5 text-muted-foreground"
-          />
-        </div>
+        <DocumentPreview
+          identity={row.previewIdentity}
+          openDisabled={openDisabled}
+          openLabel={`Open preview for ${row.name}`}
+          view="list"
+          onOpen={() => onOpen(row.documentId)}
+        />
       )}
       <div
         className={cn("min-w-0", grid ? "p-4" : "flex items-center gap-3 p-3")}
@@ -376,7 +366,9 @@ function DocumentCard({
       </div>
       {grid ? (
         <div className="flex flex-wrap gap-x-3 gap-y-1 border-t px-4 py-2 text-[11px] text-muted-foreground">
+          <span>{row.pageCountLabel}</span>
           <span>{row.outputCountLabel}</span>
+          <span>{row.dimensionsLabel}</span>
           <span>{row.sourceLabel}</span>
           <span>{row.exportFormatsLabel}</span>
         </div>

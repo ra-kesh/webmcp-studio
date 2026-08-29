@@ -10,6 +10,7 @@ import { filmstripThumbnailRasterSize } from "./page-filmstrip"
 import {
   createStudioPageThumbnailRasterProducer,
   pageThumbnailRasterRetryDelay,
+  produceStudioPageThumbnailRaster,
 } from "./page-thumbnail-raster-producer"
 import type { PageThumbnailRasterKey } from "./page-thumbnail-raster-cache"
 
@@ -53,6 +54,72 @@ function thumbnailResponse(
 }
 
 describe("Studio page thumbnail raster producer", () => {
+  it("renders concurrent immutable snapshots without shared active-editor state", async () => {
+    const secondDocument = {
+      ...fixture.document,
+      id: "document-second-preview",
+      name: "Second preview document",
+    }
+    const firstKey = key()
+    const secondKey = key({
+      documentId: secondDocument.id,
+      documentSnapshotId: "snapshot-2",
+    })
+    const bodies: Array<{ document: { id: string; name: string } }> = []
+    const fetcher = vi.fn<
+      (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+    >(async (_input, init) => {
+      bodies.push(JSON.parse(String(init?.body)))
+      return thumbnailResponse(bodies.length === 1 ? firstKey : secondKey)
+    })
+    const firstController = new AbortController()
+    const secondController = new AbortController()
+
+    await Promise.all([
+      produceStudioPageThumbnailRaster({
+        key: firstKey,
+        snapshot: {
+          document: fixture.document,
+          snapshotId: "snapshot-1",
+        },
+        signal: firstController.signal,
+        fetcher,
+        endpoint: "/thumbnail-test",
+      }),
+      produceStudioPageThumbnailRaster({
+        key: secondKey,
+        snapshot: {
+          document: secondDocument,
+          snapshotId: "snapshot-2",
+        },
+        signal: secondController.signal,
+        fetcher,
+        endpoint: "/thumbnail-test",
+      }),
+    ])
+
+    expect(fetcher).toHaveBeenNthCalledWith(
+      1,
+      "/thumbnail-test",
+      expect.objectContaining({ signal: firstController.signal })
+    )
+    expect(fetcher).toHaveBeenNthCalledWith(
+      2,
+      "/thumbnail-test",
+      expect.objectContaining({ signal: secondController.signal })
+    )
+    expect(bodies.map(({ document }) => document)).toEqual([
+      expect.objectContaining({
+        id: fixture.document.id,
+        name: fixture.document.name,
+      }),
+      expect.objectContaining({
+        id: secondDocument.id,
+        name: secondDocument.name,
+      }),
+    ])
+  })
+
   it("accepts the exact 2x portrait filmstrip raster through the HTTP contract", async () => {
     const page = northstarSeed.pages.find(
       (candidate) => candidate.id === "cover"
