@@ -1682,7 +1682,7 @@ Status: **completed and independently accepted for the WEBMCP-01C boundary**
 
 ## 2026-08-29 — Cross-browser quotation content drift audit
 
-Status: **cause and affected areas recorded; no remediation or sequencing decision**
+Status: **cause recorded; prevention boundary implemented**
 
 - Two browsers exposed separate persisted revisions of the same quotation ID:
   one flat document and one grouped document. This is persisted content drift,
@@ -1690,7 +1690,24 @@ Status: **cause and affected areas recorded; no remediation or sequencing decisi
 - `quotation-content-drift-audit.md` records the confirmed missing composition
   identity, unchanged version claims, current-composer materialization,
   permissive empty-group default, and the affected document/template/source/
-  local-asset areas. It deliberately makes no implementation recommendation.
+  local-asset areas.
+- Promoted the active quotation composer and all three active quotation styles
+  to version 2 while preserving version 1 as retired historical identities.
+  Retired identities remain available for validating persisted references but
+  are excluded from the catalog and cannot silently invoke composer 2.
+- Added deterministic canonical SHA-256 source identity for future provenance.
+  Ordinary reads do not enrich or rewrite legacy source contexts, protecting
+  exact persisted body/summary verification.
+- The independent architecture review accepted the separation of source,
+  composition, and appearance identity and required any legacy group repair to
+  remain explicit, group-only, and undoable.
+- Document template/composer tests pass **15/15**, Studio template lifecycle and
+  catalog tests pass **13/13**, and both affected package typechecks pass.
+
+Next boundary:
+
+- Persist known composition identity for new quotation flows, then add the
+  explicit group-only legacy organization upgrade with exact Undo and reload.
 
 ## 2026-08-29 — Durable Review provenance and history (REVIEW-02)
 

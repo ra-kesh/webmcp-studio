@@ -5,6 +5,8 @@ import {
   type QuotationRenderPayloadV1,
 } from "./quotation-contract"
 
+export const QUOTATION_COMPOSER_VERSION = 2
+
 const PAGE_WIDTH = 1240
 const PAGE_HEIGHT = 1754
 const PAGE_MARGIN = 92

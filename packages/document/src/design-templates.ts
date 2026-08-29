@@ -1,5 +1,8 @@
 import { z } from "zod"
-import { composeQuotationDocument } from "./quotation-composer"
+import {
+  composeQuotationDocument,
+  QUOTATION_COMPOSER_VERSION,
+} from "./quotation-composer"
 import type { QuotationTemplateId } from "./quotation-composer"
 import type { QuotationRenderPayloadV1 } from "./quotation-contract"
 import { documentSchema } from "./schema"
@@ -24,6 +27,7 @@ const designTemplateCommonSchema = z.object({
   tags: z.array(z.string().min(1)).min(1),
   createdAt: z.string().datetime(),
   source: designTemplateSourceSchema,
+  catalogStatus: z.enum(["active", "retired"]).optional(),
 })
 
 export const documentStarterTemplateSchema = designTemplateCommonSchema
@@ -310,12 +314,19 @@ export class DesignTemplateRepository {
 
   list(query: DesignTemplateQuery = {}): DesignTemplateCatalogItem[] {
     return this.#definitions
+      .filter((definition) => definition.catalogStatus !== "retired")
       .filter((definition) => matchesQuery(definition, query))
       .map((definition) => this.#catalogItem(definition))
   }
 
   categories() {
-    return [...new Set(this.#definitions.map((item) => item.category))]
+    return [
+      ...new Set(
+        this.#definitions
+          .filter((item) => item.catalogStatus !== "retired")
+          .map((item) => item.category)
+      ),
+    ]
   }
 
   get(id: string, version?: number) {
@@ -357,6 +368,11 @@ export class DesignTemplateRepository {
         `Unsupported quotation template: ${definition.quotationTemplateId}`
       )
     }
+    if (definition.composerVersion !== QUOTATION_COMPOSER_VERSION) {
+      throw new Error(
+        `Template ${definition.id}@${definition.version} requires retired quotation composer ${definition.composerVersion}; use a current template version or explicitly upgrade the saved document.`
+      )
+    }
     const document = composeQuotationDocument(
       options.quotation,
       definition.quotationTemplateId
@@ -369,6 +385,14 @@ export class DesignTemplateRepository {
   #catalogItem(
     definition: DesignTemplateDefinition
   ): DesignTemplateCatalogItem {
+    if (
+      definition.kind === "quotation_style" &&
+      definition.composerVersion !== QUOTATION_COMPOSER_VERSION
+    ) {
+      throw new Error(
+        `Retired quotation template ${definition.id}@${definition.version} cannot be projected into the active catalog.`
+      )
+    }
     const previewDocument =
       definition.kind === "document_starter"
         ? definition.document

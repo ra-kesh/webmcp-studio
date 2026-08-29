@@ -2,7 +2,7 @@
 
 Date: 2026-08-29
 
-Status: confirmed cause and affected-area record only
+Status: prevention boundary implemented; legacy upgrade remains open
 
 ## Cause
 
@@ -34,4 +34,53 @@ Status: confirmed cause and affected-area record only
 - Any future document feature introduced through permissive schema defaults
   without a separate content-migration decision.
 
-This audit does not decide remediation design, sequencing, or migration policy.
+## Accepted remediation invariants
+
+- Source identity, composition identity, and appearance identity are separate.
+- A legacy source context stays legacy on read. Decoding must not add metadata,
+  because the draft repository verifies the exact persisted body and summary
+  identities before admitting a record.
+- An empty group list is not evidence that a quotation is safe to migrate. The
+  user may have deliberately ungrouped the document.
+- Historical quotation template `@1` remains a resolvable persisted identity,
+  but it must never be materialized through the current composer.
+- A legacy layer-organization upgrade must be explicit, group-only, undoable,
+  and blocked whenever node/page membership is ambiguous.
+- Published versions are immutable. Only a draft can receive a content
+  upgrade and then be published as a new version.
+
+These invariants were checked independently against the draft admission,
+template lifecycle, document schema, composer, and repository code. Loora's
+explicit version/provenance boundary is the architectural reference; no Loora
+code is imported.
+
+## Prevention boundary — completed 2026-08-29
+
+- The active quotation composer now has an explicit version, `2`.
+- The three current quotation styles are immutable template version `2` values
+  declaring composer `2`.
+- Historical template version `1` definitions remain available for validating
+  saved references, are retired from the catalog, and fail explicitly if code
+  attempts to materialize them without the unavailable historical composer.
+- Catalog previews and new materialization can no longer silently use a
+  composer different from the template's declared composer.
+- Quotation source content now has a deterministic canonical SHA-256 identity;
+  object key order does not affect it and a source revision change does.
+- Existing source contexts and document bytes are not rewritten by this
+  boundary.
+
+Focused evidence: document template/composer tests pass 15/15, Studio template
+lifecycle/catalog tests pass 13/13, and both affected package typechecks pass.
+
+## Remaining quotation migration boundary
+
+- Persist exact known source/composition identity for every new quotation,
+  import, and demo creation path while continuing to admit legacy wire data
+  unchanged.
+- Add a pure, non-mutating eligibility analyzer for the legacy group-only
+  upgrade.
+- Surface an explicit "Layer organization update available" action, commit the
+  safe group-only change through normal history and persistence, and prove exact
+  undo/reload behavior.
+- Define later Stuwiz source reconciliation and shared asset persistence. These
+  are not implied by composition provenance.

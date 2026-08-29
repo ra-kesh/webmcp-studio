@@ -298,6 +298,35 @@ export const quotationRenderPayloadV1Schema = z
   })
   .strict()
 
+const canonicalSourceValue = (value: unknown): string => {
+  if (value === null || typeof value !== "object") return JSON.stringify(value)
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalSourceValue).join(",")}]`
+  }
+  return `{${Object.entries(value as Record<string, unknown>)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(
+      ([key, child]) => `${JSON.stringify(key)}:${canonicalSourceValue(child)}`
+    )
+    .join(",")}}`
+}
+
+export async function quotationSourceFingerprint(
+  input: QuotationRenderPayloadV1
+) {
+  const canonical = canonicalSourceValue(
+    quotationRenderPayloadV1Schema.parse(input)
+  )
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(canonical)
+  )
+  const hex = Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("")
+  return `sha256-${hex}`
+}
+
 export const quotationCompositionRequestV1Schema = z
   .object({
     contractVersion: z.literal(1),

@@ -3,6 +3,7 @@ import {
   type DesignTemplateDefinition,
 } from "./design-templates"
 import { northstarQuotationPayload } from "./quotation-fixture"
+import { QUOTATION_COMPOSER_VERSION } from "./quotation-composer"
 import { documentSchema, type Document, type SceneNode } from "./schema"
 
 const createdAt = "2026-08-27T00:00:00.000Z"
@@ -383,16 +384,29 @@ export const builtInDesignTemplateDefinitions: DesignTemplateDefinition[] = [
         quotationTemplateId: "midnight-film",
       },
     ] as const
-  ).map((template): DesignTemplateDefinition => ({
-    schemaVersion: 1,
-    version: 1,
-    kind: "quotation_style",
-    composerVersion: 1,
-    createdAt,
-    source: { name: "Studio originals", license: "Internal" },
-    ...template,
-    tags: [...template.tags],
-  })),
+  ).flatMap((template): DesignTemplateDefinition[] => [
+    {
+      schemaVersion: 1,
+      version: 2,
+      kind: "quotation_style",
+      composerVersion: QUOTATION_COMPOSER_VERSION,
+      createdAt: "2026-08-29T00:00:00.000Z",
+      source: { name: "Studio originals", license: "Internal" },
+      ...template,
+      tags: [...template.tags],
+    },
+    {
+      schemaVersion: 1,
+      version: 1,
+      kind: "quotation_style",
+      composerVersion: 1,
+      catalogStatus: "retired",
+      createdAt,
+      source: { name: "Studio originals", license: "Internal" },
+      ...template,
+      tags: [...template.tags],
+    },
+  ]),
 ]
 
 export const builtInDesignTemplateRepository = new DesignTemplateRepository(

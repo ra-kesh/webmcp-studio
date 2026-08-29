@@ -5,6 +5,8 @@ import {
   DesignTemplateRepository,
   designTemplateDefinitionSchema,
   northstarQuotationPayload,
+  QUOTATION_COMPOSER_VERSION,
+  quotationSourceFingerprint,
   templateApplicationImpact,
   validateDocument,
 } from "../src"
@@ -19,6 +21,15 @@ describe("design template repository", () => {
       "Midnight Film",
       "Warm Paper",
       "Bold square announcement",
+    ])
+    expect(
+      items
+        .filter((item) => item.kind === "quotation_style")
+        .map((item) => [item.version, item.composerVersion])
+    ).toEqual([
+      [2, QUOTATION_COMPOSER_VERSION],
+      [2, QUOTATION_COMPOSER_VERSION],
+      [2, QUOTATION_COMPOSER_VERSION],
     ])
     expect(builtInDesignTemplateRepository.categories()).toEqual([
       "Documents",
@@ -80,21 +91,56 @@ describe("design template repository", () => {
 
   it("requires source data for quotation styles and supports canonical apply identity", () => {
     expect(() =>
-      builtInDesignTemplateRepository.materialize("quotation-midnight-film", 1)
+      builtInDesignTemplateRepository.materialize("quotation-midnight-film", 2)
     ).toThrow("requires quotation source data")
     const canonical = builtInDesignTemplateRepository.materialize(
       "quotation-midnight-film",
-      1,
+      2,
       { quotation: northstarQuotationPayload, identity: "canonical" }
     )
     const fresh = builtInDesignTemplateRepository.materialize(
       "quotation-midnight-film",
-      1,
+      2,
       { quotation: northstarQuotationPayload }
     )
     expect(canonical.pages[0]?.id).toBe("quotation-page-1")
     expect(fresh.pages[0]?.id).not.toBe(canonical.pages[0]?.id)
     expect(canonical.pages).toHaveLength(6)
+  })
+
+  it("retains legacy identity without silently invoking the current composer", () => {
+    expect(
+      builtInDesignTemplateRepository.get("quotation-editorial-olive", 1)
+    ).toMatchObject({
+      version: 1,
+      composerVersion: 1,
+      catalogStatus: "retired",
+    })
+    expect(() =>
+      builtInDesignTemplateRepository.materialize(
+        "quotation-editorial-olive",
+        1,
+        { quotation: northstarQuotationPayload }
+      )
+    ).toThrow("requires retired quotation composer 1")
+  })
+
+  it("fingerprints canonical source content independent of object key order", async () => {
+    const reordered = Object.fromEntries(
+      Object.entries(northstarQuotationPayload).reverse()
+    ) as typeof northstarQuotationPayload
+    expect(await quotationSourceFingerprint(reordered)).toBe(
+      await quotationSourceFingerprint(northstarQuotationPayload)
+    )
+    expect(
+      await quotationSourceFingerprint({
+        ...northstarQuotationPayload,
+        source: {
+          ...northstarQuotationPayload.source,
+          revision: northstarQuotationPayload.source.revision + 1,
+        },
+      })
+    ).not.toBe(await quotationSourceFingerprint(northstarQuotationPayload))
   })
 
   it("rejects duplicate versions and aggregate-invalid starter snapshots", () => {
@@ -128,7 +174,7 @@ describe("template application impact", () => {
   it("reports structural and source-link transitions before replacement", () => {
     const current = builtInDesignTemplateRepository.materialize(
       "quotation-editorial-olive",
-      1,
+      2,
       { quotation: northstarQuotationPayload, identity: "canonical" }
     )
     const next = builtInDesignTemplateRepository.materialize(

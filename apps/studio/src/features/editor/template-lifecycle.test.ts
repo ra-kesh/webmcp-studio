@@ -86,7 +86,7 @@ describe("design-template lifecycle", () => {
     const mutation = prepareApplyTemplate({
       repository: builtInDesignTemplateRepository,
       templateId: "quotation-midnight-film",
-      version: 1,
+      version: 2,
       currentDocument: edited,
       sourceContext: linkedContext,
       now: "2026-08-28T12:00:00.000Z",
@@ -103,7 +103,7 @@ describe("design-template lifecycle", () => {
     expect(mutation.sourceContext.quotationTemplateId).toBe("midnight-film")
     expect(mutation.sourceContext.designTemplate).toEqual({
       id: "quotation-midnight-film",
-      version: 1,
+      version: 2,
     })
     expect(mutation.impact.disconnectsQuotationSource).toBe(false)
     expect(mutation.impact.rebuildsFromQuotationSource).toBe(false)
@@ -114,7 +114,7 @@ describe("design-template lifecycle", () => {
       prepareCreateFromTemplate({
         repository: builtInDesignTemplateRepository,
         templateId: "quotation-warm-paper",
-        version: 1,
+        version: 2,
         currentDocument: quotationStarter.document,
         sourceContext: {
           quotationSource: null,
