@@ -2129,3 +2129,31 @@ Status: **implemented locally and independently accepted; broader FAIL-01 remain
 - Independent review accepted the final bounded diff with no remaining P0/P1
   after the cancelling-ownership, ephemeral-artifact, admission-settlement,
   and audit-truthfulness repairs.
+
+## 2026-08-29 — Renderer execution deadline (FAIL-01B)
+
+Status: **implemented locally and independently accepted; broader FAIL-01 remains open**
+
+- Reread the FAIL-01 audit and the actual Loora/OpenPencil deadline patterns
+  before editing. Loora's bare race is suitable for readiness it does not own;
+  it is not used to release a Browser/R2 request early.
+- PNG, PDF, and thumbnail rendering now compose caller cancellation with a
+  45-second server deadline. Stalled page work closes Browser once and returns
+  a stable retryable 504 only after owned cleanup acknowledges abort.
+- Browser acquisition/connection uses one signal-forwarding BrowserWorker
+  proxy and the minimum 10-second idle keep-alive, including the thumbnail path.
+- Persistent R2 put remains non-abortable. If it crosses the deadline, Renderer
+  retains ownership, waits for settlement, deletes the late artifact, and then
+  returns 504; Studio cannot release its admission lease while work continues.
+- The contract is explicitly cooperative: the deadline prevents late success
+  but does not claim a hard 45-second response when a platform primitive itself
+  never settles.
+- Renderer tests cover stalled acquisition, all three page paths, and the R2
+  ownership race. The Worker boundary passes 35/35; the complete Renderer
+  package passes 63/63; Renderer typecheck passes. The independent verdict is
+  still pending.
+- `fail-01b-renderer-execution-deadline.md` records the exact gate and remaining
+  boundary work.
+- Independent review accepted the final bounded diff with no remaining P0/P1
+  after rejecting and rechecking early-response admission ownership, Browser
+  acquisition cancellation, thumbnail lifecycle reuse, and evidence wording.

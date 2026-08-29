@@ -1,4 +1,9 @@
-import { launch, type Browser, type Page } from "@cloudflare/playwright"
+import {
+  launch,
+  type Browser,
+  type BrowserWorker,
+  type Page,
+} from "@cloudflare/playwright"
 import {
   assertPageThumbnailSize,
   assertRenderImageResourceAdmission,
@@ -85,6 +90,7 @@ const pdfRenderRequestSchema = z
 
 const MAX_RENDER_REQUEST_BYTES = 8_000_000
 const RESOURCE_READINESS_TIMEOUT_MS = 30_000
+const RENDER_DEADLINE_MS = 45_000
 
 type RenderResourceErrorCode =
   | "image_decode_failed"
@@ -404,6 +410,45 @@ async function rendererJson(
   }
 }
 
+function renderDeadlineResponse(timeoutMs: number) {
+  return Response.json(
+    {
+      error: "render_deadline_exceeded",
+      code: "render_deadline_exceeded",
+      message: "Renderer exceeded its execution deadline",
+      retryable: true,
+      timeoutMs,
+    },
+    {
+      status: 504,
+      headers: {
+        "Cache-Control": "no-store",
+        "Retry-After": "1",
+        "X-Render-Deadline-Ms": String(timeoutMs),
+      },
+    }
+  )
+}
+
+async function withRenderDeadline(
+  request: Request,
+  timeoutMs: number,
+  render: (boundedRequest: Request) => Promise<Response>
+): Promise<Response> {
+  request.signal.throwIfAborted()
+  const deadlineSignal = AbortSignal.timeout(timeoutMs)
+  const signal = AbortSignal.any([request.signal, deadlineSignal])
+  const boundedRequest = new Request(request, { signal })
+
+  try {
+    return await render(boundedRequest)
+  } catch (error) {
+    if (request.signal.aborted) request.signal.throwIfAborted()
+    if (deadlineSignal.aborted) return renderDeadlineResponse(timeoutMs)
+    throw error
+  }
+}
+
 async function withAbortableBrowser<T>(
   request: Request,
   env: Env,
@@ -412,7 +457,9 @@ async function withAbortableBrowser<T>(
   request.signal.throwIfAborted()
   let browser: Browser
   try {
-    browser = await launch(env.BROWSER)
+    browser = await launch(abortableBrowserEndpoint(request, env), {
+      keep_alive: 10_000,
+    })
   } catch (error) {
     request.signal.throwIfAborted()
     throw error
@@ -441,6 +488,21 @@ async function withAbortableBrowser<T>(
       request.signal.throwIfAborted()
       throw error
     }
+  }
+}
+
+function abortableBrowserEndpoint(request: Request, env: Env): BrowserWorker {
+  return {
+    fetch: (input, init) => {
+      const inputSignal = input instanceof Request ? input.signal : undefined
+      const initSignal = init?.signal
+      const signals = [request.signal, inputSignal, initSignal].filter(
+        (signal): signal is AbortSignal => signal !== undefined
+      )
+      const signal =
+        signals.length === 1 ? signals[0] : AbortSignal.any(signals)
+      return env.BROWSER.fetch(new Request(input, { ...init, signal }))
+    },
   }
 }
 
@@ -686,21 +748,11 @@ async function handleThumbnailRender(
     throw error
   }
 
-  request.signal.throwIfAborted()
-  const browser = await launch(env.BROWSER)
-  let closePromise: Promise<void> | undefined
-  const closeBrowser = () => {
-    closePromise ??= browser.close()
-    return closePromise
-  }
-  const abortBrowser = () => {
-    void closeBrowser().catch(() => undefined)
-  }
-  request.signal.addEventListener("abort", abortBrowser, { once: true })
-  try {
-    request.signal.throwIfAborted()
+  return withAbortableBrowser(request, env, async (browser) => {
     const browserPage = await browser.newPage()
+    request.signal.throwIfAborted()
     await browserPage.setViewportSize(parsed.data.size)
+    request.signal.throwIfAborted()
     await browserPage.setContent(
       renderDocumentThumbnailToHtml(
         parsed.data.document,
@@ -767,10 +819,7 @@ async function handleThumbnailRender(
         "X-Width": String(dimensions.width),
       },
     })
-  } finally {
-    request.signal.removeEventListener("abort", abortBrowser)
-    await closeBrowser()
-  }
+  })
 }
 
 async function handlePdfRender(request: Request, env: Env): Promise<Response> {
@@ -919,24 +968,34 @@ async function handlePdfRender(request: Request, env: Env): Promise<Response> {
   })
 }
 
-export default {
-  async fetch(request, env): Promise<Response> {
-    const url = new URL(request.url)
-    if (request.method === "GET" && url.pathname === "/health") {
-      return Response.json({ ok: true, service: "renderer" })
-    }
-    if (request.method === "POST" && url.pathname === "/render") {
-      return handleRender(request, env)
-    }
-    if (request.method === "POST" && url.pathname === "/render/thumbnail") {
-      return handleThumbnailRender(request, env)
-    }
-    if (request.method === "POST" && url.pathname === "/render/pdf") {
-      return handlePdfRender(request, env)
-    }
-    return Response.json({ error: "not_found" }, { status: 404 })
-  },
-} satisfies ExportedHandler<Env>
+export function createRendererWorker(renderDeadlineMs = RENDER_DEADLINE_MS) {
+  return {
+    async fetch(request: Request, env: Env): Promise<Response> {
+      const url = new URL(request.url)
+      if (request.method === "GET" && url.pathname === "/health") {
+        return Response.json({ ok: true, service: "renderer" })
+      }
+      if (request.method === "POST" && url.pathname === "/render") {
+        return withRenderDeadline(request, renderDeadlineMs, (boundedRequest) =>
+          handleRender(boundedRequest, env)
+        )
+      }
+      if (request.method === "POST" && url.pathname === "/render/thumbnail") {
+        return withRenderDeadline(request, renderDeadlineMs, (boundedRequest) =>
+          handleThumbnailRender(boundedRequest, env)
+        )
+      }
+      if (request.method === "POST" && url.pathname === "/render/pdf") {
+        return withRenderDeadline(request, renderDeadlineMs, (boundedRequest) =>
+          handlePdfRender(boundedRequest, env)
+        )
+      }
+      return Response.json({ error: "not_found" }, { status: 404 })
+    },
+  } satisfies ExportedHandler<Env>
+}
+
+export default createRendererWorker()
 
 export {
   renderDocumentThumbnailToHtml,

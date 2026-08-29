@@ -1104,6 +1104,159 @@ describe("renderer Worker", () => {
     }
   )
 
+  it.each([
+    ["PNG", "/render", { pageId: "cover" }],
+    ["PDF", "/render/pdf", {}],
+    [
+      "thumbnail",
+      "/render/thumbnail",
+      { pageId: "cover", size: { width: 124, height: 175 } },
+    ],
+  ] as const)(
+    "closes Browser and returns a stable deadline when %s page setup stalls",
+    async (_format, path, requestFields) => {
+      const { createRendererWorker } = await import("../src/index")
+      const worker = createRendererWorker(50)
+      const setup = deferred<undefined>()
+      const browserPage = successfulBrowserPage([37, 80, 68, 70])
+      browserPage.setContent.mockImplementation(() => setup.promise)
+      const close = vi.fn(async () => setup.reject(new Error("Browser closed")))
+      vi.mocked(launch).mockResolvedValue({
+        newPage: vi.fn(async () => browserPage),
+        close,
+      } as never)
+      const rendering = worker.fetch(
+        new Request(`https://renderer.internal${path}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            renderId: `deadline-${_format.toLowerCase()}`,
+            outputId: "proposal",
+            document: northstarSeed,
+            expectedImageResources: [],
+            ...requestFields,
+          }),
+        }) as never,
+        {
+          BROWSER: {},
+          RENDERS: { put: vi.fn(), get: vi.fn(), delete: vi.fn() },
+        } as unknown as Env
+      )
+
+      const response = await rendering
+      expect(response.status).toBe(504)
+      expect(response.headers.get("Cache-Control")).toBe("no-store")
+      expect(response.headers.get("Retry-After")).toBe("1")
+      expect(response.headers.get("X-Render-Deadline-Ms")).toBe("50")
+      await expect(response.json()).resolves.toEqual({
+        error: "render_deadline_exceeded",
+        code: "render_deadline_exceeded",
+        message: "Renderer exceeded its execution deadline",
+        retryable: true,
+        timeoutMs: 50,
+      })
+      expect(close).toHaveBeenCalledOnce()
+      expect(browserPage.screenshot).not.toHaveBeenCalled()
+      expect(browserPage.pdf).not.toHaveBeenCalled()
+    }
+  )
+
+  it("passes the deadline signal into Browser acquisition and bounds an orphan session", async () => {
+    const { createRendererWorker } = await import("../src/index")
+    const worker = createRendererWorker(50)
+    let acquireSignal: AbortSignal | undefined
+    const browserFetch = vi.fn((input: RequestInfo | URL) => {
+      const browserRequest = input as Request
+      acquireSignal = browserRequest.signal
+      return new Promise<Response>((_resolve, reject) => {
+        browserRequest.signal.addEventListener(
+          "abort",
+          () => reject(browserRequest.signal.reason),
+          { once: true }
+        )
+      })
+    })
+    vi.mocked(launch).mockImplementation(async (endpoint, options) => {
+      expect(options).toMatchObject({ keep_alive: 10_000 })
+      await (endpoint as { fetch: typeof fetch }).fetch(
+        "https://browser.internal/v1/devtools/browser",
+        { method: "POST" }
+      )
+      throw new Error("Browser acquisition unexpectedly resolved")
+    })
+
+    const response = await worker.fetch(
+      new Request("https://renderer.internal/render", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          renderId: "deadline-browser-acquire",
+          outputId: "proposal",
+          pageId: "cover",
+          document: northstarSeed,
+          expectedImageResources: [],
+        }),
+      }),
+      {
+        BROWSER: { fetch: browserFetch },
+        RENDERS: { put: vi.fn(), get: vi.fn(), delete: vi.fn() },
+      } as unknown as Env
+    )
+
+    expect(response.status).toBe(504)
+    expect(acquireSignal?.aborted).toBe(true)
+    expect(acquireSignal?.reason).toMatchObject({ name: "TimeoutError" })
+    expect(browserFetch).toHaveBeenCalledOnce()
+  })
+
+  it("waits for a timed-out persistent put to settle and removes it before returning", async () => {
+    const { createRendererWorker } = await import("../src/index")
+    const worker = createRendererWorker(50)
+    const pdfBytes = [37, 80, 68, 70]
+    const browserPage = successfulBrowserPage(pdfBytes)
+    const close = vi.fn(async () => undefined)
+    vi.mocked(launch).mockResolvedValue({
+      newPage: vi.fn(async () => browserPage),
+      close,
+    } as never)
+    const stored = deferred<{ size: number; etag: string }>()
+    const put = vi.fn(() => stored.promise)
+    const get = vi.fn()
+    const remove = vi.fn(async () => undefined)
+    const rendering = worker.fetch(
+      new Request("https://renderer.internal/render/pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          renderId: "deadline-r2-put",
+          outputId: "proposal",
+          document: northstarSeed,
+          expectedImageResources: [],
+        }),
+      }) as never,
+      {
+        BROWSER: {},
+        RENDERS: { put, get, delete: remove },
+      } as unknown as Env
+    )
+
+    await vi.waitFor(() => expect(put).toHaveBeenCalledOnce())
+    let finished = false
+    void rendering.then(() => {
+      finished = true
+    })
+    await new Promise((resolve) => setTimeout(resolve, 75))
+    expect(finished).toBe(false)
+
+    stored.resolve({ size: pdfBytes.length, etag: "late-artifact" })
+    const response = await rendering
+
+    expect(response.status).toBe(504)
+    expect(remove).toHaveBeenCalledWith("deadline-r2-put/proposal.pdf")
+    expect(get).not.toHaveBeenCalled()
+    expect(close).toHaveBeenCalledOnce()
+  })
+
   it("cancels a loaded artifact body and removes it when PDF download is abandoned", async () => {
     const { default: worker } = await import("../src/index")
     const pdfBytes = Uint8Array.from([37, 80, 68, 70])
