@@ -183,6 +183,9 @@ import {
   restorePublishedVersions,
 } from "./published-version-state"
 
+export const DOCUMENT_TRANSITION_DISABLED_REASON =
+  "Wait for the new document to finish opening before editing this one."
+
 const PUBLISHED_STORAGE_KEY = "webmcp-studio:published-versions:v1"
 
 const decodeValidatedImageDimensions = async (file: Blob) => {
@@ -580,6 +583,7 @@ export function useDocumentEditor({
   )
   const sessionGenerationRef = useRef(0)
   const sessionTransitionSequenceRef = useRef(0)
+  const separateDocumentTransitionRef = useRef(false)
   const activeSessionTransitionRef = useRef<SessionTransition | null>(null)
   const settlingPersistenceSessionRef = useRef<{
     session: ActivePersistenceSession
@@ -2925,30 +2929,44 @@ export function useDocumentEditor({
     []
   )
 
-  const allowMutation = useCallback((allowActiveImageCrop = false) => {
-    const recovery = conflictRecoveryStateRef.current
-    if (
-      recovery.status !== "inactive" &&
-      recovery.status !== "external_change"
-    ) {
-      setDocumentError(
-        "Resolve the saved-version conflict before editing this document."
-      )
+  const allowMutation = useCallback(
+    (allowActiveImageCrop = false, allowSeparateDocumentTransition = false) => {
+      if (
+        separateDocumentTransitionRef.current &&
+        !allowSeparateDocumentTransition
+      ) {
+        setDocumentError(DOCUMENT_TRANSITION_DISABLED_REASON)
+        return false
+      }
+      const recovery = conflictRecoveryStateRef.current
+      if (
+        recovery.status !== "inactive" &&
+        recovery.status !== "external_change"
+      ) {
+        setDocumentError(
+          "Resolve the saved-version conflict before editing this document."
+        )
+        return false
+      }
+      if (draftRecoveryRef.current) {
+        setDocumentError(
+          "Resolve the unreadable local draft before editing this document."
+        )
+        return false
+      }
+      if (imageCropSessionRef.current && !allowActiveImageCrop) {
+        setDocumentError("Finish or cancel the active image crop first.")
+        return false
+      }
+      if (!pendingChangeSetRef.current) return true
+      setChangeSetError("Resolve or discard the preview before editing.")
       return false
-    }
-    if (draftRecoveryRef.current) {
-      setDocumentError(
-        "Resolve the unreadable local draft before editing this document."
-      )
-      return false
-    }
-    if (imageCropSessionRef.current && !allowActiveImageCrop) {
-      setDocumentError("Finish or cancel the active image crop first.")
-      return false
-    }
-    if (!pendingChangeSetRef.current) return true
-    setChangeSetError("Resolve or discard the preview before editing.")
-    return false
+    },
+    []
+  )
+
+  const setSeparateDocumentTransition = useCallback((active: boolean) => {
+    separateDocumentTransitionRef.current = active
   }, [])
 
   const commit = useCallback(
@@ -3341,6 +3359,9 @@ export function useDocumentEditor({
 
   const proposeChangeSet = useCallback(
     (changeSetInput: ChangeSet, provenanceInput?: ReviewProposalProvenance) => {
+      if (separateDocumentTransitionRef.current) {
+        throw new Error(DOCUMENT_TRANSITION_DISABLED_REASON)
+      }
       if (draftRecoveryRef.current) {
         throw new Error(
           "Resolve the unreadable local draft before proposing changes."
@@ -3506,6 +3527,10 @@ export function useDocumentEditor({
   }, [captureSettledDraft, notifyHistoryCommit, projectReviewJournal])
 
   const publishTemplate = useCallback(async () => {
+    if (separateDocumentTransitionRef.current) {
+      setPublishError(DOCUMENT_TRANSITION_DISABLED_REASON)
+      throw new Error(DOCUMENT_TRANSITION_DISABLED_REASON)
+    }
     if (draftRecoveryRef.current) {
       const message =
         "Resolve the unreadable local draft before publishing this document."
@@ -5240,7 +5265,7 @@ export function useDocumentEditor({
 
   const createDocumentFromTemplate = useCallback(
     async (templateId: string, version: number) => {
-      if (!allowMutation()) return false
+      if (!allowMutation(false, true)) return false
       try {
         const mutation = prepareCreateFromTemplate({
           repository: builtInDesignTemplateRepository,
@@ -5338,7 +5363,7 @@ export function useDocumentEditor({
 
   const createBlankDocument = useCallback(
     async (input: NewDocumentInput) => {
-      if (!allowMutation()) return false
+      if (!allowMutation(false, true)) return false
       const validation = validateNewDocumentOptions(input)
       if (!validation.ok) {
         setDocumentError(
@@ -5402,7 +5427,7 @@ export function useDocumentEditor({
   )
 
   const restoreDemoDocument = useCallback(async () => {
-    if (!allowMutation()) return false
+    if (!allowMutation(false, true)) return false
     const document = cloneTemplateDocument(quotationStarter.document)
     const sourceContext: TemplateSourceContext = {
       quotationSource: quotationStarter.source,
@@ -5782,6 +5807,7 @@ export function useDocumentEditor({
     selectedNodes,
     selectedGroupId,
     localSaveState,
+    setSeparateDocumentTransition,
     conflictRecoveryState,
     conflictRecoveryModel,
     repositoryLifecycle,

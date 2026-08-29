@@ -169,7 +169,10 @@ import { imageCropKeyboardScreenDelta } from "./editor/image-crop-keyboard"
 import { projectNumericImageCropFrameEdit } from "./editor/image-crop-frame-numeric"
 import type { ImageCropArrowKey } from "./editor/image-crop-keyboard"
 import { imageReplacementConstraintsByNodeId } from "./editor/image-replacement-binding"
-import { useDocumentEditor } from "./editor/use-document-editor"
+import {
+  DOCUMENT_TRANSITION_DISABLED_REASON,
+  useDocumentEditor,
+} from "./editor/use-document-editor"
 import type { ReviewAffectedTarget } from "./editor/review-journal"
 import type { DocumentDraftRecord } from "./editor/document-draft-repository"
 import { useStudioPersistence } from "./persistence/studio-persistence-provider"
@@ -1086,23 +1089,23 @@ export function StudioShell({
     })
   }, [])
 
-  const finishOpenedSession = useCallback(() => {
+  const finishOpenedSession = useCallback(async () => {
     const openedDocumentId = editor.getActiveDocumentId()
     if (!onSessionOpened || !openedDocumentId) {
       focusWorkspace()
       return
     }
     setRouteTransitionPending(true)
-    void Promise.resolve(onSessionOpened(openedDocumentId)).catch(
-      (error: unknown) => {
-        setRouteTransitionPending(false)
-        setCriticalActionError(
-          error instanceof Error
-            ? error.message
-            : "Studio created the document but could not open its route."
-        )
-      }
-    )
+    try {
+      await onSessionOpened(openedDocumentId)
+    } catch (error) {
+      setRouteTransitionPending(false)
+      setCriticalActionError(
+        error instanceof Error
+          ? error.message
+          : "Studio created the document but could not open its route."
+      )
+    }
   }, [editor.getActiveDocumentId, focusWorkspace, onSessionOpened])
 
   const reloadSavedDocument = useCallback(async () => {
@@ -1180,12 +1183,25 @@ export function StudioShell({
     flushCurrentDraft: editor.flushActiveDraft,
     onOpened: finishOpenedSession,
     onQueued: () => setNewDocumentOpen(false),
+    onSeparateTransitionChange: editor.setSeparateDocumentTransition,
   })
   const pendingDraftReplacement = draftReplacement.pending
   const startPendingIntent = draftReplacement.pendingIntent
   const replacementRunning = draftReplacement.replacing
   const requestDraftReplacement = draftReplacement.request
+  const createSeparateDraft = draftReplacement.createSeparate
   const confirmDraftReplacement = draftReplacement.confirm
+  const requestNewDraft = useCallback(
+    (
+      intent: Parameters<typeof requestDraftReplacement>[0],
+      nextActionLabel: string,
+      run: Parameters<typeof requestDraftReplacement>[2]
+    ) =>
+      editor.localSaveState.status === "session_only"
+        ? requestDraftReplacement(intent, nextActionLabel, run)
+        : createSeparateDraft(intent, run),
+    [createSeparateDraft, editor.localSaveState.status, requestDraftReplacement]
+  )
 
   const zoomAtPoint = useCallback(
     (requestedZoom: number, clientX?: number, clientY?: number) => {
@@ -1377,6 +1393,10 @@ export function StudioShell({
   const productCommandRunnerRef = useRef<
     ((invocation: ProductCommandInvocation) => ProductCommandRunResult) | null
   >(null)
+  const documentTransitionDisabledReason =
+    replacementRunning || routeTransitionPending
+      ? DOCUMENT_TRANSITION_DISABLED_REASON
+      : null
   const webMcp = useStudioWebMcp(
     {
       document: editor.document,
@@ -1392,6 +1412,7 @@ export function StudioShell({
       assets: studioAssets,
       publishedVersion: publishedVersion ?? null,
       renderHistory: renderHistory.records,
+      mutationDisabledReason: documentTransitionDisabledReason,
       getProductCommandContext: () => {
         const context = productCommandContextRef.current
         return context
@@ -2567,7 +2588,12 @@ export function StudioShell({
       })
     )
 
-  if (routeTransitionPending) {
+  const separateDraftTransitionPending =
+    editor.sessionMode === "workspace" &&
+    replacementRunning &&
+    pendingDraftReplacement === null
+
+  if (routeTransitionPending || separateDraftTransitionPending) {
     return (
       <main
         aria-busy="true"
@@ -2575,7 +2601,11 @@ export function StudioShell({
       >
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
-          <span>Opening the document route…</span>
+          <span>
+            {routeTransitionPending
+              ? "Opening the document route…"
+              : "Creating the new document…"}
+          </span>
         </div>
       </main>
     )
@@ -2741,6 +2771,7 @@ export function StudioShell({
           nextActionLabel={pendingDraftReplacement?.nextActionLabel ?? "This"}
           open={pendingDraftReplacement !== null}
           replacing={replacementRunning}
+          sessionOnly={editor.localSaveState.status === "session_only"}
           onCancel={draftReplacement.cancel}
           onDownload={() => {
             if (commitActiveTextEditing()) editor.downloadCurrentVersion()
@@ -3304,7 +3335,7 @@ export function StudioShell({
                   onActivePanelChange={setDocumentPanelTab}
                   onRetryTemplates={editor.reloadDesignTemplateCatalog}
                   onCreateFromTemplate={(template) => {
-                    void requestDraftReplacement(
+                    void requestNewDraft(
                       {
                         kind: "template",
                         templateId: template.id,
@@ -3894,7 +3925,7 @@ export function StudioShell({
                 onRetryTemplates={editor.reloadDesignTemplateCatalog}
                 onCreateFromTemplate={(template) => {
                   setCompactPanel(null)
-                  void requestDraftReplacement(
+                  void requestNewDraft(
                     {
                       kind: "template",
                       templateId: template.id,
@@ -4078,6 +4109,7 @@ export function StudioShell({
           nextActionLabel={pendingDraftReplacement?.nextActionLabel ?? "This"}
           open={pendingDraftReplacement !== null}
           replacing={replacementRunning}
+          sessionOnly={editor.localSaveState.status === "session_only"}
           onCancel={draftReplacement.cancel}
           onDownload={() => {
             if (commitActiveTextEditing()) editor.downloadCurrentVersion()
@@ -4088,14 +4120,14 @@ export function StudioShell({
           open={newDocumentOpen}
           onOpenChange={setNewDocumentOpen}
           onCreateBlank={(options) => {
-            return requestDraftReplacement(
+            return requestNewDraft(
               { kind: "blank" },
               `Creating “${options.name}”`,
               () => editor.createBlankDocument(options)
             )
           }}
           onRestoreDemo={() => {
-            return requestDraftReplacement(
+            return requestNewDraft(
               { kind: "sample" },
               "Opening the Northstar sample",
               editor.restoreDemoDocument

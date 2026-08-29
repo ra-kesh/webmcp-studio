@@ -16,6 +16,7 @@ export function ReplaceCurrentDraftDialog({
   open,
   documentName,
   nextActionLabel,
+  sessionOnly = false,
   replacing,
   error,
   onCancel,
@@ -25,6 +26,7 @@ export function ReplaceCurrentDraftDialog({
   open: boolean
   documentName: string
   nextActionLabel: string
+  sessionOnly?: boolean
   replacing: boolean
   error?: string | null
   onCancel: () => void
@@ -45,14 +47,25 @@ export function ReplaceCurrentDraftDialog({
           </AlertDialogMedia>
           <AlertDialogTitle>Replace current browser draft?</AlertDialogTitle>
           <AlertDialogDescription>
-            “{documentName}” is the only draft stored in this browser.{" "}
-            {nextActionLabel} will replace it and cannot be undone from the new
-            document.
+            {sessionOnly ? (
+              <>
+                “{documentName}” exists only in this tab because browser storage
+                is unavailable. {nextActionLabel} will replace it and cannot be
+                undone from the new document.
+              </>
+            ) : (
+              <>
+                “{documentName}” is the only draft stored in this browser.{" "}
+                {nextActionLabel} will replace it and cannot be undone from the
+                new document.
+              </>
+            )}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="rounded-md border bg-muted/40 px-3 py-2.5 text-xs leading-5 text-muted-foreground">
-          Download the current Studio JSON first if you want to keep a separate
-          copy.
+          {sessionOnly
+            ? "Download the current Studio JSON before continuing if you need to keep this session-only work."
+            : "Download the current Studio JSON first if you want to keep a separate copy."}
         </div>
         {error ? (
           <p

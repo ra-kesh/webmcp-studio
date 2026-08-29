@@ -15,7 +15,7 @@ import {
   vi,
 } from "vitest"
 import { toolNames } from "@webmcp/webmcp"
-import type { WebMcpModelContext } from "@webmcp/webmcp"
+import type { WebMcpModelContext, WebMcpTool } from "@webmcp/webmcp"
 import { studioAssets } from "./asset-catalog"
 import { useStudioWebMcp } from "./use-studio-webmcp"
 
@@ -38,12 +38,17 @@ const services = {
 
 function MountedWebMcp({
   enabled,
+  mutationDisabledReason = null,
   capture,
 }: {
   enabled: boolean
+  mutationDisabledReason?: string | null
   capture: (result: ReturnType<typeof useStudioWebMcp>) => void
 }) {
-  const result = useStudioWebMcp(services, { enabled })
+  const result = useStudioWebMcp(
+    { ...services, mutationDisabledReason },
+    { enabled }
+  )
   useLayoutEffect(() => capture(result))
   return null
 }
@@ -64,6 +69,7 @@ describe("useStudioWebMcp lifecycle", () => {
     host = document.createElement("div")
     document.body.appendChild(host)
     root = createRoot(host)
+    vi.clearAllMocks()
   })
 
   afterEach(async () => {
@@ -157,5 +163,61 @@ describe("useStudioWebMcp lifecycle", () => {
     })
     expect(signals).toHaveLength(toolNames.length)
     expect(signals.every((signal) => signal.aborted)).toBe(true)
+  })
+
+  it("keeps registered mutations disabled while a document transition is in flight", async () => {
+    const registeredTools = new Map<string, WebMcpTool>()
+    const modelContext: WebMcpModelContext = {
+      registerTool: async (tool) => {
+        registeredTools.set(tool.name, tool)
+        return undefined
+      },
+    }
+    Object.defineProperty(document, "modelContext", {
+      configurable: true,
+      value: modelContext,
+    })
+    const reason =
+      "Wait for the new document to finish opening before editing this one."
+    const render = (mutationDisabledReason: string | null) =>
+      root.render(
+        <MountedWebMcp
+          enabled
+          mutationDisabledReason={mutationDisabledReason}
+          capture={() => undefined}
+        />
+      )
+
+    await act(async () => {
+      render(null)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(registeredTools.size).toBe(toolNames.length)
+
+    await act(async () => render(reason))
+
+    const proposal = await registeredTools
+      .get("propose_field_updates")
+      ?.execute({
+        documentId: northstarSeed.id,
+        baseRevision: northstarSeed.revision,
+        baseSnapshotId: services.snapshotId,
+        values: { couple_names: "Transition race" },
+      })
+    const publication = await registeredTools.get("publish_template")?.execute({
+      documentId: northstarSeed.id,
+      expectedRevision: northstarSeed.revision,
+      expectedSnapshotId: services.snapshotId,
+    })
+
+    expect(proposal).toMatchObject({ isError: true })
+    expect(proposal?.content[0]?.text).toContain(reason)
+    expect(publication).toMatchObject({ isError: true })
+    expect(publication?.content[0]?.text).toContain(reason)
+    expect(services.proposeChangeSet).not.toHaveBeenCalled()
+    expect(services.publishTemplate).not.toHaveBeenCalled()
+    expect(services.runProductCommand).not.toHaveBeenCalled()
+    expect(services.renderTemplate).not.toHaveBeenCalled()
   })
 })

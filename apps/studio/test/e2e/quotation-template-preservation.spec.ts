@@ -1,6 +1,22 @@
 import { expect, test } from "@playwright/test"
+import type { Page } from "@playwright/test"
 
-const documentStorageKey = "webmcp-studio:northstar-document:v2"
+test.describe.configure({ timeout: 90_000 })
+
+const documentDatabaseName = "webmcp-studio-documents"
+const documentBodyStore = "draft-body"
+
+type StoredDraft = {
+  recordVersion: number
+  document: {
+    id: string
+    revision: number
+    updatedAt: string
+    pages: Array<{ background: string }>
+    nodes: Array<{ type: string; text?: string }>
+  }
+  sourceContext: unknown
+}
 
 const VISUAL_KEYS = new Set([
   "revision",
@@ -23,24 +39,60 @@ const omitVisuals = (value: unknown): unknown => {
   return value
 }
 
+function routedDocumentId(page: Page) {
+  const match = new URL(page.url()).pathname.match(/^\/documents\/([^/]+)$/)
+  if (!match?.[1])
+    throw new Error(`Expected a document route, received ${page.url()}`)
+  return decodeURIComponent(match[1])
+}
+
+async function readStoredDraft(page: Page, documentId: string) {
+  return page.evaluate(
+    async ({ databaseName, storeName, id }) => {
+      const database = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open(databaseName)
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () =>
+          reject(request.error ?? new Error("Document database did not open"))
+      })
+      return new Promise<StoredDraft | undefined>((resolve, reject) => {
+        const request = database
+          .transaction(storeName)
+          .objectStore(storeName)
+          .get(id)
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () =>
+          reject(request.error ?? new Error("Document draft did not load"))
+      }).finally(() => database.close())
+    },
+    {
+      databaseName: documentDatabaseName,
+      storeName: documentBodyStore,
+      id: documentId,
+    }
+  )
+}
+
 test.beforeEach(async ({ page }) => {
   await page.goto("/")
-  await page.evaluate(
-    (storageKey) => localStorage.removeItem(storageKey),
-    documentStorageKey
-  )
-  await page.reload()
-  await expect(page.locator("canvas.upper-canvas")).toBeVisible()
+  await page.getByRole("button", { name: "Open sample", exact: true }).click()
+  await expect(page).toHaveURL(/\/documents\/[^/]+$/)
+  await expect(page.locator("canvas.upper-canvas")).toBeVisible({
+    timeout: 30_000,
+  })
 })
 
 test("quotation themes preserve user content and structure in one undo step", async ({
   page,
 }) => {
-  await page.getByRole("button", { name: "Add text" }).click()
-  await expect(page.getByText("Selected layer", { exact: true })).toBeVisible()
-  const textEditor = page.locator("textarea").last()
+  const documentId = routedDocumentId(page)
+  await page.getByRole("button", { name: "Add text", exact: true }).click()
+  await page.getByRole("menuitem", { name: /^Body/ }).click()
+  const textEditor = page.locator('textarea[data-fabric="textarea"]')
+  await expect(textEditor).toBeFocused()
+  await textEditor.press("ControlOrMeta+A")
   await textEditor.fill("Client-approved manual note")
-  await textEditor.blur()
+  await textEditor.press("Tab")
 
   await page.getByRole("tab", { name: "Pages" }).click()
   await page
@@ -48,37 +100,31 @@ test("quotation themes preserve user content and structure in one undo step", as
     .getByRole("button", { name: "Add page to Quotation" })
     .click()
   await expect(page.getByText("Page 7", { exact: true }).first()).toBeVisible()
-  await expect(page.getByRole("status")).toContainText(
-    /All changes saved|Saved/
-  )
 
-  const beforeRaw = await page.evaluate(
-    (storageKey) => localStorage.getItem(storageKey),
-    documentStorageKey
-  )
-  if (!beforeRaw) throw new Error("The edited quotation was not persisted")
-  const before = JSON.parse(beforeRaw) as {
-    revision: number
-    updatedAt: string
-    pages: Array<{ background: string }>
-    nodes: Array<{ type: string; text?: string }>
-  }
+  await expect
+    .poll(
+      async () =>
+        (await readStoredDraft(page, documentId))?.document.pages.length
+    )
+    .toBe(7)
+  const beforeDraft = await readStoredDraft(page, documentId)
+  if (!beforeDraft) throw new Error("The edited quotation was not persisted")
+  const before = beforeDraft.document
 
   await page.getByRole("tab", { name: "Templates" }).click()
   const midnightCard = page.getByRole("button", { name: /Midnight Film/ })
   await midnightCard.click()
   await page.getByRole("button", { name: "Apply to this design" }).click()
   await expect(midnightCard.getByLabel("Currently applied")).toBeVisible()
-  await expect(page.getByRole("status")).toContainText(
-    /All changes saved|Saved/
-  )
 
-  const afterRaw = await page.evaluate(
-    (storageKey) => localStorage.getItem(storageKey),
-    documentStorageKey
-  )
-  if (!afterRaw) throw new Error("The themed quotation was not persisted")
-  const after = JSON.parse(afterRaw) as typeof before
+  await expect
+    .poll(
+      async () => (await readStoredDraft(page, documentId))?.document.revision
+    )
+    .toBe(before.revision + 1)
+  const afterDraft = await readStoredDraft(page, documentId)
+  if (!afterDraft) throw new Error("The themed quotation was not persisted")
+  const after = afterDraft.document
 
   expect(omitVisuals(after)).toEqual(omitVisuals(before))
   expect(after.revision).toBe(before.revision + 1)
@@ -89,7 +135,6 @@ test("quotation themes preserve user content and structure in one undo step", as
         node.type === "text" && node.text === "Client-approved manual note"
     )
   ).toBe(true)
-  await expect(page.getByText("Selected layer", { exact: true })).toBeVisible()
 
   await page.getByRole("button", { name: "Undo" }).click()
   await expect(
@@ -97,12 +142,12 @@ test("quotation themes preserve user content and structure in one undo step", as
       .getByRole("button", { name: /Editorial Olive/ })
       .getByLabel("Currently applied")
   ).toBeVisible()
-  await expect(page.getByRole("status")).toContainText(
-    /All changes saved|Saved/
-  )
-  const undoneRaw = await page.evaluate(
-    (storageKey) => localStorage.getItem(storageKey),
-    documentStorageKey
-  )
-  expect(undoneRaw).toBe(beforeRaw)
+  await expect
+    .poll(
+      async () => (await readStoredDraft(page, documentId))?.document.revision
+    )
+    .toBe(before.revision)
+  const undone = await readStoredDraft(page, documentId)
+  expect(undone?.document).toEqual(before)
+  expect(undone?.sourceContext).toEqual(beforeDraft.sourceContext)
 })

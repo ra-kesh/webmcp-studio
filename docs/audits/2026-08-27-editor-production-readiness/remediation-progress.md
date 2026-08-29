@@ -222,7 +222,7 @@ Completion evidence:
 
 ## 2026-08-27 — Versioned template catalog and explicit use semantics (TEMPLATE-01)
 
-Status: **integrated locally with focused verification; browser acceptance pending host recovery**
+Status: **complete — routed browser acceptance and independent review pass**
 
 Phase-entry evidence:
 
@@ -255,6 +255,17 @@ Resumption evidence:
 - The lifecycle boundary now distinguishes a fresh-document create from a current-document apply. Create materializes a new document identity and new relational IDs and starts a fresh history. General apply retains the current document identity/name/creation time, materializes fresh internals, increments revision, computes every destructive impact dimension before confirmation, and commits one named replacement. Quotation apply uses the non-destructive palette-token mapper and preserves pages, nodes, groups, fields, bindings, outputs, manual content/layout edits, selection, and valid active page.
 - A versioned template/source context travels with every history snapshot. It records catalog ID/version and the exact quotation payload revision, clears both for a general starter, restores both on Undo/Redo, and reports local-storage failure without rolling back an already committed document mutation or falsely saying nothing changed.
 - Focused lifecycle tests prove fresh identity, current-identity apply, source disconnection, exact impact, non-destructive quotation restyle, catalog-version transitions, and incompatible source rejection. The Studio suite now passes 41 tests; Studio and UI typecheck/lint and repository whitespace checks pass. A dedicated browser specification covers real previews, search, confirmed replacement, exact identity/source transitions, one-step source-aware Undo, fresh create with no inherited Undo, and compact parity. That specification and the updated quotation-preservation browser test are written but intentionally unrun until the stuck host is recovered.
+
+Browser closure:
+
+- Re-ran the retained template boundary on the healthy Studio host at port 3001. The old specifications failed immediately because they still removed retired localStorage keys and expected `/` to open the editor. The product now truthfully opens the document library/start surface, migrates into the versioned IndexedDB repository, and edits only on canonical `/documents/:documentId` routes.
+- Migrated the acceptance contract to enter through **Open sample**, assert the exact routed document identity, and read durable `draft-body` records. The browser now proves five renderer-derived previews, search filtering, explicit 6 → 1 impact, quotation disconnection, current-document identity preservation, durable template/source metadata, one-step source-aware Undo, a fresh remapped identity and route, retained prior record, empty new-session history, and compact quotation-style compatibility.
+- Updated the quotation-restyle journey to use the current text-preset/direct-edit workflow and durable repository reads. A manual text node and added seventh page survive the Midnight Film style change; only visual keys change; revision increments once; one Undo restores the exact prior document and source context.
+- Independent review rejected the first browser candidate because it encoded the obsolete single-draft replacement warning for a multi-document create. The repaired coordinator now settles and flushes the current durable document, creates a distinct record, and navigates without destructive confirmation. Session-only work still receives a truthful loss warning. The browser requires the original durable record to remain byte-for-byte equivalent at the IndexedDB object boundary.
+- The combined production browser gate passes **3/3** with one worker. Studio typecheck, focused E2E ESLint, scoped Prettier, and `git diff --check` pass. `template-01-browser-acceptance.md` records the exercised boundary and retained limits.
+- A second independent pass found that the visible creation overlay did not yet block live WebMCP proposal/publication calls during awaited flush/create work. The final mutation admission now starts synchronously, remains active through awaited route navigation, blocks ordinary editor mutations, projects no product command context, returns one stable disabled reason for WebMCP product commands, and rejects proposal, publication, and rendering before delegation. Direct proposal/publication guards close the pre-render interval.
+- Deferred failure and deferred route-handoff tests plus a mounted real-tool WebMCP regression prove cleanup, full handoff coverage, live blocking without tool re-registration, and zero proposal/publication/product/render delegation while disabled. The focused transition set passes **13/13**; the routed browser contract remains **3/3**. Final independent verdict: **ACCEPT — no P0/P1**.
+- Retained P2: a rejected client-side route-navigation promise can leave a non-actionable identity-loading surface after the new document has been safely persisted. This is a recovery-surface follow-up, not a data-loss blocker for TEMPLATE-01.
 
 ## 2026-08-28 — Independent-review production-blocker remediation (SEC-01)
 

@@ -1,26 +1,77 @@
 import { expect, test } from "@playwright/test"
+import type { Page } from "@playwright/test"
 
-const documentStorageKey = "webmcp-studio:northstar-document:v2"
-const quotationSourceStorageKey = "webmcp-studio:quotation-source:v1"
-const designTemplateStorageKey = "webmcp-studio:design-template:v1"
+test.describe.configure({ timeout: 90_000 })
 
-test.beforeEach(async ({ page }) => {
-  await page.goto("/")
-  await page.evaluate(
-    ({ documentKey, templateKey }) => {
-      localStorage.removeItem(documentKey)
-      localStorage.removeItem(templateKey)
+const documentDatabaseName = "webmcp-studio-documents"
+const documentBodyStore = "draft-body"
+
+type StoredDraft = {
+  recordVersion: number
+  document: {
+    id: string
+    pages: Array<{ id: string }>
+  }
+  sourceContext: {
+    quotationSource: unknown | null
+    quotationTemplateId: string
+    designTemplate: { id: string; version: number } | null
+  } | null
+}
+
+function routedDocumentId(page: Page) {
+  const match = new URL(page.url()).pathname.match(/^\/documents\/([^/]+)$/)
+  if (!match?.[1])
+    throw new Error(`Expected a document route, received ${page.url()}`)
+  return decodeURIComponent(match[1])
+}
+
+async function readStoredDraft(page: Page, documentId: string) {
+  return page.evaluate(
+    async ({ databaseName, storeName, id }) => {
+      const database = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open(databaseName)
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () =>
+          reject(request.error ?? new Error("Document database did not open"))
+      })
+      return new Promise<StoredDraft | undefined>((resolve, reject) => {
+        const request = database
+          .transaction(storeName)
+          .objectStore(storeName)
+          .get(id)
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () =>
+          reject(request.error ?? new Error("Document draft did not load"))
+      }).finally(() => database.close())
     },
     {
-      documentKey: documentStorageKey,
-      templateKey: designTemplateStorageKey,
+      databaseName: documentDatabaseName,
+      storeName: documentBodyStore,
+      id: documentId,
     }
   )
-  await page.reload()
-  await expect(page.locator("canvas.upper-canvas")).toBeVisible()
+}
+
+async function openSampleEditor(page: Page) {
+  await page.goto("/")
+  await expect(
+    page.getByRole("heading", { name: "Studio documents" })
+  ).toBeVisible()
+  await expect(page.getByRole("img", { name: /Preview of/ })).toHaveCount(5)
+  await page.getByRole("button", { name: "Open sample", exact: true }).click()
+  await expect(page).toHaveURL(/\/documents\/[^/]+$/)
+  await expect(page.locator("canvas.upper-canvas")).toBeVisible({
+    timeout: 30_000,
+  })
+  await page.getByRole("tab", { name: "Templates", exact: true }).click()
   await expect(
     page.getByRole("heading", { name: "Design templates" })
   ).toBeVisible()
+}
+
+test.beforeEach(async ({ page }) => {
+  await openSampleEditor(page)
 })
 
 test("catalog renders real previews and separates confirmed apply from fresh create", async ({
@@ -40,12 +91,11 @@ test("catalog renders real previews and separates confirmed apply from fresh cre
   ).toHaveCount(0)
   await search.fill("")
 
-  const beforeRaw = await page.evaluate(
-    (key) => localStorage.getItem(key),
-    documentStorageKey
-  )
-  if (!beforeRaw) throw new Error("The starter document was not persisted")
-  const before = JSON.parse(beforeRaw) as { id: string; pages: unknown[] }
+  const originalDocumentId = routedDocumentId(page)
+  const before = await readStoredDraft(page, originalDocumentId)
+  if (!before) throw new Error("The sample document was not persisted")
+  expect(before.document.pages).toHaveLength(6)
+  expect(before.sourceContext?.quotationSource).not.toBeNull()
 
   await page.getByRole("button", { name: /Bold square announcement/ }).click()
   await page.getByRole("button", { name: "Apply to this design" }).click()
@@ -61,74 +111,60 @@ test("catalog renders real previews and separates confirmed apply from fresh cre
   )
   await confirmation.getByRole("button", { name: "Apply template" }).click()
 
-  await expect(page.getByRole("status")).toContainText(
-    /All changes saved|Saved/
-  )
-  const applied = await page.evaluate(
-    ({ documentKey, sourceKey, templateKey }) => ({
-      document: JSON.parse(localStorage.getItem(documentKey) ?? "null") as {
-        id: string
-        pages: unknown[]
-      } | null,
-      quotationSource: localStorage.getItem(sourceKey),
-      template: JSON.parse(localStorage.getItem(templateKey) ?? "null") as {
-        id: string
-        version: number
-      } | null,
-    }),
-    {
-      documentKey: documentStorageKey,
-      sourceKey: quotationSourceStorageKey,
-      templateKey: designTemplateStorageKey,
-    }
-  )
-  expect(applied.document?.id).toBe(before.id)
-  expect(applied.document?.pages).toHaveLength(1)
-  expect(applied.quotationSource).toBeNull()
-  expect(applied.template).toEqual({
+  await expect
+    .poll(
+      async () =>
+        (await readStoredDraft(page, originalDocumentId))?.document.pages.length
+    )
+    .toBe(1)
+  const applied = await readStoredDraft(page, originalDocumentId)
+  expect(applied?.document.id).toBe(originalDocumentId)
+  expect(applied?.sourceContext?.quotationSource).toBeNull()
+  expect(applied?.sourceContext?.designTemplate).toEqual({
     id: "bold-square-announcement",
     version: 1,
   })
 
   await page.getByRole("button", { name: "Undo" }).click()
-  await expect(page.getByRole("status")).toContainText(
-    /All changes saved|Saved/
-  )
-  expect(
-    await page.evaluate(
-      (key) => localStorage.getItem(key),
-      quotationSourceStorageKey
+  await expect
+    .poll(
+      async () =>
+        (await readStoredDraft(page, originalDocumentId))?.document.pages.length
     )
-  ).not.toBeNull()
-  expect(
-    await page.evaluate(
-      (key) => JSON.parse(localStorage.getItem(key) ?? "null"),
-      designTemplateStorageKey
-    )
-  ).toEqual({ id: "quotation-editorial-olive", version: 1 })
+    .toBe(6)
+  const restored = await readStoredDraft(page, originalDocumentId)
+  expect(restored?.sourceContext?.quotationSource).not.toBeNull()
+  expect(restored?.sourceContext?.designTemplate).toEqual({
+    id: "quotation-editorial-olive",
+    version: 1,
+  })
 
   await page.getByRole("button", { name: /Editorial one-pager/ }).click()
   await page.getByRole("button", { name: "Create new" }).click()
-  await expect(page.getByRole("status")).toContainText(
-    /All changes saved|Saved/
-  )
-  const created = await page.evaluate(
-    ({ documentKey, sourceKey }) => ({
-      document: JSON.parse(localStorage.getItem(documentKey) ?? "null") as {
-        id: string
-        pages: Array<{ id: string }>
-      } | null,
-      source: localStorage.getItem(sourceKey),
-    }),
-    {
-      documentKey: documentStorageKey,
-      sourceKey: quotationSourceStorageKey,
-    }
-  )
-  expect(created.document?.id).not.toBe(before.id)
-  expect(created.document?.pages[0]?.id).not.toBe("editorial-one-pager-page")
-  expect(created.source).toBeNull()
+  await expect(
+    page.getByRole("alertdialog", { name: "Replace current browser draft?" })
+  ).toHaveCount(0)
+  await expect.poll(() => routedDocumentId(page)).not.toBe(originalDocumentId)
+
+  const createdDocumentId = routedDocumentId(page)
+  await expect
+    .poll(
+      async () =>
+        (await readStoredDraft(page, createdDocumentId))?.document.pages.length
+    )
+    .toBe(1)
+  const created = await readStoredDraft(page, createdDocumentId)
+  expect(created?.document.id).toBe(createdDocumentId)
+  expect(created?.document.pages[0]?.id).not.toBe("editorial-one-pager-page")
+  expect(created?.sourceContext?.quotationSource).toBeNull()
+  expect(created?.sourceContext?.designTemplate).toEqual({
+    id: "editorial-one-pager",
+    version: 1,
+  })
   await expect(page.getByRole("button", { name: "Undo" })).toBeDisabled()
+
+  const retainedOriginal = await readStoredDraft(page, originalDocumentId)
+  expect(retainedOriginal).toEqual(restored)
 })
 
 test("compact document panel exposes the same catalog and source compatibility", async ({

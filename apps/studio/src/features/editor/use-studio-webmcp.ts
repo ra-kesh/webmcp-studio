@@ -34,6 +34,7 @@ type StudioWebMcpServices = Omit<
   "assets" | "commandCapabilities" | "productCommandContext"
 > & {
   assets: readonly StudioAsset[]
+  mutationDisabledReason?: string | null
   getProductCommandContext: () => ProductCommandRuntimeContext | null
   runProductCommand: (
     invocation: ProductCommandInvocation
@@ -50,10 +51,19 @@ type StudioWebMcpServices = Omit<
   ) => Promise<StudioWebMcpRenderRecord>
 }
 
+const mutationDisabledReason = (services: StudioWebMcpServices) =>
+  services.mutationDisabledReason ?? null
+
+const assertMutationEnabled = (services: StudioWebMcpServices) => {
+  const reason = mutationDisabledReason(services)
+  if (reason) throw new Error(reason)
+}
+
 export function projectStudioWebMcpSnapshot(
   services: StudioWebMcpServices
 ): StudioWebMcpSnapshot {
   const {
+    mutationDisabledReason: disabledReason,
     getProductCommandContext,
     runProductCommand: _runProductCommand,
     proposeChangeSet: _proposeChangeSet,
@@ -61,7 +71,9 @@ export function projectStudioWebMcpSnapshot(
     renderTemplate: _renderTemplate,
     ...current
   } = services
-  const productCommandContext = getProductCommandContext()
+  const productCommandContext = disabledReason
+    ? null
+    : getProductCommandContext()
   return {
     ...current,
     commandCapabilities: [],
@@ -116,17 +128,28 @@ export function useStudioWebMcp(
             getSnapshot: () => projectStudioWebMcpSnapshot(servicesRef.current),
             searchAssets: (input) => registeredCatalog.search(input),
             resolveAsset: (assetId) => registeredCatalog.resolve(assetId),
-            proposeChangeSet: (changeSet, provenance) =>
-              servicesRef.current.proposeChangeSet(changeSet, provenance),
-            runProductCommand: (invocation) =>
-              servicesRef.current.runProductCommand(invocation),
-            publishTemplate: () => servicesRef.current.publishTemplate(),
-            renderTemplate: (version, modifications, selections) =>
-              servicesRef.current.renderTemplate(
+            proposeChangeSet: (changeSet, provenance) => {
+              assertMutationEnabled(servicesRef.current)
+              return servicesRef.current.proposeChangeSet(changeSet, provenance)
+            },
+            runProductCommand: (invocation) => {
+              const reason = mutationDisabledReason(servicesRef.current)
+              return reason
+                ? { status: "disabled" as const, reason }
+                : servicesRef.current.runProductCommand(invocation)
+            },
+            publishTemplate: () => {
+              assertMutationEnabled(servicesRef.current)
+              return servicesRef.current.publishTemplate()
+            },
+            renderTemplate: (version, modifications, selections) => {
+              assertMutationEnabled(servicesRef.current)
+              return servicesRef.current.renderTemplate(
                 version,
                 modifications,
                 selections
-              ),
+              )
+            },
             id: () => crypto.randomUUID(),
             now: () => new Date().toISOString(),
           },

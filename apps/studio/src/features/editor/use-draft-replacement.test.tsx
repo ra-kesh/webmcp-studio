@@ -13,13 +13,15 @@ function MountedCoordinator({
   flushCurrentDraft,
   settleWorkspaceEdits,
   onOpened,
+  onSeparateTransitionChange,
   hasCurrentDraft = true,
   workspaceActive = true,
 }: {
   capture: (value: Coordinator) => void
   flushCurrentDraft: () => boolean | Promise<boolean>
   settleWorkspaceEdits?: () => boolean
-  onOpened: () => void
+  onOpened: () => void | Promise<void>
+  onSeparateTransitionChange?: (active: boolean) => void
   hasCurrentDraft?: boolean
   workspaceActive?: boolean
 }) {
@@ -29,6 +31,7 @@ function MountedCoordinator({
     settleWorkspaceEdits,
     flushCurrentDraft,
     onOpened,
+    onSeparateTransitionChange,
   })
   useLayoutEffect(() => capture(value))
   return null
@@ -198,7 +201,9 @@ describe("draft replacement coordinator", () => {
             events.push("flush")
             return true
           }}
-          onOpened={() => events.push("opened")}
+          onOpened={() => {
+            events.push("opened")
+          }}
           settleWorkspaceEdits={() => {
             events.push("settle")
             return true
@@ -217,6 +222,140 @@ describe("draft replacement coordinator", () => {
     expect(events).toEqual(["settle", "flush", "replace", "opened"])
   })
 
+  it("settles and flushes before creating a separate document without replacement state", async () => {
+    const events: string[] = []
+    const captured: { current: Coordinator | null } = { current: null }
+    await act(async () => {
+      root.render(
+        <MountedCoordinator
+          capture={(value) => {
+            captured.current = value
+          }}
+          flushCurrentDraft={() => {
+            events.push("flush")
+            return true
+          }}
+          onOpened={() => {
+            events.push("opened")
+          }}
+          onSeparateTransitionChange={(active) =>
+            events.push(active ? "lock" : "unlock")
+          }
+          settleWorkspaceEdits={() => {
+            events.push("settle")
+            return true
+          }}
+        />
+      )
+    })
+
+    let result: boolean | "queued" = false
+    await act(async () => {
+      result =
+        (await captured.current?.createSeparate(
+          { kind: "template", templateId: "editorial", version: 1 },
+          () => {
+            events.push("create")
+            return true
+          }
+        )) ?? false
+    })
+
+    expect(result).toBe(true)
+    expect(events).toEqual([
+      "settle",
+      "lock",
+      "flush",
+      "create",
+      "opened",
+      "unlock",
+    ])
+    expect(captured.current?.pending).toBeNull()
+  })
+
+  it("keeps a deferred separate creation locked and restores interaction after failure", async () => {
+    let resolveFlush: ((value: boolean) => void) | undefined
+    const transitionStates: boolean[] = []
+    const run = vi.fn(() => true)
+    const onOpened = vi.fn()
+    const captured: { current: Coordinator | null } = { current: null }
+    await act(async () => {
+      root.render(
+        <MountedCoordinator
+          capture={(value) => {
+            captured.current = value
+          }}
+          flushCurrentDraft={() =>
+            new Promise<boolean>((resolve) => {
+              resolveFlush = resolve
+            })
+          }
+          onOpened={onOpened}
+          onSeparateTransitionChange={(active) => transitionStates.push(active)}
+          settleWorkspaceEdits={() => true}
+        />
+      )
+    })
+
+    let creation: Promise<boolean | "queued"> | undefined
+    await act(async () => {
+      creation = captured.current?.createSeparate({ kind: "blank" }, run)
+      await Promise.resolve()
+    })
+    expect(transitionStates).toEqual([true])
+    expect(captured.current?.replacing).toBe(true)
+    expect(captured.current?.pending).toBeNull()
+    expect(run).not.toHaveBeenCalled()
+
+    await act(async () => {
+      resolveFlush?.(false)
+      expect(await creation).toBe(false)
+    })
+    expect(transitionStates).toEqual([true, false])
+    expect(captured.current?.replacing).toBe(false)
+    expect(run).not.toHaveBeenCalled()
+    expect(onOpened).not.toHaveBeenCalled()
+  })
+
+  it("keeps a successful separate creation locked through deferred route handoff", async () => {
+    let resolveOpened: (() => void) | undefined
+    const transitionStates: boolean[] = []
+    const captured: { current: Coordinator | null } = { current: null }
+    await act(async () => {
+      root.render(
+        <MountedCoordinator
+          capture={(value) => {
+            captured.current = value
+          }}
+          flushCurrentDraft={() => true}
+          onOpened={() =>
+            new Promise<void>((resolve) => {
+              resolveOpened = resolve
+            })
+          }
+          onSeparateTransitionChange={(active) => transitionStates.push(active)}
+          settleWorkspaceEdits={() => true}
+        />
+      )
+    })
+
+    let creation: Promise<boolean | "queued"> | undefined
+    await act(async () => {
+      creation = captured.current?.createSeparate({ kind: "blank" }, () => true)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(transitionStates).toEqual([true])
+    expect(captured.current?.replacing).toBe(true)
+
+    await act(async () => {
+      resolveOpened?.()
+      expect(await creation).toBe(true)
+    })
+    expect(transitionStates).toEqual([true, false])
+    expect(captured.current?.replacing).toBe(false)
+  })
+
   it("does not start replacement until a deferred critical flush succeeds", async () => {
     let resolveFlush: ((value: boolean) => void) | undefined
     const events: string[] = []
@@ -233,7 +372,9 @@ describe("draft replacement coordinator", () => {
               resolveFlush = resolve
             })
           }
-          onOpened={() => events.push("opened")}
+          onOpened={() => {
+            events.push("opened")
+          }}
           settleWorkspaceEdits={() => {
             events.push("settled")
             return true

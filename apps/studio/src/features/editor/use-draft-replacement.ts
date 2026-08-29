@@ -16,13 +16,15 @@ export function useDraftReplacement({
   settleWorkspaceEdits,
   onOpened,
   onQueued,
+  onSeparateTransitionChange,
 }: {
   hasCurrentDraft: boolean
   workspaceActive: boolean
   flushCurrentDraft: () => boolean | Promise<boolean>
   settleWorkspaceEdits?: () => boolean
-  onOpened: () => void
+  onOpened: () => void | Promise<void>
   onQueued?: () => void
+  onSeparateTransitionChange?: (active: boolean) => void
 }) {
   const [pending, setPending] = useState<DraftReplacementAction | null>(null)
   const [pendingIntent, setPendingIntent] = useState<StudioStartIntent | null>(
@@ -40,7 +42,7 @@ export function useDraftReplacement({
       setPendingIntent(action.intent)
       try {
         const succeeded = await action.run()
-        if (succeeded) onOpened()
+        if (succeeded) await onOpened()
         return succeeded
       } finally {
         setPendingIntent(null)
@@ -68,6 +70,47 @@ export function useDraftReplacement({
     [execute, hasCurrentDraft, onQueued]
   )
 
+  const createSeparate = useCallback(
+    async (
+      intent: StudioStartIntent,
+      run: () => boolean | Promise<boolean>
+    ): Promise<DraftReplacementRequestResult> => {
+      if (pendingRef.current || runningRef.current) return "queued"
+      runningRef.current = true
+      setReplacing(true)
+      setPendingIntent(intent)
+      let transitionLocked = false
+      try {
+        if (workspaceActive && settleWorkspaceEdits && !settleWorkspaceEdits())
+          return false
+        if (workspaceActive) {
+          onSeparateTransitionChange?.(true)
+          transitionLocked = true
+          try {
+            if (!(await flushCurrentDraft())) return false
+          } catch {
+            return false
+          }
+        }
+        const succeeded = await run()
+        if (succeeded) await onOpened()
+        return succeeded
+      } finally {
+        if (transitionLocked) onSeparateTransitionChange?.(false)
+        setPendingIntent(null)
+        setReplacing(false)
+        runningRef.current = false
+      }
+    },
+    [
+      flushCurrentDraft,
+      onOpened,
+      onSeparateTransitionChange,
+      settleWorkspaceEdits,
+      workspaceActive,
+    ]
+  )
+
   const confirm = useCallback(async () => {
     const action = pendingRef.current
     if (!action || runningRef.current) return false
@@ -88,7 +131,7 @@ export function useDraftReplacement({
       if (!succeeded) return false
       pendingRef.current = null
       setPending(null)
-      onOpened()
+      await onOpened()
       return true
     } finally {
       setPendingIntent(null)
@@ -109,6 +152,7 @@ export function useDraftReplacement({
     replacing,
     open: execute,
     request,
+    createSeparate,
     confirm,
     cancel,
   }
