@@ -1,6 +1,7 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "webmcp-studio",
+  "account_id": "5ddb650c3b93a84476793117f37ec1fa",
   "main": "src/server-entry.ts",
   "compatibility_date": "2026-08-27",
   "compatibility_flags": [
@@ -13,7 +14,7 @@
     "head_sampling_rate": 1,
   },
   "triggers": {
-    "crons": ["*/5 * * * *"]
+    "crons": ["*/5 * * * *"],
   },
   "services": [
     {
@@ -25,8 +26,8 @@
     {
       "binding": "RENDER_JOBS",
       "name": "webmcp-studio-render-jobs",
-      "class_name": "RenderJobWorkflow"
-    }
+      "class_name": "RenderJobWorkflow",
+    },
   ],
   "vars": {
     "STUDIO_ACCESS_MODE": "cloudflare_access",

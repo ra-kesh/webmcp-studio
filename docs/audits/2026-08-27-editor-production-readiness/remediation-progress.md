@@ -2375,3 +2375,28 @@ Status: **completed locally and independently accepted; deployed hostile-network
   separating transport reservation identity from repository idempotency and
   adding the concurrent regression, final rereview returned **ACCEPT with no
   remaining P0/P1**.
+
+## 2026-08-30 — Deployed storage preparation
+
+Status: **preparation completed and independently accepted; remote provisioning requires explicit authorization**
+
+- Reread every storage/binding owner, all eleven migrations, both Wrangler
+  configurations, retained deployment gates, and current Cloudflare D1/remote
+  binding/Worker privacy guidance. Read-only inventory proved the pinned account
+  has no WebMCP Studio D1, R2, Worker, or Workflow resource.
+- Production configs pin the inspected account. Preflight requires the exact D1
+  name/UUID pair, exact R2 buckets, Browser/D1/Worker write scopes, private
+  Renderer routes, valid Access issuer/audience shapes, canonical bindings, and
+  contiguous migrations.
+- Plan performs only inventory, read-only D1 schema/ledger queries, and full
+  Renderer/Studio Wrangler dry-run packages. It accepts an empty first install
+  or an exact remote migration prefix and prints the pending suffix.
+- Apply requires an exact confirmation value, rechecks that suffix after builds,
+  applies binding `DB`, deploys Renderer then Studio, and post-verifies resources
+  plus a zero-length pending migration list.
+- Both Worker packages and `git diff --check` pass. Static preflight currently
+  fails only on the intentionally missing D1 UUID and Access issuer/audience;
+  remote-ready also truthfully reports the absent Browser scope and resources.
+- Independent review rejected seven deployment-safety gaps, including a
+  mutating Wrangler migration-list in plan mode and a missing Studio Worker
+  package gate. Final rereview returned **ACCEPT with no remaining P0/P1**.

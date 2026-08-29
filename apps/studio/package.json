@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite dev --port 3001",
     "build": "vite build",
+    "build:worker": "bun run build && wrangler deploy --dry-run --outdir dist/worker-dry-run",
     "preview": "vite preview",
     "deploy": "bun run build && wrangler deploy",
     "cf-typegen": "wrangler types",

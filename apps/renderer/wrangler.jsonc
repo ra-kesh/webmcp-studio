@@ -1,10 +1,12 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "webmcp-studio-renderer",
+  "account_id": "5ddb650c3b93a84476793117f37ec1fa",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-27",
   "compatibility_flags": ["nodejs_compat", "enable_request_signal"],
   "workers_dev": false,
+  "preview_urls": false,
   "upload_source_maps": true,
   "observability": {
     "enabled": true,
