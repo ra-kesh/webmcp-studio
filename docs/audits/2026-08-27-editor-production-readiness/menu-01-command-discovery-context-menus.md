@@ -1,7 +1,13 @@
 # MENU-01 command discovery and context menus
 
 Date: 2026-08-28
-Status: phase-entry audit complete; implementation not started
+Status: implementation and independent code review complete; full browser acceptance remains open
+
+The retained sections below describe the original phase-entry state. Current
+closure evidence lives in `remediation-progress.md` and
+`menu-01-final-code-review.md`; the product now has the canonical catalog,
+menubar, command search, shortcut reference, and canvas/layer/page/output
+context-menu integrations described by this contract.
 
 ## Product outcome
 

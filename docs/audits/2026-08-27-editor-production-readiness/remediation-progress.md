@@ -1187,6 +1187,12 @@ Open evidence:
 
 - No Vite, browser, build, Wrangler, or Playwright process was started on the unhealthy host. Pointer context placement, nested dropdown/context arbitration, focus return, portal collision, compact 320 px behavior, and actual top-bar visual alignment remain mandatory healthy-host acceptance evidence.
 - The final independent read-only review and its follow-ups report no unresolved production-path P0/P1 defect. Healthy-host browser evidence remains a separate acceptance gate.
+- A later healthy localhost smoke on 2026-08-29 verified that Cmd+K opens the
+  named command-search dialog and that Shift+F10 on a real virtualized locked
+  layer opens the generated target-aware menu with Copy enabled, mutation
+  commands disabled with the exact unlock explanation, and Unlock available.
+  This closes those two essential journeys only; the broader pointer, compact,
+  collision, and focus-return matrix above is not claimed.
 
 ## 2026-08-28 — Constrained resize and rotation snapping (GUIDE-01A)
 
