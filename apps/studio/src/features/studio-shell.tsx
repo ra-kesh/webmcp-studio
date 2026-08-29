@@ -2218,6 +2218,13 @@ export function StudioShell({
     ]),
     stateByCommandId: {
       ...projectGuideProductCommandState(guideWorkspace.preferences),
+      "selection.select-all": {
+        enabled: activePage.nodeIds.length > 0,
+        disabledReason:
+          activePage.nodeIds.length > 0
+            ? null
+            : "This page does not contain any layers.",
+      },
       "tool.select": {
         enabled: !cropLocked,
         disabledReason: cropLocked

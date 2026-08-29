@@ -1215,7 +1215,7 @@ Open evidence:
 
 ## 2026-08-28 — Product command discovery and contextual actions (MENU-01)
 
-Status: **implementation, independent code review, and non-browser gates complete; healthy-host interaction evidence remains open**
+Status: **implementation and independent code review complete; essential healthy-host command discovery accepted, exhaustive contextual focus/collision evidence remains open**
 
 Implementation evidence:
 
@@ -1246,6 +1246,16 @@ Open evidence:
   commands disabled with the exact unlock explanation, and Unlock available.
   This closes those two essential journeys only; the broader pointer, compact,
   collision, and focus-return matrix above is not claimed.
+- The retained healthy-host regression now passes **2/2** against the routed
+  Studio product on port 3001. It covers the 1920 px menubar, 390 px compact
+  More-to-Help command-search path, dialog viewport containment, blank-canvas
+  context discovery, and executing Select all from both the context menu and
+  command search. The run exposed a real canonical defect: Select all had been
+  classified as selection-scoped and therefore required an existing target.
+  It is now bound to a stable active-page target, rejects page drift, and gives
+  empty pages a truthful disabled reason. The focused product-command suite is
+  **19/19**, and Studio/editor typechecks plus focused ESLint pass. Full evidence
+  is retained in `menu-01-browser-acceptance.md`.
 
 ## 2026-08-28 — Constrained resize and rotation snapping (GUIDE-01A)
 

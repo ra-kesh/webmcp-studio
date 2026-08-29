@@ -370,6 +370,7 @@ function editorCategory(id: EditorCommandId): ProductCommandCategory {
 
 function editorScope(id: EditorCommandId): ProductCommandScope {
   if (id.startsWith("tool.") || id.startsWith("canvas.")) return "global"
+  if (id === "selection.select-all") return "page"
   if (
     id === "history.undo" ||
     id === "history.redo" ||
@@ -450,7 +451,7 @@ const editorDefinitions = Object.fromEntries(
         subgroup: id.split(".")[0]!,
         keywords: id.split(/[.-]/),
         scope,
-        stableTargetRequired: scope === "selection",
+        stableTargetRequired: scope === "selection" || scope === "page",
         mutating: current.mutating,
         destructive: id === "object.delete",
         appMenu: !(
@@ -867,6 +868,17 @@ export function validateProductCommandInvocation(
   }
   if (target.kind === "page" && !context.pageIds.includes(target.pageId)) {
     return { ok: false, status: "stale", reason: "The page no longer exists." }
+  }
+  if (
+    invocation.commandId === "selection.select-all" &&
+    target.kind === "page" &&
+    target.pageId !== context.activePageId
+  ) {
+    return {
+      ok: false,
+      status: "stale",
+      reason: "The active page changed after this command opened.",
+    }
   }
   if (
     target.kind === "output" &&

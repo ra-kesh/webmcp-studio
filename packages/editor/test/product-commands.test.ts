@@ -458,6 +458,23 @@ describe("pure product menu models", () => {
       "canvas.guides.toggle",
       "canvas.guides.manage",
     ])
+    const selectAll = blank
+      .flatMap((group) => group.items)
+      .find(
+        (item) =>
+          item.type === "command" &&
+          item.command.invocation.commandId === "selection.select-all"
+      )
+    expect(selectAll).toMatchObject({
+      type: "command",
+      command: {
+        enabled: true,
+        disabledReason: null,
+        invocation: {
+          target: { kind: "page", pageId: "page-1" },
+        },
+      },
+    })
 
     const image = buildCanvasContextMenu(context())
     expect(image.map(({ id }) => id)).toEqual([
@@ -469,6 +486,27 @@ describe("pure product menu models", () => {
     expect(image.flatMap((group) => commands(group.items))).toContain(
       "image.crop"
     )
+  })
+
+  it("keeps select all bound to the page where the command opened", () => {
+    const invocation: ProductCommandInvocation = {
+      commandId: "selection.select-all",
+      target: pageTarget("page-1"),
+    }
+
+    expect(validateProductCommandInvocation(invocation, context())).toEqual({
+      ok: true,
+    })
+    expect(
+      validateProductCommandInvocation(
+        invocation,
+        context({ activePageId: "page-2" })
+      )
+    ).toEqual({
+      ok: false,
+      status: "stale",
+      reason: "The active page changed after this command opened.",
+    })
   })
 
   it("keeps locked commands visible with a specific reason", () => {
