@@ -60,7 +60,7 @@ export type CanvasNodeChange = {
 export interface CanvasAdapter {
   mount(element: HTMLCanvasElement): void
   unmount(): Promise<void>
-  sync(document: Document, pageId: string): Promise<void>
+  sync(document: Document, pageId: string, signal?: AbortSignal): Promise<void>
   setViewportZoom(zoom: number): void
   setSnapTargets(pageId: string, targets: readonly AlignmentSnapTarget[]): void
   select(selection: Selection | null): void
@@ -76,7 +76,10 @@ export interface CanvasAdapter {
     nodeId: string
   ): Readonly<{ width: number; height: number }> | null
   getImageSourceReadiness(nodeId: string): CanvasImageSourceReadiness | null
-  retryImageSource(nodeId: string): Promise<CanvasImageSourceReadiness | null>
+  retryImageSource(
+    nodeId: string,
+    signal?: AbortSignal
+  ): Promise<CanvasImageSourceReadiness | null>
   exportPng(): string | null
 }
 

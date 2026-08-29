@@ -2076,6 +2076,35 @@ describe("Fabric document boundary", () => {
     )
   })
 
+  it("propagates cancellation instead of converting it to a missing-image placeholder", async () => {
+    const imageNode = renderConformanceDocument.nodes.find(
+      (candidate) => candidate.id === "image-cover"
+    )!
+    if (imageNode.type !== "image") throw new Error("Expected image fixture")
+    const controller = new AbortController()
+    const reason = new DOMException("Canvas sync timed out", "TimeoutError")
+    let observedSignal: AbortSignal | undefined
+    const loadImage = vi.fn(
+      (_node: typeof imageNode, signal?: AbortSignal) =>
+        new Promise<FabricObject>((_resolve, reject) => {
+          observedSignal = signal
+          signal?.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          })
+        })
+    )
+    const loading = createFabricObjectForSync(
+      imageNode,
+      loadImage,
+      controller.signal
+    )
+
+    controller.abort(reason)
+
+    await expect(loading).rejects.toBe(reason)
+    expect(observedSignal).toBe(controller.signal)
+  })
+
   it.each([
     { width: 1, height: 1 },
     { width: 10, height: 10 },

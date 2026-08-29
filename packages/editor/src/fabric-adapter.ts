@@ -808,10 +808,16 @@ export function createFabricSyncObject(
   return text
 }
 
-async function createImageObject(node: Extract<SceneNode, { type: "image" }>) {
+async function createImageObject(
+  node: Extract<SceneNode, { type: "image" }>,
+  signal?: AbortSignal
+) {
+  signal?.throwIfAborted()
   const image = await FabricImage.fromURL(node.src, {
     crossOrigin: "anonymous",
+    signal,
   })
+  signal?.throwIfAborted()
   return createFabricImageGroup(node, image)
 }
 
@@ -917,15 +923,70 @@ export const isMissingImagePlaceholder = (object: FabricObject) =>
 export async function createFabricObjectForSync(
   node: SceneNode,
   loadImage: (
-    imageNode: Extract<SceneNode, { type: "image" }>
-  ) => Promise<FabricObject> = createImageObject
+    imageNode: Extract<SceneNode, { type: "image" }>,
+    signal?: AbortSignal
+  ) => Promise<FabricObject> = createImageObject,
+  signal?: AbortSignal
 ) {
+  signal?.throwIfAborted()
   if (node.type !== "image") return createFabricSyncObject(node)
   try {
-    return await loadImage(node)
+    const image = await loadImage(node, signal)
+    signal?.throwIfAborted()
+    return image
   } catch {
+    signal?.throwIfAborted()
     return createMissingImagePlaceholder(node)
   }
+}
+
+const FABRIC_IMAGE_DECODE_CONCURRENCY = 6
+const FABRIC_IMAGE_DECODE_TIMEOUT_MS = 8_000
+
+async function createImageObjectWithinDeadline(
+  node: Extract<SceneNode, { type: "image" }>,
+  parentSignal?: AbortSignal
+) {
+  parentSignal?.throwIfAborted()
+  const controller = new AbortController()
+  const forwardParentAbort = () => controller.abort(parentSignal?.reason)
+  parentSignal?.addEventListener("abort", forwardParentAbort, { once: true })
+  const timeout = globalThis.setTimeout(
+    () =>
+      controller.abort(
+        new DOMException("Canvas image decode timed out", "TimeoutError")
+      ),
+    FABRIC_IMAGE_DECODE_TIMEOUT_MS
+  )
+  try {
+    return await createImageObject(node, controller.signal)
+  } finally {
+    globalThis.clearTimeout(timeout)
+    parentSignal?.removeEventListener("abort", forwardParentAbort)
+  }
+}
+
+function prepareFabricImageObjects(
+  nodes: readonly Extract<SceneNode, { type: "image" }>[],
+  signal?: AbortSignal
+) {
+  const workerTails = Array.from(
+    { length: Math.min(FABRIC_IMAGE_DECODE_CONCURRENCY, nodes.length) },
+    () => Promise.resolve()
+  )
+  const prepared = new Map<string, Promise<FabricObject>>()
+  for (const [index, node] of nodes.entries()) {
+    const workerIndex = index % workerTails.length
+    const task = workerTails[workerIndex]!.then(() =>
+      createImageObjectWithinDeadline(node, signal)
+    )
+    workerTails[workerIndex] = task.then(
+      () => undefined,
+      () => undefined
+    )
+    prepared.set(node.id, task)
+  }
+  return prepared
 }
 
 function imageFrame(node: Extract<SceneNode, { type: "image" }>) {
@@ -1772,7 +1833,8 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     await canvas.dispose()
   }
 
-  async sync(document: Document, pageId: string) {
+  async sync(document: Document, pageId: string, signal?: AbortSignal) {
+    signal?.throwIfAborted()
     const canvas = this.canvas
     if (!canvas) return
     this.clearGuides()
@@ -1840,7 +1902,31 @@ export class FabricCanvasAdapter implements CanvasAdapter {
         }
       }
 
+      const imagesToPrepare = page.nodeIds.flatMap((nodeId) => {
+        const node = nodesById.get(nodeId)
+        if (node?.type !== "image") return []
+        const object = this.objectByNodeId.get(nodeId)
+        if (!object) return [node]
+        if (this.nodeByNodeId.get(nodeId) === node) return []
+        const image =
+          object instanceof Group
+            ? object
+                .getObjects()
+                .find(
+                  (child): child is FabricImage => child instanceof FabricImage
+                )
+            : undefined
+        return !image || !equivalentImageSources(image.getSrc(), node.src)
+          ? [node]
+          : []
+      })
+      const preparedImages = prepareFabricImageObjects(imagesToPrepare, signal)
+      const loadPreparedImage = (node: Extract<SceneNode, { type: "image" }>) =>
+        preparedImages.get(node.id) ??
+        createImageObjectWithinDeadline(node, signal)
+
       for (const [index, nodeId] of page.nodeIds.entries()) {
+        signal?.throwIfAborted()
         const node = nodesById.get(nodeId)
         if (!node) continue
         const previousNode = this.nodeByNodeId.get(node.id)
@@ -1859,7 +1945,12 @@ export class FabricCanvasAdapter implements CanvasAdapter {
               : undefined
           if (!image || !equivalentImageSources(image.getSrc(), node.src)) {
             const previousObject = object
-            const replacement = await createFabricObjectForSync(node)
+            const replacement = await createFabricObjectForSync(
+              node,
+              loadPreparedImage,
+              signal
+            )
+            signal?.throwIfAborted()
             if (generation !== this.generation || !this.canvas) return
             // A replacement is a staged visual swap. Keep the last decoded
             // pixels mounted until the requested source can be installed.
@@ -1875,7 +1966,12 @@ export class FabricCanvasAdapter implements CanvasAdapter {
         }
 
         if (!object) {
-          object = await createFabricObjectForSync(node)
+          object = await createFabricObjectForSync(
+            node,
+            loadPreparedImage,
+            signal
+          )
+          signal?.throwIfAborted()
           if (generation !== this.generation || !this.canvas) return
           this.objectByNodeId.set(node.id, object)
           this.nodeIdByObject.set(object, node.id)
@@ -1915,6 +2011,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
         }
       }
       this.applyImageCropInteractionPolicy()
+      signal?.throwIfAborted()
       canvas.requestRenderAll()
     } finally {
       if (generation === this.generation) this.syncing = false
@@ -2216,7 +2313,8 @@ export class FabricCanvasAdapter implements CanvasAdapter {
       : ("unavailable" as const)
   }
 
-  async retryImageSource(nodeId: string) {
+  async retryImageSource(nodeId: string, signal?: AbortSignal) {
+    signal?.throwIfAborted()
     const canvas = this.canvas
     const node = this.nodeByNodeId.get(nodeId)
     const previousObject = this.objectByNodeId.get(nodeId)
@@ -2228,10 +2326,12 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     const expectedSource = node.src
     let replacement: Group
     try {
-      replacement = await createImageObject(node)
+      replacement = await createImageObject(node, signal)
     } catch {
+      signal?.throwIfAborted()
       return "unavailable" as const
     }
+    signal?.throwIfAborted()
     const currentNode = this.nodeByNodeId.get(nodeId)
     if (
       this.canvas !== canvas ||

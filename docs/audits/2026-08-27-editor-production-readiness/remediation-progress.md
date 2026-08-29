@@ -2186,3 +2186,32 @@ Status: **implemented locally and independently accepted; broader FAIL-01 remain
   open could outlive the waiter and overlap Retry. The final reservation gate
   retains ownership through late close. The reviewer accepted the repaired
   gate with no remaining P0/P1.
+
+## 2026-08-29 — Fabric runtime recovery (FAIL-01D)
+
+Status: **implemented locally and independently accepted; broader FAIL-01 remains open**
+
+- Reread the retained FAIL-01 boundary and the actual Loora/OpenPencil
+  lifecycle, abort, concurrency, and destroy-before-replacement code before
+  implementation.
+- Fabric adapter import/mount and exact document synchronization now have
+  separate deadlines, exact attempt/document/revision/page reports, and one
+  serialized lifecycle owner. Retry waits for old sync acknowledgement and
+  async disposal; failed disposal exposes reload recovery rather than mounting
+  a second canvas.
+- Incremental sync visibly re-enters Preparing. The application canvas and its
+  interaction chrome remain inert until exact readiness. A successful
+  user-owned Retry restores focus to the Fabric canvas.
+- Font work is limited to exact visible page text. Image decode is parent-
+  cancellable, capped at six concurrent operations, and bounded to eight
+  seconds per image; ordinary failure degrades one node while failed source
+  replacement retains prior pixels. Visible image Retry has exact source/token
+  identity, cancellation, timeout, stale-result rejection, and failure state.
+- Product readiness no longer depends on background-tab animation frames. The
+  conformance harness retains its separate painted-frame acknowledgement.
+- Focused Studio runtime tests pass 19/19 and editor Fabric adapter tests pass
+  76/76. Both typechecks and Studio scoped lint pass. Independent code review
+  returned **ACCEPT with no remaining P0/P1 finding**.
+- `fail-01d-fabric-runtime-recovery.md` records the exact ownership contract and
+  keeps upload, import, publish, WebMCP, durable jobs, public error identity,
+  and deployed failure evidence open.

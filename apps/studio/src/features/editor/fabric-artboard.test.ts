@@ -16,6 +16,7 @@ import {
   reduceCanvasRuntimeState,
   settleCanvasInteractivity,
   waitForCanvasDocumentFonts,
+  waitForCanvasOperation,
 } from "./fabric-artboard"
 
 const imageFixture = renderConformanceDocument.nodes.find(
@@ -64,6 +65,43 @@ describe("FabricArtboard crop preview", () => {
         ready,
       })
     ).rejects.toThrow('Canvas font unavailable: 650 30px "Geist Variable"')
+  })
+
+  it("does not wait for unrelated global font readiness on a no-text page", async () => {
+    const page = renderConformanceDocument.pages[0]
+    const document = {
+      ...renderConformanceDocument,
+      pages: [
+        {
+          ...page,
+          nodeIds: page.nodeIds.filter(
+            (nodeId) =>
+              renderConformanceDocument.nodes.find((node) => node.id === nodeId)
+                ?.type !== "text"
+          ),
+        },
+      ],
+    }
+    const load = vi.fn(() => Promise.resolve([{} as FontFace]))
+
+    await waitForCanvasDocumentFonts(document, page.id, {
+      check: vi.fn(() => true),
+      load,
+      ready: new Promise<FontFaceSet>(() => undefined),
+    })
+
+    expect(load).not.toHaveBeenCalled()
+  })
+
+  it("releases a stalled shared readiness wait on cancellation", async () => {
+    const controller = new AbortController()
+    const pending = new Promise<void>(() => undefined)
+    const waiting = waitForCanvasOperation(pending, controller.signal)
+    const reason = new DOMException("Canvas update timed out", "TimeoutError")
+
+    controller.abort(reason)
+
+    await expect(waiting).rejects.toBe(reason)
   })
 
   it("connects the Fabric application canvas to discoverable instructions", () => {
@@ -122,6 +160,17 @@ describe("FabricArtboard crop preview", () => {
       stage: null,
     })
     expect(
+      reduceCanvasRuntimeState(
+        {
+          status: "ready",
+          attempt: 1,
+          userRetried: true,
+          stage: null,
+        },
+        { type: "preparing", attempt: 1 }
+      )
+    ).toEqual(retrying)
+    expect(
       reduceCanvasRuntimeState(retrying, {
         type: "failed",
         attempt: 0,
@@ -160,12 +209,25 @@ describe("FabricArtboard crop preview", () => {
         onRetry: vi.fn(),
       })
     )
+    const cleanupFailed = renderToStaticMarkup(
+      createElement(CanvasRuntimeOverlay, {
+        runtime: {
+          status: "error",
+          attempt: 1,
+          userRetried: true,
+          stage: "cleanup",
+        },
+        onRetry: vi.fn(),
+      })
+    )
 
     expect(preparing).toContain('role="status"')
     expect(preparing).toContain("Preparing canvas…")
     expect(failed).toContain('role="alert"')
     expect(failed).toContain("Canvas still unavailable")
     expect(failed).toContain("Retry canvas")
+    expect(cleanupFailed).toContain("Reload editor")
+    expect(cleanupFailed).not.toContain("Retry canvas")
   })
 
   it("accepts readiness only for the exact current image source", () => {

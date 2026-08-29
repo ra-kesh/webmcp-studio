@@ -13,6 +13,7 @@ import {
 import type { Document } from "@webmcp/document"
 import type {
   CanvasAdapter,
+  CanvasAdapterEvents,
   CanvasImageCropMode,
   CanvasImageCropPreview,
   CanvasImageSourceReadiness,
@@ -44,6 +45,70 @@ export type FabricArtboardHandle = {
   ) => boolean
 }
 
+export type CanvasRuntimeReport = Readonly<{
+  status: "preparing" | "ready" | "error"
+  attempt: number
+  documentId: string
+  documentRevision: number
+  pageId: string
+  stage: CanvasRuntimeFailureStage | null
+}>
+
+type FabricAdapterModule = Readonly<{
+  FabricCanvasAdapter: new (events: CanvasAdapterEvents) => CanvasAdapter
+}>
+
+export type FabricArtboardRuntimeOptions = Readonly<{
+  startupTimeoutMs?: number
+  syncTimeoutMs?: number
+  loadAdapter?: () => Promise<FabricAdapterModule>
+}>
+
+const DEFAULT_CANVAS_STARTUP_TIMEOUT_MS = 15_000
+const DEFAULT_CANVAS_SYNC_TIMEOUT_MS = 20_000
+const DEFAULT_IMAGE_RETRY_TIMEOUT_MS = 8_000
+const loadDefaultFabricAdapter = () => import("@webmcp/editor/fabric")
+
+class CanvasCleanupError extends Error {
+  constructor(cause: unknown) {
+    super("The previous canvas could not be disposed safely", { cause })
+    this.name = "CanvasCleanupError"
+  }
+}
+
+export const waitForCanvasOperation = <T,>(
+  operation: Promise<T>,
+  signal: AbortSignal
+) => {
+  signal.throwIfAborted()
+  return new Promise<T>((resolve, reject) => {
+    const cleanUp = () => signal.removeEventListener("abort", abort)
+    const abort = () => {
+      cleanUp()
+      reject(signal.reason)
+    }
+    signal.addEventListener("abort", abort, { once: true })
+    void operation.then(
+      (value) => {
+        cleanUp()
+        if (!signal.aborted) resolve(value)
+      },
+      (error: unknown) => {
+        cleanUp()
+        if (!signal.aborted) reject(error)
+      }
+    )
+  })
+}
+
+const canvasTimeoutReason = (stage: CanvasRuntimeFailureStage) =>
+  new DOMException(
+    stage === "startup"
+      ? "Canvas startup timed out"
+      : "Canvas update timed out",
+    "TimeoutError"
+  )
+
 export const FabricArtboard = forwardRef<
   FabricArtboardHandle,
   {
@@ -69,7 +134,8 @@ export const FabricArtboard = forwardRef<
     onImageCropFramePreview?: (preview: ImageCropFramePreview) => void
     onImageCropUnavailable?: (failure: ImageCropUnavailable) => void
     onImageSourceStateChange?: (state: ImageSourceStateChange) => void
-    onRuntimeStateChange?: (state: "ready" | "error") => void
+    onRuntimeStateChange?: (state: CanvasRuntimeReport) => void
+    runtimeOptions?: FabricArtboardRuntimeOptions
     onTextEditingStart?: (nodeId: string) => void
     onSelectionChange: (selection: Selection | null) => void
     onNodesChange: (changes: CanvasNodeChange[]) => boolean | void
@@ -95,6 +161,7 @@ export const FabricArtboard = forwardRef<
     onImageCropUnavailable,
     onImageSourceStateChange,
     onRuntimeStateChange,
+    runtimeOptions,
     onTextEditingStart,
     onSelectionChange,
     onNodesChange,
@@ -104,6 +171,10 @@ export const FabricArtboard = forwardRef<
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const artboardChromeRef = useRef<HTMLDivElement>(null)
   const adapterRef = useRef<CanvasAdapter | null>(null)
+  const adapterLifecycleTailRef = useRef<Promise<void>>(Promise.resolve())
+  const syncTailRef = useRef<Promise<void>>(Promise.resolve())
+  const imageRetryControllersRef = useRef(new Map<string, AbortController>())
+  const retryOwnedFocusRef = useRef(false)
   const callbacksRef = useRef({
     onCanvasDoubleClick,
     onContextMenu,
@@ -130,6 +201,7 @@ export const FabricArtboard = forwardRef<
   const [runtime, setRuntime] = useState<CanvasRuntimeState>(() =>
     createCanvasRuntimeState()
   )
+  const [mountedAttempt, setMountedAttempt] = useState<number | null>(null)
   const ready = runtime.status === "ready"
   const canvasInstructionsId = `canvas-instructions-${useId().replaceAll(":", "")}`
   const reportedUnavailableCropRef = useRef<string | null>(null)
@@ -149,6 +221,21 @@ export const FabricArtboard = forwardRef<
     imageCropMode,
     interactive,
   }
+  const runtimeIdentityRef = useRef({
+    documentId: document.id,
+    documentRevision: document.revision,
+    pageId,
+  })
+  runtimeIdentityRef.current = {
+    documentId: document.id,
+    documentRevision: document.revision,
+    pageId,
+  }
+  const loadAdapter = runtimeOptions?.loadAdapter ?? loadDefaultFabricAdapter
+  const startupTimeoutMs =
+    runtimeOptions?.startupTimeoutMs ?? DEFAULT_CANVAS_STARTUP_TIMEOUT_MS
+  const syncTimeoutMs =
+    runtimeOptions?.syncTimeoutMs ?? DEFAULT_CANVAS_SYNC_TIMEOUT_MS
 
   const page = useMemo(
     () => document.pages.find((candidate) => candidate.id === pageId),
@@ -277,15 +364,63 @@ export const FabricArtboard = forwardRef<
   const retryImageSource = useCallback(
     (nodeId: string) => {
       const src = currentImageSourceByNodeIdRef.current.get(nodeId)
+      const resourceToken =
+        currentImageResourceTokenByNodeIdRef.current.get(nodeId)
       const adapter = adapterRef.current
       if (!src || !adapter) return
-      reportImageSourceState({ nodeId, src, readiness: "loading" })
-      void adapter.retryImageSource(nodeId).then((readiness) => {
-        if (!readiness) return
-        reportImageSourceState({ nodeId, src, readiness })
+      imageRetryControllersRef.current
+        .get(nodeId)
+        ?.abort(new DOMException("Image retry replaced", "AbortError"))
+      const controller = new AbortController()
+      imageRetryControllersRef.current.set(nodeId, controller)
+      const timeout = globalThis.setTimeout(
+        () =>
+          controller.abort(
+            new DOMException("Image retry timed out", "TimeoutError")
+          ),
+        DEFAULT_IMAGE_RETRY_TIMEOUT_MS
+      )
+      reportImageSourceState({
+        nodeId,
+        src,
+        resourceToken,
+        readiness: "loading",
       })
+      void waitForCanvasOperation(
+        adapter.retryImageSource(nodeId, controller.signal),
+        controller.signal
+      )
+        .then((readiness) => {
+          if (!readiness || controller.signal.aborted) return
+          reportImageSourceState({ nodeId, src, resourceToken, readiness })
+        })
+        .catch(() => {
+          if (controller.signal.reason?.name === "AbortError") return
+          reportImageSourceState({
+            nodeId,
+            src,
+            resourceToken,
+            readiness: "unavailable",
+          })
+        })
+        .finally(() => {
+          globalThis.clearTimeout(timeout)
+          if (imageRetryControllersRef.current.get(nodeId) === controller) {
+            imageRetryControllersRef.current.delete(nodeId)
+          }
+        })
     },
     [reportImageSourceState]
+  )
+
+  useEffect(
+    () => () => {
+      for (const controller of imageRetryControllersRef.current.values()) {
+        controller.abort(new DOMException("Canvas unmounted", "AbortError"))
+      }
+      imageRetryControllersRef.current.clear()
+    },
+    []
   )
 
   useImperativeHandle(
@@ -317,13 +452,27 @@ export const FabricArtboard = forwardRef<
     const element = canvasRef.current
     if (!element) return
     let active = true
+    const isActive = () => active
     let adapter: CanvasAdapter | null = null
     const attempt = runtime.attempt
-
-    void import("@webmcp/editor/fabric")
-      .then(({ FabricCanvasAdapter }) => {
-        if (!active) return
-        adapter = new FabricCanvasAdapter({
+    const controller = new AbortController()
+    const timeout = globalThis.setTimeout(
+      () => controller.abort(canvasTimeoutReason("startup")),
+      startupTimeoutMs
+    )
+    const predecessor = Promise.all([
+      adapterLifecycleTailRef.current,
+      syncTailRef.current,
+    ])
+    const startup = predecessor
+      .then(async () => {
+        if (!isActive()) return
+        const { FabricCanvasAdapter } = await waitForCanvasOperation(
+          loadAdapter(),
+          controller.signal
+        )
+        if (!isActive()) return
+        const nextAdapter = new FabricCanvasAdapter({
           onSelectionChange: (nextSelection) =>
             callbacksRef.current.onSelectionChange(nextSelection),
           onNodesChange: (changes) =>
@@ -337,40 +486,91 @@ export const FabricArtboard = forwardRef<
           onImageCropPreview: (preview) =>
             callbacksRef.current.onImageCropPreview?.(preview),
         })
-        adapter.mount(element)
+        adapter = nextAdapter
+        nextAdapter.mount(element)
         describeInteractiveCanvas(element, canvasInstructionsId)
-        adapterRef.current = adapter
-        setRuntime((current) =>
-          reduceCanvasRuntimeState(current, { type: "ready", attempt })
-        )
+        if (!isActive()) {
+          await nextAdapter.unmount()
+          adapter = null
+          return
+        }
+        adapterRef.current = nextAdapter
+        setMountedAttempt(attempt)
       })
-      .catch(() => {
-        if (!active) return
-        adapterRef.current = null
-        if (adapter) void adapter.unmount().catch(() => undefined)
-        adapter = null
-        reportAllCurrentImageSources("unavailable")
-        callbacksRef.current.onRuntimeStateChange?.("error")
+      .catch(async (error: unknown) => {
+        let stage: CanvasRuntimeFailureStage =
+          error instanceof CanvasCleanupError ? "cleanup" : "startup"
+        if (adapter) {
+          if (adapterRef.current === adapter) adapterRef.current = null
+          try {
+            await adapter.unmount()
+          } catch {
+            stage = "cleanup"
+          }
+          adapter = null
+        }
+        if (!isActive()) return
+        setMountedAttempt((current) => (current === attempt ? null : current))
+        callbacksRef.current.onRuntimeStateChange?.({
+          status: "error",
+          attempt,
+          ...runtimeIdentityRef.current,
+          stage,
+        })
         setRuntime((current) =>
           reduceCanvasRuntimeState(current, {
             type: "failed",
             attempt,
-            stage: "startup",
+            stage,
           })
         )
       })
+      .finally(() => globalThis.clearTimeout(timeout))
+    adapterLifecycleTailRef.current = startup.then(
+      () => undefined,
+      () => undefined
+    )
 
     return () => {
       active = false
-      adapterRef.current = null
-      if (adapter) void adapter.unmount()
+      controller.abort(new DOMException("Canvas attempt ended", "AbortError"))
+      globalThis.clearTimeout(timeout)
+      if (adapterRef.current === adapter) adapterRef.current = null
+      const teardown = Promise.all([
+        adapterLifecycleTailRef.current,
+        syncTailRef.current,
+      ]).then(async () => {
+        if (!adapter) return
+        try {
+          await adapter.unmount()
+          adapter = null
+        } catch (error) {
+          throw new CanvasCleanupError(error)
+        }
+      })
+      void teardown.catch(() => undefined)
+      adapterLifecycleTailRef.current = teardown
     }
-  }, [canvasInstructionsId, reportAllCurrentImageSources, runtime.attempt])
+  }, [
+    canvasInstructionsId,
+    loadAdapter,
+    reportAllCurrentImageSources,
+    runtime.attempt,
+    startupTimeoutMs,
+  ])
 
   useEffect(() => {
     if (!ready) return
     adapterRef.current?.setViewportZoom(zoom)
   }, [ready, zoom])
+
+  useEffect(() => {
+    if (!ready || !retryOwnedFocusRef.current) return
+    retryOwnedFocusRef.current = false
+    canvasRef.current?.parentElement
+      ?.querySelector<HTMLElement>(".upper-canvas")
+      ?.focus()
+  }, [ready])
 
   useLayoutEffect(() => {
     const chrome = artboardChromeRef.current
@@ -383,13 +583,23 @@ export const FabricArtboard = forwardRef<
   }, [pageId, ready, snapTargets])
 
   useEffect(() => {
-    if (!ready) return
+    if (mountedAttempt !== runtime.attempt) return
     const adapter = adapterRef.current
     if (!adapter) return
     settleCanvasInteractivity(adapter, interactive)
     let active = true
     const isActive = () => active
     const attempt = runtime.attempt
+    const identity = {
+      documentId: document.id,
+      documentRevision: document.revision,
+      pageId,
+    }
+    const controller = new AbortController()
+    const timeout = globalThis.setTimeout(
+      () => controller.abort(canvasTimeoutReason("sync")),
+      syncTimeoutMs
+    )
     const imageSources = document.nodes.flatMap((node) =>
       node.type === "image" && page?.nodeIds.includes(node.id)
         ? [
@@ -407,13 +617,31 @@ export const FabricArtboard = forwardRef<
         reportImageSourceState({ ...state, readiness: "loading" })
       }
     }
-    void waitForCanvasDocumentFonts(document, pageId)
+    callbacksRef.current.onRuntimeStateChange?.({
+      status: "preparing",
+      attempt,
+      ...identity,
+      stage: null,
+    })
+    setRuntime((current) =>
+      reduceCanvasRuntimeState(current, { type: "preparing", attempt })
+    )
+    const predecessor = syncTailRef.current
+    const syncing = predecessor
       .then(async () => {
-        if (!active) return
-        return adapter.sync(document, pageId)
+        if (!isActive()) return
+        await waitForCanvasDocumentFonts(
+          document,
+          pageId,
+          undefined,
+          controller.signal
+        )
+        if (!isActive()) return
+        await adapter.sync(document, pageId, controller.signal)
       })
       .then(async () => {
-        if (!active) return
+        if (!isActive() || adapterRef.current !== adapter) return
+        controller.signal.throwIfAborted()
         for (const state of imageSources) {
           const readiness = adapter.getImageSourceReadiness(state.nodeId)
           reportImageSourceState({
@@ -439,16 +667,24 @@ export const FabricArtboard = forwardRef<
             ? callbacksRef.current.imageCropMode
             : null
         )
-        await waitForCanvasPaint()
-        if (!isActive()) return
-        callbacksRef.current.onRuntimeStateChange?.("ready")
+        callbacksRef.current.onRuntimeStateChange?.({
+          status: "ready",
+          attempt,
+          ...identity,
+          stage: null,
+        })
+        setRuntime((current) =>
+          reduceCanvasRuntimeState(current, { type: "ready", attempt })
+        )
       })
       .catch(() => {
-        if (!active) return
-        for (const state of imageSources) {
-          reportImageSourceState({ ...state, readiness: "unavailable" })
-        }
-        callbacksRef.current.onRuntimeStateChange?.("error")
+        if (!isActive()) return
+        callbacksRef.current.onRuntimeStateChange?.({
+          status: "error",
+          attempt,
+          ...identity,
+          stage: "sync",
+        })
         setRuntime((current) =>
           reduceCanvasRuntimeState(current, {
             type: "failed",
@@ -457,8 +693,15 @@ export const FabricArtboard = forwardRef<
           })
         )
       })
+      .finally(() => globalThis.clearTimeout(timeout))
+    syncTailRef.current = syncing.then(
+      () => undefined,
+      () => undefined
+    )
     return () => {
       active = false
+      controller.abort(new DOMException("Canvas update ended", "AbortError"))
+      globalThis.clearTimeout(timeout)
     }
   }, [
     applyImageCropMode,
@@ -466,10 +709,11 @@ export const FabricArtboard = forwardRef<
     interactive,
     pageId,
     page,
-    ready,
+    mountedAttempt,
     reportImageSourceState,
     runtime.attempt,
     imageResourceTokens,
+    syncTimeoutMs,
   ])
 
   useEffect(() => {
@@ -501,7 +745,9 @@ export const FabricArtboard = forwardRef<
       style={{ width: page.width * zoom, height: page.height * zoom }}
     >
       <div
-        className={`absolute top-0 left-0 origin-top-left bg-white ${interactive ? "" : "pointer-events-none"}`}
+        aria-hidden={!ready}
+        inert={!ready}
+        className={`absolute top-0 left-0 origin-top-left bg-white ${interactive && ready ? "" : "pointer-events-none"}`}
         style={{
           width: page.width,
           height: page.height,
@@ -517,11 +763,12 @@ export const FabricArtboard = forwardRef<
         cropping, drag with one finger to reposition the image or pinch with two
         fingers inside the frame to scale and reposition it.
       </p>
-      {hoveredNode &&
+      {ready &&
+      hoveredNode &&
       !selectedNodes.some((node) => node.id === hoveredNode.id) ? (
         <NodeOutline kind="hover" nodes={[hoveredNode]} zoom={zoom} />
       ) : null}
-      {cropNode && imageCropPreviewStore ? (
+      {ready && cropNode && imageCropPreviewStore ? (
         <LiveImageCropPreviewChrome
           node={cropNode}
           page={page}
@@ -536,7 +783,7 @@ export const FabricArtboard = forwardRef<
             callbacksRef.current.onImageCropFramePreview?.(preview)
           }
         />
-      ) : cropNode ? (
+      ) : ready && cropNode ? (
         <>
           <CropPreviewDimmer node={cropNode} page={page} />
           <NodeOutline kind="crop" nodes={[cropNode]} zoom={zoom} />
@@ -553,10 +800,16 @@ export const FabricArtboard = forwardRef<
             />
           ) : null}
         </>
-      ) : selectedNodes.length ? (
+      ) : ready && selectedNodes.length ? (
         <NodeOutline kind="selection" nodes={selectedNodes} zoom={zoom} />
       ) : null}
-      <CanvasRuntimeOverlay runtime={runtime} onRetry={retryImageSources} />
+      <CanvasRuntimeOverlay
+        runtime={runtime}
+        onRetry={() => {
+          retryOwnedFocusRef.current = true
+          retryImageSources()
+        }}
+      />
     </div>
   )
 })
@@ -582,15 +835,21 @@ export function canvasDocumentFontRequests(document: Document, pageId: string) {
 export async function waitForCanvasDocumentFonts(
   document: Document,
   pageId: string,
-  fontFaceSet: CanvasFontFaceSet | undefined = getBrowserFontFaceSet()
+  fontFaceSet: CanvasFontFaceSet | undefined = getBrowserFontFaceSet(),
+  signal?: AbortSignal
 ) {
+  signal?.throwIfAborted()
   if (!fontFaceSet) return
   const requests = canvasDocumentFontRequests(document, pageId)
-  const loadedFaces = await Promise.all(
+  const loading = Promise.all(
     requests.map(({ descriptor, sample }) =>
       fontFaceSet.load(descriptor, sample)
     )
   )
+  const loadedFaces = signal
+    ? await waitForCanvasOperation(loading, signal)
+    : await loading
+  signal?.throwIfAborted()
   for (const [index, faces] of loadedFaces.entries()) {
     if (!faces.length) {
       throw new Error(
@@ -598,7 +857,6 @@ export async function waitForCanvasDocumentFonts(
       )
     }
   }
-  await fontFaceSet.ready
   for (const { descriptor, sample } of requests) {
     if (!fontFaceSet.check(descriptor, sample)) {
       throw new Error(`Canvas font unavailable: ${descriptor}`)
@@ -608,13 +866,6 @@ export async function waitForCanvasDocumentFonts(
 
 function getBrowserFontFaceSet(): CanvasFontFaceSet | undefined {
   return typeof window === "undefined" ? undefined : window.document.fonts
-}
-
-export async function waitForCanvasPaint() {
-  if (typeof requestAnimationFrame === "undefined") return
-  await new Promise<void>((resolve) =>
-    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
-  )
 }
 
 function LiveImageCropPreviewChrome({
@@ -694,7 +945,7 @@ export function settleCanvasInteractivity(
   return textCancelled || transformCancelled
 }
 
-export type CanvasRuntimeFailureStage = "startup" | "sync"
+export type CanvasRuntimeFailureStage = "startup" | "sync" | "cleanup"
 
 export type ImageSourceStateChange = Readonly<{
   nodeId: string
@@ -751,6 +1002,7 @@ export type CanvasRuntimeState = Readonly<
 >
 
 export type CanvasRuntimeEvent =
+  | Readonly<{ type: "preparing"; attempt: number }>
   | Readonly<{ type: "ready"; attempt: number }>
   | Readonly<{
       type: "failed"
@@ -781,6 +1033,14 @@ export function reduceCanvasRuntimeState(
     }
   }
   if (event.attempt !== state.attempt) return state
+  if (event.type === "preparing") {
+    return {
+      status: "preparing",
+      attempt: state.attempt,
+      userRetried: state.userRetried,
+      stage: null,
+    }
+  }
   if (event.type === "failed") {
     return {
       status: "error",
@@ -798,9 +1058,13 @@ export function reduceCanvasRuntimeState(
 }
 
 export function canvasRuntimeFailureMessage(stage: CanvasRuntimeFailureStage) {
-  return stage === "startup"
-    ? "The editor canvas could not start. Your document is unchanged."
-    : "The editor canvas could not update. Your document is unchanged."
+  if (stage === "startup") {
+    return "The editor canvas could not start. Your document is unchanged."
+  }
+  if (stage === "cleanup") {
+    return "The previous canvas could not close safely. Reload the editor before continuing."
+  }
+  return "The editor canvas could not update. Your document is unchanged."
 }
 
 export function CanvasRuntimeOverlay({
@@ -836,9 +1100,19 @@ export function CanvasRuntimeOverlay({
           {canvasRuntimeFailureMessage(runtime.stage)}
         </p>
       </div>
-      <Button size="sm" variant="outline" onClick={onRetry}>
-        Retry canvas
-      </Button>
+      {runtime.stage === "cleanup" ? (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => globalThis.location.reload()}
+        >
+          Reload editor
+        </Button>
+      ) : (
+        <Button size="sm" variant="outline" onClick={onRetry} autoFocus>
+          Retry canvas
+        </Button>
+      )}
     </div>
   )
 }

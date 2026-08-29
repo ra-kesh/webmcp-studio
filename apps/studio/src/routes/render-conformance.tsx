@@ -106,7 +106,15 @@ function RenderConformancePair({ pageId }: { pageId: string }) {
           selection={null}
           zoom={1}
           onNodesChange={() => false}
-          onRuntimeStateChange={(state) => setFabricState(state)}
+          onRuntimeStateChange={(state) => {
+            if (state.status !== "ready") {
+              setFabricState(state.status)
+              return
+            }
+            void waitForPaintedFrame()
+              .then(() => setFabricState("ready"))
+              .catch(() => setFabricState("error"))
+          }}
           onSelectionChange={() => undefined}
         />
       </div>
@@ -115,6 +123,12 @@ function RenderConformancePair({ pageId }: { pageId: string }) {
 }
 
 type ConformanceState = "preparing" | "ready" | "error"
+
+function waitForPaintedFrame() {
+  return new Promise<void>((resolve) =>
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+  )
+}
 
 async function waitForRenderViewCapture(element: HTMLElement, pageId: string) {
   await waitForRenderViewDocumentFonts(
