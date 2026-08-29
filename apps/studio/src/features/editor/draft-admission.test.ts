@@ -1,6 +1,9 @@
 import {
   builtInDesignTemplateRepository,
+  deriveDocumentSnapshotId,
   northstarQuotationPayload,
+  prepareQuotationRefresh,
+  quotationSourceFingerprint,
 } from "@webmcp/document"
 import type { ChangeSet } from "@webmcp/document"
 import { describe, expect, it } from "vitest"
@@ -18,6 +21,10 @@ import {
   createReviewProposal,
 } from "./review-journal"
 import { createKnownQuotationComposition } from "./quotation-composition-context"
+import {
+  quotationRefreshProposalId,
+  type QuotationRefreshJournal,
+} from "./quotation-refresh-journal"
 
 const snapshot = (): CurrentDraftSnapshot => ({
   document: builtInDesignTemplateRepository.materialize(
@@ -64,6 +71,104 @@ const reviewFor = (candidate: CurrentDraftSnapshot) => {
     candidate.document,
     changeSet
   )
+}
+
+const quotationRefreshSnapshot = async (): Promise<CurrentDraftSnapshot> => {
+  const designTemplate = { id: "quotation-editorial-olive", version: 2 }
+  const document = builtInDesignTemplateRepository.materialize(
+    designTemplate.id,
+    designTemplate.version,
+    { quotation: northstarQuotationPayload, identity: "canonical" }
+  )
+  const composition = await createKnownQuotationComposition(
+    northstarQuotationPayload,
+    designTemplate
+  )
+  if (composition.status !== "known") {
+    throw new Error("Expected known quotation composition")
+  }
+  const incomingSource = structuredClone(northstarQuotationPayload)
+  incomingSource.source.revision += 1
+  incomingSource.quote.quoteVersion += 1
+  incomingSource.quote.quoteNumber = "Q-REFRESH-ADMISSION"
+  const preparedAt = "2026-08-30T04:00:00.000Z"
+  const prepared = prepareQuotationRefresh({
+    currentDocument: document,
+    currentSource: northstarQuotationPayload,
+    incomingSource,
+    templateId: "editorial-olive",
+    now: preparedAt,
+  })
+  const [baseContentSnapshotId, candidateContentSnapshotId] = await Promise.all(
+    [
+      deriveDocumentSnapshotId(document),
+      deriveDocumentSnapshotId(prepared.document),
+    ]
+  )
+  const base = {
+    quotationId: northstarQuotationPayload.source.quotationId,
+    sourceRevision: northstarQuotationPayload.source.revision,
+    quoteVersion: northstarQuotationPayload.quote.quoteVersion,
+    contractVersion: 1 as const,
+    sourceSnapshotId: await quotationSourceFingerprint(
+      northstarQuotationPayload
+    ),
+  }
+  const incoming = {
+    quotationId: incomingSource.source.quotationId,
+    sourceRevision: incomingSource.source.revision,
+    quoteVersion: incomingSource.quote.quoteVersion,
+    contractVersion: 1 as const,
+    sourceSnapshotId: await quotationSourceFingerprint(incomingSource),
+  }
+  const impact = {
+    ...prepared.impact,
+    changedSourcePaths: [...prepared.impact.changedSourcePaths],
+    changedCategories: [...prepared.impact.changedCategories],
+    businessChanges: prepared.impact.businessChanges.map((change) => ({
+      ...change,
+    })),
+    conflicts: prepared.impact.conflicts.map((conflict) => ({
+      ...conflict,
+      properties: [...conflict.properties],
+    })),
+  }
+  const coordinates = {
+    documentId: document.id,
+    baseDocumentRevision: document.revision,
+    baseHistorySnapshotId: "history-refresh-admission",
+    baseDraftSnapshotId: "sha256-base-draft-admission",
+    baseContentSnapshotId,
+    candidateContentSnapshotId,
+    base,
+    incoming,
+    composerVersion: composition.composerVersion,
+    template: composition.template,
+    appearanceTemplateId: "editorial-olive" as const,
+    impact,
+    collisionChoices: {},
+  }
+  const quotationRefresh: QuotationRefreshJournal = {
+    pending: {
+      id: "refresh-admission",
+      preparedAt,
+      ...coordinates,
+      incomingSource,
+      candidateDocument: prepared.document,
+      proposalId: await quotationRefreshProposalId(coordinates),
+    },
+    resolved: [],
+  }
+  return {
+    document,
+    sourceContext: {
+      quotationSource: northstarQuotationPayload,
+      quotationTemplateId: "editorial-olive",
+      designTemplate,
+      composition,
+    },
+    quotationRefresh,
+  }
 }
 
 describe("draft admission", () => {
@@ -163,6 +268,37 @@ describe("draft admission", () => {
     expect(reviewedAdmission.draftSnapshotId).not.toBe(
       plainAdmission.draftSnapshotId
     )
+  })
+
+  it("admits an exact persisted quotation refresh and rejects cross-field tampering", async () => {
+    const exact = await quotationRefreshSnapshot()
+    expect(await prepareDraftAdmission(exact)).toMatchObject({ ok: true })
+
+    const sourceTamper = structuredClone(exact)
+    sourceTamper.quotationRefresh!.pending!.incomingSource.document.title =
+      "Tampered incoming source"
+    expect(await prepareDraftAdmission(sourceTamper)).toMatchObject({
+      ok: false,
+      reason: "validation_failed",
+      failure: { message: expect.stringContaining("incoming source") },
+    })
+
+    const candidateTamper = structuredClone(exact)
+    candidateTamper.quotationRefresh!.pending!.candidateDocument.name =
+      "Tampered candidate"
+    expect(await prepareDraftAdmission(candidateTamper)).toMatchObject({
+      ok: false,
+      reason: "validation_failed",
+      failure: { message: expect.stringContaining("candidate document") },
+    })
+
+    const proposalTamper = structuredClone(exact)
+    proposalTamper.quotationRefresh!.pending!.proposalId = `sha256-${"f".repeat(64)}`
+    expect(await prepareDraftAdmission(proposalTamper)).toMatchObject({
+      ok: false,
+      reason: "validation_failed",
+      failure: { message: expect.stringContaining("proposal") },
+    })
   })
 
   it("keeps legacy empty-review drafts byte compatible", async () => {

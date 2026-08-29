@@ -15,6 +15,9 @@ import {
   getChangeSetConflict,
   getGroupNodeIds,
   composeQuotationDocument,
+  prepareQuotationRefresh,
+  quotationSourceFingerprint,
+  QUOTATION_COMPOSER_VERSION,
   inferQuotationTemplateId,
   previewChangeSet,
   quotationCompositionRequestV1Schema,
@@ -38,6 +41,7 @@ import type {
   SceneNode,
   SemanticFragment,
   TemplateVersion,
+  QuotationRefreshConflictPolicy,
 } from "@webmcp/document"
 import { layerDropCommands } from "@webmcp/editor/layer-tree"
 import type { LayerDropIntent, LayerTreeItem } from "@webmcp/editor/layer-tree"
@@ -159,6 +163,23 @@ import {
   updateReviewOperationDecision,
 } from "./review-journal"
 import type { ReviewJournal, ReviewProposalProvenance } from "./review-journal"
+import {
+  chooseQuotationRefreshCollision,
+  emptyQuotationRefreshJournal,
+  quotationRefreshCandidateIdentity,
+  quotationRefreshJournalOrEmpty,
+  quotationRefreshJournalForStorage,
+  quotationRefreshProposalId,
+  replacePendingQuotationRefresh,
+  resolveQuotationRefresh,
+  resolvedImpact,
+  setPendingQuotationRefresh,
+} from "./quotation-refresh-journal"
+import type {
+  PendingQuotationRefresh,
+  QuotationRefreshJournal,
+  QuotationSourceIdentity,
+} from "./quotation-refresh-journal"
 import type {
   DocumentDraftConflict,
   DocumentDraftHeadExpectation,
@@ -232,6 +253,22 @@ const requiredDesignTemplateForQuotation = (
     )
   }
   return identity
+}
+
+const quotationTemplateForDesignTemplate = (identity: {
+  id: string
+  version: number
+}) => {
+  const template = builtInDesignTemplateRepository.get(
+    identity.id,
+    identity.version
+  )
+  if (template.kind !== "quotation_style") {
+    throw new Error(
+      `The composition template ${identity.id}@${identity.version} is not a quotation style.`
+    )
+  }
+  return template.quotationTemplateId
 }
 
 type RepositoryLifecycle =
@@ -377,6 +414,18 @@ function sourceContextsMatch(
     left.designTemplate?.version === right.designTemplate?.version &&
     JSON.stringify(left.composition) === JSON.stringify(right.composition)
   )
+}
+
+async function quotationSourceIdentity(
+  source: QuotationRenderPayloadV1
+): Promise<QuotationSourceIdentity> {
+  return {
+    quotationId: source.source.quotationId,
+    sourceRevision: source.source.revision,
+    quoteVersion: source.quote.quoteVersion,
+    contractVersion: source.contractVersion,
+    sourceSnapshotId: await quotationSourceFingerprint(source),
+  }
 }
 
 type PendingRendererReplacement =
@@ -658,6 +707,8 @@ export function useDocumentEditor({
   const [reviewJournal, setReviewJournal] = useState<ReviewJournal>(() =>
     createEmptyReviewJournal()
   )
+  const [quotationRefreshJournal, setQuotationRefreshJournal] =
+    useState<QuotationRefreshJournal>(() => emptyQuotationRefreshJournal())
   const lastResolvedChangeSet = reviewJournal.resolved[0]?.changeSet ?? null
   const [changeSetError, setChangeSetError] = useState<string | null>(null)
   const [isApplyingChangeSet, setIsApplyingChangeSet] = useState(false)
@@ -766,7 +817,11 @@ export function useDocumentEditor({
   )
   const reviewJournalRef = useRef(reviewJournal)
   reviewJournalRef.current = reviewJournal
+  const quotationRefreshJournalRef = useRef(quotationRefreshJournal)
+  quotationRefreshJournalRef.current = quotationRefreshJournal
   const lastCapturedReviewJournalRef = useRef<ReviewJournal | null>(null)
+  const lastCapturedQuotationRefreshJournalRef =
+    useRef<QuotationRefreshJournal | null>(null)
   const onHistoryCommitRef = useRef(onHistoryCommit)
   onHistoryCommitRef.current = onHistoryCommit
   const notifyHistoryCommit = useCallback(
@@ -820,6 +875,15 @@ export function useDocumentEditor({
   const clearReviewJournal = useCallback(() => {
     projectReviewJournal(createEmptyReviewJournal())
   }, [projectReviewJournal])
+  const projectQuotationRefreshJournal = useCallback(
+    (journalInput: QuotationRefreshJournal) => {
+      const journal = quotationRefreshJournalOrEmpty(journalInput)
+      quotationRefreshJournalRef.current = journal
+      setQuotationRefreshJournal(journal)
+      return journal
+    },
+    []
+  )
   const applyingChangeSetRef = useRef(false)
   const assetMutationActiveRef = useRef(false)
   const imageReplacementCoordinatorRef =
@@ -1047,6 +1111,9 @@ export function useDocumentEditor({
       const installedReviewJournal = reviewJournalOrEmpty(
         envelope.reviewJournal
       )
+      const installedQuotationRefreshJournal = quotationRefreshJournalOrEmpty(
+        envelope.quotationRefresh
+      )
       const nextHistory = createDocumentHistory(
         envelope.document,
         installedReviewJournal.pending?.changeSet.baseSnapshotId,
@@ -1070,6 +1137,11 @@ export function useDocumentEditor({
         installedReviewJournal
       )
       lastCapturedReviewJournalRef.current = projectedReviewJournal
+      const projectedQuotationRefreshJournal = projectQuotationRefreshJournal(
+        installedQuotationRefreshJournal
+      )
+      lastCapturedQuotationRefreshJournalRef.current =
+        projectedQuotationRefreshJournal
       const firstPageId = envelope.document.pages[0].id
       activePageIdRef.current = firstPageId
       setActivePageId(firstPageId)
@@ -1081,6 +1153,7 @@ export function useDocumentEditor({
     [
       installTemplateSourceContext,
       projectReviewJournal,
+      projectQuotationRefreshJournal,
       pruneTemplateSourceContexts,
     ]
   )
@@ -1095,13 +1168,16 @@ export function useDocumentEditor({
       const document = historyRef.current.document
       const sourceContext = templateSourceContextRef.current
       const currentReviewJournal = reviewJournalRef.current
+      const currentQuotationRefreshJournal = quotationRefreshJournalRef.current
       if (
         lastCapturedDocumentRef.current === document &&
         sourceContextsMatch(
           lastCapturedSourceContextRef.current,
           sourceContext
         ) &&
-        lastCapturedReviewJournalRef.current === currentReviewJournal
+        lastCapturedReviewJournalRef.current === currentReviewJournal &&
+        lastCapturedQuotationRefreshJournalRef.current ===
+          currentQuotationRefreshJournal
       )
         return true
       try {
@@ -1114,10 +1190,15 @@ export function useDocumentEditor({
           document,
           sourceContext,
           reviewJournal: reviewJournalForStorage(currentReviewJournal),
+          quotationRefresh: quotationRefreshJournalForStorage(
+            currentQuotationRefreshJournal
+          ),
         })
         lastCapturedDocumentRef.current = document
         lastCapturedSourceContextRef.current = sourceContext
         lastCapturedReviewJournalRef.current = currentReviewJournal
+        lastCapturedQuotationRefreshJournalRef.current =
+          currentQuotationRefreshJournal
         return true
       } catch (error) {
         setDocumentError(
@@ -1360,6 +1441,8 @@ export function useDocumentEditor({
       lastCapturedReviewJournalRef.current = reviewJournalOrEmpty(
         record.envelope.reviewJournal
       )
+      lastCapturedQuotationRefreshJournalRef.current =
+        quotationRefreshJournalOrEmpty(record.envelope.quotationRefresh)
       projectLocalSaveState(nextSession.controller.state)
       installEditorSession(record.envelope)
       if (initialRecordWarning) setDocumentError(initialRecordWarning)
@@ -1489,6 +1572,7 @@ export function useDocumentEditor({
             document: envelope.document,
             sourceContext: envelope.sourceContext,
             reviewJournal: envelope.reviewJournal,
+            quotationRefresh: envelope.quotationRefresh,
           })
           if (!validated.ok) {
             setDocumentError(validated.failure.message)
@@ -1509,6 +1593,8 @@ export function useDocumentEditor({
           lastCapturedReviewJournalRef.current = reviewJournalOrEmpty(
             validated.envelope.reviewJournal
           )
+          lastCapturedQuotationRefreshJournalRef.current =
+            quotationRefreshJournalOrEmpty(validated.envelope.quotationRefresh)
           projectLocalSaveState({
             status: "session_only",
             message:
@@ -1533,6 +1619,7 @@ export function useDocumentEditor({
             document: envelope.document,
             sourceContext: envelope.sourceContext,
             reviewJournal: envelope.reviewJournal,
+            quotationRefresh: envelope.quotationRefresh,
           },
           origin
         )
@@ -1730,13 +1817,16 @@ export function useDocumentEditor({
     const document = historyRef.current.document
     const sourceContext = templateSourceContextRef.current
     const currentReviewJournal = reviewJournalRef.current
+    const currentQuotationRefreshJournal = quotationRefreshJournalRef.current
     if (
       lastCapturedDocumentRef.current === document &&
       sourceContextsMatch(
         lastCapturedSourceContextRef.current,
         sourceContext
       ) &&
-      lastCapturedReviewJournalRef.current === currentReviewJournal
+      lastCapturedReviewJournalRef.current === currentReviewJournal &&
+      lastCapturedQuotationRefreshJournalRef.current ===
+        currentQuotationRefreshJournal
     )
       return true
 
@@ -1746,6 +1836,9 @@ export function useDocumentEditor({
         document,
         sourceContext,
         reviewJournal: reviewJournalForStorage(currentReviewJournal),
+        quotationRefresh: quotationRefreshJournalForStorage(
+          currentQuotationRefreshJournal
+        ),
       })
       if (!validated.ok) {
         setDocumentError(validated.failure.message)
@@ -1754,6 +1847,8 @@ export function useDocumentEditor({
       lastCapturedDocumentRef.current = document
       lastCapturedSourceContextRef.current = sourceContext
       lastCapturedReviewJournalRef.current = currentReviewJournal
+      lastCapturedQuotationRefreshJournalRef.current =
+        currentQuotationRefreshJournal
       rememberStartEnvelope(validated.envelope)
       projectLocalSaveState({
         status: "session_only",
@@ -2544,6 +2639,7 @@ export function useDocumentEditor({
       const document = historyRef.current.document
       const sourceContext = templateSourceContextRef.current
       const currentReviewJournal = reviewJournalRef.current
+      const currentQuotationRefreshJournal = quotationRefreshJournalRef.current
       if (
         session.controller.documentId === document.id &&
         (lastCapturedDocumentRef.current !== document ||
@@ -2551,13 +2647,18 @@ export function useDocumentEditor({
             lastCapturedSourceContextRef.current,
             sourceContext
           ) ||
-          lastCapturedReviewJournalRef.current !== currentReviewJournal)
+          lastCapturedReviewJournalRef.current !== currentReviewJournal ||
+          lastCapturedQuotationRefreshJournalRef.current !==
+            currentQuotationRefreshJournal)
       ) {
         try {
           session.controller.capture({
             document,
             sourceContext,
             reviewJournal: reviewJournalForStorage(currentReviewJournal),
+            quotationRefresh: quotationRefreshJournalForStorage(
+              currentQuotationRefreshJournal
+            ),
           })
         } catch {
           // A prior verified capture can still drain during teardown.
@@ -2780,6 +2881,10 @@ export function useDocumentEditor({
             schemaVersion: 1,
             document: historyRef.current.document,
             sourceContext: templateSourceContextRef.current,
+            reviewJournal: reviewJournalForStorage(reviewJournalRef.current),
+            quotationRefresh: quotationRefreshJournalForStorage(
+              quotationRefreshJournalRef.current
+            ),
           },
       "-my-version"
     )
@@ -2853,6 +2958,10 @@ export function useDocumentEditor({
           reviewJournal:
             "reviewJournal" in decoded.envelope
               ? decoded.envelope.reviewJournal
+              : undefined,
+          quotationRefresh:
+            "quotationRefresh" in decoded.envelope
+              ? decoded.envelope.quotationRefresh
               : undefined,
         },
         { kind: "current-draft-migration" }
@@ -3088,6 +3197,12 @@ export function useDocumentEditor({
       }
       if (imageCropSessionRef.current && !allowActiveImageCrop) {
         setDocumentError("Finish or cancel the active image crop first.")
+        return false
+      }
+      if (quotationRefreshJournalRef.current.pending) {
+        setDocumentError(
+          "Accept or reject the pending quotation refresh before editing the document."
+        )
         return false
       }
       if (!pendingChangeSetRef.current) return true
@@ -4917,8 +5032,10 @@ export function useDocumentEditor({
       allowMutation,
       captureSettledDraft,
       clearReviewJournal,
+      flushActiveDraft,
       installTemplateSourceContext,
       notifyHistoryCommit,
+      projectQuotationRefreshJournal,
       pruneTemplateSourceContexts,
     ]
   )
@@ -5003,7 +5120,143 @@ export function useDocumentEditor({
               (template) => template.id === composition.data.templateId
             )?.id
           : undefined
-        const templateId = requestedTemplateId ?? activeQuotationTemplateId
+        const currentSource = templateSourceContextRef.current.quotationSource
+        const isSameQuotation =
+          currentSource?.source.quotationId ===
+          payloadResult.data.source.quotationId
+        const templateId = isSameQuotation
+          ? templateSourceContextRef.current.quotationTemplateId
+          : (requestedTemplateId ?? activeQuotationTemplateId)
+        if (isSameQuotation && currentSource) {
+          const activeComposition = templateSourceContextRef.current.composition
+          if (activeComposition?.status !== "known") {
+            throw new Error(
+              "This quotation predates reliable composition tracking. Upgrade or replace it before refreshing from Stuwiz."
+            )
+          }
+          if (
+            activeComposition.composerVersion !== QUOTATION_COMPOSER_VERSION
+          ) {
+            throw new Error(
+              "This quotation was generated by an older composer and cannot be refreshed automatically."
+            )
+          }
+          if (quotationRefreshJournalRef.current.pending) {
+            throw new Error(
+              "Resolve or reject the pending quotation refresh before importing another source revision."
+            )
+          }
+          if (pendingChangeSetRef.current) {
+            throw new Error(
+              "Resolve or discard the current Review proposal before refreshing quotation data."
+            )
+          }
+          if (!activePersistenceSessionRef.current) {
+            throw new Error(
+              "Stuwiz refresh requires durable browser document storage. Save or reopen this document in a durable workspace first."
+            )
+          }
+          const compositionTemplateId = quotationTemplateForDesignTemplate(
+            activeComposition.template
+          )
+          const [baseIdentity, incomingIdentity] = await Promise.all([
+            quotationSourceIdentity(currentSource),
+            quotationSourceIdentity(payloadResult.data),
+          ])
+          if (incomingIdentity.sourceRevision < baseIdentity.sourceRevision) {
+            throw new Error(
+              `Stuwiz revision ${incomingIdentity.sourceRevision} is older than the linked revision ${baseIdentity.sourceRevision}.`
+            )
+          }
+          if (incomingIdentity.sourceRevision === baseIdentity.sourceRevision) {
+            if (
+              incomingIdentity.sourceSnapshotId ===
+              baseIdentity.sourceSnapshotId
+            ) {
+              setDocumentError(
+                "This quotation is already linked to that exact Stuwiz revision."
+              )
+              return true
+            }
+            throw new Error(
+              "Stuwiz returned different quotation data without advancing its source revision. The current document was preserved."
+            )
+          }
+          const preparedAt = new Date().toISOString()
+          const prepared = prepareQuotationRefresh({
+            currentDocument: historyRef.current.document,
+            currentSource,
+            incomingSource: payloadResult.data,
+            templateId,
+            compositionTemplateId,
+            now: preparedAt,
+          })
+          const baseDraftSnapshotId =
+            activePersistenceSessionRef.current?.controller.draftSnapshotId ??
+            activeRecordRef.current?.summary.draftSnapshotId ??
+            requestSnapshotId
+          const [baseContentSnapshotId, candidateContentSnapshotId] =
+            await Promise.all([
+              deriveDocumentSnapshotId(historyRef.current.document),
+              quotationRefreshCandidateIdentity(prepared.document),
+            ])
+          const impact = {
+            ...prepared.impact,
+            changedSourcePaths: [...prepared.impact.changedSourcePaths],
+            changedCategories: [...prepared.impact.changedCategories],
+            businessChanges: prepared.impact.businessChanges.map((change) => ({
+              ...change,
+            })),
+            conflicts: prepared.impact.conflicts.map((conflict) => ({
+              ...conflict,
+              properties: [...conflict.properties],
+            })),
+          }
+          const collisionChoices = {}
+          const proposalCoordinates = {
+            documentId: historyRef.current.document.id,
+            baseDocumentRevision: historyRef.current.document.revision,
+            baseHistorySnapshotId: requestSnapshotId,
+            baseDraftSnapshotId,
+            base: baseIdentity,
+            incoming: incomingIdentity,
+            composerVersion: activeComposition.composerVersion,
+            template: activeComposition.template,
+            appearanceTemplateId: templateId,
+            baseContentSnapshotId,
+            candidateContentSnapshotId,
+            impact,
+            collisionChoices,
+          }
+          const pending: PendingQuotationRefresh = {
+            id: `quotation-refresh-${crypto.randomUUID()}`,
+            preparedAt,
+            ...proposalCoordinates,
+            incomingSource: payloadResult.data,
+            candidateDocument: prepared.document,
+            proposalId: await quotationRefreshProposalId(proposalCoordinates),
+          }
+          if (importOwnershipChanged()) return false
+          if (historyRef.current.snapshotId !== requestSnapshotId) {
+            setDocumentError(
+              "The document changed while the quotation refresh was being prepared, so the preview was not installed."
+            )
+            return false
+          }
+          projectQuotationRefreshJournal(
+            setPendingQuotationRefresh(
+              quotationRefreshJournalRef.current,
+              pending
+            )
+          )
+          captureSettledDraft()
+          return await flushActiveDraft()
+        }
+        if (currentSource) {
+          throw new Error(
+            "This file belongs to another Stuwiz quotation. Open it as a separate document instead of replacing this linked quotation."
+          )
+        }
         const composedDocument = composeQuotationDocument(
           payloadResult.data,
           templateId
@@ -5083,6 +5336,308 @@ export function useDocumentEditor({
       pruneTemplateSourceContexts,
     ]
   )
+
+  const chooseQuotationRefreshConflict = useCallback(
+    async (semanticKey: string, choice: QuotationRefreshConflictPolicy) => {
+      try {
+        const currentJournal = quotationRefreshJournalRef.current
+        const currentPending = currentJournal.pending
+        const currentSource = templateSourceContextRef.current.quotationSource
+        if (!currentPending || !currentSource) return false
+        const journalWithChoice = chooseQuotationRefreshCollision(
+          currentJournal,
+          semanticKey,
+          choice
+        )
+        const pendingWithChoice = journalWithChoice.pending
+        if (!pendingWithChoice) return false
+        const prepared = prepareQuotationRefresh({
+          currentDocument: historyRef.current.document,
+          currentSource,
+          incomingSource: pendingWithChoice.incomingSource,
+          templateId: pendingWithChoice.appearanceTemplateId,
+          compositionTemplateId: quotationTemplateForDesignTemplate(
+            pendingWithChoice.template
+          ),
+          collisionChoices: pendingWithChoice.collisionChoices,
+          now: pendingWithChoice.preparedAt,
+        })
+        const candidateContentSnapshotId =
+          await quotationRefreshCandidateIdentity(prepared.document)
+        const impact = {
+          ...prepared.impact,
+          changedSourcePaths: [...prepared.impact.changedSourcePaths],
+          changedCategories: [...prepared.impact.changedCategories],
+          businessChanges: prepared.impact.businessChanges.map((change) => ({
+            ...change,
+          })),
+          conflicts: prepared.impact.conflicts.map((conflict) => ({
+            ...conflict,
+            properties: [...conflict.properties],
+          })),
+        }
+        const proposalCoordinates = {
+          documentId: pendingWithChoice.documentId,
+          baseDocumentRevision: pendingWithChoice.baseDocumentRevision,
+          baseHistorySnapshotId: pendingWithChoice.baseHistorySnapshotId,
+          baseDraftSnapshotId: pendingWithChoice.baseDraftSnapshotId,
+          baseContentSnapshotId: pendingWithChoice.baseContentSnapshotId,
+          candidateContentSnapshotId,
+          base: pendingWithChoice.base,
+          incoming: pendingWithChoice.incoming,
+          composerVersion: pendingWithChoice.composerVersion,
+          template: pendingWithChoice.template,
+          appearanceTemplateId: pendingWithChoice.appearanceTemplateId,
+          impact,
+          collisionChoices: pendingWithChoice.collisionChoices,
+        }
+        const nextPending: PendingQuotationRefresh = {
+          ...pendingWithChoice,
+          candidateDocument: prepared.document,
+          candidateContentSnapshotId,
+          impact,
+          proposalId: await quotationRefreshProposalId(proposalCoordinates),
+        }
+        if (
+          quotationRefreshJournalRef.current.pending?.id !==
+            currentPending.id ||
+          historyRef.current.snapshotId !== currentPending.baseHistorySnapshotId
+        ) {
+          setDocumentError(
+            "The quotation refresh changed while Studio was saving that choice."
+          )
+          return false
+        }
+        projectQuotationRefreshJournal(
+          replacePendingQuotationRefresh(
+            quotationRefreshJournalRef.current,
+            nextPending
+          )
+        )
+        setDocumentError(null)
+        captureSettledDraft()
+        return await flushActiveDraft()
+      } catch (error) {
+        setDocumentError(
+          error instanceof Error
+            ? error.message
+            : "Studio could not save that refresh choice."
+        )
+        return false
+      }
+    },
+    [captureSettledDraft, flushActiveDraft, projectQuotationRefreshJournal]
+  )
+
+  const rejectQuotationRefresh = useCallback(async () => {
+    const pending = quotationRefreshJournalRef.current.pending
+    if (!pending) return false
+    try {
+      if (quotationRefreshJournalRef.current.pending?.id !== pending.id) {
+        return false
+      }
+      projectQuotationRefreshJournal(
+        resolveQuotationRefresh(quotationRefreshJournalRef.current, {
+          id: pending.id,
+          decision: "rejected",
+          decidedAt: new Date().toISOString(),
+          base: pending.base,
+          incoming: pending.incoming,
+          composerVersion: pending.composerVersion,
+          template: pending.template,
+          appearanceTemplateId: pending.appearanceTemplateId,
+          proposalId: pending.proposalId,
+          impact: resolvedImpact(pending.impact),
+          collisionChoices: pending.collisionChoices,
+          baseContentSnapshotId: pending.baseContentSnapshotId,
+          resultContentSnapshotId: null,
+          resultDocumentRevision: null,
+        })
+      )
+      setDocumentError(null)
+      captureSettledDraft()
+      return await flushActiveDraft()
+    } catch (error) {
+      setDocumentError(
+        error instanceof Error
+          ? error.message
+          : "Studio could not reject the quotation refresh."
+      )
+      return false
+    }
+  }, [captureSettledDraft, flushActiveDraft, projectQuotationRefreshJournal])
+
+  const acceptQuotationRefresh = useCallback(async () => {
+    const pending = quotationRefreshJournalRef.current.pending
+    const currentSource = templateSourceContextRef.current.quotationSource
+    const activeComposition = templateSourceContextRef.current.composition
+    if (!pending || !currentSource || activeComposition?.status !== "known") {
+      return false
+    }
+    const unresolved = [
+      ...new Set(
+        pending.impact.conflicts
+          .map((conflict) => conflict.semanticKey)
+          .filter((semanticKey) => !pending.collisionChoices[semanticKey])
+      ),
+    ]
+    if (unresolved.length) {
+      setDocumentError(
+        `Choose how to resolve ${unresolved.length} quotation refresh ${unresolved.length === 1 ? "collision" : "collisions"} before accepting.`
+      )
+      return false
+    }
+    if (
+      historyRef.current.document.id !== pending.documentId ||
+      historyRef.current.document.revision !== pending.baseDocumentRevision ||
+      historyRef.current.snapshotId !== pending.baseHistorySnapshotId
+    ) {
+      setDocumentError(
+        "The document changed after this quotation refresh was prepared. Reject it and import the latest Stuwiz revision again."
+      )
+      return false
+    }
+    try {
+      const currentIdentity = await quotationSourceIdentity(currentSource)
+      if (
+        currentIdentity.sourceSnapshotId !== pending.base.sourceSnapshotId ||
+        activeComposition.composerVersion !== pending.composerVersion ||
+        activeComposition.template.id !== pending.template.id ||
+        activeComposition.template.version !== pending.template.version ||
+        templateSourceContextRef.current.quotationTemplateId !==
+          pending.appearanceTemplateId
+      ) {
+        setDocumentError(
+          "The linked quotation source or composer changed after this refresh was prepared."
+        )
+        return false
+      }
+      const proposalCoordinates = {
+        documentId: pending.documentId,
+        baseDocumentRevision: pending.baseDocumentRevision,
+        baseHistorySnapshotId: pending.baseHistorySnapshotId,
+        baseDraftSnapshotId: pending.baseDraftSnapshotId,
+        baseContentSnapshotId: pending.baseContentSnapshotId,
+        candidateContentSnapshotId: pending.candidateContentSnapshotId,
+        base: pending.base,
+        incoming: pending.incoming,
+        composerVersion: pending.composerVersion,
+        template: pending.template,
+        appearanceTemplateId: pending.appearanceTemplateId,
+        impact: pending.impact,
+        collisionChoices: pending.collisionChoices,
+      }
+      if (
+        (await quotationRefreshProposalId(proposalCoordinates)) !==
+        pending.proposalId
+      ) {
+        setDocumentError(
+          "The saved quotation refresh no longer matches its approval coordinates."
+        )
+        return false
+      }
+      const [baseContentSnapshotId, resultContentSnapshotId] =
+        await Promise.all([
+          deriveDocumentSnapshotId(historyRef.current.document),
+          quotationRefreshCandidateIdentity(pending.candidateDocument),
+        ])
+      if (
+        baseContentSnapshotId !== pending.baseContentSnapshotId ||
+        resultContentSnapshotId !== pending.candidateContentSnapshotId
+      ) {
+        setDocumentError(
+          "The saved quotation refresh candidate no longer matches its approved content."
+        )
+        return false
+      }
+      if (
+        quotationRefreshJournalRef.current.pending?.id !== pending.id ||
+        historyRef.current.snapshotId !== pending.baseHistorySnapshotId
+      ) {
+        setDocumentError(
+          "The quotation refresh changed while Studio was verifying it."
+        )
+        return false
+      }
+      const composition = await createKnownQuotationComposition(
+        pending.incomingSource,
+        pending.template,
+        pending.composerVersion
+      )
+      templateSourceBySnapshotRef.current.set(
+        historyRef.current.snapshotId,
+        templateSourceContextRef.current
+      )
+      const result = replaceDocumentWithResult(
+        historyRef.current,
+        pending.candidateDocument,
+        {
+          label: `Refresh quotation from Stuwiz revision ${pending.incoming.sourceRevision}`,
+        }
+      )
+      const sourceContext: TemplateSourceContext = {
+        quotationSource: pending.incomingSource,
+        quotationTemplateId:
+          templateSourceContextRef.current.quotationTemplateId,
+        designTemplate: templateSourceContextRef.current.designTemplate,
+        composition,
+      }
+      historyRef.current = result.history
+      templateSourceBySnapshotRef.current.set(
+        result.history.snapshotId,
+        sourceContext
+      )
+      setHistory(result.history)
+      pruneTemplateSourceContexts(result.history)
+      notifyHistoryCommit(result.commit)
+      installTemplateSourceContext(sourceContext)
+      projectQuotationRefreshJournal(
+        resolveQuotationRefresh(quotationRefreshJournalRef.current, {
+          id: pending.id,
+          decision: "accepted",
+          decidedAt: new Date().toISOString(),
+          base: pending.base,
+          incoming: pending.incoming,
+          composerVersion: pending.composerVersion,
+          template: pending.template,
+          appearanceTemplateId: pending.appearanceTemplateId,
+          proposalId: pending.proposalId,
+          impact: resolvedImpact(pending.impact),
+          collisionChoices: pending.collisionChoices,
+          baseContentSnapshotId,
+          resultContentSnapshotId,
+          resultDocumentRevision: result.history.document.revision,
+        })
+      )
+      const nextPageId = result.history.document.pages.some(
+        (page) => page.id === activePageIdRef.current
+      )
+        ? activePageIdRef.current
+        : result.history.document.pages[0]?.id
+      if (nextPageId) {
+        activePageIdRef.current = nextPageId
+        setActivePageId(nextPageId)
+      }
+      setSelection(null)
+      setDocumentError(null)
+      captureSettledDraft()
+      return await flushActiveDraft()
+    } catch (error) {
+      setDocumentError(
+        error instanceof Error
+          ? error.message
+          : "Studio could not apply the quotation refresh."
+      )
+      return false
+    }
+  }, [
+    captureSettledDraft,
+    flushActiveDraft,
+    installTemplateSourceContext,
+    notifyHistoryCommit,
+    projectQuotationRefreshJournal,
+    pruneTemplateSourceContexts,
+  ])
 
   const deleteSelection = useCallback(() => {
     if (!selection?.nodeIds.length) return
@@ -6412,6 +6967,7 @@ export function useDocumentEditor({
     pendingChangeSet,
     lastResolvedChangeSet,
     reviewJournal,
+    quotationRefreshJournal,
     changeSetConflict,
     changeSetError,
     isApplyingChangeSet,
@@ -6474,6 +7030,9 @@ export function useDocumentEditor({
     importDocumentFile,
     openDocumentFile,
     importQuotationFile,
+    chooseQuotationRefreshConflict,
+    acceptQuotationRefresh,
+    rejectQuotationRefresh,
     deleteSelection,
     duplicateSelection,
     copySelection,

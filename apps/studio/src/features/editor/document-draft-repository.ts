@@ -455,6 +455,7 @@ type StoredDraftBody = {
   document: Document
   sourceContext: CurrentDraftEnvelope["sourceContext"]
   reviewJournal: CurrentDraftEnvelope["reviewJournal"]
+  quotationRefresh?: CurrentDraftEnvelope["quotationRefresh"]
 }
 
 export type DocumentDraftQuarantineRecord = Readonly<{
@@ -855,6 +856,7 @@ const parseBody = (value: unknown): StoredDraftBody | null => {
     document: value.document,
     sourceContext: value.sourceContext,
     reviewJournal: value.reviewJournal,
+    quotationRefresh: value.quotationRefresh,
   })
   if (!validated.ok) return null
   if (validated.envelope.document.id !== value.documentId) return null
@@ -868,6 +870,9 @@ const parseBody = (value: unknown): StoredDraftBody | null => {
     document: validated.envelope.document,
     sourceContext: validated.envelope.sourceContext,
     reviewJournal: validated.envelope.reviewJournal,
+    ...(validated.envelope.quotationRefresh
+      ? { quotationRefresh: validated.envelope.quotationRefresh }
+      : {}),
   }
 }
 
@@ -1100,6 +1105,7 @@ const envelopeForBody = (body: StoredDraftBody): CurrentDraftEnvelope => ({
   document: body.document,
   sourceContext: body.sourceContext,
   reviewJournal: body.reviewJournal,
+  ...(body.quotationRefresh ? { quotationRefresh: body.quotationRefresh } : {}),
 })
 
 const snapshotForEnvelope = (
@@ -1108,6 +1114,9 @@ const snapshotForEnvelope = (
   document: envelope.document,
   sourceContext: envelope.sourceContext,
   reviewJournal: envelope.reviewJournal,
+  ...(envelope.quotationRefresh
+    ? { quotationRefresh: envelope.quotationRefresh }
+    : {}),
 })
 
 const verifiedRecordForPair = async (
@@ -1559,6 +1568,9 @@ export class DocumentDraftRepository {
       document: prepared.envelope.document,
       sourceContext: prepared.envelope.sourceContext,
       reviewJournal: prepared.envelope.reviewJournal,
+      ...(prepared.envelope.quotationRefresh
+        ? { quotationRefresh: prepared.envelope.quotationRefresh }
+        : {}),
     }
     const summary = summaryFor({
       envelope: prepared.envelope,
@@ -1698,6 +1710,9 @@ export class DocumentDraftRepository {
       document: prepared.envelope.document,
       sourceContext: prepared.envelope.sourceContext,
       reviewJournal: prepared.envelope.reviewJournal,
+      ...(prepared.envelope.quotationRefresh
+        ? { quotationRefresh: prepared.envelope.quotationRefresh }
+        : {}),
     }
     const createdSummary = summaryFor({
       envelope: prepared.envelope,
@@ -2054,6 +2069,9 @@ export class DocumentDraftRepository {
         document: prepared.envelope.document,
         sourceContext: prepared.envelope.sourceContext,
         reviewJournal: prepared.envelope.reviewJournal,
+        ...(prepared.envelope.quotationRefresh
+          ? { quotationRefresh: prepared.envelope.quotationRefresh }
+          : {}),
       }
       const summary = summaryFor({
         envelope: prepared.envelope,
@@ -2283,6 +2301,9 @@ export class DocumentDraftRepository {
         },
         sourceContext: current.envelope.sourceContext,
         reviewJournal: current.envelope.reviewJournal,
+        ...(current.envelope.quotationRefresh
+          ? { quotationRefresh: current.envelope.quotationRefresh }
+          : {}),
       },
       expectedVersion,
       current.summary.draftSnapshotId
@@ -2479,6 +2500,17 @@ export class DocumentDraftRepository {
           },
         }
       }
+      if (copySourceAdmission.envelope.quotationRefresh?.pending) {
+        return {
+          ok: false,
+          reason: "validation_failed",
+          failure: {
+            kind: "validation_failed",
+            message:
+              "Reject the pending Stuwiz refresh before saving this conflicted document as a copy. The pending source and decisions were preserved.",
+          },
+        }
+      }
       const copySnapshot: CurrentDraftSnapshot = {
         document: {
           ...structuredClone(copySourceAdmission.envelope.document),
@@ -2492,6 +2524,12 @@ export class DocumentDraftRepository {
         },
         sourceContext: structuredClone(
           copySourceAdmission.envelope.sourceContext
+        ),
+        reviewJournal: structuredClone(
+          copySourceAdmission.envelope.reviewJournal
+        ),
+        quotationRefresh: structuredClone(
+          copySourceAdmission.envelope.quotationRefresh
         ),
       }
       const preparedCopy = await prepareDraftAdmission(copySnapshot)
@@ -2513,6 +2551,9 @@ export class DocumentDraftRepository {
         document: preparedCopy.envelope.document,
         sourceContext: preparedCopy.envelope.sourceContext,
         reviewJournal: preparedCopy.envelope.reviewJournal,
+        ...(preparedCopy.envelope.quotationRefresh
+          ? { quotationRefresh: preparedCopy.envelope.quotationRefresh }
+          : {}),
       }
       copySummary = summaryFor({
         envelope: preparedCopy.envelope,
@@ -2802,6 +2843,9 @@ export class DocumentDraftRepository {
             document: body.document,
             sourceContext: body.sourceContext,
             reviewJournal: body.reviewJournal,
+            ...(body.quotationRefresh
+              ? { quotationRefresh: body.quotationRefresh }
+              : {}),
           },
           reason: current.deletedAt ? "deleted_elsewhere" : "stale_write",
           detectedAt: this.#now(),

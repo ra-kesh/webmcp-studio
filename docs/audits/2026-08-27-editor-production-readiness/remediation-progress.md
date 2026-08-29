@@ -2425,3 +2425,45 @@ Status: **completed through production deployment; deployed acceptance evidence 
 - Owner-authenticated traversal, two-principal isolation, real R2/Workflow
   exercises and the retained deployed failure/parity/restart/expiry matrix
   remain evidence gates.
+
+## 2026-08-30 — Versioned quotation source refresh (Stuwiz lifecycle, row 9)
+
+Status: **bounded local/versioned-source flow implemented and independently accepted; live Stuwiz integration remains blocked upstream**
+
+- Reread the row-9 ledger, the dedicated phase-entry audit, the persisted draft
+  and composition owners, and Loora's transaction/agent model before editing.
+  The implementation deliberately shares the canonical document, history and
+  persistence boundaries instead of adding a second editor state model.
+- Quotation composition now emits stable semantic node and group identities
+  without changing canonical composer output. Optional contact properties,
+  keyed business collections and repagination retain their meaning rather than
+  relying on array positions or visible labels.
+- A pure three-way refresh model compares the reproducible base, Studio draft
+  and incoming source. Upstream-only changes apply, Studio-only changes survive,
+  true two-sided changes require an explicit choice, and ambiguous page, group,
+  parent, binding or custom-layer anchors block instead of being guessed,
+  relocated or dropped.
+- Pending state stores the exact incoming source, exact candidate document,
+  base/candidate content identities, immutable composition provenance, active
+  appearance, impact, collision choices and a cryptographic proposal identity.
+  Admission recomputes every cross-field identity and rejects tampering.
+- Prepare, choice, reject and accept are durable before reporting success.
+  Acceptance installs the approved candidate rather than recomposing it,
+  advances document and source context together through named history, and
+  retains a bounded resolved audit without copying raw customer payloads.
+- The editor exposes a persistent refresh review surface with revision, page,
+  layer, category and keyed business impact. All ordinary mutation, Review,
+  publication, export, Fabric and product-command paths remain blocked while a
+  proposal is pending; **Review later** keeps a visible reopen path.
+- Independent review found and rejected positional identity, silent custom
+  relocation, weak proposal binding, early success, incomplete admission,
+  silent save-as-copy cancellation, group-deletion handling and generated-node
+  deletion collisions. Three code-review passes closed every identified P0/P1.
+- Final high-signal evidence: 24 focused document tests, 100 focused Studio
+  journal/dialog/admission/persistence tests, both affected package typechecks,
+  and `git diff --check` pass with the supported Node 24 test runtime.
+- Retained P2 work is explicit: direct pending-refresh save-as-copy regression,
+  browser/keyboard and real two-session CAS acceptance, and draft-level result
+  identity in resolved evidence. Live Stuwiz retrieval remains disabled until
+  the upstream authenticated complete-source revision/fingerprint, branding,
+  authorization and stable-lineage contract exists.

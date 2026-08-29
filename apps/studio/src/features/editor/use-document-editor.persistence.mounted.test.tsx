@@ -4,7 +4,6 @@ import "fake-indexeddb/auto"
 import { webcrypto } from "node:crypto"
 import {
   builtInDesignTemplateRepository,
-  composeQuotationDocument,
   createTemplateVersion,
   documentSchema,
 } from "@webmcp/document"
@@ -3651,8 +3650,8 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     })
   })
 
-  it("imports a differently identified quotation in place while preserving controller identity and exact source context", async () => {
-    const envelope = designEnvelope()
+  it("blocks a differently identified quotation from replacing a linked draft", async () => {
+    const envelope = quotationEnvelope()
     const { captured, created, hookRepository } = await openEnvelope(
       envelope,
       "quotation-import-identity"
@@ -3663,52 +3662,206 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     quotationSource.source.revision += 1
     quotationSource.quote.quoteNumber = "Q-IDENTITY-IMPORT"
     quotationSource.quote.quoteVersion += 1
-    const templateId = captured.current!.activeQuotationTemplateId
-    const independentlyComposed = composeQuotationDocument(
-      quotationSource,
-      templateId
-    )
-    expect(independentlyComposed.id).not.toBe(activeDocumentId)
     const save = vi.spyOn(hookRepository, "save")
+    let imported = true
 
     await act(async () => {
-      await captured.current!.importQuotationFile(jsonFile(quotationSource))
+      imported = await captured.current!.importQuotationFile(
+        jsonFile(quotationSource)
+      )
     })
 
+    expect(imported).toBe(false)
     expect(captured.current?.document.id).toBe(activeDocumentId)
-    expect(captured.current?.document).toEqual({
-      ...independentlyComposed,
-      id: activeDocumentId,
-    })
-    expect(captured.current?.quotationSource).toEqual(quotationSource)
-    const exactImportedEnvelope = currentEnvelope(captured.current!)
-    expect(exactImportedEnvelope.sourceContext?.composition).toMatchObject({
-      status: "known",
-      composerId: "quotation",
-      composerVersion: 2,
-      sourceQuotationId: "quotation-from-another-system",
-      sourceRevision: quotationSource.source.revision,
-      quoteVersion: quotationSource.quote.quoteVersion,
-      template: {
-        id: "quotation-editorial-olive",
-        version: 2,
-      },
-    })
+    expect(captured.current?.document).toEqual(envelope.document)
+    expect(captured.current?.quotationSource).toEqual(
+      envelope.sourceContext?.quotationSource
+    )
+    expect(captured.current?.documentError).toContain(
+      "belongs to another Stuwiz quotation"
+    )
+    expect(save).not.toHaveBeenCalled()
+    const durable = await readRecord(hookRepository, activeDocumentId)
+    expect(durable.summary.recordVersion).toBe(created.summary.recordVersion)
+    expect(durable.envelope).toEqual(envelope)
+  })
+
+  it("previews and accepts a same-quotation refresh while preserving an explicit Studio edit", async () => {
+    const envelope = designEnvelope()
+    const { captured, hookRepository } = await openEnvelope(
+      envelope,
+      "quotation-source-refresh"
+    )
     await act(async () => {
+      expect(
+        await captured.current!.importQuotationFile(
+          jsonFile(quotationStarter.source)
+        )
+      ).toBe(true)
       expect(await captured.current!.flushActiveDraft()).toBe(true)
     })
-
-    expect(save).toHaveBeenCalledTimes(1)
-    expect(save.mock.calls[0]?.[0]).toEqual({
-      document: exactImportedEnvelope.document,
-      sourceContext: exactImportedEnvelope.sourceContext,
+    await act(async () => {
+      expect(
+        captured.current!.applyDesignTemplate("quotation-midnight-film", 2)
+      ).toBe(true)
+      expect(await captured.current!.flushActiveDraft()).toBe(true)
     })
-    const durable = await readRecord(hookRepository, activeDocumentId)
-    expect(durable.summary.documentId).toBe(activeDocumentId)
-    expect(durable.summary.recordVersion).toBe(
-      created.summary.recordVersion + 1
+    expect(captured.current!.activeQuotationTemplateId).toBe("midnight-film")
+    const detailNode = captured.current!.document.nodes.find(
+      (node) => node.name === "Welcome dinner detail 1" && node.type === "text"
     )
-    expect(durable.envelope).toEqual(exactImportedEnvelope)
+    if (!detailNode || detailNode.type !== "text") {
+      throw new Error("Expected quotation event detail fixture")
+    }
+    await act(async () => {
+      expect(
+        captured.current!.updateNode(detailNode.id, {
+          text: "Studio-authored welcome dinner location",
+        })
+      ).toBe(true)
+      await Promise.resolve()
+    })
+    const documentBeforePreview = captured.current!.getCurrentDocumentSnapshot()
+    expect(
+      documentBeforePreview.nodes.find(
+        (node) => node.id === detailNode.id && node.type === "text"
+      )
+    ).toMatchObject({ text: "Studio-authored welcome dinner location" })
+    const incoming = structuredClone(quotationStarter.source)
+    incoming.source.revision += 1
+    incoming.quote.quoteVersion += 1
+    incoming.document.events[0]!.location = "Stuwiz-updated venue"
+
+    let imported = false
+    await act(async () => {
+      imported = await captured.current!.importQuotationFile(jsonFile(incoming))
+    })
+    expect(imported, captured.current!.documentError ?? undefined).toBe(true)
+
+    expect(captured.current!.document).toEqual(documentBeforePreview)
+    expect(captured.current!.quotationSource).toEqual(quotationStarter.source)
+    expect(captured.current!.quotationRefreshJournal.pending).toMatchObject({
+      base: { sourceRevision: quotationStarter.source.source.revision },
+      incoming: { sourceRevision: incoming.source.revision },
+      appearanceTemplateId: "midnight-film",
+    })
+    expect(
+      captured.current!.quotationRefreshJournal.pending?.impact.conflicts
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ semanticKey: "event.welcome.schedule" }),
+      ])
+    )
+    const preparedProposalId =
+      captured.current!.quotationRefreshJournal.pending!.proposalId
+
+    await act(async () => {
+      expect(
+        await captured.current!.chooseQuotationRefreshConflict(
+          "event.welcome.schedule",
+          "preserve_studio"
+        )
+      ).toBe(true)
+    })
+    expect(
+      captured.current!.quotationRefreshJournal.pending!.proposalId
+    ).not.toBe(preparedProposalId)
+    expect(
+      captured.current!.quotationRefreshJournal.pending!
+        .candidateContentSnapshotId
+    ).toMatch(/^sha256-[a-f0-9]{64}$/)
+    await act(async () => {
+      expect(await captured.current!.acceptQuotationRefresh()).toBe(true)
+    })
+
+    expect(captured.current!.quotationSource).toEqual(incoming)
+    expect(captured.current!.activeQuotationTemplateId).toBe("midnight-film")
+    expect(captured.current!.quotationRefreshJournal.pending).toBeNull()
+    expect(captured.current!.quotationRefreshJournal.resolved[0]).toMatchObject(
+      {
+        decision: "accepted",
+        incoming: { sourceRevision: incoming.source.revision },
+        collisionChoices: {
+          "event.welcome.schedule": "preserve_studio",
+        },
+      }
+    )
+    expect(
+      captured.current!.document.nodes.find(
+        (node) => node.id === detailNode.id && node.type === "text"
+      )
+    ).toMatchObject({ text: "Studio-authored welcome dinner location" })
+    const durable = await readRecord(hookRepository, envelope.document.id)
+    expect(durable.envelope.quotationRefresh?.pending).toBeNull()
+    expect(durable.envelope.quotationRefresh?.resolved[0]?.decision).toBe(
+      "accepted"
+    )
+    expect(durable.envelope.sourceContext?.quotationSource).toEqual(incoming)
+  })
+
+  it("restores an exact pending quotation refresh after reopen and durably rejects it", async () => {
+    const envelope = designEnvelope()
+    const { captured, hookRepository } = await openEnvelope(
+      envelope,
+      "quotation-refresh-reopen"
+    )
+    await act(async () => {
+      expect(
+        await captured.current!.importQuotationFile(
+          jsonFile(quotationStarter.source)
+        )
+      ).toBe(true)
+    })
+    const incoming = structuredClone(quotationStarter.source)
+    incoming.source.revision += 1
+    incoming.quote.quoteVersion += 1
+    incoming.quote.quoteNumber = "Q-REFRESH-REOPEN"
+
+    await act(async () => {
+      expect(
+        await captured.current!.importQuotationFile(jsonFile(incoming))
+      ).toBe(true)
+    })
+    const beforeReopen = structuredClone(
+      captured.current!.quotationRefreshJournal.pending
+    )
+    expect(beforeReopen).not.toBeNull()
+    const durableBeforeReopen = await readRecord(
+      hookRepository,
+      envelope.document.id
+    )
+
+    await act(async () => root.unmount())
+    root = createRoot(host)
+    const reopenedRepository = repository("hook-quotation-refresh-reopened")
+    const reopened = await mount(() => reopenedRepository, durableBeforeReopen)
+    await vi.waitFor(() => {
+      expect(reopened.current?.routeSessionStatus).toBe("ready")
+    })
+    expect(reopened.current!.quotationRefreshJournal.pending).toEqual(
+      beforeReopen
+    )
+    expect(reopened.current!.document).toEqual(
+      durableBeforeReopen.envelope.document
+    )
+
+    await act(async () => {
+      expect(await reopened.current!.rejectQuotationRefresh()).toBe(true)
+    })
+    const durableAfterReject = await readRecord(
+      reopenedRepository,
+      envelope.document.id
+    )
+    expect(durableAfterReject.envelope.quotationRefresh?.pending).toBeNull()
+    expect(
+      durableAfterReject.envelope.quotationRefresh?.resolved[0]
+    ).toMatchObject({
+      decision: "rejected",
+      incoming: { sourceRevision: incoming.source.revision },
+    })
+    expect(durableAfterReject.envelope.sourceContext?.quotationSource).toEqual(
+      quotationStarter.source
+    )
   })
 
   it("applies the explicit legacy layer organization as one undoable durable change", async () => {

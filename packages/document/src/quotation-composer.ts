@@ -120,6 +120,7 @@ function wrapText(value: string, width: number, fontSize: number) {
 }
 
 type TextOptions = {
+  semanticKey?: string
   name: string
   value: string
   x: number
@@ -133,10 +134,27 @@ type TextOptions = {
   locked?: boolean
 }
 
+type CardDetail = Readonly<{
+  role: "email" | "phone" | "address" | "schedule" | "audience" | "notes"
+  value: string
+}>
+
+export type QuotationCompositionTrace = Readonly<{
+  nodeIdsBySemanticKey: Readonly<Record<string, string>>
+  groupIdsBySemanticKey: Readonly<Record<string, string>>
+}>
+
+export type TracedQuotationDocument = Readonly<{
+  document: Document
+  trace: QuotationCompositionTrace
+}>
+
 class QuotationCanvasWriter {
   readonly pages: Page[] = []
   readonly nodes: SceneNode[] = []
   readonly groups: GroupDefinition[] = []
+  readonly nodeIdsBySemanticKey = new Map<string, string>()
+  readonly groupIdsBySemanticKey = new Map<string, string>()
   private nodeSequence = 0
   private groupSequence = 0
   private currentPage: Page | null = null
@@ -152,6 +170,14 @@ class QuotationCanvasWriter {
     return `${prefix}-${this.nodeSequence}`
   }
 
+  private recordSemanticNode(semanticKey: string | undefined, nodeId: string) {
+    if (!semanticKey) return
+    if (this.nodeIdsBySemanticKey.has(semanticKey)) {
+      throw new Error(`Duplicate quotation semantic key: ${semanticKey}`)
+    }
+    this.nodeIdsBySemanticKey.set(semanticKey, nodeId)
+  }
+
   private groupId() {
     this.groupSequence += 1
     return `quotation-group-${this.groupSequence}`
@@ -162,12 +188,25 @@ class QuotationCanvasWriter {
     name: string,
     pageId: string,
     nodeIds: string[],
-    parentGroupId?: string
+    parentGroupId?: string,
+    semanticKey?: string
   ) {
     this.groups.push({ id, name, pageId, nodeIds, parentGroupId })
+    if (semanticKey) {
+      if (this.groupIdsBySemanticKey.has(semanticKey)) {
+        throw new Error(
+          `Duplicate quotation group semantic key: ${semanticKey}`
+        )
+      }
+      this.groupIdsBySemanticKey.set(semanticKey, id)
+    }
   }
 
-  private captureGroup<T>(name: string, createNodes: () => T) {
+  private captureGroup<T>(
+    name: string,
+    semanticKey: string,
+    createNodes: () => T
+  ) {
     const page = this.currentPage
     if (!page) throw new Error(`Cannot create ${name} without an active page.`)
     const firstNodeIndex = page.nodeIds.length
@@ -177,12 +216,20 @@ class QuotationCanvasWriter {
     }
     const nodeIds = page.nodeIds.slice(firstNodeIndex)
     if (nodeIds.length) {
-      this.addGroup(this.groupId(), name, page.id, nodeIds)
+      this.addGroup(
+        this.groupId(),
+        name,
+        page.id,
+        nodeIds,
+        undefined,
+        semanticKey
+      )
     }
     return result
   }
 
   addRect(options: {
+    semanticKey?: string
     name: string
     x: number
     y: number
@@ -213,6 +260,7 @@ class QuotationCanvasWriter {
     }
     this.nodes.push(node)
     this.currentPage?.nodeIds.push(node.id)
+    this.recordSemanticNode(options.semanticKey, node.id)
     return node.id
   }
 
@@ -244,10 +292,11 @@ class QuotationCanvasWriter {
     }
     this.nodes.push(node)
     this.currentPage?.nodeIds.push(node.id)
+    this.recordSemanticNode(options.semanticKey, node.id)
     return { id: node.id, height: node.height }
   }
 
-  addLine(y: number) {
+  addLine(y: number, semanticKey?: string) {
     const node: SceneNode = {
       id: this.id("line"),
       type: "line",
@@ -265,6 +314,7 @@ class QuotationCanvasWriter {
     }
     this.nodes.push(node)
     this.currentPage?.nodeIds.push(node.id)
+    this.recordSemanticNode(semanticKey, node.id)
     return node.id
   }
 
@@ -276,6 +326,7 @@ class QuotationCanvasWriter {
     const quoteCardGroupId = this.groupId()
     const datesGroupId = this.groupId()
     const accentNodeId = this.addRect({
+      semanticKey: "cover.accent",
       name: "Cover accent",
       x: 0,
       y: 0,
@@ -286,6 +337,7 @@ class QuotationCanvasWriter {
     const identityNodeIds: string[] = []
     identityNodeIds.push(
       this.addText({
+        semanticKey: "cover.studio-name",
         name: "Studio name",
         value: this.payload.branding.organizationName.toUpperCase(),
         x: PAGE_MARGIN,
@@ -298,6 +350,7 @@ class QuotationCanvasWriter {
     )
     identityNodeIds.push(
       this.addText({
+        semanticKey: "cover.quotation-type",
         name: "Quotation type",
         value: this.payload.document.quotationType.label,
         x: PAGE_MARGIN,
@@ -309,6 +362,7 @@ class QuotationCanvasWriter {
       }).id
     )
     const title = this.addText({
+      semanticKey: "cover.title",
       name: "Quotation title",
       value: this.payload.document.title,
       x: PAGE_MARGIN,
@@ -325,6 +379,7 @@ class QuotationCanvasWriter {
       .join(" & ")
     identityNodeIds.push(
       this.addText({
+        semanticKey: "cover.prepared-for",
         name: "Prepared for",
         value: `Prepared for ${people}`,
         x: PAGE_MARGIN,
@@ -337,6 +392,7 @@ class QuotationCanvasWriter {
     const quoteCardNodeIds: string[] = []
     quoteCardNodeIds.push(
       this.addRect({
+        semanticKey: "cover.details-card",
         name: "Quotation details",
         x: PAGE_MARGIN,
         y: 1376,
@@ -348,6 +404,7 @@ class QuotationCanvasWriter {
     )
     quoteCardNodeIds.push(
       this.addText({
+        semanticKey: "cover.quote-number",
         name: "Quote number",
         value: this.payload.quote.quoteNumber,
         x: PAGE_MARGIN + 32,
@@ -361,6 +418,7 @@ class QuotationCanvasWriter {
     const dateNodeIds: string[] = []
     dateNodeIds.push(
       this.addText({
+        semanticKey: "cover.quotation-date",
         name: "Quotation date",
         value: formatDate(this.payload.document.quotationDate),
         x: PAGE_MARGIN + 32,
@@ -372,6 +430,7 @@ class QuotationCanvasWriter {
     )
     dateNodeIds.push(
       this.addText({
+        semanticKey: "cover.valid-until",
         name: "Valid until",
         value: `Valid until ${formatDate(this.payload.quote.validUntil)}`,
         x: 650,
@@ -388,23 +447,33 @@ class QuotationCanvasWriter {
       "Cover identity",
       page.id,
       identityNodeIds,
-      coverGroupId
+      coverGroupId,
+      "cover.identity-group"
     )
     this.addGroup(
       datesGroupId,
       "Date details",
       page.id,
       dateNodeIds,
-      quoteCardGroupId
+      quoteCardGroupId,
+      "cover.date-group"
     )
     this.addGroup(
       quoteCardGroupId,
       "Quotation details",
       page.id,
       quoteCardNodeIds,
-      coverGroupId
+      coverGroupId,
+      "cover.details-group"
     )
-    this.addGroup(coverGroupId, "Cover layout", page.id, [accentNodeId])
+    this.addGroup(
+      coverGroupId,
+      "Cover layout",
+      page.id,
+      [accentNodeId],
+      undefined,
+      "cover.layout-group"
+    )
     return { page, titleNodeId: title.id }
   }
 
@@ -428,8 +497,10 @@ class QuotationCanvasWriter {
 
   private addPageChrome(index: number) {
     const { palette } = this.template
-    this.captureGroup("Page chrome", () => {
+    const pageRole = `composer.page-role.${index}`
+    this.captureGroup("Page chrome", `${pageRole}.chrome.group`, () => {
       this.addText({
+        semanticKey: `${pageRole}.chrome.studio-name`,
         name: "Page studio name",
         value: this.payload.branding.organizationName.toUpperCase(),
         x: PAGE_MARGIN,
@@ -440,6 +511,7 @@ class QuotationCanvasWriter {
         color: palette.accent,
       })
       this.addText({
+        semanticKey: `${pageRole}.chrome.quote-number`,
         name: "Page quote number",
         value: this.payload.quote.quoteNumber,
         x: PAGE_WIDTH - PAGE_MARGIN - 280,
@@ -449,8 +521,9 @@ class QuotationCanvasWriter {
         color: palette.muted,
         align: "right",
       })
-      this.addLine(126)
+      this.addLine(126, `${pageRole}.chrome.divider`)
       this.addText({
+        semanticKey: `${pageRole}.chrome.page-number`,
         name: "Page number",
         value: String(index).padStart(2, "0"),
         x: PAGE_WIDTH - PAGE_MARGIN - 80,
@@ -471,7 +544,9 @@ class QuotationCanvasWriter {
     if (!this.currentPage || this.cursorY + height > CONTENT_BOTTOM) {
       this.createPage(continuationName)
       if (showContinuation) {
+        const pageRole = `composer.page-role.${this.pages.length}`
         this.addText({
+          semanticKey: `${pageRole}.continuation.label`,
           name: `${continuationName} continuation`,
           value: `${continuationName} — continued`,
           x: PAGE_MARGIN,
@@ -482,17 +557,18 @@ class QuotationCanvasWriter {
           color: this.template.palette.accent,
         })
         this.cursorY += 48
-        this.addLine(this.cursorY)
+        this.addLine(this.cursorY, `${pageRole}.continuation.divider`)
         this.cursorY += 24
       }
     }
   }
 
-  section(title: string, kicker?: string) {
+  section(title: string, kicker?: string, semanticKey = `section.${title}`) {
     this.ensure(kicker ? 136 : 100, title, false)
-    this.captureGroup(`${title} section`, () => {
+    this.captureGroup(`${title} section`, `${semanticKey}.group`, () => {
       if (kicker) {
         this.addText({
+          semanticKey: `${semanticKey}.kicker`,
           name: `${title} kicker`,
           value: kicker.toUpperCase(),
           x: PAGE_MARGIN,
@@ -505,6 +581,7 @@ class QuotationCanvasWriter {
         this.cursorY += 34
       }
       this.addText({
+        semanticKey: `${semanticKey}.heading`,
         name: `${title} heading`,
         value: title,
         x: PAGE_MARGIN,
@@ -516,16 +593,21 @@ class QuotationCanvasWriter {
         lineHeight: 1.1,
       })
       this.cursorY += 70
-      this.addLine(this.cursorY)
+      this.addLine(this.cursorY, `${semanticKey}.divider`)
     })
     this.cursorY += 30
   }
 
-  paragraph(value: string, name = "Paragraph") {
+  paragraph(
+    value: string,
+    name = "Paragraph",
+    semanticKey = `paragraph.${name}`
+  ) {
     const wrapped = wrapText(value, CONTENT_WIDTH, 20)
     const height = Math.ceil(wrapped.split("\n").length * 20 * 1.38 + 8)
     this.ensure(height + 24)
     this.addText({
+      semanticKey,
       name,
       value,
       x: PAGE_MARGIN,
@@ -538,18 +620,24 @@ class QuotationCanvasWriter {
     this.cursorY += height + 24
   }
 
-  card(title: string, lines: string[], continuationName: string) {
-    const lineHeights = lines.map((line) =>
+  card(
+    title: string,
+    details: CardDetail[],
+    continuationName: string,
+    semanticKey = `card.${title}`
+  ) {
+    const lineHeights = details.map(({ value }) =>
       Math.max(
         27,
-        wrapText(line, CONTENT_WIDTH - 64, 17).split("\n").length * 24
+        wrapText(value, CONTENT_WIDTH - 64, 17).split("\n").length * 24
       )
     )
     const height = 78 + lineHeights.reduce((sum, value) => sum + value, 0)
     this.ensure(height + 20, continuationName)
     const top = this.cursorY
-    this.captureGroup(title, () => {
+    this.captureGroup(title, `${semanticKey}.group`, () => {
       this.addRect({
+        semanticKey: `${semanticKey}.background`,
         name: `${title} card`,
         x: PAGE_MARGIN,
         y: top,
@@ -561,6 +649,7 @@ class QuotationCanvasWriter {
         strokeWidth: 1,
       })
       this.addText({
+        semanticKey: `${semanticKey}.title`,
         name: `${title} title`,
         value: title,
         x: PAGE_MARGIN + 30,
@@ -571,10 +660,11 @@ class QuotationCanvasWriter {
         color: this.template.palette.ink,
       })
       let y = top + 70
-      lines.forEach((line, index) => {
+      details.forEach(({ role, value }, index) => {
         this.addText({
+          semanticKey: `${semanticKey}.${role}`,
           name: `${title} detail ${index + 1}`,
-          value: line,
+          value,
           x: PAGE_MARGIN + 30,
           y,
           width: CONTENT_WIDTH - 60,
@@ -588,12 +678,18 @@ class QuotationCanvasWriter {
     this.cursorY += height + 20
   }
 
-  row(label: string, value: string, continuationName: string) {
+  row(
+    label: string,
+    value: string,
+    continuationName: string,
+    semanticKey = `row.${continuationName}.${label}`
+  ) {
     const wrappedValue = wrapText(value, 690, 17)
     const height = Math.max(58, wrappedValue.split("\n").length * 25 + 28)
     this.ensure(height, continuationName)
-    this.captureGroup(label, () => {
+    this.captureGroup(label, `${semanticKey}.group`, () => {
       this.addText({
+        semanticKey: `${semanticKey}.label`,
         name: `${label} label`,
         value: label,
         x: PAGE_MARGIN,
@@ -604,6 +700,7 @@ class QuotationCanvasWriter {
         color: this.template.palette.muted,
       })
       this.addText({
+        semanticKey: `${semanticKey}.value`,
         name: `${label} value`,
         value,
         x: PAGE_MARGIN + 330,
@@ -612,7 +709,7 @@ class QuotationCanvasWriter {
         fontSize: 17,
         color: this.template.palette.ink,
       })
-      this.addLine(this.cursorY + height - 1)
+      this.addLine(this.cursorY + height - 1, `${semanticKey}.divider`)
     })
     this.cursorY += height
   }
@@ -625,25 +722,40 @@ function buildQuotation(writer: QuotationCanvasWriter) {
 
   const cover = writer.addCover()
   writer.createPage("Overview")
-  writer.section("The celebration", document.quotationType.label)
+  writer.section(
+    "The celebration",
+    document.quotationType.label,
+    "overview.celebration"
+  )
   writer.paragraph(
     `This proposal has been prepared for ${document.participants
       .map((participant) => participant.contact.name)
       .join(
         " and "
-      )}. It brings the event plan, coverage options, deliverables, commercial terms and delivery schedule into one source-backed document.`
+      )}. It brings the event plan, coverage options, deliverables, commercial terms and delivery schedule into one source-backed document.`,
+    "Overview introduction",
+    "overview.introduction"
   )
-  writer.section("People")
+  writer.section("People", undefined, "people.section")
   for (const participant of document.participants) {
     const details = [
-      participant.contact.email,
-      participant.contact.phoneNumber,
-      participant.contact.address,
-    ].filter((value): value is string => Boolean(value))
-    writer.card(participant.contact.name, details, "People")
+      { role: "email", value: participant.contact.email },
+      { role: "phone", value: participant.contact.phoneNumber },
+      { role: "address", value: participant.contact.address },
+    ].filter((detail): detail is CardDetail => typeof detail.value === "string")
+    writer.card(
+      participant.contact.name,
+      details,
+      "People",
+      `participant.${participant.key}`
+    )
   }
 
-  writer.section("Event plan", `${document.events.length} events`)
+  writer.section(
+    "Event plan",
+    `${document.events.length} events`,
+    "events.section"
+  )
   for (const item of document.events) {
     const date =
       item.timelineMode === "fixed"
@@ -651,17 +763,26 @@ function buildQuotation(writer: QuotationCanvasWriter) {
         : (item.dateWindow ?? "Date to be confirmed")
     writer.card(
       item.eventType.label,
-      [
-        `${date}${item.location ? ` · ${item.location}` : ""}`,
+      (
         [
-          item.guestCount ? `${item.guestCount} guests` : null,
-          item.side !== "common" ? `${item.side} side` : null,
-        ]
-          .filter(Boolean)
-          .join(" · "),
-        item.notes ?? "",
-      ].filter(Boolean),
-      "Event plan"
+          {
+            role: "schedule",
+            value: `${date}${item.location ? ` · ${item.location}` : ""}`,
+          },
+          {
+            role: "audience",
+            value: [
+              item.guestCount ? `${item.guestCount} guests` : null,
+              item.side !== "common" ? `${item.side} side` : null,
+            ]
+              .filter(Boolean)
+              .join(" · "),
+          },
+          { role: "notes", value: item.notes ?? "" },
+        ] satisfies CardDetail[]
+      ).filter(({ value }) => Boolean(value)),
+      "Event plan",
+      `event.${item.key}`
     )
   }
 
@@ -669,71 +790,105 @@ function buildQuotation(writer: QuotationCanvasWriter) {
     const recommended = item.key === document.recommendedPackageKey
     writer.section(
       item.name,
-      recommended ? "Recommended package" : "Coverage option"
+      recommended ? "Recommended package" : "Coverage option",
+      `package.${item.key}.section`
     )
-    writer.row("Investment", formatMoney(item.price), item.name)
-    if (item.summary) writer.paragraph(item.summary, `${item.name} summary`)
-    writer.section("Coverage")
+    writer.row(
+      "Investment",
+      formatMoney(item.price),
+      item.name,
+      `package.${item.key}.investment`
+    )
+    if (item.summary) {
+      writer.paragraph(
+        item.summary,
+        `${item.name} summary`,
+        `package.${item.key}.summary`
+      )
+    }
+    writer.section(
+      "Coverage",
+      undefined,
+      `package.${item.key}.coverage-section`
+    )
     for (const coverage of item.coverage) {
       const coveredEvent = eventByKey.get(coverage.eventKey)
       writer.row(
         coveredEvent?.eventType.label ?? coverage.eventKey,
         coverage.roles ?? "Coverage included",
-        `${item.name} coverage`
+        `${item.name} coverage`,
+        `package.${item.key}.coverage.${coverage.key}`
       )
     }
-    writer.section("Deliverables")
+    writer.section(
+      "Deliverables",
+      undefined,
+      `package.${item.key}.deliverables-section`
+    )
     for (const deliverable of item.deliverables) {
       writer.row(
         `${deliverable.quantity} × ${deliverable.name}`,
         deliverable.details ?? "Included",
-        `${item.name} deliverables`
+        `${item.name} deliverables`,
+        `package.${item.key}.deliverable.${deliverable.key}`
       )
     }
   }
 
-  writer.section("Delivery schedule")
+  writer.section("Delivery schedule", undefined, "delivery.section")
   for (const [index, clause] of document.deliveryTimelines.entries()) {
     writer.row(
       String(index + 1).padStart(2, "0"),
       clause.text,
-      "Delivery schedule"
+      "Delivery schedule",
+      `delivery.${clause.key}`
     )
   }
-  writer.section("Payment schedule")
+  writer.section("Payment schedule", undefined, "payment.section")
   for (const milestone of document.paymentMilestones) {
     writer.row(
       `${milestone.percentage}% · ${milestone.label}`,
       milestone.timing,
-      "Payment schedule"
+      "Payment schedule",
+      `payment.${milestone.key}`
     )
   }
-  writer.section("Terms")
+  writer.section("Terms", undefined, "terms.section")
   for (const [index, clause] of document.fixedTerms.entries()) {
-    writer.row(String(index + 1).padStart(2, "0"), clause.text, "Terms")
+    writer.row(
+      String(index + 1).padStart(2, "0"),
+      clause.text,
+      "Terms",
+      `term.${clause.key}`
+    )
   }
-  writer.section("Ready when you are")
+  writer.section("Ready when you are", undefined, "closing.section")
   writer.paragraph(
-    `This quotation is valid until ${formatDate(payload.quote.validUntil)}. Accepting it confirms the selected package and allows ${payload.branding.organizationName} to reserve the production dates.`
+    `This quotation is valid until ${formatDate(payload.quote.validUntil)}. Accepting it confirms the selected package and allows ${payload.branding.organizationName} to reserve the production dates.`,
+    "Closing paragraph",
+    "closing.paragraph"
   )
   if (payload.branding.email || payload.branding.phone) {
     writer.card(
       payload.branding.organizationName,
       [
-        payload.branding.email,
-        payload.branding.phone,
-        payload.branding.address,
-      ].filter((value): value is string => Boolean(value)),
-      "Contact"
+        { role: "email", value: payload.branding.email },
+        { role: "phone", value: payload.branding.phone },
+        { role: "address", value: payload.branding.address },
+      ].filter(
+        (detail): detail is CardDetail => typeof detail.value === "string"
+      ),
+      "Contact",
+      "closing.contact"
     )
   }
   return cover
 }
 
-export function composeQuotationDocument(
+export function composeTracedQuotationDocument(
   input: QuotationRenderPayloadV1,
   templateId: QuotationTemplateId = "editorial-olive"
-): Document {
+): TracedQuotationDocument {
   const payload = quotationRenderPayloadV1Schema.parse(input)
   const template =
     quotationTemplates.find((candidate) => candidate.id === templateId) ??
@@ -742,7 +897,7 @@ export function composeQuotationDocument(
   const writer = new QuotationCanvasWriter(payload, template)
   const cover = buildQuotation(writer)
   const now = payload.quote.createdAt
-  return assertValidDocument({
+  const document = assertValidDocument({
     schemaVersion: 2,
     id: `quotation-${payload.source.quotationId}`,
     name: payload.document.title,
@@ -781,4 +936,18 @@ export function composeQuotationDocument(
       },
     ],
   })
+  return {
+    document,
+    trace: {
+      nodeIdsBySemanticKey: Object.fromEntries(writer.nodeIdsBySemanticKey),
+      groupIdsBySemanticKey: Object.fromEntries(writer.groupIdsBySemanticKey),
+    },
+  }
+}
+
+export function composeQuotationDocument(
+  input: QuotationRenderPayloadV1,
+  templateId: QuotationTemplateId = "editorial-olive"
+): Document {
+  return composeTracedQuotationDocument(input, templateId).document
 }

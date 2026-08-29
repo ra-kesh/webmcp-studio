@@ -26,6 +26,8 @@ import {
 import type { ReviewJournal } from "./review-journal"
 import { quotationCompositionContextSchema } from "./quotation-composition-context"
 import type { QuotationCompositionContext } from "./quotation-composition-context"
+import { quotationRefreshJournalSchema } from "./quotation-refresh-journal"
+import type { QuotationRefreshJournal } from "./quotation-refresh-journal"
 
 export const CURRENT_DRAFT_STORAGE_KEY = "webmcp-studio:current-draft:v1"
 export const LEGACY_DOCUMENT_STORAGE_KEY = "webmcp-studio:northstar-document:v2"
@@ -64,6 +66,7 @@ const envelopeWireSchema = z
     document: z.unknown(),
     sourceContext: sourceContextSchema.nullable(),
     reviewJournal: reviewJournalSchema.optional(),
+    quotationRefresh: quotationRefreshJournalSchema.optional(),
   })
   .strict()
 
@@ -80,6 +83,7 @@ export type CurrentDraftSnapshot = {
   document: Document
   sourceContext: CurrentDraftSourceContext | null
   reviewJournal?: ReviewJournal
+  quotationRefresh?: QuotationRefreshJournal
 }
 
 export type CurrentDraftEnvelope = CurrentDraftSnapshot & {
@@ -198,6 +202,69 @@ function validateReviewJournalOwnership(
   ) {
     return schemaFailure(
       "The pending review does not belong to the saved document revision."
+    )
+  }
+  return null
+}
+
+function validateQuotationRefreshOwnership(
+  document: Document,
+  sourceContext: CurrentDraftSourceContext | null,
+  quotationRefresh: QuotationRefreshJournal | undefined
+): DraftRecoveryFailure | null {
+  const pending = quotationRefresh?.pending
+  if (!pending) return null
+  if (pending.documentId !== document.id) {
+    return schemaFailure(
+      "The pending quotation refresh belongs to a different document."
+    )
+  }
+  if (pending.baseDocumentRevision !== document.revision) {
+    return schemaFailure(
+      "The pending quotation refresh does not belong to the saved document revision."
+    )
+  }
+  if (
+    pending.incoming.quotationId !== pending.base.quotationId ||
+    pending.incoming.sourceRevision <= pending.base.sourceRevision
+  ) {
+    return schemaFailure(
+      "The pending quotation refresh must advance the same Stuwiz quotation."
+    )
+  }
+  const source = sourceContext?.quotationSource
+  const composition = sourceContext?.composition
+  if (!source || composition?.status !== "known") {
+    return schemaFailure(
+      "The pending quotation refresh requires a known linked quotation composition."
+    )
+  }
+  if (
+    pending.base.quotationId !== source.source.quotationId ||
+    pending.base.sourceRevision !== source.source.revision ||
+    pending.base.quoteVersion !== source.quote.quoteVersion ||
+    pending.base.contractVersion !== source.contractVersion ||
+    pending.base.sourceSnapshotId !== composition.sourceSnapshotId ||
+    pending.composerVersion !== composition.composerVersion ||
+    pending.template.id !== composition.template.id ||
+    pending.template.version !== composition.template.version ||
+    pending.appearanceTemplateId !== sourceContext.quotationTemplateId
+  ) {
+    return schemaFailure(
+      "The pending quotation refresh does not match the linked source and composition."
+    )
+  }
+  if (
+    pending.incoming.quotationId !==
+      pending.incomingSource.source.quotationId ||
+    pending.incoming.sourceRevision !==
+      pending.incomingSource.source.revision ||
+    pending.incoming.quoteVersion !==
+      pending.incomingSource.quote.quoteVersion ||
+    pending.incoming.contractVersion !== pending.incomingSource.contractVersion
+  ) {
+    return schemaFailure(
+      "The pending quotation refresh identity does not match its incoming source."
     )
   }
   return null
@@ -372,6 +439,13 @@ export function decodeCurrentDraftEnvelope(raw: string): EnvelopeDecodeResult {
     reviewJournal
   )
   if (reviewFailure) return { ok: false, failure: reviewFailure }
+  const quotationRefresh = parsedEnvelope.data.quotationRefresh
+  const refreshFailure = validateQuotationRefreshOwnership(
+    decodedDocument.document,
+    sourceContext,
+    quotationRefresh
+  )
+  if (refreshFailure) return { ok: false, failure: refreshFailure }
 
   return {
     ok: true,
@@ -380,6 +454,7 @@ export function decodeCurrentDraftEnvelope(raw: string): EnvelopeDecodeResult {
       document: decodedDocument.document,
       sourceContext,
       ...(reviewJournal ? { reviewJournal } : {}),
+      ...(quotationRefresh ? { quotationRefresh } : {}),
     },
     requiresRewrite:
       JSON.stringify(decodedDocument.document) !== serializedDocument,
@@ -416,6 +491,13 @@ export function validateCurrentDraftSnapshot(
     reviewJournal
   )
   if (reviewFailure) return { ok: false, failure: reviewFailure }
+  const quotationRefresh = parsedSnapshot.data.quotationRefresh
+  const refreshFailure = validateQuotationRefreshOwnership(
+    decodedDocument.document,
+    parsedSnapshot.data.sourceContext,
+    quotationRefresh
+  )
+  if (refreshFailure) return { ok: false, failure: refreshFailure }
   return {
     ok: true,
     envelope: {
@@ -423,6 +505,7 @@ export function validateCurrentDraftSnapshot(
       document: decodedDocument.document,
       sourceContext: parsedSnapshot.data.sourceContext,
       ...(reviewJournal ? { reviewJournal } : {}),
+      ...(quotationRefresh ? { quotationRefresh } : {}),
     },
   }
 }

@@ -8,6 +8,7 @@ import {
 } from "react"
 import {
   AlertTriangle,
+  ArrowRight,
   Check,
   ClipboardCopy,
   ClipboardPaste,
@@ -16,6 +17,7 @@ import {
   CopyPlus,
   Circle,
   Download,
+  DatabaseZap,
   FileJson2,
   Focus,
   Group,
@@ -149,6 +151,7 @@ import { NewDocumentDialog } from "./editor/new-document-dialog"
 import { StudioStartSurface } from "./editor/studio-start-surface"
 import { useRecentDocumentsVisibility } from "./editor/recent-documents-provider"
 import { ReplaceCurrentDraftDialog } from "./editor/replace-current-draft-dialog"
+import { QuotationRefreshDialog } from "./editor/quotation-refresh-dialog"
 import { EmptyCanvasActions } from "./editor/empty-canvas-actions"
 import { DraftRecoveryDialog } from "./editor/draft-recovery-dialog"
 import { DocumentConflictDialog } from "./editor/document-conflict-dialog"
@@ -626,6 +629,17 @@ export function StudioShell({
     "heading" | "document-library"
   >("heading")
   const [publishDialogOpen, setPublishDialogOpen] = useState(false)
+  const [quotationRefreshOpen, setQuotationRefreshOpen] = useState(false)
+  const lastOpenedQuotationRefreshIdRef = useRef<string | null>(null)
+  const pendingQuotationRefresh = editor.quotationRefreshJournal.pending
+  useEffect(() => {
+    const refreshId = pendingQuotationRefresh?.id ?? null
+    if (refreshId && lastOpenedQuotationRefreshIdRef.current !== refreshId) {
+      lastOpenedQuotationRefreshIdRef.current = refreshId
+      setQuotationRefreshOpen(true)
+    }
+    if (!refreshId) lastOpenedQuotationRefreshIdRef.current = null
+  }, [pendingQuotationRefresh?.id])
   const [guideManagerOpen, setGuideManagerOpen] = useState(false)
   const guideManagerTriggerRef = useRef<HTMLElement | null>(null)
   const [textEditingNodeId, setTextEditingNodeId] = useState<string | null>(
@@ -1101,7 +1115,7 @@ export function StudioShell({
 
   useEffect(() => {
     if (!textEditingNodeId) return
-    if (editor.pendingChangeSet) {
+    if (editor.pendingChangeSet || pendingQuotationRefresh) {
       setTextEditingNodeId(null)
       return
     }
@@ -1112,6 +1126,7 @@ export function StudioShell({
   }, [
     editor.activePageId,
     editor.pendingChangeSet,
+    pendingQuotationRefresh,
     editor.selection,
     textEditingNodeId,
   ])
@@ -1433,7 +1448,7 @@ export function StudioShell({
   }, [editor.selectedNodes, focusBounds])
 
   const inspectorCapabilityContext = {
-    documentEditable: !editor.pendingChangeSet,
+    documentEditable: !editor.pendingChangeSet && !pendingQuotationRefresh,
     activeImageCropNodeId: editor.imageCropSession?.target.nodeId ?? null,
     imageSourceStateByNodeId,
     imageReplacementConstraintByNodeId: imageReplacementConstraintsByNodeId(
@@ -1515,7 +1530,7 @@ export function StudioShell({
   const imageCommandCapabilities = deriveEditorImageCommandCapabilities({
     selectedNodes: editor.selectedNodes,
     inspectorCapabilities: imageSelectionCapabilities,
-    documentEditable: !editor.pendingChangeSet,
+    documentEditable: !editor.pendingChangeSet && !pendingQuotationRefresh,
     imageCropActive: Boolean(editor.imageCropSession),
     imageCropDraftChanged: editor.imageCropSession
       ? imageCropSessionHasChanges(editor.imageCropSession)
@@ -1526,7 +1541,7 @@ export function StudioShell({
   })
 
   const commandContext: EditorCommandContext = {
-    reviewPending: Boolean(editor.pendingChangeSet),
+    reviewPending: Boolean(editor.pendingChangeSet || pendingQuotationRefresh),
     hasSelection: Boolean(editor.selection?.nodeIds.length),
     selectedNodeCount: editor.selectedNodes.length,
     hasSelectedGroup: Boolean(editor.selectedGroupId),
@@ -1560,7 +1575,7 @@ export function StudioShell({
       image: deriveEditorImageCommandCapabilities({
         selectedNodes: editor.selectedNodes,
         inspectorCapabilities: imageSelectionCapabilities,
-        documentEditable: !editor.pendingChangeSet,
+        documentEditable: !editor.pendingChangeSet && !pendingQuotationRefresh,
         imageCropActive: true,
         imageCropDraftChanged: imageCropSessionHasChanges(cropSession),
         cropFrameMaskDraftSupported: true,
@@ -1643,7 +1658,9 @@ export function StudioShell({
         editor.imageCropPreviewStore?.getLiveSession() ??
         editor.imageCropSession
       const context: EditorCommandContext = {
-        reviewPending: Boolean(editor.pendingChangeSet),
+        reviewPending: Boolean(
+          editor.pendingChangeSet || pendingQuotationRefresh
+        ),
         hasSelection: Boolean(editor.selection?.nodeIds.length),
         selectedNodeCount: editor.selectedNodes.length,
         hasSelectedGroup: Boolean(editor.selectedGroupId),
@@ -1666,7 +1683,8 @@ export function StudioShell({
             editor.selectedNodes,
             inspectorCapabilityContext
           ).capabilities,
-          documentEditable: !editor.pendingChangeSet,
+          documentEditable:
+            !editor.pendingChangeSet && !pendingQuotationRefresh,
           imageCropActive: Boolean(cropSession),
           imageCropDraftChanged: cropSession
             ? imageCropSessionHasChanges(cropSession)
@@ -2362,11 +2380,16 @@ export function StudioShell({
           : "idle"
       : "idle"
   const reviewLocked = Boolean(editor.pendingChangeSet)
+  const quotationRefreshLocked = Boolean(pendingQuotationRefresh)
+  const documentDecisionLocked = reviewLocked || quotationRefreshLocked
+  const documentDecisionReason = quotationRefreshLocked
+    ? "Accept or reject the pending Stuwiz refresh first."
+    : "Resolve or discard the review preview first."
   const cropLocked = Boolean(editor.imageCropSession)
   const outputBusy =
     criticalAction !== null ||
     pdfExportState === "exporting" ||
-    reviewLocked ||
+    documentDecisionLocked ||
     cropLocked
 
   const productCommandContext: ProductCommandRuntimeContext = {
@@ -2413,7 +2436,7 @@ export function StudioShell({
         return [
           page.id,
           {
-            reviewPending: reviewLocked,
+            reviewPending: documentDecisionLocked,
             outputCount: editor.document.outputs.length,
             outputPageCount: output?.pageIds.length ?? 0,
             pageIndex: output?.pageIds.indexOf(page.id),
@@ -2425,7 +2448,7 @@ export function StudioShell({
           [
             output.id,
             {
-              reviewPending: reviewLocked,
+              reviewPending: documentDecisionLocked,
               outputCount: editor.document.outputs.length,
               outputPageCount: output.pageIds.length,
             },
@@ -2447,13 +2470,14 @@ export function StudioShell({
           : null,
       },
       "document.home": {
-        enabled: !cropLocked && !reviewLocked && criticalAction === null,
+        enabled:
+          !cropLocked && !documentDecisionLocked && criticalAction === null,
         disabledReason: criticalAction
           ? "Wait for the current Studio operation to finish."
           : cropLocked
             ? "Finish or cancel the active image crop before going home."
-            : reviewLocked
-              ? "Resolve or discard the review preview before going home."
+            : documentDecisionLocked
+              ? documentDecisionReason
               : null,
       },
       "document.export-json": {
@@ -2465,23 +2489,25 @@ export function StudioShell({
             : null,
       },
       "document.import-json": {
-        enabled: !cropLocked && !reviewLocked && criticalAction === null,
+        enabled:
+          !cropLocked && !documentDecisionLocked && criticalAction === null,
         disabledReason: criticalAction
           ? "Wait for the current Studio operation to finish."
           : cropLocked
             ? "Finish or cancel the active image crop before importing."
-            : reviewLocked
-              ? "Resolve or discard the review preview before importing."
+            : documentDecisionLocked
+              ? documentDecisionReason
               : null,
       },
       "document.import-quotation": {
-        enabled: !cropLocked && !reviewLocked && criticalAction === null,
+        enabled:
+          !cropLocked && !documentDecisionLocked && criticalAction === null,
         disabledReason: criticalAction
           ? "Wait for the current Studio operation to finish."
           : cropLocked
             ? "Finish or cancel the active image crop before importing."
-            : reviewLocked
-              ? "Resolve or discard the review preview before importing."
+            : documentDecisionLocked
+              ? documentDecisionReason
               : null,
       },
       "output.export-png": {
@@ -2491,13 +2517,14 @@ export function StudioShell({
           : null,
       },
       "document.publish": {
-        enabled: !cropLocked && !reviewLocked && criticalAction === null,
+        enabled:
+          !cropLocked && !documentDecisionLocked && criticalAction === null,
         disabledReason: criticalAction
           ? "Wait for the current Studio operation to finish."
           : cropLocked
             ? "Finish or cancel the active image crop before publishing."
-            : reviewLocked
-              ? "Resolve or discard the review preview before publishing."
+            : documentDecisionLocked
+              ? documentDecisionReason
               : null,
       },
       "output.export-pdf": {
@@ -3194,7 +3221,9 @@ export function StudioShell({
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     className="min-h-11 min-[1280px]:min-h-0"
-                    disabled={Boolean(editor.pendingChangeSet)}
+                    disabled={Boolean(
+                      editor.pendingChangeSet || pendingQuotationRefresh
+                    )}
                     onSelect={() =>
                       editor.addIcon({
                         name: "Heart icon",
@@ -3210,7 +3239,9 @@ export function StudioShell({
                     className="min-h-11 min-[1280px]:min-h-0"
                     disabled={
                       editor.isImportingAsset ||
-                      Boolean(editor.pendingChangeSet)
+                      Boolean(
+                        editor.pendingChangeSet || pendingQuotationRefresh
+                      )
                     }
                     onSelect={() =>
                       openMediaPicker(
@@ -3392,6 +3423,24 @@ export function StudioShell({
           ) : null}
 
           <div className="flex shrink-0 items-center gap-1 min-[1280px]:ml-auto min-[1280px]:gap-2">
+            {pendingQuotationRefresh ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-11 min-[1280px]:h-8"
+                onClick={() => setQuotationRefreshOpen(true)}
+              >
+                <DatabaseZap data-icon="inline-start" />
+                <span className="hidden min-[1040px]:inline">
+                  Review Stuwiz update
+                </span>
+                <Badge variant="secondary">
+                  {pendingQuotationRefresh.base.sourceRevision}
+                  <ArrowRight aria-hidden="true" />
+                  {pendingQuotationRefresh.incoming.sourceRevision}
+                </Badge>
+              </Button>
+            ) : null}
             <Badge
               variant={saveNeedsAttention ? "destructive" : "outline"}
               className="hidden max-w-40 truncate font-normal text-muted-foreground min-[1280px]:inline-flex"
@@ -3411,7 +3460,9 @@ export function StudioShell({
               size="sm"
               variant="outline"
               className="hidden h-11 min-[940px]:inline-flex min-[1280px]:h-8"
-              disabled={cropLocked || reviewLocked || criticalAction !== null}
+              disabled={
+                cropLocked || documentDecisionLocked || criticalAction !== null
+              }
               onClick={() => setPublishDialogOpen(true)}
             >
               <Rocket data-icon="inline-start" />
@@ -3632,7 +3683,9 @@ export function StudioShell({
                   layerOrganizationUpgradeAvailable={
                     editor.quotationGroupOrganization.status === "available"
                   }
-                  reviewPending={Boolean(editor.pendingChangeSet)}
+                  reviewPending={Boolean(
+                    editor.pendingChangeSet || pendingQuotationRefresh
+                  )}
                   activePanel={documentPanelTab}
                   onActivePanelChange={setDocumentPanelTab}
                   onRetryTemplates={editor.reloadDesignTemplateCatalog}
@@ -3885,7 +3938,9 @@ export function StudioShell({
                     imageResourceTokens={imageReplacementResourceTokens}
                     zoom={zoom}
                     snapTargets={activeGuideSnapTargets}
-                    interactive={!editor.pendingChangeSet}
+                    interactive={Boolean(
+                      !editor.pendingChangeSet && !pendingQuotationRefresh
+                    )}
                     onCanvasDoubleClick={({ clientX, clientY }) =>
                       zoomAtPoint(zoom * 1.75, clientX, clientY)
                     }
@@ -3938,6 +3993,7 @@ export function StudioShell({
                   selectedGuideId={guideWorkspace.selectedGuideId}
                   interactive={
                     !editor.pendingChangeSet &&
+                    !pendingQuotationRefresh &&
                     !editor.imageCropSession &&
                     !isPanning
                   }
@@ -3959,7 +4015,9 @@ export function StudioShell({
                 {activePage.nodeIds.length === 0 && !editor.imageCropSession ? (
                   <EmptyCanvasActions
                     disabled={Boolean(
-                      editor.pendingChangeSet || editor.draftRecovery
+                      editor.pendingChangeSet ||
+                      pendingQuotationRefresh ||
+                      editor.draftRecovery
                     )}
                     onAddText={() => {
                       insertTextPreset()
@@ -4013,7 +4071,9 @@ export function StudioShell({
               imageResourceTokens={imageReplacementResourceTokens}
               onImageResourceStateChange={handleReactImageResourceStateChange}
               activePageId={editor.activePageId}
-              reviewPending={Boolean(editor.pendingChangeSet)}
+              reviewPending={Boolean(
+                editor.pendingChangeSet || pendingQuotationRefresh
+              )}
               onSelectPage={editor.selectPage}
               onAddPage={editor.addPage}
               onDuplicatePage={editor.duplicatePage}
@@ -4236,7 +4296,9 @@ export function StudioShell({
                 layerOrganizationUpgradeAvailable={
                   editor.quotationGroupOrganization.status === "available"
                 }
-                reviewPending={Boolean(editor.pendingChangeSet)}
+                reviewPending={Boolean(
+                  editor.pendingChangeSet || pendingQuotationRefresh
+                )}
                 activePanel={documentPanelTab}
                 onActivePanelChange={setDocumentPanelTab}
                 onRetryTemplates={editor.reloadDesignTemplateCatalog}
@@ -4469,6 +4531,15 @@ export function StudioShell({
           }}
           starterMetadata={editor.starterMetadata}
         />
+        <QuotationRefreshDialog
+          open={quotationRefreshOpen && pendingQuotationRefresh !== null}
+          pending={pendingQuotationRefresh}
+          error={editor.documentError}
+          onOpenChange={setQuotationRefreshOpen}
+          onChooseConflict={editor.chooseQuotationRefreshConflict}
+          onAccept={editor.acceptQuotationRefresh}
+          onReject={editor.rejectQuotationRefresh}
+        />
         <PublishDialog
           open={publishDialogOpen}
           onOpenChange={setPublishDialogOpen}
@@ -4477,7 +4548,9 @@ export function StudioShell({
           templateId={editor.currentTemplateId}
           latestVersion={editor.latestPublishedVersion}
           currentSnapshotVersion={editor.currentSnapshotPublishedVersion}
-          pendingChangeSet={Boolean(editor.pendingChangeSet)}
+          pendingChangeSet={Boolean(
+            editor.pendingChangeSet || pendingQuotationRefresh
+          )}
           publishError={editor.publishError}
           publishSyncStatus={editor.publishSyncStatus}
           onCancelPublish={editor.cancelPublication}

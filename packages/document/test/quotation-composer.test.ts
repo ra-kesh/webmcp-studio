@@ -1,11 +1,34 @@
 import { describe, expect, it } from "vitest"
 import {
   composeQuotationDocument,
+  composeTracedQuotationDocument,
   northstarQuotationPayload,
   quotationRenderPayloadV1Schema,
   quotationTemplates,
   validateDocument,
 } from "../src"
+
+function tracedText(
+  composition: ReturnType<typeof composeTracedQuotationDocument>,
+  semanticKey: string
+) {
+  const nodeId = composition.trace.nodeIdsBySemanticKey[semanticKey]
+  const node = composition.document.nodes.find(
+    (candidate) => candidate.id === nodeId
+  )
+  expect(node?.type).toBe("text")
+  return node?.type === "text" ? node.text : undefined
+}
+
+function tracedPageId(
+  composition: ReturnType<typeof composeTracedQuotationDocument>,
+  semanticKey: string
+) {
+  const nodeId = composition.trace.nodeIdsBySemanticKey[semanticKey]
+  return composition.document.pages.find((page) =>
+    page.nodeIds.includes(nodeId ?? "")
+  )?.id
+}
 
 describe("quotation composition", () => {
   it("accepts the versioned Stuwiz quotation payload", () => {
@@ -136,6 +159,163 @@ describe("quotation composition", () => {
       expanded.nodes.some(
         (node) =>
           node.type === "text" && node.text.includes("Operational term 30")
+      )
+    ).toBe(true)
+  })
+
+  it("emits a unique semantic trace without changing canonical output", () => {
+    const canonical = composeQuotationDocument(northstarQuotationPayload)
+    const traced = composeTracedQuotationDocument(northstarQuotationPayload)
+    const nodeIds = Object.values(traced.trace.nodeIdsBySemanticKey)
+    const groupIds = Object.values(traced.trace.groupIdsBySemanticKey)
+
+    expect(traced.document).toEqual(canonical)
+    expect(JSON.stringify(traced.document)).toBe(JSON.stringify(canonical))
+    expect(new Set(nodeIds).size).toBe(nodeIds.length)
+    expect(new Set(groupIds).size).toBe(groupIds.length)
+    expect(nodeIds).toHaveLength(canonical.nodes.length)
+    expect(groupIds).toHaveLength(canonical.groups.length)
+    expect(
+      traced.trace.nodeIdsBySemanticKey["event.welcome.title"]
+    ).toBeTruthy()
+    expect(
+      traced.trace.nodeIdsBySemanticKey[
+        "package.signature.deliverable.signature-film.value"
+      ]
+    ).toBeTruthy()
+  })
+
+  it("keeps business semantic keys stable when keyed records are reordered", () => {
+    const reordered = structuredClone(northstarQuotationPayload)
+    reordered.document.participants.reverse()
+    reordered.document.events.reverse()
+    reordered.document.packages.reverse()
+    reordered.document.packages.forEach((item) => {
+      item.coverage.reverse()
+      item.deliverables.reverse()
+    })
+    reordered.document.deliveryTimelines.reverse()
+    reordered.document.paymentMilestones.reverse()
+    reordered.document.fixedTerms.reverse()
+    const before = composeTracedQuotationDocument(northstarQuotationPayload)
+    const after = composeTracedQuotationDocument(reordered)
+
+    const stableBusinessKeys = [
+      ...northstarQuotationPayload.document.participants.flatMap(({ key }) => [
+        `participant.${key}.title`,
+        `participant.${key}.email`,
+        `participant.${key}.phone`,
+        `participant.${key}.address`,
+      ]),
+      ...northstarQuotationPayload.document.events.flatMap(({ key }) => [
+        `event.${key}.title`,
+        `event.${key}.schedule`,
+        `event.${key}.audience`,
+      ]),
+      ...northstarQuotationPayload.document.packages.flatMap((item) => [
+        `package.${item.key}.investment.value`,
+        ...item.coverage.map(
+          ({ key }) => `package.${item.key}.coverage.${key}.value`
+        ),
+        ...item.deliverables.map(
+          ({ key }) => `package.${item.key}.deliverable.${key}.value`
+        ),
+      ]),
+      ...northstarQuotationPayload.document.deliveryTimelines.map(
+        ({ key }) => `delivery.${key}.value`
+      ),
+      ...northstarQuotationPayload.document.paymentMilestones.map(
+        ({ key }) => `payment.${key}.value`
+      ),
+      ...northstarQuotationPayload.document.fixedTerms.map(
+        ({ key }) => `term.${key}.value`
+      ),
+    ]
+
+    for (const semanticKey of stableBusinessKeys) {
+      expect(tracedText(after, semanticKey), semanticKey).toBe(
+        tracedText(before, semanticKey)
+      )
+    }
+  })
+
+  it.each(["email", "phoneNumber", "address"] as const)(
+    "does not shift participant semantic identity when %s is removed",
+    (removedProperty) => {
+      const changed = structuredClone(northstarQuotationPayload)
+      changed.document.participants[0]!.contact[removedProperty] = null
+      const before = composeTracedQuotationDocument(northstarQuotationPayload)
+      const after = composeTracedQuotationDocument(changed)
+      const removedRole =
+        removedProperty === "phoneNumber" ? "phone" : removedProperty
+
+      expect(
+        after.trace.nodeIdsBySemanticKey[`participant.aditi.${removedRole}`]
+      ).toBeUndefined()
+      for (const role of ["email", "phone", "address"]) {
+        if (role === removedRole) continue
+        expect(tracedText(after, `participant.aditi.${role}`)).toBe(
+          tracedText(before, `participant.aditi.${role}`)
+        )
+      }
+    }
+  )
+
+  it("uses explicit roles for optional branding contact values", () => {
+    const changed = structuredClone(northstarQuotationPayload)
+    changed.branding.email = null
+    const before = composeTracedQuotationDocument(northstarQuotationPayload)
+    const after = composeTracedQuotationDocument(changed)
+
+    expect(
+      after.trace.nodeIdsBySemanticKey["closing.contact.email"]
+    ).toBeUndefined()
+    expect(tracedText(after, "closing.contact.phone")).toBe(
+      tracedText(before, "closing.contact.phone")
+    )
+    expect(tracedText(after, "closing.contact.address")).toBe(
+      tracedText(before, "closing.contact.address")
+    )
+  })
+
+  it("keeps a manually edited business key associated after repagination", () => {
+    const expanded = structuredClone(northstarQuotationPayload)
+    const seed = expanded.document.events[0]!
+    expanded.document.events.unshift(
+      ...Array.from({ length: 12 }, (_, index) => ({
+        ...structuredClone(seed),
+        key: `added-event-${index + 1}`,
+        eventType: {
+          ...seed.eventType,
+          key: `added-event-${index + 1}`,
+          label: `Added event ${index + 1}`,
+        },
+      }))
+    )
+    const semanticKey = "event.wedding.title"
+    const before = composeTracedQuotationDocument(northstarQuotationPayload)
+    const edited = structuredClone(before.document)
+    const editedNodeId = before.trace.nodeIdsBySemanticKey[semanticKey]
+    const editedNode = edited.nodes.find((node) => node.id === editedNodeId)
+    if (!editedNode || editedNode.type !== "text") {
+      throw new Error("Expected the traced wedding title text node.")
+    }
+    editedNode.text = "Studio-edited wedding title"
+    const after = composeTracedQuotationDocument(expanded)
+
+    expect(tracedPageId(after, semanticKey)).not.toBe(
+      tracedPageId(before, semanticKey)
+    )
+    expect(tracedText(after, semanticKey)).toBe(tracedText(before, semanticKey))
+    expect(editedNode.text).toBe("Studio-edited wedding title")
+    expect(
+      Object.keys(after.trace.nodeIdsBySemanticKey).every(
+        (key) => !key.startsWith("page.")
+      )
+    ).toBe(true)
+    expect(
+      Object.keys(after.trace.nodeIdsBySemanticKey).some((key) =>
+        key.startsWith("composer.page-role.")
       )
     ).toBe(true)
   })

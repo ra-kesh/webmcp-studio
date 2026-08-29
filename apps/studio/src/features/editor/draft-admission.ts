@@ -1,4 +1,7 @@
-import { deriveDocumentSnapshotId } from "@webmcp/document"
+import {
+  deriveDocumentSnapshotId,
+  quotationSourceFingerprint,
+} from "@webmcp/document"
 import { validateCurrentDraftSnapshot } from "./current-draft-repository"
 import type {
   CurrentDraftEnvelope,
@@ -6,6 +9,11 @@ import type {
   CurrentDraftSourceContext,
 } from "./current-draft-repository"
 import type { ReviewJournal } from "./review-journal"
+import {
+  quotationRefreshCandidateIdentity,
+  quotationRefreshProposalId,
+} from "./quotation-refresh-journal"
+import type { QuotationRefreshJournal } from "./quotation-refresh-journal"
 import type { DraftRecoveryFailure } from "./draft-recovery"
 import { quotationCompositionMismatch } from "./quotation-composition-context"
 
@@ -92,7 +100,8 @@ export function encodedUtf8ByteLength(encoded: string): number {
 export function deriveDraftSnapshotId(
   contentSnapshotId: string,
   sourceContext: CurrentDraftSourceContext | null,
-  reviewJournal?: ReviewJournal
+  reviewJournal?: ReviewJournal,
+  quotationRefresh?: QuotationRefreshJournal
 ): Promise<string> {
   return sha256(
     canonicalJson({
@@ -100,6 +109,7 @@ export function deriveDraftSnapshotId(
       contentSnapshotId,
       sourceContext,
       ...(reviewJournal ? { reviewJournal } : {}),
+      ...(quotationRefresh ? { quotationRefresh } : {}),
     })
   )
 }
@@ -149,10 +159,63 @@ export async function prepareDraftAdmission(
   const contentSnapshotId = await deriveDocumentSnapshotId(
     validated.envelope.document
   )
+  const pendingRefresh = validated.envelope.quotationRefresh?.pending
+  if (pendingRefresh && sourceContext?.quotationSource) {
+    const [
+      baseSourceSnapshotId,
+      incomingSourceSnapshotId,
+      candidateSnapshotId,
+    ] = await Promise.all([
+      quotationSourceFingerprint(sourceContext.quotationSource),
+      quotationSourceFingerprint(pendingRefresh.incomingSource),
+      quotationRefreshCandidateIdentity(pendingRefresh.candidateDocument),
+    ])
+    const proposalId = await quotationRefreshProposalId({
+      documentId: pendingRefresh.documentId,
+      baseDocumentRevision: pendingRefresh.baseDocumentRevision,
+      baseHistorySnapshotId: pendingRefresh.baseHistorySnapshotId,
+      baseDraftSnapshotId: pendingRefresh.baseDraftSnapshotId,
+      baseContentSnapshotId: pendingRefresh.baseContentSnapshotId,
+      candidateContentSnapshotId: pendingRefresh.candidateContentSnapshotId,
+      base: pendingRefresh.base,
+      incoming: pendingRefresh.incoming,
+      composerVersion: pendingRefresh.composerVersion,
+      template: pendingRefresh.template,
+      appearanceTemplateId: pendingRefresh.appearanceTemplateId,
+      impact: pendingRefresh.impact,
+      collisionChoices: pendingRefresh.collisionChoices,
+    })
+    const mismatches = [
+      baseSourceSnapshotId !== pendingRefresh.base.sourceSnapshotId
+        ? "base source"
+        : null,
+      incomingSourceSnapshotId !== pendingRefresh.incoming.sourceSnapshotId
+        ? "incoming source"
+        : null,
+      contentSnapshotId !== pendingRefresh.baseContentSnapshotId
+        ? "base document"
+        : null,
+      candidateSnapshotId !== pendingRefresh.candidateContentSnapshotId
+        ? "candidate document"
+        : null,
+      proposalId !== pendingRefresh.proposalId ? "proposal" : null,
+    ].filter((value): value is string => value !== null)
+    if (mismatches.length) {
+      return {
+        ok: false,
+        reason: "validation_failed",
+        failure: {
+          kind: "schema_invalid",
+          message: `The pending quotation refresh failed exact ${mismatches.join(", ")} identity verification.`,
+        },
+      }
+    }
+  }
   const draftSnapshotId = await deriveDraftSnapshotId(
     contentSnapshotId,
     validated.envelope.sourceContext,
-    validated.envelope.reviewJournal
+    validated.envelope.reviewJournal,
+    validated.envelope.quotationRefresh
   )
 
   return {
