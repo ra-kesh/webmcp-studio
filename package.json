@@ -11,6 +11,7 @@
     "typecheck": "bun run --filter '@webmcp/*' typecheck",
     "test": "bun run --filter '@webmcp/*' test",
     "verify:migrations": "bun scripts/verify-template-version-constraints.ts",
+    "verify:media-promotion-migration": "./scripts/verify-media-asset-local-promotions-migration.sh",
     "verify:cloudflare:static": "bun scripts/verify-cloudflare-deployment-preflight.ts --static",
     "verify:cloudflare:remote": "bun scripts/verify-cloudflare-deployment-preflight.ts --remote-ready",
     "verify:cloudflare:deployed": "bun scripts/verify-cloudflare-deployment-preflight.ts --post-deploy",

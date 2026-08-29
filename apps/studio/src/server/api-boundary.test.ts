@@ -155,4 +155,123 @@ describe("API boundary", () => {
       },
     })
   })
+
+  it("normalizes promotion aliases before the generic managed asset route", async () => {
+    const db = database()
+    const request = new Request(
+      "https://studio.test/v1/studio/assets/local-promotions/local-photo:1"
+    )
+    const source = withApiPrincipalAudit(
+      Response.json({ promotion: {} }),
+      "principal-1",
+      "workspace-1"
+    )
+    const result = await finalizeApiResponse(
+      db as unknown as D1Database,
+      request,
+      source,
+      "request-promotion",
+      performance.now()
+    )
+    await result.audit
+    const bind = db.prepare.mock.results[0]?.value.bind
+    expect(bind).toHaveBeenCalledWith(
+      "request-promotion",
+      expect.any(String),
+      "GET",
+      "/v1/studio/assets/local-promotions/:localAssetId",
+      200,
+      expect.any(Number),
+      "principal-1",
+      "workspace-1",
+      null,
+      0
+    )
+  })
+
+  it("retains the static promotion resolve route identity", async () => {
+    const db = database()
+    const request = new Request(
+      "https://studio.test/v1/studio/assets/local-promotions/resolve",
+      { method: "POST" }
+    )
+    const result = await finalizeApiResponse(
+      db as unknown as D1Database,
+      request,
+      Response.json({ results: [] }),
+      "request-resolve",
+      performance.now()
+    )
+    await result.audit
+    const bind = db.prepare.mock.results[0]?.value.bind
+    expect(bind).toHaveBeenCalledWith(
+      "request-resolve",
+      expect.any(String),
+      "POST",
+      "/v1/studio/assets/local-promotions/resolve",
+      200,
+      expect.any(Number),
+      null,
+      null,
+      null,
+      0
+    )
+  })
+
+  it("normalizes GET on the static resolve file as the valid alias literal", async () => {
+    const db = database()
+    const request = new Request(
+      "https://studio.test/v1/studio/assets/local-promotions/resolve"
+    )
+    const result = await finalizeApiResponse(
+      db as unknown as D1Database,
+      request,
+      Response.json({ promotion: {} }),
+      "request-resolve-alias",
+      performance.now()
+    )
+    await result.audit
+    const bind = db.prepare.mock.results[0]?.value.bind
+    expect(bind).toHaveBeenCalledWith(
+      "request-resolve-alias",
+      expect.any(String),
+      "GET",
+      "/v1/studio/assets/local-promotions/:localAssetId",
+      200,
+      expect.any(Number),
+      null,
+      null,
+      null,
+      0
+    )
+  })
+
+  it("retains the static promotion upload route identity", async () => {
+    const db = database()
+    const request = new Request(
+      "https://studio.test/v1/studio/assets/local-promotions",
+      { method: "POST" }
+    )
+    const result = await finalizeApiResponse(
+      db as unknown as D1Database,
+      request,
+      Response.json({ promotion: {} }),
+      "request-promotion-upload",
+      performance.now()
+    )
+    await result.audit
+    const bind = db.prepare.mock.results[0]?.value.bind
+    expect(bind).toHaveBeenCalledWith(
+      "request-promotion-upload",
+      expect.any(String),
+      "POST",
+      "/v1/studio/assets/local-promotions",
+      200,
+      expect.any(Number),
+      null,
+      null,
+      null,
+      0
+    )
+  })
 })

@@ -8,15 +8,13 @@ import {
   localAssetIdSchema,
   localAssetSource as canonicalLocalAssetSource,
 } from "@webmcp/document"
-
-const DATABASE_NAME = "webmcp-studio-assets"
-const DATABASE_VERSION = 4
-const LEGACY_STORE_NAME = "assets"
-const METADATA_STORE_NAME = "asset-metadata"
-const BLOB_STORE_NAME = "asset-blobs"
-const QUARANTINE_STORE_NAME = "asset-quarantine"
-const CREATED_AT_INDEX = "createdAt"
-const LAST_USED_AT_INDEX = "lastUsedAt"
+import {
+  LOCAL_ASSET_BLOB_STORE_NAME as BLOB_STORE_NAME,
+  LOCAL_ASSET_LEGACY_STORE_NAME as LEGACY_STORE_NAME,
+  LOCAL_ASSET_METADATA_STORE_NAME as METADATA_STORE_NAME,
+  LOCAL_ASSET_QUARANTINE_STORE_NAME as QUARANTINE_STORE_NAME,
+  openLocalAssetDatabase,
+} from "./local-asset-database"
 
 export { LOCAL_ASSET_PREFIX }
 
@@ -338,51 +336,7 @@ async function mapWithConcurrency<T, TResult>(
   return results
 }
 
-const openDatabase = () =>
-  new Promise<IDBDatabase>((resolve, reject) => {
-    let blocked = false
-    const request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION)
-    request.onupgradeneeded = () => {
-      const database = request.result
-      const transaction = request.transaction
-      const metadataStore = database.objectStoreNames.contains(
-        METADATA_STORE_NAME
-      )
-        ? transaction?.objectStore(METADATA_STORE_NAME)
-        : database.createObjectStore(METADATA_STORE_NAME, { keyPath: "id" })
-      const blobStore = database.objectStoreNames.contains(BLOB_STORE_NAME)
-        ? transaction?.objectStore(BLOB_STORE_NAME)
-        : database.createObjectStore(BLOB_STORE_NAME)
-      if (!database.objectStoreNames.contains(QUARANTINE_STORE_NAME)) {
-        database.createObjectStore(QUARANTINE_STORE_NAME, { keyPath: "id" })
-      }
-      if (!metadataStore || !blobStore) return
-      if (!metadataStore.indexNames.contains(CREATED_AT_INDEX)) {
-        metadataStore.createIndex(CREATED_AT_INDEX, CREATED_AT_INDEX)
-      }
-      if (!metadataStore.indexNames.contains(LAST_USED_AT_INDEX)) {
-        metadataStore.createIndex(LAST_USED_AT_INDEX, LAST_USED_AT_INDEX)
-      }
-    }
-    request.onsuccess = () => {
-      if (blocked) {
-        request.result.close()
-        return
-      }
-      request.result.onversionchange = () => request.result.close()
-      resolve(request.result)
-    }
-    request.onerror = () =>
-      reject(request.error ?? new Error("Asset database failed to open"))
-    request.onblocked = () => {
-      blocked = true
-      reject(
-        new Error(
-          "Asset storage upgrade is blocked by another Studio tab. Close the other tab and retry."
-        )
-      )
-    }
-  })
+const openDatabase = openLocalAssetDatabase
 
 const runTransaction = async <T>(
   storeName: string,

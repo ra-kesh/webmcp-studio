@@ -21,6 +21,12 @@ export const mediaAssetIdSchema = z
   .string()
   .regex(/^asset-[A-Za-z0-9_-]{10,90}$/)
 
+export const mediaIdempotencyKeySchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z0-9._:-]+$/)
+
 export const localAssetIdSchema = z
   .string()
   .min(1)
@@ -302,6 +308,70 @@ export const mediaAssetLookupSchema = z
     }
   })
 
+export const mediaAssetPromotionAssetSchema = mediaAssetLookupSchema.extend({
+  revision: z.number().int().positive(),
+})
+
+export const localAssetPromotionSchema = z
+  .object({
+    localAssetId: localAssetIdSchema,
+    contentSha256: z.string().regex(/^[a-f0-9]{64}$/),
+    asset: mediaAssetPromotionAssetSchema,
+  })
+  .strict()
+
+export const localAssetPromotionResponseSchema = z
+  .object({
+    promotion: localAssetPromotionSchema,
+    storageDeltaBytes: z.number().int().nonnegative(),
+  })
+  .strict()
+
+export const localAssetPromotionLookupResponseSchema = z
+  .object({ promotion: localAssetPromotionSchema })
+  .strict()
+
+export const localAssetPromotionResolveRequestSchema = z
+  .object({
+    localAssetIds: z
+      .array(localAssetIdSchema)
+      .min(1)
+      .max(100)
+      .superRefine((ids, context) => {
+        if (new Set(ids).size !== ids.length) {
+          context.addIssue({
+            code: "custom",
+            path: ["localAssetIds"],
+            message: "Local asset IDs must be distinct",
+          })
+        }
+      }),
+  })
+  .strict()
+
+export const localAssetPromotionResolutionSchema = z
+  .object({
+    localAssetId: localAssetIdSchema,
+    promotion: localAssetPromotionSchema.nullable(),
+  })
+  .strict()
+  .superRefine((resolution, context) => {
+    if (
+      resolution.promotion &&
+      resolution.promotion.localAssetId !== resolution.localAssetId
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["promotion", "localAssetId"],
+        message: "Promotion identity must match the requested local asset",
+      })
+    }
+  })
+
+export const localAssetPromotionResolveResponseSchema = z
+  .object({ results: z.array(localAssetPromotionResolutionSchema).max(100) })
+  .strict()
+
 export const mediaAssetLookupResponseSchema = z
   .object({ asset: mediaAssetLookupSchema })
   .strict()
@@ -344,6 +414,13 @@ export const mediaAssetArchiveResponseSchema = z
 
 export type PublicMediaAsset = z.infer<typeof publicMediaAssetSchema>
 export type MediaAssetLookup = z.infer<typeof mediaAssetLookupSchema>
+export type MediaAssetPromotionAsset = z.infer<
+  typeof mediaAssetPromotionAssetSchema
+>
+export type LocalAssetPromotion = z.infer<typeof localAssetPromotionSchema>
+export type LocalAssetPromotionResolution = z.infer<
+  typeof localAssetPromotionResolutionSchema
+>
 export type MediaAssetReferenceImpact = z.infer<
   typeof mediaAssetReferenceImpactSchema
 >

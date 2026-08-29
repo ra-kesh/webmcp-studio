@@ -31,6 +31,9 @@ import { Route as V1RendersRenderIdOutputsOutputIdRouteImport } from './routes/v
 import { Route as V1StudioAssetsAssetIdContentRouteImport } from './routes/v1/studio/assets/$assetId/content'
 import { Route as V1StudioAssetsAssetIdDeletionImpactRouteImport } from './routes/v1/studio/assets/$assetId/deletion-impact'
 import { Route as V1StudioAssetsAssetIdUsedRouteImport } from './routes/v1/studio/assets/$assetId/used'
+import { Route as V1StudioAssetsLocalPromotionsIndexRouteImport } from './routes/v1/studio/assets/local-promotions/index'
+import { Route as V1StudioAssetsLocalPromotionsLocalAssetIdRouteImport } from './routes/v1/studio/assets/local-promotions/$localAssetId'
+import { Route as V1StudioAssetsLocalPromotionsResolveRouteImport } from './routes/v1/studio/assets/local-promotions/resolve'
 import { Route as V1StudioDocumentsDocumentIdRevisionsSnapshotIdRouteImport } from './routes/v1/studio/documents/$documentId/revisions/$snapshotId'
 
 const StudioRouteRoute = StudioRouteRouteImport.update({
@@ -149,6 +152,24 @@ const V1StudioAssetsAssetIdUsedRoute =
     path: '/used',
     getParentRoute: () => V1StudioAssetsAssetIdRoute,
   } as any)
+const V1StudioAssetsLocalPromotionsIndexRoute =
+  V1StudioAssetsLocalPromotionsIndexRouteImport.update({
+    id: '/v1/studio/assets/local-promotions/',
+    path: '/v1/studio/assets/local-promotions/',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const V1StudioAssetsLocalPromotionsLocalAssetIdRoute =
+  V1StudioAssetsLocalPromotionsLocalAssetIdRouteImport.update({
+    id: '/v1/studio/assets/local-promotions/$localAssetId',
+    path: '/v1/studio/assets/local-promotions/$localAssetId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const V1StudioAssetsLocalPromotionsResolveRoute =
+  V1StudioAssetsLocalPromotionsResolveRouteImport.update({
+    id: '/v1/studio/assets/local-promotions/resolve',
+    path: '/v1/studio/assets/local-promotions/resolve',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute =
   V1StudioDocumentsDocumentIdRevisionsSnapshotIdRouteImport.update({
     id: '/v1/studio/documents/$documentId/revisions/$snapshotId',
@@ -178,6 +199,9 @@ export interface FileRoutesByFullPath {
   '/v1/studio/assets/$assetId/content': typeof V1StudioAssetsAssetIdContentRoute
   '/v1/studio/assets/$assetId/deletion-impact': typeof V1StudioAssetsAssetIdDeletionImpactRoute
   '/v1/studio/assets/$assetId/used': typeof V1StudioAssetsAssetIdUsedRoute
+  '/v1/studio/assets/local-promotions/$localAssetId': typeof V1StudioAssetsLocalPromotionsLocalAssetIdRoute
+  '/v1/studio/assets/local-promotions/resolve': typeof V1StudioAssetsLocalPromotionsResolveRoute
+  '/v1/studio/assets/local-promotions/': typeof V1StudioAssetsLocalPromotionsIndexRoute
   '/v1/studio/documents/$documentId/revisions/$snapshotId': typeof V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute
 }
 export interface FileRoutesByTo {
@@ -202,6 +226,9 @@ export interface FileRoutesByTo {
   '/v1/studio/assets/$assetId/content': typeof V1StudioAssetsAssetIdContentRoute
   '/v1/studio/assets/$assetId/deletion-impact': typeof V1StudioAssetsAssetIdDeletionImpactRoute
   '/v1/studio/assets/$assetId/used': typeof V1StudioAssetsAssetIdUsedRoute
+  '/v1/studio/assets/local-promotions/$localAssetId': typeof V1StudioAssetsLocalPromotionsLocalAssetIdRoute
+  '/v1/studio/assets/local-promotions/resolve': typeof V1StudioAssetsLocalPromotionsResolveRoute
+  '/v1/studio/assets/local-promotions': typeof V1StudioAssetsLocalPromotionsIndexRoute
   '/v1/studio/documents/$documentId/revisions/$snapshotId': typeof V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute
 }
 export interface FileRoutesById {
@@ -228,6 +255,9 @@ export interface FileRoutesById {
   '/v1/studio/assets/$assetId/content': typeof V1StudioAssetsAssetIdContentRoute
   '/v1/studio/assets/$assetId/deletion-impact': typeof V1StudioAssetsAssetIdDeletionImpactRoute
   '/v1/studio/assets/$assetId/used': typeof V1StudioAssetsAssetIdUsedRoute
+  '/v1/studio/assets/local-promotions/$localAssetId': typeof V1StudioAssetsLocalPromotionsLocalAssetIdRoute
+  '/v1/studio/assets/local-promotions/resolve': typeof V1StudioAssetsLocalPromotionsResolveRoute
+  '/v1/studio/assets/local-promotions/': typeof V1StudioAssetsLocalPromotionsIndexRoute
   '/v1/studio/documents/$documentId/revisions/$snapshotId': typeof V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute
 }
 export interface FileRouteTypes {
@@ -254,6 +284,9 @@ export interface FileRouteTypes {
     | '/v1/studio/assets/$assetId/content'
     | '/v1/studio/assets/$assetId/deletion-impact'
     | '/v1/studio/assets/$assetId/used'
+    | '/v1/studio/assets/local-promotions/$localAssetId'
+    | '/v1/studio/assets/local-promotions/resolve'
+    | '/v1/studio/assets/local-promotions/'
     | '/v1/studio/documents/$documentId/revisions/$snapshotId'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -278,6 +311,9 @@ export interface FileRouteTypes {
     | '/v1/studio/assets/$assetId/content'
     | '/v1/studio/assets/$assetId/deletion-impact'
     | '/v1/studio/assets/$assetId/used'
+    | '/v1/studio/assets/local-promotions/$localAssetId'
+    | '/v1/studio/assets/local-promotions/resolve'
+    | '/v1/studio/assets/local-promotions'
     | '/v1/studio/documents/$documentId/revisions/$snapshotId'
   id:
     | '__root__'
@@ -303,6 +339,9 @@ export interface FileRouteTypes {
     | '/v1/studio/assets/$assetId/content'
     | '/v1/studio/assets/$assetId/deletion-impact'
     | '/v1/studio/assets/$assetId/used'
+    | '/v1/studio/assets/local-promotions/$localAssetId'
+    | '/v1/studio/assets/local-promotions/resolve'
+    | '/v1/studio/assets/local-promotions/'
     | '/v1/studio/documents/$documentId/revisions/$snapshotId'
   fileRoutesById: FileRoutesById
 }
@@ -323,6 +362,9 @@ export interface RootRouteChildren {
   V1StudioAssetsIndexRoute: typeof V1StudioAssetsIndexRoute
   V1StudioRendersIndexRoute: typeof V1StudioRendersIndexRoute
   V1StudioTemplatesIndexRoute: typeof V1StudioTemplatesIndexRoute
+  V1StudioAssetsLocalPromotionsLocalAssetIdRoute: typeof V1StudioAssetsLocalPromotionsLocalAssetIdRoute
+  V1StudioAssetsLocalPromotionsResolveRoute: typeof V1StudioAssetsLocalPromotionsResolveRoute
+  V1StudioAssetsLocalPromotionsIndexRoute: typeof V1StudioAssetsLocalPromotionsIndexRoute
   V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute: typeof V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute
 }
 
@@ -482,6 +524,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof V1StudioAssetsAssetIdUsedRouteImport
       parentRoute: typeof V1StudioAssetsAssetIdRoute
     }
+    '/v1/studio/assets/local-promotions/': {
+      id: '/v1/studio/assets/local-promotions/'
+      path: '/v1/studio/assets/local-promotions'
+      fullPath: '/v1/studio/assets/local-promotions/'
+      preLoaderRoute: typeof V1StudioAssetsLocalPromotionsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/v1/studio/assets/local-promotions/$localAssetId': {
+      id: '/v1/studio/assets/local-promotions/$localAssetId'
+      path: '/v1/studio/assets/local-promotions/$localAssetId'
+      fullPath: '/v1/studio/assets/local-promotions/$localAssetId'
+      preLoaderRoute: typeof V1StudioAssetsLocalPromotionsLocalAssetIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/v1/studio/assets/local-promotions/resolve': {
+      id: '/v1/studio/assets/local-promotions/resolve'
+      path: '/v1/studio/assets/local-promotions/resolve'
+      fullPath: '/v1/studio/assets/local-promotions/resolve'
+      preLoaderRoute: typeof V1StudioAssetsLocalPromotionsResolveRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/v1/studio/documents/$documentId/revisions/$snapshotId': {
       id: '/v1/studio/documents/$documentId/revisions/$snapshotId'
       path: '/v1/studio/documents/$documentId/revisions/$snapshotId'
@@ -552,6 +615,12 @@ const rootRouteChildren: RootRouteChildren = {
   V1StudioAssetsIndexRoute: V1StudioAssetsIndexRoute,
   V1StudioRendersIndexRoute: V1StudioRendersIndexRoute,
   V1StudioTemplatesIndexRoute: V1StudioTemplatesIndexRoute,
+  V1StudioAssetsLocalPromotionsLocalAssetIdRoute:
+    V1StudioAssetsLocalPromotionsLocalAssetIdRoute,
+  V1StudioAssetsLocalPromotionsResolveRoute:
+    V1StudioAssetsLocalPromotionsResolveRoute,
+  V1StudioAssetsLocalPromotionsIndexRoute:
+    V1StudioAssetsLocalPromotionsIndexRoute,
   V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute:
     V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute,
 }

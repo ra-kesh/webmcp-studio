@@ -1,5 +1,6 @@
 import {
   assertMediaAssetId,
+  assertLocalAssetId,
   createOpaqueMediaAssetId,
   inspectMediaAssetDimensions,
   mediaAssetDataUri,
@@ -7,6 +8,7 @@ import {
   sha256Hex,
 } from "./media-assets"
 import type {
+  LocalAssetPromotion,
   MediaAssetDeletionImpact,
   MediaAssetReference,
   MediaAssetReferenceImpact,
@@ -46,6 +48,10 @@ type ReferenceRow = {
 
 type UploadRequestRow = MediaAssetRow & { request_hash: string }
 
+type LocalPromotionRow = MediaAssetRow & {
+  local_asset_id: string
+}
+
 export type MediaAssetListOptions = {
   collection: "uploads" | "recent"
   query: string
@@ -62,6 +68,11 @@ export type MediaAssetListResult = {
 export type MediaAssetUploadResult = {
   asset: PublicMediaAsset
   created: boolean
+}
+
+export type MediaAssetPromotionResult = {
+  promotion: LocalAssetPromotion
+  storageDeltaBytes: number
 }
 
 export type MediaAssetContent = {
@@ -137,6 +148,50 @@ const publicAssetLookup = (row: MediaAssetRow) => ({
   status: row.status,
   selectable: row.status === "ready",
 })
+
+const publicPromotion = (
+  localAssetId: string,
+  row: MediaAssetRow
+): LocalAssetPromotion => ({
+  localAssetId,
+  contentSha256: row.content_hash,
+  asset: {
+    ...publicAssetLookup(row),
+    revision: row.revision,
+  },
+})
+
+const promotionRequestHash = (
+  localAssetId: string,
+  uploadRequestHash: string
+) =>
+  sha256Hex(
+    new TextEncoder().encode(
+      `local-promotion\0${localAssetId}\0${uploadRequestHash}`
+    )
+  )
+
+const exactBatchChanges = (
+  results: D1Result<unknown>[],
+  expectedChanges: readonly number[],
+  error: string
+) => {
+  if (!batchChangesMatch(results, expectedChanges)) {
+    throw new Error(error)
+  }
+}
+
+const batchChangesMatch = (
+  results: D1Result<unknown>[],
+  expectedChanges: readonly number[]
+) =>
+  !(
+    results.length !== expectedChanges.length ||
+    expectedChanges.some(
+      (expected, index) =>
+        Number(results[index]?.meta.changes ?? 0) !== expected
+    )
+  )
 
 type CursorPayload = {
   version: 1
@@ -383,13 +438,559 @@ export class MediaAssetRepository {
     const storage = await this.db
       .prepare(
         `/* media:storage */ SELECT COALESCE(SUM(bytes), 0) AS bytes, COUNT(*) AS count
-         FROM media_assets WHERE workspace_id = ?1 AND status = 'ready'`
+         FROM media_assets WHERE workspace_id = ?1`
       )
       .bind(workspaceId)
       .first<{ bytes: number; count: number }>()
     return {
       bytes: Number(storage?.bytes ?? 0),
       count: Number(storage?.count ?? 0),
+    }
+  }
+
+  private async promotionRow(workspaceId: string, localAssetId: string) {
+    return this.db
+      .prepare(
+        `/* media:promotion-get */ SELECT ${qualifiedMediaAssetColumns("assets")},
+                promotions.local_asset_id
+         FROM media_asset_local_promotions promotions
+         JOIN media_assets assets
+           ON assets.workspace_id = promotions.workspace_id
+          AND assets.id = promotions.asset_id
+         WHERE promotions.workspace_id = ?1
+           AND promotions.local_asset_id = ?2`
+      )
+      .bind(workspaceId, assertLocalAssetId(localAssetId))
+      .first<LocalPromotionRow>()
+  }
+
+  private async uploadRequestRow(workspaceId: string, idempotencyKey: string) {
+    return this.db
+      .prepare(
+        `/* media:idempotency-get */
+         SELECT ${qualifiedMediaAssetColumns("media_assets")}, requests.request_hash
+         FROM media_asset_upload_requests requests
+         JOIN media_assets ON media_assets.id = requests.asset_id
+         WHERE requests.workspace_id = ?1 AND requests.idempotency_key = ?2`
+      )
+      .bind(workspaceId, idempotencyKey)
+      .first<UploadRequestRow>()
+  }
+
+  private assertPromotionRequest(
+    request: UploadRequestRow,
+    requestHash: string,
+    assetId?: string
+  ) {
+    if (
+      request.request_hash !== requestHash ||
+      (assetId !== undefined && request.id !== assetId)
+    ) {
+      throw new MediaAssetError(
+        "idempotency_key_reused",
+        409,
+        "Idempotency-Key was already used for a different request"
+      )
+    }
+  }
+
+  private async ensurePromotionRequest(
+    workspaceId: string,
+    idempotencyKey: string,
+    requestHash: string,
+    assetId: string
+  ) {
+    const existing = await this.uploadRequestRow(workspaceId, idempotencyKey)
+    if (existing) {
+      this.assertPromotionRequest(existing, requestHash, assetId)
+      return
+    }
+    let results: D1Result<unknown>[]
+    try {
+      results = await this.db.batch([
+        this.uploadRequestStatement(
+          workspaceId,
+          idempotencyKey,
+          requestHash,
+          assetId,
+          this.now()
+        ),
+      ])
+    } catch (error) {
+      const raced = await this.uploadRequestRow(workspaceId, idempotencyKey)
+      if (!raced) throw error
+      this.assertPromotionRequest(raced, requestHash, assetId)
+      return
+    }
+    exactBatchChanges(results, [1], "media_asset_promotion_request_incomplete")
+  }
+
+  async lookupLocalPromotion(workspaceId: string, localAssetId: string) {
+    const row = await this.promotionRow(workspaceId, localAssetId)
+    if (!row) {
+      throw new MediaAssetError(
+        "local_asset_promotion_not_found",
+        404,
+        "No Studio copy is mapped to this local asset"
+      )
+    }
+    return publicPromotion(localAssetId, row)
+  }
+
+  async resolveLocalPromotions(workspaceId: string, localAssetIds: string[]) {
+    const parsed = localAssetIds.map(assertLocalAssetId)
+    if (
+      parsed.length < 1 ||
+      parsed.length > 100 ||
+      new Set(parsed).size !== parsed.length
+    ) {
+      throw new MediaAssetError(
+        "invalid_local_asset_ids",
+        400,
+        "Resolve requires 1-100 distinct local asset IDs"
+      )
+    }
+    const placeholders = parsed.map((_, index) => `?${index + 2}`).join(", ")
+    const rows = await this.db
+      .prepare(
+        `/* media:promotions-resolve */ SELECT ${qualifiedMediaAssetColumns("assets")},
+                promotions.local_asset_id
+         FROM media_asset_local_promotions promotions
+         JOIN media_assets assets
+           ON assets.workspace_id = promotions.workspace_id
+          AND assets.id = promotions.asset_id
+         WHERE promotions.workspace_id = ?1
+           AND promotions.local_asset_id IN (${placeholders})`
+      )
+      .bind(workspaceId, ...parsed)
+      .all<LocalPromotionRow>()
+    const byId = new Map(rows.results.map((row) => [row.local_asset_id, row]))
+    return parsed.map((localAssetId) => {
+      const row = byId.get(localAssetId)
+      return {
+        localAssetId,
+        promotion: row ? publicPromotion(localAssetId, row) : null,
+      }
+    })
+  }
+
+  private promotionMappingStatement(
+    workspaceId: string,
+    localAssetId: string,
+    assetId: string,
+    principalId: string,
+    now: string
+  ) {
+    return this.db
+      .prepare(
+        `/* media:promotion-insert */ INSERT INTO media_asset_local_promotions
+         (workspace_id, local_asset_id, asset_id, created_at, updated_at, created_by)
+         VALUES (?1, ?2, ?3, ?4, ?4, ?5)`
+      )
+      .bind(workspaceId, localAssetId, assetId, now, principalId)
+  }
+
+  private async restoreArchivedPromotion(
+    workspaceId: string,
+    localAssetId: string,
+    row: MediaAssetRow,
+    upload: ValidatedMediaUpload,
+    idempotencyKey: string,
+    requestHash: string,
+    principalId: string,
+    mappingExists: boolean,
+    requestExists: boolean
+  ): Promise<MediaAssetPromotionResult> {
+    await this.ensureStoredUpload(row, upload)
+    const now = this.now()
+    const statements = [
+      this.db
+        .prepare(
+          `/* media:promotion-restore */ UPDATE media_assets
+           SET status = 'ready', name = ?3, media_type = ?4, bytes = ?5,
+               width = ?6, height = ?7, updated_at = ?8, last_used_at = ?8,
+               archived_at = NULL, revision = revision + 1
+           WHERE workspace_id = ?1 AND id = ?2 AND status = 'archived'`
+        )
+        .bind(
+          workspaceId,
+          row.id,
+          upload.name,
+          upload.mediaType,
+          upload.byteLength,
+          upload.width,
+          upload.height,
+          now
+        ),
+      ...(!mappingExists
+        ? [
+            this.promotionMappingStatement(
+              workspaceId,
+              localAssetId,
+              row.id,
+              principalId,
+              now
+            ),
+          ]
+        : []),
+      ...(!requestExists
+        ? [
+            this.uploadRequestStatement(
+              workspaceId,
+              idempotencyKey,
+              requestHash,
+              row.id,
+              now
+            ),
+          ]
+        : []),
+    ]
+    let results: D1Result<unknown>[]
+    try {
+      results = await this.db.batch(statements)
+    } catch (error) {
+      const raced = await this.promotionRow(workspaceId, localAssetId)
+      if (raced && raced.content_hash !== upload.contentHash) {
+        throw new MediaAssetError(
+          "local_asset_alias_conflict",
+          409,
+          "This local asset ID is already mapped to different image bytes"
+        )
+      }
+      if (!raced) throw error
+      await this.ensurePromotionRequest(
+        workspaceId,
+        idempotencyKey,
+        requestHash,
+        raced.id
+      )
+      return {
+        promotion: publicPromotion(localAssetId, raced),
+        storageDeltaBytes: 0,
+      }
+    }
+    if (
+      !batchChangesMatch(
+        results,
+        statements.map(() => 1)
+      )
+    ) {
+      const reconciledMapping = await this.promotionRow(
+        workspaceId,
+        localAssetId
+      )
+      const reconciledRequest = await this.uploadRequestRow(
+        workspaceId,
+        idempotencyKey
+      )
+      if (
+        !reconciledMapping ||
+        reconciledMapping.content_hash !== upload.contentHash ||
+        !reconciledRequest
+      ) {
+        throw new Error("media_asset_promotion_restore_incomplete")
+      }
+      this.assertPromotionRequest(
+        reconciledRequest,
+        requestHash,
+        reconciledMapping.id
+      )
+      return {
+        promotion: publicPromotion(localAssetId, reconciledMapping),
+        storageDeltaBytes: 0,
+      }
+    }
+    const restored = await this.promotionRow(workspaceId, localAssetId)
+    const restoredRequest = await this.uploadRequestRow(
+      workspaceId,
+      idempotencyKey
+    )
+    if (
+      !restored ||
+      restored.content_hash !== upload.contentHash ||
+      !restoredRequest
+    ) {
+      throw new Error("media_asset_promotion_restore_unreadable")
+    }
+    this.assertPromotionRequest(restoredRequest, requestHash, restored.id)
+    return {
+      promotion: publicPromotion(localAssetId, restored),
+      storageDeltaBytes: 0,
+    }
+  }
+
+  async promoteLocalAsset(
+    workspaceId: string,
+    localAssetIdInput: string,
+    upload: ValidatedMediaUpload,
+    idempotencyKey: string,
+    principalId: string
+  ): Promise<MediaAssetPromotionResult> {
+    const localAssetId = assertLocalAssetId(localAssetIdInput)
+    const requestHash = await promotionRequestHash(
+      localAssetId,
+      upload.requestHash
+    )
+    const idempotent = await this.uploadRequestRow(workspaceId, idempotencyKey)
+    if (idempotent) this.assertPromotionRequest(idempotent, requestHash)
+
+    const mapped = await this.promotionRow(workspaceId, localAssetId)
+    if (mapped && mapped.content_hash !== upload.contentHash) {
+      throw new MediaAssetError(
+        "local_asset_alias_conflict",
+        409,
+        "This local asset ID is already mapped to different image bytes"
+      )
+    }
+    if (mapped) {
+      if (idempotent && idempotent.id !== mapped.id) {
+        throw new MediaAssetError(
+          "idempotency_key_reused",
+          409,
+          "Idempotency-Key resolved to another managed asset"
+        )
+      }
+      if (mapped.status === "archived") {
+        return this.restoreArchivedPromotion(
+          workspaceId,
+          localAssetId,
+          mapped,
+          upload,
+          idempotencyKey,
+          requestHash,
+          principalId,
+          true,
+          Boolean(idempotent)
+        )
+      }
+      await this.ensureStoredUpload(mapped, upload)
+      await this.ensurePromotionRequest(
+        workspaceId,
+        idempotencyKey,
+        requestHash,
+        mapped.id
+      )
+      const latest = await this.promotionRow(workspaceId, localAssetId)
+      if (!latest) throw new Error("media_asset_promotion_unreadable")
+      return {
+        promotion: publicPromotion(localAssetId, latest),
+        storageDeltaBytes: 0,
+      }
+    }
+
+    const duplicate = await this.db
+      .prepare(
+        `/* media:hash-get */ SELECT ${mediaAssetColumns}
+         FROM media_assets WHERE workspace_id = ?1 AND content_hash = ?2`
+      )
+      .bind(workspaceId, upload.contentHash)
+      .first<MediaAssetRow>()
+    if (duplicate?.status === "archived") {
+      return this.restoreArchivedPromotion(
+        workspaceId,
+        localAssetId,
+        duplicate,
+        upload,
+        idempotencyKey,
+        requestHash,
+        principalId,
+        false,
+        Boolean(idempotent)
+      )
+    }
+    if (duplicate?.status === "ready") {
+      await this.ensureStoredUpload(duplicate, upload)
+      const now = this.now()
+      const statements = [
+        this.promotionMappingStatement(
+          workspaceId,
+          localAssetId,
+          duplicate.id,
+          principalId,
+          now
+        ),
+        ...(!idempotent
+          ? [
+              this.uploadRequestStatement(
+                workspaceId,
+                idempotencyKey,
+                requestHash,
+                duplicate.id,
+                now
+              ),
+            ]
+          : []),
+      ]
+      let adoptionResults: D1Result<unknown>[] | null = null
+      try {
+        adoptionResults = await this.db.batch(statements)
+      } catch (error) {
+        const raced = await this.promotionRow(workspaceId, localAssetId)
+        if (raced && raced.content_hash !== upload.contentHash) {
+          throw new MediaAssetError(
+            "local_asset_alias_conflict",
+            409,
+            "This local asset ID is already mapped to different image bytes"
+          )
+        }
+        if (!raced) throw error
+      }
+      if (adoptionResults) {
+        exactBatchChanges(
+          adoptionResults,
+          statements.map(() => 1),
+          "media_asset_promotion_adoption_incomplete"
+        )
+      }
+      const adopted = await this.promotionRow(workspaceId, localAssetId)
+      if (!adopted) throw new Error("media_asset_promotion_adoption_unreadable")
+      await this.ensurePromotionRequest(
+        workspaceId,
+        idempotencyKey,
+        requestHash,
+        adopted.id
+      )
+      return {
+        promotion: publicPromotion(localAssetId, adopted),
+        storageDeltaBytes: 0,
+      }
+    }
+
+    const id = this.createId()
+    assertMediaAssetId(id)
+    const r2Key = managedUploadR2Key(workspaceId, upload.contentHash)
+    await this.bucket.put(r2Key, upload.bytes, {
+      httpMetadata: { contentType: upload.mediaType },
+      sha256: upload.contentHash,
+    })
+    const now = this.now()
+    const statements = [
+      this.db
+        .prepare(
+          `/* media:insert */ INSERT INTO media_assets
+           (id, workspace_id, name, media_type, bytes, width, height,
+            content_hash, r2_key, status, revision, created_at, updated_at,
+            last_used_at, archived_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'ready', 1,
+                   ?10, ?10, ?10, NULL)`
+        )
+        .bind(
+          id,
+          workspaceId,
+          upload.name,
+          upload.mediaType,
+          upload.byteLength,
+          upload.width,
+          upload.height,
+          upload.contentHash,
+          r2Key,
+          now
+        ),
+      this.promotionMappingStatement(
+        workspaceId,
+        localAssetId,
+        id,
+        principalId,
+        now
+      ),
+      this.uploadRequestStatement(
+        workspaceId,
+        idempotencyKey,
+        requestHash,
+        id,
+        now
+      ),
+    ]
+    let wroteNewAsset = false
+    let writeResults: D1Result<unknown>[] | null = null
+    try {
+      writeResults = await this.db.batch(statements)
+    } catch (error) {
+      // The immutable content key may now be shared by a concurrent winner.
+      // Never delete it. Reconcile exact request and alias identity once.
+      const racedRequest = await this.uploadRequestRow(
+        workspaceId,
+        idempotencyKey
+      )
+      if (racedRequest) this.assertPromotionRequest(racedRequest, requestHash)
+      let racedMapping = await this.promotionRow(workspaceId, localAssetId)
+      if (!racedMapping) {
+        const racedAsset = await this.db
+          .prepare(
+            `/* media:hash-get */ SELECT ${mediaAssetColumns}
+             FROM media_assets WHERE workspace_id = ?1 AND content_hash = ?2`
+          )
+          .bind(workspaceId, upload.contentHash)
+          .first<MediaAssetRow>()
+        if (racedAsset) {
+          const adoptionNow = this.now()
+          const adoption = [
+            this.promotionMappingStatement(
+              workspaceId,
+              localAssetId,
+              racedAsset.id,
+              principalId,
+              adoptionNow
+            ),
+            ...(!racedRequest
+              ? [
+                  this.uploadRequestStatement(
+                    workspaceId,
+                    idempotencyKey,
+                    requestHash,
+                    racedAsset.id,
+                    adoptionNow
+                  ),
+                ]
+              : []),
+          ]
+          let adoptionResults: D1Result<unknown>[] | null = null
+          try {
+            adoptionResults = await this.db.batch(adoption)
+          } catch {
+            // One bounded adoption attempt is enough. The exact mapping read
+            // below is the race authority.
+          }
+          if (adoptionResults) {
+            exactBatchChanges(
+              adoptionResults,
+              adoption.map(() => 1),
+              "media_asset_promotion_race_adoption_incomplete"
+            )
+          }
+          racedMapping = await this.promotionRow(workspaceId, localAssetId)
+        }
+      }
+      if (racedMapping?.content_hash !== upload.contentHash) {
+        if (racedMapping) {
+          throw new MediaAssetError(
+            "local_asset_alias_conflict",
+            409,
+            "This local asset ID is already mapped to different image bytes"
+          )
+        }
+        throw error
+      }
+    }
+    if (writeResults) {
+      exactBatchChanges(
+        writeResults,
+        [1, 1, 1],
+        "media_asset_promotion_write_incomplete"
+      )
+      wroteNewAsset = true
+    }
+    const committed = await this.promotionRow(workspaceId, localAssetId)
+    if (!committed) throw new Error("media_asset_promotion_write_unreadable")
+    await this.ensurePromotionRequest(
+      workspaceId,
+      idempotencyKey,
+      requestHash,
+      committed.id
+    )
+    return {
+      promotion: publicPromotion(localAssetId, committed),
+      storageDeltaBytes: wroteNewAsset ? upload.byteLength : 0,
     }
   }
 

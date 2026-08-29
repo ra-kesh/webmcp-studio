@@ -5,14 +5,17 @@ import {
   MEDIA_ASSET_MAX_PIXEL_AREA,
   MEDIA_ASSET_TYPES,
   inspectRasterBytes,
+  localAssetIdSchema,
   managedAssetIdFromSource,
   managedAssetSource,
   MANAGED_ASSET_PREFIX,
   mediaAssetIdSchema,
+  mediaIdempotencyKeySchema,
   RasterInspectionError,
   renderPolicyLimits,
 } from "@webmcp/document"
 import type {
+  LocalAssetPromotion,
   MediaAssetDeletionImpact,
   MediaAssetReferenceImpact,
   PublicMediaAsset,
@@ -20,10 +23,12 @@ import type {
 
 export { managedAssetIdFromSource, managedAssetSource, MANAGED_ASSET_PREFIX }
 export type {
+  LocalAssetPromotion,
   MediaAssetDeletionImpact,
   MediaAssetReferenceImpact,
   PublicMediaAsset,
 }
+export { localAssetIdSchema }
 
 export const MAX_MEDIA_ASSET_BYTES = MEDIA_ASSET_MAX_BYTES
 export const MAX_MEDIA_ASSET_DIMENSION = MEDIA_ASSET_MAX_DIMENSION
@@ -87,6 +92,9 @@ export class MediaAssetError extends Error {
     | "asset_impact_stale"
     | "asset_not_renderable"
     | "idempotency_key_reused"
+    | "invalid_local_asset_ids"
+    | "local_asset_alias_conflict"
+    | "local_asset_promotion_not_found"
     | "invalid_asset_id"
     | "invalid_asset_name"
     | "invalid_collection"
@@ -113,8 +121,6 @@ export class MediaAssetError extends Error {
   }
 }
 
-const idempotencyKeyPattern = /^[A-Za-z0-9._:-]{1,128}$/
-
 export function assertMediaAssetId(value: string): string {
   if (!mediaAssetIdSchema.safeParse(value).success) {
     throw new MediaAssetError("invalid_asset_id", 400, "Asset ID is malformed")
@@ -122,9 +128,20 @@ export function assertMediaAssetId(value: string): string {
   return value
 }
 
+export function assertLocalAssetId(value: string): string {
+  if (!localAssetIdSchema.safeParse(value).success) {
+    throw new MediaAssetError(
+      "invalid_local_asset_ids",
+      400,
+      "Local asset ID is malformed"
+    )
+  }
+  return value
+}
+
 export function assertMediaIdempotencyKey(value: string | null): string | null {
   const normalized = value?.trim() || null
-  if (normalized && !idempotencyKeyPattern.test(normalized)) {
+  if (normalized && !mediaIdempotencyKeySchema.safeParse(normalized).success) {
     throw new MediaAssetError(
       "invalid_idempotency_key",
       400,

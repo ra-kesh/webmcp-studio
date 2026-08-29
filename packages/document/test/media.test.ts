@@ -6,9 +6,13 @@ import {
   MEDIA_ASSET_TYPES,
   managedAssetIdFromSource,
   managedAssetSource,
+  localAssetPromotionResolveRequestSchema,
+  localAssetPromotionResolveResponseSchema,
+  localAssetPromotionResponseSchema,
   mediaAssetDeletionImpactResponseSchema,
   mediaAssetListResponseSchema,
   mediaAssetLookupResponseSchema,
+  mediaIdempotencyKeySchema,
   publicMediaAssetSchema,
 } from "../src"
 
@@ -21,6 +25,14 @@ describe("shared media transport contract", () => {
     expect(managedAssetIdFromSource(`asset:managed/${assetId}`)).toBe(assetId)
     expect(managedAssetIdFromSource("asset:managed/../private")).toBeNull()
     expect(() => managedAssetSource("../private")).toThrow()
+  })
+
+  it("shares one bounded transport-safe idempotency key contract", () => {
+    expect(mediaIdempotencyKeySchema.parse("promotion.local:asset_1-try")).toBe(
+      "promotion.local:asset_1-try"
+    )
+    expect(() => mediaIdempotencyKeySchema.parse("contains spaces")).toThrow()
+    expect(() => mediaIdempotencyKeySchema.parse("x".repeat(129))).toThrow()
   })
 
   it("strictly parses public list metadata without private storage fields", () => {
@@ -128,5 +140,70 @@ describe("shared media transport contract", () => {
     expect(mediaAssetDeletionImpactResponseSchema.parse(response)).toEqual(
       response
     )
+  })
+
+  it("strictly parses promotion recovery without private storage identity", () => {
+    const promotion = {
+      localAssetId: "local-photo:1",
+      contentSha256: "a".repeat(64),
+      asset: {
+        id: assetId,
+        name: "Portrait",
+        mediaType: "image/png",
+        bytes: 128,
+        width: 10,
+        height: 12,
+        createdAt: now,
+        updatedAt: now,
+        lastUsedAt: now,
+        status: "archived",
+        selectable: false,
+        revision: 2,
+      },
+    }
+    expect(
+      localAssetPromotionResponseSchema.parse({
+        promotion,
+        storageDeltaBytes: 0,
+      })
+    ).toEqual({ promotion, storageDeltaBytes: 0 })
+    expect(
+      localAssetPromotionResolveResponseSchema.parse({
+        results: [
+          { localAssetId: "local-missing", promotion: null },
+          { localAssetId: promotion.localAssetId, promotion },
+        ],
+      })
+    ).toBeTruthy()
+    expect(() =>
+      localAssetPromotionResponseSchema.parse({
+        promotion: {
+          ...promotion,
+          asset: { ...promotion.asset, r2Key: "private/key" },
+        },
+        storageDeltaBytes: 0,
+      })
+    ).toThrow()
+  })
+
+  it("requires 1-100 distinct local aliases for batch recovery", () => {
+    expect(
+      localAssetPromotionResolveRequestSchema.parse({
+        localAssetIds: ["local-a", "local-b"],
+      })
+    ).toEqual({ localAssetIds: ["local-a", "local-b"] })
+    expect(() =>
+      localAssetPromotionResolveRequestSchema.parse({
+        localAssetIds: ["local-a", "local-a"],
+      })
+    ).toThrow()
+    expect(() =>
+      localAssetPromotionResolveRequestSchema.parse({
+        localAssetIds: Array.from(
+          { length: 101 },
+          (_, index) => `local-${index}`
+        ),
+      })
+    ).toThrow()
   })
 })

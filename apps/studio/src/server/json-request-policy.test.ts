@@ -13,6 +13,7 @@ const routes = [
   "/v1/studio/render",
   "/v1/studio/templates/",
   "/v1/studio/quotation-compositions",
+  "/v1/studio/assets/local-promotions/resolve",
 ] as const satisfies readonly StudioJsonRoute[]
 
 const jsonRequest = (body: string, contentLength?: string) => {
@@ -53,6 +54,10 @@ describe("Studio JSON request policies", () => {
       },
       "/v1/studio/quotation-compositions": {
         maxBytes: 2_000_000,
+        requireContentLength: true,
+      },
+      "/v1/studio/assets/local-promotions/resolve": {
+        maxBytes: 32_000,
         requireContentLength: true,
       },
     })

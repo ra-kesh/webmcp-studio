@@ -72,10 +72,43 @@ class FakeD1Statement {
           request.idempotency_key === second
       )
     }
+    if (marker === "media:promotion-get") {
+      const promotion = this.state.promotions.find(
+        (candidate) =>
+          candidate.workspace_id === workspaceId &&
+          candidate.local_asset_id === second
+      )
+      const asset = this.state.assets.find(
+        (candidate) =>
+          candidate.workspace_id === workspaceId &&
+          candidate.id === promotion?.asset_id
+      )
+      return promotion && asset
+        ? [{ ...asset, local_asset_id: promotion.local_asset_id }]
+        : []
+    }
+    if (marker === "media:promotions-resolve") {
+      const ids = new Set(this.values.slice(1))
+      return this.state.promotions.flatMap((promotion) => {
+        if (
+          promotion.workspace_id !== workspaceId ||
+          !ids.has(promotion.local_asset_id)
+        ) {
+          return []
+        }
+        const asset = this.state.assets.find(
+          (candidate) =>
+            candidate.workspace_id === workspaceId &&
+            candidate.id === promotion.asset_id
+        )
+        return asset
+          ? [{ ...asset, local_asset_id: promotion.local_asset_id }]
+          : []
+      })
+    }
     if (marker === "media:storage") {
       const assets = this.state.assets.filter(
-        (asset) =>
-          asset.workspace_id === workspaceId && asset.status === "ready"
+        (asset) => asset.workspace_id === workspaceId
       )
       return [
         {
@@ -175,6 +208,10 @@ class FakeD1Statement {
     }
     if (marker === "media:idempotency-insert") {
       const [workspaceId, key, requestHash, assetId, now] = this.values
+      if (this.state.skipPromotionRequestMutation) {
+        this.state.skipPromotionRequestMutation = false
+        return 1
+      }
       if (
         this.state.requests.some(
           (request) =>
@@ -193,6 +230,32 @@ class FakeD1Statement {
       })
       return 1
     }
+    if (marker === "media:promotion-insert") {
+      const [workspaceId, localAssetId, assetId, now, principalId] = this.values
+      if (
+        this.state.promotions.some(
+          (promotion) =>
+            promotion.workspace_id === workspaceId &&
+            promotion.local_asset_id === localAssetId
+        )
+      ) {
+        throw new Error("UNIQUE constraint failed")
+      }
+      const asset = this.state.assets.find(
+        (candidate) =>
+          candidate.workspace_id === workspaceId && candidate.id === assetId
+      )
+      if (!asset) throw new Error("FOREIGN KEY constraint failed")
+      this.state.promotions.push({
+        workspace_id: workspaceId,
+        local_asset_id: localAssetId,
+        asset_id: assetId,
+        created_at: now,
+        updated_at: now,
+        created_by: principalId,
+      })
+      return 1
+    }
     if (marker === "media:mark-used") {
       const [workspaceId, id, now] = this.values
       const asset = this.state.assets.find(
@@ -208,6 +271,28 @@ class FakeD1Statement {
       return 1
     }
     if (marker === "media:restore") {
+      const [workspaceId, id, name, mediaType, bytes, width, height, now] =
+        this.values
+      const asset = this.state.assets.find(
+        (candidate) =>
+          candidate.workspace_id === workspaceId &&
+          candidate.id === id &&
+          candidate.status === "archived"
+      )
+      if (!asset) return 0
+      asset.status = "ready"
+      asset.name = name
+      asset.media_type = mediaType
+      asset.bytes = bytes
+      asset.width = width
+      asset.height = height
+      asset.updated_at = now
+      asset.last_used_at = now
+      asset.archived_at = null
+      asset.revision = Number(asset.revision) + 1
+      return 1
+    }
+    if (marker === "media:promotion-restore") {
       const [workspaceId, id, name, mediaType, bytes, width, height, now] =
         this.values
       const asset = this.state.assets.find(
@@ -256,8 +341,12 @@ class FakeD1Statement {
 class FakeD1 {
   assets: Row[] = []
   requests: Row[] = []
+  promotions: Row[] = []
   references: Row[] = []
   batchFailure: Error | (() => Error) | null = null
+  batchResultChanges: number[] | null = null
+  skipPromotionRequestMutation = false
+  archiveAssetAfterBatch: string | null = null
 
   prepare(query: string) {
     return new FakeD1Statement(query, this) as unknown as D1PreparedStatement
@@ -269,11 +358,34 @@ class FakeD1 {
       this.batchFailure = null
       throw typeof failure === "function" ? failure() : failure
     }
-    return Promise.all(
+    const results = await Promise.all(
       statements.map((statement) =>
         (statement as unknown as FakeD1Statement).run<T>()
       )
     )
+    if (this.archiveAssetAfterBatch) {
+      const asset = this.assets.find(
+        (candidate) => candidate.id === this.archiveAssetAfterBatch
+      )
+      this.archiveAssetAfterBatch = null
+      if (asset) {
+        asset.status = "archived"
+        asset.archived_at = "2026-08-28T00:10:00.000Z"
+        asset.revision = Number(asset.revision) + 1
+      }
+    }
+    if (this.batchResultChanges) {
+      const changes = this.batchResultChanges
+      this.batchResultChanges = null
+      return results.map((result, index) => ({
+        ...result,
+        meta: {
+          ...result.meta,
+          changes: changes[index] ?? result.meta.changes,
+        },
+      }))
+    }
+    return results
   }
 }
 
@@ -677,5 +789,386 @@ describe("MediaAssetRepository", () => {
       contentHash: expect.stringMatching(/^[a-f0-9]{64}$/),
       revision: impact.revision + 1,
     })
+  })
+
+  it("binds a local alias to one managed hash and replays new request keys without another object", async () => {
+    const { db, r2, repository } = repositoryFixture()
+    const upload = await validatedUpload()
+    const first = await repository.promoteLocalAsset(
+      "workspace-a",
+      "local-portrait:1",
+      upload,
+      "promotion-key-1",
+      "principal-a"
+    )
+    const replay = await repository.promoteLocalAsset(
+      "workspace-a",
+      "local-portrait:1",
+      upload,
+      "promotion-key-2",
+      "principal-a"
+    )
+
+    expect(first.storageDeltaBytes).toBe(png1x1.length)
+    expect(replay).toEqual({
+      promotion: first.promotion,
+      storageDeltaBytes: 0,
+    })
+    expect(db.assets).toHaveLength(1)
+    expect(db.promotions).toHaveLength(1)
+    expect(db.requests).toHaveLength(2)
+    expect(r2.objects.size).toBe(1)
+    expect(r2.deleted).toEqual([])
+    expect(JSON.stringify(first)).not.toMatch(/r2|object|data:image|bytes":\[/i)
+  })
+
+  it("retains promotion bytes after D1 failure and converges on retry", async () => {
+    const { db, r2, repository } = repositoryFixture()
+    const upload = await validatedUpload()
+    db.batchFailure = new Error("promotion D1 unavailable")
+    await expect(
+      repository.promoteLocalAsset(
+        "workspace-a",
+        "local-retry",
+        upload,
+        "promotion-retry-key",
+        "principal-a"
+      )
+    ).rejects.toThrow("promotion D1 unavailable")
+    expect(r2.objects.size).toBe(1)
+    expect(r2.deleted).toEqual([])
+    const retainedKey = [...r2.objects.keys()][0]
+
+    await expect(
+      repository.promoteLocalAsset(
+        "workspace-a",
+        "local-retry",
+        upload,
+        "promotion-retry-key",
+        "principal-a"
+      )
+    ).resolves.toMatchObject({
+      storageDeltaBytes: upload.byteLength,
+      promotion: { localAssetId: "local-retry" },
+    })
+    expect([...r2.objects.keys()]).toEqual([retainedKey])
+    expect(r2.deleted).toEqual([])
+  })
+
+  it("performs one bounded content-hash adoption after a concurrent D1 winner", async () => {
+    const { db, r2, repository } = repositoryFixture()
+    const upload = await validatedUpload()
+    db.batchFailure = () => {
+      const r2Key = r2.putKeys.at(-1)
+      if (!r2Key) throw new Error("Expected immutable content before D1")
+      db.assets.push({
+        id: "asset-0000000000000000000000000000998",
+        workspace_id: "workspace-a",
+        name: upload.name,
+        media_type: upload.mediaType,
+        bytes: upload.byteLength,
+        width: upload.width,
+        height: upload.height,
+        content_hash: upload.contentHash,
+        r2_key: r2Key,
+        status: "ready",
+        revision: 1,
+        created_at: "2026-08-28T00:00:00.000Z",
+        updated_at: "2026-08-28T00:00:00.000Z",
+        last_used_at: "2026-08-28T00:00:00.000Z",
+      })
+      return new Error("UNIQUE content hash winner")
+    }
+
+    const result = await repository.promoteLocalAsset(
+      "workspace-a",
+      "local-raced",
+      upload,
+      "promotion-race-key",
+      "principal-a"
+    )
+    expect(result).toMatchObject({
+      storageDeltaBytes: 0,
+      promotion: {
+        localAssetId: "local-raced",
+        asset: { id: "asset-0000000000000000000000000000998" },
+      },
+    })
+    expect(db.assets).toHaveLength(1)
+    expect(db.promotions).toHaveLength(1)
+    expect(db.requests).toHaveLength(1)
+    expect(r2.deleted).toEqual([])
+  })
+
+  it("binds request identity to the route and local alias", async () => {
+    const { repository } = repositoryFixture()
+    const upload = await validatedUpload()
+    await repository.promoteLocalAsset(
+      "workspace-a",
+      "local-first",
+      upload,
+      "route-bound-key",
+      "principal-a"
+    )
+    await expect(
+      repository.promoteLocalAsset(
+        "workspace-a",
+        "local-second",
+        upload,
+        "route-bound-key",
+        "principal-a"
+      )
+    ).rejects.toMatchObject({ code: "idempotency_key_reused", status: 409 })
+
+    const { repository: secondRepository } = repositoryFixture()
+    await secondRepository.upload("workspace-a", upload, "cross-route-key")
+    await expect(
+      secondRepository.promoteLocalAsset(
+        "workspace-a",
+        "local-first",
+        upload,
+        "cross-route-key",
+        "principal-a"
+      )
+    ).rejects.toMatchObject({ code: "idempotency_key_reused", status: 409 })
+  })
+
+  it("rejects different bytes for an existing alias before touching R2", async () => {
+    const { r2, repository } = repositoryFixture()
+    const upload = await validatedUpload()
+    await repository.promoteLocalAsset(
+      "workspace-a",
+      "local-immutable",
+      upload,
+      "immutable-key-1",
+      "principal-a"
+    )
+    const putsBefore = r2.putKeys.length
+    await expect(
+      repository.promoteLocalAsset(
+        "workspace-a",
+        "local-immutable",
+        {
+          ...upload,
+          contentHash: "b".repeat(64),
+          requestHash: "c".repeat(64),
+        },
+        "immutable-key-2",
+        "principal-a"
+      )
+    ).rejects.toMatchObject({
+      code: "local_asset_alias_conflict",
+      status: 409,
+    })
+    expect(r2.putKeys).toHaveLength(putsBefore)
+    expect(r2.deleted).toEqual([])
+  })
+
+  it("recovers an exact archived mapping without charging retained bytes", async () => {
+    const { r2, repository } = repositoryFixture()
+    const upload = await validatedUpload()
+    const created = await repository.promoteLocalAsset(
+      "workspace-a",
+      "local-archived",
+      upload,
+      "archived-key-1",
+      "principal-a"
+    )
+    const impact = await repository.deletionImpact(
+      "workspace-a",
+      created.promotion.asset.id
+    )
+    await repository.archive(
+      "workspace-a",
+      created.promotion.asset.id,
+      impact.revision,
+      impact.token
+    )
+    await expect(repository.storageUsage("workspace-a")).resolves.toEqual({
+      bytes: png1x1.length,
+      count: 1,
+    })
+    const recovered = await repository.promoteLocalAsset(
+      "workspace-a",
+      "local-archived",
+      upload,
+      "archived-key-2",
+      "principal-a"
+    )
+    expect(recovered).toMatchObject({
+      storageDeltaBytes: 0,
+      promotion: { asset: { status: "ready", selectable: true, revision: 3 } },
+    })
+    expect(r2.deleted).toEqual([])
+  })
+
+  it("reconciles an archived restore race only when mapping, request, hash, asset, and ready state committed", async () => {
+    const committed = repositoryFixture()
+    const upload = await validatedUpload()
+    const original = await committed.repository.promoteLocalAsset(
+      "workspace-a",
+      "local-original",
+      upload,
+      "restore-original",
+      "principal-a"
+    )
+    const impact = await committed.repository.deletionImpact(
+      "workspace-a",
+      original.promotion.asset.id
+    )
+    await committed.repository.archive(
+      "workspace-a",
+      original.promotion.asset.id,
+      impact.revision,
+      impact.token
+    )
+    committed.db.batchResultChanges = [0, 1, 1]
+    await expect(
+      committed.repository.promoteLocalAsset(
+        "workspace-a",
+        "local-race-winner",
+        upload,
+        "restore-race-winner",
+        "principal-a"
+      )
+    ).resolves.toMatchObject({
+      storageDeltaBytes: 0,
+      promotion: {
+        localAssetId: "local-race-winner",
+        asset: { id: original.promotion.asset.id, status: "ready" },
+      },
+    })
+
+    const incomplete = repositoryFixture()
+    const incompleteOriginal = await incomplete.repository.promoteLocalAsset(
+      "workspace-a",
+      "local-original",
+      upload,
+      "restore-incomplete-original",
+      "principal-a"
+    )
+    const incompleteImpact = await incomplete.repository.deletionImpact(
+      "workspace-a",
+      incompleteOriginal.promotion.asset.id
+    )
+    await incomplete.repository.archive(
+      "workspace-a",
+      incompleteOriginal.promotion.asset.id,
+      incompleteImpact.revision,
+      incompleteImpact.token
+    )
+    incomplete.db.skipPromotionRequestMutation = true
+    incomplete.db.batchResultChanges = [0, 1, 1]
+    await expect(
+      incomplete.repository.promoteLocalAsset(
+        "workspace-a",
+        "local-false-adoption",
+        upload,
+        "restore-missing-request",
+        "principal-a"
+      )
+    ).rejects.toThrow("media_asset_promotion_restore_incomplete")
+  })
+
+  it.each(["exact", "non-exact"] as const)(
+    "returns an archived mapping when archive wins after the %s restore batch",
+    async (resultShape) => {
+      const fixture = repositoryFixture()
+      const upload = await validatedUpload()
+      const original = await fixture.repository.promoteLocalAsset(
+        "workspace-a",
+        "local-before-archive-race",
+        upload,
+        `archive-race-original-${resultShape}`,
+        "principal-a"
+      )
+      const impact = await fixture.repository.deletionImpact(
+        "workspace-a",
+        original.promotion.asset.id
+      )
+      await fixture.repository.archive(
+        "workspace-a",
+        original.promotion.asset.id,
+        impact.revision,
+        impact.token
+      )
+      fixture.db.archiveAssetAfterBatch = original.promotion.asset.id
+      if (resultShape === "non-exact") {
+        fixture.db.batchResultChanges = [0, 1, 1]
+      }
+
+      await expect(
+        fixture.repository.promoteLocalAsset(
+          "workspace-a",
+          `local-after-archive-race-${resultShape}`,
+          upload,
+          `archive-race-new-${resultShape}`,
+          "principal-a"
+        )
+      ).resolves.toMatchObject({
+        storageDeltaBytes: 0,
+        promotion: {
+          asset: {
+            id: original.promotion.asset.id,
+            status: "archived",
+            selectable: false,
+          },
+        },
+      })
+    }
+  )
+
+  it("resolves only workspace-owned mappings in exact request order", async () => {
+    const { repository } = repositoryFixture()
+    const upload = await validatedUpload()
+    await repository.promoteLocalAsset(
+      "workspace-a",
+      "local-one",
+      upload,
+      "resolve-a",
+      "principal-a"
+    )
+    await repository.promoteLocalAsset(
+      "workspace-b",
+      "local-private",
+      upload,
+      "resolve-b",
+      "principal-b"
+    )
+    const results = await repository.resolveLocalPromotions("workspace-a", [
+      "local-missing",
+      "local-one",
+      "local-private",
+    ])
+    expect(results.map((result) => result.localAssetId)).toEqual([
+      "local-missing",
+      "local-one",
+      "local-private",
+    ])
+    expect(results.map((result) => result.promotion !== null)).toEqual([
+      false,
+      true,
+      false,
+    ])
+    await expect(
+      repository.resolveLocalPromotions("workspace-a", [
+        "local-one",
+        "local-one",
+      ])
+    ).rejects.toMatchObject({ code: "invalid_local_asset_ids", status: 400 })
+  })
+
+  it("fails closed when D1 reports an incomplete promotion batch", async () => {
+    const { db, repository } = repositoryFixture()
+    db.batchResultChanges = [1, 0, 1]
+    await expect(
+      repository.promoteLocalAsset(
+        "workspace-a",
+        "local-incomplete",
+        await validatedUpload(),
+        "incomplete-key",
+        "principal-a"
+      )
+    ).rejects.toThrow("media_asset_promotion_write_incomplete")
   })
 })

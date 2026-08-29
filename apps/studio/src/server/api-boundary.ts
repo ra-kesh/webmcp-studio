@@ -153,14 +153,23 @@ export const withApiPrincipalAudit = (
 }
 
 const normalizedApiPath = (request: Request) => {
-  const path = new URL(request.url).pathname
+  const requestPath = new URL(request.url).pathname
+  const path =
+    request.method === "GET" &&
+    requestPath === "/v1/studio/assets/local-promotions/resolve"
+      ? "/v1/studio/assets/local-promotions/:localAssetId"
+      : requestPath
   return path
+    .replace(
+      /^\/v1\/studio\/assets\/local-promotions\/(?!resolve$)[^/]+$/,
+      "/v1/studio/assets/local-promotions/:localAssetId"
+    )
     .replace(
       /^\/v1\/studio\/documents\/[^/]+\/revisions\/[^/]+$/,
       "/v1/studio/documents/:documentId/revisions/:snapshotId"
     )
     .replace(
-      /^\/v1\/studio\/assets\/[^/]+(?:\/(content|deletion-impact|used))?$/,
+      /^\/v1\/studio\/assets\/(?!local-promotions(?:\/|$))[^/]+(?:\/(content|deletion-impact|used))?$/,
       (_match, suffix: string | undefined) =>
         `/v1/studio/assets/:assetId${suffix ? `/${suffix}` : ""}`
     )

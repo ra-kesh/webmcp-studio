@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { createMediaAssetHttpHandlers } from "./media-asset-http"
+import { MediaAssetError } from "./media-assets"
 import { RenderAdmissionError } from "./render-admission-service"
 import type { StudioPrincipal } from "./studio-principal"
 
@@ -16,6 +17,11 @@ const asset = {
   updatedAt: now,
   lastUsedAt: now,
   status: "ready" as const,
+}
+const promotion = {
+  localAssetId: "local-portrait:1",
+  contentSha256: "a".repeat(64),
+  asset: { ...asset, selectable: true, revision: 1 },
 }
 
 const png1x1 = Uint8Array.from(
@@ -47,6 +53,9 @@ const repository = {
   deletionImpact: vi.fn(),
   markUsed: vi.fn(),
   archive: vi.fn(),
+  promoteLocalAsset: vi.fn(),
+  lookupLocalPromotion: vi.fn(),
+  resolveLocalPromotions: vi.fn(),
 }
 
 const completeUpload = vi.fn(async () => undefined)
@@ -325,5 +334,196 @@ describe("media asset HTTP contract", () => {
     )
     expect(repository.markUsed).toHaveBeenCalledWith("workspace-a", assetId)
     expect(await response.json()).toEqual({ asset })
+  })
+
+  it("promotes authoritative multipart bytes after admission and exposes no private source", async () => {
+    repository.promoteLocalAsset.mockResolvedValue({
+      promotion,
+      storageDeltaBytes: 68,
+    })
+    const form = new FormData()
+    form.set("localAssetId", promotion.localAssetId)
+    form.set("file", new File([png1x1], "portrait.png", { type: "image/png" }))
+    const response = await handlers.promoteLocal(
+      new Request("https://studio.test/v1/studio/assets/local-promotions", {
+        method: "POST",
+        headers: {
+          "Idempotency-Key": "promotion-key-1",
+          "Content-Length": "512",
+        },
+        body: form,
+      })
+    )
+
+    expect(repository.promoteLocalAsset).toHaveBeenCalledWith(
+      "workspace-a",
+      promotion.localAssetId,
+      expect.objectContaining({
+        mediaType: "image/png",
+        width: 1,
+        height: 1,
+      }),
+      "promotion-key-1",
+      "principal-a"
+    )
+    expect(completeUpload).toHaveBeenCalledWith(68)
+    const body = await response.json()
+    expect(body).toEqual({ promotion, storageDeltaBytes: 68 })
+    expect(JSON.stringify(body)).not.toMatch(/r2|signed|data:image|objectUrl/i)
+    expect(response.headers.get("cache-control")).toBe("private, no-store")
+  })
+
+  it("requires promotion idempotency and reserves capacity before multipart parsing", async () => {
+    let response = await handlers.promoteLocal(
+      new Request("https://studio.test/v1/studio/assets/local-promotions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "multipart/form-data; boundary=x",
+          "Content-Length": "12",
+        },
+        body: "not multipart",
+      })
+    )
+    expect(response.status).toBe(400)
+    expect(repository.promoteLocalAsset).not.toHaveBeenCalled()
+
+    reserveUpload.mockRejectedValueOnce(
+      new RenderAdmissionError("upload_workspace_storage_exceeded", 0)
+    )
+    response = await handlers.promoteLocal(
+      new Request("https://studio.test/v1/studio/assets/local-promotions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "multipart/form-data; boundary=unparsed",
+          "Content-Length": "512",
+          "Idempotency-Key": "promotion-key-2",
+        },
+        body: "not parsed",
+      })
+    )
+    expect(response.status).toBe(429)
+    expect(repository.promoteLocalAsset).not.toHaveBeenCalled()
+  })
+
+  it("retains the stable alias-conflict error code", async () => {
+    repository.promoteLocalAsset.mockRejectedValue(
+      new MediaAssetError(
+        "local_asset_alias_conflict",
+        409,
+        "This local asset ID is already mapped to different image bytes"
+      )
+    )
+    const form = new FormData()
+    form.set("localAssetId", promotion.localAssetId)
+    form.set("file", new File([png1x1], "portrait.png", { type: "image/png" }))
+    const response = await handlers.promoteLocal(
+      new Request("https://studio.test/v1/studio/assets/local-promotions", {
+        method: "POST",
+        headers: {
+          "Idempotency-Key": "promotion-conflict",
+          "Content-Length": "512",
+        },
+        body: form,
+      })
+    )
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({
+      error: {
+        code: "local_asset_alias_conflict",
+        message:
+          "This local asset ID is already mapped to different image bytes",
+      },
+    })
+    expect(failUpload).toHaveBeenCalledOnce()
+  })
+
+  it("looks up archived recovery and batch-resolves in exact request order", async () => {
+    const archived = {
+      ...promotion,
+      asset: {
+        ...promotion.asset,
+        status: "archived" as const,
+        selectable: false,
+        revision: 2,
+      },
+    }
+    repository.lookupLocalPromotion.mockResolvedValue(archived)
+    let response = await handlers.lookupLocalPromotion(
+      new Request(
+        `https://studio.test/v1/studio/assets/local-promotions/${promotion.localAssetId}`
+      ),
+      promotion.localAssetId
+    )
+    expect(await response.json()).toEqual({ promotion: archived })
+    expect(response.headers.get("cache-control")).toBe("private, no-store")
+
+    repository.resolveLocalPromotions.mockResolvedValue([
+      { localAssetId: "local-missing", promotion: null },
+      { localAssetId: promotion.localAssetId, promotion },
+    ])
+    const payload = JSON.stringify({
+      localAssetIds: ["local-missing", promotion.localAssetId],
+    })
+    response = await handlers.resolveLocalPromotions(
+      new Request(
+        "https://studio.test/v1/studio/assets/local-promotions/resolve",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Content-Length": String(new TextEncoder().encode(payload).length),
+          },
+          body: payload,
+        }
+      )
+    )
+    expect(await response.json()).toEqual({
+      results: [
+        { localAssetId: "local-missing", promotion: null },
+        { localAssetId: promotion.localAssetId, promotion },
+      ],
+    })
+    expect(repository.resolveLocalPromotions).toHaveBeenCalledWith(
+      "workspace-a",
+      ["local-missing", promotion.localAssetId]
+    )
+  })
+
+  it("recovers the valid local alias literal resolve through exact lookup", async () => {
+    const resolvePromotion = { ...promotion, localAssetId: "resolve" }
+    repository.lookupLocalPromotion.mockResolvedValue(resolvePromotion)
+    const response = await handlers.lookupLocalPromotion(
+      new Request(
+        "https://studio.test/v1/studio/assets/local-promotions/resolve"
+      ),
+      "resolve"
+    )
+    expect(repository.lookupLocalPromotion).toHaveBeenCalledWith(
+      "workspace-a",
+      "resolve"
+    )
+    expect(await response.json()).toEqual({ promotion: resolvePromotion })
+  })
+
+  it("rejects duplicate batch aliases before repository access", async () => {
+    const payload = JSON.stringify({ localAssetIds: ["local-a", "local-a"] })
+    const response = await handlers.resolveLocalPromotions(
+      new Request(
+        "https://studio.test/v1/studio/assets/local-promotions/resolve",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Content-Length": String(new TextEncoder().encode(payload).length),
+          },
+          body: payload,
+        }
+      )
+    )
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({
+      error: { code: "invalid_local_asset_ids" },
+    })
+    expect(repository.resolveLocalPromotions).not.toHaveBeenCalled()
   })
 })

@@ -26,6 +26,10 @@ export const studioJsonRequestPolicies = {
     maxBytes: 2_000_000,
     requireContentLength: true,
   },
+  "/v1/studio/assets/local-promotions/resolve": {
+    maxBytes: 32_000,
+    requireContentLength: true,
+  },
 } as const satisfies Record<string, ReadJsonBodyOptions>
 
 export type StudioJsonRoute = keyof typeof studioJsonRequestPolicies

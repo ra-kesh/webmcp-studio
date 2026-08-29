@@ -702,3 +702,63 @@ editor tests, all three affected typechecks and `git diff --check` under Node
 Slices 2 through 6 remain open. In particular, the promotion coordinator must
 recognize a target-only replay and skip the command, because the domain command
 intentionally rejects a request with no remaining local source path.
+
+## Slice 2 exit evidence, 2026-08-30
+
+The durable mapping and Worker boundary are implemented and independently
+accepted with no remaining P0/P1. The accepted boundary includes:
+
+- one shared strict local-promotion, lookup, ordered batch-resolution and
+  idempotency-key contract;
+- a workspace-scoped D1 alias mapping with a restricted composite asset
+  reference, creator identity and a real SQLite migration verifier;
+- exact lookup, ordered 1-100 distinct-alias resolution and multipart
+  promotion through authenticated, bounded, private/no-store HTTP routes;
+- route-and-alias-bound idempotency, same-hash replay/adoption, deterministic
+  different-hash conflict, retained-byte quota accounting and archived recovery;
+- exact D1 result checks plus bounded authoritative reconciliation for
+  committed races, without deleting the deterministic R2 object; and
+- public response schemas that expose managed product identity and status but
+  never R2 keys, data URIs or other private storage identity.
+
+Independent review found and drove repairs for the valid local alias `resolve`
+colliding with the static batch route, a committed `0/1/1` archived-restore race
+being reported as failure, and an immediate post-restore archive being rejected
+despite a valid durable mapping. Final evidence is 8 shared media tests, 52
+independently rerun focused Studio server tests, document and Studio typechecks,
+all migrations through `0012` in real SQLite, and `git diff --check` under Node
+24.19.0.
+
+Slices 3B through 6 remain open. Physical R2 presence and real D1/R2 behavior
+remain renderer/deployed evidence gates rather than claims of this local slice.
+
+## Slice 3A exit evidence, 2026-08-30
+
+The local IndexedDB journal and finite ownership foundation are implemented and
+independently accepted with no remaining P0/P1. The accepted boundary includes:
+
+- a version-5 database upgrade that adds an isolated promotion journal while
+  preserving version-4 metadata, Blob and quarantine records;
+- strict durable source, content, history, operation, draft, local-revision,
+  reference-set, mapping, relink and persistence anchors;
+- exact revision compare-and-swap, one-second through five-minute leases,
+  expiry takeover and stale-owner rejection in one IndexedDB transaction;
+- explicit missing/ready/corrupt reads, completed-operation supersession and
+  best-effort BroadcastChannel hints with IndexedDB remaining authoritative;
+- state-constrained hash, mapping, conflict, relink and durable-draft facts; and
+- the same shared 1-128 ASCII idempotency-key contract as the Worker, rejected
+  before IndexedDB is opened or written.
+
+Independent review rejected two defects before acceptance: network-capable
+states did not prove the persisted byte-hash checkpoint or protect a completed
+operation from generic rollback, and the original journal accepted keys the
+HTTP boundary could never replay. Both are repaired. Final evidence is 33
+journal/local-store tests, 8 shared media tests, document and Studio typechecks,
+manual blocked-upgrade and asynchronous-abort probes, and `git diff --check`
+under Node 24.19.0.
+
+This is intentionally not the full Slice 3 exit. The owner/controller must
+still enforce directional transitions, hash and reconcile before networking,
+own progress/cancellation/timeouts, and resume mapped or unknown outcomes
+without duplicate upload. The two manual IndexedDB probes and malformed-handle
+cleanup remain retained hardening obligations for that work.

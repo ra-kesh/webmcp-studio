@@ -2501,3 +2501,38 @@ Status: **implemented and independently accepted; row 10 remains active**
   tests, 22 local-store tests, all 211 document tests, all 309 editor tests,
   document/editor/Studio typechecks, and `git diff --check` pass with no
   remaining P0/P1.
+
+## 2026-08-30 — Cross-browser local media, Slice 2 durable mapping
+
+Status: **implemented and independently accepted; row 10 remains active**
+
+- Added the workspace-scoped D1 local-alias mapping, strict shared promotion
+  contracts, exact and ordered batch resolution, multipart promotion, private
+  lookup and a real SQLite migration verifier.
+- Promotion binds idempotency to route plus alias plus validated upload,
+  reuses same-hash assets, rejects different bytes before R2, accounts retained
+  archived bytes and never deletes a deterministic object after a losing race.
+- Three independent-review P1s were repaired: literal alias `resolve` routing,
+  a committed non-exact archived-restore result reported as failure, and an
+  archive winning immediately after restore.
+- Final independent evidence: 8 shared media tests, 52 focused Studio
+  server/API tests, document and Studio typechecks, migrations 0001-0012 in
+  real SQLite, and `git diff --check`, with no remaining P0/P1.
+
+## 2026-08-30 — Cross-browser local media, Slice 3A local journal
+
+Status: **implemented and independently accepted; full Slice 3 and row 10 remain active**
+
+- Upgraded the local asset database to version 5 with an isolated promotion
+  journal while preserving existing metadata, Blob and quarantine stores.
+- Added strict operation anchors, finite lease ownership, exact revision CAS,
+  expiry takeover, stale-owner refusal, completed-operation supersession and
+  advisory-only cross-tab notifications.
+- Two independent-review P1s were repaired: invalid state/hash/mapping
+  combinations and a journal idempotency grammar wider than the Worker API.
+- Final independent evidence: 33 journal/local-store tests, 8 shared media
+  tests, document and Studio typechecks, manual blocked-upgrade and async-abort
+  probes, and `git diff --check`, with no remaining P0/P1.
+- The network owner/controller, active-document relink, admission recovery and
+  two-browser/deployed evidence remain open and cannot be inferred from this
+  foundation.

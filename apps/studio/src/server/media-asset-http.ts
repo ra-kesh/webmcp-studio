@@ -1,11 +1,18 @@
 import type { StudioPrincipal } from "./studio-principal"
 import {
+  localAssetIdSchema,
+  localAssetPromotionLookupResponseSchema,
+  localAssetPromotionResolveRequestSchema,
+  localAssetPromotionResolveResponseSchema,
+  localAssetPromotionResponseSchema,
   mediaAssetArchiveResponseSchema,
   mediaAssetDeletionImpactResponseSchema,
   mediaAssetListResponseSchema,
   mediaAssetLookupResponseSchema,
   mediaAssetUploadResponseSchema,
 } from "@webmcp/document"
+import { JsonBodyError, jsonBodyErrorResponse } from "@webmcp/worker-boundary"
+import { apiIssuesFrom } from "./api-boundary"
 import {
   assertMediaAssetId,
   assertMediaIdempotencyKey,
@@ -15,6 +22,7 @@ import {
   validateMediaUpload,
 } from "./media-assets"
 import { MediaAssetRepository } from "./media-asset-repository"
+import { readStudioJsonBody } from "./json-request-policy"
 import {
   completeRenderLeaseWithRetry,
   failRenderLeaseWithRetry,
@@ -42,6 +50,9 @@ export type MediaAssetHttpDependencies = {
     | "deletionImpact"
     | "markUsed"
     | "archive"
+    | "promoteLocalAsset"
+    | "lookupLocalPromotion"
+    | "resolveLocalPromotions"
   >
   reserveUpload?: (
     principal: StudioPrincipal,
@@ -265,6 +276,197 @@ export function createMediaAssetHttpHandlers(
           await failRenderLeaseWithRetry(lease)
           throw error
         }
+      }),
+
+    promoteLocal: (request: Request) =>
+      withMediaPrincipal(dependencies, request, async (principal) => {
+        const contentType = request.headers.get("content-type") ?? ""
+        if (!contentType.toLowerCase().startsWith("multipart/form-data;")) {
+          throw new MediaAssetError(
+            "invalid_multipart_request",
+            415,
+            "Local asset promotion must use multipart/form-data"
+          )
+        }
+        const contentLength = request.headers.get("content-length")
+        if (!contentLength) {
+          throw new MediaAssetError(
+            "missing_content_length",
+            411,
+            "Local asset promotion requires Content-Length"
+          )
+        }
+        const parsedLength = Number(contentLength)
+        if (!Number.isSafeInteger(parsedLength) || parsedLength < 1) {
+          throw new MediaAssetError(
+            "invalid_multipart_request",
+            400,
+            "Content-Length is invalid"
+          )
+        }
+        if (parsedLength > MAX_MEDIA_ASSET_BYTES + 1_000_000) {
+          throw new MediaAssetError(
+            "upload_too_large",
+            413,
+            "Multipart promotion exceeds the image upload limit"
+          )
+        }
+        const idempotencyKey = assertMediaIdempotencyKey(
+          request.headers.get("idempotency-key")
+        )
+        if (!idempotencyKey) {
+          throw new MediaAssetError(
+            "invalid_idempotency_key",
+            400,
+            "Local asset promotion requires Idempotency-Key"
+          )
+        }
+        if (!dependencies.reserveUpload) {
+          throw new Error("Media upload admission is not configured")
+        }
+        const storage = await repository.storageUsage(principal.workspaceId)
+        let lease: RenderAdmissionLease
+        try {
+          lease = await dependencies.reserveUpload(principal, {
+            reservationId: `media-promotion-${crypto.randomUUID()}`,
+            estimatedStorageBytes: Math.min(
+              parsedLength,
+              MAX_MEDIA_ASSET_BYTES
+            ),
+            currentStorageBytes: storage.bytes,
+            currentAssetCount: storage.count,
+          })
+        } catch (error) {
+          if (error instanceof RenderAdmissionError) {
+            return principal.respond(renderAdmissionErrorResponse(error))
+          }
+          throw error
+        }
+        try {
+          let form: FormData
+          try {
+            form = await request.formData()
+          } catch {
+            throw new MediaAssetError(
+              "invalid_multipart_request",
+              400,
+              "Multipart promotion could not be decoded"
+            )
+          }
+          const localAssetIdInput = form.get("localAssetId")
+          const parsedLocalAssetId =
+            localAssetIdSchema.safeParse(localAssetIdInput)
+          if (!parsedLocalAssetId.success) {
+            throw new MediaAssetError(
+              "invalid_local_asset_ids",
+              400,
+              "Multipart promotion must contain one valid localAssetId field"
+            )
+          }
+          const file = form.get("file")
+          if (
+            !(file instanceof Blob) ||
+            typeof Reflect.get(file, "name") !== "string"
+          ) {
+            throw new MediaAssetError(
+              "invalid_multipart_request",
+              400,
+              "Multipart promotion must contain one file field"
+            )
+          }
+          const suppliedName = form.get("name")
+          if (suppliedName !== null && typeof suppliedName !== "string") {
+            throw new MediaAssetError(
+              "invalid_asset_name",
+              400,
+              "Asset name must be text"
+            )
+          }
+          const validated = await validateMediaUpload(
+            file,
+            suppliedName ?? undefined
+          )
+          const result = await repository.promoteLocalAsset(
+            principal.workspaceId,
+            parsedLocalAssetId.data,
+            validated,
+            idempotencyKey,
+            principal.id
+          )
+          await completeRenderLeaseWithRetry(lease, result.storageDeltaBytes)
+          return principal.respond(
+            Response.json(localAssetPromotionResponseSchema.parse(result), {
+              status: result.storageDeltaBytes > 0 ? 201 : 200,
+              headers: { "Cache-Control": "private, no-store" },
+            })
+          )
+        } catch (error) {
+          await failRenderLeaseWithRetry(lease)
+          throw error
+        }
+      }),
+
+    lookupLocalPromotion: (request: Request, localAssetIdInput: string) =>
+      withMediaPrincipal(dependencies, request, async (principal) => {
+        const parsed = localAssetIdSchema.safeParse(localAssetIdInput)
+        if (!parsed.success) {
+          throw new MediaAssetError(
+            "invalid_local_asset_ids",
+            400,
+            "Local asset ID is malformed"
+          )
+        }
+        const promotion = await repository.lookupLocalPromotion(
+          principal.workspaceId,
+          parsed.data
+        )
+        return principal.respond(
+          Response.json(
+            localAssetPromotionLookupResponseSchema.parse({ promotion }),
+            { headers: { "Cache-Control": "private, no-store" } }
+          )
+        )
+      }),
+
+    resolveLocalPromotions: (request: Request) =>
+      withMediaPrincipal(dependencies, request, async (principal) => {
+        let input: unknown
+        try {
+          input = await readStudioJsonBody(
+            request,
+            "/v1/studio/assets/local-promotions/resolve"
+          )
+        } catch (error) {
+          if (error instanceof JsonBodyError) {
+            return principal.respond(jsonBodyErrorResponse(error, true))
+          }
+          throw error
+        }
+        const parsed = localAssetPromotionResolveRequestSchema.safeParse(input)
+        if (!parsed.success) {
+          return principal.respond(
+            Response.json(
+              {
+                error: {
+                  code: "invalid_local_asset_ids",
+                  message: "Resolve requires 1-100 distinct local asset IDs",
+                  issues: apiIssuesFrom(parsed.error.issues),
+                },
+              },
+              { status: 400, headers: { "Cache-Control": "no-store" } }
+            )
+          )
+        }
+        const results = await repository.resolveLocalPromotions(
+          principal.workspaceId,
+          parsed.data.localAssetIds
+        )
+        return principal.respond(
+          Response.json(
+            localAssetPromotionResolveResponseSchema.parse({ results }),
+            { headers: { "Cache-Control": "private, no-store" } }
+          )
+        )
       }),
 
     content: (request: Request, assetIdInput: string) =>
