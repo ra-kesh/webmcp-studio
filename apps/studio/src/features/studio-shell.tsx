@@ -630,6 +630,17 @@ export function StudioShell({
     Partial<Record<string, InspectorImageSourceState>>
   >({})
   const workspaceRef = useRef<HTMLDivElement>(null)
+  const [workspaceElement, setWorkspaceElement] =
+    useState<HTMLDivElement | null>(null)
+  const installWorkspaceElement = useCallback(
+    (element: HTMLDivElement | null) => {
+      workspaceRef.current = element
+      setWorkspaceElement((current) =>
+        current === element ? current : element
+      )
+    },
+    []
+  )
   const cameraRef = useRef<CanvasCamera>({ x: 0, y: 0, zoom: 0.34 })
   const artboardRef = useRef<FabricArtboardHandle>(null)
   const rulerGuideOverlayRef = useRef<CanvasRulerGuideOverlayHandle>(null)
@@ -1188,7 +1199,7 @@ export function StudioShell({
 
   const markManualNavigation = useCallback(() => setAutoFit(false), [])
   useCanvasGestureNavigation({
-    workspaceRef,
+    workspace: workspaceElement,
     cameraRef,
     applyCamera,
     onManualNavigation: markManualNavigation,
@@ -1980,6 +1991,7 @@ export function StudioShell({
     editor.updateNode(nodeId, patch)
 
   const startPanning = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (editor.imageCropSession) return
     if (
       event.target instanceof Element &&
       event.target.closest("[data-editor-overlay-control='true']")
@@ -2155,6 +2167,18 @@ export function StudioShell({
     ]),
     stateByCommandId: {
       ...projectGuideProductCommandState(guideWorkspace.preferences),
+      "tool.select": {
+        enabled: !cropLocked,
+        disabledReason: cropLocked
+          ? "Finish or cancel the active image crop before changing tools."
+          : null,
+      },
+      "tool.hand": {
+        enabled: !cropLocked,
+        disabledReason: cropLocked
+          ? "Finish or cancel the active image crop before changing tools."
+          : null,
+      },
       "document.home": {
         enabled: !cropLocked && !reviewLocked && criticalAction === null,
         disabledReason: criticalAction
@@ -2755,6 +2779,7 @@ export function StudioShell({
               label="Select"
               shortcut="V"
               className="size-11 min-[1280px]:size-7"
+              disabled={!commandEnabled("tool.select")}
               variant={tool === "select" ? "secondary" : "ghost"}
               onClick={() => runEditorCommand("tool.select")}
             >
@@ -2764,6 +2789,7 @@ export function StudioShell({
               label="Hand tool"
               shortcut="H"
               className="size-11 min-[1280px]:size-7"
+              disabled={!commandEnabled("tool.hand")}
               variant={tool === "hand" ? "secondary" : "ghost"}
               onClick={() => runEditorCommand("tool.hand")}
             >
@@ -3402,12 +3428,13 @@ export function StudioShell({
               runtime={productMenuRuntime}
             >
               <div
-                ref={workspaceRef}
+                ref={installWorkspaceElement}
                 aria-label="Canvas viewport"
                 className={`workspace-grid relative min-h-0 flex-1 overflow-hidden overscroll-contain ${
                   isPanning
                     ? "cursor-grabbing select-none"
-                    : tool === "hand" || spacePressed
+                    : !editor.imageCropSession &&
+                        (tool === "hand" || spacePressed)
                       ? "cursor-grab"
                       : ""
                 }`}

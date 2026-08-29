@@ -234,6 +234,16 @@ describe("editor command registry", () => {
     }
   })
 
+  it("keeps crop as the modal pointer owner until it is applied or cancelled", () => {
+    const cropContext = { ...editableContext, imageCropActive: true }
+
+    expect(isEditorCommandEnabled("tool.select", cropContext)).toBe(false)
+    expect(isEditorCommandEnabled("tool.hand", cropContext)).toBe(false)
+    expect(isEditorCommandEnabled("canvas.fit", cropContext)).toBe(true)
+    expect(isEditorCommandEnabled("image.crop.apply", cropContext)).toBe(true)
+    expect(isEditorCommandEnabled("image.crop.cancel", cropContext)).toBe(true)
+  })
+
   it("enables image crop entry and exit only in their matching mode", () => {
     expect(isEditorCommandEnabled("image.crop", editableContext)).toBe(true)
     expect(isEditorCommandEnabled("image.crop.apply", editableContext)).toBe(

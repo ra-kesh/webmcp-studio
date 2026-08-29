@@ -316,6 +316,9 @@ export function isEditorCommandEnabled(
   if (context.reviewPending && isMutatingEditorCommand(commandId)) return false
 
   switch (commandId) {
+    case "tool.select":
+    case "tool.hand":
+      return !context.imageCropActive
     case "canvas.zoom-selection":
       return context.hasZoomSelection
     case "selection.copy":

@@ -1648,3 +1648,39 @@ Status: **completed and independently accepted for the REVIEW-02 boundary**
   and resolved history across a second reload with no save conflict. The reason,
   tool identity, discarded status, and distinct field/layer targets remained
   visible.
+
+## 2026-08-29 — ASSET-02 desktop browser acceptance
+
+Status: **completed and independently accepted for the desktop browser
+boundary**
+
+- Re-read the accepted ASSET-02 contracts plus OpenPencil and Loora gesture
+  ownership before running the real workflow.
+- The browser journey exposed a central lifecycle defect: the navigation hook
+  subscribed while Studio still showed its start/loading surface, saw no
+  workspace, and never attached when the canvas mounted. This was the reason a
+  trackpad pinch could zoom the browser page instead of the editor camera.
+- Studio now tracks the actual mounted workspace element. The navigation owner
+  subscribes and cleans up with that element, while a native non-passive capture
+  listener claims wheel events originating on Fabric's upper canvas.
+- The first independent review rejected a second P1 path where a previously
+  active Hand tool could steal the crop pointer. Canonical policy now disables
+  Select/Hand during crop, workspace panning yields before pointer capture, and
+  the Hand cursor is suppressed without destroying the retained tool state.
+  The repaired independent verdict is **ACCEPT with no remaining P0/P1**.
+- A clean browser journey proves library insertion, Inspector crop, pointer
+  preview, exact Cancel identity and focus return, one-transaction Done, exact
+  Undo/Redo snapshots, double-click crop entry, and modifier-wheel camera
+  ownership without changing image zoom.
+- The mounted gesture slice passes **6/6**, focused canonical command coverage
+  passes **24/24**, and the production crop browser slice passes **2/2**. Studio
+  and editor typechecks, scoped Studio ESLint, the production Studio build, and
+  `git diff --check` pass.
+  `asset-02-browser-phase-entry.md` preserves the defect, evidence, and retained
+  release boundary.
+
+Remaining boundary:
+
+- Touch-device arbitration, compact 320 px / 200 percent zoom placement, a real
+  Chrome performance profile, deployed rendering, and 1x/2x cross-renderer
+  pixel evidence remain separate gates and are not claimed here.

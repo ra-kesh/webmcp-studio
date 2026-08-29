@@ -98,24 +98,27 @@ const isMacOs = () =>
   /Mac|iPhone|iPad|iPod/.test(navigator.platform)
 
 export function useCanvasGestureNavigation({
-  workspaceRef,
+  workspace,
   cameraRef,
   applyCamera,
   onManualNavigation,
 }: {
-  workspaceRef: RefObject<HTMLElement | null>
+  workspace: HTMLElement | null
   cameraRef: RefObject<CanvasCamera>
   applyCamera: (camera: CanvasCamera) => void
   onManualNavigation: () => void
 }) {
   useEffect(() => {
-    const workspace = workspaceRef.current
     if (!workspace) return
 
     // React delegates wheel events through a passive listener. A native,
     // non-passive listener is required so a trackpad pinch cannot become
     // browser-page zoom before the canvas camera receives it.
     const nonPassive = { passive: false } as const
+    // The camera is the sole wheel owner inside the viewport. Capture at that
+    // boundary so a nested canvas implementation cannot consume the gesture
+    // before camera navigation prevents browser-page zoom.
+    const wheelCapture = { passive: false, capture: true } as const
     let safariGestureStartZoom = cameraRef.current.zoom
     let touchCameraGesture: TouchCameraGesture | null = null
     let frameRequest: number | null = null
@@ -271,7 +274,7 @@ export function useCanvasGestureNavigation({
       event.stopPropagation()
     }
 
-    workspace.addEventListener("wheel", onWheel, nonPassive)
+    workspace.addEventListener("wheel", onWheel, wheelCapture)
     workspace.addEventListener("gesturestart", onGestureStart, nonPassive)
     workspace.addEventListener("gesturechange", onGestureChange, nonPassive)
     workspace.addEventListener("gestureend", onGestureEnd, nonPassive)
@@ -282,7 +285,7 @@ export function useCanvasGestureNavigation({
 
     return () => {
       if (frameRequest !== null) window.cancelAnimationFrame(frameRequest)
-      workspace.removeEventListener("wheel", onWheel)
+      workspace.removeEventListener("wheel", onWheel, true)
       workspace.removeEventListener("gesturestart", onGestureStart)
       workspace.removeEventListener("gesturechange", onGestureChange)
       workspace.removeEventListener("gestureend", onGestureEnd)
@@ -291,5 +294,5 @@ export function useCanvasGestureNavigation({
       workspace.removeEventListener("touchend", onTouchEnd)
       workspace.removeEventListener("touchcancel", onTouchEnd)
     }
-  }, [applyCamera, cameraRef, onManualNavigation, workspaceRef])
+  }, [applyCamera, cameraRef, onManualNavigation, workspace])
 }
