@@ -45,11 +45,19 @@ capability state also gives empty pages the truthful explanation
 ## Retained regression
 
 - `menu-command-production.spec.ts`: **2/2 passed** against port 3001
-- `product-commands.test.ts`: **19/19 passed**
+- `product-commands.test.ts`: **20/20 passed**
+- `registration.test.ts`: **37/37 passed**, including populated and empty
+  explicit WebMCP page targets
 - Editor TypeScript: passed
 - Studio TypeScript: passed
 - Focused Studio ESLint: passed
 - `git diff --check`: passed
+
+The independent reviewer rejected the first browser-fix candidate because an
+explicit WebMCP query for a non-current page inherited Select all enablement
+from the UI's active page. The accepted repair moves per-page node counts into
+the canonical runtime context and derives availability from the invocation's
+captured page target. The final re-review is **ACCEPT with no P0/P1**.
 
 The remaining exhaustive browser matrix is pointer placement for every
 page/output/image/locked/group variant, nested portal collision at every edge,

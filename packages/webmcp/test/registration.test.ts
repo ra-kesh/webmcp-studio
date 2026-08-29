@@ -88,6 +88,9 @@ function productCommandContext(
       .filter((output) => output.exportFormats.includes("pdf"))
       .map((output) => output.id),
     nodeIds: document.nodes.map((node) => node.id),
+    pageNodeCounts: Object.fromEntries(
+      document.pages.map((page) => [page.id, page.nodeIds.length])
+    ),
     groupIds: document.groups.map((group) => group.id),
     documentDisplayName: document.name,
     pageDisplayNames: Object.fromEntries(
@@ -590,6 +593,69 @@ describe("WebMCP registration", () => {
     expect(missing).toMatchObject({
       isError: true,
       structuredContent: { code: "output_not_found", retryable: false },
+    })
+  })
+
+  it("projects Select all availability from the explicitly targeted page", async () => {
+    const populatedPage = northstarSeed.pages[0]!
+    const emptyPage = {
+      ...populatedPage,
+      id: "empty-page",
+      name: "Empty page",
+      nodeIds: [],
+    }
+    const document: Document = {
+      ...northstarSeed,
+      pages: [...northstarSeed.pages, emptyPage],
+      outputs: northstarSeed.outputs.map((output) =>
+        output.id === emptyPage.outputId
+          ? { ...output, pageIds: [...output.pageIds, emptyPage.id] }
+          : output
+      ),
+    }
+    const context = productCommandContext(document)
+    const state = setup(document, document, assets, [], context)
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const emptyResult = await state.registered
+      .get("get_capabilities")
+      ?.execute({
+        commandIds: ["selection.select-all"],
+        target: { kind: "page", pageId: emptyPage.id },
+      })
+    expect(emptyResult?.structuredContent).toMatchObject({
+      capabilities: [
+        {
+          commandId: "selection.select-all",
+          enabled: false,
+          disabledReason: "This page does not contain any layers.",
+        },
+      ],
+    })
+
+    const populatedResult = await state.registered
+      .get("get_capabilities")
+      ?.execute({
+        commandIds: ["selection.select-all"],
+        target: { kind: "page", pageId: populatedPage.id },
+      })
+    expect(populatedResult?.structuredContent).toMatchObject({
+      capabilities: [
+        {
+          commandId: "selection.select-all",
+          enabled: true,
+          disabledReason: null,
+        },
+      ],
     })
   })
 

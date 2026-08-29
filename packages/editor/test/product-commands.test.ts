@@ -65,6 +65,7 @@ const context = (
   pageIds: ["page-1", "page-2"],
   outputIds: ["output-1", "output-2"],
   nodeIds: ["node-1", "node-2", "node-3"],
+  pageNodeCounts: { "page-1": 3, "page-2": 0 },
   groupIds: ["group-1"],
   selection: {
     pageId: "page-1",
@@ -507,6 +508,30 @@ describe("pure product menu models", () => {
       status: "stale",
       reason: "The active page changed after this command opened.",
     })
+  })
+
+  it("derives select all availability from its targeted page", () => {
+    expect(
+      resolveProductCommand(
+        {
+          commandId: "selection.select-all",
+          target: pageTarget("page-2"),
+        },
+        context({ activePageId: "page-2" })
+      )
+    ).toMatchObject({
+      enabled: false,
+      disabledReason: "This page does not contain any layers.",
+    })
+    expect(
+      resolveProductCommand(
+        {
+          commandId: "selection.select-all",
+          target: pageTarget("page-1"),
+        },
+        context()
+      )
+    ).toMatchObject({ enabled: true, disabledReason: null })
   })
 
   it("keeps locked commands visible with a specific reason", () => {

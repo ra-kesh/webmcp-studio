@@ -1253,9 +1253,14 @@ Open evidence:
   command search. The run exposed a real canonical defect: Select all had been
   classified as selection-scoped and therefore required an existing target.
   It is now bound to a stable active-page target, rejects page drift, and gives
-  empty pages a truthful disabled reason. The focused product-command suite is
-  **19/19**, and Studio/editor typechecks plus focused ESLint pass. Full evidence
-  is retained in `menu-01-browser-acceptance.md`.
+  empty pages a truthful disabled reason. Independent review rejected the first
+  repair because explicit WebMCP queries for a non-current page inherited the
+  current UI page's enablement. The accepted correction projects canonical
+  per-page node counts and derives availability from the captured page target.
+  The focused product-command suite is **20/20**, WebMCP registration is
+  **37/37**, affected package typechecks and focused ESLint pass, and final
+  independent re-review reports no P0/P1. Full evidence is retained in
+  `menu-01-browser-acceptance.md`.
 
 ## 2026-08-28 — Constrained resize and rotation snapping (GUIDE-01A)
 

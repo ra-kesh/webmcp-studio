@@ -2167,6 +2167,9 @@ export function StudioShell({
       .filter((output) => output.exportFormats.includes("pdf"))
       .map((output) => output.id),
     nodeIds: editor.document.nodes.map((node) => node.id),
+    pageNodeCounts: Object.fromEntries(
+      editor.document.pages.map((page) => [page.id, page.nodeIds.length])
+    ),
     groupIds: editor.document.groups.map((group) => group.id),
     documentDisplayName: editor.document.name,
     pageDisplayNames: Object.fromEntries(
@@ -2218,13 +2221,6 @@ export function StudioShell({
     ]),
     stateByCommandId: {
       ...projectGuideProductCommandState(guideWorkspace.preferences),
-      "selection.select-all": {
-        enabled: activePage.nodeIds.length > 0,
-        disabledReason:
-          activePage.nodeIds.length > 0
-            ? null
-            : "This page does not contain any layers.",
-      },
       "tool.select": {
         enabled: !cropLocked,
         disabledReason: cropLocked

@@ -230,6 +230,7 @@ export type ProductCommandRuntimeContext = Readonly<{
   outputIds: readonly string[]
   pdfOutputIds?: readonly string[]
   nodeIds: readonly string[]
+  pageNodeCounts?: Readonly<Partial<Record<string, number>>>
   groupIds: readonly string[]
   documentDisplayName?: string
   pageDisplayNames?: Readonly<Partial<Record<string, string>>>
@@ -929,7 +930,8 @@ function validateInvocationArguments(
 
 function defaultDisabledReason(
   commandId: ProductCommandId,
-  context: ProductCommandRuntimeContext
+  context: ProductCommandRuntimeContext,
+  target?: ProductCommandTarget
 ) {
   if (
     context.editor.reviewPending &&
@@ -940,6 +942,13 @@ function defaultDisabledReason(
   if (commandId === "history.undo") return "There is nothing to undo."
   if (commandId === "history.redo") return "There is nothing to redo."
   if (commandId === "object.paste") return "Copy a layer before pasting."
+  if (commandId === "selection.select-all") {
+    const pageId =
+      target?.kind === "page" ? target.pageId : context.activePageId
+    if (context.pageNodeCounts?.[pageId] === 0) {
+      return "This page does not contain any layers."
+    }
+  }
   if (productCommandCatalog[commandId].scope === "selection") {
     if (!context.selection) return "Select a layer first."
     if (context.selection.anyLocked && commandId !== "object.lock.toggle") {
@@ -993,6 +1002,11 @@ function baseEnabled(
   context: ProductCommandRuntimeContext,
   target?: ProductCommandTarget
 ) {
+  if (commandId === "selection.select-all") {
+    const pageId =
+      target?.kind === "page" ? target.pageId : context.activePageId
+    if (context.pageNodeCounts?.[pageId] === 0) return false
+  }
   if (commandId === "output.export-pdf" && context.pdfOutputIds) {
     const outputId =
       target?.kind === "output" ? target.outputId : context.activeOutputId
@@ -1155,7 +1169,7 @@ export function resolveProductCommand(
             context.editor
           )
         : null) ??
-      defaultDisabledReason(invocation.commandId, context)
+      defaultDisabledReason(invocation.commandId, context, invocation.target)
   }
   return {
     definition,
