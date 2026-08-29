@@ -1,6 +1,14 @@
 import { z } from "zod"
 import { isRenderSafeImageSource } from "./image-source-policy"
-import { managedImageAssetIdentity } from "./media"
+import {
+  LOCAL_ASSET_PREFIX,
+  MANAGED_ASSET_PREFIX,
+  localAssetSourceSchema,
+  localImageAssetIdentity,
+  managedAssetSourceSchema,
+  managedImageAssetIdentity,
+  mediaAssetIdSchema,
+} from "./media"
 
 const id = z.string().min(1)
 
@@ -197,6 +205,24 @@ export const sceneNodeSchema = z
       })
     }
     const identity = managedImageAssetIdentity(node.assetId, node.src)
+    const localIdentity = localImageAssetIdentity(node.assetId, node.src)
+    if (
+      (node.src.startsWith(LOCAL_ASSET_PREFIX) && !localIdentity.local) ||
+      (node.src.startsWith(MANAGED_ASSET_PREFIX) && !identity.managed)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["src"],
+        message: "Image asset source identity is malformed",
+      })
+    }
+    if (localIdentity.local && !localIdentity.coherent) {
+      context.addIssue({
+        code: "custom",
+        path: ["assetId"],
+        message: `Local image assetId must match ${localIdentity.assetId}`,
+      })
+    }
     if (identity.managed && !identity.coherent) {
       context.addIssue({
         code: "custom",
@@ -276,8 +302,12 @@ const optionalIsoDateSchema = z
 
 export function isSafeFieldAssetReference(value: string): boolean {
   if (value === "") return true
-  if (/^asset:local\/[A-Za-z0-9._:-]+$/.test(value)) return true
-  if (/^asset:managed\/asset-[A-Za-z0-9_-]{10,90}$/.test(value)) return true
+  if (value.startsWith("asset:local/")) {
+    return localAssetSourceSchema.safeParse(value).success
+  }
+  if (value.startsWith("asset:managed/")) {
+    return managedAssetSourceSchema.safeParse(value).success
+  }
   if (isRenderSafeImageSource(value)) return true
   try {
     return new URL(value).protocol === "https:"
@@ -620,6 +650,22 @@ export const documentCommandSchema = z.discriminatedUnion("type", [
     src: z.string(),
     alt: z.string().optional(),
     altProvenance: z.enum(["generated", "authored"]).optional(),
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("relink_asset_references"),
+    from: localAssetSourceSchema,
+    toAssetId: mediaAssetIdSchema,
+    toSource: managedAssetSourceSchema,
+    expectedReferenceKeys: z
+      .array(z.string().min(1))
+      .min(1)
+      .refine(
+        (keys) =>
+          keys.every(
+            (key, index) => index === 0 || (keys[index - 1] ?? "") < key
+          ),
+        "Reference keys must be unique and sorted"
+      ),
   }),
   commandBaseSchema.extend({
     type: z.literal("remove_node"),

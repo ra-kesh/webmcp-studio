@@ -2467,3 +2467,37 @@ Status: **bounded local/versioned-source flow implemented and independently acce
   identity in resolved evidence. Live Stuwiz retrieval remains disabled until
   the upstream authenticated complete-source revision/fingerprint, branding,
   authorization and stable-lineage contract exists.
+
+## 2026-08-30 — Cross-browser local media, Slice 1 domain relink
+
+Status: **implemented and independently accepted; row 10 remains active**
+
+- Reread the complete row-10 phase entry before editing. The first slice stays
+  inside the canonical document/history boundary: it does not add network,
+  server, UI or background draft mutation.
+- Added one bounded shared local-alias schema and stable reference inventory for
+  direct image nodes, field defaults, current values, bound projections, pages
+  and outputs. Logical keys use stable IDs rather than array positions.
+- Added `relink_asset_references`, which requires the exact sorted preflight
+  path set, one coherent local source identity and one coherent managed target.
+  It updates field defaults/current values, direct nodes and bound projections
+  as one validated document revision while preserving every unrelated property.
+- The ordinary source-bound `replace_image_source` guard remains intact. Exact
+  replay rejects without a revision; the later promotion coordinator must
+  recognize the already-managed state and skip dispatch.
+- History labels the operation **Make image available everywhere**, retains one
+  exact Undo/Redo step when within budget, and reports `undoable: false` when an
+  intentionally tiny history budget cannot retain it.
+- Independent review rejected four defects before acceptance: local field
+  projection changed `src` without `assetId`; malformed local image sources
+  escaped admission and extraction; the local IndexedDB repository used a
+  permissive duplicate alias parser; and the normal global field projection
+  could mutate an unrelated drifted binding during relink. All four are repaired
+  with focused regressions and fail-closed behavior.
+- Invalid legacy local-store aliases are quarantined, new invalid IDs are
+  rejected before bytes are written, and Studio now reuses the document-owned
+  alias helpers rather than maintaining a second grammar.
+- Final independent evidence under Node 24.19.0: 78 focused document/editor
+  tests, 22 local-store tests, all 211 document tests, all 309 editor tests,
+  document/editor/Studio typechecks, and `git diff --check` pass with no
+  remaining P0/P1.

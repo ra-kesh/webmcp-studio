@@ -673,3 +673,32 @@ recover through the durable mapping, missing or conflicting bytes remain
 repairable without guesswork, Undo/Redo and cancellation tell the truth, and
 the focused, real-browser, deployed, repository-wide, and independent-review
 gates all pass.
+
+## Slice 1 exit evidence, 2026-08-30
+
+The domain relink slice is implemented and independently accepted with no
+remaining P0/P1. The accepted boundary includes:
+
+- one shared strict local alias contract used by document admission and the
+  browser-local repository, including invalid legacy quarantine;
+- stable sorted extraction for direct image nodes, field defaults/current
+  values, bound projections, pages and outputs;
+- an exact-path aggregate relink from coherent local identity to coherent
+  managed identity;
+- fail-closed stale paths, malformed identity, partial target projection and
+  unrelated field-projection drift;
+- exact non-identity preservation and unchanged ordinary replacement guards;
+  and
+- one history transaction with exact Undo/Redo and truthful byte-budget
+  admission.
+
+Independent review found and drove repairs for local bound-field `assetId`
+projection, malformed scene-node aliases, the duplicate permissive local-store
+parser, and unrelated global binding projection. Final evidence is 78 focused
+document/editor tests, 22 local-store tests, 211 full document tests, 309 full
+editor tests, all three affected typechecks and `git diff --check` under Node
+24.19.0.
+
+Slices 2 through 6 remain open. In particular, the promotion coordinator must
+recognize a target-only replay and skip the command, because the domain command
+intentionally rejects a request with no remaining local source path.

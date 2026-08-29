@@ -3,6 +3,10 @@ import {
   MEDIA_ASSET_MAX_DIMENSION,
   MEDIA_ASSET_MAX_PIXEL_AREA,
   MEDIA_ASSET_TYPES,
+  LOCAL_ASSET_PREFIX,
+  localAssetIdFromSource as canonicalLocalAssetIdFromSource,
+  localAssetIdSchema,
+  localAssetSource as canonicalLocalAssetSource,
 } from "@webmcp/document"
 
 const DATABASE_NAME = "webmcp-studio-assets"
@@ -14,7 +18,7 @@ const QUARANTINE_STORE_NAME = "asset-quarantine"
 const CREATED_AT_INDEX = "createdAt"
 const LAST_USED_AT_INDEX = "lastUsedAt"
 
-export const LOCAL_ASSET_PREFIX = "asset:local/"
+export { LOCAL_ASSET_PREFIX }
 
 export type LocalAssetSummary = {
   schemaVersion: 4
@@ -108,7 +112,7 @@ const normalizeLegacyRecord = (value: unknown): LocalAssetRecord | null => {
   const record = value as LegacyLocalAssetRecord
   if (
     typeof record.id !== "string" ||
-    !record.id ||
+    !localAssetIdSchema.safeParse(record.id).success ||
     !(record.blob instanceof Blob) ||
     typeof record.name !== "string" ||
     !record.name ||
@@ -153,7 +157,7 @@ const parseSummary = (value: unknown): LocalAssetSummary | null => {
   const record = value as Partial<LocalAssetSummary>
   if (
     typeof record.id !== "string" ||
-    !record.id ||
+    !localAssetIdSchema.safeParse(record.id).success ||
     typeof record.name !== "string" ||
     !record.name ||
     !isSupportedMediaType(record.mediaType) ||
@@ -668,13 +672,9 @@ const openDatabaseForAbortableOperation = async (signal?: AbortSignal) => {
   })
 }
 
-export const localAssetSource = (assetId: string) =>
-  `${LOCAL_ASSET_PREFIX}${assetId}`
+export const localAssetSource = canonicalLocalAssetSource
 
-export const localAssetIdFromSource = (source: string) =>
-  source.startsWith(LOCAL_ASSET_PREFIX)
-    ? source.slice(LOCAL_ASSET_PREFIX.length)
-    : null
+export const localAssetIdFromSource = canonicalLocalAssetIdFromSource
 
 export async function saveLocalAsset(
   file: File,
@@ -682,10 +682,11 @@ export async function saveLocalAsset(
   metadata?: { width?: number; height?: number; now?: string }
 ) {
   await ensureLegacyMigration()
+  const validAssetId = localAssetIdSchema.parse(assetId)
   const now = metadata?.now ?? new Date().toISOString()
   const record: LocalAssetRecord = {
     schemaVersion: 4,
-    id: assetId,
+    id: validAssetId,
     blob: file,
     name: file.name,
     mediaType: file.type,

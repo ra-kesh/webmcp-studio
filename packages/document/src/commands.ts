@@ -14,7 +14,11 @@ import {
   formatFieldValueForText,
   normalizeFieldValueForStorage,
 } from "./fields"
-import { managedAssetIdFromSource } from "./media"
+import {
+  assetReferenceKeysForSource,
+  localAssetIdFromSource,
+  managedAssetIdFromSource,
+} from "./media"
 import { applyTextLayoutPatch } from "./text-layout"
 import { assertValidCanonicalDocument, assertValidDocument } from "./validation"
 
@@ -117,16 +121,17 @@ function applyValue(
   }
   if (property === "src" && node.type === "image") {
     const src = String(value)
-    const managedAssetId = managedAssetIdFromSource(src)
+    const projectedAssetId =
+      managedAssetIdFromSource(src) ?? localAssetIdFromSource(src)
     if (
       node.src === src &&
-      (!managedAssetId || node.assetId === managedAssetId)
+      (!projectedAssetId || node.assetId === projectedAssetId)
     ) {
       return node
     }
     return {
       ...node,
-      ...(managedAssetId ? { assetId: managedAssetId } : {}),
+      ...(projectedAssetId ? { assetId: projectedAssetId } : {}),
       src,
     }
   }
@@ -574,6 +579,91 @@ function applyParsedCommand(
             }),
       }
       next = { ...document, nodes }
+      break
+    }
+    case "relink_asset_references": {
+      const localAssetId = localAssetIdFromSource(command.from)
+      if (!localAssetId) {
+        throw new Error("The source is not a valid local asset identity")
+      }
+      if (managedAssetIdFromSource(command.toSource) !== command.toAssetId) {
+        throw new Error("The managed asset identity is incoherent")
+      }
+
+      const currentReferenceKeys = assetReferenceKeysForSource(
+        document,
+        command.from
+      )
+      if (!currentReferenceKeys.length) {
+        throw new Error("The local asset has no references to relink")
+      }
+      if (
+        currentReferenceKeys.length !== command.expectedReferenceKeys.length ||
+        currentReferenceKeys.some(
+          (key, index) => key !== command.expectedReferenceKeys[index]
+        )
+      ) {
+        throw new Error("The local asset reference set changed after preflight")
+      }
+
+      const fieldsById = new Map(
+        document.fields.map((field) => [field.id, field] as const)
+      )
+      const sourceBindingByNodeId = new Map(
+        document.bindings
+          .filter((binding) => binding.property === "src")
+          .map((binding) => [binding.nodeId, binding] as const)
+      )
+      for (const node of document.nodes) {
+        if (node.type !== "image") continue
+        const binding = sourceBindingByNodeId.get(node.id)
+        const boundValue = binding
+          ? document.fieldValues[binding.fieldId]
+          : undefined
+        const sourceMatches = node.src === command.from
+        const identityMatches = node.assetId === localAssetId
+
+        if (sourceMatches !== identityMatches) {
+          throw new Error(`Image ${node.id} has an incoherent local identity`)
+        }
+        if (binding) {
+          const field = fieldsById.get(binding.fieldId)
+          const fieldProjectsSource =
+            field?.type === "asset" && boundValue === command.from
+          if (sourceMatches !== fieldProjectsSource) {
+            throw new Error(
+              `Bound image ${node.id} is not an exact projection of its asset field`
+            )
+          }
+        }
+      }
+      if (applyFieldValues(document) !== document) {
+        throw new Error(
+          "The document has unrelated field projection changes to resolve before relinking this asset"
+        )
+      }
+
+      const fields = document.fields.map((field) =>
+        field.type === "asset" && field.defaultValue === command.from
+          ? { ...field, defaultValue: command.toSource }
+          : field
+      )
+      const fieldValues = { ...document.fieldValues }
+      for (const field of document.fields) {
+        if (field.type === "asset" && fieldValues[field.id] === command.from) {
+          fieldValues[field.id] = command.toSource
+        }
+      }
+      const nodes = document.nodes.map((node) => {
+        if (node.type !== "image" || node.src !== command.from) return node
+        if (sourceBindingByNodeId.has(node.id)) return node
+        return {
+          ...node,
+          assetId: command.toAssetId,
+          src: command.toSource,
+        }
+      })
+      next = { ...document, fields, fieldValues, nodes }
       break
     }
     case "remove_node": {

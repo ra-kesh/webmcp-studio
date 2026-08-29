@@ -1,4 +1,5 @@
 import {
+  assetReferenceKeysForSource,
   applyQuotationTemplate,
   captureSemanticFragment,
   cloneSemanticFragment,
@@ -90,6 +91,44 @@ describe("document history", () => {
     expect(redoDocument(undoDocument(changed)).document).toEqual(
       changed.document
     )
+  })
+
+  it("relinks every local reference as one exact undo and redo step", () => {
+    const before = structuredClone(renderConformanceDocument)
+    const image = before.nodes.find((node) => node.id === "image-cover")!
+    if (image.type !== "image") throw new Error("Expected image fixture")
+    image.assetId = "history-local-image"
+    image.src = "asset:local/history-local-image"
+    const initial = createDocumentHistory(before)
+    const command = {
+      id: "relink-history-image",
+      type: "relink_asset_references" as const,
+      actor: "human" as const,
+      at: "2026-08-30T05:00:00.000Z",
+      from: "asset:local/history-local-image" as const,
+      toAssetId: "asset-historymanaged01",
+      toSource: "asset:managed/asset-historymanaged01" as const,
+      expectedReferenceKeys: assetReferenceKeysForSource(
+        before,
+        "asset:local/history-local-image"
+      ),
+    }
+    const result = commitCommandsWithResult(initial, [command])
+
+    expect(result).not.toBeNull()
+    expect(result?.history.past).toHaveLength(1)
+    expect(result?.commit).toMatchObject({
+      label: "Make image available everywhere",
+      undoable: true,
+    })
+    const undone = undoDocument(result!.history)
+    expect(undone.document).toEqual(before)
+    expect(redoDocument(undone).document).toEqual(result?.history.document)
+
+    const tiny = createDocumentHistory(before, "tiny-before", { maxBytes: 1 })
+    const unretained = commitCommandsWithResult(tiny, [command])
+    expect(unretained?.commit.undoable).toBe(false)
+    expect(unretained?.history.past).toHaveLength(0)
   })
 
   it("groups a batch of renderer changes into one undo step", () => {

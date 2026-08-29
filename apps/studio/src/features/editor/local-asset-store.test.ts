@@ -11,6 +11,7 @@ import {
   listLocalAssetSummaries,
   listLocalAssetInventory,
   localAssetStorageSummary,
+  localAssetSource,
   saveLocalAsset,
 } from "./local-asset-store"
 
@@ -130,6 +131,34 @@ afterEach(async () => {
 })
 
 describe("local asset store", () => {
+  it("uses the shared bounded local alias contract before writing bytes", async () => {
+    const file = new File(["image"], "image.png", { type: "image/png" })
+
+    expect(localAssetSource("valid.local-id:1")).toBe(
+      "asset:local/valid.local-id:1"
+    )
+    expect(() => localAssetSource("../escape")).toThrow()
+    await expect(saveLocalAsset(file, "../escape")).rejects.toThrow()
+    expect(await listLocalAssetSummaries()).toEqual([])
+  })
+
+  it("quarantines a legacy row whose alias cannot enter a document", async () => {
+    const blob = new Blob(["legacy-image"], { type: "image/png" })
+    await openLegacyDatabase({
+      id: "../escape",
+      blob,
+      name: "legacy.png",
+      mediaType: "image/png",
+      createdAt: "2026-08-01T00:00:00.000Z",
+    })
+
+    const inventory = await listLocalAssetInventory()
+
+    expect(inventory.assets).toEqual([])
+    expect(inventory.issues).toEqual([])
+    expect(await quarantineCount()).toBe(1)
+  })
+
   it("migrates a version 1 row into separate metadata and blob stores", async () => {
     const blob = new Blob(["legacy-image"], { type: "image/png" })
     await openLegacyDatabase({

@@ -67,6 +67,8 @@ const commandLabel = (commands: DocumentCommand[]) => {
       return "Update layer"
     case "replace_image_source":
       return "Replace image"
+    case "relink_asset_references":
+      return "Make image available everywhere"
     case "remove_node":
       return "Delete layer"
     case "reorder_node":
