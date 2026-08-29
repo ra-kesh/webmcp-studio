@@ -5,6 +5,16 @@ import { MAX_RENDER_ARTIFACT_BYTES } from "../src/artifact-body"
 
 vi.mock("@cloudflare/playwright", () => ({ launch: vi.fn() }))
 
+const deferred = <T>() => {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((onResolve, onReject) => {
+    resolve = onResolve
+    reject = onReject
+  })
+  return { promise, resolve, reject }
+}
+
 function successfulBrowserPage(pdfBytes: number[]) {
   return {
     setContent: vi.fn(async () => undefined),
@@ -776,6 +786,94 @@ describe("renderer Worker", () => {
   })
 
   it.each([
+    {
+      format: "PNG",
+      path: "/render",
+      requestFields: { pageId: "cover" },
+      bytes: [1, 2, 3],
+      contentType: "image/png",
+      filename: 'attachment; filename="cover.png"',
+      details: {
+        "X-Page-Id": "cover",
+        "X-Output-Id": "proposal",
+        "X-Width": String(northstarSeed.pages[0]!.width),
+        "X-Height": String(northstarSeed.pages[0]!.height),
+      },
+    },
+    {
+      format: "PDF",
+      path: "/render/pdf",
+      requestFields: {},
+      bytes: [37, 80, 68, 70],
+      contentType: "application/pdf",
+      filename: 'attachment; filename="proposal.pdf"',
+      details: {
+        "X-Output-Id": "proposal",
+        "X-Page-Count": String(
+          northstarSeed.outputs.find((output) => output.id === "proposal")!
+            .pageIds.length
+        ),
+      },
+    },
+  ] as const)(
+    "returns a $format foreground artifact from memory without touching R2",
+    async ({ path, requestFields, bytes, contentType, filename, details }) => {
+      const { default: worker } = await import("../src/index")
+      const browserPage = successfulBrowserPage([...bytes])
+      browserPage.screenshot.mockResolvedValue(Uint8Array.from(bytes))
+      const close = vi.fn(async () => undefined)
+      vi.mocked(launch).mockResolvedValue({
+        newPage: vi.fn(async () => browserPage),
+        close,
+      } as never)
+      const put = vi.fn()
+      const get = vi.fn()
+      const remove = vi.fn()
+
+      const response = await worker.fetch(
+        new Request(`https://renderer.internal${path}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Render-Persistence": "ephemeral",
+          },
+          body: JSON.stringify({
+            renderId: "foreground-export",
+            outputId: "proposal",
+            document: northstarSeed,
+            expectedImageResources: [],
+            ...requestFields,
+          }),
+        }) as never,
+        {
+          BROWSER: {},
+          RENDERS: { put, get, delete: remove },
+        } as unknown as Env
+      )
+
+      expect(response.status).toBe(200)
+      expect(response.headers.get("Content-Type")).toBe(contentType)
+      expect(response.headers.get("Content-Disposition")).toBe(filename)
+      expect(response.headers.get("Content-Length")).toBe(String(bytes.length))
+      expect(response.headers.get("Cache-Control")).toBe("no-store")
+      expect(response.headers.get("X-Render-Mode")).toBe("ephemeral-export")
+      expect(response.headers.get("X-Render-Id")).toBe("foreground-export")
+      expect(response.headers.get("X-Bytes")).toBe(String(bytes.length))
+      expect(response.headers.get("X-Render-Key")).toBeNull()
+      for (const [name, value] of Object.entries(details)) {
+        expect(response.headers.get(name)).toBe(value)
+      }
+      expect([...new Uint8Array(await response.arrayBuffer())]).toEqual([
+        ...bytes,
+      ])
+      expect(put).not.toHaveBeenCalled()
+      expect(get).not.toHaveBeenCalled()
+      expect(remove).not.toHaveBeenCalled()
+      expect(close).toHaveBeenCalledOnce()
+    }
+  )
+
+  it.each([
     [{ width: 513, height: 512 }, 400, "invalid_thumbnail_render_request"],
     [{ width: 200, height: 200 }, 422, "invalid_thumbnail_dimensions"],
   ] as const)(
@@ -909,5 +1007,149 @@ describe("renderer Worker", () => {
       )
     ).rejects.toMatchObject({ name: "AbortError" })
     expect(launch).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["PNG", "/render", { pageId: "cover" }],
+    ["PDF", "/render/pdf", {}],
+  ] as const)(
+    "closes Browser once when a %s request is cancelled during page setup",
+    async (_format, path, requestFields) => {
+      const { default: worker } = await import("../src/index")
+      const setup = deferred<undefined>()
+      const browserPage = successfulBrowserPage([37, 80, 68, 70])
+      browserPage.setContent.mockImplementation(() => setup.promise)
+      const close = vi.fn(async () => {
+        setup.reject(new Error("Browser closed"))
+      })
+      vi.mocked(launch).mockResolvedValue({
+        newPage: vi.fn(async () => browserPage),
+        close,
+      } as never)
+      const put = vi.fn()
+      const controller = new AbortController()
+      const rendering = worker.fetch(
+        new Request(`https://renderer.internal${path}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            renderId: `cancelled-${_format.toLowerCase()}`,
+            outputId: "proposal",
+            document: northstarSeed,
+            expectedImageResources: [],
+            ...requestFields,
+          }),
+          signal: controller.signal,
+        }) as never,
+        { BROWSER: {}, RENDERS: { put } } as unknown as Env
+      )
+
+      await vi.waitFor(() => expect(browserPage.setContent).toHaveBeenCalled())
+      controller.abort(new DOMException("Client left", "AbortError"))
+
+      await expect(rendering).rejects.toMatchObject({ name: "AbortError" })
+      expect(close).toHaveBeenCalledOnce()
+      expect(browserPage.screenshot).not.toHaveBeenCalled()
+      expect(browserPage.pdf).not.toHaveBeenCalled()
+      expect(put).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each([
+    ["PNG", "/render", { pageId: "cover" }],
+    ["PDF", "/render/pdf", {}],
+  ] as const)(
+    "removes a %s artifact when cancellation lands during R2 storage",
+    async (_format, path, requestFields) => {
+      const { default: worker } = await import("../src/index")
+      const stored = deferred<{ size: number; etag: string }>()
+      const browserPage = successfulBrowserPage([37, 80, 68, 70])
+      const close = vi.fn(async () => undefined)
+      vi.mocked(launch).mockResolvedValue({
+        newPage: vi.fn(async () => browserPage),
+        close,
+      } as never)
+      const put = vi.fn(() => stored.promise)
+      const get = vi.fn()
+      const remove = vi.fn(async () => undefined)
+      const controller = new AbortController()
+      const rendering = worker.fetch(
+        new Request(`https://renderer.internal${path}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            renderId: `stored-${_format.toLowerCase()}`,
+            outputId: "proposal",
+            document: northstarSeed,
+            expectedImageResources: [],
+            ...requestFields,
+          }),
+          signal: controller.signal,
+        }) as never,
+        { BROWSER: {}, RENDERS: { put, get, delete: remove } } as unknown as Env
+      )
+
+      await vi.waitFor(() => expect(put).toHaveBeenCalledOnce())
+      controller.abort(new DOMException("Client left", "AbortError"))
+      stored.resolve({ size: 4, etag: "stored-after-abort" })
+
+      await expect(rendering).rejects.toMatchObject({ name: "AbortError" })
+      expect(remove).toHaveBeenCalledWith(
+        _format === "PNG"
+          ? "stored-png/proposal/cover.png"
+          : "stored-pdf/proposal.pdf"
+      )
+      expect(get).not.toHaveBeenCalled()
+      expect(close).toHaveBeenCalledOnce()
+    }
+  )
+
+  it("cancels a loaded artifact body and removes it when PDF download is abandoned", async () => {
+    const { default: worker } = await import("../src/index")
+    const pdfBytes = Uint8Array.from([37, 80, 68, 70])
+    const browserPage = successfulBrowserPage([...pdfBytes])
+    vi.mocked(launch).mockResolvedValue({
+      newPage: vi.fn(async () => browserPage),
+      close: vi.fn(async () => undefined),
+    } as never)
+    const loaded = deferred<{
+      size: number
+      body: ReadableStream<Uint8Array>
+    }>()
+    const cancelBody = vi.fn()
+    const put = vi.fn(async () => ({ size: pdfBytes.length, etag: "stored" }))
+    const get = vi.fn(() => loaded.promise)
+    const remove = vi.fn(async () => undefined)
+    const controller = new AbortController()
+    const rendering = worker.fetch(
+      new Request("https://renderer.internal/render/pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          renderId: "abandoned-download",
+          outputId: "proposal",
+          document: northstarSeed,
+          expectedImageResources: [],
+        }),
+        signal: controller.signal,
+      }) as never,
+      { BROWSER: {}, RENDERS: { put, get, delete: remove } } as unknown as Env
+    )
+
+    await vi.waitFor(() => expect(get).toHaveBeenCalledOnce())
+    controller.abort(new DOMException("Client left", "AbortError"))
+    loaded.resolve({
+      size: pdfBytes.length,
+      body: new ReadableStream<Uint8Array>({
+        start(stream) {
+          stream.enqueue(pdfBytes)
+        },
+        cancel: cancelBody,
+      }),
+    })
+
+    await expect(rendering).rejects.toMatchObject({ name: "AbortError" })
+    expect(cancelBody).toHaveBeenCalledOnce()
+    expect(remove).toHaveBeenCalledWith("abandoned-download/proposal.pdf")
   })
 })

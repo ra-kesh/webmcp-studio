@@ -150,4 +150,102 @@ describe("useCriticalActionOwner", () => {
     await act(async () => next.resolve())
     await vi.waitFor(() => expect(current?.activeAction).toBeNull())
   })
+
+  it("times out an action, keeps ownership while it stops, then exposes retry", async () => {
+    vi.useFakeTimers()
+    try {
+      const signals: AbortSignal[] = []
+      await act(async () => {
+        expect(
+          current!.dispatch(
+            "export-png",
+            (context) => {
+              signals.push(context.signal)
+              return new Promise((_resolve, reject) => {
+                context.signal.addEventListener(
+                  "abort",
+                  () => reject(context.signal.reason),
+                  { once: true }
+                )
+              })
+            },
+            {
+              cancelable: true,
+              timeoutMs: 1_000,
+              timeoutMessage: "PNG export timed out.",
+            }
+          )
+        ).toBe(true)
+      })
+
+      act(() => vi.advanceTimersByTime(1_000))
+
+      expect(signals[0]?.aborted).toBe(true)
+      expect(signals[0]?.reason).toMatchObject({ name: "TimeoutError" })
+      expect(current?.activeAction).toBe("export-png")
+      expect(current?.lifecycle).toMatchObject({
+        status: "cancelling",
+        action: "export-png",
+        reason: "timed_out",
+      })
+      expect(current!.retry()).toBe(false)
+
+      await act(async () => Promise.resolve())
+      await vi.waitFor(() => expect(current?.activeAction).toBeNull())
+      expect(current?.lifecycle).toMatchObject({
+        status: "timed_out",
+        action: "export-png",
+        message: "PNG export timed out.",
+        retryable: true,
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("prevents retry overlap until cancelled work acknowledges the abort", async () => {
+    const completions = [deferred<void>(), deferred<void>()]
+    const signals: AbortSignal[] = []
+    let invocation = 0
+    const operation = ({ signal }: { signal: AbortSignal }) => {
+      signals.push(signal)
+      return completions[invocation++].promise
+    }
+
+    await act(async () => {
+      expect(
+        current!.dispatch("export-pdf", operation, {
+          cancelable: true,
+          timeoutMs: 10_000,
+        })
+      ).toBe(true)
+    })
+    await act(async () => {
+      expect(current!.cancel()).toBe(true)
+    })
+    expect(signals[0]?.aborted).toBe(true)
+    expect(current?.lifecycle).toMatchObject({
+      status: "cancelling",
+      action: "export-pdf",
+      reason: "cancelled",
+    })
+    expect(current?.activeAction).toBe("export-pdf")
+    expect(current!.cancel()).toBe(false)
+    expect(current!.retry()).toBe(false)
+
+    await act(async () => completions[0].reject(signals[0]?.reason))
+    await vi.waitFor(() => expect(current?.activeAction).toBeNull())
+    expect(current?.lifecycle).toMatchObject({
+      status: "cancelled",
+      action: "export-pdf",
+      retryable: true,
+    })
+
+    await act(async () => expect(current!.retry()).toBe(true))
+    expect(current?.activeAction).toBe("export-pdf")
+    expect(signals[1]?.aborted).toBe(false)
+    await act(async () => completions[1].resolve())
+    await vi.waitFor(() => expect(current?.activeAction).toBeNull())
+    expect(current?.lifecycle).toEqual({ status: "idle" })
+  })
 })

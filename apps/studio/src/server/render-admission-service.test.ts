@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from "vitest"
 import type { RenderResourcePlan } from "@webmcp/document"
 
 import { renderBudgetLimitsFor } from "./render-admission-policy"
-import { reserveThumbnailCapacity } from "./render-admission-service"
+import {
+  failRenderLeaseWithRetry,
+  reserveThumbnailCapacity,
+} from "./render-admission-service"
 import type { StudioPrincipal } from "./studio-principal"
 
 const principal: StudioPrincipal = {
@@ -124,5 +127,44 @@ describe("thumbnail render admission", () => {
 
     expect(fail).toHaveBeenCalledTimes(2)
     expect(complete).not.toHaveBeenCalled()
+  })
+
+  it("retries a transient failure settlement without waiting for lease expiry", async () => {
+    const fail = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValueOnce(new Error("transient transport failure"))
+      .mockResolvedValueOnce(undefined)
+
+    await expect(
+      failRenderLeaseWithRetry({
+        reservationId: "render-failure-retry",
+        complete: vi.fn(async () => undefined),
+        fail,
+      })
+    ).resolves.toBeUndefined()
+
+    expect(fail).toHaveBeenCalledTimes(2)
+  })
+
+  it("reports both settlement failures so TTL recovery remains observable", async () => {
+    const first = new Error("first transport failure")
+    const second = new Error("second transport failure")
+    const fail = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValueOnce(first)
+      .mockRejectedValueOnce(second)
+
+    await expect(
+      failRenderLeaseWithRetry({
+        reservationId: "render-failure-exhausted",
+        complete: vi.fn(async () => undefined),
+        fail,
+      })
+    ).rejects.toMatchObject({
+      name: "AggregateError",
+      errors: [first, second],
+    })
+
+    expect(fail).toHaveBeenCalledTimes(2)
   })
 })

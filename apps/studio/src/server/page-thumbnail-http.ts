@@ -22,6 +22,7 @@ import {
 } from "./render-field-assets"
 import type { ManagedImageResourceExpectation } from "./render-field-assets"
 import {
+  failRenderLeaseWithRetry,
   RenderAdmissionError,
   renderAdmissionErrorResponse,
   reserveThumbnailCapacity,
@@ -295,7 +296,7 @@ export function createPageThumbnailRequestHandler(
       throw error
     }
     if (request.signal.aborted) {
-      await lease.fail()
+      await failRenderLeaseWithRetry(lease)
       request.signal.throwIfAborted()
     }
 
@@ -321,8 +322,12 @@ export function createPageThumbnailRequestHandler(
         env,
         rendererRequest
       )
+      if (request.signal.aborted) {
+        await rendererResponse.body?.cancel().catch(() => undefined)
+        request.signal.throwIfAborted()
+      }
       if (!rendererResponse.ok) {
-        await lease.fail()
+        await failRenderLeaseWithRetry(lease)
       } else if (
         !rendererThumbnailHeadersAreValid(rendererResponse, {
           outputId: output.id,
@@ -332,7 +337,7 @@ export function createPageThumbnailRequestHandler(
         })
       ) {
         await rendererResponse.body?.cancel()
-        await lease.fail()
+        await failRenderLeaseWithRetry(lease)
         return respond(
           Response.json(
             { error: "invalid_thumbnail_renderer_response" },
@@ -350,7 +355,7 @@ export function createPageThumbnailRequestHandler(
         })
       )
     } catch (error) {
-      await lease.fail()
+      await failRenderLeaseWithRetry(lease)
       throw error
     }
   }

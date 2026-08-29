@@ -186,4 +186,25 @@ describe("bounded JSON request reader", () => {
       400
     )
   })
+
+  it("preserves request cancellation instead of rewriting it as malformed input", async () => {
+    const controller = new AbortController()
+    const body = new ReadableStream<Uint8Array>({
+      pull() {
+        return new Promise(() => undefined)
+      },
+    })
+    const streamedRequest = new Request("https://worker.test/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+      signal: controller.signal,
+      duplex: "half",
+    } as RequestInit & { duplex: "half" })
+
+    const reading = readJsonBody(streamedRequest, { maxBytes: 32 })
+    controller.abort(new DOMException("Client left", "AbortError"))
+
+    await expect(reading).rejects.toMatchObject({ name: "AbortError" })
+  })
 })

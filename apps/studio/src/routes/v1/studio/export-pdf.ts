@@ -10,6 +10,7 @@ import {
 import type { Document } from "@webmcp/document"
 import { JsonBodyError, jsonBodyErrorResponse } from "@webmcp/worker-boundary"
 import { z } from "zod"
+import { createEphemeralArtifactRendererRequest } from "../../../server/artifact-renderer-request"
 import { readStudioJsonBody } from "../../../server/json-request-policy"
 import { MediaAssetRepository } from "../../../server/media-asset-repository"
 import { MediaAssetError } from "../../../server/media-assets"
@@ -19,6 +20,7 @@ import {
 } from "../../../server/render-field-assets"
 import type { ManagedImageResourceExpectation } from "../../../server/render-field-assets"
 import {
+  failRenderLeaseWithRetry,
   RenderAdmissionError,
   renderAdmissionErrorResponse,
   reserveRenderCapacity,
@@ -42,6 +44,7 @@ export const Route = createFileRoute("/v1/studio/export-pdf")({
     handlers: {
       POST: async ({ request, context }) => {
         const { workerEnv } = context
+        request.signal.throwIfAborted()
         let input: unknown
         try {
           input = await readStudioJsonBody(request, "/v1/studio/export-pdf")
@@ -71,6 +74,7 @@ export const Route = createFileRoute("/v1/studio/export-pdf")({
           throw error
         }
         const respond = principal.respond
+        request.signal.throwIfAborted()
 
         let renderDocument: Document
         let expectedImageResources: ManagedImageResourceExpectation[]
@@ -81,15 +85,23 @@ export const Route = createFileRoute("/v1/studio/export-pdf")({
           )
           const materialized = await materializeManagedDocumentAssets(
             parsed.data.document,
-            (assetId) =>
-              mediaAssets.resolveRendererSource(principal.workspaceId, assetId)
+            (assetId, resourceSignal) =>
+              mediaAssets.resolveRendererSource(
+                principal.workspaceId,
+                assetId,
+                resourceSignal
+              ),
+            [],
+            request.signal
           )
+          request.signal.throwIfAborted()
           renderDocument = materialized.document
           expectedImageResources = materialized.resources
           await assertRenderImageResourceAdmission(
             renderDocument,
             expectedImageResources
           )
+          request.signal.throwIfAborted()
           assertRenderableDocument(renderDocument)
         } catch (error) {
           if (error instanceof DocumentValidationError) {
@@ -149,6 +161,7 @@ export const Route = createFileRoute("/v1/studio/export-pdf")({
         })
         let lease
         try {
+          request.signal.throwIfAborted()
           lease = await reserveRenderCapacity(workerEnv, principal, plan)
         } catch (error) {
           if (error instanceof RenderAdmissionError) {
@@ -158,27 +171,29 @@ export const Route = createFileRoute("/v1/studio/export-pdf")({
         }
 
         try {
-          const body = JSON.stringify({
-            renderId: crypto.randomUUID(),
-            outputId: output.id,
-            document: renderDocument,
-            expectedImageResources,
+          request.signal.throwIfAborted()
+          const rendererRequest = createEphemeralArtifactRendererRequest({
+            path: "/render/pdf",
+            signal: request.signal,
+            body: {
+              renderId: crypto.randomUUID(),
+              outputId: output.id,
+              document: renderDocument,
+              expectedImageResources,
+            },
           })
-          const rendererResponse = await workerEnv.RENDERER.fetch(
-            new Request("https://renderer.internal/render/pdf", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body,
-            })
-          )
+          const rendererResponse =
+            await workerEnv.RENDERER.fetch(rendererRequest)
           if (!rendererResponse.ok) {
-            await lease.fail()
+            await failRenderLeaseWithRetry(lease)
           } else {
             await lease.complete(
               Number(rendererResponse.headers.get("X-Bytes") ?? 0)
             )
+          }
+          if (request.signal.aborted) {
+            await rendererResponse.body?.cancel().catch(() => undefined)
+            request.signal.throwIfAborted()
           }
 
           return respond(
@@ -188,7 +203,11 @@ export const Route = createFileRoute("/v1/studio/export-pdf")({
             })
           )
         } catch (error) {
-          await lease.fail()
+          try {
+            await failRenderLeaseWithRetry(lease)
+          } finally {
+            request.signal.throwIfAborted()
+          }
           const failure = rendererBindingFailureResponse(error)
           if (failure) return respond(failure)
           throw error

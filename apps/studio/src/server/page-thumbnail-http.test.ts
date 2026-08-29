@@ -147,7 +147,6 @@ function dependencies(options?: {
 
 describe("page thumbnail Studio boundary", () => {
   it("authenticates, admits capacity, and proxies the exact private request", async () => {
-    const controller = new AbortController()
     const invokeRenderer = vi.fn(async (_env: Env, request: Request) => {
       expect(request.url).toBe("https://renderer.internal/render/thumbnail")
       expect(request.method).toBe("POST")
@@ -160,17 +159,12 @@ describe("page thumbnail Studio boundary", () => {
         document: createPageThumbnailDocument(northstarSeed, "cover"),
         expectedImageResources: [],
       })
-      controller.abort()
-      expect(request.signal.aborted).toBe(true)
       return rendererResponse()
     })
     const fixture = dependencies({ invokeRenderer })
     const handler = createPageThumbnailRequestHandler(fixture.value)
 
-    const response = await handler(
-      jsonRequest(thumbnailRequest(), { signal: controller.signal }),
-      {} as Env
-    )
+    const response = await handler(jsonRequest(thumbnailRequest()), {} as Env)
 
     expect(response.status).toBe(200)
     expect(response.headers.get("X-Render-Mode")).toBe("ephemeral-thumbnail")
@@ -189,6 +183,36 @@ describe("page thumbnail Studio boundary", () => {
     })
     expect(fixture.complete).toHaveBeenCalledWith(3)
     expect(fixture.fail).not.toHaveBeenCalled()
+  })
+
+  it("fails capacity and cancels the renderer body when the caller leaves", async () => {
+    const controller = new AbortController()
+    const cancelBody = vi.fn()
+    const invokeRenderer = vi.fn(async () => {
+      controller.abort(new DOMException("Client left", "AbortError"))
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(stream) {
+            stream.enqueue(Uint8Array.from([1, 2, 3]))
+          },
+          cancel: cancelBody,
+        }),
+        { status: 200 }
+      )
+    })
+    const fixture = dependencies({ invokeRenderer })
+    const handler = createPageThumbnailRequestHandler(fixture.value)
+
+    await expect(
+      handler(
+        jsonRequest(thumbnailRequest(), { signal: controller.signal }),
+        {} as Env
+      )
+    ).rejects.toMatchObject({ name: "AbortError" })
+
+    expect(fixture.complete).not.toHaveBeenCalled()
+    expect(fixture.fail).toHaveBeenCalledOnce()
+    expect(cancelBody).toHaveBeenCalledOnce()
   })
 
   it("scopes a 100-page document before render-policy and renderer work", async () => {

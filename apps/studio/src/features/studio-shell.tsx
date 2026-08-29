@@ -188,6 +188,8 @@ import type { ReviewAffectedTarget } from "./editor/review-journal"
 import type { DocumentDraftRecord } from "./editor/document-draft-repository"
 import { useStudioPersistence } from "./persistence/studio-persistence-provider"
 import { useCriticalActionOwner } from "./editor/use-critical-action-owner"
+import { CriticalActionStatus } from "./editor/critical-action-status"
+import type { StudioCriticalAction } from "./editor/critical-action-status"
 import { exportPagePng } from "./editor/export-page-png"
 import { useRenderHistory } from "./editor/use-render-history"
 import { useStudioWebMcp } from "./editor/use-studio-webmcp"
@@ -323,15 +325,33 @@ function TextPresetMenuItems({
   ))
 }
 
-const blobToDataUrl = (blob: Blob) =>
+const FOREGROUND_EXPORT_TIMEOUT_MS = 60_000
+
+const blobToDataUrl = (blob: Blob, signal?: AbortSignal) =>
   new Promise<string>((resolve, reject) => {
+    signal?.throwIfAborted()
     const reader = new FileReader()
-    reader.onload = () =>
-      typeof reader.result === "string"
-        ? resolve(reader.result)
-        : reject(new Error("The image could not be prepared for export."))
-    reader.onerror = () =>
+    const cleanUp = () => signal?.removeEventListener("abort", abort)
+    const abort = () => {
+      reader.abort()
+      reject(signal?.reason)
+    }
+    reader.onload = () => {
+      cleanUp()
+      if (signal?.aborted) {
+        reject(signal.reason)
+      } else if (typeof reader.result === "string") {
+        resolve(reader.result)
+      } else {
+        reject(new Error("The image could not be prepared for export."))
+      }
+    }
+    reader.onerror = () => {
+      cleanUp()
       reject(reader.error ?? new Error("The image could not be read."))
+    }
+    reader.onabort = cleanUp
+    signal?.addEventListener("abort", abort, { once: true })
     reader.readAsDataURL(blob)
   })
 
@@ -643,9 +663,6 @@ export function StudioShell({
   )
   const [documentPanelTab, setDocumentPanelTab] =
     useState<DocumentPanelTab>("templates")
-  const [pdfExportState, setPdfExportState] = useState<
-    "idle" | "exporting" | "error"
-  >("idle")
   const {
     activeAction: criticalAction,
     error: criticalActionError,
@@ -653,9 +670,10 @@ export function StudioShell({
     claim: claimCriticalAction,
     release: releaseCriticalAction,
     dispatch: dispatchCriticalAction,
-  } = useCriticalActionOwner<
-    "home" | "export-json" | "export-png" | "export-pdf"
-  >()
+    lifecycle: criticalActionLifecycle,
+    cancel: cancelCriticalAction,
+    retry: retryCriticalAction,
+  } = useCriticalActionOwner<StudioCriticalAction>()
   const [compactPanel, setCompactPanel] = useState<
     "document" | "inspector" | null
   >(null)
@@ -2002,105 +2020,108 @@ export function StudioShell({
   }
 
   const materializeLocalExportNodes = async (
-    documentSnapshot: ReturnType<typeof editor.getCurrentDocumentSnapshot>
+    documentSnapshot: ReturnType<typeof editor.getCurrentDocumentSnapshot>,
+    signal?: AbortSignal
   ) =>
     Promise.all(
       documentSnapshot.nodes.map(async (node) => {
+        signal?.throwIfAborted()
         if (node.type !== "image") return node
         const localAssetId = localAssetIdFromSource(node.src)
         if (!localAssetId) return node
         const blob = await loadLocalAsset(localAssetId)
+        signal?.throwIfAborted()
         if (!blob) {
           throw new Error(`The local image “${node.name}” is unavailable.`)
         }
-        return { ...node, src: await blobToDataUrl(blob) }
+        return { ...node, src: await blobToDataUrl(blob, signal) }
       })
     )
 
-  const exportPng = async () => {
+  const exportPng = async (signal: AbortSignal) => {
     const requestedPageId = activePage.id
-    try {
-      if (editor.imageCropSession) return false
-      if (!commitActiveTextEditing()) return false
-      return exportPagePng({
-        requestedPageId,
-        flushActiveDraft: editor.flushActiveDraft,
-        getCurrentDocumentSnapshot: editor.getCurrentDocumentSnapshot,
-        materializeNodes: materializeLocalExportNodes,
-        fetcher: fetch,
-        download: (blob, filename) => {
-          const objectUrl = URL.createObjectURL(blob)
-          const link = document.createElement("a")
-          link.download = filename
-          link.href = objectUrl
-          link.hidden = true
-          document.body.appendChild(link)
-          link.click()
-          link.remove()
-          window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
-        },
-      })
-    } catch (error) {
-      setCriticalActionError(
-        error instanceof Error ? error.message : "PNG export failed."
-      )
-      return false
+    if (editor.imageCropSession) {
+      throw new Error("Finish or cancel the image crop before exporting PNG.")
     }
+    if (!commitActiveTextEditing()) {
+      throw new Error("Finish text editing before exporting PNG.")
+    }
+    return exportPagePng({
+      requestedPageId,
+      signal,
+      flushActiveDraft: editor.flushActiveDraft,
+      getCurrentDocumentSnapshot: editor.getCurrentDocumentSnapshot,
+      materializeNodes: (documentSnapshot) =>
+        materializeLocalExportNodes(documentSnapshot, signal),
+      fetcher: fetch,
+      download: (blob, filename) => {
+        signal.throwIfAborted()
+        const objectUrl = URL.createObjectURL(blob)
+        const link = document.createElement("a")
+        link.download = filename
+        link.href = objectUrl
+        link.hidden = true
+        document.body.appendChild(link)
+        link.click()
+        link.remove()
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+      },
+    })
   }
 
-  const exportPdf = async (outputId = activeOutput?.id) => {
-    setPdfExportState("exporting")
-    try {
-      if (editor.imageCropSession) {
-        setPdfExportState("idle")
-        return false
-      }
-      if (!commitActiveTextEditing()) {
-        setPdfExportState("idle")
-        return false
-      }
-      if (!(await editor.flushActiveDraft())) {
-        throw new Error(
-          "PDF export stopped because the current document is not durably saved."
-        )
-      }
-      const documentSnapshot = editor.getCurrentDocumentSnapshot()
-      const exportOutput = documentSnapshot.outputs.find(
-        (output) => output.id === outputId
-      )
-      if (!exportOutput || !exportOutput.exportFormats.includes("pdf")) {
-        throw new Error("The selected output is not available for PDF export.")
-      }
-      const exportNodes = await materializeLocalExportNodes(documentSnapshot)
-      const response = await fetch("/v1/studio/export-pdf", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          outputId: exportOutput.id,
-          document: { ...documentSnapshot, nodes: exportNodes },
-        }),
-      })
-      if (!response.ok) {
-        throw new Error(`PDF export failed (${response.status}).`)
-      }
-      const objectUrl = URL.createObjectURL(await response.blob())
-      const link = document.createElement("a")
-      link.download = `${exportOutput.name.toLowerCase().replaceAll(" ", "-")}.pdf`
-      link.href = objectUrl
-      link.hidden = true
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
-      setPdfExportState("idle")
-      return true
-    } catch (error) {
-      setPdfExportState("error")
-      setCriticalActionError(
-        error instanceof Error ? error.message : "PDF export failed."
-      )
-      return false
+  const exportPdf = async (
+    signal: AbortSignal,
+    outputId = activeOutput?.id
+  ) => {
+    if (editor.imageCropSession) {
+      throw new Error("Finish or cancel the image crop before exporting PDF.")
     }
+    if (!commitActiveTextEditing()) {
+      throw new Error("Finish text editing before exporting PDF.")
+    }
+    signal.throwIfAborted()
+    if (!(await editor.flushActiveDraft())) {
+      throw new Error(
+        "PDF export stopped because the current document is not durably saved."
+      )
+    }
+    signal.throwIfAborted()
+    const documentSnapshot = editor.getCurrentDocumentSnapshot()
+    const exportOutput = documentSnapshot.outputs.find(
+      (output) => output.id === outputId
+    )
+    if (!exportOutput || !exportOutput.exportFormats.includes("pdf")) {
+      throw new Error("The selected output is not available for PDF export.")
+    }
+    const exportNodes = await materializeLocalExportNodes(
+      documentSnapshot,
+      signal
+    )
+    signal.throwIfAborted()
+    const response = await fetch("/v1/studio/export-pdf", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        outputId: exportOutput.id,
+        document: { ...documentSnapshot, nodes: exportNodes },
+      }),
+      signal,
+    })
+    if (!response.ok) {
+      throw new Error(`PDF export failed (${response.status}).`)
+    }
+    const blob = await response.blob()
+    signal.throwIfAborted()
+    const objectUrl = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.download = `${exportOutput.name.toLowerCase().replaceAll(" ", "-")}.pdf`
+    link.href = objectUrl
+    link.hidden = true
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+    return true
   }
 
   const exportDocumentJson = async () => {
@@ -2279,6 +2300,17 @@ export function StudioShell({
   if (criticalActionError) {
     studioErrors.push(criticalActionError)
   }
+  const pdfExportState =
+    criticalActionLifecycle.status !== "idle" &&
+    criticalActionLifecycle.action === "export-pdf"
+      ? criticalActionLifecycle.status === "running" ||
+        criticalActionLifecycle.status === "cancelling"
+        ? "exporting"
+        : criticalActionLifecycle.status === "failed" ||
+            criticalActionLifecycle.status === "timed_out"
+          ? "error"
+          : "idle"
+      : "idle"
   const reviewLocked = Boolean(editor.pendingChangeSet)
   const cropLocked = Boolean(editor.imageCropSession)
   const outputBusy =
@@ -2508,11 +2540,27 @@ export function StudioShell({
         setPublishDialogOpen(true)
         return true
       case "output.export-png":
-        return dispatchCriticalAction("export-png", exportPng)
+        return dispatchCriticalAction(
+          "export-png",
+          ({ signal }) => exportPng(signal),
+          {
+            cancelable: true,
+            timeoutMs: FOREGROUND_EXPORT_TIMEOUT_MS,
+            timeoutMessage: "PNG export took too long. Nothing was downloaded.",
+          }
+        )
       case "output.export-pdf": {
         if (invocation.target?.kind !== "output") return false
         const outputId = invocation.target.outputId
-        return dispatchCriticalAction("export-pdf", () => exportPdf(outputId))
+        return dispatchCriticalAction(
+          "export-pdf",
+          ({ signal }) => exportPdf(signal, outputId),
+          {
+            cancelable: true,
+            timeoutMs: FOREGROUND_EXPORT_TIMEOUT_MS,
+            timeoutMessage: "PDF export took too long. Nothing was downloaded.",
+          }
+        )
       }
       case "developer.api-playground":
         setApiPlaygroundOpen(true)
@@ -2923,6 +2971,11 @@ export function StudioShell({
         if (!open) setCompactPanel(null)
       }}
     >
+      <CriticalActionStatus
+        lifecycle={criticalActionLifecycle}
+        onCancel={() => void cancelCriticalAction()}
+        onRetry={() => void retryCriticalAction()}
+      />
       <main
         aria-hidden={compactPanel !== null ? true : undefined}
         inert={compactPanel !== null ? true : undefined}

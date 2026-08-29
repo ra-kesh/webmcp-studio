@@ -45,9 +45,35 @@ describe("exportPagePng", () => {
     }
     expect(request.pageId).toBe(requestedPage.id)
     expect(request.document).toEqual(durableDocument)
+    expect(init.signal).toBeUndefined()
     expect(download).toHaveBeenCalledWith(
       expect.any(Blob),
       `${requestedPage.name.toLowerCase().replaceAll(" ", "-")}.png`
     )
+  })
+
+  it("stops after a pending save is cancelled and never calls the renderer", async () => {
+    const requestedPage = quotationStarter.document.pages[0]
+    const controller = new AbortController()
+    let resolveFlush!: (saved: boolean) => void
+    const flush = new Promise<boolean>((resolve) => {
+      resolveFlush = resolve
+    })
+    const fetcher = vi.fn()
+
+    const exporting = exportPagePng({
+      requestedPageId: requestedPage.id,
+      signal: controller.signal,
+      flushActiveDraft: () => flush,
+      getCurrentDocumentSnapshot: () => quotationStarter.document,
+      materializeNodes: async (document) => document.nodes,
+      fetcher,
+      download: vi.fn(),
+    })
+    controller.abort(new DOMException("Cancelled", "AbortError"))
+    resolveFlush(true)
+
+    await expect(exporting).rejects.toMatchObject({ name: "AbortError" })
+    expect(fetcher).not.toHaveBeenCalled()
   })
 })

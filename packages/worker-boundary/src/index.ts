@@ -67,6 +67,7 @@ export async function readJsonBody(
   request: Request,
   options: ReadJsonBodyOptions
 ): Promise<unknown> {
+  request.signal.throwIfAborted()
   if (!Number.isSafeInteger(options.maxBytes) || options.maxBytes <= 0) {
     throw new TypeError("maxBytes must be a positive safe integer")
   }
@@ -91,11 +92,16 @@ export async function readJsonBody(
   }
 
   const reader = request.body.getReader()
+  const abortRead = () => {
+    void reader.cancel(request.signal.reason).catch(() => undefined)
+  }
+  request.signal.addEventListener("abort", abortRead, { once: true })
   const chunks: Uint8Array[] = []
   let bytes = 0
   try {
     while (true) {
       const part = await reader.read()
+      request.signal.throwIfAborted()
       if (part.done) break
       bytes += part.value.byteLength
       if (bytes > options.maxBytes) {
@@ -111,14 +117,18 @@ export async function readJsonBody(
     }
   } catch (error) {
     if (error instanceof JsonBodyError) throw error
+    request.signal.throwIfAborted()
     throw new JsonBodyError(
       "request_body_unreadable",
       400,
       "Request body could not be read"
     )
   } finally {
+    request.signal.removeEventListener("abort", abortRead)
     reader.releaseLock()
   }
+
+  request.signal.throwIfAborted()
 
   if (bytes === 0) {
     throw new JsonBodyError("empty_json_body", 400, "JSON body is empty")

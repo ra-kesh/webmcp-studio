@@ -4,6 +4,7 @@ type PngExportResponse = Pick<Response, "blob" | "ok" | "status">
 
 export type PagePngExportDependencies = Readonly<{
   requestedPageId: string
+  signal?: AbortSignal
   flushActiveDraft: () => Promise<boolean>
   getCurrentDocumentSnapshot: () => Document
   materializeNodes: (document: Document) => Promise<Document["nodes"]>
@@ -20,17 +21,20 @@ const pagePngFilename = (pageName: string) =>
  */
 export async function exportPagePng({
   requestedPageId,
+  signal,
   flushActiveDraft,
   getCurrentDocumentSnapshot,
   materializeNodes,
   fetcher,
   download,
 }: PagePngExportDependencies) {
+  signal?.throwIfAborted()
   if (!(await flushActiveDraft())) {
     throw new Error(
       "PNG export stopped because the current document is not durably saved."
     )
   }
+  signal?.throwIfAborted()
 
   const document = getCurrentDocumentSnapshot()
   const requestedPage = document.pages.find(
@@ -41,6 +45,7 @@ export async function exportPagePng({
   }
 
   const nodes = await materializeNodes(document)
+  signal?.throwIfAborted()
   const response = await fetcher("/v1/studio/export-png", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -48,11 +53,14 @@ export async function exportPagePng({
       pageId: requestedPage.id,
       document: { ...document, nodes },
     }),
+    signal,
   })
   if (!response.ok) {
     throw new Error(`PNG export failed (${response.status}).`)
   }
 
-  await download(await response.blob(), pagePngFilename(requestedPage.name))
+  const blob = await response.blob()
+  signal?.throwIfAborted()
+  await download(blob, pagePngFilename(requestedPage.name))
   return true
 }

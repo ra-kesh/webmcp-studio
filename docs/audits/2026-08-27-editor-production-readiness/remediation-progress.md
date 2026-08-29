@@ -2092,3 +2092,40 @@ Status: **completed locally and independently accepted; healthy-host renderer ev
 - The final independent verdict is **ACCEPT with no remaining P0/P1 finding**.
   `perf-01-layer-scale-independent-review.md` preserves the rejected paths,
   repairs, evidence decision, and final code-review result.
+
+## 2026-08-29 — Foreground export failure lifecycle (FAIL-01A)
+
+Status: **implemented locally and independently accepted; broader FAIL-01 remains open**
+
+- Reread the current failure audit, Loora's bounded import cleanup,
+  OpenPencil's AbortSignal timeout pattern, the existing thumbnail boundary,
+  and current Cloudflare request-signal compatibility requirements before
+  editing.
+- PNG and PDF now use one identity-aware foreground operation owner. The
+  60-second deadline requests abort and the always-mounted surface remains
+  visibly `cancelling` until owned work acknowledges it; Retry cannot overlap a
+  non-cooperative prerequisite or accept a stale completion.
+- AbortSignal now crosses local asset preparation, Studio export fetch,
+  managed-resource materialization, the private Renderer HTTP request, Browser
+  Rendering, and response bodies. Browser close is idempotent. Foreground PNG
+  and PDF are explicitly ephemeral and return bytes from memory without R2;
+  the persistent render path retains its put/get abort cleanup.
+- Incoming Worker cancellation and service-binding passthrough are explicitly
+  enabled. Shared JSON parsing preserves AbortError. The adjacent thumbnail
+  boundary cancels the Renderer body and fails its lease when its caller leaves.
+  Failure settlement retries once per attempt; if both transport calls fail,
+  the admission reservation TTL remains the final recovery.
+- Focused tests cover the cancelling ownership lock, cancel/retry identity,
+  visible recovery actions, pre-render cancellation, Browser close, exact
+  in-memory foreground responses with no R2 calls, persistent R2 cleanup,
+  request-body cancellation, and thumbnail lease settlement. Worker-boundary,
+  Renderer and Studio typechecks pass. The real port-3001 PDF flow visibly
+  entered progress, cancelled, exposed Retry, started a fresh operation and
+  cancelled again; port 3000 was untouched.
+- `fail-01a-foreground-export-lifecycle.md` records the exact gate and the
+  remaining FAIL-01 boundaries. This phase does not claim Fabric, storage,
+  upload, import, publish, WebMCP, render-job recovery, or overall server-side
+  render deadlines are complete.
+- Independent review accepted the final bounded diff with no remaining P0/P1
+  after the cancelling-ownership, ephemeral-artifact, admission-settlement,
+  and audit-truthfulness repairs.

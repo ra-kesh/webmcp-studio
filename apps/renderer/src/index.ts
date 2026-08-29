@@ -1,4 +1,4 @@
-import { launch, type Page } from "@cloudflare/playwright"
+import { launch, type Browser, type Page } from "@cloudflare/playwright"
 import {
   assertPageThumbnailSize,
   assertRenderImageResourceAdmission,
@@ -282,6 +282,37 @@ const prefersMetadataOnly = (request: Request) =>
     ?.split(",")
     .some((preference) => preference.trim() === "return=minimal") ?? false
 
+const prefersEphemeralArtifact = (request: Request) =>
+  request.headers.get("X-Render-Persistence") === "ephemeral"
+
+function ephemeralArtifactResponse({
+  bytes,
+  contentType,
+  filename,
+  renderId,
+  details,
+}: {
+  bytes: Uint8Array
+  contentType: string
+  filename: string
+  renderId: string
+  details: Record<string, string>
+}) {
+  const responseBytes = Uint8Array.from(bytes)
+  return new Response(responseBytes.buffer, {
+    headers: {
+      "Cache-Control": "no-store",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Content-Length": String(bytes.byteLength),
+      "Content-Type": contentType,
+      "X-Bytes": String(bytes.byteLength),
+      "X-Render-Id": renderId,
+      "X-Render-Mode": "ephemeral-export",
+      ...details,
+    },
+  })
+}
+
 function storedArtifactHeaders({
   contentType,
   filename,
@@ -322,11 +353,33 @@ async function storedArtifactResponse({
   key: string
   headers: Headers
 }) {
+  await removeStoredArtifactAfterAbort(request, env, key)
   if (prefersMetadataOnly(request)) {
     headers.set("Preference-Applied", "return=minimal")
+    await removeStoredArtifactAfterAbort(request, env, key)
     return new Response(null, { status: 204, headers })
   }
-  const stored = await env.RENDERS.get(key)
+  let stored
+  try {
+    stored = await env.RENDERS.get(key)
+  } catch (error) {
+    if (request.signal.aborted) {
+      try {
+        await env.RENDERS.delete(key)
+      } finally {
+        request.signal.throwIfAborted()
+      }
+    }
+    throw error
+  }
+  if (request.signal.aborted) {
+    await stored?.body.cancel().catch(() => undefined)
+    try {
+      await env.RENDERS.delete(key)
+    } finally {
+      request.signal.throwIfAborted()
+    }
+  }
   if (!stored) {
     await env.RENDERS.delete(key)
     return Response.json(
@@ -335,6 +388,7 @@ async function storedArtifactResponse({
     )
   }
   headers.set("Content-Length", String(stored.size))
+  await removeStoredArtifactAfterAbort(request, env, key)
   return new Response(stored.body, { headers })
 }
 
@@ -350,7 +404,87 @@ async function rendererJson(
   }
 }
 
+async function withAbortableBrowser<T>(
+  request: Request,
+  env: Env,
+  operation: (browser: Browser) => Promise<T>
+): Promise<T> {
+  request.signal.throwIfAborted()
+  let browser: Browser
+  try {
+    browser = await launch(env.BROWSER)
+  } catch (error) {
+    request.signal.throwIfAborted()
+    throw error
+  }
+
+  let closePromise: Promise<void> | undefined
+  const closeBrowser = () => {
+    closePromise ??= browser.close()
+    return closePromise
+  }
+  const abortBrowser = () => {
+    void closeBrowser().catch(() => undefined)
+  }
+  request.signal.addEventListener("abort", abortBrowser, { once: true })
+  try {
+    request.signal.throwIfAborted()
+    return await operation(browser)
+  } catch (error) {
+    request.signal.throwIfAborted()
+    throw error
+  } finally {
+    request.signal.removeEventListener("abort", abortBrowser)
+    try {
+      await closeBrowser()
+    } catch (error) {
+      request.signal.throwIfAborted()
+      throw error
+    }
+  }
+}
+
+async function removeStoredArtifactAfterAbort(
+  request: Request,
+  env: Env,
+  key: string
+) {
+  if (!request.signal.aborted) return
+  try {
+    await env.RENDERS.delete(key)
+  } finally {
+    request.signal.throwIfAborted()
+  }
+}
+
+async function completeArtifactStore<T>(
+  request: Request,
+  env: Env,
+  key: string,
+  store: () => Promise<T>
+): Promise<T> {
+  let abortCleanupAttempted = false
+  try {
+    const stored = await store()
+    if (request.signal.aborted) {
+      abortCleanupAttempted = true
+      await removeStoredArtifactAfterAbort(request, env, key)
+    }
+    return stored
+  } catch (error) {
+    if (request.signal.aborted && !abortCleanupAttempted) {
+      try {
+        await env.RENDERS.delete(key)
+      } finally {
+        request.signal.throwIfAborted()
+      }
+    }
+    throw error
+  }
+}
+
 async function handleRender(request: Request, env: Env): Promise<Response> {
+  request.signal.throwIfAborted()
   const input = await rendererJson(request)
   if (input instanceof Response) return input
   const parsed = renderRequestSchema.safeParse(input)
@@ -383,25 +517,29 @@ async function handleRender(request: Request, env: Env): Promise<Response> {
       parsed.data.expectedImageResources
     )
   } catch (error) {
+    request.signal.throwIfAborted()
     if (error instanceof RenderResourceError) {
       return renderResourceErrorResponse(error)
     }
     throw error
   }
 
-  const browser = await launch(env.BROWSER)
-  try {
+  request.signal.throwIfAborted()
+  return withAbortableBrowser(request, env, async (browser) => {
     const browserPage = await browser.newPage()
+    request.signal.throwIfAborted()
     await browserPage.setViewportSize({
       width: page.width,
       height: page.height,
     })
+    request.signal.throwIfAborted()
     await browserPage.setContent(
       renderDocumentToHtml(parsed.data.document, page.id),
       {
         waitUntil: "networkidle",
       }
     )
+    request.signal.throwIfAborted()
     try {
       await waitForRenderResources(
         browserPage,
@@ -411,12 +549,15 @@ async function handleRender(request: Request, env: Env): Promise<Response> {
         )
       )
     } catch (error) {
+      request.signal.throwIfAborted()
       if (error instanceof RenderResourceError) {
         return renderResourceErrorResponse(error)
       }
       throw error
     }
+    request.signal.throwIfAborted()
     const png = await browserPage.screenshot({ type: "png" })
+    request.signal.throwIfAborted()
     try {
       assertArtifactSize(png.byteLength)
     } catch (error) {
@@ -425,21 +566,40 @@ async function handleRender(request: Request, env: Env): Promise<Response> {
       }
       throw error
     }
+    if (prefersEphemeralArtifact(request)) {
+      request.signal.throwIfAborted()
+      return ephemeralArtifactResponse({
+        bytes: png,
+        contentType: "image/png",
+        filename: `${page.id}.png`,
+        renderId: parsed.data.renderId,
+        details: {
+          "X-Page-Id": page.id,
+          "X-Output-Id": parsed.data.outputId,
+          "X-Width": String(page.width),
+          "X-Height": String(page.height),
+        },
+      })
+    }
     const key = `${parsed.data.renderId}/${parsed.data.outputId}/${page.id}.png`
-    const stored = await env.RENDERS.put(key, png, {
-      httpMetadata: { contentType: "image/png" },
-      customMetadata: {
-        documentId: parsed.data.document.id,
-        outputId: parsed.data.outputId,
-        revision: String(parsed.data.document.revision),
-      },
-    })
+    request.signal.throwIfAborted()
+    const stored = await completeArtifactStore(request, env, key, () =>
+      env.RENDERS.put(key, png, {
+        httpMetadata: { contentType: "image/png" },
+        customMetadata: {
+          documentId: parsed.data.document.id,
+          outputId: parsed.data.outputId,
+          revision: String(parsed.data.document.revision),
+        },
+      })
+    )
     if (!stored) {
       return Response.json(
         { error: "render_artifact_store_failed" },
         { status: 502 }
       )
     }
+    await removeStoredArtifactAfterAbort(request, env, key)
     return storedArtifactResponse({
       request,
       env,
@@ -459,9 +619,7 @@ async function handleRender(request: Request, env: Env): Promise<Response> {
         },
       }),
     })
-  } finally {
-    await browser.close()
-  }
+  })
 }
 
 async function handleThumbnailRender(
@@ -521,6 +679,7 @@ async function handleThumbnailRender(
       parsed.data.expectedImageResources
     )
   } catch (error) {
+    request.signal.throwIfAborted()
     if (error instanceof RenderResourceError) {
       return renderResourceErrorResponse(error)
     }
@@ -559,6 +718,7 @@ async function handleThumbnailRender(
         )
       )
     } catch (error) {
+      request.signal.throwIfAborted()
       if (error instanceof RenderResourceError) {
         return renderResourceErrorResponse(error)
       }
@@ -591,6 +751,7 @@ async function handleThumbnailRender(
       )
     }
 
+    request.signal.throwIfAborted()
     return new Response(png, {
       headers: {
         "Cache-Control": "no-store",
@@ -613,6 +774,7 @@ async function handleThumbnailRender(
 }
 
 async function handlePdfRender(request: Request, env: Env): Promise<Response> {
+  request.signal.throwIfAborted()
   const input = await rendererJson(request)
   if (input instanceof Response) return input
   const parsed = pdfRenderRequestSchema.safeParse(input)
@@ -648,21 +810,24 @@ async function handlePdfRender(request: Request, env: Env): Promise<Response> {
       parsed.data.expectedImageResources
     )
   } catch (error) {
+    request.signal.throwIfAborted()
     if (error instanceof RenderResourceError) {
       return renderResourceErrorResponse(error)
     }
     throw error
   }
 
-  const browser = await launch(env.BROWSER)
-  try {
+  request.signal.throwIfAborted()
+  return withAbortableBrowser(request, env, async (browser) => {
     const browserPage = await browser.newPage()
+    request.signal.throwIfAborted()
     await browserPage.setContent(
       renderOutputToHtml(parsed.data.document, output.id),
       {
         waitUntil: "networkidle",
       }
     )
+    request.signal.throwIfAborted()
     try {
       const renderedNodeIds = new Set(
         parsed.data.document.pages
@@ -677,17 +842,20 @@ async function handlePdfRender(request: Request, env: Env): Promise<Response> {
         )
       )
     } catch (error) {
+      request.signal.throwIfAborted()
       if (error instanceof RenderResourceError) {
         return renderResourceErrorResponse(error)
       }
       throw error
     }
+    request.signal.throwIfAborted()
     const pdfBytes = await browserPage.pdf({
       preferCSSPageSize: true,
       printBackground: true,
       tagged: true,
       margin: { top: 0, right: 0, bottom: 0, left: 0 },
     })
+    request.signal.throwIfAborted()
     try {
       assertArtifactSize(pdfBytes.byteLength)
     } catch (error) {
@@ -697,22 +865,40 @@ async function handlePdfRender(request: Request, env: Env): Promise<Response> {
       throw error
     }
 
+    if (prefersEphemeralArtifact(request)) {
+      request.signal.throwIfAborted()
+      return ephemeralArtifactResponse({
+        bytes: pdfBytes,
+        contentType: "application/pdf",
+        filename: `${output.id}.pdf`,
+        renderId: parsed.data.renderId,
+        details: {
+          "X-Page-Count": String(output.pageIds.length),
+          "X-Output-Id": output.id,
+        },
+      })
+    }
+
     const key = `${parsed.data.renderId}/${output.id}.pdf`
-    const stored = await env.RENDERS.put(key, pdfBytes, {
-      httpMetadata: { contentType: "application/pdf" },
-      customMetadata: {
-        documentId: parsed.data.document.id,
-        outputId: output.id,
-        pageCount: String(output.pageIds.length),
-        revision: String(parsed.data.document.revision),
-      },
-    })
+    request.signal.throwIfAborted()
+    const stored = await completeArtifactStore(request, env, key, () =>
+      env.RENDERS.put(key, pdfBytes, {
+        httpMetadata: { contentType: "application/pdf" },
+        customMetadata: {
+          documentId: parsed.data.document.id,
+          outputId: output.id,
+          pageCount: String(output.pageIds.length),
+          revision: String(parsed.data.document.revision),
+        },
+      })
+    )
     if (!stored) {
       return Response.json(
         { error: "render_artifact_store_failed" },
         { status: 502 }
       )
     }
+    await removeStoredArtifactAfterAbort(request, env, key)
     return storedArtifactResponse({
       request,
       env,
@@ -730,9 +916,7 @@ async function handlePdfRender(request: Request, env: Env): Promise<Response> {
         },
       }),
     })
-  } finally {
-    await browser.close()
-  }
+  })
 }
 
 export default {

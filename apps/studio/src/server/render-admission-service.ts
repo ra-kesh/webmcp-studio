@@ -20,6 +20,28 @@ export type RenderAdmissionLease = {
   fail: () => Promise<void>
 }
 
+/**
+ * Failure settlement is idempotent. Retry once immediately so a transient
+ * Durable Object transport failure does not hold a capacity slot until its
+ * reservation TTL expires.
+ */
+export async function failRenderLeaseWithRetry(
+  lease: RenderAdmissionLease
+): Promise<void> {
+  try {
+    await lease.fail()
+  } catch (firstError) {
+    try {
+      await lease.fail()
+    } catch (secondError) {
+      throw new AggregateError(
+        [firstError, secondError],
+        "Render capacity failure settlement failed twice"
+      )
+    }
+  }
+}
+
 export async function reserveRenderCapacity(
   env: Env,
   principal: StudioPrincipal,
