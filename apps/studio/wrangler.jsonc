@@ -31,8 +31,8 @@
   ],
   "vars": {
     "STUDIO_ACCESS_MODE": "cloudflare_access",
-    "ACCESS_TEAM_DOMAIN": "",
-    "ACCESS_POLICY_AUD": "",
+    "ACCESS_TEAM_DOMAIN": "https://proud-poetry-8ab7.cloudflareaccess.com",
+    "ACCESS_POLICY_AUD": "07a8e88144f5028ff84661eb619b99821ecc076aa72be30f55cf87d7b385103b",
   },
   "durable_objects": {
     "bindings": [

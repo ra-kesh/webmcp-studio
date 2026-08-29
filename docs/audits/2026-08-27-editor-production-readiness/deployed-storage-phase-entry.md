@@ -2,8 +2,7 @@
 
 Date: 2026-08-30
 
-Status: storage provisioned; Cloudflare Access onboarding and production
-deployment remain active
+Status: production deployment completed; authenticated/deployed acceptance remains active
 
 ## Outcome
 
@@ -143,7 +142,32 @@ isolated APAC resources now exist in the pinned account:
 - R2 `webmcp-studio-assets`;
 - R2 `webmcp-studio-renders`.
 
-The remote-ready preflight now passes account, permission, D1 identity and both
-exact R2 checks. Its only failures are `ACCESS_TEAM_DOMAIN` and
-`ACCESS_POLICY_AUD`. No D1 migration, Worker, Workflow, Durable Object, Browser
-session or production object has been created by the deployment runner yet.
+The remote-ready preflight now passes account, permission, D1 identity, both
+exact R2 checks, and the Cloudflare Access issuer/audience checks.
+
+## Production deployment checkpoint
+
+- Activated Cloudflare Zero Trust Free and created one self-hosted **WebMCP
+  Studio** application for `webmcp-studio.iamrakeshkumar.workers.dev`.
+- Access has one owner-only Allow policy for `iamrakeshkumar@pm.me`. A duplicate
+  draft policy created by the dashboard's delayed state was detected, removed,
+  and the final application was re-inspected with one policy.
+- Recorded the public team issuer and 64-hex application audience in Studio's
+  production bindings and regenerated Worker types.
+- Static, remote-ready and plan preflights passed. The plan packaged both
+  Workers and reported an empty first-install D1 with exactly eleven pending
+  migrations without mutating it.
+- The accepted apply sequence installed all eleven migrations, deployed the
+  private Renderer first, deployed Studio with its Workflow, Durable Object,
+  D1, R2 and Renderer service bindings, and passed post-deploy verification.
+- Remote `d1_migrations` exactly matches the ordered local migration list. A
+  read-only schema inventory found the expected workspace, document,
+  publication, asset, render-job and API-audit tables and indexes in APAC.
+- An unauthenticated request to the production hostname receives a Cloudflare
+  Access `302` login redirect. No token, cookie or redirect payload is retained
+  in repository evidence.
+
+Still open for this larger gate: owner-authenticated product traversal,
+two-principal isolation, real multipart/R2 and Workflow/artifact exercises,
+capacity/audit/hostile-input evidence, a deployed restart, parity capture and
+expiry proof. Those are acceptance evidence, not missing deployment mechanics.
