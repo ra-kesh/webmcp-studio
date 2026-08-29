@@ -148,11 +148,58 @@ export type ProductCommandArguments =
     }>
   | Readonly<{ kind: "distribution"; distribution: Distribution }>
 
+export type ProductCommandArgumentContract =
+  | Readonly<{ kind: "none" }>
+  | Readonly<{
+      kind: "text-preset"
+      optional: true
+      fields: Readonly<{ presetId: Readonly<{ type: "string"; minLength: 1 }> }>
+    }>
+  | Readonly<{
+      kind: "alignment"
+      variants: readonly Alignment[]
+      relativeTo: readonly ["selection", "page"]
+    }>
+  | Readonly<{
+      kind: "distribution"
+      variants: readonly Distribution[]
+    }>
+
 export type ProductCommandInvocation = Readonly<{
   commandId: ProductCommandId
   target?: ProductCommandTarget
   arguments?: ProductCommandArguments
 }>
+
+export function productCommandArgumentContract(
+  commandId: ProductCommandId
+): ProductCommandArgumentContract {
+  if (commandId === "object.add-text") {
+    return {
+      kind: "text-preset",
+      optional: true,
+      fields: { presetId: { type: "string", minLength: 1 } },
+    }
+  }
+  if (commandId === "arrange.align") {
+    return {
+      kind: "alignment",
+      variants: [
+        "left",
+        "horizontal-center",
+        "right",
+        "top",
+        "vertical-center",
+        "bottom",
+      ],
+      relativeTo: ["selection", "page"],
+    }
+  }
+  if (commandId === "arrange.distribute") {
+    return { kind: "distribution", variants: ["horizontal", "vertical"] }
+  }
+  return { kind: "none" }
+}
 
 export type ProductCommandCheckedState = boolean | "mixed" | undefined
 
@@ -1444,6 +1491,45 @@ export function formatProductCommandShortcut(
     .join("+")
 }
 
+/**
+ * Complete serializable command-policy projection shared by non-visual
+ * adapters. Unlike the palette projection, this includes commands that are
+ * intentionally absent from command search and expands every typed argument
+ * variant before resolving it through the canonical policy owner.
+ */
+export function projectProductCommandCapabilities(
+  context: ProductCommandRuntimeContext
+): readonly ResolvedProductCommand[] {
+  return productCommandIds.flatMap((commandId) => {
+    const definition = productCommandCatalog[commandId]
+    if (commandId === "arrange.align") {
+      return [
+        ...alignmentItems(context, "selection"),
+        ...alignmentItems(context, "page"),
+      ].map((item) => item.command)
+    }
+    if (commandId === "arrange.distribute") {
+      return (["horizontal", "vertical"] as const).map((distribution) => {
+        const resolved = itemFor("arrange.distribute", context, {
+          kind: "distribution",
+          distribution,
+        }).command
+        return { ...resolved, label: `Distribute ${distribution}` }
+      })
+    }
+    const target = targetFor(context, definition.scope)
+    return [
+      resolveProductCommand(
+        {
+          commandId,
+          ...(target ? { target } : {}),
+        },
+        context
+      ),
+    ]
+  })
+}
+
 export function projectProductCommandPalette(
   context: ProductCommandRuntimeContext,
   platform: ProductShortcutPlatform
@@ -1469,35 +1555,9 @@ export function projectProductCommandPalette(
         .toLowerCase(),
     }
   }
-  return productCommandIds.flatMap((commandId) => {
-    const definition = productCommandCatalog[commandId]
-    if (!definition.discoverable) return []
-    if (commandId === "arrange.align") {
-      return [
-        ...alignmentItems(context, "selection"),
-        ...alignmentItems(context, "page"),
-      ].map((item) => project(item.command))
-    }
-    if (commandId === "arrange.distribute") {
-      return (["horizontal", "vertical"] as const).map((distribution) => {
-        const resolved = itemFor("arrange.distribute", context, {
-          kind: "distribution",
-          distribution,
-        }).command
-        return project({
-          ...resolved,
-          label: `Distribute ${distribution}`,
-        })
-      })
-    }
-    const invocation: ProductCommandInvocation = {
-      commandId,
-      ...(targetFor(context, definition.scope)
-        ? { target: targetFor(context, definition.scope) }
-        : {}),
-    }
-    return [project(resolveProductCommand(invocation, context))]
-  })
+  return projectProductCommandCapabilities(context)
+    .filter(({ definition }) => definition.discoverable)
+    .map(project)
 }
 
 export type ProductContextKind = "blank-canvas" | "selection" | "layer"

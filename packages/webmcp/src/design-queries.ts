@@ -36,7 +36,13 @@ export type DesignNodeSearchQuery = Readonly<{
 export class DesignQueryError extends Error {
   constructor(
     readonly code:
-      "invalid_query" | "invalid_cursor" | "page_not_found" | "node_not_found",
+      | "invalid_query"
+      | "invalid_cursor"
+      | "page_not_found"
+      | "output_not_found"
+      | "node_not_found"
+      | "capabilities_unavailable"
+      | "stale_context",
     message: string
   ) {
     super(message)

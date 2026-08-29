@@ -12,6 +12,10 @@ The Studio registers one stable tool surface because editing, review, publishing
 
 Read-only. Returns revision, the active page, its public canonical layers, selection, shared fields, bindings, outputs, pending changes, and the host's current typed command capabilities. Stable node IDs replace DOM selectors and Fabric serialization. Image layers expose stable asset IDs and crop metadata, never private renderer sources. Every field includes its agent description, executable validation contract, display value, and exact binding targets across pages and outputs. Command availability is projected by the same runtime policy used by Studio controls, including transient reasons such as image decode readiness; clients must not infer enablement from document shape alone.
 
+### `get_capabilities`
+
+Read-only. Projects every canonical Studio product command through the same `resolveProductCommand` policy used by menus, command search, structure controls, shortcuts, and canvas actions. Results include exact snapshot identity, stable target, typed argument contract, concrete alignment/distribution variants, enabled/checked state, exact disabled reason, and mutation/destructive metadata. Optional filters cover command ID, category, scope, enabled state, and stable current/page/output targets. Every entry states `execution: "not_exposed"`; this discovery tool never dispatches or implies a direct mutation path.
+
 ### `read_design_tree`
 
 Read-only. Returns the canonical front-to-back page, group, and layer tree without navigating the editor. The tree is a bounded pre-order stream whose items include `pageId`, `outputId`, `parentId`, and `depth`, so a continuation can resume inside a large page without repeating or dumping the complete hierarchy. Callers can request one page, cap hierarchy depth, and paginate the total semantic item stream with an opaque snapshot-bound cursor. Every response carries document ID, revision, snapshot ID, and operation version.
@@ -62,13 +66,13 @@ Read-only. Returns recent persisted render jobs, request selections, status, dim
 
 ## Route map
 
-| Route state        | Tools                                                                                                                                                                                                                     |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Library            | `search_assets`                                                                                                                                                                                                           |
-| Editor             | `inspect_design`, `read_design_tree`, `read_design_node`, `search_design_nodes`, `search_assets`, `validate_design`, `propose_asset_insertion`, `propose_field_updates`, `propose_canvas_edits`, `propose_output_variant` |
-| Review             | Editor read tools; acceptance and rejection remain human-only in the Review panel                                                                                                                                         |
-| Published template | `validate_design`, `publish_template`, `render_template`, `inspect_render_history`                                                                                                                                        |
-| Render history     | `render_template`, `inspect_render_history`                                                                                                                                                                               |
+| Route state        | Tools                                                                                                                                                                                                                                         |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Library            | `search_assets`                                                                                                                                                                                                                               |
+| Editor             | `inspect_design`, `get_capabilities`, `read_design_tree`, `read_design_node`, `search_design_nodes`, `search_assets`, `validate_design`, `propose_asset_insertion`, `propose_field_updates`, `propose_canvas_edits`, `propose_output_variant` |
+| Review             | Editor read tools; acceptance and rejection remain human-only in the Review panel                                                                                                                                                             |
+| Published template | `validate_design`, `publish_template`, `render_template`, `inspect_render_history`                                                                                                                                                            |
+| Render history     | `render_template`, `inspect_render_history`                                                                                                                                                                                                   |
 
 Registration cleans up with the Studio surface and remains safe under React Strict Mode. Tool handlers capture current services through stable references rather than stale render closures.
 

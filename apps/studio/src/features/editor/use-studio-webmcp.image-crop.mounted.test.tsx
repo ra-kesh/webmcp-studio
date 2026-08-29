@@ -7,15 +7,8 @@ import { createRoot } from "react-dom/client"
 import type { Root } from "react-dom/client"
 import { documentSchema } from "@webmcp/document"
 import type { ChangeSet, SceneNode } from "@webmcp/document"
-import {
-  deriveEditorImageCommandCapabilities,
-  isEditorCommandEnabled,
-  projectEditorCommandCapabilities,
-} from "@webmcp/editor/commands"
-import type {
-  EditorCommandContext,
-  EditorCommandId,
-} from "@webmcp/editor/commands"
+import { deriveEditorImageCommandCapabilities } from "@webmcp/editor/commands"
+import type { EditorCommandContext } from "@webmcp/editor/commands"
 import { imageCropSessionHasChanges } from "@webmcp/editor/image-crop-session"
 import { createInspectorSelectionModel } from "@webmcp/editor/inspector"
 import { beforeAll, beforeEach, describe, expect, it } from "vitest"
@@ -143,13 +136,11 @@ function MountedEditorWebMcpComposition({
     image: imageCapabilities,
   }
 
-  const commandEnabled = (commandId: EditorCommandId) => {
+  const readLiveCommandContext = (): EditorCommandContext => {
     const liveSession =
       editor.imageCropPreviewStore?.getLiveSession() ?? editor.imageCropSession
-    if (!liveSession) {
-      return isEditorCommandEnabled(commandId, commandContext)
-    }
-    return isEditorCommandEnabled(commandId, {
+    if (!liveSession) return commandContext
+    return {
       ...commandContext,
       imageCropActive: true,
       image: deriveEditorImageCommandCapabilities({
@@ -162,7 +153,7 @@ function MountedEditorWebMcpComposition({
         activeImagePlacement: liveSession.draft,
         activeImageFrameMask: liveSession.draftFrameMask,
       }),
-    })
+    }
   }
 
   const webMcp = useStudioWebMcp({
@@ -175,11 +166,72 @@ function MountedEditorWebMcpComposition({
     assets: studioAssets,
     publishedVersion: null,
     renderHistory: [],
-    getCommandCapabilities: () =>
-      projectEditorCommandCapabilities(commandContext).map((capability) => ({
-        ...capability,
-        enabled: commandEnabled(capability.id),
-      })),
+    getProductCommandContext: () => {
+      const activePage = editor.document.pages.find(
+        (page) => page.id === editor.activePageId
+      )!
+      return {
+        documentId: editor.document.id,
+        snapshotId: editor.snapshotId,
+        activePageId: activePage.id,
+        activeOutputId: activePage.outputId,
+        pageIds: editor.document.pages.map((page) => page.id),
+        outputIds: editor.document.outputs.map((output) => output.id),
+        pdfOutputIds: editor.document.outputs
+          .filter((output) => output.exportFormats.includes("pdf"))
+          .map((output) => output.id),
+        nodeIds: editor.document.nodes.map((node) => node.id),
+        groupIds: editor.document.groups.map((group) => group.id),
+        documentDisplayName: editor.document.name,
+        pageDisplayNames: Object.fromEntries(
+          editor.document.pages.map((page) => [page.id, page.name])
+        ),
+        outputDisplayNames: Object.fromEntries(
+          editor.document.outputs.map((output) => [output.id, output.name])
+        ),
+        selection: editor.selection?.nodeIds.length
+          ? {
+              pageId: editor.selection.pageId,
+              nodeIds: editor.selection.nodeIds,
+              nodeTypes: editor.selectedNodes.map((node) => node.type),
+              groupId: editor.selectedGroupId,
+              anyLocked: editor.selectedNodes.some((node) => node.locked),
+              allLocked: editor.selectedNodes.every((node) => node.locked),
+              allVisible: editor.selectedNodes.every((node) => node.visible),
+              allHidden: editor.selectedNodes.every((node) => !node.visible),
+            }
+          : null,
+        activeTool: "select" as const,
+        editor: readLiveCommandContext(),
+        structureByTarget: Object.fromEntries([
+          ...editor.document.pages.map((page) => {
+            const output = editor.document.outputs.find(
+              (candidate) => candidate.id === page.outputId
+            )
+            return [
+              page.id,
+              {
+                reviewPending: Boolean(editor.pendingChangeSet),
+                outputCount: editor.document.outputs.length,
+                outputPageCount: output?.pageIds.length ?? 0,
+                pageIndex: output?.pageIds.indexOf(page.id),
+              },
+            ] as const
+          }),
+          ...editor.document.outputs.map(
+            (output) =>
+              [
+                output.id,
+                {
+                  reviewPending: Boolean(editor.pendingChangeSet),
+                  outputCount: editor.document.outputs.length,
+                  outputPageCount: output.pageIds.length,
+                },
+              ] as const
+          ),
+        ]),
+      }
+    },
     proposeChangeSet: (changeSet: ChangeSet) =>
       editor.proposeChangeSet(changeSet),
     publishTemplate: () =>
@@ -378,7 +430,10 @@ describe("mounted Studio WebMCP live crop capabilities", () => {
       const rendersAfterCropEntry = renderAudit.composition
 
       const baselineCapabilities = await inspectCapabilities()
-      expect(capability(baselineCapabilities, "image.crop").enabled).toBe(false)
+      expect(capability(baselineCapabilities, "image.crop")).toMatchObject({
+        enabled: false,
+        reason: "Finish or cancel the active image crop first.",
+      })
       expect(
         capability(baselineCapabilities, "image.reset-placement").enabled
       ).toBe(false)

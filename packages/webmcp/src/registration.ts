@@ -18,6 +18,15 @@ import {
   type SceneNode,
 } from "@webmcp/document"
 import {
+  productCommandArgumentContract,
+  productCommandIds,
+  projectProductCommandCapabilities,
+  type ProductCommandCategory,
+  type ProductCommandId,
+  type ProductCommandRuntimeContext,
+  type ProductCommandScope,
+} from "@webmcp/editor/product-commands"
+import {
   createAssetInsertionChangeSet,
   createCanvasEditChangeSet,
   createFieldUpdateChangeSet,
@@ -83,6 +92,8 @@ export type StudioWebMcpSnapshot = {
    * structure by an automation client.
    */
   commandCapabilities?: readonly StudioWebMcpCommandCapability[]
+  /** Private runtime policy input. Never return this object from a tool. */
+  productCommandContext?: ProductCommandRuntimeContext | null
 }
 
 export type StudioWebMcpCommandCapability = Readonly<{
@@ -90,6 +101,20 @@ export type StudioWebMcpCommandCapability = Readonly<{
   label: string
   enabled: boolean
   reason?: string
+  commandId?: ProductCommandId
+  category?: ProductCommandCategory
+  subgroup?: string
+  scope?: ProductCommandScope
+  mutating?: boolean
+  destructive?: boolean
+  discoverable?: boolean
+  stableTargetRequired?: boolean
+  disabledReason?: string | null
+  checked?: boolean | "mixed"
+  target?: unknown
+  arguments?: unknown
+  argumentContract?: unknown
+  execution?: "not_exposed"
 }>
 
 export type StudioWebMcpAsset = {
@@ -745,6 +770,275 @@ const designQueryIdentity = (
   operationVersion: snapshot.operationVersion,
 })
 
+type CapabilityTargetSelector =
+  | Readonly<{ kind: "current" }>
+  | Readonly<{ kind: "page"; pageId: string }>
+  | Readonly<{ kind: "output"; outputId: string }>
+
+type CapabilityQuery = Readonly<{
+  commandIds?: readonly ProductCommandId[]
+  category?: ProductCommandCategory
+  scope?: ProductCommandScope
+  enabled?: boolean
+  target: CapabilityTargetSelector
+}>
+
+const productCommandIdSet = new Set<string>(productCommandIds)
+const productCommandCategories = new Set<ProductCommandCategory>([
+  "file",
+  "edit",
+  "view",
+  "object",
+  "text",
+  "arrange",
+  "help",
+])
+const productCommandScopes = new Set<ProductCommandScope>([
+  "global",
+  "document",
+  "selection",
+  "node",
+  "group",
+  "page",
+  "output",
+])
+
+function parseCapabilityQuery(input: unknown): CapabilityQuery {
+  const value = queryObject(input)
+  assertQueryKeys(value, [
+    "commandIds",
+    "category",
+    "scope",
+    "enabled",
+    "target",
+  ])
+  let commandIds: ProductCommandId[] | undefined
+  if (value.commandIds !== undefined) {
+    if (!Array.isArray(value.commandIds) || value.commandIds.length === 0) {
+      throw new DesignQueryError(
+        "invalid_query",
+        "commandIds must be a non-empty array."
+      )
+    }
+    commandIds = value.commandIds.map((commandId) => {
+      if (
+        typeof commandId !== "string" ||
+        !productCommandIdSet.has(commandId)
+      ) {
+        throw new DesignQueryError(
+          "invalid_query",
+          `Unknown product command: ${String(commandId)}.`
+        )
+      }
+      return commandId as ProductCommandId
+    })
+    if (new Set(commandIds).size !== commandIds.length) {
+      throw new DesignQueryError(
+        "invalid_query",
+        "commandIds must not contain duplicates."
+      )
+    }
+  }
+  const category = value.category
+  if (
+    category !== undefined &&
+    (typeof category !== "string" ||
+      !productCommandCategories.has(category as ProductCommandCategory))
+  ) {
+    throw new DesignQueryError("invalid_query", "category is not supported.")
+  }
+  const scope = value.scope
+  if (
+    scope !== undefined &&
+    (typeof scope !== "string" ||
+      !productCommandScopes.has(scope as ProductCommandScope))
+  ) {
+    throw new DesignQueryError("invalid_query", "scope is not supported.")
+  }
+  if (value.enabled !== undefined && typeof value.enabled !== "boolean") {
+    throw new DesignQueryError("invalid_query", "enabled must be a boolean.")
+  }
+  const targetValue = value.target
+  let target: CapabilityTargetSelector = { kind: "current" }
+  if (targetValue !== undefined) {
+    if (
+      !targetValue ||
+      typeof targetValue !== "object" ||
+      Array.isArray(targetValue)
+    ) {
+      throw new DesignQueryError("invalid_query", "target must be an object.")
+    }
+    const targetObject = targetValue as Record<string, unknown>
+    if (targetObject.kind === "current") {
+      assertQueryKeys(targetObject, ["kind"])
+      target = { kind: "current" }
+    } else if (targetObject.kind === "page") {
+      assertQueryKeys(targetObject, ["kind", "pageId"])
+      const pageId = optionalQueryString(targetObject.pageId, "target.pageId")
+      if (!pageId) {
+        throw new DesignQueryError(
+          "invalid_query",
+          "target.pageId is required."
+        )
+      }
+      target = { kind: "page", pageId }
+    } else if (targetObject.kind === "output") {
+      assertQueryKeys(targetObject, ["kind", "outputId"])
+      const outputId = optionalQueryString(
+        targetObject.outputId,
+        "target.outputId"
+      )
+      if (!outputId) {
+        throw new DesignQueryError(
+          "invalid_query",
+          "target.outputId is required."
+        )
+      }
+      target = { kind: "output", outputId }
+    } else {
+      throw new DesignQueryError(
+        "invalid_query",
+        "target.kind must be current, page, or output."
+      )
+    }
+  }
+  return {
+    commandIds,
+    category: category as ProductCommandCategory | undefined,
+    scope: scope as ProductCommandScope | undefined,
+    enabled: value.enabled as boolean | undefined,
+    target,
+  }
+}
+
+function productCommandContextForTarget(
+  snapshot: StudioWebMcpSnapshot,
+  target: CapabilityTargetSelector
+) {
+  const context = snapshot.productCommandContext
+  if (!context) {
+    throw new DesignQueryError(
+      "capabilities_unavailable",
+      "Canonical product command capabilities are unavailable on this route."
+    )
+  }
+  if (
+    context.documentId !== snapshot.document.id ||
+    context.snapshotId !== snapshot.snapshotId
+  ) {
+    throw new DesignQueryError(
+      "stale_context",
+      "The command policy no longer matches this document snapshot. Inspect again."
+    )
+  }
+  if (target.kind === "current") return context
+  if (target.kind === "page") {
+    const page = snapshot.document.pages.find(
+      (candidate) => candidate.id === target.pageId
+    )
+    if (!page) {
+      throw new DesignQueryError(
+        "page_not_found",
+        `Page ${target.pageId} does not exist in this document.`
+      )
+    }
+    const output = snapshot.document.outputs.find(
+      (candidate) => candidate.id === page.outputId
+    )!
+    return {
+      ...context,
+      activePageId: page.id,
+      activeOutputId: page.outputId,
+      stateByCommandId: {
+        ...context.stateByCommandId,
+        "output.export-pdf": {
+          ...context.stateByCommandId?.["output.export-pdf"],
+          label: `${output.pageIds.length}-page PDF`,
+        },
+      },
+    }
+  }
+  const output = snapshot.document.outputs.find(
+    (candidate) => candidate.id === target.outputId
+  )
+  if (!output) {
+    throw new DesignQueryError(
+      "output_not_found",
+      `Output ${target.outputId} does not exist in this document.`
+    )
+  }
+  const activePageId = output.pageIds.includes(context.activePageId)
+    ? context.activePageId
+    : output.pageIds[0]!
+  return {
+    ...context,
+    activePageId,
+    activeOutputId: output.id,
+    stateByCommandId: {
+      ...context.stateByCommandId,
+      "output.export-pdf": {
+        ...context.stateByCommandId?.["output.export-pdf"],
+        label: `${output.pageIds.length}-page PDF`,
+      },
+    },
+  }
+}
+
+const capabilityInvocationId = (commandId: ProductCommandId, args: unknown) =>
+  args === undefined ? commandId : `${commandId}:${JSON.stringify(args)}`
+
+function selectProductCommandCapabilities(
+  snapshot: StudioWebMcpSnapshot,
+  query: CapabilityQuery
+) {
+  const context = productCommandContextForTarget(snapshot, query.target)
+  const commandIdFilter = query.commandIds ? new Set(query.commandIds) : null
+  const targetScopeAllowed = (scope: ProductCommandScope) =>
+    query.target.kind === "current" ||
+    scope === "global" ||
+    scope === "document" ||
+    scope === query.target.kind
+  return projectProductCommandCapabilities(context)
+    .filter(
+      ({ definition, enabled }) =>
+        targetScopeAllowed(definition.scope) &&
+        (!commandIdFilter || commandIdFilter.has(definition.id)) &&
+        (query.category === undefined ||
+          definition.category === query.category) &&
+        (query.scope === undefined || definition.scope === query.scope) &&
+        (query.enabled === undefined || enabled === query.enabled)
+    )
+    .map(
+      ({
+        definition,
+        invocation,
+        label,
+        enabled,
+        disabledReason,
+        checked,
+      }) => ({
+        id: capabilityInvocationId(definition.id, invocation.arguments),
+        commandId: definition.id,
+        label,
+        category: definition.category,
+        subgroup: definition.subgroup,
+        scope: definition.scope,
+        mutating: definition.mutating,
+        destructive: definition.destructive,
+        discoverable: definition.discoverable,
+        stableTargetRequired: definition.stableTargetRequired,
+        enabled,
+        disabledReason,
+        ...(disabledReason ? { reason: disabledReason } : {}),
+        ...(checked !== undefined ? { checked } : {}),
+        ...(invocation.target ? { target: invocation.target } : {}),
+        ...(invocation.arguments ? { arguments: invocation.arguments } : {}),
+        argumentContract: productCommandArgumentContract(definition.id),
+        execution: "not_exposed" as const,
+      })
+    )
+}
+
 const publicCommonCanvasPatchProperties = new Set([
   "name",
   "x",
@@ -1276,6 +1570,11 @@ export function studioWebMcpTools(
           const nodesById = new Map(
             current.document.nodes.map((node) => [node.id, node])
           )
+          const commandCapabilities = current.productCommandContext
+            ? selectProductCommandCapabilities(current, {
+                target: { kind: "current" },
+              })
+            : (current.commandCapabilities ?? [])
           const result = {
             document: {
               id: current.document.id,
@@ -1293,7 +1592,7 @@ export function studioWebMcpTools(
               (group) => group.pageId === current.activePageId
             ),
             selection: current.selection,
-            commandCapabilities: current.commandCapabilities ?? [],
+            commandCapabilities,
             outputs: current.document.outputs,
             fields: current.document.fields.map((field) => {
               const value =
@@ -1393,6 +1692,88 @@ export function studioWebMcpTools(
           return textResult(
             `Read ${result.items.length} design tree item${result.items.length === 1 ? "" : "s"} from ${current.document.name}.`,
             result
+          )
+        } catch (error) {
+          return errorResult(error)
+        }
+      },
+    },
+    {
+      name: "get_capabilities",
+      title: "Get Studio capabilities",
+      description:
+        "Read the complete canonical Studio command policy, exact enablement, disabled reasons, targets, and typed arguments for the current document snapshot. This tool does not execute commands.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          commandIds: {
+            type: "array",
+            minItems: 1,
+            maxItems: productCommandIds.length,
+            uniqueItems: true,
+            items: { type: "string", enum: [...productCommandIds] },
+          },
+          category: {
+            type: "string",
+            enum: ["file", "edit", "view", "object", "text", "arrange", "help"],
+          },
+          scope: {
+            type: "string",
+            enum: [
+              "global",
+              "document",
+              "selection",
+              "node",
+              "group",
+              "page",
+              "output",
+            ],
+          },
+          enabled: { type: "boolean" },
+          target: {
+            oneOf: [
+              {
+                type: "object",
+                additionalProperties: false,
+                required: ["kind"],
+                properties: { kind: { const: "current" } },
+              },
+              {
+                type: "object",
+                additionalProperties: false,
+                required: ["kind", "pageId"],
+                properties: {
+                  kind: { const: "page" },
+                  pageId: { type: "string", minLength: 1 },
+                },
+              },
+              {
+                type: "object",
+                additionalProperties: false,
+                required: ["kind", "outputId"],
+                properties: {
+                  kind: { const: "output" },
+                  outputId: { type: "string", minLength: 1 },
+                },
+              },
+            ],
+          },
+        },
+      },
+      annotations: { readOnlyHint: true, untrustedContentHint: true },
+      execute: (input) => {
+        try {
+          const current = services.getSnapshot()
+          const query = parseCapabilityQuery(input)
+          const capabilities = selectProductCommandCapabilities(current, query)
+          return textResult(
+            `Read ${capabilities.length} canonical Studio command capabilit${capabilities.length === 1 ? "y" : "ies"}.`,
+            {
+              identity: designQueryIdentity(current),
+              target: query.target,
+              capabilities,
+            }
           )
         } catch (error) {
           return errorResult(error)

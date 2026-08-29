@@ -4,11 +4,11 @@ import type {
   TemplateModifications,
   TemplateVersion,
 } from "@webmcp/document"
+import type { ProductCommandRuntimeContext } from "@webmcp/editor/product-commands"
 import { registerStudioWebMcpTools } from "@webmcp/webmcp"
 import type {
   StudioWebMcpRenderRecord,
   StudioWebMcpRenderSelection,
-  StudioWebMcpCommandCapability,
   StudioWebMcpSnapshot,
   WebMcpModelContext,
 } from "@webmcp/webmcp"
@@ -26,10 +26,10 @@ type WebMcpStatus = "unavailable" | "registering" | "ready" | "error"
 
 type StudioWebMcpServices = Omit<
   StudioWebMcpSnapshot,
-  "assets" | "commandCapabilities"
+  "assets" | "commandCapabilities" | "productCommandContext"
 > & {
   assets: readonly StudioAsset[]
-  getCommandCapabilities: () => readonly StudioWebMcpCommandCapability[]
+  getProductCommandContext: () => ProductCommandRuntimeContext | null
   proposeChangeSet: (changeSet: ChangeSet) => ChangeSet
   publishTemplate: () => Promise<TemplateVersion>
   renderTemplate: (
@@ -43,15 +43,17 @@ export function projectStudioWebMcpSnapshot(
   services: StudioWebMcpServices
 ): StudioWebMcpSnapshot {
   const {
-    getCommandCapabilities,
+    getProductCommandContext,
     proposeChangeSet: _proposeChangeSet,
     publishTemplate: _publishTemplate,
     renderTemplate: _renderTemplate,
     ...current
   } = services
+  const productCommandContext = getProductCommandContext()
   return {
     ...current,
-    commandCapabilities: getCommandCapabilities(),
+    commandCapabilities: [],
+    productCommandContext,
     assets: current.assets.map((asset) => ({
       ...asset,
       ownership: "built_in" as const,

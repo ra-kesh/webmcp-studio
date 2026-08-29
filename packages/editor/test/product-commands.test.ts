@@ -9,7 +9,9 @@ import {
   createProductCommandRuntime,
   formatProductCommandShortcut,
   productCommandCatalog,
+  productCommandArgumentContract,
   productCommandIds,
+  projectProductCommandCapabilities,
   projectProductCommandPalette,
   resolveProductCommand,
   validateProductCommandInvocation,
@@ -169,6 +171,20 @@ describe("product command catalog", () => {
     expect(formatProductCommandShortcut("command.search", "linux")).toBe(
       "Ctrl+K"
     )
+  })
+
+  it("owns typed argument contracts beside the command definitions", () => {
+    expect(productCommandArgumentContract("object.add-text")).toMatchObject({
+      kind: "text-preset",
+      optional: true,
+    })
+    expect(productCommandArgumentContract("arrange.align")).toMatchObject({
+      kind: "alignment",
+      variants: expect.arrayContaining(["left", "bottom"]),
+    })
+    expect(productCommandArgumentContract("history.undo")).toEqual({
+      kind: "none",
+    })
   })
 })
 
@@ -664,6 +680,23 @@ describe("pure product menu models", () => {
     ).toHaveLength(12)
     expect(
       palette.filter(
+        ({ invocation }) => invocation.commandId === "arrange.distribute"
+      )
+    ).toHaveLength(2)
+  })
+
+  it("projects the complete canonical capability vocabulary", () => {
+    const capabilities = projectProductCommandCapabilities(context())
+    expect(
+      new Set(capabilities.map(({ invocation }) => invocation.commandId))
+    ).toEqual(new Set(productCommandIds))
+    expect(
+      capabilities.filter(
+        ({ invocation }) => invocation.commandId === "arrange.align"
+      )
+    ).toHaveLength(12)
+    expect(
+      capabilities.filter(
         ({ invocation }) => invocation.commandId === "arrange.distribute"
       )
     ).toHaveLength(2)

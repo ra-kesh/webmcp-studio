@@ -1544,3 +1544,31 @@ Next boundary:
 - WEBMCP-01B: project the complete canonical `productCommandIds` vocabulary and
   exact disabled reasons by stable target before introducing any generic
   command execution surface.
+
+## 2026-08-29 — Canonical WebMCP capability discovery (WEBMCP-01B)
+
+Status: **completed and independently accepted for the WEBMCP-01B boundary**
+
+- Added one read-only `get_capabilities` tool backed directly by the canonical
+  editor command resolver. All 73 command IDs project to 85 concrete
+  capabilities, including 12 alignment and two distribution variants.
+- Current, page, and output targeting carries exact stable identity and reuses
+  Studio's structure, PDF, locked/review, selection, and live-crop policy.
+  Non-current targets never fabricate selection state.
+- Each response belongs to one captured document revision/snapshot/operation
+  version. Missing targets and stale context have typed errors; private runtime
+  and asset context do not cross the tool boundary.
+- The surface is discovery-only and returns `execution: "not_exposed"` for
+  every capability. It does not add a generic mutation path or bypass Review.
+- The independent code reviewer returned **ACCEPT with no P0/P1 findings**.
+  `webmcp-01b-capability-review.md` preserves the reviewed evidence.
+- Focused gates pass: editor **17/17**, WebMCP **47/47**, and Studio mounted
+  policy **4/4**. Editor, WebMCP, and Studio typechecks, focused ESLint, scoped
+  Prettier, and `git diff --check` pass. The live canonical route exposes all
+  14 registered tools.
+
+Next boundary:
+
+- WEBMCP-01C: expose the same canonical commands through a safe execution
+  contract with dry-run/proposal/direct modes, expected snapshot identity,
+  idempotency, and the existing human Review owner.

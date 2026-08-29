@@ -50,7 +50,6 @@ import {
   editorCommandIds,
   editorImageCommandIds,
   isEditorCommandEnabled,
-  projectEditorCommandCapabilities,
   resolveEditorShortcut,
 } from "@webmcp/editor/commands"
 import {
@@ -1317,10 +1316,10 @@ export function StudioShell({
       ? resolveResizeFrameToImagePreview(session, naturalSize)
       : null
   }
-  const commandEnabled = (commandId: EditorCommandId) => {
+  const readLiveEditorCommandContext = (): EditorCommandContext => {
     const cropSession = readImageCropSession()
-    if (!cropSession) return isEditorCommandEnabled(commandId, commandContext)
-    return isEditorCommandEnabled(commandId, {
+    if (!cropSession) return commandContext
+    return {
       ...commandContext,
       imageCropActive: true,
       image: deriveEditorImageCommandCapabilities({
@@ -1334,8 +1333,13 @@ export function StudioShell({
         activeImagePlacement: cropSession.draft,
         activeImageFrameMask: cropSession.draftFrameMask,
       }),
-    })
+    }
   }
+  const commandEnabled = (commandId: EditorCommandId) =>
+    isEditorCommandEnabled(commandId, readLiveEditorCommandContext())
+  const productCommandContextRef = useRef<ProductCommandRuntimeContext | null>(
+    null
+  )
   const webMcp = useStudioWebMcp(
     {
       document: editor.document,
@@ -1351,11 +1355,12 @@ export function StudioShell({
       assets: studioAssets,
       publishedVersion: publishedVersion ?? null,
       renderHistory: renderHistory.records,
-      getCommandCapabilities: () =>
-        projectEditorCommandCapabilities(commandContext).map((capability) => ({
-          ...capability,
-          enabled: commandEnabled(capability.id),
-        })),
+      getProductCommandContext: () => {
+        const context = productCommandContextRef.current
+        return context
+          ? { ...context, editor: readLiveEditorCommandContext() }
+          : null
+      },
       proposeChangeSet: editor.proposeChangeSet,
       publishTemplate: async () => {
         if (!commitActiveTextEditing()) {
@@ -2158,6 +2163,7 @@ export function StudioShell({
       },
     },
   }
+  productCommandContextRef.current = productCommandContext
 
   // Product commands return synchronous dispatch acceptance. Critical async
   // actions claim the owner above before their first await; the status badge

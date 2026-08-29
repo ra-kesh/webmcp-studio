@@ -5,6 +5,7 @@ export * from "./registration"
 export const toolNames = [
   "inspect_design",
   "read_design_tree",
+  "get_capabilities",
   "read_design_node",
   "search_design_nodes",
   "search_assets",
@@ -40,6 +41,14 @@ export const toolCatalog: readonly ToolDescriptor[] = [
   {
     name: "read_design_tree",
     description: "Read the ordered page, group, and layer tree.",
+    mutates: false,
+    requiresHumanReview: false,
+    routes: ["editor", "review"],
+  },
+  {
+    name: "get_capabilities",
+    description:
+      "Read the complete canonical Studio command policy and exact disabled reasons.",
     mutates: false,
     requiresHumanReview: false,
     routes: ["editor", "review"],

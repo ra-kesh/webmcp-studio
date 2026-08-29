@@ -29,7 +29,7 @@ const services = {
   assets: studioAssets,
   publishedVersion: null,
   renderHistory: [],
-  getCommandCapabilities: () => [],
+  getProductCommandContext: () => null,
   proposeChangeSet: vi.fn(),
   publishTemplate: vi.fn(),
   renderTemplate: vi.fn(),

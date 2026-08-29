@@ -8,6 +8,8 @@ import {
   type Document,
   type TemplateModifications,
 } from "@webmcp/document"
+import { productCommandIds } from "@webmcp/editor/product-commands"
+import type { ProductCommandRuntimeContext } from "@webmcp/editor/product-commands"
 import {
   registerStudioWebMcpTools,
   type StudioWebMcpRenderRecord,
@@ -69,6 +71,75 @@ const fillPlacement = {
   flipY: false,
 }
 
+function productCommandContext(
+  document: Document,
+  snapshotId = "snapshot-seed"
+): ProductCommandRuntimeContext {
+  const activePage = document.pages[0]!
+  return {
+    documentId: document.id,
+    snapshotId,
+    activePageId: activePage.id,
+    activeOutputId: activePage.outputId,
+    pageIds: document.pages.map((page) => page.id),
+    outputIds: document.outputs.map((output) => output.id),
+    pdfOutputIds: document.outputs
+      .filter((output) => output.exportFormats.includes("pdf"))
+      .map((output) => output.id),
+    nodeIds: document.nodes.map((node) => node.id),
+    groupIds: document.groups.map((group) => group.id),
+    documentDisplayName: document.name,
+    pageDisplayNames: Object.fromEntries(
+      document.pages.map((page) => [page.id, page.name])
+    ),
+    outputDisplayNames: Object.fromEntries(
+      document.outputs.map((output) => [output.id, output.name])
+    ),
+    selection: null,
+    activeTool: "select",
+    editor: {
+      reviewPending: false,
+      hasSelection: false,
+      selectedNodeCount: 0,
+      hasSelectedGroup: false,
+      hasClipboard: false,
+      hasUndo: false,
+      hasRedo: false,
+      hasZoomSelection: false,
+      canCropImage: false,
+      canTransformImage: false,
+      imageCropActive: false,
+    },
+    structureByTarget: Object.fromEntries([
+      ...document.pages.map((page) => {
+        const output = document.outputs.find(
+          (candidate) => candidate.id === page.outputId
+        )
+        return [
+          page.id,
+          {
+            reviewPending: false,
+            outputCount: document.outputs.length,
+            outputPageCount: output?.pageIds.length ?? 0,
+            pageIndex: output?.pageIds.indexOf(page.id),
+          },
+        ] as const
+      }),
+      ...document.outputs.map(
+        (output) =>
+          [
+            output.id,
+            {
+              reviewPending: false,
+              outputCount: document.outputs.length,
+              outputPageCount: output.pageIds.length,
+            },
+          ] as const
+      ),
+    ]),
+  }
+}
+
 function withImageLayer({
   id = "contract-image",
   alt = "Authored alternative description",
@@ -115,7 +186,8 @@ function setup(
     label: string
     enabled: boolean
     reason?: string
-  }[] = []
+  }[] = [],
+  canonicalCommandContext: ProductCommandRuntimeContext | null = null
 ) {
   const registered = new Map<string, WebMcpTool>()
   let proposed: ChangeSet | null = null
@@ -169,6 +241,7 @@ function setup(
       publishedVersion,
       renderHistory,
       commandCapabilities,
+      productCommandContext: canonicalCommandContext,
     }),
     searchAssets: async ({
       query,
@@ -267,10 +340,11 @@ describe("WebMCP registration", () => {
       state.controller.signal
     )
 
-    expect(count).toBe(13)
+    expect(count).toBe(14)
     expect([...state.registered.keys()]).toEqual([
       "inspect_design",
       "read_design_tree",
+      "get_capabilities",
       "read_design_node",
       "search_design_nodes",
       "search_assets",
@@ -427,6 +501,87 @@ describe("WebMCP registration", () => {
       })
     expect(staleBranch?.isError).toBe(true)
     expect(staleBranch?.content[0]?.text).toContain("branch changed")
+  })
+
+  it("projects the complete canonical product command policy", async () => {
+    const context = productCommandContext(northstarSeed)
+    const state = setup(northstarSeed, northstarSeed, assets, [], context)
+    const getSnapshot = vi.spyOn(state.services, "getSnapshot")
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+    getSnapshot.mockClear()
+
+    const result = await state.registered.get("get_capabilities")?.execute({})
+    expect(getSnapshot).toHaveBeenCalledTimes(1)
+    const structured = result?.structuredContent as {
+      identity: { snapshotId: string }
+      capabilities: Array<{
+        commandId: string
+        enabled: boolean
+        disabledReason: string | null
+        execution: string
+        arguments?: { kind: string }
+      }>
+    }
+    expect(structured.identity.snapshotId).toBe("snapshot-seed")
+    expect(
+      new Set(structured.capabilities.map(({ commandId }) => commandId))
+    ).toEqual(new Set(productCommandIds))
+    expect(
+      structured.capabilities.filter(
+        ({ commandId }) => commandId === "arrange.align"
+      )
+    ).toHaveLength(12)
+    expect(
+      structured.capabilities.filter(
+        ({ commandId }) => commandId === "arrange.distribute"
+      )
+    ).toHaveLength(2)
+    expect(
+      structured.capabilities.find(
+        ({ commandId }) => commandId === "object.delete"
+      )
+    ).toMatchObject({
+      enabled: false,
+      execution: "not_exposed",
+    })
+    expect(JSON.stringify(result?.structuredContent)).not.toContain(
+      "hasClipboard"
+    )
+
+    const outputResult = await state.registered
+      .get("get_capabilities")
+      ?.execute({
+        commandIds: ["output.export-pdf"],
+        target: { kind: "output", outputId: "whatsapp" },
+      })
+    expect(outputResult?.structuredContent).toMatchObject({
+      target: { kind: "output", outputId: "whatsapp" },
+      capabilities: [
+        expect.objectContaining({
+          commandId: "output.export-pdf",
+          label: "1-page PDF",
+          enabled: false,
+          disabledReason: "This output does not support PDF export.",
+        }),
+      ],
+    })
+
+    const missing = await state.registered.get("get_capabilities")?.execute({
+      target: { kind: "output", outputId: "missing-output" },
+    })
+    expect(missing).toMatchObject({
+      isError: true,
+      structuredContent: { code: "output_not_found", retryable: false },
+    })
   })
 
   it("projects the host's exact command policy without inferring enablement", async () => {
