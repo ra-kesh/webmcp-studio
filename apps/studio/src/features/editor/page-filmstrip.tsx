@@ -9,6 +9,7 @@ import {
 } from "lucide-react"
 import {
   memo,
+  startTransition,
   useCallback,
   useEffect,
   useMemo,
@@ -111,6 +112,7 @@ export type PageFilmstripRasterOptions = Readonly<{
   rendererRevision: string
   producer: PageThumbnailRasterProducer
   pixelRatio?: number
+  admissionDelayMs?: number
 }>
 
 export function filmstripThumbnailGeometry(
@@ -444,6 +446,10 @@ export const PageFilmstrip = memo(function PageFilmstrip({
     isServerDesktopFilmstrip
   )
   const thumbnailDensity = desktopFilmstrip ? density : "compact"
+  const rasterAdmissionDelayMs = Math.min(
+    1_000,
+    Math.max(0, Math.round(raster?.admissionDelayMs ?? 0))
+  )
   const regionRef = useRef<HTMLDivElement>(null)
   const observerRef = useRef<IntersectionObserver | null>(null)
   const selectorElementsRef = useRef(new Map<string, HTMLButtonElement>())
@@ -458,6 +464,18 @@ export const PageFilmstrip = memo(function PageFilmstrip({
   const [visiblePageIds, setVisiblePageIds] = useState<ReadonlySet<string>>(
     () => new Set()
   )
+  const observedVisiblePageIdsRef = useRef(new Set<string>())
+  const [admittedRasterPageIds, setAdmittedRasterPageIds] = useState<
+    ReadonlySet<string>
+  >(() => new Set())
+  const admittedRasterPageIdsRef = useRef<ReadonlySet<string>>(
+    admittedRasterPageIds
+  )
+  admittedRasterPageIdsRef.current = admittedRasterPageIds
+  const rasterAdmissionTimersRef = useRef(
+    new Map<string, ReturnType<typeof setTimeout>>()
+  )
+  const lastFilmstripScrollAtRef = useRef(Date.now())
   const [rasterEntries, setRasterEntries] = useState<
     ReadonlyMap<string, PageThumbnailRasterEntry>
   >(() => new Map())
@@ -505,6 +523,8 @@ export const PageFilmstrip = memo(function PageFilmstrip({
   const activePage =
     document.pages.find((page) => page.id === activePageId) ?? document.pages[0]
   const effectiveActivePageId = activePage.id
+  const effectiveActivePageIdRef = useRef(effectiveActivePageId)
+  effectiveActivePageIdRef.current = effectiveActivePageId
   const output = document.outputs.find(
     (candidate) => candidate.id === activePage.outputId
   )
@@ -549,6 +569,8 @@ export const PageFilmstrip = memo(function PageFilmstrip({
     raster && rasterCacheState?.producer === raster.producer
       ? rasterCacheState.cache
       : null
+  const rasterCacheRef = useRef(rasterCache)
+  rasterCacheRef.current = rasterCache
   const reconciledRasterKeysRef = useRef<{
     cache: ReturnType<typeof createPageThumbnailRasterCache>
     keys: ReadonlyMap<string, PageThumbnailRasterKey>
@@ -599,6 +621,8 @@ export const PageFilmstrip = memo(function PageFilmstrip({
       })
     )
   }, [document.id, document.revision, pages, raster, thumbnailDensity])
+  const rasterKeysByPageIdRef = useRef(rasterKeysByPageId)
+  rasterKeysByPageIdRef.current = rasterKeysByPageId
   const pageIdentity = pages.map((page) => page.id).join("\u0000")
   const pageIdsRef = useRef<readonly string[]>([])
   pageIdsRef.current = pages.map((page) => page.id)
@@ -669,6 +693,9 @@ export const PageFilmstrip = memo(function PageFilmstrip({
 
   useEffect(() => {
     const pageIds = new Set(pageIdentity ? pageIdentity.split("\u0000") : [])
+    observedVisiblePageIdsRef.current = new Set(
+      [...observedVisiblePageIdsRef.current].filter((id) => pageIds.has(id))
+    )
     for (const pageId of thumbnailRefCallbacksRef.current.keys()) {
       if (!pageIds.has(pageId)) {
         thumbnailRefCallbacksRef.current.delete(pageId)
@@ -687,32 +714,59 @@ export const PageFilmstrip = memo(function PageFilmstrip({
     observerRef.current?.disconnect()
     observerRef.current = null
     if (typeof IntersectionObserver === "undefined") {
+      observedVisiblePageIdsRef.current = new Set(pageIds)
       setVisiblePageIds(pageIds)
       return
     }
     const root = regionRef.current?.querySelector<HTMLElement>(
       '[data-slot="scroll-area-viewport"]'
     )
+    const recordScroll = () => {
+      lastFilmstripScrollAtRef.current = Date.now()
+    }
+    root?.addEventListener("scroll", recordScroll, { passive: true })
     let cancelled = false
     const observer = new IntersectionObserver(
       (entries) => {
         if (cancelled) return
-        setVisiblePageIds((current) => {
-          const next = new Set(current)
-          let changed = false
-          for (const entry of entries) {
-            const pageId = pageIdByThumbnailElementRef.current.get(entry.target)
-            if (!pageId || !pageIds.has(pageId)) continue
-            if (entry.isIntersecting) {
-              if (!next.has(pageId)) {
-                next.add(pageId)
+        const observedEntries = entries.flatMap((entry) => {
+          const pageId = pageIdByThumbnailElementRef.current.get(entry.target)
+          return pageId && pageIds.has(pageId)
+            ? [{ pageId, isIntersecting: entry.isIntersecting }]
+            : []
+        })
+        for (const entry of observedEntries) {
+          if (entry.isIntersecting) {
+            observedVisiblePageIdsRef.current.add(entry.pageId)
+            continue
+          }
+          observedVisiblePageIdsRef.current.delete(entry.pageId)
+          const admissionTimer = rasterAdmissionTimersRef.current.get(
+            entry.pageId
+          )
+          if (admissionTimer) {
+            clearTimeout(admissionTimer)
+            rasterAdmissionTimersRef.current.delete(entry.pageId)
+          }
+          const rasterKey = rasterKeysByPageIdRef.current.get(entry.pageId)
+          if (rasterKey) rasterCacheRef.current?.cancel(rasterKey)
+        }
+        startTransition(() => {
+          setVisiblePageIds((current) => {
+            const next = new Set(current)
+            let changed = false
+            for (const entry of observedEntries) {
+              if (entry.isIntersecting) {
+                if (!next.has(entry.pageId)) {
+                  next.add(entry.pageId)
+                  changed = true
+                }
+              } else if (next.delete(entry.pageId)) {
                 changed = true
               }
-            } else if (next.delete(pageId)) {
-              changed = true
             }
-          }
-          return changed ? next : current
+            return changed ? next : current
+          })
         })
       },
       { root: root ?? null, rootMargin: "0px 240px" }
@@ -723,6 +777,7 @@ export const PageFilmstrip = memo(function PageFilmstrip({
     }
     return () => {
       cancelled = true
+      root?.removeEventListener("scroll", recordScroll)
       observer.disconnect()
       if (observerRef.current === observer) observerRef.current = null
     }
@@ -741,6 +796,74 @@ export const PageFilmstrip = memo(function PageFilmstrip({
   ])
 
   useEffect(() => clearAllRasterRetries, [clearAllRasterRetries])
+
+  useEffect(
+    () => () => {
+      for (const timer of rasterAdmissionTimersRef.current.values()) {
+        clearTimeout(timer)
+      }
+      rasterAdmissionTimersRef.current.clear()
+    },
+    []
+  )
+
+  useEffect(() => {
+    const desiredPageIds = new Set(
+      [...visiblePageIds].filter((pageId) => pageId !== effectiveActivePageId)
+    )
+    for (const [pageId, timer] of rasterAdmissionTimersRef.current) {
+      if (rasterCache && desiredPageIds.has(pageId)) continue
+      clearTimeout(timer)
+      rasterAdmissionTimersRef.current.delete(pageId)
+    }
+    setAdmittedRasterPageIds((current) => {
+      if (!rasterCache || rasterAdmissionDelayMs === 0) {
+        return current.size === 0 ? current : new Set()
+      }
+      const retained = new Set(
+        [...current].filter((pageId) => desiredPageIds.has(pageId))
+      )
+      return retained.size === current.size ? current : retained
+    })
+    if (!rasterCache || rasterAdmissionDelayMs === 0) return
+    for (const pageId of desiredPageIds) {
+      if (
+        admittedRasterPageIdsRef.current.has(pageId) ||
+        rasterAdmissionTimersRef.current.has(pageId)
+      ) {
+        continue
+      }
+      const admitAfterScrollSettles = () => {
+        const remainingDelay = Math.max(
+          0,
+          rasterAdmissionDelayMs -
+            (Date.now() - lastFilmstripScrollAtRef.current)
+        )
+        if (remainingDelay > 0) {
+          const nextTimer = setTimeout(admitAfterScrollSettles, remainingDelay)
+          rasterAdmissionTimersRef.current.set(pageId, nextTimer)
+          return
+        }
+        rasterAdmissionTimersRef.current.delete(pageId)
+        if (
+          !observedVisiblePageIdsRef.current.has(pageId) ||
+          effectiveActivePageIdRef.current === pageId
+        ) {
+          return
+        }
+        setAdmittedRasterPageIds((current) =>
+          current.has(pageId) ? current : new Set(current).add(pageId)
+        )
+      }
+      const timer = setTimeout(admitAfterScrollSettles, rasterAdmissionDelayMs)
+      rasterAdmissionTimersRef.current.set(pageId, timer)
+    }
+  }, [
+    effectiveActivePageId,
+    rasterAdmissionDelayMs,
+    rasterCache,
+    visiblePageIds,
+  ])
 
   useEffect(() => {
     if (!rasterCache) {
@@ -793,13 +916,24 @@ export const PageFilmstrip = memo(function PageFilmstrip({
     if (!rasterCache) return
     let cancelled = false
     for (const [pageId, key] of rasterKeysByPageId) {
-      if (pageId === effectiveActivePageId || !visiblePageIds.has(pageId)) {
+      if (
+        pageId === effectiveActivePageId ||
+        !visiblePageIds.has(pageId) ||
+        !observedVisiblePageIdsRef.current.has(pageId)
+      ) {
         clearRasterRetry(pageId)
         rasterCache.cancel(key)
       }
     }
-    for (const pageId of visiblePageIds) {
-      if (pageId === effectiveActivePageId) continue
+    const requestPageIds =
+      rasterAdmissionDelayMs === 0 ? visiblePageIds : admittedRasterPageIds
+    for (const pageId of requestPageIds) {
+      if (
+        pageId === effectiveActivePageId ||
+        !observedVisiblePageIdsRef.current.has(pageId)
+      ) {
+        continue
+      }
       const key = rasterKeysByPageId.get(pageId)
       if (!key) continue
       const request = rasterCache.request(key)
@@ -852,8 +986,10 @@ export const PageFilmstrip = memo(function PageFilmstrip({
     }
   }, [
     clearRasterRetry,
+    admittedRasterPageIds,
     effectiveActivePageId,
     rasterCache,
+    rasterAdmissionDelayMs,
     rasterKeysByPageId,
     rasterRetryEpoch,
     visiblePageIds,

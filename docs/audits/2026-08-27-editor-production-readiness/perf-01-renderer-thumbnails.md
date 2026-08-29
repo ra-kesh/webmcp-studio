@@ -142,3 +142,59 @@ portrait, landscape, and square sizes. Browser profiling must also quantify the
 remaining per-page projection transfer and Worker startup cost before PERF-01
 can be closed; snapshot registration or batching remains a measurement-driven
 follow-up rather than an assumed requirement.
+
+## 100-page real-browser interaction gate, 2026-08-29
+
+The first real Chromium profile used one canonical 100-page / 800-node
+document and the actual filmstrip scroll viewport. It exposed two production
+defects that mounted tests could not show:
+
+- development's live-Artboard fallback missed the 32 ms p95 frame budget at
+  60 ms during extreme page churn;
+- the renderer-backed path launched 36–41 transient requests, reached six
+  browser requests at once, and delayed a page switch as long as 26.7 seconds.
+
+The cache's producer limit was still three. The larger transport count happened
+because an aborted fetch freed a client cache slot before the local Browser
+Rendering process had actually stopped. Cancellation after launch was therefore
+too late to protect interaction latency.
+
+Renderer admission now waits until the horizontal filmstrip has been still for
+300 ms. Scrolling resets the quiet window; pages leaving the preload margin
+still cancel immediately. IntersectionObserver visibility updates are React
+transitions, so a newer viewport can supersede obsolete 100-item parent work.
+Ordinary development retains the live fallback; setting
+`VITE_STUDIO_RENDERER_THUMBNAILS=true` profiles the deployed raster path through
+Wrangler's local Browser Run simulation without remote usage.
+
+The selected machine-readable profile is
+`artifacts/perf-01-scale-profile.json`. On macOS HeadlessChrome 152 at
+1440 × 900 it records:
+
+- 100 pages and 800 canonical nodes;
+- 90 alternating full-range scroll frames: 17.7 ms median, 24.2 ms p95,
+  29.5 ms p99, and 32.1 ms maximum;
+- page 100 acknowledgement in 361 ms;
+- three thumbnail requests started, maximum concurrency three;
+- one live Artboard, 87 deferred placeholders, and no completed raster or
+  Object URL at the evidence boundary.
+
+The browser gate requires renderer-backed mode, at least one request, no more
+than three total starts in the measured churn window, and maximum concurrency
+three. All budgets must pass before a temporary report is atomically promoted
+to selected evidence, so a fallback or failed rerun cannot replace the accepted
+profile. Mounted admission and existing filmstrip coverage pass 32/32; the
+complete cache plus filmstrip slice passes 43/43; the Studio TypeScript gate
+and scoped lint pass.
+
+Viewport truth is recorded synchronously inside the native observer callback.
+An exit clears its pending admission timer and cancels the exact raster key
+before React's transition-deferred visibility publication. Mounted regressions
+cover both exit before admission and immediate abort after admission.
+
+The local Browser simulator logged Chrome readiness-probe timeouts and did not
+complete a raster in this run. Therefore renderer steady-state latency, visual
+parity, cache-hit behavior, and completed Object-URL retention/release remain
+open. The interaction/cancellation result is valid because requests reached the
+real endpoint and the evidence separately records zero completions; it is not
+being used as steady-state renderer proof.

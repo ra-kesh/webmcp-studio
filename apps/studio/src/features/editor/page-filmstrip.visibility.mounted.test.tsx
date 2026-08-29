@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { act, createElement, StrictMode, useState } from "react"
+import { flushSync } from "react-dom"
 import { createRoot } from "react-dom/client"
 import type { Root } from "react-dom/client"
 import {
@@ -759,6 +760,184 @@ describe("PageFilmstrip thumbnail visibility", () => {
     } finally {
       await act(async () => root.unmount())
       host.remove()
+    }
+  })
+
+  it("admits expensive rasters only after the filmstrip settles", async () => {
+    vi.useFakeTimers()
+    const host = document.createElement("div")
+    document.body.appendChild(host)
+    const root: Root = createRoot(host)
+    const producer = vi.fn(
+      (_key: PageThumbnailRasterKey, _signal: AbortSignal) =>
+        new Promise<Blob>(() => undefined)
+    )
+
+    try {
+      await act(async () =>
+        root.render(
+          createElement(PageFilmstrip, {
+            document: fixture.document,
+            activePageId: fixture.document.pages[0].id,
+            reviewPending: false,
+            onSelectPage: vi.fn(),
+            onAddPage: vi.fn(),
+            onDuplicatePage: vi.fn(),
+            onRemovePage: vi.fn(),
+            onReorderPage: vi.fn(),
+            raster: {
+              admissionDelayMs: 300,
+              canonicalDocument: fixture.document,
+              documentSnapshotId: "snapshot-settled-admission",
+              rendererRevision: "renderer-settled-admission",
+              producer,
+            },
+          })
+        )
+      )
+      const observer = TestIntersectionObserver.instances.at(-1)
+      if (!observer) throw new Error("Expected the shared thumbnail observer")
+      if (!(observer.root instanceof HTMLElement)) {
+        throw new Error("Expected the filmstrip scroll viewport")
+      }
+
+      await act(async () => {
+        observer.trigger(["performance-page-2"], true)
+        await vi.advanceTimersByTimeAsync(299)
+      })
+      expect(producer).not.toHaveBeenCalled()
+
+      await act(async () => {
+        observer.root?.dispatchEvent(new Event("scroll"))
+        await vi.advanceTimersByTimeAsync(299)
+      })
+      expect(producer).not.toHaveBeenCalled()
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1)
+        await Promise.resolve()
+      })
+      expect(producer).toHaveBeenCalledOnce()
+    } finally {
+      await act(async () => root.unmount())
+      host.remove()
+      vi.useRealTimers()
+    }
+  })
+
+  it("does not admit a delayed raster after the page leaves the viewport", async () => {
+    vi.useFakeTimers()
+    const host = document.createElement("div")
+    document.body.appendChild(host)
+    const root: Root = createRoot(host)
+    const producer = vi.fn(
+      (_key: PageThumbnailRasterKey, _signal: AbortSignal) =>
+        new Promise<Blob>(() => undefined)
+    )
+
+    try {
+      await act(async () =>
+        root.render(
+          createElement(PageFilmstrip, {
+            document: fixture.document,
+            activePageId: fixture.document.pages[0].id,
+            reviewPending: false,
+            onSelectPage: vi.fn(),
+            onAddPage: vi.fn(),
+            onDuplicatePage: vi.fn(),
+            onRemovePage: vi.fn(),
+            onReorderPage: vi.fn(),
+            raster: {
+              admissionDelayMs: 300,
+              canonicalDocument: fixture.document,
+              documentSnapshotId: "snapshot-exit-before-admission",
+              rendererRevision: "renderer-exit-before-admission",
+              producer,
+            },
+          })
+        )
+      )
+      const observer = TestIntersectionObserver.instances.at(-1)
+      if (!observer) throw new Error("Expected the shared thumbnail observer")
+
+      await act(async () => {
+        observer.trigger(["performance-page-2"], true)
+        await vi.advanceTimersByTimeAsync(100)
+        observer.trigger(["performance-page-2"], false)
+        await vi.advanceTimersByTimeAsync(500)
+      })
+
+      expect(producer).not.toHaveBeenCalled()
+    } finally {
+      await act(async () => root.unmount())
+      host.remove()
+      vi.useRealTimers()
+    }
+  })
+
+  it("aborts an admitted delayed raster synchronously on viewport exit", async () => {
+    vi.useFakeTimers()
+    const host = document.createElement("div")
+    document.body.appendChild(host)
+    const root: Root = createRoot(host)
+    let rasterSignal: AbortSignal | undefined
+    const producer = vi.fn(
+      (_key: PageThumbnailRasterKey, signal: AbortSignal) => {
+        rasterSignal = signal
+        return new Promise<Blob>(() => undefined)
+      }
+    )
+
+    const renderFilmstrip = (activePageId: string) =>
+      root.render(
+        createElement(PageFilmstrip, {
+          document: fixture.document,
+          activePageId,
+          reviewPending: false,
+          onSelectPage: vi.fn(),
+          onAddPage: vi.fn(),
+          onDuplicatePage: vi.fn(),
+          onRemovePage: vi.fn(),
+          onReorderPage: vi.fn(),
+          raster: {
+            admissionDelayMs: 300,
+            canonicalDocument: fixture.document,
+            documentSnapshotId: "snapshot-exit-after-admission",
+            rendererRevision: "renderer-exit-after-admission",
+            producer,
+          },
+        })
+      )
+
+    try {
+      await act(async () => renderFilmstrip(fixture.document.pages[0].id))
+      const observer = TestIntersectionObserver.instances.at(-1)
+      if (!observer) throw new Error("Expected the shared thumbnail observer")
+
+      await act(async () => {
+        observer.trigger(["performance-page-2"], true)
+        await Promise.resolve()
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(300)
+        await Promise.resolve()
+      })
+      expect(producer).toHaveBeenCalledOnce()
+      expect(rasterSignal?.aborted).toBe(false)
+
+      await act(async () => {
+        observer.trigger(["performance-page-2"], false)
+        expect(rasterSignal?.aborted).toBe(true)
+
+        flushSync(() => renderFilmstrip(fixture.document.pages[2].id))
+        await Promise.resolve()
+        await vi.advanceTimersByTimeAsync(600)
+      })
+      expect(producer).toHaveBeenCalledOnce()
+    } finally {
+      await act(async () => root.unmount())
+      host.remove()
+      vi.useRealTimers()
     }
   })
 

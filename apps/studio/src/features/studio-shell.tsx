@@ -579,6 +579,7 @@ export function StudioShell({
     }))
   const rendererBackedPageThumbnailRaster = useMemo(
     () => ({
+      admissionDelayMs: 300,
       canonicalDocument: editor.canonicalPreviewDocument,
       documentSnapshotId: pageThumbnailSnapshotId,
       producer: pageThumbnailProducer,
@@ -590,10 +591,13 @@ export function StudioShell({
       pageThumbnailSnapshotId,
     ]
   )
-  // Development keeps filmstrip pages on the live Artboard fallback instead of
-  // starting Browser sessions for ordinary editing. Deployed builds retain
-  // renderer-backed, identity-checked PNG thumbnails.
-  const pageThumbnailRaster = import.meta.env.DEV
+  // Ordinary development keeps filmstrip pages on the live Artboard fallback.
+  // PERF-01 can opt into the deployed renderer path against Wrangler's local,
+  // cost-free Browser Run simulation without changing production behavior.
+  const useLiveThumbnailFallback =
+    import.meta.env.DEV &&
+    import.meta.env.VITE_STUDIO_RENDERER_THUMBNAILS !== "true"
+  const pageThumbnailRaster = useLiveThumbnailFallback
     ? undefined
     : rendererBackedPageThumbnailRaster
   const publishedVersion =

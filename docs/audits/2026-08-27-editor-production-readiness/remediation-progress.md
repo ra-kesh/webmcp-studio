@@ -2009,3 +2009,48 @@ Status: **completed locally and independently accepted; deployed parity open**
   selected artifacts, and returned **ACCEPT with no remaining P0/P1 finding**.
   `render-conformance-local-review.md` preserves the reviewed invariants and
   evidence.
+
+## 2026-08-29 — Real-browser scale interaction and render admission (PERF-01A)
+
+Status: **completed locally and independently accepted; steady-state raster evidence open**
+
+- Revisited `perf-01-renderer-thumbnails.md`, the ASSET-02 crop/preview seam,
+  PERSIST-01C preview ownership, OpenPencil's viewport scheduling, and Loora's
+  revision-keyed lazy thumbnail composition before editing the filmstrip.
+- Added one reproducible real-Chromium profile around a canonical 100-page,
+  800-node document. It instruments the actual Radix scroll viewport, frame
+  cadence, page-switch acknowledgement, thumbnail request concurrency, Long
+  Tasks, heap, live Artboards, raster placeholders, and Object URLs, then writes
+  `artifacts/perf-01-scale-profile.json`.
+- The first honest runs failed. Development's live fallback reached 60 ms p95.
+  The renderer path launched 36–41 jobs, transiently reached six browser
+  requests, and delayed page selection up to 26.7 seconds because cancellation
+  freed client slots before local Browser processes stopped.
+- Renderer-backed thumbnails now require 300 ms of filmstrip quiet before
+  admission. Every scroll resets the gate; viewport exit still cancels
+  immediately. Intersection visibility is published as an interruptible React
+  transition so obsolete parent renders cannot monopolize the scroll path.
+- The selected passing run holds 90 full-range alternating frames to 24.2 ms
+  p95 / 32.1 ms maximum, page 100 acknowledgement to 361 ms, endpoint
+  concurrency to three, and one live Artboard. Mounted filmstrip coverage is
+  32/32; cache plus filmstrip is 43/43; Studio typecheck and scoped lint pass.
+- The first independent review rejected two P1 holes. Viewport exit now updates
+  raw observer truth, clears delayed admission, and cancels the exact raster
+  synchronously before transition-deferred React publication. The browser gate
+  now requires renderer mode, positive and bounded total starts, bounded
+  concurrency, and promotes selected evidence atomically only after every
+  assertion passes. Exit-before and exit-after regressions preserve both
+  invariants.
+- A second review found that an urgent editor render could still observe stale
+  transition state and recreate a just-cancelled request. The request effect
+  now treats synchronous observer truth as authoritative for both cancellation
+  and admission. A `flushSync` regression forces that exact ordering and proves
+  the producer remains at one call with its original signal aborted.
+- The final independent verdict is **ACCEPT with no remaining P0/P1 finding**.
+  `perf-01a-independent-review.md` retains the inspected code paths, rejected
+  races, evidence contract, and final decision.
+- The opt-in `VITE_STUDIO_RENDERER_THUMBNAILS=true` uses Wrangler's local,
+  cost-free Browser Run simulation. That simulator logged Chrome readiness
+  timeouts and completed zero rasters, so steady-state latency, visual parity,
+  cache hits, memory after completion, and Object-URL release remain explicit
+  PERF-01B work on a healthy host.

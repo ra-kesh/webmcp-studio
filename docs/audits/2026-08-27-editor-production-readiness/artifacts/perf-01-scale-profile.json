@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "capturedAt": "2026-08-29T14:25:29.670Z",
+  "runtime": {
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    }
+  },
+  "document": {
+    "pages": 100,
+    "nodes": 800
+  },
+  "readyWallTime": 3475,
+  "pageSwitchWallTime": 361,
+  "frameProfile": {
+    "frames": 90,
+    "p50FrameMs": 17.699999999254942,
+    "p95FrameMs": 24.199999999254942,
+    "p99FrameMs": 29.5,
+    "maximumFrameMs": 32.09999999962747,
+    "scrollWidth": 7684,
+    "clientWidth": 776
+  },
+  "thumbnailMode": "renderer-backed",
+  "requests": {
+    "started": 3,
+    "completed": 0,
+    "failed": 0,
+    "active": 3,
+    "maximumConcurrency": 3
+  },
+  "browser": {
+    "activeObjectUrls": 0,
+    "createdObjectUrls": 0,
+    "revokedObjectUrls": 0,
+    "longTaskCount": 12,
+    "maximumLongTaskMs": 766,
+    "longTaskTotalMs": 1668,
+    "usedJSHeapBytes": 121930754,
+    "totalJSHeapBytes": 176444810,
+    "domContentLoadedMs": 213.60000000149012,
+    "loadEventMs": 238.10000000149012,
+    "thumbnailElements": 100,
+    "liveArtboards": 1,
+    "deferredThumbnails": 87,
+    "readyRasterThumbnails": 0,
+    "canvases": 3
+  },
+  "budgets": {
+    "maximumThumbnailConcurrency": 3,
+    "maximumTotalThumbnailStarts": 3,
+    "maximumRetainedObjectUrls": 64,
+    "maximumDevelopmentLiveArtboards": 8,
+    "maximumP95FrameMs": 32,
+    "maximumPageSwitchWallTime": 500
+  }
+}
