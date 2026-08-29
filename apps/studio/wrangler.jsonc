@@ -12,11 +12,21 @@
     "enabled": true,
     "head_sampling_rate": 1,
   },
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
   "services": [
     {
       "binding": "RENDERER",
       "service": "webmcp-studio-renderer",
     },
+  ],
+  "workflows": [
+    {
+      "binding": "RENDER_JOBS",
+      "name": "webmcp-studio-render-jobs",
+      "class_name": "RenderJobWorkflow"
+    }
   ],
   "vars": {
     "STUDIO_ACCESS_MODE": "cloudflare_access",

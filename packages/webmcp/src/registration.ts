@@ -171,7 +171,15 @@ export type StudioWebMcpRenderRecord = {
   version: number
   createdAt: string
   completedAt?: string
-  status: "rendering" | "completed" | "failed" | "status_unknown"
+  status:
+    | "queued"
+    | "rendering"
+    | "retrying"
+    | "completed"
+    | "failed"
+    | "cancelling"
+    | "cancelled"
+    | "status_unknown"
   modifications: TemplateModifications
   selections: readonly StudioWebMcpRenderSelection[]
   artifacts: readonly {
@@ -1820,13 +1828,17 @@ function selectRenderHistory(
   const status = value.status
   if (
     status !== undefined &&
+    status !== "queued" &&
     status !== "rendering" &&
+    status !== "retrying" &&
     status !== "completed" &&
     status !== "failed" &&
+    status !== "cancelling" &&
+    status !== "cancelled" &&
     status !== "status_unknown"
   ) {
     throw new Error(
-      "status must be rendering, completed, failed, or status_unknown."
+      "status must be queued, rendering, retrying, completed, failed, cancelling, cancelled, or status_unknown."
     )
   }
   if (value.templateId !== undefined && typeof value.templateId !== "string") {
@@ -3209,7 +3221,16 @@ export function studioWebMcpTools(
           templateId: { type: "string" },
           status: {
             type: "string",
-            enum: ["rendering", "completed", "failed", "status_unknown"],
+            enum: [
+              "queued",
+              "rendering",
+              "retrying",
+              "completed",
+              "failed",
+              "cancelling",
+              "cancelled",
+              "status_unknown",
+            ],
           },
           limit: { type: "integer", minimum: 1, maximum: 30 },
         },
@@ -3337,6 +3358,7 @@ export function studioWebMcpTools(
           )
           if (
             record.status === "failed" ||
+            record.status === "cancelled" ||
             record.status === "status_unknown"
           ) {
             return {
@@ -3346,7 +3368,9 @@ export function studioWebMcpTools(
                   text:
                     record.status === "status_unknown"
                       ? `Render ${record.id} has unknown server status. Inspect render history before retrying with the same idempotency key.`
-                      : `Render ${record.id} failed. Inspect render history in Studio for the user-facing failure detail.`,
+                      : record.status === "cancelled"
+                        ? `Render ${record.id} was cancelled.`
+                        : `Render ${record.id} failed. Inspect render history in Studio for the user-facing failure detail.`,
                 },
               ],
               structuredContent: result,

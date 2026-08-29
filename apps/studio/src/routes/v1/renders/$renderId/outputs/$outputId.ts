@@ -7,6 +7,8 @@ type OutputRow = {
   format: "png" | "pdf"
   output_id: string
   page_id: string | null
+  status: "ready" | "expired" | "deleted"
+  expires_at: string | null
 }
 
 export const Route = createFileRoute("/v1/renders/$renderId/outputs/$outputId")(
@@ -20,7 +22,7 @@ export const Route = createFileRoute("/v1/renders/$renderId/outputs/$outputId")(
             session.respond(Response.json(body, init))
           const row = await env.DB.prepare(
             `SELECT outputs.r2_key, outputs.format, outputs.output_id,
-                    outputs.page_id
+                    outputs.page_id, outputs.status, outputs.expires_at
              FROM render_outputs outputs
              JOIN render_jobs jobs ON jobs.id = outputs.render_job_id
              WHERE outputs.id = ?1 AND outputs.render_job_id = ?2
@@ -34,8 +36,24 @@ export const Route = createFileRoute("/v1/renders/$renderId/outputs/$outputId")(
               { status: 404 }
             )
           }
+          if (
+            row.status !== "ready" ||
+            (row.expires_at && row.expires_at <= new Date().toISOString())
+          ) {
+            return json(
+              { error: { code: "render_asset_expired" } },
+              { status: 410 }
+            )
+          }
           const object = await env.RENDERS.get(row.r2_key)
           if (!object) {
+            await env.DB.prepare(
+              `UPDATE render_outputs
+               SET status = 'expired', deleted_at = ?2
+               WHERE id = ?1 AND status = 'ready'`
+            )
+              .bind(params.outputId, new Date().toISOString())
+              .run()
             return json(
               { error: { code: "render_asset_expired" } },
               { status: 410 }

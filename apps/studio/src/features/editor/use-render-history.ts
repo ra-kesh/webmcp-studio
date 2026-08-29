@@ -25,7 +25,19 @@ export type RenderRecord = {
   version: number
   createdAt: string
   completedAt?: string
-  status: "rendering" | "completed" | "failed" | "status_unknown"
+  status:
+    | "queued"
+    | "rendering"
+    | "retrying"
+    | "completed"
+    | "failed"
+    | "cancelling"
+    | "cancelled"
+    | "status_unknown"
+  attempt?: number
+  maxAttempts?: number
+  retryable?: boolean
+  idempotencyKey?: string
   modifications: TemplateModifications
   selections: RenderSelection[]
   artifacts: RenderArtifact[]
@@ -50,6 +62,21 @@ const renderArtifactResponseSchema = z.object({
 
 const renderApiResponseSchema = z.object({
   id: z.string().optional(),
+  status: z
+    .enum([
+      "queued",
+      "rendering",
+      "retrying",
+      "completed",
+      "failed",
+      "cancelling",
+      "cancelled",
+    ])
+    .optional(),
+  statusUrl: z.string().optional(),
+  attempt: z.number().optional(),
+  maxAttempts: z.number().optional(),
+  retryable: z.boolean().optional(),
   completedAt: z.string().optional(),
   error: z
     .object({ code: z.string().optional(), message: z.string().optional() })
@@ -66,7 +93,18 @@ const renderHistoryResponseSchema = z.object({
         version: z.number(),
         createdAt: z.string(),
         completedAt: z.string().nullable(),
-        status: z.enum(["rendering", "completed", "failed"]),
+        status: z.enum([
+          "queued",
+          "rendering",
+          "retrying",
+          "completed",
+          "failed",
+          "cancelling",
+          "cancelled",
+        ]),
+        attempt: z.number().optional(),
+        maxAttempts: z.number().optional(),
+        retryable: z.boolean().optional(),
         error: z.string().nullable(),
         request: z
           .object({
@@ -88,6 +126,46 @@ const renderHistoryResponseSchema = z.object({
 })
 
 type RenderApiResponse = z.infer<typeof renderApiResponseSchema>
+
+const terminalStatuses = new Set(["completed", "failed", "cancelled"])
+
+const wait = (milliseconds: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    const finish = () => {
+      signal?.removeEventListener("abort", abort)
+      resolve()
+    }
+    const timeout = window.setTimeout(finish, milliseconds)
+    if (!signal) return
+    const abort = () => {
+      window.clearTimeout(timeout)
+      signal.removeEventListener("abort", abort)
+      reject(signal.reason)
+    }
+    signal.addEventListener("abort", abort, { once: true })
+  })
+
+async function pollRender(
+  statusUrl: string,
+  signal: AbortSignal | undefined,
+  onProgress: (payload: RenderApiResponse) => void
+) {
+  let delay = 500
+  while (true) {
+    signal?.throwIfAborted()
+    const response = await fetch(statusUrl, { signal })
+    const payload = renderApiResponseSchema.parse(await response.json())
+    if (!response.ok) {
+      throw new Error(
+        payload.error?.message || `Render status returned ${response.status}.`
+      )
+    }
+    onProgress(payload)
+    if (payload.status && terminalStatuses.has(payload.status)) return payload
+    await wait(delay, signal)
+    delay = Math.min(2_000, Math.round(delay * 1.5))
+  }
+}
 
 const artifactFilename = (
   version: TemplateVersion | undefined,
@@ -195,6 +273,9 @@ export function useRenderHistory(version?: TemplateVersion) {
             createdAt: record.createdAt,
             completedAt: record.completedAt ?? undefined,
             status: record.status,
+            attempt: record.attempt,
+            maxAttempts: record.maxAttempts,
+            retryable: record.retryable,
             modifications: record.request?.modifications ?? {},
             selections: record.request?.response?.outputs ?? [],
             error: record.error ?? undefined,
@@ -230,6 +311,73 @@ export function useRenderHistory(version?: TemplateVersion) {
       })
     return () => controller.abort()
   }, [version?.id])
+
+  const hasRestoredActiveRender = records.some(
+    (record) =>
+      !record.idempotencyKey &&
+      ["queued", "rendering", "retrying", "cancelling"].includes(record.status)
+  )
+
+  useEffect(() => {
+    if (!hasRestoredActiveRender) return
+    const controller = new AbortController()
+    const refresh = async () => {
+      const activeIds = recordsRef.current
+        .filter(
+          (record) =>
+            !record.idempotencyKey &&
+            ["queued", "rendering", "retrying", "cancelling"].includes(
+              record.status
+            )
+        )
+        .map((record) => record.id)
+      await Promise.allSettled(
+        activeIds.map(async (renderId) => {
+          const response = await fetch(`/v1/renders/${renderId}`, {
+            signal: controller.signal,
+          })
+          const payload = renderApiResponseSchema.parse(await response.json())
+          if (!response.ok || !payload.status) return
+          setRecords((current) =>
+            current.map((record) => {
+              if (record.id !== renderId) return record
+              return {
+                ...record,
+                status: payload.status!,
+                attempt: payload.attempt,
+                maxAttempts: payload.maxAttempts,
+                retryable: payload.retryable,
+                completedAt: payload.completedAt ?? record.completedAt,
+                error:
+                  payload.status === "failed"
+                    ? payload.error?.message || "Rendering failed."
+                    : payload.status === "cancelled"
+                      ? "Render cancelled."
+                      : undefined,
+                artifacts: (payload.artifacts ?? []).map((artifact) => ({
+                  id: artifact.id,
+                  outputId: artifact.outputId,
+                  pageId: artifact.pageId ?? undefined,
+                  format: artifact.format,
+                  filename: artifactFilename(version, artifact),
+                  bytes: artifact.bytes,
+                  width: artifact.width ?? undefined,
+                  height: artifact.height ?? undefined,
+                  objectUrl: artifact.downloadUrl,
+                })),
+              }
+            })
+          )
+        })
+      )
+    }
+    void refresh()
+    const interval = window.setInterval(() => void refresh(), 2_000)
+    return () => {
+      controller.abort()
+      window.clearInterval(interval)
+    }
+  }, [hasRestoredActiveRender, version])
 
   const runRender = useCallback(
     (
@@ -268,6 +416,7 @@ export function useRenderHistory(version?: TemplateVersion) {
         version: publishedVersion.version,
         createdAt: new Date().toISOString(),
         status: "rendering",
+        idempotencyKey,
         modifications: structuredClone(modifications),
         selections: structuredClone(selections),
         artifacts: [],
@@ -300,7 +449,7 @@ export function useRenderHistory(version?: TemplateVersion) {
             options.signal
           )
           authoritativeFailure = !response.ok
-          const payload = renderApiResponseSchema.parse(await response.json())
+          let payload = renderApiResponseSchema.parse(await response.json())
           serverId = payload.id ?? localId
           if (!response.ok) {
             const message = payload.error?.message
@@ -309,6 +458,67 @@ export function useRenderHistory(version?: TemplateVersion) {
                 ? "The Renderer Worker is not running in this local session. Start the full Worker topology and try again."
                 : message || `Render API returned ${response.status}.`
             )
+          }
+
+          const statusUrl = payload.statusUrl ?? `/v1/renders/${serverId}`
+          if (payload.status && !terminalStatuses.has(payload.status)) {
+            const accepted: RenderRecord = {
+              ...record,
+              id: serverId,
+              status: payload.status,
+              attempt: payload.attempt,
+              maxAttempts: payload.maxAttempts,
+            }
+            setRecords((current) =>
+              current.flatMap((candidate) => {
+                if (candidate.id === localId) return [accepted]
+                if (candidate.id === serverId) return []
+                return [candidate]
+              })
+            )
+            payload = await pollRender(
+              statusUrl,
+              options.signal,
+              (progress) => {
+                if (!progress.status) return
+                setRecords((current) =>
+                  current.map((candidate) =>
+                    candidate.id === serverId
+                      ? {
+                          ...candidate,
+                          status: progress.status!,
+                          attempt: progress.attempt,
+                          maxAttempts: progress.maxAttempts,
+                          retryable: progress.retryable,
+                        }
+                      : candidate
+                  )
+                )
+              }
+            )
+          }
+          if (payload.status === "failed" || payload.status === "cancelled") {
+            const terminal: RenderRecord = {
+              ...record,
+              id: serverId,
+              status: payload.status,
+              attempt: payload.attempt,
+              maxAttempts: payload.maxAttempts,
+              retryable: payload.retryable,
+              completedAt: payload.completedAt ?? new Date().toISOString(),
+              error:
+                payload.status === "cancelled"
+                  ? "Render cancelled."
+                  : payload.error?.message || "Rendering failed.",
+            }
+            setRecords((current) =>
+              current.map((candidate) =>
+                candidate.id === serverId || candidate.id === localId
+                  ? terminal
+                  : candidate
+              )
+            )
+            return terminal
           }
 
           artifacts = (payload.artifacts ?? []).map(
@@ -330,6 +540,8 @@ export function useRenderHistory(version?: TemplateVersion) {
             ...record,
             id: serverId,
             status: "completed",
+            attempt: payload.attempt,
+            maxAttempts: payload.maxAttempts,
             completedAt: payload.completedAt ?? new Date().toISOString(),
             artifacts,
           }
@@ -383,7 +595,103 @@ export function useRenderHistory(version?: TemplateVersion) {
     []
   )
 
-  return { records, historyError, runRender }
+  const cancelRender = useCallback(async (renderId: string) => {
+    const response = await fetch(`/v1/renders/${renderId}`, {
+      method: "DELETE",
+    })
+    const payload = renderApiResponseSchema.parse(await response.json())
+    if (!response.ok || !payload.status) {
+      throw new Error(
+        payload.error?.message ||
+          `Render cancellation returned ${response.status}.`
+      )
+    }
+    setRecords((current) =>
+      current.map((record) =>
+        record.id === renderId
+          ? {
+              ...record,
+              status: payload.status!,
+              completedAt: payload.completedAt ?? record.completedAt,
+            }
+          : record
+      )
+    )
+  }, [])
+
+  const retryRender = useCallback(
+    async (renderId: string) => {
+      const response = await fetch(`/v1/renders/${renderId}`, {
+        method: "POST",
+      })
+      const payload = renderApiResponseSchema.parse(await response.json())
+      if (!response.ok || !payload.status) {
+        throw new Error(
+          payload.error?.message || `Render retry returned ${response.status}.`
+        )
+      }
+      setRecords((current) =>
+        current.map((record) =>
+          record.id === renderId
+            ? { ...record, status: payload.status!, error: undefined }
+            : record
+        )
+      )
+      const terminal = await pollRender(
+        payload.statusUrl ?? `/v1/renders/${renderId}`,
+        undefined,
+        (progress) => {
+          if (!progress.status) return
+          setRecords((current) =>
+            current.map((record) =>
+              record.id === renderId
+                ? {
+                    ...record,
+                    status: progress.status!,
+                    attempt: progress.attempt,
+                    maxAttempts: progress.maxAttempts,
+                    retryable: progress.retryable,
+                  }
+                : record
+            )
+          )
+        }
+      )
+      setRecords((current) =>
+        current.map((record) => {
+          if (record.id !== renderId || !terminal.status) return record
+          return {
+            ...record,
+            status: terminal.status,
+            attempt: terminal.attempt,
+            maxAttempts: terminal.maxAttempts,
+            retryable: terminal.retryable,
+            completedAt: terminal.completedAt,
+            error:
+              terminal.status === "failed"
+                ? terminal.error?.message || "Rendering failed."
+                : terminal.status === "cancelled"
+                  ? "Render cancelled."
+                  : undefined,
+            artifacts: (terminal.artifacts ?? []).map((artifact) => ({
+              id: artifact.id,
+              outputId: artifact.outputId,
+              pageId: artifact.pageId ?? undefined,
+              format: artifact.format,
+              filename: artifactFilename(version, artifact),
+              bytes: artifact.bytes,
+              width: artifact.width ?? undefined,
+              height: artifact.height ?? undefined,
+              objectUrl: artifact.downloadUrl,
+            })),
+          }
+        })
+      )
+    },
+    [version]
+  )
+
+  return { records, historyError, runRender, cancelRender, retryRender }
 }
 
 export type RenderHistoryController = ReturnType<typeof useRenderHistory>

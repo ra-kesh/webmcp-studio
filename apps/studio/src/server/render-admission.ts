@@ -111,20 +111,31 @@ export class RenderAdmission extends DurableObject<Env> {
       }
 
       const existing = sql
-        .exec<{ status: string }>(
-          "SELECT status FROM reservations WHERE id = ?",
+        .exec<{
+          status: string
+          estimated_bytes: number
+          actual_bytes: number | null
+        }>(
+          `SELECT status, estimated_bytes, actual_bytes
+           FROM reservations WHERE id = ?`,
           request.reservationId
         )
         .toArray()
         .at(0)
       if (existing?.status === "active") {
+        const expiresAt = request.now + limits.reservationTtlMs
+        sql.exec(
+          `UPDATE reservations SET expires_at = ?
+           WHERE id = ? AND status = 'active'`,
+          expiresAt,
+          request.reservationId
+        )
         return {
           admitted: true,
           reservationId: request.reservationId,
-          expiresAt: request.now + limits.reservationTtlMs,
+          expiresAt,
         }
       }
-
       const usage = sql
         .exec<UsageRow>(
           `SELECT day, request_count, page_count, pixel_area, storage_bytes
@@ -142,6 +153,76 @@ export class RenderAdmission extends DurableObject<Env> {
           admitted: false,
           code: "render_concurrency_exceeded",
           retryAfterSeconds: 30,
+        }
+      }
+      if (existing?.status === "completed") {
+        const previousBytes = existing.actual_bytes ?? 0
+        const projectedStorage =
+          usage.storage_bytes - previousBytes + request.estimatedStorageBytes
+        if (projectedStorage > limits.maxStorageBytesPerDay) {
+          return {
+            admitted: false,
+            code: "render_storage_budget_exceeded",
+            retryAfterSeconds: dayRetry,
+          }
+        }
+        const expiresAt = request.now + limits.reservationTtlMs
+        sql.exec(
+          `UPDATE reservations
+           SET status = 'active', estimated_bytes = ?, actual_bytes = NULL,
+               created_at = ?, expires_at = ?, completed_at = NULL
+           WHERE id = ? AND status = 'completed'`,
+          request.estimatedStorageBytes,
+          request.now,
+          expiresAt,
+          request.reservationId
+        )
+        sql.exec(
+          `UPDATE usage SET storage_bytes = MAX(0, storage_bytes - ?) + ?
+           WHERE singleton = 1`,
+          previousBytes,
+          request.estimatedStorageBytes
+        )
+        return {
+          admitted: true,
+          reservationId: request.reservationId,
+          expiresAt,
+        }
+      }
+      if (
+        existing &&
+        (existing.status === "failed" || existing.status === "expired")
+      ) {
+        if (
+          usage.storage_bytes + request.estimatedStorageBytes >
+          limits.maxStorageBytesPerDay
+        ) {
+          return {
+            admitted: false,
+            code: "render_storage_budget_exceeded",
+            retryAfterSeconds: dayRetry,
+          }
+        }
+        const expiresAt = request.now + limits.reservationTtlMs
+        sql.exec(
+          `UPDATE reservations
+           SET status = 'active', estimated_bytes = ?, actual_bytes = NULL,
+               created_at = ?, expires_at = ?, completed_at = NULL
+           WHERE id = ?`,
+          request.estimatedStorageBytes,
+          request.now,
+          expiresAt,
+          request.reservationId
+        )
+        sql.exec(
+          `UPDATE usage SET storage_bytes = storage_bytes + ?
+           WHERE singleton = 1`,
+          request.estimatedStorageBytes
+        )
+        return {
+          admitted: true,
+          reservationId: request.reservationId,
+          expiresAt,
         }
       }
       if (usage.request_count + 1 > limits.maxRequestsPerDay) {
@@ -240,17 +321,30 @@ export class RenderAdmission extends DurableObject<Env> {
   async fail(reservationId: string, now: number): Promise<void> {
     this.ctx.storage.transactionSync(() => {
       const reservation = this.ctx.storage.sql
-        .exec<{ status: string; estimated_bytes: number }>(
-          "SELECT status, estimated_bytes FROM reservations WHERE id = ?",
+        .exec<{
+          status: string
+          estimated_bytes: number
+          actual_bytes: number | null
+        }>(
+          `SELECT status, estimated_bytes, actual_bytes
+           FROM reservations WHERE id = ?`,
           reservationId
         )
         .toArray()
         .at(0)
-      if (!reservation || reservation.status !== "active") return
+      if (
+        !reservation ||
+        (reservation.status !== "active" && reservation.status !== "completed")
+      )
+        return
+      const accountedBytes =
+        reservation.status === "completed"
+          ? (reservation.actual_bytes ?? 0)
+          : reservation.estimated_bytes
       this.ctx.storage.sql.exec(
         `UPDATE usage SET storage_bytes = MAX(0, storage_bytes - ?)
          WHERE singleton = 1`,
-        reservation.estimated_bytes
+        accountedBytes
       )
       this.ctx.storage.sql.exec(
         `UPDATE reservations SET status = 'failed', completed_at = ? WHERE id = ?`,

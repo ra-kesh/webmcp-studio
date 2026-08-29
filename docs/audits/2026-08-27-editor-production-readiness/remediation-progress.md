@@ -2319,3 +2319,30 @@ Status: **implemented locally and independently accepted; broader FAIL-01 remain
 - Studio and WebMCP typechecks, scoped Studio lint, and Prettier pass. Focused
   Studio suites pass 100/100 and WebMCP passes 38/38. Final independent rereview
   returned **ACCEPT with no remaining P0/P1**.
+
+## 2026-08-30 — Durable render execution (FAIL-01I / JOB-01A)
+
+Status: **implemented locally and independently accepted; deployed restart evidence remains open**
+
+- Reread the retained JOB-01/FAIL-01 contracts, Loora export/transaction
+  boundaries, and current Cloudflare Workflow/D1/Workers guidance.
+- POST now persists one idempotent queued D1 job and dispatches a named Workflow.
+  A scheduled reconciler repairs missing dispatch, restart gaps, stale attempts,
+  pending admission settlement, and expired artifacts.
+- Workflow execution is checkpointed across exact claim/admission,
+  attempt-scoped artifacts, settlement/publication, and compensation. Every
+  artifact and finalization is deadline-bound and refreshes a fenced heartbeat.
+- Completion, cancellation, retry, admission, and R2 cleanup share exact attempt
+  ownership. No stale attempt can publish, cancel, overwrite, or delete a newer
+  attempt. D1 never exposes completed output before quota settlement is known.
+- The playground exposes queued/rendering/retrying/cancelling/cancelled states,
+  finite attempts, Cancel, retryability, status-unknown reconciliation, and
+  restored polling after reload.
+- Migration `0008` and its executable preservation harness cover malformed
+  legacy JSON, missing terminal timestamps, output preservation, foreign keys,
+  and required indexes.
+- Studio/WebMCP typechecks, production build, 51 focused tests, migration proof,
+  and `git diff --check` pass. A real port-3001 PDF render survived client
+  connection loss and restored as completed with a 291.6 KB download.
+- Independent review rejected three iterations. Final rereview returned
+  **ACCEPT with no remaining P0/P1**.

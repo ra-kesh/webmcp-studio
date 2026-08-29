@@ -20,6 +20,13 @@ export type RenderAdmissionLease = {
   fail: () => Promise<void>
 }
 
+export class RenderAdmissionCompletionError extends Error {
+  constructor(readonly causes: readonly unknown[]) {
+    super("Render capacity completion settlement is unknown")
+    this.name = "RenderAdmissionCompletionError"
+  }
+}
+
 /**
  * Failure settlement is idempotent. Retry once immediately so a transient
  * Durable Object transport failure does not hold a capacity slot until its
@@ -42,6 +49,21 @@ export async function failRenderLeaseWithRetry(
   }
 }
 
+export async function completeRenderLeaseWithRetry(
+  lease: RenderAdmissionLease,
+  actualBytes: number
+): Promise<void> {
+  try {
+    await lease.complete(actualBytes)
+  } catch (firstError) {
+    try {
+      await lease.complete(actualBytes)
+    } catch (secondError) {
+      throw new RenderAdmissionCompletionError([firstError, secondError])
+    }
+  }
+}
+
 export async function reserveRenderCapacity(
   env: Env,
   principal: StudioPrincipal,
@@ -49,10 +71,24 @@ export async function reserveRenderCapacity(
   reservationId = `render-reservation-${crypto.randomUUID()}`,
   workload: RenderAdmissionWorkload = "artifact"
 ): Promise<RenderAdmissionLease> {
+  return reserveRenderCapacityForBudget(
+    env,
+    principal.budgetKey,
+    plan,
+    reservationId,
+    workload
+  )
+}
+
+export async function reserveRenderCapacityForBudget(
+  env: Env,
+  budgetKey: string,
+  plan: RenderResourcePlan,
+  reservationId = `render-reservation-${crypto.randomUUID()}`,
+  workload: RenderAdmissionWorkload = "artifact"
+): Promise<RenderAdmissionLease> {
   const admissionKey =
-    workload === "thumbnail"
-      ? `thumbnail:${principal.budgetKey}`
-      : principal.budgetKey
+    workload === "thumbnail" ? `thumbnail:${budgetKey}` : budgetKey
   const stub = env.RENDER_ADMISSION.getByName(admissionKey)
   const decision = await stub.reserve({
     ...plan,

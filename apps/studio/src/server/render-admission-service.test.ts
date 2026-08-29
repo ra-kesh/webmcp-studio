@@ -3,7 +3,9 @@ import type { RenderResourcePlan } from "@webmcp/document"
 
 import { renderBudgetLimitsFor } from "./render-admission-policy"
 import {
+  completeRenderLeaseWithRetry,
   failRenderLeaseWithRetry,
+  RenderAdmissionCompletionError,
   reserveThumbnailCapacity,
 } from "./render-admission-service"
 import type { StudioPrincipal } from "./studio-principal"
@@ -166,5 +168,47 @@ describe("thumbnail render admission", () => {
     })
 
     expect(fail).toHaveBeenCalledTimes(2)
+  })
+
+  it("retries completion acknowledgement before finalization is published", async () => {
+    const complete = vi
+      .fn<(actualBytes: number) => Promise<void>>()
+      .mockRejectedValueOnce(new Error("transient completion failure"))
+      .mockResolvedValueOnce(undefined)
+
+    await expect(
+      completeRenderLeaseWithRetry(
+        {
+          reservationId: "render-completion-retry",
+          complete,
+          fail: vi.fn(async () => undefined),
+        },
+        4_096
+      )
+    ).resolves.toBeUndefined()
+
+    expect(complete).toHaveBeenCalledTimes(2)
+    expect(complete).toHaveBeenNthCalledWith(1, 4_096)
+    expect(complete).toHaveBeenNthCalledWith(2, 4_096)
+  })
+
+  it("preserves ambiguous completion as an explicit reconciliation state", async () => {
+    const complete = vi
+      .fn<(actualBytes: number) => Promise<void>>()
+      .mockRejectedValueOnce(new Error("first completion failure"))
+      .mockRejectedValueOnce(new Error("second completion failure"))
+
+    await expect(
+      completeRenderLeaseWithRetry(
+        {
+          reservationId: "render-completion-unknown",
+          complete,
+          fail: vi.fn(async () => undefined),
+        },
+        4_096
+      )
+    ).rejects.toBeInstanceOf(RenderAdmissionCompletionError)
+
+    expect(complete).toHaveBeenCalledTimes(2)
   })
 })

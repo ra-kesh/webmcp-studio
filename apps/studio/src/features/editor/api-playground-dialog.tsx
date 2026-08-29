@@ -8,6 +8,7 @@ import {
   LoaderCircle,
   Play,
   RotateCw,
+  Square,
 } from "lucide-react"
 import type {
   FieldValue,
@@ -141,7 +142,8 @@ export function ApiPlaygroundDialog({
     token: string
   } | null>(null)
   const [apiAccessError, setApiAccessError] = useState<string | null>(null)
-  const { records, historyError, runRender } = renderHistory
+  const { records, historyError, runRender, cancelRender, retryRender } =
+    renderHistory
 
   useEffect(() => {
     if (!version) return
@@ -227,7 +229,7 @@ export function ApiPlaygroundDialog({
   const requestJson = requestBody ? JSON.stringify(requestBody, null, 2) : ""
   const curl =
     requestBody && apiAccess
-      ? `curl --fail-with-body -X POST ${apiAccess.origin}/v1/studio/render \\\n  -H "Authorization: Bearer ${apiAccess.token}" \\\n  -H "Content-Type: application/json" \\\n  -d ${shellQuote(JSON.stringify(requestBody))}`
+      ? `curl --fail-with-body -X POST ${apiAccess.origin}/v1/studio/render \\\n  -H "Authorization: Bearer ${apiAccess.token}" \\\n  -H "Content-Type: application/json" \\\n  -H "Idempotency-Key: render-$(uuidgen)" \\\n  -d ${shellQuote(JSON.stringify(requestBody))}`
       : ""
 
   return (
@@ -454,9 +456,9 @@ export function ApiPlaygroundDialog({
                     }
                     onClick={() => {
                       setRunning(true)
+                      setTab("history")
                       void runRender(version, values, selections).then(() => {
                         setRunning(false)
-                        setTab("history")
                       })
                     }}
                   >
@@ -484,7 +486,12 @@ export function ApiPlaygroundDialog({
                       <article key={record.id} className="rounded-lg border">
                         <div className="flex items-start gap-3 p-3">
                           <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-secondary">
-                            {record.status === "rendering" ? (
+                            {[
+                              "queued",
+                              "rendering",
+                              "retrying",
+                              "cancelling",
+                            ].includes(record.status) ? (
                               <LoaderCircle className="size-4 animate-spin" />
                             ) : (
                               <History className="size-4" />
@@ -515,7 +522,11 @@ export function ApiPlaygroundDialog({
                                 <p className="text-[11px] leading-relaxed text-destructive">
                                   {record.error}
                                 </p>
-                                {record.templateId === version.templateId &&
+                                {((record.status === "failed" &&
+                                  record.retryable) ||
+                                  (record.status === "status_unknown" &&
+                                    record.idempotencyKey)) &&
+                                record.templateId === version.templateId &&
                                 record.version === version.version ? (
                                   <Button
                                     className="shrink-0"
@@ -524,17 +535,53 @@ export function ApiPlaygroundDialog({
                                     disabled={running}
                                     onClick={() => {
                                       setRunning(true)
-                                      void runRender(
-                                        version,
-                                        record.modifications,
-                                        record.selections
-                                      ).then(() => setRunning(false))
+                                      const retry =
+                                        record.status === "status_unknown"
+                                          ? runRender(
+                                              version,
+                                              record.modifications,
+                                              record.selections,
+                                              {
+                                                idempotencyKey:
+                                                  record.idempotencyKey,
+                                              }
+                                            )
+                                          : retryRender(record.id)
+                                      void retry.finally(() =>
+                                        setRunning(false)
+                                      )
                                     }}
                                   >
                                     <RotateCw data-icon="inline-start" />
                                     Retry
                                   </Button>
                                 ) : null}
+                              </div>
+                            ) : null}
+                            {[
+                              "queued",
+                              "rendering",
+                              "retrying",
+                              "cancelling",
+                            ].includes(record.status) ? (
+                              <div className="mt-2 flex items-center justify-between gap-3">
+                                <p className="text-[10px] text-muted-foreground">
+                                  {record.attempt
+                                    ? `Attempt ${record.attempt}${record.maxAttempts ? ` of ${record.maxAttempts}` : ""}`
+                                    : "Waiting for a render worker"}
+                                </p>
+                                <Button
+                                  className="shrink-0"
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={record.status === "cancelling"}
+                                  onClick={() => void cancelRender(record.id)}
+                                >
+                                  <Square data-icon="inline-start" />
+                                  {record.status === "cancelling"
+                                    ? "Stopping…"
+                                    : "Cancel"}
+                                </Button>
                               </div>
                             ) : null}
                           </div>

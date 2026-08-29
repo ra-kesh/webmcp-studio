@@ -6,7 +6,10 @@ export const renderBudgetLimits = Object.freeze({
   maxPagesPerDay: 500,
   maxPixelAreaPerDay: 750_000_000,
   maxStorageBytesPerDay: 2_000_000_000,
-  reservationTtlMs: 2 * 60_000,
+  // A durable render has a ten-minute execution deadline. Keep its admission
+  // lease slightly longer so a valid long-running attempt cannot lose its
+  // concurrency/storage reservation before the workflow settles it.
+  reservationTtlMs: 12 * 60_000,
 })
 
 export const thumbnailRenderBudgetLimits = Object.freeze({
