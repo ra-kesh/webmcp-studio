@@ -223,6 +223,7 @@ export async function migrateCurrentDraftToRepository({
   const prepared = await prepareDraftAdmission({
     document: bootstrap.envelope.document,
     sourceContext: bootstrap.envelope.sourceContext,
+    reviewJournal: bootstrap.envelope.reviewJournal,
   })
   if (!prepared.ok) {
     return { status: "validation_failed", failure: prepared }
@@ -233,6 +234,7 @@ export async function migrateCurrentDraftToRepository({
     {
       document: prepared.envelope.document,
       sourceContext: prepared.envelope.sourceContext,
+      reviewJournal: prepared.envelope.reviewJournal,
     },
     {
       completedAt,

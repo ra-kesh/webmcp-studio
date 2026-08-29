@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { renderConformanceDocument } from "@webmcp/document"
 import { describe, expect, it, vi } from "vitest"
 
-import { InspectorSidebar } from "./inspector-sidebar"
+import { InspectorSidebar, reviewTargetExists } from "./inspector-sidebar"
 
 const image = renderConformanceDocument.nodes.find(
   (node) => node.type === "image"
@@ -126,5 +126,38 @@ describe("InspectorSidebar image replacement capability", () => {
     expect(markup).toContain("Locate")
     expect(markup).toContain("Remove")
     expect(markup).not.toContain("Crop image")
+  })
+})
+
+describe("Review target navigation", () => {
+  it("uses the preview document to enable additions and disable removals", () => {
+    const existing = renderConformanceDocument.nodes[0]
+    const added = { ...existing, id: "pending-added-node", name: "Added layer" }
+    const preview = {
+      ...renderConformanceDocument,
+      nodes: [
+        ...renderConformanceDocument.nodes.filter(
+          (node) => node.id !== existing.id
+        ),
+        added,
+      ],
+    }
+
+    expect(
+      reviewTargetExists(preview, {
+        kind: "node",
+        id: added.id,
+        label: added.name,
+        pageId: preview.pages[0].id,
+      })
+    ).toBe(true)
+    expect(
+      reviewTargetExists(preview, {
+        kind: "node",
+        id: existing.id,
+        label: existing.name,
+        pageId: renderConformanceDocument.pages[0].id,
+      })
+    ).toBe(false)
   })
 })

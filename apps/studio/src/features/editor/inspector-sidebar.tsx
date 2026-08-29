@@ -84,6 +84,8 @@ import type {
   InspectorSharedValue,
 } from "@webmcp/editor/inspector"
 import { toolCatalog } from "@webmcp/webmcp"
+import type { ReviewAffectedTarget, ReviewJournal } from "./review-journal"
+import { createEmptyReviewJournal } from "./review-journal"
 import { Badge } from "@webmcp/ui/components/badge"
 import { Button } from "@webmcp/ui/components/button"
 import { Checkbox } from "@webmcp/ui/components/checkbox"
@@ -168,6 +170,31 @@ import { projectMissingImageRecoveryActions } from "./missing-image-recovery"
 
 const DEMO_AGENT_BRIEF =
   "Inspect and validate the open design. Adapt it for Mira & Dev, 14 February 2027 in Udaipur, using The Moonlit Weekend package at ₹4,25,000, valid until 30 November 2026. Search the approved asset library for warm sandstone architecture. Then create one coordinated human-reviewed proposal that updates those shared fields and inserts the best asset on the Cover at x 620, y 120, width 540, height 900 with cover fit. Do not apply or publish anything. Summarize the affected outputs and wait for my review."
+
+const EMPTY_REVIEW_JOURNAL = createEmptyReviewJournal()
+const ignoreReviewTarget = () => undefined
+const reviewTargetKindLabel: Record<ReviewAffectedTarget["kind"], string> = {
+  node: "Layer",
+  group: "Group",
+  page: "Page",
+  field: "Field",
+  output: "Output",
+}
+
+export function reviewTargetExists(
+  document: Document,
+  target: ReviewAffectedTarget
+) {
+  if (target.kind === "node")
+    return document.nodes.some((node) => node.id === target.id)
+  if (target.kind === "group")
+    return document.groups.some((group) => group.id === target.id)
+  if (target.kind === "page")
+    return document.pages.some((page) => page.id === target.id)
+  if (target.kind === "output")
+    return document.outputs.some((output) => output.id === target.id)
+  return document.fields.some((field) => field.id === target.id)
+}
 
 const FieldLabel = InspectorSectionLabel
 
@@ -2557,8 +2584,10 @@ function FieldsPanel({
 
 function ReviewPanel({
   document,
+  navigationDocument,
   pendingChangeSet,
   lastResolvedChangeSet,
+  reviewJournal,
   conflict,
   error,
   isApplying,
@@ -2568,10 +2597,13 @@ function ReviewPanel({
   onDecideAll,
   onApply,
   onDiscard,
+  onFocusTarget,
 }: {
   document: Document
+  navigationDocument: Document
   pendingChangeSet: ChangeSet | null
   lastResolvedChangeSet: ChangeSet | null
+  reviewJournal: ReviewJournal
   conflict: { message: string } | null
   error: string | null
   isApplying: boolean
@@ -2584,6 +2616,7 @@ function ReviewPanel({
   onDecideAll: (status: "accepted" | "rejected") => void
   onApply: () => void
   onDiscard: () => void
+  onFocusTarget: (target: ReviewAffectedTarget) => void
 }) {
   const registeredToolNames = new Set([
     "inspect_design",
@@ -2611,6 +2644,10 @@ function ReviewPanel({
     pendingChangeSet?.operations.filter(
       (operation) => operation.status !== "pending"
     ).length ?? 0
+  const pendingReview = reviewJournal.pending
+
+  const targetExists = (target: ReviewAffectedTarget) =>
+    reviewTargetExists(navigationDocument, target)
 
   return (
     <div className="flex w-full min-w-0 flex-col overflow-hidden">
@@ -2639,10 +2676,62 @@ function ReviewPanel({
                     Revision {pendingChangeSet.baseRevision} · {decidedCount} of{" "}
                     {pendingChangeSet.operations.length} reviewed
                   </p>
+                  {pendingReview ? (
+                    <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+                      {pendingReview.provenance.actorLabel}
+                      {pendingReview.provenance.toolName
+                        ? ` · ${pendingReview.provenance.toolName}`
+                        : ""}
+                      {` · ${new Date(pendingChangeSet.createdAt).toLocaleString()}`}
+                    </p>
+                  ) : null}
                 </div>
                 <Badge variant="secondary">Previewing</Badge>
               </div>
             </div>
+
+            {pendingReview?.provenance.reason ? (
+              <div className="rounded-lg border bg-muted/20 p-2.5">
+                <p className="text-[9px] font-medium tracking-wide text-muted-foreground uppercase">
+                  Reason
+                </p>
+                <p className="mt-1 text-[11px] leading-relaxed break-words">
+                  {pendingReview.provenance.reason}
+                </p>
+              </div>
+            ) : null}
+
+            {pendingReview?.affected.length ? (
+              <div className="flex min-w-0 flex-col gap-1.5">
+                <p className="text-[9px] font-medium tracking-wide text-muted-foreground uppercase">
+                  Affected objects
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {pendingReview.affected.map((target) => {
+                    const exists = targetExists(target)
+                    return (
+                      <Button
+                        key={`${target.kind}:${target.id}`}
+                        size="sm"
+                        variant="outline"
+                        className="h-7 max-w-full px-2 text-[10px]"
+                        disabled={!exists}
+                        title={
+                          exists
+                            ? `Focus ${target.label}`
+                            : `${target.label} is not present in the current document.`
+                        }
+                        onClick={() => onFocusTarget(target)}
+                      >
+                        <span className="truncate">
+                          {reviewTargetKindLabel[target.kind]} · {target.label}
+                        </span>
+                      </Button>
+                    )
+                  })}
+                </div>
+              </div>
+            ) : null}
 
             {conflict || error ? (
               <div
@@ -2820,6 +2909,74 @@ function ReviewPanel({
             </EmptyContent>
           </Empty>
         )}
+
+        {reviewJournal.resolved.length ? (
+          <div className="flex min-w-0 flex-col gap-2 border-t pt-3">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+                Review history
+              </h3>
+              <Badge variant="outline">{reviewJournal.resolved.length}</Badge>
+            </div>
+            {reviewJournal.resolved.map((entry) => (
+              <div
+                key={`${entry.changeSet.id}:${entry.resolution.resolvedAt}`}
+                className="min-w-0 rounded-lg border p-2.5"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-medium break-words">
+                      {entry.changeSet.title}
+                    </p>
+                    <p className="mt-1 text-[9px] leading-relaxed text-muted-foreground">
+                      {entry.provenance.actorLabel}
+                      {entry.provenance.toolName
+                        ? ` · ${entry.provenance.toolName}`
+                        : ""}
+                      {` · ${new Date(entry.resolution.resolvedAt).toLocaleString()}`}
+                    </p>
+                  </div>
+                  <Badge
+                    variant={
+                      entry.resolution.status === "applied"
+                        ? "secondary"
+                        : "outline"
+                    }
+                  >
+                    {entry.resolution.status}
+                  </Badge>
+                </div>
+                <p className="mt-2 text-[9px] text-muted-foreground">
+                  Result revision {entry.resolution.resultRevision} ·{" "}
+                  {entry.resolution.acceptedOperationIds.length} applied ·{" "}
+                  {entry.resolution.rejectedOperationIds.length} rejected
+                </p>
+                {entry.affected.length ? (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {entry.affected.map((target) => {
+                      const exists = targetExists(target)
+                      return (
+                        <Button
+                          key={`${target.kind}:${target.id}`}
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 max-w-full px-1.5 text-[9px]"
+                          disabled={!exists}
+                          onClick={() => onFocusTarget(target)}
+                        >
+                          <span className="truncate">
+                            {reviewTargetKindLabel[target.kind]} ·{" "}
+                            {target.label}
+                          </span>
+                        </Button>
+                      )
+                    })}
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ) : null}
       </section>
       <Separator />
       <section className="flex min-w-0 flex-col gap-2.5 overflow-hidden p-4">
@@ -2885,10 +3042,12 @@ export function projectImageCropInspectorSelection(
 
 export function InspectorSidebar({
   document,
+  reviewNavigationDocument = document,
   selectedNodes: selectedNodesProp,
   imageCropPreviewStore = null,
   pendingChangeSet,
   lastResolvedChangeSet,
+  reviewJournal = EMPTY_REVIEW_JOURNAL,
   changeSetConflict,
   changeSetError,
   isApplyingChangeSet,
@@ -2907,6 +3066,7 @@ export function InspectorSidebar({
   onDecideAllChangeOperations,
   onApplyChangeSet,
   onDiscardChangeSet,
+  onFocusReviewTarget = ignoreReviewTarget,
   onAlignSelection,
   onAlignSelectionToPage,
   onDistributeSelection,
@@ -2926,10 +3086,12 @@ export function InspectorSidebar({
   className,
 }: {
   document: Document
+  reviewNavigationDocument?: Document
   selectedNodes: SceneNode[]
   imageCropPreviewStore?: ImageCropPreviewStore | null
   pendingChangeSet: ChangeSet | null
   lastResolvedChangeSet: ChangeSet | null
+  reviewJournal?: ReviewJournal
   changeSetConflict: { message: string } | null
   changeSetError: string | null
   isApplyingChangeSet: boolean
@@ -2958,6 +3120,7 @@ export function InspectorSidebar({
   onDecideAllChangeOperations: (status: "accepted" | "rejected") => void
   onApplyChangeSet: () => void
   onDiscardChangeSet: () => void
+  onFocusReviewTarget?: (target: ReviewAffectedTarget) => void
   onAlignSelection: (alignment: Alignment) => void
   onAlignSelectionToPage: (alignment: Alignment) => void
   onDistributeSelection: (distribution: "horizontal" | "vertical") => void
@@ -3147,8 +3310,10 @@ export function InspectorSidebar({
           <ScrollArea className="h-full">
             <ReviewPanel
               document={document}
+              navigationDocument={reviewNavigationDocument}
               pendingChangeSet={pendingChangeSet}
               lastResolvedChangeSet={lastResolvedChangeSet}
+              reviewJournal={reviewJournal}
               conflict={changeSetConflict}
               error={changeSetError}
               isApplying={isApplyingChangeSet}
@@ -3158,6 +3323,7 @@ export function InspectorSidebar({
               onDecideAll={onDecideAllChangeOperations}
               onApply={onApplyChangeSet}
               onDiscard={onDiscardChangeSet}
+              onFocusTarget={onFocusReviewTarget}
             />
           </ScrollArea>
         </TabsContent>

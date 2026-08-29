@@ -1611,3 +1611,40 @@ Status: **completed and independently accepted for the WEBMCP-01C boundary**
   localhost route renders the complete 15-tool catalog including
   `execute_product_command`; the separate automation Chrome lacks the WebMCP
   browser API and truthfully reports registration as unavailable there.
+
+## 2026-08-29 — Cross-browser quotation content drift audit
+
+Status: **cause and affected areas recorded; no remediation or sequencing decision**
+
+- Two browsers exposed separate persisted revisions of the same quotation ID:
+  one flat document and one grouped document. This is persisted content drift,
+  not responsive Layers rendering.
+- `quotation-content-drift-audit.md` records the confirmed missing composition
+  identity, unchanged version claims, current-composer materialization,
+  permissive empty-group default, and the affected document/template/source/
+  local-asset areas. It deliberately makes no implementation recommendation.
+
+## 2026-08-29 — Durable Review provenance and history (REVIEW-02)
+
+Status: **completed and independently accepted for the REVIEW-02 boundary**
+
+- Added a bounded durable Review journal with proposal provenance, reason and
+  request identity, affected targets, operation decisions, and applied or
+  discarded resolution history.
+- Review state persists through draft creation, admission, save, rename,
+  migration, and reload without entering the canonical document or rendered
+  output. Reload restores the pending proposal's exact base snapshot into the
+  history owner.
+- The Review panel exposes provenance, distinct field/layer target labels,
+  preview-aware navigation, missing-target handling, and resolved history.
+  WebMCP supplies the actual invoking tool while apply/discard stays human-only.
+- The first independent review rejected three P1 durability and navigation
+  defects. All received production repairs and regressions; the final verdict
+  is **ACCEPT with no remaining P0/P1 blocker**.
+- Focused Studio evidence passes **176/176 across seven files** and WebMCP
+  registration passes **36/36**. All three affected package typechecks, scoped
+  ESLint, Prettier, the production Studio build, and `git diff --check` pass.
+- A clean live document proved pending provenance across reload, human Discard,
+  and resolved history across a second reload with no save conflict. The reason,
+  tool identity, discarded status, and distinct field/layer targets remained
+  visible.

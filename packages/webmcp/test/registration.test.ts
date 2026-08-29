@@ -12,6 +12,7 @@ import { productCommandIds } from "@webmcp/editor/product-commands"
 import type { ProductCommandRuntimeContext } from "@webmcp/editor/product-commands"
 import {
   registerStudioWebMcpTools,
+  type StudioWebMcpProposalProvenance,
   type StudioWebMcpRenderRecord,
   type StudioWebMcpRenderSelection,
   type WebMcpTool,
@@ -191,6 +192,7 @@ function setup(
 ) {
   const registered = new Map<string, WebMcpTool>()
   let proposed: ChangeSet | null = null
+  let proposedProvenance: StudioWebMcpProposalProvenance | null = null
   const controller = new AbortController()
   const publishedVersion = createTemplateVersion(publishedDocument, {
     id: "version-1",
@@ -278,8 +280,12 @@ function setup(
     },
     resolveAsset: async (assetId: string) =>
       catalogAssets.find((asset) => asset.id === assetId) ?? null,
-    proposeChangeSet: (changeSet: ChangeSet) => {
+    proposeChangeSet: (
+      changeSet: ChangeSet,
+      provenance: StudioWebMcpProposalProvenance
+    ) => {
       proposed = changeSet
+      proposedProvenance = provenance
       return changeSet
     },
     runProductCommand: vi.fn(() => ({ status: "accepted" as const })),
@@ -323,6 +329,7 @@ function setup(
     controller,
     services,
     proposed: () => proposed,
+    proposedProvenance: () => proposedProvenance,
     renderedWith: () => renderedWith,
   }
 }
@@ -672,6 +679,13 @@ describe("WebMCP registration", () => {
     })
     expect(replay?.structuredContent).toMatchObject({ replayed: true })
     expect(propose).toHaveBeenCalledTimes(1)
+    expect(state.proposedProvenance()).toEqual({
+      source: "webmcp",
+      actorLabel: "WebMCP agent",
+      toolName: "execute_product_command",
+      reason: "Duplicate",
+      requestId: "duplicate-proposal",
+    })
     expect(JSON.stringify(first?.structuredContent)).not.toContain(
       "private-renderer-secret"
     )
@@ -1292,6 +1306,7 @@ describe("WebMCP registration", () => {
         baseRevision: document.revision,
         baseSnapshotId: "snapshot-seed",
         values: { hero_asset: "sandstone-arches" },
+        reason: "Use the approved hero asset",
       })
 
     expect(proposed?.isError).toBeUndefined()
@@ -1302,6 +1317,13 @@ describe("WebMCP registration", () => {
       type: "set_field",
       fieldId: "hero_asset",
       value: assets[0]!.src,
+    })
+    expect(state.proposedProvenance()).toEqual({
+      source: "webmcp",
+      actorLabel: "WebMCP agent",
+      toolName: "propose_field_updates",
+      reason: "Use the approved hero asset",
+      requestId: null,
     })
 
     const unapproved = await state.registered

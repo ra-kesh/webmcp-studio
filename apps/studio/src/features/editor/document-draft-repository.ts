@@ -454,6 +454,7 @@ type StoredDraftBody = {
   encodedByteLength: number
   document: Document
   sourceContext: CurrentDraftEnvelope["sourceContext"]
+  reviewJournal: CurrentDraftEnvelope["reviewJournal"]
 }
 
 export type DocumentDraftQuarantineRecord = Readonly<{
@@ -853,6 +854,7 @@ const parseBody = (value: unknown): StoredDraftBody | null => {
   const validated = validateCurrentDraftSnapshot({
     document: value.document,
     sourceContext: value.sourceContext,
+    reviewJournal: value.reviewJournal,
   })
   if (!validated.ok) return null
   if (validated.envelope.document.id !== value.documentId) return null
@@ -865,6 +867,7 @@ const parseBody = (value: unknown): StoredDraftBody | null => {
     encodedByteLength: value.encodedByteLength,
     document: validated.envelope.document,
     sourceContext: validated.envelope.sourceContext,
+    reviewJournal: validated.envelope.reviewJournal,
   }
 }
 
@@ -1096,6 +1099,7 @@ const envelopeForBody = (body: StoredDraftBody): CurrentDraftEnvelope => ({
   schemaVersion: 1,
   document: body.document,
   sourceContext: body.sourceContext,
+  reviewJournal: body.reviewJournal,
 })
 
 const snapshotForEnvelope = (
@@ -1103,6 +1107,7 @@ const snapshotForEnvelope = (
 ): CurrentDraftSnapshot => ({
   document: envelope.document,
   sourceContext: envelope.sourceContext,
+  reviewJournal: envelope.reviewJournal,
 })
 
 const verifiedRecordForPair = async (
@@ -1553,6 +1558,7 @@ export class DocumentDraftRepository {
       encodedByteLength: prepared.encodedByteLength,
       document: prepared.envelope.document,
       sourceContext: prepared.envelope.sourceContext,
+      reviewJournal: prepared.envelope.reviewJournal,
     }
     const summary = summaryFor({
       envelope: prepared.envelope,
@@ -1691,6 +1697,7 @@ export class DocumentDraftRepository {
       encodedByteLength: prepared.encodedByteLength,
       document: prepared.envelope.document,
       sourceContext: prepared.envelope.sourceContext,
+      reviewJournal: prepared.envelope.reviewJournal,
     }
     const createdSummary = summaryFor({
       envelope: prepared.envelope,
@@ -2046,6 +2053,7 @@ export class DocumentDraftRepository {
         encodedByteLength: prepared.encodedByteLength,
         document: prepared.envelope.document,
         sourceContext: prepared.envelope.sourceContext,
+        reviewJournal: prepared.envelope.reviewJournal,
       }
       const summary = summaryFor({
         envelope: prepared.envelope,
@@ -2274,6 +2282,7 @@ export class DocumentDraftRepository {
           updatedAt: this.#now(),
         },
         sourceContext: current.envelope.sourceContext,
+        reviewJournal: current.envelope.reviewJournal,
       },
       expectedVersion,
       current.summary.draftSnapshotId
@@ -2503,6 +2512,7 @@ export class DocumentDraftRepository {
         encodedByteLength: preparedCopy.encodedByteLength,
         document: preparedCopy.envelope.document,
         sourceContext: preparedCopy.envelope.sourceContext,
+        reviewJournal: preparedCopy.envelope.reviewJournal,
       }
       copySummary = summaryFor({
         envelope: preparedCopy.envelope,
@@ -2791,6 +2801,7 @@ export class DocumentDraftRepository {
           candidate: {
             document: body.document,
             sourceContext: body.sourceContext,
+            reviewJournal: body.reviewJournal,
           },
           reason: current.deletedAt ? "deleted_elsewhere" : "stale_write",
           detectedAt: this.#now(),

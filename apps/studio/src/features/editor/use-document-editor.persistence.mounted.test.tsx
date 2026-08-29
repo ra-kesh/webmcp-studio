@@ -574,6 +574,82 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     expect(captured.current?.localSaveState.status).toBe("saved")
   })
 
+  it("persists pending review provenance and the discarded resolution", async () => {
+    const envelope = designEnvelope()
+    const { captured, created, hookRepository } = await openEnvelope(
+      envelope,
+      "review-journal"
+    )
+    const proposal = reviewChangeSet(captured.current!)
+
+    await act(async () => {
+      captured.current?.proposeChangeSet(proposal, {
+        source: "webmcp",
+        actorLabel: "WebMCP agent",
+        toolName: "execute_product_command",
+        reason: "Check one layer before applying",
+        requestId: "review-mounted-request",
+      })
+      expect(await captured.current!.flushActiveDraft()).toBe(true)
+    })
+
+    const pending = await readRecord(hookRepository, envelope.document.id)
+    expect(pending.envelope.reviewJournal?.pending).toMatchObject({
+      changeSet: { id: proposal.id },
+      provenance: {
+        toolName: "execute_product_command",
+        reason: "Check one layer before applying",
+        requestId: "review-mounted-request",
+      },
+    })
+    expect(pending.summary.contentSnapshotId).toBe(
+      created.summary.contentSnapshotId
+    )
+
+    await act(async () => root.unmount())
+    root = createRoot(host)
+    const reloaded = await mount(() => hookRepository, pending)
+    await vi.waitFor(() => {
+      expect(reloaded.current?.routeSessionStatus).toBe("ready")
+    })
+    expect(reloaded.current?.pendingChangeSet?.id).toBe(proposal.id)
+    expect(reloaded.current?.reviewJournal.pending?.provenance).toMatchObject({
+      toolName: "execute_product_command",
+      requestId: "review-mounted-request",
+    })
+    expect(reloaded.current?.snapshotId).toBe(proposal.baseSnapshotId)
+    expect(reloaded.current?.changeSetConflict).toBeNull()
+
+    await act(async () => {
+      reloaded.current?.discardChangeSet()
+      expect(await reloaded.current!.flushActiveDraft()).toBe(true)
+    })
+
+    const resolved = await readRecord(hookRepository, envelope.document.id)
+    expect(resolved.envelope.reviewJournal).toMatchObject({
+      pending: null,
+      resolved: [
+        {
+          changeSet: { id: proposal.id, status: "rejected" },
+          resolution: {
+            status: "discarded",
+            acceptedOperationIds: [],
+            rejectedOperationIds: proposal.operations.map(({ id }) => id),
+          },
+        },
+      ],
+    })
+    expect(resolved.summary.contentSnapshotId).toBe(
+      pending.summary.contentSnapshotId
+    )
+    expect(resolved.summary.draftSnapshotId).not.toBe(
+      pending.summary.draftSnapshotId
+    )
+    await act(async () => {
+      expect(await reloaded.current!.returnToStart()).toBe(true)
+    })
+  })
+
   it("rediscovers the exact unresolved candidate before a routed session becomes ready", async () => {
     const seeded = await seedStoredStaleConflict("route-reload")
     const captured = await mount(() => seeded.draftRepository, seeded.durable)
@@ -2696,6 +2772,8 @@ describe.sequential("useDocumentEditor repository persistence", () => {
       }
     )
     const create = vi.spyOn(hookRepository, "create")
+    close.mockClear()
+    releaseLease.mockClear()
     deferFlush = true
 
     let homePromise = Promise.resolve(false)

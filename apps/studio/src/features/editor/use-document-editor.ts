@@ -7,8 +7,6 @@ import {
   cloneSemanticFragment,
   createTemplateVersion,
   deriveDocumentSnapshotId,
-  decideAllChangeOperations,
-  decideChangeOperation,
   documentSchema,
   findSelectedGroupId,
   getChangeSetConflict,
@@ -141,6 +139,17 @@ import {
   validateCurrentDraftSnapshot,
 } from "./current-draft-repository"
 import type { CurrentDraftEnvelope } from "./current-draft-repository"
+import {
+  createEmptyReviewJournal,
+  createReviewProposal,
+  resolveAppliedReview,
+  resolveDiscardedReview,
+  reviewJournalForStorage,
+  reviewJournalOrEmpty,
+  updateAllReviewOperationDecisions,
+  updateReviewOperationDecision,
+} from "./review-journal"
+import type { ReviewJournal, ReviewProposalProvenance } from "./review-journal"
 import type {
   DocumentDraftConflict,
   DocumentDraftHeadExpectation,
@@ -519,8 +528,10 @@ export function useDocumentEditor({
   const [pendingChangeSet, setPendingChangeSet] = useState<ChangeSet | null>(
     null
   )
-  const [lastResolvedChangeSet, setLastResolvedChangeSet] =
-    useState<ChangeSet | null>(null)
+  const [reviewJournal, setReviewJournal] = useState<ReviewJournal>(() =>
+    createEmptyReviewJournal()
+  )
+  const lastResolvedChangeSet = reviewJournal.resolved[0]?.changeSet ?? null
   const [changeSetError, setChangeSetError] = useState<string | null>(null)
   const [isApplyingChangeSet, setIsApplyingChangeSet] = useState(false)
   const [publishedVersions, setPublishedVersions] = useState<TemplateVersion[]>(
@@ -594,6 +605,9 @@ export function useDocumentEditor({
   const lastCapturedSourceContextRef = useRef<TemplateSourceContext | null>(
     null
   )
+  const reviewJournalRef = useRef(reviewJournal)
+  reviewJournalRef.current = reviewJournal
+  const lastCapturedReviewJournalRef = useRef<ReviewJournal | null>(null)
   const onHistoryCommitRef = useRef(onHistoryCommit)
   onHistoryCommitRef.current = onHistoryCommit
   const notifyHistoryCommit = useCallback((next: DocumentHistory) => {
@@ -626,6 +640,19 @@ export function useDocumentEditor({
   activePageIdRef.current = activePageId
   const pendingChangeSetRef = useRef(pendingChangeSet)
   pendingChangeSetRef.current = pendingChangeSet
+
+  const projectReviewJournal = useCallback((journalInput: ReviewJournal) => {
+    const journal = reviewJournalOrEmpty(journalInput)
+    reviewJournalRef.current = journal
+    setReviewJournal(journal)
+    pendingChangeSetRef.current = journal.pending?.changeSet ?? null
+    setPendingChangeSet(journal.pending?.changeSet ?? null)
+    return journal
+  }, [])
+
+  const clearReviewJournal = useCallback(() => {
+    projectReviewJournal(createEmptyReviewJournal())
+  }, [projectReviewJournal])
   const applyingChangeSetRef = useRef(false)
   const assetMutationActiveRef = useRef(false)
   const imageReplacementCoordinatorRef =
@@ -850,7 +877,13 @@ export function useDocumentEditor({
 
   const installEditorSession = useCallback(
     (envelope: CurrentDraftEnvelope) => {
-      const nextHistory = createDocumentHistory(envelope.document)
+      const installedReviewJournal = reviewJournalOrEmpty(
+        envelope.reviewJournal
+      )
+      const nextHistory = createDocumentHistory(
+        envelope.document,
+        installedReviewJournal.pending?.changeSet.baseSnapshotId
+      )
       const sourceContext: TemplateSourceContext = envelope.sourceContext ?? {
         quotationSource: null,
         quotationTemplateId: quotationStarter.templateId,
@@ -864,6 +897,10 @@ export function useDocumentEditor({
       )
       setHistory(nextHistory)
       installTemplateSourceContext(sourceContext)
+      const projectedReviewJournal = projectReviewJournal(
+        installedReviewJournal
+      )
+      lastCapturedReviewJournalRef.current = projectedReviewJournal
       const firstPageId = envelope.document.pages[0].id
       activePageIdRef.current = firstPageId
       setActivePageId(firstPageId)
@@ -872,7 +909,7 @@ export function useDocumentEditor({
       setTemplateActionError(null)
       setSessionMode("workspace")
     },
-    [installTemplateSourceContext]
+    [installTemplateSourceContext, projectReviewJournal]
   )
 
   const capturePersistenceSession = useCallback(
@@ -884,9 +921,14 @@ export function useDocumentEditor({
         return true
       const document = historyRef.current.document
       const sourceContext = templateSourceContextRef.current
+      const currentReviewJournal = reviewJournalRef.current
       if (
         lastCapturedDocumentRef.current === document &&
-        sourceContextsMatch(lastCapturedSourceContextRef.current, sourceContext)
+        sourceContextsMatch(
+          lastCapturedSourceContextRef.current,
+          sourceContext
+        ) &&
+        lastCapturedReviewJournalRef.current === currentReviewJournal
       )
         return true
       try {
@@ -895,9 +937,14 @@ export function useDocumentEditor({
             `Studio refused to save document ${document.id} through the controller for ${session.controller.documentId}.`
           )
         }
-        session.controller.capture({ document, sourceContext })
+        session.controller.capture({
+          document,
+          sourceContext,
+          reviewJournal: reviewJournalForStorage(currentReviewJournal),
+        })
         lastCapturedDocumentRef.current = document
         lastCapturedSourceContextRef.current = sourceContext
+        lastCapturedReviewJournalRef.current = currentReviewJournal
         return true
       } catch (error) {
         setDocumentError(
@@ -1130,6 +1177,9 @@ export function useDocumentEditor({
       lastCapturedDocumentRef.current = record.envelope.document
       lastCapturedSourceContextRef.current =
         record.envelope.sourceContext ?? null
+      lastCapturedReviewJournalRef.current = reviewJournalOrEmpty(
+        record.envelope.reviewJournal
+      )
       projectLocalSaveState(nextSession.controller.state)
       installEditorSession(record.envelope)
       if (initialRecordWarning) setDocumentError(initialRecordWarning)
@@ -1258,6 +1308,7 @@ export function useDocumentEditor({
           const validated = validateCurrentDraftSnapshot({
             document: envelope.document,
             sourceContext: envelope.sourceContext,
+            reviewJournal: envelope.reviewJournal,
           })
           if (!validated.ok) {
             setDocumentError(validated.failure.message)
@@ -1275,6 +1326,9 @@ export function useDocumentEditor({
           lastCapturedDocumentRef.current = validated.envelope.document
           lastCapturedSourceContextRef.current =
             validated.envelope.sourceContext ?? null
+          lastCapturedReviewJournalRef.current = reviewJournalOrEmpty(
+            validated.envelope.reviewJournal
+          )
           projectLocalSaveState({
             status: "session_only",
             message:
@@ -1298,6 +1352,7 @@ export function useDocumentEditor({
           {
             document: envelope.document,
             sourceContext: envelope.sourceContext,
+            reviewJournal: envelope.reviewJournal,
           },
           origin
         )
@@ -1494,9 +1549,14 @@ export function useDocumentEditor({
     if (sessionModeRef.current !== "workspace") return true
     const document = historyRef.current.document
     const sourceContext = templateSourceContextRef.current
+    const currentReviewJournal = reviewJournalRef.current
     if (
       lastCapturedDocumentRef.current === document &&
-      sourceContextsMatch(lastCapturedSourceContextRef.current, sourceContext)
+      sourceContextsMatch(
+        lastCapturedSourceContextRef.current,
+        sourceContext
+      ) &&
+      lastCapturedReviewJournalRef.current === currentReviewJournal
     )
       return true
 
@@ -1505,6 +1565,7 @@ export function useDocumentEditor({
       const validated = validateCurrentDraftSnapshot({
         document,
         sourceContext,
+        reviewJournal: reviewJournalForStorage(currentReviewJournal),
       })
       if (!validated.ok) {
         setDocumentError(validated.failure.message)
@@ -1512,6 +1573,7 @@ export function useDocumentEditor({
       }
       lastCapturedDocumentRef.current = document
       lastCapturedSourceContextRef.current = sourceContext
+      lastCapturedReviewJournalRef.current = currentReviewJournal
       rememberStartEnvelope(validated.envelope)
       projectLocalSaveState({
         status: "session_only",
@@ -2286,16 +2348,22 @@ export function useDocumentEditor({
       if (!session) return
       const document = historyRef.current.document
       const sourceContext = templateSourceContextRef.current
+      const currentReviewJournal = reviewJournalRef.current
       if (
         session.controller.documentId === document.id &&
         (lastCapturedDocumentRef.current !== document ||
           !sourceContextsMatch(
             lastCapturedSourceContextRef.current,
             sourceContext
-          ))
+          ) ||
+          lastCapturedReviewJournalRef.current !== currentReviewJournal)
       ) {
         try {
-          session.controller.capture({ document, sourceContext })
+          session.controller.capture({
+            document,
+            sourceContext,
+            reviewJournal: reviewJournalForStorage(currentReviewJournal),
+          })
         } catch {
           // A prior verified capture can still drain during teardown.
         }
@@ -2651,6 +2719,10 @@ export function useDocumentEditor({
         {
           document: decoded.envelope.document,
           sourceContext: decoded.envelope.sourceContext,
+          reviewJournal:
+            "reviewJournal" in decoded.envelope
+              ? decoded.envelope.reviewJournal
+              : undefined,
         },
         { kind: "current-draft-migration" }
       )
@@ -3268,7 +3340,7 @@ export function useDocumentEditor({
   )
 
   const proposeChangeSet = useCallback(
-    (changeSetInput: ChangeSet) => {
+    (changeSetInput: ChangeSet, provenanceInput?: ReviewProposalProvenance) => {
       if (draftRecoveryRef.current) {
         throw new Error(
           "Resolve the unreadable local draft before proposing changes."
@@ -3293,46 +3365,61 @@ export function useDocumentEditor({
       const proposedPage = changeSet.operations.find(
         (operation) => operation.command.type === "add_output_variant"
       )?.command
-      pendingChangeSetRef.current = changeSet
-      setPendingChangeSet(changeSet)
+      const nextJournal = createReviewProposal(
+        reviewJournalRef.current,
+        historyRef.current.document,
+        changeSet,
+        provenanceInput
+      )
+      projectReviewJournal(nextJournal)
       setChangeSetError(null)
       setSelection(null)
       if (proposedPage?.type === "add_output_variant") {
         activePageIdRef.current = proposedPage.page.id
         setActivePageId(proposedPage.page.id)
       }
+      captureSettledDraft()
       return changeSet
     },
-    [settleImageCrop]
+    [captureSettledDraft, projectReviewJournal, settleImageCrop]
   )
 
   const decideOperation = useCallback(
     (operationId: string, status: ChangeOperation["status"]) => {
-      setPendingChangeSet((current) =>
-        current ? decideChangeOperation(current, operationId, status) : current
+      const nextJournal = updateReviewOperationDecision(
+        reviewJournalRef.current,
+        operationId,
+        status
       )
+      projectReviewJournal(nextJournal)
       setChangeSetError(null)
+      captureSettledDraft()
     },
-    []
+    [captureSettledDraft, projectReviewJournal]
   )
 
   const decideAllOperations = useCallback(
     (status: Exclude<ChangeOperation["status"], "pending">) => {
-      setPendingChangeSet((current) =>
-        current ? decideAllChangeOperations(current, status) : current
+      const nextJournal = updateAllReviewOperationDecisions(
+        reviewJournalRef.current,
+        status
       )
+      projectReviewJournal(nextJournal)
       setChangeSetError(null)
+      captureSettledDraft()
     },
-    []
+    [captureSettledDraft, projectReviewJournal]
   )
 
   const discardChangeSet = useCallback(() => {
     const current = pendingChangeSetRef.current
     if (!current) return
-    const rejected = decideAllChangeOperations(current, "rejected")
-    setLastResolvedChangeSet(rejected)
-    pendingChangeSetRef.current = null
-    setPendingChangeSet(null)
+    const nextJournal = resolveDiscardedReview(reviewJournalRef.current, {
+      resolvedAt: new Date().toISOString(),
+      resultRevision: historyRef.current.document.revision,
+      resultSnapshotId: historyRef.current.snapshotId,
+    })
+    projectReviewJournal(nextJournal)
     setChangeSetError(null)
     if (
       !historyRef.current.document.pages.some(
@@ -3341,7 +3428,8 @@ export function useDocumentEditor({
     ) {
       setActivePageId(historyRef.current.document.pages[0].id)
     }
-  }, [activePageId])
+    captureSettledDraft()
+  }, [activePageId, captureSettledDraft, projectReviewJournal])
 
   const applyChangeSet = useCallback(async () => {
     if (draftRecoveryRef.current) {
@@ -3398,10 +3486,13 @@ export function useDocumentEditor({
       historyRef.current = next
       setHistory(next)
       notifyHistoryCommit(next)
+      const nextJournal = resolveAppliedReview(reviewJournalRef.current, {
+        resolvedAt: new Date().toISOString(),
+        resultRevision: next.document.revision,
+        resultSnapshotId: next.snapshotId,
+      })
+      projectReviewJournal(nextJournal)
       captureSettledDraft()
-      setLastResolvedChangeSet(current)
-      pendingChangeSetRef.current = null
-      setPendingChangeSet(null)
       setChangeSetError(null)
       setSelection(null)
     } catch {
@@ -3412,7 +3503,7 @@ export function useDocumentEditor({
       applyingChangeSetRef.current = false
       setIsApplyingChangeSet(false)
     }
-  }, [captureSettledDraft, notifyHistoryCommit])
+  }, [captureSettledDraft, notifyHistoryCommit, projectReviewJournal])
 
   const publishTemplate = useCallback(async () => {
     if (draftRecoveryRef.current) {
@@ -4445,6 +4536,7 @@ export function useDocumentEditor({
         setHistory(nextHistory)
         notifyHistoryCommit(nextHistory)
         installTemplateSourceContext(sourceContext)
+        clearReviewJournal()
         captureSettledDraft()
         const nextPageId = parsed.document.pages.some(
           (page) => page.id === activePageIdRef.current
@@ -4467,6 +4559,7 @@ export function useDocumentEditor({
     [
       allowMutation,
       captureSettledDraft,
+      clearReviewJournal,
       installTemplateSourceContext,
       notifyHistoryCommit,
     ]
@@ -4565,13 +4658,12 @@ export function useDocumentEditor({
         setHistory(nextHistory)
         notifyHistoryCommit(nextHistory)
         installTemplateSourceContext(sourceContext)
+        clearReviewJournal()
         captureSettledDraft()
         const firstPageId = document.pages[0]?.id ?? "quotation-page-1"
         activePageIdRef.current = firstPageId
         setActivePageId(firstPageId)
         setSelection(null)
-        setPendingChangeSet(null)
-        setLastResolvedChangeSet(null)
         setChangeSetError(null)
       } catch (error) {
         setDocumentError(
@@ -4587,6 +4679,7 @@ export function useDocumentEditor({
       activeQuotationTemplateId,
       allowMutation,
       captureSettledDraft,
+      clearReviewJournal,
       installTemplateSourceContext,
       notifyHistoryCommit,
     ]
@@ -5339,8 +5432,7 @@ export function useDocumentEditor({
     publishedVersionsRef.current = []
     setPublishedVersions([])
     setPublishSyncStatus("idle")
-    setPendingChangeSet(null)
-    setLastResolvedChangeSet(null)
+    clearReviewJournal()
     setChangeSetError(null)
     void fetch("/v1/studio/session/reset", { method: "POST" })
       .then((response) => {
@@ -5355,7 +5447,7 @@ export function useDocumentEditor({
         )
       })
     return true
-  }, [allowMutation, persistAndInstallSession])
+  }, [allowMutation, clearReviewJournal, persistAndInstallSession])
 
   const restoreTemplateSourceForSnapshot = useCallback(
     (nextHistory: DocumentHistory) => {
@@ -5718,6 +5810,7 @@ export function useDocumentEditor({
     draftRecoveryNotice,
     pendingChangeSet,
     lastResolvedChangeSet,
+    reviewJournal,
     changeSetConflict,
     changeSetError,
     isApplyingChangeSet,

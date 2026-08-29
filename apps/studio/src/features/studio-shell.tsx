@@ -170,6 +170,7 @@ import { projectNumericImageCropFrameEdit } from "./editor/image-crop-frame-nume
 import type { ImageCropArrowKey } from "./editor/image-crop-keyboard"
 import { imageReplacementConstraintsByNodeId } from "./editor/image-replacement-binding"
 import { useDocumentEditor } from "./editor/use-document-editor"
+import type { ReviewAffectedTarget } from "./editor/review-journal"
 import type { DocumentDraftRecord } from "./editor/document-draft-repository"
 import { useStudioPersistence } from "./persistence/studio-persistence-provider"
 import { useCriticalActionOwner } from "./editor/use-critical-action-owner"
@@ -1769,6 +1770,43 @@ export function StudioShell({
     if (page.id !== editor.activePageId) editor.selectPage(page.id)
     editor.setSelection({ pageId: page.id, nodeIds: [nodeId] })
     focusBounds(getNodeBounds(node))
+  }
+
+  const focusReviewTarget = (target: ReviewAffectedTarget) => {
+    if (target.kind === "node") {
+      focusNode(target.id)
+      return
+    }
+    if (target.kind === "group") {
+      const group = editor.previewDocument.groups.find(
+        (candidate) => candidate.id === target.id
+      )
+      const nodeId = group?.nodeIds.find((id) =>
+        editor.previewDocument.nodes.some((node) => node.id === id)
+      )
+      if (nodeId) focusNode(nodeId)
+      return
+    }
+    if (target.kind === "field") {
+      const binding = editor.previewDocument.bindings.find(
+        (candidate) => candidate.fieldId === target.id
+      )
+      if (binding) focusNode(binding.nodeId)
+      return
+    }
+    const pageId =
+      target.kind === "page"
+        ? target.id
+        : editor.previewDocument.outputs.find(
+            (output) => output.id === target.id
+          )?.pageIds[0]
+    if (
+      pageId &&
+      editor.previewDocument.pages.some((page) => page.id === pageId)
+    ) {
+      editor.selectPage(pageId)
+      editor.setSelection(null)
+    }
   }
 
   const materializeLocalExportNodes = async (
@@ -3677,11 +3715,13 @@ export function StudioShell({
                 <InspectorSidebar
                   className="size-full border-l-0"
                   document={editor.document}
+                  reviewNavigationDocument={editor.previewDocument}
                   selectedNodes={editor.selectedNodes}
                   imageCropPreviewStore={editor.imageCropPreviewStore}
                   capabilityContext={inspectorCapabilityContext}
                   pendingChangeSet={editor.pendingChangeSet}
                   lastResolvedChangeSet={editor.lastResolvedChangeSet}
+                  reviewJournal={editor.reviewJournal}
                   changeSetConflict={editor.changeSetConflict}
                   changeSetError={editor.changeSetError}
                   isApplyingChangeSet={editor.isApplyingChangeSet}
@@ -3700,6 +3740,7 @@ export function StudioShell({
                   onDecideAllChangeOperations={editor.decideAllOperations}
                   onApplyChangeSet={editor.applyChangeSet}
                   onDiscardChangeSet={editor.discardChangeSet}
+                  onFocusReviewTarget={focusReviewTarget}
                   onAlignSelection={editor.alignSelection}
                   onAlignSelectionToPage={editor.alignSelectionToPage}
                   onDistributeSelection={editor.distributeSelection}
@@ -3825,11 +3866,13 @@ export function StudioShell({
               <InspectorSidebar
                 className="min-h-0 w-full flex-1 border-l-0"
                 document={editor.document}
+                reviewNavigationDocument={editor.previewDocument}
                 selectedNodes={editor.selectedNodes}
                 imageCropPreviewStore={editor.imageCropPreviewStore}
                 capabilityContext={inspectorCapabilityContext}
                 pendingChangeSet={editor.pendingChangeSet}
                 lastResolvedChangeSet={editor.lastResolvedChangeSet}
+                reviewJournal={editor.reviewJournal}
                 changeSetConflict={editor.changeSetConflict}
                 changeSetError={editor.changeSetError}
                 isApplyingChangeSet={editor.isApplyingChangeSet}
@@ -3848,6 +3891,7 @@ export function StudioShell({
                 onDecideAllChangeOperations={editor.decideAllOperations}
                 onApplyChangeSet={editor.applyChangeSet}
                 onDiscardChangeSet={editor.discardChangeSet}
+                onFocusReviewTarget={focusReviewTarget}
                 onAlignSelection={editor.alignSelection}
                 onAlignSelectionToPage={editor.alignSelectionToPage}
                 onDistributeSelection={editor.distributeSelection}

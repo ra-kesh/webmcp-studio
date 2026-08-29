@@ -18,6 +18,12 @@ import type {
   DraftRecoveryFailure,
   DraftRecoveryRecord,
 } from "./draft-recovery"
+import {
+  reviewJournalForStorage,
+  reviewJournalOrEmpty,
+  reviewJournalSchema,
+} from "./review-journal"
+import type { ReviewJournal } from "./review-journal"
 
 export const CURRENT_DRAFT_STORAGE_KEY = "webmcp-studio:current-draft:v1"
 export const LEGACY_DOCUMENT_STORAGE_KEY = "webmcp-studio:northstar-document:v2"
@@ -54,6 +60,7 @@ const envelopeWireSchema = z
     schemaVersion: z.literal(1),
     document: z.unknown(),
     sourceContext: sourceContextSchema.nullable(),
+    reviewJournal: reviewJournalSchema.optional(),
   })
   .strict()
 
@@ -68,6 +75,7 @@ export type CurrentDraftSourceContext = {
 export type CurrentDraftSnapshot = {
   document: Document
   sourceContext: CurrentDraftSourceContext | null
+  reviewJournal?: ReviewJournal
 }
 
 export type CurrentDraftEnvelope = CurrentDraftSnapshot & {
@@ -158,6 +166,38 @@ const ownedRecoverySourceKeys = new Set<string>([
 ])
 
 const browserStorage: DraftStorageProvider = () => globalThis.localStorage
+
+function normalizeStoredReviewJournal(
+  value: unknown
+): ReviewJournal | undefined {
+  if (value === undefined || value === null) return undefined
+  return reviewJournalForStorage(reviewJournalOrEmpty(value))
+}
+
+function validateReviewJournalOwnership(
+  document: Document,
+  reviewJournal: ReviewJournal | undefined
+): DraftRecoveryFailure | null {
+  if (!reviewJournal) return null
+  const entries = [
+    ...(reviewJournal.pending ? [reviewJournal.pending] : []),
+    ...reviewJournal.resolved,
+  ]
+  if (entries.some((entry) => entry.changeSet.documentId !== document.id)) {
+    return schemaFailure(
+      "The saved review history belongs to a different document."
+    )
+  }
+  if (
+    reviewJournal.pending &&
+    reviewJournal.pending.changeSet.baseRevision !== document.revision
+  ) {
+    return schemaFailure(
+      "The pending review does not belong to the saved document revision."
+    )
+  }
+  return null
+}
 
 function errorDetail(error: unknown) {
   return error instanceof Error && error.message.trim()
@@ -285,6 +325,14 @@ export function decodeCurrentDraftEnvelope(raw: string): EnvelopeDecodeResult {
   const sourceContext = parsedEnvelope.data.sourceContext
   const sourceFailure = validateSourceContext(sourceContext)
   if (sourceFailure) return { ok: false, failure: sourceFailure }
+  const reviewJournal = normalizeStoredReviewJournal(
+    parsedEnvelope.data.reviewJournal
+  )
+  const reviewFailure = validateReviewJournalOwnership(
+    decodedDocument.document,
+    reviewJournal
+  )
+  if (reviewFailure) return { ok: false, failure: reviewFailure }
 
   return {
     ok: true,
@@ -292,6 +340,7 @@ export function decodeCurrentDraftEnvelope(raw: string): EnvelopeDecodeResult {
       schemaVersion: 1,
       document: decodedDocument.document,
       sourceContext,
+      ...(reviewJournal ? { reviewJournal } : {}),
     },
     requiresRewrite:
       JSON.stringify(decodedDocument.document) !== serializedDocument,
@@ -320,12 +369,21 @@ export function validateCurrentDraftSnapshot(
   const sourceFailure = validateSourceContext(parsedSnapshot.data.sourceContext)
   if (sourceFailure) return { ok: false, failure: sourceFailure }
 
+  const reviewJournal = normalizeStoredReviewJournal(
+    parsedSnapshot.data.reviewJournal
+  )
+  const reviewFailure = validateReviewJournalOwnership(
+    decodedDocument.document,
+    reviewJournal
+  )
+  if (reviewFailure) return { ok: false, failure: reviewFailure }
   return {
     ok: true,
     envelope: {
       schemaVersion: 1,
       document: decodedDocument.document,
       sourceContext: parsedSnapshot.data.sourceContext,
+      ...(reviewJournal ? { reviewJournal } : {}),
     },
   }
 }

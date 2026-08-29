@@ -5,6 +5,7 @@ import type {
   CurrentDraftSnapshot,
   CurrentDraftSourceContext,
 } from "./current-draft-repository"
+import type { ReviewJournal } from "./review-journal"
 import type { DraftRecoveryFailure } from "./draft-recovery"
 
 /**
@@ -89,10 +90,16 @@ export function encodedUtf8ByteLength(encoded: string): number {
  */
 export function deriveDraftSnapshotId(
   contentSnapshotId: string,
-  sourceContext: CurrentDraftSourceContext | null
+  sourceContext: CurrentDraftSourceContext | null,
+  reviewJournal?: ReviewJournal
 ): Promise<string> {
   return sha256(
-    canonicalJson({ schemaVersion: 1, contentSnapshotId, sourceContext })
+    canonicalJson({
+      schemaVersion: 1,
+      contentSnapshotId,
+      sourceContext,
+      ...(reviewJournal ? { reviewJournal } : {}),
+    })
   )
 }
 
@@ -128,7 +135,8 @@ export async function prepareDraftAdmission(
   )
   const draftSnapshotId = await deriveDraftSnapshotId(
     contentSnapshotId,
-    validated.envelope.sourceContext
+    validated.envelope.sourceContext,
+    validated.envelope.reviewJournal
   )
 
   return {

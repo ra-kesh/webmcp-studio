@@ -1,4 +1,5 @@
 import { builtInDesignTemplateRepository } from "@webmcp/document"
+import type { ChangeSet } from "@webmcp/document"
 import { describe, expect, it } from "vitest"
 import type { CurrentDraftSnapshot } from "./current-draft-repository"
 import {
@@ -9,6 +10,10 @@ import {
   prepareDraftAdmission,
 } from "./draft-admission"
 import { DOCUMENT_IMPORT_MAX_JSON_BYTES } from "./document-import"
+import {
+  createEmptyReviewJournal,
+  createReviewProposal,
+} from "./review-journal"
 
 const snapshot = (): CurrentDraftSnapshot => ({
   document: builtInDesignTemplateRepository.materialize(
@@ -22,6 +27,40 @@ const snapshot = (): CurrentDraftSnapshot => ({
     designTemplate: { id: "editorial-one-pager", version: 1 },
   },
 })
+
+const reviewFor = (candidate: CurrentDraftSnapshot) => {
+  const node = candidate.document.nodes[0]
+  const changeSet: ChangeSet = {
+    id: "review-draft-identity",
+    documentId: candidate.document.id,
+    baseRevision: candidate.document.revision,
+    baseSnapshotId: "sha256-review-base",
+    title: "Rename one layer",
+    createdAt: "2026-08-29T06:00:00.000Z",
+    createdBy: "agent",
+    status: "pending",
+    operations: [
+      {
+        id: "operation-rename-layer",
+        status: "pending",
+        summary: "Rename one layer",
+        command: {
+          id: "command-rename-layer",
+          type: "update_node",
+          actor: "agent",
+          at: "2026-08-29T06:00:00.000Z",
+          nodeId: node.id,
+          patch: { name: "Reviewed layer" },
+        },
+      },
+    ],
+  }
+  return createReviewProposal(
+    createEmptyReviewJournal(),
+    candidate.document,
+    changeSet
+  )
+}
 
 describe("draft admission", () => {
   it("uses one 32 MiB boundary for imports and durable drafts", () => {
@@ -63,6 +102,39 @@ describe("draft admission", () => {
     if (!linked.ok || !unlinked.ok) return
     expect(unlinked.contentSnapshotId).toBe(linked.contentSnapshotId)
     expect(unlinked.draftSnapshotId).not.toBe(linked.draftSnapshotId)
+  })
+
+  it("changes only draft identity when review history changes", async () => {
+    const plain = snapshot()
+    const reviewed = snapshot()
+    reviewed.reviewJournal = reviewFor(reviewed)
+
+    const plainAdmission = await prepareDraftAdmission(plain)
+    const reviewedAdmission = await prepareDraftAdmission(reviewed)
+
+    expect(plainAdmission.ok).toBe(true)
+    expect(reviewedAdmission.ok).toBe(true)
+    if (!plainAdmission.ok || !reviewedAdmission.ok) return
+    expect(reviewedAdmission.contentSnapshotId).toBe(
+      plainAdmission.contentSnapshotId
+    )
+    expect(reviewedAdmission.draftSnapshotId).not.toBe(
+      plainAdmission.draftSnapshotId
+    )
+  })
+
+  it("keeps legacy empty-review drafts byte compatible", async () => {
+    const legacy = await prepareDraftAdmission(snapshot())
+    const explicitEmpty = snapshot()
+    explicitEmpty.reviewJournal = createEmptyReviewJournal()
+    const normalized = await prepareDraftAdmission(explicitEmpty)
+
+    expect(legacy.ok).toBe(true)
+    expect(normalized.ok).toBe(true)
+    if (!legacy.ok || !normalized.ok) return
+    expect(normalized.envelope.reviewJournal).toBeUndefined()
+    expect(normalized.encodedJson).toBe(legacy.encodedJson)
+    expect(normalized.draftSnapshotId).toBe(legacy.draftSnapshotId)
   })
 
   it("hashes canonical draft identity independent of object key order", async () => {

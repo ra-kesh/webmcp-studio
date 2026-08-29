@@ -14,6 +14,7 @@ import type {
   StudioWebMcpRenderRecord,
   StudioWebMcpRenderSelection,
   StudioWebMcpSnapshot,
+  StudioWebMcpProposalProvenance,
   WebMcpModelContext,
 } from "@webmcp/webmcp"
 import type { StudioAsset } from "./asset-catalog"
@@ -37,7 +38,10 @@ type StudioWebMcpServices = Omit<
   runProductCommand: (
     invocation: ProductCommandInvocation
   ) => ProductCommandRunResult
-  proposeChangeSet: (changeSet: ChangeSet) => ChangeSet
+  proposeChangeSet: (
+    changeSet: ChangeSet,
+    provenance: StudioWebMcpProposalProvenance
+  ) => ChangeSet
   publishTemplate: () => Promise<TemplateVersion>
   renderTemplate: (
     version: TemplateVersion,
@@ -112,8 +116,8 @@ export function useStudioWebMcp(
             getSnapshot: () => projectStudioWebMcpSnapshot(servicesRef.current),
             searchAssets: (input) => registeredCatalog.search(input),
             resolveAsset: (assetId) => registeredCatalog.resolve(assetId),
-            proposeChangeSet: (changeSet) =>
-              servicesRef.current.proposeChangeSet(changeSet),
+            proposeChangeSet: (changeSet, provenance) =>
+              servicesRef.current.proposeChangeSet(changeSet, provenance),
             runProductCommand: (invocation) =>
               servicesRef.current.runProductCommand(invocation),
             publishTemplate: () => servicesRef.current.publishTemplate(),

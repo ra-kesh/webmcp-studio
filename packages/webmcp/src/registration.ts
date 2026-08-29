@@ -190,7 +190,10 @@ export type StudioWebMcpServices = {
     input: StudioWebMcpAssetSearchInput
   ): Promise<StudioWebMcpAssetSearchPage>
   resolveAsset(assetId: string): Promise<StudioWebMcpAsset | null>
-  proposeChangeSet(changeSet: ChangeSet): ChangeSet
+  proposeChangeSet(
+    changeSet: ChangeSet,
+    provenance: StudioWebMcpProposalProvenance
+  ): ChangeSet
   runProductCommand?(
     invocation: import("@webmcp/editor/product-commands").ProductCommandInvocation
   ): ProductCommandRunResult
@@ -203,6 +206,26 @@ export type StudioWebMcpServices = {
   id(): string
   now(): string
 }
+
+export type StudioWebMcpProposalProvenance = Readonly<{
+  source: "webmcp"
+  actorLabel: string
+  toolName: string
+  reason: string | null
+  requestId: string | null
+}>
+
+const webMcpProposalProvenance = (
+  toolName: string,
+  reason: string | null = null,
+  requestId: string | null = null
+): StudioWebMcpProposalProvenance => ({
+  source: "webmcp",
+  actorLabel: "WebMCP agent",
+  toolName,
+  reason,
+  requestId,
+})
 
 const textResult = (
   text: string,
@@ -1937,7 +1960,14 @@ export function studioWebMcpTools(
         })
       }
       try {
-        services.proposeChangeSet(proposal.changeSet)
+        services.proposeChangeSet(
+          proposal.changeSet,
+          webMcpProposalProvenance(
+            "execute_product_command",
+            resolved.label,
+            input.idempotencyKey
+          )
+        )
       } catch {
         throw new DesignQueryError(
           "review_unavailable",
@@ -2683,7 +2713,13 @@ export function studioWebMcpTools(
             },
             services
           )
-          services.proposeChangeSet(changeSet)
+          services.proposeChangeSet(
+            changeSet,
+            webMcpProposalProvenance(
+              "propose_asset_insertion",
+              typeof value.reason === "string" ? value.reason : null
+            )
+          )
           return textResult(
             `Previewing ${asset.name} on ${value.pageId}. Nothing has been applied; ask the user to review the Review panel.`,
             publicChangeSet(changeSet, current.document, [
@@ -2755,7 +2791,13 @@ export function studioWebMcpTools(
             resolved.input,
             services
           )
-          services.proposeChangeSet(changeSet)
+          services.proposeChangeSet(
+            changeSet,
+            webMcpProposalProvenance(
+              "propose_field_updates",
+              parsedInput.reason ?? null
+            )
+          )
           return textResult(
             `Created change set ${changeSet.id} with ${changeSet.operations.length} operation${changeSet.operations.length === 1 ? "" : "s"}. The design is previewing these changes, but nothing has been applied. Ask the user to review the Review panel.`,
             publicChangeSet(changeSet, current.document, [
@@ -2821,7 +2863,13 @@ export function studioWebMcpTools(
             { ...proposal, edits },
             services
           )
-          services.proposeChangeSet(changeSet)
+          services.proposeChangeSet(
+            changeSet,
+            webMcpProposalProvenance(
+              "propose_canvas_edits",
+              proposal.reason ?? null
+            )
+          )
           return textResult(
             `Previewing ${changeSet.operations.length} canvas edit${changeSet.operations.length === 1 ? "" : "s"}. Nothing has been applied; ask the user to review the Review panel.`,
             publicChangeSet(changeSet, current.document, [
@@ -2883,12 +2931,19 @@ export function studioWebMcpTools(
         try {
           const current = services.getSnapshot()
           assertCurrentProposalSnapshot(input, current)
+          const parsedInput = parseOutputProposalInput(input)
           const changeSet = createOutputVariantChangeSet(
             current.document,
-            parseOutputProposalInput(input),
+            parsedInput,
             services
           )
-          services.proposeChangeSet(changeSet)
+          services.proposeChangeSet(
+            changeSet,
+            webMcpProposalProvenance(
+              "propose_output_variant",
+              parsedInput.reason ?? null
+            )
+          )
           return textResult(
             "Previewing one complete output adaptation. Nothing has been applied; ask the user to review the Review panel.",
             publicChangeSet(changeSet, current.document, current.assets)

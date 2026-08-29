@@ -22,6 +22,11 @@ import {
   DRAFT_MAX_ENCODED_BYTES,
   prepareDraftAdmission,
 } from "./draft-admission"
+import {
+  createEmptyReviewJournal,
+  createReviewProposal,
+} from "./review-journal"
+import type { ChangeSet } from "@webmcp/document"
 
 const STORE_NAMES = [
   "draft-body",
@@ -42,6 +47,7 @@ const BODY_KEYS = [
   "draftSnapshotId",
   "encodedByteLength",
   "recordVersion",
+  "reviewJournal",
   "schemaVersion",
   "sourceContext",
 ] as const
@@ -116,6 +122,52 @@ const snapshotWith = (
       }
     : null,
 })
+
+const snapshotWithReview = (
+  current: CurrentDraftSnapshot
+): CurrentDraftSnapshot => {
+  const node = current.document.nodes[0]
+  const changeSet: ChangeSet = {
+    id: "review-repository-roundtrip",
+    documentId: current.document.id,
+    baseRevision: current.document.revision,
+    baseSnapshotId: "sha256-review-base",
+    title: "Rename one layer",
+    createdAt: "2026-08-29T06:00:00.000Z",
+    createdBy: "agent",
+    status: "pending",
+    operations: [
+      {
+        id: "operation-rename-layer",
+        status: "pending",
+        summary: "Rename one layer",
+        command: {
+          id: "command-rename-layer",
+          type: "update_node",
+          actor: "agent",
+          at: "2026-08-29T06:00:00.000Z",
+          nodeId: node.id,
+          patch: { name: "Reviewed layer" },
+        },
+      },
+    ],
+  }
+  return {
+    ...current,
+    reviewJournal: createReviewProposal(
+      createEmptyReviewJournal(),
+      current.document,
+      changeSet,
+      {
+        source: "webmcp",
+        actorLabel: "WebMCP agent",
+        toolName: "execute_product_command",
+        reason: "Make the layer easier to identify",
+        requestId: "request-review-roundtrip",
+      }
+    ),
+  }
+}
 
 const createRepository = (
   times: readonly string[],
@@ -735,6 +787,52 @@ describe("DocumentDraftRepository", () => {
         sessionId: repository.sessionId,
       },
     ])
+  })
+
+  it("round-trips review provenance without changing content identity", async () => {
+    const initial = snapshot()
+    const { repository } = createRepository([
+      "2026-08-28T12:00:00.000Z",
+      "2026-08-28T12:01:00.000Z",
+    ])
+    const created = await repository.create(initial)
+    if (!created.ok) throw new Error("Expected a created draft")
+
+    const reviewed = snapshotWithReview(initial)
+    const saved = await repository.save(
+      reviewed,
+      created.record.summary.recordVersion,
+      created.record.summary.draftSnapshotId
+    )
+    if (!saved.ok) throw new Error("Expected a saved review journal")
+
+    expect(saved.record.summary.contentSnapshotId).toBe(
+      created.record.summary.contentSnapshotId
+    )
+    expect(saved.record.summary.draftSnapshotId).not.toBe(
+      created.record.summary.draftSnapshotId
+    )
+    expect(
+      saved.record.envelope.reviewJournal?.pending?.provenance
+    ).toMatchObject({
+      toolName: "execute_product_command",
+      requestId: "request-review-roundtrip",
+    })
+
+    const reopened = await repository.get(initial.document.id)
+    expect(reopened).toMatchObject({
+      ok: true,
+      status: "found",
+      record: {
+        envelope: {
+          reviewJournal: {
+            pending: {
+              provenance: { toolName: "execute_product_command" },
+            },
+          },
+        },
+      },
+    })
   })
 
   it("advances recordVersion when a valid save rewinds document.revision", async () => {

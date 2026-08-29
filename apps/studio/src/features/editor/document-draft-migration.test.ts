@@ -1,6 +1,7 @@
 import "fake-indexeddb/auto"
 import { describe, expect, test } from "vitest"
 import { builtInDesignTemplateRepository } from "@webmcp/document"
+import type { ChangeSet } from "@webmcp/document"
 import {
   CURRENT_DRAFT_STORAGE_KEY,
   LEGACY_DESIGN_TEMPLATE_STORAGE_KEY,
@@ -23,6 +24,10 @@ import {
   createDraftRecoveryRecord,
   DRAFT_RECOVERY_STORAGE_KEY,
 } from "./draft-recovery"
+import {
+  createEmptyReviewJournal,
+  createReviewProposal,
+} from "./review-journal"
 
 const timestamp = "2026-08-28T12:00:00.000Z"
 
@@ -41,6 +46,44 @@ const envelope = (name = draftDocument.name): CurrentDraftEnvelope => ({
     designTemplate: { id: "editorial-one-pager", version: 1 },
   },
 })
+
+const envelopeWithReview = (): CurrentDraftEnvelope => {
+  const current = envelope()
+  const node = current.document.nodes[0]
+  const changeSet: ChangeSet = {
+    id: "review-current-draft-migration",
+    documentId: current.document.id,
+    baseRevision: current.document.revision,
+    baseSnapshotId: "snapshot-current-draft-migration",
+    title: "Preserve the pending migration review",
+    createdAt: "2026-08-29T06:00:00.000Z",
+    createdBy: "agent",
+    status: "pending",
+    operations: [
+      {
+        id: "operation-current-draft-migration",
+        status: "pending",
+        summary: "Rename one layer",
+        command: {
+          id: "command-current-draft-migration",
+          type: "update_node",
+          actor: "agent",
+          at: "2026-08-29T06:00:00.000Z",
+          nodeId: node.id,
+          patch: { name: "Reviewed layer" },
+        },
+      },
+    ],
+  }
+  return {
+    ...current,
+    reviewJournal: createReviewProposal(
+      createEmptyReviewJournal(),
+      current.document,
+      changeSet
+    ),
+  }
+}
 
 class MemoryStorage implements DraftStorage {
   readonly values = new Map<string, string>()
@@ -141,8 +184,9 @@ describe("current draft repository migration", () => {
   })
 
   test("creates a migrated record, verifies it publicly, then cleans all old keys", async () => {
+    const current = envelopeWithReview()
     const storage = new MemoryStorage({
-      [CURRENT_DRAFT_STORAGE_KEY]: JSON.stringify(envelope()),
+      [CURRENT_DRAFT_STORAGE_KEY]: JSON.stringify(current),
       [LEGACY_DOCUMENT_STORAGE_KEY]: "unused legacy bytes",
       [LEGACY_QUOTATION_TEMPLATE_STORAGE_KEY]: "legacy template",
       [LEGACY_QUOTATION_SOURCE_STORAGE_KEY]: "legacy quotation",
@@ -189,6 +233,18 @@ describe("current draft repository migration", () => {
         },
       },
       cleanupFailures: [],
+    })
+    expect(result).toMatchObject({
+      status: "migrated",
+      record: {
+        envelope: {
+          reviewJournal: {
+            pending: {
+              changeSet: { id: "review-current-draft-migration" },
+            },
+          },
+        },
+      },
     })
     expect(pendingCleanupKeys).toEqual([
       LEGACY_DOCUMENT_STORAGE_KEY,

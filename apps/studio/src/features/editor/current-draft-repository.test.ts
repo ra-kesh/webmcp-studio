@@ -4,6 +4,7 @@ import {
   composeQuotationDocument,
   northstarQuotationPayload,
 } from "@webmcp/document"
+import type { ChangeSet, Document } from "@webmcp/document"
 import {
   createDraftRecoveryRecord,
   DRAFT_RECOVERY_STORAGE_KEY,
@@ -25,6 +26,10 @@ import type {
   CurrentDraftSnapshot,
   DraftStorage,
 } from "./current-draft-repository"
+import {
+  createEmptyReviewJournal,
+  createReviewProposal,
+} from "./review-journal"
 
 const quotationDocument = composeQuotationDocument(
   northstarQuotationPayload,
@@ -51,6 +56,36 @@ const starterSnapshot: CurrentDraftSnapshot = {
     quotationTemplateId: "editorial-olive",
     designTemplate: { id: "editorial-one-pager", version: 1 },
   },
+}
+
+const reviewJournalFor = (document: Document, documentId = document.id) => {
+  const node = document.nodes[0]
+  const changeSet: ChangeSet = {
+    id: `review-${documentId}`,
+    documentId,
+    baseRevision: document.revision,
+    baseSnapshotId: "snapshot-review-owner",
+    title: "Review draft ownership",
+    createdAt: "2026-08-29T06:00:00.000Z",
+    createdBy: "agent",
+    status: "pending",
+    operations: [
+      {
+        id: "operation-review-owner",
+        status: "pending",
+        summary: "Rename one layer",
+        command: {
+          id: "command-review-owner",
+          type: "update_node",
+          actor: "agent",
+          at: "2026-08-29T06:00:00.000Z",
+          nodeId: node.id,
+          patch: { name: "Reviewed layer" },
+        },
+      },
+    ],
+  }
+  return createReviewProposal(createEmptyReviewJournal(), document, changeSet)
 }
 
 class MemoryStorage implements DraftStorage {
@@ -253,6 +288,62 @@ describe("current browser draft repository", () => {
     ).toMatchObject({
       ok: false,
       failure: { kind: "migration_failed" },
+    })
+  })
+
+  test("rejects malformed review history instead of erasing it", () => {
+    expect(
+      decodeCurrentDraftEnvelope(
+        JSON.stringify({
+          ...envelope(),
+          reviewJournal: {
+            schemaVersion: 1,
+            pending: null,
+            resolved: [],
+            unexpected: true,
+          },
+        })
+      )
+    ).toMatchObject({
+      ok: false,
+      failure: { kind: "schema_invalid" },
+    })
+  })
+
+  test("rejects review history owned by another document", () => {
+    expect(
+      validateCurrentDraftSnapshot({
+        ...starterSnapshot,
+        reviewJournal: reviewJournalFor(
+          starterSnapshot.document,
+          "document-elsewhere"
+        ),
+      })
+    ).toMatchObject({
+      ok: false,
+      failure: {
+        kind: "schema_invalid",
+        message: expect.stringMatching(/different document/i),
+      },
+    })
+  })
+
+  test("rejects a pending review for another document revision", () => {
+    expect(
+      validateCurrentDraftSnapshot({
+        ...starterSnapshot,
+        document: {
+          ...starterSnapshot.document,
+          revision: starterSnapshot.document.revision + 1,
+        },
+        reviewJournal: reviewJournalFor(starterSnapshot.document),
+      })
+    ).toMatchObject({
+      ok: false,
+      failure: {
+        kind: "schema_invalid",
+        message: expect.stringMatching(/document revision/i),
+      },
     })
   })
 
