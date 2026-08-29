@@ -656,7 +656,7 @@ function NodeInspector({
                 ].map(([align, Icon]) => (
                   <Button
                     key={align as string}
-                    aria-label={`Align ${align as string}`}
+                    aria-label={`Align text ${align as string}`}
                     className="min-h-11 min-[1280px]:min-h-0"
                     size="sm"
                     disabled={node.locked}

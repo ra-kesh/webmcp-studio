@@ -800,7 +800,8 @@ Remaining release evidence:
 
 ## 2026-08-28 — Content-first text workflow (TEXT-01)
 
-Status: **in progress — domain/render contract and Studio workflow split across stable boundaries**
+Status: **interaction workflow and healthy-browser acceptance complete; retained
+cross-renderer pixel conformance remains open**
 
 Phase-entry evidence:
 
@@ -835,6 +836,39 @@ Open evidence and scope:
 - This phase proves shared properties, projected display lines, and deterministic canonical geometry, not identical text rasterization. React/HTML now consume the canonical line sequence; Fabric consumes it outside editing but still uses Canvas glyph measurement and can rewrap a projected line. Exact Fabric line breaks, glyph bounds, clipping edges, anti-aliasing, and device-scale-1 pixels require the retained Fabric/React/Renderer PNG/PDF corpus. OpenPencil avoids this class of drift by measuring and drawing through the same CanvasKit paragraph engine; adopting one shaping engine is the production direction if the browser corpus exposes meaningful Fabric/CSS divergence. Structural checks must not be cited as text pixel parity.
 - The implemented list slice is deliberately a production-quality plain-text, single-node contract; it is not a semantic list-node or rich-text-run schema and is not claimed as that parity. Rich-text runs, reusable text styles, semantic list metadata, font fallback/resolution beyond the managed family, path text, and advanced typography remain TEXT-02 work.
 - Pending browser cases now cover desktop and compact preset reachability, `T` insertion, immediate edit, existing-text double-click versus blank-canvas zoom, every sizing transition, locked/mixed sizing, independent X/Y clipping and repair modes, content-plus-geometry Undo, Escape, selection/page/review transitions, and bulleted/numbered Enter/termination/indent/outdent/Backspace/renumber flows with no interim operation and one exit commit. None has executed on the unhealthy host. Do not close TEXT-01 until those interaction gates and the retained Fabric/React/PNG/PDF line/pixel corpus pass.
+
+Healthy-browser acceptance on 2026-08-29:
+
+- Re-read the TEXT-01 contract and the matching OpenPencil/Loora text-editing
+  ownership before running the retained browser suite against the single Studio
+  server on port 3001.
+- The first run found a real focus race: toolbar preset selection entered Fabric
+  editing before the Radix menu completed its close-focus restoration, so the
+  menu trigger immediately stole focus back. Preset insertion now records one
+  pending edit target and hands focus to Fabric only after the menu closes. The
+  direct `T` command remains immediate and does not share menu state.
+- The browser pass also found that the compact More menu exposed only a generic
+  Text submenu, not Heading, Subheading, Body, and Caption. The compact fallback
+  now exposes all four 44 px preset actions directly and uses the same close-time
+  editing handoff. Desktop retains its dedicated Add text control.
+- Paragraph alignment and page/object alignment previously exposed duplicate
+  accessible names inside compact Properties. Paragraph controls now say
+  **Align text left/center/right**, making their intent and automation target
+  unambiguous.
+- The production browser suite passes **16/16** from a clean Start surface and
+  the explicit Northstar sample. It proves preset/shortcut insertion, direct
+  editing, text-versus-blank double click, every sizing mode, locked/mixed
+  axes, independent overflow and repair, one-transaction content plus geometry,
+  exact Undo, Escape, review/selection/page transitions, compact target sizes,
+  and bulleted/numbered list continuation, indentation, termination, marker
+  removal, renumbering, and one exit commit.
+- `text-01-browser-acceptance.md` retains the exact browser boundary and open
+  evidence. The Fabric/React/Renderer PNG/PDF device-scale-1 pixel corpus remains
+  open; interaction acceptance is not presented as glyph/pixel parity.
+- An independent code reviewer inspected the actual menu focus owner,
+  compact/desktop reachability, command guards, accessible names, server
+  selection, and browser assertions and returned **ACCEPT with no P0/P1**.
+  `text-01-browser-independent-review.md` preserves that verdict.
 
 ## 2026-08-28 — Typed shared-field and public parameter contract (FIELD-01)
 

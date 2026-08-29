@@ -651,6 +651,7 @@ export function StudioShell({
   const mediaPickerFocusReturnRef = useRef<HTMLElement | null>(null)
   const cropFocusSessionRef = useRef<ImageCropFocusSession | null>(null)
   const cropWasActiveRef = useRef(false)
+  const pendingTextMenuEditingNodeIdRef = useRef<string | null>(null)
   const shortcutPlatform = useMemo(detectShortcutPlatform, [])
   const panSessionRef = useRef<{
     pointerId: number
@@ -1010,13 +1011,32 @@ export function StudioShell({
   }, [editor.imageCropSession])
 
   const insertTextPreset = useCallback(
-    (presetId: StudioTextPresetId = defaultStudioTextPresetId) => {
+    (
+      presetId: StudioTextPresetId = defaultStudioTextPresetId,
+      options?: { deferEditingUntilMenuClose?: boolean }
+    ) => {
       const nodeId = editor.addText(presetId)
       if (!nodeId) return false
-      setTextEditingNodeId(nodeId)
+      if (options?.deferEditingUntilMenuClose) {
+        pendingTextMenuEditingNodeIdRef.current = nodeId
+      } else {
+        setTextEditingNodeId(nodeId)
+      }
       return true
     },
     [editor]
+  )
+  const restoreTextEditingAfterMenuClose = useCallback(
+    (event: { preventDefault: () => void }) => {
+      const nodeId = pendingTextMenuEditingNodeIdRef.current
+      if (!nodeId) return
+      pendingTextMenuEditingNodeIdRef.current = null
+      event.preventDefault()
+      window.requestAnimationFrame(() => {
+        setTextEditingNodeId(nodeId)
+      })
+    },
+    []
   )
 
   useEffect(() => {
@@ -2808,12 +2828,19 @@ export function StudioShell({
                   <Type />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-72">
+              <DropdownMenuContent
+                className="w-72"
+                onCloseAutoFocus={restoreTextEditingAfterMenuClose}
+              >
                 <DropdownMenuLabel>Text styles</DropdownMenuLabel>
                 <DropdownMenuGroup>
                   <TextPresetMenuItems
                     disabled={!commandEnabled("object.add-text")}
-                    onSelect={insertTextPreset}
+                    onSelect={(presetId) =>
+                      insertTextPreset(presetId, {
+                        deferEditingUntilMenuClose: true,
+                      })
+                    }
                   />
                 </DropdownMenuGroup>
               </DropdownMenuContent>
@@ -3131,6 +3158,7 @@ export function StudioShell({
               <DropdownMenuContent
                 align="end"
                 className="w-[min(18rem,calc(100vw-1rem))]"
+                onCloseAutoFocus={restoreTextEditingAfterMenuClose}
               >
                 <DropdownMenuLabel>Document status</DropdownMenuLabel>
                 <div
@@ -3203,8 +3231,23 @@ export function StudioShell({
                   </>
                 ) : null}
                 <DropdownMenuSeparator />
+                <DropdownMenuLabel className="min-[640px]:hidden">
+                  Text styles
+                </DropdownMenuLabel>
+                <div className="min-[640px]:hidden">
+                  <TextPresetMenuItems
+                    compactTargets
+                    disabled={!commandEnabled("object.add-text")}
+                    onSelect={(presetId) =>
+                      insertTextPreset(presetId, {
+                        deferEditingUntilMenuClose: true,
+                      })
+                    }
+                  />
+                  <DropdownMenuSeparator />
+                </div>
                 <ProductCommandDropdownGroups
-                  menus={productMenus}
+                  menus={productMenus.filter((menu) => menu.id !== "text")}
                   runtime={productMenuRuntime}
                 />
               </DropdownMenuContent>

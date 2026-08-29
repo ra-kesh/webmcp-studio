@@ -74,6 +74,18 @@ async function insertTextPreset(
   return hiddenTextarea
 }
 
+async function expectTextEditingInactive(page: Page) {
+  const hiddenTextarea = page.locator('textarea[data-fabric="textarea"]')
+  await expect
+    .poll(async () => {
+      if ((await hiddenTextarea.count()) === 0) return true
+      return hiddenTextarea.evaluate(
+        (element) => element !== document.activeElement
+      )
+    })
+    .toBe(true)
+}
+
 async function canvasPointForNode(page: Page, nodeId: string) {
   const current = await inspect(page)
   const activePage = current.activePage
@@ -175,6 +187,7 @@ test.beforeEach(async ({ page }) => {
     }
   })
   await page.goto("/")
+  await page.getByRole("button", { name: "Open sample", exact: true }).click()
   await waitForEditor(page)
 })
 
@@ -232,7 +245,7 @@ test("existing text double-click edits while blank-canvas double-click zooms", a
   const blankPoint = await blankCanvasPoint(page)
   const zoomBeforeBlank = await zoomDisplay.textContent()
   await page.mouse.dblclick(blankPoint.x, blankPoint.y)
-  await expect(hiddenTextarea).not.toBeFocused()
+  await expectTextEditingInactive(page)
   await expect(zoomDisplay).not.toHaveText(zoomBeforeBlank ?? "")
 })
 
@@ -456,7 +469,11 @@ test("compact text presets and text controls meet the touch-target contract", as
   const fontFamily = properties.getByRole("combobox")
   await fontFamily.scrollIntoViewIfNeeded()
   await expectMinimumTargetSize(fontFamily)
-  for (const name of ["Align left", "Align center", "Align right"]) {
+  for (const name of [
+    "Align text left",
+    "Align text center",
+    "Align text right",
+  ]) {
     const control = properties.getByRole("button", { name })
     await control.scrollIntoViewIfNeeded()
     await expectMinimumTargetSize(control)
@@ -583,7 +600,7 @@ test("Escape cancels direct editing without a document or geometry mutation", as
   await hiddenTextarea.fill("This edit must be cancelled")
   await hiddenTextarea.press("Escape")
 
-  await expect(hiddenTextarea).not.toBeFocused()
+  await expectTextEditingInactive(page)
   const afterCancel = await inspect(page)
   const captionAfter = afterCancel.activePageNodes.find(
     (node) => node.id === captionBefore.id
@@ -617,7 +634,7 @@ test("starting review cancels an active edit before the canvas becomes read-only
     "aria-selected",
     "true"
   )
-  await expect(hiddenTextarea).not.toBeFocused()
+  await expectTextEditingInactive(page)
 
   const underReview = await inspect(page)
   expect(
@@ -646,7 +663,7 @@ test("selecting another layer commits the active edit as one transaction", async
     .getByRole("treeitem", { name: "Quotation title", exact: true })
     .click()
 
-  await expect(hiddenTextarea).not.toBeFocused()
+  await expectTextEditingInactive(page)
   await expect
     .poll(async () => {
       return (await inspect(page)).activePageNodes.find(
@@ -671,7 +688,7 @@ test("changing pages commits the active edit before replacing the canvas", async
   await hiddenTextarea.fill("Committed before page navigation")
 
   await page.getByRole("button", { name: "Open page 2: Overview" }).click()
-  await expect(hiddenTextarea).not.toBeFocused()
+  await expectTextEditingInactive(page)
   await page.getByRole("button", { name: "Open page 1: Cover" }).click()
   await expect
     .poll(async () => {
@@ -747,7 +764,7 @@ test("bulleted multi-paragraph editing continues, indents, terminates, and remov
   )
 
   await page.getByRole("button", { name: "Open page 2: Overview" }).click()
-  await expect(hiddenTextarea).not.toBeFocused()
+  await expectTextEditingInactive(page)
   expect((await inspect(page)).document.operationVersion).toBe(
     listed.document.operationVersion + 1
   )
@@ -812,7 +829,7 @@ test("numbered multi-paragraph editing inserts and renumbers siblings before one
   )
 
   await page.getByRole("button", { name: "Open page 2: Overview" }).click()
-  await expect(hiddenTextarea).not.toBeFocused()
+  await expectTextEditingInactive(page)
   expect((await inspect(page)).document.operationVersion).toBe(
     listed.document.operationVersion + 1
   )
