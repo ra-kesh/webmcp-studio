@@ -287,6 +287,14 @@ describe("typed field values", () => {
     ).toMatchObject({ text: "18 January 2027" })
   })
 
+  it("preserves canonical identities when bound values are already applied", () => {
+    const applied = applyFieldValues(northstarSeed)
+    const reapplied = applyFieldValues(applied)
+
+    expect(reapplied).toBe(applied)
+    expect(reapplied.nodes).toBe(applied.nodes)
+  })
+
   it("canonicalizes new currency writes and preserves legacy display strings", () => {
     const updated = applyCommand(northstarSeed, {
       id: "set-canonical-price",

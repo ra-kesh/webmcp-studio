@@ -23,6 +23,26 @@ export type SelectedImageToolbarPlacementInput = Readonly<{
   gap?: number
 }>
 
+export type SelectedImageToolbarCameraProjectionInput = Readonly<{
+  bounds: Readonly<{
+    left: number
+    right: number
+    top: number
+    bottom: number
+  }>
+  camera: Readonly<{ x: number; y: number; zoom: number }>
+  viewport: Readonly<{ width: number; height: number }>
+}>
+
+type SelectedImageToolbarStyleTarget = {
+  hidden: boolean | string
+  style: {
+    top: string
+    left: string
+    width: string
+  }
+}
+
 export const SELECTED_IMAGE_TOOLBAR_HEIGHT = 48
 export const SELECTED_IMAGE_TOOLBAR_WIDTH = 480
 export const PAGE_FILMSTRIP_HEIGHT = 88
@@ -90,4 +110,33 @@ export function resolveSelectedImageToolbarPlacement({
   return topClearance >= bottomClearance
     ? { mode: "overlay", edge: "top", top, left, width }
     : { mode: "overlay", edge: "bottom", top: bottom, left, width }
+}
+
+export function projectSelectedImageToolbarForCamera({
+  bounds,
+  camera,
+  viewport,
+}: SelectedImageToolbarCameraProjectionInput) {
+  return resolveSelectedImageToolbarPlacement({
+    frameLeft: camera.x + bounds.left * camera.zoom,
+    frameRight: camera.x + bounds.right * camera.zoom,
+    frameTop: camera.y + bounds.top * camera.zoom,
+    frameBottom: camera.y + bounds.bottom * camera.zoom,
+    viewportWidth: viewport.width,
+    viewportHeight: viewport.height,
+  })
+}
+
+export function applySelectedImageToolbarCameraProjection(
+  target: SelectedImageToolbarStyleTarget,
+  input: SelectedImageToolbarCameraProjectionInput
+) {
+  const placement = projectSelectedImageToolbarForCamera(input)
+  target.hidden = placement.mode !== "overlay"
+  if (placement.mode === "overlay") {
+    target.style.top = `${placement.top}px`
+    target.style.left = `${placement.left}px`
+    target.style.width = `${placement.width}px`
+  }
+  return placement
 }

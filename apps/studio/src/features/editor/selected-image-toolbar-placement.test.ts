@@ -6,6 +6,7 @@ import {
   PAGE_FILMSTRIP_HEIGHT,
   SELECTED_IMAGE_TOOLBAR_BOTTOM_INSET,
   SELECTED_IMAGE_TOOLBAR_HEIGHT,
+  applySelectedImageToolbarCameraProjection,
   resolveSelectedImageToolbarPlacement,
 } from "./selected-image-toolbar-placement"
 
@@ -180,5 +181,34 @@ describe("selected image toolbar placement", () => {
         viewportHeight: 0,
       })
     ).toEqual({ mode: "docked", edge: "top" })
+  })
+
+  it("projects the floating toolbar immediately from each live camera", () => {
+    const target = {
+      hidden: false,
+      style: { top: "", left: "", width: "" },
+    }
+    const bounds = { left: 300, right: 500, top: 240, bottom: 360 }
+    const viewport = { width: 900, height: 760 }
+
+    applySelectedImageToolbarCameraProjection(target, {
+      bounds,
+      viewport,
+      camera: { x: 0, y: 0, zoom: 1 },
+    })
+    expect(target).toEqual({
+      hidden: false,
+      style: { top: "372px", left: "160px", width: "480px" },
+    })
+
+    applySelectedImageToolbarCameraProjection(target, {
+      bounds,
+      viewport,
+      camera: { x: 80, y: 40, zoom: 1.25 },
+    })
+    expect(target).toEqual({
+      hidden: false,
+      style: { top: "280px", left: "340px", width: "480px" },
+    })
   })
 })

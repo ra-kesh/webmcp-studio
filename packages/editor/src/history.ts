@@ -1,8 +1,8 @@
+import type { Document, DocumentCommand } from "@webmcp/document"
 import {
-  applyCommand,
-  type Document,
-  type DocumentCommand,
-} from "@webmcp/document"
+  admitCanonicalHistoryDocument,
+  applyCanonicalHistoryCommand,
+} from "@webmcp/document/internal/history"
 
 export const HISTORY_LIMIT = 100
 export const HISTORY_MAX_BYTES = 16 * 1024 * 1024
@@ -166,7 +166,7 @@ export function createDocumentHistory(
   options: DocumentHistoryOptions = {}
 ): DocumentHistory {
   return {
-    document,
+    document: admitCanonicalHistoryDocument(document),
     snapshotId: initialSnapshotId,
     operationVersion: 0,
     past: [],
@@ -183,7 +183,10 @@ export function commitCommandsWithResult(
   options: HistoryCommitOptions = {}
 ): DocumentHistoryCommitResult | null {
   if (!commands.length) return null
-  const document = commands.reduce(applyCommand, history.document)
+  const document = commands.reduce(
+    applyCanonicalHistoryCommand,
+    history.document
+  )
   const committedAt = options.committedAt ?? Date.now()
   const afterSnapshotId =
     options.snapshotId ?? createSnapshotId(commands.at(-1)?.id)
@@ -257,6 +260,7 @@ export function replaceDocumentWithResult(
   document: Document,
   options: HistoryCommitOptions = {}
 ): DocumentHistoryCommitResult {
+  const canonicalDocument = admitCanonicalHistoryDocument(document)
   const committedAt = options.committedAt ?? Date.now()
   const afterSnapshotId = options.snapshotId ?? createSnapshotId()
   const entry = withApproximateBytes({
@@ -265,7 +269,7 @@ export function replaceDocumentWithResult(
     committedAt,
     coalesceKey: options.coalesceKey,
     before: history.document,
-    after: document,
+    after: canonicalDocument,
     beforeSnapshotId: history.snapshotId,
     afterSnapshotId,
   })
@@ -273,7 +277,7 @@ export function replaceDocumentWithResult(
   const undoable = bounded.entries.at(-1)?.afterSnapshotId === afterSnapshotId
   return {
     history: {
-      document,
+      document: canonicalDocument,
       snapshotId: afterSnapshotId,
       operationVersion: history.operationVersion + 1,
       past: bounded.entries,

@@ -32,6 +32,33 @@ const updateTitleX = (id: string, x: number) => ({
 })
 
 describe("document history", () => {
+  it("admits canonical documents through full schema validation once", () => {
+    const invalid = structuredClone(northstarSeed)
+    invalid.nodes[0]!.x = Number.NaN
+
+    expect(() => createDocumentHistory(invalid)).toThrow()
+  })
+
+  it("preserves unchanged canonical identities for incremental renderers", () => {
+    const target = northstarSeed.nodes.find(
+      (node) => node.id === "cover-title"
+    )!
+    const unchanged = northstarSeed.nodes.find((node) => node.id !== target.id)!
+    const initial = createDocumentHistory(northstarSeed)
+    const changed = commitCommands(initial, [
+      updateTitleX("identity-preserving-update", target.x + 1),
+    ])
+
+    expect(changed.document).not.toBe(initial.document)
+    expect(changed.document.pages[0]).toBe(initial.document.pages[0])
+    expect(
+      changed.document.nodes.find((node) => node.id === unchanged.id)
+    ).toBe(unchanged)
+    expect(
+      changed.document.nodes.find((node) => node.id === target.id)
+    ).not.toBe(target)
+  })
+
   it("replaces one image source as one named exact undo step", () => {
     const image = renderConformanceDocument.nodes.find(
       (node) => node.id === "image-cover"

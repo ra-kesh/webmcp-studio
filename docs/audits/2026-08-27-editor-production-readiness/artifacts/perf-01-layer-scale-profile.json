@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "capturedAt": "2026-08-29T14:59:53.887Z",
+  "runtime": {
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    }
+  },
+  "document": {
+    "pages": 1,
+    "nodes": 1000,
+    "visibleNodes": 1000
+  },
+  "openWallTime": 3507,
+  "activeNodeCount": 1000,
+  "expandedMountedRows": 33,
+  "searchWallTime": 111,
+  "selectionWallTime": 431,
+  "editWallTime": 258,
+  "cameraFrameProfile": {
+    "frames": 90,
+    "p50FrameMs": 16.699999999254942,
+    "p95FrameMs": 17.5,
+    "p99FrameMs": 17.59999999962747,
+    "maximumFrameMs": 66.30000000074506
+  },
+  "zoomFrameProfile": {
+    "frames": 60,
+    "p50FrameMs": 16.699999999254942,
+    "p95FrameMs": 17.40000000037253,
+    "p99FrameMs": 17.5,
+    "maximumFrameMs": 17.699999999254942
+  },
+  "cameraTransformChanged": true,
+  "expandedTreeGeometry": {
+    "clientHeight": 739,
+    "scrollHeight": 30038
+  },
+  "browser": {
+    "longTaskCount": 29,
+    "maximumLongTaskMs": 421,
+    "longTaskTotalMs": 4056,
+    "usedJSHeapBytes": 88695464,
+    "totalJSHeapBytes": 169444920,
+    "canvases": 3,
+    "mountedTreeRows": 2
+  },
+  "budgets": {
+    "maximumOpenWallTime": 10000,
+    "maximumMountedTreeRows": 80,
+    "maximumSearchWallTime": 1000,
+    "maximumSelectionWallTime": 750,
+    "maximumEditWallTime": 750,
+    "maximumP95CameraFrameMs": 32,
+    "maximumP95ZoomFrameMs": 32
+  }
+}

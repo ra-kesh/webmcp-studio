@@ -16,7 +16,7 @@ import {
 } from "./fields"
 import { managedAssetIdFromSource } from "./media"
 import { applyTextLayoutPatch } from "./text-layout"
-import { assertValidDocument } from "./validation"
+import { assertValidCanonicalDocument, assertValidDocument } from "./validation"
 
 type FieldValue = string | number | boolean
 
@@ -109,13 +109,21 @@ function applyValue(
   field: Pick<Document["fields"][number], "type">
 ): SceneNode {
   if (property === "text" && node.type === "text") {
+    const text = formatFieldValueForText(field, value)
+    if (node.text === text) return node
     return applyTextLayoutPatch(node, {
-      text: formatFieldValueForText(field, value),
+      text,
     })
   }
   if (property === "src" && node.type === "image") {
     const src = String(value)
     const managedAssetId = managedAssetIdFromSource(src)
+    if (
+      node.src === src &&
+      (!managedAssetId || node.assetId === managedAssetId)
+    ) {
+      return node
+    }
     return {
       ...node,
       ...(managedAssetId ? { assetId: managedAssetId } : {}),
@@ -123,13 +131,15 @@ function applyValue(
     }
   }
   if (property === "visible") {
-    return { ...node, visible: Boolean(value) }
+    const visible = Boolean(value)
+    return node.visible === visible ? node : { ...node, visible }
   }
   if (
     property === "fill" &&
     (node.type === "rect" || node.type === "ellipse" || node.type === "icon")
   ) {
-    return { ...node, fill: String(value) }
+    const fill = String(value)
+    return node.fill === fill ? node : { ...node, fill }
   }
   return node
 }
@@ -143,6 +153,7 @@ export function applyFieldValues(document: Document): Document {
     bindingsByNode.set(binding.nodeId, bindings)
   }
 
+  let changed = false
   const nodes = document.nodes.map((node) => {
     let next = node
     for (const binding of bindingsByNode.get(node.id) ?? []) {
@@ -152,10 +163,11 @@ export function applyFieldValues(document: Document): Document {
         next = applyValue(next, binding.property, value, field)
       }
     }
+    if (next !== node) changed = true
     return next
   })
 
-  return { ...document, nodes }
+  return changed ? { ...document, nodes } : document
 }
 
 type SemanticClonePayload = {
@@ -253,12 +265,11 @@ function appendSemanticClone(
   })
 }
 
-export function applyCommand(
-  input: Document,
-  commandInput: DocumentCommand
+function applyParsedCommand(
+  document: Document,
+  command: DocumentCommand,
+  validateResult: (document: Document) => Document
 ): Document {
-  const document = documentSchema.parse(input)
-  const command = documentCommandSchema.parse(commandInput)
   let next: Document
 
   switch (command.type) {
@@ -1109,11 +1120,39 @@ export function applyCommand(
     }
   }
 
-  return assertValidDocument(
+  return validateResult(
     applyFieldValues({
       ...next,
       revision: document.revision + 1,
       updatedAt: command.at,
     })
+  )
+}
+
+/** Public, untrusted command boundary. Both inputs and output are reparsed. */
+export function applyCommand(
+  input: Document,
+  commandInput: DocumentCommand
+): Document {
+  return applyParsedCommand(
+    documentSchema.parse(input),
+    documentCommandSchema.parse(commandInput),
+    assertValidDocument
+  )
+}
+
+/**
+ * Internal transaction boundary for a document already admitted by the
+ * canonical decoder. The command remains schema-validated, while semantic
+ * validation deliberately preserves unchanged object identities.
+ */
+export function applyCommandToCanonicalDocumentUnchecked(
+  document: Document,
+  commandInput: DocumentCommand
+): Document {
+  return applyParsedCommand(
+    document,
+    documentCommandSchema.parse(commandInput),
+    assertValidCanonicalDocument
   )
 }

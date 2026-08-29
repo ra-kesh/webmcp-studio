@@ -1611,6 +1611,10 @@ export class FabricCanvasAdapter implements CanvasAdapter {
   private canvas: Canvas | null = null
   private documentId: string | null = null
   private pageId: string | null = null
+  private pageWidth: number | null = null
+  private pageHeight: number | null = null
+  private pageBackground: string | null = null
+  private pageNodeOrder: string[] = []
   private generation = 0
   private syncing = false
   private activeGuides: SnapGuide[] = []
@@ -1803,13 +1807,29 @@ export class FabricCanvasAdapter implements CanvasAdapter {
         this.transformTextPreviewNodeIds.clear()
         this.clearTextEditSession()
         this.pageId = pageId
+        this.pageWidth = null
+        this.pageHeight = null
+        this.pageBackground = null
+        this.pageNodeOrder = []
       }
 
-      canvas.setDimensions({ width: page.width, height: page.height })
-      canvas.backgroundColor = page.background
+      if (this.pageWidth !== page.width || this.pageHeight !== page.height) {
+        canvas.setDimensions({ width: page.width, height: page.height })
+        this.pageWidth = page.width
+        this.pageHeight = page.height
+      }
+      if (this.pageBackground !== page.background) {
+        canvas.backgroundColor = page.background
+        this.pageBackground = page.background
+      }
 
       const nodesById = new Map(document.nodes.map((node) => [node.id, node]))
       const wanted = new Set(page.nodeIds)
+      const orderChanged =
+        this.pageNodeOrder.length !== page.nodeIds.length ||
+        page.nodeIds.some(
+          (nodeId, index) => this.pageNodeOrder[index] !== nodeId
+        )
       for (const [nodeId, object] of this.objectByNodeId) {
         if (!wanted.has(nodeId)) {
           canvas.remove(object)
@@ -1823,14 +1843,11 @@ export class FabricCanvasAdapter implements CanvasAdapter {
       for (const [index, nodeId] of page.nodeIds.entries()) {
         const node = nodesById.get(nodeId)
         if (!node) continue
-        this.nodeByNodeId.set(node.id, node)
-        if (node.type === "text") {
-          this.textByNodeId.set(node.id, node.text)
-          this.textSizingModeByNodeId.set(node.id, node.sizingMode)
-        }
+        const previousNode = this.nodeByNodeId.get(node.id)
         let object = this.objectByNodeId.get(nodeId)
+        let objectNeedsPlacement = false
 
-        if (object && node.type === "image") {
+        if (object && node.type === "image" && previousNode !== node) {
           const image =
             object instanceof Group
               ? object
@@ -1852,6 +1869,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
               this.nodeIdByObject.set(replacement, node.id)
               canvas.add(replacement)
               object = replacement
+              objectNeedsPlacement = true
             }
           }
         }
@@ -1862,19 +1880,39 @@ export class FabricCanvasAdapter implements CanvasAdapter {
           this.objectByNodeId.set(node.id, object)
           this.nodeIdByObject.set(object, node.id)
           canvas.add(object)
-        } else {
+          objectNeedsPlacement = true
+        } else if (previousNode !== node) {
           syncFabricObjectFromNode(object, node)
         }
-        canvas.moveObjectTo(object, index)
+        // Commit the applied identity only after every awaited visual update
+        // survives the generation guard. A superseding sync must still see
+        // the old identity and finish installing the requested image source.
+        this.nodeByNodeId.set(node.id, node)
+        if (node.type === "text" && previousNode !== node) {
+          this.textByNodeId.set(node.id, node.text)
+          this.textSizingModeByNodeId.set(node.id, node.sizingMode)
+        }
+        if (orderChanged || objectNeedsPlacement) {
+          canvas.moveObjectTo(object, index)
+        }
       }
+      this.pageNodeOrder = [...page.nodeIds]
 
       const selectionObjects = previousSelection
         .map((nodeId) => this.objectByNodeId.get(nodeId))
         .filter((object): object is FabricObject => Boolean(object))
-      if (selectionObjects.length === 1 && selectionObjects[0]) {
-        canvas.setActiveObject(selectionObjects[0])
-      } else if (selectionObjects.length > 1) {
-        canvas.setActiveObject(this.createActiveSelection(selectionObjects))
+      const activeObjects = canvas.getActiveObjects()
+      const selectionUnchanged =
+        activeObjects.length === selectionObjects.length &&
+        activeObjects.every(
+          (object, index) => object === selectionObjects[index]
+        )
+      if (!selectionUnchanged) {
+        if (selectionObjects.length === 1 && selectionObjects[0]) {
+          canvas.setActiveObject(selectionObjects[0])
+        } else if (selectionObjects.length > 1) {
+          canvas.setActiveObject(this.createActiveSelection(selectionObjects))
+        }
       }
       this.applyImageCropInteractionPolicy()
       canvas.requestRenderAll()

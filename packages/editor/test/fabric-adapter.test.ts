@@ -2188,6 +2188,13 @@ describe("Fabric document boundary", () => {
     expect(adapter.getImageSourceReadiness(rectNode.id)).toBeNull()
     expect(adapter.getImageNaturalSize(rectNode.id)).toBeNull()
     expect(Reflect.get(adapter, "imageCropMode")).toBeNull()
+
+    fakeCanvas.setDimensions.mockClear()
+    fakeCanvas.moveObjectTo.mockClear()
+    await adapter.sync(document, sourcePage.id)
+    expect(fakeCanvas.setDimensions).not.toHaveBeenCalled()
+    expect(fakeCanvas.moveObjectTo).not.toHaveBeenCalled()
+    expect(fromUrl).toHaveBeenCalledOnce()
     fromUrl.mockRestore()
   })
 
@@ -2390,7 +2397,7 @@ describe("Fabric document boundary", () => {
 
     expect(objectByNodeId.get(imageNode.id)).toBe(oldObject)
     expect(fakeCanvas.remove).not.toHaveBeenCalled()
-    expect(adapter.getImageSourceReadiness(imageNode.id)).toBe("unavailable")
+    expect(adapter.getImageSourceReadiness(imageNode.id)).toBe("ready")
 
     resolveReplacement(decodedFabricImage(replacementNode.src, imageNode))
     await replacementSync
@@ -2405,6 +2412,86 @@ describe("Fabric document boundary", () => {
       width: imageNode.width,
       height: imageNode.height,
     })
+    fromUrl.mockRestore()
+  })
+
+  it("does not lose an image replacement when a newer sync supersedes its pending decode", async () => {
+    const imageNode = renderConformanceDocument.nodes.find(
+      (candidate) => candidate.id === "image-cover"
+    )!
+    const sourcePage = renderConformanceDocument.pages.find((page) =>
+      page.nodeIds.includes(imageNode.id)
+    )!
+    if (imageNode.type !== "image") throw new Error("Expected image fixture")
+    const replacementNode = {
+      ...imageNode,
+      src: "https://cdn.example.com/superseding-replacement.jpg",
+    }
+    const documentWith = (node: typeof imageNode) => ({
+      ...renderConformanceDocument,
+      nodes: [node],
+      pages: [{ ...sourcePage, nodeIds: [node.id] }],
+      groups: [],
+    })
+    const objects: FabricObject[] = []
+    const fakeCanvas = {
+      backgroundColor: "",
+      add: vi.fn((object: FabricObject) => objects.push(object)),
+      clear: vi.fn(),
+      discardActiveObject: vi.fn(),
+      getActiveObjects: vi.fn(() => []),
+      moveObjectTo: vi.fn(),
+      remove: vi.fn((object: FabricObject) => {
+        const index = objects.indexOf(object)
+        if (index >= 0) objects.splice(index, 1)
+      }),
+      requestRenderAll: vi.fn(),
+      setActiveObject: vi.fn(),
+      setDimensions: vi.fn(),
+    }
+    const adapter = new FabricCanvasAdapter({
+      onNodesChange: vi.fn(),
+      onSelectionChange: vi.fn(),
+    })
+    Reflect.set(adapter, "canvas", fakeCanvas)
+
+    let resolveStale!: (image: FabricImage) => void
+    let resolveCurrent!: (image: FabricImage) => void
+    const staleDecode = new Promise<FabricImage>((resolve) => {
+      resolveStale = resolve
+    })
+    const currentDecode = new Promise<FabricImage>((resolve) => {
+      resolveCurrent = resolve
+    })
+    const fromUrl = vi
+      .spyOn(FabricImage, "fromURL")
+      .mockResolvedValueOnce(decodedFabricImage(imageNode.src, imageNode))
+      .mockImplementationOnce(() => staleDecode)
+      .mockImplementationOnce(() => currentDecode)
+
+    await adapter.sync(documentWith(imageNode), sourcePage.id)
+    const oldObject = objects[0]
+    const staleSync = adapter.sync(documentWith(replacementNode), sourcePage.id)
+    await Promise.resolve()
+    const currentSync = adapter.sync(
+      documentWith(replacementNode),
+      sourcePage.id
+    )
+    await Promise.resolve()
+
+    expect(fromUrl).toHaveBeenCalledTimes(3)
+    resolveCurrent(decodedFabricImage(replacementNode.src, imageNode))
+    await currentSync
+    resolveStale(decodedFabricImage(replacementNode.src, imageNode))
+    await staleSync
+
+    const installed = Reflect.get(adapter, "objectByNodeId").get(imageNode.id)
+    expect(installed).not.toBe(oldObject)
+    expect(objects).toEqual([installed])
+    expect(fakeCanvas.remove).toHaveBeenCalledTimes(1)
+    expect(Reflect.get(adapter, "nodeByNodeId").get(imageNode.id)).toBe(
+      replacementNode
+    )
     fromUrl.mockRestore()
   })
 

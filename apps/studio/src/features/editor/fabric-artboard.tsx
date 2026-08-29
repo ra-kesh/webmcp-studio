@@ -4,6 +4,8 @@ import {
   useEffect,
   useId,
   useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -26,6 +28,7 @@ import type { ImageCropFramePreview } from "./image-crop-frame-overlay"
 
 export type FabricArtboardHandle = {
   exportPng: () => string | null
+  previewViewportZoom: (zoom: number, committedZoom: number) => void
   retryImageSources: () => void
   retryImageSource: (nodeId: string) => void
   enterTextEditing: (nodeId: string) => boolean
@@ -99,6 +102,7 @@ export const FabricArtboard = forwardRef<
   ref
 ) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const artboardChromeRef = useRef<HTMLDivElement>(null)
   const adapterRef = useRef<CanvasAdapter | null>(null)
   const callbacksRef = useRef({
     onCanvasDoubleClick,
@@ -146,44 +150,61 @@ export const FabricArtboard = forwardRef<
     interactive,
   }
 
-  const page = document.pages.find((candidate) => candidate.id === pageId)
-  const pageNodeIds = new Set(page?.nodeIds ?? [])
-  const selectedNodes = (selection?.nodeIds ?? []).flatMap((nodeId) => {
-    const node = document.nodes.find(
-      (candidate) =>
-        candidate.id === nodeId &&
-        pageNodeIds.has(candidate.id) &&
-        candidate.visible
-    )
-    return node ? [node] : []
-  })
-  const hoveredNode = document.nodes.find(
-    (node) =>
-      node.id === hoveredNodeId && pageNodeIds.has(node.id) && node.visible
+  const page = useMemo(
+    () => document.pages.find((candidate) => candidate.id === pageId),
+    [document.pages, pageId]
   )
+  const pageNodeIds = useMemo(
+    () => new Set(page?.nodeIds ?? []),
+    [page?.nodeIds]
+  )
+  const nodeById = useMemo(
+    () => new Map(document.nodes.map((node) => [node.id, node])),
+    [document.nodes]
+  )
+  const selectedNodes = useMemo(
+    () =>
+      (selection?.nodeIds ?? []).flatMap((nodeId) => {
+        const node = nodeById.get(nodeId)
+        return node && pageNodeIds.has(node.id) && node.visible ? [node] : []
+      }),
+    [nodeById, pageNodeIds, selection?.nodeIds]
+  )
+  const hoveredNode = useMemo(() => {
+    if (!hoveredNodeId) return undefined
+    const node = nodeById.get(hoveredNodeId)
+    return node && pageNodeIds.has(node.id) && node.visible ? node : undefined
+  }, [hoveredNodeId, nodeById, pageNodeIds])
   const cropNodeCandidate = imageCropMode
-    ? document.nodes.find(
-        (node) =>
-          node.id === imageCropMode.nodeId &&
-          pageNodeIds.has(node.id) &&
-          node.visible
-      )
+    ? nodeById.get(imageCropMode.nodeId)
     : undefined
   const cropNode =
-    cropNodeCandidate?.type === "image" ? cropNodeCandidate : undefined
-  currentImageSourceByNodeIdRef.current = new Map(
-    document.nodes.flatMap((node) =>
-      node.type === "image" && pageNodeIds.has(node.id)
-        ? [[node.id, node.src] as const]
-        : []
-    )
+    cropNodeCandidate?.type === "image" &&
+    pageNodeIds.has(cropNodeCandidate.id) &&
+    cropNodeCandidate.visible
+      ? cropNodeCandidate
+      : undefined
+  currentImageSourceByNodeIdRef.current = useMemo(
+    () =>
+      new Map(
+        document.nodes.flatMap((node) =>
+          node.type === "image" && pageNodeIds.has(node.id)
+            ? [[node.id, node.src] as const]
+            : []
+        )
+      ),
+    [document.nodes, pageNodeIds]
   )
-  currentImageResourceTokenByNodeIdRef.current = new Map(
-    document.nodes.flatMap((node) =>
-      node.type === "image" && pageNodeIds.has(node.id)
-        ? [[node.id, imageResourceTokens?.[node.id]] as const]
-        : []
-    )
+  currentImageResourceTokenByNodeIdRef.current = useMemo(
+    () =>
+      new Map(
+        document.nodes.flatMap((node) =>
+          node.type === "image" && pageNodeIds.has(node.id)
+            ? [[node.id, imageResourceTokens?.[node.id]] as const]
+            : []
+        )
+      ),
+    [document.nodes, imageResourceTokens, pageNodeIds]
   )
 
   const reportImageSourceState = useCallback(
@@ -271,6 +292,12 @@ export const FabricArtboard = forwardRef<
     ref,
     () => ({
       exportPng: () => adapterRef.current?.exportPng() ?? null,
+      previewViewportZoom: (nextZoom, committedZoom) => {
+        const chrome = artboardChromeRef.current
+        if (!chrome || committedZoom <= 0) return
+        chrome.style.transformOrigin = "top left"
+        chrome.style.transform = `scale(${nextZoom / committedZoom})`
+      },
       retryImageSources,
       retryImageSource,
       enterTextEditing: (nodeId) =>
@@ -344,6 +371,11 @@ export const FabricArtboard = forwardRef<
     if (!ready) return
     adapterRef.current?.setViewportZoom(zoom)
   }, [ready, zoom])
+
+  useLayoutEffect(() => {
+    const chrome = artboardChromeRef.current
+    if (chrome) chrome.style.transform = "none"
+  }, [zoom])
 
   useEffect(() => {
     if (!ready) return
@@ -464,6 +496,7 @@ export const FabricArtboard = forwardRef<
 
   return (
     <div
+      ref={artboardChromeRef}
       className="relative shrink-0 shadow-[0_24px_70px_rgba(35,31,25,0.18)] ring-1 ring-black/10"
       style={{ width: page.width * zoom, height: page.height * zoom }}
     >

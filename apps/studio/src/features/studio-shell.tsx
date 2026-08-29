@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import {
   AlertTriangle,
   Check,
@@ -164,7 +171,10 @@ import type {
 } from "./editor/image-crop-focus"
 import { ImageCropToolbar } from "./editor/image-crop-toolbar"
 import { SelectedImageToolbar } from "./editor/selected-image-toolbar"
-import { resolveSelectedImageToolbarPlacement } from "./editor/selected-image-toolbar-placement"
+import {
+  applySelectedImageToolbarCameraProjection,
+  resolveSelectedImageToolbarPlacement,
+} from "./editor/selected-image-toolbar-placement"
 import { resolveImageCropToolbarEdge } from "./editor/image-crop-toolbar-placement"
 import { imageCropKeyboardScreenDelta } from "./editor/image-crop-keyboard"
 import { projectNumericImageCropFrameEdit } from "./editor/image-crop-frame-numeric"
@@ -653,6 +663,9 @@ export function StudioShell({
     Partial<Record<string, InspectorImageSourceState>>
   >({})
   const workspaceRef = useRef<HTMLDivElement>(null)
+  const cameraTransformRef = useRef<HTMLDivElement>(null)
+  const selectedImageToolbarOverlayRef = useRef<HTMLDivElement>(null)
+  const cameraSettlementTimerRef = useRef<number | null>(null)
   const [workspaceElement, setWorkspaceElement] =
     useState<HTMLDivElement | null>(null)
   const installWorkspaceElement = useCallback(
@@ -665,6 +678,8 @@ export function StudioShell({
     []
   )
   const cameraRef = useRef<CanvasCamera>({ x: 0, y: 0, zoom: 0.34 })
+  const committedZoomRef = useRef(zoom)
+  committedZoomRef.current = zoom
   const autoFitRef = useRef(autoFit)
   autoFitRef.current = autoFit
   const workspaceSizeRef = useRef(workspaceSize)
@@ -894,6 +909,28 @@ export function StudioShell({
   const selectedImageBounds = selectedImage
     ? getNodeBounds(selectedImage)
     : null
+  const selectedImageBoundsRef = useRef(selectedImageBounds)
+  selectedImageBoundsRef.current = selectedImageBounds
+  const projectSelectedImageToolbarOverlay = useCallback(
+    (camera: CanvasCamera) => {
+      const element = selectedImageToolbarOverlayRef.current
+      const bounds = selectedImageBoundsRef.current
+      if (!element || !bounds) return
+      applySelectedImageToolbarCameraProjection(element, {
+        bounds,
+        camera,
+        viewport: workspaceSizeRef.current,
+      })
+    },
+    []
+  )
+  const installSelectedImageToolbarOverlay = useCallback(
+    (element: HTMLDivElement | null) => {
+      selectedImageToolbarOverlayRef.current = element
+      if (element) projectSelectedImageToolbarOverlay(cameraRef.current)
+    },
+    [projectSelectedImageToolbarOverlay]
+  )
   const selectedImageToolbarPlacement = selectedImageBounds
     ? resolveSelectedImageToolbarPlacement({
         frameLeft: cameraPosition.x + selectedImageBounds.left * zoom,
@@ -904,6 +941,9 @@ export function StudioShell({
         viewportHeight: workspaceSize.height,
       })
     : null
+  useLayoutEffect(() => {
+    projectSelectedImageToolbarOverlay(cameraRef.current)
+  }, [projectSelectedImageToolbarOverlay, selectedImageBounds, workspaceSize])
   const cropImageBounds = cropImageNode ? getNodeBounds(cropImageNode) : null
   const cropToolbarEdge = cropImageBounds
     ? resolveImageCropToolbarEdge({
@@ -1087,11 +1127,51 @@ export function StudioShell({
     textEditingNodeId,
   ])
 
-  const applyCamera = useCallback((camera: CanvasCamera) => {
-    cameraRef.current = camera
+  const settleCameraState = useCallback((camera: CanvasCamera) => {
+    if (cameraSettlementTimerRef.current !== null) {
+      window.clearTimeout(cameraSettlementTimerRef.current)
+      cameraSettlementTimerRef.current = null
+    }
+    committedZoomRef.current = camera.zoom
     setZoom(camera.zoom)
     setCameraPosition({ x: camera.x, y: camera.y })
   }, [])
+
+  const applyCamera = useCallback(
+    (camera: CanvasCamera) => {
+      cameraRef.current = camera
+      const transform = cameraTransformRef.current
+      if (transform) {
+        transform.style.transform = `translate3d(${camera.x}px, ${camera.y}px, 0)`
+      }
+      artboardRef.current?.previewViewportZoom(
+        camera.zoom,
+        committedZoomRef.current
+      )
+      rulerGuideOverlayRef.current?.updateCamera(camera)
+      projectSelectedImageToolbarOverlay(camera)
+
+      if (cameraSettlementTimerRef.current !== null) {
+        window.clearTimeout(cameraSettlementTimerRef.current)
+      }
+      cameraSettlementTimerRef.current = window.setTimeout(() => {
+        cameraSettlementTimerRef.current = null
+        committedZoomRef.current = camera.zoom
+        setZoom(camera.zoom)
+        setCameraPosition({ x: camera.x, y: camera.y })
+      }, 120)
+    },
+    [projectSelectedImageToolbarOverlay]
+  )
+
+  useEffect(
+    () => () => {
+      if (cameraSettlementTimerRef.current !== null) {
+        window.clearTimeout(cameraSettlementTimerRef.current)
+      }
+    },
+    []
+  )
 
   const fitCanvas = useCallback(() => {
     const workspace = workspaceRef.current
@@ -2137,6 +2217,7 @@ export function StudioShell({
       event.currentTarget.releasePointerCapture(event.pointerId)
     }
     panSessionRef.current = null
+    settleCameraState(cameraRef.current)
     setIsPanning(false)
   }
 
@@ -3605,10 +3686,14 @@ export function StudioShell({
                 }}
               >
                 <div
-                  className="absolute top-0 left-0 will-change-transform"
-                  style={{
-                    transform: `translate3d(${cameraPosition.x}px, ${cameraPosition.y}px, 0)`,
+                  ref={(element) => {
+                    cameraTransformRef.current = element
+                    if (element) {
+                      const camera = cameraRef.current
+                      element.style.transform = `translate3d(${camera.x}px, ${camera.y}px, 0)`
+                    }
                   }}
+                  className="absolute top-0 left-0 will-change-transform"
                   onMouseDown={(event) => {
                     if (event.target === event.currentTarget) {
                       editor.setSelection(null)
@@ -3736,8 +3821,10 @@ export function StudioShell({
                 selectedImage &&
                 selectedImageToolbarPlacement?.mode === "overlay" ? (
                   <div
+                    ref={installSelectedImageToolbarOverlay}
                     className="pointer-events-none absolute z-30 flex justify-center"
                     data-editor-overlay-control="true"
+                    data-selected-image-toolbar-overlay="true"
                     style={{
                       top: selectedImageToolbarPlacement.top,
                       left: selectedImageToolbarPlacement.left,

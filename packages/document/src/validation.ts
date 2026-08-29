@@ -48,7 +48,17 @@ export class DocumentValidationError extends Error {
 }
 
 export function assertValidDocument(input: unknown): Document {
-  const document = documentSchema.parse(input)
+  return assertValidCanonicalDocument(documentSchema.parse(input))
+}
+
+/**
+ * Validates semantic invariants without reparsing an already-canonical
+ * document. Internal transaction engines use this boundary so unchanged pages
+ * and nodes retain their object identity for incremental renderers.
+ *
+ * Unknown input must continue through `assertValidDocument` first.
+ */
+export function assertValidCanonicalDocument(document: Document): Document {
   const blocking = validateDocument(document).filter(
     (issue) => issue.severity === "error"
   )

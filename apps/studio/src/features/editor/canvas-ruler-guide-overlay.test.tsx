@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act } from "react"
+import { act, createRef } from "react"
 import { createRoot } from "react-dom/client"
 import type { Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -8,6 +8,7 @@ import {
   CanvasRulerGuideOverlay,
   drawCanvasRulerGuideOverlay,
 } from "./canvas-ruler-guide-overlay"
+import type { CanvasRulerGuideOverlayHandle } from "./canvas-ruler-guide-overlay"
 
 const preferences = { rulersVisible: true, guidesVisible: true }
 
@@ -188,6 +189,7 @@ describe("CanvasRulerGuideOverlay", () => {
   afterEach(async () => {
     await act(async () => root.unmount())
     host.remove()
+    delete (Element.prototype as Partial<Element>).setPointerCapture
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
@@ -279,5 +281,62 @@ describe("CanvasRulerGuideOverlay", () => {
     expect(host.querySelectorAll("[data-ruler-hit-axis]")).toHaveLength(0)
     expect(host.querySelectorAll("[data-guide-hit-id]")).toHaveLength(0)
     expect(host.querySelector("canvas")).not.toBeNull()
+  })
+
+  it("keeps guide hit geometry and drag coordinates on the live preview camera", async () => {
+    const overlayRef = createRef<CanvasRulerGuideOverlayHandle>()
+    const onMoveGuide = vi.fn()
+    Object.defineProperty(Element.prototype, "setPointerCapture", {
+      configurable: true,
+      value: vi.fn(),
+    })
+
+    await act(async () => {
+      root.render(
+        <CanvasRulerGuideOverlay
+          ref={overlayRef}
+          camera={{ x: 0, y: 0, zoom: 1 }}
+          guides={[{ id: "guide-x", axis: "x", position: 120 }]}
+          pageId="cover"
+          pageSize={{ width: 1240, height: 1754 }}
+          preferences={preferences}
+          selectedGuideId={null}
+          viewport={{ width: 800, height: 600 }}
+          onAddGuide={vi.fn()}
+          onDuplicateGuide={vi.fn()}
+          onGuideSelectionChange={vi.fn()}
+          onMoveGuide={onMoveGuide}
+          onRemoveGuide={vi.fn()}
+        />
+      )
+    })
+
+    const guide = host.querySelector<HTMLElement>(
+      '[data-guide-hit-id="guide-x"]'
+    )!
+    expect(guide.style.left).toBe("114px")
+
+    act(() => {
+      overlayRef.current?.updateCamera({ x: 100, y: 40, zoom: 2 })
+    })
+    expect(guide.style.left).toBe("334px")
+
+    const dispatchPointer = (type: string, clientX: number) => {
+      const event = new MouseEvent(type, {
+        bubbles: true,
+        button: 0,
+        clientX,
+        clientY: 200,
+      })
+      Object.defineProperty(event, "pointerId", { value: 7 })
+      guide.dispatchEvent(event)
+    }
+    act(() => {
+      dispatchPointer("pointerdown", 340)
+      dispatchPointer("pointermove", 380)
+      dispatchPointer("pointerup", 380)
+    })
+
+    expect(onMoveGuide).toHaveBeenCalledWith("guide-x", 140)
   })
 })

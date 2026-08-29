@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useRef,
 } from "react"
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react"
@@ -58,6 +59,7 @@ export type CanvasRulerGuideOverlayProps = Readonly<{
 export type CanvasRulerGuideOverlayHandle = Readonly<{
   cancelGuideDrag: () => boolean
   clearGuideHover: () => void
+  updateCamera: (camera: CanvasCamera) => void
 }>
 
 type OverlayTheme = Readonly<{
@@ -93,6 +95,30 @@ const guideAxisCursor = (axis: GuideAxis) =>
 const formatGuideCoordinate = (position: number) => {
   const rounded = Number(position.toFixed(2))
   return Object.is(rounded, -0) ? "0" : String(rounded)
+}
+
+const sameCamera = (left: CanvasCamera, right: CanvasCamera) =>
+  left.x === right.x && left.y === right.y && left.zoom === right.zoom
+
+function projectGuideHitTarget(
+  element: HTMLDivElement,
+  guide: PageGuide,
+  camera: CanvasCamera,
+  viewport: ViewportSize,
+  rulersVisible: boolean
+) {
+  const position = pageGuideScreenPosition(guide, camera)
+  const viewportLength = guide.axis === "x" ? viewport.width : viewport.height
+  element.hidden =
+    position < -GUIDE_HIT_TOLERANCE_PX ||
+    position > viewportLength + GUIDE_HIT_TOLERANCE_PX
+  if (guide.axis === "x") {
+    element.style.left = `${position - GUIDE_HIT_TOLERANCE_PX}px`
+    element.style.top = `${rulersVisible ? RULER_SIZE_PX : 0}px`
+  } else {
+    element.style.left = `${rulersVisible ? RULER_SIZE_PX : 0}px`
+    element.style.top = `${position - GUIDE_HIT_TOLERANCE_PX}px`
+  }
 }
 
 function drawSelectionBands(
@@ -346,6 +372,9 @@ export const CanvasRulerGuideOverlay = forwardRef<
   const captureRef = useRef<{ element: Element; pointerId: number } | null>(
     null
   )
+  const guideHitElementsRef = useRef(new Map<string, HTMLDivElement>())
+  const committedCameraRef = useRef(camera)
+  const liveCameraRef = useRef(camera)
   const previousBoundaryRef = useRef({
     pageId,
     rulersVisible: preferences.rulersVisible,
@@ -361,8 +390,12 @@ export const CanvasRulerGuideOverlay = forwardRef<
     selectionBounds,
     selectedGuideId,
   })
+  if (!sameCamera(committedCameraRef.current, camera)) {
+    committedCameraRef.current = camera
+    liveCameraRef.current = camera
+  }
   latestRef.current = {
-    camera,
+    camera: liveCameraRef.current,
     viewport,
     pageSize,
     guides,
@@ -415,6 +448,21 @@ export const CanvasRulerGuideOverlay = forwardRef<
     frameRef.current = window.requestAnimationFrame(draw)
   }, [draw])
 
+  const syncGuideHitTargets = useCallback(() => {
+    const latest = latestRef.current
+    for (const guide of latest.guides) {
+      const element = guideHitElementsRef.current.get(guide.id)
+      if (!element) continue
+      projectGuideHitTarget(
+        element,
+        guide,
+        latest.camera,
+        latest.viewport,
+        latest.preferences.rulersVisible
+      )
+    }
+  }, [])
+
   const clearHover = useCallback(() => {
     if (hoverRef.current === null) return
     hoverRef.current = null
@@ -441,9 +489,22 @@ export const CanvasRulerGuideOverlay = forwardRef<
 
   useImperativeHandle(
     forwardedRef,
-    () => ({ cancelGuideDrag: cancelDrag, clearGuideHover: clearHover }),
-    [cancelDrag, clearHover]
+    () => ({
+      cancelGuideDrag: cancelDrag,
+      clearGuideHover: clearHover,
+      updateCamera: (nextCamera) => {
+        liveCameraRef.current = nextCamera
+        latestRef.current = { ...latestRef.current, camera: nextCamera }
+        syncGuideHitTargets()
+        requestDraw()
+      },
+    }),
+    [cancelDrag, clearHover, requestDraw, syncGuideHitTargets]
   )
+
+  useLayoutEffect(() => {
+    syncGuideHitTargets()
+  }, [camera, guides, preferences.rulersVisible, syncGuideHitTargets, viewport])
 
   useEffect(() => {
     requestDraw()
@@ -531,8 +592,13 @@ export const CanvasRulerGuideOverlay = forwardRef<
 
   const startRulerDrag = (axis: GuideAxis, event: ReactPointerEvent) => {
     if (!interactive || event.button !== 0) return
+    const latest = latestRef.current
     capturePointer(event)
-    dragRef.current = beginRulerGuideDrag(axis, screenPoint(event), camera)
+    dragRef.current = beginRulerGuideDrag(
+      axis,
+      screenPoint(event),
+      latest.camera
+    )
     onGuideSelectionChange(null)
     clearHover()
     requestDraw()
@@ -540,13 +606,18 @@ export const CanvasRulerGuideOverlay = forwardRef<
 
   const startExistingDrag = (guide: PageGuide, event: ReactPointerEvent) => {
     if (!interactive || event.button !== 0) return
+    const latest = latestRef.current
     const point = screenPoint(event)
     const targetGuide =
-      hitTestPageGuides(guides, point, camera, viewport)?.guide ?? guide
+      hitTestPageGuides(latest.guides, point, latest.camera, latest.viewport)
+        ?.guide ?? guide
     capturePointer(event)
-    dragRef.current = beginExistingGuideDrag(targetGuide, point, camera, {
-      duplicate: event.altKey,
-    })
+    dragRef.current = beginExistingGuideDrag(
+      targetGuide,
+      point,
+      latest.camera,
+      { duplicate: event.altKey }
+    )
     onGuideSelectionChange(targetGuide.id)
     clearHover()
     requestDraw()
@@ -557,7 +628,11 @@ export const CanvasRulerGuideOverlay = forwardRef<
     if (!drag || event.pointerId !== captureRef.current?.pointerId) return
     event.preventDefault()
     event.stopPropagation()
-    dragRef.current = updatePageGuideDrag(drag, screenPoint(event), camera)
+    dragRef.current = updatePageGuideDrag(
+      drag,
+      screenPoint(event),
+      latestRef.current.camera
+    )
     requestDraw()
   }
 
@@ -566,8 +641,11 @@ export const CanvasRulerGuideOverlay = forwardRef<
     if (!drag || event.pointerId !== captureRef.current?.pointerId) return
     event.preventDefault()
     event.stopPropagation()
-    const updated = updatePageGuideDrag(drag, screenPoint(event), camera)
-    const settlement = settlePageGuideDrag(updated, { pageSize })
+    const latest = latestRef.current
+    const updated = updatePageGuideDrag(drag, screenPoint(event), latest.camera)
+    const settlement = settlePageGuideDrag(updated, {
+      pageSize: latest.pageSize,
+    })
     dragRef.current = null
     captureRef.current = null
     onGuideDragActiveChange?.(false)
@@ -650,20 +728,13 @@ export const CanvasRulerGuideOverlay = forwardRef<
 
       {interactive && preferences.guidesVisible
         ? guides.map((guide) => {
-            const position = pageGuideScreenPosition(guide, camera)
-            if (
-              position < -GUIDE_HIT_TOLERANCE_PX ||
-              position >
-                (guide.axis === "x" ? viewport.width : viewport.height) +
-                  GUIDE_HIT_TOLERANCE_PX
-            ) {
-              return null
-            }
             const style: CSSProperties =
               guide.axis === "x"
                 ? {
                     bottom: 0,
-                    left: position - GUIDE_HIT_TOLERANCE_PX,
+                    left:
+                      pageGuideScreenPosition(guide, liveCameraRef.current) -
+                      GUIDE_HIT_TOLERANCE_PX,
                     top: preferences.rulersVisible ? RULER_SIZE_PX : 0,
                     width: GUIDE_HIT_TOLERANCE_PX * 2,
                   }
@@ -671,11 +742,27 @@ export const CanvasRulerGuideOverlay = forwardRef<
                     height: GUIDE_HIT_TOLERANCE_PX * 2,
                     left: preferences.rulersVisible ? RULER_SIZE_PX : 0,
                     right: 0,
-                    top: position - GUIDE_HIT_TOLERANCE_PX,
+                    top:
+                      pageGuideScreenPosition(guide, liveCameraRef.current) -
+                      GUIDE_HIT_TOLERANCE_PX,
                   }
             return (
               <div
                 key={guide.id}
+                ref={(element) => {
+                  if (element) {
+                    guideHitElementsRef.current.set(guide.id, element)
+                    projectGuideHitTarget(
+                      element,
+                      guide,
+                      liveCameraRef.current,
+                      viewport,
+                      preferences.rulersVisible
+                    )
+                  } else {
+                    guideHitElementsRef.current.delete(guide.id)
+                  }
+                }}
                 className="pointer-events-auto absolute touch-none [@media(pointer:coarse)]:pointer-events-none"
                 data-guide-hit-axis={guide.axis}
                 data-guide-hit-id={guide.id}

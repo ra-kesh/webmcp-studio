@@ -84,12 +84,16 @@ The existing full PNG request and durable R2 artifact schema are unchanged.
 
 ## Filmstrip cache and scheduling
 
-`PageFilmstrip` keeps the active page as the live React `Artboard`, preserving
-the editor's immediate renderer acknowledgement. Inactive pages are admitted
-only when they enter the filmstrip viewport or its 240 px horizontal preload
-margin. Their requests use the fitted source-page aspect ratio at a bounded
-device-independent pixel ratio; the canonical 1240 x 1754 portrait page
-therefore requests 102 x 144 at 2x, not the 52 x 72 bounding box.
+`PageFilmstrip` keeps the active page as a live React `Artboard`, but its
+thumbnail document follows React's deferred lane. Canonical inspector and
+canvas commits therefore update the editor immediately while repeated
+thumbnail work coalesces to the newest settled document. A memoized thumbnail
+boundary prevents unrelated product-menu and shell renders from repainting
+every layer. Inactive pages are admitted only when they enter the filmstrip
+viewport or its 240 px horizontal preload margin. Their requests use the fitted
+source-page aspect ratio at a bounded device-independent pixel ratio; the
+canonical 1240 x 1754 portrait page therefore requests 102 x 144 at 2x, not the
+52 x 72 bounding box.
 
 The framework-independent raster cache owns a maximum of three simultaneous
 producer calls and 64 retained entries. Identity includes document, the
@@ -198,3 +202,52 @@ parity, cache-hit behavior, and completed Object-URL retention/release remain
 open. The interaction/cancellation result is valid because requests reached the
 real endpoint and the evidence separately records zero completions; it is not
 being used as steady-state renderer proof.
+
+## 1,000-layer active-page interaction gate, 2026-08-29
+
+Phase entry reread this contract, the completed NAV-01 hierarchy work,
+OpenPencil's 5,000-row virtual Layers test and LayerTree implementation, and
+Loora's memoized layer nodes plus viewport camera. The bounded target was one
+visible 1,000-layer page: prove the canonical WebMCP model, virtualized Layers,
+tail search and selection, one inspector edit, ordinary wheel pan, and
+pointer-centred gesture zoom in real Chromium. It did not reopen healthy-host
+Browser Rendering work.
+
+The first run failed honestly: pan reached about 217 ms p95 because every
+camera frame updated `StudioShell` React state. Camera transform and ruler paint
+now update imperatively during the gesture and settle canonical React state
+after 120 ms of idle. Artboard zoom uses the same preview/settlement split, so
+the canvas and selection chrome scale together without browser page zoom.
+
+The next run exposed 769–910 ms inspector edits. A CPU profile localized the
+delay to a live filmstrip `Artboard` rebuilding all 1,000 React nodes. The
+thumbnail document is now deferred and memoized. The canonical history path no
+longer reparses an already-admitted document on every command: it validates the
+command and semantic result while preserving unchanged node/page identity for
+Fabric's incremental sync. The public `applyCommand` boundary still reparses
+both unknown input and result and remains strict.
+
+Independent code review rejected the first implementation on five correctness
+paths that the timing fixture did not exercise. The repaired implementation
+keeps guide paint, hit targets, and drag coordinate conversion on the same live
+camera; projects the selected-image toolbar from that camera before React state
+settles; admits history documents through schema plus semantic validation and
+keeps the fast path behind an internal runtime guard; commits an image node's
+Fabric identity only after an awaited source swap survives the generation
+guard; and refuses crop chrome for hidden or off-page images. Focused
+regressions retain each path.
+
+`artifacts/perf-01-layer-scale-profile.json` is promoted only after all budgets
+pass. Three consecutive Chromium runs passed, followed by a final passing run
+after the canonical field-identity regression. The selected run records a
+3,507 ms open, 33 mounted rows for a 30,038 px / 1,001-item expanded tree,
+111 ms tail search, 431 ms selection acknowledgement, 258 ms inspector edit,
+17.5 ms p95 pan, and 17.4 ms p95 gesture zoom. The editor/document focused
+tests and affected TypeScript checks pass. Healthy-host raster completion,
+visual parity, cache hits, and Object-URL release remain the separate open
+renderer evidence above.
+
+A later rerun during severe host memory/CPU pressure missed only the open-time
+budget (27,279 ms versus the retained 3,507 ms) and was rejected before evidence
+promotion. The selected atomic artifact above remains unchanged; the failed run
+is not presented as product evidence.

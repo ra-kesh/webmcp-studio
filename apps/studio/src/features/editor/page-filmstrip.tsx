@@ -11,6 +11,7 @@ import {
   memo,
   startTransition,
   useCallback,
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -63,6 +64,7 @@ import type {
 import { pageThumbnailRasterRetryDelay } from "./page-thumbnail-raster-producer"
 
 const menuItemClass = "min-h-11 min-[1280px]:min-h-0"
+const DeferredThumbnailArtboard = memo(Artboard)
 const DESKTOP_FILMSTRIP_QUERY = "(min-width: 1280px)"
 const FILMSTRIP_THUMBNAIL_BOUNDS = {
   compact: { width: 44, height: 56 },
@@ -278,7 +280,7 @@ const PageFilmstripItem = memo(function PageFilmstripItem({
             {active ||
             (renderThumbnail &&
               (rasterState === "disabled" || rasterState === "error")) ? (
-              <Artboard
+              <DeferredThumbnailArtboard
                 document={document}
                 imageSemantics="thumbnail"
                 imageResourceTokens={imageResourceTokens}
@@ -446,6 +448,11 @@ export const PageFilmstrip = memo(function PageFilmstrip({
     isServerDesktopFilmstrip
   )
   const thumbnailDensity = desktopFilmstrip ? density : "compact"
+  // A live thumbnail is useful feedback, but it is not part of the direct
+  // manipulation path. Keep the previous canonical slice during urgent
+  // inspector/canvas commits and coalesce thumbnail work onto React's deferred
+  // lane. This prevents a 1,000-layer active page from blocking one-field edits.
+  const deferredThumbnailDocument = useDeferredValue(document)
   const rasterAdmissionDelayMs = Math.min(
     1_000,
     Math.max(0, Math.round(raster?.admissionDelayMs ?? 0))
@@ -533,8 +540,9 @@ export const PageFilmstrip = memo(function PageFilmstrip({
     [document.pages]
   )
   const nodesById = useMemo(
-    () => new Map(document.nodes.map((node) => [node.id, node])),
-    [document.nodes]
+    () =>
+      new Map(deferredThumbnailDocument.nodes.map((node) => [node.id, node])),
+    [deferredThumbnailDocument.nodes]
   )
   const pages = useMemo(
     () =>
@@ -550,7 +558,7 @@ export const PageFilmstrip = memo(function PageFilmstrip({
         pages.map((page) => [
           page.id,
           {
-            ...document,
+            ...deferredThumbnailDocument,
             pages: [page],
             nodes: page.nodeIds.flatMap((nodeId) => {
               const node = nodesById.get(nodeId)
@@ -559,7 +567,7 @@ export const PageFilmstrip = memo(function PageFilmstrip({
           },
         ])
       ),
-    [document, nodesById, output?.id]
+    [deferredThumbnailDocument, nodesById, output?.id, pages]
   )
   const [rasterCacheState, setRasterCacheState] = useState<{
     producer: PageThumbnailRasterProducer

@@ -2054,3 +2054,41 @@ Status: **completed locally and independently accepted; steady-state raster evid
   timeouts and completed zero rasters, so steady-state latency, visual parity,
   cache hits, memory after completion, and Object-URL release remain explicit
   PERF-01B work on a healthy host.
+
+## 2026-08-29 — 1,000-layer active-page interaction (PERF-01 scale)
+
+Status: **completed locally and independently accepted; healthy-host renderer evidence open**
+
+- Revisited the retained PERF-01/NAV-01 evidence, OpenPencil's 5,000-row
+  virtual Layers contract, and Loora's memoized layer/camera implementation.
+  The phase was bounded to one visible 1,000-layer page and the direct editor
+  interaction path; it did not substitute for healthy-host renderer evidence.
+- Added a real Chromium gate for WebMCP model count, expanded-tree DOM bounds,
+  tail search, selection, inspector edit, wheel pan, and gesture zoom. Evidence
+  promotes atomically only after every budget passes.
+- The first camera profile failed near 217 ms p95. Transient camera and zoom
+  previews now use refs and imperative transforms; React state settles after
+  the gesture. Pan and zoom now remain around one 60 Hz frame at p95.
+- The first edit profile failed at 769–910 ms. It exposed two linked defects:
+  the active filmstrip thumbnail synchronously rebuilt all 1,000 React nodes,
+  and history's strict public command parser cloned every unchanged canonical
+  node, defeating Fabric's incremental sync. Thumbnail refresh is now deferred
+  and memoized. Internal canonical history preserves unchanged identities while
+  command and semantic validation remain enforced; public/API application keeps
+  full input/output schema parsing.
+- Three consecutive Chromium runs pass, followed by a final passing run after
+  the field-identity regression. The selected profile records 3,507 ms open,
+  33 mounted rows, 111 ms search, 431 ms selection, 258 ms edit, 17.5 ms p95
+  pan, and 17.4 ms p95 zoom. Focused document fields/validation is 31/31;
+  editor history plus Fabric adapter is 94/94; document, editor, and Studio
+  typechecks pass.
+- Healthy-host Browser Rendering latency/parity/cache/Object-URL evidence is
+  still open and is not implied by this active-page result.
+- Independent review rejected five P1 correctness gaps beyond the timing
+  fixture: stale guide hit/drag geometry during live camera preview, an
+  unguarded canonical history fast path, a superseding image-decode race,
+  hidden/off-page crop chrome, and a selected-image toolbar that lagged behind
+  the live camera. All five are repaired with focused regressions.
+- The final independent verdict is **ACCEPT with no remaining P0/P1 finding**.
+  `perf-01-layer-scale-independent-review.md` preserves the rejected paths,
+  repairs, evidence decision, and final code-review result.

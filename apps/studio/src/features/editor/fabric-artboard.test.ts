@@ -5,6 +5,7 @@ import { renderConformanceDocument } from "@webmcp/document"
 import {
   CanvasRuntimeOverlay,
   CropPreviewDimmer,
+  FabricArtboard,
   acceptImageSourceStateChange,
   applyImageCropModeOrReport,
   canvasRuntimeFailureMessage,
@@ -286,6 +287,47 @@ describe("FabricArtboard crop preview", () => {
     expect(markup).toContain('fill="rgba(15, 23, 42, 0.4)"')
     expect(markup).toContain(
       `transform="rotate(${imageFixture.rotation} ${imageFixture.x} ${imageFixture.y})"`
+    )
+  })
+
+  it("does not render crop chrome for hidden or off-page images", () => {
+    const imagePage = renderConformanceDocument.pages.find((page) =>
+      page.nodeIds.includes(imageFixture.id)
+    )!
+    const otherPage = renderConformanceDocument.pages.find(
+      (page) => page.id !== imagePage.id
+    )!
+    const render = (
+      document: typeof renderConformanceDocument,
+      pageId: string
+    ) =>
+      renderToStaticMarkup(
+        createElement(FabricArtboard, {
+          document,
+          pageId,
+          selection: null,
+          imageCropMode: {
+            nodeId: imageFixture.id,
+            placement: imageFixture.placement,
+          },
+          zoom: 1,
+          onSelectionChange: vi.fn(),
+          onNodesChange: vi.fn(),
+        })
+      )
+
+    const hiddenDocument = {
+      ...renderConformanceDocument,
+      nodes: renderConformanceDocument.nodes.map((node) =>
+        node.id === imageFixture.id ? { ...node, visible: false } : node
+      ),
+    }
+
+    expect(render(hiddenDocument, imagePage.id)).not.toContain(
+      'data-crop-preview-dimmer="true"'
+    )
+    expect(render(renderConformanceDocument, otherPage.id)).not.toContain(
+      'data-crop-preview-dimmer="true"'
     )
   })
 })

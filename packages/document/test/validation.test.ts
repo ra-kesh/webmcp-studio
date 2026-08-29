@@ -14,6 +14,15 @@ const errorsFor = (document: Document) =>
   validateDocument(document).filter((issue) => issue.severity === "error")
 
 describe("strict document validation", () => {
+  it("reparses public validation inputs and rejects semantic invalidity", () => {
+    const document = clone()
+    expect(assertValidDocument(document)).not.toBe(document)
+
+    const invalid = clone()
+    invalid.pages[0]!.nodeIds.push("missing-node")
+    expect(() => assertValidDocument(invalid)).toThrow()
+  })
+
   it("accepts the honest general output kind used by custom documents", () => {
     const document = clone()
     document.outputs[0]!.kind = "custom"

@@ -1,4 +1,4 @@
-export * from "./commands"
+export { applyCommand, applyFieldValues } from "./commands"
 export * from "./change-sets"
 export * from "./fields"
 export * from "./groups"
@@ -22,4 +22,9 @@ export * from "./semantic-clone"
 export * from "./schema"
 export * from "./seed"
 export * from "./text-layout"
-export * from "./validation"
+export {
+  assertValidDocument,
+  DocumentValidationError,
+  validateDocument,
+} from "./validation"
+export type { ValidationIssue } from "./validation"
