@@ -282,6 +282,7 @@ function setup(
       proposed = changeSet
       return changeSet
     },
+    runProductCommand: vi.fn(() => ({ status: "accepted" as const })),
     publishTemplate: () => publishedVersion,
     renderTemplate: async (
       _version: typeof publishedVersion,
@@ -340,11 +341,12 @@ describe("WebMCP registration", () => {
       state.controller.signal
     )
 
-    expect(count).toBe(14)
+    expect(count).toBe(15)
     expect([...state.registered.keys()]).toEqual([
       "inspect_design",
       "read_design_tree",
       "get_capabilities",
+      "execute_product_command",
       "read_design_node",
       "search_design_nodes",
       "search_assets",
@@ -527,7 +529,7 @@ describe("WebMCP registration", () => {
         commandId: string
         enabled: boolean
         disabledReason: string | null
-        execution: string
+        execution: { modes: string[] }
         arguments?: { kind: string }
       }>
     }
@@ -551,7 +553,7 @@ describe("WebMCP registration", () => {
       )
     ).toMatchObject({
       enabled: false,
-      execution: "not_exposed",
+      execution: { modes: ["dry_run", "proposal"] },
     })
     expect(JSON.stringify(result?.structuredContent)).not.toContain(
       "hasClipboard"
@@ -581,6 +583,150 @@ describe("WebMCP registration", () => {
     expect(missing).toMatchObject({
       isError: true,
       structuredContent: { code: "output_not_found", retryable: false },
+    })
+  })
+
+  it("dry-runs, proposes, replays, and directly runs canonical commands safely", async () => {
+    const document = withImageLayer({ id: "private-image" })
+    document.nodes = document.nodes.map((node) =>
+      node.id === "private-image"
+        ? { ...node, src: "asset:managed/private-renderer-secret" }
+        : node
+    )
+    const baseContext = productCommandContext(document)
+    const context: ProductCommandRuntimeContext = {
+      ...baseContext,
+      selection: {
+        pageId: "cover",
+        nodeIds: ["private-image"],
+        nodeTypes: ["image"],
+        groupId: null,
+        anyLocked: false,
+        allLocked: false,
+        allVisible: true,
+        allHidden: false,
+      },
+      editor: {
+        ...baseContext.editor,
+        hasSelection: true,
+        selectedNodeCount: 1,
+      },
+    }
+    const state = setup(document, document, assets, [], context)
+    const propose = vi.spyOn(state.services, "proposeChangeSet")
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+    const expected = {
+      documentId: document.id,
+      revision: document.revision,
+      snapshotId: "snapshot-seed",
+      operationVersion: 0,
+      activePageId: "cover",
+      selection: {
+        pageId: "cover",
+        nodeIds: ["private-image"],
+        groupId: null,
+      },
+    }
+    const execute = state.registered.get("execute_product_command")!
+
+    const dryRun = await execute.execute({
+      capabilityId: "object.duplicate",
+      mode: "dry_run",
+      expected,
+      idempotencyKey: "duplicate-dry-run",
+    })
+    expect(dryRun?.structuredContent).toMatchObject({
+      status: "validated",
+      result: null,
+      predictedRevision: document.revision + 1,
+      affected: { nodes: { added: [expect.any(String)] } },
+    })
+    expect(propose).not.toHaveBeenCalled()
+    expect(JSON.stringify(dryRun?.structuredContent)).not.toContain(
+      "private-renderer-secret"
+    )
+
+    const request = {
+      capabilityId: "object.duplicate",
+      mode: "proposal",
+      expected,
+      idempotencyKey: "duplicate-proposal",
+    } as const
+    const [first, replay] = await Promise.all([
+      execute.execute(request),
+      execute.execute(request),
+    ])
+    expect(first?.structuredContent).toMatchObject({
+      status: "review_pending",
+      result: null,
+      review: { status: "pending" },
+    })
+    expect(replay?.structuredContent).toMatchObject({ replayed: true })
+    expect(propose).toHaveBeenCalledTimes(1)
+    expect(JSON.stringify(first?.structuredContent)).not.toContain(
+      "private-renderer-secret"
+    )
+
+    const reused = await execute.execute({
+      ...request,
+      mode: "dry_run",
+    })
+    expect(reused).toMatchObject({
+      isError: true,
+      structuredContent: {
+        code: "idempotency_key_reused",
+        retryable: false,
+      },
+    })
+
+    const direct = await execute.execute({
+      capabilityId: "tool.select",
+      mode: "direct",
+      expected,
+      idempotencyKey: "select-tool",
+    })
+    expect(direct?.structuredContent).toMatchObject({
+      status: "executed",
+      session: { accepted: true },
+    })
+    expect(state.services.runProductCommand).toHaveBeenCalledTimes(1)
+
+    const nonCurrentDirect = await execute.execute({
+      capabilityId: "tool.select",
+      mode: "direct",
+      target: { kind: "page", pageId: "story" },
+      expected,
+      idempotencyKey: "select-tool-other-page",
+    })
+    expect(nonCurrentDirect).toMatchObject({
+      isError: true,
+      structuredContent: { code: "mode_not_supported" },
+    })
+
+    const staleSelection = await execute.execute({
+      capabilityId: "object.duplicate",
+      mode: "dry_run",
+      expected: {
+        ...expected,
+        selection: {
+          ...expected.selection,
+          nodeIds: ["cover-title"],
+        },
+      },
+      idempotencyKey: "stale-selection",
+    })
+    expect(staleSelection).toMatchObject({
+      isError: true,
+      structuredContent: { code: "stale_context", retryable: true },
     })
   })
 

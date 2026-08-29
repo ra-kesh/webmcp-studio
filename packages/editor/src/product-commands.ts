@@ -264,6 +264,88 @@ export type ProductCommandRunResult =
   | Readonly<{ status: "declined" }>
   | Readonly<{ status: "disabled" | "invalid" | "stale"; reason: string }>
 
+export type ProductCommandExecutionMode = "dry_run" | "proposal" | "direct"
+
+export type ProductCommandExecutionPolicy = Readonly<{
+  modes: readonly ProductCommandExecutionMode[]
+  reason: string | null
+  recommendedTool: string | null
+}>
+
+const directlyExecutableProductCommands = new Set<ProductCommandId>([
+  "tool.select",
+  "tool.hand",
+  "canvas.fit",
+  "canvas.zoom-reset",
+  "selection.copy",
+])
+
+const proposalExecutableProductCommands = new Set<ProductCommandId>([
+  "selection.nudge-left",
+  "selection.nudge-right",
+  "selection.nudge-up",
+  "selection.nudge-down",
+  "object.duplicate",
+  "object.group",
+  "object.ungroup",
+  "object.delete",
+  "object.visibility.toggle",
+  "object.lock.toggle",
+  "image.fit",
+  "image.fill",
+  "image.flip-horizontal",
+  "image.flip-vertical",
+  "image.rotate-left",
+  "image.rotate-right",
+  "image.rotation.reset",
+  "image.reset-placement",
+  "image.frame.rectangle",
+  "image.frame.rounded-rectangle",
+  "image.frame.ellipse",
+  "arrange.front",
+  "arrange.back",
+  "arrange.forward",
+  "arrange.backward",
+  "arrange.align",
+  "arrange.distribute",
+  "page.remove",
+  "page.move-up",
+  "page.move-down",
+])
+
+const specializedProductCommandTools: Readonly<
+  Partial<Record<ProductCommandId, string>>
+> = {
+  "image.insert": "propose_asset_insertion",
+  "image.replace": "propose_canvas_edits",
+  "document.publish": "publish_template",
+  "output.export-png": "render_template",
+  "output.export-pdf": "render_template",
+}
+
+export function productCommandExecutionPolicy(
+  commandId: ProductCommandId
+): ProductCommandExecutionPolicy {
+  if (directlyExecutableProductCommands.has(commandId)) {
+    return { modes: ["dry_run", "direct"], reason: null, recommendedTool: null }
+  }
+  if (proposalExecutableProductCommands.has(commandId)) {
+    return {
+      modes: ["dry_run", "proposal"],
+      reason: null,
+      recommendedTool: null,
+    }
+  }
+  const recommendedTool = specializedProductCommandTools[commandId] ?? null
+  return {
+    modes: [],
+    reason: recommendedTool
+      ? `Use ${recommendedTool} for this workflow.`
+      : "This command needs a typed workflow contract before automation can execute it.",
+    recommendedTool,
+  }
+}
+
 const words = (value: string) =>
   value
     .toLowerCase()

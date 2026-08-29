@@ -4,7 +4,11 @@ import type {
   TemplateModifications,
   TemplateVersion,
 } from "@webmcp/document"
-import type { ProductCommandRuntimeContext } from "@webmcp/editor/product-commands"
+import type {
+  ProductCommandInvocation,
+  ProductCommandRunResult,
+  ProductCommandRuntimeContext,
+} from "@webmcp/editor/product-commands"
 import { registerStudioWebMcpTools } from "@webmcp/webmcp"
 import type {
   StudioWebMcpRenderRecord,
@@ -30,6 +34,9 @@ type StudioWebMcpServices = Omit<
 > & {
   assets: readonly StudioAsset[]
   getProductCommandContext: () => ProductCommandRuntimeContext | null
+  runProductCommand: (
+    invocation: ProductCommandInvocation
+  ) => ProductCommandRunResult
   proposeChangeSet: (changeSet: ChangeSet) => ChangeSet
   publishTemplate: () => Promise<TemplateVersion>
   renderTemplate: (
@@ -44,6 +51,7 @@ export function projectStudioWebMcpSnapshot(
 ): StudioWebMcpSnapshot {
   const {
     getProductCommandContext,
+    runProductCommand: _runProductCommand,
     proposeChangeSet: _proposeChangeSet,
     publishTemplate: _publishTemplate,
     renderTemplate: _renderTemplate,
@@ -106,6 +114,8 @@ export function useStudioWebMcp(
             resolveAsset: (assetId) => registeredCatalog.resolve(assetId),
             proposeChangeSet: (changeSet) =>
               servicesRef.current.proposeChangeSet(changeSet),
+            runProductCommand: (invocation) =>
+              servicesRef.current.runProductCommand(invocation),
             publishTemplate: () => servicesRef.current.publishTemplate(),
             renderTemplate: (version, modifications, selections) =>
               servicesRef.current.renderTemplate(

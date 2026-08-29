@@ -30,6 +30,7 @@ const services = {
   publishedVersion: null,
   renderHistory: [],
   getProductCommandContext: () => null,
+  runProductCommand: vi.fn(() => ({ status: "accepted" as const })),
   proposeChangeSet: vi.fn(),
   publishTemplate: vi.fn(),
   renderTemplate: vi.fn(),

@@ -10,6 +10,7 @@ import {
   formatProductCommandShortcut,
   productCommandCatalog,
   productCommandArgumentContract,
+  productCommandExecutionPolicy,
   productCommandIds,
   projectProductCommandCapabilities,
   projectProductCommandPalette,
@@ -700,5 +701,26 @@ describe("pure product menu models", () => {
         ({ invocation }) => invocation.commandId === "arrange.distribute"
       )
     ).toHaveLength(2)
+  })
+
+  it("classifies direct, review-only, and specialized automation honestly", () => {
+    expect(productCommandExecutionPolicy("tool.select")).toEqual({
+      modes: ["dry_run", "direct"],
+      reason: null,
+      recommendedTool: null,
+    })
+    expect(productCommandExecutionPolicy("object.delete")).toEqual({
+      modes: ["dry_run", "proposal"],
+      reason: null,
+      recommendedTool: null,
+    })
+    expect(productCommandExecutionPolicy("document.publish")).toMatchObject({
+      modes: [],
+      recommendedTool: "publish_template",
+    })
+    expect(productCommandExecutionPolicy("canvas.zoom-in").modes).toEqual([])
+    expect(productCommandExecutionPolicy("canvas.guides.toggle").modes).toEqual(
+      []
+    )
   })
 })

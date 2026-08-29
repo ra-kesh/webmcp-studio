@@ -23,6 +23,7 @@ describe("projectStudioWebMcpSnapshot", () => {
       publishedVersion: null,
       renderHistory: [],
       getProductCommandContext,
+      runProductCommand: vi.fn(() => ({ status: "accepted" as const })),
       proposeChangeSet: vi.fn(),
       publishTemplate: vi.fn(),
       renderTemplate: vi.fn(),

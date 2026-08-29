@@ -232,6 +232,7 @@ function MountedEditorWebMcpComposition({
         ]),
       }
     },
+    runProductCommand: () => ({ status: "accepted" as const }),
     proposeChangeSet: (changeSet: ChangeSet) =>
       editor.proposeChangeSet(changeSet),
     publishTemplate: () =>
@@ -466,6 +467,32 @@ describe("mounted Studio WebMCP live crop capabilities", () => {
       expect(capability(liveCapabilities, "image.rotation.reset").enabled).toBe(
         true
       )
+      const cropDryRun = await registeredTools
+        .get("execute_product_command")
+        ?.execute({
+          capabilityId: "image.fill",
+          mode: "dry_run",
+          expected: {
+            documentId: mounted.current().editor.document.id,
+            revision: mounted.current().editor.document.revision,
+            snapshotId: mounted.current().editor.snapshotId,
+            operationVersion: mounted.current().editor.operationVersion,
+            activePageId: mounted.current().editor.activePageId,
+            selection: {
+              pageId: firstPageId,
+              nodeIds: [image.id],
+              groupId: null,
+            },
+          },
+          idempotencyKey: "crop-dry-run",
+        })
+      expect(cropDryRun).toMatchObject({
+        isError: true,
+        structuredContent: {
+          code: "transient_state_not_supported",
+          retryable: true,
+        },
+      })
       expect(renderAudit.composition).toBe(rendersAfterCropEntry)
 
       await flushAnimationFrames()

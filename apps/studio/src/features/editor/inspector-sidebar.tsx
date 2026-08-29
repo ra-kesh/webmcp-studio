@@ -2588,6 +2588,7 @@ function ReviewPanel({
   const registeredToolNames = new Set([
     "inspect_design",
     "get_capabilities",
+    "execute_product_command",
     "read_design_tree",
     "read_design_node",
     "search_design_nodes",

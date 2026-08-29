@@ -1,11 +1,13 @@
 export * from "./change-sets"
 export * from "./design-queries"
 export * from "./registration"
+export * from "./product-command-proposals"
 
 export const toolNames = [
   "inspect_design",
   "read_design_tree",
   "get_capabilities",
+  "execute_product_command",
   "read_design_node",
   "search_design_nodes",
   "search_assets",
@@ -51,6 +53,14 @@ export const toolCatalog: readonly ToolDescriptor[] = [
       "Read the complete canonical Studio command policy and exact disabled reasons.",
     mutates: false,
     requiresHumanReview: false,
+    routes: ["editor", "review"],
+  },
+  {
+    name: "execute_product_command",
+    description:
+      "Dry-run, propose, or run an explicitly allowed canonical Studio command.",
+    mutates: true,
+    requiresHumanReview: true,
     routes: ["editor", "review"],
   },
   {

@@ -62,6 +62,7 @@ import {
 import type {
   ProductCommandId,
   ProductCommandInvocation,
+  ProductCommandRunResult,
   ProductCommandRuntimeContext,
   ProductShortcutPlatform,
 } from "@webmcp/editor/product-commands"
@@ -1340,6 +1341,9 @@ export function StudioShell({
   const productCommandContextRef = useRef<ProductCommandRuntimeContext | null>(
     null
   )
+  const productCommandRunnerRef = useRef<
+    ((invocation: ProductCommandInvocation) => ProductCommandRunResult) | null
+  >(null)
   const webMcp = useStudioWebMcp(
     {
       document: editor.document,
@@ -1362,6 +1366,15 @@ export function StudioShell({
           : null
       },
       proposeChangeSet: editor.proposeChangeSet,
+      runProductCommand: (invocation) => {
+        const runner = productCommandRunnerRef.current
+        return runner
+          ? runner(invocation)
+          : {
+              status: "disabled" as const,
+              reason: "Canonical command execution is not ready yet.",
+            }
+      },
       publishTemplate: async () => {
         if (!commitActiveTextEditing()) {
           throw new Error(
@@ -2421,6 +2434,7 @@ export function StudioShell({
     getContext: () => productCommandContext,
     execute: executeProductCommand,
   })
+  productCommandRunnerRef.current = productCommandRuntime.run
   const homeCommand = productCommandRuntime.resolve({
     commandId: "document.home",
   })

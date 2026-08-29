@@ -1572,3 +1572,36 @@ Next boundary:
 - WEBMCP-01C: expose the same canonical commands through a safe execution
   contract with dry-run/proposal/direct modes, expected snapshot identity,
   idempotency, and the existing human Review owner.
+
+## 2026-08-29 — Canonical WebMCP command execution (WEBMCP-01C)
+
+Status: **completed and independently accepted for the WEBMCP-01C boundary**
+
+- Added one `execute_product_command` adapter over the existing canonical
+  product-command resolver. Callers select a projected capability and stable
+  target; they cannot submit fabricated runtime targets or arbitrary editor
+  arguments.
+- Exact document, revision, snapshot, operation, active-page, and ordered
+  selection preconditions fail closed. Every command is re-resolved against
+  the live snapshot immediately before execution.
+- `direct` is limited to an explicit allowlist of non-document session
+  commands. Document changes compile to existing `DocumentCommand` operations
+  and enter the existing Review owner as pending proposals; WebMCP cannot
+  accept or apply them. Picker, dialog, export, publish/render, and other
+  open-world workflows remain purpose-built or unsupported.
+- The proposal compiler matches Studio's visibility, lock, group, geometry,
+  arrange, image, and page semantics; rejects no-op previews; and bounds both
+  operation and affected-entity counts.
+- Request receipts reserve capacity before side effects, share an exact
+  concurrent request, reject key reuse with different input, never evict
+  pending work, and expose typed retryability. Receipts are intentionally
+  registration-scoped; durable Review history and cross-reload proposal
+  deduplication remain REVIEW-02.
+- The independent code reviewer checked the current diff and returned **ACCEPT
+  with no P0/P1 findings**. `webmcp-01c-execution-review.md` records the
+  reviewed invariants and evidence.
+- Current focused gates pass: editor **18/18**, WebMCP **51/51**, and mounted
+  Studio WebMCP **4/4**. Editor, WebMCP, and Studio typechecks pass. A live
+  localhost route renders the complete 15-tool catalog including
+  `execute_product_command`; the separate automation Chrome lacks the WebMCP
+  browser API and truthfully reports registration as unavailable there.

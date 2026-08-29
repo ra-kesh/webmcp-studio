@@ -19,12 +19,15 @@ import {
 } from "@webmcp/document"
 import {
   productCommandArgumentContract,
+  productCommandExecutionPolicy,
   productCommandIds,
   projectProductCommandCapabilities,
   type ProductCommandCategory,
   type ProductCommandId,
   type ProductCommandRuntimeContext,
+  type ProductCommandRunResult,
   type ProductCommandScope,
+  type ResolvedProductCommand,
 } from "@webmcp/editor/product-commands"
 import {
   createAssetInsertionChangeSet,
@@ -46,6 +49,10 @@ import {
   type DesignQueryIdentity,
   type DesignTreeQuery,
 } from "./design-queries"
+import {
+  createProductCommandProposal,
+  ProductCommandProposalError,
+} from "./product-command-proposals"
 
 export type WebMcpToolResult = {
   content: Array<{ type: "text"; text: string }>
@@ -114,7 +121,13 @@ export type StudioWebMcpCommandCapability = Readonly<{
   target?: unknown
   arguments?: unknown
   argumentContract?: unknown
-  execution?: "not_exposed"
+  execution?:
+    | "not_exposed"
+    | Readonly<{
+        modes: readonly ("dry_run" | "proposal" | "direct")[]
+        reason: string | null
+        recommendedTool: string | null
+      }>
 }>
 
 export type StudioWebMcpAsset = {
@@ -178,6 +191,9 @@ export type StudioWebMcpServices = {
   ): Promise<StudioWebMcpAssetSearchPage>
   resolveAsset(assetId: string): Promise<StudioWebMcpAsset | null>
   proposeChangeSet(changeSet: ChangeSet): ChangeSet
+  runProductCommand?(
+    invocation: import("@webmcp/editor/product-commands").ProductCommandInvocation
+  ): ProductCommandRunResult
   publishTemplate(): TemplateVersion | Promise<TemplateVersion>
   renderTemplate(
     version: TemplateVersion,
@@ -199,6 +215,17 @@ const textResult = (
 const errorResult = (error: unknown): WebMcpToolResult => {
   const message =
     error instanceof Error ? error.message : "The tool call failed."
+  const retryable =
+    error instanceof DesignQueryError &&
+    new Set([
+      "stale_context",
+      "command_disabled",
+      "capabilities_unavailable",
+      "transient_state_not_supported",
+      "request_in_progress",
+      "execution_declined",
+      "review_unavailable",
+    ]).has(error.code)
   return {
     content: [{ type: "text", text: message }],
     ...(error instanceof DesignQueryError
@@ -207,7 +234,8 @@ const errorResult = (error: unknown): WebMcpToolResult => {
             status: "error",
             code: error.code,
             message,
-            retryable: false,
+            retryable,
+            ...(error.details ?? {}),
           },
         }
       : {}),
@@ -783,6 +811,22 @@ type CapabilityQuery = Readonly<{
   target: CapabilityTargetSelector
 }>
 
+type ExecuteProductCommandInput = Readonly<{
+  capabilityId: string
+  mode: "dry_run" | "proposal" | "direct"
+  target: CapabilityTargetSelector
+  expected: DesignQueryIdentity &
+    Readonly<{
+      activePageId: string
+      selection: Readonly<{
+        pageId: string
+        nodeIds: readonly string[]
+        groupId: string | null
+      }> | null
+    }>
+  idempotencyKey: string
+}>
+
 const productCommandIdSet = new Set<string>(productCommandIds)
 const productCommandCategories = new Set<ProductCommandCategory>([
   "file",
@@ -911,6 +955,149 @@ function parseCapabilityQuery(input: unknown): CapabilityQuery {
   }
 }
 
+function parseExecuteProductCommandInput(
+  input: unknown
+): ExecuteProductCommandInput {
+  const value = queryObject(input)
+  assertQueryKeys(value, [
+    "capabilityId",
+    "mode",
+    "target",
+    "expected",
+    "idempotencyKey",
+  ])
+  const capabilityId = optionalQueryString(value.capabilityId, "capabilityId")
+  if (!capabilityId || capabilityId.length > 256) {
+    throw new DesignQueryError(
+      "invalid_query",
+      "capabilityId must be between 1 and 256 characters."
+    )
+  }
+  if (
+    value.mode !== "dry_run" &&
+    value.mode !== "proposal" &&
+    value.mode !== "direct"
+  ) {
+    throw new DesignQueryError(
+      "invalid_query",
+      "mode must be dry_run, proposal, or direct."
+    )
+  }
+  const idempotencyKey = optionalQueryString(
+    value.idempotencyKey,
+    "idempotencyKey"
+  )
+  if (
+    !idempotencyKey ||
+    idempotencyKey.length > 128 ||
+    !/^[A-Za-z0-9._:-]+$/.test(idempotencyKey)
+  ) {
+    throw new DesignQueryError(
+      "invalid_query",
+      "idempotencyKey must use 1-128 letters, numbers, dots, underscores, colons, or hyphens."
+    )
+  }
+  const expectedValue = value.expected
+  if (
+    !expectedValue ||
+    typeof expectedValue !== "object" ||
+    Array.isArray(expectedValue)
+  ) {
+    throw new DesignQueryError("invalid_query", "expected is required.")
+  }
+  const expected = expectedValue as Record<string, unknown>
+  assertQueryKeys(expected, [
+    "documentId",
+    "revision",
+    "snapshotId",
+    "operationVersion",
+    "activePageId",
+    "selection",
+  ])
+  const documentId = optionalQueryString(expected.documentId, "documentId")
+  const snapshotId = optionalQueryString(expected.snapshotId, "snapshotId")
+  const activePageId = optionalQueryString(
+    expected.activePageId,
+    "activePageId"
+  )
+  let selection: ExecuteProductCommandInput["expected"]["selection"] = null
+  if (expected.selection !== null) {
+    if (
+      !expected.selection ||
+      typeof expected.selection !== "object" ||
+      Array.isArray(expected.selection)
+    ) {
+      throw new DesignQueryError(
+        "invalid_query",
+        "expected.selection must be null or an object."
+      )
+    }
+    const selectionValue = expected.selection as Record<string, unknown>
+    assertQueryKeys(selectionValue, ["pageId", "nodeIds", "groupId"])
+    const pageId = optionalQueryString(
+      selectionValue.pageId,
+      "expected.selection.pageId"
+    )
+    const groupId =
+      selectionValue.groupId === null
+        ? null
+        : optionalQueryString(
+            selectionValue.groupId,
+            "expected.selection.groupId"
+          )
+    if (
+      !pageId ||
+      !Array.isArray(selectionValue.nodeIds) ||
+      selectionValue.nodeIds.length === 0 ||
+      selectionValue.nodeIds.length > 100 ||
+      selectionValue.nodeIds.some(
+        (nodeId) => typeof nodeId !== "string" || nodeId.length === 0
+      ) ||
+      new Set(selectionValue.nodeIds).size !== selectionValue.nodeIds.length ||
+      (selectionValue.groupId !== null && !groupId)
+    ) {
+      throw new DesignQueryError(
+        "invalid_query",
+        "expected.selection must contain one to 100 unique node IDs and a valid page/group identity."
+      )
+    }
+    selection = {
+      pageId,
+      nodeIds: selectionValue.nodeIds as string[],
+      groupId: groupId ?? null,
+    }
+  }
+  if (
+    !documentId ||
+    !snapshotId ||
+    !activePageId ||
+    !Number.isSafeInteger(expected.revision) ||
+    (expected.revision as number) < 0 ||
+    !Number.isSafeInteger(expected.operationVersion) ||
+    (expected.operationVersion as number) < 0
+  ) {
+    throw new DesignQueryError(
+      "invalid_query",
+      "expected must contain a valid documentId, revision, snapshotId, and operationVersion."
+    )
+  }
+  const target = parseCapabilityQuery({ target: value.target }).target
+  return {
+    capabilityId,
+    mode: value.mode,
+    target,
+    expected: {
+      documentId,
+      revision: expected.revision as number,
+      snapshotId,
+      operationVersion: expected.operationVersion as number,
+      activePageId,
+      selection,
+    },
+    idempotencyKey,
+  }
+}
+
 function productCommandContextForTarget(
   snapshot: StudioWebMcpSnapshot,
   target: CapabilityTargetSelector
@@ -987,10 +1174,10 @@ function productCommandContextForTarget(
 const capabilityInvocationId = (commandId: ProductCommandId, args: unknown) =>
   args === undefined ? commandId : `${commandId}:${JSON.stringify(args)}`
 
-function selectProductCommandCapabilities(
+function selectResolvedProductCommands(
   snapshot: StudioWebMcpSnapshot,
   query: CapabilityQuery
-) {
+): readonly ResolvedProductCommand[] {
   const context = productCommandContextForTarget(snapshot, query.target)
   const commandIdFilter = query.commandIds ? new Set(query.commandIds) : null
   const targetScopeAllowed = (scope: ProductCommandScope) =>
@@ -998,45 +1185,43 @@ function selectProductCommandCapabilities(
     scope === "global" ||
     scope === "document" ||
     scope === query.target.kind
-  return projectProductCommandCapabilities(context)
-    .filter(
-      ({ definition, enabled }) =>
-        targetScopeAllowed(definition.scope) &&
-        (!commandIdFilter || commandIdFilter.has(definition.id)) &&
-        (query.category === undefined ||
-          definition.category === query.category) &&
-        (query.scope === undefined || definition.scope === query.scope) &&
-        (query.enabled === undefined || enabled === query.enabled)
-    )
-    .map(
-      ({
-        definition,
-        invocation,
-        label,
-        enabled,
-        disabledReason,
-        checked,
-      }) => ({
-        id: capabilityInvocationId(definition.id, invocation.arguments),
-        commandId: definition.id,
-        label,
-        category: definition.category,
-        subgroup: definition.subgroup,
-        scope: definition.scope,
-        mutating: definition.mutating,
-        destructive: definition.destructive,
-        discoverable: definition.discoverable,
-        stableTargetRequired: definition.stableTargetRequired,
-        enabled,
-        disabledReason,
-        ...(disabledReason ? { reason: disabledReason } : {}),
-        ...(checked !== undefined ? { checked } : {}),
-        ...(invocation.target ? { target: invocation.target } : {}),
-        ...(invocation.arguments ? { arguments: invocation.arguments } : {}),
-        argumentContract: productCommandArgumentContract(definition.id),
-        execution: "not_exposed" as const,
-      })
-    )
+  return projectProductCommandCapabilities(context).filter(
+    ({ definition, enabled }) =>
+      targetScopeAllowed(definition.scope) &&
+      (!commandIdFilter || commandIdFilter.has(definition.id)) &&
+      (query.category === undefined ||
+        definition.category === query.category) &&
+      (query.scope === undefined || definition.scope === query.scope) &&
+      (query.enabled === undefined || enabled === query.enabled)
+  )
+}
+
+function selectProductCommandCapabilities(
+  snapshot: StudioWebMcpSnapshot,
+  query: CapabilityQuery
+) {
+  return selectResolvedProductCommands(snapshot, query).map(
+    ({ definition, invocation, label, enabled, disabledReason, checked }) => ({
+      id: capabilityInvocationId(definition.id, invocation.arguments),
+      commandId: definition.id,
+      label,
+      category: definition.category,
+      subgroup: definition.subgroup,
+      scope: definition.scope,
+      mutating: definition.mutating,
+      destructive: definition.destructive,
+      discoverable: definition.discoverable,
+      stableTargetRequired: definition.stableTargetRequired,
+      enabled,
+      disabledReason,
+      ...(disabledReason ? { reason: disabledReason } : {}),
+      ...(checked !== undefined ? { checked } : {}),
+      ...(invocation.target ? { target: invocation.target } : {}),
+      ...(invocation.arguments ? { arguments: invocation.arguments } : {}),
+      argumentContract: productCommandArgumentContract(definition.id),
+      execution: productCommandExecutionPolicy(definition.id),
+    })
+  )
 }
 
 const publicCommonCanvasPatchProperties = new Set([
@@ -1545,9 +1730,312 @@ async function resolveDocumentAssets(
   return [...snapshot.assets, ...resolved.filter((asset) => asset !== null)]
 }
 
+async function commandRequestDigest(value: unknown) {
+  const bytes = new TextEncoder().encode(JSON.stringify(value))
+  const digest = await crypto.subtle.digest("SHA-256", bytes)
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")
+}
+
+const affectedFromResolvedCommand = (resolved: ResolvedProductCommand) => {
+  const target = resolved.invocation.target
+  return {
+    nodes: { added: [], updated: [], removed: [] },
+    groups: { added: [], updated: [], removed: [] },
+    pages: { added: [], updated: [], removed: [] },
+    outputs: { added: [], updated: [], removed: [] },
+    fields: { added: [], updated: [], removed: [] },
+    bindings: { added: [], updated: [], removed: [] },
+    focus:
+      target?.kind === "selection"
+        ? { pageId: target.pageId, nodeIds: [...target.nodeIds] }
+        : target?.kind === "node"
+          ? { pageId: target.pageId, nodeIds: [target.nodeId] }
+          : null,
+  }
+}
+
 export function studioWebMcpTools(
   services: StudioWebMcpServices
 ): WebMcpTool[] {
+  const commandReceipts = new Map<
+    string,
+    {
+      requestHash: string
+      result: Promise<WebMcpToolResult>
+      state: "pending" | "settled"
+    }
+  >()
+
+  const executeProductCommandRequest = async (
+    input: ExecuteProductCommandInput,
+    requestHash: string
+  ): Promise<WebMcpToolResult> => {
+    try {
+      const current = services.getSnapshot()
+      const actual = designQueryIdentity(current)
+      const liveSelection = current.productCommandContext?.selection ?? null
+      const expectedSelection = input.expected.selection
+      const selectionMatches =
+        liveSelection === null && expectedSelection === null
+          ? true
+          : liveSelection !== null && expectedSelection !== null
+            ? liveSelection.pageId === expectedSelection.pageId &&
+              liveSelection.nodeIds.length ===
+                expectedSelection.nodeIds.length &&
+              liveSelection.nodeIds.every(
+                (nodeId, index) => nodeId === expectedSelection.nodeIds[index]
+              ) &&
+              (liveSelection.groupId ?? null) === expectedSelection.groupId
+            : false
+      if (
+        input.expected.documentId !== actual.documentId ||
+        input.expected.revision !== actual.revision ||
+        input.expected.snapshotId !== actual.snapshotId ||
+        input.expected.operationVersion !== actual.operationVersion ||
+        input.expected.activePageId !== current.activePageId ||
+        !selectionMatches
+      ) {
+        throw new DesignQueryError(
+          "stale_context",
+          "The document, operation, active page, or selection changed. Inspect capabilities again."
+        )
+      }
+      const resolved = selectResolvedProductCommands(current, {
+        target: input.target,
+      }).find(
+        ({ definition, invocation }) =>
+          capabilityInvocationId(definition.id, invocation.arguments) ===
+          input.capabilityId
+      )
+      if (!resolved) {
+        throw new DesignQueryError(
+          "capability_not_found",
+          "That capability was not returned for the requested target."
+        )
+      }
+      const policy = productCommandExecutionPolicy(resolved.definition.id)
+      if (!policy.modes.includes(input.mode)) {
+        throw new DesignQueryError(
+          "mode_not_supported",
+          policy.reason ??
+            `${resolved.label} does not support ${input.mode} execution.`,
+          policy.recommendedTool
+            ? { recommendedTool: policy.recommendedTool }
+            : undefined
+        )
+      }
+      if (input.mode === "direct" && input.target.kind !== "current") {
+        throw new DesignQueryError(
+          "mode_not_supported",
+          "Direct session commands require target.kind current."
+        )
+      }
+      if (!resolved.enabled) {
+        throw new DesignQueryError(
+          "command_disabled",
+          resolved.disabledReason ?? "This command is not available right now."
+        )
+      }
+      if (
+        input.mode !== "direct" &&
+        policy.modes.includes("proposal") &&
+        current.productCommandContext?.editor.imageCropActive
+      ) {
+        throw new DesignQueryError(
+          "transient_state_not_supported",
+          "Finish or cancel the active image crop before creating a review proposal."
+        )
+      }
+
+      const baseResult = {
+        status:
+          input.mode === "dry_run"
+            ? "validated"
+            : input.mode === "proposal"
+              ? "review_pending"
+              : "executed",
+        code: "ok",
+        commandId: resolved.definition.id,
+        capabilityId: input.capabilityId,
+        mode: input.mode,
+        idempotencyKey: input.idempotencyKey,
+        requestHash,
+        base: actual,
+        replayed: false,
+        warnings: [] as string[],
+      }
+      if (input.mode === "direct") {
+        if (!services.runProductCommand) {
+          throw new DesignQueryError(
+            "capabilities_unavailable",
+            "Direct command execution is unavailable on this route."
+          )
+        }
+        let runResult: ProductCommandRunResult
+        try {
+          runResult = services.runProductCommand(resolved.invocation)
+        } catch {
+          throw new DesignQueryError(
+            "execution_declined",
+            "Studio could not run the session command."
+          )
+        }
+        if (runResult.status !== "accepted") {
+          throw new DesignQueryError(
+            runResult.status === "stale"
+              ? "stale_context"
+              : runResult.status === "disabled"
+                ? "command_disabled"
+                : "execution_declined",
+            "reason" in runResult
+              ? runResult.reason
+              : "The interface declined the command."
+          )
+        }
+        const result = {
+          ...baseResult,
+          result: actual,
+          session: { accepted: true },
+          affected: affectedFromResolvedCommand(resolved),
+        }
+        return textResult(`Executed ${resolved.label}.`, result)
+      }
+
+      if (input.mode === "dry_run" && policy.modes.includes("direct")) {
+        return textResult(`Validated ${resolved.label}.`, {
+          ...baseResult,
+          result: actual,
+          affected: affectedFromResolvedCommand(resolved),
+        })
+      }
+
+      const identitySeed = requestHash.slice(0, 24)
+      let identitySequence = 0
+      const proposal = createProductCommandProposal(
+        current.document,
+        resolved,
+        {
+          id: () => `${identitySeed}-${++identitySequence}`,
+          now: services.now,
+        }
+      )
+      const publicProposal = publicChangeSet(
+        proposal.changeSet,
+        current.document,
+        current.assets
+      )
+      if (input.mode === "dry_run") {
+        return textResult(`Validated ${resolved.label}.`, {
+          ...baseResult,
+          result: null,
+          predictedRevision:
+            current.document.revision + publicProposal.operations.length,
+          affected: proposal.affected,
+          proposal: publicProposal,
+        })
+      }
+      try {
+        services.proposeChangeSet(proposal.changeSet)
+      } catch {
+        throw new DesignQueryError(
+          "review_unavailable",
+          "Studio could not open this command in Review."
+        )
+      }
+      return textResult(
+        `Previewing ${resolved.label}. Nothing has been applied; ask the user to review the Review panel.`,
+        {
+          ...baseResult,
+          result: null,
+          affected: proposal.affected,
+          proposal: publicProposal,
+          review: {
+            changeSetId: proposal.changeSet.id,
+            operationIds: proposal.changeSet.operations.map(
+              (operation) => operation.id
+            ),
+            status: "pending",
+          },
+        }
+      )
+    } catch (error) {
+      if (error instanceof ProductCommandProposalError) {
+        return errorResult(new DesignQueryError(error.code, error.message))
+      }
+      return errorResult(
+        error instanceof DesignQueryError
+          ? error
+          : new DesignQueryError(
+              "internal_error",
+              "Studio could not complete the command request."
+            )
+      )
+    }
+  }
+
+  const runIdempotentProductCommand = async (
+    parsed: ExecuteProductCommandInput
+  ) => {
+    const requestHash = await commandRequestDigest(parsed)
+    const receiptKey = `${parsed.expected.documentId}:${parsed.idempotencyKey}`
+    const existing = commandReceipts.get(receiptKey)
+    if (existing) {
+      if (existing.requestHash !== requestHash) {
+        return errorResult(
+          new DesignQueryError(
+            "idempotency_key_reused",
+            "That idempotency key was already used for a different command request."
+          )
+        )
+      }
+      const replayed = await existing.result
+      return {
+        ...replayed,
+        ...(replayed.structuredContent &&
+        typeof replayed.structuredContent === "object" &&
+        !Array.isArray(replayed.structuredContent)
+          ? {
+              structuredContent: {
+                ...(replayed.structuredContent as Record<string, unknown>),
+                replayed: true,
+              },
+            }
+          : {}),
+      }
+    }
+    if (commandReceipts.size >= 128) {
+      const settledKey = [...commandReceipts].find(
+        ([, receipt]) => receipt.state === "settled"
+      )?.[0]
+      if (!settledKey) {
+        return errorResult(
+          new DesignQueryError(
+            "request_in_progress",
+            "Too many command requests are still in progress. Retry after one finishes."
+          )
+        )
+      }
+      commandReceipts.delete(settledKey)
+    }
+    let resolveResult!: (result: WebMcpToolResult) => void
+    const result = new Promise<WebMcpToolResult>((resolve) => {
+      resolveResult = resolve
+    })
+    const receipt = {
+      requestHash,
+      result,
+      state: "pending" as "pending" | "settled",
+    }
+    commandReceipts.set(receiptKey, receipt)
+    void executeProductCommandRequest(parsed, requestHash).then((value) => {
+      receipt.state = "settled"
+      resolveResult(value)
+    })
+    return result
+  }
+
   return [
     {
       name: "inspect_design",
@@ -1774,6 +2262,118 @@ export function studioWebMcpTools(
               target: query.target,
               capabilities,
             }
+          )
+        } catch (error) {
+          return errorResult(error)
+        }
+      },
+    },
+    {
+      name: "execute_product_command",
+      title: "Execute Studio command",
+      description:
+        "Dry-run, create a Review proposal, or directly run an explicitly allowed session command from get_capabilities. Requires exact document identity and an idempotency key.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["capabilityId", "mode", "expected", "idempotencyKey"],
+        properties: {
+          capabilityId: { type: "string", minLength: 1, maxLength: 256 },
+          mode: {
+            type: "string",
+            enum: ["dry_run", "proposal", "direct"],
+          },
+          target: {
+            oneOf: [
+              {
+                type: "object",
+                additionalProperties: false,
+                required: ["kind"],
+                properties: { kind: { const: "current" } },
+              },
+              {
+                type: "object",
+                additionalProperties: false,
+                required: ["kind", "pageId"],
+                properties: {
+                  kind: { const: "page" },
+                  pageId: { type: "string", minLength: 1 },
+                },
+              },
+              {
+                type: "object",
+                additionalProperties: false,
+                required: ["kind", "outputId"],
+                properties: {
+                  kind: { const: "output" },
+                  outputId: { type: "string", minLength: 1 },
+                },
+              },
+            ],
+          },
+          expected: {
+            type: "object",
+            additionalProperties: false,
+            required: [
+              "documentId",
+              "revision",
+              "snapshotId",
+              "operationVersion",
+              "activePageId",
+              "selection",
+            ],
+            properties: {
+              documentId: { type: "string", minLength: 1 },
+              revision: { type: "integer", minimum: 0 },
+              snapshotId: { type: "string", minLength: 1 },
+              operationVersion: { type: "integer", minimum: 0 },
+              activePageId: { type: "string", minLength: 1 },
+              selection: {
+                oneOf: [
+                  { type: "null" },
+                  {
+                    type: "object",
+                    additionalProperties: false,
+                    required: ["pageId", "nodeIds", "groupId"],
+                    properties: {
+                      pageId: { type: "string", minLength: 1 },
+                      nodeIds: {
+                        type: "array",
+                        minItems: 1,
+                        maxItems: 100,
+                        uniqueItems: true,
+                        items: { type: "string", minLength: 1 },
+                      },
+                      groupId: {
+                        oneOf: [
+                          { type: "null" },
+                          { type: "string", minLength: 1 },
+                        ],
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+          idempotencyKey: {
+            type: "string",
+            minLength: 1,
+            maxLength: 128,
+            pattern: "^[A-Za-z0-9._:-]+$",
+          },
+        },
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        untrustedContentHint: true,
+      },
+      execute: async (input) => {
+        try {
+          return await runIdempotentProductCommand(
+            parseExecuteProductCommandInput(input)
           )
         } catch (error) {
           return errorResult(error)

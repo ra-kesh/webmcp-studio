@@ -42,8 +42,22 @@ export class DesignQueryError extends Error {
       | "output_not_found"
       | "node_not_found"
       | "capabilities_unavailable"
-      | "stale_context",
-    message: string
+      | "stale_context"
+      | "capability_not_found"
+      | "mode_not_supported"
+      | "command_disabled"
+      | "transient_state_not_supported"
+      | "idempotency_key_reused"
+      | "request_in_progress"
+      | "invalid_target"
+      | "no_changes"
+      | "operation_limit_exceeded"
+      | "unsupported_command"
+      | "execution_declined"
+      | "review_unavailable"
+      | "internal_error",
+    message: string,
+    readonly details?: Readonly<Record<string, unknown>>
   ) {
     super(message)
     this.name = "DesignQueryError"

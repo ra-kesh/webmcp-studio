@@ -14,7 +14,13 @@ Read-only. Returns revision, the active page, its public canonical layers, selec
 
 ### `get_capabilities`
 
-Read-only. Projects every canonical Studio product command through the same `resolveProductCommand` policy used by menus, command search, structure controls, shortcuts, and canvas actions. Results include exact snapshot identity, stable target, typed argument contract, concrete alignment/distribution variants, enabled/checked state, exact disabled reason, and mutation/destructive metadata. Optional filters cover command ID, category, scope, enabled state, and stable current/page/output targets. Every entry states `execution: "not_exposed"`; this discovery tool never dispatches or implies a direct mutation path.
+Read-only. Projects every canonical Studio product command through the same `resolveProductCommand` policy used by menus, command search, structure controls, shortcuts, and canvas actions. Results include exact snapshot identity, stable target, typed argument contract, concrete alignment/distribution variants, enabled/checked state, exact disabled reason, mutation/destructive metadata, and the command's permitted execution modes. Optional filters cover command ID, category, scope, enabled state, and stable current/page/output targets. Commands that require a picker, dialog, download, publish/render workflow, or another purpose-built contract remain discovery-only and name the specialized tool when one exists.
+
+### `execute_product_command`
+
+Executes only capabilities returned by the canonical command resolver. The caller supplies a capability ID, mode, stable target selector, exact document/revision/snapshot/operation/active-page/selection preconditions, and an idempotency key; it cannot submit an invented command target or arbitrary editor arguments. `dry_run` validates without side effects. `proposal` compiles the same document operations used by Studio and creates a pending Review item without accepting or applying it. `direct` is restricted to an explicit allowlist of non-document session commands such as tool selection, canvas fit/reset, and selection copy. Document mutations are proposal-only; file pickers, dialogs, exports, publishing, rendering, and other open-world workflows remain purpose-built or unsupported.
+
+Receipts are concurrency-safe, bounded, and scoped to the live WebMCP registration. Exact concurrent/repeated requests share their result; reusing a key for different input fails. Proposal IDs are deterministic for the request, but proposal receipt persistence across a page reload is deliberately not claimed until Review history is durable.
 
 ### `read_design_tree`
 
@@ -66,13 +72,13 @@ Read-only. Returns recent persisted render jobs, request selections, status, dim
 
 ## Route map
 
-| Route state        | Tools                                                                                                                                                                                                                                         |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Library            | `search_assets`                                                                                                                                                                                                                               |
-| Editor             | `inspect_design`, `get_capabilities`, `read_design_tree`, `read_design_node`, `search_design_nodes`, `search_assets`, `validate_design`, `propose_asset_insertion`, `propose_field_updates`, `propose_canvas_edits`, `propose_output_variant` |
-| Review             | Editor read tools; acceptance and rejection remain human-only in the Review panel                                                                                                                                                             |
-| Published template | `validate_design`, `publish_template`, `render_template`, `inspect_render_history`                                                                                                                                                            |
-| Render history     | `render_template`, `inspect_render_history`                                                                                                                                                                                                   |
+| Route state        | Tools                                                                                                                                                                                                                                                                    |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Library            | `search_assets`                                                                                                                                                                                                                                                          |
+| Editor             | `inspect_design`, `get_capabilities`, `execute_product_command`, `read_design_tree`, `read_design_node`, `search_design_nodes`, `search_assets`, `validate_design`, `propose_asset_insertion`, `propose_field_updates`, `propose_canvas_edits`, `propose_output_variant` |
+| Review             | Editor read tools; acceptance and rejection remain human-only in the Review panel                                                                                                                                                                                        |
+| Published template | `validate_design`, `publish_template`, `render_template`, `inspect_render_history`                                                                                                                                                                                       |
+| Render history     | `render_template`, `inspect_render_history`                                                                                                                                                                                                                              |
 
 Registration cleans up with the Studio surface and remains safe under React Strict Mode. Tool handlers capture current services through stable references rather than stale render closures.
 
