@@ -1970,6 +1970,42 @@ Status: **completed locally and independently accepted**
 - The final independent verdict is **ACCEPT with no remaining P0/P1 finding**.
   The reviewer independently matched all six files to the selected report's
   byte lengths, SHA-256 hashes, dimensions, and scroll/client measurements.
+
+## 2026-08-29 — Local render ink-geometry closure (CONFORM-01 / EXPORT-01)
+
+Status: **completed locally and independently accepted; deployed parity open**
+
+- Revisited the retained conformance contract, OpenPencil's visual-oracle and
+  text visual-bounds code, and Loora's font-ready offscreen PNG capture before
+  editing the gate.
+- Cloudflare's local Browser Run simulation completed a cost-free sequential
+  v2 capture through the real Studio and Renderer service bindings. The atomic
+  run retains three React pages, three Fabric pages, three Renderer PNGs, the
+  raw two-page vector PDF, and two exact-size PDF rasters with report-bound
+  hashes.
+- The raw thresholds remain unchanged and their failures remain in the report.
+  Properties and square pages pass raw; the text-only page records cross-raster
+  variance for Fabric, React, and PDF.
+- Added a strict complete-page text geometry alternative. It can apply only
+  when one configured visible canonical text node is the complete page content.
+  The scan covers the whole page so overflow cannot hide outside the canonical
+  text frame. It compares horizontal line count; top, bottom, left, and right
+  ink edges; per-line ink coverage; upper-quartile contrast; and lower-decile
+  foreground color direction. The limits are one edge pixel, 10% coverage,
+  0.1 contrast fraction, and a minimum 0.98 direction cosine.
+- The selected run has four matching line bands for Fabric, React, and PDF,
+  each with a maximum one-pixel edge delta and 3.81% coverage variance.
+  Synthetic tests prove missing glyph interiors, wrong foreground hue,
+  materially reduced opacity, changed wrapping, and two-pixel movement fail.
+- Deployed capture remains open. No remote Browser Run allowance was consumed
+  or required for this local gate.
 - Local Browser Run now uses Wrangler's local simulation; only the production
   config retains remote Browser Run. Local editor verification therefore does
   not consume the account's billable remote allowance.
+- The first independent review rejected a real P1: matching line edges could
+  hide missing glyph interiors, wrong hue, or reduced opacity. Per-line
+  coverage, contrast, and foreground-direction guards plus adversarial tests
+  close that hole. The same reviewer reran the comparator, rehashed all 12
+  selected artifacts, and returned **ACCEPT with no remaining P0/P1 finding**.
+  `render-conformance-local-review.md` preserves the reviewed invariants and
+  evidence.

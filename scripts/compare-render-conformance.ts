@@ -3,7 +3,25 @@
 import { createHash } from "node:crypto"
 import { mkdir, readFile } from "node:fs/promises"
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path"
+import { renderConformanceDocument } from "@webmcp/document"
 import sharp from "sharp"
+import {
+  compareHorizontalInkBands,
+  extractHorizontalInkBands,
+  type RgbColor,
+} from "./render-conformance-geometry"
+
+type GeometryGate = {
+  pageId: string
+  textNodeIds: string[]
+  minimumContrastFraction: number
+  minimumInkPixelsPerRow: number
+  maximumEdgeDelta: number
+  maximumInkPixelRatioDelta: number
+  maximumContrastFractionDelta: number
+  minimumDirectionCosine: number
+  acceptWhenRawFails: boolean
+}
 
 type Comparison = {
   name: string
@@ -13,10 +31,11 @@ type Comparison = {
   pixelDeltaThreshold: number
   maxDifferentPixelRatio: number
   maxRootMeanSquareError: number
+  geometry?: GeometryGate
 }
 
 type Manifest = {
-  version: 1
+  version: 1 | 2
   captureReport: string
   comparisons: Comparison[]
 }
@@ -154,9 +173,22 @@ for (const comparison of manifest.comparisons) {
 
   const differentPixelRatio = differentPixels / pixels
   const rootMeanSquareError = Math.sqrt(squaredError / (pixels * 4))
-  const passed =
+  const rawPassed =
     differentPixelRatio <= comparison.maxDifferentPixelRatio &&
     rootMeanSquareError <= comparison.maxRootMeanSquareError
+  const geometry = comparison.geometry
+    ? compareTextInkGeometry(
+        baseline,
+        candidate,
+        comparison.geometry,
+        comparison.name
+      )
+    : null
+  const passed =
+    rawPassed ||
+    Boolean(
+      comparison.geometry?.acceptWhenRawFails && geometry?.passed === true
+    )
   failed ||= !passed
 
   await mkdir(dirname(diffPath), { recursive: true })
@@ -181,6 +213,9 @@ for (const comparison of manifest.comparisons) {
       maxDifferentPixelRatio: comparison.maxDifferentPixelRatio,
       maxRootMeanSquareError: comparison.maxRootMeanSquareError,
     },
+    rawPassed,
+    geometry,
+    acceptance: rawPassed ? "raw" : passed ? "geometry" : "failed",
     passed,
   })
 }
@@ -189,6 +224,136 @@ const reportPath = resolve(manifestDirectory, "render-conformance-report.json")
 await Bun.write(reportPath, `${JSON.stringify({ results }, null, 2)}\n`)
 console.log(JSON.stringify({ reportPath, results }, null, 2))
 if (failed) process.exit(1)
+
+function compareTextInkGeometry(
+  baseline: Awaited<ReturnType<typeof decodeRgba>>,
+  candidate: Awaited<ReturnType<typeof decodeRgba>>,
+  gate: GeometryGate,
+  comparisonName: string
+) {
+  const page = renderConformanceDocument.pages.find(
+    (candidatePage) => candidatePage.id === gate.pageId
+  )
+  if (!page) {
+    throw new Error(`${comparisonName} geometry page ${gate.pageId} is missing`)
+  }
+  if (baseline.width !== page.width || baseline.height !== page.height) {
+    throw new Error(
+      `${comparisonName} geometry page is ${baseline.width}x${baseline.height}; canonical ${page.id} is ${page.width}x${page.height}`
+    )
+  }
+  if (
+    gate.acceptWhenRawFails &&
+    (gate.textNodeIds.length !== 1 ||
+      page.nodeIds.length !== gate.textNodeIds.length ||
+      page.nodeIds.some((nodeId, index) => nodeId !== gate.textNodeIds[index]))
+  ) {
+    throw new Error(
+      `${comparisonName} cannot substitute geometry for raw pixels unless one text node is the complete canonical page content`
+    )
+  }
+
+  const background = parseHexColor(page.background, `${page.id} background`)
+  const nodes = gate.textNodeIds.map((nodeId) => {
+    const node = renderConformanceDocument.nodes.find(
+      (candidateNode) => candidateNode.id === nodeId
+    )
+    if (!node || node.type !== "text" || !node.visible) {
+      throw new Error(
+        `${comparisonName} geometry node ${nodeId} must be a visible canonical text node`
+      )
+    }
+    if (node.rotation !== 0) {
+      throw new Error(
+        `${comparisonName} geometry node ${nodeId} must be unrotated for horizontal line-band comparison`
+      )
+    }
+    if (!page.nodeIds.includes(node.id)) {
+      throw new Error(
+        `${comparisonName} geometry node ${nodeId} does not belong to ${page.id}`
+      )
+    }
+    const textColor = parseHexColor(node.color, `${node.id} text color`)
+    const foreground = blendColor(background, textColor, node.opacity)
+    const region = gate.acceptWhenRawFails
+      ? { left: 0, top: 0, right: page.width, bottom: page.height }
+      : {
+          left: node.x,
+          top: node.y,
+          right: node.x + node.width,
+          bottom: node.y + node.height,
+        }
+    const options = {
+      background,
+      foreground,
+      minimumContrastFraction: gate.minimumContrastFraction,
+      minimumInkPixelsPerRow: gate.minimumInkPixelsPerRow,
+    }
+    const baselineBands = extractHorizontalInkBands(baseline, region, options)
+    const candidateBands = extractHorizontalInkBands(candidate, region, options)
+    return {
+      nodeId,
+      region,
+      ...compareHorizontalInkBands(baselineBands, candidateBands, {
+        maximumEdgeDelta: gate.maximumEdgeDelta,
+        maximumInkPixelRatioDelta: gate.maximumInkPixelRatioDelta,
+        maximumContrastFractionDelta: gate.maximumContrastFractionDelta,
+        minimumDirectionCosine: gate.minimumDirectionCosine,
+      }),
+    }
+  })
+  return {
+    pageId: page.id,
+    minimumContrastFraction: gate.minimumContrastFraction,
+    minimumInkPixelsPerRow: gate.minimumInkPixelsPerRow,
+    maximumAllowedEdgeDelta: gate.maximumEdgeDelta,
+    maximumAllowedInkPixelRatioDelta: gate.maximumInkPixelRatioDelta,
+    maximumAllowedContrastFractionDelta: gate.maximumContrastFractionDelta,
+    minimumAllowedDirectionCosine: gate.minimumDirectionCosine,
+    completePageSubstitute: gate.acceptWhenRawFails,
+    maximumEdgeDelta:
+      nodes.length > 0 && nodes.every((node) => node.maximumEdgeDelta !== null)
+        ? Math.max(...nodes.map((node) => node.maximumEdgeDelta!))
+        : null,
+    passed: nodes.length > 0 && nodes.every((node) => node.passed),
+    nodes,
+  }
+}
+
+function parseHexColor(value: string, label: string): RgbColor {
+  const normalized = value.trim()
+  const short = /^#([a-f\d])([a-f\d])([a-f\d])$/i.exec(normalized)
+  if (short) {
+    return [
+      Number.parseInt(`${short[1]}${short[1]}`, 16),
+      Number.parseInt(`${short[2]}${short[2]}`, 16),
+      Number.parseInt(`${short[3]}${short[3]}`, 16),
+    ]
+  }
+  const full = /^#([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(normalized)
+  if (!full) throw new Error(`${label} must be an opaque hex color`)
+  return [
+    Number.parseInt(full[1], 16),
+    Number.parseInt(full[2], 16),
+    Number.parseInt(full[3], 16),
+  ]
+}
+
+function blendColor(
+  background: RgbColor,
+  foreground: RgbColor,
+  opacity: number
+): RgbColor {
+  return [
+    blendChannel(background[0], foreground[0], opacity),
+    blendChannel(background[1], foreground[1], opacity),
+    blendChannel(background[2], foreground[2], opacity),
+  ]
+}
+
+function blendChannel(background: number, foreground: number, opacity: number) {
+  return Math.round(background + (foreground - background) * opacity)
+}
 
 async function decodeRgba(path: string) {
   const image = sharp(path).ensureAlpha()
@@ -207,12 +372,12 @@ function validateManifest(value: unknown): Manifest {
   }
   const candidate = value as Partial<Manifest>
   if (
-    candidate.version !== 1 ||
+    (candidate.version !== 1 && candidate.version !== 2) ||
     typeof candidate.captureReport !== "string" ||
     candidate.captureReport === "" ||
     !Array.isArray(candidate.comparisons)
   ) {
-    throw new Error("Render conformance manifest must use version 1")
+    throw new Error("Render conformance manifest must use version 1 or 2")
   }
   const comparisons = candidate.comparisons.map((comparison, index) => {
     if (!comparison || typeof comparison !== "object") {
@@ -242,13 +407,66 @@ function validateManifest(value: unknown): Manifest {
     ) {
       throw new Error(`Comparison ${index} has an invalid threshold`)
     }
-    return item as Comparison
+    const geometry =
+      item.geometry === undefined
+        ? undefined
+        : validateGeometryGate(item.geometry, index, candidate.version!)
+    return { ...item, geometry } as Comparison
   })
   return {
-    version: 1,
+    version: candidate.version,
     captureReport: candidate.captureReport,
     comparisons,
   }
+}
+
+function validateGeometryGate(
+  value: unknown,
+  comparisonIndex: number,
+  manifestVersion: 1 | 2
+): GeometryGate {
+  if (manifestVersion !== 2 || !value || typeof value !== "object") {
+    throw new Error(
+      `Comparison ${comparisonIndex} geometry requires manifest version 2`
+    )
+  }
+  const gate = value as Partial<GeometryGate>
+  if (
+    typeof gate.pageId !== "string" ||
+    gate.pageId === "" ||
+    !Array.isArray(gate.textNodeIds) ||
+    gate.textNodeIds.length === 0 ||
+    gate.textNodeIds.some(
+      (nodeId) => typeof nodeId !== "string" || nodeId === ""
+    ) ||
+    new Set(gate.textNodeIds).size !== gate.textNodeIds.length ||
+    typeof gate.minimumContrastFraction !== "number" ||
+    !Number.isFinite(gate.minimumContrastFraction) ||
+    gate.minimumContrastFraction <= 0 ||
+    gate.minimumContrastFraction > 1 ||
+    typeof gate.minimumInkPixelsPerRow !== "number" ||
+    !Number.isInteger(gate.minimumInkPixelsPerRow) ||
+    gate.minimumInkPixelsPerRow <= 0 ||
+    typeof gate.maximumEdgeDelta !== "number" ||
+    !Number.isInteger(gate.maximumEdgeDelta) ||
+    gate.maximumEdgeDelta < 0 ||
+    typeof gate.maximumInkPixelRatioDelta !== "number" ||
+    !Number.isFinite(gate.maximumInkPixelRatioDelta) ||
+    gate.maximumInkPixelRatioDelta < 0 ||
+    gate.maximumInkPixelRatioDelta > 1 ||
+    typeof gate.maximumContrastFractionDelta !== "number" ||
+    !Number.isFinite(gate.maximumContrastFractionDelta) ||
+    gate.maximumContrastFractionDelta < 0 ||
+    gate.maximumContrastFractionDelta > 1 ||
+    typeof gate.minimumDirectionCosine !== "number" ||
+    !Number.isFinite(gate.minimumDirectionCosine) ||
+    gate.minimumDirectionCosine < 0 ||
+    gate.minimumDirectionCosine > 1 ||
+    typeof gate.acceptWhenRawFails !== "boolean"
+  ) {
+    throw new Error(`Comparison ${comparisonIndex} has invalid ink geometry`)
+  }
+  return gate as GeometryGate
 }
 
 function validateCaptureReport(value: unknown): CaptureReport {

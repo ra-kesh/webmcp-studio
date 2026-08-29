@@ -154,3 +154,49 @@ runner exits coherently and removes staging output. Therefore the retained full
 artifact set is labelled as the last complete capture, not falsely presented
 as post-repair evidence. Deployed same-runtime capture and PDF raster evidence
 remain open before CONFORM-01 / EXPORT-01 can close.
+
+## Local ink-geometry closure, 2026-08-29
+
+The remote-capacity statement above remains true for deployed evidence, but it
+no longer blocks local conformance. After the local Wrangler Browser binding
+was moved off `remote: true`, Cloudflare's local Browser Run simulation
+completed one cost-free sequential capture through the real Studio and Renderer
+service bindings. Immutable version-2 run
+`2026-08-29T13-39-06.443Z-9baa78c6-b315-4788-bcd3-0a357e3ad709`
+contains all 12 artifacts: three React PNGs, three Fabric PNGs, three Renderer
+PNGs, the raw two-page vector PDF, and two exact-size 96 DPI PDF rasters. The
+atomic report verifies every size and SHA-256 before comparison.
+
+The raw pixel gate remains unchanged and remains visible in the report.
+Properties and square comparisons pass raw. The text-only page records its real
+cross-raster differences: Fabric 3.5113% / RMSE 18.9760, React 4.4358% /
+21.3640, and PDF 4.7843% / 21.9266 against the local Renderer PNG.
+
+Manifest version 2 adds a separate canonical ink-geometry contract for this
+text-only page:
+
+- one configured node must be the complete canonical page content before
+  geometry may substitute for raw pixels;
+- that node must be visible, unrotated canonical text on the declared page,
+  and ink is scanned across the whole page so overflow cannot hide outside its
+  frame;
+- ink is measured across the complete page at 20% of the background-to-text
+  contrast, with at least two ink pixels required to form a row;
+- wrapping is observable as the exact horizontal line-band count;
+- every line's top, bottom, left, and right edge may differ by at most one pixel;
+- every line must remain within 10% of its baseline ink-pixel coverage and 0.1
+  of its upper-quartile contrast, while its lower-decile foreground direction
+  cosine must remain at least 0.98;
+- missing glyph interiors, wrong foreground hue, materially reduced opacity,
+  changed wrapping, or a two-pixel edge movement fails.
+
+Fabric, React, and PDF each retain four line bands and pass with a maximum edge
+delta of one pixel. Per-line coverage differs by at most 3.81%, upper-quartile
+contrast is unchanged, and the lowest candidate foreground direction cosine is
+above 0.99999. Synthetic tests prove small raster-intensity differences and
+one-pixel movement pass while missing glyph interiors, wrong hue, reduced
+opacity, changed wrapping, and two-pixel movement fail. This closes the local
+CONFORM-01 / EXPORT-01 evidence boundary
+without hiding raster variance or converting the PDF to screenshots. A repeat
+of the same immutable capture against the deployed Renderer remains the final
+environment gate.

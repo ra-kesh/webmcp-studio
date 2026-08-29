@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "captureReport": "render-conformance-capture-report.json",
   "comparisons": [
     {
@@ -36,7 +36,18 @@
       "diff": "artifacts/diff/long-text-page-fabric.png",
       "pixelDeltaThreshold": 24,
       "maxDifferentPixelRatio": 0.015,
-      "maxRootMeanSquareError": 6
+      "maxRootMeanSquareError": 6,
+      "geometry": {
+        "pageId": "long-text-page",
+        "textNodeIds": ["long-text-only"],
+        "minimumContrastFraction": 0.2,
+        "minimumInkPixelsPerRow": 2,
+        "maximumEdgeDelta": 1,
+        "maximumInkPixelRatioDelta": 0.1,
+        "maximumContrastFractionDelta": 0.1,
+        "minimumDirectionCosine": 0.98,
+        "acceptWhenRawFails": true
+      }
     },
     {
       "name": "long text page React view versus renderer PNG",
@@ -45,7 +56,18 @@
       "diff": "artifacts/diff/long-text-page-render-view.png",
       "pixelDeltaThreshold": 24,
       "maxDifferentPixelRatio": 0.015,
-      "maxRootMeanSquareError": 6
+      "maxRootMeanSquareError": 6,
+      "geometry": {
+        "pageId": "long-text-page",
+        "textNodeIds": ["long-text-only"],
+        "minimumContrastFraction": 0.2,
+        "minimumInkPixelsPerRow": 2,
+        "maximumEdgeDelta": 1,
+        "maximumInkPixelRatioDelta": 0.1,
+        "maximumContrastFractionDelta": 0.1,
+        "minimumDirectionCosine": 0.98,
+        "acceptWhenRawFails": true
+      }
     },
     {
       "name": "long text page PDF raster versus renderer PNG",
@@ -54,7 +76,18 @@
       "diff": "artifacts/diff/long-text-page-pdf.png",
       "pixelDeltaThreshold": 24,
       "maxDifferentPixelRatio": 0.015,
-      "maxRootMeanSquareError": 6
+      "maxRootMeanSquareError": 6,
+      "geometry": {
+        "pageId": "long-text-page",
+        "textNodeIds": ["long-text-only"],
+        "minimumContrastFraction": 0.2,
+        "minimumInkPixelsPerRow": 2,
+        "maximumEdgeDelta": 1,
+        "maximumInkPixelRatioDelta": 0.1,
+        "maximumContrastFractionDelta": 0.1,
+        "minimumDirectionCosine": 0.98,
+        "acceptWhenRawFails": true
+      }
     },
     {
       "name": "square output Fabric versus renderer PNG",
