@@ -26,6 +26,17 @@ import {
   type FieldUpdateProposalInput,
   type OutputVariantProposalInput,
 } from "./change-sets"
+import {
+  DESIGN_QUERY_MAX_DEPTH,
+  DESIGN_QUERY_MAX_LIMIT,
+  DesignQueryError,
+  readDesignNode,
+  readDesignTree,
+  searchDesignNodes,
+  type DesignNodeSearchQuery,
+  type DesignQueryIdentity,
+  type DesignTreeQuery,
+} from "./design-queries"
 
 export type WebMcpToolResult = {
   content: Array<{ type: "text"; text: string }>
@@ -160,15 +171,24 @@ const textResult = (
   structuredContent,
 })
 
-const errorResult = (error: unknown): WebMcpToolResult => ({
-  content: [
-    {
-      type: "text",
-      text: error instanceof Error ? error.message : "The tool call failed.",
-    },
-  ],
-  isError: true,
-})
+const errorResult = (error: unknown): WebMcpToolResult => {
+  const message =
+    error instanceof Error ? error.message : "The tool call failed."
+  return {
+    content: [{ type: "text", text: message }],
+    ...(error instanceof DesignQueryError
+      ? {
+          structuredContent: {
+            status: "error",
+            code: error.code,
+            message,
+            retryable: false,
+          },
+        }
+      : {}),
+    isError: true,
+  }
+}
 
 const publicAssetValue = (
   value: unknown,
@@ -571,6 +591,159 @@ function isSceneNodeType(value: unknown): value is SceneNode["type"] {
     typeof value === "string" && sceneNodeTypes.has(value as SceneNode["type"])
   )
 }
+
+const queryObject = (input: unknown) => {
+  if (input === undefined) return {} as Record<string, unknown>
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new DesignQueryError("invalid_query", "Expected a query object.")
+  }
+  return input as Record<string, unknown>
+}
+
+const assertQueryKeys = (
+  value: Record<string, unknown>,
+  allowed: readonly string[]
+) => {
+  const unexpected = Object.keys(value).find((key) => !allowed.includes(key))
+  if (unexpected) {
+    throw new DesignQueryError(
+      "invalid_query",
+      `Unexpected query property: ${unexpected}.`
+    )
+  }
+}
+
+const optionalQueryString = (
+  value: unknown,
+  name: string
+): string | undefined => {
+  if (value === undefined) return undefined
+  if (typeof value !== "string" || !value.trim()) {
+    throw new DesignQueryError(
+      "invalid_query",
+      `${name} must be a non-empty string.`
+    )
+  }
+  return value.trim()
+}
+
+const queryCursor = (value: unknown) => {
+  if (value === undefined || value === null) return null
+  if (typeof value !== "string" || !value) {
+    throw new DesignQueryError(
+      "invalid_query",
+      "cursor must be a non-empty string."
+    )
+  }
+  return value
+}
+
+const boundedQueryInteger = (
+  value: unknown,
+  name: string,
+  defaultValue: number,
+  maximum: number
+) => {
+  const resolved = value === undefined ? defaultValue : value
+  if (
+    typeof resolved !== "number" ||
+    !Number.isInteger(resolved) ||
+    resolved < 1 ||
+    resolved > maximum
+  ) {
+    throw new DesignQueryError(
+      "invalid_query",
+      `${name} must be an integer from 1 to ${maximum}.`
+    )
+  }
+  return resolved
+}
+
+function parseDesignTreeQuery(input: unknown): DesignTreeQuery {
+  const value = queryObject(input)
+  assertQueryKeys(value, ["pageId", "depth", "limit", "cursor"])
+  return {
+    pageId: optionalQueryString(value.pageId, "pageId"),
+    depth: boundedQueryInteger(value.depth, "depth", 4, DESIGN_QUERY_MAX_DEPTH),
+    limit: boundedQueryInteger(
+      value.limit,
+      "limit",
+      24,
+      DESIGN_QUERY_MAX_LIMIT
+    ),
+    cursor: queryCursor(value.cursor),
+  }
+}
+
+function parseDesignNodeQuery(input: unknown) {
+  const value = queryObject(input)
+  assertQueryKeys(value, ["nodeId"])
+  const nodeId = optionalQueryString(value.nodeId, "nodeId")
+  if (!nodeId) {
+    throw new DesignQueryError("invalid_query", "nodeId is required.")
+  }
+  return nodeId
+}
+
+function parseDesignNodeSearchQuery(input: unknown): DesignNodeSearchQuery {
+  const value = queryObject(input)
+  assertQueryKeys(value, ["query", "pageId", "types", "limit", "cursor"])
+  const query = optionalQueryString(value.query, "query")
+  if (!query) {
+    throw new DesignQueryError("invalid_query", "query is required.")
+  }
+  if (query.length > 200) {
+    throw new DesignQueryError(
+      "invalid_query",
+      "query must contain at most 200 characters."
+    )
+  }
+  let types: SceneNode["type"][] | undefined
+  if (value.types !== undefined) {
+    if (!Array.isArray(value.types) || value.types.length === 0) {
+      throw new DesignQueryError(
+        "invalid_query",
+        "types must be a non-empty array of layer types."
+      )
+    }
+    types = value.types.map((type) => {
+      if (!isSceneNodeType(type)) {
+        throw new DesignQueryError(
+          "invalid_query",
+          "types contains an unsupported layer type."
+        )
+      }
+      return type
+    })
+    if (new Set(types).size !== types.length) {
+      throw new DesignQueryError(
+        "invalid_query",
+        "types must not contain duplicates."
+      )
+    }
+  }
+  return {
+    query,
+    pageId: optionalQueryString(value.pageId, "pageId"),
+    types,
+    limit: boundedQueryInteger(
+      value.limit,
+      "limit",
+      50,
+      DESIGN_QUERY_MAX_LIMIT
+    ),
+    cursor: queryCursor(value.cursor),
+  }
+}
+
+const designQueryIdentity = (
+  snapshot: StudioWebMcpSnapshot
+): DesignQueryIdentity => ({
+  documentId: snapshot.document.id,
+  revision: snapshot.document.revision,
+  snapshotId: snapshot.snapshotId,
+  operationVersion: snapshot.operationVersion,
+})
 
 const publicCommonCanvasPatchProperties = new Set([
   "name",
@@ -1052,9 +1225,9 @@ function selectRenderHistory(
 
 async function resolveDocumentAssets(
   document: Document,
+  snapshot: StudioWebMcpSnapshot,
   services: StudioWebMcpServices
 ) {
-  const snapshot = services.getSnapshot()
   const values = new Set<string>()
   for (const field of document.fields) {
     if (field.type !== "asset") continue
@@ -1094,6 +1267,7 @@ export function studioWebMcpTools(
           const current = services.getSnapshot()
           const resolvedAssets = await resolveDocumentAssets(
             current.document,
+            current,
             services
           )
           const activePage = current.document.pages.find(
@@ -1185,6 +1359,120 @@ export function studioWebMcpTools(
       },
     },
     {
+      name: "read_design_tree",
+      title: "Read design tree",
+      description:
+        "Read the ordered page, group, and layer tree for the complete live document. Use pageId to inspect one page and cursors to paginate large documents.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          pageId: { type: "string", minLength: 1 },
+          depth: {
+            type: "integer",
+            minimum: 1,
+            maximum: DESIGN_QUERY_MAX_DEPTH,
+          },
+          limit: {
+            type: "integer",
+            minimum: 1,
+            maximum: DESIGN_QUERY_MAX_LIMIT,
+          },
+          cursor: { type: "string", minLength: 1 },
+        },
+      },
+      annotations: { readOnlyHint: true, untrustedContentHint: true },
+      execute: (input) => {
+        try {
+          const current = services.getSnapshot()
+          const result = readDesignTree(
+            current.document,
+            designQueryIdentity(current),
+            parseDesignTreeQuery(input)
+          )
+          return textResult(
+            `Read ${result.items.length} design tree item${result.items.length === 1 ? "" : "s"} from ${current.document.name}.`,
+            result
+          )
+        } catch (error) {
+          return errorResult(error)
+        }
+      },
+    },
+    {
+      name: "read_design_node",
+      title: "Read design layer",
+      description:
+        "Read one layer by stable ID with its page, output, group ancestry, and shared-field bindings. Private image source URLs are never returned.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["nodeId"],
+        properties: { nodeId: { type: "string", minLength: 1 } },
+      },
+      annotations: { readOnlyHint: true, untrustedContentHint: true },
+      execute: (input) => {
+        try {
+          const current = services.getSnapshot()
+          const result = readDesignNode(
+            current.document,
+            designQueryIdentity(current),
+            parseDesignNodeQuery(input)
+          )
+          return textResult(`Read layer ${result.node.name}.`, result)
+        } catch (error) {
+          return errorResult(error)
+        }
+      },
+    },
+    {
+      name: "search_design_nodes",
+      title: "Search design layers",
+      description:
+        "Search layer names and text across every page of the live document, optionally restricted by page or layer type.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["query"],
+        properties: {
+          query: { type: "string", minLength: 1, maxLength: 200 },
+          pageId: { type: "string", minLength: 1 },
+          types: {
+            type: "array",
+            minItems: 1,
+            uniqueItems: true,
+            items: {
+              type: "string",
+              enum: ["text", "rect", "ellipse", "line", "icon", "image"],
+            },
+          },
+          limit: {
+            type: "integer",
+            minimum: 1,
+            maximum: DESIGN_QUERY_MAX_LIMIT,
+          },
+          cursor: { type: "string", minLength: 1 },
+        },
+      },
+      annotations: { readOnlyHint: true, untrustedContentHint: true },
+      execute: (input) => {
+        try {
+          const current = services.getSnapshot()
+          const result = searchDesignNodes(
+            current.document,
+            designQueryIdentity(current),
+            parseDesignNodeSearchQuery(input)
+          )
+          return textResult(
+            `Found ${result.matches.length} matching layer${result.matches.length === 1 ? "" : "s"}.`,
+            result
+          )
+        } catch (error) {
+          return errorResult(error)
+        }
+      },
+    },
+    {
       name: "search_assets",
       title: "Search approved assets",
       description:
@@ -1232,7 +1520,11 @@ export function studioWebMcpTools(
         try {
           const snapshot = services.getSnapshot()
           const document = snapshot.document
-          const resolvedAssets = await resolveDocumentAssets(document, services)
+          const resolvedAssets = await resolveDocumentAssets(
+            document,
+            snapshot,
+            services
+          )
           const approvedAssetIds = new Set(
             resolvedAssets.map((asset) => asset.id)
           )

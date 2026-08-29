@@ -2587,6 +2587,9 @@ function ReviewPanel({
 }) {
   const registeredToolNames = new Set([
     "inspect_design",
+    "read_design_tree",
+    "read_design_node",
+    "search_design_nodes",
     "search_assets",
     "validate_design",
     "propose_asset_insertion",

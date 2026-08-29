@@ -14,6 +14,7 @@ import {
   it,
   vi,
 } from "vitest"
+import { toolNames } from "@webmcp/webmcp"
 import type { WebMcpModelContext } from "@webmcp/webmcp"
 import { studioAssets } from "./asset-catalog"
 import { useStudioWebMcp } from "./use-studio-webmcp"
@@ -39,10 +40,10 @@ function MountedWebMcp({
   capture,
 }: {
   enabled: boolean
-  capture: (status: ReturnType<typeof useStudioWebMcp>["status"]) => void
+  capture: (result: ReturnType<typeof useStudioWebMcp>) => void
 }) {
   const result = useStudioWebMcp(services, { enabled })
-  useLayoutEffect(() => capture(result.status))
+  useLayoutEffect(() => capture(result))
   return null
 }
 
@@ -88,12 +89,14 @@ describe("useStudioWebMcp lifecycle", () => {
       value: modelContext,
     })
     let status: ReturnType<typeof useStudioWebMcp>["status"] = "unavailable"
+    let registeredToolCount = 0
     const render = (enabled: boolean) =>
       root.render(
         <MountedWebMcp
           enabled={enabled}
-          capture={(nextStatus) => {
-            status = nextStatus
+          capture={(result) => {
+            status = result.status
+            registeredToolCount = result.registeredToolCount
           }}
         />
       )
@@ -104,12 +107,54 @@ describe("useStudioWebMcp lifecycle", () => {
       await Promise.resolve()
     })
     expect(status).toBe("ready")
-    expect(signals).toHaveLength(10)
+    expect(registeredToolCount).toBe(toolNames.length)
+    expect(signals).toHaveLength(toolNames.length)
     expect(signals.every((signal) => !signal.aborted)).toBe(true)
 
     await act(async () => render(false))
 
     expect(status).toBe("unavailable")
+    expect(registeredToolCount).toBe(0)
+    expect(signals.every((signal) => signal.aborted)).toBe(true)
+  })
+
+  it("aborts a partially registered tool set when one registration fails", async () => {
+    const signals: AbortSignal[] = []
+    const modelContext: WebMcpModelContext = {
+      registerTool: async (tool, options) => {
+        if (!options?.signal) throw new Error("Expected a registration signal")
+        signals.push(options.signal)
+        if (tool.name === "read_design_node") {
+          throw new Error("Registration refused")
+        }
+        return undefined
+      },
+    }
+    Object.defineProperty(document, "modelContext", {
+      configurable: true,
+      value: modelContext,
+    })
+    let result: ReturnType<typeof useStudioWebMcp> | null = null
+
+    await act(async () => {
+      root.render(
+        <MountedWebMcp
+          enabled
+          capture={(nextResult) => {
+            result = nextResult
+          }}
+        />
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(result).toMatchObject({
+      status: "error",
+      error: "Registration refused",
+      registeredToolCount: 0,
+    })
+    expect(signals).toHaveLength(toolNames.length)
     expect(signals.every((signal) => signal.aborted)).toBe(true)
   })
 })

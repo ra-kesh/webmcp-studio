@@ -9,7 +9,8 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@webmcp/document": "workspace:*"
+    "@webmcp/document": "workspace:*",
+    "@webmcp/editor": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^6",

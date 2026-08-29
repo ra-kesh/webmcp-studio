@@ -1515,3 +1515,32 @@ Open evidence:
 - The bounded two-tab and deployed Renderer-versus-Artboard conformance journeys
   remain tracked under CONFORM-01/browser acceptance and are not claimed by this
   fast close-out.
+
+## 2026-08-29 — Complete-document WebMCP queries (WEBMCP-01A)
+
+Status: **completed and independently accepted for the WEBMCP-01A boundary**
+
+- Added compact, read-only whole-document tree, node, and search tools. Agents
+  can discover and inspect non-active quotation pages without moving the user's
+  editor, while every result carries exact document revision, snapshot, and
+  operation identity.
+- The semantic tree is a cursor-paginated pre-order stream bounded by total
+  returned items, including layers. Node reads preserve page/output/group/field
+  context; search preserves canonical page and stack order. Image renderer
+  sources, browser-local aliases, and managed source aliases remain private.
+- `inspect_design` now uses one captured snapshot for both document and asset
+  policy. The React hook reports the registrar's real tool count and aborts all
+  partially registered tools if any registration fails.
+- The first independent review rejected unbounded layer responses, partial
+  registration failure, and a stale workspace lock. All three were repaired;
+  the final verdict is **ACCEPT with no remaining P0/P1 blocker**.
+- WebMCP tests pass **46/46** and focused Studio WebMCP/inspector tests pass
+  **6/6**. Both package typechecks, focused Studio ESLint, scoped Prettier, and
+  `git diff --check` pass. The live canonical document route exposes all 13
+  registered tools.
+
+Next boundary:
+
+- WEBMCP-01B: project the complete canonical `productCommandIds` vocabulary and
+  exact disabled reasons by stable target before introducing any generic
+  command execution surface.

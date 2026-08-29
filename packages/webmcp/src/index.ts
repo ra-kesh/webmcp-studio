@@ -1,8 +1,12 @@
 export * from "./change-sets"
+export * from "./design-queries"
 export * from "./registration"
 
 export const toolNames = [
   "inspect_design",
+  "read_design_tree",
+  "read_design_node",
+  "search_design_nodes",
   "search_assets",
   "validate_design",
   "propose_asset_insertion",
@@ -29,6 +33,28 @@ export const toolCatalog: readonly ToolDescriptor[] = [
     name: "inspect_design",
     description:
       "Read the active document, outputs, fields, pages, and selection.",
+    mutates: false,
+    requiresHumanReview: false,
+    routes: ["editor", "review"],
+  },
+  {
+    name: "read_design_tree",
+    description: "Read the ordered page, group, and layer tree.",
+    mutates: false,
+    requiresHumanReview: false,
+    routes: ["editor", "review"],
+  },
+  {
+    name: "read_design_node",
+    description:
+      "Read one layer with page, output, group, and binding context.",
+    mutates: false,
+    requiresHumanReview: false,
+    routes: ["editor", "review"],
+  },
+  {
+    name: "search_design_nodes",
+    description: "Search layer names and text across the document.",
     mutates: false,
     requiresHumanReview: false,
     routes: ["editor", "review"],

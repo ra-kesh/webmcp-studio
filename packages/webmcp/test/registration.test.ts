@@ -267,9 +267,12 @@ describe("WebMCP registration", () => {
       state.controller.signal
     )
 
-    expect(count).toBe(10)
+    expect(count).toBe(13)
     expect([...state.registered.keys()]).toEqual([
       "inspect_design",
+      "read_design_tree",
+      "read_design_node",
+      "search_design_nodes",
       "search_assets",
       "validate_design",
       "propose_asset_insertion",
@@ -298,7 +301,9 @@ describe("WebMCP registration", () => {
       expect(tool.annotations?.untrustedContentHint, tool.name).toBe(true)
     }
 
+    const getSnapshot = vi.spyOn(state.services, "getSnapshot")
     const inspected = await state.registered.get("inspect_design")?.execute({})
+    expect(getSnapshot).toHaveBeenCalledTimes(1)
     const inspectedNodes = (
       inspected?.structuredContent as {
         activePageNodes: Array<Record<string, unknown>>
@@ -348,6 +353,56 @@ describe("WebMCP registration", () => {
           ]),
         }),
       ]),
+    })
+
+    getSnapshot.mockClear()
+    const tree = await state.registered.get("read_design_tree")?.execute({
+      pageId: "package",
+    })
+    expect(getSnapshot).toHaveBeenCalledTimes(1)
+    expect(tree?.structuredContent).toMatchObject({
+      identity: {
+        documentId: northstarSeed.id,
+        revision: northstarSeed.revision,
+        snapshotId: "snapshot-seed",
+      },
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          id: "package",
+          kind: "page",
+          outputId: "proposal",
+        }),
+      ]),
+    })
+
+    const node = await state.registered.get("read_design_node")?.execute({
+      nodeId: "package-price",
+    })
+    expect(node?.structuredContent).toMatchObject({
+      page: { id: "package" },
+      output: { id: "proposal" },
+      node: { id: "package-price", type: "text" },
+    })
+
+    const search = await state.registered
+      .get("search_design_nodes")
+      ?.execute({ query: "package", pageId: "package", types: ["text"] })
+    expect(search?.structuredContent).toMatchObject({
+      matches: expect.arrayContaining([
+        expect.objectContaining({ pageId: "package", type: "text" }),
+      ]),
+    })
+
+    const missing = await state.registered.get("read_design_node")?.execute({
+      nodeId: "missing-node",
+    })
+    expect(missing).toMatchObject({
+      isError: true,
+      structuredContent: {
+        status: "error",
+        code: "node_not_found",
+        retryable: false,
+      },
     })
     expect(JSON.stringify(inspected?.structuredContent)).not.toContain(
       "data:image"

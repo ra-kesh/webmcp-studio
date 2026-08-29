@@ -141,6 +141,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@webmcp/document": "workspace:*",
+        "@webmcp/editor": "workspace:*",
       },
       "devDependencies": {
         "typescript": "^6",

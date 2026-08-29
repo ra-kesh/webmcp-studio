@@ -68,11 +68,13 @@ export function useStudioWebMcp(
   servicesRef.current = services
   const [status, setStatus] = useState<WebMcpStatus>("unavailable")
   const [error, setError] = useState<string | null>(null)
+  const [registeredToolCount, setRegisteredToolCount] = useState(0)
 
   useEffect(() => {
     if (!enabled) {
       setStatus("unavailable")
       setError(null)
+      setRegisteredToolCount(0)
       return
     }
     const controller = new AbortController()
@@ -92,8 +94,9 @@ export function useStudioWebMcp(
       )
       catalog = registeredCatalog
       setStatus("registering")
+      setRegisteredToolCount(0)
       try {
-        await registerStudioWebMcpTools(
+        const toolCount = await registerStudioWebMcpTools(
           modelContext,
           {
             getSnapshot: () => projectStudioWebMcpSnapshot(servicesRef.current),
@@ -117,10 +120,15 @@ export function useStudioWebMcp(
         window.clearInterval(interval)
         setStatus("ready")
         setError(null)
+        setRegisteredToolCount(toolCount)
       } catch (registrationError) {
+        controller.abort()
+        registeredCatalog.dispose()
+        if (catalog === registeredCatalog) catalog = null
         if (!active) return
         window.clearInterval(interval)
         setStatus("error")
+        setRegisteredToolCount(0)
         setError(
           registrationError instanceof Error
             ? registrationError.message
@@ -139,5 +147,5 @@ export function useStudioWebMcp(
     }
   }, [enabled])
 
-  return { status, error, registeredToolCount: status === "ready" ? 10 : 0 }
+  return { status, error, registeredToolCount }
 }
