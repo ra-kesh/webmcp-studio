@@ -156,35 +156,38 @@ describe("managed WebMCP catalog", () => {
     catalog.dispose()
   })
 
-  it("deduplicates only concurrent exact lookups and revalidates the next request", async () => {
-    let finishFirst: ((value: typeof readyManaged) => void) | undefined
+  it("keeps concurrent exact lookups under their own caller signals", async () => {
+    const firstController = new AbortController()
+    const secondController = new AbortController()
+    let finishSecond: ((value: typeof readyManaged) => void) | undefined
     media.get
+      .mockImplementationOnce(
+        (_assetId: string, signal: AbortSignal) =>
+          new Promise<typeof readyManaged>((_resolve, reject) => {
+            signal.addEventListener("abort", () => reject(signal.reason), {
+              once: true,
+            })
+          })
+      )
       .mockImplementationOnce(
         () =>
           new Promise<typeof readyManaged>((resolve) => {
-            finishFirst = resolve
+            finishSecond = resolve
           })
       )
-      .mockResolvedValueOnce({
-        ...readyManaged,
-        status: "archived",
-        selectable: false,
-      })
     const catalog = createManagedWebMcpCatalog(builtIns)
 
-    const first = catalog.resolve(readyManaged.id)
-    const concurrent = catalog.resolve(readyManaged.id)
-    expect(media.get).toHaveBeenCalledTimes(1)
-    finishFirst?.(readyManaged)
-    await expect(Promise.all([first, concurrent])).resolves.toEqual([
-      expect.objectContaining({ selectable: true }),
-      expect.objectContaining({ selectable: true }),
-    ])
-
-    await expect(catalog.resolve(readyManaged.id)).resolves.toMatchObject({
-      selectable: false,
-    })
+    const first = catalog.resolve(readyManaged.id, firstController.signal)
+    const second = catalog.resolve(readyManaged.id, secondController.signal)
     expect(media.get).toHaveBeenCalledTimes(2)
+    expect(media.get.mock.calls[0]?.[1]).toBe(firstController.signal)
+    expect(media.get.mock.calls[1]?.[1]).toBe(secondController.signal)
+
+    firstController.abort(new DOMException("First caller left.", "AbortError"))
+    finishSecond?.(readyManaged)
+
+    await expect(first).rejects.toMatchObject({ name: "AbortError" })
+    await expect(second).resolves.toMatchObject({ selectable: true })
     catalog.dispose()
   })
 

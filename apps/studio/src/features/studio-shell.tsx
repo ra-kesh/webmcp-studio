@@ -1614,13 +1614,15 @@ export function StudioShell({
               reason: "Canonical command execution is not ready yet.",
             }
       },
-      publishTemplate: async () => {
+      publishTemplate: async (expected, options) => {
+        options?.signal?.throwIfAborted()
         if (!commitActiveTextEditing()) {
           throw new Error(
             "Studio could not finish the active text edit before publishing."
           )
         }
-        return editor.publishTemplate()
+        options?.signal?.throwIfAborted()
+        return editor.publishTemplate(expected, options)
       },
       renderTemplate: renderHistory.runRender,
     },

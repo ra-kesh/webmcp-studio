@@ -292,7 +292,7 @@ function setup(
       return changeSet
     },
     runProductCommand: vi.fn(() => ({ status: "accepted" as const })),
-    publishTemplate: () => publishedVersion,
+    publishTemplate: vi.fn(() => publishedVersion),
     renderTemplate: async (
       _version: typeof publishedVersion,
       modifications: TemplateModifications,
@@ -379,7 +379,7 @@ describe("WebMCP registration", () => {
     expect(state.registered.get("render_template")?.annotations).toEqual({
       readOnlyHint: false,
       destructiveHint: false,
-      idempotentHint: false,
+      idempotentHint: true,
       openWorldHint: true,
       untrustedContentHint: true,
     })
@@ -503,6 +503,14 @@ describe("WebMCP registration", () => {
       version: 1,
       sourceRevision: northstarSeed.revision,
     })
+    expect(state.services.publishTemplate).toHaveBeenCalledWith(
+      {
+        documentId: northstarSeed.id,
+        revision: northstarSeed.revision,
+        snapshotId: "snapshot-seed",
+      },
+      { signal: expect.any(AbortSignal) }
+    )
 
     const staleBranch = await state.registered
       .get("publish_template")
@@ -513,6 +521,38 @@ describe("WebMCP registration", () => {
       })
     expect(staleBranch?.isError).toBe(true)
     expect(staleBranch?.content[0]?.text).toContain("branch changed")
+  })
+
+  it("reports an interrupted publication with stable unknown-status identity", async () => {
+    const state = setup()
+    state.services.publishTemplate.mockRejectedValueOnce(
+      new DOMException("Publication caller stopped waiting.", "AbortError")
+    )
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const result = await state.registered.get("publish_template")?.execute({
+      documentId: northstarSeed.id,
+      expectedRevision: northstarSeed.revision,
+      expectedSnapshotId: "snapshot-seed",
+    })
+
+    expect(result).toMatchObject({
+      isError: true,
+      structuredContent: {
+        status: "error",
+        code: "execution_status_unknown",
+        retryable: true,
+      },
+    })
   })
 
   it("projects the complete canonical product command policy", async () => {
@@ -956,13 +996,17 @@ describe("WebMCP registration", () => {
       limit: 1,
       cursor: "catalog-page-2",
     })
-    expect(search).toHaveBeenNthCalledWith(2, {
-      query: "portrait",
-      orientation: undefined,
-      tags: [],
-      limit: 1,
-      cursor: "catalog-page-2",
-    })
+    expect(search).toHaveBeenNthCalledWith(
+      2,
+      {
+        query: "portrait",
+        orientation: undefined,
+        tags: [],
+        limit: 1,
+        cursor: "catalog-page-2",
+      },
+      expect.any(AbortSignal)
+    )
   })
 
   it("round-trips archived managed field identities for inspection and validation", async () => {
@@ -1519,6 +1563,7 @@ describe("WebMCP registration", () => {
       version: 1,
       modifications: { couple_names: "Mira & Dev" },
       outputs: [{ outputId: "proposal", format: "pdf" }],
+      idempotencyKey: "render-exact-version",
     })
 
     expect(result?.isError).toBeUndefined()
@@ -1574,6 +1619,7 @@ describe("WebMCP registration", () => {
       version: 1,
       modifications: { hero_asset: "sandstone-arches" },
       outputs: [{ outputId: "proposal", format: "pdf" }],
+      idempotencyKey: "render-public-asset",
     })
 
     expect(result?.isError).toBeUndefined()
@@ -1625,6 +1671,7 @@ describe("WebMCP registration", () => {
       templateId: "northstar-wedding-proposal",
       version: 1,
       outputs: [{ outputId: "proposal", format: "pdf" }],
+      idempotencyKey: "render-archived-asset",
     }
 
     const existing = await render?.execute({
@@ -1701,6 +1748,7 @@ describe("WebMCP registration", () => {
       version: 1,
       modifications: { new_asset_target: archivedManagedAsset.id },
       outputs: [{ outputId: "proposal", format: "pdf" }],
+      idempotencyKey: "render-archived-new-target",
     })
 
     expect(result?.isError).toBe(true)
@@ -1731,6 +1779,7 @@ describe("WebMCP registration", () => {
         { outputId: "proposal", format: "pdf" },
         { outputId: "proposal", format: "pdf" },
       ],
+      idempotencyKey: "render-duplicate-output",
     })
 
     expect(result?.isError).toBe(true)
@@ -1758,6 +1807,7 @@ describe("WebMCP registration", () => {
       version: 1,
       modifications: { invented_parameter: "unsafe" },
       outputs: [{ outputId: "proposal", format: "pdf" }],
+      idempotencyKey: "render-unknown-parameter",
     })
 
     expect(result?.isError).toBe(true)
@@ -2335,6 +2385,7 @@ describe("WebMCP registration", () => {
       version: 1,
       modifications: { package_price: 9_007_199_254_740_992 },
       outputs: [{ outputId: "proposal", format: "pdf" }],
+      idempotencyKey: "render-unsafe-currency",
     })
     expect(render?.isError).toBe(true)
     expect(render?.content[0]?.text).toContain("exact decimal string")

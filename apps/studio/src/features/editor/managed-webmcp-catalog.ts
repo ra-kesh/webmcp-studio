@@ -123,9 +123,13 @@ const matchingBuiltIns = (
 
 export type ManagedWebMcpCatalog = {
   search: (
-    input: StudioWebMcpAssetSearchInput
+    input: StudioWebMcpAssetSearchInput,
+    signal?: AbortSignal
   ) => Promise<StudioWebMcpAssetSearchPage>
-  resolve: (assetId: string) => Promise<StudioWebMcpAsset | null>
+  resolve: (
+    assetId: string,
+    signal?: AbortSignal
+  ) => Promise<StudioWebMcpAsset | null>
   dispose: () => void
 }
 
@@ -135,13 +139,10 @@ export function createManagedWebMcpCatalog(
   const builtInById = new Map(
     builtIns.map((asset) => [asset.id, builtInAsset(asset)])
   )
-  const pendingResolutions = new Map<
-    string,
-    Promise<StudioWebMcpAsset | null>
-  >()
 
   return {
-    async search(input) {
+    async search(input, signal) {
+      signal?.throwIfAborted()
       const builtInMatches = matchingBuiltIns(builtIns, input)
       const state = input.cursor
         ? decodeCursor(input.cursor, input)
@@ -169,7 +170,9 @@ export function createManagedWebMcpCatalog(
             query: input.query,
             cursor: managedStarted ? (managedCursor ?? undefined) : undefined,
             limit: input.limit - assets.length,
+            signal,
           })
+          signal?.throwIfAborted()
           managedStarted = true
           managedCursor = page.nextCursor
           for (const item of page.assets) {
@@ -205,25 +208,16 @@ export function createManagedWebMcpCatalog(
       }
     },
 
-    async resolve(assetId) {
+    async resolve(assetId, signal) {
+      signal?.throwIfAborted()
       const builtIn = builtInById.get(assetId)
       if (builtIn) return builtIn
       if (!mediaAssetIdSchema.safeParse(assetId).success) return null
-      const existing = pendingResolutions.get(assetId)
-      if (existing) return existing
-      const pending = getManagedMedia(assetId)
-        .then((managed) => (managed ? workspaceAsset(managed) : null))
-        .finally(() => {
-          if (pendingResolutions.get(assetId) === pending) {
-            pendingResolutions.delete(assetId)
-          }
-        })
-      pendingResolutions.set(assetId, pending)
-      return pending
+      const managed = await getManagedMedia(assetId, signal)
+      signal?.throwIfAborted()
+      return managed ? workspaceAsset(managed) : null
     },
 
-    dispose() {
-      pendingResolutions.clear()
-    },
+    dispose() {},
   }
 }

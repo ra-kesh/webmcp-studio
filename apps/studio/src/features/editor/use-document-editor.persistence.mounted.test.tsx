@@ -2345,6 +2345,148 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     })
   })
 
+  it("refuses to publish a snapshot changed after exact approval", async () => {
+    const envelope = designEnvelope()
+    const { captured } = await openEnvelope(
+      envelope,
+      "publication-exact-approval"
+    )
+    const expected = {
+      documentId: captured.current!.document.id,
+      revision: captured.current!.document.revision,
+      snapshotId: captured.current!.snapshotId,
+    }
+    await act(async () => {
+      captured.current!.addRectangle()
+    })
+    const fetchMock = vi.fn<typeof fetch>()
+    vi.stubGlobal("fetch", fetchMock)
+
+    await act(async () => {
+      await expect(captured.current!.publishTemplate(expected)).rejects.toThrow(
+        /changed after publication approval/i
+      )
+    })
+
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("does not join an exact publication to another snapshot owner", async () => {
+    const envelope = designEnvelope()
+    const { captured, hookRepository } = await openEnvelope(
+      envelope,
+      "publication-exact-single-flight"
+    )
+    await act(async () => {
+      expect(await captured.current!.flushActiveDraft()).toBe(true)
+    })
+    const head = await readRecord(hookRepository, envelope.document.id)
+    const expectedA = {
+      documentId: captured.current!.document.id,
+      revision: captured.current!.document.revision,
+      snapshotId: captured.current!.snapshotId,
+    }
+    let resolvePublication: ((response: Response) => void) | undefined
+    const publicationResponse = new Promise<Response>((resolve) => {
+      resolvePublication = resolve
+    })
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockImplementation((_input, init) =>
+        init?.method === "POST"
+          ? publicationResponse
+          : Promise.resolve(new Response(null, { status: 404 }))
+      )
+    vi.stubGlobal("fetch", fetchMock)
+
+    let publishingA: Promise<TemplateVersion> | undefined
+    await act(async () => {
+      publishingA = captured.current!.publishTemplate(expectedA)
+      await vi.waitFor(() =>
+        expect(
+          fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")
+        ).toHaveLength(1)
+      )
+      captured.current!.addRectangle()
+    })
+    const expectedB = {
+      documentId: captured.current!.document.id,
+      revision: captured.current!.document.revision,
+      snapshotId: captured.current!.snapshotId,
+    }
+
+    await expect(captured.current!.publishTemplate(expectedB)).rejects.toThrow(
+      /another publication owns a different document snapshot/i
+    )
+
+    const publicationCall = fetchMock.mock.calls.find(
+      ([, init]) => init?.method === "POST"
+    )
+    const request = JSON.parse(
+      String(publicationCall?.[1]?.body)
+    ) as PublishRequestBody
+    const authoritative = createTemplateVersion(request.document, {
+      id: request.id,
+      templateId: request.templateId,
+      version: request.version,
+      sourceSnapshotId: head.summary.contentSnapshotId,
+      publishedAt: request.publishedAt,
+    })
+    await act(async () => {
+      resolvePublication?.(
+        new Response(JSON.stringify(authoritative), {
+          status: 201,
+          headers: { "Content-Type": "application/json" },
+        })
+      )
+      await expect(publishingA).resolves.toEqual(authoritative)
+    })
+  })
+
+  it("aborts an externally owned publication before any later server request", async () => {
+    const envelope = designEnvelope()
+    const { captured, hookRepository } = await openEnvelope(
+      envelope,
+      "publication-external-abort"
+    )
+    await act(async () => {
+      expect(await captured.current!.flushActiveDraft()).toBe(true)
+    })
+    const durable = await hookRepository.get(envelope.document.id)
+    let releaseRead: (() => void) | undefined
+    const delayedRead = new Promise<typeof durable>((resolve) => {
+      releaseRead = () => resolve(durable)
+    })
+    const getSpy = vi
+      .spyOn(hookRepository, "get")
+      .mockImplementationOnce(() => delayedRead)
+    const fetchMock = vi.fn<typeof fetch>()
+    vi.stubGlobal("fetch", fetchMock)
+    const controller = new AbortController()
+    const expected = {
+      documentId: captured.current!.document.id,
+      revision: captured.current!.document.revision,
+      snapshotId: captured.current!.snapshotId,
+    }
+
+    let publishing: Promise<TemplateVersion> | undefined
+    await act(async () => {
+      publishing = captured.current!.publishTemplate(expected, {
+        signal: controller.signal,
+      })
+      await vi.waitFor(() => expect(getSpy).toHaveBeenCalledOnce())
+      controller.abort(
+        new DOMException("WebMCP registration was replaced.", "AbortError")
+      )
+      await expect(publishing).rejects.toMatchObject({ name: "AbortError" })
+    })
+
+    releaseRead?.()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it("holds publication ownership until an aborting transport acknowledges cancel", async () => {
     const envelope = designEnvelope()
     const { captured } = await openEnvelope(

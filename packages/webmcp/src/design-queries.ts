@@ -55,6 +55,8 @@ export class DesignQueryError extends Error {
       | "unsupported_command"
       | "execution_declined"
       | "review_unavailable"
+      | "execution_cancelled"
+      | "execution_status_unknown"
       | "internal_error",
     message: string,
     readonly details?: Readonly<Record<string, unknown>>

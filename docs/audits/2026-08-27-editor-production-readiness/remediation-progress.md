@@ -2298,3 +2298,24 @@ Status: **implemented locally and independently accepted; broader FAIL-01 remain
   failure evidence open.
 - Independent review rejected seven successive ownership/authority gaps. Final
   rereview returned **ACCEPT with no remaining P0/P1**.
+
+## 2026-08-30 — WebMCP execution lifecycle (FAIL-01H)
+
+Status: **implemented locally and independently accepted; broader FAIL-01 remains open**
+
+- Reread WEBMCP-01C, the remaining-product ledger, Loora's agent transaction,
+  editor-client, and export/capture paths, plus Studio's live WebMCP adapters.
+- Registered tools now have finite execution ownership, registration teardown
+  and context-replacement cancellation, a 60-second deadline, typed cancelled
+  or unknown status, and a bounded registration deadline/retry owner.
+- Exact WebMCP publication cannot join another snapshot owner. The execution
+  signal reaches the editor publication lifecycle, history-snapshot approval is
+  distinct from the immutable content hash, and interrupted publication reports
+  unknown status without allowing a late POST after a cancelled prerequisite.
+- Managed asset lookup cancellation belongs to each caller. Render requires a
+  stable idempotency key, admits three active requests, reconciles unknown
+  transport outcomes with the same key, and de-duplicates local/restored server
+  rows under adversarial GET/POST ordering.
+- Studio and WebMCP typechecks, scoped Studio lint, and Prettier pass. Focused
+  Studio suites pass 100/100 and WebMCP passes 38/38. Final independent rereview
+  returned **ACCEPT with no remaining P0/P1**.

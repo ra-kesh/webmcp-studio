@@ -29,6 +29,31 @@ declare global {
 
 type WebMcpStatus = "unavailable" | "registering" | "ready" | "error"
 
+export const WEBMCP_REGISTRATION_TIMEOUT_MS = 10_000
+const WEBMCP_REGISTRATION_RETRY_MS = 1_500
+
+const waitForRegistration = <T>(pending: Promise<T>, signal: AbortSignal) => {
+  signal.throwIfAborted()
+  return new Promise<T>((resolve, reject) => {
+    const cleanUp = () => signal.removeEventListener("abort", abort)
+    const abort = () => {
+      cleanUp()
+      reject(signal.reason)
+    }
+    signal.addEventListener("abort", abort, { once: true })
+    void pending.then(
+      (value) => {
+        cleanUp()
+        if (!signal.aborted) resolve(value)
+      },
+      (error: unknown) => {
+        cleanUp()
+        if (!signal.aborted) reject(error)
+      }
+    )
+  })
+}
+
 type StudioWebMcpServices = Omit<
   StudioWebMcpSnapshot,
   "assets" | "commandCapabilities" | "productCommandContext"
@@ -43,11 +68,19 @@ type StudioWebMcpServices = Omit<
     changeSet: ChangeSet,
     provenance: StudioWebMcpProposalProvenance
   ) => ChangeSet
-  publishTemplate: () => Promise<TemplateVersion>
+  publishTemplate: (
+    expected: {
+      documentId: string
+      revision: number
+      snapshotId: string
+    },
+    options?: { signal?: AbortSignal }
+  ) => Promise<TemplateVersion>
   renderTemplate: (
     version: TemplateVersion,
     modifications: TemplateModifications,
-    selections: StudioWebMcpRenderSelection[]
+    selections: StudioWebMcpRenderSelection[],
+    options?: { signal?: AbortSignal; idempotencyKey?: string }
   ) => Promise<StudioWebMcpRenderRecord>
 }
 
@@ -103,76 +136,164 @@ export function useStudioWebMcp(
       setRegisteredToolCount(0)
       return
     }
-    const controller = new AbortController()
     let active = true
-    let registrationStarted = false
     let interval = 0
-    let catalog: ManagedWebMcpCatalog | null = null
+    let generation = 0
+    let retryAt = 0
+    let observedContext: WebMcpModelContext | undefined
+    let inFlight: {
+      generation: number
+      controller: AbortController
+      catalog: ManagedWebMcpCatalog
+    } | null = null
+    let registered: {
+      context: WebMcpModelContext
+      controller: AbortController
+      catalog: ManagedWebMcpCatalog
+    } | null = null
+
+    const retireRegistration = () => {
+      generation += 1
+      inFlight?.controller.abort(
+        new DOMException("WebMCP registration was replaced.", "AbortError")
+      )
+      inFlight?.catalog.dispose()
+      inFlight = null
+      registered?.controller.abort(
+        new DOMException("WebMCP registration was replaced.", "AbortError")
+      )
+      registered?.catalog.dispose()
+      registered = null
+    }
 
     const register = async () => {
       const modelContext = document.modelContext
-      if (!modelContext || registrationStarted || controller.signal.aborted) {
+      if (modelContext !== observedContext) {
+        retireRegistration()
+        observedContext = modelContext
+        retryAt = 0
+        if (!modelContext && active) {
+          setStatus("unavailable")
+          setError(null)
+          setRegisteredToolCount(0)
+        }
+      }
+      if (
+        !active ||
+        !modelContext ||
+        registered?.context === modelContext ||
+        inFlight ||
+        Date.now() < retryAt
+      ) {
         return
       }
-      registrationStarted = true
+      const attemptGeneration = generation + 1
+      generation = attemptGeneration
+      const controller = new AbortController()
       const registeredCatalog = createManagedWebMcpCatalog(
         servicesRef.current.assets
       )
-      catalog = registeredCatalog
+      inFlight = {
+        generation: attemptGeneration,
+        controller,
+        catalog: registeredCatalog,
+      }
       setStatus("registering")
       setRegisteredToolCount(0)
+      const timeout = window.setTimeout(
+        () =>
+          controller.abort(
+            new DOMException(
+              "WebMCP tool registration timed out.",
+              "TimeoutError"
+            )
+          ),
+        WEBMCP_REGISTRATION_TIMEOUT_MS
+      )
       try {
-        const toolCount = await registerStudioWebMcpTools(
-          modelContext,
-          {
-            getSnapshot: () => projectStudioWebMcpSnapshot(servicesRef.current),
-            searchAssets: (input) => registeredCatalog.search(input),
-            resolveAsset: (assetId) => registeredCatalog.resolve(assetId),
-            proposeChangeSet: (changeSet, provenance) => {
-              assertMutationEnabled(servicesRef.current)
-              return servicesRef.current.proposeChangeSet(changeSet, provenance)
+        const toolCount = await waitForRegistration(
+          registerStudioWebMcpTools(
+            modelContext,
+            {
+              getSnapshot: () =>
+                projectStudioWebMcpSnapshot(servicesRef.current),
+              searchAssets: (input, signal) =>
+                registeredCatalog.search(input, signal),
+              resolveAsset: (assetId, signal) =>
+                registeredCatalog.resolve(assetId, signal),
+              proposeChangeSet: (changeSet, provenance) => {
+                controller.signal.throwIfAborted()
+                assertMutationEnabled(servicesRef.current)
+                return servicesRef.current.proposeChangeSet(
+                  changeSet,
+                  provenance
+                )
+              },
+              runProductCommand: (invocation) => {
+                controller.signal.throwIfAborted()
+                const reason = mutationDisabledReason(servicesRef.current)
+                return reason
+                  ? { status: "disabled" as const, reason }
+                  : servicesRef.current.runProductCommand(invocation)
+              },
+              publishTemplate: (expected, options) => {
+                controller.signal.throwIfAborted()
+                assertMutationEnabled(servicesRef.current)
+                return servicesRef.current.publishTemplate(expected, options)
+              },
+              renderTemplate: (version, modifications, selections, options) => {
+                controller.signal.throwIfAborted()
+                assertMutationEnabled(servicesRef.current)
+                return servicesRef.current.renderTemplate(
+                  version,
+                  modifications,
+                  selections,
+                  options
+                )
+              },
+              id: () => crypto.randomUUID(),
+              now: () => new Date().toISOString(),
             },
-            runProductCommand: (invocation) => {
-              const reason = mutationDisabledReason(servicesRef.current)
-              return reason
-                ? { status: "disabled" as const, reason }
-                : servicesRef.current.runProductCommand(invocation)
-            },
-            publishTemplate: () => {
-              assertMutationEnabled(servicesRef.current)
-              return servicesRef.current.publishTemplate()
-            },
-            renderTemplate: (version, modifications, selections) => {
-              assertMutationEnabled(servicesRef.current)
-              return servicesRef.current.renderTemplate(
-                version,
-                modifications,
-                selections
-              )
-            },
-            id: () => crypto.randomUUID(),
-            now: () => new Date().toISOString(),
-          },
+            controller.signal
+          ),
           controller.signal
         )
-        if (!active) return
-        window.clearInterval(interval)
+        if (
+          controller.signal.aborted ||
+          generation !== attemptGeneration ||
+          document.modelContext !== modelContext
+        ) {
+          controller.abort()
+          registeredCatalog.dispose()
+          return
+        }
+        inFlight = null
+        registered = {
+          context: modelContext,
+          controller,
+          catalog: registeredCatalog,
+        }
         setStatus("ready")
         setError(null)
         setRegisteredToolCount(toolCount)
       } catch (registrationError) {
         controller.abort()
         registeredCatalog.dispose()
-        if (catalog === registeredCatalog) catalog = null
-        if (!active) return
-        window.clearInterval(interval)
+        if (inFlight?.generation === attemptGeneration) inFlight = null
+        if (generation !== attemptGeneration) return
+        retryAt = Date.now() + WEBMCP_REGISTRATION_RETRY_MS
         setStatus("error")
         setRegisteredToolCount(0)
-        setError(
-          registrationError instanceof Error
+        const caughtMessage =
+          registrationError &&
+          typeof registrationError === "object" &&
+          "message" in registrationError &&
+          typeof registrationError.message === "string"
             ? registrationError.message
-            : "WebMCP tools could not be registered."
-        )
+            : null
+        setError(caughtMessage ?? "WebMCP tools could not be registered.")
+      } finally {
+        window.clearTimeout(timeout)
       }
     }
 
@@ -181,8 +302,7 @@ export function useStudioWebMcp(
     return () => {
       active = false
       window.clearInterval(interval)
-      controller.abort()
-      catalog?.dispose()
+      retireRegistration()
     }
   }, [enabled])
 

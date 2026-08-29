@@ -72,7 +72,10 @@ export type WebMcpTool = {
     openWorldHint?: boolean
     untrustedContentHint?: boolean
   }
-  execute(input: unknown): WebMcpToolResult | Promise<WebMcpToolResult>
+  execute(
+    input: unknown,
+    context?: { signal: AbortSignal }
+  ): WebMcpToolResult | Promise<WebMcpToolResult>
 }
 
 export type WebMcpModelContext = {
@@ -168,7 +171,7 @@ export type StudioWebMcpRenderRecord = {
   version: number
   createdAt: string
   completedAt?: string
-  status: "rendering" | "completed" | "failed"
+  status: "rendering" | "completed" | "failed" | "status_unknown"
   modifications: TemplateModifications
   selections: readonly StudioWebMcpRenderSelection[]
   artifacts: readonly {
@@ -187,9 +190,13 @@ export type StudioWebMcpRenderRecord = {
 export type StudioWebMcpServices = {
   getSnapshot(): StudioWebMcpSnapshot
   searchAssets(
-    input: StudioWebMcpAssetSearchInput
+    input: StudioWebMcpAssetSearchInput,
+    signal?: AbortSignal
   ): Promise<StudioWebMcpAssetSearchPage>
-  resolveAsset(assetId: string): Promise<StudioWebMcpAsset | null>
+  resolveAsset(
+    assetId: string,
+    signal?: AbortSignal
+  ): Promise<StudioWebMcpAsset | null>
   proposeChangeSet(
     changeSet: ChangeSet,
     provenance: StudioWebMcpProposalProvenance
@@ -197,11 +204,19 @@ export type StudioWebMcpServices = {
   runProductCommand?(
     invocation: import("@webmcp/editor/product-commands").ProductCommandInvocation
   ): ProductCommandRunResult
-  publishTemplate(): TemplateVersion | Promise<TemplateVersion>
+  publishTemplate(
+    expected: {
+      documentId: string
+      revision: number
+      snapshotId: string
+    },
+    options?: { signal?: AbortSignal }
+  ): TemplateVersion | Promise<TemplateVersion>
   renderTemplate(
     version: TemplateVersion,
     modifications: TemplateModifications,
-    selections: StudioWebMcpRenderSelection[]
+    selections: StudioWebMcpRenderSelection[],
+    options?: { signal?: AbortSignal; idempotencyKey?: string }
   ): Promise<StudioWebMcpRenderRecord>
   id(): string
   now(): string
@@ -248,6 +263,8 @@ const errorResult = (error: unknown): WebMcpToolResult => {
       "request_in_progress",
       "execution_declined",
       "review_unavailable",
+      "execution_cancelled",
+      "execution_status_unknown",
     ]).has(error.code)
   return {
     content: [{ type: "text", text: message }],
@@ -263,6 +280,89 @@ const errorResult = (error: unknown): WebMcpToolResult => {
         }
       : {}),
     isError: true,
+  }
+}
+
+export const WEBMCP_TOOL_EXECUTION_TIMEOUT_MS = 60_000
+
+const waitForWebMcpExecution = <T>(
+  pending: Promise<T>,
+  signal: AbortSignal
+) => {
+  signal.throwIfAborted()
+  return new Promise<T>((resolve, reject) => {
+    const cleanUp = () => signal.removeEventListener("abort", abort)
+    const abort = () => {
+      cleanUp()
+      reject(signal.reason)
+    }
+    signal.addEventListener("abort", abort, { once: true })
+    void pending.then(
+      (value) => {
+        cleanUp()
+        if (!signal.aborted) resolve(value)
+      },
+      (error: unknown) => {
+        cleanUp()
+        if (!signal.aborted) reject(error)
+      }
+    )
+  })
+}
+
+const ownWebMcpToolExecution = (
+  tool: WebMcpTool,
+  registrationSignal?: AbortSignal
+): WebMcpTool => {
+  const execute = tool.execute
+  return {
+    ...tool,
+    execute: async (input) => {
+      if (registrationSignal?.aborted) {
+        return errorResult(
+          new DesignQueryError(
+            "execution_cancelled",
+            "This WebMCP registration is no longer active. Inspect the current Studio session and retry."
+          )
+        )
+      }
+      const controller = new AbortController()
+      const abortFromRegistration = () =>
+        controller.abort(
+          registrationSignal?.reason ??
+            new DOMException("WebMCP registration ended.", "AbortError")
+        )
+      registrationSignal?.addEventListener("abort", abortFromRegistration, {
+        once: true,
+      })
+      const timer = setTimeout(
+        () =>
+          controller.abort(
+            new DOMException("WebMCP tool execution timed out.", "TimeoutError")
+          ),
+        WEBMCP_TOOL_EXECUTION_TIMEOUT_MS
+      )
+      try {
+        return await waitForWebMcpExecution(
+          Promise.resolve(execute(input, { signal: controller.signal })),
+          controller.signal
+        )
+      } catch {
+        const statusUnknown =
+          tool.name === "publish_template" || tool.name === "render_template"
+        return errorResult(
+          new DesignQueryError(
+            statusUnknown ? "execution_status_unknown" : "execution_cancelled",
+            statusUnknown
+              ? "Studio stopped waiting, but the server may have committed this request. Inspect publication or render history before retrying with the same identity."
+              : "This WebMCP operation stopped before it could be confirmed. Inspect the current Studio session and retry."
+          )
+        )
+      } finally {
+        clearTimeout(timer)
+        registrationSignal?.removeEventListener("abort", abortFromRegistration)
+      }
+    },
   }
 }
 
@@ -472,12 +572,15 @@ const assetIdForValue = (
 async function resolveAssetValue(
   value: string,
   services: StudioWebMcpServices,
-  options: { selectable: boolean }
+  options: { selectable: boolean },
+  signal?: AbortSignal
 ) {
+  signal?.throwIfAborted()
   if (value.startsWith("asset:local/")) return null
   const snapshot = services.getSnapshot()
   const assetId = assetIdForValue(value, snapshot.assets)
-  const asset = await services.resolveAsset(assetId)
+  const asset = await services.resolveAsset(assetId, signal)
+  signal?.throwIfAborted()
   if (!asset || (options.selectable && !asset.selectable)) return null
   return asset
 }
@@ -486,9 +589,10 @@ async function requireAsset(
   value: string,
   services: StudioWebMcpServices,
   context: string,
-  options: { selectable: boolean }
+  options: { selectable: boolean },
+  signal?: AbortSignal
 ) {
-  const asset = await resolveAssetValue(value, services, options)
+  const asset = await resolveAssetValue(value, services, options, signal)
   if (!asset) {
     throw new Error(
       options.selectable
@@ -503,7 +607,8 @@ async function resolveFieldAssetIds(
   document: Document,
   services: StudioWebMcpServices,
   input: FieldUpdateProposalInput,
-  options: { selectable: boolean } = { selectable: true }
+  options: { selectable: boolean } = { selectable: true },
+  signal?: AbortSignal
 ): Promise<{
   input: FieldUpdateProposalInput
   resolvedAssets: StudioWebMcpAsset[]
@@ -521,7 +626,8 @@ async function resolveFieldAssetIds(
         value,
         services,
         `for ${field.label}`,
-        options
+        options,
+        signal
       )
       resolvedAssets.push(asset)
       return [key, asset.src] as const
@@ -536,7 +642,8 @@ async function resolveFieldAssetIds(
 async function resolveRenderAssetSources(
   document: Document,
   services: StudioWebMcpServices,
-  modifications: TemplateModifications
+  modifications: TemplateModifications,
+  signal?: AbortSignal
 ): Promise<TemplateModifications> {
   const entries = await Promise.all(
     Object.entries(modifications).map(async ([key, value]) => {
@@ -546,9 +653,15 @@ async function resolveRenderAssetSources(
       if (typeof value !== "string") {
         throw new Error(`${field.label} must use an approved asset ID.`)
       }
-      const asset = await requireAsset(value, services, `for ${field.label}`, {
-        selectable: false,
-      })
+      const asset = await requireAsset(
+        value,
+        services,
+        `for ${field.label}`,
+        {
+          selectable: false,
+        },
+        signal
+      )
       const effectiveValue =
         document.fieldValues[field.id] === undefined
           ? field.defaultValue
@@ -1591,7 +1704,8 @@ const publicAssetSearchResult = (asset: StudioWebMcpAsset) => ({
 async function parseRenderInput(
   input: unknown,
   version: TemplateVersion,
-  services: StudioWebMcpServices
+  services: StudioWebMcpServices,
+  signal?: AbortSignal
 ) {
   if (!input || typeof input !== "object") {
     throw new Error("Expected a render request object.")
@@ -1640,7 +1754,8 @@ async function parseRenderInput(
   const validationModifications = await resolveRenderAssetSources(
     version.document,
     services,
-    modifications
+    modifications,
+    signal
   )
   materializeTemplateVersion(version, validationModifications)
 
@@ -1707,9 +1822,12 @@ function selectRenderHistory(
     status !== undefined &&
     status !== "rendering" &&
     status !== "completed" &&
-    status !== "failed"
+    status !== "failed" &&
+    status !== "status_unknown"
   ) {
-    throw new Error("status must be rendering, completed, or failed.")
+    throw new Error(
+      "status must be rendering, completed, failed, or status_unknown."
+    )
   }
   if (value.templateId !== undefined && typeof value.templateId !== "string") {
     throw new Error("templateId must be a string.")
@@ -1728,7 +1846,8 @@ function selectRenderHistory(
 async function resolveDocumentAssets(
   document: Document,
   snapshot: StudioWebMcpSnapshot,
-  services: StudioWebMcpServices
+  services: StudioWebMcpServices,
+  signal?: AbortSignal
 ) {
   const values = new Set<string>()
   for (const field of document.fields) {
@@ -1747,7 +1866,10 @@ async function resolveDocumentAssets(
   const resolved = await Promise.all(
     [...values].map(async (value) => {
       if (value.startsWith("asset:local/")) return null
-      return services.resolveAsset(assetIdForValue(value, snapshot.assets))
+      return services.resolveAsset(
+        assetIdForValue(value, snapshot.assets),
+        signal
+      )
     })
   )
   return [...snapshot.assets, ...resolved.filter((asset) => asset !== null)]
@@ -1780,7 +1902,8 @@ const affectedFromResolvedCommand = (resolved: ResolvedProductCommand) => {
 }
 
 export function studioWebMcpTools(
-  services: StudioWebMcpServices
+  services: StudioWebMcpServices,
+  registrationSignal?: AbortSignal
 ): WebMcpTool[] {
   const commandReceipts = new Map<
     string,
@@ -1793,9 +1916,11 @@ export function studioWebMcpTools(
 
   const executeProductCommandRequest = async (
     input: ExecuteProductCommandInput,
-    requestHash: string
+    requestHash: string,
+    signal?: AbortSignal
   ): Promise<WebMcpToolResult> => {
     try {
+      signal?.throwIfAborted()
       const current = services.getSnapshot()
       const actual = designQueryIdentity(current)
       const liveSelection = current.productCommandContext?.selection ?? null
@@ -1890,6 +2015,7 @@ export function studioWebMcpTools(
         warnings: [] as string[],
       }
       if (input.mode === "direct") {
+        signal?.throwIfAborted()
         if (!services.runProductCommand) {
           throw new DesignQueryError(
             "capabilities_unavailable",
@@ -1960,6 +2086,7 @@ export function studioWebMcpTools(
         })
       }
       try {
+        signal?.throwIfAborted()
         services.proposeChangeSet(
           proposal.changeSet,
           webMcpProposalProvenance(
@@ -2006,9 +2133,11 @@ export function studioWebMcpTools(
   }
 
   const runIdempotentProductCommand = async (
-    parsed: ExecuteProductCommandInput
+    parsed: ExecuteProductCommandInput,
+    signal?: AbortSignal
   ) => {
     const requestHash = await commandRequestDigest(parsed)
+    signal?.throwIfAborted()
     const receiptKey = `${parsed.expected.documentId}:${parsed.idempotencyKey}`
     const existing = commandReceipts.get(receiptKey)
     if (existing) {
@@ -2059,14 +2188,16 @@ export function studioWebMcpTools(
       state: "pending" as "pending" | "settled",
     }
     commandReceipts.set(receiptKey, receipt)
-    void executeProductCommandRequest(parsed, requestHash).then((value) => {
-      receipt.state = "settled"
-      resolveResult(value)
-    })
+    void executeProductCommandRequest(parsed, requestHash, signal).then(
+      (value) => {
+        receipt.state = "settled"
+        resolveResult(value)
+      }
+    )
     return result
   }
 
-  return [
+  const tools: WebMcpTool[] = [
     {
       name: "inspect_design",
       title: "Inspect active design",
@@ -2074,13 +2205,14 @@ export function studioWebMcpTools(
         "Inspect the live visual document, active page, selection, shared fields, bindings, outputs, and pending review state. Call this before proposing edits.",
       inputSchema: { type: "object", additionalProperties: false },
       annotations: { readOnlyHint: true, untrustedContentHint: true },
-      execute: async () => {
+      execute: async (_input, execution) => {
         try {
           const current = services.getSnapshot()
           const resolvedAssets = await resolveDocumentAssets(
             current.document,
             current,
-            services
+            services,
+            execution?.signal
           )
           const activePage = current.document.pages.find(
             (page) => page.id === current.activePageId
@@ -2400,10 +2532,11 @@ export function studioWebMcpTools(
         idempotentHint: true,
         untrustedContentHint: true,
       },
-      execute: async (input) => {
+      execute: async (input, execution) => {
         try {
           return await runIdempotentProductCommand(
-            parseExecuteProductCommandInput(input)
+            parseExecuteProductCommandInput(input),
+            execution?.signal
           )
         } catch (error) {
           return errorResult(error)
@@ -2507,9 +2640,12 @@ export function studioWebMcpTools(
         },
       },
       annotations: { readOnlyHint: true, untrustedContentHint: true },
-      execute: async (input) => {
+      execute: async (input, execution) => {
         try {
-          const page = await services.searchAssets(parseAssetSearchInput(input))
+          const page = await services.searchAssets(
+            parseAssetSearchInput(input),
+            execution?.signal
+          )
           const matches = page.assets.map(publicAssetSearchResult)
           return textResult(
             `Found ${matches.length} approved asset${matches.length === 1 ? "" : "s"}.`,
@@ -2527,14 +2663,15 @@ export function studioWebMcpTools(
         "Run deterministic document validation and return blocking errors and warnings without changing the design.",
       inputSchema: { type: "object", additionalProperties: false },
       annotations: { readOnlyHint: true, untrustedContentHint: true },
-      execute: async () => {
+      execute: async (_input, execution) => {
         try {
           const snapshot = services.getSnapshot()
           const document = snapshot.document
           const resolvedAssets = await resolveDocumentAssets(
             document,
             snapshot,
-            services
+            services,
+            execution?.signal
           )
           const approvedAssetIds = new Set(
             resolvedAssets.map((asset) => asset.id)
@@ -2639,7 +2776,7 @@ export function studioWebMcpTools(
         ],
       },
       annotations: { untrustedContentHint: true },
-      execute: async (input) => {
+      execute: async (input, execution) => {
         try {
           const value = parseProposalIdentity(input)
           const current = services.getSnapshot()
@@ -2651,7 +2788,8 @@ export function studioWebMcpTools(
             value.assetId,
             services,
             "for insertion",
-            { selectable: true }
+            { selectable: true },
+            execution?.signal
           )
           const number = (key: string) => {
             const candidate = value[key]
@@ -2685,7 +2823,9 @@ export function studioWebMcpTools(
                     baseRevision: value.baseRevision,
                     baseSnapshotId: value.baseSnapshotId,
                     values: value.values,
-                  })
+                  }),
+                  { selectable: true },
+                  execution?.signal
                 )
           const changeSet = createAssetInsertionChangeSet(
             current.document,
@@ -2713,6 +2853,7 @@ export function studioWebMcpTools(
             },
             services
           )
+          execution?.signal.throwIfAborted()
           services.proposeChangeSet(
             changeSet,
             webMcpProposalProvenance(
@@ -2776,7 +2917,7 @@ export function studioWebMcpTools(
         required: ["documentId", "baseRevision", "baseSnapshotId", "values"],
       },
       annotations: { untrustedContentHint: true },
-      execute: async (input) => {
+      execute: async (input, execution) => {
         try {
           const current = services.getSnapshot()
           assertCurrentProposalSnapshot(input, current)
@@ -2784,13 +2925,16 @@ export function studioWebMcpTools(
           const resolved = await resolveFieldAssetIds(
             current.document,
             services,
-            parsedInput
+            parsedInput,
+            { selectable: true },
+            execution?.signal
           )
           const changeSet = createFieldUpdateChangeSet(
             current.document,
             resolved.input,
             services
           )
+          execution?.signal.throwIfAborted()
           services.proposeChangeSet(
             changeSet,
             webMcpProposalProvenance(
@@ -2833,7 +2977,7 @@ export function studioWebMcpTools(
         required: ["documentId", "baseRevision", "baseSnapshotId", "edits"],
       },
       annotations: { untrustedContentHint: true },
-      execute: async (input) => {
+      execute: async (input, execution) => {
         try {
           const current = services.getSnapshot()
           assertCurrentProposalSnapshot(input, current)
@@ -2846,7 +2990,8 @@ export function studioWebMcpTools(
                 edit.assetId,
                 services,
                 `for image layer ${edit.nodeId}`,
-                { selectable: true }
+                { selectable: true },
+                execution?.signal
               )
               resolvedAssets.push(asset)
               return {
@@ -2863,6 +3008,7 @@ export function studioWebMcpTools(
             { ...proposal, edits },
             services
           )
+          execution?.signal.throwIfAborted()
           services.proposeChangeSet(
             changeSet,
             webMcpProposalProvenance(
@@ -2986,7 +3132,7 @@ export function studioWebMcpTools(
         openWorldHint: true,
         untrustedContentHint: true,
       },
-      execute: async (input) => {
+      execute: async (input, execution) => {
         try {
           if (!input || typeof input !== "object") {
             throw new Error("Expected publishing confirmation input.")
@@ -3006,7 +3152,16 @@ export function studioWebMcpTools(
               "The document branch changed. Inspect the current snapshot again before publishing."
             )
           }
-          const version = await services.publishTemplate()
+          execution?.signal.throwIfAborted()
+          const version = await services.publishTemplate(
+            {
+              documentId: current.document.id,
+              revision: current.document.revision,
+              snapshotId: current.snapshotId,
+            },
+            { signal: execution?.signal }
+          )
+          execution?.signal.throwIfAborted()
           return textResult(
             `Published ${version.templateId} version ${version.version} from revision ${version.sourceRevision}.`,
             {
@@ -3019,6 +3174,25 @@ export function studioWebMcpTools(
             }
           )
         } catch (error) {
+          const errorName =
+            error &&
+            typeof error === "object" &&
+            "name" in error &&
+            typeof error.name === "string"
+              ? error.name
+              : null
+          if (
+            execution?.signal.aborted ||
+            errorName === "AbortError" ||
+            errorName === "TimeoutError"
+          ) {
+            return errorResult(
+              new DesignQueryError(
+                "execution_status_unknown",
+                "Studio stopped waiting, but the server may have committed this publication. Inspect publication history before retrying the same immutable snapshot."
+              )
+            )
+          }
           return errorResult(error)
         }
       },
@@ -3035,7 +3209,7 @@ export function studioWebMcpTools(
           templateId: { type: "string" },
           status: {
             type: "string",
-            enum: ["rendering", "completed", "failed"],
+            enum: ["rendering", "completed", "failed", "status_unknown"],
           },
           limit: { type: "integer", minimum: 1, maximum: 30 },
         },
@@ -3103,17 +3277,29 @@ export function studioWebMcpTools(
               required: ["outputId", "format"],
             },
           },
+          idempotencyKey: {
+            type: "string",
+            minLength: 1,
+            maxLength: 128,
+            pattern: "^[A-Za-z0-9._:-]+$",
+          },
         },
-        required: ["templateId", "version", "modifications", "outputs"],
+        required: [
+          "templateId",
+          "version",
+          "modifications",
+          "outputs",
+          "idempotencyKey",
+        ],
       },
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
-        idempotentHint: false,
+        idempotentHint: true,
         openWorldHint: true,
         untrustedContentHint: true,
       },
-      execute: async (input) => {
+      execute: async (input, execution) => {
         try {
           const current = services.getSnapshot()
           if (!current.publishedVersion) {
@@ -3124,24 +3310,43 @@ export function studioWebMcpTools(
           const { modifications, selections } = await parseRenderInput(
             input,
             current.publishedVersion,
-            services
+            services,
+            execution?.signal
           )
+          const renderInput = input as Record<string, unknown>
+          const idempotencyKey = renderInput.idempotencyKey
+          if (
+            typeof idempotencyKey !== "string" ||
+            idempotencyKey.length > 128 ||
+            !/^[A-Za-z0-9._:-]+$/.test(idempotencyKey)
+          ) {
+            throw new Error("A valid idempotencyKey is required.")
+          }
+          execution?.signal.throwIfAborted()
           const record = await services.renderTemplate(
             current.publishedVersion,
             modifications,
-            selections
+            selections,
+            { signal: execution?.signal, idempotencyKey }
           )
+          execution?.signal.throwIfAborted()
           const result = publicRenderRecord(
             record,
             current.publishedVersion,
             current.assets
           )
-          if (record.status === "failed") {
+          if (
+            record.status === "failed" ||
+            record.status === "status_unknown"
+          ) {
             return {
               content: [
                 {
                   type: "text",
-                  text: `Render ${record.id} failed. Inspect render history in Studio for the user-facing failure detail.`,
+                  text:
+                    record.status === "status_unknown"
+                      ? `Render ${record.id} has unknown server status. Inspect render history before retrying with the same idempotency key.`
+                      : `Render ${record.id} failed. Inspect render history in Studio for the user-facing failure detail.`,
                 },
               ],
               structuredContent: result,
@@ -3158,6 +3363,7 @@ export function studioWebMcpTools(
       },
     },
   ]
+  return tools.map((tool) => ownWebMcpToolExecution(tool, registrationSignal))
 }
 
 export async function registerStudioWebMcpTools(
@@ -3165,7 +3371,7 @@ export async function registerStudioWebMcpTools(
   services: StudioWebMcpServices,
   signal: AbortSignal
 ) {
-  const tools = studioWebMcpTools(services)
+  const tools = studioWebMcpTools(services, signal)
   await Promise.all(
     tools.map((tool) => modelContext.registerTool(tool, { signal }))
   )

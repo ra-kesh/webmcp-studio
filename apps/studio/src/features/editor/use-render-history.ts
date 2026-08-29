@@ -25,7 +25,7 @@ export type RenderRecord = {
   version: number
   createdAt: string
   completedAt?: string
-  status: "rendering" | "completed" | "failed"
+  status: "rendering" | "completed" | "failed" | "status_unknown"
   modifications: TemplateModifications
   selections: RenderSelection[]
   artifacts: RenderArtifact[]
@@ -110,11 +110,43 @@ const revokeObjectUrl = (url: string) => {
   if (url.startsWith("blob:")) URL.revokeObjectURL(url)
 }
 
+const waitForRenderResponse = <T>(
+  pending: Promise<T>,
+  signal?: AbortSignal
+) => {
+  if (!signal) return pending
+  signal.throwIfAborted()
+  return new Promise<T>((resolve, reject) => {
+    const cleanUp = () => signal.removeEventListener("abort", abort)
+    const abort = () => {
+      cleanUp()
+      reject(signal.reason)
+    }
+    signal.addEventListener("abort", abort, { once: true })
+    void pending.then(
+      (value) => {
+        cleanUp()
+        if (!signal.aborted) resolve(value)
+      },
+      (error: unknown) => {
+        cleanUp()
+        if (!signal.aborted) reject(error)
+      }
+    )
+  })
+}
+
 export function useRenderHistory(version?: TemplateVersion) {
   const [records, setRecords] = useState<RenderRecord[]>([])
   const [historyError, setHistoryError] = useState<string | null>(null)
   const recordsRef = useRef(records)
   recordsRef.current = records
+  const activeRendersRef = useRef(
+    new Map<
+      string,
+      { requestIdentity: string; promise: Promise<RenderRecord> }
+    >()
+  )
 
   useEffect(
     () => () => {
@@ -200,13 +232,36 @@ export function useRenderHistory(version?: TemplateVersion) {
   }, [version?.id])
 
   const runRender = useCallback(
-    async (
+    (
       publishedVersion: TemplateVersion,
       modifications: TemplateModifications,
-      selections: RenderSelection[]
+      selections: RenderSelection[],
+      options: { signal?: AbortSignal; idempotencyKey?: string } = {}
     ) => {
       if (!selections.length) throw new Error("Choose at least one output.")
-      const localId = `local-render-${crypto.randomUUID()}`
+      options.signal?.throwIfAborted()
+      const idempotencyKey = options.idempotencyKey ?? crypto.randomUUID()
+      const requestIdentity = JSON.stringify({
+        templateId: publishedVersion.templateId,
+        version: publishedVersion.version,
+        modifications,
+        selections,
+      })
+      const existing = activeRendersRef.current.get(idempotencyKey)
+      if (existing) {
+        if (existing.requestIdentity !== requestIdentity) {
+          throw new Error(
+            "That render idempotency key is already active for a different request."
+          )
+        }
+        return existing.promise
+      }
+      if (activeRendersRef.current.size >= 3) {
+        throw new Error(
+          "Three renders are already in progress. Wait for one to finish before starting another."
+        )
+      }
+      const localId = `local-render-${idempotencyKey}`
       const record: RenderRecord = {
         id: localId,
         templateId: publishedVersion.templateId,
@@ -217,81 +272,113 @@ export function useRenderHistory(version?: TemplateVersion) {
         selections: structuredClone(selections),
         artifacts: [],
       }
-      setRecords((current) => [record, ...current])
+      setRecords((current) => [
+        record,
+        ...current.filter((candidate) => candidate.id !== localId),
+      ])
 
-      let artifacts: RenderArtifact[] = []
-      let serverId = localId
-      try {
-        const response = await fetch("/v1/studio/render", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Idempotency-Key": localId,
-          },
-          body: JSON.stringify({
-            templateId: publishedVersion.templateId,
-            version: publishedVersion.version,
-            modifications,
-            response: { type: "url", outputs: selections },
-          }),
-        })
-        const payload = renderApiResponseSchema.parse(await response.json())
-        serverId = payload.id ?? localId
-        if (!response.ok) {
-          const message = payload.error?.message
-          throw new Error(
-            message?.includes("not found")
-              ? "The Renderer Worker is not running in this local session. Start the full Worker topology and try again."
-              : message || `Render API returned ${response.status}.`
+      const operation = (async () => {
+        let artifacts: RenderArtifact[] = []
+        let serverId = localId
+        let authoritativeFailure = false
+        try {
+          const response = await waitForRenderResponse(
+            fetch("/v1/studio/render", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Idempotency-Key": idempotencyKey,
+              },
+              body: JSON.stringify({
+                templateId: publishedVersion.templateId,
+                version: publishedVersion.version,
+                modifications,
+                response: { type: "url", outputs: selections },
+              }),
+              signal: options.signal,
+            }),
+            options.signal
           )
-        }
+          authoritativeFailure = !response.ok
+          const payload = renderApiResponseSchema.parse(await response.json())
+          serverId = payload.id ?? localId
+          if (!response.ok) {
+            const message = payload.error?.message
+            throw new Error(
+              message?.includes("not found")
+                ? "The Renderer Worker is not running in this local session. Start the full Worker topology and try again."
+                : message || `Render API returned ${response.status}.`
+            )
+          }
 
-        artifacts = (payload.artifacts ?? []).map(
-          (artifact) =>
-            ({
-              id: artifact.id,
-              outputId: artifact.outputId,
-              pageId: artifact.pageId ?? undefined,
-              format: artifact.format,
-              filename: artifactFilename(publishedVersion, artifact),
-              bytes: artifact.bytes,
-              width: artifact.width ?? undefined,
-              height: artifact.height ?? undefined,
-              objectUrl: artifact.downloadUrl,
-            }) satisfies RenderArtifact
-        )
+          artifacts = (payload.artifacts ?? []).map(
+            (artifact) =>
+              ({
+                id: artifact.id,
+                outputId: artifact.outputId,
+                pageId: artifact.pageId ?? undefined,
+                format: artifact.format,
+                filename: artifactFilename(publishedVersion, artifact),
+                bytes: artifact.bytes,
+                width: artifact.width ?? undefined,
+                height: artifact.height ?? undefined,
+                objectUrl: artifact.downloadUrl,
+              }) satisfies RenderArtifact
+          )
 
-        const completed: RenderRecord = {
-          ...record,
-          id: serverId,
-          status: "completed",
-          completedAt: payload.completedAt ?? new Date().toISOString(),
-          artifacts,
-        }
-        setRecords((current) =>
-          current.map((candidate) =>
-            candidate.id === localId ? completed : candidate
+          const completed: RenderRecord = {
+            ...record,
+            id: serverId,
+            status: "completed",
+            completedAt: payload.completedAt ?? new Date().toISOString(),
+            artifacts,
+          }
+          setRecords((current) =>
+            current.flatMap((candidate) => {
+              if (candidate.id === localId) return [completed]
+              if (candidate.id === serverId) return []
+              return [candidate]
+            })
           )
-        )
-        return completed
-      } catch (error) {
-        for (const artifact of artifacts) {
-          revokeObjectUrl(artifact.objectUrl)
-        }
-        const failed: RenderRecord = {
-          ...record,
-          id: serverId,
-          status: "failed",
-          completedAt: new Date().toISOString(),
-          error: error instanceof Error ? error.message : "Rendering failed.",
-        }
-        setRecords((current) =>
-          current.map((candidate) =>
-            candidate.id === localId ? failed : candidate
+          return completed
+        } catch (error) {
+          for (const artifact of artifacts) {
+            revokeObjectUrl(artifact.objectUrl)
+          }
+          const statusUnknown =
+            Boolean(options.signal?.aborted) || !authoritativeFailure
+          const failed: RenderRecord = {
+            ...record,
+            id: serverId,
+            status: statusUnknown ? "status_unknown" : "failed",
+            completedAt: new Date().toISOString(),
+            error: statusUnknown
+              ? "Studio stopped waiting; the server may still have committed this render. Retry with the same request identity to reconcile it."
+              : error instanceof Error
+                ? error.message
+                : "Rendering failed.",
+          }
+          setRecords((current) =>
+            current.flatMap((candidate) => {
+              if (candidate.id === localId) return [failed]
+              if (candidate.id === serverId) return []
+              return [candidate]
+            })
           )
-        )
-        return failed
-      }
+          return failed
+        }
+      })()
+      activeRendersRef.current.set(idempotencyKey, {
+        requestIdentity,
+        promise: operation,
+      })
+      void operation.finally(() => {
+        const active = activeRendersRef.current.get(idempotencyKey)
+        if (active?.promise === operation) {
+          activeRendersRef.current.delete(idempotencyKey)
+        }
+      })
+      return operation
     },
     []
   )

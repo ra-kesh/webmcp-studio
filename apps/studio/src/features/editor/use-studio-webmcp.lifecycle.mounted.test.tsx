@@ -17,7 +17,10 @@ import {
 import { toolNames } from "@webmcp/webmcp"
 import type { WebMcpModelContext, WebMcpTool } from "@webmcp/webmcp"
 import { studioAssets } from "./asset-catalog"
-import { useStudioWebMcp } from "./use-studio-webmcp"
+import {
+  useStudioWebMcp,
+  WEBMCP_REGISTRATION_TIMEOUT_MS,
+} from "./use-studio-webmcp"
 
 const services = {
   document: northstarSeed,
@@ -219,5 +222,211 @@ describe("useStudioWebMcp lifecycle", () => {
     expect(services.publishTemplate).not.toHaveBeenCalled()
     expect(services.runProductCommand).not.toHaveBeenCalled()
     expect(services.renderTemplate).not.toHaveBeenCalled()
+  })
+
+  it("cancels an in-flight managed asset proposal when registration ends", async () => {
+    const registeredTools = new Map<string, WebMcpTool>()
+    const modelContext: WebMcpModelContext = {
+      registerTool: async (tool) => {
+        registeredTools.set(tool.name, tool)
+        return undefined
+      },
+    }
+    Object.defineProperty(document, "modelContext", {
+      configurable: true,
+      value: modelContext,
+    })
+    const managedAssetId = "asset-0123456789abcdef0123456789abcdef"
+    let observedSignal: AbortSignal | undefined
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockImplementation((_input, init) => {
+        observedSignal = init?.signal ?? undefined
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(init.signal?.reason),
+            {
+              once: true,
+            }
+          )
+        })
+      })
+    vi.stubGlobal("fetch", fetchMock)
+    const render = (enabled: boolean) =>
+      root.render(<MountedWebMcp enabled={enabled} capture={() => undefined} />)
+
+    await act(async () => {
+      render(true)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const pending = registeredTools.get("propose_asset_insertion")?.execute({
+      documentId: northstarSeed.id,
+      baseRevision: northstarSeed.revision,
+      baseSnapshotId: services.snapshotId,
+      pageId: northstarSeed.pages[0].id,
+      assetId: managedAssetId,
+      x: 20,
+      y: 20,
+      width: 100,
+      height: 100,
+      placement: {
+        mode: "fill",
+        focalX: 0.5,
+        focalY: 0.5,
+        zoom: 1,
+        rotation: 0,
+        flipX: false,
+        flipY: false,
+      },
+    })
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
+
+    await act(async () => render(false))
+    const result = await pending
+
+    expect(observedSignal?.aborted).toBe(true)
+    expect(result).toMatchObject({
+      isError: true,
+      structuredContent: { code: "execution_cancelled" },
+    })
+    expect(services.proposeChangeSet).not.toHaveBeenCalled()
+  })
+
+  it("threads registration teardown into an in-flight publication", async () => {
+    const registeredTools = new Map<string, WebMcpTool>()
+    const modelContext: WebMcpModelContext = {
+      registerTool: async (tool) => {
+        registeredTools.set(tool.name, tool)
+        return undefined
+      },
+    }
+    Object.defineProperty(document, "modelContext", {
+      configurable: true,
+      value: modelContext,
+    })
+    let observedSignal: AbortSignal | undefined
+    services.publishTemplate.mockImplementationOnce((_expected, options) => {
+      observedSignal = options?.signal
+      return new Promise((_resolve, reject) => {
+        options?.signal?.addEventListener(
+          "abort",
+          () => reject(options.signal?.reason),
+          { once: true }
+        )
+      })
+    })
+    const render = (enabled: boolean) =>
+      root.render(<MountedWebMcp enabled={enabled} capture={() => undefined} />)
+
+    await act(async () => {
+      render(true)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    const pending = registeredTools.get("publish_template")?.execute({
+      documentId: northstarSeed.id,
+      expectedRevision: northstarSeed.revision,
+      expectedSnapshotId: services.snapshotId,
+    })
+    await vi.waitFor(() => expect(observedSignal).toBeDefined())
+
+    await act(async () => render(false))
+    const result = await pending
+
+    expect(observedSignal?.aborted).toBe(true)
+    expect(result).toMatchObject({
+      isError: true,
+      structuredContent: { code: "execution_status_unknown" },
+    })
+  })
+
+  it("retires an old model context and registers the replacement", async () => {
+    const firstTools = new Map<string, WebMcpTool>()
+    const secondTools = new Map<string, WebMcpTool>()
+    const firstSignals: AbortSignal[] = []
+    const firstContext: WebMcpModelContext = {
+      registerTool: async (tool, options) => {
+        firstTools.set(tool.name, tool)
+        if (options?.signal) firstSignals.push(options.signal)
+        return undefined
+      },
+    }
+    const secondContext: WebMcpModelContext = {
+      registerTool: async (tool) => {
+        secondTools.set(tool.name, tool)
+        return undefined
+      },
+    }
+    Object.defineProperty(document, "modelContext", {
+      configurable: true,
+      value: firstContext,
+    })
+
+    await act(async () => {
+      root.render(<MountedWebMcp enabled capture={() => undefined} />)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(firstTools.size).toBe(toolNames.length)
+    const staleTool = firstTools.get("inspect_design")
+
+    Object.defineProperty(document, "modelContext", {
+      configurable: true,
+      value: secondContext,
+    })
+    await act(
+      () =>
+        new Promise<void>((resolve) => {
+          window.setTimeout(resolve, 550)
+        })
+    )
+
+    expect(firstSignals.every((signal) => signal.aborted)).toBe(true)
+    expect(secondTools.size).toBe(toolNames.length)
+    await expect(staleTool?.execute({})).resolves.toMatchObject({
+      isError: true,
+      structuredContent: { code: "execution_cancelled" },
+    })
+  })
+
+  it("leaves a hung registration attempt with a finite retryable error", async () => {
+    vi.useFakeTimers()
+    try {
+      const modelContext: WebMcpModelContext = {
+        registerTool: () => new Promise<undefined>(() => undefined),
+      }
+      Object.defineProperty(document, "modelContext", {
+        configurable: true,
+        value: modelContext,
+      })
+      let result: ReturnType<typeof useStudioWebMcp> | null = null
+      await act(async () => {
+        root.render(
+          <MountedWebMcp
+            enabled
+            capture={(next) => {
+              result = next
+            }}
+          />
+        )
+        await Promise.resolve()
+      })
+      expect(result).toMatchObject({ status: "registering" })
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(WEBMCP_REGISTRATION_TIMEOUT_MS + 1)
+      })
+
+      expect(result).toMatchObject({
+        status: "error",
+        error: "WebMCP tool registration timed out.",
+        registeredToolCount: 0,
+      })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
