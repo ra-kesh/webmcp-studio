@@ -1801,3 +1801,29 @@ Remaining boundary:
 - Touch-device arbitration, compact 320 px / 200 percent zoom placement, a real
   Chrome performance profile, deployed rendering, and 1x/2x cross-renderer
   pixel evidence remain separate gates and are not claimed here.
+
+## 2026-08-29 — Byte-bounded editor history (HIST-01)
+
+Status: **completed and independently accepted**
+
+- Undo and Redo retain at most 100 entries and at most 16 MiB of measured
+  UTF-16 JSON payload per stack. Entry byte size is measured once and retained
+  as canonical accounting; oversized changes still apply but do not advertise
+  a false Undo step.
+- Commit observation is now separate from undo retention. Coalesced edits emit
+  the retained transaction identity, while an oversized commit reports
+  `undoable: false` and becomes a hard unified-history barrier. Studio clears
+  guide redo and cannot skip across that barrier into older guide or document
+  actions.
+- Redo clearing and coalescing breaks are editor-owned operations that keep byte
+  counters exact. Studio no longer mutates stack shapes directly.
+- The snapshot-to-source-context map is pruned to current, Undo, and Redo
+  snapshot identities after every history transition, so evicted quotation
+  source payloads cannot accumulate outside the bounded stacks.
+- The independent reviewer found and drove repairs for stale Studio byte
+  counters, lost oversized-commit observation, coalesced identity drift,
+  unified Undo crossing an unretained change, and unbounded source-context
+  retention. The final verdict is **ACCEPT with no remaining P0/P1 finding**.
+- Focused evidence passes: editor history **19/19** and Studio mounted/session/
+  source-context history **10/10**. Editor and Studio typechecks, scoped Studio
+  ESLint, Prettier, and `git diff --check` pass.

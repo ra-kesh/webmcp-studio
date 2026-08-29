@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   createSessionHistory,
   recordSessionHistoryAction,
+  reconcileSessionHistoryForDocumentCommit,
   resetSessionHistoryForDocument,
   takeSessionRedo,
   takeSessionUndo,
@@ -70,5 +71,25 @@ describe("studio session history", () => {
       past: [{ kind: "document", id: "import-1" }],
       future: [],
     })
+  })
+
+  it("treats an unretained document commit as a hard undo and redo barrier", () => {
+    const prior = recordSessionHistoryAction(
+      recordSessionHistoryAction(createSessionHistory(), {
+        kind: "document",
+        id: "document-before-barrier",
+      }),
+      { kind: "guide", id: "guide-before-barrier" }
+    )
+    const withRedo = takeSessionUndo(prior).ledger
+
+    const barrier = reconcileSessionHistoryForDocumentCommit(withRedo, {
+      id: "oversized-document-commit",
+      undoable: false,
+    })
+
+    expect(barrier).toEqual(createSessionHistory())
+    expect(takeSessionUndo(barrier).action).toBeNull()
+    expect(takeSessionRedo(barrier).action).toBeNull()
   })
 })

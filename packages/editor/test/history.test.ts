@@ -9,10 +9,14 @@ import {
 } from "@webmcp/document"
 import { describe, expect, it } from "vitest"
 import {
+  breakDocumentHistoryCoalescing,
+  clearDocumentRedoHistory,
   commitCommands,
+  commitCommandsWithResult,
   createDocumentHistory,
   HISTORY_COALESCE_WINDOW_MS,
   HISTORY_LIMIT,
+  HISTORY_MAX_BYTES,
   redoDocument,
   replaceDocument,
   undoDocument,
@@ -320,7 +324,133 @@ describe("document history", () => {
     }
 
     expect(history.past).toHaveLength(HISTORY_LIMIT)
+    expect(history.pastBytes).toBeLessThanOrEqual(HISTORY_MAX_BYTES)
     expect(history.operationVersion).toBe(HISTORY_LIMIT + 5)
     expect(history.past[0]?.afterSnapshotId).toBe("snapshot-move-5")
+  })
+
+  it("bounds retained snapshot memory and keeps the newest undo steps", () => {
+    const oneEntry = commitCommands(
+      createDocumentHistory(northstarSeed, "snapshot-initial"),
+      [updateTitleX("measure-one", 100)]
+    )
+    const maxBytes = oneEntry.pastBytes + 64
+    let history = createDocumentHistory(northstarSeed, "snapshot-initial", {
+      maxBytes,
+    })
+
+    for (let index = 0; index < 6; index += 1) {
+      history = commitCommands(history, [
+        updateTitleX(`budget-${index}`, 100 + index),
+      ])
+    }
+
+    expect(history.past.length).toBeGreaterThan(0)
+    expect(history.past.length).toBeLessThan(6)
+    expect(history.pastBytes).toBeLessThanOrEqual(maxBytes)
+    expect(history.past.at(-1)?.afterSnapshotId).toBe("snapshot-budget-5")
+    expect(undoDocument(history).document.nodes).toEqual(
+      history.past.at(-1)?.before.nodes
+    )
+  })
+
+  it("bounds redo memory independently after undo", () => {
+    let history = createDocumentHistory(northstarSeed, "snapshot-initial", {
+      maxBytes: HISTORY_MAX_BYTES,
+    })
+    for (let index = 0; index < 8; index += 1) {
+      history = commitCommands(history, [
+        updateTitleX(`redo-budget-${index}`, 100 + index),
+      ])
+    }
+    while (history.past.length) history = undoDocument(history)
+
+    expect(history.futureBytes).toBeLessThanOrEqual(history.maxBytes)
+    expect(history.pastBytes).toBe(0)
+    expect(redoDocument(history).operationVersion).toBe(
+      history.operationVersion + 1
+    )
+  })
+
+  it("commits an oversized change without retaining a misleading undo step", () => {
+    const initial = createDocumentHistory(northstarSeed, "snapshot-initial", {
+      maxBytes: 1,
+    })
+    const changed = commitCommands(initial, [updateTitleX("oversized", 444)])
+
+    expect(changed.document).not.toEqual(initial.document)
+    expect(changed.operationVersion).toBe(1)
+    expect(changed.past).toEqual([])
+    expect(changed.pastBytes).toBe(0)
+    expect(undoDocument(changed)).toBe(changed)
+  })
+
+  it("reports commit identity independently from undo retention", () => {
+    const initial = createDocumentHistory(northstarSeed, "snapshot-initial", {
+      maxBytes: 1,
+    })
+    const result = commitCommandsWithResult(initial, [
+      updateTitleX("oversized-observed", 445),
+    ])
+
+    expect(result?.history.past).toEqual([])
+    expect(result?.commit).toMatchObject({
+      id: "transaction-oversized-observed",
+      label: "Update layer",
+      undoable: false,
+    })
+  })
+
+  it("reports the retained entry identity for a coalesced commit", () => {
+    const initial = createDocumentHistory(northstarSeed, "snapshot-initial")
+    const first = commitCommandsWithResult(
+      initial,
+      [updateTitleX("coalesced-one", 100)],
+      { coalesceKey: "nudge:cover-title", committedAt: 100 }
+    )!
+    const second = commitCommandsWithResult(
+      first.history,
+      [updateTitleX("coalesced-two", 101)],
+      { coalesceKey: "nudge:cover-title", committedAt: 101 }
+    )!
+
+    expect(second.history.past).toHaveLength(1)
+    expect(second.commit).toMatchObject({
+      id: first.commit.id,
+      undoable: true,
+    })
+    expect(second.history.past[0]?.id).toBe(second.commit.id)
+  })
+
+  it("rejects invalid history byte limits", () => {
+    expect(() =>
+      createDocumentHistory(northstarSeed, "snapshot-initial", {
+        maxBytes: Number.NaN,
+      })
+    ).toThrow("finite non-negative")
+    expect(() =>
+      createDocumentHistory(northstarSeed, "snapshot-initial", {
+        maxBytes: -1,
+      })
+    ).toThrow("finite non-negative")
+  })
+
+  it("keeps byte accounting exact when redo or coalescing state is cleared", () => {
+    const committed = commitCommands(
+      createDocumentHistory(northstarSeed, "snapshot-initial"),
+      [updateTitleX("nudge", 100)],
+      { coalesceKey: "nudge:cover-title" }
+    )
+    const separated = breakDocumentHistoryCoalescing(committed)
+    expect(separated.past[0]?.coalesceKey).toBeUndefined()
+    expect(separated.pastBytes).toBe(
+      separated.past.reduce((bytes, entry) => bytes + entry.approximateBytes, 0)
+    )
+
+    const undone = undoDocument(separated)
+    expect(undone.futureBytes).toBeGreaterThan(0)
+    const cleared = clearDocumentRedoHistory(undone)
+    expect(cleared.future).toEqual([])
+    expect(cleared.futureBytes).toBe(0)
   })
 })

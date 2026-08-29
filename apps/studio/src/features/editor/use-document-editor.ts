@@ -70,14 +70,18 @@ import type {
   EditorImagePlacementCommandId,
 } from "@webmcp/editor/commands"
 import {
-  commitCommands,
+  breakDocumentHistoryCoalescing,
+  clearDocumentRedoHistory,
+  commitCommandsWithResult,
   createDocumentHistory,
   redoDocument,
-  replaceDocument,
+  replaceDocumentWithResult,
   undoDocument,
 } from "@webmcp/editor/history"
 import type {
+  DocumentHistoryCommit,
   DocumentHistory,
+  DocumentHistoryOptions,
   HistoryCommitOptions,
 } from "@webmcp/editor/history"
 import {
@@ -188,6 +192,7 @@ import {
   replaceAuthoritativePublishedVersions,
   restorePublishedVersions,
 } from "./published-version-state"
+import { retainReachableHistorySnapshotContexts } from "./history-snapshot-context"
 
 export const DOCUMENT_TRANSITION_DISABLED_REASON =
   "Wait for the new document to finish opening before editing this one."
@@ -467,25 +472,23 @@ function reconcileSelection(
   return nodeIds.length ? { pageId: page.id, nodeIds } : null
 }
 
-export type DocumentHistoryCommit = Readonly<{
-  id: string
-  committedAt: number
-  label: string
-}>
-
 export function useDocumentEditor({
   initialRecord = null,
   initialRecordWarning = null,
   onHistoryCommit,
+  historyOptions,
   persistence,
 }: {
   initialRecord?: DocumentDraftRecord | null
   initialRecordWarning?: string | null
   onHistoryCommit?: (entry: DocumentHistoryCommit) => void
+  historyOptions?: DocumentHistoryOptions
   persistence: StudioPersistenceApi
 }) {
   const persistenceRef = useRef(persistence)
   persistenceRef.current = persistence
+  const historyOptionsRef = useRef(historyOptions)
+  historyOptionsRef.current = historyOptions
   const getDraftRepository = useCallback(
     () => persistenceRef.current.repository,
     []
@@ -496,7 +499,11 @@ export function useDocumentEditor({
   const [routeSessionStatus, setRouteSessionStatus] =
     useState<RouteSessionStatus>(initialRecord ? "installing" : "not_requested")
   const [history, setHistory] = useState<DocumentHistory>(() =>
-    createDocumentHistory(createNeutralBootstrapDocument())
+    createDocumentHistory(
+      createNeutralBootstrapDocument(),
+      undefined,
+      historyOptions
+    )
   )
   const [activePageId, setActivePageId] = useState("private-bootstrap-page")
   const [quotationSource, setQuotationSource] =
@@ -662,15 +669,10 @@ export function useDocumentEditor({
   const lastCapturedReviewJournalRef = useRef<ReviewJournal | null>(null)
   const onHistoryCommitRef = useRef(onHistoryCommit)
   onHistoryCommitRef.current = onHistoryCommit
-  const notifyHistoryCommit = useCallback((next: DocumentHistory) => {
-    const entry = next.past.at(-1)
-    if (!entry) return
-    onHistoryCommitRef.current?.({
-      id: entry.id,
-      committedAt: entry.committedAt,
-      label: entry.label,
-    })
-  }, [])
+  const notifyHistoryCommit = useCallback(
+    (commit: DocumentHistoryCommit) => onHistoryCommitRef.current?.(commit),
+    []
+  )
   const templateSourceContextRef = useRef<TemplateSourceContext>({
     quotationSource,
     quotationTemplateId: activeQuotationTemplateId,
@@ -690,6 +692,13 @@ export function useDocumentEditor({
   const templateSourceBySnapshotRef = useRef(
     new Map<string, TemplateSourceContext>()
   )
+  const pruneTemplateSourceContexts = useCallback((next: DocumentHistory) => {
+    templateSourceBySnapshotRef.current =
+      retainReachableHistorySnapshotContexts(
+        templateSourceBySnapshotRef.current,
+        next
+      )
+  }, [])
   templateSourceBySnapshotRef.current.set(
     history.snapshotId,
     templateSourceContextRef.current
@@ -941,7 +950,8 @@ export function useDocumentEditor({
       )
       const nextHistory = createDocumentHistory(
         envelope.document,
-        installedReviewJournal.pending?.changeSet.baseSnapshotId
+        installedReviewJournal.pending?.changeSet.baseSnapshotId,
+        historyOptionsRef.current
       )
       const sourceContext: TemplateSourceContext = envelope.sourceContext ?? {
         quotationSource: null,
@@ -955,6 +965,7 @@ export function useDocumentEditor({
         sourceContext
       )
       setHistory(nextHistory)
+      pruneTemplateSourceContexts(nextHistory)
       installTemplateSourceContext(sourceContext)
       const projectedReviewJournal = projectReviewJournal(
         installedReviewJournal
@@ -968,7 +979,11 @@ export function useDocumentEditor({
       setTemplateActionError(null)
       setSessionMode("workspace")
     },
-    [installTemplateSourceContext, projectReviewJournal]
+    [
+      installTemplateSourceContext,
+      projectReviewJournal,
+      pruneTemplateSourceContexts,
+    ]
   )
 
   const capturePersistenceSession = useCallback(
@@ -3038,14 +3053,17 @@ export function useDocumentEditor({
       if (!drafts.length) return false
       if (!allowMutation(allowActiveImageCrop)) return false
       try {
-        const next = commitCommands(
+        const result = commitCommandsWithResult(
           historyRef.current,
           drafts.map(commandFromDraft),
           options
         )
+        if (!result) return false
+        const next = result.history
         historyRef.current = next
         setHistory(next)
-        notifyHistoryCommit(next)
+        pruneTemplateSourceContexts(next)
+        notifyHistoryCommit(result.commit)
         captureSettledDraft()
         return true
       } catch (error) {
@@ -3057,7 +3075,12 @@ export function useDocumentEditor({
         return false
       }
     },
-    [allowMutation, captureSettledDraft, notifyHistoryCommit]
+    [
+      allowMutation,
+      captureSettledDraft,
+      notifyHistoryCommit,
+      pruneTemplateSourceContexts,
+    ]
   )
 
   const imageReplacementCoordinator = useMemo(
@@ -3561,12 +3584,15 @@ export function useDocumentEditor({
         setChangeSetError(latestConflict.message)
         return
       }
-      const next = commitCommands(historyRef.current, commands, {
+      const result = commitCommandsWithResult(historyRef.current, commands, {
         label: current.title,
       })
+      if (!result) return
+      const next = result.history
       historyRef.current = next
       setHistory(next)
-      notifyHistoryCommit(next)
+      pruneTemplateSourceContexts(next)
+      notifyHistoryCommit(result.commit)
       const nextJournal = resolveAppliedReview(reviewJournalRef.current, {
         resolvedAt: new Date().toISOString(),
         resultRevision: next.document.revision,
@@ -3584,7 +3610,12 @@ export function useDocumentEditor({
       applyingChangeSetRef.current = false
       setIsApplyingChangeSet(false)
     }
-  }, [captureSettledDraft, notifyHistoryCommit, projectReviewJournal])
+  }, [
+    captureSettledDraft,
+    notifyHistoryCommit,
+    projectReviewJournal,
+    pruneTemplateSourceContexts,
+  ])
 
   const publishTemplate = useCallback(async () => {
     if (separateDocumentTransitionRef.current) {
@@ -4600,13 +4631,14 @@ export function useDocumentEditor({
           historyRef.current.snapshotId,
           templateSourceContextRef.current
         )
-        const nextHistory = replaceDocument(
+        const result = replaceDocumentWithResult(
           historyRef.current,
           parsed.document,
           {
             label: "Import document",
           }
         )
+        const nextHistory = result.history
         const sourceContext: TemplateSourceContext = {
           quotationSource: null,
           quotationTemplateId:
@@ -4619,7 +4651,8 @@ export function useDocumentEditor({
           sourceContext
         )
         setHistory(nextHistory)
-        notifyHistoryCommit(nextHistory)
+        pruneTemplateSourceContexts(nextHistory)
+        notifyHistoryCommit(result.commit)
         installTemplateSourceContext(sourceContext)
         clearReviewJournal()
         captureSettledDraft()
@@ -4647,6 +4680,7 @@ export function useDocumentEditor({
       clearReviewJournal,
       installTemplateSourceContext,
       notifyHistoryCommit,
+      pruneTemplateSourceContexts,
     ]
   )
 
@@ -4745,9 +4779,10 @@ export function useDocumentEditor({
           historyRef.current.snapshotId,
           templateSourceContextRef.current
         )
-        const nextHistory = replaceDocument(historyRef.current, document, {
+        const result = replaceDocumentWithResult(historyRef.current, document, {
           label: "Import quotation source",
         })
+        const nextHistory = result.history
         const sourceContext: TemplateSourceContext = {
           quotationSource: payloadResult.data,
           quotationTemplateId: templateId,
@@ -4760,7 +4795,8 @@ export function useDocumentEditor({
           sourceContext
         )
         setHistory(nextHistory)
-        notifyHistoryCommit(nextHistory)
+        pruneTemplateSourceContexts(nextHistory)
+        notifyHistoryCommit(result.commit)
         installTemplateSourceContext(sourceContext)
         clearReviewJournal()
         captureSettledDraft()
@@ -4786,6 +4822,7 @@ export function useDocumentEditor({
       clearReviewJournal,
       installTemplateSourceContext,
       notifyHistoryCommit,
+      pruneTemplateSourceContexts,
     ]
   )
 
@@ -5424,18 +5461,20 @@ export function useDocumentEditor({
           historyRef.current.snapshotId,
           templateSourceContextRef.current
         )
-        const nextHistory = replaceDocument(
+        const result = replaceDocumentWithResult(
           historyRef.current,
           mutation.document,
           { label: mutation.label }
         )
+        const nextHistory = result.history
         historyRef.current = nextHistory
         templateSourceBySnapshotRef.current.set(
           nextHistory.snapshotId,
           mutation.sourceContext
         )
         setHistory(nextHistory)
-        notifyHistoryCommit(nextHistory)
+        pruneTemplateSourceContexts(nextHistory)
+        notifyHistoryCommit(result.commit)
         installTemplateSourceContext(mutation.sourceContext)
         captureSettledDraft()
         const nextPageId = mutation.document.pages.some(
@@ -5466,6 +5505,7 @@ export function useDocumentEditor({
       captureSettledDraft,
       installTemplateSourceContext,
       notifyHistoryCommit,
+      pruneTemplateSourceContexts,
     ]
   )
 
@@ -5523,16 +5563,18 @@ export function useDocumentEditor({
           ],
         },
       }
-      const nextHistory = replaceDocument(historyRef.current, document, {
+      const result = replaceDocumentWithResult(historyRef.current, document, {
         label: "Organize quotation layers",
       })
+      const nextHistory = result.history
       historyRef.current = nextHistory
       templateSourceBySnapshotRef.current.set(
         nextHistory.snapshotId,
         sourceContext
       )
       setHistory(nextHistory)
-      notifyHistoryCommit(nextHistory)
+      pruneTemplateSourceContexts(nextHistory)
+      notifyHistoryCommit(result.commit)
       installTemplateSourceContext(sourceContext)
       setSelection((current) => reconcileSelection(current, document))
       setTemplateActionError(null)
@@ -5553,6 +5595,7 @@ export function useDocumentEditor({
     captureSettledDraft,
     installTemplateSourceContext,
     notifyHistoryCommit,
+    pruneTemplateSourceContexts,
   ])
 
   const createBlankDocument = useCallback(
@@ -5721,6 +5764,7 @@ export function useDocumentEditor({
     if (next === historyRef.current) return
     historyRef.current = next
     setHistory(next)
+    pruneTemplateSourceContexts(next)
     const nextPageId = next.document.pages.some(
       (page) => page.id === activePageIdRef.current
     )
@@ -5734,34 +5778,30 @@ export function useDocumentEditor({
   }, [
     allowMutation,
     captureSettledDraft,
+    pruneTemplateSourceContexts,
     restoreTemplateSourceForSnapshot,
     settleImageCrop,
   ])
 
   const clearRedo = useCallback(() => {
     const current = historyRef.current
-    if (!current.future.length) return false
-    const next = { ...current, future: [] }
+    const next = clearDocumentRedoHistory(current)
+    if (next === current) return false
     historyRef.current = next
     setHistory(next)
+    pruneTemplateSourceContexts(next)
     return true
-  }, [])
+  }, [pruneTemplateSourceContexts])
 
   const breakHistoryCoalescing = useCallback(() => {
     const current = historyRef.current
-    const previous = current.past.at(-1)
-    if (!previous?.coalesceKey) return false
-    const next = {
-      ...current,
-      past: [
-        ...current.past.slice(0, -1),
-        { ...previous, coalesceKey: undefined },
-      ],
-    }
+    const next = breakDocumentHistoryCoalescing(current)
+    if (next === current) return false
     historyRef.current = next
     setHistory(next)
+    pruneTemplateSourceContexts(next)
     return true
-  }, [])
+  }, [pruneTemplateSourceContexts])
 
   const redo = useCallback(() => {
     if (imageCropSessionRef.current) {
@@ -5773,6 +5813,7 @@ export function useDocumentEditor({
     if (next === historyRef.current) return
     historyRef.current = next
     setHistory(next)
+    pruneTemplateSourceContexts(next)
     const nextPageId = next.document.pages.some(
       (page) => page.id === activePageIdRef.current
     )
@@ -5786,6 +5827,7 @@ export function useDocumentEditor({
   }, [
     allowMutation,
     captureSettledDraft,
+    pruneTemplateSourceContexts,
     restoreTemplateSourceForSnapshot,
     settleImageCrop,
   ])

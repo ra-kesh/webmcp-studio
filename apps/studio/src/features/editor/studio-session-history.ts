@@ -27,6 +27,18 @@ export function recordSessionHistoryAction(
   }
 }
 
+export function reconcileSessionHistoryForDocumentCommit(
+  ledger: SessionHistoryLedger,
+  commit: Readonly<{ id: string; undoable: boolean }>
+): SessionHistoryLedger {
+  // An applied document mutation without a retained undo entry is a hard
+  // barrier. Unified Undo must not jump across it into older document or guide
+  // state, and every redo branch is invalid after the mutation.
+  return commit.undoable
+    ? recordSessionHistoryAction(ledger, { kind: "document", id: commit.id })
+    : createSessionHistory()
+}
+
 export function resetSessionHistoryForDocument(
   documentUndoEntryId: string | null
 ): SessionHistoryLedger {

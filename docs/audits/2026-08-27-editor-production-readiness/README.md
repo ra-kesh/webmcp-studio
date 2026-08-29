@@ -4,6 +4,11 @@ Audit date: 2026-08-27
 Repository: `/Users/rakesh/Developer/webmcp-studio`
 Scope: current working tree, including uncommitted changes
 
+> This README preserves the original 2026-08-27 audit snapshot. For current
+> implementation truth and execution order, use
+> [Remaining product work — 2026-08-29](./remaining-product-work-2026-08-29.md)
+> together with [Remediation progress](./remediation-progress.md).
+
 ## Executive verdict
 
 WebMCP Studio is an effective quotation-demo prototype, but it is not production-ready as a general document and image editor. Its strongest path is coherent: a six-page starter, three quotation themes, Fabric rendering, a useful single-selection inspector, local image insertion, field bindings, agent-proposed review, publishing, and a visible API playground. Those pieces demonstrate the intended product thesis.

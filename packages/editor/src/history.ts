@@ -5,6 +5,7 @@ import {
 } from "@webmcp/document"
 
 export const HISTORY_LIMIT = 100
+export const HISTORY_MAX_BYTES = 16 * 1024 * 1024
 export const HISTORY_COALESCE_WINDOW_MS = 300
 
 export type HistoryEntry = {
@@ -16,6 +17,7 @@ export type HistoryEntry = {
   after: Document
   beforeSnapshotId: string
   afterSnapshotId: string
+  approximateBytes: number
 }
 
 export type DocumentHistory = {
@@ -24,7 +26,26 @@ export type DocumentHistory = {
   operationVersion: number
   past: HistoryEntry[]
   future: HistoryEntry[]
+  pastBytes: number
+  futureBytes: number
+  maxBytes: number
 }
+
+export type DocumentHistoryOptions = {
+  maxBytes?: number
+}
+
+export type DocumentHistoryCommit = Readonly<{
+  id: string
+  committedAt: number
+  label: string
+  undoable: boolean
+}>
+
+export type DocumentHistoryCommitResult = Readonly<{
+  history: DocumentHistory
+  commit: DocumentHistoryCommit
+}>
 
 export type HistoryCommitOptions = {
   label?: string
@@ -99,11 +120,50 @@ const commandLabel = (commands: DocumentCommand[]) => {
   }
 }
 
-const bounded = (entries: HistoryEntry[]) => entries.slice(-HISTORY_LIMIT)
+const withApproximateBytes = (
+  entry: Omit<HistoryEntry, "approximateBytes">
+): HistoryEntry => ({
+  ...entry,
+  // Canonical documents contain no asset Blob bodies. UTF-16 JSON bytes are a
+  // deterministic, conservative approximation of the retained JS payload.
+  approximateBytes: JSON.stringify(entry).length * 2,
+})
+
+const approximateHistoryBytes = (entries: readonly HistoryEntry[]) =>
+  entries.reduce((bytes, entry) => bytes + entry.approximateBytes, 0)
+
+const normalizeMaxBytes = (maxBytes: number | undefined) => {
+  if (maxBytes === undefined) return HISTORY_MAX_BYTES
+  if (!Number.isFinite(maxBytes) || maxBytes < 0) {
+    throw new Error("History maxBytes must be a finite non-negative number")
+  }
+  return Math.floor(maxBytes)
+}
+
+const boundedPast = (entries: HistoryEntry[], maxBytes: number) => {
+  const retained = entries.slice(-HISTORY_LIMIT)
+  let bytes = approximateHistoryBytes(retained)
+  while (retained.length && bytes > maxBytes) {
+    retained.shift()
+    bytes = approximateHistoryBytes(retained)
+  }
+  return { entries: retained, bytes }
+}
+
+const boundedFuture = (entries: HistoryEntry[], maxBytes: number) => {
+  const retained = entries.slice(0, HISTORY_LIMIT)
+  let bytes = approximateHistoryBytes(retained)
+  while (retained.length && bytes > maxBytes) {
+    retained.pop()
+    bytes = approximateHistoryBytes(retained)
+  }
+  return { entries: retained, bytes }
+}
 
 export function createDocumentHistory(
   document: Document,
-  initialSnapshotId = createSnapshotId()
+  initialSnapshotId = createSnapshotId(),
+  options: DocumentHistoryOptions = {}
 ): DocumentHistory {
   return {
     document,
@@ -111,20 +171,23 @@ export function createDocumentHistory(
     operationVersion: 0,
     past: [],
     future: [],
+    pastBytes: 0,
+    futureBytes: 0,
+    maxBytes: normalizeMaxBytes(options.maxBytes),
   }
 }
 
-export function commitCommands(
+export function commitCommandsWithResult(
   history: DocumentHistory,
   commands: DocumentCommand[],
   options: HistoryCommitOptions = {}
-): DocumentHistory {
-  if (!commands.length) return history
+): DocumentHistoryCommitResult | null {
+  if (!commands.length) return null
   const document = commands.reduce(applyCommand, history.document)
   const committedAt = options.committedAt ?? Date.now()
   const afterSnapshotId =
     options.snapshotId ?? createSnapshotId(commands.at(-1)?.id)
-  const entry: HistoryEntry = {
+  const entry = withApproximateBytes({
     id: `transaction-${commands.at(-1)?.id ?? crypto.randomUUID()}`,
     label: options.label ?? commandLabel(commands),
     committedAt,
@@ -133,7 +196,7 @@ export function commitCommands(
     after: document,
     beforeSnapshotId: history.snapshotId,
     afterSnapshotId,
-  }
+  })
   const previous = history.past.at(-1)
   const shouldCoalesce =
     Boolean(entry.coalesceKey) &&
@@ -144,31 +207,59 @@ export function commitCommands(
     shouldCoalesce && previous
       ? [
           ...history.past.slice(0, -1),
-          {
-            ...entry,
+          withApproximateBytes({
             id: previous.id,
+            label: entry.label,
+            committedAt: entry.committedAt,
+            coalesceKey: entry.coalesceKey,
             before: previous.before,
+            after: entry.after,
             beforeSnapshotId: previous.beforeSnapshotId,
-          },
+            afterSnapshotId: entry.afterSnapshotId,
+          }),
         ]
       : [...history.past, entry]
+  const bounded = boundedPast(past, history.maxBytes)
+  const retainedEntry = bounded.entries.at(-1)
+  const undoable = retainedEntry?.afterSnapshotId === afterSnapshotId
   return {
-    document,
-    snapshotId: afterSnapshotId,
-    operationVersion: history.operationVersion + 1,
-    past: bounded(past),
-    future: [],
+    history: {
+      document,
+      snapshotId: afterSnapshotId,
+      operationVersion: history.operationVersion + 1,
+      past: bounded.entries,
+      future: [],
+      pastBytes: bounded.bytes,
+      futureBytes: 0,
+      maxBytes: history.maxBytes,
+    },
+    commit: {
+      id: undoable && retainedEntry ? retainedEntry.id : entry.id,
+      committedAt: entry.committedAt,
+      label: entry.label,
+      undoable,
+    },
   }
 }
 
-export function replaceDocument(
+export function commitCommands(
+  history: DocumentHistory,
+  commands: DocumentCommand[],
+  options: HistoryCommitOptions = {}
+): DocumentHistory {
+  return (
+    commitCommandsWithResult(history, commands, options)?.history ?? history
+  )
+}
+
+export function replaceDocumentWithResult(
   history: DocumentHistory,
   document: Document,
   options: HistoryCommitOptions = {}
-): DocumentHistory {
+): DocumentHistoryCommitResult {
   const committedAt = options.committedAt ?? Date.now()
   const afterSnapshotId = options.snapshotId ?? createSnapshotId()
-  const entry: HistoryEntry = {
+  const entry = withApproximateBytes({
     id: `transaction-${crypto.randomUUID()}`,
     label: options.label ?? "Replace document",
     committedAt,
@@ -177,36 +268,99 @@ export function replaceDocument(
     after: document,
     beforeSnapshotId: history.snapshotId,
     afterSnapshotId,
-  }
+  })
+  const bounded = boundedPast([...history.past, entry], history.maxBytes)
+  const undoable = bounded.entries.at(-1)?.afterSnapshotId === afterSnapshotId
   return {
-    document,
-    snapshotId: afterSnapshotId,
-    operationVersion: history.operationVersion + 1,
-    past: bounded([...history.past, entry]),
-    future: [],
+    history: {
+      document,
+      snapshotId: afterSnapshotId,
+      operationVersion: history.operationVersion + 1,
+      past: bounded.entries,
+      future: [],
+      pastBytes: bounded.bytes,
+      futureBytes: 0,
+      maxBytes: history.maxBytes,
+    },
+    commit: {
+      id: entry.id,
+      committedAt: entry.committedAt,
+      label: entry.label,
+      undoable,
+    },
   }
+}
+
+export function replaceDocument(
+  history: DocumentHistory,
+  document: Document,
+  options: HistoryCommitOptions = {}
+): DocumentHistory {
+  return replaceDocumentWithResult(history, document, options).history
 }
 
 export function undoDocument(history: DocumentHistory): DocumentHistory {
   const entry = history.past.at(-1)
   if (!entry) return history
+  const past = history.past.slice(0, -1)
+  const future = boundedFuture([entry, ...history.future], history.maxBytes)
   return {
     document: entry.before,
     snapshotId: entry.beforeSnapshotId,
     operationVersion: history.operationVersion + 1,
-    past: history.past.slice(0, -1),
-    future: [entry, ...history.future].slice(0, HISTORY_LIMIT),
+    past,
+    future: future.entries,
+    pastBytes: approximateHistoryBytes(past),
+    futureBytes: future.bytes,
+    maxBytes: history.maxBytes,
   }
 }
 
 export function redoDocument(history: DocumentHistory): DocumentHistory {
   const [entry, ...future] = history.future
   if (!entry) return history
+  const past = boundedPast([...history.past, entry], history.maxBytes)
   return {
     document: entry.after,
     snapshotId: entry.afterSnapshotId,
     operationVersion: history.operationVersion + 1,
-    past: bounded([...history.past, entry]),
+    past: past.entries,
     future,
+    pastBytes: past.bytes,
+    futureBytes: approximateHistoryBytes(future),
+    maxBytes: history.maxBytes,
+  }
+}
+
+export function clearDocumentRedoHistory(
+  history: DocumentHistory
+): DocumentHistory {
+  if (!history.future.length) return history
+  return {
+    ...history,
+    future: [],
+    futureBytes: 0,
+  }
+}
+
+export function breakDocumentHistoryCoalescing(
+  history: DocumentHistory
+): DocumentHistory {
+  const previous = history.past.at(-1)
+  if (!previous?.coalesceKey) return history
+  const replacement = withApproximateBytes({
+    id: previous.id,
+    label: previous.label,
+    committedAt: previous.committedAt,
+    before: previous.before,
+    after: previous.after,
+    beforeSnapshotId: previous.beforeSnapshotId,
+    afterSnapshotId: previous.afterSnapshotId,
+  })
+  const past = [...history.past.slice(0, -1), replacement]
+  return {
+    ...history,
+    past,
+    pastBytes: approximateHistoryBytes(past),
   }
 }

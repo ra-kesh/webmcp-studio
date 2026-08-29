@@ -196,10 +196,12 @@ import {
 import {
   createSessionHistory,
   recordSessionHistoryAction,
+  reconcileSessionHistoryForDocumentCommit,
   resetSessionHistoryForDocument,
   takeSessionRedo,
   takeSessionUndo,
 } from "./editor/studio-session-history"
+import type { DocumentHistoryCommit } from "@webmcp/editor/history"
 import type {
   SessionHistoryAction,
   SessionHistoryLedger,
@@ -522,11 +524,15 @@ export function StudioShell({
     [installSessionHistory]
   )
   const onDocumentHistoryCommit = useCallback(
-    (entry: { id: string }) => {
+    (entry: DocumentHistoryCommit) => {
       clearGuideRedoRef.current()
-      recordSessionAction({ kind: "document", id: entry.id })
+      const next = reconcileSessionHistoryForDocumentCommit(
+        sessionHistoryRef.current,
+        entry
+      )
+      if (next !== sessionHistoryRef.current) installSessionHistory(next)
     },
-    [recordSessionAction]
+    [installSessionHistory]
   )
   const editor = useDocumentEditor({
     initialRecord: initialDocumentRecord,
