@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { z } from "zod"
 import {
   builtInDesignTemplateRepository,
   changeSetSchema,
@@ -194,15 +195,14 @@ import { imageCropInvalidationMessage } from "./image-crop-invalidation"
 import {
   publishedVersionsForDocument,
   replaceAuthoritativePublishedVersions,
-  restorePublishedVersions,
 } from "./published-version-state"
 import { retainReachableHistorySnapshotContexts } from "./history-snapshot-context"
 
 export const DOCUMENT_TRANSITION_DISABLED_REASON =
   "Wait for the new document to finish opening before editing this one."
 
-const PUBLISHED_STORAGE_KEY = "webmcp-studio:published-versions:v1"
 const QUOTATION_IMPORT_MAX_JSON_BYTES = 2_000_000
+const PUBLICATION_TIMEOUT_MS = 45_000
 
 const decodeValidatedImageDimensions = async (file: Blob) => {
   const dimensions = await getImageDimensions(file)
@@ -241,7 +241,19 @@ type RepositoryLifecycle =
       status: "blocked" | "unavailable"
       failure: Readonly<{ kind: string; message: string }>
     }>
-type PublishSyncStatus = "idle" | "syncing" | "synced" | "error"
+type PublishSyncStatus =
+  "idle" | "syncing" | "cancelling" | "synced" | "status_unknown" | "error"
+type PublicationOperation = {
+  id: string
+  documentId: string
+  sessionGeneration: number
+  sourceSnapshotId: string | null
+  controller: AbortController
+  timer: ReturnType<typeof setTimeout>
+  timedOut: boolean
+  serverCommitted: boolean
+  promise: Promise<TemplateVersion>
+}
 type DesignTemplateCatalogState = {
   status: "loading" | "ready" | "error"
   items: DesignTemplateCatalogItem[]
@@ -403,28 +415,100 @@ function createNeutralBootstrapDocument(): Document {
   })
 }
 
-async function syncPublishedVersion(version: TemplateVersion) {
-  const response = await fetch("/v1/studio/templates/", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      id: version.id,
-      templateId: version.templateId,
-      version: version.version,
-      publishedAt: version.publishedAt,
-      document: version.document,
-    }),
-  })
-  if (response.ok) {
-    return templateVersionSchema.parse(await response.json())
+async function syncPublishedVersion(
+  version: TemplateVersion,
+  signal?: AbortSignal
+) {
+  let candidate = version
+  for (let ordinalAttempt = 0; ordinalAttempt < 4; ordinalAttempt += 1) {
+    signal?.throwIfAborted()
+    const response = await fetch("/v1/studio/templates/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: candidate.id,
+        templateId: candidate.templateId,
+        version: candidate.version,
+        publishedAt: candidate.publishedAt,
+        document: candidate.document,
+      }),
+      signal,
+    })
+    if (response.ok) {
+      return templateVersionSchema.parse(await response.json())
+    }
+    const payload = (await response.json().catch(() => null)) as {
+      error?: { code?: string; expectedVersion?: number }
+    } | null
+    const expectedVersion = payload?.error?.expectedVersion
+    if (
+      response.status === 409 &&
+      payload?.error?.code === "version_conflict" &&
+      typeof expectedVersion === "number" &&
+      Number.isInteger(expectedVersion) &&
+      expectedVersion > candidate.version
+    ) {
+      candidate = { ...candidate, version: expectedVersion }
+      continue
+    }
+    const detail = payload?.error?.code
+      ? payload.error.code.replaceAll("_", " ")
+      : `status ${response.status}`
+    throw new Error(`Publishing service: ${detail}.`)
   }
-  const payload = (await response.json().catch(() => null)) as {
-    error?: { code?: string }
-  } | null
-  const detail = payload?.error?.code
-    ? payload.error.code.replaceAll("_", " ")
-    : `status ${response.status}`
-  throw new Error(`Publishing service: ${detail}.`)
+  throw new Error(
+    "Publishing service: the version stream changed repeatedly. Retry after the current publications settle."
+  )
+}
+
+async function readLatestPublishedVersion(
+  templateId: string,
+  signal?: AbortSignal
+) {
+  const response = await fetch(
+    `/v1/studio/templates/${encodeURIComponent(templateId)}`,
+    { signal }
+  )
+  if (response.status === 404) return null
+  if (!response.ok) {
+    throw new Error(`Publishing service: status ${response.status}.`)
+  }
+  const payload = z.record(z.string(), z.unknown()).parse(await response.json())
+  return templateVersionSchema.parse({
+    id: payload.versionId,
+    templateId: payload.templateId,
+    version: payload.version,
+    sourceRevision: payload.sourceRevision,
+    sourceSnapshotId: payload.sourceSnapshotId,
+    publishedAt: payload.publishedAt,
+    document: payload.document,
+    manifest: payload.manifest,
+  })
+}
+
+const waitForPublicationStep = <T>(
+  operation: Promise<T>,
+  signal: AbortSignal
+) => {
+  signal.throwIfAborted()
+  return new Promise<T>((resolve, reject) => {
+    const cleanUp = () => signal.removeEventListener("abort", abort)
+    const abort = () => {
+      cleanUp()
+      reject(signal.reason)
+    }
+    signal.addEventListener("abort", abort, { once: true })
+    void operation.then(
+      (value) => {
+        cleanUp()
+        if (!signal.aborted) resolve(value)
+      },
+      (error: unknown) => {
+        cleanUp()
+        if (!signal.aborted) reject(error)
+      }
+    )
+  })
 }
 
 function commandFromDraft(draft: CommandDraft): DocumentCommand {
@@ -580,6 +664,10 @@ export function useDocumentEditor({
   const [publishError, setPublishError] = useState<string | null>(null)
   const [publishSyncStatus, setPublishSyncStatus] =
     useState<PublishSyncStatus>("idle")
+  const publicationOperationRef = useRef<PublicationOperation | null>(null)
+  const publicationRepositoryTailRef = useRef<Promise<void>>(Promise.resolve())
+  const [publicationHistoryGeneration, setPublicationHistoryGeneration] =
+    useState(0)
 
   const closeImageCropSession = useCallback(() => {
     imageCropPreviewStoreRef.current?.destroy()
@@ -599,6 +687,8 @@ export function useDocumentEditor({
   const [documentSnapshotId, setDocumentSnapshotId] = useState<string | null>(
     null
   )
+  const documentSnapshotIdRef = useRef(documentSnapshotId)
+  documentSnapshotIdRef.current = documentSnapshotId
   const [designTemplateCatalog, setDesignTemplateCatalog] =
     useState<DesignTemplateCatalogState>({
       status: "loading",
@@ -732,7 +822,6 @@ export function useDocumentEditor({
 
   const installPublishedVersions = useCallback(
     (versions: TemplateVersion[]) => {
-      localStorage.setItem(PUBLISHED_STORAGE_KEY, JSON.stringify(versions))
       publishedVersionsRef.current = versions
       setPublishedVersions(versions)
     },
@@ -1117,6 +1206,12 @@ export function useDocumentEditor({
     (kind: SessionTransition["kind"]): SessionTransition | null => {
       if (!mountedRef.current) return null
       if (activeSessionTransitionRef.current) return null
+      if (publicationOperationRef.current) {
+        setDocumentError(
+          "Wait for publication to finish or cancel it before opening another document."
+        )
+        return null
+      }
       const transition: SessionTransition = {
         token: sessionTransitionSequenceRef.current + 1,
         kind,
@@ -1250,6 +1345,7 @@ export function useDocumentEditor({
       }
 
       sessionGenerationRef.current = nextSession.generation
+      setPublicationHistoryGeneration(nextSession.generation)
       liveConflictIdRef.current = null
       activeRecordRef.current = record
       activePersistenceSessionRef.current = nextSession
@@ -2426,6 +2522,16 @@ export function useDocumentEditor({
     mountedRef.current = true
     return () => {
       mountedRef.current = false
+      const publication = publicationOperationRef.current
+      if (publication) {
+        clearTimeout(publication.timer)
+        publication.controller.abort(
+          new DOMException(
+            "Studio closed before publication finished.",
+            "AbortError"
+          )
+        )
+      }
       sessionTransitionSequenceRef.current += 1
       activeSessionTransitionRef.current = null
       const session = activePersistenceSessionRef.current
@@ -2577,70 +2683,6 @@ export function useDocumentEditor({
     }),
     []
   )
-
-  useEffect(() => {
-    let cancelled = false
-    let storedVersions: string | null = null
-    try {
-      storedVersions = localStorage.getItem(PUBLISHED_STORAGE_KEY)
-    } catch {
-      setPublishError("Published versions could not be read in this browser.")
-    }
-    if (storedVersions)
-      void restorePublishedVersions(storedVersions)
-        .then((versions) => {
-          if (!cancelled) installPublishedVersions(versions)
-        })
-        .catch(() => {
-          if (!cancelled)
-            setPublishError("Published versions could not be restored.")
-        })
-    return () => {
-      cancelled = true
-    }
-  }, [installPublishedVersions])
-
-  useEffect(() => {
-    if (sessionMode !== "workspace") return
-    const unsynced = [...publishedVersions]
-      .sort((a, b) => a.version - b.version)
-      .filter((version) => !attemptedVersionSyncRef.current.has(version.id))
-    if (!unsynced.length) return
-    let cancelled = false
-    setPublishSyncStatus("syncing")
-    const authoritative: TemplateVersion[] = []
-    void unsynced
-      .reduce(
-        (pending, version) =>
-          pending.then(async () => {
-            authoritative.push(await syncPublishedVersion(version))
-          }),
-        Promise.resolve()
-      )
-      .then(() => {
-        if (cancelled) return
-        const next = replaceAuthoritativePublishedVersions(
-          publishedVersionsRef.current,
-          authoritative
-        )
-        installPublishedVersions(next)
-        for (const version of [...unsynced, ...authoritative]) {
-          attemptedVersionSyncRef.current.add(version.id)
-        }
-        setPublishSyncStatus("synced")
-        setPublishError(null)
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return
-        setPublishSyncStatus("error")
-        setPublishError(
-          error instanceof Error ? error.message : "Publishing sync failed."
-        )
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [installPublishedVersions, publishedVersions, sessionMode])
 
   useEffect(() => {
     const warnBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -3452,7 +3494,10 @@ export function useDocumentEditor({
 
   const proposeChangeSet = useCallback(
     (changeSetInput: ChangeSet, provenanceInput?: ReviewProposalProvenance) => {
-      if (separateDocumentTransitionRef.current) {
+      if (
+        separateDocumentTransitionRef.current ||
+        activeSessionTransitionRef.current
+      ) {
         throw new Error(DOCUMENT_TRANSITION_DISABLED_REASON)
       }
       if (draftRecoveryRef.current) {
@@ -3627,124 +3672,191 @@ export function useDocumentEditor({
     pruneTemplateSourceContexts,
   ])
 
-  const publishTemplate = useCallback(async () => {
-    if (separateDocumentTransitionRef.current) {
-      setPublishError(DOCUMENT_TRANSITION_DISABLED_REASON)
-      throw new Error(DOCUMENT_TRANSITION_DISABLED_REASON)
+  const publishTemplate = useCallback(() => {
+    const active = publicationOperationRef.current
+    if (active) return active.promise
+
+    const publicationController = new AbortController()
+    const operation: PublicationOperation = {
+      id: crypto.randomUUID(),
+      documentId: historyRef.current.document.id,
+      sessionGeneration: sessionGenerationRef.current,
+      sourceSnapshotId: null,
+      controller: publicationController,
+      timer: 0 as unknown as ReturnType<typeof setTimeout>,
+      timedOut: false,
+      serverCommitted: false,
+      promise: null as unknown as Promise<TemplateVersion>,
     }
-    if (draftRecoveryRef.current) {
-      const message =
-        "Resolve the unreadable local draft before publishing this document."
-      setPublishError(message)
-      throw new Error(message)
-    }
-    if (pendingChangeSetRef.current) {
-      const message = "Resolve the pending change set before publishing."
-      setPublishError(message)
-      throw new Error(message)
-    }
-    if (imageCropSessionRef.current) {
-      const message =
-        "Finish or cancel the active image crop before publishing."
-      setPublishError(message)
-      throw new Error(message)
-    }
-    if (!(await flushActiveDraft())) {
-      const message =
-        "Studio could not durably save the current document before publishing."
-      setPublishError(message)
-      throw new Error(message)
-    }
-    const controller = activePersistenceSessionRef.current?.controller ?? null
-    if (!controller) {
-      const message =
-        "Publishing requires durable browser document storage. Download your version and restore storage access before publishing."
-      setPublishError(message)
-      throw new Error(message)
-    }
-    const document = structuredClone(historyRef.current.document)
-    const draftRepository = getDraftRepository()
-    const durableRead = await draftRepository.get(document.id)
-    if (!durableRead.ok || durableRead.status !== "found") {
-      const message = !durableRead.ok
-        ? durableRead.failure.message
-        : "The saved document disappeared before publication could begin."
-      setPublishError(message)
-      throw new Error(message)
-    }
-    const durableHead = durableRead.record
-    const templateId = quotationSource
-      ? activeQuotationTemplateId
-      : `template-${document.id}`
-    const existing = publishedVersionsForDocument(
-      publishedVersions,
-      templateId,
-      document.id
-    ).sort((a, b) => b.version - a.version)
-    const latest = existing.at(0)
-    const sourceSnapshotId = await deriveDocumentSnapshotId(document)
-    if (
-      durableHead.summary.documentId !== document.id ||
-      durableHead.summary.recordVersion !== controller.recordVersion ||
-      durableHead.summary.contentSnapshotId !== controller.contentSnapshotId ||
-      durableHead.summary.contentSnapshotId !== sourceSnapshotId
-    ) {
-      const message =
-        "The local document changed while Studio was preparing publication. Save the latest head and publish again."
-      setPublishError(message)
-      throw new Error(message)
-    }
-    activeRecordRef.current = durableHead
-    const linkAuthoritativePublication = async (
-      authoritative: TemplateVersion
-    ) => {
-      const linked = await draftRepository.linkPublication({
-        documentId: durableHead.summary.documentId,
-        recordVersion: durableHead.summary.recordVersion,
-        contentSnapshotId: durableHead.summary.contentSnapshotId,
-        templateId: authoritative.templateId,
-        templateVersionId: authoritative.id,
-        templateVersion: authoritative.version,
-        publishedAt: authoritative.publishedAt,
+    const ownsOperation = () => publicationOperationRef.current === operation
+    const ownsPresentation = () =>
+      ownsOperation() &&
+      mountedRef.current &&
+      historyRef.current.document.id === operation.documentId &&
+      sessionGenerationRef.current === operation.sessionGeneration
+    const ownsSourcePresentation = () =>
+      ownsPresentation() &&
+      (operation.sourceSnapshotId === null ||
+        documentSnapshotIdRef.current === operation.sourceSnapshotId)
+    const reserveRepositoryStep = <T>(step: () => Promise<T>) => {
+      const predecessor = publicationRepositoryTailRef.current
+      const pending = predecessor.then(() => {
+        publicationController.signal.throwIfAborted()
+        return step()
       })
-      if (linked.ok) {
-        const active = activeRecordRef.current
-        if (
-          active?.summary.documentId === linked.summary.documentId &&
-          active.summary.recordVersion === linked.summary.recordVersion &&
-          active.summary.contentSnapshotId === linked.summary.contentSnapshotId
-        ) {
-          const nextRecord = { ...active, summary: linked.summary }
-          activeRecordRef.current = nextRecord
-        }
-        return
-      }
-      if (linked.reason === "stale_head") {
-        setDocumentError(
-          "Publication succeeded, and newer local edits remain unpublished."
-        )
-        return
-      }
-      const message =
-        "failure" in linked
-          ? linked.failure.message
-          : linked.reason === "deleted"
-            ? "Publication succeeded, but the local draft was deleted before it could be linked."
-            : "Publication succeeded, but its local draft link could not be recorded."
-      setDocumentError(message)
+      publicationRepositoryTailRef.current = pending.then(
+        () => undefined,
+        () => undefined
+      )
+      return waitForPublicationStep(pending, publicationController.signal)
     }
-    const contentMatch = existing.find(
-      (version) => version.sourceSnapshotId === sourceSnapshotId
-    )
-    if (contentMatch) {
-      try {
-        setPublishSyncStatus("syncing")
+
+    const run = async () => {
+      publicationController.signal.throwIfAborted()
+      if (separateDocumentTransitionRef.current) {
+        setPublishError(DOCUMENT_TRANSITION_DISABLED_REASON)
+        throw new Error(DOCUMENT_TRANSITION_DISABLED_REASON)
+      }
+      if (draftRecoveryRef.current) {
+        const message =
+          "Resolve the unreadable local draft before publishing this document."
+        setPublishError(message)
+        throw new Error(message)
+      }
+      if (pendingChangeSetRef.current) {
+        const message = "Resolve the pending change set before publishing."
+        setPublishError(message)
+        throw new Error(message)
+      }
+      if (imageCropSessionRef.current) {
+        const message =
+          "Finish or cancel the active image crop before publishing."
+        setPublishError(message)
+        throw new Error(message)
+      }
+      if (!(await flushActiveDraft(publicationController.signal))) {
+        const message =
+          "Studio could not durably save the current document before publishing."
+        setPublishError(message)
+        throw new Error(message)
+      }
+      publicationController.signal.throwIfAborted()
+      const controller = activePersistenceSessionRef.current?.controller ?? null
+      if (!controller) {
+        const message =
+          "Publishing requires durable browser document storage. Download your version and restore storage access before publishing."
+        setPublishError(message)
+        throw new Error(message)
+      }
+      const document = structuredClone(historyRef.current.document)
+      const sourceSnapshotId = await deriveDocumentSnapshotId(document)
+      operation.sourceSnapshotId = sourceSnapshotId
+      publicationController.signal.throwIfAborted()
+      const draftRepository = getDraftRepository()
+      const durableRead = await reserveRepositoryStep(() =>
+        draftRepository.get(document.id)
+      )
+      publicationController.signal.throwIfAborted()
+      if (!durableRead.ok || durableRead.status !== "found") {
+        const message = !durableRead.ok
+          ? durableRead.failure.message
+          : "The saved document disappeared before publication could begin."
+        setPublishError(message)
+        throw new Error(message)
+      }
+      const durableHead = durableRead.record
+      const templateId = `template-${document.id}`
+      const remoteLatest = await readLatestPublishedVersion(
+        templateId,
+        publicationController.signal
+      )
+      const withoutCurrentStream = publishedVersionsRef.current.filter(
+        (version) =>
+          version.templateId !== templateId ||
+          version.document.id !== document.id
+      )
+      const authoritativeHistory = remoteLatest
+        ? replaceAuthoritativePublishedVersions(withoutCurrentStream, [
+            remoteLatest,
+          ])
+        : withoutCurrentStream
+      installPublishedVersions(authoritativeHistory)
+      const existing = publishedVersionsForDocument(
+        authoritativeHistory,
+        templateId,
+        document.id
+      ).sort((a, b) => b.version - a.version)
+      const latest = existing.at(0)
+      if (
+        durableHead.summary.documentId !== document.id ||
+        durableHead.summary.recordVersion !== controller.recordVersion ||
+        durableHead.summary.contentSnapshotId !==
+          controller.contentSnapshotId ||
+        durableHead.summary.contentSnapshotId !== sourceSnapshotId
+      ) {
+        const message =
+          "The local document changed while Studio was preparing publication. Save the latest head and publish again."
+        setPublishError(message)
+        throw new Error(message)
+      }
+      activeRecordRef.current = durableHead
+      const linkAuthoritativePublication = async (
+        authoritative: TemplateVersion
+      ) => {
+        const linked = await reserveRepositoryStep(() =>
+          draftRepository.linkPublication({
+            documentId: durableHead.summary.documentId,
+            recordVersion: durableHead.summary.recordVersion,
+            contentSnapshotId: durableHead.summary.contentSnapshotId,
+            templateId: authoritative.templateId,
+            templateVersionId: authoritative.id,
+            templateVersion: authoritative.version,
+            publishedAt: authoritative.publishedAt,
+          })
+        )
+        if (linked.ok) {
+          const currentRecord = activeRecordRef.current
+          if (
+            currentRecord?.summary.documentId === linked.summary.documentId &&
+            currentRecord.summary.recordVersion ===
+              linked.summary.recordVersion &&
+            currentRecord.summary.contentSnapshotId ===
+              linked.summary.contentSnapshotId
+          ) {
+            const nextRecord = { ...currentRecord, summary: linked.summary }
+            activeRecordRef.current = nextRecord
+          }
+          return
+        }
+        if (linked.reason === "stale_head") {
+          if (ownsPresentation()) {
+            setDocumentError(
+              "Publication succeeded, and newer local edits remain unpublished."
+            )
+          }
+          return
+        }
+        const message =
+          "failure" in linked
+            ? linked.failure.message
+            : linked.reason === "deleted"
+              ? "Publication succeeded, but the local draft was deleted before it could be linked."
+              : "Publication succeeded, but its local draft link could not be recorded."
+        if (ownsPresentation()) setDocumentError(message)
+      }
+      const contentMatch = existing.find(
+        (version) => version.sourceSnapshotId === sourceSnapshotId
+      )
+      if (contentMatch) {
         let authoritative = contentMatch
         const synchronized: TemplateVersion[] = []
         for (const version of [...existing].sort(
           (a, b) => a.version - b.version
         )) {
-          const synced = await syncPublishedVersion(version)
+          const synced = await syncPublishedVersion(
+            version,
+            publicationController.signal
+          )
           synchronized.push(synced)
           if (version.id === contentMatch.id) authoritative = synced
         }
@@ -3752,23 +3864,20 @@ export function useDocumentEditor({
           publishedVersionsRef.current,
           synchronized
         )
+        operation.serverCommitted = true
         installPublishedVersions(next)
         for (const version of [...existing, ...synchronized]) {
           attemptedVersionSyncRef.current.add(version.id)
         }
-        setPublishSyncStatus("synced")
-        setPublishError(null)
         await linkAuthoritativePublication(authoritative)
+        if (ownsSourcePresentation()) {
+          setPublishSyncStatus("synced")
+          setPublishError(null)
+        } else if (ownsPresentation()) {
+          setPublishSyncStatus("idle")
+        }
         return authoritative
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Publishing sync failed."
-        setPublishSyncStatus("error")
-        setPublishError(message)
-        throw error
       }
-    }
-    try {
       const version = createTemplateVersion(document, {
         id: `template-version-${crypto.randomUUID()}`,
         templateId,
@@ -3776,43 +3885,100 @@ export function useDocumentEditor({
         sourceSnapshotId,
         publishedAt: new Date().toISOString(),
       })
-      setPublishSyncStatus("syncing")
       let authoritative = version
       const synchronized: TemplateVersion[] = []
       for (const candidate of [...existing, version].sort(
         (a, b) => a.version - b.version
       )) {
-        const synced = await syncPublishedVersion(candidate)
+        const synced = await syncPublishedVersion(
+          candidate,
+          publicationController.signal
+        )
         synchronized.push(synced)
         if (candidate.id === version.id) authoritative = synced
       }
       const next = replaceAuthoritativePublishedVersions(
-        [...publishedVersionsRef.current, version],
+        publishedVersionsRef.current,
         synchronized
       )
+      operation.serverCommitted = true
       installPublishedVersions(next)
-      for (const candidate of [...existing, version, ...synchronized]) {
+      for (const candidate of [...existing, ...synchronized]) {
         attemptedVersionSyncRef.current.add(candidate.id)
       }
-      setPublishSyncStatus("synced")
-      setPublishError(null)
       await linkAuthoritativePublication(authoritative)
+      if (ownsSourcePresentation()) {
+        setPublishSyncStatus("synced")
+        setPublishError(null)
+      } else if (ownsPresentation()) {
+        setPublishSyncStatus("idle")
+      }
       return authoritative
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Publishing failed."
-      setPublishError(message)
-      setPublishSyncStatus("error")
-      throw error
     }
-  }, [
-    activeQuotationTemplateId,
-    flushActiveDraft,
-    getDraftRepository,
-    installPublishedVersions,
-    publishedVersions,
-    quotationSource,
-  ])
+
+    operation.timer = setTimeout(() => {
+      if (!ownsOperation()) return
+      operation.timedOut = true
+      if (ownsPresentation()) setPublishSyncStatus("cancelling")
+      publicationController.abort(
+        new DOMException(
+          "Publishing took too long. Studio is checking that the request has stopped before Retry becomes available.",
+          "TimeoutError"
+        )
+      )
+    }, PUBLICATION_TIMEOUT_MS)
+    const promise = Promise.resolve()
+      .then(run)
+      .catch((error: unknown) => {
+        if (ownsSourcePresentation()) {
+          const caughtMessage =
+            error &&
+            typeof error === "object" &&
+            "message" in error &&
+            typeof error.message === "string"
+              ? error.message
+              : null
+          const stoppedWaiting = publicationController.signal.aborted
+          const message = stoppedWaiting
+            ? operation.serverCommitted
+              ? "Studio stopped waiting after the server accepted the immutable snapshot. The local publication status is unknown; Retry checks the same snapshot before creating anything new."
+              : "Studio stopped waiting before publication was confirmed. Server status is unknown; Retry checks the same immutable snapshot before creating anything new."
+            : (caughtMessage ?? "Publishing failed.")
+          setPublishError(message)
+          setPublishSyncStatus(stoppedWaiting ? "status_unknown" : "error")
+        } else if (ownsPresentation()) {
+          setPublishSyncStatus("idle")
+        }
+        throw error
+      })
+      .finally(() => {
+        clearTimeout(operation.timer)
+        if (ownsOperation()) publicationOperationRef.current = null
+      })
+    operation.promise = promise
+    publicationOperationRef.current = operation
+    setPublishError(null)
+    setPublishSyncStatus("syncing")
+    return promise
+  }, [flushActiveDraft, getDraftRepository, installPublishedVersions])
+
+  const cancelPublication = useCallback(() => {
+    const operation = publicationOperationRef.current
+    if (!operation || operation.controller.signal.aborted) return false
+    if (
+      mountedRef.current &&
+      historyRef.current.document.id === operation.documentId
+    ) {
+      setPublishSyncStatus("cancelling")
+    }
+    operation.controller.abort(
+      new DOMException(
+        "Studio stopped waiting for publication status.",
+        "AbortError"
+      )
+    )
+    return true
+  }, [])
 
   const addText = useCallback(
     (presetId: StudioTextPresetId = defaultStudioTextPresetId) => {
@@ -5737,14 +5903,7 @@ export function useDocumentEditor({
       ))
     )
       return false
-    try {
-      localStorage.removeItem(PUBLISHED_STORAGE_KEY)
-      setPublishError(null)
-    } catch {
-      setPublishError(
-        "The starter opened, but stale local publication history could not be removed."
-      )
-    }
+    setPublishError(null)
     attemptedVersionSyncRef.current.clear()
     publishedVersionsRef.current = []
     setPublishedVersions([])
@@ -5933,9 +6092,9 @@ export function useDocumentEditor({
     [commit, selectedNodes]
   )
 
-  const currentTemplateId = quotationSource
-    ? activeQuotationTemplateId
-    : `template-${history.document.id}`
+  // Public API identity belongs to the document. Quotation styles remain
+  // composition metadata and must not merge or fork immutable API streams.
+  const currentTemplateId = `template-${history.document.id}`
   const latestPublishedVersion = publishedVersionsForDocument(
     publishedVersions,
     currentTemplateId,
@@ -5943,6 +6102,73 @@ export function useDocumentEditor({
   )
     .sort((a, b) => b.version - a.version)
     .at(0)
+  const currentSnapshotPublishedVersion = publishedVersionsForDocument(
+    publishedVersions,
+    currentTemplateId,
+    history.document.id
+  ).find((version) => version.sourceSnapshotId === documentSnapshotId)
+
+  useEffect(() => {
+    if (sessionMode !== "workspace") return
+    const controller = new AbortController()
+    const documentId = history.document.id
+    const sessionGeneration = sessionGenerationRef.current
+    installPublishedVersions(
+      publishedVersionsRef.current.filter(
+        (version) =>
+          version.templateId !== currentTemplateId ||
+          version.document.id !== documentId
+      )
+    )
+    if (!publicationOperationRef.current) {
+      setPublishSyncStatus("idle")
+      setPublishError(null)
+    }
+    void readLatestPublishedVersion(currentTemplateId, controller.signal)
+      .then((version) => {
+        if (
+          controller.signal.aborted ||
+          !mountedRef.current ||
+          historyRef.current.document.id !== documentId ||
+          sessionGenerationRef.current !== sessionGeneration
+        ) {
+          return
+        }
+        if (!version) return
+        installPublishedVersions(
+          replaceAuthoritativePublishedVersions(publishedVersionsRef.current, [
+            version,
+          ])
+        )
+        attemptedVersionSyncRef.current.add(version.id)
+        if (!publicationOperationRef.current) {
+          setPublishSyncStatus("synced")
+          setPublishError(null)
+        }
+      })
+      .catch((error: unknown) => {
+        if (
+          controller.signal.aborted ||
+          historyRef.current.document.id !== documentId ||
+          sessionGenerationRef.current !== sessionGeneration ||
+          publicationOperationRef.current
+        ) {
+          return
+        }
+        setPublishError(
+          error instanceof Error
+            ? `Published version history could not be loaded: ${error.message}`
+            : "Published version history could not be loaded."
+        )
+      })
+    return () => controller.abort()
+  }, [
+    currentTemplateId,
+    history.document.id,
+    installPublishedVersions,
+    publicationHistoryGeneration,
+    sessionMode,
+  ])
 
   useEffect(() => {
     const current = imageCropSessionRef.current
@@ -6133,6 +6359,7 @@ export function useDocumentEditor({
     isApplyingChangeSet,
     publishedVersions,
     latestPublishedVersion,
+    currentSnapshotPublishedVersion,
     currentTemplateId,
     quotationSource,
     activeQuotationTemplateId,
@@ -6170,6 +6397,7 @@ export function useDocumentEditor({
     applyChangeSet,
     discardChangeSet,
     publishTemplate,
+    cancelPublication,
     addText,
     addRectangle,
     addEllipse,

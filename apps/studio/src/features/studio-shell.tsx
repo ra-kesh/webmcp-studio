@@ -2323,13 +2323,16 @@ export function StudioShell({
   const publishLabel =
     editor.publishSyncStatus === "syncing"
       ? "Publishing…"
-      : editor.publishSyncStatus === "error"
-        ? "Publish sync failed"
-        : editor.publishSyncStatus === "synced" &&
-            editor.latestPublishedVersion?.sourceSnapshotId ===
-              editor.documentSnapshotId
-          ? `Published v${editor.latestPublishedVersion.version}`
-          : "Publish"
+      : editor.publishSyncStatus === "cancelling"
+        ? "Stopping publication…"
+        : editor.publishSyncStatus === "status_unknown"
+          ? "Publication status unknown"
+          : editor.publishSyncStatus === "error"
+            ? "Publish sync failed"
+            : editor.publishSyncStatus === "synced" &&
+                editor.currentSnapshotPublishedVersion
+              ? `Published v${editor.currentSnapshotPublishedVersion.version}`
+              : "Publish"
   const studioErrors = [editor.assetError, editor.documentError].filter(
     (message): message is string => Boolean(message)
   )
@@ -4471,9 +4474,11 @@ export function StudioShell({
           documentSnapshotId={editor.documentSnapshotId}
           templateId={editor.currentTemplateId}
           latestVersion={editor.latestPublishedVersion}
+          currentSnapshotVersion={editor.currentSnapshotPublishedVersion}
           pendingChangeSet={Boolean(editor.pendingChangeSet)}
           publishError={editor.publishError}
           publishSyncStatus={editor.publishSyncStatus}
+          onCancelPublish={editor.cancelPublication}
           onPublish={async () => {
             if (!commitActiveTextEditing()) {
               throw new Error(

@@ -163,7 +163,16 @@ export async function persistTemplateVersion(
     .first<StoredVersionRow>()
   if (existing) {
     if (!matchesVersion(existing, version)) {
-      throw new Error("published_version_conflict")
+      if (existing.id === version.id) {
+        throw new Error("published_version_conflict")
+      }
+      const racedLatest = await db
+        .prepare("SELECT latest_version FROM templates WHERE id = ?1")
+        .bind(storedTemplateId)
+        .first<{ latest_version: number }>()
+      throw new Error(
+        `expected_version:${(racedLatest?.latest_version ?? existing.version) + 1}`
+      )
     }
     await persistWithReferences()
     return {
@@ -281,7 +290,16 @@ export async function persistTemplateVersion(
       .first<StoredVersionRow>()
     if (!raced) throw error
     if (!matchesVersion(raced, version)) {
-      throw new Error("published_version_conflict")
+      if (raced.id === version.id) {
+        throw new Error("published_version_conflict")
+      }
+      const catchLatest = await db
+        .prepare("SELECT latest_version FROM templates WHERE id = ?1")
+        .bind(storedTemplateId)
+        .first<{ latest_version: number }>()
+      throw new Error(
+        `expected_version:${(catchLatest?.latest_version ?? raced.version) + 1}`
+      )
     }
   }
   return { version, created: true }

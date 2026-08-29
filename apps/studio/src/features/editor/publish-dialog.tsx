@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Check, CircleAlert, Code2, LoaderCircle, Rocket } from "lucide-react"
 import { getPublishReadiness } from "@webmcp/document"
 import type { Document, TemplateVersion } from "@webmcp/document"
@@ -23,10 +23,12 @@ export function PublishDialog({
   documentSnapshotId,
   templateId,
   latestVersion,
+  currentSnapshotVersion,
   pendingChangeSet,
   publishError,
   publishSyncStatus,
   onPublish,
+  onCancelPublish,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -34,55 +36,108 @@ export function PublishDialog({
   documentSnapshotId: string | null
   templateId: string
   latestVersion?: TemplateVersion
+  currentSnapshotVersion?: TemplateVersion
   pendingChangeSet: boolean
   publishError: string | null
-  publishSyncStatus: "idle" | "syncing" | "synced" | "error"
+  publishSyncStatus:
+    "idle" | "syncing" | "cancelling" | "synced" | "status_unknown" | "error"
   onPublish: () => Promise<TemplateVersion | undefined>
+  onCancelPublish: () => boolean
 }) {
   const [published, setPublished] = useState<TemplateVersion | null>(null)
   const [localError, setLocalError] = useState<string | null>(null)
   const [publishing, setPublishing] = useState(false)
+  const requestGenerationRef = useRef(0)
+  const openRef = useRef(open)
+  const identityRef = useRef({
+    documentId: document.id,
+    documentSnapshotId,
+  })
+  openRef.current = open
+  identityRef.current = { documentId: document.id, documentSnapshotId }
 
   useEffect(() => {
     if (!open) {
+      requestGenerationRef.current += 1
       setPublished(null)
       setLocalError(null)
       setPublishing(false)
     }
   }, [open])
 
+  useEffect(() => {
+    requestGenerationRef.current += 1
+    setPublished(null)
+    setLocalError(null)
+    setPublishing(false)
+  }, [document.id, documentSnapshotId])
+
   const readiness = getPublishReadiness(document)
   const studioAssetIssues = studioAssetFieldPublicationIssues(document)
   const currentVersion =
     published ??
-    (latestVersion?.sourceSnapshotId === documentSnapshotId
-      ? latestVersion
+    (currentSnapshotVersion?.sourceSnapshotId === documentSnapshotId
+      ? currentSnapshotVersion
       : null)
   const nextVersion = (latestVersion?.version ?? 0) + 1
   const blockingMessage = pendingChangeSet
     ? "Resolve the pending agent change set before publishing."
     : (readiness.blocking[0]?.message ?? studioAssetIssues[0]?.message)
   const blocked = Boolean(blockingMessage)
-  const syncing = publishing || publishSyncStatus === "syncing"
-  const needsSync = Boolean(currentVersion && publishSyncStatus === "error")
+  const syncing =
+    publishing ||
+    publishSyncStatus === "syncing" ||
+    publishSyncStatus === "cancelling"
+  const needsSync = Boolean(
+    currentVersion &&
+    (publishSyncStatus === "error" || publishSyncStatus === "status_unknown")
+  )
 
   const handlePublish = async () => {
+    const requestGeneration = requestGenerationRef.current + 1
+    requestGenerationRef.current = requestGeneration
+    const identity = identityRef.current
     setPublishing(true)
     setLocalError(null)
     try {
       const version = await onPublish()
-      if (version) setPublished(version)
+      if (
+        version &&
+        openRef.current &&
+        requestGenerationRef.current === requestGeneration &&
+        identityRef.current.documentId === identity.documentId &&
+        identityRef.current.documentSnapshotId === identity.documentSnapshotId
+      ) {
+        setPublished(version)
+      }
     } catch (error) {
-      setLocalError(
-        error instanceof Error ? error.message : "Publishing failed."
-      )
+      if (
+        openRef.current &&
+        requestGenerationRef.current === requestGeneration &&
+        identityRef.current.documentId === identity.documentId &&
+        identityRef.current.documentSnapshotId === identity.documentSnapshotId
+      ) {
+        setLocalError(
+          error instanceof Error ? error.message : "Publishing failed."
+        )
+      }
     } finally {
-      setPublishing(false)
+      if (requestGenerationRef.current === requestGeneration) {
+        setPublishing(false)
+      }
     }
   }
 
+  const requestOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen && syncing) {
+      onCancelPublish()
+      return
+    }
+    onOpenChange(nextOpen)
+  }
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={requestOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <div className="flex size-8 items-center justify-center rounded-lg bg-secondary">
@@ -139,7 +194,13 @@ export function PublishDialog({
             </p>
             {currentVersion ? (
               <Badge variant="secondary">
-                {syncing ? "Syncing" : needsSync ? "Local only" : "Immutable"}
+                {syncing
+                  ? "Syncing"
+                  : publishSyncStatus === "status_unknown"
+                    ? "Status unknown"
+                    : needsSync
+                      ? "Local only"
+                      : "Immutable"}
               </Badge>
             ) : null}
           </div>
@@ -171,14 +232,19 @@ export function PublishDialog({
 
         <DialogFooter>
           <DialogClose asChild>
-            <Button variant="outline" disabled={publishing}>
+            <Button variant="outline" disabled={syncing}>
               {currentVersion ? "Done" : "Cancel"}
             </Button>
           </DialogClose>
           {!currentVersion || needsSync ? (
             <Button
-              disabled={blocked || syncing}
-              onClick={() => void handlePublish()}
+              disabled={
+                publishSyncStatus === "cancelling" || (!syncing && blocked)
+              }
+              onClick={() => {
+                if (syncing) onCancelPublish()
+                else void handlePublish()
+              }}
             >
               {syncing ? (
                 <LoaderCircle
@@ -188,11 +254,13 @@ export function PublishDialog({
               ) : (
                 <Rocket data-icon="inline-start" />
               )}
-              {syncing
-                ? "Publishing…"
-                : needsSync
-                  ? "Retry API sync"
-                  : `Publish version ${nextVersion}`}
+              {publishSyncStatus === "cancelling"
+                ? "Stopping…"
+                : syncing
+                  ? "Cancel publishing"
+                  : needsSync
+                    ? "Retry API sync"
+                    : `Publish version ${nextVersion}`}
             </Button>
           ) : null}
         </DialogFooter>

@@ -2271,3 +2271,30 @@ Status: **implemented locally and independently accepted; broader FAIL-01 remain
 - The first independent review rejected shared-object deletion and misleading
   timeout copy. After repair, final rereview returned **ACCEPT with no remaining
   P0/P1**. A mounted full-queue lifecycle regression remains P2 hardening.
+
+## 2026-08-30 — Publication lifecycle and authority (FAIL-01G)
+
+Status: **implemented locally and independently accepted; broader FAIL-01 remains open**
+
+- Reread FAIL-01 publication findings, Loora's transaction/agent/export paths,
+  OpenPencil's finite attempt patterns, and Studio's route, D1, IndexedDB,
+  dialog, and shell lifecycle before implementation.
+- Removed origin-global publication replay. Workspace sessions and every
+  publication obtain authenticated server authority before consuming a version
+  stream; public template IDs are stable and document-owned.
+- Publication is exact single-flight with a 45-second deadline, visible Cancel,
+  session/document/snapshot guards, signal-aware draft flush, and serialized
+  abortable IndexedDB prerequisites. Cancelled queued retries never start late.
+- Cancellation projects **Status unknown**, because the Worker may already have
+  committed. Dialog and shell expose syncing, stopping, unknown, failed, and
+  synced states without claiming rollback.
+- D1 responses are authoritative. Provisional candidates are not installed;
+  actual same-slot races return the next ordinal and recover inside one
+  operation. Exact durable-head linking preserves newer local edits as
+  unpublished.
+- Studio typecheck, scoped lint, and 84 focused mounted persistence/repository
+  tests pass. `fail-01g-publication-lifecycle.md` keeps WebMCP execution,
+  durable jobs, local promotion, public error identity, quotas, and deployed
+  failure evidence open.
+- Independent review rejected seven successive ownership/authority gaps. Final
+  rereview returned **ACCEPT with no remaining P0/P1**.

@@ -2254,6 +2254,192 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     })
   })
 
+  it("never replays an origin-global publication cache into the active workspace", async () => {
+    const envelope = designEnvelope()
+    const cached = createTemplateVersion(envelope.document, {
+      id: "template-version-foreign-workspace",
+      templateId: `template-${envelope.document.id}`,
+      version: 9,
+      sourceSnapshotId: "legacy-foreign-workspace-snapshot",
+      publishedAt: "2026-08-28T20:00:00.000Z",
+    })
+    localStorage.setItem(
+      "webmcp-studio:published-versions:v1",
+      JSON.stringify([cached])
+    )
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ error: { code: "template_not_found" } }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      })
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    await openEnvelope(envelope, "principal-isolation")
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled())
+
+    expect(
+      fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")
+    ).toEqual([])
+    expect(fetchMock.mock.calls.every(([, init]) => !init?.method)).toBe(true)
+  })
+
+  it("joins concurrent publication callers before the first await", async () => {
+    const envelope = designEnvelope()
+    const { captured, hookRepository } = await openEnvelope(
+      envelope,
+      "publication-single-flight"
+    )
+    await act(async () => {
+      expect(await captured.current!.flushActiveDraft()).toBe(true)
+    })
+    const head = await readRecord(hookRepository, envelope.document.id)
+    let resolvePublication: ((response: Response) => void) | undefined
+    const response = new Promise<Response>((resolve) => {
+      resolvePublication = resolve
+    })
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockImplementation((_, init) =>
+        init?.method === "POST"
+          ? response
+          : Promise.resolve(new Response(null, { status: 404 }))
+      )
+    vi.stubGlobal("fetch", fetchMock)
+
+    let first: Promise<TemplateVersion> | undefined
+    let second: Promise<TemplateVersion> | undefined
+    await act(async () => {
+      first = captured.current!.publishTemplate()
+      second = captured.current!.publishTemplate()
+      expect(first).toBe(second)
+      await vi.waitFor(() =>
+        expect(
+          fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")
+        ).toHaveLength(1)
+      )
+    })
+
+    const publicationCall = fetchMock.mock.calls.find(
+      ([, init]) => init?.method === "POST"
+    )
+    const request = JSON.parse(
+      String(publicationCall?.[1]?.body)
+    ) as PublishRequestBody
+    const authoritative = createTemplateVersion(request.document, {
+      id: request.id,
+      templateId: request.templateId,
+      version: request.version,
+      sourceSnapshotId: head.summary.contentSnapshotId,
+      publishedAt: request.publishedAt,
+    })
+    await act(async () => {
+      resolvePublication?.(
+        new Response(JSON.stringify(authoritative), {
+          status: 201,
+          headers: { "Content-Type": "application/json" },
+        })
+      )
+      await expect(first).resolves.toEqual(authoritative)
+      await expect(second).resolves.toEqual(authoritative)
+    })
+  })
+
+  it("holds publication ownership until an aborting transport acknowledges cancel", async () => {
+    const envelope = designEnvelope()
+    const { captured } = await openEnvelope(
+      envelope,
+      "publication-cancel-acknowledgement"
+    )
+    await act(async () => {
+      expect(await captured.current!.flushActiveDraft()).toBe(true)
+    })
+    let releaseAbort: (() => void) | undefined
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockImplementation((_input, init) => {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => {
+              releaseAbort = () => reject(init.signal?.reason)
+            },
+            { once: true }
+          )
+        })
+      })
+    vi.stubGlobal("fetch", fetchMock)
+
+    let publishing: Promise<TemplateVersion> | undefined
+    await act(async () => {
+      publishing = captured.current!.publishTemplate()
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
+      expect(captured.current!.cancelPublication()).toBe(true)
+      expect(captured.current!.publishTemplate()).toBe(publishing)
+    })
+    expect(captured.current!.publishSyncStatus).toBe("cancelling")
+
+    await act(async () => {
+      releaseAbort?.()
+      await expect(publishing).rejects.toMatchObject({ name: "AbortError" })
+    })
+    expect(captured.current!.publishSyncStatus).toBe("status_unknown")
+    expect(captured.current!.publishError).toMatch(/status is unknown/i)
+  })
+
+  it("recovers a stale cross-browser version ordinal under one operation", async () => {
+    const envelope = quotationEnvelope()
+    const { captured, hookRepository } = await openEnvelope(
+      envelope,
+      "publication-version-recovery"
+    )
+    await act(async () => {
+      expect(await captured.current!.flushActiveDraft()).toBe(true)
+    })
+    const head = await readRecord(hookRepository, envelope.document.id)
+    const postedVersions: number[] = []
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async (_, init) => {
+        if (init?.method !== "POST") {
+          return new Response(null, { status: 404 })
+        }
+        const request = JSON.parse(String(init.body)) as PublishRequestBody
+        postedVersions.push(request.version)
+        if (postedVersions.length === 1) {
+          return new Response(
+            JSON.stringify({
+              error: { code: "version_conflict", expectedVersion: 3 },
+            }),
+            { status: 409, headers: { "Content-Type": "application/json" } }
+          )
+        }
+        return new Response(
+          JSON.stringify(
+            createTemplateVersion(request.document, {
+              id: request.id,
+              templateId: request.templateId,
+              version: request.version,
+              sourceSnapshotId: head.summary.contentSnapshotId,
+              publishedAt: request.publishedAt,
+            })
+          ),
+          { status: 201, headers: { "Content-Type": "application/json" } }
+        )
+      })
+    vi.stubGlobal("fetch", fetchMock)
+
+    let published: TemplateVersion | undefined
+    await act(async () => {
+      published = await captured.current!.publishTemplate()
+    })
+
+    expect(postedVersions).toEqual([1, 3])
+    expect(published?.version).toBe(3)
+    expect(published?.templateId).toBe(`template-${envelope.document.id}`)
+    expect(captured.current!.publishedVersions).toEqual([published])
+  })
+
   it("links an authoritative publication to the exact durable head", async () => {
     const envelope = designEnvelope()
     const { captured, hookRepository } = await openEnvelope(
@@ -2272,11 +2458,15 @@ describe.sequential("useDocumentEditor repository persistence", () => {
       sourceSnapshotId: head.summary.contentSnapshotId,
       publishedAt: "2026-08-28T21:15:00.000Z",
     })
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-      new Response(JSON.stringify(authoritative), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      })
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation((_, init) =>
+      Promise.resolve(
+        init?.method === "POST"
+          ? new Response(JSON.stringify(authoritative), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            })
+          : new Response(null, { status: 404 })
+      )
     )
     vi.stubGlobal("fetch", fetchMock)
 
@@ -2286,7 +2476,9 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     })
 
     expect(published).toEqual(authoritative)
-    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(
+      fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")
+    ).toHaveLength(1)
     const linked = await readRecord(hookRepository, envelope.document.id)
     expect(linked.summary).toEqual({
       ...head.summary,
@@ -2321,14 +2513,22 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     })
     const fetchMock = vi
       .fn<typeof fetch>()
-      .mockImplementation(() => publicationResponse)
+      .mockImplementation((_, init) =>
+        init?.method === "POST"
+          ? publicationResponse
+          : Promise.resolve(new Response(null, { status: 404 }))
+      )
     vi.stubGlobal("fetch", fetchMock)
     const linkPublication = vi.spyOn(hookRepository, "linkPublication")
 
     let publishPromise: Promise<TemplateVersion> | undefined
     await act(async () => {
       publishPromise = captured.current!.publishTemplate()
-      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
+      await vi.waitFor(() =>
+        expect(
+          fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")
+        ).toHaveLength(1)
+      )
     })
 
     await act(async () => {
@@ -2345,7 +2545,9 @@ describe.sequential("useDocumentEditor repository persistence", () => {
       publishingHead.summary.contentSnapshotId
     )
 
-    const [, requestInit] = fetchMock.mock.calls[0]
+    const [, requestInit] = fetchMock.mock.calls.find(
+      ([, init]) => init?.method === "POST"
+    ) ?? [undefined, undefined]
     expect(typeof requestInit?.body).toBe("string")
     const request = JSON.parse(String(requestInit?.body)) as PublishRequestBody
     const authoritative = createTemplateVersion(request.document, {
@@ -2384,6 +2586,7 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     expect(captured.current?.documentError).toBe(
       "Publication succeeded, and newer local edits remain unpublished."
     )
+    expect(captured.current?.publishSyncStatus).toBe("idle")
   })
 
   it("refuses publication for a session-only document", async () => {
