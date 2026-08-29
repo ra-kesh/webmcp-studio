@@ -6,6 +6,7 @@ import {
   quotationTemplates,
 } from "@webmcp/document"
 import { JsonBodyError, jsonBodyErrorResponse } from "@webmcp/worker-boundary"
+import { apiIssuesFrom } from "../../../server/api-boundary"
 import { readStudioJsonBody } from "../../../server/json-request-policy"
 import { requireStudioPrincipal } from "../../../server/studio-principal"
 
@@ -27,6 +28,10 @@ export const Route = createFileRoute("/v1/studio/quotation-compositions")({
         )
       },
       POST: async ({ request }) => {
+        const session = await requireStudioPrincipal(env, request)
+        if (session instanceof Response) return session
+        const json = (body: unknown, init?: ResponseInit) =>
+          session.respond(Response.json(body, init))
         let input: unknown
         try {
           input = await readStudioJsonBody(
@@ -35,26 +40,22 @@ export const Route = createFileRoute("/v1/studio/quotation-compositions")({
           )
         } catch (error) {
           if (error instanceof JsonBodyError) {
-            return jsonBodyErrorResponse(error, true)
+            return session.respond(jsonBodyErrorResponse(error, true))
           }
           throw error
         }
         const parsed = quotationCompositionRequestV1Schema.safeParse(input)
         if (!parsed.success) {
-          return Response.json(
+          return json(
             {
               error: {
                 code: "invalid_quotation_composition",
-                details: parsed.error.flatten(),
+                issues: apiIssuesFrom(parsed.error.issues),
               },
             },
             { status: 400 }
           )
         }
-        const session = await requireStudioPrincipal(env, request)
-        if (session instanceof Response) return session
-        const json = (body: unknown, init?: ResponseInit) =>
-          session.respond(Response.json(body, init))
         const template = quotationTemplates.find(
           (candidate) => candidate.id === parsed.data.templateId
         )

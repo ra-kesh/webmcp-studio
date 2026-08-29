@@ -100,6 +100,8 @@ type RenderResourceErrorCode =
   | "image_resource_node_missing"
   | "image_resource_source_mismatch"
   | "image_resource_type_mismatch"
+  | "image_resource_inline_invalid"
+  | "image_resource_inline_dimensions_exceeded"
   | "managed_font_failed"
   | "resource_readiness_failed"
   | "resource_readiness_timeout"

@@ -359,13 +359,7 @@ export class MediaAssetRepository {
     const hasMore = rows.results.length > options.limit
     const page = rows.results.slice(0, options.limit)
     const tail = page.at(-1)
-    const storage = await this.db
-      .prepare(
-        `/* media:storage */ SELECT COALESCE(SUM(bytes), 0) AS bytes, COUNT(*) AS count
-         FROM media_assets WHERE workspace_id = ?1 AND status = 'ready'`
-      )
-      .bind(workspaceId)
-      .first<{ bytes: number; count: number }>()
+    const storage = await this.storageUsage(workspaceId)
     return {
       assets: page.map(publicAsset),
       nextCursor:
@@ -381,10 +375,21 @@ export class MediaAssetRepository {
               id: tail.id,
             })
           : null,
-      storage: {
-        bytes: Number(storage?.bytes ?? 0),
-        count: Number(storage?.count ?? 0),
-      },
+      storage,
+    }
+  }
+
+  async storageUsage(workspaceId: string) {
+    const storage = await this.db
+      .prepare(
+        `/* media:storage */ SELECT COALESCE(SUM(bytes), 0) AS bytes, COUNT(*) AS count
+         FROM media_assets WHERE workspace_id = ?1 AND status = 'ready'`
+      )
+      .bind(workspaceId)
+      .first<{ bytes: number; count: number }>()
+    return {
+      bytes: Number(storage?.bytes ?? 0),
+      count: Number(storage?.count ?? 0),
     }
   }
 

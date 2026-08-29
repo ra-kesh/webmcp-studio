@@ -1,4 +1,8 @@
 import type { Document } from "./schema"
+import {
+  inspectInlineRasterSource,
+  RasterInspectionError,
+} from "./raster-inspection"
 
 export type RenderImageResourceExpectation = {
   nodeId: string
@@ -15,6 +19,8 @@ export type RenderImageResourceAdmissionErrorCode =
   | "image_resource_node_missing"
   | "image_resource_source_mismatch"
   | "image_resource_type_mismatch"
+  | "image_resource_inline_invalid"
+  | "image_resource_inline_dimensions_exceeded"
 
 export class RenderImageResourceAdmissionError extends Error {
   constructor(
@@ -60,6 +66,24 @@ export async function assertRenderImageResourceAdmission(
 ): Promise<void> {
   const nodeById = new Map(document.nodes.map((node) => [node.id, node]))
   const seenNodeIds = new Set<string>()
+
+  for (const node of document.nodes) {
+    if (node.type !== "image") continue
+    try {
+      inspectInlineRasterSource(node.src)
+    } catch (error) {
+      if (error instanceof RasterInspectionError) {
+        throw new RenderImageResourceAdmissionError(
+          error.code === "raster_dimensions_exceeded"
+            ? "image_resource_inline_dimensions_exceeded"
+            : "image_resource_inline_invalid",
+          node.id,
+          node.assetId
+        )
+      }
+      throw error
+    }
+  }
 
   for (const expectation of expectations) {
     if (seenNodeIds.has(expectation.nodeId)) {

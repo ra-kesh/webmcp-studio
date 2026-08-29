@@ -6,6 +6,7 @@ import {
   templatePublishRequestSchema,
 } from "@webmcp/document"
 import { JsonBodyError, jsonBodyErrorResponse } from "@webmcp/worker-boundary"
+import { apiIssuesFrom } from "../../../../server/api-boundary"
 import { readStudioJsonBody } from "../../../../server/json-request-policy"
 import { requireStudioPrincipal } from "../../../../server/studio-principal"
 import { persistTemplateVersion } from "../../../../server/template-repository"
@@ -55,12 +56,16 @@ export const Route = createFileRoute("/v1/studio/templates/")({
         )
       },
       POST: async ({ request }) => {
+        const session = await requireStudioPrincipal(env, request)
+        if (session instanceof Response) return session
+        const json = (body: unknown, init?: ResponseInit) =>
+          session.respond(Response.json(body, init))
         let input: unknown
         try {
           input = await readStudioJsonBody(request, "/v1/studio/templates/")
         } catch (error) {
           if (error instanceof JsonBodyError) {
-            return jsonBodyErrorResponse(error, true)
+            return session.respond(jsonBodyErrorResponse(error, true))
           }
           throw error
         }
@@ -77,20 +82,16 @@ export const Route = createFileRoute("/v1/studio/templates/")({
         }
         const parsed = templatePublishRequestSchema.safeParse(compatibleInput)
         if (!parsed.success) {
-          return Response.json(
+          return json(
             {
               error: {
                 code: "invalid_publish_request",
-                details: parsed.error.flatten(),
+                issues: apiIssuesFrom(parsed.error.issues),
               },
             },
             { status: 400 }
           )
         }
-        const session = await requireStudioPrincipal(env, request)
-        if (session instanceof Response) return session
-        const json = (body: unknown, init?: ResponseInit) =>
-          session.respond(Response.json(body, init))
         try {
           const result = await persistTemplateVersion(
             env.DB,

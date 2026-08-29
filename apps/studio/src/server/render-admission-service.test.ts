@@ -6,6 +6,7 @@ import {
   completeRenderLeaseWithRetry,
   failRenderLeaseWithRetry,
   RenderAdmissionCompletionError,
+  reserveMediaUploadCapacity,
   reserveThumbnailCapacity,
 } from "./render-admission-service"
 import type { StudioPrincipal } from "./studio-principal"
@@ -29,6 +30,40 @@ const plan: RenderResourcePlan = {
 }
 
 describe("thumbnail render admission", () => {
+  it("isolates upload admission by workspace budget and current storage", async () => {
+    const reserve = vi.fn(async () => ({
+      admitted: true as const,
+      reservationId: "media-upload-1",
+      expiresAt: Date.now() + 60_000,
+    }))
+    const getByName = vi.fn(() => ({
+      reserve,
+      complete: vi.fn(async () => undefined),
+      fail: vi.fn(async () => undefined),
+    }))
+    const env = {
+      RENDER_ADMISSION: { getByName },
+    } as unknown as Env
+
+    await reserveMediaUploadCapacity(env, principal, {
+      reservationId: "media-upload-1",
+      estimatedStorageBytes: 5_000_000,
+      currentStorageBytes: 10_000_000,
+      currentAssetCount: 12,
+    })
+
+    expect(getByName).toHaveBeenCalledWith("upload:workspace-test")
+    expect(reserve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reservationId: "media-upload-1",
+        workload: "upload",
+        estimatedStorageBytes: 5_000_000,
+        currentStorageBytes: 10_000_000,
+        currentAssetCount: 12,
+      })
+    )
+  })
+
   it("uses an isolated budget aligned with three client producers", async () => {
     const reserve = vi.fn(async () => ({
       admitted: true as const,

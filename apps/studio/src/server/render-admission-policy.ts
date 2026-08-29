@@ -21,15 +21,35 @@ export const thumbnailRenderBudgetLimits = Object.freeze({
   reservationTtlMs: 2 * 60_000,
 })
 
-export type RenderAdmissionWorkload = "artifact" | "thumbnail"
+export const uploadBudgetLimits = Object.freeze({
+  maxConcurrent: 3,
+  maxRequestsPerDay: 500,
+  maxPagesPerDay: Number.MAX_SAFE_INTEGER,
+  maxPixelAreaPerDay: Number.MAX_SAFE_INTEGER,
+  maxStorageBytesPerDay: 2_000_000_000,
+  maxWorkspaceStorageBytes: 1_000_000_000,
+  maxWorkspaceAssets: 5_000,
+  reservationTtlMs: 5 * 60_000,
+})
+
+export type RenderAdmissionWorkload = "artifact" | "thumbnail" | "upload"
 
 export const renderBudgetLimitsFor = (workload: RenderAdmissionWorkload) =>
-  workload === "thumbnail" ? thumbnailRenderBudgetLimits : renderBudgetLimits
+  workload === "thumbnail"
+    ? thumbnailRenderBudgetLimits
+    : workload === "upload"
+      ? uploadBudgetLimits
+      : renderBudgetLimits
 
-export type RenderReservationRequest = RenderResourcePlan & {
+export type RenderReservationRequest = Pick<
+  RenderResourcePlan,
+  "pageCount" | "pixelArea" | "estimatedStorageBytes"
+> & {
   reservationId: string
   now: number
   workload: RenderAdmissionWorkload
+  currentStorageBytes?: number
+  currentAssetCount?: number
 }
 
 export type RenderAdmissionDecision =
@@ -46,5 +66,10 @@ export type RenderAdmissionDecision =
         | "render_page_budget_exceeded"
         | "render_pixel_budget_exceeded"
         | "render_storage_budget_exceeded"
+        | "upload_request_budget_exceeded"
+        | "upload_concurrency_exceeded"
+        | "upload_daily_storage_budget_exceeded"
+        | "upload_workspace_storage_exceeded"
+        | "upload_workspace_asset_count_exceeded"
       retryAfterSeconds: number
     }

@@ -1,4 +1,10 @@
 import startServerEntry from "@tanstack/react-start/server-entry"
+import {
+  finalizeApiResponse,
+  internalApiErrorResponse,
+  requestIdFor,
+  withApiRequestId,
+} from "./server/api-boundary"
 import { reconcileRenderJobs } from "./server/render-job-reconciler"
 
 export { RenderAdmission } from "./server/render-admission"
@@ -27,10 +33,35 @@ declare module "@tanstack/react-router" {
 }
 
 const studioServerEntry: ExportedHandler<Env> = {
-  fetch(request, workerEnv) {
-    return startServerEntry.fetch(request, {
-      context: { workerEnv },
-    })
+  async fetch(request, workerEnv, executionContext) {
+    const pathname = new URL(request.url).pathname
+    if (!pathname.startsWith("/v1/")) {
+      return startServerEntry.fetch(request, {
+        context: { workerEnv },
+      })
+    }
+
+    const startedAt = performance.now()
+    const requestId = requestIdFor(request)
+    const routedRequest = withApiRequestId(request, requestId)
+    let response: Response
+    try {
+      response = await startServerEntry.fetch(routedRequest, {
+        context: { workerEnv },
+      })
+    } catch (error) {
+      console.error("studio_api_request_failed", { requestId, error })
+      response = internalApiErrorResponse(routedRequest)
+    }
+    const finalized = await finalizeApiResponse(
+      workerEnv.DB,
+      routedRequest,
+      response,
+      requestId,
+      startedAt
+    )
+    executionContext.waitUntil(finalized.audit)
+    return finalized.response
   },
   async scheduled(_controller, workerEnv) {
     await reconcileRenderJobs(workerEnv)

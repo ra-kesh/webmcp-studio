@@ -7,7 +7,8 @@ import {
   type RenderImageResourceExpectation,
 } from "../src"
 
-const source = "data:image/png;base64,AQIDBA=="
+const source =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
 
 const documentWithManagedImage = (): Document => {
   const document = structuredClone(northstarSeed)
@@ -43,10 +44,12 @@ const documentWithManagedImage = (): Document => {
 }
 
 const expectation = async (): Promise<RenderImageResourceExpectation> => {
+  const bytes = Uint8Array.from(
+    atob(source.slice(source.indexOf(",") + 1)),
+    (character) => character.charCodeAt(0)
+  )
   const contentHash = Array.from(
-    new Uint8Array(
-      await crypto.subtle.digest("SHA-256", Uint8Array.from([1, 2, 3, 4]))
-    ),
+    new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
     (byte) => byte.toString(16).padStart(2, "0")
   ).join("")
   return {
@@ -95,7 +98,7 @@ describe("render image resource admission", () => {
         const node = document.nodes.find(
           (candidate) => candidate.id === "managed-image"
         )!
-        if (node.type === "image") node.src = "data:image/png;base64,AQIDBQ=="
+        if (node.type === "image") node.src = source.replace("Nk+A8", "Nk+B8")
       },
     ],
   ] as const)("rejects %s node-specifically", async (code, mutate) => {
@@ -122,6 +125,27 @@ describe("render image resource admission", () => {
       ])
     ).rejects.toMatchObject({
       code: "image_resource_duplicate",
+      nodeId: "managed-image",
+    })
+  })
+
+  it("rejects inline raster dimensions before Browser decode", async () => {
+    const document = documentWithManagedImage()
+    const node = document.nodes.find(
+      (candidate) => candidate.id === "managed-image"
+    )
+    if (!node || node.type !== "image") throw new Error("Missing image fixture")
+    const bytes = Uint8Array.from(
+      atob(source.slice(source.indexOf(",") + 1)),
+      (character) => character.charCodeAt(0)
+    )
+    new DataView(bytes.buffer).setUint32(16, 20_000)
+    node.src = `data:image/png;base64,${btoa(String.fromCharCode(...bytes))}`
+
+    await expect(
+      assertRenderImageResourceAdmission(document, [])
+    ).rejects.toMatchObject({
+      code: "image_resource_inline_dimensions_exceeded",
       nodeId: "managed-image",
     })
   })

@@ -1,4 +1,5 @@
 import { createRemoteJWKSet, jwtVerify } from "jose"
+import { withApiPrincipalAudit } from "./api-boundary"
 import { resolveDemoSession } from "./demo-session"
 
 export type StudioPrincipal = {
@@ -16,21 +17,51 @@ export class StudioAccessError extends Error {
     | "studio_access_not_configured"
     | "studio_authentication_required"
     | "studio_authentication_invalid"
-  readonly status: 401 | 403 | 503
+    | "studio_rate_limited"
+  readonly status: 401 | 403 | 429 | 503
+  readonly retryAfterSeconds?: number
 
   constructor(
     code: StudioAccessError["code"],
     status: StudioAccessError["status"],
-    message: string
+    message: string,
+    retryAfterSeconds?: number
   ) {
     super(message)
     this.name = "StudioAccessError"
     this.code = code
     this.status = status
+    this.retryAfterSeconds = retryAfterSeconds
   }
 }
 
-const isLocalRequest = (request: Request) => {
+const API_RATE_WINDOW_MS = 60_000
+const API_PRINCIPAL_REQUESTS_PER_WINDOW = 300
+const API_ADDRESS_REQUESTS_PER_WINDOW = 600
+
+const enforceApiRate = async (
+  env: Env,
+  key: string,
+  limit: number
+): Promise<void> => {
+  const decision = await env.RENDER_ADMISSION.getByName(
+    `api-rate:${key}`
+  ).admitApiRequest({
+    now: Date.now(),
+    limit,
+    windowMs: API_RATE_WINDOW_MS,
+  })
+  if (!decision.admitted) {
+    throw new StudioAccessError(
+      "studio_rate_limited",
+      429,
+      "Studio API request rate exceeded",
+      decision.retryAfterSeconds
+    )
+  }
+}
+
+export const isLocalStudioRequest = (request: Request) => {
   const hostname = new URL(request.url).hostname
   return (
     hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"
@@ -68,17 +99,33 @@ export async function resolveStudioPrincipal(
   env: Env,
   request: Request
 ): Promise<StudioPrincipal> {
-  if (isLocalRequest(request)) {
+  if (isLocalStudioRequest(request)) {
     const session = await resolveDemoSession(env.DB, request)
+    await enforceApiRate(
+      env,
+      `principal:${session.workspaceId}`,
+      API_PRINCIPAL_REQUESTS_PER_WINDOW
+    )
     return {
       id: session.id,
       budgetKey: session.workspaceId,
       workspaceId: session.workspaceId,
       expiresAt: session.expiresAt,
       mode: "local_demo",
-      respond: session.respond,
+      respond: (response) =>
+        withApiPrincipalAudit(
+          session.respond(response),
+          session.id,
+          session.workspaceId
+        ),
     }
   }
+
+  await enforceApiRate(
+    env,
+    `address:${request.headers.get("CF-Connecting-IP") ?? "unknown"}`,
+    API_ADDRESS_REQUESTS_PER_WINDOW
+  )
 
   const accessMode = (env as unknown as { STUDIO_ACCESS_MODE?: string })
     .STUDIO_ACCESS_MODE
@@ -133,6 +180,11 @@ export async function resolveStudioPrincipal(
   }
 
   const principalHash = await sha256Hex(identity)
+  await enforceApiRate(
+    env,
+    `principal:${principalHash}`,
+    API_PRINCIPAL_REQUESTS_PER_WINDOW
+  )
   const workspaceId = `workspace-access-${principalHash}`
   await env.DB.prepare(
     `INSERT OR IGNORE INTO workspaces (id, name, kind, created_at)
@@ -146,7 +198,8 @@ export async function resolveStudioPrincipal(
     workspaceId,
     expiresAt,
     mode: "cloudflare_access",
-    respond: (response) => response,
+    respond: (response) =>
+      withApiPrincipalAudit(response, `access-${principalHash}`, workspaceId),
   }
 }
 
@@ -158,7 +211,12 @@ export const studioAccessErrorResponse = (
     nested
       ? { error: { code: error.code, message: error.message } }
       : { error: error.code, message: error.message },
-    { status: error.status }
+    {
+      status: error.status,
+      headers: error.retryAfterSeconds
+        ? { "Retry-After": String(error.retryAfterSeconds) }
+        : undefined,
+    }
   )
 
 export async function requireStudioPrincipal(

@@ -5,12 +5,14 @@ import type { StudioPrincipal } from "./studio-principal"
 export class RenderAdmissionError extends Error {
   readonly code: string
   readonly retryAfterSeconds: number
+  readonly retryable: boolean
 
   constructor(code: string, retryAfterSeconds: number) {
     super("The render budget is exhausted for this workspace")
     this.name = "RenderAdmissionError"
     this.code = code
     this.retryAfterSeconds = retryAfterSeconds
+    this.retryable = retryAfterSeconds > 0
   }
 }
 
@@ -83,12 +85,22 @@ export async function reserveRenderCapacity(
 export async function reserveRenderCapacityForBudget(
   env: Env,
   budgetKey: string,
-  plan: RenderResourcePlan,
+  plan: Pick<
+    RenderResourcePlan,
+    "pageCount" | "pixelArea" | "estimatedStorageBytes"
+  > & {
+    currentStorageBytes?: number
+    currentAssetCount?: number
+  },
   reservationId = `render-reservation-${crypto.randomUUID()}`,
   workload: RenderAdmissionWorkload = "artifact"
 ): Promise<RenderAdmissionLease> {
   const admissionKey =
-    workload === "thumbnail" ? `thumbnail:${budgetKey}` : budgetKey
+    workload === "thumbnail"
+      ? `thumbnail:${budgetKey}`
+      : workload === "upload"
+        ? `upload:${budgetKey}`
+        : budgetKey
   const stub = env.RENDER_ADMISSION.getByName(admissionKey)
   const decision = await stub.reserve({
     ...plan,
@@ -131,16 +143,52 @@ export const reserveThumbnailCapacity = (
   reservationId = `thumbnail-reservation-${crypto.randomUUID()}`
 ) => reserveRenderCapacity(env, principal, plan, reservationId, "thumbnail")
 
+export const reserveMediaUploadCapacity = (
+  env: Env,
+  principal: StudioPrincipal,
+  input: {
+    reservationId: string
+    estimatedStorageBytes: number
+    currentStorageBytes: number
+    currentAssetCount: number
+  }
+) =>
+  reserveRenderCapacityForBudget(
+    env,
+    principal.budgetKey,
+    {
+      pageCount: 0,
+      pixelArea: 0,
+      estimatedStorageBytes: input.estimatedStorageBytes,
+      currentStorageBytes: input.currentStorageBytes,
+      currentAssetCount: input.currentAssetCount,
+    },
+    input.reservationId,
+    "upload"
+  )
+
 export const renderAdmissionErrorResponse = (
   error: RenderAdmissionError,
   nested = true
 ) =>
   Response.json(
     nested
-      ? { error: { code: error.code, message: error.message } }
-      : { error: error.code, message: error.message },
+      ? {
+          error: {
+            code: error.code,
+            message: error.message,
+            retryable: error.retryable,
+          },
+        }
+      : {
+          error: error.code,
+          message: error.message,
+          retryable: error.retryable,
+        },
     {
       status: 429,
-      headers: { "Retry-After": String(error.retryAfterSeconds) },
+      headers: error.retryable
+        ? { "Retry-After": String(error.retryAfterSeconds) }
+        : undefined,
     }
   )

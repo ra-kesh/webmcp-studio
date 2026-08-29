@@ -2346,3 +2346,32 @@ Status: **implemented locally and independently accepted; deployed restart evide
   connection loss and restored as completed with a 291.6 KB download.
 - Independent review rejected three iterations. Final rereview returned
   **ACCEPT with no remaining P0/P1**.
+
+## 2026-08-30 — Public API security and error contract (API-SEC-01 / API-ERR-01)
+
+Status: **completed locally and independently accepted; deployed hostile-network evidence remains open**
+
+- Reread the retained API security/error contracts, Loora's authentication and
+  rate-limit boundaries, and Studio's principal, route, media, renderer, and
+  durable-admission owners before implementation.
+- A shared `/v1` boundary now assigns request identity, normalizes every error,
+  hides unknown exceptions, bounds downstream-error inspection, and writes one
+  safe asynchronous audit row with resolved principal/workspace attribution.
+- Authentication precedes JSON and multipart parsing. Public validation issues
+  have canonical field paths; session reset is localhost-only; forged internal
+  identity headers are removed before route execution.
+- Fixed-window API rate admission complements existing render budgets. Uploads
+  reserve concurrency, daily bytes/requests, workspace bytes, and asset count
+  before multipart parsing. Each transport attempt has a unique reservation,
+  while the repository independently preserves caller idempotency.
+- Studio and Renderer share structural PNG/JPEG/WebP inspection plus bounded
+  dimensions and pixel area before browser decode. Managed asset ownership and
+  the existing font allowlist remain authoritative.
+- Migrations `0009`–`0011`, the audit migration/retention harness, all three
+  package typechecks, 58 focused tests, and `git diff --check` pass. Live
+  port-3001 probes retained request-ID and attributed audit evidence for success,
+  malformed JSON, and path-aware validation failures.
+- Independent review rejected one same-idempotency-key admission race. After
+  separating transport reservation identity from repository idempotency and
+  adding the concurrent regression, final rereview returned **ACCEPT with no
+  remaining P0/P1**.

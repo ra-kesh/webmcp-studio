@@ -34,6 +34,7 @@ import {
   studioAccessErrorResponse,
 } from "./studio-principal"
 import type { StudioPrincipal } from "./studio-principal"
+import { apiIssuesFrom } from "./api-boundary"
 
 const thumbnailSizeSchema = z
   .object({
@@ -184,24 +185,6 @@ export function createPageThumbnailRequestHandler(
   dependencies: PageThumbnailHandlerDependencies = productionDependencies
 ) {
   return async (request: Request, env: Env): Promise<Response> => {
-    let input: unknown
-    try {
-      input = await readStudioJsonBody(request, "/v1/studio/page-thumbnail")
-    } catch (error) {
-      if (error instanceof JsonBodyError) return jsonBodyErrorResponse(error)
-      throw error
-    }
-    const parsed = pageThumbnailRequestSchema.safeParse(input)
-    if (!parsed.success) {
-      return Response.json(
-        {
-          error: "invalid_thumbnail_request",
-          details: parsed.error.flatten(),
-        },
-        { status: 400 }
-      )
-    }
-
     let principal: StudioPrincipal
     try {
       principal = await dependencies.resolvePrincipal(env, request)
@@ -212,6 +195,27 @@ export function createPageThumbnailRequestHandler(
       throw error
     }
     const respond = principal.respond
+    let input: unknown
+    try {
+      input = await readStudioJsonBody(request, "/v1/studio/page-thumbnail")
+    } catch (error) {
+      if (error instanceof JsonBodyError) {
+        return respond(jsonBodyErrorResponse(error))
+      }
+      throw error
+    }
+    const parsed = pageThumbnailRequestSchema.safeParse(input)
+    if (!parsed.success) {
+      return respond(
+        Response.json(
+          {
+            error: "invalid_thumbnail_request",
+            issues: apiIssuesFrom(parsed.error.issues),
+          },
+          { status: 400 }
+        )
+      )
+    }
 
     const requestedPage = parsed.data.document.pages.find(
       (candidate) => candidate.id === parsed.data.pageId

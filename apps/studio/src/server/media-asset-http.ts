@@ -15,6 +15,13 @@ import {
   validateMediaUpload,
 } from "./media-assets"
 import { MediaAssetRepository } from "./media-asset-repository"
+import {
+  completeRenderLeaseWithRetry,
+  failRenderLeaseWithRetry,
+  RenderAdmissionError,
+  renderAdmissionErrorResponse,
+} from "./render-admission-service"
+import type { RenderAdmissionLease } from "./render-admission-service"
 
 type PrincipalResolver = (
   request: Request
@@ -29,12 +36,22 @@ export type MediaAssetHttpDependencies = {
     | "list"
     | "lookup"
     | "upload"
+    | "storageUsage"
     | "contentMetadata"
     | "content"
     | "deletionImpact"
     | "markUsed"
     | "archive"
   >
+  reserveUpload?: (
+    principal: StudioPrincipal,
+    input: {
+      reservationId: string
+      estimatedStorageBytes: number
+      currentStorageBytes: number
+      currentAssetCount: number
+    }
+  ) => Promise<RenderAdmissionLease>
 }
 
 const errorResponse = (error: MediaAssetError) =>
@@ -43,11 +60,19 @@ const errorResponse = (error: MediaAssetError) =>
     { status: error.status }
   )
 
-const withMediaErrors = async (operation: () => Promise<Response>) => {
+const withMediaPrincipal = async (
+  dependencies: MediaAssetHttpDependencies,
+  request: Request,
+  operation: (principal: StudioPrincipal) => Promise<Response>
+) => {
+  const principal = await principalFor(dependencies, request)
+  if (principal instanceof Response) return principal
   try {
-    return await operation()
+    return await operation(principal)
   } catch (error) {
-    if (error instanceof MediaAssetError) return errorResponse(error)
+    if (error instanceof MediaAssetError) {
+      return principal.respond(errorResponse(error))
+    }
     throw error
   }
 }
@@ -102,9 +127,7 @@ export function createMediaAssetHttpHandlers(
   const repository = repositoryFor(dependencies)
   return {
     list: (request: Request) =>
-      withMediaErrors(async () => {
-        const principal = await principalFor(dependencies, request)
-        if (principal instanceof Response) return principal
+      withMediaPrincipal(dependencies, request, async (principal) => {
         const response = await repository.list(
           principal.workspaceId,
           parseListRequest(request)
@@ -117,9 +140,7 @@ export function createMediaAssetHttpHandlers(
       }),
 
     lookup: (request: Request, assetIdInput: string) =>
-      withMediaErrors(async () => {
-        const principal = await principalFor(dependencies, request)
-        if (principal instanceof Response) return principal
+      withMediaPrincipal(dependencies, request, async (principal) => {
         const asset = await repository.lookup(
           principal.workspaceId,
           assertMediaAssetId(assetIdInput)
@@ -132,9 +153,7 @@ export function createMediaAssetHttpHandlers(
       }),
 
     upload: (request: Request) =>
-      withMediaErrors(async () => {
-        const principal = await principalFor(dependencies, request)
-        if (principal instanceof Response) return principal
+      withMediaPrincipal(dependencies, request, async (principal) => {
         const contentType = request.headers.get("content-type") ?? ""
         if (!contentType.toLowerCase().startsWith("multipart/form-data;")) {
           throw new MediaAssetError(
@@ -169,56 +188,87 @@ export function createMediaAssetHttpHandlers(
         const idempotencyKey = assertMediaIdempotencyKey(
           request.headers.get("idempotency-key")
         )
-        let form: FormData
+        if (!dependencies.reserveUpload) {
+          throw new Error("Media upload admission is not configured")
+        }
+        const storage = await repository.storageUsage(principal.workspaceId)
+        let lease: RenderAdmissionLease
         try {
-          form = await request.formData()
-        } catch {
-          throw new MediaAssetError(
-            "invalid_multipart_request",
-            400,
-            "Multipart upload could not be decoded"
-          )
+          lease = await dependencies.reserveUpload(principal, {
+            // Transport attempts own admission independently. The caller's
+            // idempotency key deduplicates repository results, but must never
+            // let concurrent parsers or R2 producers share one capacity slot.
+            reservationId: `media-upload-${crypto.randomUUID()}`,
+            estimatedStorageBytes: Math.min(
+              parsedLength,
+              MAX_MEDIA_ASSET_BYTES
+            ),
+            currentStorageBytes: storage.bytes,
+            currentAssetCount: storage.count,
+          })
+        } catch (error) {
+          if (error instanceof RenderAdmissionError) {
+            return principal.respond(renderAdmissionErrorResponse(error))
+          }
+          throw error
         }
-        const file = form.get("file")
-        if (
-          !(file instanceof Blob) ||
-          typeof Reflect.get(file, "name") !== "string"
-        ) {
-          throw new MediaAssetError(
-            "invalid_multipart_request",
-            400,
-            "Multipart upload must contain one file field"
+        try {
+          let form: FormData
+          try {
+            form = await request.formData()
+          } catch {
+            throw new MediaAssetError(
+              "invalid_multipart_request",
+              400,
+              "Multipart upload could not be decoded"
+            )
+          }
+          const file = form.get("file")
+          if (
+            !(file instanceof Blob) ||
+            typeof Reflect.get(file, "name") !== "string"
+          ) {
+            throw new MediaAssetError(
+              "invalid_multipart_request",
+              400,
+              "Multipart upload must contain one file field"
+            )
+          }
+          const suppliedName = form.get("name")
+          if (suppliedName !== null && typeof suppliedName !== "string") {
+            throw new MediaAssetError(
+              "invalid_asset_name",
+              400,
+              "Asset name must be text"
+            )
+          }
+          const validated = await validateMediaUpload(
+            file,
+            suppliedName ?? undefined
           )
+          const result = await repository.upload(
+            principal.workspaceId,
+            validated,
+            idempotencyKey
+          )
+          await completeRenderLeaseWithRetry(
+            lease,
+            result.created ? validated.byteLength : 0
+          )
+          return principal.respond(
+            Response.json(
+              mediaAssetUploadResponseSchema.parse({ asset: result.asset }),
+              { status: result.created ? 201 : 200 }
+            )
+          )
+        } catch (error) {
+          await failRenderLeaseWithRetry(lease)
+          throw error
         }
-        const suppliedName = form.get("name")
-        if (suppliedName !== null && typeof suppliedName !== "string") {
-          throw new MediaAssetError(
-            "invalid_asset_name",
-            400,
-            "Asset name must be text"
-          )
-        }
-        const validated = await validateMediaUpload(
-          file,
-          suppliedName ?? undefined
-        )
-        const result = await repository.upload(
-          principal.workspaceId,
-          validated,
-          idempotencyKey
-        )
-        return principal.respond(
-          Response.json(
-            mediaAssetUploadResponseSchema.parse({ asset: result.asset }),
-            { status: result.created ? 201 : 200 }
-          )
-        )
       }),
 
     content: (request: Request, assetIdInput: string) =>
-      withMediaErrors(async () => {
-        const principal = await principalFor(dependencies, request)
-        if (principal instanceof Response) return principal
+      withMediaPrincipal(dependencies, request, async (principal) => {
         const assetId = assertMediaAssetId(assetIdInput)
         const metadata = await repository.contentMetadata(
           principal.workspaceId,
@@ -240,9 +290,7 @@ export function createMediaAssetHttpHandlers(
       }),
 
     deletionImpact: (request: Request, assetIdInput: string) =>
-      withMediaErrors(async () => {
-        const principal = await principalFor(dependencies, request)
-        if (principal instanceof Response) return principal
+      withMediaPrincipal(dependencies, request, async (principal) => {
         const impact = await repository.deletionImpact(
           principal.workspaceId,
           assertMediaAssetId(assetIdInput)
@@ -255,9 +303,7 @@ export function createMediaAssetHttpHandlers(
       }),
 
     markUsed: (request: Request, assetIdInput: string) =>
-      withMediaErrors(async () => {
-        const principal = await principalFor(dependencies, request)
-        if (principal instanceof Response) return principal
+      withMediaPrincipal(dependencies, request, async (principal) => {
         const asset = await repository.markUsed(
           principal.workspaceId,
           assertMediaAssetId(assetIdInput)
@@ -268,9 +314,7 @@ export function createMediaAssetHttpHandlers(
       }),
 
     archive: (request: Request, assetIdInput: string) =>
-      withMediaErrors(async () => {
-        const principal = await principalFor(dependencies, request)
-        if (principal instanceof Response) return principal
+      withMediaPrincipal(dependencies, request, async (principal) => {
         const revisionHeader = request.headers.get("if-match")
         const revisionMatch = revisionHeader?.match(/^"asset-revision-(\d+)"$/)
         const impactToken = request.headers.get("x-asset-impact-token")?.trim()

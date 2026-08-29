@@ -43,8 +43,12 @@ function pngHeader(width: number, height: number) {
 
 async function managedImageFixture() {
   const document = structuredClone(northstarSeed)
-  const sourceBytes = Uint8Array.from([1, 2, 3, 4])
-  const src = "data:image/png;base64,AQIDBA=="
+  const encoded =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+  const sourceBytes = Uint8Array.from(atob(encoded), (character) =>
+    character.charCodeAt(0)
+  )
+  const src = `data:image/png;base64,${encoded}`
   const contentHash = Array.from(
     new Uint8Array(await crypto.subtle.digest("SHA-256", sourceBytes)),
     (byte) => byte.toString(16).padStart(2, "0")

@@ -1,5 +1,8 @@
 import { DurableObject } from "cloudflare:workers"
-import { renderBudgetLimitsFor } from "./render-admission-policy"
+import {
+  renderBudgetLimitsFor,
+  uploadBudgetLimits,
+} from "./render-admission-policy"
 import type {
   RenderAdmissionDecision,
   RenderReservationRequest,
@@ -9,6 +12,7 @@ export {
   renderBudgetLimits,
   renderBudgetLimitsFor,
   thumbnailRenderBudgetLimits,
+  uploadBudgetLimits,
 } from "./render-admission-policy"
 export type {
   RenderAdmissionDecision,
@@ -60,7 +64,55 @@ export class RenderAdmission extends DurableObject<Env> {
         );
         CREATE INDEX IF NOT EXISTS reservations_status_expiry
           ON reservations(status, expires_at);
+        CREATE TABLE IF NOT EXISTS api_rate_window (
+          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+          window_start INTEGER NOT NULL,
+          request_count INTEGER NOT NULL
+        );
       `)
+    })
+  }
+
+  async admitApiRequest(input: {
+    now: number
+    limit: number
+    windowMs: number
+  }): Promise<
+    | { admitted: true; remaining: number }
+    | { admitted: false; retryAfterSeconds: number }
+  > {
+    const limit = Math.max(1, Math.floor(input.limit))
+    const windowMs = Math.max(1_000, Math.floor(input.windowMs))
+    const windowStart = Math.floor(input.now / windowMs) * windowMs
+    return this.ctx.storage.transactionSync(() => {
+      const row = this.ctx.storage.sql
+        .exec<{ window_start: number; request_count: number }>(
+          `SELECT window_start, request_count
+           FROM api_rate_window WHERE singleton = 1`
+        )
+        .toArray()
+        .at(0)
+      const requestCount =
+        !row || row.window_start !== windowStart ? 0 : row.request_count
+      if (requestCount >= limit) {
+        return {
+          admitted: false,
+          retryAfterSeconds: Math.max(
+            1,
+            Math.ceil((windowStart + windowMs - input.now) / 1_000)
+          ),
+        }
+      }
+      this.ctx.storage.sql.exec(
+        `INSERT INTO api_rate_window (singleton, window_start, request_count)
+         VALUES (1, ?, ?)
+         ON CONFLICT(singleton) DO UPDATE SET
+           window_start = excluded.window_start,
+           request_count = excluded.request_count`,
+        windowStart,
+        requestCount + 1
+      )
+      return { admitted: true, remaining: limit - requestCount - 1 }
     })
   }
 
@@ -147,22 +199,67 @@ export class RenderAdmission extends DurableObject<Env> {
           "SELECT COUNT(*) AS count FROM reservations WHERE status = 'active'"
         )
         .one().count
+      if (request.workload === "upload") {
+        const activeUploads = sql
+          .exec<{ count: number; bytes: number }>(
+            `SELECT COUNT(*) AS count, COALESCE(SUM(estimated_bytes), 0) AS bytes
+             FROM reservations WHERE status = 'active'`
+          )
+          .one()
+        const currentStorageBytes = Math.max(
+          0,
+          Math.floor(request.currentStorageBytes ?? 0)
+        )
+        const currentAssetCount = Math.max(
+          0,
+          Math.floor(request.currentAssetCount ?? 0)
+        )
+        if (
+          currentStorageBytes +
+            activeUploads.bytes +
+            request.estimatedStorageBytes >
+          uploadBudgetLimits.maxWorkspaceStorageBytes
+        ) {
+          return {
+            admitted: false,
+            code: "upload_workspace_storage_exceeded",
+            retryAfterSeconds: 0,
+          }
+        }
+        if (
+          currentAssetCount + activeUploads.count + 1 >
+          uploadBudgetLimits.maxWorkspaceAssets
+        ) {
+          return {
+            admitted: false,
+            code: "upload_workspace_asset_count_exceeded",
+            retryAfterSeconds: 0,
+          }
+        }
+      }
       const dayRetry = secondsUntilNextUtcDay(request.now)
       if (active >= limits.maxConcurrent) {
         return {
           admitted: false,
-          code: "render_concurrency_exceeded",
+          code:
+            request.workload === "upload"
+              ? "upload_concurrency_exceeded"
+              : "render_concurrency_exceeded",
           retryAfterSeconds: 30,
         }
       }
       if (existing?.status === "completed") {
         const previousBytes = existing.actual_bytes ?? 0
+        const reactivationBytes = request.estimatedStorageBytes
         const projectedStorage =
-          usage.storage_bytes - previousBytes + request.estimatedStorageBytes
+          usage.storage_bytes - previousBytes + reactivationBytes
         if (projectedStorage > limits.maxStorageBytesPerDay) {
           return {
             admitted: false,
-            code: "render_storage_budget_exceeded",
+            code:
+              request.workload === "upload"
+                ? "upload_daily_storage_budget_exceeded"
+                : "render_storage_budget_exceeded",
             retryAfterSeconds: dayRetry,
           }
         }
@@ -172,7 +269,7 @@ export class RenderAdmission extends DurableObject<Env> {
            SET status = 'active', estimated_bytes = ?, actual_bytes = NULL,
                created_at = ?, expires_at = ?, completed_at = NULL
            WHERE id = ? AND status = 'completed'`,
-          request.estimatedStorageBytes,
+          reactivationBytes,
           request.now,
           expiresAt,
           request.reservationId
@@ -181,7 +278,7 @@ export class RenderAdmission extends DurableObject<Env> {
           `UPDATE usage SET storage_bytes = MAX(0, storage_bytes - ?) + ?
            WHERE singleton = 1`,
           previousBytes,
-          request.estimatedStorageBytes
+          reactivationBytes
         )
         return {
           admitted: true,
@@ -199,7 +296,10 @@ export class RenderAdmission extends DurableObject<Env> {
         ) {
           return {
             admitted: false,
-            code: "render_storage_budget_exceeded",
+            code:
+              request.workload === "upload"
+                ? "upload_daily_storage_budget_exceeded"
+                : "render_storage_budget_exceeded",
             retryAfterSeconds: dayRetry,
           }
         }
@@ -228,7 +328,10 @@ export class RenderAdmission extends DurableObject<Env> {
       if (usage.request_count + 1 > limits.maxRequestsPerDay) {
         return {
           admitted: false,
-          code: "render_request_budget_exceeded",
+          code:
+            request.workload === "upload"
+              ? "upload_request_budget_exceeded"
+              : "render_request_budget_exceeded",
           retryAfterSeconds: dayRetry,
         }
       }
@@ -252,7 +355,10 @@ export class RenderAdmission extends DurableObject<Env> {
       ) {
         return {
           admitted: false,
-          code: "render_storage_budget_exceeded",
+          code:
+            request.workload === "upload"
+              ? "upload_daily_storage_budget_exceeded"
+              : "render_storage_budget_exceeded",
           retryAfterSeconds: dayRetry,
         }
       }

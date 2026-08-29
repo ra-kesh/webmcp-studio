@@ -11,6 +11,7 @@ import type { Document } from "@webmcp/document"
 import { JsonBodyError, jsonBodyErrorResponse } from "@webmcp/worker-boundary"
 import { z } from "zod"
 import { createEphemeralArtifactRendererRequest } from "../../../server/artifact-renderer-request"
+import { apiIssuesFrom } from "../../../server/api-boundary"
 import { readStudioJsonBody } from "../../../server/json-request-policy"
 import { MediaAssetRepository } from "../../../server/media-asset-repository"
 import { MediaAssetError } from "../../../server/media-assets"
@@ -45,25 +46,6 @@ export const Route = createFileRoute("/v1/studio/export-pdf")({
       POST: async ({ request, context }) => {
         const { workerEnv } = context
         request.signal.throwIfAborted()
-        let input: unknown
-        try {
-          input = await readStudioJsonBody(request, "/v1/studio/export-pdf")
-        } catch (error) {
-          if (error instanceof JsonBodyError) {
-            return jsonBodyErrorResponse(error)
-          }
-          throw error
-        }
-        const parsed = exportRequestSchema.safeParse(input)
-        if (!parsed.success) {
-          return Response.json(
-            {
-              error: "invalid_export_request",
-              details: parsed.error.flatten(),
-            },
-            { status: 400 }
-          )
-        }
         let principal
         try {
           principal = await resolveStudioPrincipal(workerEnv, request)
@@ -74,6 +56,27 @@ export const Route = createFileRoute("/v1/studio/export-pdf")({
           throw error
         }
         const respond = principal.respond
+        let input: unknown
+        try {
+          input = await readStudioJsonBody(request, "/v1/studio/export-pdf")
+        } catch (error) {
+          if (error instanceof JsonBodyError) {
+            return respond(jsonBodyErrorResponse(error))
+          }
+          throw error
+        }
+        const parsed = exportRequestSchema.safeParse(input)
+        if (!parsed.success) {
+          return respond(
+            Response.json(
+              {
+                error: "invalid_export_request",
+                issues: apiIssuesFrom(parsed.error.issues),
+              },
+              { status: 400 }
+            )
+          )
+        }
         request.signal.throwIfAborted()
 
         let renderDocument: Document

@@ -317,7 +317,7 @@ describe("page thumbnail Studio boundary", () => {
     expect(invokeRenderer).toHaveBeenCalledOnce()
   })
 
-  it("rejects out-of-bounds input before authentication or preparation", async () => {
+  it("authenticates before rejecting out-of-bounds input", async () => {
     const fixture = dependencies()
     const handler = createPageThumbnailRequestHandler(fixture.value)
     const response = await handler(
@@ -329,7 +329,7 @@ describe("page thumbnail Studio boundary", () => {
     expect(await response.json()).toMatchObject({
       error: "invalid_thumbnail_request",
     })
-    expect(fixture.value.resolvePrincipal).not.toHaveBeenCalled()
+    expect(fixture.value.resolvePrincipal).toHaveBeenCalledOnce()
     expect(fixture.prepareDocument).not.toHaveBeenCalled()
     expect(fixture.reserveCapacity).not.toHaveBeenCalled()
   })

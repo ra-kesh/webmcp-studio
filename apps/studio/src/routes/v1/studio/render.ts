@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router"
+import { apiIssuesFrom } from "../../../server/api-boundary"
 import { RenderImageResourceAdmissionError } from "@webmcp/document"
 import { JsonBodyError, jsonBodyErrorResponse } from "@webmcp/worker-boundary"
 import { databaseTemplateId } from "../../../server/demo-session"
@@ -239,27 +240,6 @@ export const Route = createFileRoute("/v1/studio/render")({
     handlers: {
       POST: async ({ request, context }) => {
         const { workerEnv } = context
-        let input: unknown
-        try {
-          input = await readStudioJsonBody(request, "/v1/studio/render")
-        } catch (error) {
-          if (error instanceof JsonBodyError) {
-            return jsonBodyErrorResponse(error, true)
-          }
-          throw error
-        }
-        const parsed = renderRequestSchema.safeParse(input)
-        if (!parsed.success) {
-          return Response.json(
-            {
-              error: {
-                code: "invalid_render_request",
-                details: parsed.error.flatten(),
-              },
-            },
-            { status: 400 }
-          )
-        }
         let session
         try {
           session = await resolveStudioPrincipal(workerEnv, request)
@@ -270,6 +250,29 @@ export const Route = createFileRoute("/v1/studio/render")({
           throw error
         }
         const respond = (response: Response) => session.respond(response)
+        let input: unknown
+        try {
+          input = await readStudioJsonBody(request, "/v1/studio/render")
+        } catch (error) {
+          if (error instanceof JsonBodyError) {
+            return respond(jsonBodyErrorResponse(error, true))
+          }
+          throw error
+        }
+        const parsed = renderRequestSchema.safeParse(input)
+        if (!parsed.success) {
+          return respond(
+            Response.json(
+              {
+                error: {
+                  code: "invalid_render_request",
+                  issues: apiIssuesFrom(parsed.error.issues),
+                },
+              },
+              { status: 400 }
+            )
+          )
+        }
         const idempotencyKey = request.headers.get("Idempotency-Key")?.trim()
         if (!idempotencyKey) {
           return respond(
