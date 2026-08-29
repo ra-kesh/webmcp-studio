@@ -68,7 +68,24 @@ differences. The source screenshots returned by the in-app browser are JPEG,
 so the cropped PNG files and their report are retained as diagnostic evidence,
 not as the lossless acceptance baseline described above.
 
-The direct local Studio export path also returned an unhandled 500 because the
-local Worker environment has no `RENDERER` service binding. Renderer PNG/PDF
-and deployed Browser Rendering evidence therefore remain open. Do not describe
-this local browser run as closing CONFORM-01 or EXPORT-01.
+## Local Renderer service path, 2026-08-29
+
+Studio now passes the request-scoped Cloudflare Worker environment through the
+TanStack Start server entry into every Renderer-calling server route. The local
+Renderer auxiliary Worker has an explicit remote Browser Rendering binding,
+and Studio's default development port is 3001 so it cannot collide with Stuwiz
+on 3000.
+
+Sequential end-to-end smoke evidence through the actual service binding now
+returns:
+
+- a valid 9,181-byte `image/png` for `square-page`;
+- a valid 41,087-byte `%PDF-1.4` document for the two-page `mixed-document`
+  output.
+
+This closes the missing-local-binding blocker. It does not close CONFORM-01 or
+EXPORT-01: lossless Renderer PNG/PDF captures still need to be retained and
+compared against React/Fabric, and the same gate must run against a deployed
+Renderer. Remote Browser Rendering can rate-limit concurrent new browser
+sessions, so conformance capture is deliberately sequential until JOB-01 owns
+bounded render concurrency and retry policy.

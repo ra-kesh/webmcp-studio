@@ -1,4 +1,3 @@
-import { env } from "cloudflare:workers"
 import { createFileRoute } from "@tanstack/react-router"
 import {
   assertRenderImageResourceAdmission,
@@ -147,8 +146,8 @@ async function requestHash(value: unknown) {
     .join("")
 }
 
-async function existingRenderResponse(job: ExistingJobRow) {
-  const outputs = await env.DB.prepare(
+async function existingRenderResponse(workerEnv: Env, job: ExistingJobRow) {
+  const outputs = await workerEnv.DB.prepare(
     `SELECT id, output_id, page_id, format, width, height, bytes, checksum
      FROM render_outputs WHERE render_job_id = ?1 ORDER BY created_at, id`
   )
@@ -184,6 +183,7 @@ async function existingRenderResponse(job: ExistingJobRow) {
 }
 
 async function invokeRenderer(
+  workerEnv: Env,
   document: ReturnType<typeof materializeTemplateVersion>,
   expectedImageResources: readonly ManagedImageResourceExpectation[],
   renderId: string,
@@ -191,7 +191,7 @@ async function invokeRenderer(
   format: "png" | "pdf",
   pageId?: string
 ): Promise<RenderArtifact> {
-  const response = await env.RENDERER.fetch(
+  const response = await workerEnv.RENDERER.fetch(
     new Request(
       format === "pdf"
         ? "https://renderer.internal/render/pdf"
@@ -241,7 +241,8 @@ async function invokeRenderer(
 export const Route = createFileRoute("/v1/studio/render")({
   server: {
     handlers: {
-      POST: async ({ request }) => {
+      POST: async ({ request, context }) => {
+        const { workerEnv } = context
         let input: unknown
         try {
           input = await readStudioJsonBody(request, "/v1/studio/render")
@@ -265,7 +266,7 @@ export const Route = createFileRoute("/v1/studio/render")({
         }
         let session
         try {
-          session = await resolveStudioPrincipal(env, request)
+          session = await resolveStudioPrincipal(workerEnv, request)
         } catch (error) {
           if (error instanceof StudioAccessError) {
             return studioAccessErrorResponse(error)
@@ -289,7 +290,7 @@ export const Route = createFileRoute("/v1/studio/render")({
           ? await requestHash(parsed.data)
           : null
         if (idempotencyKey) {
-          const existing = await env.DB.prepare(
+          const existing = await workerEnv.DB.prepare(
             `SELECT jobs.id, jobs.template_id, templates.public_id AS template_public_id,
                     jobs.template_version, jobs.status, jobs.request_hash,
                     jobs.error_code, jobs.error_message, jobs.created_at,
@@ -307,11 +308,13 @@ export const Route = createFileRoute("/v1/studio/render")({
                 { status: 409 }
               )
             }
-            return session.respond(await existingRenderResponse(existing))
+            return session.respond(
+              await existingRenderResponse(workerEnv, existing)
+            )
           }
         }
         const version = await getTemplateVersion(
-          env.DB,
+          workerEnv.DB,
           session.workspaceId,
           parsed.data.templateId,
           parsed.data.version
@@ -326,7 +329,10 @@ export const Route = createFileRoute("/v1/studio/render")({
         let document: ReturnType<typeof materializeTemplateVersion>
         let expectedImageResources: ManagedImageResourceExpectation[]
         try {
-          const mediaAssets = new MediaAssetRepository(env.DB, env.ASSETS)
+          const mediaAssets = new MediaAssetRepository(
+            workerEnv.DB,
+            workerEnv.ASSETS
+          )
           const fieldAssets = await resolveRenderFieldAssetIdsForWorkspace(
             version,
             parsed.data.modifications,
@@ -444,7 +450,7 @@ export const Route = createFileRoute("/v1/studio/render")({
         }
         let lease
         try {
-          lease = await reserveRenderCapacity(env, session, resourcePlan)
+          lease = await reserveRenderCapacity(workerEnv, session, resourcePlan)
         } catch (error) {
           if (error instanceof RenderAdmissionError) {
             return session.respond(renderAdmissionErrorResponse(error))
@@ -455,7 +461,7 @@ export const Route = createFileRoute("/v1/studio/render")({
         const renderId = `render-${crypto.randomUUID()}`
         const createdAt = new Date().toISOString()
         try {
-          await env.DB.prepare(
+          await workerEnv.DB.prepare(
             `INSERT INTO render_jobs
              (id, workspace_id, template_id, template_version, status, request_json,
               idempotency_key, request_hash, created_at, started_at)
@@ -477,7 +483,7 @@ export const Route = createFileRoute("/v1/studio/render")({
             await lease.fail()
             throw error
           }
-          const existing = await env.DB.prepare(
+          const existing = await workerEnv.DB.prepare(
             `SELECT jobs.id, jobs.template_id, templates.public_id AS template_public_id,
                     jobs.template_version, jobs.status, jobs.request_hash,
                     jobs.error_code, jobs.error_message, jobs.created_at,
@@ -496,7 +502,9 @@ export const Route = createFileRoute("/v1/studio/render")({
             )
           }
           await lease.fail()
-          return session.respond(await existingRenderResponse(existing))
+          return session.respond(
+            await existingRenderResponse(workerEnv, existing)
+          )
         }
 
         const artifacts: RenderArtifact[] = []
@@ -508,6 +516,7 @@ export const Route = createFileRoute("/v1/studio/render")({
             if (selection.format === "pdf") {
               artifacts.push(
                 await invokeRenderer(
+                  workerEnv,
                   document,
                   expectedImageResources,
                   renderId,
@@ -519,6 +528,7 @@ export const Route = createFileRoute("/v1/studio/render")({
               for (const pageId of output.pageIds) {
                 artifacts.push(
                   await invokeRenderer(
+                    workerEnv,
                     document,
                     expectedImageResources,
                     renderId,
@@ -534,9 +544,9 @@ export const Route = createFileRoute("/v1/studio/render")({
           await lease.complete(
             artifacts.reduce((total, artifact) => total + artifact.bytes, 0)
           )
-          await env.DB.batch([
+          await workerEnv.DB.batch([
             ...artifacts.map((artifact) =>
-              env.DB.prepare(
+              workerEnv.DB.prepare(
                 `INSERT INTO render_outputs
                  (id, render_job_id, output_id, page_id, format, r2_key, width, height, bytes, checksum, created_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`
@@ -554,7 +564,7 @@ export const Route = createFileRoute("/v1/studio/render")({
                 completedAt
               )
             ),
-            env.DB.prepare(
+            workerEnv.DB.prepare(
               "UPDATE render_jobs SET status = 'completed', completed_at = ?2 WHERE id = ?1"
             ).bind(renderId, completedAt),
           ])
@@ -583,7 +593,7 @@ export const Route = createFileRoute("/v1/studio/render")({
         } catch (error) {
           await lease.fail()
           await Promise.allSettled(
-            artifacts.map((artifact) => env.RENDERS.delete(artifact.key))
+            artifacts.map((artifact) => workerEnv.RENDERS.delete(artifact.key))
           )
           const rendererFailure =
             error instanceof RendererInvocationError ? error : null
@@ -591,7 +601,7 @@ export const Route = createFileRoute("/v1/studio/render")({
             error instanceof Error
               ? error.message.slice(0, 500)
               : "Renderer failed"
-          await env.DB.prepare(
+          await workerEnv.DB.prepare(
             `UPDATE render_jobs
              SET status = 'failed', error_code = ?2, error_message = ?3, completed_at = ?4
              WHERE id = ?1`

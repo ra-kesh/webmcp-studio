@@ -1869,3 +1869,32 @@ lossless Renderer PNG/PDF and deployed parity remain open**
   no P0/P1, drove fail-closed font checks plus the two-frame capture barrier,
   and manually verified raw live reflow followed by canonical restoration for
   accepted, rejected, cancelled, and pointer-up/no-op resize exits.
+
+## 2026-08-29 — Local Renderer service binding (CONFORM-01 / EXPORT-01)
+
+Status: **local service path completed; lossless comparison and deployed parity remain open**
+
+- Studio's Worker entry now forwards the request-scoped Cloudflare environment
+  into TanStack Start request context. Export PNG, export PDF, page thumbnail,
+  and render-job routes consume that exact request environment instead of a
+  module-level binding proxy.
+- The local auxiliary Renderer now declares the canonical remote Browser
+  Rendering binding. Studio defaults to port 3001; Stuwiz on port 3000 is not
+  touched.
+- Sequential end-to-end requests through Studio, the `RENDERER` service
+  binding, the auxiliary Renderer, and Browser Rendering return a valid
+  9,181-byte PNG and a valid 41,087-byte two-page PDF.
+- Studio typecheck passes and the focused thumbnail/admission/invocation suite
+  passes **14/14**. A concurrent PNG/PDF probe correctly exposed Cloudflare's
+  remote new-browser rate limit, so capture remains sequential until the
+  durable job/concurrency boundary owns retry and scheduling.
+- The independent reviewer rejected one P1 port-discipline defect: Playwright
+  could reuse Stuwiz on 3000 and the README still advertised that port. Studio,
+  Playwright, raw HTTP E2E hosts, and the README now consistently use 3001; the
+  final verdict is **ACCEPT with no remaining P0/P1 finding**.
+
+Remaining boundary:
+
+- Capture and retain lossless Renderer PNG/PDF pages, complete JSON/page-order
+  verification and pixel comparisons, then run the same evidence against the
+  deployed Renderer.

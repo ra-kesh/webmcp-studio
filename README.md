@@ -46,7 +46,7 @@ bunx --bun wrangler d1 migrations apply webmcp-studio --local -c apps/studio/wra
 bun run dev
 ```
 
-Open `http://localhost:3000`.
+Open `http://localhost:3001`.
 
 Run the Studio and its renderer auxiliary Worker together through the Cloudflare Vite plugin:
 

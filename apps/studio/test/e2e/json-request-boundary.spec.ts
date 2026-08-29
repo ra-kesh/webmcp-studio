@@ -51,7 +51,7 @@ const contentLengthRequest = (
 ) =>
   [
     `POST ${path} HTTP/1.1`,
-    "Host: localhost:3000",
+    "Host: localhost:3001",
     "Connection: close",
     `Content-Type: ${contentType}`,
     `Content-Length: ${declaredLength}`,
@@ -62,7 +62,7 @@ const contentLengthRequest = (
 const chunkedRequest = (path: string, body: string) =>
   [
     `POST ${path} HTTP/1.1`,
-    "Host: localhost:3000",
+    "Host: localhost:3001",
     "Connection: close",
     "Content-Type: application/json",
     "Transfer-Encoding: chunked",
@@ -127,7 +127,7 @@ test("every public JSON route rejects transport failures before persistent side 
         name: "invalid content length",
         request: [
           `POST ${route.path} HTTP/1.1`,
-          "Host: localhost:3000",
+          "Host: localhost:3001",
           "Connection: close",
           "Content-Type: application/json",
           "Content-Length: nope",

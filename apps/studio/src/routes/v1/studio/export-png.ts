@@ -1,4 +1,3 @@
-import { env } from "cloudflare:workers"
 import { createFileRoute } from "@tanstack/react-router"
 import {
   assertRenderImageResourceAdmission,
@@ -40,7 +39,8 @@ const exportRequestSchema = z
 export const Route = createFileRoute("/v1/studio/export-png")({
   server: {
     handlers: {
-      POST: async ({ request }) => {
+      POST: async ({ request, context }) => {
+        const { workerEnv } = context
         let input: unknown
         try {
           input = await readStudioJsonBody(request, "/v1/studio/export-png")
@@ -62,7 +62,7 @@ export const Route = createFileRoute("/v1/studio/export-png")({
         }
         let principal
         try {
-          principal = await resolveStudioPrincipal(env, request)
+          principal = await resolveStudioPrincipal(workerEnv, request)
         } catch (error) {
           if (error instanceof StudioAccessError) {
             return studioAccessErrorResponse(error, false)
@@ -74,7 +74,10 @@ export const Route = createFileRoute("/v1/studio/export-png")({
         let renderDocument: Document
         let expectedImageResources: ManagedImageResourceExpectation[]
         try {
-          const mediaAssets = new MediaAssetRepository(env.DB, env.ASSETS)
+          const mediaAssets = new MediaAssetRepository(
+            workerEnv.DB,
+            workerEnv.ASSETS
+          )
           const materialized = await materializeManagedDocumentAssets(
             parsed.data.document,
             (assetId) =>
@@ -154,7 +157,7 @@ export const Route = createFileRoute("/v1/studio/export-png")({
         })
         let lease
         try {
-          lease = await reserveRenderCapacity(env, principal, plan)
+          lease = await reserveRenderCapacity(workerEnv, principal, plan)
         } catch (error) {
           if (error instanceof RenderAdmissionError) {
             return respond(renderAdmissionErrorResponse(error, false))
@@ -170,7 +173,7 @@ export const Route = createFileRoute("/v1/studio/export-png")({
             document: renderDocument,
             expectedImageResources,
           })
-          const rendererResponse = await env.RENDERER.fetch(
+          const rendererResponse = await workerEnv.RENDERER.fetch(
             new Request("https://renderer.internal/render", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
