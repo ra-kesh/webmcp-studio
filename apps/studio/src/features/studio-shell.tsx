@@ -83,6 +83,7 @@ import type { NodeBounds } from "@webmcp/editor/geometry"
 import {
   fitPageInViewport,
   focusCameraOnBounds,
+  resizeCameraForViewport,
   zoomCameraAtPoint,
 } from "@webmcp/editor/viewport"
 import type { CanvasCamera } from "@webmcp/editor/viewport"
@@ -418,7 +419,16 @@ export function StudioShell({
   const [shellLayoutError, setShellLayoutError] = useState<string | null>(
     initialShellLayoutState.error
   )
-  const desktopShellRef = useRef<HTMLDivElement>(null)
+  const [desktopShellElement, setDesktopShellElement] =
+    useState<HTMLDivElement | null>(null)
+  const installDesktopShellElement = useCallback(
+    (element: HTMLDivElement | null) => {
+      setDesktopShellElement((current) =>
+        current === element ? current : element
+      )
+    },
+    []
+  )
   const leftPanelToggleRef = useRef<HTMLButtonElement>(null)
   const rightPanelToggleRef = useRef<HTMLButtonElement>(null)
   const installShellLayout = useCallback(
@@ -580,9 +590,9 @@ export function StudioShell({
       pageThumbnailSnapshotId,
     ]
   )
-  // The local renderer intentionally has no Browser Rendering binding. In dev,
-  // filmstrip pages use the same live Artboard fallback as local-only images;
-  // deployed builds retain renderer-backed, identity-checked PNG thumbnails.
+  // Development keeps filmstrip pages on the live Artboard fallback instead of
+  // starting Browser sessions for ordinary editing. Deployed builds retain
+  // renderer-backed, identity-checked PNG thumbnails.
   const pageThumbnailRaster = import.meta.env.DEV
     ? undefined
     : rendererBackedPageThumbnailRaster
@@ -592,7 +602,7 @@ export function StudioShell({
       : undefined
   const renderHistory = useRenderHistory(publishedVersion)
   const [zoom, setZoom] = useState(0.34)
-  const [autoFit, setAutoFit] = useState(true)
+  const [autoFit, setAutoFitState] = useState(true)
   const [cameraPosition, setCameraPosition] = useState({ x: 0, y: 0 })
   const [workspaceSize, setWorkspaceSize] = useState({ width: 0, height: 0 })
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null)
@@ -651,6 +661,13 @@ export function StudioShell({
     []
   )
   const cameraRef = useRef<CanvasCamera>({ x: 0, y: 0, zoom: 0.34 })
+  const autoFitRef = useRef(autoFit)
+  autoFitRef.current = autoFit
+  const workspaceSizeRef = useRef(workspaceSize)
+  const setAutoFit = useCallback((next: boolean) => {
+    autoFitRef.current = next
+    setAutoFitState(next)
+  }, [])
   const artboardRef = useRef<FabricArtboardHandle>(null)
   const rulerGuideOverlayRef = useRef<CanvasRulerGuideOverlayHandle>(null)
   const documentInputRef = useRef<HTMLInputElement>(null)
@@ -672,7 +689,7 @@ export function StudioShell({
   } | null>(null)
 
   useEffect(() => {
-    const shell = desktopShellRef.current
+    const shell = desktopShellElement
     if (!shell) return
     const measure = () => {
       const width = Math.max(0, Math.floor(shell.clientWidth))
@@ -682,7 +699,7 @@ export function StudioShell({
     observer.observe(shell)
     measure()
     return () => observer.disconnect()
-  }, [])
+  }, [desktopShellElement])
 
   const activePage =
     editor.previewDocument.pages.find(
@@ -1660,25 +1677,48 @@ export function StudioShell({
   )
 
   useEffect(() => {
-    const workspace = workspaceRef.current
+    const workspace = workspaceElement
     if (!workspace) return
     const measureWorkspace = () => {
       const next = {
         width: workspace.clientWidth,
         height: workspace.clientHeight,
       }
-      setWorkspaceSize((current) =>
-        current.width === next.width && current.height === next.height
-          ? current
-          : next
-      )
-      if (autoFit) fitCanvas()
+      const previous = workspaceSizeRef.current
+      const sizeChanged =
+        previous.width !== next.width || previous.height !== next.height
+      if (sizeChanged) {
+        workspaceSizeRef.current = next
+        setWorkspaceSize(next)
+      }
+      if (next.width <= 0 || next.height <= 0) return
+      if (autoFitRef.current) {
+        applyCamera(
+          fitPageInViewport(
+            { width: activePage.width, height: activePage.height },
+            next
+          )
+        )
+        return
+      }
+      if (!sizeChanged) return
+      applyCamera(resizeCameraForViewport(cameraRef.current, previous, next))
     }
     const observer = new ResizeObserver(measureWorkspace)
     observer.observe(workspace)
+    window.addEventListener("resize", measureWorkspace)
     measureWorkspace()
-    return () => observer.disconnect()
-  }, [autoFit, fitCanvas])
+    return () => {
+      observer.disconnect()
+      window.removeEventListener("resize", measureWorkspace)
+    }
+  }, [
+    activePage.height,
+    activePage.width,
+    applyCamera,
+    autoFit,
+    workspaceElement,
+  ])
 
   useEffect(() => {
     setAutoFit(true)
@@ -3307,7 +3347,7 @@ export function StudioShell({
         </header>
 
         <div
-          ref={desktopShellRef}
+          ref={installDesktopShellElement}
           className="relative flex min-h-0 min-w-0 flex-1"
           data-desktop-shell-layout={
             resolvedShellLayout.canUseDesktopLayout ? "adjustable" : "compact"

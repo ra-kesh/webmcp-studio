@@ -1937,3 +1937,39 @@ Remaining boundary:
 - Capture and retain lossless Renderer PNG/PDF pages, complete JSON/page-order
   verification and pixel comparisons, then run the same evidence against the
   deployed Renderer.
+
+## 2026-08-29 — Live editor breakpoint and camera closure
+
+Status: **completed locally and independently accepted**
+
+- Revisited the retained shell, guide, and performance audits plus OpenPencil
+  and Loora workspace ownership before touching the implementation.
+- The first six-width capture exposed defects missed by DOM-only assertions:
+  the artboard retained compact camera placement after the viewport widened,
+  and desktop panels remained at 208/280 instead of restoring 264/336.
+- Both observers had executed against null refs while the start surface was
+  mounted and never rebound to the later editor elements. Shell and workspace
+  observation now follows the actual mounted elements.
+- Auto-fit is recalculated from final viewport geometry. Manual camera mode
+  preserves the same world point at the visual centre through browser and
+  splitter resizing without changing zoom.
+- The responsive browser matrix now runs one real routed document from 320
+  through 1920 pixels and proves exact centring, action reachability, desktop
+  defaults, no document overflow, compact focus containment, field labels,
+  splitter persistence, and correct first-frame maximum widths. All 5 tests
+  pass.
+- The immutable selected visual run contains exact-size, hashed screenshots at
+  320, 390, 1119, 1280, 1440, and 1920 pixels. Every screenshot was inspected;
+  `live-editor-closure.md` records the cause, repair, and evidence.
+- The first independent review accepted the editor lifecycle, camera math,
+  shell restoration, tests, and Browser Run configuration but rejected a P1
+  evidence weakness: incomplete images could be skipped and full-page height
+  was not asserted. The runner now waits for or fails every image, rejects
+  missing decoded pixels, checks both scroll axes, and requires exact PNG width
+  and height. A new atomic run passed those stricter checks.
+- The final independent verdict is **ACCEPT with no remaining P0/P1 finding**.
+  The reviewer independently matched all six files to the selected report's
+  byte lengths, SHA-256 hashes, dimensions, and scroll/client measurements.
+- Local Browser Run now uses Wrangler's local simulation; only the production
+  config retains remote Browser Run. Local editor verification therefore does
+  not consume the account's billable remote allowance.

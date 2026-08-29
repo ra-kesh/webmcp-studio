@@ -1,0 +1,311 @@
+{
+  "version": 1,
+  "runId": "2026-08-29T13-34-36.698Z-129b1187-e1dd-4294-ae55-a8ff4eb4824a",
+  "artifactRoot": "artifacts/live-editor/runs/2026-08-29T13-34-36.698Z-129b1187-e1dd-4294-ae55-a8ff4eb4824a",
+  "baseUrl": "http://localhost:3001",
+  "documentUrl": "http://localhost:3001/documents/document-c6434ab9-0f0f-4e63-bfb8-f72120f5c195",
+  "deviceScaleFactor": 1,
+  "browserRuntime": {
+    "browserVersion": "152.0.7977.64",
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+    "platform": "MacIntel",
+    "hostOperatingSystem": "darwin",
+    "hostArchitecture": "arm64"
+  },
+  "captures": [
+    {
+      "viewport": {
+        "width": 320,
+        "height": 820
+      },
+      "screenshot": {
+        "path": "320x820.png",
+        "bytes": 35801,
+        "sha256": "93ef8501f54397eb06ddb9e4ee044cd60417af335de88d573898b7adfd3d0f95",
+        "width": 320,
+        "height": 820
+      },
+      "layout": {
+        "clientWidth": 320,
+        "clientHeight": 820,
+        "scrollWidth": 320,
+        "scrollHeight": 820,
+        "documentPanel": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "propertiesPanel": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "canvasViewport": {
+          "x": 0,
+          "y": 92,
+          "width": 320,
+          "height": 640
+        },
+        "filmstrip": {
+          "x": 0,
+          "y": 732,
+          "width": 320,
+          "height": 88
+        },
+        "moreActions": {
+          "x": 268,
+          "y": 2,
+          "width": 44,
+          "height": 44
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 390,
+        "height": 820
+      },
+      "screenshot": {
+        "path": "390x820.png",
+        "bytes": 40229,
+        "sha256": "817dac230f97b0ffd2dab2bb2ec1fd92334637c03e65c2f1dee5564f499db1c9",
+        "width": 390,
+        "height": 820
+      },
+      "layout": {
+        "clientWidth": 390,
+        "clientHeight": 820,
+        "scrollWidth": 390,
+        "scrollHeight": 820,
+        "documentPanel": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "propertiesPanel": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "canvasViewport": {
+          "x": 0,
+          "y": 92,
+          "width": 390,
+          "height": 640
+        },
+        "filmstrip": {
+          "x": 0,
+          "y": 732,
+          "width": 390,
+          "height": 88
+        },
+        "moreActions": {
+          "x": 338,
+          "y": 2,
+          "width": 44,
+          "height": 44
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 1119,
+        "height": 820
+      },
+      "screenshot": {
+        "path": "1119x820.png",
+        "bytes": 58127,
+        "sha256": "c8cc86c09959f9d7135f031f2c601fdf10c96b90018ddcedc94a911865ce6c48",
+        "width": 1119,
+        "height": 820
+      },
+      "layout": {
+        "clientWidth": 1119,
+        "clientHeight": 820,
+        "scrollWidth": 1119,
+        "scrollHeight": 820,
+        "documentPanel": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "propertiesPanel": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "canvasViewport": {
+          "x": 0,
+          "y": 92,
+          "width": 1119,
+          "height": 640
+        },
+        "filmstrip": {
+          "x": 0,
+          "y": 732,
+          "width": 1119,
+          "height": 88
+        },
+        "moreActions": {
+          "x": 1067,
+          "y": 2,
+          "width": 44,
+          "height": 44
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "screenshot": {
+        "path": "1280x900.png",
+        "bytes": 108854,
+        "sha256": "6f5158c78d80c01ad7496e81581c218da1174ee1eb4924e84ffeaca477d4b35c",
+        "width": 1280,
+        "height": 900
+      },
+      "layout": {
+        "clientWidth": 1280,
+        "clientHeight": 900,
+        "scrollWidth": 1280,
+        "scrollHeight": 900,
+        "documentPanel": {
+          "x": 0,
+          "y": 48,
+          "width": 264,
+          "height": 852
+        },
+        "propertiesPanel": {
+          "x": 944,
+          "y": 48,
+          "width": 336,
+          "height": 852
+        },
+        "canvasViewport": {
+          "x": 276,
+          "y": 92,
+          "width": 656,
+          "height": 712
+        },
+        "filmstrip": {
+          "x": 276,
+          "y": 804,
+          "width": 656,
+          "height": 96
+        },
+        "moreActions": {
+          "x": 1236,
+          "y": 8,
+          "width": 32,
+          "height": 32
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "screenshot": {
+        "path": "1440x900.png",
+        "bytes": 112003,
+        "sha256": "bb84cd9601eab8b002e0209c808bd8f4216626b0738c26081a7813f5e133369b",
+        "width": 1440,
+        "height": 900
+      },
+      "layout": {
+        "clientWidth": 1440,
+        "clientHeight": 900,
+        "scrollWidth": 1440,
+        "scrollHeight": 900,
+        "documentPanel": {
+          "x": 0,
+          "y": 48,
+          "width": 264,
+          "height": 852
+        },
+        "propertiesPanel": {
+          "x": 1104,
+          "y": 48,
+          "width": 336,
+          "height": 852
+        },
+        "canvasViewport": {
+          "x": 276,
+          "y": 92,
+          "width": 816,
+          "height": 712
+        },
+        "filmstrip": {
+          "x": 276,
+          "y": 804,
+          "width": 816,
+          "height": 96
+        },
+        "moreActions": {
+          "x": 1396,
+          "y": 8,
+          "width": 32,
+          "height": 32
+        }
+      }
+    },
+    {
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "screenshot": {
+        "path": "1920x1080.png",
+        "bytes": 139853,
+        "sha256": "45f0565c18928ed66bc93735f0224c0e71e3da3849972725193abd35631bf2c1",
+        "width": 1920,
+        "height": 1080
+      },
+      "layout": {
+        "clientWidth": 1920,
+        "clientHeight": 1080,
+        "scrollWidth": 1920,
+        "scrollHeight": 1080,
+        "documentPanel": {
+          "x": 0,
+          "y": 48,
+          "width": 264,
+          "height": 1032
+        },
+        "propertiesPanel": {
+          "x": 1584,
+          "y": 48,
+          "width": 336,
+          "height": 1032
+        },
+        "canvasViewport": {
+          "x": 276,
+          "y": 92,
+          "width": 1296,
+          "height": 892
+        },
+        "filmstrip": {
+          "x": 276,
+          "y": 984,
+          "width": 1296,
+          "height": 96
+        },
+        "moreActions": {
+          "x": 1876,
+          "y": 8,
+          "width": 32,
+          "height": 32
+        }
+      }
+    }
+  ]
+}

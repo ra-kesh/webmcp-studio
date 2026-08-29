@@ -14,6 +14,7 @@
     "test": "vitest run --config vitest.config.ts --passWithNoTests",
     "test:e2e": "playwright test --config playwright.config.ts",
     "capture:conformance": "bun scripts/capture-render-conformance.ts",
+    "capture:live-editor": "bun scripts/capture-live-editor-matrix.ts",
     "routes:generate": "tsr generate",
     "typecheck": "tsc --noEmit"
   },

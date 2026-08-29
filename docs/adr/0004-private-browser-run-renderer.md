@@ -12,4 +12,4 @@ Use a separate Worker with a Browser Run binding and Cloudflare Playwright. Call
 
 ## Consequences
 
-The renderer can deploy and scale separately while remaining private. The renderer must deploy before the Studio Worker. Local full-topology development needs both Wrangler configs and remote Browser Run access.
+The renderer can deploy and scale separately while remaining private. The renderer must deploy before the Studio Worker. Local full-topology development uses the local Browser Run simulation from `wrangler.local.jsonc`; only deployed/staging verification uses the production config's remote Browser Run binding. This keeps ordinary editor and thumbnail development off the account's billable Browser Run allowance.

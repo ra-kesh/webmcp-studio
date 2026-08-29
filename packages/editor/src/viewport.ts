@@ -62,6 +62,31 @@ export function zoomCameraAtPoint(
   }
 }
 
+/**
+ * Preserve the same world point at the visual centre when the viewport changes.
+ * This keeps manual canvas navigation stable while panels open, close, or resize.
+ */
+export function resizeCameraForViewport(
+  camera: CanvasCamera,
+  previousViewport: ViewportSize,
+  nextViewport: ViewportSize
+): CanvasCamera {
+  if (
+    previousViewport.width <= 0 ||
+    previousViewport.height <= 0 ||
+    nextViewport.width <= 0 ||
+    nextViewport.height <= 0
+  ) {
+    return camera
+  }
+
+  return {
+    ...camera,
+    x: camera.x + (nextViewport.width - previousViewport.width) / 2,
+    y: camera.y + (nextViewport.height - previousViewport.height) / 2,
+  }
+}
+
 export function focusCameraOnBounds(
   bounds: NodeBounds,
   viewport: ViewportSize,

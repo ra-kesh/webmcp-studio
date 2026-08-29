@@ -1,27 +1,74 @@
 import { expect, test } from "@playwright/test"
+import type { Page } from "@playwright/test"
 
-const viewportWidths = [320, 360, 390, 430, 768, 1119, 1120, 1280, 1440]
+test.describe.configure({ timeout: 90_000 })
+
+const viewportWidths = [320, 360, 390, 430, 768, 1119, 1120, 1280, 1440, 1920]
 
 const requiredOverflowActions = [
   /^Publish$|^Published v\d+$/,
-  /^API playground$/,
+  /^Open API Playground$/,
   /^New document…$/,
   /^Export document JSON$/,
   /^Import document JSON…$/,
   /^Import quotation source…$/,
-  /^Current page as PNG$/,
+  /^Export current page as PNG$/,
   /^\d+-page PDF$/,
 ]
+
+async function openSampleEditor(page: Page) {
+  await page.goto("/")
+  await expect(
+    page.getByRole("heading", { name: "Studio documents" })
+  ).toBeVisible()
+  await page.getByRole("button", { name: "Open sample", exact: true }).click()
+  await expect(page).toHaveURL(/\/documents\/[^/]+$/)
+  await expect(page.getByLabel("Canvas viewport")).toBeVisible({
+    timeout: 30_000,
+  })
+  await expect(page.locator("canvas.upper-canvas")).toBeVisible({
+    timeout: 30_000,
+  })
+}
+
+async function expectAutoFitArtboardCentered(page: Page) {
+  await expect
+    .poll(async () => {
+      return page.evaluate(() => {
+        const viewport = document
+          .querySelector('[aria-label="Canvas viewport"]')
+          ?.getBoundingClientRect()
+        const artboard = document
+          .querySelector('[aria-label="Canvas viewport"] .upper-canvas')
+          ?.getBoundingClientRect()
+        if (!viewport || !artboard) return Number.POSITIVE_INFINITY
+        const deltaX = Math.abs(
+          artboard.left +
+            artboard.width / 2 -
+            (viewport.left + viewport.width / 2)
+        )
+        const deltaY = Math.abs(
+          artboard.top +
+            artboard.height / 2 -
+            (viewport.top + viewport.height / 2)
+        )
+        return Math.max(deltaX, deltaY)
+      })
+    })
+    .toBeLessThanOrEqual(1)
+}
 
 test("the editor shell keeps every business action reachable across the viewport matrix", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: viewportWidths[0], height: 820 })
+  await openSampleEditor(page)
   for (const width of viewportWidths) {
     await test.step(`${width}px`, async () => {
       await page.setViewportSize({ width, height: 820 })
-      await page.goto("/")
       await expect(page.getByLabel("Canvas viewport")).toBeVisible()
       await expect(page.locator("canvas.upper-canvas")).toBeVisible()
+      await expectAutoFitArtboardCentered(page)
 
       const layout = await page.evaluate(() => ({
         clientWidth: document.documentElement.clientWidth,
@@ -52,9 +99,10 @@ test("the editor shell keeps every business action reachable across the viewport
       expect(menuBounds).not.toBeNull()
       expect(menuBounds!.x).toBeGreaterThanOrEqual(0)
       expect(menuBounds!.x + menuBounds!.width).toBeLessThanOrEqual(width)
+      await menu.getByRole("menuitem", { name: "File", exact: true }).hover()
       for (const actionName of requiredOverflowActions) {
         await expect(
-          menu.getByRole("menuitem", { name: actionName })
+          page.getByRole("menuitem", { name: actionName })
         ).toBeVisible()
       }
       await page.keyboard.press("Escape")
@@ -78,6 +126,12 @@ test("the editor shell keeps every business action reachable across the viewport
         await expect(documentPanelButton).toBeHidden()
         await expect(inspectorPanelButton).toBeHidden()
         await expect(page.getByRole("tab", { name: "Templates" })).toBeVisible()
+        await expect(
+          page.getByRole("separator", { name: "Resize document panel" })
+        ).toHaveAttribute("aria-valuenow", "264")
+        await expect(
+          page.getByRole("separator", { name: "Resize properties panel" })
+        ).toHaveAttribute("aria-valuenow", "336")
       }
     })
   }
@@ -87,8 +141,7 @@ test("compact panels trap focus, isolate the editor, close with Escape, and rest
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 820 })
-  await page.goto("/")
-  await expect(page.locator("canvas.upper-canvas")).toBeVisible()
+  await openSampleEditor(page)
 
   const documentPanelButton = page.getByRole("button", {
     name: "Open document panel",
@@ -156,8 +209,7 @@ test("compact field controls have unique IDs and labels focus the visible contro
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 820 })
-  await page.goto("/")
-  await expect(page.locator("canvas.upper-canvas")).toBeVisible()
+  await openSampleEditor(page)
 
   await page.getByRole("button", { name: "Open properties" }).click()
   const inspectorPanel = page.getByRole("dialog", { name: "Properties" })
@@ -180,7 +232,7 @@ test("desktop workspace panels resize, collapse, restore, and persist without st
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
-  await page.goto("/")
+  await openSampleEditor(page)
   await page.evaluate(() =>
     localStorage.removeItem("webmcp-studio:shell-layout:v1")
   )
@@ -243,7 +295,7 @@ test("saved maximum panel widths are correct on the first mounted frame", async 
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
-  await page.goto("/")
+  await openSampleEditor(page)
   await page.evaluate(() => {
     localStorage.setItem(
       "webmcp-studio:shell-layout:v1",
