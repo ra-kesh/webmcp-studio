@@ -2,7 +2,9 @@ import { expect, test } from "@playwright/test"
 import type { Page } from "@playwright/test"
 import { quotationStarter } from "../../src/features/editor/quotation-starter"
 
-const documentStorageKey = "webmcp-studio:northstar-document:v2"
+test.describe.configure({ timeout: 90_000 })
+
+const currentDraftStorageKey = "webmcp-studio:current-draft:v1"
 
 function optionalOffPageFieldDocument() {
   const document = structuredClone(quotationStarter.document)
@@ -42,13 +44,25 @@ function optionalOffPageFieldDocument() {
 
 async function installFieldFixture(page: Page) {
   const fixture = optionalOffPageFieldDocument()
-  await page.goto("/")
-  await page.evaluate(
-    ({ key, document }) => localStorage.setItem(key, JSON.stringify(document)),
-    { key: documentStorageKey, document: fixture.document }
+  await page.addInitScript(
+    ({ key, document }) => {
+      localStorage.clear()
+      sessionStorage.clear()
+      localStorage.setItem(
+        key,
+        JSON.stringify({
+          schemaVersion: 1,
+          document,
+          sourceContext: null,
+        })
+      )
+    },
+    { key: currentDraftStorageKey, document: fixture.document }
   )
-  await page.reload()
-  await expect(page.locator("canvas.upper-canvas")).toBeVisible()
+  await page.goto(`/documents/${encodeURIComponent(fixture.document.id)}`)
+  await expect(page.locator("canvas.upper-canvas")).toBeVisible({
+    timeout: 30_000,
+  })
   await page.getByRole("tab", { name: "Fields" }).click()
   return fixture
 }
@@ -59,7 +73,7 @@ test("optional-to-required fallback is confirmed before changing a bound value",
   await installFieldFixture(page)
   await page.getByRole("button", { name: "Edit Optional note" }).click()
   const editDialog = page.getByRole("dialog", { name: "Edit field" })
-  await editDialog.getByRole("button", { name: "Required" }).click()
+  await editDialog.getByRole("radio", { name: "Required" }).click()
   await editDialog.getByRole("button", { name: "Save changes" }).click()
 
   const confirmation = page.getByRole("alertdialog", {
@@ -136,7 +150,7 @@ test("invalid currency bounds stay visible and block field creation", async ({
   page,
 }) => {
   await installFieldFixture(page)
-  await page.getByRole("button", { name: "New" }).click()
+  await page.getByRole("button", { name: "New", exact: true }).click()
   const dialog = page.getByRole("dialog", { name: "Create field" })
   await dialog.getByRole("textbox", { name: "Label" }).fill("Budget")
   await dialog.getByRole("combobox", { name: "Value type" }).click()

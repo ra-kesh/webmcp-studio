@@ -872,7 +872,7 @@ Healthy-browser acceptance on 2026-08-29:
 
 ## 2026-08-28 — Typed shared-field and public parameter contract (FIELD-01)
 
-Status: **implemented and independently code-reviewed — real-browser acceptance remains pending host Worker recovery**
+Status: **complete — implementation, independent code review, and real-browser acceptance pass**
 
 Phase-entry evidence:
 
@@ -897,11 +897,15 @@ Verification evidence:
 
 - The complete non-browser workspace test gate passes: worker-boundary 11/11, render-view 5/5, WebMCP 23/23, Renderer 32/32, editor 81/81, document 115/115, and Studio 79/79, for 346 passing tests.
 - All eight workspace package typechecks pass. Repository lint and `git diff --check` pass. The independent final code review reports no remaining FIELD-01 P0 or P1 findings; its final three P2 interaction findings were also fixed and rechecked locally.
-- Two focused Playwright contracts are checked in for invalid INR bounds, optional-to-required confirmation, exact delete impact, off-page property focus, atomic Undo, compact-sheet continuity, unique IDs, and visible label focus. They were not reported as passed: Cloudflare Vite timed out while the host retained unreaped `workerd` processes in `UE` state.
+- The retained Playwright contracts now start from the route-owned draft repository rather than the retired single-document localStorage bootstrap. They migrate one exact current-draft envelope into IndexedDB, enter the canonical `/documents/:documentId` route, and read durable state back from the repository body store.
+- The two contracts pass **8/8** against the one existing Studio server on port 3001. Coverage includes invalid INR bounds, no-op save protection, optional-to-required confirmation, exact delete impact, off-page property focus, atomic Undo, compact-sheet continuity, contract-change navigation, and field creation validation.
+- A deterministic compact publication adds an approved asset field, publishes version 1, opens API Playground through the compact File menu, displays Olive botanical, emits the public value `"hero_asset": "olive-botanical"`, and proves the request body contains no private `data:image` source.
+- Browser acceptance exposed stale harness assumptions without requiring product work: `Required` is correctly a radio, modal background triggers are intentionally inaccessible while Properties is open, `New` requires an exact field-action locator beside template `Create new`, and restoring the original INR bounds correctly leaves Save disabled until another contract value changes.
+- `field-01-browser-acceptance.md` records the exercised boundary and retained MEDIA-01 dependency.
+- An independent reviewer read the actual migration, route admission, repository, typed-control, publication, public asset projection, and both browser specifications. The verdict is **ACCEPT with no P0/P1 and no misleading acceptance claim**; `field-01-browser-independent-review.md` records the evidence.
 
 Open evidence and next dependency:
 
-- FIELD-01 remains browser-pending until the host is restarted or otherwise recovers. Run both field contract specs in the canonical single-server topology, retain traces/screenshots on failure, and verify the compact API Playground asset-ID journey against a deterministic published session.
 - The current approved catalog is intentionally static. Replacing it with a durable, user-browsable repository, upload lifecycle, stable public identities, quota/recovery, and reference-safe deletion is MEDIA-01; FIELD-01 now exposes the correct policy seam for that work instead of embedding arbitrary URLs in public contracts.
 
 ## 2026-08-28 — Authoritative workspace media repository (MEDIA-01 backend)

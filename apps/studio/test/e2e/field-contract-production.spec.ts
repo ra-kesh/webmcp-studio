@@ -2,9 +2,14 @@ import { expect, test } from "@playwright/test"
 import type { Page } from "@playwright/test"
 import { documentSchema } from "@webmcp/document"
 import type { Document as StudioDocument, SceneNode } from "@webmcp/document"
+import { studioAssets } from "../../src/features/editor/asset-catalog"
 import { quotationStarter } from "../../src/features/editor/quotation-starter"
 
-const documentStorageKey = "webmcp-studio:northstar-document:v2"
+test.describe.configure({ timeout: 90_000 })
+
+const currentDraftStorageKey = "webmcp-studio:current-draft:v1"
+const documentDatabaseName = "webmcp-studio-documents"
+const documentBodyStore = "draft-body"
 const publishedStorageKey = "webmcp-studio:published-versions:v1"
 const quotationSourceStorageKey = "webmcp-studio:quotation-source:v1"
 const quotationTemplateStorageKey = "webmcp-studio:quotation-template:v1"
@@ -14,6 +19,7 @@ const budgetFieldId = "field-e2e-budget"
 const primaryNodeId = "field-e2e-budget-primary"
 const secondaryNodeId = "field-e2e-budget-secondary"
 const secondaryPageId = "field-e2e-secondary-page"
+const heroAssetFieldId = "field-e2e-hero-asset"
 
 type TestWebMcpResult = {
   structuredContent?: unknown
@@ -147,8 +153,22 @@ function fieldContractFixture(): StudioDocument {
         agentDescription: "The approved project budget in Indian rupees.",
         validation: { minimum: "500", maximum: "5000" },
       },
+      {
+        id: heroAssetFieldId,
+        key: "hero_asset",
+        label: "Hero asset",
+        type: "asset",
+        required: true,
+        defaultValue: studioAssets[0].src,
+        agentDescription: "The approved public hero artwork.",
+        validation: {},
+      },
     ],
-    fieldValues: { ...base.fieldValues, [budgetFieldId]: "" },
+    fieldValues: {
+      ...base.fieldValues,
+      [budgetFieldId]: "",
+      [heroAssetFieldId]: studioAssets[0].src,
+    },
     bindings: [
       ...base.bindings,
       {
@@ -168,7 +188,9 @@ function fieldContractFixture(): StudioDocument {
 }
 
 async function waitForEditor(page: Page) {
-  await expect(page.locator("canvas.upper-canvas")).toBeVisible()
+  await expect(page.locator("canvas.upper-canvas")).toBeVisible({
+    timeout: 30_000,
+  })
   await expect
     .poll(() =>
       page.evaluate(() => window.__studioTestTools?.has("inspect_design"))
@@ -186,23 +208,49 @@ async function inspectDesign(page: Page) {
 
 async function storedBudgetState(page: Page): Promise<StoredFieldState> {
   return page.evaluate(
-    ({ storageKey, fieldId }) => {
-      const serialized = localStorage.getItem(storageKey)
-      if (!serialized) throw new Error("The editor document is not persisted")
-      const stored = JSON.parse(serialized) as {
-        fields: Array<{ id: string }>
-        fieldValues: Record<string, unknown>
-        bindings: StoredFieldState["bindings"]
+    async ({ databaseName, storeName, documentId, fieldId }) => {
+      const database = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open(databaseName)
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () =>
+          reject(request.error ?? new Error("Document database did not open"))
+      })
+      const stored = await new Promise<
+        | {
+            document?: {
+              fields: Array<{ id: string }>
+              fieldValues: Record<string, unknown>
+              bindings: StoredFieldState["bindings"]
+            }
+          }
+        | undefined
+      >((resolve, reject) => {
+        const request = database
+          .transaction(storeName)
+          .objectStore(storeName)
+          .get(documentId)
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () =>
+          reject(request.error ?? new Error("Document draft did not load"))
+      }).finally(() => database.close())
+      if (!stored?.document) {
+        throw new Error("The editor document is not persisted")
       }
       return {
-        field: stored.fields.find((field) => field.id === fieldId) ?? null,
-        value: stored.fieldValues[fieldId] ?? null,
-        bindings: stored.bindings.filter(
+        field:
+          stored.document.fields.find((field) => field.id === fieldId) ?? null,
+        value: stored.document.fieldValues[fieldId] ?? null,
+        bindings: stored.document.bindings.filter(
           (binding) => binding.fieldId === fieldId
         ),
       }
     },
-    { storageKey: documentStorageKey, fieldId: budgetFieldId }
+    {
+      databaseName: documentDatabaseName,
+      storeName: documentBodyStore,
+      documentId: "field-e2e-document",
+      fieldId: budgetFieldId,
+    }
   )
 }
 
@@ -244,14 +292,18 @@ test.beforeEach(async ({ page }) => {
     }
   })
   await page.addInitScript(
-    ({ documentValue, storageKey, keysToRemove }) => {
-      localStorage.setItem(storageKey, documentValue)
+    ({ envelopeValue, storageKey, keysToRemove }) => {
+      localStorage.setItem(storageKey, envelopeValue)
       for (const key of keysToRemove) localStorage.removeItem(key)
       sessionStorage.clear()
     },
     {
-      documentValue: serializedDocument,
-      storageKey: documentStorageKey,
+      envelopeValue: JSON.stringify({
+        schemaVersion: 1,
+        document: JSON.parse(serializedDocument),
+        sourceContext: null,
+      }),
+      storageKey: currentDraftStorageKey,
       keysToRemove: [
         publishedStorageKey,
         quotationSourceStorageKey,
@@ -260,7 +312,7 @@ test.beforeEach(async ({ page }) => {
       ],
     }
   )
-  await page.goto("/")
+  await page.goto("/documents/field-e2e-document")
   await waitForEditor(page)
 })
 
@@ -290,8 +342,9 @@ test("currency bounds block invalid saves and required replacement is explicit",
   await expect(save).toBeDisabled()
 
   await maximum.fill("INR 5,000")
+  await expect(save).toBeDisabled()
+  await editDialog.getByRole("radio", { name: "Required" }).click()
   await expect(save).toBeEnabled()
-  await editDialog.getByRole("button", { name: "Required" }).click()
   await save.click()
 
   const confirmation = page.getByRole("alertdialog", {
@@ -427,6 +480,39 @@ test("compact Properties stays open while a binding navigates off-page", async (
     .click()
 
   await expect(properties).toBeVisible()
-  await expect(propertiesTrigger).toHaveAttribute("aria-expanded", "true")
   await expectBudgetFocusOnSecondaryPage(page)
+})
+
+test("compact API Playground exposes only the approved public asset ID", async ({
+  page,
+}) => {
+  const reset = await page.request.post("/v1/studio/session/reset")
+  expect(reset.ok()).toBe(true)
+  await page.setViewportSize({ width: 390, height: 844 })
+
+  const openFileCommand = async (commandName: string) => {
+    await page.getByRole("button", { name: /^More studio actions/ }).click()
+    await page.getByRole("menuitem", { name: "File", exact: true }).click()
+    await page.getByRole("menuitem", { name: commandName, exact: true }).click()
+  }
+
+  await openFileCommand("Publish")
+  const publishDialog = page.getByRole("dialog", { name: "Publish version 1" })
+  await expect(publishDialog).toContainText("Validation passed")
+  await publishDialog
+    .getByRole("button", { name: "Publish version 1", exact: true })
+    .click()
+  await expect(
+    page.getByRole("dialog", { name: "Version 1 is published" })
+  ).toContainText("Immutable")
+  await page.getByRole("button", { name: "Done", exact: true }).click()
+
+  await openFileCommand("Open API Playground")
+  const apiDialog = page.getByRole("dialog", { name: "API playground" })
+  await expect(
+    apiDialog.getByRole("combobox", { name: "Hero asset" })
+  ).toContainText(studioAssets[0].name)
+  const requestBody = apiDialog.locator("pre")
+  await expect(requestBody).toContainText('"hero_asset": "olive-botanical"')
+  await expect(requestBody).not.toContainText("data:image")
 })
