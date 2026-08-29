@@ -172,7 +172,11 @@ import { projectDocumentConflictModel } from "./document-conflict-model"
 import type { DocumentConflictOperation } from "./document-conflict-model"
 import type { StudioPersistenceApi } from "../persistence/studio-persistence-provider"
 import type { StudioStartModel } from "./studio-start-model"
-import { parseDocumentImportFile } from "./document-import"
+import {
+  parseDocumentImportFile,
+  readBoundedDocumentImportText,
+  waitForDocumentImportOperation,
+} from "./document-import"
 import { createStudioTextNode, defaultStudioTextPresetId } from "./text-presets"
 import type { StudioTextPresetId } from "./text-presets"
 import { quotationStarter } from "./quotation-starter"
@@ -198,6 +202,7 @@ export const DOCUMENT_TRANSITION_DISABLED_REASON =
   "Wait for the new document to finish opening before editing this one."
 
 const PUBLISHED_STORAGE_KEY = "webmcp-studio:published-versions:v1"
+const QUOTATION_IMPORT_MAX_JSON_BYTES = 2_000_000
 
 const decodeValidatedImageDimensions = async (file: Blob) => {
   const dimensions = await getImageDimensions(file)
@@ -4593,8 +4598,9 @@ export function useDocumentEditor({
   )
 
   const importDocumentFile = useCallback(
-    async (file: File) => {
+    async (file: File, signal?: AbortSignal) => {
       if (!allowMutation()) return false
+      signal?.throwIfAborted()
       setDocumentError(null)
       const requestGeneration = sessionGenerationRef.current
       const requestDocumentId = historyRef.current.document.id
@@ -4602,19 +4608,23 @@ export function useDocumentEditor({
       const importRequestGeneration =
         documentImportRequestGenerationRef.current + 1
       documentImportRequestGenerationRef.current = importRequestGeneration
-      const parsed = await parseDocumentImportFile(file)
+      const parsed = await parseDocumentImportFile(file, undefined, { signal })
       if (
+        !mountedRef.current ||
         documentImportRequestGenerationRef.current !==
           importRequestGeneration ||
         sessionGenerationRef.current !== requestGeneration ||
-        historyRef.current.document.id !== requestDocumentId ||
-        historyRef.current.snapshotId !== requestSnapshotId
+        historyRef.current.document.id !== requestDocumentId
       ) {
+        return false
+      }
+      if (historyRef.current.snapshotId !== requestSnapshotId) {
         setDocumentError(
-          "The active document changed while this file was being read. Import it again into the document now open."
+          "The document changed while the import file was being read, so the import was not applied."
         )
         return false
       }
+      signal?.throwIfAborted()
       if (!allowMutation()) return false
       if (!parsed.ok) {
         setDocumentError(
@@ -4690,16 +4700,23 @@ export function useDocumentEditor({
   )
 
   const openDocumentFile = useCallback(
-    async (file: File) => {
+    async (
+      file: File,
+      signal?: AbortSignal,
+      onAdmissionComplete?: () => void
+    ) => {
       if (draftRecoveryRef.current) return false
+      signal?.throwIfAborted()
       setDocumentError(null)
-      const parsed = await parseDocumentImportFile(file)
+      const parsed = await parseDocumentImportFile(file, undefined, { signal })
+      signal?.throwIfAborted()
       if (!parsed.ok) {
         setDocumentError(
           `The document could not be opened: ${parsed.failure.message}`
         )
         return false
       }
+      onAdmissionComplete?.()
       const envelope: CurrentDraftEnvelope = {
         schemaVersion: 1,
         document: parsed.document,
@@ -4711,8 +4728,9 @@ export function useDocumentEditor({
   )
 
   const importQuotationFile = useCallback(
-    async (file: File) => {
-      if (!allowMutation()) return
+    async (file: File, signal?: AbortSignal) => {
+      if (!allowMutation()) return false
+      signal?.throwIfAborted()
       setDocumentError(null)
       const requestGeneration = sessionGenerationRef.current
       const requestDocumentId = historyRef.current.document.id
@@ -4720,21 +4738,31 @@ export function useDocumentEditor({
       const importRequestGeneration =
         documentImportRequestGenerationRef.current + 1
       documentImportRequestGenerationRef.current = importRequestGeneration
+      const importOwnershipChanged = () =>
+        !mountedRef.current ||
+        documentImportRequestGenerationRef.current !==
+          importRequestGeneration ||
+        sessionGenerationRef.current !== requestGeneration ||
+        historyRef.current.document.id !== requestDocumentId
       try {
-        const input = JSON.parse(await file.text()) as unknown
-        if (
-          documentImportRequestGenerationRef.current !==
-            importRequestGeneration ||
-          sessionGenerationRef.current !== requestGeneration ||
-          historyRef.current.document.id !== requestDocumentId ||
-          historyRef.current.snapshotId !== requestSnapshotId
-        ) {
-          setDocumentError(
-            "The active document changed while this quotation was being read. Import it again into the document now open."
+        const input = JSON.parse(
+          await readBoundedDocumentImportText(
+            file,
+            signal,
+            QUOTATION_IMPORT_MAX_JSON_BYTES
           )
-          return
+        ) as unknown
+        if (importOwnershipChanged()) {
+          return false
         }
-        if (!allowMutation()) return
+        if (historyRef.current.snapshotId !== requestSnapshotId) {
+          setDocumentError(
+            "The document changed while the quotation file was being read, so the import was not applied."
+          )
+          return false
+        }
+        signal?.throwIfAborted()
+        if (!allowMutation()) return false
         const composition = quotationCompositionRequestV1Schema.safeParse(input)
         const payloadResult = composition.success
           ? { success: true as const, data: composition.data.payload }
@@ -4763,23 +4791,21 @@ export function useDocumentEditor({
             historyRef.current.document.id,
         }
         const designTemplate = requiredDesignTemplateForQuotation(templateId)
-        const compositionContext = await createKnownQuotationComposition(
-          payloadResult.data,
-          designTemplate
+        const compositionContext = await waitForDocumentImportOperation(
+          createKnownQuotationComposition(payloadResult.data, designTemplate),
+          signal
         )
-        if (
-          documentImportRequestGenerationRef.current !==
-            importRequestGeneration ||
-          sessionGenerationRef.current !== requestGeneration ||
-          historyRef.current.document.id !== requestDocumentId ||
-          historyRef.current.snapshotId !== requestSnapshotId
-        ) {
-          setDocumentError(
-            "The active document changed while this quotation was being prepared. Import it again into the document now open."
-          )
-          return
+        if (importOwnershipChanged()) {
+          return false
         }
-        if (!allowMutation()) return
+        if (historyRef.current.snapshotId !== requestSnapshotId) {
+          setDocumentError(
+            "The document changed while the quotation was being prepared, so the import was not applied."
+          )
+          return false
+        }
+        signal?.throwIfAborted()
+        if (!allowMutation()) return false
         templateSourceBySnapshotRef.current.set(
           historyRef.current.snapshotId,
           templateSourceContextRef.current
@@ -4810,7 +4836,9 @@ export function useDocumentEditor({
         setActivePageId(firstPageId)
         setSelection(null)
         setChangeSetError(null)
+        return true
       } catch (error) {
+        signal?.throwIfAborted()
         setDocumentError(
           error instanceof SyntaxError
             ? "This quotation file is not valid JSON."
@@ -4818,6 +4846,7 @@ export function useDocumentEditor({
               ? `The quotation could not be imported: ${error.message}`
               : "The quotation could not be imported."
         )
+        return false
       }
     },
     [

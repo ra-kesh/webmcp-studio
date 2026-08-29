@@ -58,6 +58,55 @@ describe("CriticalActionStatus", () => {
     expect(cancel).toHaveBeenCalledOnce()
   })
 
+  it("keeps document admission visible with a truthful cancel action", async () => {
+    const cancel = vi.fn()
+    await act(async () => {
+      root.render(
+        <CriticalActionStatus
+          lifecycle={{
+            status: "running",
+            action: "import-json",
+            operationId: "import-1",
+            cancelable: true,
+          }}
+          onCancel={cancel}
+          onRetry={vi.fn()}
+        />
+      )
+    })
+
+    const status = host.querySelector<HTMLElement>('[role="status"]')
+    expect(status?.textContent).toContain("Document import in progress")
+    expect(status?.textContent).toContain("Reading and validating")
+    await act(async () =>
+      status?.querySelector<HTMLButtonElement>("button")?.click()
+    )
+    expect(cancel).toHaveBeenCalledOnce()
+  })
+
+  it("reports the non-cancellable Home storage handoff truthfully", async () => {
+    await act(async () => {
+      root.render(
+        <CriticalActionStatus
+          lifecycle={{
+            status: "running",
+            action: "import-json",
+            operationId: "import-storage-1",
+            cancelable: false,
+          }}
+          onCancel={vi.fn()}
+          onRetry={vi.fn()}
+        />
+      )
+    })
+
+    const status = host.querySelector<HTMLElement>('[role="status"]')
+    expect(status?.textContent).toContain(
+      "Saving the validated document to this browser"
+    )
+    expect(status?.querySelector("button")).toBeNull()
+  })
+
   it("announces a terminal failure and exposes retry", async () => {
     const retry = vi.fn()
     await act(async () => {

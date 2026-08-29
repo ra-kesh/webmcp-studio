@@ -2215,3 +2215,33 @@ Status: **implemented locally and independently accepted; broader FAIL-01 remain
 - `fail-01d-fabric-runtime-recovery.md` records the exact ownership contract and
   keeps upload, import, publish, WebMCP, durable jobs, public error identity,
   and deployed failure evidence open.
+
+## 2026-08-29 — Document and quotation import lifecycle (FAIL-01E)
+
+Status: **implemented locally and independently accepted; broader FAIL-01 remains open**
+
+- Reread the FAIL-01 audit, Loora's bounded import/cleanup path, OpenPencil's
+  finite AbortSignal and pending-open patterns, and Studio's actual local and
+  managed resource admission before editing.
+- Studio document JSON keeps its 32 MiB pre-read cap. Quotation JSON now uses
+  the 2,000,000-byte Stuwiz API boundary instead of unbounded `file.text()`.
+- Browser ingestion uses an owned `FileReader` lifecycle. Signals flow through
+  local IndexedDB and managed-media verification; caller abort is never
+  converted into a missing-resource validation error.
+- Workspace and Home imports use the identity-aware critical action owner with
+  an admission deadline, visible Cancel/Retry, no same-tick overlap, and stale
+  completion rejection. Home explicitly leaves the cancellable phase before
+  the atomic draft repository transition starts.
+- Older imports cannot overwrite a newer import, session, or error surface.
+  Ordinary edits receive an exact stale-import explanation; crop and Review
+  retain their existing blockers.
+- Studio typecheck, 30 document-admission tests, 17 critical-action/status
+  tests, and nine focused mounted persistence races pass.
+- `fail-01e-import-lifecycle.md` records the gate. Upload, publish, WebMCP,
+  durable jobs, public error identity, and deployed failure evidence remain
+  open.
+- Independent review rejected the first pass because repository cancellation
+  released before cleanup acknowledgement, dialog cancellation retained stale
+  Retry authority, and Home storage still claimed it was reading. The repaired
+  gate directly awaits cleanup, revokes invalid Retry operations, and reports
+  storage truthfully. Final review returned **ACCEPT with no remaining P0/P1**.

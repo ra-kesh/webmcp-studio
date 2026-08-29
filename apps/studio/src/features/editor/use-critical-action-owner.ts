@@ -25,6 +25,7 @@ export type CriticalActionLifecycle<TAction extends string> =
 export type CriticalActionContext = Readonly<{
   signal: AbortSignal
   operationId: string
+  enterNonCancelablePhase: () => void
 }>
 
 export type CriticalActionDispatchOptions = Readonly<{
@@ -32,6 +33,7 @@ export type CriticalActionDispatchOptions = Readonly<{
   retryable?: boolean
   timeoutMs?: number
   timeoutMessage?: string
+  cancelMessage?: string
 }>
 
 type CriticalActionOperation = (
@@ -44,6 +46,7 @@ type ActiveExecution<TAction extends string> = {
   controller: AbortController
   cancelable: boolean
   retryable: boolean
+  cancelMessage: string
   timer: ReturnType<typeof setTimeout> | null
   abortRequest: {
     status: "timed_out" | "cancelled"
@@ -138,6 +141,9 @@ export function useCriticalActionOwner<TAction extends string>() {
         controller,
         cancelable,
         retryable,
+        cancelMessage:
+          options.cancelMessage ??
+          "The action was cancelled before it could finish.",
         timer: null,
         abortRequest: null,
       }
@@ -187,7 +193,27 @@ export function useCriticalActionOwner<TAction extends string>() {
 
       let completion: void | Promise<unknown>
       try {
-        completion = operation({ signal: controller.signal, operationId })
+        completion = operation({
+          signal: controller.signal,
+          operationId,
+          enterNonCancelablePhase: () => {
+            if (
+              activeExecutionRef.current?.operationId !== operationId ||
+              execution.abortRequest
+            ) {
+              return
+            }
+            if (execution.timer !== null) clearTimeout(execution.timer)
+            execution.timer = null
+            execution.cancelable = false
+            setLifecycle({
+              status: "running",
+              action,
+              operationId,
+              cancelable: false,
+            })
+          },
+        })
       } catch (caught) {
         finishTerminal("failed", failureMessage(caught))
         return true
@@ -232,7 +258,7 @@ export function useCriticalActionOwner<TAction extends string>() {
     if (!execution?.cancelable || execution.abortRequest) return false
     if (execution.timer !== null) clearTimeout(execution.timer)
     execution.timer = null
-    const message = "The action was cancelled. Nothing was downloaded."
+    const message = execution.cancelMessage
     execution.abortRequest = { status: "cancelled", message }
     execution.controller.abort(new DOMException(message, "AbortError"))
     setLifecycle({
@@ -254,6 +280,14 @@ export function useCriticalActionOwner<TAction extends string>() {
         retryExecution.options
       ) ?? false
     )
+  }, [])
+
+  const dismissTerminal = useCallback(() => {
+    if (activeActionRef.current !== null) return false
+    retryExecutionRef.current = null
+    setErrorState(null)
+    setLifecycle({ status: "idle" })
+    return true
   }, [])
 
   useEffect(
@@ -280,5 +314,6 @@ export function useCriticalActionOwner<TAction extends string>() {
     dispatch,
     cancel,
     retry,
+    dismissTerminal,
   } as const
 }

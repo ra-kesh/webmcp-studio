@@ -3,17 +3,32 @@ import type { CriticalActionLifecycle } from "./use-critical-action-owner"
 import { Button } from "@webmcp/ui/components/button"
 
 export type StudioCriticalAction =
-  "home" | "export-json" | "export-png" | "export-pdf"
+  | "home"
+  | "import-json"
+  | "import-quotation"
+  | "export-json"
+  | "export-png"
+  | "export-pdf"
 
-type ExportAction = Extract<StudioCriticalAction, `export-${"png" | "pdf"}`>
+type VisibleAction = Extract<
+  StudioCriticalAction,
+  `export-${"png" | "pdf"}` | `import-${"json" | "quotation"}`
+>
 
-const exportLabel: Record<ExportAction, string> = {
+const actionLabel: Record<VisibleAction, string> = {
   "export-png": "PNG export",
   "export-pdf": "PDF export",
+  "import-json": "Document import",
+  "import-quotation": "Quotation import",
 }
 
-const isExportAction = (action: StudioCriticalAction): action is ExportAction =>
-  action === "export-png" || action === "export-pdf"
+const isVisibleAction = (
+  action: StudioCriticalAction
+): action is VisibleAction =>
+  action === "export-png" ||
+  action === "export-pdf" ||
+  action === "import-json" ||
+  action === "import-quotation"
 
 export function CriticalActionStatus({
   lifecycle,
@@ -24,14 +39,15 @@ export function CriticalActionStatus({
   onCancel: () => void
   onRetry: () => void
 }) {
-  if (lifecycle.status === "idle" || !isExportAction(lifecycle.action)) {
+  if (lifecycle.status === "idle" || !isVisibleAction(lifecycle.action)) {
     return <div hidden data-testid="critical-action-status" />
   }
 
   const running = lifecycle.status === "running"
   const cancelling = lifecycle.status === "cancelling"
   const active = running || cancelling
-  const label = exportLabel[lifecycle.action]
+  const label = actionLabel[lifecycle.action]
+  const importing = lifecycle.action.startsWith("import-")
   return (
     <section
       aria-atomic="true"
@@ -55,7 +71,11 @@ export function CriticalActionStatus({
         </p>
         <p className="mt-0.5 text-xs text-muted-foreground">
           {running
-            ? "Preparing the current saved document…"
+            ? importing
+              ? lifecycle.cancelable
+                ? "Reading and validating the selected file…"
+                : "Saving the validated document to this browser…"
+              : "Preparing the current saved document…"
             : cancelling
               ? lifecycle.reason === "timed_out"
                 ? "The deadline passed. Waiting for owned work to stop…"

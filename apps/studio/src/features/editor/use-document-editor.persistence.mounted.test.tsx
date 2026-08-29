@@ -4108,7 +4108,7 @@ describe.sequential("useDocumentEditor repository persistence", () => {
 
       if (kind === "document") expect(result).toBe(false)
       expect(exactHistory(captured.current!)).toEqual(replacementHistory)
-      expect(captured.current?.documentError).toMatch(/changed.*being read/i)
+      expect(captured.current?.documentError).toBeNull()
       expect(await readRecord(hookRepository, replacementDocumentId)).toEqual(
         replacementDurable
       )
@@ -4177,7 +4177,7 @@ describe.sequential("useDocumentEditor repository persistence", () => {
 
       if (kind === "document") expect(result).toBe(false)
       expect(exactHistory(captured.current!)).toEqual(winningHistory)
-      expect(captured.current?.documentError).toMatch(/changed.*being read/i)
+      expect(captured.current?.documentError).toBeNull()
       expect(await readRecord(hookRepository, envelope.document.id)).toEqual(
         winningDurable
       )

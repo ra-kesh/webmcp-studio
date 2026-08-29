@@ -14,7 +14,8 @@ import {
 } from "vitest"
 import { useCriticalActionOwner } from "./use-critical-action-owner"
 
-type Action = "home" | "export-json" | "export-png" | "export-pdf"
+type Action =
+  "home" | "import-json" | "export-json" | "export-png" | "export-pdf"
 type Owner = ReturnType<typeof useCriticalActionOwner<Action>>
 
 const deferred = <T,>() => {
@@ -151,6 +152,24 @@ describe("useCriticalActionOwner", () => {
     await vi.waitFor(() => expect(current?.activeAction).toBeNull())
   })
 
+  it("revokes terminal retry authority when the user dismisses it", async () => {
+    await act(async () => {
+      expect(
+        current!.dispatch("import-json", async () => {
+          throw new Error("Import failed")
+        })
+      ).toBe(true)
+    })
+    await vi.waitFor(() =>
+      expect(current?.lifecycle).toMatchObject({ status: "failed" })
+    )
+
+    await act(async () => expect(current!.dismissTerminal()).toBe(true))
+    expect(current?.lifecycle).toEqual({ status: "idle" })
+    expect(current?.error).toBeNull()
+    expect(current!.retry()).toBe(false)
+  })
+
   it("times out an action, keeps ownership while it stops, then exposes retry", async () => {
     vi.useFakeTimers()
     try {
@@ -198,6 +217,40 @@ describe("useCriticalActionOwner", () => {
         message: "PNG export timed out.",
         retryable: true,
       })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("ends file-read cancellation before entering durable import storage", async () => {
+    vi.useFakeTimers()
+    try {
+      const storage = deferred<void>()
+      await act(async () => {
+        expect(
+          current!.dispatch(
+            "import-json",
+            ({ enterNonCancelablePhase }) => {
+              enterNonCancelablePhase()
+              return storage.promise
+            },
+            { cancelable: true, timeoutMs: 1_000 }
+          )
+        ).toBe(true)
+      })
+
+      expect(current?.lifecycle).toMatchObject({
+        status: "running",
+        action: "import-json",
+        cancelable: false,
+      })
+      expect(current!.cancel()).toBe(false)
+      act(() => vi.advanceTimersByTime(1_000))
+      expect(current?.activeAction).toBe("import-json")
+      expect(current?.lifecycle.status).toBe("running")
+
+      await act(async () => storage.resolve())
+      await vi.waitFor(() => expect(current?.activeAction).toBeNull())
     } finally {
       vi.useRealTimers()
     }

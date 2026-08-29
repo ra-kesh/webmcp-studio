@@ -323,6 +323,7 @@ function TextPresetMenuItems({
 }
 
 const FOREGROUND_EXPORT_TIMEOUT_MS = 60_000
+const FOREGROUND_IMPORT_TIMEOUT_MS = 45_000
 
 function IconButton({
   label,
@@ -642,6 +643,7 @@ export function StudioShell({
     lifecycle: criticalActionLifecycle,
     cancel: cancelCriticalAction,
     retry: retryCriticalAction,
+    dismissTerminal: dismissCriticalAction,
   } = useCriticalActionOwner<StudioCriticalAction>()
   const [compactPanel, setCompactPanel] = useState<
     "document" | "inspector" | null
@@ -1285,6 +1287,95 @@ export function StudioShell({
   const requestDraftReplacement = draftReplacement.request
   const createSeparateDraft = draftReplacement.createSeparate
   const confirmDraftReplacement = draftReplacement.confirm
+  const cancelDraftReplacement = useCallback(() => {
+    draftReplacement.cancel()
+    dismissCriticalAction()
+  }, [dismissCriticalAction, draftReplacement.cancel])
+  const criticalActionTargetRef = useRef({
+    documentId: editor.document.id,
+    snapshotId: editor.documentSnapshotId,
+  })
+  useEffect(() => {
+    const previous = criticalActionTargetRef.current
+    if (
+      previous.documentId === editor.document.id &&
+      previous.snapshotId === editor.documentSnapshotId
+    ) {
+      return
+    }
+    criticalActionTargetRef.current = {
+      documentId: editor.document.id,
+      snapshotId: editor.documentSnapshotId,
+    }
+    if (
+      criticalActionLifecycle.status !== "idle" &&
+      criticalActionLifecycle.action.startsWith("import-") &&
+      criticalActionLifecycle.status !== "running" &&
+      criticalActionLifecycle.status !== "cancelling"
+    ) {
+      dismissCriticalAction()
+    }
+  }, [
+    criticalActionLifecycle,
+    dismissCriticalAction,
+    editor.document.id,
+    editor.documentSnapshotId,
+  ])
+  const runOwnedStartImport = useCallback(
+    (file: File) =>
+      new Promise<boolean>((resolve) => {
+        let attempt = 0
+        let initialSettled = false
+        const settleInitial = (value: boolean) => {
+          if (initialSettled) return
+          initialSettled = true
+          resolve(value)
+        }
+        const accepted = dispatchCriticalAction(
+          "import-json",
+          async ({ signal, enterNonCancelablePhase }) => {
+            attempt += 1
+            const initialAttempt = attempt === 1
+            try {
+              const opened = await editor.openDocumentFile(
+                file,
+                signal,
+                enterNonCancelablePhase
+              )
+              if (!opened) {
+                throw new Error(
+                  "The document could not be opened. Review the reported file issue and retry when it is corrected."
+                )
+              }
+              if (initialAttempt) {
+                settleInitial(true)
+              } else {
+                draftReplacement.cancel()
+                await finishOpenedSession()
+              }
+            } catch (error) {
+              if (initialAttempt) settleInitial(false)
+              throw error
+            }
+          },
+          {
+            cancelable: true,
+            timeoutMs: FOREGROUND_IMPORT_TIMEOUT_MS,
+            timeoutMessage:
+              "Document import took too long while checking the file. No new document was created.",
+            cancelMessage:
+              "Document import cancelled while checking the file. No new document was created.",
+          }
+        )
+        if (!accepted) settleInitial(false)
+      }),
+    [
+      dispatchCriticalAction,
+      draftReplacement.cancel,
+      editor.openDocumentFile,
+      finishOpenedSession,
+    ]
+  )
   const requestNewDraft = useCallback(
     (
       intent: Parameters<typeof requestDraftReplacement>[0],
@@ -2206,25 +2297,29 @@ export function StudioShell({
       ? "Saving before Home…"
       : criticalAction === "export-json"
         ? "Preparing JSON…"
-        : criticalAction === "export-png"
-          ? "Preparing PNG…"
-          : criticalAction === "export-pdf"
-            ? "Preparing PDF…"
-            : editor.localSaveState.status === "opening"
-              ? "Opening document storage…"
-              : editor.localSaveState.status === "saving"
-                ? "Saving locally…"
-                : editor.localSaveState.status === "failed"
-                  ? "Local save failed"
-                  : editor.localSaveState.status === "conflict"
-                    ? "Save conflict"
-                    : editor.localSaveState.status === "external_change"
-                      ? editor.localSaveState.reason === "deleted_elsewhere"
-                        ? "Deleted in another session"
-                        : "Changed in another session"
-                      : editor.localSaveState.status === "session_only"
-                        ? "Session only"
-                        : "All changes saved"
+        : criticalAction === "import-json"
+          ? "Importing document…"
+          : criticalAction === "import-quotation"
+            ? "Importing quotation…"
+            : criticalAction === "export-png"
+              ? "Preparing PNG…"
+              : criticalAction === "export-pdf"
+                ? "Preparing PDF…"
+                : editor.localSaveState.status === "opening"
+                  ? "Opening document storage…"
+                  : editor.localSaveState.status === "saving"
+                    ? "Saving locally…"
+                    : editor.localSaveState.status === "failed"
+                      ? "Local save failed"
+                      : editor.localSaveState.status === "conflict"
+                        ? "Save conflict"
+                        : editor.localSaveState.status === "external_change"
+                          ? editor.localSaveState.reason === "deleted_elsewhere"
+                            ? "Deleted in another session"
+                            : "Changed in another session"
+                          : editor.localSaveState.status === "session_only"
+                            ? "Session only"
+                            : "All changes saved"
   const publishLabel =
     editor.publishSyncStatus === "syncing"
       ? "Publishing…"
@@ -2349,7 +2444,7 @@ export function StudioShell({
       "document.home": {
         enabled: !cropLocked && !reviewLocked && criticalAction === null,
         disabledReason: criticalAction
-          ? "Wait for the current save or export to finish."
+          ? "Wait for the current Studio operation to finish."
           : cropLocked
             ? "Finish or cancel the active image crop before going home."
             : reviewLocked
@@ -2359,10 +2454,30 @@ export function StudioShell({
       "document.export-json": {
         enabled: !cropLocked && criticalAction === null,
         disabledReason: criticalAction
-          ? "Wait for the current save or export to finish."
+          ? "Wait for the current Studio operation to finish."
           : cropLocked
             ? "Finish or cancel the active image crop before exporting."
             : null,
+      },
+      "document.import-json": {
+        enabled: !cropLocked && !reviewLocked && criticalAction === null,
+        disabledReason: criticalAction
+          ? "Wait for the current Studio operation to finish."
+          : cropLocked
+            ? "Finish or cancel the active image crop before importing."
+            : reviewLocked
+              ? "Resolve or discard the review preview before importing."
+              : null,
+      },
+      "document.import-quotation": {
+        enabled: !cropLocked && !reviewLocked && criticalAction === null,
+        disabledReason: criticalAction
+          ? "Wait for the current Studio operation to finish."
+          : cropLocked
+            ? "Finish or cancel the active image crop before importing."
+            : reviewLocked
+              ? "Resolve or discard the review preview before importing."
+              : null,
       },
       "output.export-png": {
         enabled: !outputBusy,
@@ -2373,7 +2488,7 @@ export function StudioShell({
       "document.publish": {
         enabled: !cropLocked && !reviewLocked && criticalAction === null,
         disabledReason: criticalAction
-          ? "Wait for the current save or export to finish."
+          ? "Wait for the current Studio operation to finish."
           : cropLocked
             ? "Finish or cancel the active image crop before publishing."
             : reviewLocked
@@ -2823,9 +2938,17 @@ export function StudioShell({
 
     return (
       <>
+        <CriticalActionStatus
+          lifecycle={criticalActionLifecycle}
+          onCancel={() => void cancelCriticalAction()}
+          onRetry={() => void retryCriticalAction()}
+        />
         <StudioStartSurface
           actionError={
-            routeNotice ?? editor.documentError ?? editor.templateActionError
+            routeNotice ??
+            criticalActionError ??
+            editor.documentError ??
+            editor.templateActionError
           }
           hasQuotationSource={Boolean(editor.quotationSource)}
           initialFocus={startInitialFocus}
@@ -2864,7 +2987,7 @@ export function StudioShell({
             (await requestDraftReplacement(
               { kind: "import" },
               "Opening the selected Studio JSON file",
-              () => editor.openDocumentFile(file)
+              () => runOwnedStartImport(file)
             )) !== false
           }
           onOpenDocument={onOpenDocument ?? editor.openStoredDocument}
@@ -2904,7 +3027,7 @@ export function StudioShell({
           open={pendingDraftReplacement !== null}
           replacing={replacementRunning}
           sessionOnly={editor.localSaveState.status === "session_only"}
-          onCancel={draftReplacement.cancel}
+          onCancel={cancelDraftReplacement}
           onDownload={() => {
             if (commitActiveTextEditing()) editor.downloadCurrentVersion()
           }}
@@ -3122,7 +3245,24 @@ export function StudioShell({
               onChange={(event) => {
                 const file = event.currentTarget.files?.[0]
                 if (file && commitActiveTextEditing()) {
-                  void editor.importDocumentFile(file)
+                  dispatchCriticalAction(
+                    "import-json",
+                    async ({ signal }) => {
+                      if (!(await editor.importDocumentFile(file, signal))) {
+                        throw new Error(
+                          "The document import did not complete. Review the file issue and retry when it is corrected."
+                        )
+                      }
+                    },
+                    {
+                      cancelable: true,
+                      timeoutMs: FOREGROUND_IMPORT_TIMEOUT_MS,
+                      timeoutMessage:
+                        "Document import took too long. The current document was not changed.",
+                      cancelMessage:
+                        "Document import cancelled. The current document was not changed.",
+                    }
+                  )
                 }
                 event.currentTarget.value = ""
               }}
@@ -3135,7 +3275,24 @@ export function StudioShell({
               onChange={(event) => {
                 const file = event.currentTarget.files?.[0]
                 if (file && commitActiveTextEditing()) {
-                  void editor.importQuotationFile(file)
+                  dispatchCriticalAction(
+                    "import-quotation",
+                    async ({ signal }) => {
+                      if (!(await editor.importQuotationFile(file, signal))) {
+                        throw new Error(
+                          "The quotation import did not complete. Review the file issue and retry when it is corrected."
+                        )
+                      }
+                    },
+                    {
+                      cancelable: true,
+                      timeoutMs: FOREGROUND_IMPORT_TIMEOUT_MS,
+                      timeoutMessage:
+                        "Quotation import took too long. The current document was not changed.",
+                      cancelMessage:
+                        "Quotation import cancelled. The current document was not changed.",
+                    }
+                  )
                 }
                 event.currentTarget.value = ""
               }}
@@ -4271,7 +4428,7 @@ export function StudioShell({
           open={pendingDraftReplacement !== null}
           replacing={replacementRunning}
           sessionOnly={editor.localSaveState.status === "session_only"}
-          onCancel={draftReplacement.cancel}
+          onCancel={cancelDraftReplacement}
           onDownload={() => {
             if (commitActiveTextEditing()) editor.downloadCurrentVersion()
           }}

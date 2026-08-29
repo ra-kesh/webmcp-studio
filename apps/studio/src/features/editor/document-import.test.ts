@@ -3,6 +3,7 @@ import { northstarSeed } from "@webmcp/document"
 import {
   DOCUMENT_IMPORT_MAX_JSON_BYTES,
   parseDocumentImportFile,
+  readBoundedDocumentImportText,
 } from "./document-import"
 import type {
   DocumentImportFile,
@@ -14,10 +15,16 @@ const bytes = (value: string) => new TextEncoder().encode(value).byteLength
 const importFile = (
   value: string,
   size = bytes(value)
-): DocumentImportFile & { text: ReturnType<typeof vi.fn> } => ({
-  size,
-  text: vi.fn(async () => value),
-})
+): DocumentImportFile & { slice: ReturnType<typeof vi.fn> } => {
+  const file = new File([value], "document.json", {
+    type: "application/json",
+  })
+  if (file.size !== size) Object.defineProperty(file, "size", { value: size })
+  vi.spyOn(file, "slice")
+  return file as unknown as DocumentImportFile & {
+    slice: ReturnType<typeof vi.fn>
+  }
+}
 
 const legacyDocument = () => {
   const legacy = structuredClone(northstarSeed) as any
@@ -105,7 +112,7 @@ describe("document JSON import admission", () => {
       ok: false,
       failure: { kind: "empty_file" },
     })
-    expect(file.text).not.toHaveBeenCalled()
+    expect(file.slice).not.toHaveBeenCalled()
   })
 
   it("rejects an oversized file before reading it", async () => {
@@ -115,7 +122,7 @@ describe("document JSON import admission", () => {
       ok: false,
       failure: { kind: "oversized_file" },
     })
-    expect(file.text).not.toHaveBeenCalled()
+    expect(file.slice).not.toHaveBeenCalled()
   })
 
   it("rejects whitespace-only and unreadable files explicitly", async () => {
@@ -127,6 +134,7 @@ describe("document JSON import admission", () => {
 
     const unreadable: DocumentImportFile = {
       size: 10,
+      slice: vi.fn(),
       text: vi.fn(async () => {
         throw new Error("disk unavailable")
       }),
@@ -135,6 +143,107 @@ describe("document JSON import admission", () => {
       ok: false,
       failure: { kind: "file_read_failed" },
     })
+  })
+
+  it("acknowledges file-read cancellation and ignores the late result", async () => {
+    let resolveText!: (value: string) => void
+    const text = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveText = resolve
+        })
+    )
+    const file: DocumentImportFile = {
+      size: 2,
+      slice: vi.fn(),
+      text,
+    }
+    const controller = new AbortController()
+    const reason = new DOMException("Import cancelled", "AbortError")
+    const pending = parseDocumentImportFile(file, undefined, {
+      signal: controller.signal,
+    })
+
+    controller.abort(reason)
+    await expect(pending).rejects.toBe(reason)
+    resolveText("{}")
+    await Promise.resolve()
+    expect(text).toHaveBeenCalledOnce()
+  })
+
+  it("aborts and detaches the browser FileReader before rejecting", async () => {
+    class ControlledFileReader {
+      static readonly EMPTY = 0
+      static readonly LOADING = 1
+      static readonly DONE = 2
+      readyState = ControlledFileReader.EMPTY
+      result: string | ArrayBuffer | null = null
+      readonly listeners = new Map<
+        string,
+        Set<EventListenerOrEventListenerObject>
+      >()
+      readonly abort = vi.fn(() => {
+        this.readyState = ControlledFileReader.DONE
+        this.emit("abort")
+      })
+
+      addEventListener(
+        type: string,
+        listener: EventListenerOrEventListenerObject | null
+      ) {
+        if (!listener) return
+        const listeners = this.listeners.get(type) ?? new Set()
+        listeners.add(listener)
+        this.listeners.set(type, listeners)
+      }
+
+      removeEventListener(
+        type: string,
+        listener: EventListenerOrEventListenerObject | null
+      ) {
+        if (listener) this.listeners.get(type)?.delete(listener)
+      }
+
+      readAsText() {
+        this.readyState = ControlledFileReader.LOADING
+      }
+
+      private emit(type: string) {
+        const event = new Event(type)
+        for (const listener of this.listeners.get(type) ?? []) {
+          if (typeof listener === "function") listener(event)
+          else listener.handleEvent(event)
+        }
+      }
+    }
+
+    const readers: ControlledFileReader[] = []
+    const Reader = class extends ControlledFileReader {
+      constructor() {
+        super()
+        readers.push(this)
+      }
+    }
+    vi.stubGlobal("FileReader", Reader)
+    try {
+      const controller = new AbortController()
+      const reason = new DOMException("Import cancelled", "AbortError")
+      const file = new File(["{}"], "document.json", {
+        type: "application/json",
+      })
+      const pending = readBoundedDocumentImportText(file, controller.signal)
+
+      controller.abort(reason)
+      await expect(pending).rejects.toBe(reason)
+      expect(readers[0]?.abort).toHaveBeenCalledOnce()
+      expect(
+        [...(readers[0]?.listeners.values() ?? [])].every(
+          (listeners) => listeners.size === 0
+        )
+      ).toBe(true)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it("classifies malformed JSON separately from schema-invalid JSON", async () => {
@@ -402,6 +511,44 @@ describe("document JSON import admission", () => {
     expect(admission.resolveManagedAsset).toHaveBeenCalledWith(
       "asset-abcdefghij"
     )
+  })
+
+  it("forwards cancellation to managed resource admission without relabeling it", async () => {
+    const document = withImage("asset:managed/asset-cancelled01")
+    let receivedSignal: AbortSignal | undefined
+    let acknowledgeAbort!: (reason: unknown) => void
+    const resolver = new Promise<never>((_resolve, reject) => {
+      acknowledgeAbort = reject
+    })
+    const admission = resourceAdmission({
+      managed: async (_assetId, signal) => {
+        receivedSignal = signal
+        return resolver
+      },
+    })
+    const controller = new AbortController()
+    const reason = new DOMException("Import timed out", "TimeoutError")
+    const pending = parseDocumentImportFile(
+      importFile(JSON.stringify(document)),
+      admission,
+      { signal: controller.signal }
+    )
+
+    await vi.waitFor(() => expect(receivedSignal).toBe(controller.signal))
+    controller.abort(reason)
+    let settled = false
+    void pending.then(
+      () => {
+        settled = true
+      },
+      () => {
+        settled = true
+      }
+    )
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    acknowledgeAbort(reason)
+    await expect(pending).rejects.toBe(reason)
   })
 
   it("rejects a missing managed identity instead of accepting an arbitrary valid ID", async () => {

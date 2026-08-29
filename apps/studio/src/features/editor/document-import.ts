@@ -30,7 +30,151 @@ import { DRAFT_MAX_ENCODED_BYTES } from "./draft-admission"
  */
 export const DOCUMENT_IMPORT_MAX_JSON_BYTES = DRAFT_MAX_ENCODED_BYTES
 
-export type DocumentImportFile = Pick<File, "size" | "text">
+export type DocumentImportFile = Pick<File, "size" | "slice"> &
+  Partial<Pick<File, "text">>
+
+export class DocumentImportReadError extends Error {
+  readonly kind: Extract<
+    DocumentImportFailureKind,
+    "empty_file" | "oversized_file" | "file_read_failed"
+  >
+
+  constructor(kind: DocumentImportReadError["kind"], message: string) {
+    super(message)
+    this.name = "DocumentImportReadError"
+    this.kind = kind
+  }
+}
+
+export function waitForDocumentImportOperation<T>(
+  operation: Promise<T>,
+  signal?: AbortSignal
+) {
+  if (!signal) return operation
+  signal.throwIfAborted()
+  return new Promise<T>((resolve, reject) => {
+    const cleanUp = () => signal.removeEventListener("abort", abort)
+    const abort = () => {
+      cleanUp()
+      reject(signal.reason)
+    }
+    signal.addEventListener("abort", abort, { once: true })
+    void operation.then(
+      (value) => {
+        cleanUp()
+        if (!signal.aborted) resolve(value)
+      },
+      (error: unknown) => {
+        cleanUp()
+        if (!signal.aborted) reject(error)
+      }
+    )
+  })
+}
+
+export async function readBoundedDocumentImportText(
+  file: DocumentImportFile,
+  signal?: AbortSignal,
+  maxBytes = DOCUMENT_IMPORT_MAX_JSON_BYTES
+) {
+  signal?.throwIfAborted()
+  if (file.size === 0) {
+    throw new DocumentImportReadError(
+      "empty_file",
+      "The selected document file is empty."
+    )
+  }
+  if (file.size > maxBytes) {
+    throw new DocumentImportReadError(
+      "oversized_file",
+      `JSON files must be ${maxBytes.toLocaleString("en-US")} bytes or smaller.`
+    )
+  }
+  const useBrowserReader =
+    typeof FileReader !== "undefined" && file instanceof Blob
+  const source = useBrowserReader ? file.slice(0, maxBytes) : null
+  const raw = !useBrowserReader
+    ? await waitForDocumentImportOperation(
+        file.text?.() ??
+          Promise.reject(
+            new DocumentImportReadError(
+              "file_read_failed",
+              "The selected document file could not be read."
+            )
+          ),
+        signal
+      )
+    : await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        let settled = false
+        const cleanUp = () => {
+          signal?.removeEventListener("abort", abort)
+          reader.removeEventListener("abort", onAbort)
+          reader.removeEventListener("error", onError)
+          reader.removeEventListener("load", onLoad)
+        }
+        const settle = (callback: () => void) => {
+          if (settled) return
+          settled = true
+          cleanUp()
+          callback()
+        }
+        const abort = () => {
+          if (reader.readyState === FileReader.LOADING) reader.abort()
+          settle(() => reject(signal?.reason))
+        }
+        const onAbort = () =>
+          settle(() =>
+            reject(
+              signal?.reason ??
+                new DOMException(
+                  "The document read was cancelled.",
+                  "AbortError"
+                )
+            )
+          )
+        const onError = () =>
+          settle(() =>
+            reject(
+              new DocumentImportReadError(
+                "file_read_failed",
+                "The selected document file could not be read."
+              )
+            )
+          )
+        const onLoad = () =>
+          settle(() => {
+            if (typeof reader.result !== "string") {
+              reject(
+                new DocumentImportReadError(
+                  "file_read_failed",
+                  "The selected document file could not be read."
+                )
+              )
+              return
+            }
+            resolve(reader.result)
+          })
+
+        signal?.addEventListener("abort", abort, { once: true })
+        reader.addEventListener("abort", onAbort, { once: true })
+        reader.addEventListener("error", onError, { once: true })
+        reader.addEventListener("load", onLoad, { once: true })
+        try {
+          reader.readAsText(source!)
+        } catch {
+          onError()
+        }
+      })
+  signal?.throwIfAborted()
+  if (!raw.trim()) {
+    throw new DocumentImportReadError(
+      "empty_file",
+      "The selected document file is empty."
+    )
+  }
+  return raw
+}
 
 export type DocumentImportFailureKind =
   | "empty_file"
@@ -77,10 +221,12 @@ export type DocumentImportManagedAsset = Pick<
  */
 export type DocumentImportResourceAdmission = Readonly<{
   resolveLocalAsset: (
-    assetId: string
+    assetId: string,
+    signal?: AbortSignal
   ) => Promise<DocumentImportLocalAsset | null>
   resolveManagedAsset: (
-    assetId: string
+    assetId: string,
+    signal?: AbortSignal
   ) => Promise<DocumentImportManagedAsset | null>
 }>
 
@@ -190,14 +336,19 @@ const localAssetIsReadable = (
 
 const admitDocumentResources = async (
   document: Document,
-  admission: DocumentImportResourceAdmission
+  admission: DocumentImportResourceAdmission,
+  signal?: AbortSignal
 ): Promise<ValidationIssue | null> => {
   for (const reference of referencedDocumentAssets(document)) {
+    signal?.throwIfAborted()
     if (reference.kind === "local") {
       let asset: DocumentImportLocalAsset | null
       try {
-        asset = await admission.resolveLocalAsset(reference.assetId)
+        asset = signal
+          ? await admission.resolveLocalAsset(reference.assetId, signal)
+          : await admission.resolveLocalAsset(reference.assetId)
       } catch {
+        signal?.throwIfAborted()
         return resourceIssue(
           reference,
           `The local image ${reference.assetId} could not be read from this browser.`
@@ -214,8 +365,11 @@ const admitDocumentResources = async (
 
     let asset: DocumentImportManagedAsset | null
     try {
-      asset = await admission.resolveManagedAsset(reference.assetId)
+      asset = signal
+        ? await admission.resolveManagedAsset(reference.assetId, signal)
+        : await admission.resolveManagedAsset(reference.assetId)
     } catch {
+      signal?.throwIfAborted()
       return resourceIssue(
         reference,
         `The workspace image ${reference.assetId} could not be verified.`
@@ -241,32 +395,24 @@ const admitDocumentResources = async (
  */
 export async function parseDocumentImportFile(
   file: DocumentImportFile,
-  resourceAdmission: DocumentImportResourceAdmission = defaultResourceAdmission
+  resourceAdmission: DocumentImportResourceAdmission = defaultResourceAdmission,
+  options: Readonly<{ signal?: AbortSignal }> = {}
 ): Promise<DocumentImportResult> {
-  if (file.size === 0) {
-    return failure("empty_file", "The selected document file is empty.")
-  }
-  if (file.size > DOCUMENT_IMPORT_MAX_JSON_BYTES) {
-    return failure(
-      "oversized_file",
-      `Document JSON files must be ${DOCUMENT_IMPORT_MAX_JSON_BYTES.toLocaleString("en-US")} bytes or smaller.`
-    )
-  }
-
   let raw: string
   try {
-    raw = await file.text()
-  } catch {
+    raw = await readBoundedDocumentImportText(file, options.signal)
+  } catch (error) {
+    options.signal?.throwIfAborted()
+    if (error instanceof DocumentImportReadError) {
+      return failure(error.kind, error.message)
+    }
     return failure(
       "file_read_failed",
       "The selected document file could not be read."
     )
   }
 
-  if (!raw.trim()) {
-    return failure("empty_file", "The selected document file is empty.")
-  }
-
+  options.signal?.throwIfAborted()
   let input: unknown
   try {
     input = JSON.parse(raw) as unknown
@@ -276,6 +422,7 @@ export async function parseDocumentImportFile(
 
   let decoded: ReturnType<typeof decodeDocument>
   try {
+    options.signal?.throwIfAborted()
     decoded = decodeDocument(input)
   } catch (error) {
     if (error instanceof DocumentMigrationError) {
@@ -318,7 +465,8 @@ export async function parseDocumentImportFile(
 
   const unavailableResource = await admitDocumentResources(
     decoded.document,
-    resourceAdmission
+    resourceAdmission,
+    options.signal
   )
   if (unavailableResource) {
     return failure(
