@@ -52,6 +52,7 @@
     {
       "binding": "DB",
       "database_name": "webmcp-studio",
+      "database_id": "ee2118ee-9730-4cc2-a804-592895603f42",
       "migrations_dir": "../../migrations",
     },
   ],

@@ -2,8 +2,8 @@
 
 Date: 2026-08-30
 
-Status: deployment preparation completed and independently accepted; remote
-provisioning requires explicit authorization
+Status: storage provisioned; Cloudflare Access onboarding and production
+deployment remain active
 
 ## Outcome
 
@@ -29,7 +29,7 @@ production Worker.
   `wrangler d1 migrations apply DB --remote`; remote bindings are explicit and
   must not be confused with local persisted Miniflare state.
 
-## Read-only account inventory
+## Initial read-only account inventory
 
 Wrangler is authenticated to the account associated with
 `iamrakeshkumar@pm.me`. No WebMCP Studio production resource currently exists:
@@ -131,3 +131,19 @@ and validates the Access issuer and 64-hex application audience shape.
   ledger validation, partial-rollout permissions, renderer exposure, malformed
   Access values, loose resource matching, and missing Studio Worker packaging.
   After each repair, final rereview returned **ACCEPT with no remaining P0/P1**.
+
+## Provisioning checkpoint
+
+After explicit authorization, Wrangler OAuth was refreshed with the exact
+account/user, Worker, Worker-script, D1 and Browser write scopes. The following
+isolated APAC resources now exist in the pinned account:
+
+- D1 `webmcp-studio`; its generated UUID is recorded in the production `DB`
+  binding;
+- R2 `webmcp-studio-assets`;
+- R2 `webmcp-studio-renders`.
+
+The remote-ready preflight now passes account, permission, D1 identity and both
+exact R2 checks. Its only failures are `ACCESS_TEAM_DOMAIN` and
+`ACCESS_POLICY_AUD`. No D1 migration, Worker, Workflow, Durable Object, Browser
+session or production object has been created by the deployment runner yet.

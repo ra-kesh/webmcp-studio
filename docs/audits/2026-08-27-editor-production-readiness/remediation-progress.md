@@ -2400,3 +2400,18 @@ Status: **preparation completed and independently accepted; remote provisioning 
 - Independent review rejected seven deployment-safety gaps, including a
   mutating Wrangler migration-list in plan mode and a missing Studio Worker
   package gate. Final rereview returned **ACCEPT with no remaining P0/P1**.
+
+## 2026-08-30 — Deployed storage provisioning checkpoint
+
+Status: **D1/R2 and OAuth scopes provisioned; Access onboarding remains before migration/deploy**
+
+- Refreshed Wrangler OAuth on the pinned account with Browser, D1 and Worker
+  deployment scopes.
+- Created only the exact APAC resources `webmcp-studio`,
+  `webmcp-studio-assets` and `webmcp-studio-renders`; no existing product
+  storage was reused or changed.
+- Recorded the generated D1 UUID in the production binding. Remote-ready
+  preflight now fails only on the Cloudflare Access issuer and 64-hex
+  application audience.
+- Cloudflare Zero Trust onboarding is awaiting an explicit Free-plan selection.
+  No remote migration or Worker deployment has run.
