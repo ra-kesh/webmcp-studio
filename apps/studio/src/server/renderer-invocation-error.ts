@@ -22,6 +22,48 @@ export class RendererInvocationError extends Error {
   }
 }
 
+function errorMessages(error: unknown): string[] {
+  const messages: string[] = []
+  const seen = new Set<unknown>()
+  let current = error
+  while (current && !seen.has(current)) {
+    seen.add(current)
+    if (current instanceof Error) messages.push(current.message)
+    current =
+      typeof current === "object" && "cause" in current
+        ? current.cause
+        : undefined
+  }
+  return messages
+}
+
+export function rendererBindingFailureResponse(
+  error: unknown
+): Response | null {
+  const message = errorMessages(error).join("\n")
+  if (/code:\s*429|rate limit exceeded/i.test(message)) {
+    return Response.json(
+      {
+        error: "renderer_capacity_exhausted",
+        code: "browser_session_rate_limited",
+        retryable: true,
+      },
+      { status: 503, headers: { "Retry-After": "10" } }
+    )
+  }
+  if (/network connection lost/i.test(message)) {
+    return Response.json(
+      {
+        error: "renderer_connection_lost",
+        code: "browser_session_connection_lost",
+        retryable: true,
+      },
+      { status: 503, headers: { "Retry-After": "5" } }
+    )
+  }
+  return null
+}
+
 async function readRendererErrorBody(response: Response): Promise<string> {
   if (!response.body) return ""
   const reader = response.body.getReader()

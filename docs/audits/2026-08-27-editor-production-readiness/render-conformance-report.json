@@ -1,15 +1,15 @@
 {
   "results": [
     {
-      "name": "properties page Fabric versus React view",
-      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/render-view/properties-page.png",
+      "name": "properties page Fabric versus renderer PNG",
+      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/renderer-png/properties-page.png",
       "candidate": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/fabric/properties-page.png",
-      "diff": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/diff/properties-page-fabric-react.png",
+      "diff": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/diff/properties-page-fabric.png",
       "width": 720,
       "height": 960,
-      "differentPixels": 16020,
-      "differentPixelRatio": 0.023177083333333334,
-      "rootMeanSquareError": 14.050849803778181,
+      "differentPixels": 17567,
+      "differentPixelRatio": 0.02541521990740741,
+      "rootMeanSquareError": 13.948293354904305,
       "limits": {
         "pixelDeltaThreshold": 24,
         "maxDifferentPixelRatio": 0.015,
@@ -18,15 +18,49 @@
       "passed": false
     },
     {
-      "name": "long text page Fabric versus React view",
-      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/render-view/long-text-page.png",
+      "name": "properties page React view versus renderer PNG",
+      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/renderer-png/properties-page.png",
+      "candidate": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/render-view/properties-page.png",
+      "diff": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/diff/properties-page-render-view.png",
+      "width": 720,
+      "height": 960,
+      "differentPixels": 3442,
+      "differentPixelRatio": 0.0049797453703703705,
+      "rootMeanSquareError": 2.442397368266247,
+      "limits": {
+        "pixelDeltaThreshold": 24,
+        "maxDifferentPixelRatio": 0.015,
+        "maxRootMeanSquareError": 6
+      },
+      "passed": true
+    },
+    {
+      "name": "properties page PDF raster versus renderer PNG",
+      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/renderer-png/properties-page.png",
+      "candidate": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/renderer-pdf/properties-page.png",
+      "diff": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/diff/properties-page-pdf.png",
+      "width": 720,
+      "height": 960,
+      "differentPixels": 1311,
+      "differentPixelRatio": 0.001896701388888889,
+      "rootMeanSquareError": 1.5115931720618727,
+      "limits": {
+        "pixelDeltaThreshold": 24,
+        "maxDifferentPixelRatio": 0.015,
+        "maxRootMeanSquareError": 6
+      },
+      "passed": true
+    },
+    {
+      "name": "long text page Fabric versus renderer PNG",
+      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/renderer-png/long-text-page.png",
       "candidate": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/fabric/long-text-page.png",
-      "diff": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/diff/long-text-page-fabric-react.png",
+      "diff": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/diff/long-text-page-fabric.png",
       "width": 640,
       "height": 360,
-      "differentPixels": 12781,
-      "differentPixelRatio": 0.055473090277777776,
-      "rootMeanSquareError": 17.917238211571792,
+      "differentPixels": 13402,
+      "differentPixelRatio": 0.05816840277777778,
+      "rootMeanSquareError": 25.65258324470922,
       "limits": {
         "pixelDeltaThreshold": 24,
         "maxDifferentPixelRatio": 0.015,
@@ -35,15 +69,66 @@
       "passed": false
     },
     {
-      "name": "square output Fabric versus React view",
-      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/render-view/square-page.png",
+      "name": "long text page React view versus renderer PNG",
+      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/renderer-png/long-text-page.png",
+      "candidate": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/render-view/long-text-page.png",
+      "diff": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/diff/long-text-page-render-view.png",
+      "width": 640,
+      "height": 360,
+      "differentPixels": 6320,
+      "differentPixelRatio": 0.027430555555555555,
+      "rootMeanSquareError": 6.383531617487168,
+      "limits": {
+        "pixelDeltaThreshold": 24,
+        "maxDifferentPixelRatio": 0.015,
+        "maxRootMeanSquareError": 6
+      },
+      "passed": false
+    },
+    {
+      "name": "long text page PDF raster versus renderer PNG",
+      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/renderer-png/long-text-page.png",
+      "candidate": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/renderer-pdf/long-text-page.png",
+      "diff": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/diff/long-text-page-pdf.png",
+      "width": 640,
+      "height": 360,
+      "differentPixels": 4279,
+      "differentPixelRatio": 0.01857204861111111,
+      "rootMeanSquareError": 5.954405027885751,
+      "limits": {
+        "pixelDeltaThreshold": 24,
+        "maxDifferentPixelRatio": 0.015,
+        "maxRootMeanSquareError": 6
+      },
+      "passed": false
+    },
+    {
+      "name": "square output Fabric versus renderer PNG",
+      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/renderer-png/square-page.png",
       "candidate": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/fabric/square-page.png",
-      "diff": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/diff/square-page-fabric-react.png",
+      "diff": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/diff/square-page-fabric.png",
       "width": 512,
       "height": 512,
-      "differentPixels": 849,
-      "differentPixelRatio": 0.003238677978515625,
-      "rootMeanSquareError": 4.980077439437605,
+      "differentPixels": 889,
+      "differentPixelRatio": 0.003391265869140625,
+      "rootMeanSquareError": 4.730348492581396,
+      "limits": {
+        "pixelDeltaThreshold": 24,
+        "maxDifferentPixelRatio": 0.015,
+        "maxRootMeanSquareError": 6
+      },
+      "passed": true
+    },
+    {
+      "name": "square output React view versus renderer PNG",
+      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/renderer-png/square-page.png",
+      "candidate": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/render-view/square-page.png",
+      "diff": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/diff/square-page-render-view.png",
+      "width": 512,
+      "height": 512,
+      "differentPixels": 460,
+      "differentPixelRatio": 0.0017547607421875,
+      "rootMeanSquareError": 1.9141805807008456,
       "limits": {
         "pixelDeltaThreshold": 24,
         "maxDifferentPixelRatio": 0.015,

@@ -23,6 +23,7 @@ import {
   renderAdmissionErrorResponse,
   reserveRenderCapacity,
 } from "../../../server/render-admission-service"
+import { rendererBindingFailureResponse } from "../../../server/renderer-invocation-error"
 import {
   StudioAccessError,
   resolveStudioPrincipal,
@@ -196,6 +197,8 @@ export const Route = createFileRoute("/v1/studio/export-png")({
           )
         } catch (error) {
           await lease.fail()
+          const failure = rendererBindingFailureResponse(error)
+          if (failure) return respond(failure)
           throw error
         }
       },

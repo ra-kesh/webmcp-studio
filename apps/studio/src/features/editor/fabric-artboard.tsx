@@ -528,7 +528,7 @@ export const FabricArtboard = forwardRef<
   )
 })
 
-type CanvasFontFaceSet = Pick<FontFaceSet, "check" | "load" | "ready">
+export type CanvasFontFaceSet = Pick<FontFaceSet, "check" | "load" | "ready">
 
 export function canvasDocumentFontRequests(document: Document, pageId: string) {
   const page = document.pages.find((candidate) => candidate.id === pageId)

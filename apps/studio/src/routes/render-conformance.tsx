@@ -3,6 +3,7 @@ import { renderConformanceDocument } from "@webmcp/document"
 import { Artboard } from "@webmcp/render-view"
 import { useEffect, useRef, useState } from "react"
 import { FabricArtboard } from "../features/editor/fabric-artboard"
+import { waitForRenderViewDocumentFonts } from "../features/editor/render-conformance-readiness"
 
 export const Route = createFileRoute("/render-conformance")({
   ssr: false,
@@ -61,13 +62,13 @@ function RenderConformancePair({ pageId }: { pageId: string }) {
     const element = renderViewRef.current
     if (!element) return
     let active = true
-    void waitForRenderViewCapture(element)
+    void waitForRenderViewCapture(element, pageId)
       .then(() => active && setRenderViewState("ready"))
       .catch(() => active && setRenderViewState("error"))
     return () => {
       active = false
     }
-  }, [])
+  }, [pageId])
 
   return (
     <section
@@ -115,8 +116,12 @@ function RenderConformancePair({ pageId }: { pageId: string }) {
 
 type ConformanceState = "preparing" | "ready" | "error"
 
-async function waitForRenderViewCapture(element: HTMLElement) {
-  await document.fonts.ready
+async function waitForRenderViewCapture(element: HTMLElement, pageId: string) {
+  await waitForRenderViewDocumentFonts(
+    renderConformanceDocument,
+    pageId,
+    document.fonts
+  )
   await Promise.all(
     [...element.querySelectorAll("img")].map(async (image) => {
       if (!image.complete) {

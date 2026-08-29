@@ -30,13 +30,35 @@ The checked-in manifest requires exact dimensions. A pixel differs when any RGBA
 
 Renderer PNG is the comparison baseline because it is the customer artifact path, not because it is assumed correct. A baseline update requires review against the canonical document and all other implementations. The gate must include deployed Browser Rendering before CONFORM-01 can close.
 
+The reproducible capture command is:
+
+```sh
+bun run capture:conformance
+```
+
+It verifies byte-stable document JSON, exact output/page ownership and order,
+captures React and Fabric with lossless Playwright locator screenshots, invokes
+the real Studio PNG/PDF routes sequentially, validates response headers and
+magic bytes, rasterizes the returned PDF at one CSS pixel per output pixel, and
+promotes a staged run only after every artifact is valid. A successful capture
+is renamed into an immutable `artifacts/runs/<run-id>/` directory, then an
+atomic report replacement points the verifier at that complete run. An
+interrupted or failed capture therefore leaves the prior report and run
+coherent. The pixel verifier validates every reported byte length and SHA-256,
+requires runtime metadata for version-2 reports, and rejects comparison inputs
+that are not owned by the report before decoding pixels. Renderer requests have
+bounded attempts and a 30-second deadline. Browser Rendering capacity and
+connection failures are exposed as stable retryable `503` responses.
+
 ## Local browser diagnostic, 2026-08-29
 
 The checked-in `render-conformance-browser-manifest.json` is a narrower React
 Artboard versus Fabric diagnostic. The dedicated `/render-conformance` route
 marks each capture `ready` only after React fonts and images settle, Fabric
 finishes sync, and two animation frames paint. An `error` state is terminal and
-must not be captured.
+must not be captured. React and Fabric use the same exact per-page font
+load/check contract; `document.fonts.ready` alone is not accepted because it can
+settle while the requested managed face still falls back.
 
 This run found and repaired three real contract defects:
 
@@ -89,3 +111,46 @@ compared against React/Fabric, and the same gate must run against a deployed
 Renderer. Remote Browser Rendering can rate-limit concurrent new browser
 sessions, so conformance capture is deliberately sequential until JOB-01 owns
 bounded render concurrency and retry policy.
+
+## Lossless capture and repair evidence, 2026-08-29
+
+One complete local-service run retained 12 lossless artifacts: three React
+pages, three Fabric pages, three Renderer PNGs, the raw two-page Renderer PDF,
+and two exact-size PDF rasters. Every PNG matched its canonical dimensions;
+the PDF preserved `mixed-document` page order and exact 720 x 960 and 640 x 360
+page geometry. The machine-readable hashes and sizes are in
+`render-conformance-capture-report.json`.
+
+That capture exposed real, subsequently repaired implementation drift:
+
+- React and Renderer now share grayscale/geometric font raster policy.
+- Fabric canonical text uses native full-line Canvas shaping and letter spacing
+  instead of Fabric's per-grapheme path.
+- Fabric's managed-font baseline bridge is corrected by one pixel.
+- Fabric line positioning compensates stroke-inclusive bounds while canonical
+  transform round trips remain exact.
+- Fabric icon paths compensate scaled stroke bounds inside the canonical SVG
+  viewport.
+
+Focused lossless screenshots of the repaired local surfaces, compared against
+the last successful Renderer PNG baseline with the unchanged raw thresholds,
+measure:
+
+| Page       | React ratio / RMSE | Fabric ratio / RMSE | Raw result   |
+| ---------- | -----------------: | ------------------: | ------------ |
+| Properties |   0.2140% / 1.4709 |    0.9184% / 4.7245 | Pass         |
+| Long text  |   1.2205% / 4.5212 |   1.9878% / 11.5152 | Fabric fails |
+| Square     |   0.1060% / 2.2306 |    0.1228% / 2.2538 | Pass         |
+
+The remaining long-text Fabric raw mismatch is Canvas-versus-CSS glyph
+rasterization: canonical line strings, wrapping, x extents, and baselines are
+already aligned. The acceptance gate must add an ink/baseline geometry check
+that tolerates at most one edge pixel while retaining the raw report; it must
+not raise the existing raw limit and hide line or icon displacement.
+
+A post-repair full recapture is currently blocked by Cloudflare Browser
+Rendering returning `browser_session_rate_limited` on the second page. The
+runner exits coherently and removes staging output. Therefore the retained full
+artifact set is labelled as the last complete capture, not falsely presented
+as post-repair evidence. Deployed same-runtime capture and PDF raster evidence
+remain open before CONFORM-01 / EXPORT-01 can close.

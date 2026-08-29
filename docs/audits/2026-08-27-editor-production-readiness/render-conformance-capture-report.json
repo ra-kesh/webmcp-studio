@@ -1,0 +1,111 @@
+{
+  "version": 1,
+  "documentId": "render-conformance-golden-v3",
+  "revision": 1,
+  "baseUrl": "http://localhost:3001",
+  "deviceScaleFactor": 1,
+  "pageOrder": [
+    "properties-page",
+    "long-text-page",
+    "square-page"
+  ],
+  "outputs": [
+    {
+      "id": "mixed-document",
+      "pageIds": [
+        "properties-page",
+        "long-text-page"
+      ]
+    },
+    {
+      "id": "square-image",
+      "pageIds": [
+        "square-page"
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "render-view/properties-page.png",
+      "bytes": 49004,
+      "sha256": "39491e3305fe92bd48a5b2e2f79d1d95803369cf7937a0574ec572e14ed45eaf",
+      "width": 720,
+      "height": 960
+    },
+    {
+      "path": "render-view/long-text-page.png",
+      "bytes": 32323,
+      "sha256": "c893c0d62e73254057ea9d259189b1d1b51bcc193f9409fc921c314ca8bfc59f",
+      "width": 640,
+      "height": 360
+    },
+    {
+      "path": "render-view/square-page.png",
+      "bytes": 8221,
+      "sha256": "5b92d8b920fa7c96ca1aab75e52c08b401fb6cd138d272a0ebbc2791553fb08b",
+      "width": 512,
+      "height": 512
+    },
+    {
+      "path": "fabric/properties-page.png",
+      "bytes": 66876,
+      "sha256": "48367c92fdc8b4b38a70ba80b22e825207900fabc51be4bead5eb6b1edbbd55f",
+      "width": 720,
+      "height": 960
+    },
+    {
+      "path": "fabric/long-text-page.png",
+      "bytes": 32721,
+      "sha256": "3b6da8203cf0b18f4ba30d317b47ed4d0e0f496620906021ebdcdb7ec13dadcc",
+      "width": 640,
+      "height": 360
+    },
+    {
+      "path": "fabric/square-page.png",
+      "bytes": 8742,
+      "sha256": "df2e7a376fde8f5d8399bbe1a5d1f1bb9e768fd1b4e6f93d7b08528e1a772b97",
+      "width": 512,
+      "height": 512
+    },
+    {
+      "path": "renderer-png/properties-page.png",
+      "bytes": 56409,
+      "sha256": "89c70cc66e58d24a905d8153f518d27707820007c76a85ff71a70ff69f1449ec",
+      "width": 720,
+      "height": 960
+    },
+    {
+      "path": "renderer-png/long-text-page.png",
+      "bytes": 34832,
+      "sha256": "97f82301bab9f05ec3f49fdfd1dba9339cd4c5da28e0a53abc0dc7ab8a864842",
+      "width": 640,
+      "height": 360
+    },
+    {
+      "path": "renderer-png/square-page.png",
+      "bytes": 9181,
+      "sha256": "a9718ece68d9f3a378fffff52fec60509d2fd26b49451f71d87418976b1f57c6",
+      "width": 512,
+      "height": 512
+    },
+    {
+      "path": "renderer-pdf/mixed-document.pdf",
+      "bytes": 41087,
+      "sha256": "6030aa43522865d0a3a4bf3c4f7030927e9bcac0e8b0370d5dba6b2e6f227402"
+    },
+    {
+      "path": "renderer-pdf/properties-page.png",
+      "bytes": 59688,
+      "sha256": "c280864d231af3ccba34ac2fbade66aa0055edf2502a0f2633f67dc8c76a18d2",
+      "width": 720,
+      "height": 960
+    },
+    {
+      "path": "renderer-pdf/long-text-page.png",
+      "bytes": 42589,
+      "sha256": "976db922ca51a20cc13648c1ab7673ef6f35b5094179b2407d8f533a19d0f9df",
+      "width": 640,
+      "height": 360
+    }
+  ]
+}

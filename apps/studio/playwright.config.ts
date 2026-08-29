@@ -12,6 +12,7 @@ export default defineConfig({
     baseURL,
     channel: "chrome",
     headless: true,
+    deviceScaleFactor: 1,
     viewport: { width: 1440, height: 900 },
     screenshot: "only-on-failure",
     trace: "retain-on-failure",

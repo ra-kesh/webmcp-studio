@@ -68,6 +68,9 @@ const GUIDE_COLOR = "#2563eb"
 // Fabric multiplies every unstyled glyph box by 1.13 before applying its
 // lineHeight value. CSS line-height multiplies fontSize directly.
 const FABRIC_TEXT_LINE_HEIGHT_MULTIPLIER = 1.13
+// Geist's Canvas baseline lands one device pixel below the shared CSS frame at
+// DSF 1. Keep the adjustment explicit and covered by the conformance fixture.
+const FABRIC_TEXT_BASELINE_ADJUSTMENT = 1
 
 const TEXT_CONTROL_KEYS = [
   "tl",
@@ -138,6 +141,47 @@ class StudioTextbox<
 
   override _getTopOffset(): number {
     return super._getTopOffset() + (this.studioTopOffset ?? 0)
+  }
+
+  override _renderChars(
+    method: "fillText" | "strokeText",
+    context: CanvasRenderingContext2D,
+    line: string[],
+    left: number,
+    top: number,
+    lineIndex: number
+  ) {
+    const canRenderCanonicalLine =
+      this.studioUsesCanonicalLines &&
+      !this.isEditing &&
+      !this.path &&
+      this.direction === "ltr" &&
+      !this.textAlign.includes("justify") &&
+      this.isEmptyStyles(lineIndex) &&
+      "letterSpacing" in context
+    if (!canRenderCanonicalLine) {
+      super._renderChars(method, context, line, left, top, lineIndex)
+      return
+    }
+
+    const value = line.join("")
+    context.save()
+    this._setTextStyles(context)
+    context.letterSpacing = `${this._getWidthOfCharSpacing()}px`
+    context.fontKerning = "normal"
+    context.textRendering = "geometricPrecision"
+    const nativeWidth = context.measureText(value).width
+    const measuredWidth = this.getLineWidth(lineIndex)
+    if (this.textAlign === "center") {
+      left += (measuredWidth - nativeWidth) / 2
+    } else if (this.textAlign === "right") {
+      left += measuredWidth - nativeWidth
+    }
+    top -=
+      (this.getHeightOfLine(lineIndex) / this.lineHeight) *
+      this._fontSizeFraction
+    this._renderChar(method, context, lineIndex, 0, value, left, top)
+    context.restore()
   }
 }
 
@@ -411,6 +455,17 @@ export function fabricObjectToNodePatch(
       }
     : null
   const radians = (object.getTotalAngle() * Math.PI) / 180
+  const lineInset =
+    object instanceof Line
+      ? {
+          x:
+            Math.cos(radians) * (object.strokeWidth / 2) * worldScaleX -
+            Math.sin(radians) * (object.strokeWidth / 2) * worldScaleY,
+          y:
+            Math.sin(radians) * (object.strokeWidth / 2) * worldScaleX +
+            Math.cos(radians) * (object.strokeWidth / 2) * worldScaleY,
+        }
+      : null
   const position = fixedTextInset
     ? {
         // Fabric centers a fixed Textbox clip inside its intrinsic layout box.
@@ -425,7 +480,12 @@ export function fabricObjectToNodePatch(
           Math.sin(radians) * fixedTextInset.x +
           Math.cos(radians) * fixedTextInset.y,
       }
-    : objectPosition
+    : lineInset
+      ? {
+          x: objectPosition.x + lineInset.x,
+          y: objectPosition.y + lineInset.y,
+        }
+      : objectPosition
   return {
     x: round(position.x),
     y: round(position.y),
@@ -562,6 +622,18 @@ function borderedShapeDimensions(
   }
 }
 
+function positionFabricLineFrame(
+  object: Line,
+  node: Extract<SceneNode, { type: "line" }>
+) {
+  const inset = object.strokeWidth / 2
+  const radians = (node.rotation * Math.PI) / 180
+  object.set({
+    left: node.x - Math.cos(radians) * inset + Math.sin(radians) * inset,
+    top: node.y - Math.sin(radians) * inset - Math.cos(radians) * inset,
+  })
+}
+
 function fixedTextClip(node: Extract<SceneNode, { type: "text" }>) {
   return node.sizingMode === "fixed"
     ? new Rect({
@@ -613,7 +685,8 @@ export function projectFabricTextState(
     lineHeight:
       projection.content.lineHeight / FABRIC_TEXT_LINE_HEIGHT_MULTIPLIER,
     topOffset:
-      ((projection.content.lineHeight - 1) * projection.content.fontSize) / 2,
+      ((projection.content.lineHeight - 1) * projection.content.fontSize) / 2 -
+      FABRIC_TEXT_BASELINE_ADJUSTMENT,
     charSpacing:
       (projection.content.letterSpacing / projection.content.fontSize) * 1000,
     sizingMode: projection.content.sizingMode,
@@ -680,12 +753,14 @@ export function createFabricSyncObject(
   }
 
   if (node.type === "line") {
-    return new Line([0, 0, node.width, node.height], {
+    const line = new Line([0, 0, node.width, node.height], {
       ...sharedOptions(node),
       fill: undefined,
       stroke: node.stroke,
       strokeWidth: node.strokeWidth,
     })
+    positionFabricLineFrame(line, node)
+    return line
   }
 
   if (node.type === "icon") {
@@ -891,17 +966,20 @@ function layoutIcon(
   const viewport = projectSvgViewport(node, node.viewBox)
   const sourceMinX = path.pathOffset.x - path.width / 2
   const sourceMinY = path.pathOffset.y - path.height / 2
+  const strokeInset = node.stroke ? (node.strokeWidth * viewport.scale) / 2 : 0
   const groupOffsetX = relativeToGroup ? node.width / 2 : 0
   const groupOffsetY = relativeToGroup ? node.height / 2 : 0
   path.set({
     left:
       viewport.offsetX +
       (sourceMinX - viewport.viewBox.minX) * viewport.scale -
-      groupOffsetX,
+      groupOffsetX -
+      strokeInset,
     top:
       viewport.offsetY +
       (sourceMinY - viewport.viewBox.minY) * viewport.scale -
-      groupOffsetY,
+      groupOffsetY -
+      strokeInset,
     scaleX: viewport.scale,
     scaleY: viewport.scale,
     fill: node.fill,
@@ -1477,7 +1555,7 @@ export function syncFabricObjectFromNode(
   // Fabric recomputes a Line's position when its endpoints change. Canonical
   // top-left placement must therefore be applied after x1/y1/x2/y2.
   if (node.type === "line" && object instanceof Line) {
-    object.set({ left: node.x, top: node.y })
+    positionFabricLineFrame(object, node)
   }
   if (node.type === "text" && object instanceof Textbox) {
     if (object instanceof StudioTextbox) {

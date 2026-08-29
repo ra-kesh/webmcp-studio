@@ -2,6 +2,7 @@
 
 import assert from "node:assert/strict"
 import {
+  documentSchema,
   projectNodeForRender,
   renderConformanceDocument,
 } from "@webmcp/document"
@@ -15,6 +16,36 @@ import { renderNodeToHtml } from "../apps/renderer/src/html"
 
 let synchronousFabricObjectCount = 0
 let fabricTextProjectionCount = 0
+
+const serializedDocument = JSON.stringify(renderConformanceDocument)
+const roundTrippedDocument = documentSchema.parse(
+  JSON.parse(serializedDocument) as unknown
+)
+assert.equal(
+  JSON.stringify(roundTrippedDocument),
+  serializedDocument,
+  "Conformance document must survive a byte-stable JSON and schema round trip"
+)
+assert.deepEqual(
+  roundTrippedDocument.outputs.map(({ id, pageIds }) => ({ id, pageIds })),
+  [
+    {
+      id: "mixed-document",
+      pageIds: ["properties-page", "long-text-page"],
+    },
+    { id: "square-image", pageIds: ["square-page"] },
+  ],
+  "Conformance output and page order"
+)
+for (const output of roundTrippedDocument.outputs) {
+  for (const pageId of output.pageIds) {
+    const page = roundTrippedDocument.pages.find(
+      (candidate) => candidate.id === pageId
+    )
+    assert.ok(page, `${output.id} references missing page ${pageId}`)
+    assert.equal(page.outputId, output.id, `${pageId} output ownership`)
+  }
+}
 
 for (const node of renderConformanceDocument.nodes) {
   const projection = projectNodeForRender(node)

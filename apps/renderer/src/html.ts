@@ -223,6 +223,8 @@ export function renderNodeToHtml(node: SceneNode): string {
     `font-weight:${projection.content.fontWeight}`,
     `line-height:${projection.content.lineHeight}`,
     `letter-spacing:${projection.content.letterSpacing}px`,
+    "text-rendering:geometricPrecision",
+    "-webkit-font-smoothing:antialiased",
     `text-align:${projection.content.align}`,
     `white-space:${projection.content.whiteSpace}`,
     `overflow-wrap:${projection.content.overflowWrap}`,

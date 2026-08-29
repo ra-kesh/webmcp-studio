@@ -504,6 +504,8 @@ describe("renderer HTML", () => {
 
     expect(html).toContain("line-height:1.04")
     expect(html).toContain("letter-spacing:-1.2px")
+    expect(html).toContain("text-rendering:geometricPrecision")
+    expect(html).toContain("-webkit-font-smoothing:antialiased")
     expect(html).toContain("font-weight:600")
     expect(html).toContain("border:3px solid #ffffff")
     expect(html).toContain('@font-face{font-family:"Geist Variable"')

@@ -13,6 +13,7 @@
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "test": "vitest run --config vitest.config.ts --passWithNoTests",
     "test:e2e": "playwright test --config playwright.config.ts",
+    "capture:conformance": "bun scripts/capture-render-conformance.ts",
     "routes:generate": "tsr generate",
     "typecheck": "tsc --noEmit"
   },
@@ -48,6 +49,7 @@
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@napi-rs/canvas": "^1.0.8",
     "@vitejs/plugin-react": "^6",
     "eslint": "^9",
     "fake-indexeddb": "^6.2.5",

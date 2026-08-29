@@ -12,6 +12,7 @@
     "test": "bun run --filter '@webmcp/*' test",
     "verify:migrations": "bun scripts/verify-template-version-constraints.ts",
     "verify:conformance:structure": "bun scripts/verify-render-conformance-structure.ts",
+    "capture:conformance": "bun run --filter @webmcp/studio capture:conformance",
     "verify:conformance:pixels": "bun scripts/compare-render-conformance.ts docs/audits/2026-08-27-editor-production-readiness/render-conformance-pixel-manifest.json",
     "check": "bun run lint && bun run typecheck && bun run test && bun run build",
     "format": "prettier --write .",

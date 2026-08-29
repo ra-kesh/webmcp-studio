@@ -1296,7 +1296,8 @@ describe("Fabric document boundary", () => {
       fontWeight: canonical.content.fontWeight,
       lineHeight: canonical.content.lineHeight / 1.13,
       topOffset:
-        ((canonical.content.lineHeight - 1) * canonical.content.fontSize) / 2,
+        ((canonical.content.lineHeight - 1) * canonical.content.fontSize) / 2 -
+        1,
       sizingMode: canonical.content.sizingMode,
       overflow: canonical.content.layout.overflow,
       clipOverflow: true,
@@ -2479,12 +2480,36 @@ describe("Fabric document boundary", () => {
     expect(path).toBeDefined()
     expect(path?.scaleX).toBe(3.75)
     expect(path?.scaleY).toBe(3.75)
-    // Fabric stores children relative to the group's center. These coordinates
-    // correspond to viewport coordinates 56.25, 11.25 inside the 180 x 90 frame.
-    expect(path?.left).toBe(-33.75)
-    expect(path?.top).toBe(-33.75)
+    // Fabric stores children relative to the group's center. The path also
+    // compensates its scaled stroke inset so its ink matches the SVG viewport.
+    expect(path?.left).toBe(-36.5625)
+    expect(path?.top).toBe(-36.5625)
     expect(object.getScaledWidth()).toBe(node.width)
     expect(object.getScaledHeight()).toBe(node.height)
+  })
+
+  it("compensates line stroke bounds without changing canonical geometry", () => {
+    const node = renderConformanceDocument.nodes.find(
+      (candidate) => candidate.id === "diagonal-line"
+    )!
+    if (node.type !== "line") throw new Error("Expected line")
+    const object = createFabricSyncObject(node)
+
+    expect(fabricObjectToNodePatch(object)).toEqual({
+      x: node.x,
+      y: node.y,
+      width: node.width,
+      height: node.height,
+      rotation: node.rotation,
+    })
+
+    const moved = { ...node, x: node.x + 24, y: node.y - 12, rotation: 17 }
+    syncFabricObjectFromNode(object, moved)
+    expect(fabricObjectToNodePatch(object)).toMatchObject({
+      x: moved.x,
+      y: moved.y,
+      rotation: moved.rotation,
+    })
   })
 
   it("keeps icon viewport geometry stable across canonical resync", () => {
@@ -2503,8 +2528,8 @@ describe("Fabric document boundary", () => {
     expect(path).toBeDefined()
     expect(path?.scaleX).toBe(5)
     expect(path?.scaleY).toBe(5)
-    expect(path?.left).toBe(-45)
-    expect(path?.top).toBe(-45)
+    expect(path?.left).toBe(-48.75)
+    expect(path?.top).toBe(-48.75)
     expect(fabricObjectToNodePatch(object)).toMatchObject({
       width: 240,
       height: 120,

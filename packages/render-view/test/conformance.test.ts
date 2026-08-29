@@ -57,6 +57,8 @@ describe("React render-view conformance", () => {
       fontWeight: 650,
       lineHeight: 1.35,
       letterSpacing: 2.5,
+      textRendering: "geometricPrecision",
+      WebkitFontSmoothing: "antialiased",
       textAlign: "right",
       whiteSpace: "pre",
       overflowWrap: "normal",

@@ -1,5 +1,6 @@
 {
   "version": 1,
+  "captureReport": "render-conformance-capture-report.json",
   "comparisons": [
     {
       "name": "properties page Fabric versus renderer PNG",

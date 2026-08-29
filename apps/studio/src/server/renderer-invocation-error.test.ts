@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest"
-import { rendererInvocationErrorFromResponse } from "./renderer-invocation-error"
+import {
+  rendererBindingFailureResponse,
+  rendererInvocationErrorFromResponse,
+} from "./renderer-invocation-error"
 import type { RendererInvocationError } from "./renderer-invocation-error"
 
 describe("renderer invocation errors", () => {
@@ -38,5 +41,28 @@ describe("renderer invocation errors", () => {
       message: "Renderer returned 502",
       status: 502,
     })
+  })
+
+  it("turns Browser Rendering capacity errors into retryable responses", async () => {
+    const cause = new Error(
+      "Unable to create new browser: code: 429: message: Rate limit exceeded"
+    )
+    const error = new Error("Renderer binding failed", { cause })
+    const response = rendererBindingFailureResponse(error)
+
+    expect(response).not.toBeNull()
+    expect(response?.status).toBe(503)
+    expect(response?.headers.get("Retry-After")).toBe("10")
+    await expect(response?.json()).resolves.toMatchObject({
+      error: "renderer_capacity_exhausted",
+      code: "browser_session_rate_limited",
+      retryable: true,
+    })
+  })
+
+  it("does not hide unrelated renderer binding defects", () => {
+    expect(rendererBindingFailureResponse(new Error("programmer defect"))).toBe(
+      null
+    )
   })
 })

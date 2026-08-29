@@ -14,6 +14,45 @@ Before starting every implementation phase:
 
 A phase is not considered started until steps 1–4 are complete. A phase is not considered complete merely because it builds; its audit acceptance criteria must be exercised proportionally to risk.
 
+## 2026-08-29 — Lossless conformance capture and renderer alignment (CONFORM-01 / EXPORT-01)
+
+Status: **active; bounded local repair complete, final/deployed capture open**
+
+- Revisited Loora's canvas capture/export path and OpenPencil's visual-oracle
+  scripts before implementation. The gate now owns byte-stable fixture JSON,
+  exact output/page order, lossless DSF-1 browser captures, real Studio
+  PNG/PDF requests, magic/header/dimension validation, PDF page rasterization,
+  staged promotion, hashes, and machine-readable reports.
+- One complete run retained all 12 expected artifacts. It proved exact page
+  dimensions and PDF order, then exposed text and vector drift rather than
+  hiding it behind screenshots.
+- React and Renderer now share grayscale/geometric font policy. Fabric idle
+  text paints canonical lines with native Canvas run shaping/letter spacing;
+  editing and styled/path fallbacks remain Fabric-owned. The managed Geist
+  baseline bridge is corrected by one pixel.
+- Fabric lines compensate stroke-inclusive origin and reverse that compensation
+  when projecting back to canonical geometry. Icons compensate their scaled
+  stroke inside the SVG viewport. Focused screenshots bring properties and
+  square Fabric pages under the unchanged raw limits; canonical long-text
+  geometry is aligned while raw Canvas/CSS glyph coverage remains above limit.
+- Browser Rendering `429` and connection-loss failures now become stable,
+  retryable `503` responses. Capture attempts are serial, bounded, and have a
+  30-second deadline. A capacity-blocked run cannot mix or promote partial
+  artifacts.
+- Independent review rejected two harness details while accepting the actual
+  editor/renderer repairs: React capture relied on `document.fonts.ready`, and
+  promotion copied files individually. React now uses Fabric's exact per-page
+  font load/check contract with a fallback-font regression. Successful captures
+  are immutable versioned directories; an atomic report replacement selects a
+  complete run. The verifier binds every comparison input to that report and
+  checks all byte lengths, SHA-256 values, and version-2 browser runtime metadata
+  before pixel work. The legacy complete run remains supported explicitly as a
+  version-1 report.
+- Focused evidence: editor 74/74, render-view 12/12, Renderer HTML 21/21, and
+  Studio renderer-error 4/4 tests pass; the React readiness gate adds 12/12
+  focused Studio tests; affected packages typecheck. Final
+  same-runtime/deployed capture and the geometry-aware text oracle remain open.
+
 ## 2026-08-27 — Published render repair (DEMO-01)
 
 Status: **completed locally**

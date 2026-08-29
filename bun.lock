@@ -54,6 +54,7 @@
       },
       "devDependencies": {
         "@cloudflare/vite-plugin": "latest",
+        "@napi-rs/canvas": "^1.0.8",
         "@playwright/test": "latest",
         "@tanstack/devtools-vite": "latest",
         "@tanstack/eslint-config": "latest",

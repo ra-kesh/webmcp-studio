@@ -101,6 +101,8 @@ export function renderNodeStyle(
       fontWeight: text.fontWeight,
       lineHeight: text.lineHeight,
       letterSpacing: text.letterSpacing,
+      textRendering: "geometricPrecision",
+      WebkitFontSmoothing: "antialiased",
       textAlign: text.align,
       whiteSpace: text.whiteSpace,
       overflowWrap: text.overflowWrap,
