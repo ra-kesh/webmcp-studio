@@ -142,12 +142,17 @@ import {
 } from "./current-draft-repository"
 import type { CurrentDraftEnvelope } from "./current-draft-repository"
 import type {
+  DocumentDraftConflict,
+  DocumentDraftHeadExpectation,
   DocumentDraftRecord,
+  DocumentDraftSummary,
   DraftOrigin,
   DraftRepositoryEvent,
 } from "./document-draft-repository"
 import { DocumentDraftSaveController } from "./document-draft-save-controller"
 import type { LocalSaveState } from "./document-draft-save-controller"
+import { projectDocumentConflictModel } from "./document-conflict-model"
+import type { DocumentConflictOperation } from "./document-conflict-model"
 import type { StudioPersistenceApi } from "../persistence/studio-persistence-provider"
 import type { StudioStartModel } from "./studio-start-model"
 import { parseDocumentImportFile } from "./document-import"
@@ -223,6 +228,39 @@ type SessionTransition = Readonly<{
 
 export type RouteSessionStatus =
   "not_requested" | "installing" | "ready" | "failed"
+
+export type DocumentConflictRecoveryAction =
+  "materialize" | "reload_saved" | "save_copy" | "accept_deletion"
+
+export type DocumentConflictRecoveryState =
+  | Readonly<{ status: "inactive" }>
+  | Readonly<{ status: "discovering"; documentId: string }>
+  | Readonly<{
+      status: "external_change"
+      documentId: string
+      reason: "saved_elsewhere" | "deleted_elsewhere" | "quarantined_elsewhere"
+      observedRecordVersion: number
+    }>
+  | Readonly<{
+      status: "conflict"
+      documentId: string
+      conflict: DocumentDraftConflict
+    }>
+  | Readonly<{
+      status: "working"
+      documentId: string
+      action: DocumentConflictRecoveryAction
+      conflict: DocumentDraftConflict | null
+    }>
+  | Readonly<{
+      status: "failed"
+      documentId: string
+      action: DocumentConflictRecoveryAction | "discover"
+      conflict: DocumentDraftConflict | null
+      message: string
+      retryable: boolean
+      createdDocumentId?: string
+    }>
 
 type OpeningInvalidationEvent =
   | Extract<DraftRepositoryEvent, { type: "saved" }>
@@ -360,6 +398,26 @@ function findNode(document: Document, nodeId: string) {
   return document.nodes.find((node) => node.id === nodeId)
 }
 
+const sameDraftHead = (left: DocumentDraftRecord, right: DocumentDraftRecord) =>
+  left.summary.documentId === right.summary.documentId &&
+  left.summary.recordVersion === right.summary.recordVersion &&
+  left.summary.contentSnapshotId === right.summary.contentSnapshotId &&
+  left.summary.draftSnapshotId === right.summary.draftSnapshotId &&
+  left.summary.deletedAt === right.summary.deletedAt
+
+const expectedHeadForSummary = (
+  summary: DocumentDraftSummary
+): DocumentDraftHeadExpectation => ({
+  status: "found",
+  recordVersion: summary.recordVersion,
+  contentSnapshotId: summary.contentSnapshotId,
+  draftSnapshotId: summary.draftSnapshotId,
+  deletedAt: summary.deletedAt,
+})
+
+const expectedHeadForRecord = (record: DocumentDraftRecord) =>
+  expectedHeadForSummary(record.summary)
+
 function reconcileSelection(
   selection: Selection | null,
   document: Document
@@ -428,6 +486,17 @@ export function useDocumentEditor({
   })
   const localSaveStateRef = useRef<LocalSaveState>(localSaveState)
   localSaveStateRef.current = localSaveState
+  const [conflictRecoveryState, setConflictRecoveryState] =
+    useState<DocumentConflictRecoveryState>({ status: "inactive" })
+  const conflictRecoveryStateRef = useRef(conflictRecoveryState)
+  conflictRecoveryStateRef.current = conflictRecoveryState
+  const conflictRecoveryOperationRef = useRef<{
+    token: number
+    action: DocumentConflictRecoveryAction | "discover"
+    documentId: string
+  } | null>(null)
+  const conflictRecoveryOperationSequenceRef = useRef(0)
+  const liveConflictIdRef = useRef<string | null>(null)
   const [repositoryLifecycle, setRepositoryLifecycle] =
     useState<RepositoryLifecycle>({ status: "opening" })
   const [clipboardCount, setClipboardCount] = useState(0)
@@ -604,21 +673,100 @@ export function useDocumentEditor({
     []
   )
 
-  const projectLocalSaveState = useCallback((state: LocalSaveState) => {
-    localSaveStateRef.current = state
-    setLocalSaveState(state)
-    if (state.status === "failed") setDocumentError(state.message)
-    if (state.status === "conflict") {
-      setDocumentError(
-        state.reason === "deleted_elsewhere"
-          ? "This document was deleted in another Studio session. Your local version is still available to download."
-          : "This document changed in another Studio session. Your local version is still available to download."
-      )
-    }
-  }, [])
+  const projectConflictRecoveryState = useCallback(
+    (state: DocumentConflictRecoveryState) => {
+      conflictRecoveryStateRef.current = state
+      setConflictRecoveryState(state)
+    },
+    []
+  )
+
+  const claimConflictRecoveryOperation = useCallback(
+    (
+      action: DocumentConflictRecoveryAction | "discover",
+      documentId: string
+    ) => {
+      if (conflictRecoveryOperationRef.current) return null
+      const operation = {
+        token: conflictRecoveryOperationSequenceRef.current + 1,
+        action,
+        documentId,
+      }
+      conflictRecoveryOperationSequenceRef.current = operation.token
+      conflictRecoveryOperationRef.current = operation
+      return operation
+    },
+    []
+  )
+
+  const ownsConflictRecoveryOperation = useCallback(
+    (operation: NonNullable<typeof conflictRecoveryOperationRef.current>) =>
+      mountedRef.current &&
+      conflictRecoveryOperationRef.current?.token === operation.token,
+    []
+  )
+
+  const releaseConflictRecoveryOperation = useCallback(
+    (operation: NonNullable<typeof conflictRecoveryOperationRef.current>) => {
+      if (conflictRecoveryOperationRef.current?.token === operation.token) {
+        conflictRecoveryOperationRef.current = null
+      }
+    },
+    []
+  )
+
+  const projectLocalSaveState = useCallback(
+    (state: LocalSaveState) => {
+      localSaveStateRef.current = state
+      setLocalSaveState(state)
+      if (
+        state.status === "saving" &&
+        conflictRecoveryStateRef.current.status === "external_change"
+      ) {
+        projectConflictRecoveryState({
+          status: "working",
+          documentId: conflictRecoveryStateRef.current.documentId,
+          action: "materialize",
+          conflict: null,
+        })
+      }
+      if (state.status === "failed") setDocumentError(state.message)
+      if (state.status === "conflict") {
+        setDocumentError(
+          state.reason === "deleted_elsewhere"
+            ? "This document was deleted in another Studio session. Your local version is still available to download."
+            : "This document changed in another Studio session. Your local version is still available to download."
+        )
+      }
+    },
+    [projectConflictRecoveryState]
+  )
 
   const projectForeignActiveDocumentEvent = useCallback(
     (event: DraftRepositoryEvent, forceOpeningInvalidation = false) => {
+      const recovery = conflictRecoveryStateRef.current
+      const preservedConflict =
+        recovery.status === "conflict"
+          ? recovery.conflict
+          : recovery.status === "working" || recovery.status === "failed"
+            ? recovery.conflict
+            : null
+      if (
+        preservedConflict &&
+        (event.type === "saved" ||
+          event.type === "restored" ||
+          event.type === "deleted" ||
+          event.type === "quarantined")
+      ) {
+        setDocumentError(
+          event.type === "deleted"
+            ? "The saved document was deleted after Studio preserved your version. Recovery is still required."
+            : event.type === "quarantined"
+              ? "The saved document was quarantined after Studio preserved your version. Recovery is still required."
+              : "The saved document changed again. Your preserved recovery candidate remains unchanged."
+        )
+        return true
+      }
       if (event.type === "saved") {
         if (event.reason !== "content_saved") return false
         const controller =
@@ -631,10 +779,15 @@ export function useDocumentEditor({
               event.draftSnapshotId === controller.draftSnapshotId))
         )
           return true
-        projectLocalSaveState({
+        const state: Extract<LocalSaveState, { status: "external_change" }> = {
           status: "external_change",
           reason: "saved_elsewhere",
           observedRecordVersion: event.recordVersion,
+        }
+        projectLocalSaveState(state)
+        projectConflictRecoveryState({
+          ...state,
+          documentId: event.documentId,
         })
         setDocumentError(
           "This document changed in another Studio session. Your open version has not been discarded."
@@ -642,10 +795,15 @@ export function useDocumentEditor({
         return true
       }
       if (event.type === "restored") {
-        projectLocalSaveState({
+        const state: Extract<LocalSaveState, { status: "external_change" }> = {
           status: "external_change",
           reason: "saved_elsewhere",
           observedRecordVersion: event.recordVersion,
+        }
+        projectLocalSaveState(state)
+        projectConflictRecoveryState({
+          ...state,
+          documentId: event.documentId,
         })
         setDocumentError(
           "This document changed in another Studio session. Your open version has not been discarded."
@@ -653,10 +811,15 @@ export function useDocumentEditor({
         return true
       }
       if (event.type === "deleted") {
-        projectLocalSaveState({
+        const state: Extract<LocalSaveState, { status: "external_change" }> = {
           status: "external_change",
           reason: "deleted_elsewhere",
           observedRecordVersion: event.recordVersion,
+        }
+        projectLocalSaveState(state)
+        projectConflictRecoveryState({
+          ...state,
+          documentId: event.documentId,
         })
         setDocumentError(
           "This document was deleted in another Studio session. Your open version has not been discarded."
@@ -664,11 +827,16 @@ export function useDocumentEditor({
         return true
       }
       if (event.type === "quarantined") {
-        projectLocalSaveState({
+        const state: Extract<LocalSaveState, { status: "external_change" }> = {
           status: "external_change",
-          reason: "deleted_elsewhere",
+          reason: "quarantined_elsewhere",
           observedRecordVersion:
             activeRecordRef.current?.summary.recordVersion ?? 0,
+        }
+        projectLocalSaveState(state)
+        projectConflictRecoveryState({
+          ...state,
+          documentId: event.documentId,
         })
         setDocumentError(
           "This document was quarantined after another Studio session found corrupt local data. Your open version has not been discarded."
@@ -677,7 +845,7 @@ export function useDocumentEditor({
       }
       return false
     },
-    [projectLocalSaveState]
+    [projectConflictRecoveryState, projectLocalSaveState]
   )
 
   const installEditorSession = useCallback(
@@ -854,7 +1022,8 @@ export function useDocumentEditor({
     async (
       record: DocumentDraftRecord,
       transition: SessionTransition,
-      canInstall: () => boolean = () => true
+      canInstall: () => boolean = () => true,
+      replacement: "settle" | "preserved_recovery" = "settle"
     ) => {
       if (!ownsSessionTransition(transition) || !canInstall()) return false
       if (
@@ -886,6 +1055,9 @@ export function useDocumentEditor({
             sessionGenerationRef.current !== generation
           )
             return
+          if (state.status === "conflict") {
+            liveConflictIdRef.current = state.conflictId
+          }
           projectLocalSaveState(state)
         })
         nextSession = {
@@ -907,14 +1079,38 @@ export function useDocumentEditor({
       }
 
       const previousSession = activePersistenceSessionRef.current
-      if (
-        previousSession &&
-        !(await retirePersistenceSession(previousSession, canInstall))
-      ) {
-        nextSession.unsubscribe()
-        nextSession.controller.close()
-        nextSession.releaseLease()
-        return false
+      if (previousSession) {
+        if (replacement === "settle") {
+          if (!(await retirePersistenceSession(previousSession, canInstall))) {
+            nextSession.unsubscribe()
+            nextSession.controller.close()
+            nextSession.releaseLease()
+            return false
+          }
+        } else {
+          const recovery = conflictRecoveryStateRef.current
+          const preservesCurrentDocument =
+            recovery.status !== "inactive" &&
+            recovery.status !== "discovering" &&
+            recovery.documentId === previousSession.controller.documentId
+          if (
+            !preservesCurrentDocument ||
+            !ownsSessionTransition(transition) ||
+            !canInstall()
+          ) {
+            nextSession.unsubscribe()
+            nextSession.controller.close()
+            nextSession.releaseLease()
+            return false
+          }
+          previousSession.unsubscribe()
+          previousSession.controller.close()
+          previousSession.releaseLease()
+          if (activePersistenceSessionRef.current === previousSession) {
+            activePersistenceSessionRef.current = null
+            activeRecordRef.current = null
+          }
+        }
       }
       if (
         !ownsSessionTransition(transition) ||
@@ -928,6 +1124,7 @@ export function useDocumentEditor({
       }
 
       sessionGenerationRef.current = nextSession.generation
+      liveConflictIdRef.current = null
       activeRecordRef.current = record
       activePersistenceSessionRef.current = nextSession
       lastCapturedDocumentRef.current = record.envelope.document
@@ -947,6 +1144,110 @@ export function useDocumentEditor({
       initialRecordWarning,
     ]
   )
+
+  const readUnresolvedConflict = useCallback(
+    async (documentId: string, preferredConflictId?: string) => {
+      const listed = await getDraftRepository().listConflicts(documentId)
+      if (!listed.ok) {
+        return {
+          ok: false as const,
+          message:
+            "failure" in listed
+              ? listed.failure.message
+              : "The preserved conflict no longer exists.",
+          retryable: listed.reason === "storage_unavailable",
+        }
+      }
+      const unresolved = listed.value.filter(
+        (conflict) => conflict.resolvedAt === null
+      )
+      const conflict = preferredConflictId
+        ? (unresolved.find(
+            (candidate) => candidate.conflictId === preferredConflictId
+          ) ?? null)
+        : (unresolved[0] ?? null)
+      if (preferredConflictId && !conflict) {
+        return {
+          ok: false as const,
+          message:
+            "The preserved conflict changed before Studio could open its recovery actions.",
+          retryable: true,
+        }
+      }
+      return { ok: true as const, conflict }
+    },
+    [getDraftRepository]
+  )
+
+  const discoverDocumentConflict = useCallback(
+    async (documentId: string, preferredConflictId?: string) => {
+      const operation = claimConflictRecoveryOperation("discover", documentId)
+      if (!operation) return false
+      projectConflictRecoveryState({ status: "discovering", documentId })
+      try {
+        const result = await readUnresolvedConflict(
+          documentId,
+          preferredConflictId
+        )
+        if (!ownsConflictRecoveryOperation(operation)) return false
+        if (!result.ok) {
+          projectConflictRecoveryState({
+            status: "failed",
+            documentId,
+            action: "discover",
+            conflict: null,
+            message: result.message,
+            retryable: result.retryable,
+          })
+          projectLocalSaveState({
+            status: "failed",
+            message: result.message,
+            retryable: result.retryable,
+          })
+          return false
+        }
+        if (!result.conflict) {
+          projectConflictRecoveryState({ status: "inactive" })
+          return true
+        }
+        projectConflictRecoveryState({
+          status: "conflict",
+          documentId,
+          conflict: result.conflict,
+        })
+        projectLocalSaveState({
+          status: "conflict",
+          conflictId: result.conflict.conflictId,
+          reason: result.conflict.reason,
+        })
+        return true
+      } finally {
+        releaseConflictRecoveryOperation(operation)
+      }
+    },
+    [
+      claimConflictRecoveryOperation,
+      ownsConflictRecoveryOperation,
+      projectConflictRecoveryState,
+      projectLocalSaveState,
+      readUnresolvedConflict,
+      releaseConflictRecoveryOperation,
+    ]
+  )
+
+  useEffect(() => {
+    if (localSaveState.status !== "conflict") return
+    const documentId = activeRecordRef.current?.summary.documentId
+    if (!documentId) return
+    const recovery = conflictRecoveryStateRef.current
+    if (
+      recovery.status === "conflict" &&
+      recovery.conflict.conflictId === localSaveState.conflictId
+    ) {
+      return
+    }
+    void discoverDocumentConflict(documentId, localSaveState.conflictId)
+  }, [discoverDocumentConflict, localSaveState])
 
   const persistAndInstallSession = useCallback(
     async (envelope: CurrentDraftEnvelope, origin: DraftOrigin) => {
@@ -1102,7 +1403,8 @@ export function useDocumentEditor({
         } else if (installed && touchWarning) {
           setDocumentError(touchWarning)
         }
-        return installed
+        if (!installed) return false
+        return discoverDocumentConflict(record.summary.documentId)
       }
       try {
         const draftRepository = getDraftRepository()
@@ -1167,6 +1469,7 @@ export function useDocumentEditor({
     [
       claimSessionTransition,
       getDraftRepository,
+      discoverDocumentConflict,
       installDraftRecord,
       ownsSessionTransition,
       projectForeignActiveDocumentEvent,
@@ -1237,6 +1540,605 @@ export function useDocumentEditor({
     await controller.retry()
     return (controller.state as LocalSaveState).status === "saved"
   }, [])
+
+  const conflictFromRecoveryState = useCallback(
+    (state = conflictRecoveryStateRef.current) =>
+      state.status === "conflict" ||
+      state.status === "working" ||
+      state.status === "failed"
+        ? state.conflict
+        : null,
+    []
+  )
+
+  const materializeExternalChangeForOperation = useCallback(
+    async (
+      operation: NonNullable<typeof conflictRecoveryOperationRef.current>,
+      action: DocumentConflictRecoveryAction
+    ) => {
+      const session = activePersistenceSessionRef.current
+      const documentId = activeRecordRef.current?.summary.documentId
+      if (
+        !session ||
+        !documentId ||
+        documentId !== operation.documentId ||
+        !ownsConflictRecoveryOperation(operation)
+      ) {
+        return null
+      }
+      const state = conflictRecoveryStateRef.current
+      if (
+        localSaveStateRef.current.status !== "external_change" &&
+        state.status !== "external_change"
+      ) {
+        return conflictFromRecoveryState(state)
+      }
+      projectConflictRecoveryState({
+        status: "working",
+        documentId,
+        action,
+        conflict: null,
+      })
+      const exactSnapshot = {
+        document: structuredClone(historyRef.current.document),
+        sourceContext: structuredClone(templateSourceContextRef.current),
+      }
+      try {
+        session.controller.capture(exactSnapshot)
+        await session.controller.flush()
+      } catch (error) {
+        if (!ownsConflictRecoveryOperation(operation)) return null
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Studio could not preserve this version as a conflict candidate."
+        projectConflictRecoveryState({
+          status: "failed",
+          documentId,
+          action,
+          conflict: null,
+          message,
+          retryable: true,
+        })
+        return null
+      }
+      if (!ownsConflictRecoveryOperation(operation)) return null
+      const controllerState = session.controller.state
+      if (controllerState.status !== "conflict") {
+        const message =
+          controllerState.status === "failed"
+            ? controllerState.message
+            : "The external change could not be converted into a preserved recovery candidate."
+        projectConflictRecoveryState({
+          status: "failed",
+          documentId,
+          action,
+          conflict: null,
+          message,
+          retryable:
+            controllerState.status === "failed"
+              ? controllerState.retryable
+              : true,
+        })
+        return null
+      }
+      const recovered = await readUnresolvedConflict(
+        documentId,
+        controllerState.conflictId
+      )
+      if (!ownsConflictRecoveryOperation(operation)) return null
+      if (!recovered.ok || !recovered.conflict) {
+        projectConflictRecoveryState({
+          status: "failed",
+          documentId,
+          action,
+          conflict: null,
+          message: recovered.ok
+            ? "Studio could not find the preserved conflict candidate."
+            : recovered.message,
+          retryable: recovered.ok ? true : recovered.retryable,
+        })
+        return null
+      }
+      return recovered.conflict
+    },
+    [
+      conflictFromRecoveryState,
+      ownsConflictRecoveryOperation,
+      projectConflictRecoveryState,
+      readUnresolvedConflict,
+    ]
+  )
+
+  const materializeExternalChangeConflict = useCallback(async () => {
+    const documentId = activeRecordRef.current?.summary.documentId
+    if (!documentId) return false
+    const operation = claimConflictRecoveryOperation("materialize", documentId)
+    if (!operation) return false
+    try {
+      const conflict = await materializeExternalChangeForOperation(
+        operation,
+        "materialize"
+      )
+      if (!conflict || !ownsConflictRecoveryOperation(operation)) return false
+      projectConflictRecoveryState({
+        status: "conflict",
+        documentId,
+        conflict,
+      })
+      return true
+    } finally {
+      releaseConflictRecoveryOperation(operation)
+    }
+  }, [
+    claimConflictRecoveryOperation,
+    materializeExternalChangeForOperation,
+    ownsConflictRecoveryOperation,
+    projectConflictRecoveryState,
+    releaseConflictRecoveryOperation,
+  ])
+
+  const closePreservedPersistenceSession = useCallback(() => {
+    const session = activePersistenceSessionRef.current
+    if (!session) return
+    session.unsubscribe()
+    try {
+      session.controller.close()
+    } finally {
+      session.releaseLease()
+    }
+    if (activePersistenceSessionRef.current === session) {
+      activePersistenceSessionRef.current = null
+      activeRecordRef.current = null
+      sessionGenerationRef.current = Math.max(
+        sessionGenerationRef.current + 1,
+        session.generation + 1
+      )
+    }
+  }, [])
+
+  const reloadSavedAfterConflict = useCallback(async () => {
+    const documentId = activeRecordRef.current?.summary.documentId
+    if (!documentId) return { ok: false as const }
+    const operation = claimConflictRecoveryOperation("reload_saved", documentId)
+    if (!operation) return { ok: false as const }
+    const startingState = conflictRecoveryStateRef.current
+    const conflict = conflictFromRecoveryState(startingState)
+    const restoreExternalRecovery = () => {
+      if (conflict || startingState.status !== "external_change") return
+      projectLocalSaveState({
+        status: "external_change",
+        reason: startingState.reason,
+        observedRecordVersion: startingState.observedRecordVersion,
+      })
+    }
+    projectConflictRecoveryState({
+      status: "working",
+      documentId,
+      action:
+        conflict?.reason === "deleted_elsewhere"
+          ? "accept_deletion"
+          : "reload_saved",
+      conflict,
+    })
+    try {
+      const admitted =
+        await persistenceRef.current.documentRouteAdmission.admit(documentId)
+      if (!ownsConflictRecoveryOperation(operation)) {
+        return { ok: false as const }
+      }
+      if (admitted.status === "unavailable") {
+        projectConflictRecoveryState({
+          status: "failed",
+          documentId,
+          action: "reload_saved",
+          conflict,
+          message: admitted.failure.message,
+          retryable: true,
+        })
+        return { ok: false as const }
+      }
+      if (admitted.status === "recovery_required") {
+        projectConflictRecoveryState({
+          status: "failed",
+          documentId,
+          action: "reload_saved",
+          conflict,
+          message:
+            "The saved document could not be verified. Return to Documents to use recovery tools.",
+          retryable: false,
+        })
+        return { ok: false as const }
+      }
+      if (admitted.status === "superseded") return { ok: false as const }
+      if (startingState.status === "external_change") {
+        if (startingState.reason === "quarantined_elsewhere") {
+          projectConflictRecoveryState({
+            status: "failed",
+            documentId,
+            action: "reload_saved",
+            conflict,
+            message:
+              "This document was quarantined because its stored data could not be verified. Return to Documents to use recovery tools.",
+            retryable: false,
+          })
+          return { ok: false as const }
+        }
+      }
+      const transition = claimSessionTransition("recovery")
+      if (!transition) return { ok: false as const }
+      try {
+        const canInstall = () =>
+          ownsConflictRecoveryOperation(operation) &&
+          ownsSessionTransition(transition)
+        type ReloadHead =
+          | Readonly<{
+              status: "active"
+              record: DocumentDraftRecord
+            }>
+          | Readonly<{
+              status: "deleted"
+              expectation: DocumentDraftHeadExpectation
+            }>
+          | Readonly<{ status: "missing" }>
+        const headFromRecord = (record: DocumentDraftRecord): ReloadHead =>
+          record.summary.deletedAt === null
+            ? { status: "active", record }
+            : {
+                status: "deleted",
+                expectation: expectedHeadForRecord(record),
+              }
+        const headFromResolution = (
+          current:
+            | Readonly<{ status: "missing" }>
+            | Readonly<{ status: "found"; record: DocumentDraftRecord }>
+        ): ReloadHead =>
+          current.status === "missing"
+            ? { status: "missing" }
+            : headFromRecord(current.record)
+        let head: ReloadHead =
+          admitted.status === "missing"
+            ? { status: "missing" }
+            : admitted.status === "deleted"
+              ? {
+                  status: "deleted",
+                  expectation: expectedHeadForSummary(admitted.summary),
+                }
+              : headFromRecord(admitted.record)
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          if (head.status !== "active") {
+            if (conflict) {
+              const resolved = await getDraftRepository().resolveConflict(
+                conflict.conflictId,
+                "reload_saved",
+                conflict.candidateDraftSnapshotId,
+                head.status === "missing"
+                  ? { status: "missing" }
+                  : head.expectation
+              )
+              if (!canInstall()) return { ok: false as const }
+              if (!resolved.ok && resolved.reason === "head_changed") {
+                head = headFromResolution(resolved.current)
+                continue
+              }
+              if (!resolved.ok) {
+                projectConflictRecoveryState({
+                  status: "failed",
+                  documentId,
+                  action: "accept_deletion",
+                  conflict,
+                  message:
+                    "failure" in resolved
+                      ? resolved.failure.message
+                      : "The preserved conflict no longer exists.",
+                  retryable: resolved.reason === "storage_unavailable",
+                })
+                projectLocalSaveState({
+                  status: "conflict",
+                  conflictId: conflict.conflictId,
+                  reason: conflict.reason,
+                })
+                return { ok: false as const }
+              }
+            }
+            closePreservedPersistenceSession()
+            projectConflictRecoveryState({ status: "inactive" })
+            setSessionMode("start")
+            return { ok: true as const, destination: "home" as const }
+          }
+          const installed = await installDraftRecord(
+            head.record,
+            transition,
+            canInstall,
+            "preserved_recovery"
+          )
+          if (!installed || !canInstall()) return { ok: false as const }
+          const confirmed = await getDraftRepository().get(documentId)
+          if (!canInstall()) return { ok: false as const }
+          if (!confirmed.ok) {
+            projectConflictRecoveryState({
+              status: "failed",
+              documentId,
+              action: "reload_saved",
+              conflict,
+              message: confirmed.failure.message,
+              retryable: confirmed.reason === "storage_unavailable",
+            })
+            if (conflict) {
+              projectLocalSaveState({
+                status: "conflict",
+                conflictId: conflict.conflictId,
+                reason: conflict.reason,
+              })
+            } else {
+              restoreExternalRecovery()
+            }
+            return { ok: false as const }
+          }
+          if (
+            confirmed.status === "missing" ||
+            confirmed.record.summary.deletedAt !== null
+          ) {
+            head =
+              confirmed.status === "missing"
+                ? { status: "missing" }
+                : headFromRecord(confirmed.record)
+            continue
+          }
+          if (!sameDraftHead(head.record, confirmed.record)) {
+            head = headFromRecord(confirmed.record)
+            continue
+          }
+          if (conflict) {
+            const resolved = await getDraftRepository().resolveConflict(
+              conflict.conflictId,
+              "reload_saved",
+              conflict.candidateDraftSnapshotId,
+              expectedHeadForRecord(confirmed.record)
+            )
+            if (!canInstall()) return { ok: false as const }
+            if (!resolved.ok && resolved.reason === "head_changed") {
+              head = headFromResolution(resolved.current)
+              continue
+            }
+            if (!resolved.ok) {
+              projectConflictRecoveryState({
+                status: "failed",
+                documentId,
+                action: "reload_saved",
+                conflict,
+                message:
+                  "failure" in resolved
+                    ? resolved.failure.message
+                    : "The preserved conflict no longer exists.",
+                retryable: resolved.reason === "storage_unavailable",
+              })
+              projectLocalSaveState({
+                status: "conflict",
+                conflictId: conflict.conflictId,
+                reason: conflict.reason,
+              })
+              return { ok: false as const }
+            }
+          }
+          projectConflictRecoveryState({ status: "inactive" })
+          return { ok: true as const, destination: "document" as const }
+        }
+        projectConflictRecoveryState({
+          status: "failed",
+          documentId,
+          action: "reload_saved",
+          conflict,
+          message:
+            "The saved document kept changing before Studio could verify it. Try again when the other edit is finished.",
+          retryable: true,
+        })
+        if (conflict) {
+          projectLocalSaveState({
+            status: "conflict",
+            conflictId: conflict.conflictId,
+            reason: conflict.reason,
+          })
+        } else {
+          restoreExternalRecovery()
+        }
+        return { ok: false as const }
+      } finally {
+        releaseSessionTransition(transition)
+      }
+    } finally {
+      releaseConflictRecoveryOperation(operation)
+    }
+  }, [
+    claimConflictRecoveryOperation,
+    claimSessionTransition,
+    closePreservedPersistenceSession,
+    conflictFromRecoveryState,
+    getDraftRepository,
+    installDraftRecord,
+    ownsConflictRecoveryOperation,
+    ownsSessionTransition,
+    projectConflictRecoveryState,
+    projectLocalSaveState,
+    releaseConflictRecoveryOperation,
+    releaseSessionTransition,
+  ])
+
+  const saveConflictAsCopy = useCallback(async () => {
+    const initialConflict = conflictFromRecoveryState()
+    const documentId =
+      initialConflict?.documentId ?? activeRecordRef.current?.summary.documentId
+    if (!documentId) return { ok: false as const }
+    const operation = claimConflictRecoveryOperation("save_copy", documentId)
+    if (!operation) return { ok: false as const }
+    try {
+      let conflict = initialConflict
+      if (!conflict) {
+        conflict = await materializeExternalChangeForOperation(
+          operation,
+          "save_copy"
+        )
+      }
+      if (!conflict || !ownsConflictRecoveryOperation(operation)) {
+        return { ok: false as const }
+      }
+      projectConflictRecoveryState({
+        status: "working",
+        documentId,
+        action: "save_copy",
+        conflict,
+      })
+      const newDocumentId = `document-${crypto.randomUUID()}`
+      const copySnapshot =
+        conflict.conflictId === liveConflictIdRef.current
+          ? {
+              document: structuredClone(historyRef.current.document),
+              sourceContext: structuredClone(templateSourceContextRef.current),
+            }
+          : undefined
+      const copied = await getDraftRepository().saveConflictAsCopy({
+        conflictId: conflict.conflictId,
+        expectedCandidateDraftSnapshotId: conflict.candidateDraftSnapshotId,
+        newDocumentId,
+        copySnapshot,
+      })
+      if (!ownsConflictRecoveryOperation(operation)) {
+        return { ok: false as const }
+      }
+      if (!copied.ok) {
+        const message =
+          "failure" in copied
+            ? copied.failure.message
+            : copied.reason === "stale_conflict"
+              ? "A newer preserved version replaced this conflict. Review it before trying again."
+              : copied.reason === "target_exists"
+                ? "The generated copy identifier is already in use. Try again."
+                : copied.reason === "resolved_without_copy"
+                  ? "This conflict was already resolved without creating a copy."
+                  : "The preserved conflict no longer exists."
+        projectConflictRecoveryState({
+          status: "failed",
+          documentId,
+          action: "save_copy",
+          conflict:
+            copied.reason === "stale_conflict" ? copied.current : conflict,
+          message,
+          retryable:
+            copied.reason === "storage_unavailable" ||
+            copied.reason === "target_exists" ||
+            copied.reason === "stale_conflict",
+        })
+        return { ok: false as const }
+      }
+      if (
+        activeRecordRef.current?.summary.documentId ===
+          copied.record.summary.documentId &&
+        sameDraftHead(activeRecordRef.current, copied.record)
+      ) {
+        projectConflictRecoveryState({
+          status: "failed",
+          documentId: conflict.documentId,
+          action: "save_copy",
+          conflict,
+          message:
+            "The copy is saved. Studio still needs to open its canonical route.",
+          retryable: true,
+          createdDocumentId: copied.record.summary.documentId,
+        })
+        return {
+          ok: true as const,
+          documentId: copied.record.summary.documentId,
+        }
+      }
+      const transition = claimSessionTransition("recovery")
+      if (!transition) {
+        projectConflictRecoveryState({
+          status: "failed",
+          documentId,
+          action: "save_copy",
+          conflict,
+          message:
+            "The copy was saved, but Studio could not open it. It is available from Documents.",
+          retryable: true,
+          createdDocumentId: copied.record.summary.documentId,
+        })
+        return {
+          ok: false as const,
+          createdDocumentId: copied.record.summary.documentId,
+        }
+      }
+      try {
+        const canInstall = () =>
+          ownsConflictRecoveryOperation(operation) &&
+          ownsSessionTransition(transition)
+        const installed = await installDraftRecord(
+          copied.record,
+          transition,
+          canInstall,
+          "preserved_recovery"
+        )
+        if (!installed || !canInstall()) {
+          projectConflictRecoveryState({
+            status: "failed",
+            documentId,
+            action: "save_copy",
+            conflict,
+            message:
+              "The copy was saved, but Studio could not open it. It is available from Documents.",
+            retryable: true,
+            createdDocumentId: copied.record.summary.documentId,
+          })
+          return {
+            ok: false as const,
+            createdDocumentId: copied.record.summary.documentId,
+          }
+        }
+        projectConflictRecoveryState({
+          status: "failed",
+          documentId: conflict.documentId,
+          action: "save_copy",
+          conflict,
+          message:
+            "The copy is saved. Studio still needs to open its canonical route.",
+          retryable: true,
+          createdDocumentId: copied.record.summary.documentId,
+        })
+        return {
+          ok: true as const,
+          documentId: copied.record.summary.documentId,
+        }
+      } finally {
+        releaseSessionTransition(transition)
+      }
+    } finally {
+      releaseConflictRecoveryOperation(operation)
+    }
+  }, [
+    claimConflictRecoveryOperation,
+    claimSessionTransition,
+    conflictFromRecoveryState,
+    getDraftRepository,
+    installDraftRecord,
+    materializeExternalChangeForOperation,
+    ownsConflictRecoveryOperation,
+    ownsSessionTransition,
+    projectConflictRecoveryState,
+    releaseConflictRecoveryOperation,
+    releaseSessionTransition,
+  ])
+
+  const returnToDocumentsFromConflictRecovery = useCallback(() => {
+    const recovery = conflictRecoveryStateRef.current
+    const canLeave =
+      (recovery.status === "external_change" &&
+        recovery.reason === "quarantined_elsewhere") ||
+      (recovery.status === "failed" && recovery.conflict === null)
+    if (!canLeave) return false
+    closePreservedPersistenceSession()
+    projectConflictRecoveryState({ status: "inactive" })
+    setSessionMode("start")
+    return true
+  }, [closePreservedPersistenceSession, projectConflictRecoveryState])
 
   const getCurrentDocumentSnapshot = useCallback(
     () => structuredClone(historyRef.current.document),
@@ -1442,9 +2344,19 @@ export function useDocumentEditor({
           canInstall
         )
         if (!canInstall()) return
-        setRouteSessionStatus(installed ? "ready" : "failed")
-      } catch (error: unknown) {
+        if (!installed) {
+          setRouteSessionStatus("failed")
+          return
+        }
+        const conflictsReady = await discoverDocumentConflict(
+          initialRecord.summary.documentId
+        )
         if (!canInstall()) return
+        releaseSessionTransition(transition)
+        transition = null
+        setRouteSessionStatus(conflictsReady ? "ready" : "failed")
+      } catch (error: unknown) {
+        if (!transition || !canInstall()) return
         setDocumentError(
           error instanceof Error
             ? error.message
@@ -1452,7 +2364,7 @@ export function useDocumentEditor({
         )
         setRouteSessionStatus("failed")
       } finally {
-        releaseSessionTransition(transition)
+        if (transition) releaseSessionTransition(transition)
       }
     })
     return () => {
@@ -1461,6 +2373,7 @@ export function useDocumentEditor({
     }
   }, [
     claimSessionTransition,
+    discoverDocumentConflict,
     initialRecord,
     installDraftRecord,
     ownsSessionTransition,
@@ -1657,18 +2570,21 @@ export function useDocumentEditor({
    * This intentionally does not flush: failed/conflicted controller state is
    * precisely why the user needs a byte-exact in-memory copy.
    */
-  const downloadCurrentVersion = useCallback(
-    () =>
-      downloadEnvelope(
-        {
-          schemaVersion: 1,
-          document: historyRef.current.document,
-          sourceContext: templateSourceContextRef.current,
-        },
-        "-my-version"
-      ),
-    [downloadEnvelope]
-  )
+  const downloadCurrentVersion = useCallback(() => {
+    const conflict = conflictFromRecoveryState()
+    const usesStoredCandidate =
+      conflict && conflict.conflictId !== liveConflictIdRef.current
+    return downloadEnvelope(
+      usesStoredCandidate
+        ? { schemaVersion: 1, ...conflict.candidate }
+        : {
+            schemaVersion: 1,
+            document: historyRef.current.document,
+            sourceContext: templateSourceContextRef.current,
+          },
+      "-my-version"
+    )
+  }, [conflictFromRecoveryState, downloadEnvelope])
 
   const downloadCurrentDocument = useCallback(async () => {
     if (!(await flushActiveDraft())) return false
@@ -1938,6 +2854,16 @@ export function useDocumentEditor({
   )
 
   const allowMutation = useCallback((allowActiveImageCrop = false) => {
+    const recovery = conflictRecoveryStateRef.current
+    if (
+      recovery.status !== "inactive" &&
+      recovery.status !== "external_change"
+    ) {
+      setDocumentError(
+        "Resolve the saved-version conflict before editing this document."
+      )
+      return false
+    }
     if (draftRecoveryRef.current) {
       setDocumentError(
         "Resolve the unreadable local draft before editing this document."
@@ -4669,6 +5595,82 @@ export function useDocumentEditor({
     }
   }, [assetVersion, canonicalPreviewDocument, pendingImageReplacement])
 
+  const conflictRecoveryModel = useMemo(() => {
+    const conflict = conflictFromRecoveryState(conflictRecoveryState)
+    const recoveryDocumentId =
+      conflict?.documentId ??
+      (conflictRecoveryState.status === "inactive"
+        ? history.document.id
+        : conflictRecoveryState.documentId)
+    const recoveryDocumentName =
+      conflict?.candidate.document.name ?? history.document.name
+    let operation: DocumentConflictOperation = { status: "idle" }
+    if (conflictRecoveryState.status === "working") {
+      operation = {
+        status: "running",
+        action:
+          conflictRecoveryState.action === "save_copy" ? "save_copy" : "reload",
+        identity: conflict
+          ? {
+              conflictId: conflict.conflictId,
+              candidateDraftSnapshotId: conflict.candidateDraftSnapshotId,
+            }
+          : null,
+        message:
+          conflictRecoveryState.action === "save_copy"
+            ? "Saving the preserved version as a new document…"
+            : conflictRecoveryState.action === "materialize"
+              ? "Preserving the open version…"
+              : "Loading the saved version…",
+      }
+    } else if (conflictRecoveryState.status === "failed") {
+      const safeFailureMessage =
+        conflictRecoveryState.action === "save_copy" &&
+        conflictRecoveryState.createdDocumentId
+          ? "The copy is saved. Open it to continue editing on its canonical route."
+          : conflictRecoveryState.action === "save_copy"
+            ? "Studio could not save the copy. Your preserved version is still available."
+            : conflictRecoveryState.action === "discover"
+              ? "Studio could not verify the stored recovery information."
+              : "Studio could not load the saved version. Your preserved version is still available."
+      operation = {
+        status: "failed",
+        action:
+          conflictRecoveryState.action === "save_copy" ? "save_copy" : "reload",
+        identity: conflict
+          ? {
+              conflictId: conflict.conflictId,
+              candidateDraftSnapshotId: conflict.candidateDraftSnapshotId,
+            }
+          : null,
+        message: safeFailureMessage,
+        retryable: conflictRecoveryState.retryable,
+        createdDocumentId: conflictRecoveryState.createdDocumentId,
+      }
+    }
+    return projectDocumentConflictModel({
+      documentId: recoveryDocumentId,
+      documentName: recoveryDocumentName,
+      saveState: localSaveState,
+      verifiedConflicts: conflict ? [conflict] : [],
+      discoveryFailure:
+        conflictRecoveryState.status === "failed" &&
+        conflictRecoveryState.action === "discover"
+          ? {
+              kind: "storage_unavailable",
+              message: conflictRecoveryState.message,
+            }
+          : null,
+      operation,
+    })
+  }, [
+    conflictFromRecoveryState,
+    conflictRecoveryState,
+    history.document.id,
+    history.document.name,
+    localSaveState,
+  ])
+
   return {
     sessionMode,
     routeSessionStatus,
@@ -4688,6 +5690,8 @@ export function useDocumentEditor({
     selectedNodes,
     selectedGroupId,
     localSaveState,
+    conflictRecoveryState,
+    conflictRecoveryModel,
     repositoryLifecycle,
     canUndo: !pendingChangeSet && history.past.length > 0,
     canRedo: !pendingChangeSet && history.future.length > 0,
@@ -4813,6 +5817,11 @@ export function useDocumentEditor({
     getActiveDocumentId,
     getCurrentDocumentSnapshot,
     retryActiveDraftSave,
+    discoverDocumentConflict,
+    materializeExternalChangeConflict,
+    reloadSavedAfterConflict,
+    saveConflictAsCopy,
+    returnToDocumentsFromConflictRecovery,
     returnToStart,
     downloadDraftRecovery,
     downloadCurrentVersion,

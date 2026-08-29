@@ -253,6 +253,7 @@ export type SaveConflictAsCopyInput = Readonly<{
   expectedCandidateDraftSnapshotId: string
   newDocumentId: string
   name?: string
+  copySnapshot?: CurrentDraftSnapshot
 }>
 
 export type SaveConflictAsCopyResult =
@@ -287,6 +288,26 @@ export type SaveConflictAsCopyResult =
       ok: false
       reason: "corrupt_record"
       failure: DraftRepositoryFailure
+    }>
+
+export type DocumentDraftHeadExpectation =
+  | Readonly<{ status: "missing" }>
+  | Readonly<{
+      status: "found"
+      recordVersion: number
+      contentSnapshotId: string
+      draftSnapshotId: string
+      deletedAt: string | null
+    }>
+
+export type ResolveDocumentDraftConflictResult =
+  | DraftValueResult<DocumentDraftConflict>
+  | Readonly<{
+      ok: false
+      reason: "head_changed"
+      current:
+        | Readonly<{ status: "missing" }>
+        | Readonly<{ status: "found"; record: DocumentDraftRecord }>
     }>
 
 export type DraftRepositoryFailure = Readonly<{
@@ -2231,7 +2252,9 @@ export class DocumentDraftRepository {
       !validRequiredString(candidate.conflictId) ||
       !validSnapshotId(candidate.expectedCandidateDraftSnapshotId) ||
       !validRequiredString(candidate.newDocumentId) ||
-      (candidate.name !== undefined && typeof candidate.name !== "string")
+      (candidate.name !== undefined && typeof candidate.name !== "string") ||
+      (candidate.copySnapshot !== undefined &&
+        !isRecord(candidate.copySnapshot))
     ) {
       return {
         ok: false,
@@ -2341,19 +2364,45 @@ export class DocumentDraftRepository {
     let copySummary: DocumentDraftSummary | null = null
     if (preflightConflict.resolvedAt === null) {
       now = this.#now()
+      const copySource =
+        input.copySnapshot === undefined
+          ? snapshotForEnvelope(candidateAdmission.envelope)
+          : input.copySnapshot
+      const copySourceAdmission = await prepareDraftAdmission(copySource)
+      if (!copySourceAdmission.ok) {
+        return {
+          ok: false,
+          reason: "validation_failed",
+          failure: admissionFailure(copySourceAdmission),
+        }
+      }
+      if (
+        copySourceAdmission.envelope.document.id !==
+        preflightConflict.documentId
+      ) {
+        return {
+          ok: false,
+          reason: "validation_failed",
+          failure: {
+            kind: "validation_failed",
+            message:
+              "The live conflict copy must belong to the conflicted document.",
+          },
+        }
+      }
       const copySnapshot: CurrentDraftSnapshot = {
         document: {
-          ...structuredClone(candidateAdmission.envelope.document),
+          ...structuredClone(copySourceAdmission.envelope.document),
           id: newDocumentId,
           name:
             requestedName?.trim() ||
-            `${candidateAdmission.envelope.document.name} copy`,
+            `${copySourceAdmission.envelope.document.name} copy`,
           revision: 0,
           createdAt: now,
           updatedAt: now,
         },
         sourceContext: structuredClone(
-          candidateAdmission.envelope.sourceContext
+          copySourceAdmission.envelope.sourceContext
         ),
       }
       const preparedCopy = await prepareDraftAdmission(copySnapshot)
@@ -3729,8 +3778,34 @@ export class DocumentDraftRepository {
 
   async resolveConflict(
     conflictId: string,
-    resolution: "reload_saved" | "save_copy"
-  ): Promise<DraftValueResult<DocumentDraftConflict>> {
+    resolution: "reload_saved" | "save_copy",
+    expectedCandidateDraftSnapshotId: string,
+    expectedHead: DocumentDraftHeadExpectation
+  ): Promise<ResolveDocumentDraftConflictResult> {
+    const expectedHeadCandidate: unknown = expectedHead
+    const validExpectedHead =
+      isRecord(expectedHeadCandidate) &&
+      (expectedHeadCandidate.status === "missing" ||
+        (expectedHeadCandidate.status === "found" &&
+          validPositiveInteger(expectedHeadCandidate.recordVersion) &&
+          validSnapshotId(expectedHeadCandidate.contentSnapshotId) &&
+          validSnapshotId(expectedHeadCandidate.draftSnapshotId) &&
+          (expectedHeadCandidate.deletedAt === null ||
+            validTimestamp(expectedHeadCandidate.deletedAt))))
+    if (
+      !validSnapshotId(expectedCandidateDraftSnapshotId) ||
+      !validExpectedHead
+    ) {
+      return {
+        ok: false,
+        reason: "validation_failed",
+        failure: {
+          kind: "validation_failed",
+          message:
+            "The expected conflict candidate and exact saved document head are required to resolve a conflict.",
+        },
+      }
+    }
     if (resolution !== "reload_saved") {
       return {
         ok: false,
@@ -3745,7 +3820,10 @@ export class DocumentDraftRepository {
     let database: IDBDatabase | null = null
     try {
       database = await this.#open()
-      const transaction = database.transaction(CONFLICT_STORE, "readwrite")
+      const transaction = database.transaction(
+        [CONFLICT_STORE, BODY_STORE, METADATA_STORE],
+        "readwrite"
+      )
       const done = transactionDone(transaction)
       const conflicts = transaction.objectStore(CONFLICT_STORE)
       const raw = await requestResult(conflicts.get(conflictId))
@@ -3754,8 +3832,85 @@ export class DocumentDraftRepository {
         await done
         return { ok: false, reason: "missing" }
       }
+      const [currentBody, currentSummary] = await Promise.all([
+        requestResult(
+          transaction.objectStore(BODY_STORE).get(conflict.documentId)
+        ),
+        requestResult(
+          transaction.objectStore(METADATA_STORE).get(conflict.documentId)
+        ),
+      ])
+      if (
+        conflict.candidateDraftSnapshotId !== expectedCandidateDraftSnapshotId
+      ) {
+        await done
+        return {
+          ok: false,
+          reason: "validation_failed",
+          failure: {
+            kind: "validation_failed",
+            message:
+              "A newer preserved conflict candidate replaced this recovery action.",
+          },
+        }
+      }
+      const currentMissing =
+        currentBody === undefined && currentSummary === undefined
+      const parsedBody = parseBody(currentBody)
+      const parsedSummary = parseSummary(currentSummary)
+      const currentPairValid =
+        parsedBody !== null &&
+        parsedSummary !== null &&
+        pairMatches(parsedBody, parsedSummary)
+      const headMatches =
+        expectedHead.status === "missing"
+          ? currentMissing
+          : currentPairValid &&
+            parsedSummary.recordVersion === expectedHead.recordVersion &&
+            parsedSummary.contentSnapshotId ===
+              expectedHead.contentSnapshotId &&
+            parsedSummary.draftSnapshotId === expectedHead.draftSnapshotId &&
+            parsedSummary.deletedAt === expectedHead.deletedAt
+      if (!headMatches) {
+        await done
+        if (currentMissing) {
+          return {
+            ok: false,
+            reason: "head_changed",
+            current: { status: "missing" },
+          }
+        }
+        const current = await verifiedRecordForPair(currentBody, currentSummary)
+        if (!current) {
+          return {
+            ok: false,
+            reason: "corrupt_record",
+            failure: {
+              kind: "corrupt_record",
+              message:
+                "The saved document changed to a head that failed its integrity check.",
+            },
+          }
+        }
+        return {
+          ok: false,
+          reason: "head_changed",
+          current: { status: "found", record: current },
+        }
+      }
       if (conflict.resolvedAt !== null) {
         await done
+        if (conflict.resolution !== resolution) {
+          return {
+            ok: false,
+            reason: "validation_failed",
+            failure: {
+              kind: "validation_failed",
+              message:
+                "This conflict was already resolved with a different recovery action.",
+            },
+          }
+        }
         return { ok: true, value: conflict }
       }
       const resolved: DocumentDraftConflict = {

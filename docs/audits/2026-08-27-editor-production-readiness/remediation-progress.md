@@ -1363,7 +1363,7 @@ Open evidence and next boundary:
 
 ## 2026-08-28 — Routed document library and conflict recovery (PERSIST-01B)
 
-Status: **repository closure, persistence ownership/layout cutover, visible Recent/Trash library, exact-ID opening, and canonical document routes independently approved; routed conflict/recovery UI remains open**
+Status: **repository closure, persistence ownership/layout cutover, visible Recent/Trash library, exact-ID opening, canonical document routes, and routed conflict/recovery UI independently approved; PERSIST-01C previews remain open**
 
 Phase-entry evidence:
 
@@ -1453,4 +1453,28 @@ Canonical document route evidence:
 
 Open evidence and next boundary:
 
-- Persistent conflict/external-change recovery actions, PERSIST-01C durable preview production/loading, and healthy-browser Back/Forward, compact, keyboard, two-tab IndexedDB, blocked-upgrade, quota, navigation, and shutdown acceptance remain open. Browser acceptance is not claimed by the code gate.
+- PERSIST-01C durable preview production/loading and healthy-browser compact,
+  keyboard, two-tab IndexedDB, blocked-upgrade, quota, navigation, and shutdown
+  acceptance remain open. Browser acceptance is not claimed by the code gate.
+
+Routed conflict/external-change recovery evidence:
+
+- Added route-entry unresolved-candidate discovery and one persistent recovery
+  model/dialog for stale write, delete elsewhere, quarantine, migration
+  collision, and storage failure. Download, Reload saved, Save as copy, Open
+  saved copy, and Return to Documents share one synchronous operation owner;
+  dialog dismissal cannot erase recovery state.
+- Reload installs an admitted durable record into a fresh history/controller
+  session before resolution. Resolution requires the exact conflict candidate
+  snapshot and exact durable body/metadata head in one IndexedDB transaction;
+  a changed head remains unresolved and is fed through a bounded reinstall
+  loop.
+- Save as copy remains atomic and replayable. A rediscovered conflict copies
+  its exact stored candidate; a live controller conflict synchronously captures
+  the newest canonical document/source context so a pending edit behind the
+  failed save cannot be lost.
+- Independent review rejected the first candidate for the pending-edit copy
+  race and the final-read reload race. Deterministic regressions now reproduce
+  both. The re-review verdict is **ACCEPT with no remaining P0/P1 finding**.
+- The final focused gate passes **125/125 across four files**. Studio typecheck,
+  scoped production ESLint, Prettier, and `git diff --check` pass.

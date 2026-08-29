@@ -489,6 +489,63 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     return result.record
   }
 
+  const seedStoredStaleConflict = async (suffix: string) => {
+    const envelope = designEnvelope()
+    const draftRepository = repository(`stored-conflict-${suffix}`)
+    const created = await draftRepository.create(
+      {
+        document: envelope.document,
+        sourceContext: envelope.sourceContext,
+      },
+      {
+        kind: "template",
+        templateId: "editorial-one-pager",
+        templateVersion: 1,
+      }
+    )
+    if (!created.ok) throw new Error("Expected conflict fixture creation")
+    const durableDocument = {
+      ...envelope.document,
+      name: "Durable external head",
+      revision: envelope.document.revision + 1,
+      updatedAt: "2026-08-28T21:01:00.000Z",
+    }
+    const durable = await draftRepository.save(
+      {
+        document: durableDocument,
+        sourceContext: envelope.sourceContext,
+      },
+      created.record.summary.recordVersion,
+      created.record.summary.draftSnapshotId
+    )
+    if (!durable.ok) throw new Error("Expected external durable save")
+    const candidateDocument = {
+      ...envelope.document,
+      name: "Preserved local candidate",
+      revision: envelope.document.revision + 2,
+      updatedAt: "2026-08-28T21:02:00.000Z",
+    }
+    const stale = await repository(`stored-conflict-writer-${suffix}`).save(
+      {
+        document: candidateDocument,
+        sourceContext: envelope.sourceContext,
+      },
+      created.record.summary.recordVersion,
+      created.record.summary.draftSnapshotId
+    )
+    expect(stale).toMatchObject({ ok: false, reason: "conflict" })
+    if (stale.ok || stale.reason !== "conflict") {
+      throw new Error("Expected stored stale conflict")
+    }
+    return {
+      candidateDocument,
+      conflict: stale.conflict,
+      draftRepository,
+      durable: durable.record,
+      envelope,
+    }
+  }
+
   it("installs an admitted route record before exposing a workspace session", async () => {
     const draftRepository = repository("route-admitted")
     const envelope = quotationEnvelope()
@@ -515,6 +572,280 @@ describe.sequential("useDocumentEditor repository persistence", () => {
       created.record.summary.documentId
     )
     expect(captured.current?.localSaveState.status).toBe("saved")
+  })
+
+  it("rediscovers the exact unresolved candidate before a routed session becomes ready", async () => {
+    const seeded = await seedStoredStaleConflict("route-reload")
+    const captured = await mount(() => seeded.draftRepository, seeded.durable)
+
+    await vi.waitFor(() => {
+      expect(captured.current?.routeSessionStatus).toBe("ready")
+      expect(captured.current?.conflictRecoveryState).toMatchObject({
+        status: "conflict",
+        documentId: seeded.envelope.document.id,
+        conflict: {
+          conflictId: seeded.conflict.conflictId,
+          candidateDraftSnapshotId: seeded.conflict.candidateDraftSnapshotId,
+        },
+      })
+    })
+    expect(captured.current?.document.name).toBe("Durable external head")
+    expect(captured.current?.localSaveState).toEqual({
+      status: "conflict",
+      conflictId: seeded.conflict.conflictId,
+      reason: "stale_write",
+    })
+
+    const download = captureDownload()
+    await act(async () => {
+      expect(captured.current?.downloadCurrentVersion()).toBe(true)
+    })
+    await settleEffects(0)
+    expect(await download.text()).toBe(
+      JSON.stringify(
+        { schemaVersion: 1, ...seeded.conflict.candidate },
+        null,
+        2
+      )
+    )
+  })
+
+  it("reloads the durable head through a fresh session before resolving the exact conflict", async () => {
+    const seeded = await seedStoredStaleConflict("reload-saved")
+    const captured = await mount(() => seeded.draftRepository, seeded.durable)
+    await vi.waitFor(() => {
+      expect(captured.current?.routeSessionStatus).toBe("ready")
+      expect(captured.current?.conflictRecoveryState.status).toBe("conflict")
+    })
+
+    let result: Awaited<ReturnType<Editor["reloadSavedAfterConflict"]>> | null =
+      null
+    await act(async () => {
+      result = await captured.current!.reloadSavedAfterConflict()
+    })
+
+    expect(result).toEqual({ ok: true, destination: "document" })
+    expect(captured.current?.document).toEqual(seeded.durable.envelope.document)
+    expect(captured.current?.canUndo).toBe(false)
+    expect(captured.current?.conflictRecoveryState).toEqual({
+      status: "inactive",
+    })
+    expect(captured.current?.localSaveState.status).toBe("saved")
+    const conflicts = await seeded.draftRepository.listConflicts(
+      seeded.envelope.document.id
+    )
+    expect(conflicts).toMatchObject({
+      ok: true,
+      value: [
+        {
+          conflictId: seeded.conflict.conflictId,
+          resolution: "reload_saved",
+          resolvedAt: expect.any(String),
+        },
+      ],
+    })
+  })
+
+  it("saves the exact stored candidate as an atomic copy and installs that returned record", async () => {
+    const seeded = await seedStoredStaleConflict("save-copy")
+    const captured = await mount(() => seeded.draftRepository, seeded.durable)
+    await vi.waitFor(() => {
+      expect(captured.current?.routeSessionStatus).toBe("ready")
+      expect(captured.current?.conflictRecoveryState.status).toBe("conflict")
+    })
+
+    let result: Awaited<ReturnType<Editor["saveConflictAsCopy"]>> | null = null
+    await act(async () => {
+      result = await captured.current!.saveConflictAsCopy()
+    })
+
+    const completed = result as unknown as Awaited<
+      ReturnType<Editor["saveConflictAsCopy"]>
+    >
+    expect(completed).toMatchObject({
+      ok: true,
+      documentId: expect.any(String),
+    })
+    if (!completed.ok) throw new Error("Expected conflict copy")
+    expect(completed.documentId).not.toBe(seeded.envelope.document.id)
+    expect(captured.current?.document.id).toBe(completed.documentId)
+    expect(captured.current?.document.name).toBe(
+      `${seeded.candidateDocument.name} copy`
+    )
+    expect(captured.current?.conflictRecoveryState).toMatchObject({
+      status: "failed",
+      documentId: seeded.envelope.document.id,
+      action: "save_copy",
+      createdDocumentId: completed.documentId,
+      conflict: {
+        conflictId: seeded.conflict.conflictId,
+        candidateDraftSnapshotId: seeded.conflict.candidateDraftSnapshotId,
+      },
+    })
+    expect(captured.current?.conflictRecoveryModel).toMatchObject({
+      status: "conflict",
+      documentId: seeded.envelope.document.id,
+      documentName: seeded.candidateDocument.name,
+      operation: {
+        status: "failed",
+        action: "save_copy",
+        createdDocumentId: completed.documentId,
+      },
+    })
+    const copy = await readRecord(seeded.draftRepository, completed.documentId)
+    expect(copy.summary.origin).toEqual({
+      kind: "duplicate",
+      sourceDocumentId: seeded.envelope.document.id,
+    })
+    const conflicts = await seeded.draftRepository.listConflicts(
+      seeded.envelope.document.id
+    )
+    expect(conflicts).toMatchObject({
+      ok: true,
+      value: [
+        {
+          conflictId: seeded.conflict.conflictId,
+          resolution: "save_copy",
+          resolutionDocumentId: completed.documentId,
+        },
+      ],
+    })
+  })
+
+  it("saves the newest live edit as a copy when another edit is pending behind the conflicted save", async () => {
+    const envelope = designEnvelope()
+    const { captured, created, hookRepository } = await openEnvelope(
+      envelope,
+      "save-copy-pending-edit"
+    )
+    const originalSave = hookRepository.save.bind(hookRepository)
+    let releaseSave: (() => void) | null = null
+    const saveGate = new Promise<void>((resolve) => {
+      releaseSave = resolve
+    })
+    let saveStarted = false
+    vi.spyOn(hookRepository, "save").mockImplementation(
+      async (...arguments_) => {
+        saveStarted = true
+        await saveGate
+        return originalSave(...arguments_)
+      }
+    )
+
+    await act(async () => {
+      captured.current?.addRectangle()
+    })
+    let flushPromise = Promise.resolve(true)
+    await act(async () => {
+      flushPromise = captured.current!.flushActiveDraft()
+      await vi.waitFor(() => expect(saveStarted).toBe(true))
+    })
+
+    const externalDocument = {
+      ...envelope.document,
+      name: "Durable external head",
+      revision: envelope.document.revision + 1,
+      updatedAt: "2026-08-29T02:00:00.000Z",
+    }
+    const external = await originalSave(
+      {
+        document: externalDocument,
+        sourceContext: envelope.sourceContext,
+      },
+      created.summary.recordVersion,
+      created.summary.draftSnapshotId
+    )
+    expect(external).toMatchObject({ ok: true })
+
+    await act(async () => {
+      captured.current?.addRectangle()
+    })
+    const newestLiveEnvelope = currentEnvelope(captured.current!)
+    expect(
+      newestLiveEnvelope.document.nodes.filter(
+        (node) => node.type === "rect" && node.name === "Rectangle"
+      )
+    ).toHaveLength(2)
+
+    await act(async () => {
+      releaseSave?.()
+      expect(await flushPromise).toBe(false)
+    })
+    await vi.waitFor(() => {
+      expect(captured.current?.conflictRecoveryState.status).toBe("conflict")
+    })
+
+    let copiedResult: Awaited<ReturnType<Editor["saveConflictAsCopy"]>> | null =
+      null
+    await act(async () => {
+      copiedResult = await captured.current!.saveConflictAsCopy()
+    })
+    const completed = copiedResult as unknown as Awaited<
+      ReturnType<Editor["saveConflictAsCopy"]>
+    >
+    expect(completed).toMatchObject({ ok: true })
+    if (!completed.ok) throw new Error("Expected the live conflict copy")
+    const copy = await readRecord(hookRepository, completed.documentId)
+    expect(copy.envelope.document.nodes).toEqual(
+      newestLiveEnvelope.document.nodes
+    )
+    expect(copy.envelope.sourceContext).toEqual(
+      newestLiveEnvelope.sourceContext
+    )
+  })
+
+  it("retries reload against the exact newer durable head before resolving", async () => {
+    const seeded = await seedStoredStaleConflict("reload-head-race")
+    const captured = await mount(() => seeded.draftRepository, seeded.durable)
+    await vi.waitFor(() => {
+      expect(captured.current?.conflictRecoveryState.status).toBe("conflict")
+    })
+    const originalResolve = seeded.draftRepository.resolveConflict.bind(
+      seeded.draftRepository
+    )
+    const originalSave = seeded.draftRepository.save.bind(
+      seeded.draftRepository
+    )
+    let injected = false
+    vi.spyOn(seeded.draftRepository, "resolveConflict").mockImplementation(
+      async (...arguments_) => {
+        if (!injected) {
+          injected = true
+          const current = await readRecord(
+            seeded.draftRepository,
+            seeded.envelope.document.id
+          )
+          const newer = await originalSave(
+            {
+              document: {
+                ...current.envelope.document,
+                name: "Newest durable head",
+                revision: current.envelope.document.revision + 1,
+                updatedAt: "2026-08-29T02:01:00.000Z",
+              },
+              sourceContext: current.envelope.sourceContext,
+            },
+            current.summary.recordVersion,
+            current.summary.draftSnapshotId
+          )
+          if (!newer.ok) throw new Error("Expected the injected newer head")
+        }
+        return originalResolve(...arguments_)
+      }
+    )
+
+    let result: Awaited<ReturnType<Editor["reloadSavedAfterConflict"]>> | null =
+      null
+    await act(async () => {
+      result = await captured.current!.reloadSavedAfterConflict()
+    })
+
+    expect(result).toEqual({ ok: true, destination: "document" })
+    expect(injected).toBe(true)
+    expect(captured.current?.document.name).toBe("Newest durable head")
+    expect(captured.current?.conflictRecoveryState).toEqual({
+      status: "inactive",
+    })
   })
 
   it("keeps an empty repository on Start and never persists the private bootstrap", async () => {
@@ -1542,7 +1873,10 @@ describe.sequential("useDocumentEditor repository persistence", () => {
             }
           : {
               status: "external_change",
-              reason: "deleted_elsewhere",
+              reason:
+                eventType === "quarantined"
+                  ? "quarantined_elsewhere"
+                  : "deleted_elsewhere",
               observedRecordVersion:
                 eventType === "deleted"
                   ? target.record.summary.recordVersion + 1
@@ -3169,7 +3503,7 @@ describe.sequential("useDocumentEditor repository persistence", () => {
 
     expect(captured.current?.localSaveState).toEqual({
       status: "external_change",
-      reason: "deleted_elsewhere",
+      reason: "quarantined_elsewhere",
       observedRecordVersion: created.record.summary.recordVersion,
     })
     expect(captured.current?.documentError).toContain("quarantined")
@@ -3222,6 +3556,14 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     await act(async () => {
       captured.current?.addRectangle()
     })
+    const afterFirstExternalEdit = captured.current?.document.nodes.length
+    await act(async () => {
+      captured.current?.addEllipse()
+    })
+    expect(captured.current?.document.nodes.length).toBe(afterFirstExternalEdit)
+    expect(captured.current?.documentError).toContain(
+      "Resolve the saved-version conflict"
+    )
     await act(async () => {
       expect(await captured.current!.flushActiveDraft()).toBe(false)
     })
@@ -3242,6 +3584,58 @@ describe.sequential("useDocumentEditor repository persistence", () => {
           candidate: {
             document: { id: envelope.document.id },
           },
+        },
+      ],
+    })
+  })
+
+  it("materializes an unchanged external-change branch through the authoritative stale CAS", async () => {
+    const envelope = designEnvelope()
+    const { captured, created, hookRepository } = await openEnvelope(
+      envelope,
+      "foreign-save-materialize"
+    )
+    const otherTab = repository("foreign-save-materialize-other-tab")
+    const external = await otherTab.save(
+      {
+        document: {
+          ...envelope.document,
+          name: "Foreign head before explicit preservation",
+          revision: envelope.document.revision + 1,
+          updatedAt: "2026-08-28T21:04:00.000Z",
+        },
+        sourceContext: envelope.sourceContext,
+      },
+      created.summary.recordVersion,
+      created.summary.draftSnapshotId
+    )
+    if (!external.ok) throw new Error("Expected external save")
+    await vi.waitFor(() => {
+      expect(captured.current?.localSaveState.status).toBe("external_change")
+    })
+
+    await act(async () => {
+      expect(await captured.current!.materializeExternalChangeConflict()).toBe(
+        true
+      )
+    })
+
+    expect(captured.current?.conflictRecoveryState).toMatchObject({
+      status: "conflict",
+      conflict: {
+        reason: "stale_write",
+        candidate: { document: envelope.document },
+      },
+    })
+    const conflicts = await hookRepository.listConflicts(envelope.document.id)
+    expect(conflicts).toMatchObject({
+      ok: true,
+      value: [
+        {
+          reason: "stale_write",
+          expectedRecordVersion: created.summary.recordVersion,
+          observedRecordVersion: external.record.summary.recordVersion,
+          candidate: { document: envelope.document },
         },
       ],
     })

@@ -267,6 +267,14 @@ const unwrapFound = (result: DocumentDraftReadResult): DocumentDraftRecord => {
   return result.record
 }
 
+const expectedHeadFor = (record: DocumentDraftRecord) => ({
+  status: "found" as const,
+  recordVersion: record.summary.recordVersion,
+  contentSnapshotId: record.summary.contentSnapshotId,
+  draftSnapshotId: record.summary.draftSnapshotId,
+  deletedAt: record.summary.deletedAt,
+})
+
 const unwrapList = (result: DraftListResult) => {
   if (!result.ok)
     throw new Error(`Expected a draft list: ${result.failure.message}`)
@@ -807,10 +815,15 @@ describe("DocumentDraftRepository", () => {
     expect(
       conflicts.map((conflict) => conflict.candidate.document.name).sort()
     ).toEqual(["Latest stale candidate", "Other tab candidate"])
+    const currentHead = expectedHeadFor(
+      unwrapFound(await tabA.get(initial.document.id))
+    )
 
     const resolved = await tabA.resolveConflict(
       conflicts[0].conflictId,
-      "reload_saved"
+      "reload_saved",
+      conflicts[0].candidateDraftSnapshotId,
+      currentHead
     )
     expect(resolved).toMatchObject({
       ok: true,
@@ -821,7 +834,12 @@ describe("DocumentDraftRepository", () => {
       },
     })
     expect(
-      await tabA.resolveConflict("missing-conflict", "reload_saved")
+      await tabA.resolveConflict(
+        "missing-conflict",
+        "reload_saved",
+        conflicts[0].candidateDraftSnapshotId,
+        currentHead
+      )
     ).toEqual({ ok: false, reason: "missing" })
     expect(unwrapFound(await tabA.get(initial.document.id)).summary.name).toBe(
       "Committed"
@@ -1282,6 +1300,9 @@ describe("DocumentDraftRepository", () => {
       initial,
       snapshotWith(initial, { name: "Reload candidate" })
     )
+    const currentHead = expectedHeadFor(
+      unwrapFound(await repository.get(initial.document.id))
+    )
     const unresolvedBytes = await readStoreValue(
       databaseName,
       "draft-conflicts",
@@ -1291,7 +1312,12 @@ describe("DocumentDraftRepository", () => {
     repository.subscribe((event) => events.push(event))
 
     expect(
-      await repository.resolveConflict(conflict.conflictId, "save_copy")
+      await repository.resolveConflict(
+        conflict.conflictId,
+        "save_copy",
+        conflict.candidateDraftSnapshotId,
+        currentHead
+      )
     ).toEqual({
       ok: false,
       reason: "validation_failed",
@@ -1306,9 +1332,32 @@ describe("DocumentDraftRepository", () => {
     ).toEqual(unresolvedBytes)
     expect(events).toEqual([])
 
+    expect(
+      await repository.resolveConflict(
+        conflict.conflictId,
+        "reload_saved",
+        `sha256-${"f".repeat(64)}`,
+        currentHead
+      )
+    ).toEqual({
+      ok: false,
+      reason: "validation_failed",
+      failure: {
+        kind: "validation_failed",
+        message:
+          "A newer preserved conflict candidate replaced this recovery action.",
+      },
+    })
+    expect(
+      await readStoreValue(databaseName, "draft-conflicts", conflict.conflictId)
+    ).toEqual(unresolvedBytes)
+    expect(events).toEqual([])
+
     const resolved = await repository.resolveConflict(
       conflict.conflictId,
-      "reload_saved"
+      "reload_saved",
+      conflict.candidateDraftSnapshotId,
+      currentHead
     )
     expect(resolved).toMatchObject({
       ok: true,
@@ -2011,6 +2060,58 @@ describe("DocumentDraftRepository", () => {
         sessionId: repository.sessionId,
       },
     ])
+  })
+
+  it("keeps a conflict unresolved when the durable head changes before reload resolution", async () => {
+    const initial = snapshot()
+    const { repository } = createRepository(
+      [
+        "2026-08-29T02:10:00.000Z",
+        "2026-08-29T02:11:00.000Z",
+        "2026-08-29T02:12:00.000Z",
+        "2026-08-29T02:13:00.000Z",
+      ],
+      { sessionId: "reload-race-owner" }
+    )
+    const { committed, conflict } = await establishStaleConflict(
+      repository,
+      initial,
+      snapshotWith(initial, { name: "Preserved reload candidate" })
+    )
+    const staleExpectedHead = expectedHeadFor(committed.record)
+    const newer = await repository.save(
+      snapshotWith(initial, { name: "Newest durable head", revision: 3 }),
+      committed.record.summary.recordVersion,
+      committed.record.summary.draftSnapshotId
+    )
+    if (!newer.ok) throw new Error("Expected a newer durable head")
+    const events: DraftRepositoryEvent[] = []
+    repository.subscribe((event) => events.push(event))
+
+    const resolved = await repository.resolveConflict(
+      conflict.conflictId,
+      "reload_saved",
+      conflict.candidateDraftSnapshotId,
+      staleExpectedHead
+    )
+
+    expect(resolved).toEqual({
+      ok: false,
+      reason: "head_changed",
+      current: { status: "found", record: newer.record },
+    })
+    expect(events).toEqual([])
+    const conflicts = await repository.listConflicts(initial.document.id)
+    expect(conflicts).toMatchObject({
+      ok: true,
+      value: [
+        {
+          conflictId: conflict.conflictId,
+          resolvedAt: null,
+          resolution: null,
+        },
+      ],
+    })
   })
 
   it("does not let corrupt equal-timestamp rows consume healthy limits or duplicate cursor results", async () => {

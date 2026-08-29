@@ -10,14 +10,14 @@ export type LocalSaveState =
   | Readonly<{ status: "saving"; expectedRecordVersion: number }>
   | Readonly<{
       status: "external_change"
-      reason: "saved_elsewhere" | "deleted_elsewhere"
+      reason: "saved_elsewhere" | "deleted_elsewhere" | "quarantined_elsewhere"
       observedRecordVersion: number
     }>
   | Readonly<{ status: "failed"; message: string; retryable: boolean }>
   | Readonly<{
       status: "conflict"
       conflictId: string
-      reason: "stale_write" | "deleted_elsewhere"
+      reason: "stale_write" | "deleted_elsewhere" | "migration_collision"
     }>
   | Readonly<{ status: "session_only"; message: string }>
 

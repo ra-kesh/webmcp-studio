@@ -143,6 +143,7 @@ import { useRecentDocumentsVisibility } from "./editor/recent-documents-provider
 import { ReplaceCurrentDraftDialog } from "./editor/replace-current-draft-dialog"
 import { EmptyCanvasActions } from "./editor/empty-canvas-actions"
 import { DraftRecoveryDialog } from "./editor/draft-recovery-dialog"
+import { DocumentConflictDialog } from "./editor/document-conflict-dialog"
 import { PublishDialog } from "./editor/publish-dialog"
 import { FabricArtboard } from "./editor/fabric-artboard"
 import type {
@@ -556,7 +557,7 @@ export function StudioShell({
     createStudioPageThumbnailRasterProducer({
       getSnapshot: () => pageThumbnailSnapshotRef.current,
     }))
-  const pageThumbnailRaster = useMemo(
+  const rendererBackedPageThumbnailRaster = useMemo(
     () => ({
       canonicalDocument: editor.canonicalPreviewDocument,
       documentSnapshotId: pageThumbnailSnapshotId,
@@ -569,6 +570,12 @@ export function StudioShell({
       pageThumbnailSnapshotId,
     ]
   )
+  // The local renderer intentionally has no Browser Rendering binding. In dev,
+  // filmstrip pages use the same live Artboard fallback as local-only images;
+  // deployed builds retain renderer-backed, identity-checked PNG thumbnails.
+  const pageThumbnailRaster = import.meta.env.DEV
+    ? undefined
+    : rendererBackedPageThumbnailRaster
   const publishedVersion =
     editor.publishSyncStatus === "synced"
       ? editor.latestPublishedVersion
@@ -1064,6 +1071,54 @@ export function StudioShell({
       }
     )
   }, [editor.getActiveDocumentId, focusWorkspace, onSessionOpened])
+
+  const reloadSavedDocument = useCallback(async () => {
+    if (editor.imageCropSession || editor.pendingChangeSet) {
+      setCriticalActionError(
+        "Finish or cancel the active crop or review before recovering this document."
+      )
+      return
+    }
+    if (!commitActiveTextEditing()) return
+    const result = await editor.reloadSavedAfterConflict()
+    if (!result.ok) return
+    if (result.destination === "home") {
+      if (onHome) await onHome()
+      return
+    }
+    focusWorkspace()
+  }, [
+    commitActiveTextEditing,
+    editor.imageCropSession,
+    editor.pendingChangeSet,
+    editor.reloadSavedAfterConflict,
+    focusWorkspace,
+    onHome,
+  ])
+
+  const saveRecoveredDocumentAsCopy = useCallback(async () => {
+    if (editor.imageCropSession || editor.pendingChangeSet) {
+      setCriticalActionError(
+        "Finish or cancel the active crop or review before preserving this document."
+      )
+      return
+    }
+    if (!commitActiveTextEditing()) return
+    const result = await editor.saveConflictAsCopy()
+    if (!result.ok) return
+    finishOpenedSession()
+  }, [
+    commitActiveTextEditing,
+    editor.imageCropSession,
+    editor.pendingChangeSet,
+    editor.saveConflictAsCopy,
+    finishOpenedSession,
+  ])
+
+  const returnToDocumentsFromConflictRecovery = useCallback(async () => {
+    if (!editor.returnToDocumentsFromConflictRecovery()) return
+    if (onHome) await onHome()
+  }, [editor.returnToDocumentsFromConflictRecovery, onHome])
 
   const routedFocusHandledRef = useRef<string | null>(null)
   useEffect(() => {
@@ -3859,6 +3914,18 @@ export function StudioShell({
             cancelActiveTextEditing()
             editor.resetDraftRecovery()
           }}
+        />
+        <DocumentConflictDialog
+          model={editor.conflictRecoveryModel}
+          onDownload={() => {
+            if (commitActiveTextEditing()) {
+              return editor.downloadCurrentVersion()
+            }
+            return false
+          }}
+          onReload={reloadSavedDocument}
+          onReturnHome={returnToDocumentsFromConflictRecovery}
+          onSaveCopy={saveRecoveredDocumentAsCopy}
         />
         <ReplaceCurrentDraftDialog
           documentName={editor.document.name}
