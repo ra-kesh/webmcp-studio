@@ -8,11 +8,13 @@ import {
   acceptImageSourceStateChange,
   applyImageCropModeOrReport,
   canvasRuntimeFailureMessage,
+  canvasDocumentFontRequests,
   createCanvasRuntimeState,
   describeInteractiveCanvas,
   projectCropPreviewMaskShape,
   reduceCanvasRuntimeState,
   settleCanvasInteractivity,
+  waitForCanvasDocumentFonts,
 } from "./fabric-artboard"
 
 const imageFixture = renderConformanceDocument.nodes.find(
@@ -25,6 +27,44 @@ if (imageFixture?.type !== "image") {
 }
 
 describe("FabricArtboard crop preview", () => {
+  it("loads every visible page font before Fabric measures its text", async () => {
+    const load = vi.fn(() => Promise.resolve([{} as FontFace]))
+    const check = vi.fn(() => true)
+    const ready = Promise.resolve({}) as Promise<FontFaceSet>
+    const requests = canvasDocumentFontRequests(
+      renderConformanceDocument,
+      "square-page"
+    )
+
+    await waitForCanvasDocumentFonts(renderConformanceDocument, "square-page", {
+      check,
+      load,
+      ready,
+    })
+
+    expect(requests).toContainEqual({
+      descriptor: '650 30px "Geist Variable"',
+      sample: "AUTO WIDTH",
+    })
+    expect(load).toHaveBeenCalledWith('650 30px "Geist Variable"', "AUTO WIDTH")
+    expect(check).toHaveBeenCalledWith(
+      '650 30px "Geist Variable"',
+      "AUTO WIDTH"
+    )
+  })
+
+  it("rejects fallback measurement when the requested face is unavailable", async () => {
+    const ready = Promise.resolve({}) as Promise<FontFaceSet>
+
+    await expect(
+      waitForCanvasDocumentFonts(renderConformanceDocument, "square-page", {
+        check: vi.fn(() => false),
+        load: vi.fn(() => Promise.resolve([])),
+        ready,
+      })
+    ).rejects.toThrow('Canvas font unavailable: 650 30px "Geist Variable"')
+  })
+
   it("connects the Fabric application canvas to discoverable instructions", () => {
     const upperCanvas = { setAttribute: vi.fn() }
     const canvas = {

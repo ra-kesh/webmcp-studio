@@ -29,3 +29,46 @@ bun run verify:conformance:pixels
 The checked-in manifest requires exact dimensions. A pixel differs when any RGBA channel differs by more than 24. Each comparison allows at most 1.5 percent differing pixels and an RGBA RMSE of 6. The command writes red-on-gray diff PNGs plus `render-conformance-report.json`, and returns a nonzero status when either threshold fails. CI should retain the source captures, diffs, and report for every failed run.
 
 Renderer PNG is the comparison baseline because it is the customer artifact path, not because it is assumed correct. A baseline update requires review against the canonical document and all other implementations. The gate must include deployed Browser Rendering before CONFORM-01 can close.
+
+## Local browser diagnostic, 2026-08-29
+
+The checked-in `render-conformance-browser-manifest.json` is a narrower React
+Artboard versus Fabric diagnostic. The dedicated `/render-conformance` route
+marks each capture `ready` only after React fonts and images settle, Fabric
+finishes sync, and two animation frames paint. An `error` state is terminal and
+must not be captured.
+
+This run found and repaired three real contract defects:
+
+- the fixture SVG now declares intrinsic width and height, so CSS and Fabric
+  start from the same source dimensions;
+- Fabric `auto_width` text preserves explicit newlines and never soft-wraps;
+- Fabric waits for the exact managed font before measuring, converts its
+  internal 1.13 glyph-line multiplier to CSS line-height semantics, and keeps
+  fixed text at its canonical frame height.
+- Fabric idle display consumes canonical projected lines exactly once. Direct
+  editing and live resize switch to raw text for normal reflow, then restore
+  the canonical projection on every transform exit.
+
+The retained browser diagnostic report below predates the final canonical-line
+repair. It remains useful evidence for the earlier SVG, font, line-height, and
+auto-width defects, but must be regenerated with lossless captures before its
+numbers can describe the current code:
+
+| Page       | Different pixels | RGBA RMSE | Diagnostic result |
+| ---------- | ---------------: | --------: | ----------------- |
+| Properties |          2.3177% |   14.0508 | Fails             |
+| Long text  |          5.5473% |   17.9172 | Fails             |
+| Square     |          0.3239% |    4.9801 | Passes            |
+
+The square result confirms that `AUTO WIDTH` is no longer clipped or wrapped.
+The long-text line boxes now align within one pixel; the remaining difference
+is mostly CSS text versus Canvas text rasterization and smaller glyph-width
+differences. The source screenshots returned by the in-app browser are JPEG,
+so the cropped PNG files and their report are retained as diagnostic evidence,
+not as the lossless acceptance baseline described above.
+
+The direct local Studio export path also returned an unhandled 500 because the
+local Worker environment has no `RENDERER` service binding. Renderer PNG/PDF
+and deployed Browser Rendering evidence therefore remain open. Do not describe
+this local browser run as closing CONFORM-01 or EXPORT-01.

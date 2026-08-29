@@ -1827,3 +1827,45 @@ Status: **completed and independently accepted**
 - Focused evidence passes: editor history **19/19** and Studio mounted/session/
   source-context history **10/10**. Editor and Studio typechecks, scoped Studio
   ESLint, Prettier, and `git diff --check` pass.
+
+## 2026-08-29 — Browser conformance diagnostic and text repair (CONFORM-01 / EXPORT-01)
+
+Status: **bounded browser slice implemented and independently reviewed;
+lossless Renderer PNG/PDF and deployed parity remain open**
+
+- Revisited the CONFORM-01 audit and the actual Loora export/capture and
+  OpenPencil visual-oracle code before editing. Added a dedicated diagnostic
+  route that renders every canonical page through React Artboard and Fabric at
+  exact page dimensions.
+- Capture readiness is explicit. React waits for managed fonts, image load and
+  decode, and two painted frames. Fabric waits for exact font faces before
+  sync, reports terminal error state, and reports ready only after sync plus
+  two painted frames.
+- Repaired ambiguous intrinsic SVG dimensions in the golden fixture. Repaired
+  Fabric auto-width text so it preserves explicit newlines without soft-wrap,
+  while remaining a `Textbox` for editing, controls, and adapter identity.
+- Normalized Fabric's internal 1.13 text line-height multiplier to CSS
+  semantics and preserved canonical fixed-frame height during remeasurement.
+  The long-text glyph rows moved from a 7-to-9-pixel cumulative drift to at
+  most one pixel of vertical difference.
+- Removed a second Fabric wrapping pass over the canonical projector's visual
+  lines. Idle text now renders that projection exactly once, while direct edit
+  and live width resize temporarily use raw content and normal reflow. Every
+  accepted, rejected, cancelled, and no-op transform exit restores canonical
+  content and geometry.
+- The latest React/Fabric diagnostic is 2.3177% / RMSE 14.0508 for properties,
+  5.5473% / 17.9172 for long text, and 0.3239% / 4.9801 for square. Square now
+  passes the existing threshold and shows the full `AUTO WIDTH` line. The two
+  text-heavy pages still fail, so no parity claim is made.
+- The in-app browser returns JPEG screenshot bytes. Cropped PNGs, diffs, and
+  the report are retained only as diagnostic evidence. They are not accepted
+  as the lossless baseline required by the conformance contract.
+- A direct local PNG-export request reached Studio but failed with an
+  unhandled 500 because `env.RENDERER` is undefined in the local Worker setup.
+  The next EXPORT work must provide a real local service binding or run the
+  deployed binding, then collect Renderer PNG and rasterized PDF evidence.
+- Focused evidence passes: Fabric adapter, Textbox resize, and FabricArtboard
+  **93/93**; editor and Studio typechecks pass. Independent code review found
+  no P0/P1, drove fail-closed font checks plus the two-frame capture barrier,
+  and manually verified raw live reflow followed by canonical restoration for
+  accepted, rejected, cancelled, and pointer-up/no-op resize exits.

@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "comparisons": [
+    {
+      "name": "properties page Fabric versus React view",
+      "baseline": "artifacts/render-view/properties-page.png",
+      "candidate": "artifacts/fabric/properties-page.png",
+      "diff": "artifacts/diff/properties-page-fabric-react.png",
+      "pixelDeltaThreshold": 24,
+      "maxDifferentPixelRatio": 0.015,
+      "maxRootMeanSquareError": 6
+    },
+    {
+      "name": "long text page Fabric versus React view",
+      "baseline": "artifacts/render-view/long-text-page.png",
+      "candidate": "artifacts/fabric/long-text-page.png",
+      "diff": "artifacts/diff/long-text-page-fabric-react.png",
+      "pixelDeltaThreshold": 24,
+      "maxDifferentPixelRatio": 0.015,
+      "maxRootMeanSquareError": 6
+    },
+    {
+      "name": "square output Fabric versus React view",
+      "baseline": "artifacts/render-view/square-page.png",
+      "candidate": "artifacts/fabric/square-page.png",
+      "diff": "artifacts/diff/square-page-fabric-react.png",
+      "pixelDeltaThreshold": 24,
+      "maxDifferentPixelRatio": 0.015,
+      "maxRootMeanSquareError": 6
+    }
+  ]
+}

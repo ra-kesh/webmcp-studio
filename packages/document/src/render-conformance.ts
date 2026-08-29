@@ -7,7 +7,7 @@ import {
 } from "./schema"
 
 export const renderConformanceImageSource = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 240"><path fill="#ef4444" d="M0 0h200v120H0z"/><path fill="#22c55e" d="M200 0h200v120H200z"/><path fill="#3b82f6" d="M0 120h200v120H0z"/><path fill="#facc15" d="M200 120h200v120H200z"/></svg>'
+  '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="240" viewBox="0 0 400 240"><path fill="#ef4444" d="M0 0h200v120H0z"/><path fill="#22c55e" d="M200 0h200v120H200z"/><path fill="#3b82f6" d="M0 120h200v120H0z"/><path fill="#facc15" d="M200 120h200v120H200z"/></svg>'
 )}`
 
 export type ImageRenderParityCase = Readonly<{
@@ -406,7 +406,7 @@ const nodes = [
 
 export const renderConformanceDocument: Document = documentSchema.parse({
   schemaVersion: 2,
-  id: "render-conformance-golden-v2",
+  id: "render-conformance-golden-v3",
   name: "Render conformance golden corpus",
   revision: 1,
   createdAt: "2026-08-28T00:00:00.000Z",

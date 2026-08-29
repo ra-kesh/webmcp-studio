@@ -66,6 +66,7 @@ export const FabricArtboard = forwardRef<
     onImageCropFramePreview?: (preview: ImageCropFramePreview) => void
     onImageCropUnavailable?: (failure: ImageCropUnavailable) => void
     onImageSourceStateChange?: (state: ImageSourceStateChange) => void
+    onRuntimeStateChange?: (state: "ready" | "error") => void
     onTextEditingStart?: (nodeId: string) => void
     onSelectionChange: (selection: Selection | null) => void
     onNodesChange: (changes: CanvasNodeChange[]) => boolean | void
@@ -90,6 +91,7 @@ export const FabricArtboard = forwardRef<
     onImageCropFramePreview,
     onImageCropUnavailable,
     onImageSourceStateChange,
+    onRuntimeStateChange,
     onTextEditingStart,
     onSelectionChange,
     onNodesChange,
@@ -106,6 +108,7 @@ export const FabricArtboard = forwardRef<
     onImageCropFramePreview,
     onImageCropUnavailable,
     onImageSourceStateChange,
+    onRuntimeStateChange,
     onTextEditingStart,
     onSelectionChange,
     onNodesChange,
@@ -134,6 +137,7 @@ export const FabricArtboard = forwardRef<
     onImageCropFramePreview,
     onImageCropUnavailable,
     onImageSourceStateChange,
+    onRuntimeStateChange,
     onTextEditingStart,
     onSelectionChange,
     onNodesChange,
@@ -319,6 +323,7 @@ export const FabricArtboard = forwardRef<
         if (adapter) void adapter.unmount().catch(() => undefined)
         adapter = null
         reportAllCurrentImageSources("unavailable")
+        callbacksRef.current.onRuntimeStateChange?.("error")
         setRuntime((current) =>
           reduceCanvasRuntimeState(current, {
             type: "failed",
@@ -351,6 +356,7 @@ export const FabricArtboard = forwardRef<
     if (!adapter) return
     settleCanvasInteractivity(adapter, interactive)
     let active = true
+    const isActive = () => active
     const attempt = runtime.attempt
     const imageSources = document.nodes.flatMap((node) =>
       node.type === "image" && page?.nodeIds.includes(node.id)
@@ -369,9 +375,12 @@ export const FabricArtboard = forwardRef<
         reportImageSourceState({ ...state, readiness: "loading" })
       }
     }
-    void adapter
-      .sync(document, pageId)
-      .then(() => {
+    void waitForCanvasDocumentFonts(document, pageId)
+      .then(async () => {
+        if (!active) return
+        return adapter.sync(document, pageId)
+      })
+      .then(async () => {
         if (!active) return
         for (const state of imageSources) {
           const readiness = adapter.getImageSourceReadiness(state.nodeId)
@@ -398,12 +407,16 @@ export const FabricArtboard = forwardRef<
             ? callbacksRef.current.imageCropMode
             : null
         )
+        await waitForCanvasPaint()
+        if (!isActive()) return
+        callbacksRef.current.onRuntimeStateChange?.("ready")
       })
       .catch(() => {
         if (!active) return
         for (const state of imageSources) {
           reportImageSourceState({ ...state, readiness: "unavailable" })
         }
+        callbacksRef.current.onRuntimeStateChange?.("error")
         setRuntime((current) =>
           reduceCanvasRuntimeState(current, {
             type: "failed",
@@ -514,6 +527,62 @@ export const FabricArtboard = forwardRef<
     </div>
   )
 })
+
+type CanvasFontFaceSet = Pick<FontFaceSet, "check" | "load" | "ready">
+
+export function canvasDocumentFontRequests(document: Document, pageId: string) {
+  const page = document.pages.find((candidate) => candidate.id === pageId)
+  if (!page) return []
+  const pageNodeIds = new Set(page.nodeIds)
+  const requests = new Map<string, { descriptor: string; sample: string }>()
+  for (const node of document.nodes) {
+    if (node.type !== "text" || !pageNodeIds.has(node.id) || !node.visible) {
+      continue
+    }
+    const descriptor = `${node.fontWeight} ${node.fontSize}px ${JSON.stringify(node.fontFamily)}`
+    const key = `${descriptor}\u0000${node.text}`
+    requests.set(key, { descriptor, sample: node.text || "M" })
+  }
+  return [...requests.values()]
+}
+
+export async function waitForCanvasDocumentFonts(
+  document: Document,
+  pageId: string,
+  fontFaceSet: CanvasFontFaceSet | undefined = getBrowserFontFaceSet()
+) {
+  if (!fontFaceSet) return
+  const requests = canvasDocumentFontRequests(document, pageId)
+  const loadedFaces = await Promise.all(
+    requests.map(({ descriptor, sample }) =>
+      fontFaceSet.load(descriptor, sample)
+    )
+  )
+  for (const [index, faces] of loadedFaces.entries()) {
+    if (!faces.length) {
+      throw new Error(
+        `Canvas font unavailable: ${requests[index]?.descriptor ?? "unknown"}`
+      )
+    }
+  }
+  await fontFaceSet.ready
+  for (const { descriptor, sample } of requests) {
+    if (!fontFaceSet.check(descriptor, sample)) {
+      throw new Error(`Canvas font unavailable: ${descriptor}`)
+    }
+  }
+}
+
+function getBrowserFontFaceSet(): CanvasFontFaceSet | undefined {
+  return typeof window === "undefined" ? undefined : window.document.fonts
+}
+
+export async function waitForCanvasPaint() {
+  if (typeof requestAnimationFrame === "undefined") return
+  await new Promise<void>((resolve) =>
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+  )
+}
 
 function LiveImageCropPreviewChrome({
   node,

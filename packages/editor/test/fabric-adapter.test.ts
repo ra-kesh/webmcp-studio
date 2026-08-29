@@ -1294,7 +1294,9 @@ describe("Fabric document boundary", () => {
       fontFamily: canonical.content.fontFamily,
       fontSize: canonical.content.fontSize,
       fontWeight: canonical.content.fontWeight,
-      lineHeight: canonical.content.lineHeight,
+      lineHeight: canonical.content.lineHeight / 1.13,
+      topOffset:
+        ((canonical.content.lineHeight - 1) * canonical.content.fontSize) / 2,
       sizingMode: canonical.content.sizingMode,
       overflow: canonical.content.layout.overflow,
       clipOverflow: true,

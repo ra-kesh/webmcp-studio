@@ -13,10 +13,12 @@ import {
   Point,
   Rect,
   Textbox,
+  type TextboxProps,
   type ModifiedEvent,
   type TPointerEvent,
   type TPointerEventInfo,
   type Transform,
+  type TOptions,
 } from "fabric"
 import {
   IMAGE_PLACEMENT_MAX_ZOOM,
@@ -63,6 +65,9 @@ import {
 // Figma-style blue stays legible on both paper and dark cinematic templates.
 const SELECTION_COLOR = "#0d99ff"
 const GUIDE_COLOR = "#2563eb"
+// Fabric multiplies every unstyled glyph box by 1.13 before applying its
+// lineHeight value. CSS line-height multiplies fontSize directly.
+const FABRIC_TEXT_LINE_HEIGHT_MULTIPLIER = 1.13
 
 const TEXT_CONTROL_KEYS = [
   "tl",
@@ -78,6 +83,74 @@ const TEXT_CONTROL_KEYS = [
 
 const ACTIVE_SELECTION_SIDE_CONTROLS = ["ml", "mr", "mt", "mb"] as const
 const ACTIVE_SELECTION_CORNER_CONTROLS = ["tl", "tr", "bl", "br"] as const
+
+type TextSizingMode = Extract<SceneNode, { type: "text" }>["sizingMode"]
+
+/**
+ * Idle rendering consumes the canonical projector's explicit visual lines,
+ * so Fabric must not wrap them a second time. Editing and live width resize
+ * switch fixed/auto-height text back to raw content and normal Textbox reflow;
+ * auto-width preserves only explicit source newlines in every state. Keep one
+ * subtype so these mode changes preserve object and editing identity.
+ */
+class StudioTextbox<
+  Props extends TOptions<TextboxProps> = Partial<TextboxProps>,
+> extends Textbox<Props> {
+  studioSizingMode: TextSizingMode | undefined
+  studioTopOffset = 0
+  studioUsesCanonicalLines = true
+
+  override initDimensions() {
+    const fixedHeight =
+      this.studioSizingMode === "fixed" ? this.height : undefined
+    super.initDimensions()
+    if (fixedHeight !== undefined && Number.isFinite(fixedHeight)) {
+      this.height = fixedHeight
+    }
+  }
+
+  setStudioTextLayout(mode: TextSizingMode, topOffset: number) {
+    if (this.studioSizingMode === mode && this.studioTopOffset === topOffset) {
+      return
+    }
+    this.studioSizingMode = mode
+    this.studioTopOffset = topOffset
+    this.initDimensions()
+    this.dirty = true
+  }
+
+  setStudioUsesCanonicalLines(value: boolean) {
+    if (this.studioUsesCanonicalLines === value) return
+    this.studioUsesCanonicalLines = value
+    this.initDimensions()
+    this.dirty = true
+  }
+
+  override _wrapText(lines: string[], desiredWidth: number): string[][] {
+    if (
+      this.studioUsesCanonicalLines !== false ||
+      this.studioSizingMode === "auto_width"
+    ) {
+      return lines.map((line) => this.graphemeSplit(line))
+    }
+    return super._wrapText(lines, desiredWidth)
+  }
+
+  override _getTopOffset(): number {
+    return super._getTopOffset() + (this.studioTopOffset ?? 0)
+  }
+}
+
+function setFabricTextboxContent(
+  object: Textbox,
+  text: string,
+  content: "canonical" | "editing"
+) {
+  if (object instanceof StudioTextbox) {
+    object.setStudioUsesCanonicalLines(content === "canonical")
+  }
+  object.set({ text })
+}
 
 /**
  * Fabric's default Shift behavior is the inverse of the editor convention:
@@ -537,7 +610,10 @@ export function projectFabricTextState(
     fontSize: projection.content.fontSize,
     fontWeight: projection.content.fontWeight,
     textAlign: projection.content.align,
-    lineHeight: projection.content.lineHeight,
+    lineHeight:
+      projection.content.lineHeight / FABRIC_TEXT_LINE_HEIGHT_MULTIPLIER,
+    topOffset:
+      ((projection.content.lineHeight - 1) * projection.content.fontSize) / 2,
     charSpacing:
       (projection.content.letterSpacing / projection.content.fontSize) * 1000,
     sizingMode: projection.content.sizingMode,
@@ -635,7 +711,7 @@ export function createFabricSyncObject(
   }
 
   const projection = projectFabricTextState(node)
-  const text = new Textbox(projection.displayText, {
+  const text = new StudioTextbox(projection.displayText, {
     ...sharedOptions(node),
     fill: projection.fill,
     fontFamily: projection.fontFamily,
@@ -650,6 +726,8 @@ export function createFabricSyncObject(
     clipPath: fixedTextClip(node),
   })
   text.set({ width: node.width, height: node.height })
+  text.setStudioTextLayout(node.sizingMode, projection.topOffset)
+  text.set({ height: node.height })
   positionFixedTextboxFrame(text, node)
   applyFabricTextControlPolicy(text, node)
   return text
@@ -1373,7 +1451,12 @@ export function syncFabricObjectFromNode(
     return
   } else if (node.type === "text" && object instanceof Textbox) {
     const text = projectFabricTextState(node)
-    if (!object.isEditing) options.text = text.displayText
+    if (!object.isEditing) {
+      if (object instanceof StudioTextbox) {
+        object.setStudioUsesCanonicalLines(true)
+      }
+      options.text = text.displayText
+    }
     Object.assign(options, {
       fill: text.fill,
       fontFamily: text.fontFamily,
@@ -1397,6 +1480,13 @@ export function syncFabricObjectFromNode(
     object.set({ left: node.x, top: node.y })
   }
   if (node.type === "text" && object instanceof Textbox) {
+    if (object instanceof StudioTextbox) {
+      object.setStudioTextLayout(
+        node.sizingMode,
+        projectFabricTextState(node).topOffset
+      )
+    }
+    object.set({ height: node.height })
     positionFixedTextboxFrame(object, node)
     applyFabricTextControlPolicy(object, node)
   }
@@ -1461,6 +1551,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
   >()
   private readonly nodeByNodeId = new Map<string, SceneNode>()
   private readonly transformSessions = new CanvasTransformSessionController()
+  private readonly transformTextPreviewNodeIds = new Set<string>()
   private imageCropMode: CanvasImageCropMode | null = null
   private imageCropDraftNode: Extract<SceneNode, { type: "image" }> | null =
     null
@@ -1555,6 +1646,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     this.textByNodeId.clear()
     this.textSizingModeByNodeId.clear()
     this.nodeByNodeId.clear()
+    this.transformTextPreviewNodeIds.clear()
     this.clearTextEditSession()
     if (!canvas) return
     canvas.off("selection:created", this.onSelection)
@@ -1630,6 +1722,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
         this.textByNodeId.clear()
         this.textSizingModeByNodeId.clear()
         this.nodeByNodeId.clear()
+        this.transformTextPreviewNodeIds.clear()
         this.clearTextEditSession()
         this.pageId = pageId
       }
@@ -1790,8 +1883,11 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     const object = this.objectByNodeId.get(nodeId)
     if (!canvas || !(object instanceof Textbox)) return false
     const rawText = this.textByNodeId.get(nodeId)
+    if (object instanceof StudioTextbox) {
+      object.setStudioUsesCanonicalLines(false)
+    }
     if (rawText !== undefined && object.text !== rawText) {
-      object.set({ text: rawText })
+      setFabricTextboxContent(object, rawText, "editing")
       object.setCoords()
     }
     const entered = enterFabricTextEditing(canvas, object)
@@ -1814,7 +1910,11 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     cancelFabricTextEditing(session.target, session.baseline)
     const node = this.nodeByNodeId.get(session.nodeId)
     if (node?.type === "text") {
-      session.target.set({ text: projectFabricTextState(node).displayText })
+      setFabricTextboxContent(
+        session.target,
+        projectFabricTextState(node).displayText,
+        "canonical"
+      )
       session.target.setCoords()
     }
     this.clearTextEditSession()
@@ -2469,6 +2569,26 @@ export class FabricCanvasAdapter implements CanvasAdapter {
       })
     }
     this.transformSessions.begin({ ...context, kind, baseline })
+    if (
+      kind === "resize" &&
+      !(transform.target instanceof ActiveSelection) &&
+      transform.target instanceof Textbox
+    ) {
+      const nodeId = this.nodeIdByObject.get(transform.target)
+      const node = nodeId ? this.nodeByNodeId.get(nodeId) : undefined
+      const rawText = nodeId
+        ? (this.textByNodeId.get(nodeId) ??
+          (node?.type === "text" ? node.text : undefined))
+        : undefined
+      if (nodeId && rawText !== undefined) {
+        // Idle rendering consumes the document projector's already-wrapped
+        // lines exactly once. A live width transform must instead give
+        // Fabric the raw source so its control can preview the new reflow.
+        setFabricTextboxContent(transform.target, rawText, "editing")
+        transform.target.setCoords()
+        this.transformTextPreviewNodeIds.add(nodeId)
+      }
+    }
   }
 
   private onTransformPointerUp = () => {
@@ -2477,6 +2597,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     // Fabric emits object:modified before mouse:up when a transform changed.
     // A click without movement emits no modified event, so mouse:up releases
     // that no-op session after Fabric has finalized it.
+    this.restoreTransformTextPreviews()
     this.transformSessions.release()
     this.clearGuides()
   }
@@ -2644,7 +2765,22 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     this.rotationSnapLatch = null
     this.resizeSnapLatch = null
     this.moveSnapLatch = null
+    this.transformTextPreviewNodeIds.clear()
     canvas.requestRenderAll()
+  }
+
+  private restoreTransformTextPreviews() {
+    if (!this.transformTextPreviewNodeIds.size) return
+    const canvas = this.canvas
+    for (const nodeId of this.transformTextPreviewNodeIds) {
+      const object = this.objectByNodeId.get(nodeId)
+      const node = this.nodeByNodeId.get(nodeId)
+      if (object instanceof Textbox && node?.type === "text") {
+        syncFabricObjectFromNode(object, node)
+      }
+    }
+    this.transformTextPreviewNodeIds.clear()
+    canvas?.requestRenderAll()
   }
 
   private queueTransformBaselineRestore(session: CanvasTransformSession) {
@@ -2855,6 +2991,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
       changes.push({ nodeId, patch })
     }
     if (!changes.length) {
+      this.restoreTransformTextPreviews()
       if (context) this.transformSessions.commit(context)
       return
     }
@@ -2880,6 +3017,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
           } as SceneNode)
         }
       }
+      this.restoreTransformTextPreviews()
     }
     if (context) this.transformSessions.commit(context)
     else this.transformSessions.release()
@@ -2901,12 +3039,13 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     this.clearTextEditSession()
     if (resolved.cancelled) {
       const node = this.nodeByNodeId.get(nodeId)
-      target.set({
-        text:
-          node?.type === "text"
-            ? projectFabricTextState(node).displayText
-            : resolved.text,
-      })
+      setFabricTextboxContent(
+        target,
+        node?.type === "text"
+          ? projectFabricTextState(node).displayText
+          : resolved.text,
+        "canonical"
+      )
       this.textByNodeId.set(nodeId, resolved.text)
       target.setCoords()
       this.canvas?.requestRenderAll()
@@ -2916,7 +3055,11 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     if (!patch) {
       const node = this.nodeByNodeId.get(nodeId)
       if (node?.type === "text") {
-        target.set({ text: projectFabricTextState(node).displayText })
+        setFabricTextboxContent(
+          target,
+          projectFabricTextState(node).displayText,
+          "canonical"
+        )
         target.setCoords()
         this.canvas?.requestRenderAll()
       }
@@ -2937,21 +3080,24 @@ export class FabricCanvasAdapter implements CanvasAdapter {
         accepted
       )
       const node = this.nodeByNodeId.get(nodeId)
-      target.set({
-        text:
-          node?.type === "text"
-            ? projectFabricTextState(node).displayText
-            : settled,
-      })
+      setFabricTextboxContent(
+        target,
+        node?.type === "text"
+          ? projectFabricTextState(node).displayText
+          : settled,
+        "canonical"
+      )
     } else {
       const node = this.nodeByNodeId.get(nodeId)
       if (node?.type === "text") {
-        target.set({
-          text: projectFabricTextState({
+        setFabricTextboxContent(
+          target,
+          projectFabricTextState({
             ...node,
             text: resolved.text,
           }).displayText,
-        })
+          "canonical"
+        )
       }
     }
     target.setCoords()
@@ -2960,6 +3106,9 @@ export class FabricCanvasAdapter implements CanvasAdapter {
 
   private onTextEditingEntered = ({ target }: { target: FabricObject }) => {
     if (!(target instanceof Textbox)) return
+    if (target instanceof StudioTextbox) {
+      target.setStudioUsesCanonicalLines(false)
+    }
     const nodeId = this.nodeIdByObject.get(target)
     if (!nodeId) return
     this.clearTextEditSession()

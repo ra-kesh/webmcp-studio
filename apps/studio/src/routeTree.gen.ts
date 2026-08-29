@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as StudioRouteRouteImport } from './routes/_studio/route'
+import { Route as RenderConformanceRouteImport } from './routes/render-conformance'
 import { Route as StudioIndexRouteImport } from './routes/_studio/index'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as StudioDocumentsDocumentIdRouteImport } from './routes/_studio/documents/$documentId'
@@ -34,6 +35,11 @@ import { Route as V1StudioDocumentsDocumentIdRevisionsSnapshotIdRouteImport } fr
 
 const StudioRouteRoute = StudioRouteRouteImport.update({
   id: '/_studio',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RenderConformanceRoute = RenderConformanceRouteImport.update({
+  id: '/render-conformance',
+  path: '/render-conformance',
   getParentRoute: () => rootRouteImport,
 } as any)
 const StudioIndexRoute = StudioIndexRouteImport.update({
@@ -152,6 +158,7 @@ const V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof StudioIndexRoute
+  '/render-conformance': typeof RenderConformanceRoute
   '/api/health': typeof ApiHealthRoute
   '/documents/$documentId': typeof StudioDocumentsDocumentIdRoute
   '/v1/renders/$renderId': typeof V1RendersRenderIdRouteWithChildren
@@ -174,6 +181,7 @@ export interface FileRoutesByFullPath {
   '/v1/studio/documents/$documentId/revisions/$snapshotId': typeof V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute
 }
 export interface FileRoutesByTo {
+  '/render-conformance': typeof RenderConformanceRoute
   '/api/health': typeof ApiHealthRoute
   '/': typeof StudioIndexRoute
   '/documents/$documentId': typeof StudioDocumentsDocumentIdRoute
@@ -199,6 +207,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_studio': typeof StudioRouteRouteWithChildren
+  '/render-conformance': typeof RenderConformanceRoute
   '/api/health': typeof ApiHealthRoute
   '/_studio/': typeof StudioIndexRoute
   '/_studio/documents/$documentId': typeof StudioDocumentsDocumentIdRoute
@@ -225,6 +234,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/render-conformance'
     | '/api/health'
     | '/documents/$documentId'
     | '/v1/renders/$renderId'
@@ -247,6 +257,7 @@ export interface FileRouteTypes {
     | '/v1/studio/documents/$documentId/revisions/$snapshotId'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/render-conformance'
     | '/api/health'
     | '/'
     | '/documents/$documentId'
@@ -271,6 +282,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/_studio'
+    | '/render-conformance'
     | '/api/health'
     | '/_studio/'
     | '/_studio/documents/$documentId'
@@ -296,6 +308,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   StudioRouteRoute: typeof StudioRouteRouteWithChildren
+  RenderConformanceRoute: typeof RenderConformanceRoute
   ApiHealthRoute: typeof ApiHealthRoute
   V1RendersRenderIdRoute: typeof V1RendersRenderIdRouteWithChildren
   V1StudioExportPdfRoute: typeof V1StudioExportPdfRoute
@@ -320,6 +333,13 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof StudioRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/render-conformance': {
+      id: '/render-conformance'
+      path: '/render-conformance'
+      fullPath: '/render-conformance'
+      preLoaderRoute: typeof RenderConformanceRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_studio/': {
@@ -517,6 +537,7 @@ const V1StudioAssetsAssetIdRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   StudioRouteRoute: StudioRouteRouteWithChildren,
+  RenderConformanceRoute: RenderConformanceRoute,
   ApiHealthRoute: ApiHealthRoute,
   V1RendersRenderIdRoute: V1RendersRenderIdRouteWithChildren,
   V1StudioExportPdfRoute: V1StudioExportPdfRoute,

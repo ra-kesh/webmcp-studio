@@ -8,10 +8,82 @@ import {
   fabricComparableNodeGeometry,
   fabricObjectToNodePatch,
   FabricCanvasAdapter,
+  projectFabricTextState,
   syncFabricObjectFromNode,
 } from "../src/fabric-adapter"
 
 describe("Fabric text resize constraints", () => {
+  it("keeps canonical auto-width text on explicit lines without soft wrapping", () => {
+    const node = renderConformanceDocument.nodes.find(
+      (candidate) => candidate.id === "auto-width-label"
+    )!
+    if (node.type !== "text") throw new Error("Expected text")
+
+    const object = createFabricSyncObject(node)
+    if (!(object instanceof Textbox)) throw new Error("Expected Textbox")
+
+    const visualLines = () =>
+      (
+        object as unknown as {
+          _textLines: string[][]
+        }
+      )._textLines.map((line) => line.join(""))
+
+    expect(visualLines()).toEqual(["AUTO WIDTH"])
+    expect(object.left).toBe(node.x)
+    expect(object.top).toBe(node.y)
+    expect(object.width).toBe(node.width)
+    expect(object.getLineWidth(0)).toBeGreaterThan(node.width)
+
+    const fixedNode = {
+      ...node,
+      width: 90,
+      height: 120,
+      sizingMode: "fixed" as const,
+    }
+    syncFabricObjectFromNode(object, fixedNode)
+    expect(visualLines().length).toBeGreaterThan(1)
+    expect(fabricObjectToNodePatch(object)).toEqual(
+      fabricComparableNodeGeometry(fixedNode)
+    )
+
+    syncFabricObjectFromNode(object, node)
+    expect(visualLines()).toEqual(["AUTO WIDTH"])
+    expect(fabricObjectToNodePatch(object)).toMatchObject({
+      x: node.x,
+      y: node.y,
+      width: node.width,
+      rotation: node.rotation,
+    })
+
+    syncFabricObjectFromNode(object, {
+      ...node,
+      text: "AUTO\nWIDTH",
+    })
+    expect(visualLines()).toEqual(["AUTO", "WIDTH"])
+  })
+
+  it("renders canonical fixed and auto-height line projections exactly once", () => {
+    const source = renderConformanceDocument.nodes.find(
+      (candidate) => candidate.id === "auto-width-label"
+    )!
+    if (source.type !== "text") throw new Error("Expected text")
+
+    for (const sizingMode of ["fixed", "auto_height"] as const) {
+      const node = { ...source, width: 90, height: 120, sizingMode }
+      const canonicalLines =
+        projectFabricTextState(node).displayText.split("\n")
+      const object = createFabricSyncObject(node)
+      if (!(object instanceof Textbox)) throw new Error("Expected Textbox")
+      const fabricLines = (
+        object as unknown as { _textLines: string[][] }
+      )._textLines.map((line) => line.join(""))
+
+      expect(canonicalLines).toEqual(["AUTO ", "WIDT", "H"])
+      expect(fabricLines).toEqual(canonicalLines)
+    }
+  })
+
   it("round-trips a rotated fixed clip without a first-transform jump", () => {
     const node = renderConformanceDocument.nodes.find(
       (candidate) => candidate.id === "text-typography"
@@ -143,6 +215,12 @@ describe("Fabric text resize constraints", () => {
         }),
       },
     ])
+    expect(textbox.text).toBe(
+      projectFabricTextState({
+        ...node,
+        ...onNodesChange.mock.calls[0]![0][0]!.patch,
+      }).displayText
+    )
   })
 
   it("preserves the visible fixed-text anchor for Shift and Shift+Alt", () => {
@@ -430,6 +508,12 @@ describe("Fabric text resize constraints", () => {
     ])
     expect(onNodesChange.mock.calls[0]?.[0][0]?.patch).not.toHaveProperty(
       "height"
+    )
+    expect(textbox.text).toBe(
+      projectFabricTextState({
+        ...node,
+        ...onNodesChange.mock.calls[0]![0][0]!.patch,
+      }).displayText
     )
   })
 

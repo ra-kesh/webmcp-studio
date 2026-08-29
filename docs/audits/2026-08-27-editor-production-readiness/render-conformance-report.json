@@ -1,0 +1,55 @@
+{
+  "results": [
+    {
+      "name": "properties page Fabric versus React view",
+      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/render-view/properties-page.png",
+      "candidate": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/fabric/properties-page.png",
+      "diff": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/diff/properties-page-fabric-react.png",
+      "width": 720,
+      "height": 960,
+      "differentPixels": 16020,
+      "differentPixelRatio": 0.023177083333333334,
+      "rootMeanSquareError": 14.050849803778181,
+      "limits": {
+        "pixelDeltaThreshold": 24,
+        "maxDifferentPixelRatio": 0.015,
+        "maxRootMeanSquareError": 6
+      },
+      "passed": false
+    },
+    {
+      "name": "long text page Fabric versus React view",
+      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/render-view/long-text-page.png",
+      "candidate": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/fabric/long-text-page.png",
+      "diff": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/diff/long-text-page-fabric-react.png",
+      "width": 640,
+      "height": 360,
+      "differentPixels": 12781,
+      "differentPixelRatio": 0.055473090277777776,
+      "rootMeanSquareError": 17.917238211571792,
+      "limits": {
+        "pixelDeltaThreshold": 24,
+        "maxDifferentPixelRatio": 0.015,
+        "maxRootMeanSquareError": 6
+      },
+      "passed": false
+    },
+    {
+      "name": "square output Fabric versus React view",
+      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/render-view/square-page.png",
+      "candidate": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/fabric/square-page.png",
+      "diff": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/diff/square-page-fabric-react.png",
+      "width": 512,
+      "height": 512,
+      "differentPixels": 849,
+      "differentPixelRatio": 0.003238677978515625,
+      "rootMeanSquareError": 4.980077439437605,
+      "limits": {
+        "pixelDeltaThreshold": 24,
+        "maxDifferentPixelRatio": 0.015,
+        "maxRootMeanSquareError": 6
+      },
+      "passed": true
+    }
+  ]
+}
