@@ -90,4 +90,24 @@ describe("TemplateCatalogPanel", () => {
     expect(html).toContain('id="selected-template-title">Midnight Film</h3>')
     expect(html).toContain("Applying this style changes the visual system")
   })
+
+  it("surfaces the explicit legacy layer organization without claiming a content rewrite", () => {
+    const html = renderPanel({
+      hasQuotationSource: true,
+      layerOrganizationUpgradeAvailable: true,
+      onLayerOrganizationUpgrade: vi.fn(),
+    })
+
+    expect(html).toContain("Organize quotation layers")
+    expect(html).toContain(
+      "Restore semantic folders without changing copy, layout, or styling."
+    )
+    expect(html).toContain("Organize layers")
+
+    const reviewHtml = renderPanel({
+      layerOrganizationUpgradeAvailable: true,
+      reviewPending: true,
+    })
+    expect(reviewHtml).toContain("Finish or discard the pending review first.")
+  })
 })

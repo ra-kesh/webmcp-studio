@@ -3333,10 +3333,19 @@ export function StudioShell({
                   activeTemplate={editor.activeDesignTemplate}
                   hasQuotationSource={Boolean(editor.quotationSource)}
                   templateActionError={editor.templateActionError}
+                  layerOrganizationUpgradeAvailable={
+                    editor.quotationGroupOrganization.status === "available"
+                  }
                   reviewPending={Boolean(editor.pendingChangeSet)}
                   activePanel={documentPanelTab}
                   onActivePanelChange={setDocumentPanelTab}
                   onRetryTemplates={editor.reloadDesignTemplateCatalog}
+                  onLayerOrganizationUpgrade={() => {
+                    if (!commitActiveTextEditing()) return
+                    if (editor.upgradeQuotationLayerOrganization()) {
+                      setDocumentPanelTab("layers")
+                    }
+                  }}
                   onCreateFromTemplate={(template) => {
                     void requestNewDraft(
                       {
@@ -3922,10 +3931,19 @@ export function StudioShell({
                 activeTemplate={editor.activeDesignTemplate}
                 hasQuotationSource={Boolean(editor.quotationSource)}
                 templateActionError={editor.templateActionError}
+                layerOrganizationUpgradeAvailable={
+                  editor.quotationGroupOrganization.status === "available"
+                }
                 reviewPending={Boolean(editor.pendingChangeSet)}
                 activePanel={documentPanelTab}
                 onActivePanelChange={setDocumentPanelTab}
                 onRetryTemplates={editor.reloadDesignTemplateCatalog}
+                onLayerOrganizationUpgrade={() => {
+                  if (!commitActiveTextEditing()) return
+                  if (editor.upgradeQuotationLayerOrganization()) {
+                    setDocumentPanelTab("layers")
+                  }
+                }}
                 onCreateFromTemplate={(template) => {
                   setCompactPanel(null)
                   void requestNewDraft(

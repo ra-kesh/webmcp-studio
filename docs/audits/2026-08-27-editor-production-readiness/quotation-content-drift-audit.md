@@ -2,7 +2,7 @@
 
 Date: 2026-08-29
 
-Status: prevention boundary implemented; legacy upgrade remains open
+Status: prevention and explicit legacy layer upgrade implemented
 
 ## Cause
 
@@ -72,17 +72,12 @@ code is imported.
 Focused evidence: document template/composer tests pass 16/16, Studio template
 lifecycle/catalog tests pass 13/13, and both affected package typechecks pass.
 
-## Remaining quotation migration boundary
+## Quotation composition provenance — completed 2026-08-29
 
 - Exact known source/composition identity now persists for new quotation
   template creation, quotation import, sample restore, and recovery reset.
   Visual style application preserves the original structural lineage. Legacy
   wire data continues to decode without metadata injection or rewrite.
-- Add a pure, non-mutating eligibility analyzer for the legacy group-only
-  upgrade.
-- Surface an explicit "Layer organization update available" action, commit the
-  safe group-only change through normal history and persistence, and prove exact
-  undo/reload behavior.
 - Define later Stuwiz source reconciliation and shared asset persistence. These
   are not implied by composition provenance.
 
@@ -94,3 +89,37 @@ The independent code review initially rejected a JSON-roundtrip mismatch for
 explicit optional `undefined` values. Canonical source hashing now filters them
 exactly as persistence does, the reproduced regression passes, and the final
 review verdict is **ACCEPT with no remaining P0/P1 finding**.
+
+## Explicit legacy layer organization — completed 2026-08-29
+
+- Legacy flat quotation drafts are analyzed without mutation. The upgrade is
+  offered only when every composer-owned layer still has the expected identity,
+  type, and page membership and no custom or partial grouping exists.
+- The analyzer rejects mismatched quotation snapshots, including stale source
+  variants that would leave old composer-owned nodes behind, while allowing
+  clearly user-created layers to remain ungrouped.
+- Available analyses are anchored to document identity and revision. Applying a
+  stale analysis fails closed and requires a fresh eligibility pass.
+- The user must explicitly choose **Organize layers** from Templates. Pending
+  Review work blocks the action. Current known composition and already-recorded
+  migrations are never silently regrouped.
+- Applying changes only groups, revision, timestamp, and legacy migration
+  metadata. User copy, geometry, styling, layer order, and extra layers remain
+  untouched. The action is one history entry; Undo/Redo restores both the exact
+  document and source-context state, and normal draft persistence survives
+  reload.
+- The first independent review rejected incomplete full-structure validation
+  and unanchored analysis. Both defects were repaired. The final review verdict
+  is **ACCEPT with no remaining P0/P1 finding**.
+
+Focused evidence: document migration tests pass **6/6**, the Studio template and
+mounted persistence slice passes **81/81**, the independent reviewer reran the
+combined focused slice at **11/11**, both affected package typechecks pass,
+scoped ESLint passes, and `git diff --check` passes.
+
+## Remaining quotation data boundary
+
+- Define Stuwiz source reconciliation for changed upstream records.
+- Move browser-local uploaded-image bytes to shared persistence.
+- Add separate semantic content migrations for later composer changes; schema
+  defaults alone must never be treated as proof of compatibility.

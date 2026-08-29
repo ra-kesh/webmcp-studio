@@ -1715,6 +1715,32 @@ Next boundary:
 - Add the explicit group-only legacy organization upgrade with exact Undo and
   reload.
 
+## 2026-08-29 — Explicit legacy quotation layer organization
+
+Status: **completed and independently accepted**
+
+- Added a pure quotation-structure analyzer and explicit **Organize layers**
+  action for legacy flat drafts. It never silently repairs a document and never
+  offers the action for known current composition or a previously recorded
+  migration.
+- Eligibility now proves every composer-owned node identity, type, and page,
+  rejects stale/mismatched source structure and existing custom/partial groups,
+  and anchors the proposal to the exact document ID and revision.
+- The upgrade preserves copy, geometry, styling, current layer order, and
+  user-created layers. It creates one history entry, is Review-gated, restores
+  document plus provenance through Undo/Redo, and persists through the normal
+  durable draft path without claiming composer-2 provenance.
+- The first independent review found two P1 defects: incomplete compatibility
+  checks and stale-analysis application. Both were repaired; the final verdict
+  is **ACCEPT with no remaining P0/P1 finding**.
+- Focused evidence passes: document migration **6/6**, Studio template and
+  mounted persistence **81/81**, independent reviewer rerun **11/11**, affected
+  typechecks, scoped ESLint, and `git diff --check`.
+
+Remaining quotation data work is upstream Stuwiz reconciliation, shared asset
+persistence, and explicit future semantic migrations. It is not part of this
+layer-organization gate.
+
 ## 2026-08-29 — Durable Review provenance and history (REVIEW-02)
 
 Status: **completed and independently accepted for the REVIEW-02 boundary**

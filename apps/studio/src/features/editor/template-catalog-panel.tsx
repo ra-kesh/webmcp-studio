@@ -47,6 +47,7 @@ import {
   Check,
   FileStack,
   FileWarning,
+  FolderTree,
   Link2,
   LoaderCircle,
   LockKeyhole,
@@ -90,6 +91,8 @@ export type TemplateCatalogPanelProps = {
   getApplicationImpact: (
     template: DesignTemplateCatalogItem
   ) => TemplateApplicationImpact
+  layerOrganizationUpgradeAvailable?: boolean
+  onLayerOrganizationUpgrade?: () => void
 }
 
 type ApplyConfirmation = {
@@ -481,6 +484,8 @@ export function TemplateCatalogPanel({
   onCreate,
   onApply,
   getApplicationImpact,
+  layerOrganizationUpgradeAvailable = false,
+  onLayerOrganizationUpgrade,
 }: TemplateCatalogPanelProps) {
   const [search, setSearch] = useState("")
   const [category, setCategory] = useState(allTemplateCategoriesValue)
@@ -536,6 +541,42 @@ export function TemplateCatalogPanel({
             {items.length}
           </Badge>
         </div>
+        {layerOrganizationUpgradeAvailable ? (
+          <section
+            aria-label="Quotation layer organization update"
+            className="rounded-lg border bg-muted/35 p-2.5"
+          >
+            <div className="flex items-start gap-2">
+              <span className="grid size-7 shrink-0 place-items-center rounded-md border bg-background text-foreground">
+                <FolderTree className="size-3.5" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-[11px] leading-4 font-medium">
+                  Organize quotation layers
+                </h3>
+                <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground">
+                  Restore semantic folders without changing copy, layout, or
+                  styling.
+                </p>
+              </div>
+            </div>
+            <Button
+              className="mt-2 w-full"
+              disabled={reviewPending}
+              size="sm"
+              variant="outline"
+              onClick={onLayerOrganizationUpgrade}
+            >
+              <FolderTree data-icon="inline-start" />
+              Organize layers
+            </Button>
+            {reviewPending ? (
+              <p className="mt-1.5 text-[10px] leading-4 text-muted-foreground">
+                Finish or discard the pending review first.
+              </p>
+            ) : null}
+          </section>
+        ) : null}
         <InputGroup>
           <InputGroupAddon>
             <Search />

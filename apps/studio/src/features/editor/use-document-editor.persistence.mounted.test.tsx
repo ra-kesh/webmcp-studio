@@ -3366,6 +3366,57 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     expect(durable.envelope).toEqual(exactImportedEnvelope)
   })
 
+  it("applies the explicit legacy layer organization as one undoable durable change", async () => {
+    const envelope = quotationEnvelope()
+    envelope.document = structuredClone(envelope.document)
+    envelope.document.groups = []
+    const { captured, created, hookRepository } = await openEnvelope(
+      envelope,
+      "legacy-layer-organization"
+    )
+    expect(captured.current?.quotationGroupOrganization.status).toBe(
+      "available"
+    )
+    const before = currentEnvelope(captured.current!)
+
+    await act(async () => {
+      expect(captured.current?.upgradeQuotationLayerOrganization()).toBe(true)
+    })
+
+    const upgraded = currentEnvelope(captured.current!)
+    expect(upgraded.document.groups.length).toBeGreaterThan(50)
+    expect(upgraded.sourceContext?.composition).toEqual({
+      status: "legacy_unknown",
+      appliedMigrations: ["quotation.groups@2"],
+    })
+    expect({
+      ...upgraded.document,
+      groups: [],
+      revision: before.document.revision,
+      updatedAt: before.document.updatedAt,
+    }).toEqual(before.document)
+
+    await act(async () => captured.current?.undo())
+    expect(currentEnvelope(captured.current!)).toEqual(before)
+    expect(captured.current?.quotationGroupOrganization.status).toBe(
+      "available"
+    )
+
+    await act(async () => captured.current?.redo())
+    expect(currentEnvelope(captured.current!)).toEqual(upgraded)
+    expect(captured.current?.quotationGroupOrganization.status).toBe(
+      "already_current"
+    )
+    await act(async () => {
+      expect(await captured.current?.flushActiveDraft()).toBe(true)
+    })
+    const durable = await readRecord(hookRepository, envelope.document.id)
+    expect(durable.summary.recordVersion).toBe(
+      created.summary.recordVersion + 1
+    )
+    expect(durable.envelope).toEqual(upgraded)
+  })
+
   it("ignores foreign open and publication metadata events so flush and Home remain available", async () => {
     const envelope = designEnvelope()
     const { captured, created } = await openEnvelope(

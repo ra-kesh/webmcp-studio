@@ -39,6 +39,8 @@ export function QuotationSidebar({
   onCreateFromTemplate,
   onApplyTemplate,
   getTemplateApplicationImpact,
+  layerOrganizationUpgradeAvailable,
+  onLayerOrganizationUpgrade,
   onSelectionChange,
   onFocusNode,
   onHoverNode,
@@ -79,6 +81,8 @@ export function QuotationSidebar({
   getTemplateApplicationImpact: (
     template: DesignTemplateCatalogItem
   ) => TemplateApplicationImpact
+  layerOrganizationUpgradeAvailable?: boolean
+  onLayerOrganizationUpgrade?: () => void
   onSelectionChange: (nodeIds: string[]) => void
   onFocusNode: (nodeId: string) => void
   onHoverNode: (nodeId: string | null) => void
@@ -140,10 +144,14 @@ export function QuotationSidebar({
             hasQuotationSource={hasQuotationSource}
             items={templates}
             loadState={templateLoadState}
+            layerOrganizationUpgradeAvailable={
+              layerOrganizationUpgradeAvailable
+            }
             pendingAction={templatePendingAction}
             reviewPending={reviewPending}
             onApply={onApplyTemplate}
             onCreate={onCreateFromTemplate}
+            onLayerOrganizationUpgrade={onLayerOrganizationUpgrade}
             onRetry={onRetryTemplates}
           />
         </TabsContent>

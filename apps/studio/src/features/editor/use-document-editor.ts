@@ -5,6 +5,8 @@ import {
   captureSemanticFragment,
   cloneTemplateDocument,
   cloneSemanticFragment,
+  analyzeQuotationGroupOrganization,
+  applyQuotationGroupOrganization,
   createTemplateVersion,
   deriveDocumentSnapshotId,
   documentSchema,
@@ -15,6 +17,7 @@ import {
   inferQuotationTemplateId,
   previewChangeSet,
   quotationCompositionRequestV1Schema,
+  QUOTATION_GROUP_ORGANIZATION_MIGRATION_ID,
   quotationRenderPayloadV1Schema,
   quotationTemplates,
   templateVersionSchema,
@@ -29,6 +32,7 @@ import type {
   FieldDefinition,
   ImageFrameMask,
   QuotationRenderPayloadV1,
+  QuotationGroupOrganizationAnalysis,
   QuotationTemplateId,
   SceneNode,
   SemanticFragment,
@@ -590,6 +594,31 @@ export function useDocumentEditor({
       categories: [],
       error: null,
     })
+
+  const quotationGroupOrganization =
+    useMemo<QuotationGroupOrganizationAnalysis>(() => {
+      if (activeQuotationComposition?.status === "known") {
+        return { status: "already_current" }
+      }
+      if (
+        activeQuotationComposition?.status === "legacy_unknown" &&
+        activeQuotationComposition.appliedMigrations.includes(
+          QUOTATION_GROUP_ORGANIZATION_MIGRATION_ID
+        )
+      ) {
+        return { status: "already_current" }
+      }
+      return analyzeQuotationGroupOrganization(
+        history.document,
+        quotationSource,
+        activeQuotationTemplateId
+      )
+    }, [
+      activeQuotationComposition,
+      activeQuotationTemplateId,
+      history.document,
+      quotationSource,
+    ])
   const [startModel, setStartModel] = useState<StudioStartModel>({
     status: "opening",
   })
@@ -5440,6 +5469,92 @@ export function useDocumentEditor({
     ]
   )
 
+  const upgradeQuotationLayerOrganization = useCallback(() => {
+    if (!allowMutation()) return false
+    const currentSourceContext = templateSourceContextRef.current
+    if (
+      !currentSourceContext.quotationSource ||
+      currentSourceContext.composition?.status === "known" ||
+      (currentSourceContext.composition?.status === "legacy_unknown" &&
+        currentSourceContext.composition.appliedMigrations.includes(
+          QUOTATION_GROUP_ORGANIZATION_MIGRATION_ID
+        ))
+    ) {
+      setTemplateActionError(
+        "This quotation does not need the legacy layer-organization update."
+      )
+      return false
+    }
+    const analysis = analyzeQuotationGroupOrganization(
+      historyRef.current.document,
+      currentSourceContext.quotationSource,
+      currentSourceContext.quotationTemplateId
+    )
+    if (analysis.status !== "available") {
+      setTemplateActionError(
+        analysis.status === "blocked"
+          ? analysis.reason
+          : "This quotation does not need the legacy layer-organization update."
+      )
+      return false
+    }
+    try {
+      templateSourceBySnapshotRef.current.set(
+        historyRef.current.snapshotId,
+        currentSourceContext
+      )
+      const document = applyQuotationGroupOrganization(
+        historyRef.current.document,
+        analysis
+      )
+      const appliedMigrations =
+        currentSourceContext.composition?.status === "legacy_unknown"
+          ? currentSourceContext.composition.appliedMigrations
+          : []
+      const sourceContext: TemplateSourceContext = {
+        ...currentSourceContext,
+        composition: {
+          status: "legacy_unknown",
+          appliedMigrations: [
+            ...new Set([
+              ...appliedMigrations,
+              QUOTATION_GROUP_ORGANIZATION_MIGRATION_ID,
+            ]),
+          ],
+        },
+      }
+      const nextHistory = replaceDocument(historyRef.current, document, {
+        label: "Organize quotation layers",
+      })
+      historyRef.current = nextHistory
+      templateSourceBySnapshotRef.current.set(
+        nextHistory.snapshotId,
+        sourceContext
+      )
+      setHistory(nextHistory)
+      notifyHistoryCommit(nextHistory)
+      installTemplateSourceContext(sourceContext)
+      setSelection((current) => reconcileSelection(current, document))
+      setTemplateActionError(null)
+      setDocumentError(null)
+      captureSettledDraft()
+      return true
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Studio could not organize the quotation layers."
+      setTemplateActionError(message)
+      setDocumentError(message)
+      return false
+    }
+  }, [
+    allowMutation,
+    captureSettledDraft,
+    installTemplateSourceContext,
+    notifyHistoryCommit,
+  ])
+
   const createBlankDocument = useCallback(
     async (input: NewDocumentInput) => {
       if (!allowMutation(false, true)) return false
@@ -5947,6 +6062,7 @@ export function useDocumentEditor({
     activeQuotationTemplateId,
     activeDesignTemplate,
     activeQuotationComposition,
+    quotationGroupOrganization,
     designTemplateCatalog,
     publishError,
     publishSyncStatus,
@@ -6028,6 +6144,7 @@ export function useDocumentEditor({
     createBlankDocument,
     createDocumentFromTemplate,
     applyDesignTemplate,
+    upgradeQuotationLayerOrganization,
     getDesignTemplateImpact,
     reloadDesignTemplateCatalog: loadDesignTemplateCatalog,
     restoreDemoDocument,
