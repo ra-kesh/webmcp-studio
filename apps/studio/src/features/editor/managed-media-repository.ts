@@ -65,6 +65,21 @@ export class ManagedMediaError extends Error {
   }
 }
 
+export const managedMediaErrorIsRetryable = (error: unknown) =>
+  error instanceof ManagedMediaError &&
+  (error.status === 0 ||
+    error.status === 408 ||
+    error.status === 429 ||
+    error.status >= 500 ||
+    error.code === "media_network_error" ||
+    error.code === "media_upload_timeout" ||
+    error.code === "media_upload_cancelled")
+
+export const managedMediaErrorHasUnknownCommitStatus = (error: unknown) =>
+  error instanceof ManagedMediaError &&
+  (error.code === "media_upload_timeout" ||
+    error.code === "media_network_error")
+
 const readError = async (response: Response) => {
   const fallback = `Media request failed (${response.status})`
   try {

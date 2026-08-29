@@ -257,12 +257,18 @@ class FakeD1 {
   assets: Row[] = []
   requests: Row[] = []
   references: Row[] = []
+  batchFailure: Error | (() => Error) | null = null
 
   prepare(query: string) {
     return new FakeD1Statement(query, this) as unknown as D1PreparedStatement
   }
 
   async batch<T>(statements: D1PreparedStatement[]) {
+    if (this.batchFailure) {
+      const failure = this.batchFailure
+      this.batchFailure = null
+      throw typeof failure === "function" ? failure() : failure
+    }
     return Promise.all(
       statements.map((statement) =>
         (statement as unknown as FakeD1Statement).run<T>()
@@ -320,6 +326,70 @@ const repositoryFixture = () => {
 }
 
 describe("MediaAssetRepository", () => {
+  it("retains a deterministic object after a D1 failure and reuses it on retry", async () => {
+    const { db, r2, repository } = repositoryFixture()
+    const upload = await validatedUpload()
+    db.batchFailure = new Error("D1 unavailable")
+
+    await expect(
+      repository.upload("workspace-a", upload, "cleanup-retry-1")
+    ).rejects.toThrow("D1 unavailable")
+    expect(r2.objects.size).toBe(1)
+    expect(r2.deleted).toEqual([])
+    const retainedKey = [...r2.objects.keys()][0]
+
+    await expect(
+      repository.upload("workspace-a", upload, "cleanup-retry-1")
+    ).resolves.toMatchObject({ created: true })
+    expect(r2.objects.size).toBe(1)
+    expect([...r2.objects.keys()]).toEqual([retainedKey])
+    expect(r2.putKeys).toEqual([retainedKey, retainedKey])
+  })
+
+  it("does not delete a shared content object when an idempotency race loses", async () => {
+    const { db, r2, repository } = repositoryFixture()
+    const loser = await validatedUpload("loser.png")
+    const winner = await validatedUpload("winner.png")
+
+    db.batchFailure = () => {
+      const r2Key = r2.putKeys.at(-1)
+      if (!r2Key) throw new Error("Expected the content object before D1")
+      db.assets.push({
+        id: "asset-0000000000000000000000000000999",
+        workspace_id: "workspace-a",
+        name: winner.name,
+        media_type: winner.mediaType,
+        bytes: winner.byteLength,
+        width: winner.width,
+        height: winner.height,
+        content_hash: winner.contentHash,
+        r2_key: r2Key,
+        status: "ready",
+        revision: 1,
+        created_at: "2026-08-28T00:00:00.000Z",
+        updated_at: "2026-08-28T00:00:00.000Z",
+        last_used_at: "2026-08-28T00:00:00.000Z",
+      })
+      db.requests.push({
+        workspace_id: "workspace-a",
+        idempotency_key: "shared-request-key",
+        request_hash: winner.requestHash,
+        asset_id: "asset-0000000000000000000000000000999",
+        created_at: "2026-08-28T00:00:00.000Z",
+      })
+      return new Error("UNIQUE constraint failed")
+    }
+
+    await expect(
+      repository.upload("workspace-a", loser, "shared-request-key")
+    ).rejects.toMatchObject({ code: "idempotency_key_reused", status: 409 })
+
+    const winnerKey = String(db.assets[0]?.r2_key)
+    expect(r2.deleted).toEqual([])
+    expect(r2.objects.get(winnerKey)).toEqual(png1x1)
+    await expect(r2.get(winnerKey)).resolves.not.toBeNull()
+  })
+
   it("writes private content and returns only public metadata", async () => {
     const { db, r2, repository } = repositoryFixture()
     const result = await repository.upload(

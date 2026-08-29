@@ -2245,3 +2245,29 @@ Status: **implemented locally and independently accepted; broader FAIL-01 remain
   Retry authority, and Home storage still claimed it was reading. The repaired
   gate directly awaits cleanup, revokes invalid Retry operations, and reports
   storage truthfully. Final review returned **ACCEPT with no remaining P0/P1**.
+
+## 2026-08-29 — Managed upload lifecycle (FAIL-01F)
+
+Status: **implemented locally and independently accepted; broader FAIL-01 remains open**
+
+- Reread the FAIL-01 and MEDIA-01 audits, OpenPencil's bounded image admission,
+  Loora's asset upload flow, and Studio's XHR/D1/R2 implementation before
+  editing.
+- Managed uploads now use a source-ordered queue with at most three concurrent
+  requests, synchronous claims, exact attempt ownership, and stable
+  idempotency keys across Retry.
+- Queued and active cancellation are distinct. The UI waits for local abort
+  acknowledgement and does not claim the Worker was cancelled. Network loss
+  and timeout enter a truthful **Status unknown** state; Retry reuses the same
+  key and explicitly checks/reconciles the server result.
+- Retryability is typed. Deterministic validation/4xx failures do not expose a
+  misleading Retry action.
+- Workspace/content-hash R2 keys are deterministic. D1 race losers never
+  delete shared content. A same-key, same-content, different-request regression
+  proves the winner remains readable.
+- Studio typecheck, scoped lint, and 30 focused queue/XHR/repository tests pass.
+  `fail-01f-managed-upload-lifecycle.md` keeps local uploads, quota/rate
+  admission, publish, WebMCP, durable jobs, and deployed failure evidence open.
+- The first independent review rejected shared-object deletion and misleading
+  timeout copy. After repair, final rereview returned **ACCEPT with no remaining
+  P0/P1**. A mounted full-queue lifecycle regression remains P2 hardening.

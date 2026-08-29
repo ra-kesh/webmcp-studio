@@ -35,7 +35,15 @@ import type { LocalAssetSummary } from "./local-asset-store"
 
 export type AssetLibraryCollection = "recent" | "uploads" | "library"
 export type UploadPhase =
-  "preparing" | "uploading" | "complete" | "failed" | "cancelled"
+  | "queued"
+  | "preparing"
+  | "uploading"
+  | "cancelling"
+  | "reconciling"
+  | "complete"
+  | "status_unknown"
+  | "failed"
+  | "cancelled"
 
 export type UploadQueueItem = {
   id: string
@@ -45,12 +53,18 @@ export type UploadQueueItem = {
   progress: number | null
   error: string | null
   asset: ManagedMediaAsset | null
+  retryable: boolean
+  attempt: number
 }
 
 export const uploadPhaseLabel: Record<UploadPhase, string> = {
+  queued: "Queued",
   preparing: "Preparing",
   uploading: "Uploading",
+  cancelling: "Stopping",
+  reconciling: "Checking server",
   complete: "Ready",
+  status_unknown: "Status unknown",
   failed: "Upload failed",
   cancelled: "Cancelled",
 }
@@ -62,7 +76,35 @@ export const collectionLabels: Record<AssetLibraryCollection, string> = {
 }
 
 export function isUploadActive(item: UploadQueueItem) {
-  return item.phase === "preparing" || item.phase === "uploading"
+  return (
+    item.phase === "queued" ||
+    item.phase === "preparing" ||
+    item.phase === "uploading" ||
+    item.phase === "cancelling" ||
+    item.phase === "reconciling"
+  )
+}
+
+export const isUploadInFlight = (item: UploadQueueItem) =>
+  item.phase === "preparing" ||
+  item.phase === "uploading" ||
+  item.phase === "cancelling" ||
+  item.phase === "reconciling"
+
+export const nextManagedUploadClaims = (
+  items: readonly UploadQueueItem[],
+  claimedIds: ReadonlySet<string>,
+  concurrency: number
+) => {
+  const ownedIds = new Set(
+    items.filter(isUploadInFlight).map((item) => item.id)
+  )
+  for (const queueId of claimedIds) ownedIds.add(queueId)
+  const available = Math.max(0, concurrency - ownedIds.size)
+  if (available === 0) return []
+  return items
+    .filter((item) => item.phase === "queued" && !ownedIds.has(item.id))
+    .slice(0, available)
 }
 
 function AssetPreview({
@@ -394,7 +436,7 @@ export function UploadQueue({
                   {uploadPhaseLabel[item.phase]}
                 </span>
               </div>
-              {item.phase === "uploading" ? (
+              {item.phase === "uploading" || item.phase === "reconciling" ? (
                 <div className="mt-2 flex items-center gap-2">
                   <progress
                     aria-label={`Uploading ${item.file.name}`}
@@ -417,7 +459,9 @@ export function UploadQueue({
               ) : null}
             </div>
             <div className="flex items-center gap-1">
-              {isUploadActive(item) ? (
+              {item.phase === "queued" ||
+              item.phase === "preparing" ||
+              item.phase === "uploading" ? (
                 <Button
                   aria-label={`Cancel upload of ${item.file.name}`}
                   className="size-11"
@@ -430,7 +474,10 @@ export function UploadQueue({
                   <XIcon />
                 </Button>
               ) : null}
-              {item.phase === "failed" || item.phase === "cancelled" ? (
+              {(item.phase === "failed" ||
+                item.phase === "cancelled" ||
+                item.phase === "status_unknown") &&
+              item.retryable ? (
                 <Button
                   className="h-11"
                   disabled={disabled}

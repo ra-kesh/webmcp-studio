@@ -6,6 +6,8 @@ import {
   listManagedMedia,
   MANAGED_MEDIA_UPLOAD_TIMEOUT_MS,
   ManagedMediaError,
+  managedMediaErrorHasUnknownCommitStatus,
+  managedMediaErrorIsRetryable,
   managedMediaContentUrl,
   markManagedMediaUsed,
   subscribeManagedMediaMutations,
@@ -101,6 +103,25 @@ const latestRequest = () => {
 }
 
 describe("managed media repository", () => {
+  it("classifies retryability from typed transport and HTTP identity", () => {
+    expect(
+      managedMediaErrorIsRetryable(
+        new ManagedMediaError("media_upload_timeout", 0, "Timed out")
+      )
+    ).toBe(true)
+    expect(
+      managedMediaErrorIsRetryable(
+        new ManagedMediaError("rate_limited", 429, "Try later")
+      )
+    ).toBe(true)
+    expect(
+      managedMediaErrorIsRetryable(
+        new ManagedMediaError("invalid_image", 422, "Invalid image")
+      )
+    ).toBe(false)
+    expect(managedMediaErrorIsRetryable(new Error("unknown"))).toBe(false)
+  })
+
   it("builds content URLs only for canonical managed asset IDs", () => {
     expect(managedMediaContentUrl(asset.id)).toBe(
       `/v1/studio/assets/${asset.id}/content`
@@ -261,6 +282,24 @@ describe("managed media repository", () => {
         "The upload took too long. Check your connection and retry."
       )
     )
+  })
+
+  it("marks timeout and network loss as unknown commit status", () => {
+    expect(
+      managedMediaErrorHasUnknownCommitStatus(
+        new ManagedMediaError("media_upload_timeout", 0, "Timed out")
+      )
+    ).toBe(true)
+    expect(
+      managedMediaErrorHasUnknownCommitStatus(
+        new ManagedMediaError("media_network_error", 0, "Disconnected")
+      )
+    ).toBe(true)
+    expect(
+      managedMediaErrorHasUnknownCommitStatus(
+        new ManagedMediaError("upload_too_large", 413, "Too large")
+      )
+    ).toBe(false)
   })
 
   it("parses deletion impact from the server envelope", async () => {

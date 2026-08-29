@@ -43,6 +43,7 @@ import {
   isUploadActive,
   LocalAssetCard,
   LoadingGrid,
+  nextManagedUploadClaims,
   RepositoryNotice,
   UploadQueue,
 } from "./asset-library-components"
@@ -81,7 +82,10 @@ import {
   archiveManagedMedia,
   getManagedMediaDeletionImpact,
   listManagedMedia,
+  managedMediaErrorHasUnknownCommitStatus,
+  managedMediaErrorIsRetryable,
   managedMediaContentUrl,
+  ManagedMediaError,
   uploadManagedMedia,
 } from "./managed-media-repository"
 import type {
@@ -147,6 +151,7 @@ const serverReferenceCount = (impact: ManagedMediaDeletionImpact | null) =>
   impact ? impact.currentReferences + impact.publishedReferences : 0
 
 const recentLibraryStorageKey = "webmcp-studio:recent-library-assets:v1"
+const MAX_CONCURRENT_MANAGED_UPLOADS = 3
 
 export function AssetLibraryDialog({
   open,
@@ -161,6 +166,8 @@ export function AssetLibraryDialog({
 }: AssetLibraryDialogProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const uploadCancelsRef = useRef(new Map<string, () => void>())
+  const claimedUploadIdsRef = useRef(new Set<string>())
+  const uploadAttemptByQueueIdRef = useRef(new Map<string, number>())
   const managedRequestRef = useRef<AbortController | null>(null)
   const managedPaginationRequestRef = useRef<
     Record<ManagedMediaCollection, AbortController | null>
@@ -370,6 +377,8 @@ export function AssetLibraryDialog({
       managedPaginationRequestRef.current.uploads?.abort()
       for (const cancel of uploadCancelsRef.current.values()) cancel()
       uploadCancelsRef.current.clear()
+      claimedUploadIdsRef.current.clear()
+      uploadAttemptByQueueIdRef.current.clear()
     },
     []
   )
@@ -459,9 +468,19 @@ export function AssetLibraryDialog({
   }, [])
 
   const runUpload = useCallback(
-    async (queueId: string, file: File, idempotencyKey: string) => {
+    async (
+      queueId: string,
+      file: File,
+      idempotencyKey: string,
+      reconciling: boolean
+    ) => {
+      const attempt = (uploadAttemptByQueueIdRef.current.get(queueId) ?? 0) + 1
+      uploadAttemptByQueueIdRef.current.set(queueId, attempt)
+      const ownsAttempt = () =>
+        uploadAttemptByQueueIdRef.current.get(queueId) === attempt
       const validationError = validateMediaFile(file)
       if (validationError) {
+        claimedUploadIdsRef.current.delete(queueId)
         setUploadQueue((current) =>
           current.map((item) =>
             item.id === queueId
@@ -471,6 +490,8 @@ export function AssetLibraryDialog({
                   progress: null,
                   error: validationError,
                   asset: null,
+                  retryable: false,
+                  attempt,
                 }
               : item
           )
@@ -482,42 +503,50 @@ export function AssetLibraryDialog({
           item.id === queueId
             ? {
                 ...item,
-                phase: "preparing",
+                phase: reconciling ? "reconciling" : "preparing",
                 progress: null,
                 error: null,
                 asset: null,
+                retryable: false,
+                attempt,
               }
             : item
         )
       )
       const request = uploadManagedMedia(file, {
         idempotencyKey,
-        onProgress: (loaded, total) =>
+        onProgress: (loaded, total) => {
+          if (!ownsAttempt()) return
           setUploadQueue((current) =>
             current.map((item) =>
               item.id === queueId
                 ? {
                     ...item,
-                    phase: "uploading",
+                    phase: reconciling ? "reconciling" : "uploading",
                     progress: total
                       ? Math.min(100, Math.round((loaded / total) * 100))
                       : null,
                   }
                 : item
             )
-          ),
+          )
+        },
       })
       uploadCancelsRef.current.set(queueId, request.cancel)
       setUploadQueue((current) =>
         current.map((item) =>
           item.id === queueId
-            ? { ...item, phase: "uploading", progress: null }
+            ? {
+                ...item,
+                phase: reconciling ? "reconciling" : "uploading",
+                progress: null,
+              }
             : item
         )
       )
       try {
         const asset = await request.promise
-        uploadCancelsRef.current.delete(queueId)
+        if (!ownsAttempt()) return
         setUploadQueue((current) =>
           current.map((item) =>
             item.id === queueId
@@ -527,6 +556,7 @@ export function AssetLibraryDialog({
                   progress: 100,
                   asset,
                   error: null,
+                  retryable: false,
                 }
               : item
           )
@@ -535,21 +565,38 @@ export function AssetLibraryDialog({
         void refreshManagedAssets(normalizedQueryRef.current)
         setDialogNotice(`“${file.name}” is ready to use.`)
       } catch (error) {
-        uploadCancelsRef.current.delete(queueId)
+        if (!ownsAttempt()) return
         const cancelled =
-          error instanceof Error && error.message === "Upload cancelled."
+          error instanceof ManagedMediaError &&
+          error.code === "media_upload_cancelled"
+        const statusUnknown = managedMediaErrorHasUnknownCommitStatus(error)
+        const retryable = managedMediaErrorIsRetryable(error)
         setUploadQueue((current) =>
           current.map((item) =>
             item.id === queueId
               ? {
                   ...item,
-                  phase: cancelled ? "cancelled" : "failed",
+                  phase: cancelled
+                    ? "cancelled"
+                    : statusUnknown
+                      ? "status_unknown"
+                      : "failed",
                   progress: null,
-                  error: cancelled ? null : readableMediaError(error),
+                  error: cancelled
+                    ? "Stopped on this device. Retry checks the server with the same request key before creating anything new."
+                    : statusUnknown
+                      ? "Studio lost contact before it could confirm the result. Retry checks the server with the same request key before creating anything new."
+                      : readableMediaError(error),
+                  retryable,
                 }
               : item
           )
         )
+      } finally {
+        if (ownsAttempt()) {
+          uploadCancelsRef.current.delete(queueId)
+          claimedUploadIdsRef.current.delete(queueId)
+        }
       }
     },
     [refreshManagedAssets, upsertManagedUpload]
@@ -568,26 +615,89 @@ export function AssetLibraryDialog({
         id: crypto.randomUUID(),
         file,
         idempotencyKey: crypto.randomUUID(),
-        phase: "preparing",
+        phase: "queued",
         progress: null,
         error: null,
         asset: null,
+        retryable: false,
+        attempt: 0,
       }))
       setUploadQueue((current) => [...items, ...current])
-      for (const item of items) {
-        void runUpload(item.id, item.file, item.idempotencyKey)
-      }
     },
-    [runUpload, selectingId]
+    [selectingId]
   )
 
   const retryUpload = useCallback(
     (queueId: string) => {
       const item = uploadQueue.find((candidate) => candidate.id === queueId)
-      if (item) void runUpload(item.id, item.file, item.idempotencyKey)
+      if (!item?.retryable) return
+      claimedUploadIdsRef.current.delete(queueId)
+      setUploadQueue((current) =>
+        current.map((candidate) =>
+          candidate.id === queueId
+            ? {
+                ...candidate,
+                phase: "queued",
+                progress: null,
+                error: null,
+                retryable: false,
+              }
+            : candidate
+        )
+      )
     },
-    [runUpload, uploadQueue]
+    [uploadQueue]
   )
+
+  const cancelUpload = useCallback((queueId: string) => {
+    const cancel = uploadCancelsRef.current.get(queueId)
+    if (cancel) {
+      setUploadQueue((current) =>
+        current.map((item) =>
+          item.id === queueId ? { ...item, phase: "cancelling" } : item
+        )
+      )
+      cancel()
+      return
+    }
+    uploadAttemptByQueueIdRef.current.set(
+      queueId,
+      (uploadAttemptByQueueIdRef.current.get(queueId) ?? 0) + 1
+    )
+    claimedUploadIdsRef.current.delete(queueId)
+    setUploadQueue((current) =>
+      current.map((item) =>
+        item.id === queueId
+          ? {
+              ...item,
+              phase: "cancelled",
+              progress: null,
+              error: null,
+              retryable: true,
+            }
+          : item
+      )
+    )
+  }, [])
+
+  const dismissUpload = useCallback((queueId: string) => {
+    uploadCancelsRef.current.delete(queueId)
+    claimedUploadIdsRef.current.delete(queueId)
+    uploadAttemptByQueueIdRef.current.delete(queueId)
+    setUploadQueue((current) => current.filter((item) => item.id !== queueId))
+  }, [])
+
+  useEffect(() => {
+    const claims = nextManagedUploadClaims(
+      uploadQueue,
+      claimedUploadIdsRef.current,
+      MAX_CONCURRENT_MANAGED_UPLOADS
+    )
+    for (const item of claims) {
+      claimedUploadIdsRef.current.add(item.id)
+      void runUpload(item.id, item.file, item.idempotencyKey, item.attempt > 0)
+    }
+  }, [runUpload, uploadQueue])
 
   const loadMoreManaged = useCallback(
     async (kind: ManagedMediaCollection) => {
@@ -1228,12 +1338,8 @@ export function AssetLibraryDialog({
                 disabled={interactionLocked}
                 items={uploadQueue}
                 selectingId={selectingId}
-                onCancel={(id) => uploadCancelsRef.current.get(id)?.()}
-                onDismiss={(id) =>
-                  setUploadQueue((current) =>
-                    current.filter((item) => item.id !== id)
-                  )
-                }
+                onCancel={cancelUpload}
+                onDismiss={dismissUpload}
                 onRetry={retryUpload}
                 onUse={(item) => {
                   if (item.asset) {

@@ -103,6 +103,9 @@ const qualifiedMediaAssetColumns = (alias: string) =>
     .map((column) => `${alias}.${column} AS ${column}`)
     .join(", ")
 
+const managedUploadR2Key = (workspaceId: string, contentHash: string) =>
+  `media/workspaces/${encodeURIComponent(workspaceId)}/content/${contentHash}/original`
+
 const publicAsset = (row: MediaAssetRow): PublicMediaAsset => {
   if (row.status !== "ready") {
     throw new MediaAssetError("asset_archived", 409, "Asset is archived")
@@ -454,7 +457,7 @@ export class MediaAssetRepository {
 
     const id = this.createId()
     assertMediaAssetId(id)
-    const r2Key = `media/${id}/original`
+    const r2Key = managedUploadR2Key(workspaceId, upload.contentHash)
     await this.bucket.put(r2Key, upload.bytes, {
       httpMetadata: { contentType: upload.mediaType },
       sha256: upload.contentHash,
@@ -496,7 +499,10 @@ export class MediaAssetRepository {
           : []),
       ])
     } catch (error) {
-      await this.bucket.delete(r2Key).catch(() => undefined)
+      // The content key is deterministic, so another request may already own
+      // the same object. Never delete it from a losing D1 transaction. A later
+      // upload with the same bytes safely overwrites/reuses this key; orphan
+      // reclamation must be handled by a separate ownership-aware process.
       const idempotent = idempotencyKey
         ? await this.db
             .prepare(
