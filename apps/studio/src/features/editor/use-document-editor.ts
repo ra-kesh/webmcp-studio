@@ -1660,15 +1660,20 @@ export function useDocumentEditor({
     return capturePersistenceSession(session)
   }, [capturePersistenceSession, projectLocalSaveState, rememberStartEnvelope])
 
-  const flushActiveDraft = useCallback(async () => {
-    if (sessionModeRef.current !== "workspace") return true
-    if (!captureSettledDraft()) return false
-    if (localSaveStateRef.current.status === "external_change") return false
-    const session = activePersistenceSessionRef.current
-    if (!session) return true
-    await session.controller.flush()
-    return session.controller.state.status === "saved"
-  }, [captureSettledDraft])
+  const flushActiveDraft = useCallback(
+    async (signal?: AbortSignal) => {
+      signal?.throwIfAborted()
+      if (sessionModeRef.current !== "workspace") return true
+      if (!captureSettledDraft()) return false
+      if (localSaveStateRef.current.status === "external_change") return false
+      const session = activePersistenceSessionRef.current
+      if (!session) return true
+      await session.controller.flush(signal)
+      signal?.throwIfAborted()
+      return session.controller.state.status === "saved"
+    },
+    [captureSettledDraft]
+  )
 
   const retryActiveDraftSave = useCallback(async () => {
     const controller = activePersistenceSessionRef.current?.controller

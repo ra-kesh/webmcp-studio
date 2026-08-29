@@ -1,5 +1,5 @@
 import "fake-indexeddb/auto"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   LocalAssetQuotaError,
   archiveLocalAsset,
@@ -125,6 +125,7 @@ const quarantineCount = async () => {
 }
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   await deleteDatabase()
 })
 
@@ -203,6 +204,53 @@ describe("local asset store", () => {
     expect(summaries.map((summary) => summary.id)).toEqual([
       "legacy-concurrent",
     ])
+  })
+
+  it("does not start a retry open until a cancelled database open settles", async () => {
+    const actualOpen = indexedDB.open.bind(indexedDB)
+    const lateDatabase = {
+      close: vi.fn(),
+      onversionchange: null,
+      transaction: vi.fn(),
+    } as unknown as IDBDatabase
+    const pendingRequest = {
+      result: lateDatabase,
+      error: null,
+      transaction: null,
+      onupgradeneeded: null,
+      onsuccess: null,
+      onerror: null,
+      onblocked: null,
+    } as unknown as IDBOpenDBRequest
+    let openCount = 0
+    vi.spyOn(indexedDB, "open").mockImplementation(
+      (name: string, version?: number) => {
+        openCount += 1
+        if (openCount === 2) return pendingRequest
+        return version === undefined
+          ? actualOpen(name)
+          : actualOpen(name, version)
+      }
+    )
+    const controller = new AbortController()
+    const firstRead = getLocalAssetRecord("missing", controller.signal)
+    await vi.waitFor(() => expect(openCount).toBe(2))
+    const reason = new DOMException("Export cancelled", "AbortError")
+
+    controller.abort(reason)
+
+    await expect(firstRead).rejects.toBe(reason)
+    const retry = getLocalAssetRecord("missing")
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(openCount).toBe(2)
+
+    pendingRequest.onsuccess?.(new Event("success"))
+
+    await expect(retry).resolves.toBeNull()
+    expect(lateDatabase.close).toHaveBeenCalledOnce()
+    expect(lateDatabase.transaction).not.toHaveBeenCalled()
+    expect(openCount).toBe(4)
   })
 
   it("preserves a newer split-store record over its retained legacy row", async () => {

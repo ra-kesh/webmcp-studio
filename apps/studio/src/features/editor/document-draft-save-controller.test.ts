@@ -235,6 +235,91 @@ describe("DocumentDraftSaveController", () => {
     expect(save.mock.calls[0]?.[0].document.name).toBe("Three")
   })
 
+  it("lets an aborted waiter leave without duplicating the ordered draft write", async () => {
+    const initial = initialSnapshot()
+    const candidate = changed(initial, "Abortable flush")
+    const write = deferred<DraftWriteResult>()
+    const save = vi.fn(() => write.promise)
+    const controller = new DocumentDraftSaveController({
+      repository: { save },
+      record: recordFor(initial),
+      timer: new ManualTimer(),
+    })
+    const abortController = new AbortController()
+
+    controller.capture(candidate)
+    const firstFlush = controller.flush(abortController.signal)
+    await vi.waitFor(() => expect(save).toHaveBeenCalledOnce())
+    const reason = new DOMException("Export cancelled", "AbortError")
+    abortController.abort(reason)
+
+    await expect(firstFlush).rejects.toBe(reason)
+    expect(controller.state.status).toBe("saving")
+
+    const retryFlush = controller.flush()
+    expect(save).toHaveBeenCalledOnce()
+    write.resolve(saved(candidate, 2))
+    await retryFlush
+
+    expect(save).toHaveBeenCalledOnce()
+    expect(controller.state).toMatchObject({
+      status: "saved",
+      recordVersion: 2,
+    })
+  })
+
+  it("keeps newer captures ordered when an export waiter aborts and retries", async () => {
+    const initial = initialSnapshot()
+    const first = changed(initial, "First save")
+    const second = changed(first, "Newer capture")
+    const firstWrite = deferred<DraftWriteResult>()
+    const secondWrite = deferred<DraftWriteResult>()
+    const calls: string[] = []
+    let active = 0
+    let maximumActive = 0
+    const save = vi.fn(async (snapshot: CurrentDraftSnapshot) => {
+      calls.push(snapshot.document.name)
+      active += 1
+      maximumActive = Math.max(maximumActive, active)
+      const result = await (calls.length === 1
+        ? firstWrite.promise
+        : secondWrite.promise)
+      active -= 1
+      return result
+    })
+    const controller = new DocumentDraftSaveController({
+      repository: { save },
+      record: recordFor(initial),
+      timer: new ManualTimer(),
+    })
+    const abortController = new AbortController()
+
+    controller.capture(first)
+    const cancelledFlush = controller.flush(abortController.signal)
+    await vi.waitFor(() => expect(save).toHaveBeenCalledOnce())
+    controller.capture(second)
+    const reason = new DOMException("Export cancelled", "AbortError")
+    abortController.abort(reason)
+
+    await expect(cancelledFlush).rejects.toBe(reason)
+    const retryFlush = controller.flush()
+    expect(save).toHaveBeenCalledOnce()
+
+    firstWrite.resolve(saved(first, 2))
+    await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(2))
+    expect(calls).toEqual(["First save", "Newer capture"])
+
+    secondWrite.resolve(saved(second, 3))
+    await retryFlush
+
+    expect(maximumActive).toBe(1)
+    expect(controller.recordVersion).toBe(3)
+    expect(controller.state).toMatchObject({
+      status: "saved",
+      recordVersion: 3,
+    })
+  })
+
   it("captures source context at commit time instead of reading it later", async () => {
     const initial = initialSnapshot()
     const timer = new ManualTimer()

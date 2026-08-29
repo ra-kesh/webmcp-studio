@@ -62,6 +62,29 @@ const failureMessage = (result: Extract<DraftWriteResult, { ok: false }>) => {
   return "Studio could not save this document."
 }
 
+const waitForDraftWrite = <T>(promise: Promise<T>, signal?: AbortSignal) => {
+  if (!signal) return promise
+  signal.throwIfAborted()
+  return new Promise<T>((resolve, reject) => {
+    const cleanUp = () => signal.removeEventListener("abort", abort)
+    const abort = () => {
+      cleanUp()
+      reject(signal.reason)
+    }
+    signal.addEventListener("abort", abort, { once: true })
+    void promise.then(
+      (value) => {
+        cleanUp()
+        if (!signal.aborted) resolve(value)
+      },
+      (error: unknown) => {
+        cleanUp()
+        if (!signal.aborted) reject(error)
+      }
+    )
+  })
+}
+
 /**
  * Orders durable writes for one open document. The editor owns when a settled
  * commit is captured; this controller owns debounce, compare-and-swap versions,
@@ -164,15 +187,16 @@ export class DocumentDraftSaveController {
    * Bypasses debounce and drains the latest capture. It resolves after the
    * capture is durable, or after the controller reaches failed/conflict state.
    */
-  async flush() {
+  async flush(signal?: AbortSignal) {
+    signal?.throwIfAborted()
     if (this.#closed) return
     this.#clearTimer()
     while (this.#canDrain()) {
-      await this.#enqueueOne()
+      await waitForDraftWrite(this.#enqueueOne(), signal)
       if (this.#state.status === "failed" || this.#state.status === "conflict")
         return
     }
-    await this.#ordered
+    await waitForDraftWrite(this.#ordered, signal)
   }
 
   /**

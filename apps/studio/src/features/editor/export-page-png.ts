@@ -5,7 +5,7 @@ type PngExportResponse = Pick<Response, "blob" | "ok" | "status">
 export type PagePngExportDependencies = Readonly<{
   requestedPageId: string
   signal?: AbortSignal
-  flushActiveDraft: () => Promise<boolean>
+  flushActiveDraft: (signal?: AbortSignal) => Promise<boolean>
   getCurrentDocumentSnapshot: () => Document
   materializeNodes: (document: Document) => Promise<Document["nodes"]>
   fetcher: (input: string, init: RequestInit) => Promise<PngExportResponse>
@@ -29,7 +29,7 @@ export async function exportPagePng({
   download,
 }: PagePngExportDependencies) {
   signal?.throwIfAborted()
-  if (!(await flushActiveDraft())) {
+  if (!(await flushActiveDraft(signal))) {
     throw new Error(
       "PNG export stopped because the current document is not durably saved."
     )

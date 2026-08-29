@@ -2157,3 +2157,32 @@ Status: **implemented locally and independently accepted; broader FAIL-01 remain
 - Independent review accepted the final bounded diff with no remaining P0/P1
   after rejecting and rechecking early-response admission ownership, Browser
   acquisition cancellation, thumbnail lifecycle reuse, and evidence wording.
+
+## 2026-08-29 — Export prerequisite cancellation (FAIL-01C)
+
+Status: **implemented locally and independently accepted; broader FAIL-01 remains open**
+
+- Reread the FAIL-01 audit, Loora import/export cleanup, OpenPencil deadline
+  patterns, and the actual Studio draft, local asset, PNG, and PDF code before
+  editing.
+- PNG and PDF now pass the foreground signal into draft flush. Cancellation
+  releases only the export waiter. The controller-owned compare-and-swap write
+  continues, Retry joins it, and newer captures drain afterward with one active
+  write and exact version order.
+- Local IndexedDB image reads accept cancellation through migration waiting,
+  database open, readonly transactions, and quarantine. A database that opens
+  after cancellation is closed, and transaction cancellation waits for the
+  IndexedDB abort event before returning.
+- Local image preparation now owns all started children. One image failure
+  aborts pending siblings and waits for them to settle. Caller cancellation
+  remains the reported error even when sibling cleanup reports other errors.
+  PNG and PDF use the same implementation.
+- Focused draft, PNG, materialization, and local asset tests pass 37/37. Studio
+  typecheck and scoped ESLint pass.
+- `fail-01c-export-prerequisite-cancellation.md` records the exact contract and
+  keeps Fabric startup, upload, import, publish, WebMCP, durable jobs, public
+  error identity, and deployed failure evidence open.
+- Independent review rejected the first pass because a cancelled IndexedDB
+  open could outlive the waiter and overlap Retry. The final reservation gate
+  retains ownership through late close. The reviewer accepted the repaired
+  gate with no remaining P0/P1.

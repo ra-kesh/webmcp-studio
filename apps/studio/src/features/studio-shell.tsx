@@ -241,10 +241,7 @@ import {
   studioTextPresets,
 } from "./editor/text-presets"
 import type { StudioTextPresetId } from "./editor/text-presets"
-import {
-  loadLocalAsset,
-  localAssetIdFromSource,
-} from "./editor/local-asset-store"
+import { materializeLocalExportNodes } from "./editor/materialize-local-export-nodes"
 
 const HEART_ICON_PATH =
   "M12 21.35 10.55 20.03C5.4 15.36 2 12.27 2 8.5 2 5.41 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.08C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.41 22 8.5c0 3.77-3.4 6.86-8.55 11.54Z"
@@ -326,34 +323,6 @@ function TextPresetMenuItems({
 }
 
 const FOREGROUND_EXPORT_TIMEOUT_MS = 60_000
-
-const blobToDataUrl = (blob: Blob, signal?: AbortSignal) =>
-  new Promise<string>((resolve, reject) => {
-    signal?.throwIfAborted()
-    const reader = new FileReader()
-    const cleanUp = () => signal?.removeEventListener("abort", abort)
-    const abort = () => {
-      reader.abort()
-      reject(signal?.reason)
-    }
-    reader.onload = () => {
-      cleanUp()
-      if (signal?.aborted) {
-        reject(signal.reason)
-      } else if (typeof reader.result === "string") {
-        resolve(reader.result)
-      } else {
-        reject(new Error("The image could not be prepared for export."))
-      }
-    }
-    reader.onerror = () => {
-      cleanUp()
-      reject(reader.error ?? new Error("The image could not be read."))
-    }
-    reader.onabort = cleanUp
-    signal?.addEventListener("abort", abort, { once: true })
-    reader.readAsDataURL(blob)
-  })
 
 function IconButton({
   label,
@@ -2019,25 +1988,6 @@ export function StudioShell({
     }
   }
 
-  const materializeLocalExportNodes = async (
-    documentSnapshot: ReturnType<typeof editor.getCurrentDocumentSnapshot>,
-    signal?: AbortSignal
-  ) =>
-    Promise.all(
-      documentSnapshot.nodes.map(async (node) => {
-        signal?.throwIfAborted()
-        if (node.type !== "image") return node
-        const localAssetId = localAssetIdFromSource(node.src)
-        if (!localAssetId) return node
-        const blob = await loadLocalAsset(localAssetId)
-        signal?.throwIfAborted()
-        if (!blob) {
-          throw new Error(`The local image “${node.name}” is unavailable.`)
-        }
-        return { ...node, src: await blobToDataUrl(blob, signal) }
-      })
-    )
-
   const exportPng = async (signal: AbortSignal) => {
     const requestedPageId = activePage.id
     if (editor.imageCropSession) {
@@ -2080,7 +2030,7 @@ export function StudioShell({
       throw new Error("Finish text editing before exporting PDF.")
     }
     signal.throwIfAborted()
-    if (!(await editor.flushActiveDraft())) {
+    if (!(await editor.flushActiveDraft(signal))) {
       throw new Error(
         "PDF export stopped because the current document is not durably saved."
       )

@@ -55,25 +55,29 @@ describe("exportPagePng", () => {
   it("stops after a pending save is cancelled and never calls the renderer", async () => {
     const requestedPage = quotationStarter.document.pages[0]
     const controller = new AbortController()
-    let resolveFlush!: (saved: boolean) => void
-    const flush = new Promise<boolean>((resolve) => {
-      resolveFlush = resolve
-    })
     const fetcher = vi.fn()
+    const flushActiveDraft = vi.fn(
+      (signal?: AbortSignal) =>
+        new Promise<boolean>((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          })
+        })
+    )
 
     const exporting = exportPagePng({
       requestedPageId: requestedPage.id,
       signal: controller.signal,
-      flushActiveDraft: () => flush,
+      flushActiveDraft,
       getCurrentDocumentSnapshot: () => quotationStarter.document,
       materializeNodes: async (document) => document.nodes,
       fetcher,
       download: vi.fn(),
     })
     controller.abort(new DOMException("Cancelled", "AbortError"))
-    resolveFlush(true)
 
     await expect(exporting).rejects.toMatchObject({ name: "AbortError" })
+    expect(flushActiveDraft).toHaveBeenCalledWith(controller.signal)
     expect(fetcher).not.toHaveBeenCalled()
   })
 })

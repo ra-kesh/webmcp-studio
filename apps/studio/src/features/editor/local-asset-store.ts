@@ -592,6 +592,82 @@ const ensureLegacyMigration = () => {
   return migration
 }
 
+const waitForLocalAssetOperation = <T>(
+  operation: Promise<T>,
+  signal?: AbortSignal,
+  disposeLateResult?: (value: T) => void
+) => {
+  if (!signal) return operation
+  signal.throwIfAborted()
+  return new Promise<T>((resolve, reject) => {
+    const cleanUp = () => signal.removeEventListener("abort", abort)
+    const abort = () => {
+      cleanUp()
+      reject(signal.reason)
+    }
+    signal.addEventListener("abort", abort, { once: true })
+    void operation.then(
+      (value) => {
+        cleanUp()
+        if (signal.aborted) disposeLateResult?.(value)
+        else resolve(value)
+      },
+      (error: unknown) => {
+        cleanUp()
+        if (!signal.aborted) reject(error)
+      }
+    )
+  })
+}
+
+let abortableDatabaseOpenTail: Promise<void> = Promise.resolve()
+
+const openDatabaseForAbortableOperation = async (signal?: AbortSignal) => {
+  if (!signal) return openDatabase()
+  signal.throwIfAborted()
+
+  const predecessor = abortableDatabaseOpenTail
+  let releaseReservation: () => void = () => {}
+  const reservation = new Promise<void>((resolve) => {
+    releaseReservation = resolve
+  })
+  abortableDatabaseOpenTail = predecessor.then(() => reservation)
+
+  try {
+    await waitForLocalAssetOperation(predecessor, signal)
+    signal.throwIfAborted()
+  } catch (error) {
+    releaseReservation()
+    throw error
+  }
+
+  return new Promise<IDBDatabase>((resolve, reject) => {
+    const cleanUp = () => signal.removeEventListener("abort", abort)
+    const abort = () => {
+      cleanUp()
+      reject(signal.reason)
+    }
+    signal.addEventListener("abort", abort, { once: true })
+    void openDatabase().then(
+      (database) => {
+        cleanUp()
+        if (signal.aborted) {
+          database.close()
+          releaseReservation()
+          return
+        }
+        releaseReservation()
+        resolve(database)
+      },
+      (error: unknown) => {
+        cleanUp()
+        releaseReservation()
+        if (!signal.aborted) reject(error)
+      }
+    )
+  })
+}
+
 export const localAssetSource = (assetId: string) =>
   `${LOCAL_ASSET_PREFIX}${assetId}`
 
@@ -629,8 +705,13 @@ export async function saveLocalAsset(
   })
 }
 
-const quarantineStoredAsset = async (assetId: string) => {
-  const database = await openDatabase()
+const quarantineStoredAsset = async (assetId: string, signal?: AbortSignal) => {
+  signal?.throwIfAborted()
+  const database = await openDatabaseForAbortableOperation(signal)
+  if (signal?.aborted) {
+    database.close()
+    signal.throwIfAborted()
+  }
   return new Promise<LocalAssetIntegrityIssue | null>((resolve, reject) => {
     let result: LocalAssetIntegrityIssue | null = null
     const transaction = database.transaction(
@@ -642,6 +723,14 @@ const quarantineStoredAsset = async (assetId: string) => {
     const quarantineStore = transaction.objectStore(QUARANTINE_STORE_NAME)
     const metadataRequest = metadataStore.get(assetId)
     const blobRequest = blobStore.get(assetId)
+    const cleanUp = () => signal?.removeEventListener("abort", abort)
+    const abort = () => {
+      try {
+        transaction.abort()
+      } catch {
+        // Completion won the race; its handler preserves the abort reason.
+      }
+    }
     let metadata: unknown
     let blob: unknown
     let completedRequests = 0
@@ -672,17 +761,26 @@ const quarantineStoredAsset = async (assetId: string) => {
       reconcile()
     }
     transaction.oncomplete = () => {
+      cleanUp()
       database.close()
-      resolve(result)
+      if (signal?.aborted) reject(signal.reason)
+      else resolve(result)
     }
     transaction.onerror = () => {
-      database.close()
-      reject(transaction.error ?? new Error("Asset quarantine failed"))
+      // The abort event is the rollback acknowledgement. Do not release the
+      // foreground owner while IndexedDB is still unwinding the transaction.
     }
     transaction.onabort = () => {
+      cleanUp()
       database.close()
-      reject(transaction.error ?? new Error("Asset quarantine was aborted"))
+      reject(
+        signal?.aborted
+          ? signal.reason
+          : (transaction.error ?? new Error("Asset quarantine was aborted"))
+      )
     }
+    signal?.addEventListener("abort", abort, { once: true })
+    if (signal?.aborted) abort()
   })
 }
 
@@ -824,8 +922,13 @@ const reconcileStoredAssetDimensions = async (
   })
 }
 
-const readStoredAsset = async (assetId: string) => {
-  const database = await openDatabase()
+const readStoredAsset = async (assetId: string, signal?: AbortSignal) => {
+  signal?.throwIfAborted()
+  const database = await openDatabaseForAbortableOperation(signal)
+  if (signal?.aborted) {
+    database.close()
+    signal.throwIfAborted()
+  }
   return new Promise<StoredAssetInspection>((resolve, reject) => {
     let metadata: unknown
     let blob: unknown
@@ -837,6 +940,14 @@ const readStoredAsset = async (assetId: string) => {
       .objectStore(METADATA_STORE_NAME)
       .get(assetId)
     const blobRequest = transaction.objectStore(BLOB_STORE_NAME).get(assetId)
+    const cleanUp = () => signal?.removeEventListener("abort", abort)
+    const abort = () => {
+      try {
+        transaction.abort()
+      } catch {
+        // Completion won the race; its handler preserves the abort reason.
+      }
+    }
     metadataRequest.onsuccess = () => {
       metadata = metadataRequest.result
     }
@@ -844,34 +955,51 @@ const readStoredAsset = async (assetId: string) => {
       blob = blobRequest.result
     }
     transaction.oncomplete = () => {
+      cleanUp()
       database.close()
-      resolve(inspectStoredAsset(assetId, metadata, blob))
+      if (signal?.aborted) reject(signal.reason)
+      else resolve(inspectStoredAsset(assetId, metadata, blob))
     }
     transaction.onerror = () => {
-      database.close()
-      reject(transaction.error ?? new Error("Asset transaction failed"))
+      // The abort event is the rollback acknowledgement. Do not release the
+      // foreground owner while IndexedDB is still unwinding the transaction.
     }
     transaction.onabort = () => {
+      cleanUp()
       database.close()
-      reject(transaction.error ?? new Error("Asset transaction was aborted"))
+      reject(
+        signal?.aborted
+          ? signal.reason
+          : (transaction.error ?? new Error("Asset transaction was aborted"))
+      )
     }
+    signal?.addEventListener("abort", abort, { once: true })
+    if (signal?.aborted) abort()
   })
 }
 
-export async function getLocalAssetRecord(assetId: string) {
-  await ensureLegacyMigration()
-  const inspection = await readStoredAsset(assetId)
+export async function getLocalAssetRecord(
+  assetId: string,
+  signal?: AbortSignal
+) {
+  await waitForLocalAssetOperation(abortableDatabaseOpenTail, signal)
+  signal?.throwIfAborted()
+  await waitForLocalAssetOperation(ensureLegacyMigration(), signal)
+  signal?.throwIfAborted()
+  const inspection = await readStoredAsset(assetId, signal)
   if (inspection.status === "ready") {
     return { ...inspection.summary, blob: inspection.blob }
   }
   if (inspection.status === "quarantine") {
-    await quarantineStoredAsset(assetId)
+    signal?.throwIfAborted()
+    await quarantineStoredAsset(assetId, signal)
+    signal?.throwIfAborted()
   }
   return null
 }
 
-export async function loadLocalAsset(assetId: string) {
-  return (await getLocalAssetRecord(assetId))?.blob ?? null
+export async function loadLocalAsset(assetId: string, signal?: AbortSignal) {
+  return (await getLocalAssetRecord(assetId, signal))?.blob ?? null
 }
 
 export async function hasLocalAssetBlob(assetId: string) {
@@ -960,7 +1088,9 @@ export async function listLocalAssetInventory({
       quarantineIds.push(pair.assetId)
     }
   }
-  await Promise.all(quarantineIds.map(quarantineStoredAsset))
+  await Promise.all(
+    quarantineIds.map((assetId) => quarantineStoredAsset(assetId))
+  )
   const verifiedAssets = await mapWithConcurrency(
     readyInspections,
     verificationConcurrency,
