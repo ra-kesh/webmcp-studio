@@ -2,7 +2,7 @@
 
 Date: 2026-08-30
 
-Status: active; architecture, Gate 1 and Gate 2 accepted, Gate 3 active
+Status: active; architecture and Gates 1–3 accepted, Gate 4 next
 
 ## Product outcome
 
@@ -498,3 +498,37 @@ Acceptance evidence:
   layer with working navigation.
 
 Gate 3 remains active only for API/WebMCP discovery and control.
+
+## Gate 3C result — API/WebMCP discovery and reviewed control
+
+Implemented:
+
+- `inspect_design` now includes the document typography/paint catalog and exact
+  usage, while `read_design_styles` provides a focused kind-filtered query;
+- every resource exposes its stable ID, resolved values, affected layer IDs and
+  whole-layer/range attachment counts;
+- `propose_design_style_changes` accepts strict kind/action-specific contracts
+  for create, update/rename, apply, detach and protected delete, including
+  bounded UTF-16 text-range targets;
+- proposals compile to the same canonical document commands used by the human
+  inspector, retain exact snapshot conflict protection and stay unapplied until
+  a human reviews them;
+- public proposal results expose safe style IDs, values, patches and targets
+  rather than reducing the operation to an opaque command name;
+- the immutable published-template/render API continues to preserve and render
+  these resources. Per-render mutation remains field/variable-driven rather
+  than silently rewriting a published visual system.
+
+Acceptance evidence:
+
+- the WebMCP package typechecks; two focused canonical proposal tests and one
+  end-to-end registration/provenance/preview test pass under Node 22;
+- the live port-3001 document registered both tools and
+  `read_design_styles({kind:"typography"})` returned `Editorial / Hero`, its
+  exact values, stable ID and one whole-layer attachment;
+- the existing full registration test file retains one unrelated legacy media
+  fixture whose malformed managed renderer source is rejected by the current
+  stricter media validator; the new style registration test is independently
+  green.
+
+Gate 3 is accepted and closed. Gate 4 next owns typed variables and bindings.

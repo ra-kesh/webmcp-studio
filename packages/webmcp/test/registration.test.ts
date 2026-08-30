@@ -351,19 +351,21 @@ describe("WebMCP registration", () => {
       state.controller.signal
     )
 
-    expect(count).toBe(15)
+    expect(count).toBe(17)
     expect([...state.registered.keys()]).toEqual([
       "inspect_design",
       "read_design_tree",
       "get_capabilities",
       "execute_product_command",
       "read_design_node",
+      "read_design_styles",
       "search_design_nodes",
       "search_assets",
       "validate_design",
       "propose_asset_insertion",
       "propose_field_updates",
       "propose_canvas_edits",
+      "propose_design_style_changes",
       "propose_output_variant",
       "publish_template",
       "inspect_render_history",
@@ -521,6 +523,93 @@ describe("WebMCP registration", () => {
       })
     expect(staleBranch?.isError).toBe(true)
     expect(staleBranch?.content[0]?.text).toContain("branch changed")
+  })
+
+  it("discovers and proposes reviewed reusable-style operations", async () => {
+    const typographyStyle = {
+      id: "typography-style-editorial-hero",
+      name: "Editorial / Hero",
+      fontFamily: "Geist Variable",
+      fontSize: 72,
+      fontWeight: 600,
+      italic: false,
+      decoration: "none" as const,
+      lineHeight: 1.05,
+      letterSpacing: -1.4,
+    }
+    const document: Document = {
+      ...northstarSeed,
+      typographyStyles: [typographyStyle],
+    }
+    const state = setup(document)
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const styles = await state.registered
+      .get("read_design_styles")
+      ?.execute({ kind: "typography" })
+    expect(styles?.structuredContent).toMatchObject({
+      styles: [
+        {
+          kind: "typography",
+          id: typographyStyle.id,
+          name: typographyStyle.name,
+          usage: { totalAttachmentCount: 0, nodeIds: [] },
+        },
+      ],
+    })
+
+    const result = await state.registered
+      .get("propose_design_style_changes")
+      ?.execute({
+        documentId: document.id,
+        baseRevision: document.revision,
+        baseSnapshotId: "snapshot-seed",
+        reason: "Use the approved hero style",
+        changes: [
+          {
+            kind: "typography",
+            action: "apply",
+            styleId: typographyStyle.id,
+            targets: [{ nodeId: "cover-title" }],
+          },
+        ],
+      })
+
+    expect(result?.isError).toBeUndefined()
+    expect(result?.structuredContent).toMatchObject({
+      operations: [
+        {
+          command: {
+            type: "apply_typography_style",
+            styleId: typographyStyle.id,
+            targets: [{ nodeId: "cover-title" }],
+          },
+        },
+      ],
+    })
+    expect(state.proposedProvenance()).toMatchObject({
+      toolName: "propose_design_style_changes",
+      reason: "Use the approved hero style",
+    })
+    const proposed = state.proposed()
+    expect(proposed).not.toBeNull()
+    expect(
+      previewChangeSet(document, proposed!).nodes.find(
+        (node) => node.id === "cover-title"
+      )
+    ).toMatchObject({
+      typographyStyleId: typographyStyle.id,
+      fontSize: typographyStyle.fontSize,
+    })
   })
 
   it("reports an interrupted publication with stable unknown-status identity", async () => {

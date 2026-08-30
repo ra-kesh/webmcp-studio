@@ -4,6 +4,7 @@ import type { Document, SceneNode } from "@webmcp/document"
 import {
   canvasPatchValuesEqual,
   createCanvasEditChangeSet,
+  createDesignStyleChangeSet,
   createFieldUpdateChangeSet,
   createOutputVariantChangeSet,
 } from "../src"
@@ -249,6 +250,103 @@ describe("canvas edit proposals", () => {
         identity()
       )
     ).toThrow("Combine duplicate edits")
+  })
+})
+
+describe("design style proposals", () => {
+  const textStyle = {
+    id: "typography-style-editorial-hero",
+    name: "Editorial / Hero",
+    fontFamily: "Geist Variable",
+    fontSize: 72,
+    fontWeight: 600,
+    italic: false,
+    decoration: "none" as const,
+    lineHeight: 1.05,
+    letterSpacing: -1.4,
+  }
+
+  it("creates and applies canonical reusable style commands", () => {
+    const { id: _styleId, ...style } = textStyle
+    const creation = createDesignStyleChangeSet(
+      northstarSeed,
+      {
+        documentId: northstarSeed.id,
+        baseRevision: northstarSeed.revision,
+        baseSnapshotId: "snapshot-northstar",
+        changes: [
+          {
+            kind: "typography",
+            action: "create",
+            style,
+          },
+        ],
+      },
+      identity()
+    )
+    expect(creation.operations[0]?.command).toMatchObject({
+      type: "create_typography_style",
+      style: { name: "Editorial / Hero", fontSize: 72 },
+    })
+    expect(
+      previewChangeSet(northstarSeed, creation).typographyStyles
+    ).toHaveLength(1)
+
+    const document = {
+      ...northstarSeed,
+      typographyStyles: [textStyle],
+    }
+    const application = createDesignStyleChangeSet(
+      document,
+      {
+        documentId: document.id,
+        baseRevision: document.revision,
+        baseSnapshotId: "snapshot-northstar",
+        changes: [
+          {
+            kind: "typography",
+            action: "apply",
+            styleId: textStyle.id,
+            targets: [{ nodeId: "cover-title" }],
+          },
+        ],
+      },
+      identity()
+    )
+    const preview = previewChangeSet(document, application)
+    expect(
+      preview.nodes.find((node) => node.id === "cover-title")
+    ).toMatchObject({ typographyStyleId: textStyle.id, fontSize: 72 })
+  })
+
+  it("protects attached styles from deletion", () => {
+    const document = {
+      ...northstarSeed,
+      typographyStyles: [textStyle],
+      nodes: northstarSeed.nodes.map((node) =>
+        node.id === "cover-title"
+          ? { ...node, typographyStyleId: textStyle.id }
+          : node
+      ),
+    } as Document
+    expect(() =>
+      createDesignStyleChangeSet(
+        document,
+        {
+          documentId: document.id,
+          baseRevision: document.revision,
+          baseSnapshotId: "snapshot-northstar",
+          changes: [
+            {
+              kind: "typography",
+              action: "delete",
+              styleId: textStyle.id,
+            },
+          ],
+        },
+        identity()
+      )
+    ).toThrow("Detach it before deleting")
   })
 })
 

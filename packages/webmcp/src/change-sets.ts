@@ -6,10 +6,15 @@ import {
   normalizeFieldValueForStorage,
   previewChangeSet,
   type ChangeSet,
+  type DesignStyleTarget,
   type Document,
   type ImageFrameMask,
   type ImagePlacement,
+  type PaintStyle,
+  type PaintStylePatch,
   type SceneNode,
+  type TypographyStyle,
+  type TypographyStylePatch,
 } from "@webmcp/document"
 
 export type FieldUpdateProposalInput = {
@@ -72,6 +77,54 @@ export type AssetInsertionProposalInput = {
   decorative?: boolean
   values?: Record<string, string | number | boolean>
   reason?: string
+}
+
+export type DesignStyleProposalChange =
+  | {
+      kind: "typography"
+      action: "create"
+      style: Omit<TypographyStyle, "id">
+    }
+  | {
+      kind: "typography"
+      action: "update"
+      styleId: string
+      patch: TypographyStylePatch
+    }
+  | {
+      kind: "typography"
+      action: "apply"
+      styleId: string
+      targets: DesignStyleTarget[]
+    }
+  | {
+      kind: "typography"
+      action: "detach"
+      targets: DesignStyleTarget[]
+    }
+  | { kind: "typography"; action: "delete"; styleId: string }
+  | { kind: "paint"; action: "create"; style: Omit<PaintStyle, "id"> }
+  | {
+      kind: "paint"
+      action: "update"
+      styleId: string
+      patch: PaintStylePatch
+    }
+  | {
+      kind: "paint"
+      action: "apply"
+      styleId: string
+      targets: DesignStyleTarget[]
+    }
+  | { kind: "paint"; action: "detach"; targets: DesignStyleTarget[] }
+  | { kind: "paint"; action: "delete"; styleId: string }
+
+export type DesignStyleProposalInput = {
+  documentId: string
+  baseRevision: number
+  baseSnapshotId: string
+  reason?: string
+  changes: DesignStyleProposalChange[]
 }
 
 export function canvasPatchValuesEqual(
@@ -434,6 +487,195 @@ export function createAssetInsertionChangeSet(
         },
       },
     ],
+  })
+}
+
+const designStyleTargetSummary = (targets: readonly DesignStyleTarget[]) => {
+  const rangeCount = targets.filter((target) => target.range).length
+  return `${targets.length} layer target${targets.length === 1 ? "" : "s"}${rangeCount ? `, including ${rangeCount} text range${rangeCount === 1 ? "" : "s"}` : ""}`
+}
+
+export function createDesignStyleChangeSet(
+  document: Document,
+  input: DesignStyleProposalInput,
+  identity: ChangeSetIdentityFactory
+): ChangeSet {
+  if (!input.changes.length) {
+    throw new Error("Choose at least one design style change.")
+  }
+  const operations: ChangeSet["operations"] = input.changes.map((change) => {
+    const at = identity.now()
+    const base = {
+      id: `operation-${identity.id()}`,
+      status: "pending" as const,
+    }
+    if (change.kind === "typography") {
+      if (change.action === "create") {
+        const style = {
+          ...change.style,
+          id: `typography-style-${identity.id()}`,
+        }
+        return {
+          ...base,
+          summary: `Create text style ${style.name}`,
+          command: {
+            id: `command-${identity.id()}`,
+            type: "create_typography_style",
+            actor: "agent",
+            at,
+            style,
+          },
+        }
+      }
+      if (change.action === "update") {
+        const style = document.typographyStyles.find(
+          (candidate) => candidate.id === change.styleId
+        )
+        return {
+          ...base,
+          summary: `Update text style ${style?.name ?? change.styleId}`,
+          command: {
+            id: `command-${identity.id()}`,
+            type: "update_typography_style",
+            actor: "agent",
+            at,
+            styleId: change.styleId,
+            patch: change.patch,
+          },
+        }
+      }
+      if (change.action === "apply") {
+        const style = document.typographyStyles.find(
+          (candidate) => candidate.id === change.styleId
+        )
+        return {
+          ...base,
+          summary: `Apply text style ${style?.name ?? change.styleId} to ${designStyleTargetSummary(change.targets)}`,
+          command: {
+            id: `command-${identity.id()}`,
+            type: "apply_typography_style",
+            actor: "agent",
+            at,
+            styleId: change.styleId,
+            targets: change.targets,
+          },
+        }
+      }
+      if (change.action === "detach") {
+        return {
+          ...base,
+          summary: `Detach text style from ${designStyleTargetSummary(change.targets)}`,
+          command: {
+            id: `command-${identity.id()}`,
+            type: "detach_typography_style",
+            actor: "agent",
+            at,
+            targets: change.targets,
+          },
+        }
+      }
+      const style = document.typographyStyles.find(
+        (candidate) => candidate.id === change.styleId
+      )
+      return {
+        ...base,
+        summary: `Delete text style ${style?.name ?? change.styleId}`,
+        command: {
+          id: `command-${identity.id()}`,
+          type: "delete_typography_style",
+          actor: "agent",
+          at,
+          styleId: change.styleId,
+        },
+      }
+    }
+
+    if (change.action === "create") {
+      const style = { ...change.style, id: `paint-style-${identity.id()}` }
+      return {
+        ...base,
+        summary: `Create paint style ${style.name}`,
+        command: {
+          id: `command-${identity.id()}`,
+          type: "create_paint_style",
+          actor: "agent",
+          at,
+          style,
+        },
+      }
+    }
+    if (change.action === "update") {
+      const style = document.paintStyles.find(
+        (candidate) => candidate.id === change.styleId
+      )
+      return {
+        ...base,
+        summary: `Update paint style ${style?.name ?? change.styleId}`,
+        command: {
+          id: `command-${identity.id()}`,
+          type: "update_paint_style",
+          actor: "agent",
+          at,
+          styleId: change.styleId,
+          patch: change.patch,
+        },
+      }
+    }
+    if (change.action === "apply") {
+      const style = document.paintStyles.find(
+        (candidate) => candidate.id === change.styleId
+      )
+      return {
+        ...base,
+        summary: `Apply paint style ${style?.name ?? change.styleId} to ${designStyleTargetSummary(change.targets)}`,
+        command: {
+          id: `command-${identity.id()}`,
+          type: "apply_paint_style",
+          actor: "agent",
+          at,
+          styleId: change.styleId,
+          targets: change.targets,
+        },
+      }
+    }
+    if (change.action === "detach") {
+      return {
+        ...base,
+        summary: `Detach paint style from ${designStyleTargetSummary(change.targets)}`,
+        command: {
+          id: `command-${identity.id()}`,
+          type: "detach_paint_style",
+          actor: "agent",
+          at,
+          targets: change.targets,
+        },
+      }
+    }
+    const style = document.paintStyles.find(
+      (candidate) => candidate.id === change.styleId
+    )
+    return {
+      ...base,
+      summary: `Delete paint style ${style?.name ?? change.styleId}`,
+      command: {
+        id: `command-${identity.id()}`,
+        type: "delete_paint_style",
+        actor: "agent",
+        at,
+        styleId: change.styleId,
+      },
+    }
+  })
+  return checkedChangeSet(document, {
+    id: `change-set-${identity.id()}`,
+    documentId: input.documentId,
+    baseRevision: input.baseRevision,
+    baseSnapshotId: input.baseSnapshotId,
+    title: input.reason?.trim() || "Update reusable design styles",
+    createdAt: identity.now(),
+    createdBy: "agent",
+    status: "pending",
+    operations,
   })
 }
 

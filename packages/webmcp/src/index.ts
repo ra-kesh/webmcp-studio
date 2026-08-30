@@ -9,12 +9,14 @@ export const toolNames = [
   "get_capabilities",
   "execute_product_command",
   "read_design_node",
+  "read_design_styles",
   "search_design_nodes",
   "search_assets",
   "validate_design",
   "propose_asset_insertion",
   "propose_field_updates",
   "propose_canvas_edits",
+  "propose_design_style_changes",
   "propose_output_variant",
   "publish_template",
   "inspect_render_history",
@@ -72,6 +74,14 @@ export const toolCatalog: readonly ToolDescriptor[] = [
     routes: ["editor", "review"],
   },
   {
+    name: "read_design_styles",
+    description:
+      "Read reusable typography and paint resources with exact attachment usage.",
+    mutates: false,
+    requiresHumanReview: false,
+    routes: ["editor", "review", "template"],
+  },
+  {
     name: "search_design_nodes",
     description: "Search layer names and text across the document.",
     mutates: false,
@@ -114,6 +124,14 @@ export const toolCatalog: readonly ToolDescriptor[] = [
     mutates: false,
     requiresHumanReview: true,
     routes: ["editor", "review"],
+  },
+  {
+    name: "propose_design_style_changes",
+    description:
+      "Create reviewable reusable-style lifecycle operations against a document revision.",
+    mutates: false,
+    requiresHumanReview: true,
+    routes: ["editor", "review", "template"],
   },
   {
     name: "propose_output_variant",

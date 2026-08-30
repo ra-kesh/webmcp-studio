@@ -7,7 +7,12 @@ import {
   managedImageAssetIdentity,
   materializeTemplateVersion,
   mediaAssetIdSchema,
+  paintStylePatchSchema,
+  paintStyleSchema,
   sceneNodePatchSchema,
+  typographyStylePatchSchema,
+  typographyStyleSchema,
+  designStyleTargetSchema,
   validateAssetFieldPublicationIdentities,
   validateRenderPolicy,
   validateDocument,
@@ -32,9 +37,12 @@ import {
 import {
   createAssetInsertionChangeSet,
   createCanvasEditChangeSet,
+  createDesignStyleChangeSet,
   createFieldUpdateChangeSet,
   createOutputVariantChangeSet,
   type CanvasEditProposalInput,
+  type DesignStyleProposalChange,
+  type DesignStyleProposalInput,
   type FieldUpdateProposalInput,
   type OutputVariantProposalInput,
 } from "./change-sets"
@@ -43,6 +51,7 @@ import {
   DESIGN_QUERY_MAX_LIMIT,
   DesignQueryError,
   readDesignNode,
+  readDesignStyles,
   readDesignTree,
   searchDesignNodes,
   type DesignNodeSearchQuery,
@@ -495,6 +504,69 @@ const publicChangeSet = (
         },
       }
     }
+    if (
+      command.type === "create_typography_style" ||
+      command.type === "create_paint_style"
+    ) {
+      return {
+        id: operation.id,
+        status: operation.status,
+        summary: operation.summary,
+        command: { type: command.type, style: command.style },
+      }
+    }
+    if (
+      command.type === "update_typography_style" ||
+      command.type === "update_paint_style"
+    ) {
+      return {
+        id: operation.id,
+        status: operation.status,
+        summary: operation.summary,
+        command: {
+          type: command.type,
+          styleId: command.styleId,
+          patch: command.patch,
+        },
+      }
+    }
+    if (
+      command.type === "apply_typography_style" ||
+      command.type === "apply_paint_style"
+    ) {
+      return {
+        id: operation.id,
+        status: operation.status,
+        summary: operation.summary,
+        command: {
+          type: command.type,
+          styleId: command.styleId,
+          targets: command.targets,
+        },
+      }
+    }
+    if (
+      command.type === "detach_typography_style" ||
+      command.type === "detach_paint_style"
+    ) {
+      return {
+        id: operation.id,
+        status: operation.status,
+        summary: operation.summary,
+        command: { type: command.type, targets: command.targets },
+      }
+    }
+    if (
+      command.type === "delete_typography_style" ||
+      command.type === "delete_paint_style"
+    ) {
+      return {
+        id: operation.id,
+        status: operation.status,
+        summary: operation.summary,
+        command: { type: command.type, styleId: command.styleId },
+      }
+    }
     return {
       id: operation.id,
       status: operation.status,
@@ -771,6 +843,144 @@ function parseCanvasProposalInput(input: unknown): CanvasEditProposalInput {
     baseSnapshotId: value.baseSnapshotId as string,
     reason: typeof value.reason === "string" ? value.reason : undefined,
     edits,
+  }
+}
+
+function parseDesignStyleProposalInput(
+  input: unknown
+): DesignStyleProposalInput {
+  const value = parseProposalIdentity(input)
+  if (!Array.isArray(value.changes) || value.changes.length === 0) {
+    throw new Error("changes must be a non-empty array.")
+  }
+  if (value.changes.length > 24) {
+    throw new Error("changes can contain no more than 24 operations.")
+  }
+  const changes = value.changes.map((candidate, index) => {
+    if (
+      !candidate ||
+      typeof candidate !== "object" ||
+      Array.isArray(candidate)
+    ) {
+      throw new Error(`changes[${index}] must be an object.`)
+    }
+    const change = candidate as Record<string, unknown>
+    if (change.kind !== "typography" && change.kind !== "paint") {
+      throw new Error(`changes[${index}].kind must be typography or paint.`)
+    }
+    if (
+      change.action !== "create" &&
+      change.action !== "update" &&
+      change.action !== "apply" &&
+      change.action !== "detach" &&
+      change.action !== "delete"
+    ) {
+      throw new Error(
+        `changes[${index}].action must be create, update, apply, detach, or delete.`
+      )
+    }
+
+    const parseTargets = () => {
+      if (
+        !Array.isArray(change.targets) ||
+        change.targets.length === 0 ||
+        change.targets.length > 100
+      ) {
+        throw new Error(
+          `changes[${index}].targets must contain 1 to 100 layer targets.`
+        )
+      }
+      return change.targets.map((target, targetIndex) => {
+        const parsed = designStyleTargetSchema.safeParse(target)
+        if (!parsed.success) {
+          throw new Error(
+            `changes[${index}].targets[${targetIndex}] is invalid: ${parsed.error.issues[0]?.message ?? "invalid target"}`
+          )
+        }
+        return parsed.data
+      })
+    }
+
+    if (change.action === "create") {
+      if (!change.style || typeof change.style !== "object") {
+        throw new Error(`changes[${index}].style is required.`)
+      }
+      if (change.kind === "typography") {
+        const parsed = typographyStyleSchema.safeParse({
+          ...(change.style as Record<string, unknown>),
+          id: "temporary-style-id",
+        })
+        if (!parsed.success) {
+          throw new Error(
+            `changes[${index}].style is invalid: ${parsed.error.issues[0]?.message ?? "invalid typography style"}`
+          )
+        }
+        const { id: _id, ...style } = parsed.data
+        return { kind: "typography", action: "create", style } as const
+      }
+      const parsed = paintStyleSchema.safeParse({
+        ...(change.style as Record<string, unknown>),
+        id: "temporary-style-id",
+      })
+      if (!parsed.success) {
+        throw new Error(
+          `changes[${index}].style is invalid: ${parsed.error.issues[0]?.message ?? "invalid paint style"}`
+        )
+      }
+      const { id: _id, ...style } = parsed.data
+      return { kind: "paint", action: "create", style } as const
+    }
+
+    if (change.action === "detach") {
+      return {
+        kind: change.kind,
+        action: "detach",
+        targets: parseTargets(),
+      } as DesignStyleProposalChange
+    }
+
+    if (typeof change.styleId !== "string" || !change.styleId) {
+      throw new Error(`changes[${index}].styleId is required.`)
+    }
+    if (change.action === "delete") {
+      return {
+        kind: change.kind,
+        action: "delete",
+        styleId: change.styleId,
+      } as DesignStyleProposalChange
+    }
+    if (change.action === "apply") {
+      return {
+        kind: change.kind,
+        action: "apply",
+        styleId: change.styleId,
+        targets: parseTargets(),
+      } as DesignStyleProposalChange
+    }
+
+    const parsed =
+      change.kind === "typography"
+        ? typographyStylePatchSchema.safeParse(change.patch)
+        : paintStylePatchSchema.safeParse(change.patch)
+    if (!parsed.success) {
+      throw new Error(
+        `changes[${index}].patch is invalid: ${parsed.error.issues[0]?.message ?? "invalid style patch"}`
+      )
+    }
+    return {
+      kind: change.kind,
+      action: "update",
+      styleId: change.styleId,
+      patch: parsed.data,
+    } as DesignStyleProposalChange
+  })
+
+  return {
+    documentId: value.documentId as string,
+    baseRevision: value.baseRevision as number,
+    baseSnapshotId: value.baseSnapshotId as string,
+    reason: typeof value.reason === "string" ? value.reason : undefined,
+    changes,
   }
 }
 
@@ -1612,6 +1822,125 @@ const typedCanvasEditInputSchema = {
   ],
 } as const
 
+const designStyleTargetInputSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    nodeId: { type: "string", minLength: 1 },
+    range: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        start: { type: "integer", minimum: 0 },
+        end: { type: "integer", minimum: 1 },
+      },
+      required: ["start", "end"],
+    },
+  },
+  required: ["nodeId"],
+} as const
+
+const typographyStyleInputProperties = {
+  name: { type: "string", minLength: 1, maxLength: 120 },
+  fontFamily: { type: "string", minLength: 1 },
+  fontSize: { type: "number", exclusiveMinimum: 0 },
+  fontWeight: { type: "integer", minimum: 100, maximum: 900 },
+  italic: { type: "boolean" },
+  decoration: {
+    type: "string",
+    enum: ["none", "underline", "line-through"],
+  },
+  lineHeight: { type: "number", minimum: 0.5, maximum: 3 },
+  letterSpacing: { type: "number", minimum: -20, maximum: 200 },
+} as const
+
+const paintStyleInputProperties = {
+  name: { type: "string", minLength: 1, maxLength: 120 },
+  color: { type: "string", minLength: 1 },
+  opacity: { type: "number", minimum: 0, maximum: 1 },
+} as const
+
+const styleTargetsInputSchema = {
+  type: "array",
+  minItems: 1,
+  maxItems: 100,
+  items: designStyleTargetInputSchema,
+} as const
+
+const designStyleChangeInputSchema = {
+  oneOf: [
+    ...(
+      [
+        ["typography", typographyStyleInputProperties],
+        ["paint", paintStyleInputProperties],
+      ] as const
+    ).flatMap(([kind, properties]) => [
+      {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          kind: { const: kind },
+          action: { const: "create" },
+          style: {
+            type: "object",
+            additionalProperties: false,
+            properties,
+            required: Object.keys(properties),
+          },
+        },
+        required: ["kind", "action", "style"],
+      },
+      {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          kind: { const: kind },
+          action: { const: "update" },
+          styleId: { type: "string", minLength: 1 },
+          patch: {
+            type: "object",
+            additionalProperties: false,
+            minProperties: 1,
+            properties,
+          },
+        },
+        required: ["kind", "action", "styleId", "patch"],
+      },
+      {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          kind: { const: kind },
+          action: { const: "apply" },
+          styleId: { type: "string", minLength: 1 },
+          targets: styleTargetsInputSchema,
+        },
+        required: ["kind", "action", "styleId", "targets"],
+      },
+      {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          kind: { const: kind },
+          action: { const: "detach" },
+          targets: styleTargetsInputSchema,
+        },
+        required: ["kind", "action", "targets"],
+      },
+      {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          kind: { const: kind },
+          action: { const: "delete" },
+          styleId: { type: "string", minLength: 1 },
+        },
+        required: ["kind", "action", "styleId"],
+      },
+    ]),
+  ],
+} as const
+
 function parseOutputProposalInput(input: unknown): OutputVariantProposalInput {
   const value = parseProposalIdentity(input)
   if (typeof value.sourcePageId !== "string" || !value.sourcePageId) {
@@ -2253,6 +2582,10 @@ export function studioWebMcpTools(
             activePageGroups: current.document.groups.filter(
               (group) => group.pageId === current.activePageId
             ),
+            designStyles: readDesignStyles(
+              current.document,
+              designQueryIdentity(current)
+            ).styles,
             selection: current.selection,
             commandCapabilities,
             outputs: current.document.outputs,
@@ -2576,6 +2909,48 @@ export function studioWebMcpTools(
             parseDesignNodeQuery(input)
           )
           return textResult(`Read layer ${result.node.name}.`, result)
+        } catch (error) {
+          return errorResult(error)
+        }
+      },
+    },
+    {
+      name: "read_design_styles",
+      title: "Read reusable design styles",
+      description:
+        "Read document-owned typography and paint styles with exact whole-layer and text-range attachment usage.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          kind: { type: "string", enum: ["typography", "paint"] },
+        },
+      },
+      annotations: { readOnlyHint: true, untrustedContentHint: true },
+      execute: (input) => {
+        try {
+          const value = queryObject(input)
+          assertQueryKeys(value, ["kind"])
+          if (
+            value.kind !== undefined &&
+            value.kind !== "typography" &&
+            value.kind !== "paint"
+          ) {
+            throw new DesignQueryError(
+              "invalid_query",
+              "kind must be typography or paint."
+            )
+          }
+          const current = services.getSnapshot()
+          const result = readDesignStyles(
+            current.document,
+            designQueryIdentity(current),
+            value.kind
+          )
+          return textResult(
+            `Read ${result.styles.length} reusable design style${result.styles.length === 1 ? "" : "s"}.`,
+            result
+          )
         } catch (error) {
           return errorResult(error)
         }
@@ -3034,6 +3409,55 @@ export function studioWebMcpTools(
               ...current.assets,
               ...resolvedAssets,
             ])
+          )
+        } catch (error) {
+          return errorResult(error)
+        }
+      },
+    },
+    {
+      name: "propose_design_style_changes",
+      title: "Propose reusable design style changes",
+      description:
+        "Create a non-destructive reviewed proposal to create, update, apply, detach, or delete document typography and paint styles. Call read_design_styles first and use exact layer IDs and UTF-16 text ranges.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          documentId: { type: "string", minLength: 1 },
+          baseRevision: { type: "integer", minimum: 0 },
+          baseSnapshotId: { type: "string", minLength: 1 },
+          reason: { type: "string" },
+          changes: {
+            type: "array",
+            minItems: 1,
+            maxItems: 24,
+            items: designStyleChangeInputSchema,
+          },
+        },
+        required: ["documentId", "baseRevision", "baseSnapshotId", "changes"],
+      },
+      annotations: { untrustedContentHint: true },
+      execute: (input) => {
+        try {
+          const current = services.getSnapshot()
+          assertCurrentProposalSnapshot(input, current)
+          const proposal = parseDesignStyleProposalInput(input)
+          const changeSet = createDesignStyleChangeSet(
+            current.document,
+            proposal,
+            services
+          )
+          services.proposeChangeSet(
+            changeSet,
+            webMcpProposalProvenance(
+              "propose_design_style_changes",
+              proposal.reason ?? null
+            )
+          )
+          return textResult(
+            `Previewing ${changeSet.operations.length} reusable-style change${changeSet.operations.length === 1 ? "" : "s"}. Nothing has been applied; ask the user to review the Review panel.`,
+            publicChangeSet(changeSet, current.document, current.assets)
           )
         } catch (error) {
           return errorResult(error)

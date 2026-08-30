@@ -3180,3 +3180,24 @@ Status: **accepted as a bounded slice; Gate 3 remains active**
   the saved revision advance and verified the one-layer usage/navigation state.
 - Gate 3 next owns API/WebMCP discovery and control for the same canonical
   operations.
+
+## 2026-08-30 — TEXT-02 Gate 3C API/WebMCP style control
+
+Status: **accepted; Gate 3 is closed and Gate 4 is next**
+
+- Revisited the Gate 3 contract, Loora's strict agent-operation schemas and
+  OpenPencil's shared-style identity/detachment model before implementation.
+- `inspect_design` and the focused `read_design_styles` query expose stable
+  typography/paint resources with exact layer/range usage.
+- `propose_design_style_changes` has action-specific create, update, apply,
+  detach and delete schemas, exact snapshot protection and human Review. It
+  compiles to the canonical style commands used by the inspector and returns
+  safe structured commands rather than opaque operation names.
+- The WebMCP package typechecks; two focused canonical tests and the focused
+  registration/provenance/preview test pass under Node 22. Live port-3001
+  discovery returned the attached `Editorial / Hero` resource and exact usage.
+- One older unrelated registration fixture still supplies a managed renderer
+  source now rejected by the stricter media validator; the new style tests are
+  independently green and that retained fixture is not counted as Gate 3
+  evidence.
+- Gate 4 next owns typed variables and bindings.

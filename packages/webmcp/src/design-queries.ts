@@ -1,4 +1,5 @@
 import {
+  designStyleUsage,
   managedAssetIdFromSource,
   type Document,
   type SceneNode,
@@ -32,6 +33,30 @@ export type DesignNodeSearchQuery = Readonly<{
   limit: number
   cursor: string | null
 }>
+
+export function readDesignStyles(
+  document: Document,
+  identity: DesignQueryIdentity,
+  kind?: "typography" | "paint"
+) {
+  const typography =
+    kind === "paint"
+      ? []
+      : document.typographyStyles.map((style) => ({
+          kind: "typography" as const,
+          ...style,
+          usage: designStyleUsage(document, "typography", style.id),
+        }))
+  const paint =
+    kind === "typography"
+      ? []
+      : document.paintStyles.map((style) => ({
+          kind: "paint" as const,
+          ...style,
+          usage: designStyleUsage(document, "paint", style.id),
+        }))
+  return { identity, styles: [...typography, ...paint] }
+}
 
 export class DesignQueryError extends Error {
   constructor(
