@@ -30,6 +30,7 @@ import {
 } from "@webmcp/ui/components/alert-dialog"
 import { Badge } from "@webmcp/ui/components/badge"
 import { Button } from "@webmcp/ui/components/button"
+import { EditorPanelSectionHeader } from "@webmcp/ui/components/editor-chrome"
 import {
   Dialog,
   DialogContent,
@@ -167,11 +168,11 @@ export function PageOutputPanel({
   return (
     <>
       <ScrollArea className="h-full">
-        <div className="space-y-4 p-2 pb-6">
-          <div className="flex items-start justify-between gap-3 px-1 pt-1">
+        <div className="space-y-3 p-2 pb-5">
+          <div className="flex items-start justify-between gap-3 px-0.5 pt-0.5">
             <div className="min-w-0 flex-1">
               <p className="text-xs font-medium">Pages & outputs</p>
-              <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
+              <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
                 Output order and page order are shared by preview, API, and
                 export.
               </p>
@@ -204,8 +205,8 @@ export function PageOutputPanel({
                 )
               : null
             const outputHeader = (
-              <div
-                className="flex min-h-11 items-center gap-1 border-b bg-muted/35 px-2 min-[1280px]:min-h-9"
+              <EditorPanelSectionHeader
+                className="min-h-11 bg-muted/25 pr-1 min-[1280px]:min-h-8"
                 data-output-command-target={output.id}
               >
                 <div className="min-w-0 flex-1">
@@ -302,13 +303,13 @@ export function PageOutputPanel({
                     )}
                   </DropdownMenuContent>
                 </DropdownMenu>
-              </div>
+              </EditorPanelSectionHeader>
             )
             return (
               <section
                 key={output.id}
                 aria-labelledby={`output-${output.id}`}
-                className="overflow-hidden rounded-lg border bg-background"
+                className="overflow-hidden rounded-md border border-border/80 bg-background"
               >
                 {outputMenuGroups && productCommandRuntime ? (
                   <ProductCommandContextMenu
@@ -321,7 +322,7 @@ export function PageOutputPanel({
                   outputHeader
                 )}
 
-                <div className="p-1">
+                <div className="p-1.5">
                   {pages.map((page, pageIndex) => {
                     const active = page.id === activePageId
                     const scale = 48 / page.height
@@ -337,7 +338,7 @@ export function PageOutputPanel({
                     const pageRow = (
                       <div
                         key={page.id}
-                        className="group/page flex min-h-14 items-center gap-1 rounded-md px-1 data-[active=true]:bg-secondary"
+                        className="group/page relative flex min-h-14 items-center gap-1 rounded-[5px] px-1 transition-colors hover:bg-muted/55 data-[active=true]:bg-studio-accent/10 data-[active=true]:before:absolute data-[active=true]:before:inset-y-1.5 data-[active=true]:before:left-0 data-[active=true]:before:w-0.5 data-[active=true]:before:rounded-full data-[active=true]:before:bg-studio-accent"
                         data-active={active}
                         data-page-command-target={page.id}
                         onContextMenu={() => onSelectPage(page.id)}
@@ -348,7 +349,7 @@ export function PageOutputPanel({
                           aria-keyshortcuts="Shift+F10"
                           aria-current={active ? "page" : undefined}
                           aria-label={`Open page ${pageIndex + 1}: ${page.name}`}
-                          className="flex min-w-0 flex-1 items-center gap-2 self-stretch rounded-sm px-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                          className="flex min-w-0 flex-1 items-center gap-2 self-stretch rounded-[4px] px-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-studio-accent/45"
                           onClick={() => onSelectPage(page.id)}
                           onKeyDown={(event) => {
                             if (
@@ -378,7 +379,7 @@ export function PageOutputPanel({
                             <span className="block truncate text-xs font-medium">
                               {pageIndex + 1}. {page.name}
                             </span>
-                            <span className="mt-0.5 block text-[9px] text-muted-foreground tabular-nums">
+                            <span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground tabular-nums">
                               {page.width} × {page.height}
                             </span>
                           </span>

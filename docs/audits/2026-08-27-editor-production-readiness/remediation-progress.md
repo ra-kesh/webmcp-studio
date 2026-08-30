@@ -2731,3 +2731,26 @@ Status: **completed locally; EDITOR-POLISH-01 remains active**
 - Gate 2 owns left-panel template/page composition. The complete polish phase
   still owns deeper inspector grouping, filmstrip/HUD/overlays,
   menus/dialogs/states, compact sheets and the final full-width visual matrix.
+
+## 2026-08-30 — EDITOR-POLISH-01 Gate 2 document panel
+
+Status: **completed locally; EDITOR-POLISH-01 remains active**
+
+- Revisited Gate 1, the visual audit, current Template/Page implementations and
+  OpenPencil's compact page-list anatomy before editing.
+- Removed the template workflow's largest feedback defect: chosen-template
+  details and actions no longer live after the complete catalog. A bounded
+  bottom dock keeps description, compatibility, provenance and Create/Apply
+  actions visible while previews scroll independently.
+- Template cards now use a 128 px restrained preview stage, shared accent
+  selection/applied states and readable 11 px metadata. The details dock keeps
+  license/version truth while reducing repeated rows.
+- Pages and outputs now share the editor section-header, compact-radius,
+  hover/focus and active-accent recipes. The six-page quotation remains visible
+  in one output card and context-menu behavior is unchanged.
+- Mounted `1440 x 900` acceptance found no horizontal overflow; the chosen
+  template dock is 295 px, at least two previews remain visible, and the active
+  page retains a 56 px target with an unambiguous accent.
+- Studio typecheck, six focused tests, scoped Studio/UI ESLint and
+  `git diff --check` pass.
+- Gate 3 owns inspector section anatomy and contextual property grouping.

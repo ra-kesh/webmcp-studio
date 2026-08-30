@@ -38,6 +38,7 @@ describe("TemplateCatalogPanel", () => {
     expect(html).toContain("1240 × 1754 px")
     expect(html).toContain("Studio originals")
     expect(html).toContain("Internal")
+    expect(html).toContain('data-template-details-dock="true"')
     expect(html).toContain("Create new")
     expect(html).toContain("Apply to this design")
   })

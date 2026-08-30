@@ -39,7 +39,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@webmcp/ui/components/select"
-import { Separator } from "@webmcp/ui/components/separator"
 import { Skeleton } from "@webmcp/ui/components/skeleton"
 import { cn } from "@webmcp/ui/lib/utils"
 import {
@@ -113,7 +112,7 @@ function TemplatePreview({
   return (
     <div
       aria-label={`Preview of ${template.name}, ${page?.name ?? "first page"}`}
-      className="grid h-40 w-full place-items-center overflow-hidden rounded-md border bg-muted/40 p-2"
+      className="grid h-32 w-full place-items-center overflow-hidden rounded-[5px] border border-border/70 bg-workspace/70 p-2"
       role="img"
     >
       <div
@@ -137,15 +136,15 @@ function CatalogSkeleton() {
   return (
     <div
       aria-label="Loading design templates"
-      className="flex flex-col gap-3 p-3"
+      className="flex flex-col gap-2.5 p-2"
       role="status"
     >
       {[0, 1].map((index) => (
         <div
-          className="flex flex-col gap-2 rounded-lg border p-1.5"
+          className="flex flex-col gap-2 rounded-md border p-1.5"
           key={index}
         >
-          <Skeleton className="h-40 w-full" />
+          <Skeleton className="h-32 w-full" />
           <div className="flex flex-col gap-1 px-1.5 pt-1 pb-1.5">
             <Skeleton className="h-3 w-2/3" />
             <Skeleton className="h-2.5 w-full" />
@@ -236,8 +235,9 @@ function TemplateCard({
       <button
         aria-pressed={selected}
         className={cn(
-          "group/template flex w-full flex-col gap-0 rounded-lg border bg-background p-1.5 text-left transition-[border-color,background-color,box-shadow,transform] outline-none hover:bg-muted/30 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:translate-y-px",
-          selected && "border-foreground ring-1 ring-foreground/10"
+          "group/template flex w-full flex-col gap-0 rounded-md border border-border/80 bg-background p-1.5 text-left transition-[border-color,background-color,box-shadow] outline-none hover:border-foreground/20 hover:bg-muted/25 focus-visible:border-studio-accent focus-visible:ring-2 focus-visible:ring-studio-accent/35",
+          selected &&
+            "border-studio-accent bg-studio-accent/4 ring-1 ring-studio-accent/20"
         )}
         data-active={active}
         data-compatible={compatibility.compatible}
@@ -245,7 +245,7 @@ function TemplateCard({
         type="button"
       >
         <TemplatePreview template={template} />
-        <span className="flex w-full items-start gap-2 px-1.5 pt-2 pb-1.5">
+        <span className="flex w-full items-start gap-2 px-1.5 pt-1.5 pb-1">
           <span className="min-w-0 flex-1">
             <span className="flex items-center gap-1.5">
               <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
@@ -254,18 +254,18 @@ function TemplateCard({
               {active ? (
                 <span
                   aria-label="Currently applied"
-                  className="grid size-4 shrink-0 place-items-center rounded-full bg-foreground text-background"
+                  className="grid size-4 shrink-0 place-items-center rounded-full bg-studio-accent text-white"
                 >
                   <Check className="size-2.5" />
                 </span>
               ) : null}
             </span>
-            <span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">
+            <span className="mt-0.5 block text-[11px] leading-4 text-muted-foreground">
               {templateDimensionsLabel(template)} · {template.pageCount}{" "}
               {template.pageCount === 1 ? "page" : "pages"}
             </span>
             {!compatibility.compatible ? (
-              <span className="mt-1 flex items-center gap-1 text-[10px] leading-4 text-muted-foreground">
+              <span className="mt-1 flex items-center gap-1 text-[11px] leading-4 text-muted-foreground">
                 <Link2 className="size-3" />
                 {compatibility.label}
               </span>
@@ -311,7 +311,6 @@ function TemplateDetails({
       aria-labelledby="selected-template-title"
       className="flex flex-col gap-3"
     >
-      <Separator />
       <div className="flex flex-col gap-1">
         <div className="flex items-start justify-between gap-2">
           <h3
@@ -329,29 +328,31 @@ function TemplateDetails({
         </p>
       </div>
 
-      <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-[10px] leading-4">
-        <dt className="text-muted-foreground">Format</dt>
-        <dd className="truncate text-right tabular-nums">
-          {templateDimensionsLabel(template)}
-        </dd>
-        <dt className="text-muted-foreground">Pages</dt>
-        <dd className="text-right tabular-nums">{template.pageCount}</dd>
-        <dt className="text-muted-foreground">Category</dt>
-        <dd className="truncate text-right">{template.category}</dd>
-        <dt className="text-muted-foreground">Source</dt>
-        <dd className="truncate text-right">{template.source.name}</dd>
-        <dt className="text-muted-foreground">License</dt>
-        <dd className="truncate text-right">{template.source.license}</dd>
-        <dt className="text-muted-foreground">Version</dt>
-        <dd className="text-right tabular-nums">v{template.version}</dd>
+      <dl className="grid grid-cols-2 gap-2 text-[11px] leading-4">
+        <div className="rounded-[5px] bg-muted/55 px-2 py-1.5">
+          <dt className="text-muted-foreground">Format</dt>
+          <dd className="mt-0.5 truncate font-medium tabular-nums">
+            {templateDimensionsLabel(template)}
+          </dd>
+        </div>
+        <div className="rounded-[5px] bg-muted/55 px-2 py-1.5">
+          <dt className="text-muted-foreground">Pages</dt>
+          <dd className="mt-0.5 font-medium tabular-nums">
+            {template.pageCount} · {template.category}
+          </dd>
+        </div>
       </dl>
 
-      <p className="text-[10px] leading-4 text-muted-foreground">
+      <p className="truncate text-[10px] leading-4 text-muted-foreground">
+        {template.source.name} · {template.source.license} · v{template.version}
+      </p>
+
+      <p className="text-[11px] leading-4 text-muted-foreground">
         {compatibility.description}
       </p>
 
       {template.kind === "quotation_style" && compatibility.compatible ? (
-        <p className="flex items-start gap-1.5 text-[10px] leading-4 text-muted-foreground">
+        <p className="flex items-start gap-1.5 text-[11px] leading-4 text-muted-foreground">
           <Sparkles className="mt-0.5 size-3 shrink-0" />
           Applying this style changes the visual system without replacing pages,
           fields, linked content, or manual layout.
@@ -359,14 +360,14 @@ function TemplateDetails({
       ) : null}
 
       {active ? (
-        <p className="flex items-start gap-1.5 text-[10px] leading-4 text-muted-foreground">
+        <p className="flex items-start gap-1.5 text-[11px] leading-4 text-muted-foreground">
           <Check className="mt-0.5 size-3 shrink-0" />
           This template is currently applied to the design.
         </p>
       ) : null}
 
       {reviewPending ? (
-        <p className="flex items-start gap-1.5 text-[10px] leading-4 text-muted-foreground">
+        <p className="flex items-start gap-1.5 text-[11px] leading-4 text-muted-foreground">
           <LockKeyhole className="mt-0.5 size-3 shrink-0" />
           Resolve the pending WebMCP review before creating or applying a
           template.
@@ -374,7 +375,7 @@ function TemplateDetails({
       ) : null}
 
       {actionError ? (
-        <p className="text-[10px] leading-4 text-destructive" role="alert">
+        <p className="text-[11px] leading-4 text-destructive" role="alert">
           {actionError}
         </p>
       ) : null}
@@ -526,11 +527,11 @@ export function TemplateCatalogPanel({
     <div
       className={cn("flex h-full min-h-0 flex-col bg-background", className)}
     >
-      <div className="flex shrink-0 flex-col gap-2 border-b p-3">
+      <div className="flex shrink-0 flex-col gap-2 border-b border-border/70 p-2.5">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <h2 className="text-xs font-medium">Design templates</h2>
-            <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground">
+            <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
               Start a new design or explicitly apply one to the current work.
             </p>
           </div>
@@ -625,12 +626,9 @@ export function TemplateCatalogPanel({
           <CatalogFailure message={loadState.message} onRetry={onRetry} />
         ) : null}
         {loadState.status === "ready" ? (
-          <div className="flex flex-col gap-3 p-3 pb-6">
+          <div className="flex flex-col gap-2.5 p-2 pb-4">
             {filteredItems.length > 0 ? (
-              <ul
-                aria-label="Design templates"
-                className="flex flex-col gap-2.5"
-              >
+              <ul aria-label="Design templates" className="flex flex-col gap-2">
                 {filteredItems.map((template) => (
                   <TemplateCard
                     active={isSameTemplate(template, activeTemplate)}
@@ -647,22 +645,27 @@ export function TemplateCatalogPanel({
             ) : (
               <CatalogEmpty filtered={hasFilters} onReset={clearFilters} />
             )}
-
-            {selectedTemplate ? (
-              <TemplateDetails
-                active={isSameTemplate(selectedTemplate, activeTemplate)}
-                actionError={actionError}
-                hasQuotationSource={hasQuotationSource}
-                pendingAction={pendingAction}
-                reviewPending={reviewPending}
-                template={selectedTemplate}
-                onCreate={() => onCreate(selectedTemplate)}
-                onRequestApply={() => requestApply(selectedTemplate)}
-              />
-            ) : null}
           </div>
         ) : null}
       </ScrollArea>
+
+      {loadState.status === "ready" && selectedTemplate ? (
+        <div
+          className="max-h-[48%] shrink-0 overflow-y-auto border-t border-border/80 bg-background p-3 shadow-[0_-8px_24px_-20px_color-mix(in_oklch,var(--foreground)_35%,transparent)] min-[1280px]:max-h-[44%]"
+          data-template-details-dock="true"
+        >
+          <TemplateDetails
+            active={isSameTemplate(selectedTemplate, activeTemplate)}
+            actionError={actionError}
+            hasQuotationSource={hasQuotationSource}
+            pendingAction={pendingAction}
+            reviewPending={reviewPending}
+            template={selectedTemplate}
+            onCreate={() => onCreate(selectedTemplate)}
+            onRequestApply={() => requestApply(selectedTemplate)}
+          />
+        </div>
+      ) : null}
 
       <ApplyTemplateDialog
         confirmation={confirmation}

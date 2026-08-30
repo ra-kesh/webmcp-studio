@@ -125,3 +125,41 @@ Focused evidence:
 - 35 focused inspector, shell-layout, and splitter tests pass;
 - scoped Studio and UI ESLint passes;
 - `git diff --check` passes.
+
+## Gate 2 result — document-panel composition
+
+Implemented:
+
+- template previews now use the editor's restrained workspace surface, compact
+  radii, and 128 px preview stage instead of heavy 160 px cards;
+- selected and applied templates use the shared editor accent rather than an
+  unrelated black border/check treatment;
+- the selected template's description, compatibility, provenance, format, and
+  actions now remain in a bounded bottom dock outside the catalog scroll area;
+  selecting a template can no longer appear to do nothing because its actions
+  are below the entire list;
+- source/license/version remain visible without occupying six separate rows;
+- output headers use the shared panel-section recipe;
+- Pages use compact output containers, clear hover/focus feedback, 11 px
+  metadata, and the same accent line/surface treatment as Layers;
+- all template and page commands, dialogs, context menus, review locks, and
+  compact targets remain intact.
+
+Mounted acceptance at `1440 x 900` confirmed:
+
+- the template dock remains visible while the catalog scrolls;
+- the dock is 295 px for the selected starter and does not create horizontal
+  overflow;
+- at least two useful template previews remain visible above the dock;
+- six quotation pages remain legible in one output card;
+- the active page has one clear accent line and surface without changing its
+  56 px target;
+- page/output actions and the template primary/secondary actions remain
+  visible and named.
+
+Focused evidence:
+
+- Studio typecheck passes;
+- six focused template and page-context tests pass;
+- scoped Studio and UI ESLint passes;
+- `git diff --check` passes.
