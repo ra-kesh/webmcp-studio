@@ -302,6 +302,7 @@ let unauthenticatedStatus = 0
 let redirectHostHash = ""
 try {
   const context = await chromium.launchPersistentContext(userDataDirectory, {
+    channel: "chrome",
     headless: true,
   })
   try {
