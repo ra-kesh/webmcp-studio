@@ -1,0 +1,385 @@
+{
+  "schemaVersion": 1,
+  "runId": "2026-08-30T06:18:24.895Z-7db7c095-4194-4f07-9897-5df7d0e4d72d",
+  "environment": "local",
+  "browser": {
+    "name": "chromium",
+    "version": "152.0.7977.64"
+  },
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "assertions": [
+    "separate native IndexedDB contexts",
+    "single visible promotion and managed-use receipt",
+    "atomic six-reference relink with undo and redo",
+    "mapping admission without local bytes",
+    "durable reload without repeated migration",
+    "foreground PNG and five-page PDF",
+    "immutable publication",
+    "idempotent durable render and WebMCP history recovery"
+  ],
+  "network": [
+    {
+      "method": "GET",
+      "path": "/v1/studio/assets",
+      "status": 200,
+      "requestId": "047be534-dd57-4b4f-ac24-a245f60633f3"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/studio/assets/local-promotions/resolve",
+      "status": 200,
+      "requestId": "d836f7c4-5c87-4881-a6df-c1e793a12354"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/templates/template-document-cross-browser-7db7c095-4194-4f07-9897-5df7d0e4d72d",
+      "status": 404,
+      "requestId": "0e7eb398-a72a-4d67-abb2-e753c5456a68"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/assets",
+      "status": 200,
+      "requestId": "cbc027c0-6105-47f8-b581-4e0933344f52"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/assets",
+      "status": 200,
+      "requestId": "f6160823-7872-4937-a953-8fa42e7aece0"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/studio/assets/local-promotions/resolve",
+      "status": 200,
+      "requestId": "a73c99ea-1f63-4777-bf7d-4d95d56abea8"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/studio/assets/local-promotions/resolve",
+      "status": 200,
+      "requestId": "577e8095-9f9f-4858-820d-d871f3d6c0b2"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/studio/assets/local-promotions/resolve",
+      "status": 200,
+      "requestId": "14cdc47f-2ab4-4fce-8ae2-615b8ac38ec0"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/studio/assets/local-promotions/resolve",
+      "status": 200,
+      "requestId": "ac23711c-50bb-4f89-9a91-9bb34e86aa14"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/assets/local-promotions/:localAssetAlias",
+      "status": 404,
+      "requestId": "56504a34-f6bd-455b-b378-8c83751fa53e"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/studio/assets/local-promotions/resolve",
+      "status": 200,
+      "requestId": "0d53d8b6-a5e8-4bdf-a896-6c64592db638"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/studio/assets/:managedAssetId",
+      "status": 201,
+      "requestId": "84745410-1f03-4ff1-a865-5c1c80137237"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/studio/assets/local-promotions/resolve",
+      "status": 200,
+      "requestId": "01be13fd-9cc3-4b59-b56f-bf8417050ccf"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/studio/assets/local-promotions/resolve",
+      "status": 200,
+      "requestId": "0c5b518a-fbc7-4b71-a217-1a64a94d0335"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/studio/assets/local-promotions/resolve",
+      "status": 200,
+      "requestId": "9ba76672-0c86-4a00-8c38-46ecfee386c1"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/studio/assets/local-promotions/resolve",
+      "status": 200,
+      "requestId": "377bdb7a-cbfb-425a-aa28-492d56fe2f6f"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/studio/assets/local-promotions/resolve",
+      "status": 200,
+      "requestId": "e2c914a8-9ff5-474d-b030-cade830d9aef"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/studio/assets/local-promotions/resolve",
+      "status": 200,
+      "requestId": "d4e84aa0-34b4-4542-a4be-418c220a4699"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/assets/:managedAssetId/content",
+      "status": 200,
+      "requestId": "990119a7-b4a7-42b1-beb8-d666d9f242d6"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/assets/:managedAssetId/content",
+      "status": 200,
+      "requestId": "6f474c5c-6617-4f25-92b7-2598c75648c8"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/studio/assets/:managedAssetId/used",
+      "status": 200,
+      "requestId": "462ab4f4-115e-402a-a18a-14df83d8bb6a"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/assets",
+      "status": 200,
+      "requestId": "57cb447d-b8ff-48ad-828a-7def2fde6cc2"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/assets",
+      "status": 200,
+      "requestId": "4432d467-d5b3-4f33-ada8-cfff15decc0e"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/assets/local-promotions/:localAssetAlias",
+      "status": 200,
+      "requestId": "296c08b3-abd9-45ef-8b37-2c3414dd041f"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/assets/:managedAssetId/content",
+      "status": 200,
+      "requestId": "a0b3c591-5224-4968-8416-c287012e69d5"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/assets/:managedAssetId/content",
+      "status": 200,
+      "requestId": "cb1012e1-9e2c-49f6-8516-7d8f92eb43c8"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/assets",
+      "status": 200,
+      "requestId": "5891e5b8-b3c2-4dce-95cd-7ef156429ebe"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/studio/assets/local-promotions/resolve",
+      "status": 200,
+      "requestId": "8d819430-cabe-4da6-8b04-aca72caa26b1"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/templates/template-document-cross-browser-7db7c095-4194-4f07-9897-5df7d0e4d72d",
+      "status": 404,
+      "requestId": "b78277d2-3053-4d33-a3ca-ad8cbd259819"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/assets/:managedAssetId/content",
+      "status": 200,
+      "requestId": "052aafa5-49ca-4852-9a54-08d874180779"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/studio/assets/:managedAssetId/used",
+      "status": 200,
+      "requestId": "a66f2000-99a9-4b30-8529-71e6a17dc310"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/assets/:managedAssetId/content",
+      "status": 200,
+      "requestId": "706710e2-0e5b-41c6-a2b6-74cf81ebf378"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/templates/template-document-cross-browser-7db7c095-4194-4f07-9897-5df7d0e4d72d",
+      "status": 404,
+      "requestId": "8bbc992a-f483-4efe-bd92-d6b83e4c9346"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/assets/:managedAssetId/content",
+      "status": 200,
+      "requestId": "3fee58ae-102e-4600-8552-10a4d50ae001"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/assets/:managedAssetId/content",
+      "status": 200,
+      "requestId": "2fc9f79a-b636-4d6c-b539-2802c2866a3a"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/studio/export-png",
+      "status": 200,
+      "requestId": "cbee330c-3f4b-41dc-a5cb-d027b59086c5"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/studio/export-pdf",
+      "status": 200,
+      "requestId": "5ebef59c-cad1-4efe-b5c6-0498379b1335"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/assets/:managedAssetId",
+      "status": 200,
+      "requestId": "1cf4fde4-0200-4601-a2c8-5d24e22faec0"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/assets/:managedAssetId",
+      "status": 200,
+      "requestId": "424a38ec-5d27-4b92-9bab-de068ddffa89"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/templates/template-document-cross-browser-7db7c095-4194-4f07-9897-5df7d0e4d72d",
+      "status": 404,
+      "requestId": "ef72a2ee-0b59-4b80-836a-b69b1ed90b8c"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/studio/templates/",
+      "status": 201,
+      "requestId": "82b1b696-4c45-4fda-8425-48b31e390fa7"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/renders/",
+      "status": 200,
+      "requestId": "554d30e3-38ab-4e56-9708-9ea972bdbc3a"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/studio/render",
+      "status": 202,
+      "requestId": "33aed0e3-39f7-43d2-8b52-511e5e97c740"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/renders/",
+      "status": 200,
+      "requestId": "de43caeb-6f05-414b-93ed-27ca46b7aa11"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/renders/",
+      "status": 200,
+      "requestId": "c18dce60-e158-4f50-891e-b2179e406fb7"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/renders/",
+      "status": 200,
+      "requestId": "d21e8208-fdc6-4132-b71e-7218771de8b8"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/renders/",
+      "status": 200,
+      "requestId": "a9b7e0c3-b965-4230-8e67-01fb8c329d0a"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/renders/",
+      "status": 200,
+      "requestId": "d7717b65-dd11-448b-9042-4d0150416acd"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/renders/",
+      "status": 200,
+      "requestId": "3c23f02e-457e-4fc4-82a2-4ef0d7590b9b"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/renders/",
+      "status": 200,
+      "requestId": "1c207ca9-0a39-47ca-98a6-df28297ee8a7"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/templates/template-document-cross-browser-7db7c095-4194-4f07-9897-5df7d0e4d72d",
+      "status": 200,
+      "requestId": "d9667c49-a8b8-486a-852e-7da38e70b546"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/assets/:managedAssetId/content",
+      "status": 200,
+      "requestId": "5a7ffa16-ee7c-4eaf-8ae7-8ba4e0085ce1"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/renders/",
+      "status": 200,
+      "requestId": "3a4b58c4-27c4-43b5-b08a-6f303257749f"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/assets/:managedAssetId/content",
+      "status": 200,
+      "requestId": "dd5c6808-4cb5-4fe0-ac10-1457cfa0c850"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/studio/render",
+      "status": 202,
+      "requestId": "4d9e00e4-b62c-46ea-b41f-b76d1aaf1eed"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/renders/",
+      "status": 200,
+      "requestId": "51a98154-9846-4441-975e-d53aecd0f4d1"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/templates/template-document-cross-browser-7db7c095-4194-4f07-9897-5df7d0e4d72d",
+      "status": 200,
+      "requestId": "f5f78473-ab0d-4abf-9c19-705e915ccc88"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/assets/:managedAssetId/content",
+      "status": 200,
+      "requestId": "6c4e5628-d2d2-47b1-9613-9bca8f538a50"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/renders/",
+      "status": 200,
+      "requestId": "198a9eec-3e19-447c-984d-11201254e583"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/studio/assets/:managedAssetId/content",
+      "status": 200,
+      "requestId": "84ddb9ee-6bf8-42ec-bd87-2b5bc59bef38"
+    }
+  ]
+}

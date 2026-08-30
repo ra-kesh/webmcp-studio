@@ -2,7 +2,9 @@
 
 Date: 2026-08-30
 
-Status: frozen evidence map; execution has not started
+Status: execution active; the Slice 6A core two-context journey passed on
+2026-08-30, while the remaining race, compact/accessibility, Slice 6B and
+authorized deployed gates remain open
 
 Ledger boundary: row 10, Cross-browser local media — Slice 6 only
 
@@ -181,6 +183,50 @@ focused Slice 1 through Slice 5 regression matrix pass against native browser
 facilities. Context B recovers with empty asset IndexedDB, and the evidence
 manifest contains no private material.
 
+### Slice 6A core execution record — 2026-08-30
+
+The dedicated Playwright journey now passes against Studio on port 3001 and
+the real local Worker topology. It uses two explicit Chromium contexts with
+separate native IndexedDB state and one shared local demo workspace identity.
+No Worker route, D1 mapping response, upload response or render response is
+mocked.
+
+The accepted core run proves:
+
+- one native local metadata/Blob pair in Context A and zero local records in
+  Context B;
+- one visible promotion, one managed-use receipt and an exact atomic relink of
+  six canonical references: three image nodes, one field default and two field
+  current values, including both bound projections;
+- Undo and Redo alter only document identity and do not upload or record use a
+  second time;
+- Context B resolves the real D1-backed alias mapping, persists the managed
+  body and recovery receipt, acknowledges **Keep recovered images**, and stays
+  stable over reload without local bytes or repeat admission/use traffic;
+- real foreground PNG and five-page PDF downloads;
+- immutable publication through the WebMCP tool boundary; and
+- one idempotent durable render job with two artifacts. The local Workflow
+  bridge dropped the POST response after commit, so the journey also proves
+  honest `status_unknown`, same-key replay without a second server record, and
+  completed-artifact recovery through `inspect_render_history` after reopening
+  Studio.
+
+Selected immutable evidence:
+
+`artifacts/cross-browser-media/local/2026-08-30T06:18:24.895Z-7db7c095-4194-4f07-9897-5df7d0e4d72d`
+
+The evidence writer retains only redacted route shapes, safe request IDs,
+assertion names, runtime/viewport identity, relative artifact paths, byte
+lengths and artifact SHA-256 values. The first candidate evidence run was
+discarded before acceptance because its network manifest retained a raw local
+alias in a route path; dynamic local, managed, render and artifact path
+identities are now redacted before writing.
+
+This is not the Slice 6A exit yet. Native browser race/recovery cases,
+390-pixel keyboard/focus/accessibility evidence, the existing MEDIA-01 browser
+regression and the focused Slice 1 through Slice 5 matrix still need to pass
+before 6A can be marked complete.
+
 ## Slice 6B — production runner and read-only baseline
 
 Build a separate production runner. Do not point existing local conformance,
@@ -285,4 +331,3 @@ follow-ups pass.
 4. Independently review and commit the completed local/read-only gate.
 5. Continue the next audited editor/product-depth phase while blocked production
    evidence waits for explicit authority or external state.
-
