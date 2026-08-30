@@ -2664,3 +2664,24 @@ Status: **completed locally; deployed Slice 6B onward and row 10 remain active**
   owns the isolated production runner, redaction tests and read-only deployment
   baseline; later writes, restart, second identity and time-dependent proofs
   remain separately authorized.
+
+## 2026-08-30 — Cross-browser local media, Slice 6B runner preparation
+
+Status: **runner implemented and locally tested; clean read-only capture is next**
+
+- Added a separate production-baseline command that has no write mode. It
+  rejects a dirty worktree and captures only read-only Wrangler inventory,
+  Worker deployments, the D1 migration ledger, R2 bucket presence, Workflow
+  identity and an unauthenticated Access redirect.
+- The future authenticated boundary is structurally isolated now: Chromium
+  receives a temporary persistent profile outside the repository, browser/API
+  work stays inside its BrowserContext, no cookie or storage state is exported,
+  and the temporary profile is removed after the probe.
+- Evidence writes only to a unique staging directory. Redaction occurs before
+  every file write and a final recursive scanner runs before atomic promotion.
+  Account identity, raw Access audience, emails, credentials, cookies, JWTs,
+  local aliases, private R2 keys, signed URLs and media payload URLs are banned.
+- Seven focused tests pass, including divergent migration-ledger refusal,
+  removal of rejected staging data and deployment projection that discards the
+  author email. The runner itself correctly refuses to execute while these
+  implementation files are uncommitted.

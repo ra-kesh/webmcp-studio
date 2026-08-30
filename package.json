@@ -16,6 +16,7 @@
     "verify:cloudflare:static": "bun scripts/verify-cloudflare-deployment-preflight.ts --static",
     "verify:cloudflare:remote": "bun scripts/verify-cloudflare-deployment-preflight.ts --remote-ready",
     "verify:cloudflare:deployed": "bun scripts/verify-cloudflare-deployment-preflight.ts --post-deploy",
+    "capture:cross-browser-media:baseline": "bun scripts/capture-cross-browser-media-production-baseline.ts --read-only",
     "deploy:cloudflare:plan": "bun scripts/deploy-cloudflare-production.ts --plan",
     "deploy:cloudflare:production": "bun scripts/deploy-cloudflare-production.ts --apply",
     "verify:conformance:structure": "bun scripts/verify-render-conformance-structure.ts",

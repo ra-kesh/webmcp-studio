@@ -303,6 +303,28 @@ the harness does not repair it automatically.
 The production runner, fixture isolation, redaction tests and read-only baseline
 pass locally and against the current account without changing Cloudflare state.
 
+### Slice 6B runner implementation — 2026-08-30
+
+The dedicated read-only runner is now implemented behind
+`capture:cross-browser-media:baseline`. It refuses every argument except
+`--read-only`, requires a clean committed worktree, uses a temporary persistent
+Chromium profile outside the repository, keeps the unauthenticated Access probe
+inside that BrowserContext, and deletes the profile without exporting storage
+state. Before writing local evidence it captures both Worker deployment/version
+identities, the configured/remote D1 name and UUID, exact migration ledger,
+both R2 bucket names, Workflow identity, clean commit, Wrangler version and
+hashed Access audience/redirect host.
+
+Evidence is first written to a unique `.capture-<run-id>` directory. The
+recursive scanner rejects email addresses, credentials, cookies, JWTs, raw
+local aliases, private R2 keys, signed URLs, data/object URLs, the account ID
+and raw Access audience. Only a fully scanned manifest is atomically renamed
+to its immutable run directory; rejected staging data is removed. Seven
+focused tests pass for migration-prefix handling, deployment projection,
+redaction and atomic promotion. The clean-account baseline must run only after
+this implementation commit so its recorded commit and clean-worktree claim are
+true.
+
 ## Slice 6C — authorized owner production exercise
 
 This gate requires explicit authorization for ordinary production test writes.
