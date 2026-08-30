@@ -306,11 +306,27 @@ try {
     headless: true,
   })
   try {
-    const response = await context.request.get(productionOrigin, {
-      maxRedirects: 0,
+    const page = context.pages().at(0) ?? (await context.newPage())
+    const protectedResponse = new Promise<{
+      status: number
+      location: string | null
+    }>((resolveResponse) => {
+      page.on("response", async (response) => {
+        if (response.url().replace(/\/$/, "") !== productionURL.origin) return
+        const headers = await response.allHeaders()
+        resolveResponse({
+          status: response.status(),
+          location: headers.location ?? null,
+        })
+      })
     })
-    unauthenticatedStatus = response.status()
-    const location = response.headers()["location"]
+    await page.goto(productionOrigin, {
+      timeout: 30_000,
+      waitUntil: "domcontentloaded",
+    })
+    const response = await protectedResponse
+    unauthenticatedStatus = response.status
+    const location = response.location
     if (!location)
       throw new Error("Protected production origin did not redirect")
     redirectHostHash = sha256(new URL(location, productionOrigin).hostname)
