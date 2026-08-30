@@ -1,39 +1,20 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  useSyncExternalStore,
-} from "react"
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react"
 import type { PropsWithChildren } from "react"
 import { resolveLocalAssetPromotions } from "../editor/local-asset-promotion-client"
 import { hashLocalAssetBlobSha256 } from "../editor/local-asset-promotion-owner"
 import { inspectRequestedLocalAssets } from "../editor/local-asset-store"
 import { markManagedMediaUsed } from "../editor/managed-media-repository"
-import type {
-  DocumentDraftRepository,
-  DraftRepositoryEvent,
-} from "../editor/document-draft-repository"
 import { DocumentRouteAdmissionController } from "../editor/document-route-admission"
 import { StudioPersistenceRuntime } from "./studio-persistence-runtime"
-import type { StudioPersistenceState } from "./studio-persistence-runtime"
+import {
+  StudioPersistenceContext,
+  type StudioPersistenceApi,
+} from "./studio-persistence-context"
 
-export type StudioPersistenceApi = Readonly<{
-  repository: DocumentDraftRepository
-  state: StudioPersistenceState
-  retry: () => void
-  completeRecovery: (warning: string | null) => void
-  subscribeRepositoryEvents: (
-    listener: (event: DraftRepositoryEvent) => void
-  ) => () => void
-  acquireLease: () => () => void
-  documentRouteAdmission: DocumentRouteAdmissionController
-}>
-
-const StudioPersistenceContext = createContext<StudioPersistenceApi | null>(
-  null
-)
+export {
+  type StudioPersistenceApi,
+  useStudioPersistence,
+} from "./studio-persistence-context"
 
 export type StudioPersistenceProviderProps = PropsWithChildren<{
   createRuntime?: () => StudioPersistenceRuntime
@@ -106,14 +87,4 @@ export function StudioPersistenceProvider({
       {children}
     </StudioPersistenceContext.Provider>
   )
-}
-
-export function useStudioPersistence(): StudioPersistenceApi {
-  const persistence = useContext(StudioPersistenceContext)
-  if (!persistence) {
-    throw new Error(
-      "useStudioPersistence must be used within StudioPersistenceProvider."
-    )
-  }
-  return persistence
 }

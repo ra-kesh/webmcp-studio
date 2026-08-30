@@ -9,6 +9,20 @@ const layoutSource = readFileSync(
   new URL("./_studio/route.tsx", import.meta.url),
   "utf8"
 )
+const persistenceProviderSource = readFileSync(
+  new URL(
+    "../features/persistence/studio-persistence-provider.tsx",
+    import.meta.url
+  ),
+  "utf8"
+)
+const persistenceContextSource = readFileSync(
+  new URL(
+    "../features/persistence/studio-persistence-context.ts",
+    import.meta.url
+  ),
+  "utf8"
+)
 
 describe("Studio persistence route layout", () => {
   it("keeps the UI below one client-only pathless owner and API routes at root", () => {
@@ -35,5 +49,18 @@ describe("Studio persistence route layout", () => {
       "StudioRouteRoute: typeof StudioRouteRouteWithChildren"
     )
     expect(generatedTree).toContain("fullPath: '/'")
+  })
+
+  it("keeps persistence context identity outside the Fast Refresh provider boundary", () => {
+    expect(persistenceProviderSource).toContain(
+      'from "./studio-persistence-context"'
+    )
+    expect(persistenceProviderSource).not.toContain("createContext(")
+    expect(persistenceContextSource).toContain(
+      "createContext<StudioPersistenceApi | null>(null)"
+    )
+    expect(persistenceContextSource).toContain(
+      "export function useStudioPersistence"
+    )
   })
 })

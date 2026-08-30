@@ -253,6 +253,18 @@ test("clean edit-to-artifact challenge journey produces an inspectable seven-pag
   await page.getByRole("button", { name: "Publish", exact: true }).click()
   const publishDialog = page.getByRole("dialog", { name: "Publish version 1" })
   await expect(publishDialog).toContainText("Validation passed")
+  await expect(publishDialog).toHaveCSS("position", "fixed")
+  await expect(publishDialog).toHaveCSS("display", "grid")
+  const publishBounds = await publishDialog.boundingBox()
+  const viewport = page.viewportSize()
+  expect(publishBounds).not.toBeNull()
+  expect(publishBounds!.width).toBeGreaterThanOrEqual(320)
+  expect(publishBounds!.width).toBeLessThanOrEqual(
+    viewport?.width ?? Number.POSITIVE_INFINITY
+  )
+  await expect(
+    publishDialog.getByRole("button", { name: "Publish version 1" })
+  ).toHaveCSS("display", "flex")
   await publishDialog.getByRole("button", { name: "Publish version 1" }).click()
   const publishedDialog = page.getByRole("dialog", {
     name: "Version 1 is published",

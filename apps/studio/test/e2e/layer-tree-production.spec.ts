@@ -40,6 +40,7 @@ type DesignInspection = {
 }
 
 type LayerFixtureIds = {
+  documentId: string
   pageId: string
   outerGroupId: string
   innerGroupId: string
@@ -72,33 +73,91 @@ async function inspectDesign(page: Page) {
   return result?.structuredContent as DesignInspection
 }
 
+async function readPersistedDocument(page: Page) {
+  return page.evaluate(async () => {
+    const match = location.pathname.match(/^\/documents\/([^/]+)$/)
+    const documentId = match?.[1] ? decodeURIComponent(match[1]) : null
+    if (!documentId) throw new Error("The editor is not on a document route")
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("webmcp-studio-documents")
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () =>
+        reject(request.error ?? new Error("Document database did not open"))
+    })
+    const stored = await new Promise<
+      | {
+          document?: {
+            revision: number
+            nodes: Array<{ id: string }>
+            groups: Array<{ id: string; nodeIds: string[] }>
+          }
+        }
+      | undefined
+    >((resolve, reject) => {
+      const request = database
+        .transaction("draft-body")
+        .objectStore("draft-body")
+        .get(documentId)
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () =>
+        reject(request.error ?? new Error("Document draft did not load"))
+    }).finally(() => database.close())
+    if (!stored?.document) throw new Error("Document draft is unavailable")
+    return stored.document
+  })
+}
+
 async function waitForSaved(page: Page) {
+  const expectedRevision = (await inspectDesign(page)).document.revision
   await expect
-    .poll(() =>
-      page.evaluate((storageKey) => {
-        const stored = localStorage.getItem(storageKey)
-        return stored ? JSON.parse(stored).revision : null
-      }, documentStorageKey)
-    )
-    .toBe((await inspectDesign(page)).document.revision)
+    .poll(async () => (await readPersistedDocument(page)).revision)
+    .toBe(expectedRevision)
 }
 
 async function seedLayerFixture(page: Page, bulkCount = 0) {
-  await expect
-    .poll(() =>
-      page.evaluate(
-        (storageKey) => Boolean(localStorage.getItem(storageKey)),
-        documentStorageKey
-      )
-    )
-    .toBe(true)
-
   const fixture = await page.evaluate(
-    ({ storageKey, sourceStorageKey, templateStorageKey, bulkLayerCount }) => {
-      const stored = localStorage.getItem(storageKey)
-      if (!stored)
+    async ({ bulkLayerCount }) => {
+      const match = location.pathname.match(/^\/documents\/([^/]+)$/)
+      const documentId = match?.[1] ? decodeURIComponent(match[1]) : null
+      if (!documentId) throw new Error("The editor is not on a document route")
+      const database = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open("webmcp-studio-documents")
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () =>
+          reject(request.error ?? new Error("Document database did not open"))
+      })
+      const stored = await new Promise<
+        | {
+            document?: {
+              id: string
+              name: string
+              revision: number
+              updatedAt: string
+              pages: Array<{ id: string; nodeIds: string[] }>
+              nodes: Array<Record<string, unknown> & { id: string }>
+              groups: Array<{
+                id: string
+                pageId: string
+                name: string
+                nodeIds: string[]
+                parentGroupId?: string
+              }>
+            }
+          }
+        | undefined
+      >((resolve, reject) => {
+        const request = database
+          .transaction("draft-body")
+          .objectStore("draft-body")
+          .get(documentId)
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () =>
+          reject(request.error ?? new Error("Document draft did not load"))
+      }).finally(() => database.close())
+      if (!stored?.document) {
         throw new Error("The canonical editor document was not persisted")
-      const document = JSON.parse(stored) as {
+      }
+      const document = structuredClone(stored.document) as {
         id: string
         name: string
         revision: number
@@ -117,6 +176,7 @@ async function seedLayerFixture(page: Page, bulkCount = 0) {
       if (!firstPage) throw new Error("The fixture document has no page")
 
       const ids = {
+        documentId,
         pageId: firstPage.id,
         outerGroupId: "e2e-group-outer",
         innerGroupId: "e2e-group-inner",
@@ -163,9 +223,7 @@ async function seedLayerFixture(page: Page, bulkCount = 0) {
         )
       )
 
-      document.id = "layer-tree-e2e-document"
       document.name = "Layer tree production fixture"
-      document.revision = 0
       document.updatedAt = "2026-08-27T12:00:00.000Z"
       document.nodes.push(...seedNodes, ...bulkNodes)
       firstPage.nodeIds.push(
@@ -196,41 +254,29 @@ async function seedLayerFixture(page: Page, bulkCount = 0) {
         })
       }
 
-      const serialized = JSON.stringify(document)
-      localStorage.setItem(storageKey, serialized)
-      localStorage.removeItem(sourceStorageKey)
-      localStorage.removeItem(templateStorageKey)
-      sessionStorage.clear()
-      return { ids, serialized }
+      return { ids, serialized: JSON.stringify(document) }
     },
-    {
-      storageKey: documentStorageKey,
-      sourceStorageKey: quotationSourceStorageKey,
-      templateStorageKey: quotationTemplateStorageKey,
-      bulkLayerCount: bulkCount,
-    }
+    { bulkLayerCount: bulkCount }
   )
 
-  await page.addInitScript(
-    ({ storageKey, sourceStorageKey, templateStorageKey, serialized }) => {
-      localStorage.setItem(storageKey, serialized)
-      localStorage.removeItem(sourceStorageKey)
-      localStorage.removeItem(templateStorageKey)
-      sessionStorage.clear()
-    },
-    {
-      storageKey: documentStorageKey,
-      sourceStorageKey: quotationSourceStorageKey,
-      templateStorageKey: quotationTemplateStorageKey,
-      serialized: fixture.serialized,
-    }
-  )
-
-  await page.reload()
-  await waitForEditor(page)
+  await page
+    .locator('input[type="file"][accept=".json,application/json"]')
+    .first()
+    .setInputFiles({
+      name: "layer-tree-production-fixture.studio.json",
+      mimeType: "application/json",
+      buffer: Buffer.from(fixture.serialized),
+    })
   await expect
     .poll(async () => (await inspectDesign(page)).document.id)
-    .toBe("layer-tree-e2e-document")
+    .toBe(fixture.ids.documentId)
+  await expect
+    .poll(async () =>
+      (await inspectDesign(page)).activePage.nodeIds.includes(
+        fixture.ids.outsideId
+      )
+    )
+    .toBe(true)
   return fixture.ids
 }
 
@@ -248,6 +294,30 @@ async function expandGroup(tree: Locator, name: string) {
   }
   await expect(row).toHaveAttribute("aria-expanded", "true")
   return row
+}
+
+async function expectVisibleTreeRowsNotToOverlap(tree: Locator) {
+  const rows = await tree.getByRole("treeitem").evaluateAll((items) =>
+    items.map((item) => {
+      const bounds = item.getBoundingClientRect()
+      return {
+        name: item.getAttribute("aria-label"),
+        top: bounds.top,
+        bottom: bounds.bottom,
+        height: bounds.height,
+      }
+    })
+  )
+
+  expect(rows.length).toBeGreaterThan(1)
+  for (let index = 1; index < rows.length; index += 1) {
+    const previous = rows[index - 1]
+    const current = rows[index]
+    expect(
+      current!.top,
+      `Expected ${current!.name} to start below ${previous!.name}: ${JSON.stringify(rows)}`
+    ).toBeGreaterThanOrEqual(previous!.bottom - 0.5)
+  }
 }
 
 function fixtureNodes(inspection: DesignInspection, ids: LayerFixtureIds) {
@@ -289,6 +359,13 @@ test.beforeEach(async ({ page }) => {
     }
   )
   await page.reload()
+  const openSample = page.getByRole("button", {
+    name: "Open sample",
+    exact: true,
+  })
+  await expect(openSample).toBeVisible()
+  await openSample.click()
+  await expect(page).toHaveURL(/\/documents\/[^/]+$/)
   await waitForEditor(page)
 })
 
@@ -334,6 +411,7 @@ test("the hierarchy exposes ARIA state, keeps tree focus isolated, and searches 
   )
   await expect(gamma).toHaveAttribute("aria-level", "3")
   await expect(tree.locator('[role="treeitem"][tabindex="0"]')).toHaveCount(0)
+  await expectVisibleTreeRowsNotToOverlap(tree)
   await expect(
     gamma.getByRole("button", { name: "Lock Gamma mark" })
   ).toHaveAttribute("tabindex", "-1")
@@ -677,25 +755,11 @@ test("pointer drag reparents a root layer into a group and remains undoable", as
   await expect(outer).toHaveAttribute("aria-expanded", "true")
   await expect(outside).toHaveAttribute("aria-level", "2")
   await expect
-    .poll(() =>
-      page.evaluate(
-        ({ storageKey, groupId, nodeId }) => {
-          const stored = localStorage.getItem(storageKey)
-          if (!stored) return false
-          const document = JSON.parse(stored) as {
-            groups: Array<{ id: string; nodeIds: string[] }>
-          }
-          return Boolean(
-            document.groups
-              .find((group) => group.id === groupId)
-              ?.nodeIds.includes(nodeId)
-          )
-        },
-        {
-          storageKey: documentStorageKey,
-          groupId: ids.outerGroupId,
-          nodeId: ids.outsideId,
-        }
+    .poll(async () =>
+      Boolean(
+        (await readPersistedDocument(page)).groups
+          .find((group) => group.id === ids.outerGroupId)
+          ?.nodeIds.includes(ids.outsideId)
       )
     )
     .toBe(true)
@@ -745,9 +809,9 @@ test("a valid 1,000-layer restored document stays virtualized, searchable, and s
   page,
 }) => {
   test.setTimeout(120_000)
-  await seedLayerFixture(page, 1_000)
+  const ids = await seedLayerFixture(page, 1_000)
   const inspection = await inspectDesign(page)
-  expect(inspection.document.id).toBe("layer-tree-e2e-document")
+  expect(inspection.document.id).toBe(ids.documentId)
   expect(inspection.activePage.nodeIds).toContain("e2e-bulk-1000")
 
   const tree = await openDesktopLayerTree(page)
@@ -789,13 +853,9 @@ test("a valid 1,000-layer restored document stays virtualized, searchable, and s
   expect(hierarchyOwnership).toEqual({ dangling: [], ownsActive: true })
 
   await waitForSaved(page)
-  const persistedNodeCount = await page.evaluate((storageKey) => {
-    const stored = localStorage.getItem(storageKey)
-    if (!stored) return 0
-    const document = JSON.parse(stored) as { nodes: Array<{ id: string }> }
-    return document.nodes.filter((node) => node.id.startsWith("e2e-bulk-"))
-      .length
-  }, documentStorageKey)
+  const persistedNodeCount = (await readPersistedDocument(page)).nodes.filter(
+    (node) => node.id.startsWith("e2e-bulk-")
+  ).length
   expect(persistedNodeCount).toBe(1_000)
 
   const virtualization = await scroll.evaluate((element) => ({

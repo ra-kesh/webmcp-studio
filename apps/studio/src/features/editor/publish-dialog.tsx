@@ -138,7 +138,7 @@ export function PublishDialog({
 
   return (
     <Dialog open={open} onOpenChange={requestOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent data-testid="publish-dialog" className="sm:max-w-md">
         <DialogHeader>
           <div className="flex size-8 items-center justify-center rounded-lg bg-secondary">
             {currentVersion ? (

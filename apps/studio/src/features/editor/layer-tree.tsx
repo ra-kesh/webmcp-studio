@@ -1,3 +1,5 @@
+// @refresh reset
+
 import {
   useCallback,
   useEffect,
@@ -1170,7 +1172,7 @@ export function LayerTree({
             }
             tabIndex={0}
             className="relative w-full outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset"
-            style={{ height: `${virtualizer.getTotalSize()}px` }}
+            style={{ height: `${rows.length * rowHeight}px` }}
             onKeyDown={onTreeKeyDown}
           >
             {virtualRows.map((virtualRow) => {
@@ -1195,11 +1197,14 @@ export function LayerTree({
                   key={row.item.key}
                   role="presentation"
                   data-index={virtualRow.index}
-                  ref={virtualizer.measureElement}
                   className="absolute top-0 left-0 w-full"
                   style={{
-                    height: `${virtualRow.size}px`,
-                    transform: `translate3d(0, ${virtualRow.start}px, 0)`,
+                    // The tree has a canonical fixed row height. Keeping its
+                    // geometry independent from transient DOM measurements
+                    // prevents every virtual row collapsing to y=0 during HMR
+                    // while retaining virtual range selection and scrolling.
+                    height: `${rowHeight}px`,
+                    transform: `translate3d(0, ${virtualRow.index * rowHeight}px, 0)`,
                   }}
                 >
                   <LayerRow
