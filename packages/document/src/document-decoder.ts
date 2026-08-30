@@ -49,6 +49,7 @@ export type DocumentMigration = {
     | "legacy_image_accessibility_unresolved"
     | "legacy_rich_text_initialized"
     | "legacy_design_resources_initialized"
+    | "legacy_variable_bindings_initialized"
     | "document_schema_upgraded"
     | "legacy_field_preserved_as_text"
     | "legacy_fill_promoted_to_color"
@@ -135,7 +136,7 @@ function normalizeLegacyRichTextModel(input: unknown): {
     return { input: normalized, migrations }
   }
   const document = normalized as Record<string, unknown>
-  if (![1, 2].includes(document.schemaVersion as number)) {
+  if (![1, 2, 3].includes(document.schemaVersion as number)) {
     return { input: normalized, migrations }
   }
   let initializedTextNodes = 0
@@ -173,6 +174,11 @@ function normalizeLegacyRichTextModel(input: unknown): {
     document.variables = []
     initializedResources = true
   }
+  let initializedVariableBindings = false
+  if (!Array.isArray(document.variableBindings)) {
+    document.variableBindings = []
+    initializedVariableBindings = true
+  }
   if (initializedTextNodes > 0) {
     migrations.push({
       code: "legacy_rich_text_initialized",
@@ -184,6 +190,13 @@ function normalizeLegacyRichTextModel(input: unknown): {
       code: "legacy_design_resources_initialized",
       message:
         "Legacy typography styles, paint styles, and variables were initialized as explicit empty collections",
+    })
+  }
+  if (initializedVariableBindings) {
+    migrations.push({
+      code: "legacy_variable_bindings_initialized",
+      message:
+        "Legacy variable bindings were initialized as an explicit empty collection",
     })
   }
   return { input: normalized, migrations }

@@ -396,17 +396,48 @@ export function InspectorColorField({
   label,
   value,
   disabled = false,
+  onPreview,
+  onPreviewCancel,
   onCommit,
 }: {
   label: string
   value: string
   disabled?: boolean
+  onPreview?: (value: string) => void
+  onPreviewCancel?: () => void
   onCommit: (value: string) => void
 }) {
   const id = useId()
   const [draft, setDraft] = useState(canonicalInspectorColorDraft(value))
   const [error, setError] = useState<string | null>(null)
   const cancelBlurRef = useRef(false)
+  const pickerRef = useRef<HTMLInputElement>(null)
+  const pickerActiveRef = useRef(false)
+  const pickerPreviewFrameRef = useRef<number | null>(null)
+  const pickerPreviewValueRef = useRef(value)
+  const valueRef = useRef(value)
+  const onPreviewRef = useRef(onPreview)
+  const onPreviewCancelRef = useRef(onPreviewCancel)
+  const commitRef = useRef<(nextDraft: string) => boolean>(() => false)
+  valueRef.current = value
+  onPreviewRef.current = onPreview
+  onPreviewCancelRef.current = onPreviewCancel
+
+  const cancelScheduledPreview = () => {
+    if (pickerPreviewFrameRef.current === null) return
+    globalThis.cancelAnimationFrame(pickerPreviewFrameRef.current)
+    pickerPreviewFrameRef.current = null
+  }
+
+  const schedulePreview = (next: string) => {
+    pickerPreviewValueRef.current = next
+    if (pickerPreviewFrameRef.current !== null) return
+    pickerPreviewFrameRef.current = globalThis.requestAnimationFrame(() => {
+      pickerPreviewFrameRef.current = null
+      onPreviewRef.current?.(pickerPreviewValueRef.current)
+    })
+  }
+
   useEffect(() => {
     setDraft(canonicalInspectorColorDraft(value))
     setError(null)
@@ -423,6 +454,27 @@ export function InspectorColorField({
     if (parsed.value !== value) onCommit(parsed.value)
     return true
   }
+  commitRef.current = commit
+
+  useEffect(() => {
+    const picker = pickerRef.current
+    if (!picker) return
+    const finishPickerInteraction = () => {
+      if (!pickerActiveRef.current) return
+      const next = picker.value.toUpperCase()
+      cancelScheduledPreview()
+      onPreviewRef.current?.(next)
+      pickerActiveRef.current = false
+      commitRef.current(next)
+    }
+    picker.addEventListener("change", finishPickerInteraction)
+    return () => {
+      picker.removeEventListener("change", finishPickerInteraction)
+      cancelScheduledPreview()
+      if (pickerActiveRef.current) onPreviewCancelRef.current?.()
+      pickerActiveRef.current = false
+    }
+  }, [])
 
   const swatchColor = isRenderSafeCssColor(draft) ? draft.trim() : value
   const pickerLabel = /\bcolor$/i.test(label)
@@ -447,15 +499,25 @@ export function InspectorColorField({
           style={{ backgroundColor: swatchColor }}
         >
           <input
+            ref={pickerRef}
             aria-label={pickerLabel}
             type="color"
             disabled={disabled}
             className="absolute inset-0 size-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
             value={nativeInspectorColorValue(swatchColor)}
-            onChange={(event) => {
-              const next = event.target.value.toUpperCase()
+            onInput={(event) => {
+              const next = event.currentTarget.value.toUpperCase()
+              pickerActiveRef.current = true
               setDraft(next)
-              commit(next)
+              setError(null)
+              schedulePreview(next)
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== "Escape" || !pickerActiveRef.current) return
+              cancelScheduledPreview()
+              pickerActiveRef.current = false
+              setDraft(canonicalInspectorColorDraft(valueRef.current))
+              onPreviewCancelRef.current?.()
             }}
           />
         </span>

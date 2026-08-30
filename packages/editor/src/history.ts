@@ -85,6 +85,16 @@ const commandLabel = (commands: DocumentCommand[]) => {
       return "Apply paint style"
     case "detach_paint_style":
       return "Detach paint style"
+    case "create_variable":
+      return "Create variable"
+    case "update_variable":
+      return "Update variable"
+    case "delete_variable":
+      return "Delete variable"
+    case "bind_variable":
+      return "Bind variable"
+    case "unbind_variable":
+      return "Unbind variable"
     case "replace_image_source":
       return "Replace image"
     case "relink_asset_references":

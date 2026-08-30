@@ -1,6 +1,7 @@
 import {
   designStyleUsage,
   managedAssetIdFromSource,
+  variableUsage,
   type Document,
   type SceneNode,
 } from "@webmcp/document"
@@ -56,6 +57,26 @@ export function readDesignStyles(
           usage: designStyleUsage(document, "paint", style.id),
         }))
   return { identity, styles: [...typography, ...paint] }
+}
+
+export function readDesignVariables(
+  document: Document,
+  identity: DesignQueryIdentity,
+  type?: Document["variables"][number]["type"]
+) {
+  const variables = document.variables
+    .filter((variable) => !type || variable.type === type)
+    .map((variable) => ({
+      ...variable,
+      usage: variableUsage(document, variable.id),
+    }))
+  return {
+    identity,
+    variables,
+    bindings: document.variableBindings.filter((binding) =>
+      variables.some((variable) => variable.id === binding.variableId)
+    ),
+  }
 }
 
 export class DesignQueryError extends Error {

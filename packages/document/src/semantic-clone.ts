@@ -4,6 +4,7 @@ import type {
   FieldBinding,
   GroupDefinition,
   SceneNode,
+  VariableBinding,
 } from "./schema"
 
 export type SemanticFragment = {
@@ -12,9 +13,11 @@ export type SemanticFragment = {
   nodes: SceneNode[]
   groups: GroupDefinition[]
   bindings: FieldBinding[]
+  variableBindings: VariableBinding[]
 }
 
-export type SemanticCloneIdKind = "node" | "group" | "binding"
+export type SemanticCloneIdKind =
+  "node" | "group" | "binding" | "variable_binding"
 
 export type SemanticCloneOptions = {
   targetPageId: string
@@ -29,9 +32,11 @@ export type SemanticClone = {
   nodes: SceneNode[]
   groups: GroupDefinition[]
   bindings: FieldBinding[]
+  variableBindings: VariableBinding[]
   nodeIdMap: ReadonlyMap<string, string>
   groupIdMap: ReadonlyMap<string, string>
   bindingIdMap: ReadonlyMap<string, string>
+  variableBindingIdMap: ReadonlyMap<string, string>
 }
 
 const defaultCreateId = (kind: SemanticCloneIdKind) =>
@@ -84,6 +89,15 @@ export function captureSemanticFragment(
   const bindings = document.bindings
     .filter((binding) => requested.has(binding.nodeId))
     .map(copy)
+  const variableBindings = document.variableBindings
+    .filter((binding) => {
+      const target = binding.target
+      return (
+        (target.kind === "node" || target.kind === "text_range") &&
+        requested.has(target.nodeId)
+      )
+    })
+    .map(copy)
 
   return {
     sourcePageId,
@@ -91,6 +105,7 @@ export function captureSemanticFragment(
     nodes,
     groups,
     bindings,
+    variableBindings,
   }
 }
 
@@ -115,6 +130,12 @@ export function cloneSemanticFragment(
     fragment.bindings.map((binding) => [
       binding.id,
       createId("binding", binding.id),
+    ])
+  )
+  const variableBindingIdMap = new Map(
+    fragment.variableBindings.map((binding) => [
+      binding.id,
+      createId("variable_binding", binding.id),
     ])
   )
   const sourceNodeById = new Map(fragment.nodes.map((node) => [node.id, node]))
@@ -168,6 +189,22 @@ export function cloneSemanticFragment(
       nodeId,
     }
   })
+  const variableBindings = fragment.variableBindings.map((source) => {
+    const id = variableBindingIdMap.get(source.id)
+    const target = source.target
+    if (!id || (target.kind !== "node" && target.kind !== "text_range")) {
+      throw new Error(`Incomplete semantic variable binding: ${source.id}`)
+    }
+    const nodeId = nodeIdMap.get(target.nodeId)
+    if (!nodeId) {
+      throw new Error(`Incomplete semantic variable target: ${source.id}`)
+    }
+    return {
+      ...copy(source),
+      id,
+      target: { ...copy(target), nodeId },
+    }
+  })
 
   return {
     nodeIds: fragment.nodeIds.map((nodeId) => {
@@ -178,8 +215,10 @@ export function cloneSemanticFragment(
     nodes,
     groups,
     bindings,
+    variableBindings,
     nodeIdMap,
     groupIdMap,
     bindingIdMap,
+    variableBindingIdMap,
   }
 }

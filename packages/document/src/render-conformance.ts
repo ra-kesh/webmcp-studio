@@ -244,6 +244,7 @@ export const imageRenderParityDocument: Document = documentSchema.parse({
   typographyStyles: [],
   paintStyles: [],
   variables: [],
+  variableBindings: [],
 })
 
 const nodes = [
@@ -580,6 +581,7 @@ export const renderConformanceDocument: Document = documentSchema.parse({
   typographyStyles: [],
   paintStyles: [],
   variables: [],
+  variableBindings: [],
   fields: [],
   fieldValues: {},
   bindings: [],

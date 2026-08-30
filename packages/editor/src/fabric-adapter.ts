@@ -2362,6 +2362,26 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     this.viewportZoom = Number.isFinite(zoom) && zoom > 0 ? zoom : 1
   }
 
+  previewNodePatch(nodeId: string, patch: Partial<SceneNode>): boolean {
+    const canvas = this.canvas
+    const object = this.objectByNodeId.get(nodeId)
+    const node = this.nodeByNodeId.get(nodeId)
+    if (!canvas || !object || !node || node.locked) return false
+    syncFabricObjectFromNode(object, { ...node, ...patch } as SceneNode)
+    canvas.requestRenderAll()
+    return true
+  }
+
+  restoreNodePreview(nodeId: string): boolean {
+    const canvas = this.canvas
+    const object = this.objectByNodeId.get(nodeId)
+    const node = this.nodeByNodeId.get(nodeId)
+    if (!canvas || !object || !node) return false
+    syncFabricObjectFromNode(object, node)
+    canvas.requestRenderAll()
+    return true
+  }
+
   setSnapTargets(pageId: string, targets: readonly AlignmentSnapTarget[]) {
     const next = targets
       .filter(

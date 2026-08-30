@@ -2,7 +2,7 @@
 
 Date: 2026-08-30
 
-Status: active; prior broad inspector/polish acceptance is withdrawn
+Status: core workflow matrix accepted; broader visual refinement remains active
 
 ## Why this gate reopened
 
@@ -40,18 +40,18 @@ Every row must pass on a cold port-3001 page. Each mutable control must change
 the canvas, advance one named history step, save, survive reload, undo and redo,
 and leave no console or error-boundary failure.
 
-| Selection                           | Required inspector workflow                                                                 | Status                                              |
-| ----------------------------------- | ------------------------------------------------------------------------------------------- | --------------------------------------------------- |
-| Nothing selected                    | truthful empty state; no stale controls                                                     | Live pass                                           |
-| Locked layer                        | properties disabled; visibility and unlock available                                        | Live pass                                           |
-| Text                                | content, sizing mode, typography, text color, paragraph and link controls                   | Live mutation, save, undo and restore pass          |
+| Selection                           | Required inspector workflow                                                                 | Status                                                |
+| ----------------------------------- | ------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Nothing selected                    | truthful empty state; no stale controls                                                     | Live pass                                             |
+| Locked layer                        | properties disabled; visibility and unlock available                                        | Live pass                                             |
+| Text                                | content, sizing mode, typography, text color, paragraph and link controls                   | Live mutation, save, undo and restore pass            |
 | Rectangle                           | Fill, Stroke, radius and stroke width                                                       | Live mutation, validation, save, reload and undo pass |
-| Ellipse and icon                    | Fill, Stroke and stroke width                                                               | Live pass with temporary layers removed             |
-| Line                                | Stroke and stroke width                                                                     | Live pass with temporary layer removed              |
-| Image                               | placement, focal point, zoom, inner rotation, flip, frame, alt/decorative, crop and replace | Live pass with temporary asset layer removed        |
-| Multi-selection                     | mixed values, geometry, align/distribute, visibility, lock, order and delete                | Live pass with temporary layers removed             |
-| Reusable style or variable attached | clear attachment state, propagation, detach-on-direct-edit and protected delete             | Pending with TEXT-02 Gate 4                         |
-| Invalid/intermediate draft          | inline error, canonical value preserved, Escape cancels                                     | Live pass                                           |
+| Ellipse and icon                    | Fill, Stroke and stroke width                                                               | Live pass with temporary layers removed               |
+| Line                                | Stroke and stroke width                                                                     | Live pass with temporary layer removed                |
+| Image                               | placement, focal point, zoom, inner rotation, flip, frame, alt/decorative, crop and replace | Live pass with temporary asset layer removed          |
+| Multi-selection                     | mixed values, geometry, align/distribute, visibility, lock, order and delete                | Live pass with temporary layers removed               |
+| Reusable style or variable attached | clear attachment state, propagation, detach-on-direct-edit and protected delete             | Live pass through TEXT-02 Gates 3–4                   |
+| Invalid/intermediate draft          | inline error, canonical value preserved, Escape cancels                                     | Live pass                                             |
 
 ## Repair already proven
 
@@ -77,9 +77,18 @@ and leave no console or error-boundary failure.
 - Rectangle Fill persisted after a cold reload once the field commit and
   autosave completed. The sample's original `#2F493C` Fill and locked state
   were restored after the check.
+- Reusable typography/paint styles and typed variables now expose attachment,
+  usage, propagation, detachment and protected deletion through the running
+  inspector. The final variable used for acceptance was unbound and deleted.
+- Continuous native color picking no longer rebuilds and saves the complete
+  document for every movement. It previews directly on Fabric, commits once on
+  picker completion and restores on Escape. A 120-event live run averaged
+  0.08 ms per dispatched preview and one Undo reverted only the completed Fill
+  change.
 
 ## Completion rule
 
-Do not restore `EDITOR-POLISH-01` or the inspector to completed status until the
-full matrix passes in the running editor. Static tests protect the discovered
-capability and color-contract regressions but do not replace that browser gate.
+The core workflow matrix now passes in the running editor. This closes the
+withdrawn inspector-control acceptance claim only; it does not claim that the
+editor has reached the retained OpenPencil visual-density and sophistication
+target. That broader refinement remains active in `EDITOR-POLISH-01`.

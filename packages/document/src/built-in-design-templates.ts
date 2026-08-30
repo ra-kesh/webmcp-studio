@@ -188,6 +188,7 @@ function editorialOnePager(): Document {
     typographyStyles: [],
     paintStyles: [],
     variables: [],
+    variableBindings: [],
     fields: [
       {
         id: "editorial-title-field",
@@ -315,6 +316,7 @@ function boldSquareAnnouncement(): Document {
     typographyStyles: [],
     paintStyles: [],
     variables: [],
+    variableBindings: [],
     fields: [
       {
         id: "bold-title-field",

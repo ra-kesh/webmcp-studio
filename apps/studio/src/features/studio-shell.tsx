@@ -4611,6 +4611,12 @@ export function StudioShell({
                   webMcpStatus={webMcp.status}
                   webMcpError={webMcp.error}
                   onUpdateNode={updateNode}
+                  onPreviewNodePatch={(nodeId, patch) =>
+                    artboardRef.current?.previewNodePatch(nodeId, patch)
+                  }
+                  onCancelNodePreview={(nodeId) =>
+                    artboardRef.current?.restoreNodePreview(nodeId)
+                  }
                   onUpdateSelection={editor.updateSelectionNodes}
                   onUpdateField={editor.updateField}
                   onCreateField={editor.createField}
@@ -4679,6 +4685,11 @@ export function StudioShell({
                   onDetachPaintStyle={(nodeId) =>
                     editor.detachPaintStyle([{ nodeId }])
                   }
+                  onCreateVariable={editor.createVariable}
+                  onUpdateVariable={editor.updateVariable}
+                  onDeleteVariable={editor.deleteVariable}
+                  onBindVariable={editor.bindVariable}
+                  onUnbindVariable={editor.unbindVariable}
                 />
               </div>
             </>
@@ -4843,6 +4854,12 @@ export function StudioShell({
                 webMcpStatus={webMcp.status}
                 webMcpError={webMcp.error}
                 onUpdateNode={updateNode}
+                onPreviewNodePatch={(nodeId, patch) =>
+                  artboardRef.current?.previewNodePatch(nodeId, patch)
+                }
+                onCancelNodePreview={(nodeId) =>
+                  artboardRef.current?.restoreNodePreview(nodeId)
+                }
                 onUpdateSelection={editor.updateSelectionNodes}
                 onUpdateField={editor.updateField}
                 onCreateField={editor.createField}
@@ -4923,6 +4940,11 @@ export function StudioShell({
                 onDetachPaintStyle={(nodeId) =>
                   editor.detachPaintStyle([{ nodeId }])
                 }
+                onCreateVariable={editor.createVariable}
+                onUpdateVariable={editor.updateVariable}
+                onDeleteVariable={editor.deleteVariable}
+                onBindVariable={editor.bindVariable}
+                onUnbindVariable={editor.unbindVariable}
               />
             )}
           </SheetContent>

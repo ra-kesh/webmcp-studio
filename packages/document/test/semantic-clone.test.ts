@@ -138,7 +138,21 @@ function semanticFixture(): Document {
     ],
     typographyStyles: [],
     paintStyles: [],
-    variables: [],
+    variables: [
+      {
+        id: "variable-title-size",
+        name: "Type / Title size",
+        type: "number",
+        value: 64,
+      },
+    ],
+    variableBindings: [
+      {
+        id: "variable-binding-title-size",
+        variableId: "variable-title-size",
+        target: { kind: "node", nodeId: "title", property: "fontSize" },
+      },
+    ],
     groups: [
       {
         id: "cover-group",
@@ -253,6 +267,7 @@ describe("semantic document cloning", () => {
       nodes: clone.nodes,
       groups: clone.groups,
       bindings: clone.bindings,
+      variableBindings: clone.variableBindings,
     })
 
     expect(validateDocument(duplicated)).toEqual([])
@@ -284,6 +299,17 @@ describe("semantic document cloning", () => {
           clone.nodeIds.includes(binding.nodeId)
       )
     ).toBe(true)
+    expect(clone.variableBindings).toEqual([
+      {
+        id: "variable_binding-copy-variable-binding-title-size",
+        variableId: "variable-title-size",
+        target: {
+          kind: "node",
+          nodeId: "node-copy-title",
+          property: "fontSize",
+        },
+      },
+    ])
     const sourceTitle = source.nodes.find((node) => node.id === "title")
     if (!sourceTitle || sourceTitle.type !== "text") {
       throw new Error("Expected rich title")
@@ -363,6 +389,20 @@ describe("semantic document cloning", () => {
         .filter((node) => node.id === "panel" || node.id === "node-copy-panel")
         .map((node) => (node.type === "rect" ? node.fill : null))
     ).toEqual(["#9a4d32", "#9a4d32"])
+
+    const resized = applyCommand(updated, {
+      id: "update-title-size-variable",
+      type: "update_variable",
+      actor: "human",
+      at,
+      variableId: "variable-title-size",
+      patch: { value: 72 },
+    })
+    expect(
+      resized.nodes
+        .filter((node) => node.id === "title" || node.id === "node-copy-title")
+        .map((node) => (node.type === "text" ? node.fontSize : null))
+    ).toEqual([72, 72])
   })
 
   it("keeps complete nested groups and detaches partial selections", () => {

@@ -3227,3 +3227,35 @@ Status: **active; prior broad inspector/polish acceptance withdrawn**
 - The only remaining matrix row is the reusable-style/variable attachment
   lifecycle owned by TEXT-02 Gate 4. The broader inspector/polish gate remains
   open until that row passes in the running editor.
+
+## 2026-08-30 — TEXT-02 Gate 4 typed variables and bindings
+
+Status: **accepted; Gate 4 is closed and Gate 5 is next**
+
+- Revisited the Gate 4 contract, OpenPencil shared-variable attachment and
+  interaction batching, and Loora's typed transaction/agent operation model.
+  No reference code was imported.
+- Added strict color, number, string and font-family variables with atomic
+  create/update/bind/unbind/protected-delete commands across nodes, exact text
+  ranges, typography styles and paint styles.
+- Type, duplicate-controller, overlapping-range, field-conflict and dangling
+  usage validation now protect the canonical document. Updates propagate in one
+  command; direct edits detach only the affected binding and keep its resolved
+  value.
+- Added the full Variables inspector lifecycle and reviewed WebMCP read/propose
+  tools compiled to those same canonical commands. Migration, semantic clone,
+  persistence, templates and output variants retain the resources.
+- Live acceptance created, bound, propagated, detached, protected, unbound and
+  deleted a color variable. The reusable-style/variable inspector matrix row is
+  now closed.
+- The same journey exposed a color-picker architecture defect: every native
+  movement entered the complete document/history/Fabric/save path. It now uses
+  an OpenPencil-style Fabric-only preview, one completion commit and Escape
+  rollback. A 120-preview port-3001 run averaged 0.08 ms per dispatch, never
+  entered saving, and one Undo reverted only the completed Fill change.
+- 52 focused document tests, 22 editor-history tests, 14 mounted
+  inspector/artboard tests and two focused WebMCP variable tests pass. All four
+  affected package typechecks pass. Temporary live content was removed.
+- Gate 5 next owns conformance, scale, the complete real-use journey and
+  independent P0/P1 closure. Broader OpenPencil-level visual refinement remains
+  active separately; Gate 4 acceptance does not claim visual parity.

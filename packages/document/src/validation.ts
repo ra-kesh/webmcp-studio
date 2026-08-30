@@ -9,6 +9,7 @@ import { getGroupNodeIds } from "./groups"
 import { managedImageAssetIdentity } from "./media"
 import { projectTextLayout } from "./text-layout"
 import { normalizeRichTextContent } from "./rich-text"
+import { assertVariableBindingCompatible } from "./variables"
 
 export type ValidationIssue = {
   id: string
@@ -103,6 +104,7 @@ export function validateDocument(document: Document): ValidationIssue[] {
   reportDuplicateIds("typography styles", document.typographyStyles)
   reportDuplicateIds("paint styles", document.paintStyles)
   reportDuplicateIds("variables", document.variables)
+  reportDuplicateIds("variable bindings", document.variableBindings)
 
   const typographyStyles = new Set(
     document.typographyStyles.map((style) => style.id)
@@ -126,6 +128,20 @@ export function validateDocument(document: Document): ValidationIssue[] {
       }
       names.add(normalizedName)
     }
+  }
+
+  const variableNames = new Set<string>()
+  for (const variable of document.variables) {
+    const normalizedName = variable.name.trim().toLocaleLowerCase()
+    if (variableNames.has(normalizedName)) {
+      issues.push({
+        id: `variable:${variable.id}:duplicate-name`,
+        severity: "error",
+        code: "duplicate_id",
+        message: `Variables contains duplicate name ${variable.name}`,
+      })
+    }
+    variableNames.add(normalizedName)
   }
 
   const pageOwner = new Map<string, string>()
@@ -610,6 +626,26 @@ export function validateDocument(document: Document): ValidationIssue[] {
         code: "missing_asset",
         message: `${field.label} needs an asset before it can be bound`,
         nodeId: node.id,
+      })
+    }
+  }
+
+  for (const binding of document.variableBindings) {
+    try {
+      assertVariableBindingCompatible(document, binding)
+    } catch (error) {
+      const target = binding.target
+      issues.push({
+        id: `variable-binding:${binding.id}:invalid`,
+        severity: "error",
+        code: "invalid_binding",
+        message:
+          error instanceof Error
+            ? error.message
+            : `Variable binding ${binding.id} is invalid`,
+        ...(target.kind === "node" || target.kind === "text_range"
+          ? { nodeId: target.nodeId }
+          : {}),
       })
     }
   }

@@ -529,6 +529,7 @@ export const northstarSeed: Document = documentSchema.parse({
   typographyStyles: [],
   paintStyles: [],
   variables: [],
+  variableBindings: [],
   fields: [
     {
       id: "couple_names",

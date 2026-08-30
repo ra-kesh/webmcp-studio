@@ -1264,6 +1264,7 @@ describe("canonical document commands", () => {
           property: "text",
         },
       ],
+      variableBindings: [],
     })
 
     expect(adapted.outputs.at(-1)?.id).toBe("agent-story")

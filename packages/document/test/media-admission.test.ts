@@ -109,6 +109,7 @@ function admissionDocument(
     typographyStyles: [],
     paintStyles: [],
     variables: [],
+    variableBindings: [],
     groups: [
       {
         id: "media-group",

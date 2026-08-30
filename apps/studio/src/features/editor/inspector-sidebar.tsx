@@ -67,6 +67,8 @@ import type {
   ChangeOperation,
   ChangeSet,
   Document,
+  DesignVariable,
+  DesignVariablePatch,
   FieldDefinition,
   FieldBindingImpact,
   FieldValue,
@@ -79,6 +81,7 @@ import type {
   TextRunStylePatch,
   TypographyStyle,
   TypographyStylePatch,
+  VariableBindingTarget,
 } from "@webmcp/document"
 import type { Alignment } from "@webmcp/editor/geometry"
 import type { CanvasTextEditingState, NodeGeometryPatch } from "@webmcp/editor"
@@ -177,6 +180,7 @@ import {
   textFormattingTogglePatch,
 } from "./text-formatting-model"
 import { ReusableStyleField } from "./reusable-style-field"
+import { DesignVariablesPanel } from "./design-variables-panel"
 
 const DEMO_AGENT_BRIEF =
   "Inspect and validate the open design. Adapt it for Mira & Dev, 14 February 2027 in Udaipur, using The Moonlit Weekend package at ₹4,25,000, valid until 30 November 2026. Search the approved asset library for warm sandstone architecture. Then create one coordinated human-reviewed proposal that updates those shared fields and inserts the best asset on the Cover at x 620, y 120, width 540, height 900 with cover fit. Do not apply or publish anything. Summarize the affected outputs and wait for my review."
@@ -184,6 +188,9 @@ const DEMO_AGENT_BRIEF =
 const EMPTY_REVIEW_JOURNAL = createEmptyReviewJournal()
 const ignoreReviewTarget = () => undefined
 const ignoreNodeId = (_nodeId: string) => undefined
+const ignoreNodePatch = (_nodeId: string, _patch: Partial<SceneNode>) =>
+  undefined
+const ignoreNodePreviewCancel = (_nodeId: string) => undefined
 const ignoreTextStylePatch = (_patch: TextRunStylePatch) => undefined
 const ignoreTextParagraphStylePatch = (_patch: TextParagraphStylePatch) =>
   undefined
@@ -203,6 +210,16 @@ const ignorePaintStyleUpdate = (_styleId: string, _patch: PaintStylePatch) =>
   false
 const ignoreStyleMutation = (_styleId: string, _nodeId?: string) => false
 const ignoreNodeStyleDetach = (_nodeId: string) => false
+const ignoreCreateVariable = (_variable: DesignVariable) => false
+const ignoreUpdateVariable = (
+  _variableId: string,
+  _patch: DesignVariablePatch
+) => false
+const ignoreVariableMutation = (_variableId: string) => false
+const ignoreBindVariable = (
+  _variableId: string,
+  _target: VariableBindingTarget
+) => false
 const reviewTargetKindLabel: Record<ReviewAffectedTarget["kind"], string> = {
   node: "Layer",
   group: "Group",
@@ -590,6 +607,8 @@ function NodeInspector({
   textEditingState,
   focusedProperty,
   onUpdate,
+  onPreview,
+  onCancelPreview,
   onAlignToPage,
   onUpdateImageFrameGeometry,
   onSetImagePlacement,
@@ -620,6 +639,8 @@ function NodeInspector({
   textEditingState?: CanvasTextEditingState | null
   focusedProperty?: BindableProperty
   onUpdate: (patch: Partial<SceneNode>) => void
+  onPreview: (patch: Partial<SceneNode>) => void
+  onCancelPreview: () => void
   onAlignToPage: (alignment: Alignment) => void
   onUpdateImageFrameGeometry: (
     nodeId: string,
@@ -1264,6 +1285,8 @@ function NodeInspector({
               label="Text color"
               value={node.color}
               disabled={nodeMutationDisabled}
+              onPreview={(color) => onPreview({ color })}
+              onPreviewCancel={onCancelPreview}
               onCommit={(color) => onUpdate({ color })}
             />
             <div className="space-y-2">
@@ -1394,6 +1417,8 @@ function NodeInspector({
             label="Fill"
             value={node.fill}
             disabled={nodeMutationDisabled}
+            onPreview={(fill) => onPreview({ fill })}
+            onPreviewCancel={onCancelPreview}
             onCommit={(fill) => onUpdate({ fill })}
           />
           <InspectorNumberField
@@ -1407,6 +1432,8 @@ function NodeInspector({
             label="Stroke"
             value={node.stroke ?? "#1e2622"}
             disabled={node.locked}
+            onPreview={(stroke) => onPreview({ stroke })}
+            onPreviewCancel={onCancelPreview}
             onCommit={(stroke) => onUpdate({ stroke })}
           />
           <InspectorNumberField
@@ -1436,12 +1463,16 @@ function NodeInspector({
             label="Fill"
             value={node.fill}
             disabled={node.locked}
+            onPreview={(fill) => onPreview({ fill })}
+            onPreviewCancel={onCancelPreview}
             onCommit={(fill) => onUpdate({ fill })}
           />
           <InspectorColorField
             label="Stroke"
             value={node.stroke ?? "#1e2622"}
             disabled={node.locked}
+            onPreview={(stroke) => onPreview({ stroke })}
+            onPreviewCancel={onCancelPreview}
             onCommit={(stroke) => onUpdate({ stroke })}
           />
           <InspectorNumberField
@@ -1461,6 +1492,8 @@ function NodeInspector({
             label="Stroke"
             value={node.stroke}
             disabled={node.locked}
+            onPreview={(stroke) => onPreview({ stroke })}
+            onPreviewCancel={onCancelPreview}
             onCommit={(stroke) => onUpdate({ stroke })}
           />
           <InspectorNumberField
@@ -3693,6 +3726,8 @@ export function InspectorSidebar({
   webMcpStatus,
   webMcpError,
   onUpdateNode,
+  onPreviewNodePatch = ignoreNodePatch,
+  onCancelNodePreview = ignoreNodePreviewCancel,
   onUpdateSelection,
   onUpdateField,
   onCreateField,
@@ -3735,6 +3770,11 @@ export function InspectorSidebar({
   onDeletePaintStyle = ignoreStyleMutation,
   onApplyPaintStyle = ignoreStyleMutation,
   onDetachPaintStyle = ignoreNodeStyleDetach,
+  onCreateVariable = ignoreCreateVariable,
+  onUpdateVariable = ignoreUpdateVariable,
+  onDeleteVariable = ignoreVariableMutation,
+  onBindVariable = ignoreBindVariable,
+  onUnbindVariable = ignoreVariableMutation,
   capabilityContext,
   focusFieldId = null,
   className,
@@ -3753,6 +3793,8 @@ export function InspectorSidebar({
   webMcpStatus: "unavailable" | "registering" | "ready" | "error"
   webMcpError: string | null
   onUpdateNode: (nodeId: string, patch: Partial<SceneNode>) => void
+  onPreviewNodePatch?: (nodeId: string, patch: Partial<SceneNode>) => void
+  onCancelNodePreview?: (nodeId: string) => void
   onUpdateSelection: (patch: Partial<SceneNode>) => void
   onUpdateField: (fieldId: string, value: string | number | boolean) => void
   onCreateField: (field: Omit<FieldDefinition, "id">) => void
@@ -3817,6 +3859,14 @@ export function InspectorSidebar({
   onDeletePaintStyle?: (styleId: string) => boolean
   onApplyPaintStyle?: (styleId: string, nodeId: string) => boolean
   onDetachPaintStyle?: (nodeId: string) => boolean
+  onCreateVariable?: (variable: DesignVariable) => boolean
+  onUpdateVariable?: (variableId: string, patch: DesignVariablePatch) => boolean
+  onDeleteVariable?: (variableId: string) => boolean
+  onBindVariable?: (
+    variableId: string,
+    target: VariableBindingTarget
+  ) => boolean
+  onUnbindVariable?: (bindingId: string) => boolean
   capabilityContext?: InspectorCapabilityContext
   focusFieldId?: string | null
   className?: string
@@ -3917,6 +3967,13 @@ export function InspectorSidebar({
             Design
           </TabsTrigger>
           <TabsTrigger
+            value="variables"
+            disabled={Boolean(pendingChangeSet)}
+            className="flex-none px-2.5 text-xs"
+          >
+            Variables
+          </TabsTrigger>
+          <TabsTrigger
             value="fields"
             disabled={Boolean(pendingChangeSet)}
             className="flex-none px-2.5 text-xs"
@@ -3940,6 +3997,10 @@ export function InspectorSidebar({
                     : undefined
                 }
                 onUpdate={(patch) => onUpdateNode(selectedNode.id, patch)}
+                onPreview={(patch) =>
+                  onPreviewNodePatch(selectedNode.id, patch)
+                }
+                onCancelPreview={() => onCancelNodePreview(selectedNode.id)}
                 onAlignToPage={onAlignSelectionToPage}
                 onUpdateImageFrameGeometry={onUpdateImageFrameGeometry}
                 onSetImagePlacement={onSetImagePlacement}
@@ -3987,6 +4048,24 @@ export function InspectorSidebar({
                 title="Nothing selected"
               />
             )}
+          </ScrollArea>
+        </TabsContent>
+        <TabsContent value="variables" className="min-h-0">
+          <ScrollArea className="h-full">
+            <DesignVariablesPanel
+              document={document}
+              selectedNode={selectedNode}
+              textEditingState={textEditingState}
+              onCreate={onCreateVariable}
+              onUpdate={onUpdateVariable}
+              onDelete={onDeleteVariable}
+              onBind={onBindVariable}
+              onUnbind={onUnbindVariable}
+              onFocusNode={(nodeId) => {
+                onFocusNode(nodeId)
+                setActiveTab("design")
+              }}
+            />
           </ScrollArea>
         </TabsContent>
         <TabsContent value="fields" className="min-h-0">

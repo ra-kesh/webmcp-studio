@@ -105,6 +105,7 @@ function mediaRelinkDocument(): Document {
     typographyStyles: [],
     paintStyles: [],
     variables: [],
+    variableBindings: [],
     groups: [
       {
         id: "media-group",

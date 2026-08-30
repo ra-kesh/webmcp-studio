@@ -466,6 +466,7 @@ describe("DocumentDraftRepository", () => {
       typographyStyles: [],
       paintStyles: [],
       variables: [],
+      variableBindings: [],
     })
     expect(
       opened.envelope.document.nodes

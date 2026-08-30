@@ -89,6 +89,8 @@ export interface CanvasAdapter {
   cancelTextEditing(): boolean
   applyTextEditingStyle(patch: TextRunStylePatch): boolean
   applyTextEditingParagraphStyle(patch: TextParagraphStylePatch): boolean
+  previewNodePatch(nodeId: string, patch: Partial<SceneNode>): boolean
+  restoreNodePreview(nodeId: string): boolean
   cancelTransform(): boolean
   setImageCropMode(mode: CanvasImageCropMode | null): boolean
   previewImageCropDraft(draft: CanvasImageCropDraft): boolean

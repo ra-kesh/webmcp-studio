@@ -1,4 +1,5 @@
 import {
+  designVariableSchema,
   documentCommandSchema,
   documentSchema,
   fieldDefinitionSchema,
@@ -32,6 +33,14 @@ import {
   propagatePaintStyle,
   propagateTypographyStyle,
 } from "./design-styles"
+import {
+  applyVariableToBinding,
+  assertVariableBindingCompatible,
+  detachVariableBindingsForNodePatch,
+  detachVariableBindingsForStyleTargets,
+  detachVariableBindingsForStylePatch,
+  variableUsage,
+} from "./variables"
 import { assertValidCanonicalDocument, assertValidDocument } from "./validation"
 
 type FieldValue = string | number | boolean
@@ -209,6 +218,7 @@ type SemanticClonePayload = {
   nodes: Document["nodes"]
   groups: Document["groups"]
   bindings: Document["bindings"]
+  variableBindings: Document["variableBindings"]
 }
 
 function appendSemanticClone(
@@ -223,10 +233,14 @@ function appendSemanticClone(
   const nodeIds = new Set(payload.nodes.map((node) => node.id))
   const groupIds = new Set(payload.groups.map((group) => group.id))
   const bindingIds = new Set(payload.bindings.map((binding) => binding.id))
+  const variableBindingIds = new Set(
+    payload.variableBindings.map((binding) => binding.id)
+  )
   if (
     nodeIds.size !== payload.nodes.length ||
     groupIds.size !== payload.groups.length ||
     bindingIds.size !== payload.bindings.length ||
+    variableBindingIds.size !== payload.variableBindings.length ||
     payload.nodes.some((node) =>
       document.nodes.some((existing) => existing.id === node.id)
     ) ||
@@ -235,6 +249,9 @@ function appendSemanticClone(
     ) ||
     payload.bindings.some((binding) =>
       document.bindings.some((existing) => existing.id === binding.id)
+    ) ||
+    payload.variableBindings.some((binding) =>
+      document.variableBindings.some((existing) => existing.id === binding.id)
     )
   ) {
     throw new Error("The semantic clone contains conflicting identifiers")
@@ -280,7 +297,7 @@ function appendSemanticClone(
     }
   }
 
-  return applyFieldValues({
+  let next = applyFieldValues({
     ...document,
     pages: document.pages.map((candidate) =>
       candidate.id === page.id
@@ -297,6 +314,31 @@ function appendSemanticClone(
     groups: [...document.groups, ...payload.groups],
     bindings: [...document.bindings, ...payload.bindings],
   })
+  for (const binding of payload.variableBindings) {
+    const target = binding.target
+    if (
+      (target.kind !== "node" && target.kind !== "text_range") ||
+      !nodeIds.has(target.nodeId)
+    ) {
+      throw new Error("The semantic clone contains an invalid variable target")
+    }
+    const variable = next.variables.find(
+      (candidate) => candidate.id === binding.variableId
+    )
+    if (!variable) {
+      throw new Error("The semantic clone contains an unknown variable")
+    }
+    assertVariableBindingCompatible(next, binding, variable)
+    next = applyVariableToBinding(
+      {
+        ...next,
+        variableBindings: [...next.variableBindings, binding],
+      },
+      binding,
+      variable
+    )
+  }
+  return next
 }
 
 type AssetReferenceRelink = Readonly<{
@@ -557,6 +599,18 @@ function applyParsedCommand(
       ) {
         throw new Error("That layer property is already bound")
       }
+      if (
+        document.variableBindings.some(
+          (binding) =>
+            binding.target.kind === "node" &&
+            binding.target.nodeId === command.binding.nodeId &&
+            binding.target.property === command.binding.property
+        )
+      ) {
+        throw new Error(
+          "That layer property is already controlled by a variable"
+        )
+      }
       if (!fieldCanBindToProperty(field, node, command.binding.property)) {
         throw new Error(`${field.label} cannot bind to ${node.name}`)
       }
@@ -647,7 +701,15 @@ function applyParsedCommand(
             : { ...directPatchBase, ...command.patch, id: command.nodeId }
       const nodes = [...document.nodes]
       nodes[index] = updated as SceneNode
-      next = { ...document, nodes }
+      next = {
+        ...document,
+        nodes,
+        variableBindings: detachVariableBindingsForNodePatch(
+          document,
+          command.nodeId,
+          command.patch
+        ),
+      }
       break
     }
     case "create_typography_style": {
@@ -690,6 +752,12 @@ function applyParsedCommand(
         nodes: document.nodes.map((node) =>
           propagateTypographyStyle(node, updated)
         ),
+        variableBindings: detachVariableBindingsForStylePatch(
+          document,
+          "typography_style",
+          current.id,
+          command.patch
+        ),
       }
       break
     }
@@ -704,6 +772,17 @@ function applyParsedCommand(
       if (usage.totalAttachmentCount > 0) {
         throw new Error(
           `${style.name} is used in ${usage.totalAttachmentCount} place${usage.totalAttachmentCount === 1 ? "" : "s"}. Detach it before deleting.`
+        )
+      }
+      if (
+        document.variableBindings.some(
+          (binding) =>
+            binding.target.kind === "typography_style" &&
+            binding.target.styleId === style.id
+        )
+      ) {
+        throw new Error(
+          `${style.name} has variable bindings. Unbind it before deleting.`
         )
       }
       next = {
@@ -740,6 +819,11 @@ function applyParsedCommand(
             ? applyTypographyStyleToTarget(node, target, style)
             : node
         }),
+        variableBindings: detachVariableBindingsForStyleTargets(
+          document,
+          "typography",
+          command.targets
+        ),
       }
       break
     }
@@ -798,6 +882,12 @@ function applyParsedCommand(
           style.id === current.id ? updated : style
         ),
         nodes: document.nodes.map((node) => propagatePaintStyle(node, updated)),
+        variableBindings: detachVariableBindingsForStylePatch(
+          document,
+          "paint_style",
+          current.id,
+          command.patch
+        ),
       }
       break
     }
@@ -810,6 +900,17 @@ function applyParsedCommand(
       if (usage.totalAttachmentCount > 0) {
         throw new Error(
           `${style.name} is used in ${usage.totalAttachmentCount} place${usage.totalAttachmentCount === 1 ? "" : "s"}. Detach it before deleting.`
+        )
+      }
+      if (
+        document.variableBindings.some(
+          (binding) =>
+            binding.target.kind === "paint_style" &&
+            binding.target.styleId === style.id
+        )
+      ) {
+        throw new Error(
+          `${style.name} has variable bindings. Unbind it before deleting.`
         )
       }
       next = {
@@ -842,6 +943,11 @@ function applyParsedCommand(
           const target = targets.get(node.id)
           return target ? applyPaintStyleToTarget(node, target, style) : node
         }),
+        variableBindings: detachVariableBindingsForStyleTargets(
+          document,
+          "paint",
+          command.targets
+        ),
       }
       break
     }
@@ -863,6 +969,119 @@ function applyParsedCommand(
           const target = targets.get(node.id)
           return target ? detachPaintStyleFromTarget(node, target) : node
         }),
+      }
+      break
+    }
+    case "create_variable": {
+      if (
+        document.variables.some(
+          (variable) =>
+            variable.id === command.variable.id ||
+            variable.name.trim().toLocaleLowerCase() ===
+              command.variable.name.trim().toLocaleLowerCase()
+        )
+      ) {
+        throw new Error(`Variable already exists: ${command.variable.name}`)
+      }
+      next = {
+        ...document,
+        variables: [...document.variables, command.variable],
+      }
+      break
+    }
+    case "update_variable": {
+      const current = document.variables.find(
+        (variable) => variable.id === command.variableId
+      )
+      if (!current) throw new Error(`Unknown variable: ${command.variableId}`)
+      const updated = designVariableSchema.parse({
+        ...current,
+        ...command.patch,
+        id: current.id,
+      })
+      if (
+        document.variables.some(
+          (variable) =>
+            variable.id !== current.id &&
+            variable.name.trim().toLocaleLowerCase() ===
+              updated.name.trim().toLocaleLowerCase()
+        )
+      ) {
+        throw new Error(`Variable already exists: ${updated.name}`)
+      }
+      let propagated: Document = {
+        ...document,
+        variables: document.variables.map((variable) =>
+          variable.id === current.id ? updated : variable
+        ),
+      }
+      for (const binding of document.variableBindings.filter(
+        (candidate) => candidate.variableId === current.id
+      )) {
+        propagated = applyVariableToBinding(propagated, binding, updated)
+      }
+      next = propagated
+      break
+    }
+    case "delete_variable": {
+      const variable = document.variables.find(
+        (candidate) => candidate.id === command.variableId
+      )
+      if (!variable) throw new Error(`Unknown variable: ${command.variableId}`)
+      const usage = variableUsage(document, variable.id)
+      if (usage.totalBindingCount > 0) {
+        throw new Error(
+          `${variable.name} is used by ${usage.totalBindingCount} binding${usage.totalBindingCount === 1 ? "" : "s"}. Unbind it before deleting.`
+        )
+      }
+      next = {
+        ...document,
+        variables: document.variables.filter(
+          (candidate) => candidate.id !== variable.id
+        ),
+      }
+      break
+    }
+    case "bind_variable": {
+      if (
+        document.variableBindings.some(
+          (binding) => binding.id === command.binding.id
+        )
+      ) {
+        throw new Error(
+          `Variable binding already exists: ${command.binding.id}`
+        )
+      }
+      const variable = document.variables.find(
+        (candidate) => candidate.id === command.binding.variableId
+      )
+      if (!variable) {
+        throw new Error(`Unknown variable: ${command.binding.variableId}`)
+      }
+      assertVariableBindingCompatible(document, command.binding, variable)
+      next = applyVariableToBinding(
+        {
+          ...document,
+          variableBindings: [...document.variableBindings, command.binding],
+        },
+        command.binding,
+        variable
+      )
+      break
+    }
+    case "unbind_variable": {
+      if (
+        !document.variableBindings.some(
+          (binding) => binding.id === command.bindingId
+        )
+      ) {
+        throw new Error(`Unknown variable binding: ${command.bindingId}`)
+      }
+      next = {
+        ...document,
+        variableBindings: document.variableBindings.filter(
+          (binding) => binding.id !== command.bindingId
+        ),
       }
       break
     }
@@ -973,6 +1192,13 @@ function applyParsedCommand(
         bindings: document.bindings.filter(
           (binding) => binding.nodeId !== command.nodeId
         ),
+        variableBindings: document.variableBindings.filter((binding) => {
+          const target = binding.target
+          return !(
+            (target.kind === "node" || target.kind === "text_range") &&
+            target.nodeId === command.nodeId
+          )
+        }),
         groups: pruneEmptyGroups(
           document.groups.map((group) => ({
             ...group,
@@ -1332,6 +1558,7 @@ function applyParsedCommand(
         nodes: command.nodes,
         groups: command.groups,
         bindings: command.bindings,
+        variableBindings: command.variableBindings,
       })
       break
     }
@@ -1341,6 +1568,7 @@ function applyParsedCommand(
         nodes: command.nodes,
         groups: command.groups,
         bindings: command.bindings,
+        variableBindings: command.variableBindings,
       })
       break
     }
@@ -1376,6 +1604,13 @@ function applyParsedCommand(
         bindings: document.bindings.filter(
           (binding) => !removedNodeIds.has(binding.nodeId)
         ),
+        variableBindings: document.variableBindings.filter((binding) => {
+          const target = binding.target
+          return !(
+            (target.kind === "node" || target.kind === "text_range") &&
+            removedNodeIds.has(target.nodeId)
+          )
+        }),
         outputs: document.outputs.map((candidate) =>
           candidate.id === output.id
             ? {
@@ -1454,6 +1689,7 @@ function applyParsedCommand(
         nodes: command.nodes,
         groups: command.groups,
         bindings: command.bindings,
+        variableBindings: command.variableBindings,
       })
       break
     }
@@ -1498,6 +1734,13 @@ function applyParsedCommand(
         bindings: document.bindings.filter(
           (binding) => !removedNodeIds.has(binding.nodeId)
         ),
+        variableBindings: document.variableBindings.filter((binding) => {
+          const target = binding.target
+          return !(
+            (target.kind === "node" || target.kind === "text_range") &&
+            removedNodeIds.has(target.nodeId)
+          )
+        }),
       }
       break
     }

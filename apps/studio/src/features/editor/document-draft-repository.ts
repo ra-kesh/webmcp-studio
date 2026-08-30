@@ -1097,7 +1097,8 @@ const requiresStoredDocumentSchemaRewrite = (
     storedDocument.schemaVersion !== body.document.schemaVersion ||
     !Array.isArray(storedDocument.typographyStyles) ||
     !Array.isArray(storedDocument.paintStyles) ||
-    !Array.isArray(storedDocument.variables)
+    !Array.isArray(storedDocument.variables) ||
+    !Array.isArray(storedDocument.variableBindings)
   ) {
     return true
   }

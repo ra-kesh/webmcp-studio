@@ -35,6 +35,8 @@ const fakeAdapter = (
   unmount: vi.fn(async () => undefined),
   sync: vi.fn(async () => undefined),
   setViewportZoom: vi.fn(),
+  previewNodePatch: vi.fn(() => false),
+  restoreNodePreview: vi.fn(() => false),
   setSnapTargets: vi.fn(),
   select: vi.fn(),
   getSelection: vi.fn(() => null),

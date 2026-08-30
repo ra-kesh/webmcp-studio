@@ -351,7 +351,7 @@ describe("WebMCP registration", () => {
       state.controller.signal
     )
 
-    expect(count).toBe(17)
+    expect(count).toBe(19)
     expect([...state.registered.keys()]).toEqual([
       "inspect_design",
       "read_design_tree",
@@ -359,6 +359,7 @@ describe("WebMCP registration", () => {
       "execute_product_command",
       "read_design_node",
       "read_design_styles",
+      "read_design_variables",
       "search_design_nodes",
       "search_assets",
       "validate_design",
@@ -366,6 +367,7 @@ describe("WebMCP registration", () => {
       "propose_field_updates",
       "propose_canvas_edits",
       "propose_design_style_changes",
+      "propose_design_variable_changes",
       "propose_output_variant",
       "publish_template",
       "inspect_render_history",
@@ -610,6 +612,93 @@ describe("WebMCP registration", () => {
       typographyStyleId: typographyStyle.id,
       fontSize: typographyStyle.fontSize,
     })
+  })
+
+  it("discovers and proposes reviewed design-variable operations", async () => {
+    const document: Document = {
+      ...northstarSeed,
+      variables: [
+        {
+          id: "variable-brand-panel",
+          name: "Brand / Panel",
+          type: "color",
+          value: "#335C4A",
+        },
+      ],
+      variableBindings: [
+        {
+          id: "variable-binding-brand-panel",
+          variableId: "variable-brand-panel",
+          target: { kind: "node", nodeId: "cover-panel", property: "fill" },
+        },
+      ],
+      nodes: northstarSeed.nodes.map((node) =>
+        node.id === "cover-panel" && node.type === "rect"
+          ? { ...node, fill: "#335C4A" }
+          : node
+      ),
+    }
+    const state = setup(document)
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const variables = await state.registered
+      .get("read_design_variables")
+      ?.execute({ type: "color" })
+    expect(variables?.structuredContent).toMatchObject({
+      variables: [
+        {
+          id: "variable-brand-panel",
+          usage: { totalBindingCount: 1, nodeIds: ["cover-panel"] },
+        },
+      ],
+      bindings: [{ id: "variable-binding-brand-panel" }],
+    })
+
+    const result = await state.registered
+      .get("propose_design_variable_changes")
+      ?.execute({
+        documentId: document.id,
+        baseRevision: document.revision,
+        baseSnapshotId: "snapshot-seed",
+        reason: "Warm the brand panel",
+        changes: [
+          {
+            action: "update",
+            variableId: "variable-brand-panel",
+            patch: { value: "#B45309" },
+          },
+        ],
+      })
+
+    expect(result?.isError).toBeUndefined()
+    expect(result?.structuredContent).toMatchObject({
+      operations: [
+        {
+          command: {
+            type: "update_variable",
+            variableId: "variable-brand-panel",
+          },
+        },
+      ],
+    })
+    expect(state.proposedProvenance()).toMatchObject({
+      toolName: "propose_design_variable_changes",
+      reason: "Warm the brand panel",
+    })
+    expect(
+      previewChangeSet(document, state.proposed()!).nodes.find(
+        (node) => node.id === "cover-panel"
+      )
+    ).toMatchObject({ fill: "#B45309" })
   })
 
   it("reports an interrupted publication with stable unknown-status identity", async () => {

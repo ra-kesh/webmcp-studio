@@ -36,6 +36,8 @@ import type {
   DocumentCommand,
   DesignTemplateCatalogItem,
   DesignStyleTarget,
+  DesignVariable,
+  DesignVariablePatch,
   FieldBinding,
   FieldDefinition,
   ImageFrameMask,
@@ -49,6 +51,7 @@ import type {
   TemplateVersion,
   TypographyStyle,
   TypographyStylePatch,
+  VariableBindingTarget,
   QuotationRefreshConflictPolicy,
 } from "@webmcp/document"
 import { layerDropCommands } from "@webmcp/editor/layer-tree"
@@ -714,6 +717,7 @@ function createNeutralBootstrapDocument(): Document {
     typographyStyles: [],
     paintStyles: [],
     variables: [],
+    variableBindings: [],
     fields: [],
     fieldValues: {},
     bindings: [],
@@ -4239,6 +4243,56 @@ export function useDocumentEditor({
     (targets: DesignStyleTarget[]) =>
       commit([{ type: "detach_paint_style", targets }], {
         label: "Detach paint style",
+      }),
+    [commit]
+  )
+
+  const createVariable = useCallback(
+    (variable: DesignVariable) =>
+      commit([{ type: "create_variable", variable }], {
+        label: `Create ${variable.name}`,
+      }),
+    [commit]
+  )
+
+  const updateVariable = useCallback(
+    (variableId: string, patch: DesignVariablePatch) =>
+      commit([{ type: "update_variable", variableId, patch }], {
+        label: "Update variable",
+      }),
+    [commit]
+  )
+
+  const deleteVariable = useCallback(
+    (variableId: string) =>
+      commit([{ type: "delete_variable", variableId }], {
+        label: "Delete variable",
+      }),
+    [commit]
+  )
+
+  const bindVariable = useCallback(
+    (variableId: string, target: VariableBindingTarget) =>
+      commit(
+        [
+          {
+            type: "bind_variable",
+            binding: {
+              id: `variable-binding-${crypto.randomUUID()}`,
+              variableId,
+              target,
+            },
+          },
+        ],
+        { label: "Bind variable" }
+      ),
+    [commit]
+  )
+
+  const unbindVariable = useCallback(
+    (bindingId: string) =>
+      commit([{ type: "unbind_variable", bindingId }], {
+        label: "Unbind variable",
       }),
     [commit]
   )
@@ -9100,6 +9154,7 @@ export function useDocumentEditor({
             nodes: clone.nodes,
             groups: clone.groups,
             bindings: clone.bindings,
+            variableBindings: clone.variableBindings,
           },
         ],
         { label: "Duplicate layers" }
@@ -9140,6 +9195,7 @@ export function useDocumentEditor({
             nodes: clone.nodes,
             groups: clone.groups,
             bindings: clone.bindings,
+            variableBindings: clone.variableBindings,
           },
         ],
         { label: "Paste layers" }
@@ -9497,6 +9553,7 @@ export function useDocumentEditor({
             nodes: clone.nodes,
             groups: clone.groups,
             bindings: clone.bindings,
+            variableBindings: clone.variableBindings,
           },
         ])
       )
@@ -9882,6 +9939,7 @@ export function useDocumentEditor({
         typographyStyles: [],
         paintStyles: [],
         variables: [],
+        variableBindings: [],
         fields: [],
         fieldValues: {},
         bindings: [],
@@ -10487,6 +10545,11 @@ export function useDocumentEditor({
     deletePaintStyle,
     applyPaintStyle,
     detachPaintStyle,
+    createVariable,
+    updateVariable,
+    deleteVariable,
+    bindVariable,
+    unbindVariable,
     beginImageCrop,
     reportImageCropReadiness,
     previewImageCrop,

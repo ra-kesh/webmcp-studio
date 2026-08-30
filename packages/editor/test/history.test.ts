@@ -215,6 +215,7 @@ describe("document history", () => {
         nodes: clone.nodes,
         groups: clone.groups,
         bindings: clone.bindings,
+        variableBindings: clone.variableBindings,
       },
     ])
 
@@ -251,6 +252,7 @@ describe("document history", () => {
         nodes: clone.nodes,
         groups: clone.groups,
         bindings: clone.bindings,
+        variableBindings: clone.variableBindings,
       },
     ])
 

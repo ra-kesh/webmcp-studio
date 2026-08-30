@@ -43,6 +43,30 @@ describe("persisted document compatibility decoding", () => {
     expect(decoded.document).toEqual(northstarSeed)
   })
 
+  it("rewrites early schemaVersion 3 drafts that predate reusable resources", () => {
+    const persisted = structuredClone(northstarSeed) as any
+    delete persisted.typographyStyles
+    delete persisted.paintStyles
+    delete persisted.variables
+    delete persisted.variableBindings
+    const before = structuredClone(persisted)
+
+    const decoded = decodeDocument(persisted)
+
+    expect(persisted).toEqual(before)
+    expect(decoded.document).toMatchObject({
+      schemaVersion: 3,
+      typographyStyles: [],
+      paintStyles: [],
+      variables: [],
+      variableBindings: [],
+    })
+    expect(decoded.migrations.map((migration) => migration.code)).toEqual([
+      "legacy_design_resources_initialized",
+      "legacy_variable_bindings_initialized",
+    ])
+  })
+
   it("migrates schemaVersion 2 rich-text storage explicitly", () => {
     const persisted = structuredClone(northstarSeed) as any
     persisted.schemaVersion = 2
@@ -55,6 +79,7 @@ describe("persisted document compatibility decoding", () => {
     delete persisted.typographyStyles
     delete persisted.paintStyles
     delete persisted.variables
+    delete persisted.variableBindings
     const before = structuredClone(persisted)
 
     const decoded = decodeDocument(persisted)
@@ -75,11 +100,13 @@ describe("persisted document compatibility decoding", () => {
       typographyStyles: [],
       paintStyles: [],
       variables: [],
+      variableBindings: [],
     })
     expect(decoded.migrations.map((migration) => migration.code)).toEqual(
       expect.arrayContaining([
         "legacy_rich_text_initialized",
         "legacy_design_resources_initialized",
+        "legacy_variable_bindings_initialized",
         "document_schema_upgraded",
       ])
     )

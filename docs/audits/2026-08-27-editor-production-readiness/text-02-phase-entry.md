@@ -2,7 +2,7 @@
 
 Date: 2026-08-30
 
-Status: active; architecture and Gates 1–3 accepted, Gate 4 next
+Status: active; architecture and Gates 1–4 accepted, Gate 5 next
 
 ## Product outcome
 
@@ -532,3 +532,52 @@ Acceptance evidence:
   green.
 
 Gate 3 is accepted and closed. Gate 4 next owns typed variables and bindings.
+
+## Gate 4 result — typed variables, bindings and live control
+
+Implemented:
+
+- strict document-owned color, number, string and font-family variables with
+  stable IDs, unique names, validated values and explicit usage analysis;
+- atomic create, update, bind, unbind and protected-delete commands, including
+  node properties, exact text ranges, typography styles and paint styles;
+- type compatibility, one-controller-per-target, overlapping-range rejection,
+  field-binding conflict protection and direct-edit detachment while preserving
+  the resolved appearance;
+- deterministic propagation through canonical nodes and reusable styles, plus
+  schema migration, semantic clone, persistence, template/quotation seeds and
+  output-variant preservation;
+- a Variables inspector for selection/range/style binding, mixed product-state
+  explanations, exact usage, affected-layer navigation and protected deletion;
+- `read_design_variables` and reviewed
+  `propose_design_variable_changes` WebMCP tools compiled to the same canonical
+  commands used by the human inspector.
+
+Live interaction repair:
+
+- The native color picker originally sent every movement through the complete
+  document, history, Fabric synchronization and persistence pipeline. This did
+  not match the retained OpenPencil interaction contract.
+- The picker now follows OpenPencil's begin/preview/commit/cancel lifecycle:
+  pointer movement updates only the mounted Fabric object, closing creates one
+  canonical history/save operation, and Escape restores the canonical node.
+  Direct text entry continues to validate and commit as an ordinary field.
+- A port-3001 run dispatched 120 continuous Fill previews at 0.08 ms average
+  handler cost, kept the draft at `All changes saved`, restored the prior Fill
+  on Escape, and then proved a completed picker interaction was one Undo entry.
+  The temporary rectangle was removed after acceptance.
+
+Acceptance evidence:
+
+- 52 focused document tests, 22 editor-history tests, 14 mounted
+  inspector/artboard tests and two focused WebMCP variable tests pass;
+- document, editor, WebMCP and Studio typechecks pass under the required Node 22
+  runtime;
+- the live Variables panel created and bound a color variable, propagated an
+  update, detached on a direct Fill edit, enforced protected deletion, unbound
+  and deleted the resource without retaining sample content;
+- the reusable-style/variable row in the inspector reacceptance matrix now
+  passes. Gate 4 is accepted and closed.
+
+Gate 5 next owns cross-surface conformance, scale bounds, the full real-use
+journey and independent P0/P1 closure.

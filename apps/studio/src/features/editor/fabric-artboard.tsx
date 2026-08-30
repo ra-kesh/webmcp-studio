@@ -12,6 +12,7 @@ import {
 } from "react"
 import type {
   Document,
+  SceneNode,
   TextParagraphStylePatch,
   TextRunStylePatch,
   TextSelection,
@@ -43,6 +44,8 @@ export type FabricArtboardHandle = {
   cancelTextEditing: () => boolean
   applyTextEditingStyle: (patch: TextRunStylePatch) => boolean
   applyTextEditingParagraphStyle: (patch: TextParagraphStylePatch) => boolean
+  previewNodePatch: (nodeId: string, patch: Partial<SceneNode>) => boolean
+  restoreNodePreview: (nodeId: string) => boolean
   cancelTransform: () => boolean
   getImageNaturalSize: (
     nodeId: string
@@ -460,6 +463,10 @@ export const FabricArtboard = forwardRef<
         adapterRef.current?.applyTextEditingStyle(patch) ?? false,
       applyTextEditingParagraphStyle: (patch) =>
         adapterRef.current?.applyTextEditingParagraphStyle(patch) ?? false,
+      previewNodePatch: (nodeId, patch) =>
+        adapterRef.current?.previewNodePatch(nodeId, patch) ?? false,
+      restoreNodePreview: (nodeId) =>
+        adapterRef.current?.restoreNodePreview(nodeId) ?? false,
       cancelTransform: () => adapterRef.current?.cancelTransform() ?? false,
       getImageNaturalSize: (nodeId) =>
         adapterRef.current?.getImageNaturalSize(nodeId) ?? null,

@@ -5,6 +5,7 @@ import {
   canvasPatchValuesEqual,
   createCanvasEditChangeSet,
   createDesignStyleChangeSet,
+  createDesignVariableChangeSet,
   createFieldUpdateChangeSet,
   createOutputVariantChangeSet,
 } from "../src"
@@ -347,6 +348,57 @@ describe("design style proposals", () => {
         identity()
       )
     ).toThrow("Detach it before deleting")
+  })
+})
+
+describe("design variable proposals", () => {
+  it("creates, binds, and propagates a typed variable through canonical commands", () => {
+    const creation = createDesignVariableChangeSet(
+      northstarSeed,
+      {
+        documentId: northstarSeed.id,
+        baseRevision: northstarSeed.revision,
+        baseSnapshotId: "snapshot-northstar",
+        changes: [
+          {
+            action: "create",
+            variable: {
+              name: "Brand / Panel",
+              type: "color",
+              value: "#335C4A",
+            },
+          },
+        ],
+      },
+      identity()
+    )
+    const created = previewChangeSet(northstarSeed, creation)
+    const variable = created.variables[0]
+    expect(variable).toMatchObject({ name: "Brand / Panel", type: "color" })
+
+    const binding = createDesignVariableChangeSet(
+      created,
+      {
+        documentId: created.id,
+        baseRevision: created.revision,
+        baseSnapshotId: "snapshot-created",
+        changes: [
+          {
+            action: "bind",
+            variableId: variable!.id,
+            target: { kind: "node", nodeId: "cover-panel", property: "fill" },
+          },
+        ],
+      },
+      identity()
+    )
+    const bound = previewChangeSet(created, binding)
+    expect(bound.variableBindings).toHaveLength(1)
+    expect(bound.nodes.find((node) => node.id === "cover-panel")).toMatchObject(
+      {
+        fill: "#335C4A",
+      }
+    )
   })
 })
 

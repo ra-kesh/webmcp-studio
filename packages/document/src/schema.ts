@@ -643,36 +643,140 @@ export const designVariableSchema = z.discriminatedUnion("type", [
   z
     .object({
       id,
-      name: z.string().min(1),
+      name: z.string().trim().min(1).max(120),
       type: z.literal("color"),
-      value: z.string(),
+      value: colorValueSchema.refine((value) => value !== "", {
+        message: "A color variable cannot be empty",
+      }),
     })
     .strict(),
   z
     .object({
       id,
-      name: z.string().min(1),
+      name: z.string().trim().min(1).max(120),
       type: z.literal("number"),
-      value: z.number(),
+      value: z.number().finite(),
     })
     .strict(),
   z
     .object({
       id,
-      name: z.string().min(1),
+      name: z.string().trim().min(1).max(120),
       type: z.literal("string"),
-      value: z.string(),
+      value: z.string().max(10_000),
     })
     .strict(),
   z
     .object({
       id,
-      name: z.string().min(1),
+      name: z.string().trim().min(1).max(120),
       type: z.literal("font_family"),
-      value: z.string().min(1),
+      value: z
+        .string()
+        .trim()
+        .min(1)
+        .max(200)
+        .regex(/^[^{};<>\u0000-\u001f\u007f\\]+$/, "Use a safe font family"),
     })
     .strict(),
 ])
+
+export const designVariablePatchSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120).optional(),
+    value: z.union([z.string().max(10_000), z.number().finite()]).optional(),
+  })
+  .strict()
+  .refine((patch) => Object.keys(patch).length > 0, {
+    message: "A variable update must change at least one property",
+  })
+
+export const nodeVariablePropertySchema = z.enum([
+  "text",
+  "color",
+  "fill",
+  "stroke",
+  "fontFamily",
+  "fontSize",
+  "fontWeight",
+  "lineHeight",
+  "letterSpacing",
+  "x",
+  "y",
+  "width",
+  "height",
+  "rotation",
+  "opacity",
+  "strokeWidth",
+  "radius",
+])
+
+export const textRangeVariablePropertySchema = z.enum([
+  "color",
+  "fontFamily",
+  "fontSize",
+  "fontWeight",
+  "lineHeight",
+  "letterSpacing",
+])
+
+export const typographyStyleVariablePropertySchema = z.enum([
+  "fontFamily",
+  "fontSize",
+  "fontWeight",
+  "lineHeight",
+  "letterSpacing",
+])
+
+export const paintStyleVariablePropertySchema = z.enum(["color", "opacity"])
+
+export const variableBindingTargetSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("node"),
+      nodeId: id,
+      property: nodeVariablePropertySchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("text_range"),
+      nodeId: id,
+      range: z
+        .object({
+          start: z.number().int().nonnegative(),
+          end: z.number().int().positive(),
+        })
+        .strict()
+        .refine((range) => range.start < range.end, {
+          message: "A variable binding range must not be empty",
+        }),
+      property: textRangeVariablePropertySchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("typography_style"),
+      styleId: id,
+      property: typographyStyleVariablePropertySchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("paint_style"),
+      styleId: id,
+      property: paintStyleVariablePropertySchema,
+    })
+    .strict(),
+])
+
+export const variableBindingSchema = z
+  .object({
+    id,
+    variableId: id,
+    target: variableBindingTargetSchema,
+  })
+  .strict()
 
 export const documentSchema = z
   .object({
@@ -689,6 +793,7 @@ export const documentSchema = z
     typographyStyles: z.array(typographyStyleSchema),
     paintStyles: z.array(paintStyleSchema),
     variables: z.array(designVariableSchema),
+    variableBindings: z.array(variableBindingSchema),
     fields: z.array(fieldDefinitionSchema),
     fieldValues: z.record(z.string(), fieldValueSchema),
     bindings: z.array(fieldBindingSchema),
@@ -798,6 +903,27 @@ export const documentCommandSchema = z.discriminatedUnion("type", [
     targets: z.array(designStyleTargetSchema).min(1).max(1_000),
   }),
   commandBaseSchema.extend({
+    type: z.literal("create_variable"),
+    variable: designVariableSchema,
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("update_variable"),
+    variableId: id,
+    patch: designVariablePatchSchema,
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("delete_variable"),
+    variableId: id,
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("bind_variable"),
+    binding: variableBindingSchema,
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("unbind_variable"),
+    bindingId: id,
+  }),
+  commandBaseSchema.extend({
     type: z.literal("set_image_placement"),
     nodeId: id,
     placement: imagePlacementSchema,
@@ -903,6 +1029,7 @@ export const documentCommandSchema = z.discriminatedUnion("type", [
     nodes: z.array(sceneNodeSchema),
     groups: z.array(groupDefinitionSchema),
     bindings: z.array(fieldBindingSchema),
+    variableBindings: z.array(variableBindingSchema),
   }),
   commandBaseSchema.extend({
     type: z.literal("duplicate_nodes"),
@@ -910,6 +1037,7 @@ export const documentCommandSchema = z.discriminatedUnion("type", [
     nodes: z.array(sceneNodeSchema).min(1),
     groups: z.array(groupDefinitionSchema),
     bindings: z.array(fieldBindingSchema),
+    variableBindings: z.array(variableBindingSchema),
   }),
   commandBaseSchema.extend({
     type: z.literal("update_page"),
@@ -945,6 +1073,7 @@ export const documentCommandSchema = z.discriminatedUnion("type", [
     nodes: z.array(sceneNodeSchema),
     groups: z.array(groupDefinitionSchema),
     bindings: z.array(fieldBindingSchema),
+    variableBindings: z.array(variableBindingSchema),
   }),
   commandBaseSchema.extend({
     type: z.literal("update_output"),
@@ -1080,6 +1209,19 @@ export type TypographyStylePatch = z.infer<typeof typographyStylePatchSchema>
 export type PaintStylePatch = z.infer<typeof paintStylePatchSchema>
 export type DesignStyleTarget = z.infer<typeof designStyleTargetSchema>
 export type DesignVariable = z.infer<typeof designVariableSchema>
+export type DesignVariablePatch = z.infer<typeof designVariablePatchSchema>
+export type NodeVariableProperty = z.infer<typeof nodeVariablePropertySchema>
+export type TextRangeVariableProperty = z.infer<
+  typeof textRangeVariablePropertySchema
+>
+export type TypographyStyleVariableProperty = z.infer<
+  typeof typographyStyleVariablePropertySchema
+>
+export type PaintStyleVariableProperty = z.infer<
+  typeof paintStyleVariablePropertySchema
+>
+export type VariableBindingTarget = z.infer<typeof variableBindingTargetSchema>
+export type VariableBinding = z.infer<typeof variableBindingSchema>
 export type Document = z.infer<typeof documentSchema>
 export type DocumentCommand = z.infer<typeof documentCommandSchema>
 export type ChangeOperation = z.infer<typeof changeOperationSchema>

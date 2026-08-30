@@ -924,6 +924,7 @@ export function composeTracedQuotationDocument(
     typographyStyles: [],
     paintStyles: [],
     variables: [],
+    variableBindings: [],
     fields: [
       {
         id: "field-quotation-title",

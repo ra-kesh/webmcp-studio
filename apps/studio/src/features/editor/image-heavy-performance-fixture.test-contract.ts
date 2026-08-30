@@ -123,6 +123,7 @@ export function createImageHeavyPerformanceFixture(
     typographyStyles: [],
     paintStyles: [],
     variables: [],
+    variableBindings: [],
     fields: [],
     fieldValues: {},
     bindings: [],

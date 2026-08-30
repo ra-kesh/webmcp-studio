@@ -209,6 +209,7 @@ export function createProductCommandProposal(
           nodes: clone.nodes,
           groups: clone.groups,
           bindings: clone.bindings,
+          variableBindings: clone.variableBindings,
         },
         summary: `Duplicate ${clone.nodes.length} layer${clone.nodes.length === 1 ? "" : "s"}`,
       })

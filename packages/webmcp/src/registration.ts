@@ -13,6 +13,9 @@ import {
   typographyStylePatchSchema,
   typographyStyleSchema,
   designStyleTargetSchema,
+  designVariablePatchSchema,
+  designVariableSchema,
+  variableBindingTargetSchema,
   validateAssetFieldPublicationIdentities,
   validateRenderPolicy,
   validateDocument,
@@ -38,11 +41,14 @@ import {
   createAssetInsertionChangeSet,
   createCanvasEditChangeSet,
   createDesignStyleChangeSet,
+  createDesignVariableChangeSet,
   createFieldUpdateChangeSet,
   createOutputVariantChangeSet,
   type CanvasEditProposalInput,
   type DesignStyleProposalChange,
   type DesignStyleProposalInput,
+  type DesignVariableProposalChange,
+  type DesignVariableProposalInput,
   type FieldUpdateProposalInput,
   type OutputVariantProposalInput,
 } from "./change-sets"
@@ -52,6 +58,7 @@ import {
   DesignQueryError,
   readDesignNode,
   readDesignStyles,
+  readDesignVariables,
   readDesignTree,
   searchDesignNodes,
   type DesignNodeSearchQuery,
@@ -472,6 +479,7 @@ const publicChangeSet = (
           },
           layerCount: command.nodes.length,
           bindingCount: command.bindings.length,
+          variableBindingCount: command.variableBindings.length,
         },
       }
     }
@@ -565,6 +573,50 @@ const publicChangeSet = (
         status: operation.status,
         summary: operation.summary,
         command: { type: command.type, styleId: command.styleId },
+      }
+    }
+    if (command.type === "create_variable") {
+      return {
+        id: operation.id,
+        status: operation.status,
+        summary: operation.summary,
+        command: { type: command.type, variable: command.variable },
+      }
+    }
+    if (command.type === "update_variable") {
+      return {
+        id: operation.id,
+        status: operation.status,
+        summary: operation.summary,
+        command: {
+          type: command.type,
+          variableId: command.variableId,
+          patch: command.patch,
+        },
+      }
+    }
+    if (command.type === "bind_variable") {
+      return {
+        id: operation.id,
+        status: operation.status,
+        summary: operation.summary,
+        command: { type: command.type, binding: command.binding },
+      }
+    }
+    if (command.type === "unbind_variable") {
+      return {
+        id: operation.id,
+        status: operation.status,
+        summary: operation.summary,
+        command: { type: command.type, bindingId: command.bindingId },
+      }
+    }
+    if (command.type === "delete_variable") {
+      return {
+        id: operation.id,
+        status: operation.status,
+        summary: operation.summary,
+        command: { type: command.type, variableId: command.variableId },
       }
     }
     return {
@@ -981,6 +1033,102 @@ function parseDesignStyleProposalInput(
     baseSnapshotId: value.baseSnapshotId as string,
     reason: typeof value.reason === "string" ? value.reason : undefined,
     changes,
+  }
+}
+
+function parseDesignVariableProposalInput(
+  input: unknown
+): DesignVariableProposalInput {
+  const value = parseProposalIdentity(input)
+  if (!Array.isArray(value.changes) || value.changes.length === 0) {
+    throw new Error("changes must be a non-empty array.")
+  }
+  if (value.changes.length > 24) {
+    throw new Error("changes can contain no more than 24 operations.")
+  }
+  const changes = value.changes.map((candidate, index) => {
+    if (
+      !candidate ||
+      typeof candidate !== "object" ||
+      Array.isArray(candidate)
+    ) {
+      throw new Error(`changes[${index}] must be an object.`)
+    }
+    const change = candidate as Record<string, unknown>
+    if (
+      change.action !== "create" &&
+      change.action !== "update" &&
+      change.action !== "bind" &&
+      change.action !== "unbind" &&
+      change.action !== "delete"
+    ) {
+      throw new Error(
+        `changes[${index}].action must be create, update, bind, unbind, or delete.`
+      )
+    }
+    if (change.action === "create") {
+      if (!change.variable || typeof change.variable !== "object") {
+        throw new Error(`changes[${index}].variable is required.`)
+      }
+      const parsed = designVariableSchema.safeParse({
+        ...(change.variable as Record<string, unknown>),
+        id: "temporary-variable-id",
+      })
+      if (!parsed.success) {
+        throw new Error(
+          `changes[${index}].variable is invalid: ${parsed.error.issues[0]?.message ?? "invalid variable"}`
+        )
+      }
+      const { id: _id, ...variable } = parsed.data
+      return { action: "create", variable } as const
+    }
+    if (change.action === "unbind") {
+      if (typeof change.bindingId !== "string" || !change.bindingId) {
+        throw new Error(`changes[${index}].bindingId is required.`)
+      }
+      return { action: "unbind", bindingId: change.bindingId } as const
+    }
+    if (typeof change.variableId !== "string" || !change.variableId) {
+      throw new Error(`changes[${index}].variableId is required.`)
+    }
+    if (change.action === "delete") {
+      return {
+        action: "delete",
+        variableId: change.variableId,
+      } as const
+    }
+    if (change.action === "bind") {
+      const parsed = variableBindingTargetSchema.safeParse(change.target)
+      if (!parsed.success) {
+        throw new Error(
+          `changes[${index}].target is invalid: ${parsed.error.issues[0]?.message ?? "invalid variable target"}`
+        )
+      }
+      return {
+        action: "bind",
+        variableId: change.variableId,
+        target: parsed.data,
+      } as const
+    }
+    const parsed = designVariablePatchSchema.safeParse(change.patch)
+    if (!parsed.success) {
+      throw new Error(
+        `changes[${index}].patch is invalid: ${parsed.error.issues[0]?.message ?? "invalid variable patch"}`
+      )
+    }
+    return {
+      action: "update",
+      variableId: change.variableId,
+      patch: parsed.data,
+    } as const
+  })
+
+  return {
+    documentId: value.documentId as string,
+    baseRevision: value.baseRevision as number,
+    baseSnapshotId: value.baseSnapshotId as string,
+    reason: typeof value.reason === "string" ? value.reason : undefined,
+    changes: changes as DesignVariableProposalChange[],
   }
 }
 
@@ -1941,6 +2089,185 @@ const designStyleChangeInputSchema = {
   ],
 } as const
 
+const variableTargetInputSchema = {
+  oneOf: [
+    {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        kind: { const: "node" },
+        nodeId: { type: "string", minLength: 1 },
+        property: {
+          type: "string",
+          enum: [
+            "text",
+            "color",
+            "fill",
+            "stroke",
+            "fontFamily",
+            "fontSize",
+            "fontWeight",
+            "lineHeight",
+            "letterSpacing",
+            "x",
+            "y",
+            "width",
+            "height",
+            "rotation",
+            "opacity",
+            "strokeWidth",
+            "radius",
+          ],
+        },
+      },
+      required: ["kind", "nodeId", "property"],
+    },
+    {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        kind: { const: "text_range" },
+        nodeId: { type: "string", minLength: 1 },
+        range: designStyleTargetInputSchema.properties.range,
+        property: {
+          type: "string",
+          enum: [
+            "color",
+            "fontFamily",
+            "fontSize",
+            "fontWeight",
+            "lineHeight",
+            "letterSpacing",
+          ],
+        },
+      },
+      required: ["kind", "nodeId", "range", "property"],
+    },
+    {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        kind: { const: "typography_style" },
+        styleId: { type: "string", minLength: 1 },
+        property: {
+          type: "string",
+          enum: [
+            "fontFamily",
+            "fontSize",
+            "fontWeight",
+            "lineHeight",
+            "letterSpacing",
+          ],
+        },
+      },
+      required: ["kind", "styleId", "property"],
+    },
+    {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        kind: { const: "paint_style" },
+        styleId: { type: "string", minLength: 1 },
+        property: { type: "string", enum: ["color", "opacity"] },
+      },
+      required: ["kind", "styleId", "property"],
+    },
+  ],
+} as const
+
+const designVariableChangeInputSchema = {
+  oneOf: [
+    {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        action: { const: "create" },
+        variable: {
+          oneOf: [
+            {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                name: { type: "string", minLength: 1, maxLength: 120 },
+                type: { const: "color" },
+                value: { type: "string", minLength: 1 },
+              },
+              required: ["name", "type", "value"],
+            },
+            {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                name: { type: "string", minLength: 1, maxLength: 120 },
+                type: { const: "number" },
+                value: { type: "number" },
+              },
+              required: ["name", "type", "value"],
+            },
+            ...(["string", "font_family"] as const).map((type) => ({
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                name: { type: "string", minLength: 1, maxLength: 120 },
+                type: { const: type },
+                value: { type: "string" },
+              },
+              required: ["name", "type", "value"],
+            })),
+          ],
+        },
+      },
+      required: ["action", "variable"],
+    },
+    {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        action: { const: "update" },
+        variableId: { type: "string", minLength: 1 },
+        patch: {
+          type: "object",
+          additionalProperties: false,
+          minProperties: 1,
+          properties: {
+            name: { type: "string", minLength: 1, maxLength: 120 },
+            value: { oneOf: [{ type: "string" }, { type: "number" }] },
+          },
+        },
+      },
+      required: ["action", "variableId", "patch"],
+    },
+    {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        action: { const: "bind" },
+        variableId: { type: "string", minLength: 1 },
+        target: variableTargetInputSchema,
+      },
+      required: ["action", "variableId", "target"],
+    },
+    {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        action: { const: "unbind" },
+        bindingId: { type: "string", minLength: 1 },
+      },
+      required: ["action", "bindingId"],
+    },
+    {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        action: { const: "delete" },
+        variableId: { type: "string", minLength: 1 },
+      },
+      required: ["action", "variableId"],
+    },
+  ],
+} as const
+
 function parseOutputProposalInput(input: unknown): OutputVariantProposalInput {
   const value = parseProposalIdentity(input)
   if (typeof value.sourcePageId !== "string" || !value.sourcePageId) {
@@ -2586,6 +2913,10 @@ export function studioWebMcpTools(
               current.document,
               designQueryIdentity(current)
             ).styles,
+            designVariables: readDesignVariables(
+              current.document,
+              designQueryIdentity(current)
+            ),
             selection: current.selection,
             commandCapabilities,
             outputs: current.document.outputs,
@@ -2949,6 +3280,53 @@ export function studioWebMcpTools(
           )
           return textResult(
             `Read ${result.styles.length} reusable design style${result.styles.length === 1 ? "" : "s"}.`,
+            result
+          )
+        } catch (error) {
+          return errorResult(error)
+        }
+      },
+    },
+    {
+      name: "read_design_variables",
+      title: "Read design variables",
+      description:
+        "Read typed document variables, their resolved values, exact node/range/style targets, and protected-deletion usage.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          type: {
+            type: "string",
+            enum: ["color", "number", "string", "font_family"],
+          },
+        },
+      },
+      annotations: { readOnlyHint: true, untrustedContentHint: true },
+      execute: (input) => {
+        try {
+          const value = queryObject(input)
+          assertQueryKeys(value, ["type"])
+          if (
+            value.type !== undefined &&
+            value.type !== "color" &&
+            value.type !== "number" &&
+            value.type !== "string" &&
+            value.type !== "font_family"
+          ) {
+            throw new DesignQueryError(
+              "invalid_query",
+              "type must be color, number, string, or font_family."
+            )
+          }
+          const current = services.getSnapshot()
+          const result = readDesignVariables(
+            current.document,
+            designQueryIdentity(current),
+            value.type
+          )
+          return textResult(
+            `Read ${result.variables.length} design variable${result.variables.length === 1 ? "" : "s"}.`,
             result
           )
         } catch (error) {
@@ -3457,6 +3835,55 @@ export function studioWebMcpTools(
           )
           return textResult(
             `Previewing ${changeSet.operations.length} reusable-style change${changeSet.operations.length === 1 ? "" : "s"}. Nothing has been applied; ask the user to review the Review panel.`,
+            publicChangeSet(changeSet, current.document, current.assets)
+          )
+        } catch (error) {
+          return errorResult(error)
+        }
+      },
+    },
+    {
+      name: "propose_design_variable_changes",
+      title: "Propose design variable changes",
+      description:
+        "Create a reviewed proposal to create, update, bind, unbind, or delete typed document variables. Call read_design_variables first and use exact target IDs and ranges.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          documentId: { type: "string", minLength: 1 },
+          baseRevision: { type: "integer", minimum: 0 },
+          baseSnapshotId: { type: "string", minLength: 1 },
+          reason: { type: "string" },
+          changes: {
+            type: "array",
+            minItems: 1,
+            maxItems: 24,
+            items: designVariableChangeInputSchema,
+          },
+        },
+        required: ["documentId", "baseRevision", "baseSnapshotId", "changes"],
+      },
+      annotations: { untrustedContentHint: true },
+      execute: (input) => {
+        try {
+          const current = services.getSnapshot()
+          assertCurrentProposalSnapshot(input, current)
+          const proposal = parseDesignVariableProposalInput(input)
+          const changeSet = createDesignVariableChangeSet(
+            current.document,
+            proposal,
+            services
+          )
+          services.proposeChangeSet(
+            changeSet,
+            webMcpProposalProvenance(
+              "propose_design_variable_changes",
+              proposal.reason ?? null
+            )
+          )
+          return textResult(
+            `Previewing ${changeSet.operations.length} variable change${changeSet.operations.length === 1 ? "" : "s"}. Nothing has been applied; ask the user to review the Review panel.`,
             publicChangeSet(changeSet, current.document, current.assets)
           )
         } catch (error) {

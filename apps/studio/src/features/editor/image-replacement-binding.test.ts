@@ -70,6 +70,7 @@ function fixture(bound: boolean): Document {
     typographyStyles: [],
     paintStyles: [],
     variables: [],
+    variableBindings: [],
     fields: [
       {
         id: "field-portrait",

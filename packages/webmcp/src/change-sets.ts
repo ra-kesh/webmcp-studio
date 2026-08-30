@@ -7,6 +7,8 @@ import {
   previewChangeSet,
   type ChangeSet,
   type DesignStyleTarget,
+  type DesignVariable,
+  type DesignVariablePatch,
   type Document,
   type ImageFrameMask,
   type ImagePlacement,
@@ -15,6 +17,7 @@ import {
   type SceneNode,
   type TypographyStyle,
   type TypographyStylePatch,
+  type VariableBindingTarget,
 } from "@webmcp/document"
 
 export type FieldUpdateProposalInput = {
@@ -125,6 +128,25 @@ export type DesignStyleProposalInput = {
   baseSnapshotId: string
   reason?: string
   changes: DesignStyleProposalChange[]
+}
+
+export type DesignVariableProposalChange =
+  | { action: "create"; variable: Omit<DesignVariable, "id"> }
+  | { action: "update"; variableId: string; patch: DesignVariablePatch }
+  | {
+      action: "bind"
+      variableId: string
+      target: VariableBindingTarget
+    }
+  | { action: "unbind"; bindingId: string }
+  | { action: "delete"; variableId: string }
+
+export type DesignVariableProposalInput = {
+  documentId: string
+  baseRevision: number
+  baseSnapshotId: string
+  reason?: string
+  changes: DesignVariableProposalChange[]
 }
 
 export function canvasPatchValuesEqual(
@@ -679,6 +701,116 @@ export function createDesignStyleChangeSet(
   })
 }
 
+export function createDesignVariableChangeSet(
+  document: Document,
+  input: DesignVariableProposalInput,
+  identity: ChangeSetIdentityFactory
+): ChangeSet {
+  if (!input.changes.length) {
+    throw new Error("Choose at least one variable change.")
+  }
+  const operations: ChangeSet["operations"] = input.changes.map((change) => {
+    const at = identity.now()
+    const base = {
+      id: `operation-${identity.id()}`,
+      status: "pending" as const,
+    }
+    if (change.action === "create") {
+      const variable = {
+        ...change.variable,
+        id: `variable-${identity.id()}`,
+      } as DesignVariable
+      return {
+        ...base,
+        summary: `Create ${variable.type.replace("_", " ")} variable ${variable.name}`,
+        command: {
+          id: `command-${identity.id()}`,
+          type: "create_variable" as const,
+          actor: "agent" as const,
+          at,
+          variable,
+        },
+      }
+    }
+    if (change.action === "update") {
+      const variable = document.variables.find(
+        (candidate) => candidate.id === change.variableId
+      )
+      return {
+        ...base,
+        summary: `Update variable ${variable?.name ?? change.variableId}`,
+        command: {
+          id: `command-${identity.id()}`,
+          type: "update_variable" as const,
+          actor: "agent" as const,
+          at,
+          variableId: change.variableId,
+          patch: change.patch,
+        },
+      }
+    }
+    if (change.action === "bind") {
+      const variable = document.variables.find(
+        (candidate) => candidate.id === change.variableId
+      )
+      return {
+        ...base,
+        summary: `Bind variable ${variable?.name ?? change.variableId} to ${change.target.kind.replace("_", " ")}.${change.target.property}`,
+        command: {
+          id: `command-${identity.id()}`,
+          type: "bind_variable" as const,
+          actor: "agent" as const,
+          at,
+          binding: {
+            id: `variable-binding-${identity.id()}`,
+            variableId: change.variableId,
+            target: change.target,
+          },
+        },
+      }
+    }
+    if (change.action === "unbind") {
+      return {
+        ...base,
+        summary: `Unbind variable relationship ${change.bindingId}`,
+        command: {
+          id: `command-${identity.id()}`,
+          type: "unbind_variable" as const,
+          actor: "agent" as const,
+          at,
+          bindingId: change.bindingId,
+        },
+      }
+    }
+    const variable = document.variables.find(
+      (candidate) => candidate.id === change.variableId
+    )
+    return {
+      ...base,
+      summary: `Delete variable ${variable?.name ?? change.variableId}`,
+      command: {
+        id: `command-${identity.id()}`,
+        type: "delete_variable" as const,
+        actor: "agent" as const,
+        at,
+        variableId: change.variableId,
+      },
+    }
+  })
+
+  return checkedChangeSet(document, {
+    id: `change-set-${identity.id()}`,
+    documentId: input.documentId,
+    baseRevision: input.baseRevision,
+    baseSnapshotId: input.baseSnapshotId,
+    title: input.reason?.trim() || "Update design variables",
+    createdAt: identity.now(),
+    createdBy: "agent",
+    status: "pending",
+    operations,
+  })
+}
+
 export function createOutputVariantChangeSet(
   document: Document,
   input: OutputVariantProposalInput,
@@ -738,6 +870,20 @@ export function createOutputVariantChangeSet(
       ? [{ ...binding, id: `binding-${identity.id()}`, nodeId }]
       : []
   })
+  const variableBindings = document.variableBindings.flatMap((binding) => {
+    const target = binding.target
+    if (target.kind !== "node" && target.kind !== "text_range") return []
+    const nodeId = nodeIdMap.get(target.nodeId)
+    return nodeId
+      ? [
+          {
+            ...binding,
+            id: `variable-binding-${identity.id()}`,
+            target: { ...target, nodeId },
+          },
+        ]
+      : []
+  })
   const changeSet: ChangeSet = {
     id: `change-set-${identity.id()}`,
     documentId: input.documentId,
@@ -751,7 +897,7 @@ export function createOutputVariantChangeSet(
       {
         id: `operation-${identity.id()}`,
         status: "pending",
-        summary: `Create ${input.name} at ${input.width} × ${input.height} with ${nodes.length} adapted layers and ${bindings.length} shared binding${bindings.length === 1 ? "" : "s"}`,
+        summary: `Create ${input.name} at ${input.width} × ${input.height} with ${nodes.length} adapted layers, ${bindings.length} shared field binding${bindings.length === 1 ? "" : "s"}, and ${variableBindings.length} variable binding${variableBindings.length === 1 ? "" : "s"}`,
         command: {
           id: `command-${identity.id()}`,
           type: "add_output_variant",
@@ -776,6 +922,7 @@ export function createOutputVariantChangeSet(
           nodes,
           groups,
           bindings,
+          variableBindings,
         },
       },
     ],
