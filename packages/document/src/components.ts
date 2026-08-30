@@ -100,11 +100,18 @@ export function componentSourceNodes(
 
 function applyComponentPatch(
   node: SceneNode,
-  patch: Record<string, unknown> | undefined
+  patch: Record<string, unknown> | undefined,
+  removedProperties: readonly string[] = []
 ): SceneNode {
-  if (!patch) return node
+  if (!patch && !removedProperties.length) return node
+  const remove = (value: SceneNode): SceneNode => {
+    if (!removedProperties.length) return value
+    const mutable = { ...value } as Record<string, unknown>
+    for (const property of removedProperties) delete mutable[property]
+    return sceneNodeSchema.parse(mutable)
+  }
   if (node.type === "text") {
-    const textPatch = patch as TextNodePatch
+    const textPatch = (patch ?? {}) as TextNodePatch
     const text = textPatch.text ?? node.text
     const textChanged = textPatch.text !== undefined && text !== node.text
     const richText = normalizeRichTextContent(text, {
@@ -112,15 +119,17 @@ function applyComponentPatch(
       paragraphs: textPatch.paragraphs ?? (textChanged ? [] : node.paragraphs),
       links: textPatch.links ?? (textChanged ? [] : node.links),
     })
-    return sceneNodeSchema.parse(
-      applyTextLayoutPatch(node, {
-        ...textPatch,
-        text,
-        ...richText,
-      })
+    return remove(
+      sceneNodeSchema.parse(
+        applyTextLayoutPatch(node, {
+          ...textPatch,
+          text,
+          ...richText,
+        })
+      )
     )
   }
-  return sceneNodeSchema.parse({ ...node, ...patch })
+  return remove(sceneNodeSchema.parse({ ...node, ...patch }))
 }
 
 function boundsForNodes(nodes: readonly SceneNode[]) {
@@ -219,7 +228,8 @@ export function resolveComponentInstanceNodes(
     if (!instanceNodeId) return []
     const variantNode = applyComponentPatch(
       sourceNode,
-      variant.overrides[sourceNode.id]
+      variant.overrides[sourceNode.id],
+      variant.removedProperties?.[sourceNode.id]
     )
     const transformed = transformComponentNode(
       variantNode,
@@ -228,13 +238,17 @@ export function resolveComponentInstanceNodes(
     )
     const resolved = applyComponentPatch(
       transformed,
-      instance.overrides[sourceNode.id]
+      instance.overrides[sourceNode.id],
+      instance.removedProperties?.[sourceNode.id]
     )
     return [{ ...resolved, id: instanceNodeId }]
   })
 }
 
-function differingProperties(actual: SceneNode, expected: SceneNode) {
+export function componentDifferingProperties(
+  actual: SceneNode,
+  expected: SceneNode
+) {
   const keys = new Set([...Object.keys(actual), ...Object.keys(expected)])
   keys.delete("id")
   return [...keys].filter(
@@ -333,7 +347,11 @@ export function componentIntegrityIssues(
     }
     const sourceNodes = new Set(subtree.nodeIds)
     for (const variant of component.variants) {
-      for (const nodeId of Object.keys(variant.overrides)) {
+      const targetNodeIds = new Set([
+        ...Object.keys(variant.overrides),
+        ...Object.keys(variant.removedProperties ?? {}),
+      ])
+      for (const nodeId of targetNodeIds) {
         if (sourceNodes.has(nodeId)) continue
         issues.push({
           code: "component_variant_target_outside_source",
@@ -477,10 +495,15 @@ export function componentIntegrityIssues(
           return instanceNodeId ? [instanceNodeId] : []
         }
       )
+      const expectedName =
+        mapping.sourceGroupId === component.sourceGroupId
+          ? instance.name
+          : sourceGroup?.name
       const valid =
         sourceGroupIds.has(mapping.sourceGroupId) &&
         Boolean(sourceGroup) &&
         Boolean(instanceGroup) &&
+        instanceGroup?.name === expectedName &&
         instanceGroup?.pageId === instanceRoot?.pageId &&
         (sourceParent && sourceGroupIds.has(sourceParent)
           ? instanceGroup?.parentGroupId === expectedParent
@@ -495,11 +518,48 @@ export function componentIntegrityIssues(
       })
     }
 
+    const sourceRoot = groups.get(component.sourceGroupId)
+    const instanceRootGroup = groups.get(instance.rootGroupId)
+    const sourcePage = sourceRoot
+      ? document.pages.find((page) => page.id === sourceRoot.pageId)
+      : undefined
+    const instancePage = instanceRootGroup
+      ? document.pages.find((page) => page.id === instanceRootGroup.pageId)
+      : undefined
+    const mappedSourceNodeIds = new Set(source.nodeIds)
+    const nodeMappingBySourceForOrder = new Map(
+      instance.nodeMappings.map((mapping) => [
+        mapping.sourceNodeId,
+        mapping.instanceNodeId,
+      ])
+    )
+    const expectedInstanceOrder = sourcePage?.nodeIds.flatMap((nodeId) => {
+      if (!mappedSourceNodeIds.has(nodeId)) return []
+      const instanceNodeId = nodeMappingBySourceForOrder.get(nodeId)
+      return instanceNodeId ? [instanceNodeId] : []
+    })
+    const mappedInstanceNodeIds = new Set(
+      instance.nodeMappings.map((mapping) => mapping.instanceNodeId)
+    )
+    const actualInstanceOrder = instancePage?.nodeIds.filter((nodeId) =>
+      mappedInstanceNodeIds.has(nodeId)
+    )
+    if (
+      stableValue(expectedInstanceOrder) !== stableValue(actualInstanceOrder)
+    ) {
+      issues.push({
+        code: "component_instance_mapping_invalid",
+        instanceId: instance.id,
+        groupId: instance.rootGroupId,
+        message: `Instance ${instance.name} has a stale materialized layer order`,
+      })
+    }
+
     const expectedNodes = resolveComponentInstanceNodes(document, instance)
     for (const expected of expectedNodes) {
       const actual = nodes.get(expected.id)
       if (!actual) continue
-      for (const property of differingProperties(actual, expected)) {
+      for (const property of componentDifferingProperties(actual, expected)) {
         issues.push({
           code: "component_instance_stale",
           instanceId: instance.id,
@@ -573,6 +633,11 @@ export function materializeComponentInstances(document: Document): Document {
   let materialized = document
   for (const componentId of orderedComponentIds) {
     const resolvedById = new Map<string, SceneNode>()
+    const component = materialized.components.find(
+      (candidate) => candidate.id === componentId
+    )
+    const groupUpdates = new Map<string, Document["groups"][number]>()
+    const pageOrderUpdates = new Map<string, string[]>()
     for (const instance of materialized.componentInstances) {
       if (instance.componentId !== componentId) continue
       for (const node of resolveComponentInstanceNodes(
@@ -581,13 +646,102 @@ export function materializeComponentInstances(document: Document): Document {
       )) {
         resolvedById.set(node.id, node)
       }
+      if (!component) continue
+      const source = componentSourceSubtree(
+        materialized,
+        component.sourceGroupId
+      )
+      const root = materialized.groups.find(
+        (group) => group.id === instance.rootGroupId
+      )
+      if (!source || !root) continue
+      const sourceGroups = new Map(
+        materialized.groups
+          .filter((group) => source.groupIds.includes(group.id))
+          .map((group) => [group.id, group])
+      )
+      const nodeMapping = new Map(
+        instance.nodeMappings.map((mapping) => [
+          mapping.sourceNodeId,
+          mapping.instanceNodeId,
+        ])
+      )
+      const groupMapping = new Map(
+        instance.groupMappings.map((mapping) => [
+          mapping.sourceGroupId,
+          mapping.instanceGroupId,
+        ])
+      )
+      for (const mapping of instance.groupMappings) {
+        const sourceGroup = sourceGroups.get(mapping.sourceGroupId)
+        const current = materialized.groups.find(
+          (group) => group.id === mapping.instanceGroupId
+        )
+        if (!sourceGroup || !current) continue
+        const sourceParent = sourceGroup.parentGroupId
+        const parentGroupId =
+          sourceGroup.id === component.sourceGroupId
+            ? current.parentGroupId
+            : sourceParent
+              ? groupMapping.get(sourceParent)
+              : undefined
+        groupUpdates.set(current.id, {
+          ...current,
+          name:
+            sourceGroup.id === component.sourceGroupId
+              ? instance.name
+              : sourceGroup.name,
+          nodeIds: sourceGroup.nodeIds.flatMap((sourceNodeId) => {
+            const instanceNodeId = nodeMapping.get(sourceNodeId)
+            return instanceNodeId ? [instanceNodeId] : []
+          }),
+          parentGroupId,
+        })
+      }
+
+      const sourceRoot = sourceGroups.get(component.sourceGroupId)
+      const sourcePage = sourceRoot
+        ? materialized.pages.find((page) => page.id === sourceRoot.pageId)
+        : undefined
+      const targetPage = materialized.pages.find(
+        (page) => page.id === root.pageId
+      )
+      if (!sourcePage || !targetPage) continue
+      const sourceSet = new Set(source.nodeIds)
+      const orderedInstanceNodeIds = sourcePage.nodeIds.flatMap(
+        (sourceNodeId) => {
+          if (!sourceSet.has(sourceNodeId)) return []
+          const instanceNodeId = nodeMapping.get(sourceNodeId)
+          return instanceNodeId ? [instanceNodeId] : []
+        }
+      )
+      const mapped = new Set(orderedInstanceNodeIds)
+      const currentOrder =
+        pageOrderUpdates.get(targetPage.id) ?? targetPage.nodeIds
+      const firstIndex = currentOrder.findIndex((nodeId) => mapped.has(nodeId))
+      const remaining = currentOrder.filter((nodeId) => !mapped.has(nodeId))
+      const insertionIndex = firstIndex < 0 ? remaining.length : firstIndex
+      pageOrderUpdates.set(targetPage.id, [
+        ...remaining.slice(0, insertionIndex),
+        ...orderedInstanceNodeIds,
+        ...remaining.slice(insertionIndex),
+      ])
     }
-    if (!resolvedById.size) continue
+    if (!resolvedById.size && !groupUpdates.size && !pageOrderUpdates.size) {
+      continue
+    }
     materialized = {
       ...materialized,
       nodes: materialized.nodes.map(
         (node) => resolvedById.get(node.id) ?? node
       ),
+      groups: materialized.groups.map(
+        (group) => groupUpdates.get(group.id) ?? group
+      ),
+      pages: materialized.pages.map((page) => {
+        const nodeIds = pageOrderUpdates.get(page.id)
+        return nodeIds ? { ...page, nodeIds } : page
+      }),
     }
   }
   return materialized
@@ -599,5 +753,10 @@ export function componentOwnsProperty(
   property: string
 ) {
   const patch = instance.overrides[sourceNodeId]
-  return Boolean(patch && own(patch, property))
+  return Boolean(
+    (patch && own(patch, property)) ||
+    instance.removedProperties?.[sourceNodeId]?.some(
+      (candidate) => candidate === property
+    )
+  )
 }

@@ -83,6 +83,8 @@ const commandLabel = (commands: DocumentCommand[]) => {
       return "Switch component variant"
     case "update_component_instance":
       return "Update component override"
+    case "update_component_instance_metadata":
+      return "Update component instance"
     case "reset_component_override":
       return "Reset component override"
     case "reset_all_component_overrides":

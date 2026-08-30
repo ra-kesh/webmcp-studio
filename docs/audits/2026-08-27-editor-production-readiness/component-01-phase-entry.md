@@ -2,7 +2,7 @@
 
 Date: 2026-08-30
 
-Status: active; Gate 1 and Gate 2A locally accepted, Gate 2B next
+Status: active; Gates 1 and 2 locally accepted, Gate 3 next
 
 ## Purpose
 
@@ -271,3 +271,36 @@ node commands participate in exact override capture, represent removal of
 optional properties such as reusable-style attachments, add explicit
 structural dependant guards, and finish the remaining page/output ownership
 policies. No component UI is claimed by Gate 2A.
+
+## Gate 2B result — cross-command overrides and structural integrity
+
+Status: **implemented and locally accepted on 2026-08-30; Gate 2 is closed**
+
+- Added one post-command reconciliation boundary for ordinary editor commands.
+  It compares only properties actually mutated on an instance with its newly
+  resolved source/variant state, records the true differences, and then
+  rematerializes the dependency graph.
+- Reusable typography/paint application and propagation, variable binding and
+  updates, field projection, image placement, image frame masks and image
+  source replacement now participate in the same override contract as direct
+  `update_node` edits.
+- Instance metadata has a canonical rename/transform command. Uniform instance
+  transforms continue to materialize exact flat-node geometry and visual
+  metrics.
+- Optional-property removal is explicit canonical state. Detaching reusable
+  style IDs, optional strokes or image-alt provenance no longer reappears
+  during synchronization; property and all-override reset clear both value
+  patches and removals.
+- Materialization now propagates safe main-component group names, group member
+  order, nested parentage and relative page layer order. Unsupported structural
+  changes to a linked source or instance are blocked with explicit guidance.
+- Component validation now detects stale group names, hierarchy, group members
+  and relative page layer order in addition to stale node properties.
+- Acceptance evidence: all 31 document test files pass (297 tests), including
+  style detach, variables, image controls, metadata transforms, safe source
+  order/name propagation and structural guard cases. Every workspace package,
+  including Studio, typechecks.
+
+Gate 2 closure means the canonical lifecycle/history/clone boundary is ready
+for product controls. It does not claim that Layers, Assets or Inspector expose
+components yet; those are Gate 3.

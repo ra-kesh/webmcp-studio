@@ -601,11 +601,36 @@ const componentNodePatchesSchema = z
     message: "A component cannot patch more than 10,000 source layers",
   })
 
+export const componentRemovablePropertySchema = z.enum([
+  "typographyStyleId",
+  "paintStyleId",
+  "stroke",
+  "altProvenance",
+])
+
+const componentRemovedPropertiesSchema = z
+  .record(
+    id,
+    z
+      .array(componentRemovablePropertySchema)
+      .min(1)
+      .max(4)
+      .refine(
+        (properties) => new Set(properties).size === properties.length,
+        "Removed component properties must be unique"
+      )
+  )
+  .refine((entries) => Object.keys(entries).length <= 10_000, {
+    message:
+      "A component cannot remove properties from more than 10,000 layers",
+  })
+
 export const componentVariantSchema = z
   .object({
     id,
     name: z.string().trim().min(1).max(120),
     overrides: componentNodePatchesSchema,
+    removedProperties: componentRemovedPropertiesSchema.optional(),
   })
   .strict()
 
@@ -662,6 +687,7 @@ export const componentInstanceSchema = z
     nodeMappings: z.array(componentNodeMappingSchema).max(10_000),
     groupMappings: z.array(componentGroupMappingSchema).min(1).max(10_000),
     overrides: componentNodePatchesSchema,
+    removedProperties: componentRemovedPropertiesSchema.optional(),
   })
   .strict()
   .superRefine((instance, context) => {
@@ -697,9 +723,10 @@ export const componentInstanceSchema = z
       })
     }
     if (
-      Object.keys(instance.overrides).some(
-        (sourceNodeId) => !sourceNodeIds.includes(sourceNodeId)
-      )
+      [
+        ...Object.keys(instance.overrides),
+        ...Object.keys(instance.removedProperties ?? {}),
+      ].some((sourceNodeId) => !sourceNodeIds.includes(sourceNodeId))
     ) {
       context.addIssue({
         code: "custom",
@@ -725,6 +752,16 @@ export const componentVariantPatchSchema = componentVariantSchema
   .partial()
   .refine((patch) => Object.keys(patch).length > 0, {
     message: "A component variant update must change at least one property",
+  })
+
+export const componentInstanceMetadataPatchSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120).optional(),
+    transform: componentTransformSchema.optional(),
+  })
+  .strict()
+  .refine((patch) => Object.keys(patch).length > 0, {
+    message: "A component instance update must change at least one property",
   })
 
 export const componentOverridePropertySchema = z.enum([
@@ -1089,6 +1126,11 @@ export const documentCommandSchema = z.discriminatedUnion("type", [
     instanceId: id,
     sourceNodeId: id,
     patch: sceneNodePatchSchema,
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("update_component_instance_metadata"),
+    instanceId: id,
+    patch: componentInstanceMetadataPatchSchema,
   }),
   commandBaseSchema.extend({
     type: z.literal("reset_component_override"),
@@ -1457,6 +1499,9 @@ export type FieldBinding = z.infer<typeof fieldBindingSchema>
 export type GroupDefinition = z.infer<typeof groupDefinitionSchema>
 export type ComponentTransform = z.infer<typeof componentTransformSchema>
 export type ComponentVariant = z.infer<typeof componentVariantSchema>
+export type ComponentRemovableProperty = z.infer<
+  typeof componentRemovablePropertySchema
+>
 export type ComponentDefinition = z.infer<typeof componentDefinitionSchema>
 export type ComponentNodeMapping = z.infer<typeof componentNodeMappingSchema>
 export type ComponentGroupMapping = z.infer<typeof componentGroupMappingSchema>

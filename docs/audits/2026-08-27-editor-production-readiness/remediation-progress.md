@@ -3357,3 +3357,31 @@ Status: **implemented and locally accepted; Gate 2B is next**
 - Gate 2B remains open for non-`update_node` style/media/variable direct edits,
   optional-property removal, structural dependant guards and remaining
   page/output policies. Gate 2A does not claim editor UI.
+
+## 2026-08-30 — COMPONENT-01 Gate 2B cross-command integrity
+
+Status: **implemented and locally accepted; Gate 2 is closed and Gate 3 is
+next**
+
+- Re-read the Gate 2 open list and the shared Studio command/resource paths
+  before replacing per-control special cases with one resolved-state
+  reconciliation boundary.
+- Ordinary commands now capture only instance properties that actually changed
+  and still differ from the newly resolved source/variant state. Source style,
+  variable, field and visual updates therefore propagate without becoming
+  false overrides, while instance-local style, variable, field and image edits
+  remain protected.
+- Optional attachment/property removal is canonical. Reusable-style detach and
+  other optional removals survive synchronization and can be reset by property
+  or as a whole.
+- Added canonical instance rename/transform behavior and propagated safe source
+  group names, membership, nested hierarchy and relative page z-order.
+- Destructive or mapping-changing structural commands against a linked source
+  or instance now fail before mutation with explicit component/detach guidance.
+  Complete clone retains instance semantics; partial clone and adapted-output
+  content remain deliberately detached.
+- All 31 document test files pass (297 tests), including reusable-style,
+  variable, image, transform, ordering and guard cases. All workspace packages,
+  including Studio, typecheck.
+- Gate 3 next owns the actual Layers, Assets, Inspector, canvas and compact
+  component workflows. Gate 2 closure is not a UI-completion claim.

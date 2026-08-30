@@ -7,6 +7,7 @@ import {
   textNodePatchSchema,
   type Document,
   type DocumentCommand,
+  type ComponentRemovableProperty,
   type SceneNode,
   type TextNodePatch,
 } from "./schema"
@@ -43,6 +44,7 @@ import {
   variableUsage,
 } from "./variables"
 import {
+  componentDifferingProperties,
   componentSourceSubtree,
   materializeComponentInstances,
   resolveComponentInstanceNodes,
@@ -598,7 +600,8 @@ function withComponentInstanceOverride(
   document: Document,
   instanceId: string,
   sourceNodeId: string,
-  patch: Readonly<Record<string, unknown>>
+  patch: Readonly<Record<string, unknown>>,
+  removedProperties: readonly ComponentRemovableProperty[] = []
 ): Document {
   const instance = document.componentInstances.find(
     (candidate) => candidate.id === instanceId
@@ -617,53 +620,204 @@ function withComponentInstanceOverride(
     ...document,
     componentInstances: document.componentInstances.map((candidate) =>
       candidate.id === instance.id
-        ? {
-            ...candidate,
-            overrides: {
-              ...candidate.overrides,
-              [sourceNodeId]: {
-                ...candidate.overrides[sourceNodeId],
-                ...patch,
-              },
-            },
-          }
+        ? (() => {
+            const overrides = { ...candidate.overrides }
+            const mergedPatch = {
+              ...overrides[sourceNodeId],
+              ...patch,
+            }
+            if (Object.keys(mergedPatch).length) {
+              overrides[sourceNodeId] = sceneNodePatchSchema.parse(mergedPatch)
+            } else {
+              delete overrides[sourceNodeId]
+            }
+            const removed = new Set(
+              candidate.removedProperties?.[sourceNodeId] ?? []
+            )
+            for (const property of Object.keys(patch)) {
+              removed.delete(property as ComponentRemovableProperty)
+            }
+            for (const property of removedProperties) removed.add(property)
+            const nextRemovedProperties = {
+              ...(candidate.removedProperties ?? {}),
+            }
+            if (removed.size) {
+              nextRemovedProperties[sourceNodeId] = [...removed]
+            } else {
+              delete nextRemovedProperties[sourceNodeId]
+            }
+            return {
+              ...candidate,
+              overrides,
+              ...(Object.keys(nextRemovedProperties).length
+                ? { removedProperties: nextRemovedProperties }
+                : { removedProperties: undefined }),
+            }
+          })()
         : candidate
     ),
   }
 }
 
-function synchronizeAfterDirectNodeUpdate(
+const removableComponentProperties = new Set<ComponentRemovableProperty>([
+  "typographyStyleId",
+  "paintStyleId",
+  "stroke",
+  "altProvenance",
+])
+
+function reconcileOrdinaryComponentMutations(
   before: Document,
-  updated: Document,
-  command: Extract<DocumentCommand, { type: "update_node" }>
+  updated: Document
 ): Document {
-  const owningInstance = before.componentInstances.find((instance) =>
-    instance.nodeMappings.some(
-      (mapping) => mapping.instanceNodeId === command.nodeId
+  if (!updated.componentInstances.length) return updated
+  const beforeNodes = new Map(before.nodes.map((node) => [node.id, node]))
+  const actualNodes = new Map(updated.nodes.map((node) => [node.id, node]))
+  let reconciled = updated
+  let captured = false
+
+  for (const instance of updated.componentInstances) {
+    const expectedNodes = new Map(
+      resolveComponentInstanceNodes(updated, instance).map((node) => [
+        node.id,
+        node,
+      ])
     )
-  )
-  let synchronized = updated
-  if (owningInstance) {
-    const mapping = owningInstance.nodeMappings.find(
-      (candidate) => candidate.instanceNodeId === command.nodeId
-    )
-    if (mapping) {
-      synchronized = withComponentInstanceOverride(
-        synchronized,
-        owningInstance.id,
-        mapping.sourceNodeId,
-        command.patch
+    for (const mapping of instance.nodeMappings) {
+      const previous = beforeNodes.get(mapping.instanceNodeId)
+      const actual = actualNodes.get(mapping.instanceNodeId)
+      const expected = expectedNodes.get(mapping.instanceNodeId)
+      if (!previous || !actual || !expected) continue
+      const directlyChanged = new Set(
+        componentDifferingProperties(actual, previous)
       )
+      const unresolved = componentDifferingProperties(actual, expected).filter(
+        (property) => directlyChanged.has(property)
+      )
+      if (!unresolved.length) continue
+
+      const patch: Record<string, unknown> = {}
+      const removed: ComponentRemovableProperty[] = []
+      for (const property of unresolved) {
+        if (
+          removableComponentProperties.has(
+            property as ComponentRemovableProperty
+          ) &&
+          !Object.prototype.hasOwnProperty.call(actual, property)
+        ) {
+          removed.push(property as ComponentRemovableProperty)
+        } else {
+          patch[property] = actual[property as keyof SceneNode]
+        }
+      }
+      reconciled = withComponentInstanceOverride(
+        reconciled,
+        instance.id,
+        mapping.sourceNodeId,
+        patch,
+        removed
+      )
+      captured = true
     }
   }
-  const sourceChanged = before.components.some((component) =>
-    componentSourceSubtree(before, component.sourceGroupId)?.nodeIds.includes(
-      command.nodeId
+
+  const sourceChanged = updated.components.some((component) => {
+    const subtree = componentSourceSubtree(updated, component.sourceGroupId)
+    return subtree?.nodeIds.some((nodeId) => {
+      const previous = beforeNodes.get(nodeId)
+      const actual = actualNodes.get(nodeId)
+      return Boolean(
+        previous &&
+        actual &&
+        componentDifferingProperties(actual, previous).length
+      )
+    })
+  })
+  const sourceStructureChanged = updated.components.some((component) => {
+    const subtree = componentSourceSubtree(updated, component.sourceGroupId)
+    if (!subtree) return false
+    if (
+      subtree.groupIds.some((groupId) => {
+        const previous = before.groups.find((group) => group.id === groupId)
+        const actual = updated.groups.find((group) => group.id === groupId)
+        return JSON.stringify(previous) !== JSON.stringify(actual)
+      })
+    ) {
+      return true
+    }
+    const sourceGroup = updated.groups.find(
+      (group) => group.id === component.sourceGroupId
     )
-  )
-  return owningInstance || sourceChanged
-    ? materializeComponentInstances(synchronized)
-    : synchronized
+    const previousPage = sourceGroup
+      ? before.pages.find((page) => page.id === sourceGroup.pageId)
+      : undefined
+    const actualPage = sourceGroup
+      ? updated.pages.find((page) => page.id === sourceGroup.pageId)
+      : undefined
+    const sourceNodeIds = new Set(subtree.nodeIds)
+    const previousOrder = previousPage?.nodeIds.filter((nodeId) =>
+      sourceNodeIds.has(nodeId)
+    )
+    const actualOrder = actualPage?.nodeIds.filter((nodeId) =>
+      sourceNodeIds.has(nodeId)
+    )
+    return JSON.stringify(previousOrder) !== JSON.stringify(actualOrder)
+  })
+  return captured || sourceChanged || sourceStructureChanged
+    ? materializeComponentInstances(reconciled)
+    : reconciled
+}
+
+function componentStructuralOwnership(document: Document) {
+  const sourceNodeIds = new Set<string>()
+  const sourceGroupIds = new Set<string>()
+  for (const component of document.components) {
+    const subtree = componentSourceSubtree(document, component.sourceGroupId)
+    for (const nodeId of subtree?.nodeIds ?? []) sourceNodeIds.add(nodeId)
+    for (const groupId of subtree?.groupIds ?? []) sourceGroupIds.add(groupId)
+  }
+  return {
+    sourceNodeIds,
+    sourceGroupIds,
+    instanceNodeIds: new Set(
+      document.componentInstances.flatMap((instance) =>
+        instance.nodeMappings.map((mapping) => mapping.instanceNodeId)
+      )
+    ),
+    instanceGroupIds: new Set(
+      document.componentInstances.flatMap((instance) =>
+        instance.groupMappings.map((mapping) => mapping.instanceGroupId)
+      )
+    ),
+  }
+}
+
+function assertComponentStructureEditable(
+  document: Document,
+  input: {
+    nodeIds?: readonly string[]
+    groupIds?: readonly string[]
+    allowSourceOrder?: boolean
+  }
+) {
+  const ownership = componentStructuralOwnership(document)
+  if (
+    input.nodeIds?.some((nodeId) => ownership.instanceNodeIds.has(nodeId)) ||
+    input.groupIds?.some((groupId) => ownership.instanceGroupIds.has(groupId))
+  ) {
+    throw new Error(
+      "Detach the component instance before changing its layer structure"
+    )
+  }
+  if (
+    !input.allowSourceOrder &&
+    (input.nodeIds?.some((nodeId) => ownership.sourceNodeIds.has(nodeId)) ||
+      input.groupIds?.some((groupId) => ownership.sourceGroupIds.has(groupId)))
+  ) {
+    throw new Error(
+      "This component source structure has linked instances and cannot be changed by this command"
+    )
+  }
 }
 
 function applyParsedCommand(
@@ -938,7 +1092,6 @@ function applyParsedCommand(
           command.patch
         ),
       }
-      next = synchronizeAfterDirectNodeUpdate(document, next, command)
       break
     }
     case "create_component": {
@@ -1180,6 +1333,24 @@ function applyParsedCommand(
       )
       break
     }
+    case "update_component_instance_metadata": {
+      if (
+        !document.componentInstances.some(
+          (instance) => instance.id === command.instanceId
+        )
+      ) {
+        throw new Error(`Unknown component instance: ${command.instanceId}`)
+      }
+      next = materializeComponentInstances({
+        ...document,
+        componentInstances: document.componentInstances.map((instance) =>
+          instance.id === command.instanceId
+            ? { ...instance, ...command.patch, id: instance.id }
+            : instance
+        ),
+      })
+      break
+    }
     case "reset_component_override": {
       const instance = document.componentInstances.find(
         (candidate) => candidate.id === command.instanceId
@@ -1187,12 +1358,19 @@ function applyParsedCommand(
       if (!instance) {
         throw new Error(`Unknown component instance: ${command.instanceId}`)
       }
-      if (!instance.overrides[command.sourceNodeId]) {
+      if (
+        !instance.overrides[command.sourceNodeId] &&
+        !instance.removedProperties?.[command.sourceNodeId]
+      ) {
         throw new Error("The selected component layer has no overrides")
       }
       const overrides = structuredClone(instance.overrides)
+      const removedProperties = structuredClone(
+        instance.removedProperties ?? {}
+      )
       if (!command.properties) {
         delete overrides[command.sourceNodeId]
+        delete removedProperties[command.sourceNodeId]
       } else {
         const patch: Record<string, unknown> = {
           ...overrides[command.sourceNodeId],
@@ -1201,11 +1379,25 @@ function applyParsedCommand(
         if (Object.keys(patch).length) {
           overrides[command.sourceNodeId] = sceneNodePatchSchema.parse(patch)
         } else delete overrides[command.sourceNodeId]
+        const removed = new Set(removedProperties[command.sourceNodeId] ?? [])
+        for (const property of command.properties) {
+          removed.delete(property as ComponentRemovableProperty)
+        }
+        if (removed.size) removedProperties[command.sourceNodeId] = [...removed]
+        else delete removedProperties[command.sourceNodeId]
       }
       next = materializeComponentInstances({
         ...document,
         componentInstances: document.componentInstances.map((candidate) =>
-          candidate.id === instance.id ? { ...candidate, overrides } : candidate
+          candidate.id === instance.id
+            ? {
+                ...candidate,
+                overrides,
+                ...(Object.keys(removedProperties).length
+                  ? { removedProperties }
+                  : { removedProperties: undefined }),
+              }
+            : candidate
         ),
       })
       break
@@ -1222,7 +1414,11 @@ function applyParsedCommand(
         ...document,
         componentInstances: document.componentInstances.map((instance) =>
           instance.id === command.instanceId
-            ? { ...instance, overrides: {} }
+            ? {
+                ...instance,
+                overrides: {},
+                removedProperties: undefined,
+              }
             : instance
         ),
       })
@@ -1718,6 +1914,7 @@ function applyParsedCommand(
       if (!document.nodes.some((node) => node.id === command.nodeId)) {
         throw new Error(`Unknown node: ${command.nodeId}`)
       }
+      assertComponentStructureEditable(document, { nodeIds: [command.nodeId] })
       next = {
         ...document,
         nodes: document.nodes.filter((node) => node.id !== command.nodeId),
@@ -1747,6 +1944,10 @@ function applyParsedCommand(
       break
     }
     case "reorder_node": {
+      assertComponentStructureEditable(document, {
+        nodeIds: [command.nodeId],
+        allowSourceOrder: true,
+      })
       const page = document.pages.find(
         (candidate) => candidate.id === command.pageId
       )
@@ -1772,6 +1973,10 @@ function applyParsedCommand(
       break
     }
     case "reorder_nodes": {
+      assertComponentStructureEditable(document, {
+        nodeIds: command.nodeIds,
+        allowSourceOrder: true,
+      })
       const page = document.pages.find(
         (candidate) => candidate.id === command.pageId
       )
@@ -1805,6 +2010,10 @@ function applyParsedCommand(
       break
     }
     case "reparent_node": {
+      assertComponentStructureEditable(document, {
+        nodeIds: [command.nodeId],
+        groupIds: command.targetGroupId ? [command.targetGroupId] : [],
+      })
       const page = document.pages.find(
         (candidate) => candidate.id === command.pageId
       )
@@ -1859,6 +2068,12 @@ function applyParsedCommand(
       break
     }
     case "reparent_group": {
+      assertComponentStructureEditable(document, {
+        groupIds: [
+          command.groupId,
+          ...(command.targetGroupId ? [command.targetGroupId] : []),
+        ],
+      })
       const group = document.groups.find(
         (candidate) => candidate.id === command.groupId
       )
@@ -1922,6 +2137,7 @@ function applyParsedCommand(
       break
     }
     case "group_nodes": {
+      assertComponentStructureEditable(document, { nodeIds: command.nodeIds })
       if (document.groups.some((group) => group.id === command.groupId)) {
         throw new Error(`Group already exists: ${command.groupId}`)
       }
@@ -2006,6 +2222,15 @@ function applyParsedCommand(
       if (!document.groups.some((group) => group.id === command.groupId)) {
         throw new Error(`Unknown group: ${command.groupId}`)
       }
+      if (
+        componentStructuralOwnership(document).instanceGroupIds.has(
+          command.groupId
+        )
+      ) {
+        throw new Error(
+          "Rename the component instance through its component controls"
+        )
+      }
       next = {
         ...document,
         groups: document.groups.map((group) =>
@@ -2021,6 +2246,9 @@ function applyParsedCommand(
         (candidate) => candidate.id === command.groupId
       )
       if (!group) throw new Error(`Unknown group: ${command.groupId}`)
+      assertComponentStructureEditable(document, {
+        groupIds: [command.groupId],
+      })
       next = {
         ...document,
         groups: document.groups
@@ -2133,6 +2361,11 @@ function applyParsedCommand(
       if (!output || output.pageIds.length <= 1) {
         throw new Error("An output must keep at least one page")
       }
+      assertComponentStructureEditable(document, {
+        groupIds: document.groups
+          .filter((group) => group.pageId === page.id)
+          .map((group) => group.id),
+      })
       const removedNodeIds = new Set(page.nodeIds)
       next = {
         ...document,
@@ -2255,6 +2488,11 @@ function applyParsedCommand(
         throw new Error("A document must keep at least one output")
       }
       const removedPageIds = new Set(output.pageIds)
+      assertComponentStructureEditable(document, {
+        groupIds: document.groups
+          .filter((group) => removedPageIds.has(group.pageId))
+          .map((group) => group.id),
+      })
       const removedNodeIds = new Set(
         document.pages
           .filter((page) => removedPageIds.has(page.id))
@@ -2285,9 +2523,11 @@ function applyParsedCommand(
     }
   }
 
+  const projected = applyFieldValues(next)
+  const reconciled = reconcileOrdinaryComponentMutations(document, projected)
   return validateResult(
     applyFieldValues({
-      ...next,
+      ...reconciled,
       revision: document.revision + 1,
       updatedAt: command.at,
     })

@@ -6,6 +6,7 @@ import {
   cloneSemanticFragment,
   componentGraphCycles,
   componentIntegrityIssues,
+  materializeComponentInstances,
   northstarSeed,
   resolveComponentInstanceNodes,
   type ComponentDefinition,
@@ -126,6 +127,46 @@ function componentSourceFixture(): Document {
     (group) => !instanceGroupIds.has(group.id)
   )
   document.componentInstances = []
+  return assertValidDocument(document)
+}
+
+function imageComponentFixture(): Document {
+  let document = componentFixture()
+  const source = document.nodes.find((node) => node.id === "cover-panel")
+  if (!source) throw new Error("Missing component image source")
+  document.nodes = document.nodes.map((node) =>
+    node.id === source.id
+      ? {
+          id: source.id,
+          type: "image" as const,
+          name: "Component image",
+          assetId: "component-image-source",
+          src: "https://assets.example.test/component-source.png",
+          placement: {
+            mode: "fill" as const,
+            focalX: 0.5,
+            focalY: 0.5,
+            zoom: 1,
+            rotation: 0,
+            flipX: false,
+            flipY: false,
+          },
+          frameMask: { shape: "rectangle" as const },
+          alt: "Component source",
+          altProvenance: "authored" as const,
+          decorative: false,
+          x: source.x,
+          y: source.y,
+          width: source.width,
+          height: source.height,
+          rotation: source.rotation,
+          opacity: source.opacity,
+          visible: source.visible,
+          locked: source.locked,
+        }
+      : node
+  )
+  document = materializeComponentInstances(document)
   return assertValidDocument(document)
 }
 
@@ -324,6 +365,30 @@ describe("canonical document components", () => {
     ).toMatchObject({ fontSize: 12, height: 24 })
   })
 
+  it("renames and transforms an instance through canonical metadata", () => {
+    const document = applyCommand(componentFixture(), {
+      ...commandMeta("transform-instance"),
+      type: "update_component_instance_metadata",
+      instanceId: "instance-hero",
+      patch: {
+        name: "Moved hero",
+        transform: { x: 240, y: 320, scale: 0.75, rotation: 12 },
+      },
+    })
+    expect(
+      document.groups.find((group) => group.id === "group-instance-hero")
+    ).toMatchObject({ name: "Moved hero" })
+    expect(
+      document.nodes.find((node) => node.id === "instance-cover-eyebrow")
+    ).toMatchObject({ type: "text", fontSize: 14.25 })
+    expect(document.componentInstances[0]?.transform).toEqual({
+      x: 240,
+      y: 320,
+      scale: 0.75,
+      rotation: 12,
+    })
+  })
+
   it("creates, updates, replaces and resets component variant state", () => {
     let document = applyCommand(componentFixture(), {
       ...commandMeta("create-variant"),
@@ -396,6 +461,212 @@ describe("canonical document components", () => {
     expect(
       repaired.nodes.find((node) => node.id === "instance-cover-eyebrow")
     ).not.toMatchObject({ color: "#ff0000" })
+  })
+
+  it("captures reusable-style application, propagation and detachment as exact overrides", () => {
+    let document = applyCommand(componentFixture(), {
+      ...commandMeta("create-instance-style"),
+      type: "create_typography_style",
+      style: {
+        id: "component-instance-title",
+        name: "Component / Instance title",
+        fontFamily: "Geist Variable",
+        fontSize: 32,
+        fontWeight: 700,
+        italic: false,
+        lineHeight: 1.1,
+        letterSpacing: -0.5,
+        decoration: "none",
+      },
+    })
+    document = applyCommand(document, {
+      ...commandMeta("apply-instance-style"),
+      type: "apply_typography_style",
+      styleId: "component-instance-title",
+      targets: [{ nodeId: "instance-cover-eyebrow" }],
+    })
+    expect(document.componentInstances[0]?.overrides["cover-eyebrow"]).toEqual(
+      expect.objectContaining({
+        typographyStyleId: "component-instance-title",
+        fontSize: 32,
+      })
+    )
+
+    document = applyCommand(document, {
+      ...commandMeta("update-instance-style"),
+      type: "update_typography_style",
+      styleId: "component-instance-title",
+      patch: { fontSize: 36 },
+    })
+    expect(
+      document.nodes.find((node) => node.id === "instance-cover-eyebrow")
+    ).toMatchObject({
+      typographyStyleId: "component-instance-title",
+      fontSize: 36,
+    })
+
+    document = applyCommand(document, {
+      ...commandMeta("detach-instance-style"),
+      type: "detach_typography_style",
+      targets: [{ nodeId: "instance-cover-eyebrow" }],
+    })
+    const instance = document.componentInstances[0]
+    expect(instance?.removedProperties?.["cover-eyebrow"]).toContain(
+      "typographyStyleId"
+    )
+    expect(
+      document.nodes.find((node) => node.id === "instance-cover-eyebrow")
+    ).not.toHaveProperty("typographyStyleId")
+
+    document = applyCommand(document, {
+      ...commandMeta("reset-instance-style"),
+      type: "reset_component_override",
+      instanceId: "instance-hero",
+      sourceNodeId: "cover-eyebrow",
+      properties: ["typographyStyleId", "fontSize"],
+    })
+    expect(
+      document.nodes.find((node) => node.id === "instance-cover-eyebrow")
+    ).toMatchObject({ fontSize: 9.5 })
+  })
+
+  it("keeps variable-controlled instance values coherent with component overrides", () => {
+    let document = applyCommand(componentFixture(), {
+      ...commandMeta("create-instance-color"),
+      type: "create_variable",
+      variable: {
+        id: "instance-color",
+        name: "Instance color",
+        type: "color",
+        value: "#ea580c",
+      },
+    })
+    document = applyCommand(document, {
+      ...commandMeta("bind-instance-color"),
+      type: "bind_variable",
+      binding: {
+        id: "bind-instance-color",
+        variableId: "instance-color",
+        target: {
+          kind: "node",
+          nodeId: "instance-cover-eyebrow",
+          property: "color",
+        },
+      },
+    })
+    expect(document.componentInstances[0]?.overrides["cover-eyebrow"]).toEqual(
+      expect.objectContaining({ color: "#ea580c" })
+    )
+
+    document = applyCommand(document, {
+      ...commandMeta("update-instance-color"),
+      type: "update_variable",
+      variableId: "instance-color",
+      patch: { value: "#0891b2" },
+    })
+    expect(
+      document.nodes.find((node) => node.id === "instance-cover-eyebrow")
+    ).toMatchObject({ color: "#0891b2" })
+    expect(document.componentInstances[0]?.overrides["cover-eyebrow"]).toEqual(
+      expect.objectContaining({ color: "#0891b2" })
+    )
+  })
+
+  it("captures image placement, mask and source commands on an instance", () => {
+    let document = applyCommand(imageComponentFixture(), {
+      ...commandMeta("place-instance-image"),
+      type: "set_image_placement",
+      nodeId: "instance-cover-panel",
+      placement: {
+        mode: "manual",
+        focalX: 0.25,
+        focalY: 0.7,
+        zoom: 1.4,
+        rotation: 8,
+        flipX: false,
+        flipY: true,
+      },
+    })
+    document = applyCommand(document, {
+      ...commandMeta("mask-instance-image"),
+      type: "set_image_frame_mask",
+      nodeId: "instance-cover-panel",
+      frameMask: { shape: "rounded_rectangle", radius: 0.2 },
+    })
+    document = applyCommand(document, {
+      ...commandMeta("replace-instance-image"),
+      type: "replace_image_source",
+      nodeId: "instance-cover-panel",
+      assetId: "component-image-replacement",
+      src: "https://assets.example.test/component-replacement.png",
+      alt: "Replacement",
+      altProvenance: "authored",
+    })
+
+    const override = document.componentInstances[0]?.overrides["cover-panel"]
+    expect(override).toEqual(
+      expect.objectContaining({
+        assetId: "component-image-replacement",
+        src: "https://assets.example.test/component-replacement.png",
+        placement: expect.objectContaining({ mode: "manual", zoom: 1.4 }),
+        frameMask: { shape: "rounded_rectangle", radius: 0.2 },
+      })
+    )
+    expect(
+      document.nodes.find((node) => node.id === "instance-cover-panel")
+    ).toMatchObject({
+      type: "image",
+      src: "https://assets.example.test/component-replacement.png",
+      frameMask: { shape: "rounded_rectangle", radius: 0.2 },
+    })
+  })
+
+  it("propagates safe source ordering and group names while guarding structural edits", () => {
+    let document = componentFixture()
+    const coverPage = document.pages.find((page) => page.id === "cover")!
+    const panelIndex = coverPage.nodeIds.indexOf("cover-panel")
+    document = applyCommand(document, {
+      ...commandMeta("reorder-component-source"),
+      type: "reorder_node",
+      pageId: "cover",
+      nodeId: "cover-eyebrow",
+      toIndex: panelIndex,
+    })
+    const storyOrder = document.pages.find(
+      (page) => page.id === "story"
+    )!.nodeIds
+    expect(storyOrder.indexOf("instance-cover-eyebrow")).toBeLessThan(
+      storyOrder.indexOf("instance-cover-panel")
+    )
+
+    document = applyCommand(document, {
+      ...commandMeta("rename-component-source-group"),
+      type: "update_group",
+      groupId: "group-component-hero-details",
+      name: "Updated hero details",
+    })
+    expect(
+      document.groups.find(
+        (group) => group.id === "group-instance-hero-details"
+      )?.name
+    ).toBe("Updated hero details")
+
+    expect(() =>
+      applyCommand(document, {
+        ...commandMeta("remove-component-source-layer"),
+        type: "remove_node",
+        nodeId: "cover-panel",
+      })
+    ).toThrow("component source structure")
+    expect(() =>
+      applyCommand(document, {
+        ...commandMeta("reorder-instance-layer"),
+        type: "reorder_node",
+        pageId: "story",
+        nodeId: "instance-cover-panel",
+        toIndex: 0,
+      })
+    ).toThrow("Detach the component instance")
   })
 
   it("requires an explicit detach policy before deleting a used component", () => {
