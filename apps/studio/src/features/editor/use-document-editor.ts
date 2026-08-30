@@ -22,6 +22,7 @@ import {
   quotationSourceFingerprint,
   QUOTATION_COMPOSER_VERSION,
   inferQuotationTemplateId,
+  libraryTemplateDetailSchema,
   previewChangeSet,
   quotationCompositionRequestV1Schema,
   QUOTATION_GROUP_ORGANIZATION_MIGRATION_ID,
@@ -35,7 +36,6 @@ import type {
   ChangeSet,
   Document,
   DocumentCommand,
-  DesignTemplateCatalogItem,
   DesignStyleTarget,
   DesignVariable,
   DesignVariablePatch,
@@ -95,6 +95,14 @@ import {
   replaceDocumentWithResult,
   undoDocument,
 } from "@webmcp/editor/history"
+import {
+  createLibraryTemplateActions,
+  type ResolvedTemplateAction,
+  type TemplateActionIntent,
+  type TemplateActionSnapshot,
+  type TemplateMutation,
+} from "../../content/library/library-template-actions"
+import { studioLibraryDiscoveryAdapter } from "../../content/library/library-discovery-adapter"
 import type {
   DocumentHistoryCommit,
   DocumentHistory,
@@ -256,7 +264,10 @@ import {
   prepareApplyTemplate,
   prepareCreateFromTemplate,
 } from "./template-lifecycle"
-import type { TemplateSourceContext } from "./template-lifecycle"
+import type {
+  PreparedTemplateMutation,
+  TemplateSourceContext,
+} from "./template-lifecycle"
 import { createKnownQuotationComposition } from "./quotation-composition-context"
 import type { QuotationCompositionContext } from "./quotation-composition-context"
 import { resolveUnavailableImageCrop } from "./image-crop-unavailable"
@@ -344,13 +355,6 @@ type PublicationOperation = {
   serverCommitted: boolean
   promise: Promise<TemplateVersion>
 }
-type DesignTemplateCatalogState = {
-  status: "loading" | "ready" | "error"
-  items: DesignTemplateCatalogItem[]
-  categories: string[]
-  error: string | null
-}
-
 type RendererReplacementPayload = Readonly<{
   anchor: AssetMutationAnchor
   asset: ReusableImageAsset
@@ -1029,14 +1033,6 @@ export function useDocumentEditor({
   )
   const documentSnapshotIdRef = useRef(documentSnapshotId)
   documentSnapshotIdRef.current = documentSnapshotId
-  const [designTemplateCatalog, setDesignTemplateCatalog] =
-    useState<DesignTemplateCatalogState>({
-      status: "loading",
-      items: [],
-      categories: [],
-      error: null,
-    })
-
   const quotationGroupOrganization =
     useMemo<QuotationGroupOrganizationAnalysis>(() => {
       if (activeQuotationComposition?.status === "known") {
@@ -1138,6 +1134,7 @@ export function useDocumentEditor({
   )
   const reviewJournalRef = useRef(reviewJournal)
   reviewJournalRef.current = reviewJournal
+  const reviewGenerationRef = useRef(0)
   const quotationRefreshJournalRef = useRef(quotationRefreshJournal)
   quotationRefreshJournalRef.current = quotationRefreshJournal
   const lastCapturedReviewJournalRef = useRef<ReviewJournal | null>(null)
@@ -1165,6 +1162,7 @@ export function useDocumentEditor({
       ? { composition: activeQuotationComposition }
       : {}),
   }
+  const templateSourceGenerationRef = useRef(0)
   const templateSourceBySnapshotRef = useRef(
     new Map<string, TemplateSourceContext>()
   )
@@ -1186,6 +1184,7 @@ export function useDocumentEditor({
 
   const projectReviewJournal = useCallback((journalInput: ReviewJournal) => {
     const journal = reviewJournalOrEmpty(journalInput)
+    reviewGenerationRef.current += 1
     reviewJournalRef.current = journal
     setReviewJournal(journal)
     pendingChangeSetRef.current = journal.pending?.changeSet ?? null
@@ -1220,6 +1219,7 @@ export function useDocumentEditor({
 
   const installTemplateSourceContext = useCallback(
     (context: TemplateSourceContext) => {
+      templateSourceGenerationRef.current += 1
       templateSourceContextRef.current = context
       setQuotationSource(context.quotationSource)
       setActiveQuotationTemplateId(context.quotationTemplateId)
@@ -1229,6 +1229,70 @@ export function useDocumentEditor({
     },
     []
   )
+
+  const readTemplateActionSnapshot = useCallback(
+    (): TemplateActionSnapshot => ({
+      document: historyRef.current.document,
+      documentGeneration: historyRef.current.operationVersion,
+      sourceGeneration: templateSourceGenerationRef.current,
+      reviewGeneration: reviewGenerationRef.current,
+      hasQuotationSource: Boolean(
+        templateSourceContextRef.current.quotationSource
+      ),
+    }),
+    []
+  )
+
+  const libraryTemplateActionsRef = useRef<ReturnType<
+    typeof createLibraryTemplateActions
+  > | null>(null)
+  if (!libraryTemplateActionsRef.current) {
+    libraryTemplateActionsRef.current = createLibraryTemplateActions({
+      async getDetail(kind, id, version, signal) {
+        const detail = await studioLibraryDiscoveryAdapter.getDetail(
+          kind,
+          id,
+          version,
+          signal
+        )
+        return detail.summary.itemKind === "template"
+          ? libraryTemplateDetailSchema.parse(detail)
+          : null
+      },
+      getCurrent: readTemplateActionSnapshot,
+      prepareCreate(identity, current) {
+        return prepareCreateFromTemplate({
+          repository: builtInDesignTemplateRepository,
+          templateId: identity.id,
+          version: identity.version,
+          currentDocument: current.document,
+          sourceContext: templateSourceContextRef.current,
+        })
+      },
+      prepareApply(identity, current) {
+        return prepareApplyTemplate({
+          repository: builtInDesignTemplateRepository,
+          templateId: identity.id,
+          version: identity.version,
+          currentDocument: current.document,
+          sourceContext: templateSourceContextRef.current,
+        })
+      },
+    })
+  }
+  const libraryTemplateActions = libraryTemplateActionsRef.current
+  const activeLibraryTemplateInstallRef = useRef<symbol | null>(null)
+
+  useEffect(
+    () => () => {
+      libraryTemplateActions.cancel()
+    },
+    [libraryTemplateActions]
+  )
+
+  useEffect(() => {
+    libraryTemplateActions.cancel()
+  }, [history.document.id, libraryTemplateActions])
 
   const rememberStartEnvelope = useCallback(
     (envelope: CurrentDraftEnvelope) => {
@@ -2010,9 +2074,17 @@ export function useDocumentEditor({
   }, [discoverDocumentConflict, localSaveState])
 
   const persistAndInstallSession = useCallback(
-    async (envelope: CurrentDraftEnvelope, origin: DraftOrigin) => {
+    async (
+      envelope: CurrentDraftEnvelope,
+      origin: DraftOrigin,
+      canInstall: () => boolean = () => true
+    ) => {
       const transition = claimSessionTransition("replace")
       if (!transition) return false
+      if (!canInstall()) {
+        releaseSessionTransition(transition)
+        return false
+      }
       try {
         if (persistenceBlockedRef.current || !repositoryReadyRef.current) {
           const validated = validateCurrentDraftSnapshot({
@@ -2025,14 +2097,14 @@ export function useDocumentEditor({
             setDocumentError(validated.failure.message)
             return false
           }
-          if (!ownsSessionTransition(transition)) return false
+          if (!ownsSessionTransition(transition) || !canInstall()) return false
           const previousSession = activePersistenceSessionRef.current
           if (
             previousSession &&
             !(await retirePersistenceSession(previousSession))
           )
             return false
-          if (!ownsSessionTransition(transition)) return false
+          if (!ownsSessionTransition(transition) || !canInstall()) return false
           activeRecordRef.current = null
           lastCapturedDocumentRef.current = validated.envelope.document
           lastCapturedSourceContextRef.current =
@@ -2058,7 +2130,7 @@ export function useDocumentEditor({
           !(await settlePersistenceSession(previousSession))
         )
           return false
-        if (!ownsSessionTransition(transition)) return false
+        if (!ownsSessionTransition(transition) || !canInstall()) return false
 
         const draftRepository = getDraftRepository()
         const created = await draftRepository.create(
@@ -2070,7 +2142,7 @@ export function useDocumentEditor({
           },
           origin
         )
-        if (!ownsSessionTransition(transition)) return false
+        if (!ownsSessionTransition(transition) || !canInstall()) return false
         if (!created.ok) {
           const message =
             "failure" in created
@@ -2092,7 +2164,11 @@ export function useDocumentEditor({
           }
           return false
         }
-        const installed = await installDraftRecord(created.record, transition)
+        const installed = await installDraftRecord(
+          created.record,
+          transition,
+          canInstall
+        )
         if (!ownsSessionTransition(transition)) return false
         return installed
       } finally {
@@ -3269,41 +3345,6 @@ export function useDocumentEditor({
     ownsSessionTransition,
     releaseSessionTransition,
   ])
-
-  const loadDesignTemplateCatalog = useCallback(() => {
-    setDesignTemplateCatalog((current) => ({
-      ...current,
-      status: "loading",
-      error: null,
-    }))
-    void Promise.resolve()
-      .then(() => ({
-        items: builtInDesignTemplateRepository.list(),
-        categories: builtInDesignTemplateRepository.categories(),
-      }))
-      .then(({ items, categories }) => {
-        setDesignTemplateCatalog({
-          status: "ready",
-          items,
-          categories,
-          error: null,
-        })
-      })
-      .catch((error: unknown) => {
-        setDesignTemplateCatalog((current) => ({
-          ...current,
-          status: "error",
-          error:
-            error instanceof Error
-              ? error.message
-              : "The template catalog could not be loaded.",
-        }))
-      })
-  }, [])
-
-  useEffect(() => {
-    loadDesignTemplateCatalog()
-  }, [loadDesignTemplateCatalog])
 
   const readAssetMutationState = useCallback(
     (): AssetMutationState => ({
@@ -9899,146 +9940,266 @@ export function useDocumentEditor({
     [activePageId, commit]
   )
 
-  const getDesignTemplateImpact = useCallback(
-    (templateId: string, version: number) =>
-      prepareApplyTemplate({
-        repository: builtInDesignTemplateRepository,
-        templateId,
-        version,
-        currentDocument: historyRef.current.document,
-        sourceContext: templateSourceContextRef.current,
-      }).impact,
+  const reportTemplateActionFailure = useCallback(
+    (error: unknown, fallback: string) => {
+      const message = error instanceof Error ? error.message : fallback
+      if (
+        (error instanceof DOMException && error.name === "AbortError") ||
+        message === "Template action was superseded"
+      ) {
+        return
+      }
+      setTemplateActionError(message)
+      setDocumentError(message)
+    },
     []
   )
 
-  const createDocumentFromTemplate = useCallback(
-    async (templateId: string, version: number) => {
-      if (!allowMutation(false, true)) return false
-      const requestGeneration = sessionGenerationRef.current
-      const requestDocumentId = historyRef.current.document.id
-      const requestSnapshotId = historyRef.current.snapshotId
-      try {
-        const mutation = prepareCreateFromTemplate({
-          repository: builtInDesignTemplateRepository,
-          templateId,
-          version,
-          currentDocument: historyRef.current.document,
-          sourceContext: templateSourceContextRef.current,
-        })
-        const definition = builtInDesignTemplateRepository.get(
-          templateId,
-          version
-        )
-        const sourceContext =
-          definition.kind === "quotation_style" &&
-          mutation.sourceContext.quotationSource
-            ? {
-                ...mutation.sourceContext,
-                composition: await createKnownQuotationComposition(
-                  mutation.sourceContext.quotationSource,
-                  { id: templateId, version },
-                  definition.composerVersion
-                ),
-              }
-            : mutation.sourceContext
-        if (
-          sessionGenerationRef.current !== requestGeneration ||
-          historyRef.current.document.id !== requestDocumentId ||
-          historyRef.current.snapshotId !== requestSnapshotId
-        ) {
-          setDocumentError(
-            "The active document changed while this template was being prepared. Choose the template again for the document now open."
-          )
-          return false
-        }
-        if (
-          !(await persistAndInstallSession(
-            {
-              schemaVersion: 1,
-              document: mutation.document,
-              sourceContext,
-            },
-            { kind: "template", templateId, templateVersion: version }
-          ))
-        )
-          return false
-        setTemplateActionError(null)
-        return true
-      } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "The selected template could not create a document."
-        setTemplateActionError(message)
-        setDocumentError(message)
-        return false
-      }
-    },
-    [allowMutation, persistAndInstallSession]
+  const isCurrentTemplateActionSnapshot = useCallback(
+    (snapshot: TemplateActionSnapshot) =>
+      historyRef.current.document.id === snapshot.document.id &&
+      historyRef.current.document.revision === snapshot.document.revision &&
+      historyRef.current.operationVersion === snapshot.documentGeneration &&
+      templateSourceGenerationRef.current === snapshot.sourceGeneration &&
+      reviewGenerationRef.current === snapshot.reviewGeneration &&
+      Boolean(templateSourceContextRef.current.quotationSource) ===
+        snapshot.hasQuotationSource,
+    []
   )
 
-  const applyDesignTemplate = useCallback(
-    (templateId: string, version: number) => {
-      if (!allowMutation()) return false
-      try {
-        const mutation = prepareApplyTemplate({
-          repository: builtInDesignTemplateRepository,
-          templateId,
-          version,
-          currentDocument: historyRef.current.document,
-          sourceContext: templateSourceContextRef.current,
-        })
-        if (mutation.document === historyRef.current.document) return false
-        templateSourceBySnapshotRef.current.set(
-          historyRef.current.snapshotId,
-          templateSourceContextRef.current
+  const installCreatedTemplateMutation = useCallback(
+    async (
+      mutationInput: TemplateMutation,
+      intent: TemplateActionIntent,
+      expected: TemplateActionSnapshot,
+      ownsInstallation: () => boolean
+    ) => {
+      const canInstall = () =>
+        ownsInstallation() && isCurrentTemplateActionSnapshot(expected)
+      if (!canInstall()) {
+        setDocumentError(
+          "The active document changed while this template was being prepared. Choose the template again for the document now open."
         )
-        const result = replaceDocumentWithResult(
-          historyRef.current,
-          mutation.document,
-          { label: mutation.label }
-        )
-        const nextHistory = result.history
-        historyRef.current = nextHistory
-        templateSourceBySnapshotRef.current.set(
-          nextHistory.snapshotId,
-          mutation.sourceContext
-        )
-        setHistory(nextHistory)
-        pruneTemplateSourceContexts(nextHistory)
-        notifyHistoryCommit(result.commit)
-        installTemplateSourceContext(mutation.sourceContext)
-        captureSettledDraft()
-        const nextPageId = mutation.document.pages.some(
-          (page) => page.id === activePageIdRef.current
-        )
-          ? activePageIdRef.current
-          : mutation.document.pages[0].id
-        activePageIdRef.current = nextPageId
-        setActivePageId(nextPageId)
-        setSelection((current) =>
-          reconcileSelection(current, mutation.document)
-        )
-        setTemplateActionError(null)
-        setDocumentError(null)
-        return true
-      } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "The selected template could not be applied."
-        setTemplateActionError(message)
-        setDocumentError(message)
         return false
       }
+      const mutation = mutationInput as PreparedTemplateMutation
+      const definition = builtInDesignTemplateRepository.get(
+        intent.id,
+        intent.version
+      )
+      const sourceContext =
+        definition.kind === "quotation_style" &&
+        mutation.sourceContext.quotationSource
+          ? {
+              ...mutation.sourceContext,
+              composition: await createKnownQuotationComposition(
+                mutation.sourceContext.quotationSource,
+                { id: intent.id, version: intent.version },
+                definition.composerVersion
+              ),
+            }
+          : mutation.sourceContext
+      if (!canInstall()) {
+        setDocumentError(
+          "The active document changed while this template was being prepared. Choose the template again for the document now open."
+        )
+        return false
+      }
+      if (
+        !(await persistAndInstallSession(
+          {
+            schemaVersion: 1,
+            document: mutation.document,
+            sourceContext,
+          },
+          {
+            kind: "template",
+            templateId: intent.id,
+            templateVersion: intent.version,
+          },
+          canInstall
+        ))
+      )
+        return false
+      setTemplateActionError(null)
+      setDocumentError(null)
+      return true
+    },
+    [isCurrentTemplateActionSnapshot, persistAndInstallSession]
+  )
+
+  const installAppliedTemplateMutation = useCallback(
+    (mutationInput: TemplateMutation) => {
+      const mutation = mutationInput as PreparedTemplateMutation
+      if (mutation.document === historyRef.current.document) return false
+      templateSourceBySnapshotRef.current.set(
+        historyRef.current.snapshotId,
+        templateSourceContextRef.current
+      )
+      const result = replaceDocumentWithResult(
+        historyRef.current,
+        mutation.document,
+        { label: mutation.label }
+      )
+      const nextHistory = result.history
+      historyRef.current = nextHistory
+      templateSourceBySnapshotRef.current.set(
+        nextHistory.snapshotId,
+        mutation.sourceContext
+      )
+      setHistory(nextHistory)
+      pruneTemplateSourceContexts(nextHistory)
+      notifyHistoryCommit(result.commit)
+      installTemplateSourceContext(mutation.sourceContext)
+      captureSettledDraft()
+      const nextPageId = mutation.document.pages.some(
+        (page) => page.id === activePageIdRef.current
+      )
+        ? activePageIdRef.current
+        : mutation.document.pages[0].id
+      activePageIdRef.current = nextPageId
+      setActivePageId(nextPageId)
+      setSelection((current) => reconcileSelection(current, mutation.document))
+      setTemplateActionError(null)
+      setDocumentError(null)
+      return true
     },
     [
-      allowMutation,
       captureSettledDraft,
       installTemplateSourceContext,
       notifyHistoryCommit,
       pruneTemplateSourceContexts,
     ]
+  )
+
+  const resolveCreateFromLibraryTemplate = useCallback(
+    async (intent: TemplateActionIntent) => {
+      if (!allowMutation(false, true)) return null
+      if (activeLibraryTemplateInstallRef.current) {
+        setTemplateActionError(
+          "Wait for the current template document to finish opening."
+        )
+        return null
+      }
+      try {
+        const resolved = await libraryTemplateActions.resolveCreate(intent)
+        setTemplateActionError(null)
+        return resolved
+      } catch (error) {
+        reportTemplateActionFailure(
+          error,
+          "The selected template could not create a document."
+        )
+        return null
+      }
+    },
+    [allowMutation, libraryTemplateActions, reportTemplateActionFailure]
+  )
+
+  const confirmCreateFromLibraryTemplate = useCallback(
+    async (resolved: ResolvedTemplateAction) => {
+      if (!allowMutation(false, true)) return false
+      if (activeLibraryTemplateInstallRef.current) return false
+      try {
+        const mutation = await libraryTemplateActions.confirmCreate(resolved)
+        const token = Symbol("library-template-create")
+        activeLibraryTemplateInstallRef.current = token
+        const expected = readTemplateActionSnapshot()
+        const ownsInstallation = () =>
+          mountedRef.current &&
+          activeLibraryTemplateInstallRef.current === token
+        try {
+          return await installCreatedTemplateMutation(
+            mutation,
+            resolved.intent,
+            expected,
+            ownsInstallation
+          )
+        } finally {
+          if (activeLibraryTemplateInstallRef.current === token) {
+            activeLibraryTemplateInstallRef.current = null
+          }
+        }
+      } catch (error) {
+        reportTemplateActionFailure(
+          error,
+          "The selected template could not create a document."
+        )
+        return false
+      }
+    },
+    [
+      allowMutation,
+      installCreatedTemplateMutation,
+      libraryTemplateActions,
+      readTemplateActionSnapshot,
+      reportTemplateActionFailure,
+    ]
+  )
+
+  const resolveApplyLibraryTemplate = useCallback(
+    async (intent: TemplateActionIntent) => {
+      if (!allowMutation()) return null
+      if (activeLibraryTemplateInstallRef.current) {
+        setTemplateActionError(
+          "Wait for the current template document to finish opening."
+        )
+        return null
+      }
+      try {
+        const resolved = await libraryTemplateActions.resolveApply(intent)
+        setTemplateActionError(null)
+        return resolved
+      } catch (error) {
+        reportTemplateActionFailure(
+          error,
+          "The selected template could not be applied."
+        )
+        return null
+      }
+    },
+    [allowMutation, libraryTemplateActions, reportTemplateActionFailure]
+  )
+
+  const confirmApplyLibraryTemplate = useCallback(
+    async (resolved: ResolvedTemplateAction) => {
+      if (!allowMutation()) return false
+      try {
+        const mutation = await libraryTemplateActions.confirmApply(resolved)
+        return installAppliedTemplateMutation(mutation)
+      } catch (error) {
+        reportTemplateActionFailure(
+          error,
+          "The selected template could not be applied."
+        )
+        return false
+      }
+    },
+    [
+      allowMutation,
+      installAppliedTemplateMutation,
+      libraryTemplateActions,
+      reportTemplateActionFailure,
+    ]
+  )
+
+  const cancelLibraryTemplateAction = useCallback(() => {
+    if (activeLibraryTemplateInstallRef.current) return
+    libraryTemplateActions.cancel()
+  }, [libraryTemplateActions])
+
+  const createDocumentFromTemplate = useCallback(
+    async (templateId: string, version: number) => {
+      const resolved = await resolveCreateFromLibraryTemplate({
+        itemKind: "template",
+        id: templateId,
+        version,
+      })
+      return resolved
+        ? confirmCreateFromLibraryTemplate(resolved)
+        : Promise.resolve(false)
+    },
+    [confirmCreateFromLibraryTemplate, resolveCreateFromLibraryTemplate]
   )
 
   const upgradeQuotationLayerOrganization = useCallback(() => {
@@ -10763,7 +10924,6 @@ export function useDocumentEditor({
     activeDesignTemplate,
     activeQuotationComposition,
     quotationGroupOrganization,
-    designTemplateCatalog,
     publishError,
     publishSyncStatus,
     selectPage,
@@ -10878,11 +11038,13 @@ export function useDocumentEditor({
     updateOutput,
     removeOutput,
     createBlankDocument,
+    resolveCreateFromLibraryTemplate,
+    confirmCreateFromLibraryTemplate,
+    resolveApplyLibraryTemplate,
+    confirmApplyLibraryTemplate,
+    cancelLibraryTemplateAction,
     createDocumentFromTemplate,
-    applyDesignTemplate,
     upgradeQuotationLayerOrganization,
-    getDesignTemplateImpact,
-    reloadDesignTemplateCatalog: loadDesignTemplateCatalog,
     restoreDemoDocument,
     openStoredDocument,
     continueSessionDocument,

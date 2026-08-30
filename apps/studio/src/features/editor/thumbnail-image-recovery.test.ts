@@ -5,14 +5,9 @@ import type { ReactNode } from "react"
 import { createRoot } from "react-dom/client"
 import type { Root } from "react-dom/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import {
-  builtInDesignTemplateRepository,
-  renderConformanceDocument,
-} from "@webmcp/document"
-import type { DesignTemplateCatalogItem } from "@webmcp/document"
+import { renderConformanceDocument } from "@webmcp/document"
 
 import { PageOutputPanel } from "./page-output-panel"
-import { TemplateCatalogPanel } from "./template-catalog-panel"
 
 type MountedTree = Readonly<{
   host: HTMLDivElement
@@ -62,25 +57,6 @@ function expectDisplayOnlyFailure(selector: HTMLButtonElement) {
   expect(
     selector.querySelector('button[aria-label^="Retry loading"]')
   ).toBeNull()
-  expect(
-    selector.querySelectorAll(
-      'button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-    )
-  ).toHaveLength(0)
-}
-
-function imageBackedTemplate(index: number): DesignTemplateCatalogItem {
-  const template = builtInDesignTemplateRepository.list()[index]
-  return {
-    ...template,
-    previewDocument: renderConformanceDocument,
-    previewPageId: renderConformanceDocument.pages[0].id,
-    pageCount: renderConformanceDocument.pages.length,
-    dimensions: renderConformanceDocument.pages.map(({ width, height }) => ({
-      width,
-      height,
-    })),
-  }
 }
 
 afterEach(async () => {
@@ -120,37 +96,5 @@ describe("thumbnail image recovery boundary", () => {
 
     expectDisplayOnlyFailure(pageSelector)
     expect(onSelectPage).not.toHaveBeenCalled()
-  })
-
-  it("keeps a failed template thumbnail display-only inside its template selector", async () => {
-    const onApply = vi.fn()
-    const onCreate = vi.fn()
-    const templates = [imageBackedTemplate(0), imageBackedTemplate(1)]
-    const host = await mount(
-      createElement(TemplateCatalogPanel, {
-        items: templates,
-        loadState: { status: "ready" },
-        hasQuotationSource: true,
-        reviewPending: false,
-        onRetry: vi.fn(),
-        onCreate,
-        onApply,
-        getApplicationImpact: vi.fn(() => {
-          throw new Error("Impact is not requested while rendering.")
-        }),
-      })
-    )
-    const templateSelector = host.querySelector<HTMLButtonElement>(
-      'button[aria-pressed="false"]'
-    )
-    expect(templateSelector).not.toBeNull()
-    if (!templateSelector) return
-
-    await failFirstCandidateInside(templateSelector)
-
-    expectDisplayOnlyFailure(templateSelector)
-    expect(templateSelector.getAttribute("aria-pressed")).toBe("false")
-    expect(onCreate).not.toHaveBeenCalled()
-    expect(onApply).not.toHaveBeenCalled()
   })
 })

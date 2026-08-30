@@ -1,32 +1,8 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useId, useRef, useState } from "react"
 import type { ChangeEvent, Ref } from "react"
-import type { DesignTemplateCatalogItem } from "@webmcp/document"
 import { Badge } from "@webmcp/ui/components/badge"
 import { Button } from "@webmcp/ui/components/button"
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@webmcp/ui/components/empty"
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-} from "@webmcp/ui/components/input-group"
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@webmcp/ui/components/select"
 import { Separator } from "@webmcp/ui/components/separator"
-import { Skeleton } from "@webmcp/ui/components/skeleton"
-import { cn } from "@webmcp/ui/lib/utils"
 import {
   ArrowRight,
   ChevronRight,
@@ -34,27 +10,16 @@ import {
   FilePlus2,
   FileStack,
   Image,
-  LayoutTemplate,
-  Link2,
   LoaderCircle,
-  RefreshCw,
-  Search,
   ShieldAlert,
   Sparkles,
 } from "lucide-react"
-import { LibraryPreview } from "../../content/library/library-preview"
-import { getStudioTemplatePreviewDescriptor } from "../../content/library/templates/preview-manifest"
+import {
+  LibraryTemplateBrowser,
+  type LibraryTemplateIntent,
+} from "../../content/library/library-template-browser"
 import type { StudioStartIntent, StudioStartModel } from "./studio-start-model"
 import { RecentDocuments } from "./recent-documents"
-import {
-  allTemplateCategoriesValue,
-  filterTemplateCatalog,
-  templateCatalogCategories,
-  templateCatalogKey,
-  templateCompatibility,
-  templateDimensionsLabel,
-} from "./template-catalog-model"
-import type { TemplateCatalogLoadState } from "./template-catalog-panel"
 
 type ReadyStartModel = Extract<
   StudioStartModel,
@@ -63,28 +28,18 @@ type ReadyStartModel = Extract<
 
 export type StudioStartSurfaceProps = {
   model: ReadyStartModel
-  templates: readonly DesignTemplateCatalogItem[]
-  templateLoadState: TemplateCatalogLoadState
   hasQuotationSource: boolean
   pendingIntent?: StudioStartIntent | null
   actionError?: string | null
+  templateActionError?: string | null
   onDismissActionError?: () => void
   initialFocus?: "heading" | "document-library"
   onCreateBlank: () => void
-  onCreateFromTemplate: (template: DesignTemplateCatalogItem) => void
+  onCreateFromTemplate: (template: LibraryTemplateIntent) => void
   onImportFile: (file: File) => boolean | Promise<boolean>
   onOpenSample: () => void
   onOpenDocument: (documentId: string) => boolean | Promise<boolean>
-  onRetryTemplates: () => void
 }
-
-const pendingMatchesTemplate = (
-  intent: StudioStartIntent | null,
-  template: DesignTemplateCatalogItem
-) =>
-  intent?.kind === "template" &&
-  intent.templateId === template.id &&
-  intent.version === template.version
 
 function ProductModel() {
   const steps = [
@@ -189,374 +144,6 @@ function StorageWarning({
           Use this session
         </Button>
       )}
-    </section>
-  )
-}
-
-function StartTemplatePreview({
-  template,
-  selected,
-  onSelect,
-}: {
-  template: DesignTemplateCatalogItem
-  selected: boolean
-  onSelect: () => void
-}) {
-  return (
-    <LibraryPreview
-      className="rounded-none border-0 border-b bg-muted/40"
-      descriptor={getStudioTemplatePreviewDescriptor(
-        template.id,
-        template.version
-      )}
-      label={`Select ${template.name}`}
-      selected={selected}
-      onSelect={onSelect}
-    />
-  )
-}
-
-function TemplateLoading() {
-  return (
-    <div
-      aria-label="Loading design templates"
-      className="grid gap-3 sm:grid-cols-2"
-      role="status"
-    >
-      {[0, 1, 2, 3].map((index) => (
-        <div className="border bg-background" key={index}>
-          <Skeleton className="h-40 w-full rounded-none" />
-          <div className="flex flex-col gap-2 p-3">
-            <Skeleton className="h-3 w-2/3" />
-            <Skeleton className="h-2.5 w-4/5" />
-          </div>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function TemplateFailure({
-  message,
-  onRetry,
-}: {
-  message: string
-  onRetry: () => void
-}) {
-  return (
-    <Empty className="min-h-80 border" role="alert">
-      <EmptyHeader>
-        <EmptyMedia variant="icon">
-          <ShieldAlert />
-        </EmptyMedia>
-        <EmptyTitle>Templates could not be loaded</EmptyTitle>
-        <EmptyDescription>{message}</EmptyDescription>
-      </EmptyHeader>
-      <EmptyContent>
-        <Button
-          className="min-h-11 sm:min-h-9"
-          variant="outline"
-          onClick={onRetry}
-        >
-          <RefreshCw data-icon="inline-start" />
-          Try again
-        </Button>
-      </EmptyContent>
-    </Empty>
-  )
-}
-
-function TemplateEmpty({
-  filtered,
-  onClear,
-}: {
-  filtered: boolean
-  onClear: () => void
-}) {
-  return (
-    <Empty className="min-h-80 border">
-      <EmptyHeader>
-        <EmptyMedia variant="icon">
-          {filtered ? <Search /> : <LayoutTemplate />}
-        </EmptyMedia>
-        <EmptyTitle>
-          {filtered ? "No matching templates" : "No templates available"}
-        </EmptyTitle>
-        <EmptyDescription>
-          {filtered
-            ? "Clear the filters or try a more general search."
-            : "Start with a blank document or import an existing Studio JSON file."}
-        </EmptyDescription>
-      </EmptyHeader>
-      {filtered ? (
-        <EmptyContent>
-          <Button
-            className="min-h-11 sm:min-h-9"
-            variant="outline"
-            onClick={onClear}
-          >
-            Clear filters
-          </Button>
-        </EmptyContent>
-      ) : null}
-    </Empty>
-  )
-}
-
-function SelectedTemplateDetails({
-  template,
-  hasQuotationSource,
-  actionsEnabled,
-  actionInProgress,
-  pendingIntent,
-  onCreate,
-}: {
-  template: DesignTemplateCatalogItem
-  hasQuotationSource: boolean
-  actionsEnabled: boolean
-  actionInProgress: boolean
-  pendingIntent: StudioStartIntent | null
-  onCreate: (template: DesignTemplateCatalogItem) => void
-}) {
-  const compatibility = templateCompatibility(template, hasQuotationSource)
-
-  return (
-    <aside
-      aria-labelledby="start-selected-template-title"
-      className="self-start border bg-background p-4 lg:sticky lg:top-6"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <h3
-          className="min-w-0 text-sm leading-5 font-semibold"
-          id="start-selected-template-title"
-        >
-          {template.name}
-        </h3>
-        <Badge variant={compatibility.compatible ? "secondary" : "outline"}>
-          {compatibility.label}
-        </Badge>
-      </div>
-      <p className="mt-2 text-xs leading-5 text-muted-foreground">
-        {template.description}
-      </p>
-      <Separator className="my-4" />
-      <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-xs">
-        <dt className="text-muted-foreground">Format</dt>
-        <dd className="truncate text-right tabular-nums">
-          {templateDimensionsLabel(template)}
-        </dd>
-        <dt className="text-muted-foreground">Pages</dt>
-        <dd className="text-right tabular-nums">{template.pageCount}</dd>
-        <dt className="text-muted-foreground">Category</dt>
-        <dd className="truncate text-right">{template.category}</dd>
-        <dt className="text-muted-foreground">Version</dt>
-        <dd className="text-right tabular-nums">v{template.version}</dd>
-      </dl>
-      <p className="mt-4 text-[11px] leading-4 text-muted-foreground">
-        {compatibility.description}
-      </p>
-      <Button
-        className="mt-4 min-h-11 w-full sm:min-h-9"
-        disabled={
-          !actionsEnabled || !compatibility.compatible || actionInProgress
-        }
-        onClick={() => onCreate(template)}
-      >
-        {pendingMatchesTemplate(pendingIntent, template) ? (
-          <LoaderCircle className="animate-spin" data-icon="inline-start" />
-        ) : compatibility.compatible ? (
-          <Sparkles data-icon="inline-start" />
-        ) : (
-          <Link2 data-icon="inline-start" />
-        )}
-        {compatibility.compatible
-          ? "Create from template"
-          : "Quotation required"}
-      </Button>
-    </aside>
-  )
-}
-
-function TemplateBrowser({
-  items,
-  loadState,
-  hasQuotationSource,
-  actionsEnabled,
-  pendingIntent,
-  onCreate,
-  onRetry,
-}: {
-  items: readonly DesignTemplateCatalogItem[]
-  loadState: TemplateCatalogLoadState
-  hasQuotationSource: boolean
-  actionsEnabled: boolean
-  pendingIntent: StudioStartIntent | null
-  onCreate: (template: DesignTemplateCatalogItem) => void
-  onRetry: () => void
-}) {
-  const [search, setSearch] = useState("")
-  const [category, setCategory] = useState(allTemplateCategoriesValue)
-  const [selectedKey, setSelectedKey] = useState<string | null>(null)
-  const categories = useMemo(() => templateCatalogCategories(items), [items])
-  const filteredItems = useMemo(
-    () => filterTemplateCatalog(items, { search, category }),
-    [category, items, search]
-  )
-  const selectedTemplate =
-    filteredItems.find((item) => templateCatalogKey(item) === selectedKey) ||
-    filteredItems.at(0) ||
-    null
-  const hasFilters =
-    search.trim().length > 0 || category !== allTemplateCategoriesValue
-  const actionInProgress = pendingIntent !== null
-
-  const clearFilters = () => {
-    setSearch("")
-    setCategory(allTemplateCategoriesValue)
-  }
-
-  return (
-    <section aria-labelledby="start-template-heading">
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-xs font-medium text-muted-foreground">
-            Use a complete visual system
-          </p>
-          <h2
-            className="mt-1 text-lg leading-6 font-semibold tracking-tight"
-            id="start-template-heading"
-          >
-            Start from a template
-          </h2>
-        </div>
-        {loadState.status === "ready" ? (
-          <Badge variant="outline">
-            {filteredItems.length}{" "}
-            {filteredItems.length === 1 ? "template" : "templates"}
-          </Badge>
-        ) : null}
-      </div>
-
-      <div className="mb-4 grid gap-2 sm:grid-cols-[minmax(0,1fr)_13rem]">
-        <InputGroup className="h-11 sm:h-8">
-          <InputGroupAddon>
-            <Search />
-          </InputGroupAddon>
-          <InputGroupInput
-            aria-label="Search design templates"
-            placeholder="Search templates…"
-            type="search"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
-        </InputGroup>
-        <Select value={category} onValueChange={setCategory}>
-          <SelectTrigger
-            aria-label="Filter templates by category"
-            className="min-h-11 w-full sm:min-h-9"
-            size="sm"
-          >
-            <SelectValue placeholder="All categories" />
-          </SelectTrigger>
-          <SelectContent align="end" position="popper">
-            <SelectGroup>
-              <SelectItem value={allTemplateCategoriesValue}>
-                All categories
-              </SelectItem>
-              {categories.map((itemCategory) => (
-                <SelectItem key={itemCategory} value={itemCategory}>
-                  {itemCategory}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <p aria-live="polite" className="sr-only">
-        {loadState.status === "loading"
-          ? "Loading design templates"
-          : loadState.status === "error"
-            ? "Design templates failed to load"
-            : `${filteredItems.length} ${filteredItems.length === 1 ? "template" : "templates"} shown`}
-      </p>
-
-      {loadState.status === "loading" ? <TemplateLoading /> : null}
-      {loadState.status === "error" ? (
-        <TemplateFailure message={loadState.message} onRetry={onRetry} />
-      ) : null}
-      {loadState.status === "ready" && filteredItems.length === 0 ? (
-        <TemplateEmpty filtered={hasFilters} onClear={clearFilters} />
-      ) : null}
-      {loadState.status === "ready" && filteredItems.length > 0 ? (
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
-          <ul
-            aria-label="Design templates"
-            className="grid content-start gap-3 sm:grid-cols-2"
-          >
-            {filteredItems.map((template) => {
-              const compatibility = templateCompatibility(
-                template,
-                hasQuotationSource
-              )
-              const selected = template === selectedTemplate
-              const selectTemplate = () =>
-                setSelectedKey(templateCatalogKey(template))
-              return (
-                <li key={templateCatalogKey(template)}>
-                  <div
-                    className={cn(
-                      "group/template flex w-full flex-col overflow-hidden border bg-background text-left transition-[border-color,background-color,box-shadow,transform] duration-150 outline-none hover:border-foreground/20 hover:bg-muted/20 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/40 active:translate-y-px",
-                      selected && "border-foreground ring-1 ring-foreground/10"
-                    )}
-                  >
-                    <StartTemplatePreview
-                      onSelect={selectTemplate}
-                      selected={selected}
-                      template={template}
-                    />
-                    <button
-                      aria-label={`Show details for ${template.name}`}
-                      aria-pressed={selected}
-                      className="flex min-h-20 w-full items-start gap-3 p-3 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/40 focus-visible:ring-inset"
-                      type="button"
-                      onClick={selectTemplate}
-                    >
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium">
-                          {template.name}
-                        </span>
-                        <span className="mt-1 block text-[11px] leading-4 text-muted-foreground">
-                          {templateDimensionsLabel(template)} ·{" "}
-                          {template.pageCount}{" "}
-                          {template.pageCount === 1 ? "page" : "pages"}
-                        </span>
-                      </span>
-                      {!compatibility.compatible ? (
-                        <Link2
-                          aria-label={compatibility.label}
-                          className="size-4 shrink-0 text-muted-foreground"
-                        />
-                      ) : null}
-                    </button>
-                  </div>
-                </li>
-              )
-            })}
-          </ul>
-
-          {selectedTemplate ? (
-            <SelectedTemplateDetails
-              actionInProgress={actionInProgress}
-              actionsEnabled={actionsEnabled}
-              hasQuotationSource={hasQuotationSource}
-              pendingIntent={pendingIntent}
-              template={selectedTemplate}
-              onCreate={onCreate}
-            />
-          ) : null}
-        </div>
-      ) : null}
     </section>
   )
 }
@@ -735,11 +322,10 @@ function QuickStarts({
 
 export function StudioStartSurface({
   model,
-  templates,
-  templateLoadState,
   hasQuotationSource,
   pendingIntent = null,
   actionError = null,
+  templateActionError = null,
   onDismissActionError,
   initialFocus = "heading",
   onCreateBlank,
@@ -747,7 +333,6 @@ export function StudioStartSurface({
   onImportFile,
   onOpenDocument,
   onOpenSample,
-  onRetryTemplates,
 }: StudioStartSurfaceProps) {
   const headingRef = useRef<HTMLHeadingElement>(null)
   const blankActionRef = useRef<HTMLButtonElement>(null)
@@ -865,14 +450,22 @@ export function StudioStartSurface({
 
         <Separator />
 
-        <TemplateBrowser
+        <LibraryTemplateBrowser
+          actionError={templateActionError}
           actionsEnabled={actionsEnabled}
           hasQuotationSource={hasQuotationSource}
-          items={templates}
-          loadState={templateLoadState}
-          pendingIntent={pendingIntent}
+          pendingAction={
+            pendingIntent?.kind === "template"
+              ? {
+                  action: "create",
+                  itemKind: "template",
+                  id: pendingIntent.templateId,
+                  version: pendingIntent.version,
+                }
+              : null
+          }
+          variant="start"
           onCreate={onCreateFromTemplate}
-          onRetry={onRetryTemplates}
         />
 
         <Separator />

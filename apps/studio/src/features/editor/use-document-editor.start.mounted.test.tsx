@@ -169,8 +169,10 @@ describe("useDocumentEditor start session", () => {
     captured: { current: MountedCapture | null },
     status: StudioPersistenceApi["state"]["status"]
   ) {
-    await vi.waitFor(() => {
-      expect(captured.current?.persistence.state.status).toBe(status)
+    await act(async () => {
+      await vi.waitFor(() => {
+        expect(captured.current?.persistence.state.status).toBe(status)
+      })
     })
   }
 
@@ -363,6 +365,14 @@ describe("useDocumentEditor start session", () => {
       })
     const captured = await mount()
     await waitForPersistenceStatus(captured, "unavailable")
+    await act(async () => {
+      await vi.waitFor(() => {
+        expect(captured.current?.editor.startModel).toMatchObject({
+          status: "unavailable",
+          durable: false,
+        })
+      })
+    })
     getItem.mockRestore()
 
     expect(captured.current?.editor.startModel).toMatchObject({
@@ -633,11 +643,16 @@ describe("useDocumentEditor start session", () => {
       migrate: async () => migration,
     })
     await waitForPersistenceStatus(captured, "recovery_required")
+    await act(async () => {
+      await vi.waitFor(() => {
+        expect(captured.current?.editor.draftRecovery).toEqual(recovery)
+      })
+    })
 
     let resetPromise: Promise<boolean> | null = null
     await act(async () => {
       resetPromise = captured.current!.editor.resetDraftRecovery()
-      await Promise.resolve()
+      await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(1))
     })
     expect(create).toHaveBeenCalledTimes(1)
     expect(captured.current?.persistence.state).toEqual({

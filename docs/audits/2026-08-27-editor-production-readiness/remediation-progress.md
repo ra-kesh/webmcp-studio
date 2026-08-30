@@ -3642,3 +3642,22 @@ Status: **independently accepted; Gate 4 interface migration remains active**
 - Closed five independent-review P1 findings with focused regressions. Final
   re-review reports zero open P0/P1 findings and the foundation suite passes
   33/33. Gate 4B remains active for the shared browser and production cutover.
+
+## 2026-08-31 — LIBRARY-02 Gate 4B shared browser and production cutover
+
+Status: **closed and independently accepted; Gate 5 is active**
+
+- Replaced both legacy template browsers with one shared Start/editor surface
+  backed by the asynchronous discovery controller and exact mutation authority.
+- Preserved impact confirmation and one canonical template command while
+  deleting the direct legacy mutation path.
+- Added container-measured responsive grids, 49-item virtualization, a single
+  visible-surface lease, deterministic focus recovery and distinct loading,
+  update, failure, empty and no-results states.
+- Repaired every independent P1 finding across responsive ownership, hidden
+  subscriptions, announcement priority and focus behavior. Final review reports
+  zero P0/P1 findings; its evidence passes 6 files / 32 tests, Studio typecheck
+  and `git diff --check`.
+- Recorded one non-blocking duplicate Start error announcement for the later
+  visual/accessibility polish pass. Gate 5 now owns durable favorites, recent
+  use and collections.

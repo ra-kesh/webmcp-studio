@@ -1,25 +1,37 @@
-import type {
-  DesignTemplateCatalogItem,
-  Document,
-  SceneNode,
-  TemplateApplicationImpact,
-} from "@webmcp/document"
+import { useEffect, useRef, useState } from "react"
+import type { Document, SceneNode } from "@webmcp/document"
 import type { LayerDropIntent, LayerTreeItem, Selection } from "@webmcp/editor"
 import type { ProductCommandRuntimeContext } from "@webmcp/editor/product-commands"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+} from "@webmcp/ui/components/alert-dialog"
+import { Button } from "@webmcp/ui/components/button"
 import { EditorPanelTabsList } from "@webmcp/ui/components/editor-chrome"
 import { Tabs, TabsContent, TabsTrigger } from "@webmcp/ui/components/tabs"
 import { cn } from "@webmcp/ui/lib/utils"
+import { FileWarning, FolderTree, Link2 } from "lucide-react"
+import {
+  LibraryTemplateBrowser,
+  type LibraryTemplateIntent,
+} from "../../content/library/library-template-browser"
+import type { ResolvedTemplateAction } from "../../content/library/library-template-actions"
 import { LayerTree } from "./layer-tree"
 import { ComponentAssetsPanel } from "./component-assets-panel"
 import type { ProductCommandMenuRuntime } from "./product-command-menu"
 import { PageOutputPanel } from "./page-output-panel"
 import type { PageOutputPanelProps } from "./page-output-panel"
-import { TemplateCatalogPanel } from "./template-catalog-panel"
-import type {
-  TemplateCatalogIdentity,
-  TemplateCatalogPendingAction,
+import {
+  templateImpactRows,
+  type TemplateCatalogIdentity,
 } from "./template-catalog-model"
-import type { TemplateCatalogLoadState } from "./template-catalog-panel"
 
 export type DocumentPanelTab = "templates" | "components" | "pages" | "layers"
 
@@ -27,19 +39,16 @@ export function QuotationSidebar({
   document,
   activePageId,
   selection,
-  templates,
-  templateLoadState,
   activeTemplate,
   hasQuotationSource,
-  templatePendingAction,
   templateActionError,
   reviewPending,
   activePanel,
   onActivePanelChange,
-  onRetryTemplates,
   onCreateFromTemplate,
-  onApplyTemplate,
-  getTemplateApplicationImpact,
+  onResolveApplyTemplate,
+  onConfirmApplyTemplate,
+  onCancelTemplateAction,
   layerOrganizationUpgradeAvailable,
   onLayerOrganizationUpgrade,
   onSelectionChange,
@@ -57,6 +66,7 @@ export function QuotationSidebar({
   productCommandContext,
   productCommandRuntime,
   compact = false,
+  templateBrowserVisible = true,
   onSelectPage,
   onAddPage,
   onDuplicatePage,
@@ -71,21 +81,22 @@ export function QuotationSidebar({
   document: Document
   activePageId: string
   selection: Selection | null
-  templates: readonly DesignTemplateCatalogItem[]
-  templateLoadState: TemplateCatalogLoadState
   activeTemplate: TemplateCatalogIdentity | null
   hasQuotationSource: boolean
-  templatePendingAction?: TemplateCatalogPendingAction | null
   templateActionError?: string | null
   reviewPending: boolean
   activePanel: DocumentPanelTab
   onActivePanelChange: (panel: DocumentPanelTab) => void
-  onRetryTemplates: () => void
-  onCreateFromTemplate: (template: DesignTemplateCatalogItem) => void
-  onApplyTemplate: (template: DesignTemplateCatalogItem) => void
-  getTemplateApplicationImpact: (
-    template: DesignTemplateCatalogItem
-  ) => TemplateApplicationImpact
+  onCreateFromTemplate: (
+    template: LibraryTemplateIntent
+  ) => boolean | Promise<boolean>
+  onResolveApplyTemplate: (
+    template: LibraryTemplateIntent
+  ) => Promise<ResolvedTemplateAction | null>
+  onConfirmApplyTemplate: (
+    action: ResolvedTemplateAction
+  ) => boolean | Promise<boolean>
+  onCancelTemplateAction: () => void
   layerOrganizationUpgradeAvailable?: boolean
   onLayerOrganizationUpgrade?: () => void
   onSelectionChange: (nodeIds: string[]) => void
@@ -107,6 +118,7 @@ export function QuotationSidebar({
   productCommandContext: ProductCommandRuntimeContext
   productCommandRuntime: ProductCommandMenuRuntime
   compact?: boolean
+  templateBrowserVisible?: boolean
   className?: string
 } & Pick<
   PageOutputPanelProps,
@@ -120,6 +132,72 @@ export function QuotationSidebar({
   | "onUpdateOutput"
   | "onRemoveOutput"
 >) {
+  const [pendingTemplateAction, setPendingTemplateAction] = useState<
+    (LibraryTemplateIntent & { action: "create" | "apply" }) | null
+  >(null)
+  const [applyConfirmation, setApplyConfirmation] =
+    useState<ResolvedTemplateAction | null>(null)
+  const wasTemplateBrowserVisible = useRef(templateBrowserVisible)
+  const cancelTemplateActionRef = useRef(onCancelTemplateAction)
+  cancelTemplateActionRef.current = onCancelTemplateAction
+
+  useEffect(() => {
+    const wasVisible = wasTemplateBrowserVisible.current
+    wasTemplateBrowserVisible.current = templateBrowserVisible
+    if (wasVisible && !templateBrowserVisible) {
+      cancelTemplateActionRef.current()
+      setPendingTemplateAction(null)
+      setApplyConfirmation(null)
+    }
+  }, [templateBrowserVisible])
+
+  useEffect(
+    () => () => {
+      if (wasTemplateBrowserVisible.current) cancelTemplateActionRef.current()
+    },
+    []
+  )
+
+  const createFromTemplate = async (intent: LibraryTemplateIntent) => {
+    setPendingTemplateAction({ ...intent, action: "create" })
+    try {
+      await onCreateFromTemplate(intent)
+    } finally {
+      setPendingTemplateAction(null)
+    }
+  }
+
+  const resolveApplyTemplate = async (intent: LibraryTemplateIntent) => {
+    setPendingTemplateAction({ ...intent, action: "apply" })
+    try {
+      const resolved = await onResolveApplyTemplate(intent)
+      if (resolved) setApplyConfirmation(resolved)
+    } finally {
+      setPendingTemplateAction(null)
+    }
+  }
+
+  const closeApplyConfirmation = () => {
+    onCancelTemplateAction()
+    setApplyConfirmation(null)
+  }
+
+  const confirmApplyTemplate = async () => {
+    const confirmation = applyConfirmation
+    if (!confirmation) return
+    setPendingTemplateAction({ ...confirmation.intent, action: "apply" })
+    try {
+      await onConfirmApplyTemplate(confirmation)
+      setApplyConfirmation(null)
+    } finally {
+      setPendingTemplateAction(null)
+    }
+  }
+
+  const impactRows = applyConfirmation
+    ? templateImpactRows(applyConfirmation.impact)
+    : []
+
   return (
     <aside
       className={cn("flex min-h-0 flex-col border-r bg-background", className)}
@@ -149,23 +227,56 @@ export function QuotationSidebar({
           value="templates"
           className="flex min-h-0 flex-col overflow-hidden"
         >
-          <TemplateCatalogPanel
-            actionError={templateActionError}
-            activeTemplate={activeTemplate}
-            getApplicationImpact={getTemplateApplicationImpact}
-            hasQuotationSource={hasQuotationSource}
-            items={templates}
-            loadState={templateLoadState}
-            layerOrganizationUpgradeAvailable={
-              layerOrganizationUpgradeAvailable
-            }
-            pendingAction={templatePendingAction}
-            reviewPending={reviewPending}
-            onApply={onApplyTemplate}
-            onCreate={onCreateFromTemplate}
-            onLayerOrganizationUpgrade={onLayerOrganizationUpgrade}
-            onRetry={onRetryTemplates}
-          />
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+            {layerOrganizationUpgradeAvailable ? (
+              <section
+                aria-label="Quotation layer organization update"
+                className="m-2.5 mb-0 rounded-lg border bg-muted/35 p-2.5"
+              >
+                <div className="flex items-start gap-2">
+                  <span className="grid size-7 shrink-0 place-items-center rounded-md border bg-background text-foreground">
+                    <FolderTree className="size-3.5" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-[11px] leading-4 font-medium">
+                      Organize quotation layers
+                    </h3>
+                    <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground">
+                      Restore semantic folders without changing copy, layout, or
+                      styling.
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  className="mt-2 w-full"
+                  disabled={reviewPending}
+                  size="sm"
+                  variant="outline"
+                  onClick={onLayerOrganizationUpgrade}
+                >
+                  <FolderTree data-icon="inline-start" />
+                  Organize layers
+                </Button>
+                {reviewPending ? (
+                  <p className="mt-1.5 text-[10px] leading-4 text-muted-foreground">
+                    Finish or discard the pending review first.
+                  </p>
+                ) : null}
+              </section>
+            ) : null}
+            <LibraryTemplateBrowser
+              actionError={templateActionError}
+              actionsEnabled={!reviewPending}
+              activeTemplate={activeTemplate}
+              density="compact"
+              hasQuotationSource={hasQuotationSource}
+              pendingAction={pendingTemplateAction}
+              variant="editor"
+              visible={templateBrowserVisible}
+              onApply={(intent) => void resolveApplyTemplate(intent)}
+              onCreate={(intent) => void createFromTemplate(intent)}
+            />
+          </div>
         </TabsContent>
         <TabsContent
           value="components"
@@ -225,6 +336,63 @@ export function QuotationSidebar({
           />
         </TabsContent>
       </Tabs>
+
+      <AlertDialog
+        open={Boolean(applyConfirmation)}
+        onOpenChange={(open) => {
+          if (!open) closeApplyConfirmation()
+        }}
+      >
+        <AlertDialogContent className="sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogMedia>
+              <FileWarning />
+            </AlertDialogMedia>
+            <AlertDialogTitle>
+              Apply {applyConfirmation?.detail.summary.name} to this design?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Review the exact changes below. Studio applies this version in one
+              named action, and one Undo restores the previous document and
+              linked-source context.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border bg-muted/30 p-3 text-xs">
+            {impactRows.map((row) => (
+              <div className="contents" key={row.id}>
+                <dt className="text-muted-foreground">{row.label}</dt>
+                <dd
+                  className={cn(
+                    "text-right font-medium tabular-nums",
+                    row.warning && "text-foreground"
+                  )}
+                >
+                  {row.value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+          {applyConfirmation?.impact.disconnectsQuotationSource ? (
+            <p className="flex items-start gap-2 text-xs leading-5 text-muted-foreground">
+              <Link2 className="mt-0.5 size-4 shrink-0" />
+              The current Stuwiz quotation will be disconnected from this
+              design.
+            </p>
+          ) : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep current design</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={Boolean(pendingTemplateAction) || reviewPending}
+              onClick={(event) => {
+                event.preventDefault()
+                void confirmApplyTemplate()
+              }}
+            >
+              Apply template
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </aside>
   )
 }

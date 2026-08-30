@@ -135,7 +135,7 @@ export function LibraryPreview({
           </span>
           <Button
             aria-label={`Retry ${label}`}
-            className="min-h-8 text-xs"
+            className="min-h-11 min-w-11 text-xs"
             size="sm"
             type="button"
             variant="outline"

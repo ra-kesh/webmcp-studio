@@ -2,7 +2,7 @@
 
 Date: 2026-08-31
 
-Status: Gates 1–3 closed; Gate 4 discovery controller and interface is active
+Status: Gates 1–4 closed; Gate 5 preferences and collections is active
 
 ## Purpose
 
@@ -329,6 +329,30 @@ Status: **independently accepted on 2026-08-31; Gate 4 interface migration remai
 - Gate 4B now owns the single shared Start/editor browser, exact editor action
   cutover, 49-item virtualization, mounted acceptance and deletion of the two
   duplicated legacy browsers.
+
+#### Gate 4B result — shared browser and production cutover
+
+Status: **independently accepted on 2026-08-31; Gate 4 is closed**
+
+- Replaced the duplicated Start and editor template surfaces with one shared
+  browser backed by the Gate 4A controller. Both routes now expose the same
+  search, entry points, taxonomy filters, retained refresh state, exact detail,
+  retry, empty/no-results distinction and compatible action authority.
+- Removed the legacy catalog panel and direct template mutation path. Create and
+  Apply now resolve exact immutable detail, preserve the existing impact
+  confirmation boundary and reject stale document, source or review ownership.
+- Added container-measured layouts and 49-item virtualization without changing
+  semantic position, keyboard entry or focused-card recovery. Responsive
+  presentation uses the same 1,280 px boundary as CSS, and only the visible
+  template surface holds a discovery lease.
+- Closed independent-review findings covering responsive duplicate ownership,
+  hidden subscriptions, error announcements, empty-state recovery and focus
+  loss/stealing across result replacement and virtual-row remounts.
+- Final independent review reports zero P0/P1 findings. Its focused evidence
+  passes 6 files / 32 tests, Studio typecheck and `git diff --check`. One
+  non-blocking duplicate Start error announcement remains recorded for the
+  later visual/accessibility polish pass; it does not weaken template action
+  correctness or recovery.
 
 ### Gate 5 - favorites, recent use and collections
 

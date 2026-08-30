@@ -7,6 +7,7 @@ export * from "./discovery-controller"
 export * from "./library-discovery-adapter"
 export * from "./library-discovery-provider"
 export * from "./library-preview-controller"
+export * from "./library-template-browser"
 export * from "./templates/preview-manifest"
 export {
   parseStudioMediaManifest,

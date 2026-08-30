@@ -48,7 +48,6 @@ import {
 import {
   applyTextLinkToRange,
   getGroupNodeIds,
-  type DesignTemplateCatalogItem,
   type SceneNode,
   type TextParagraphStylePatch,
   type TextRunStylePatch,
@@ -91,6 +90,10 @@ import type {
 } from "@webmcp/editor/commands"
 import { imageCropSessionHasChanges } from "@webmcp/editor/image-crop-session"
 import { resolveResizeFrameToImagePreview } from "./editor/image-crop-resize-to-image"
+import {
+  resolveLibraryTemplateSurfaceVisibility,
+  studioDesktopPresentationQuery,
+} from "./editor/library-template-surface-visibility"
 import { createInspectorSelectionModel } from "@webmcp/editor/inspector"
 import type { InspectorImageSourceState } from "@webmcp/editor/inspector"
 import { getNodeBounds, getSelectionBounds } from "@webmcp/editor/geometry"
@@ -465,6 +468,11 @@ export function StudioShell({
       Math.floor(document.documentElement.clientWidth || window.innerWidth)
     )
   })
+  const [desktopPresentation, setDesktopPresentation] = useState(() =>
+    typeof window === "undefined"
+      ? true
+      : window.matchMedia(studioDesktopPresentationQuery).matches
+  )
   const [shellLayoutError, setShellLayoutError] = useState<string | null>(
     initialShellLayoutState.error
   )
@@ -777,6 +785,11 @@ export function StudioShell({
   const [compactPanel, setCompactPanel] = useState<
     "document" | "inspector" | null
   >(null)
+  const templateBrowserVisibility = resolveLibraryTemplateSurfaceVisibility({
+    desktopPresentation,
+    documentPanelTab,
+    compactDocumentPanelOpen: compactPanel === "document",
+  })
   const [imageSourceStateByNodeId, setImageSourceStateByNodeId] = useState<
     Partial<Record<string, InspectorImageSourceState>>
   >({})
@@ -2285,8 +2298,9 @@ export function StudioShell({
   ])
 
   useEffect(() => {
-    const desktopShell = window.matchMedia("(min-width: 1280px)")
+    const desktopShell = window.matchMedia(studioDesktopPresentationQuery)
     const closeCompactPanel = () => {
+      setDesktopPresentation(desktopShell.matches)
       if (desktopShell.matches) setCompactPanel(null)
     }
     closeCompactPanel()
@@ -3344,28 +3358,23 @@ export function StudioShell({
               : undefined
           }
           pendingIntent={startPendingIntent}
-          templateLoadState={
-            editor.designTemplateCatalog.status === "error"
-              ? {
-                  status: "error",
-                  message:
-                    editor.designTemplateCatalog.error ??
-                    "The template catalog could not be loaded.",
-                }
-              : { status: editor.designTemplateCatalog.status }
-          }
-          templates={editor.designTemplateCatalog.items}
+          templateActionError={editor.templateActionError}
           onCreateBlank={() => setNewDocumentOpen(true)}
-          onCreateFromTemplate={(template: DesignTemplateCatalogItem) => {
+          onCreateFromTemplate={(template) => {
             void requestDraftReplacement(
               {
                 kind: "template",
                 templateId: template.id,
                 version: template.version,
               },
-              `Starting from ${template.name}`,
-              () =>
-                editor.createDocumentFromTemplate(template.id, template.version)
+              "Starting from the selected template",
+              async () => {
+                const resolved =
+                  await editor.resolveCreateFromLibraryTemplate(template)
+                return resolved
+                  ? editor.confirmCreateFromLibraryTemplate(resolved)
+                  : false
+              }
             )
           }}
           onImportFile={async (file) =>
@@ -3383,7 +3392,6 @@ export function StudioShell({
               editor.restoreDemoDocument
             )
           }}
-          onRetryTemplates={editor.reloadDesignTemplateCatalog}
         />
         <NewDocumentDialog
           open={newDocumentOpen}
@@ -4172,17 +4180,6 @@ export function StudioShell({
                   document={editor.document}
                   activePageId={editor.activePageId}
                   selection={editor.selection}
-                  templates={editor.designTemplateCatalog.items}
-                  templateLoadState={
-                    editor.designTemplateCatalog.status === "error"
-                      ? {
-                          status: "error",
-                          message:
-                            editor.designTemplateCatalog.error ??
-                            "The template catalog could not be loaded.",
-                        }
-                      : { status: editor.designTemplateCatalog.status }
-                  }
                   activeTemplate={editor.activeDesignTemplate}
                   hasQuotationSource={Boolean(editor.quotationSource)}
                   templateActionError={editor.templateActionError}
@@ -4194,42 +4191,45 @@ export function StudioShell({
                   )}
                   activePanel={documentPanelTab}
                   onActivePanelChange={setDocumentPanelTab}
-                  onRetryTemplates={editor.reloadDesignTemplateCatalog}
+                  templateBrowserVisible={templateBrowserVisibility.desktop}
                   onLayerOrganizationUpgrade={() => {
                     if (!commitActiveTextEditing()) return
                     if (editor.upgradeQuotationLayerOrganization()) {
                       setDocumentPanelTab("layers")
                     }
                   }}
-                  onCreateFromTemplate={(template) => {
-                    void requestNewDraft(
+                  onCreateFromTemplate={async (template) =>
+                    (await requestNewDraft(
                       {
                         kind: "template",
                         templateId: template.id,
                         version: template.version,
                       },
-                      `Starting from ${template.name}`,
-                      () =>
-                        editor.createDocumentFromTemplate(
-                          template.id,
-                          template.version
-                        )
-                    )
+                      "Starting from the selected template",
+                      async () => {
+                        const resolved =
+                          await editor.resolveCreateFromLibraryTemplate(
+                            template
+                          )
+                        return resolved
+                          ? editor.confirmCreateFromLibraryTemplate(resolved)
+                          : false
+                      }
+                    )) !== false
+                  }
+                  onResolveApplyTemplate={async (template) => {
+                    if (!commitActiveTextEditing()) return null
+                    return editor.resolveApplyLibraryTemplate(template)
                   }}
-                  onApplyTemplate={(template) => {
-                    if (!commitActiveTextEditing()) return
-                    if (
-                      editor.applyDesignTemplate(template.id, template.version)
-                    ) {
+                  onConfirmApplyTemplate={async (resolved) => {
+                    const applied =
+                      await editor.confirmApplyLibraryTemplate(resolved)
+                    if (applied) {
                       setAutoFit(true)
                     }
+                    return applied
                   }}
-                  getTemplateApplicationImpact={(template) =>
-                    editor.getDesignTemplateImpact(
-                      template.id,
-                      template.version
-                    )
-                  }
+                  onCancelTemplateAction={editor.cancelLibraryTemplateAction}
                   onSelectionChange={editor.setLayerSelection}
                   onFocusNode={focusNode}
                   onHoverNode={setHoveredNodeId}
@@ -4560,7 +4560,7 @@ export function StudioShell({
                     onAddImage={() => openMediaPicker("recent")}
                     onChooseTemplate={() => {
                       setDocumentPanelTab("templates")
-                      if (resolvedShellLayout.canUseDesktopLayout) {
+                      if (desktopPresentation) {
                         if (shellLayoutRef.current.leftPanel.collapsed) {
                           toggleShellPanel("left")
                         }
@@ -4893,17 +4893,6 @@ export function StudioShell({
                 document={editor.document}
                 activePageId={editor.activePageId}
                 selection={editor.selection}
-                templates={editor.designTemplateCatalog.items}
-                templateLoadState={
-                  editor.designTemplateCatalog.status === "error"
-                    ? {
-                        status: "error",
-                        message:
-                          editor.designTemplateCatalog.error ??
-                          "The template catalog could not be loaded.",
-                      }
-                    : { status: editor.designTemplateCatalog.status }
-                }
                 activeTemplate={editor.activeDesignTemplate}
                 hasQuotationSource={Boolean(editor.quotationSource)}
                 templateActionError={editor.templateActionError}
@@ -4915,41 +4904,44 @@ export function StudioShell({
                 )}
                 activePanel={documentPanelTab}
                 onActivePanelChange={setDocumentPanelTab}
-                onRetryTemplates={editor.reloadDesignTemplateCatalog}
+                templateBrowserVisible={templateBrowserVisibility.compact}
                 onLayerOrganizationUpgrade={() => {
                   if (!commitActiveTextEditing()) return
                   if (editor.upgradeQuotationLayerOrganization()) {
                     setDocumentPanelTab("layers")
                   }
                 }}
-                onCreateFromTemplate={(template) => {
-                  setCompactPanel(null)
-                  void requestNewDraft(
+                onCreateFromTemplate={async (template) =>
+                  (await requestNewDraft(
                     {
                       kind: "template",
                       templateId: template.id,
                       version: template.version,
                     },
-                    `Starting from ${template.name}`,
-                    () =>
-                      editor.createDocumentFromTemplate(
-                        template.id,
-                        template.version
-                      )
-                  )
+                    "Starting from the selected template",
+                    async () => {
+                      const resolved =
+                        await editor.resolveCreateFromLibraryTemplate(template)
+                      return resolved
+                        ? editor.confirmCreateFromLibraryTemplate(resolved)
+                        : false
+                    }
+                  )) !== false
+                }
+                onResolveApplyTemplate={async (template) => {
+                  if (!commitActiveTextEditing()) return null
+                  return editor.resolveApplyLibraryTemplate(template)
                 }}
-                onApplyTemplate={(template) => {
-                  if (!commitActiveTextEditing()) return
-                  if (
-                    editor.applyDesignTemplate(template.id, template.version)
-                  ) {
+                onConfirmApplyTemplate={async (resolved) => {
+                  const applied =
+                    await editor.confirmApplyLibraryTemplate(resolved)
+                  if (applied) {
                     setAutoFit(true)
                     setCompactPanel(null)
                   }
+                  return applied
                 }}
-                getTemplateApplicationImpact={(template) =>
-                  editor.getDesignTemplateImpact(template.id, template.version)
-                }
+                onCancelTemplateAction={editor.cancelLibraryTemplateAction}
                 onSelectionChange={editor.setLayerSelection}
                 onFocusNode={focusNode}
                 onHoverNode={setHoveredNodeId}

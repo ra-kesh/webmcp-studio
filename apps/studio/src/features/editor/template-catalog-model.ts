@@ -1,24 +1,8 @@
-import type {
-  DesignTemplateCatalogItem,
-  TemplateApplicationImpact,
-} from "@webmcp/document"
-
-export const allTemplateCategoriesValue = "__all__"
+import type { TemplateApplicationImpact } from "@webmcp/document"
 
 export type TemplateCatalogIdentity = {
   id: string
   version: number
-}
-
-export type TemplateCatalogPendingAction = {
-  type: "create" | "apply"
-  template: TemplateCatalogIdentity
-}
-
-export type TemplateCatalogCompatibility = {
-  compatible: boolean
-  label: string
-  description: string
 }
 
 export type TemplateImpactRow = {
@@ -36,112 +20,6 @@ export type TemplateImpactRow = {
   label: string
   value: string
   warning: boolean
-}
-
-const normalized = (value: string) =>
-  value.trim().toLocaleLowerCase().replace(/\s+/g, " ")
-
-export function templateCatalogKey(
-  template: Pick<DesignTemplateCatalogItem, "id" | "version">
-) {
-  return `${template.id}@${template.version}`
-}
-
-export function isSameTemplate(
-  template: Pick<DesignTemplateCatalogItem, "id" | "version">,
-  identity: TemplateCatalogIdentity | null | undefined
-) {
-  return Boolean(
-    identity &&
-    template.id === identity.id &&
-    template.version === identity.version
-  )
-}
-
-export function templateCatalogCategories(
-  items: readonly DesignTemplateCatalogItem[]
-) {
-  return [...new Set(items.map((item) => item.category))].sort((left, right) =>
-    left.localeCompare(right)
-  )
-}
-
-export function filterTemplateCatalog(
-  items: readonly DesignTemplateCatalogItem[],
-  options: { search: string; category: string }
-) {
-  const search = normalized(options.search)
-  return items.filter((item) => {
-    if (
-      options.category !== allTemplateCategoriesValue &&
-      normalized(item.category) !== normalized(options.category)
-    ) {
-      return false
-    }
-    if (!search) return true
-    return normalized(
-      [item.name, item.description, item.category, ...item.tags].join(" ")
-    ).includes(search)
-  })
-}
-
-export function templateCompatibility(
-  template: DesignTemplateCatalogItem,
-  hasQuotationSource: boolean
-): TemplateCatalogCompatibility {
-  if (!template.requiresQuotationSource) {
-    return {
-      compatible: true,
-      label: "Ready",
-      description:
-        "This starter works with any document and does not require linked quotation data.",
-    }
-  }
-  if (hasQuotationSource) {
-    return {
-      compatible: true,
-      label: "Source linked",
-      description:
-        "This style uses the linked quotation revision and keeps its source-backed content intact.",
-    }
-  }
-  return {
-    compatible: false,
-    label: "Quotation required",
-    description:
-      "Link a Stuwiz quotation before creating or applying this source-backed style.",
-  }
-}
-
-export function templateDimensionsLabel(template: DesignTemplateCatalogItem) {
-  const dimensions = [
-    ...new Set(
-      template.dimensions.map(({ width, height }) => `${width} × ${height}`)
-    ),
-  ]
-  if (dimensions.length === 0) return "No page size"
-  if (dimensions.length === 1) return `${dimensions[0]} px`
-  return `${dimensions[0]} px + ${dimensions.length - 1} more`
-}
-
-export function templatePreviewLayout(
-  template: DesignTemplateCatalogItem,
-  bounds: { width: number; height: number } = { width: 196, height: 136 }
-) {
-  const page = template.previewDocument.pages.find(
-    (candidate) => candidate.id === template.previewPageId
-  )
-  if (!page) {
-    throw new Error(
-      `Template ${templateCatalogKey(template)} has no preview page.`
-    )
-  }
-  const scale = Math.min(bounds.width / page.width, bounds.height / page.height)
-  return {
-    scale,
-    width: page.width * scale,
-    height: page.height * scale,
-  }
 }
 
 const beforeAfter = ({ before, after }: { before: number; after: number }) =>

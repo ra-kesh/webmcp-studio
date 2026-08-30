@@ -36,8 +36,22 @@ import {
 } from "./studio-persistence-test-wrapper"
 import type { StudioPersistenceApi } from "../persistence/studio-persistence-provider"
 import { useDocumentEditor } from "./use-document-editor"
+import type { ResolvedTemplateAction } from "../../content/library/library-template-actions"
 
 type Editor = ReturnType<typeof useDocumentEditor>
+
+const applyExactLibraryTemplate = async (
+  editor: Editor,
+  id: string,
+  version: number
+) => {
+  const resolved = await editor.resolveApplyLibraryTemplate({
+    itemKind: "template",
+    id,
+    version,
+  })
+  return resolved ? editor.confirmApplyLibraryTemplate(resolved) : false
+}
 
 type RepositoryLifecycle = Readonly<{
   status: "opening" | "ready" | "blocked" | "unavailable"
@@ -2858,9 +2872,11 @@ describe.sequential("useDocumentEditor repository persistence", () => {
 
     let applied = false
     await act(async () => {
-      applied =
-        captured.current?.applyDesignTemplate("bold-square-announcement", 1) ??
-        false
+      applied = await applyExactLibraryTemplate(
+        captured.current!,
+        "bold-square-announcement",
+        1
+      )
     })
     expect(applied).toBe(true)
     const exactDocument = structuredClone(captured.current!.document)
@@ -2887,6 +2903,226 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     expect(saved.envelope.sourceContext).toEqual(exactContext)
   })
 
+  it("keeps exact library apply resolution read-only until confirmation", async () => {
+    const envelope = quotationEnvelope()
+    const { captured } = await openEnvelope(envelope, "library-action-confirm")
+    const before = structuredClone(captured.current!.document)
+    let resolved: Awaited<ReturnType<Editor["resolveApplyLibraryTemplate"]>> =
+      null
+
+    await act(async () => {
+      resolved = await captured.current!.resolveApplyLibraryTemplate({
+        itemKind: "template",
+        id: "bold-square-announcement",
+        version: 1,
+      })
+    })
+
+    expect(resolved).not.toBeNull()
+    expect(captured.current!.document).toEqual(before)
+    expect(resolved).toMatchObject({
+      action: "apply",
+      intent: {
+        itemKind: "template",
+        id: "bold-square-announcement",
+        version: 1,
+      },
+      detail: {
+        materialization: {
+          templateId: "bold-square-announcement",
+          templateVersion: 1,
+        },
+      },
+    })
+
+    let applied = false
+    await act(async () => {
+      applied = await captured.current!.confirmApplyLibraryTemplate(resolved!)
+    })
+
+    expect(applied).toBe(true)
+    expect(captured.current!.document).not.toEqual(before)
+    expect(captured.current!.activeDesignTemplate).toEqual({
+      id: "bold-square-announcement",
+      version: 1,
+    })
+  })
+
+  it("does not let caller-owned resolved snapshot state forge create authority", async () => {
+    const envelope = quotationEnvelope()
+    const { captured, hookRepository } = await openEnvelope(
+      envelope,
+      "library-create-private-authority"
+    )
+    let resolvedAction!: ResolvedTemplateAction
+
+    await act(async () => {
+      const resolved = await captured.current!.resolveCreateFromLibraryTemplate(
+        {
+          itemKind: "template",
+          id: "bold-square-announcement",
+          version: 1,
+        }
+      )
+      if (resolved) resolvedAction = resolved
+    })
+    expect(resolvedAction).toBeDefined()
+    if (!resolvedAction)
+      throw new Error("Expected exact create action resolution")
+
+    const node = captured.current!.document.nodes[0]
+    await act(async () => {
+      expect(
+        captured.current!.updateNode(node.id, {
+          opacity: Math.max(0, node.opacity - 0.1),
+        })
+      ).toBe(true)
+    })
+    const authoritativeDocument = structuredClone(captured.current!.document)
+    const writableSnapshot = resolvedAction.snapshot as {
+      document: ResolvedTemplateAction["snapshot"]["document"]
+      documentGeneration: number
+    }
+    writableSnapshot.document = captured.current!.document
+    writableSnapshot.documentGeneration = captured.current!.operationVersion
+    const create = vi.spyOn(hookRepository, "create")
+
+    let confirmed = true
+    await act(async () => {
+      confirmed =
+        await captured.current!.confirmCreateFromLibraryTemplate(resolvedAction)
+    })
+
+    expect(confirmed).toBe(false)
+    expect(create).not.toHaveBeenCalled()
+    expect(captured.current!.document).toEqual(authoritativeDocument)
+    expect(captured.current!.document.id).toBe(envelope.document.id)
+  })
+
+  it("keeps a deferred template install owned when later resolve and cancel requests arrive", async () => {
+    const envelope = quotationEnvelope()
+    const { captured, hookRepository } = await openEnvelope(
+      envelope,
+      "library-create-owned-install"
+    )
+    let resolved: Awaited<
+      ReturnType<Editor["resolveCreateFromLibraryTemplate"]>
+    > = null
+    await act(async () => {
+      resolved = await captured.current!.resolveCreateFromLibraryTemplate({
+        itemKind: "template",
+        id: "quotation-midnight-film",
+        version: 3,
+      })
+    })
+    expect(resolved).not.toBeNull()
+
+    const originalCreate = hookRepository.create.bind(hookRepository)
+    let releaseCreate: (() => void) | null = null
+    const createGate = new Promise<void>((resolve) => {
+      releaseCreate = resolve
+    })
+    let createStarted = false
+    const create = vi
+      .spyOn(hookRepository, "create")
+      .mockImplementation(async (...arguments_) => {
+        createStarted = true
+        await createGate
+        return originalCreate(...arguments_)
+      })
+
+    let confirmation = Promise.resolve(false)
+    await act(async () => {
+      confirmation = captured.current!.confirmCreateFromLibraryTemplate(
+        resolved!
+      )
+      await vi.waitFor(() => expect(createStarted).toBe(true))
+    })
+
+    let laterResolution: Awaited<
+      ReturnType<Editor["resolveCreateFromLibraryTemplate"]>
+    > = resolved
+    await act(async () => {
+      laterResolution =
+        await captured.current!.resolveCreateFromLibraryTemplate({
+          itemKind: "template",
+          id: "bold-square-announcement",
+          version: 1,
+        })
+      captured.current!.cancelLibraryTemplateAction()
+    })
+    expect(laterResolution).toBeNull()
+    expect(captured.current!.document.id).toBe(envelope.document.id)
+
+    let confirmed = false
+    await act(async () => {
+      releaseCreate?.()
+      confirmed = await confirmation
+    })
+
+    expect(confirmed).toBe(true)
+    expect(create).toHaveBeenCalledOnce()
+    expect(captured.current!.document.id).not.toBe(envelope.document.id)
+    expect(captured.current!.activeDesignTemplate).toEqual({
+      id: "quotation-midnight-film",
+      version: 3,
+    })
+  })
+
+  it("does not install a deferred template document after mounted authority is invalidated", async () => {
+    const envelope = designEnvelope()
+    const { captured, hookRepository } = await openEnvelope(
+      envelope,
+      "library-create-unmounted-install"
+    )
+    let resolved: Awaited<
+      ReturnType<Editor["resolveCreateFromLibraryTemplate"]>
+    > = null
+    await act(async () => {
+      resolved = await captured.current!.resolveCreateFromLibraryTemplate({
+        itemKind: "template",
+        id: "bold-square-announcement",
+        version: 1,
+      })
+    })
+    expect(resolved).not.toBeNull()
+
+    const originalCreate = hookRepository.create.bind(hookRepository)
+    let releaseCreate: (() => void) | null = null
+    const createGate = new Promise<void>((resolve) => {
+      releaseCreate = resolve
+    })
+    let createStarted = false
+    const create = vi
+      .spyOn(hookRepository, "create")
+      .mockImplementation(async (...arguments_) => {
+        createStarted = true
+        await createGate
+        return originalCreate(...arguments_)
+      })
+
+    let confirmation = Promise.resolve(true)
+    await act(async () => {
+      confirmation = captured.current!.confirmCreateFromLibraryTemplate(
+        resolved!
+      )
+      await vi.waitFor(() => expect(createStarted).toBe(true))
+    })
+
+    await act(async () => root.unmount())
+    root = createRoot(host)
+    let confirmed = true
+    await act(async () => {
+      releaseCreate?.()
+      confirmed = await confirmation
+    })
+
+    expect(confirmed).toBe(false)
+    expect(create).toHaveBeenCalledOnce()
+    expect(captured.current!.document.id).toBe(envelope.document.id)
+    expect(captured.current!.getActiveDocumentId()).toBeNull()
+  })
+
   it("persists Undo and Redo with their exact historical source contexts", async () => {
     const envelope = quotationEnvelope()
     const { captured, created, hookRepository } = await openEnvelope(
@@ -2897,7 +3133,11 @@ describe.sequential("useDocumentEditor repository persistence", () => {
 
     await act(async () => {
       expect(
-        captured.current?.applyDesignTemplate("bold-square-announcement", 1)
+        await applyExactLibraryTemplate(
+          captured.current!,
+          "bold-square-announcement",
+          1
+        )
       ).toBe(true)
     })
     await act(async () => {
@@ -3775,7 +4015,11 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     })
     await act(async () => {
       expect(
-        captured.current!.applyDesignTemplate("quotation-midnight-film", 3)
+        await applyExactLibraryTemplate(
+          captured.current!,
+          "quotation-midnight-film",
+          3
+        )
       ).toBe(true)
       expect(await captured.current!.flushActiveDraft()).toBe(true)
     })

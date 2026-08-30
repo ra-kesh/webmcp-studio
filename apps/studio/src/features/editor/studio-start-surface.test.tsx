@@ -30,7 +30,40 @@ vi.mock("./recent-documents", () => ({
   ),
 }))
 
-const templates = builtInDesignTemplateRepository.list()
+vi.mock("../../content/library/library-template-browser", () => ({
+  LibraryTemplateBrowser: ({
+    actionsEnabled,
+    actionError,
+    onCreate,
+  }: {
+    actionsEnabled?: boolean
+    actionError?: string | null
+    onCreate: (intent: {
+      itemKind: "template"
+      id: string
+      version: number
+    }) => void
+  }) => (
+    <section aria-label="Shared template browser">
+      <h2>Start from a template</h2>
+      {actionError ? <p>{actionError}</p> : null}
+      <button
+        disabled={!actionsEnabled}
+        type="button"
+        onClick={() =>
+          onCreate({
+            itemKind: "template",
+            id: "editorial-one-pager",
+            version: 1,
+          })
+        }
+      >
+        Create from template
+      </button>
+    </section>
+  ),
+}))
+
 const emptyModel = projectStudioStartModel({ status: "empty" })
 
 if (emptyModel.status !== "ready") {
@@ -39,15 +72,12 @@ if (emptyModel.status !== "ready") {
 
 const defaultProps: StudioStartSurfaceProps = {
   model: emptyModel,
-  templates,
-  templateLoadState: { status: "ready" },
   hasQuotationSource: false,
   onCreateBlank: vi.fn(),
   onCreateFromTemplate: vi.fn(),
   onImportFile: vi.fn(() => true),
   onOpenDocument: vi.fn(() => true),
   onOpenSample: vi.fn(),
-  onRetryTemplates: vi.fn(),
 }
 
 const renderSurface = (overrides: Partial<StudioStartSurfaceProps> = {}) =>
@@ -85,14 +115,6 @@ function buttonNamed(name: string) {
   return [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
     (button) => button.textContent.includes(name)
   )
-}
-
-function setInputValue(input: HTMLInputElement, value: string) {
-  Object.getOwnPropertyDescriptor(
-    HTMLInputElement.prototype,
-    "value"
-  )?.set?.call(input, value)
-  input.dispatchEvent(new Event("input", { bubbles: true }))
 }
 
 describe("StudioStartSurface", () => {
@@ -138,40 +160,6 @@ describe("StudioStartSurface", () => {
     expect(html).not.toContain('aria-labelledby="current-draft-heading"')
   })
 
-  it("renders loading, retryable error, and honest empty catalog states", () => {
-    expect(
-      renderSurface({ templateLoadState: { status: "loading" } })
-    ).toContain("Loading design templates")
-
-    const retry = renderSurface({
-      templateLoadState: {
-        status: "error",
-        message: "The template service did not respond.",
-      },
-    })
-    expect(retry).toContain("Templates could not be loaded")
-    expect(retry).toContain("The template service did not respond.")
-    expect(retry).toContain("Try again")
-
-    const empty = renderSurface({ templates: [] })
-    expect(empty).toContain("No templates available")
-    expect(empty).toContain("Start with a blank document")
-  })
-
-  it("keeps quotation-only styles visible, explained, and unavailable without a source", () => {
-    const quotation = templates.find(
-      (template) => template.kind === "quotation_style"
-    )
-    expect(quotation).toBeDefined()
-    if (!quotation) return
-
-    const html = renderSurface({ templates: [quotation] })
-    expect(html).toContain("Quotation required")
-    expect(html).toContain("Link a Stuwiz quotation")
-    expect(html).toContain('disabled=""')
-    expect(html).not.toContain("Apply to this design")
-  })
-
   it("opens an exact library document and dispatches the selected template", async () => {
     const onOpenDocument = vi.fn(() => true)
     const onCreateFromTemplate = vi.fn()
@@ -194,14 +182,12 @@ describe("StudioStartSurface", () => {
     await act(async () => buttonNamed("Open recent document")?.click())
     expect(onOpenDocument).toHaveBeenCalledWith("recent-document-id")
 
-    const general = templates.find(
-      (template) => template.id === "editorial-one-pager"
-    )
-    expect(general).toBeDefined()
-    if (!general) return
-    await act(async () => buttonNamed(general.name)?.click())
     await act(async () => buttonNamed("Create from template")?.click())
-    expect(onCreateFromTemplate).toHaveBeenCalledWith(general)
+    expect(onCreateFromTemplate).toHaveBeenCalledWith({
+      itemKind: "template",
+      id: "editorial-one-pager",
+      version: 1,
+    })
   })
 
   it("delegates return focus to the retained document library", async () => {
@@ -380,22 +366,5 @@ describe("StudioStartSurface", () => {
       "The selected file is malformed."
     )
     expect(document.body.querySelectorAll('[role="alert"]')).toHaveLength(2)
-  })
-
-  it("filters templates without moving focus away from the search field", async () => {
-    await act(async () => {
-      root.render(<StudioStartSurface {...defaultProps} />)
-    })
-    const search = document.body.querySelector<HTMLInputElement>(
-      'input[aria-label="Search design templates"]'
-    )
-    if (!search) throw new Error("Expected the template search input")
-    search.focus()
-    await act(async () => setInputValue(search, "editorial one-pager"))
-
-    expect(document.activeElement).toBe(search)
-    expect(document.body.textContent).toContain("1 template")
-    expect(document.body.textContent).toContain("Editorial one-pager")
-    expect(document.body.textContent).not.toContain("Midnight Film")
   })
 })
