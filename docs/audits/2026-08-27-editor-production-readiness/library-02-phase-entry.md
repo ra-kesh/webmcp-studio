@@ -308,6 +308,28 @@ build. Gate 4 now owns discovery state and the shared browser interface.
 - preserve compact targets, keyboard navigation, focus return and polite result
   announcements.
 
+#### Gate 4A result — discovery and mutation authority
+
+Status: **independently accepted on 2026-08-31; Gate 4 interface migration remains active**
+
+- Added one framework-independent, abort-aware discovery controller for raw and
+  applied search, complete taxonomy filters, entry points, refresh, retained
+  results, pagination, exact details, announcements and explicit focus intent.
+- Added a Promise-based Studio catalog adapter and a route-owned provider whose
+  lease lifecycle is StrictMode-safe. Only discovery consumers subscribe to
+  catalog state; a lease-only editor owner does not rerender while typing.
+- Added exact template mutation authority that refetches canonical detail at
+  resolve and confirmation time, rejects identity/status/permission/source and
+  document-generation drift, and keeps confirmation authority in an unexposed
+  scalar fingerprint.
+- Independent review found five P1 defects across catalog-revision refresh,
+  search focus, caller-mutable action state and provider subscription scope.
+  All five are repaired with retained regressions; final re-review reports zero
+  open P0/P1 findings. Focused foundation evidence passes 33/33.
+- Gate 4B now owns the single shared Start/editor browser, exact editor action
+  cutover, 49-item virtualization, mounted acceptance and deletion of the two
+  duplicated legacy browsers.
+
 ### Gate 5 - favorites, recent use and collections
 
 - add durable preference and collection migrations;

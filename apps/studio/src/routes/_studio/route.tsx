@@ -1,4 +1,5 @@
 import { Outlet, createFileRoute } from "@tanstack/react-router"
+import { LibraryDiscoveryProvider } from "../../content/library/library-discovery-provider"
 import { LibraryPreviewProvider } from "../../content/library/library-preview-provider"
 import { RecentDocumentsProvider } from "../../features/editor/recent-documents-provider"
 import { DocumentPreviewProvider } from "../../features/editor/document-preview-provider"
@@ -16,11 +17,13 @@ function StudioPersistenceLayout() {
   return (
     <StudioPersistenceProvider>
       <LibraryPreviewProvider>
-        <DocumentPreviewProvider>
-          <RecentDocumentsProvider>
-            <Outlet />
-          </RecentDocumentsProvider>
-        </DocumentPreviewProvider>
+        <LibraryDiscoveryProvider>
+          <DocumentPreviewProvider>
+            <RecentDocumentsProvider>
+              <Outlet />
+            </RecentDocumentsProvider>
+          </DocumentPreviewProvider>
+        </LibraryDiscoveryProvider>
       </LibraryPreviewProvider>
     </StudioPersistenceProvider>
   )

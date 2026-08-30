@@ -3,6 +3,9 @@ export {
   getStudioLibraryCatalogDetail,
   studioLibraryCatalogIndex,
 } from "./catalog"
+export * from "./discovery-controller"
+export * from "./library-discovery-adapter"
+export * from "./library-discovery-provider"
 export * from "./library-preview-controller"
 export * from "./templates/preview-manifest"
 export {

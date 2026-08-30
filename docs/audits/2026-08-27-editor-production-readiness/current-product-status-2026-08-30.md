@@ -44,10 +44,11 @@ artifacts.
    compact/dark/coarse-pointer visual matrix remain open; this is improved,
    not full visual parity.
 2. **LIBRARY-02:** the compact catalog, compatibility/ownership contracts, 21
-   active template entries, 37-item curated media manifest and all 21 immutable
-   Renderer-backed template previews are independently accepted. Discovery UI,
-   collections, favorites, media materialization and integrated Assets
-   navigation remain active and still sit below Canva's product depth.
+   active template entries, 37-item curated media manifest, all 21 immutable
+   Renderer-backed template previews, and the shared discovery/mutation
+   authority are independently accepted. The shared Start/editor browser,
+   preferences, media materialization and integrated Assets navigation remain
+   active and still sit below Canva's product depth.
 3. **ASSET-02 depth:** placement, crop and frame masks are real; general masks
    and a production background-removal workflow are not built.
 4. **Environment proof:** deployed migrations 0012/0013 and the remaining

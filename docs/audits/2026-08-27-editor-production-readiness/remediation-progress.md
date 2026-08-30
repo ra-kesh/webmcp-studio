@@ -3623,3 +3623,22 @@ Status: **closed and independently accepted; Gate 4 is active**
 - Focused evidence passes 36/36 tests, 21/21 published preview verification,
   Studio typecheck and the Node 22 production build. Gate 4 now owns the shared
   discovery controller and browser.
+
+## 2026-08-31 — LIBRARY-02 Gate 4A discovery and mutation authority
+
+Status: **independently accepted; Gate 4 interface migration remains active**
+
+- Added compact, asynchronous discovery ownership with debounced raw/applied
+  search, complete taxonomy filters, featured/recent/favorite entry points,
+  retained refresh state, bound pagination, exact detail reads, cancellation,
+  stale-result rejection, announcements and opt-in focus intent.
+- Added one route-owned provider with reference-counted visible-surface leases,
+  StrictMode-safe delayed cleanup and a stable context boundary so discovery
+  typing does not rerender lease-only editor owners.
+- Added exact create/apply authority with confirmation-time detail refetch,
+  canonical schema/identity/permission/compatibility/source validation,
+  document/source/review generation checks and private scalar confirmation
+  fingerprints.
+- Closed five independent-review P1 findings with focused regressions. Final
+  re-review reports zero open P0/P1 findings and the foundation suite passes
+  33/33. Gate 4B remains active for the shared browser and production cutover.
