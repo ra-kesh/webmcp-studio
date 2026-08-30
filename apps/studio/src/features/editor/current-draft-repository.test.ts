@@ -1,10 +1,18 @@
 import { describe, expect, test } from "vitest"
 import {
+  assertValidDocument,
   builtInDesignTemplateRepository,
   composeQuotationDocument,
+  northstarSeed,
   northstarQuotationPayload,
+  resolveComponentInstanceNodes,
 } from "@webmcp/document"
-import type { ChangeSet, Document } from "@webmcp/document"
+import type {
+  ChangeSet,
+  ComponentDefinition,
+  ComponentInstance,
+  Document,
+} from "@webmcp/document"
 import {
   createDraftRecoveryRecord,
   DRAFT_RECOVERY_STORAGE_KEY,
@@ -56,6 +64,95 @@ const starterSnapshot: CurrentDraftSnapshot = {
     quotationTemplateId: "editorial-olive",
     designTemplate: { id: "editorial-one-pager", version: 1 },
   },
+}
+
+const componentSnapshot = (): CurrentDraftSnapshot => {
+  const document = structuredClone(northstarSeed)
+  const component: ComponentDefinition = {
+    id: "persisted-component",
+    name: "Persisted proposal hero",
+    description: "Component persistence acceptance",
+    sourceGroupId: "persisted-component-source",
+    defaultVariantId: "persisted-component-default",
+    variants: [
+      {
+        id: "persisted-component-default",
+        name: "Default",
+        overrides: {},
+      },
+      {
+        id: "persisted-component-emphasis",
+        name: "Emphasis",
+        overrides: { "cover-eyebrow": { fontWeight: 700 } },
+      },
+    ],
+  }
+  const instance: ComponentInstance = {
+    id: "persisted-component-instance",
+    name: "Persisted proposal hero 1",
+    componentId: component.id,
+    variantId: "persisted-component-emphasis",
+    rootGroupId: "persisted-component-instance-root",
+    transform: { x: 64, y: 96, scale: 0.5, rotation: 0 },
+    nodeMappings: [
+      {
+        sourceNodeId: "cover-panel",
+        instanceNodeId: "persisted-instance-cover-panel",
+      },
+      {
+        sourceNodeId: "cover-eyebrow",
+        instanceNodeId: "persisted-instance-cover-eyebrow",
+      },
+    ],
+    groupMappings: [
+      {
+        sourceGroupId: component.sourceGroupId,
+        instanceGroupId: "persisted-component-instance-root",
+      },
+      {
+        sourceGroupId: "persisted-component-source-details",
+        instanceGroupId: "persisted-component-instance-details",
+      },
+    ],
+    overrides: { "cover-eyebrow": { text: "Persisted override" } },
+  }
+
+  document.groups.push(
+    {
+      id: component.sourceGroupId,
+      pageId: "cover",
+      name: component.name,
+      nodeIds: ["cover-panel"],
+    },
+    {
+      id: "persisted-component-source-details",
+      pageId: "cover",
+      name: "Hero details",
+      nodeIds: ["cover-eyebrow"],
+      parentGroupId: component.sourceGroupId,
+    },
+    {
+      id: instance.rootGroupId,
+      pageId: "story",
+      name: instance.name,
+      nodeIds: ["persisted-instance-cover-panel"],
+    },
+    {
+      id: "persisted-component-instance-details",
+      pageId: "story",
+      name: "Hero details",
+      nodeIds: ["persisted-instance-cover-eyebrow"],
+      parentGroupId: instance.rootGroupId,
+    }
+  )
+  document.components = [component]
+  document.componentInstances = [instance]
+  const resolved = resolveComponentInstanceNodes(document, instance)
+  document.nodes.push(...resolved)
+  document.pages
+    .find((page) => page.id === "story")
+    ?.nodeIds.push(...resolved.map((node) => node.id))
+  return { document: assertValidDocument(document), sourceContext: null }
 }
 
 const reviewJournalFor = (document: Document, documentId = document.id) => {
@@ -165,6 +262,50 @@ describe("current browser draft repository", () => {
     expect(storage.getItem(CURRENT_DRAFT_STORAGE_KEY)).toBe(serialized)
   })
 
+  test("round-trips complete component identity, variants, mappings, and overrides", () => {
+    const snapshot = componentSnapshot()
+    const storage = new MemoryStorage()
+
+    expect(
+      writeCurrentDraft(snapshot, { getStorage: provider(storage) })
+    ).toMatchObject({ ok: true })
+    const restored = bootstrapCurrentDraft({ getStorage: provider(storage) })
+
+    expect(restored).toMatchObject({
+      status: "current",
+      envelope: {
+        document: {
+          schemaVersion: 4,
+          components: [
+            {
+              id: "persisted-component",
+              variants: [
+                { id: "persisted-component-default" },
+                { id: "persisted-component-emphasis" },
+              ],
+            },
+          ],
+          componentInstances: [
+            {
+              id: "persisted-component-instance",
+              componentId: "persisted-component",
+              variantId: "persisted-component-emphasis",
+              nodeMappings: expect.arrayContaining([
+                {
+                  sourceNodeId: "cover-eyebrow",
+                  instanceNodeId: "persisted-instance-cover-eyebrow",
+                },
+              ]),
+              overrides: {
+                "cover-eyebrow": { text: "Persisted override" },
+              },
+            },
+          ],
+        },
+      },
+    })
+  })
+
   test("migrates a nested legacy document and rewrites only the atomic key", () => {
     const legacyDocument = {
       ...structuredClone(quotationDocument),
@@ -184,7 +325,7 @@ describe("current browser draft repository", () => {
       status: "current",
       source: "envelope",
       migrated: true,
-      envelope: { document: { schemaVersion: 3 }, sourceContext: null },
+      envelope: { document: { schemaVersion: 4 }, sourceContext: null },
     })
     expect(storage.writes.map(({ key }) => key)).toEqual([
       CURRENT_DRAFT_STORAGE_KEY,

@@ -3527,3 +3527,13 @@ next**
   capability display cannot drift.
 - Focused WebMCP query/change-set/registration tests pass 59/59; WebMCP and
   Studio typechecks pass.
+
+## 2026-08-30 — COMPONENT-01 Gate 5A browser persistence
+
+Status: **implemented and locally accepted; Gate 5 remains active**
+
+- Added an atomic browser-draft round trip for a schema-v4 main component,
+  variants, nested instance mappings and a controlled override.
+- Corrected the retained legacy migration expectation to require the current
+  component schema instead of the obsolete rich-text-only schema version.
+- Focused draft repository tests pass 34/34 and Studio typecheck passes.

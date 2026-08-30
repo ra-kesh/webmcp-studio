@@ -494,3 +494,22 @@ Status: **implemented and locally accepted on 2026-08-30; Gate 4 complete**
 
 Gate 4 is closed. Gate 5 now owns component renderer/PDF conformance, scale,
 persistence, the complete user journey and independent closure.
+
+## Gate 5A result — browser draft persistence matrix
+
+Status: **implemented and locally accepted on 2026-08-30; Gate 5 remains
+active**
+
+- Revisited the Gate 5 persistence contract and Studio's atomic browser draft
+  boundary before editing.
+- Added a validated schema-v4 document carrying a main component, two variants,
+  a nested instance mapping and a real instance text override.
+- Atomic write and bootstrap now have focused evidence that the complete
+  component graph returns with its identities, variant choice, mappings and
+  override ownership intact.
+- The same focused run exposed a stale pre-component migration expectation;
+  the legacy draft assertion now correctly requires migration through schema
+  version 4 rather than stopping at version 3.
+- Focused draft tests pass 34/34 and Studio typecheck passes.
+
+Gate 5 conformance, full-journey and independent-review work remains active.
