@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react"
 import type { ComponentProps } from "react"
+import { isRenderSafeCssColor } from "@webmcp/document"
 import type { InspectorSharedValue } from "@webmcp/editor/inspector"
 import {
   formatInspectorNumber,
@@ -359,6 +360,38 @@ export function InspectorNumberField({
   )
 }
 
+const canonicalInspectorColorDraft = (value: string) =>
+  value.startsWith("#") ? value.toUpperCase() : value
+
+export function nativeInspectorColorValue(value: string): string {
+  const match = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.exec(value.trim())
+  const digits = match?.[1]
+  if (!digits) return "#000000"
+  if (digits.length === 3 || digits.length === 4) {
+    return `#${[...digits.slice(0, 3)]
+      .map((digit) => `${digit}${digit}`)
+      .join("")}`.toUpperCase()
+  }
+  return `#${digits.slice(0, 6)}`.toUpperCase()
+}
+
+export type InspectorColorDraftResult =
+  { ok: true; value: string } | { ok: false; message: string }
+
+export function parseInspectorColorDraft(
+  label: string,
+  draft: string
+): InspectorColorDraftResult {
+  const trimmed = draft.trim()
+  if (!isRenderSafeCssColor(trimmed)) {
+    return {
+      ok: false,
+      message: `${label} must be a safe CSS color such as #1F2937, rgb(31 41 55 / 80%), or transparent.`,
+    }
+  }
+  return { ok: true, value: canonicalInspectorColorDraft(trimmed) }
+}
+
 export function InspectorColorField({
   label,
   value,
@@ -371,25 +404,30 @@ export function InspectorColorField({
   onCommit: (value: string) => void
 }) {
   const id = useId()
-  const [draft, setDraft] = useState(value.toUpperCase())
+  const [draft, setDraft] = useState(canonicalInspectorColorDraft(value))
   const [error, setError] = useState<string | null>(null)
   const cancelBlurRef = useRef(false)
   useEffect(() => {
-    setDraft(value.toUpperCase())
+    setDraft(canonicalInspectorColorDraft(value))
     setError(null)
   }, [value])
 
   const commit = (nextDraft = draft) => {
-    const normalized = nextDraft.trim().toUpperCase()
-    if (!/^#[0-9A-F]{6}$/.test(normalized)) {
-      setError(`${label} must be a six-digit hex color.`)
+    const parsed = parseInspectorColorDraft(label, nextDraft)
+    if (!parsed.ok) {
+      setError(parsed.message)
       return false
     }
     setError(null)
-    setDraft(normalized)
-    if (normalized !== value.toUpperCase()) onCommit(normalized)
+    setDraft(parsed.value)
+    if (parsed.value !== value) onCommit(parsed.value)
     return true
   }
+
+  const swatchColor = isRenderSafeCssColor(draft) ? draft.trim() : value
+  const pickerLabel = /\bcolor$/i.test(label)
+    ? `${label} picker`
+    : `${label} color picker`
 
   return (
     <Field
@@ -404,18 +442,23 @@ export function InspectorColorField({
         {label}
       </FieldLabel>
       <div className="flex h-8 items-center gap-2 rounded-lg border border-input px-2 has-[:focus-visible]:border-ring has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50 has-[input[aria-invalid=true]]:border-destructive has-[input[aria-invalid=true]]:ring-3 has-[input[aria-invalid=true]]:ring-destructive/20">
-        <input
-          aria-label={`${label} color picker`}
-          type="color"
-          disabled={disabled}
-          className="size-4 shrink-0 cursor-pointer appearance-none overflow-hidden rounded-sm border-0 bg-transparent p-0 disabled:cursor-not-allowed disabled:opacity-50"
-          value={/^#[0-9A-F]{6}$/i.test(draft) ? draft : value}
-          onChange={(event) => {
-            const next = event.target.value.toUpperCase()
-            setDraft(next)
-            commit(next)
-          }}
-        />
+        <span
+          className="relative size-4 shrink-0 overflow-hidden rounded-sm border border-black/10 shadow-[inset_0_0_0_1px_rgb(255_255_255_/_0.16)]"
+          style={{ backgroundColor: swatchColor }}
+        >
+          <input
+            aria-label={pickerLabel}
+            type="color"
+            disabled={disabled}
+            className="absolute inset-0 size-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
+            value={nativeInspectorColorValue(swatchColor)}
+            onChange={(event) => {
+              const next = event.target.value.toUpperCase()
+              setDraft(next)
+              commit(next)
+            }}
+          />
+        </span>
         <input
           id={id}
           className="min-w-0 flex-1 bg-transparent font-mono text-[11px] outline-none disabled:cursor-not-allowed disabled:opacity-50"
@@ -445,7 +488,7 @@ export function InspectorColorField({
             }
             if (event.key === "Escape") {
               cancelBlurRef.current = true
-              setDraft(value.toUpperCase())
+              setDraft(canonicalInspectorColorDraft(value))
               setError(null)
               event.currentTarget.blur()
             }

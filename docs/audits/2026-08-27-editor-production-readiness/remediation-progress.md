@@ -3201,3 +3201,21 @@ Status: **accepted; Gate 3 is closed and Gate 4 is next**
   independently green and that retained fixture is not counted as Gate 3
   evidence.
 - Gate 4 next owns typed variables and bindings.
+
+## 2026-08-30 — Inspector core workflow reacceptance
+
+Status: **active; prior broad inspector/polish acceptance withdrawn**
+
+- A user-run Fill/Stroke workflow exposed a React Fast Refresh hook-order crash
+  and an image-only capability incorrectly disabling text content, text color
+  and rectangle Fill.
+- The non-image controls now use the selected layer's mutation state. The shell
+  forces a full Fast Refresh reset when its hook signature changes.
+- The inspector color field now accepts the same render-safe CSS colors as the
+  canonical document model and keeps invalid drafts local with an inline error.
+- Focused inspector tests pass 11/11 and Studio typecheck passes under Node 22.
+  Cold port-3001 mutation covers hex Fill, Stroke and an alpha `rgb` value with
+  save, no runtime errors and clean undo.
+- The full live control matrix is recorded in
+  `inspector-core-workflow-reacceptance-2026-08-30.md`. Editor polish remains
+  active until every row passes; schema or command presence is not acceptance.

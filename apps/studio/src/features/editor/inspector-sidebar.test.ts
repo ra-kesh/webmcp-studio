@@ -11,6 +11,62 @@ const image = renderConformanceDocument.nodes.find(
 const textNode = renderConformanceDocument.nodes.find(
   (node) => node.type === "text"
 )!
+const rectangleNode = renderConformanceDocument.nodes.find(
+  (node) => node.type === "rect"
+)!
+
+describe("InspectorSidebar basic property controls", () => {
+  it("keeps Fill editable for an unlocked rectangle", () => {
+    const unlockedRectangle = { ...rectangleNode, locked: false }
+    const markup = renderToStaticMarkup(
+      createElement(InspectorSidebar, {
+        document: renderConformanceDocument,
+        selectedNodes: [unlockedRectangle],
+        pendingChangeSet: null,
+        lastResolvedChangeSet: null,
+        changeSetConflict: null,
+        changeSetError: null,
+        isApplyingChangeSet: false,
+        webMcpStatus: "ready",
+        webMcpError: null,
+        capabilityContext: { documentEditable: true },
+        onUpdateNode: vi.fn(),
+        onUpdateSelection: vi.fn(),
+        onUpdateField: vi.fn(),
+        onCreateField: vi.fn(),
+        onUpdateFieldDefinition: vi.fn(),
+        onRemoveField: vi.fn(),
+        onBindField: vi.fn(),
+        onUnbindField: vi.fn(),
+        onFocusNode: vi.fn(),
+        onDecideChangeOperation: vi.fn(),
+        onDecideAllChangeOperations: vi.fn(),
+        onApplyChangeSet: vi.fn(),
+        onDiscardChangeSet: vi.fn(),
+        onAlignSelection: vi.fn(),
+        onAlignSelectionToPage: vi.fn(),
+        onDistributeSelection: vi.fn(),
+        onSetSelectionLocked: vi.fn(),
+        onSetSelectionVisible: vi.fn(),
+        onReorderSelection: vi.fn(),
+        onDuplicateSelection: vi.fn(),
+        onDeleteSelection: vi.fn(),
+        onUpdateImageFrameGeometry: vi.fn(),
+        onSetImagePlacement: vi.fn(),
+        onSetImageFrameMask: vi.fn(),
+        onRunImageCommand: vi.fn(),
+        isImageCommandEnabled: () => false,
+        onRetryImageSource: vi.fn(),
+        onRemoveImageLayer: vi.fn(),
+      })
+    )
+
+    expect(markup).toContain('aria-label="Fill color picker"')
+    expect(markup).not.toContain(
+      'aria-label="Fill color picker" type="color" disabled=""'
+    )
+  })
+})
 
 describe("InspectorSidebar image replacement capability", () => {
   it("disables Replace and explains the host-projected source binding", () => {
@@ -281,6 +337,10 @@ describe("InspectorSidebar text selection state", () => {
     expect(markup).toContain('data-reusable-style-field="Text style"')
     expect(markup).toContain('data-reusable-style-field="Paint style"')
     expect(markup).toContain("Layer defaults")
+    expect(markup).not.toMatch(/<textarea[^>]* disabled=""/)
+    expect(markup).not.toContain(
+      'aria-label="Text color picker" type="color" disabled=""'
+    )
   })
 })
 

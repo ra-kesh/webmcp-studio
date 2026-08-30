@@ -1098,7 +1098,7 @@ function NodeInspector({
               </span>
               <CommitTextarea
                 value={node.text}
-                disabled={imageTransformDisabled}
+                disabled={nodeMutationDisabled}
                 onCommit={(text) => onUpdate({ text })}
               />
             </label>
@@ -1263,7 +1263,7 @@ function NodeInspector({
             <InspectorColorField
               label="Text color"
               value={node.color}
-              disabled={imageTransformDisabled}
+              disabled={nodeMutationDisabled}
               onCommit={(color) => onUpdate({ color })}
             />
             <div className="space-y-2">
@@ -1393,7 +1393,7 @@ function NodeInspector({
           <InspectorColorField
             label="Fill"
             value={node.fill}
-            disabled={imageTransformDisabled}
+            disabled={nodeMutationDisabled}
             onCommit={(fill) => onUpdate({ fill })}
           />
           <InspectorNumberField
