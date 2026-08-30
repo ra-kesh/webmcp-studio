@@ -371,3 +371,33 @@ Acceptance evidence:
 Gate 2 remains active. Rich internal clipboard/plain-text paste, active-edit
 marker affordance, and compact keyboard/screen-reader/focus acceptance remain
 open.
+
+## Gate 2F result — rich and plain text clipboard
+
+Implemented:
+
+- native copy/cut/paste events remain owned by Fabric's focused textarea, so
+  browser clipboard data is available without an asynchronous permission path
+  and canvas-level layer commands continue to stand down during text editing;
+- internal copies write `text/plain`, a strict versioned Studio rich-text MIME
+  payload and a self-identifying HTML fallback. The payload materializes
+  effective character appearance, paragraph/list semantics and safe links, and
+  is size-bounded and normalized as untrusted input before paste;
+- rich paste replaces the selected range while retaining source runs,
+  paragraphs and links; external or malformed clipboard content falls back to
+  normalized plain text with the destination typing style;
+- `Cmd/Ctrl+Shift+V` explicitly ignores Studio rich data and pastes plain text;
+  copy/cut/paste remain one direct-edit session and therefore one history
+  command on exit.
+
+Acceptance evidence:
+
+- 3/3 clipboard-model tests and 81/81 Fabric-adapter tests pass with document
+  and editor typechecks;
+- a real port-3001 `Cmd+C`/`Cmd+V` journey copied a bold 13-character range,
+  inserted a newline and pasted it. The saved node retained marker-free text,
+  two rich run ranges and paragraph metadata; the temporary layer was deleted
+  and the browser viewport restored.
+
+Gate 2 remains active only for the active-edit list-marker affordance and the
+compact keyboard/screen-reader/focus acceptance matrix.

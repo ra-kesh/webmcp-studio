@@ -25,9 +25,13 @@ import {
   IMAGE_PLACEMENT_MAX_ZOOM,
   applyTextParagraphStyleToRange,
   applyTextStyleToRange,
+  createTextClipboardPayload,
   deriveTextReplacement,
   normalizeTextSelection,
+  parseTextClipboardPayload,
+  parseTextClipboardHtml,
   patchTextRunStyle,
+  pasteTextClipboardPayload,
   projectImagePaint,
   projectNodeForRender,
   projectSvgViewport,
@@ -35,6 +39,9 @@ import {
   resolveTextSelectionStyle,
   resolveTextSelectionLink,
   resolveTextSelectionParagraphState,
+  serializeTextClipboardPayload,
+  serializeTextClipboardHtml,
+  STUDIO_RICH_TEXT_CLIPBOARD_MIME,
   editTextParagraphListByKey,
   textNodeBaseStyle,
   textRunOverrideAtCaret,
@@ -49,6 +56,7 @@ import {
   type TextRunStyle,
   type TextRunStylePatch,
   type TextParagraphStylePatch,
+  type ReplaceRichTextRangeResult,
   type TextSelection,
 } from "@webmcp/document"
 import type {
@@ -834,6 +842,43 @@ export function projectedTextOffsetToSource(
   }
 
   return lastSourceOffset
+}
+
+type ClipboardData = Pick<DataTransfer, "getData" | "setData">
+
+export function writeTextEditingClipboardData(
+  clipboard: ClipboardData,
+  node: TextNode,
+  selection: TextSelection
+) {
+  const payload = createTextClipboardPayload(node, selection)
+  if (!payload) return false
+  clipboard.setData("text/plain", payload.text)
+  clipboard.setData("text/html", serializeTextClipboardHtml(payload))
+  try {
+    clipboard.setData(
+      STUDIO_RICH_TEXT_CLIPBOARD_MIME,
+      serializeTextClipboardPayload(payload)
+    )
+  } catch {
+    // Browsers may reject custom MIME types; text/plain remains usable.
+  }
+  return true
+}
+
+export function readTextEditingClipboardData(
+  clipboard: ClipboardData,
+  pasteAsPlain = false
+) {
+  const plainText = clipboard.getData("text/plain").replace(/\r\n?/g, "\n")
+  if (!pasteAsPlain) {
+    const payload =
+      parseTextClipboardPayload(
+        clipboard.getData(STUDIO_RICH_TEXT_CLIPBOARD_MIME)
+      ) ?? parseTextClipboardHtml(clipboard.getData("text/html"))
+    if (payload) return { kind: "rich" as const, payload }
+  }
+  return plainText ? { kind: "plain" as const, text: plainText } : null
 }
 
 function fabricStyleForSegment(segment: ProjectedTextSegment) {
@@ -1892,6 +1937,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     baselineNode: TextNode
     draftNode: TextNode
     typingOverride: TextRunStyle | undefined
+    pasteAsPlainRequested: boolean
     cancelled: boolean
   } | null = null
 
@@ -3605,6 +3651,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
       baselineNode: structuredClone(node),
       draftNode: structuredClone(node),
       typingOverride: undefined,
+      pasteAsPlainRequested: false,
       cancelled: false,
     }
     target.hiddenTextarea?.addEventListener(
@@ -3612,6 +3659,14 @@ export class FabricCanvasAdapter implements CanvasAdapter {
       this.onTextEditingKeyDown,
       true
     )
+    target.hiddenTextarea?.addEventListener(
+      "keyup",
+      this.onTextEditingKeyUp,
+      true
+    )
+    target.hiddenTextarea?.addEventListener("copy", this.onTextEditingCopy)
+    target.hiddenTextarea?.addEventListener("cut", this.onTextEditingCut)
+    target.hiddenTextarea?.addEventListener("paste", this.onTextEditingPaste)
     this.publishTextEditingState(this.textEditSession)
   }
 
@@ -3644,6 +3699,10 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     }
     const primary = event.metaKey || event.ctrlKey
     const formattingKey = event.key.toLowerCase()
+    if (primary && event.shiftKey && formattingKey === "v") {
+      session.pasteAsPlainRequested = true
+      return
+    }
     if (
       primary &&
       !event.altKey &&
@@ -3734,6 +3793,119 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     }
   }
 
+  private onTextEditingKeyUp = (event: KeyboardEvent) => {
+    if (event.key.toLowerCase() === "v" && this.textEditSession) {
+      this.textEditSession.pasteAsPlainRequested = false
+    }
+  }
+
+  private applyTextClipboardResult(
+    session: NonNullable<FabricCanvasAdapter["textEditSession"]>,
+    result: ReplaceRichTextRangeResult
+  ) {
+    session.draftNode = {
+      ...session.draftNode,
+      text: result.text,
+      runs: [...result.content.runs],
+      paragraphs: [...result.content.paragraphs],
+      links: [...result.content.links],
+    }
+    session.typingOverride = undefined
+    const projection = projectFabricTextState(session.draftNode)
+    setFabricTextboxContent(
+      session.target,
+      result.text,
+      "editing",
+      projection.editingStyles
+    )
+    if (session.target.hiddenTextarea) {
+      session.target.hiddenTextarea.value = result.text
+    }
+    session.target.initDimensions()
+    restoreFabricTextSelection(session.target, result.selection)
+    session.target.setCoords()
+    this.canvas?.requestRenderAll()
+    this.publishTextEditingState(session)
+  }
+
+  private onTextEditingCopy = (event: ClipboardEvent) => {
+    const session = this.textEditSession
+    if (!session || !event.clipboardData) return
+    if (
+      writeTextEditingClipboardData(
+        event.clipboardData,
+        session.draftNode,
+        fabricTextSelection(session.target)
+      )
+    ) {
+      event.preventDefault()
+    }
+  }
+
+  private onTextEditingCut = (event: ClipboardEvent) => {
+    const session = this.textEditSession
+    if (!session || !event.clipboardData) return
+    const selection = fabricTextSelection(session.target)
+    if (
+      !writeTextEditingClipboardData(
+        event.clipboardData,
+        session.draftNode,
+        selection
+      )
+    ) {
+      return
+    }
+    event.preventDefault()
+    this.applyTextClipboardResult(
+      session,
+      replaceRichTextRange(
+        session.draftNode.text,
+        {
+          runs: session.draftNode.runs,
+          paragraphs: session.draftNode.paragraphs,
+          links: session.draftNode.links,
+        },
+        selection,
+        ""
+      )
+    )
+  }
+
+  private onTextEditingPaste = (event: ClipboardEvent) => {
+    const session = this.textEditSession
+    if (!session || !event.clipboardData) return
+    const clipboard = readTextEditingClipboardData(
+      event.clipboardData,
+      session.pasteAsPlainRequested
+    )
+    session.pasteAsPlainRequested = false
+    if (!clipboard) return
+    event.preventDefault()
+    const selection = fabricTextSelection(session.target)
+    const content = {
+      runs: session.draftNode.runs,
+      paragraphs: session.draftNode.paragraphs,
+      links: session.draftNode.links,
+    }
+    this.applyTextClipboardResult(
+      session,
+      clipboard.kind === "rich"
+        ? pasteTextClipboardPayload(
+            session.draftNode.text,
+            content,
+            selection,
+            clipboard.payload
+          )
+        : replaceRichTextRange(
+            session.draftNode.text,
+            content,
+            selection,
+            clipboard.text,
+            session.typingOverride
+          )
+    )
+  }
+
   private updateTextEditDraft(
     session: NonNullable<FabricCanvasAdapter["textEditSession"]>
   ) {
@@ -3807,6 +3979,23 @@ export class FabricCanvasAdapter implements CanvasAdapter {
       "keydown",
       this.onTextEditingKeyDown,
       true
+    )
+    this.textEditSession?.target.hiddenTextarea?.removeEventListener(
+      "keyup",
+      this.onTextEditingKeyUp,
+      true
+    )
+    this.textEditSession?.target.hiddenTextarea?.removeEventListener(
+      "copy",
+      this.onTextEditingCopy
+    )
+    this.textEditSession?.target.hiddenTextarea?.removeEventListener(
+      "cut",
+      this.onTextEditingCut
+    )
+    this.textEditSession?.target.hiddenTextarea?.removeEventListener(
+      "paste",
+      this.onTextEditingPaste
     )
     this.textEditSession = null
     this.events.onTextEditingChange?.(null)

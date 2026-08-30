@@ -41,6 +41,7 @@ import {
   projectFabricImageCropDrag,
   projectFabricTextState,
   projectedTextOffsetToSource,
+  readTextEditingClipboardData,
   recordTextEdit,
   richTextEditPatch,
   resolveTextEditExit,
@@ -49,6 +50,7 @@ import {
   syncFabricObjectFromNode,
   textEditPatch,
   textEditFinalizationPolicy,
+  writeTextEditingClipboardData,
 } from "../src/fabric-adapter"
 import {
   continuePlainTextList,
@@ -1391,6 +1393,42 @@ describe("Fabric document boundary", () => {
     expect(
       projectedTextOffsetToSource(state.layoutLines, state.displayText.length)
     ).toBe(text.length)
+  })
+
+  it("writes rich text beside plain text and honors paste-as-plain", () => {
+    const source = renderConformanceDocument.nodes.find(
+      (candidate) => candidate.id === "text-typography"
+    )!
+    if (source.type !== "text") throw new Error("Expected text")
+    const values = new Map<string, string>()
+    const clipboard = {
+      getData: (type: string) => values.get(type) ?? "",
+      setData: (type: string, value: string) => {
+        values.set(type, value)
+      },
+    }
+
+    expect(
+      writeTextEditingClipboardData(clipboard, source, {
+        anchor: 0,
+        focus: Math.min(4, source.text.length),
+      })
+    ).toBe(true)
+    expect(values.get("text/plain")).toBe(source.text.slice(0, 4))
+    expect(readTextEditingClipboardData(clipboard)).toMatchObject({
+      kind: "rich",
+      payload: { text: source.text.slice(0, 4) },
+    })
+    expect(readTextEditingClipboardData(clipboard, true)).toEqual({
+      kind: "plain",
+      text: source.text.slice(0, 4),
+    })
+    expect(
+      writeTextEditingClipboardData(clipboard, source, {
+        anchor: 2,
+        focus: 2,
+      })
+    ).toBe(false)
   })
 
   it("records changed text before a fast second edit can exit", () => {

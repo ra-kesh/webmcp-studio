@@ -3092,3 +3092,27 @@ Status: **accepted as a bounded slice; Gate 2 remains active**
   exit; the temporary layer was removed and the saved document reloaded.
 - Gate 2 still owns rich/plain clipboard handling, an explicit active-edit
   marker affordance and compact keyboard/screen-reader/focus acceptance.
+
+## 2026-08-30 — TEXT-02 Gate 2F rich/plain clipboard
+
+Status: **accepted as a bounded slice; Gate 2 remains active**
+
+- Revisited OpenPencil's native clipboard/editable-target boundary and Loora's
+  native-event, plain-text fallback and validated internal-payload patterns.
+  No reference code was imported.
+- Added a strict size-bounded Studio rich-text clipboard payload that
+  materializes effective character styles, paragraph/list semantics and safe
+  links. It travels beside `text/plain` through a custom MIME type and a
+  self-identifying HTML fallback; untrusted or foreign data cannot enter the
+  rich path without schema and range normalization.
+- Fabric's focused textarea now owns copy, cut and paste during direct editing.
+  Rich paste preserves the payload, ordinary external paste inherits the
+  destination typing style, and `Cmd/Ctrl+Shift+V` deliberately ignores rich
+  data. The shell's layer clipboard continues to stand down for editable
+  targets.
+- 3/3 clipboard-model tests and 81/81 Fabric-adapter tests pass with affected
+  typechecks. A live `Cmd+C`/`Cmd+V` journey retained bold ranges and paragraph
+  metadata in the saved node; cleanup removed the temporary layer and restored
+  the viewport.
+- Gate 2 now owns only the active-edit list-marker affordance and compact
+  keyboard/screen-reader/focus acceptance.

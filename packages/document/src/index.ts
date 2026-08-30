@@ -28,6 +28,7 @@ export * from "./seed"
 export * from "./text-layout"
 export * from "./text-range-editing"
 export * from "./text-paragraph-editing"
+export * from "./text-clipboard"
 export {
   assertValidDocument,
   DocumentValidationError,
