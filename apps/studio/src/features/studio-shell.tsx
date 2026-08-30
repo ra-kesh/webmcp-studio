@@ -727,8 +727,27 @@ export function StudioShell({
     body.style.inset = "0"
     body.style.width = "100%"
     body.style.height = "100%"
-    window.scrollTo({ top: 0, left: 0, behavior: "instant" })
+    const restoreWorkspaceOrigin = () => {
+      if (root.scrollLeft || root.scrollTop) {
+        root.scrollTo({ top: 0, left: 0, behavior: "instant" })
+      }
+      if (body.scrollLeft || body.scrollTop) {
+        body.scrollTo({ top: 0, left: 0, behavior: "instant" })
+      }
+      if (window.scrollX || window.scrollY) {
+        window.scrollTo({ top: 0, left: 0, behavior: "instant" })
+      }
+    }
+    restoreWorkspaceOrigin()
+    root.addEventListener("scroll", restoreWorkspaceOrigin, { passive: true })
+    body.addEventListener("scroll", restoreWorkspaceOrigin, { passive: true })
+    window.addEventListener("scroll", restoreWorkspaceOrigin, {
+      passive: true,
+    })
     return () => {
+      root.removeEventListener("scroll", restoreWorkspaceOrigin)
+      body.removeEventListener("scroll", restoreWorkspaceOrigin)
+      window.removeEventListener("scroll", restoreWorkspaceOrigin)
       root.style.overflow = previous.rootOverflow
       root.style.overscrollBehavior = previous.rootOverscrollBehavior
       body.style.overflow = previous.bodyOverflow

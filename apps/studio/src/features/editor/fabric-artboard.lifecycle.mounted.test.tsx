@@ -3,7 +3,11 @@
 import { act, createRef } from "react"
 import { createRoot } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import type { CanvasAdapter, CanvasAdapterEvents } from "@webmcp/editor"
+import type {
+  CanvasAdapter,
+  CanvasAdapterEvents,
+  CanvasTextEditingState,
+} from "@webmcp/editor"
 import { renderConformanceDocument } from "@webmcp/document"
 import { quotationStarter } from "./quotation-starter"
 import { FabricArtboard } from "./fabric-artboard"
@@ -335,6 +339,67 @@ describe("FabricArtboard lifecycle", () => {
 
     expect(enterTextEditing).toHaveBeenCalledWith(textNode.id, selection)
     expect(onTextEditingStart).toHaveBeenCalledWith(textNode.id)
+  })
+
+  it("removes duplicate selection chrome while direct text editing is active", async () => {
+    const textNode = quotationStarter.document.nodes.find(
+      (node) => node.type === "text"
+    )
+    if (!textNode || textNode.type !== "text") {
+      throw new Error("Expected an editable text node fixture")
+    }
+    let adapterEvents: CanvasAdapterEvents | undefined
+    const adapter = fakeAdapter()
+    const loadAdapter = async () =>
+      adapterModule((events) => {
+        adapterEvents = events
+        return adapter
+      })
+
+    await act(async () => {
+      root.render(
+        <FabricArtboard
+          {...baseProps}
+          selection={{
+            pageId: quotationStarter.document.pages[0].id,
+            nodeIds: [textNode.id],
+          }}
+          runtimeOptions={{ loadAdapter }}
+        />
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+      await vi.advanceTimersByTimeAsync(0)
+    })
+
+    expect(host.querySelector('[data-node-outline="selection"]')).not.toBeNull()
+
+    const editingState: CanvasTextEditingState = {
+      nodeId: textNode.id,
+      text: textNode.text,
+      selection: { anchor: 0, focus: 0 },
+      link: { kind: "none" },
+      paragraph: {
+        align: { kind: "value", value: textNode.align },
+        list: { kind: "value", value: null },
+      },
+      style: {
+        color: { kind: "value", value: textNode.color },
+        fontFamily: { kind: "value", value: textNode.fontFamily },
+        fontSize: { kind: "value", value: textNode.fontSize },
+        fontWeight: { kind: "value", value: textNode.fontWeight },
+        italic: { kind: "value", value: false },
+        decoration: { kind: "value", value: "none" },
+        lineHeight: { kind: "value", value: textNode.lineHeight },
+        letterSpacing: { kind: "value", value: textNode.letterSpacing },
+      },
+    }
+    await act(async () => adapterEvents?.onTextEditingChange?.(editingState))
+    expect(host.querySelector('[data-node-outline="selection"]')).toBeNull()
+
+    await act(async () => adapterEvents?.onTextEditingChange?.(null))
+    expect(host.querySelector('[data-node-outline="selection"]')).not.toBeNull()
   })
 
   it("bounds a visible image retry and reports the exact resource token", async () => {

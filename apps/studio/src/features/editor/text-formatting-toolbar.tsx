@@ -96,7 +96,7 @@ export function TextFormattingToolbar({
       <div
         aria-label={selectionLabel}
         className={cn(
-          "flex h-11 max-w-full items-center gap-0.5 rounded-xl border bg-background/96 p-1 shadow-lg ring-1 ring-black/4 backdrop-blur-md",
+          "flex h-11 w-full max-w-full [scrollbar-width:none] items-center gap-0.5 overflow-x-auto overscroll-x-contain rounded-xl border bg-background/96 p-1 shadow-lg ring-1 ring-black/4 backdrop-blur-md [&::-webkit-scrollbar]:hidden [&>*]:shrink-0",
           className
         )}
         data-text-formatting-toolbar="true"

@@ -131,6 +131,7 @@ class StudioTextbox<
   studioTopOffset = 0
   studioUsesCanonicalLines = true
   studioProjectedLines: readonly ProjectedTextLine[] = []
+  studioEditingListMarkers: readonly (string | null)[] = []
 
   override initDimensions() {
     const fixedHeight =
@@ -144,18 +145,21 @@ class StudioTextbox<
   setStudioTextLayout(
     mode: TextSizingMode,
     topOffset: number,
-    lines: readonly ProjectedTextLine[] = []
+    lines: readonly ProjectedTextLine[] = [],
+    editingListMarkers: readonly (string | null)[] = []
   ) {
     if (
       this.studioSizingMode === mode &&
       this.studioTopOffset === topOffset &&
-      this.studioProjectedLines === lines
+      this.studioProjectedLines === lines &&
+      this.studioEditingListMarkers === editingListMarkers
     ) {
       return
     }
     this.studioSizingMode = mode
     this.studioTopOffset = topOffset
     this.studioProjectedLines = lines
+    this.studioEditingListMarkers = editingListMarkers
     this.initDimensions()
     this.dirty = true
   }
@@ -283,6 +287,92 @@ class StudioTextbox<
       charIndex += Array.from(segment.text).length
     }
     context.restore()
+  }
+
+  /**
+   * Direct editing uses the authored string so Fabric's hidden textarea and
+   * caret offsets never contain synthetic list markers. Draw those markers on
+   * the live canvas after Fabric has rendered the textbox cache/clip path.
+   * Rendering inside `_renderChars` would crop a hanging marker at the object
+   * cache boundary (and fixed text clip paths), which makes the marker vanish
+   * precisely while the user is editing it.
+   */
+  renderEditingListMarkers(context: CanvasRenderingContext2D) {
+    if (
+      !this.isEditing ||
+      !this.studioEditingListMarkers.some(Boolean) ||
+      this.isNotVisible()
+    ) {
+      return
+    }
+
+    context.save()
+    this._setOpacity(context)
+
+    const leftOffset = this._getLeftOffset()
+    const topOffset = this._getTopOffset()
+    let accumulatedLineHeight = 0
+    for (let lineIndex = 0; lineIndex < this._textLines.length; lineIndex++) {
+      const map = this._styleMap?.[lineIndex]
+      const sourceLine = map?.line ?? lineIndex
+      const marker =
+        (map?.offset ?? 0) === 0
+          ? this.studioEditingListMarkers[sourceLine]
+          : null
+      const lineHeight = this.getHeightOfLine(lineIndex)
+      if (!marker) {
+        accumulatedLineHeight += lineHeight
+        continue
+      }
+
+      const style = this.getCompleteStyleDeclaration(lineIndex, 0)
+      this._setTextStyles(context, style)
+      const markerWidth = context.measureText(marker).width
+      const markerLeft =
+        leftOffset + this._getLineLeftOffset(lineIndex) - markerWidth
+      const unscaledLineHeight = lineHeight / this.lineHeight
+      const markerTop =
+        topOffset +
+        accumulatedLineHeight +
+        unscaledLineHeight -
+        unscaledLineHeight * this._fontSizeFraction
+      if (typeof style.fill === "string" && style.fill) {
+        context.fillStyle = style.fill
+        context.fillText(marker, markerLeft, markerTop)
+      }
+      if (
+        typeof style.stroke === "string" &&
+        style.stroke &&
+        style.strokeWidth
+      ) {
+        context.strokeStyle = style.stroke
+        context.lineWidth = style.strokeWidth
+        context.strokeText(marker, markerLeft, markerTop)
+      }
+      accumulatedLineHeight += lineHeight
+    }
+    context.restore()
+  }
+
+  override renderCursorOrSelection() {
+    super.renderCursorOrSelection()
+    const canvas = this.canvas
+    if (!canvas || !this.isEditing) return
+    const context = canvas.contextTop
+    const viewport = canvas.viewportTransform
+    context.save()
+    context.transform(
+      viewport[0],
+      viewport[1],
+      viewport[2],
+      viewport[3],
+      viewport[4],
+      viewport[5]
+    )
+    this.transform(context)
+    this.renderEditingListMarkers(context)
+    context.restore()
+    canvas.contextTopDirty = true
   }
 }
 
@@ -782,6 +872,20 @@ export function projectFabricTextState(
   if (editingProjection.type !== "text") {
     throw new Error("Expected editing text projection")
   }
+  let sourceStart = 0
+  const editingListMarkers = node.text.split("\n").map((paragraph) => {
+    const line = projection.content.layout.lines.find(
+      (candidate) =>
+        candidate.sourceStart === sourceStart &&
+        candidate.segments.some((segment) => segment.synthetic)
+    )
+    const marker = line?.segments
+      .filter((segment) => segment.synthetic)
+      .map((segment) => segment.text)
+      .join("")
+    sourceStart += paragraph.length + 1
+    return marker || null
+  })
   return {
     text: projection.content.text,
     displayText: projection.content.displayText,
@@ -805,6 +909,7 @@ export function projectFabricTextState(
     overflow: projection.content.layout.overflow,
     clipOverflow: projection.content.sizingMode === "fixed",
     layoutLines: projection.content.layout.lines,
+    editingListMarkers,
   }
 }
 
@@ -1022,7 +1127,8 @@ export function createFabricSyncObject(
   text.setStudioTextLayout(
     node.sizingMode,
     projection.topOffset,
-    projection.layoutLines
+    projection.layoutLines,
+    projection.editingListMarkers
   )
   text.set({ height: node.height })
   positionFixedTextboxFrame(text, node)
@@ -1847,7 +1953,8 @@ export function syncFabricObjectFromNode(
       object.setStudioTextLayout(
         node.sizingMode,
         projection.topOffset,
-        projection.layoutLines
+        projection.layoutLines,
+        projection.editingListMarkers
       )
     }
     object.set({ height: node.height })
@@ -3668,6 +3775,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     target.hiddenTextarea?.addEventListener("cut", this.onTextEditingCut)
     target.hiddenTextarea?.addEventListener("paste", this.onTextEditingPaste)
     this.publishTextEditingState(this.textEditSession)
+    this.canvas?.requestRenderAll()
   }
 
   private onTextChanged = ({ target }: { target: FabricObject }) => {
@@ -4160,8 +4268,11 @@ export function enterFabricTextEditing(
 
   const ownerDocument = object.canvas?.upperCanvasEl.ownerDocument
   const scrollingElement = ownerDocument?.scrollingElement
+  const body = ownerDocument?.body
   const scrollLeft = scrollingElement?.scrollLeft ?? 0
   const scrollTop = scrollingElement?.scrollTop ?? 0
+  const bodyScrollLeft = body?.scrollLeft ?? 0
+  const bodyScrollTop = body?.scrollTop ?? 0
   canvas.setActiveObject(object)
   object.enterEditing()
   object.hiddenTextarea?.focus({ preventScroll: true })
@@ -4173,10 +4284,22 @@ export function enterFabricTextEditing(
       ) {
         scrollingElement.scrollTo({ left: scrollLeft, top: scrollTop })
       }
+      if (
+        body &&
+        (body.scrollLeft !== bodyScrollLeft || body.scrollTop !== bodyScrollTop)
+      ) {
+        body.scrollTo({ left: bodyScrollLeft, top: bodyScrollTop })
+      }
     }
     restoreScroll()
     queueMicrotask(restoreScroll)
-    ownerDocument?.defaultView?.requestAnimationFrame(restoreScroll)
+    const ownerWindow = ownerDocument?.defaultView
+    ownerWindow?.requestAnimationFrame(() => {
+      restoreScroll()
+      ownerWindow.requestAnimationFrame(restoreScroll)
+    })
+    ownerWindow?.setTimeout(restoreScroll, 50)
+    ownerWindow?.setTimeout(restoreScroll, 200)
   }
   canvas.requestRenderAll()
   return object.isEditing

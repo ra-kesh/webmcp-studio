@@ -1,6 +1,9 @@
-import { describe, expect, it } from "vitest"
+import { createElement } from "react"
+import { renderToStaticMarkup } from "react-dom/server"
+import { describe, expect, it, vi } from "vitest"
 import type { CanvasTextEditingState } from "@webmcp/editor"
 import { textFormattingTogglePatch } from "./text-formatting-model"
+import { TextFormattingToolbar } from "./text-formatting-toolbar"
 
 const state = (overrides: Partial<CanvasTextEditingState["style"]> = {}) =>
   ({
@@ -53,5 +56,22 @@ describe("text formatting toolbar", () => {
         "strikethrough"
       )
     ).toEqual({ decoration: "none" })
+  })
+
+  it("keeps every formatting control reachable inside a compact viewport", () => {
+    const html = renderToStaticMarkup(
+      createElement(TextFormattingToolbar, {
+        state: state(),
+        onApply: vi.fn(),
+        onEditLink: vi.fn(),
+      })
+    )
+
+    expect(html).toContain('role="toolbar"')
+    expect(html).toContain('aria-label="Selected text formatting"')
+    expect(html).toContain("w-full")
+    expect(html).toContain("overflow-x-auto")
+    expect(html).toContain("overscroll-x-contain")
+    expect(html).toContain("[&amp;&gt;*]:shrink-0")
   })
 })

@@ -3116,3 +3116,26 @@ Status: **accepted as a bounded slice; Gate 2 remains active**
   the viewport.
 - Gate 2 now owns only the active-edit list-marker affordance and compact
   keyboard/screen-reader/focus acceptance.
+
+## 2026-08-30 — TEXT-02 Gate 2G active-edit markers and compact acceptance
+
+Status: **accepted; Gate 2 is closed and Gate 3 is next**
+
+- Revisited the Gate 2 contract and the existing Fabric editing-overlay,
+  compact toolbar, dialog and focus boundaries before implementation.
+- Semantic list markers now remain visible while a text node is actively
+  edited without entering the authored string, selection offsets or clipboard.
+  The editing overlay owns that marker and the duplicate React selection badge
+  stands down until direct editing exits.
+- The text toolbar is bounded and horizontally reachable at 390 px. Fabric
+  textarea focus no longer scrolls fixed editor chrome, and workspace-level
+  scroll guards retain that invariant through delayed browser focus behavior.
+- Formatting buttons and list choices report truthful pressed/checked state;
+  the compact Properties sheet is a labelled dialog with deterministic initial
+  focus.
+- 85/85 focused Bun tests, 7/7 mounted Fabric-artboard tests, editor and Studio
+  typechecks, and a clean diff check pass. Live desktop and compact port-3001
+  acceptance covered active markers, marker-free text/caret state, bounded
+  toolbar overflow, `Tab`, `Shift+Tab`, `Cmd+B`, dialog semantics and cleanup.
+- Gate 3 now owns reusable typography and paint styles. Gate 2 has no retained
+  implementation item.

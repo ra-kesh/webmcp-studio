@@ -1277,6 +1277,71 @@ describe("Fabric document boundary", () => {
     expect(enterFabricTextEditing(canvas, new Rect())).toBe(false)
   })
 
+  it("restores both document and fixed-body scroll after Fabric focuses its textarea", () => {
+    const body = {
+      scrollLeft: 0,
+      scrollTop: 0,
+      scrollTo: vi.fn(function (
+        this: { scrollLeft: number; scrollTop: number },
+        options: ScrollToOptions
+      ) {
+        this.scrollLeft = options.left ?? 0
+        this.scrollTop = options.top ?? 0
+      }),
+    }
+    const scrollingElement = {
+      scrollLeft: 0,
+      scrollTop: 0,
+      scrollTo: vi.fn(function (
+        this: { scrollLeft: number; scrollTop: number },
+        options: ScrollToOptions
+      ) {
+        this.scrollLeft = options.left ?? 0
+        this.scrollTop = options.top ?? 0
+      }),
+    }
+    const ownerDocument = {
+      body,
+      scrollingElement,
+      defaultView: {
+        requestAnimationFrame: vi.fn((callback: FrameRequestCallback) => {
+          callback(0)
+          return 1
+        }),
+        setTimeout: vi.fn((callback: () => void) => {
+          callback()
+          return 1
+        }),
+      },
+    }
+    const text = Object.create(Textbox.prototype) as Textbox
+    Object.assign(text, {
+      editable: true,
+      lockMovementX: false,
+      lockMovementY: false,
+      isEditing: false,
+      canvas: { upperCanvasEl: { ownerDocument } },
+      hiddenTextarea: { focus: vi.fn() },
+      enterEditing: vi.fn(function (this: Textbox) {
+        this.isEditing = true
+        body.scrollLeft = 56
+        scrollingElement.scrollTop = 24
+        return this
+      }),
+    })
+
+    expect(
+      enterFabricTextEditing(
+        { setActiveObject: vi.fn(), requestRenderAll: vi.fn() },
+        text
+      )
+    ).toBe(true)
+    expect(body.scrollLeft).toBe(0)
+    expect(scrollingElement.scrollTop).toBe(0)
+    expect(body.scrollTo).toHaveBeenCalled()
+    expect(scrollingElement.scrollTo).toHaveBeenCalled()
+  })
+
   it("does not emit a document patch when direct editing exits unchanged", () => {
     expect(textEditPatch("Keep this text", "Keep this text")).toBeNull()
     expect(textEditPatch("Before", "After")).toEqual({ text: "After" })
@@ -1380,6 +1445,7 @@ describe("Fabric document boundary", () => {
     const markerLength = state.displayText.indexOf("Alpha")
     const softWrap = state.displayText.indexOf("\n")
 
+    expect(state.editingListMarkers).toEqual(["• "])
     expect(markerLength).toBeGreaterThan(0)
     expect(projectedTextOffsetToSource(state.layoutLines, 0)).toBe(0)
     expect(projectedTextOffsetToSource(state.layoutLines, markerLength)).toBe(0)

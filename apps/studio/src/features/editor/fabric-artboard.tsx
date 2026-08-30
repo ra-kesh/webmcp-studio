@@ -214,6 +214,9 @@ export const FabricArtboard = forwardRef<
   const [runtime, setRuntime] = useState<CanvasRuntimeState>(() =>
     createCanvasRuntimeState()
   )
+  const [activeTextEditingNodeId, setActiveTextEditingNodeId] = useState<
+    string | null
+  >(null)
   const [mountedAttempt, setMountedAttempt] = useState<number | null>(null)
   const ready = runtime.status === "ready"
   const canvasInstructionsId = `canvas-instructions-${useId().replaceAll(":", "")}`
@@ -503,8 +506,10 @@ export const FabricArtboard = forwardRef<
             callbacksRef.current.onImageDoubleClick?.(nodeId),
           onImageCropPreview: (preview) =>
             callbacksRef.current.onImageCropPreview?.(preview),
-          onTextEditingChange: (state) =>
-            callbacksRef.current.onTextEditingChange?.(state),
+          onTextEditingChange: (state) => {
+            setActiveTextEditingNodeId(state?.nodeId ?? null)
+            callbacksRef.current.onTextEditingChange?.(state)
+          },
         })
         adapter = nextAdapter
         nextAdapter.mount(element)
@@ -830,7 +835,7 @@ export const FabricArtboard = forwardRef<
             />
           ) : null}
         </>
-      ) : ready && selectedNodes.length ? (
+      ) : ready && selectedNodes.length && !activeTextEditingNodeId ? (
         <NodeOutline kind="selection" nodes={selectedNodes} zoom={zoom} />
       ) : null}
       <CanvasRuntimeOverlay
@@ -1317,6 +1322,7 @@ function NodeOutline({
               : "border-[#0d99ff]"
           : "border-dashed border-[#0d99ff]/80 bg-[#0d99ff]/5"
       }`}
+      data-node-outline={kind}
       style={{
         left,
         top,

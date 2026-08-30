@@ -2,7 +2,7 @@
 
 Date: 2026-08-30
 
-Status: active; architecture and Gate 1 accepted, Gate 2 active
+Status: active; architecture, Gate 1 and Gate 2 accepted, Gate 3 next
 
 ## Product outcome
 
@@ -401,3 +401,39 @@ Acceptance evidence:
 
 Gate 2 remains active only for the active-edit list-marker affordance and the
 compact keyboard/screen-reader/focus acceptance matrix.
+
+## Gate 2G result — active-edit markers and compact acceptance
+
+Implemented:
+
+- direct text editing paints semantic bullet and numbered markers as hanging
+  canvas affordances while the hidden textarea, caret offsets, clipboard and
+  saved document retain only authored text;
+- Fabric's editing overlay owns the active marker and the normal React
+  selection outline stands down, removing the duplicate badge and selection
+  chrome during direct editing;
+- the floating text toolbar is bounded by the compact viewport and exposes its
+  complete control set through horizontal overflow without moving the editor
+  shell;
+- focus handoff to Fabric's hidden textarea restores document and fixed-body
+  scroll positions, and the active workspace guards against the browser
+  scrolling fixed chrome to reveal that textarea;
+- list controls expose truthful radio state, formatting controls expose
+  `aria-pressed`, and the compact Properties sheet has a labelled dialog and a
+  deterministic initial focus target.
+
+Acceptance evidence:
+
+- 85/85 focused Bun tests and 7/7 mounted Fabric-artboard tests pass with editor
+  and Studio typechecks and a clean diff check;
+- live desktop and 390 px port-3001 journeys proved that markers remain visible
+  during editing, canonical text and caret offsets remain marker-free, the
+  toolbar stays inside the viewport, focus remains on the editing textarea,
+  `Tab`, `Shift+Tab` and `Cmd+B` do not scroll the shell, and compact dialog
+  semantics report the current list state;
+- the temporary acceptance layer was removed and the browser viewport was
+  restored to its normal size.
+
+Gate 2 is accepted and closed. Gate 3 now owns reusable typography and paint
+styles, including their complete lifecycle, propagation, history, publication
+and API/WebMCP surfaces.
