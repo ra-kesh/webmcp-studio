@@ -31,6 +31,7 @@ import type { ChangeSet } from "@webmcp/document"
 const STORE_NAMES = [
   "draft-body",
   "draft-conflicts",
+  "draft-media-migrations",
   "draft-meta",
   "draft-previews",
   "draft-quarantine",
@@ -394,7 +395,7 @@ afterEach(async () => {
 })
 
 describe("DocumentDraftRepository", () => {
-  it("creates the exact v1 stores and an atomic metadata/body pair", async () => {
+  it("creates the exact v2 stores and an atomic metadata/body pair", async () => {
     const initial = snapshot()
     const prepared = await prepareDraftAdmission(initial)
     if (!prepared.ok) throw new Error("Expected a valid draft admission")

@@ -270,6 +270,103 @@ function appendSemanticClone(
   })
 }
 
+type AssetReferenceRelink = Readonly<{
+  from: string
+  toAssetId: string
+  toSource: string
+  expectedReferenceKeys: readonly string[]
+}>
+
+/**
+ * Shared aggregate boundary for local-to-managed promotion and local-to-local
+ * reidentity. Target identity policy stays with each command, while the exact
+ * source preflight and canonical field/binding projection cannot drift.
+ */
+function relinkAssetReferences(
+  document: Document,
+  command: AssetReferenceRelink
+): Document {
+  const localAssetId = localAssetIdFromSource(command.from)
+  if (!localAssetId) {
+    throw new Error("The source is not a valid local asset identity")
+  }
+
+  const currentReferenceKeys = assetReferenceKeysForSource(
+    document,
+    command.from
+  )
+  if (!currentReferenceKeys.length) {
+    throw new Error("The local asset has no references to relink")
+  }
+  if (
+    currentReferenceKeys.length !== command.expectedReferenceKeys.length ||
+    currentReferenceKeys.some(
+      (key, index) => key !== command.expectedReferenceKeys[index]
+    )
+  ) {
+    throw new Error("The local asset reference set changed after preflight")
+  }
+
+  const fieldsById = new Map(
+    document.fields.map((field) => [field.id, field] as const)
+  )
+  const sourceBindingByNodeId = new Map(
+    document.bindings
+      .filter((binding) => binding.property === "src")
+      .map((binding) => [binding.nodeId, binding] as const)
+  )
+  for (const node of document.nodes) {
+    if (node.type !== "image") continue
+    const binding = sourceBindingByNodeId.get(node.id)
+    const boundValue = binding
+      ? document.fieldValues[binding.fieldId]
+      : undefined
+    const sourceMatches = node.src === command.from
+    const identityMatches = node.assetId === localAssetId
+
+    if (sourceMatches !== identityMatches) {
+      throw new Error(`Image ${node.id} has an incoherent local identity`)
+    }
+    if (binding) {
+      const field = fieldsById.get(binding.fieldId)
+      const fieldProjectsSource =
+        field?.type === "asset" && boundValue === command.from
+      if (sourceMatches !== fieldProjectsSource) {
+        throw new Error(
+          `Bound image ${node.id} is not an exact projection of its asset field`
+        )
+      }
+    }
+  }
+  if (applyFieldValues(document) !== document) {
+    throw new Error(
+      "The document has unrelated field projection changes to resolve before relinking this asset"
+    )
+  }
+
+  const fields = document.fields.map((field) =>
+    field.type === "asset" && field.defaultValue === command.from
+      ? { ...field, defaultValue: command.toSource }
+      : field
+  )
+  const fieldValues = { ...document.fieldValues }
+  for (const field of document.fields) {
+    if (field.type === "asset" && fieldValues[field.id] === command.from) {
+      fieldValues[field.id] = command.toSource
+    }
+  }
+  const nodes = document.nodes.map((node) => {
+    if (node.type !== "image" || node.src !== command.from) return node
+    if (sourceBindingByNodeId.has(node.id)) return node
+    return {
+      ...node,
+      assetId: command.toAssetId,
+      src: command.toSource,
+    }
+  })
+  return { ...document, fields, fieldValues, nodes }
+}
+
 function applyParsedCommand(
   document: Document,
   command: DocumentCommand,
@@ -582,88 +679,33 @@ function applyParsedCommand(
       break
     }
     case "relink_asset_references": {
+      if (managedAssetIdFromSource(command.toSource) !== command.toAssetId) {
+        throw new Error("The managed asset identity is incoherent")
+      }
+      next = relinkAssetReferences(document, command)
+      break
+    }
+    case "relink_local_asset_references": {
       const localAssetId = localAssetIdFromSource(command.from)
       if (!localAssetId) {
         throw new Error("The source is not a valid local asset identity")
       }
-      if (managedAssetIdFromSource(command.toSource) !== command.toAssetId) {
-        throw new Error("The managed asset identity is incoherent")
+      const nextLocalAssetId = localAssetIdFromSource(command.toSource)
+      if (nextLocalAssetId !== command.toAssetId) {
+        throw new Error("The new local asset identity is incoherent")
       }
-
-      const currentReferenceKeys = assetReferenceKeysForSource(
-        document,
-        command.from
-      )
-      if (!currentReferenceKeys.length) {
-        throw new Error("The local asset has no references to relink")
+      if (nextLocalAssetId === localAssetId) {
+        throw new Error("The new local asset identity must be distinct")
       }
       if (
-        currentReferenceKeys.length !== command.expectedReferenceKeys.length ||
-        currentReferenceKeys.some(
-          (key, index) => key !== command.expectedReferenceKeys[index]
+        assetReferenceKeysForSource(document, command.toSource).length > 0 ||
+        document.nodes.some(
+          (node) => node.type === "image" && node.assetId === command.toAssetId
         )
       ) {
-        throw new Error("The local asset reference set changed after preflight")
+        throw new Error("The new local asset identity is already in use")
       }
-
-      const fieldsById = new Map(
-        document.fields.map((field) => [field.id, field] as const)
-      )
-      const sourceBindingByNodeId = new Map(
-        document.bindings
-          .filter((binding) => binding.property === "src")
-          .map((binding) => [binding.nodeId, binding] as const)
-      )
-      for (const node of document.nodes) {
-        if (node.type !== "image") continue
-        const binding = sourceBindingByNodeId.get(node.id)
-        const boundValue = binding
-          ? document.fieldValues[binding.fieldId]
-          : undefined
-        const sourceMatches = node.src === command.from
-        const identityMatches = node.assetId === localAssetId
-
-        if (sourceMatches !== identityMatches) {
-          throw new Error(`Image ${node.id} has an incoherent local identity`)
-        }
-        if (binding) {
-          const field = fieldsById.get(binding.fieldId)
-          const fieldProjectsSource =
-            field?.type === "asset" && boundValue === command.from
-          if (sourceMatches !== fieldProjectsSource) {
-            throw new Error(
-              `Bound image ${node.id} is not an exact projection of its asset field`
-            )
-          }
-        }
-      }
-      if (applyFieldValues(document) !== document) {
-        throw new Error(
-          "The document has unrelated field projection changes to resolve before relinking this asset"
-        )
-      }
-
-      const fields = document.fields.map((field) =>
-        field.type === "asset" && field.defaultValue === command.from
-          ? { ...field, defaultValue: command.toSource }
-          : field
-      )
-      const fieldValues = { ...document.fieldValues }
-      for (const field of document.fields) {
-        if (field.type === "asset" && fieldValues[field.id] === command.from) {
-          fieldValues[field.id] = command.toSource
-        }
-      }
-      const nodes = document.nodes.map((node) => {
-        if (node.type !== "image" || node.src !== command.from) return node
-        if (sourceBindingByNodeId.has(node.id)) return node
-        return {
-          ...node,
-          assetId: command.toAssetId,
-          src: command.toSource,
-        }
-      })
-      next = { ...document, fields, fieldValues, nodes }
+      next = relinkAssetReferences(document, command)
       break
     }
     case "remove_node": {

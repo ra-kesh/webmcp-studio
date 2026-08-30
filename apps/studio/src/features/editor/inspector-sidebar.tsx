@@ -267,6 +267,7 @@ function NodeInspector({
   isImageCommandEnabled,
   onRetryImageSource,
   onRemoveImageLayer,
+  onReviewDocumentImage = () => undefined,
   capabilityContext,
 }: {
   node: SceneNode
@@ -283,6 +284,7 @@ function NodeInspector({
   isImageCommandEnabled: (commandId: EditorImageCommandId) => boolean
   onRetryImageSource: (nodeId: string) => void
   onRemoveImageLayer: () => void
+  onReviewDocumentImage?: (localAssetId: string) => void
   capabilityContext?: InspectorCapabilityContext
 }) {
   const inspector = useMemo(
@@ -331,6 +333,10 @@ function NodeInspector({
     node.type === "image" && imageSourceState?.src === node.src
       ? imageSourceState.readiness
       : "unknown"
+  const localAssetId =
+    node.type === "image" && node.src.startsWith("asset:local/")
+      ? node.src.slice("asset:local/".length)
+      : null
   const missingImageRecovery =
     node.type === "image"
       ? projectMissingImageRecoveryActions({
@@ -1103,7 +1109,17 @@ function NodeInspector({
                     </p>
                   </div>
                 </div>
-                {imageSourceReadiness === "unavailable" ? (
+                {imageSourceReadiness === "unavailable" && localAssetId ? (
+                  <Button
+                    className="w-full"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => onReviewDocumentImage(localAssetId)}
+                  >
+                    <ImageUp data-icon="inline-start" />
+                    Review document image
+                  </Button>
+                ) : imageSourceReadiness === "unavailable" ? (
                   <div className="grid grid-cols-3 gap-1.5">
                     <Button
                       size="sm"
@@ -2300,7 +2316,12 @@ function FieldsPanel({
               )
               const impact = analyzeFieldDeletion(document, field.id)
               return (
-                <div key={field.id} className="rounded-lg border">
+                <div
+                  key={field.id}
+                  className="rounded-lg border"
+                  data-inspector-field-id={field.id}
+                  tabIndex={-1}
+                >
                   <div className="flex items-start gap-2 p-2.5">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5">
@@ -3082,7 +3103,9 @@ export function InspectorSidebar({
   isImageCommandEnabled,
   onRetryImageSource,
   onRemoveImageLayer,
+  onReviewDocumentImage = () => undefined,
   capabilityContext,
+  focusFieldId = null,
   className,
 }: {
   document: Document
@@ -3139,7 +3162,9 @@ export function InspectorSidebar({
   isImageCommandEnabled: (commandId: EditorImageCommandId) => boolean
   onRetryImageSource: (nodeId: string) => void
   onRemoveImageLayer: () => void
+  onReviewDocumentImage?: (localAssetId: string) => void
   capabilityContext?: InspectorCapabilityContext
+  focusFieldId?: string | null
   className?: string
 }) {
   const cropSession = useSyncExternalStore(
@@ -3164,6 +3189,19 @@ export function InspectorSidebar({
   useEffect(() => {
     if (pendingChangeSet) setActiveTab("review")
   }, [pendingChangeSet])
+
+  useEffect(() => {
+    if (!focusFieldId || pendingChangeSet) return
+    setActiveTab("fields")
+    const frame = requestAnimationFrame(() => {
+      const target = inspectorRootRef.current?.querySelector<HTMLElement>(
+        `[data-inspector-field-id="${CSS.escape(focusFieldId)}"]`
+      )
+      target?.scrollIntoView({ behavior: "smooth", block: "center" })
+      target?.focus({ preventScroll: true })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [focusFieldId, pendingChangeSet])
 
   useEffect(() => {
     if (
@@ -3254,6 +3292,7 @@ export function InspectorSidebar({
                 isImageCommandEnabled={isImageCommandEnabled}
                 onRetryImageSource={onRetryImageSource}
                 onRemoveImageLayer={onRemoveImageLayer}
+                onReviewDocumentImage={onReviewDocumentImage}
                 capabilityContext={capabilityContext}
               />
             ) : selectedNodes.length > 1 ? (

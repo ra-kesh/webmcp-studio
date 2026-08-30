@@ -8,7 +8,7 @@ import {
   documentSchema,
 } from "@webmcp/document"
 import type { ChangeSet, SceneNode, TemplateVersion } from "@webmcp/document"
-import { act, useLayoutEffect } from "react"
+import { act, StrictMode, useLayoutEffect } from "react"
 import { createRoot } from "react-dom/client"
 import type { Root } from "react-dom/client"
 import {
@@ -359,13 +359,19 @@ function MountedEditor({
   capture,
   capturePersistence,
   initialRecord = null,
+  onInitialRecordInstalled,
 }: {
   capture: (editor: Editor) => void
   capturePersistence: (persistence: StudioPersistenceApi) => void
   initialRecord?: DocumentDraftRecord | null
+  onInitialRecordInstalled?: (record: DocumentDraftRecord) => void
 }) {
   const persistence = useStudioPersistence()
-  const editor = useDocumentEditor({ initialRecord, persistence })
+  const editor = useDocumentEditor({
+    initialRecord,
+    onInitialRecordInstalled,
+    persistence,
+  })
   useLayoutEffect(() => {
     capture(editor)
     capturePersistence(persistence)
@@ -404,7 +410,11 @@ describe.sequential("useDocumentEditor repository persistence", () => {
   async function mount(
     createDraftRepository: () => DocumentDraftRepository = () =>
       repository("hook-default"),
-    initialRecord: DocumentDraftRecord | null = null
+    initialRecord: DocumentDraftRecord | null = null,
+    options: Readonly<{
+      onInitialRecordInstalled?: (record: DocumentDraftRecord) => void
+      strict?: boolean
+    }> = {}
   ) {
     const captured: {
       current: Editor | null
@@ -416,7 +426,7 @@ describe.sequential("useDocumentEditor repository persistence", () => {
       persistence: null,
     }
     await act(async () => {
-      root.render(
+      const tree = (
         <StudioPersistenceTestWrapper createRepository={createDraftRepository}>
           <MountedEditor
             capture={(editor) => {
@@ -427,9 +437,11 @@ describe.sequential("useDocumentEditor repository persistence", () => {
               captured.persistence = persistence
             }}
             initialRecord={initialRecord}
+            onInitialRecordInstalled={options.onInitialRecordInstalled}
           />
         </StudioPersistenceTestWrapper>
       )
+      root.render(options.strict ? <StrictMode>{tree}</StrictMode> : tree)
     })
     return captured
   }
@@ -574,6 +586,67 @@ describe.sequential("useDocumentEditor repository persistence", () => {
       created.record.summary.documentId
     )
     expect(captured.current?.localSaveState.status).toBe("saved")
+  })
+
+  it("notifies once after the exact admitted head installs under StrictMode", async () => {
+    const draftRepository = repository("route-installed-callback")
+    const envelope = quotationEnvelope()
+    const created = await draftRepository.create(
+      { document: envelope.document, sourceContext: envelope.sourceContext },
+      { kind: "quotation" }
+    )
+    if (!created.ok) throw new Error("Expected route fixture creation")
+    const installed = vi.fn()
+
+    const captured = await mount(() => draftRepository, created.record, {
+      onInitialRecordInstalled: installed,
+      strict: true,
+    })
+    await vi.waitFor(() => {
+      expect(captured.current?.routeSessionStatus).toBe("ready")
+    })
+
+    expect(installed).toHaveBeenCalledOnce()
+    expect(installed).toHaveBeenCalledWith(created.record)
+  })
+
+  it("never mounts or acknowledges an admitted head that advanced before install", async () => {
+    const draftRepository = repository("route-stale-admitted-head")
+    const envelope = quotationEnvelope()
+    const created = await draftRepository.create(
+      { document: envelope.document, sourceContext: envelope.sourceContext },
+      { kind: "quotation" }
+    )
+    if (!created.ok) throw new Error("Expected route fixture creation")
+    const advancedDocument = {
+      ...created.record.envelope.document,
+      name: "Authoritative advanced document",
+      revision: created.record.envelope.document.revision + 1,
+      updatedAt: "2026-08-28T21:05:00.000Z",
+    }
+    const advanced = await draftRepository.save(
+      {
+        document: advancedDocument,
+        sourceContext: created.record.envelope.sourceContext,
+      },
+      created.record.summary.recordVersion,
+      created.record.summary.draftSnapshotId
+    )
+    if (!advanced.ok) throw new Error("Expected authoritative head advance")
+    const installed = vi.fn()
+
+    const captured = await mount(() => draftRepository, created.record, {
+      onInitialRecordInstalled: installed,
+    })
+    await vi.waitFor(() => {
+      expect(captured.current?.routeSessionStatus).toBe("failed")
+    })
+
+    expect(installed).not.toHaveBeenCalled()
+    expect(captured.current?.document.id).not.toBe(
+      created.record.summary.documentId
+    )
+    expect(captured.current?.documentError).toContain("advanced")
   })
 
   it("persists pending review provenance and the discarded resolution", async () => {
@@ -3730,7 +3803,7 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     const incoming = structuredClone(quotationStarter.source)
     incoming.source.revision += 1
     incoming.quote.quoteVersion += 1
-    incoming.document.events[0]!.location = "Stuwiz-updated venue"
+    incoming.document.events[0].location = "Stuwiz-updated venue"
 
     let imported = false
     await act(async () => {

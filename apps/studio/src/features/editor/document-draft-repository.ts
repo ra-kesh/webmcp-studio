@@ -1,4 +1,13 @@
-import { assertPageThumbnailSize } from "@webmcp/document"
+import {
+  assertPageThumbnailSize,
+  assetReferenceKeysForSource,
+  extractAssetReferences,
+  localAssetIdSchema,
+  managedAssetSourceSchema,
+  mediaAssetIdSchema,
+  mediaIdempotencyKeySchema,
+  mediaRequestIdSchema,
+} from "@webmcp/document"
 import type { Document } from "@webmcp/document"
 import { validateCurrentDraftSnapshot } from "./current-draft-repository"
 import type {
@@ -8,13 +17,14 @@ import type {
 import { prepareDraftAdmission } from "./draft-admission"
 
 const DATABASE_NAME = "webmcp-studio-documents"
-const DATABASE_VERSION = 1
+const DATABASE_VERSION = 2
 const BODY_STORE = "draft-body"
 const METADATA_STORE = "draft-meta"
 const PREVIEW_STORE = "draft-previews"
 const QUARANTINE_STORE = "draft-quarantine"
 const CONFLICT_STORE = "draft-conflicts"
 const SETTINGS_STORE = "repository-settings"
+const MEDIA_MIGRATION_STORE = "draft-media-migrations"
 const ACTIVITY_AT_INDEX = "activityAt"
 const SAVED_AT_INDEX = "savedAt"
 const LAST_OPENED_AT_INDEX = "lastOpenedAt"
@@ -23,6 +33,9 @@ const CONFLICT_DOCUMENT_INDEX = "documentId"
 const CONFLICT_DETECTED_AT_INDEX = "detectedAt"
 const QUARANTINE_DOCUMENT_INDEX = "documentId"
 const QUARANTINE_DETECTED_AT_INDEX = "detectedAt"
+const MEDIA_MIGRATION_DOCUMENT_CREATED_AT_INDEX = "documentIdCreatedAt"
+const MEDIA_MIGRATION_ACKNOWLEDGED_CREATED_AT_INDEX = "acknowledgedAtCreatedAt"
+const MAX_ACKNOWLEDGED_MEDIA_MIGRATION_RECEIPTS = 32
 
 export type DraftOrigin =
   | Readonly<{ kind: "blank" }>
@@ -333,6 +346,191 @@ export type DocumentDraftHeadExpectation =
       deletedAt: string | null
     }>
 
+export type DraftHeadIdentity = Readonly<{
+  documentId: string
+  recordVersion: number
+  contentSnapshotId: string
+  draftSnapshotId: string
+  deletedAt: string | null
+}>
+
+export type AdmissionMigrationAlias = Readonly<{
+  localAssetId: string
+  managedAssetId: string
+  managedSource: `asset:managed/${string}`
+  contentSha256: string
+  managedStatus: "ready" | "archived"
+  expectedReferenceKeys: readonly string[]
+  localState: "ready" | "missing_bytes" | "absent" | "quarantined"
+  relationship: "same_hash" | "no_local_bytes"
+  mappingRequestId: string
+}>
+
+export type LocalMediaAdmissionManagedUse = Readonly<{
+  assetId: string
+  idempotencyKey: string
+  requestId: string | null
+  usedAt: string | null
+  assetRevision: number | null
+}>
+
+type LocalMediaAdmissionReceiptBase = Readonly<{
+  schemaVersion: 1
+  receiptId: string
+  kind: "local_media_admission"
+  documentId: string
+  createdAt: string
+  acknowledgedAt: string | null
+  restoredAt: string | null
+  source: DraftHeadIdentity
+  result: DraftHeadIdentity
+  aliases: readonly AdmissionMigrationAlias[]
+  managedUses: readonly LocalMediaAdmissionManagedUse[]
+}>
+
+export type LocalMediaAdmissionReceipt = LocalMediaAdmissionReceiptBase &
+  Readonly<{ preimage: CurrentDraftEnvelope }>
+
+export type LocalMediaAdmissionAuditReceipt = LocalMediaAdmissionReceiptBase &
+  Readonly<{ acknowledgedAt: string; preimage: null }>
+
+export type LocalMediaAdmissionReceiptRecord =
+  LocalMediaAdmissionReceipt | LocalMediaAdmissionAuditReceipt
+
+export type MigrateLocalMediaInput = Readonly<{
+  source: DraftHeadIdentity
+  resultEnvelope: CurrentDraftEnvelope
+  aliases: readonly AdmissionMigrationAlias[]
+  receiptId: string
+  createdAt: string
+}>
+
+export type MigrateLocalMediaResult =
+  | Readonly<{
+      ok: true
+      status: "migrated" | "replayed"
+      record: DocumentDraftRecord
+      receipt: LocalMediaAdmissionReceipt
+    }>
+  | Readonly<{
+      ok: false
+      reason: "stale_head" | "deleted"
+      current: DocumentDraftSummary
+    }>
+  | Readonly<{
+      ok: false
+      reason: "receipt_pending"
+      receipt: LocalMediaAdmissionReceipt
+    }>
+  | Readonly<{
+      ok: false
+      reason: "validation_failed" | "storage_unavailable"
+      failure: DraftRepositoryFailure
+    }>
+  | Readonly<{
+      ok: false
+      reason: "corrupt_record"
+      quarantineId: string
+      failure: DraftRepositoryFailure
+    }>
+
+export type LocalMediaAdmissionReceiptReadResult =
+  | Readonly<{
+      ok: true
+      status: "found"
+      receipt: LocalMediaAdmissionReceiptRecord
+    }>
+  | Readonly<{ ok: true; status: "missing" }>
+  | Readonly<{
+      ok: false
+      reason: "validation_failed" | "corrupt_record" | "storage_unavailable"
+      quarantineId?: string
+      failure: DraftRepositoryFailure
+    }>
+
+export type PendingLocalMediaAdmissionReceiptReadResult =
+  | Readonly<{
+      ok: true
+      status: "found"
+      receipt: LocalMediaAdmissionReceipt
+    }>
+  | Readonly<{ ok: true; status: "missing" }>
+  | Readonly<{
+      ok: false
+      reason: "validation_failed" | "storage_unavailable"
+      failure: DraftRepositoryFailure
+    }>
+  | Readonly<{
+      ok: false
+      reason: "corrupt_record"
+      quarantineId: string
+      failure: DraftRepositoryFailure
+    }>
+
+export type AcknowledgeLocalMediaAdmissionReceiptResult =
+  | Readonly<{
+      ok: true
+      status: "acknowledged" | "replayed"
+      receipt: LocalMediaAdmissionAuditReceipt
+    }>
+  | Readonly<{ ok: false; reason: "missing" }>
+  | Readonly<{
+      ok: false
+      reason: "advanced_head" | "deleted"
+      current: DocumentDraftSummary
+      receipt: LocalMediaAdmissionReceipt
+    }>
+  | Readonly<{
+      ok: false
+      reason: "validation_failed" | "storage_unavailable" | "corrupt_record"
+      quarantineId?: string
+      failure: DraftRepositoryFailure
+    }>
+
+export type RestoreLocalMediaAdmissionReceiptResult =
+  | Readonly<{
+      ok: true
+      status: "restored" | "replayed"
+      record: DocumentDraftRecord
+      receipt: LocalMediaAdmissionReceipt
+    }>
+  | Readonly<{ ok: false; reason: "missing" | "preimage_unavailable" }>
+  | Readonly<{
+      ok: false
+      reason: "advanced_head" | "deleted"
+      current: DocumentDraftSummary
+      receipt: LocalMediaAdmissionReceipt
+    }>
+  | Readonly<{
+      ok: false
+      reason: "validation_failed" | "storage_unavailable" | "corrupt_record"
+      quarantineId?: string
+      failure: DraftRepositoryFailure
+    }>
+
+export type MarkLocalMediaAdmissionManagedUseInput = Readonly<{
+  receiptId: string
+  assetId: string
+  idempotencyKey: string
+  requestId: string
+  usedAt: string
+  assetRevision: number
+}>
+
+export type MarkLocalMediaAdmissionManagedUseResult =
+  | Readonly<{
+      ok: true
+      status: "updated" | "replayed"
+      receipt: LocalMediaAdmissionReceiptRecord
+    }>
+  | Readonly<{ ok: false; reason: "missing" | "asset_missing" }>
+  | Readonly<{
+      ok: false
+      reason: "validation_failed" | "corrupt_record" | "storage_unavailable"
+      quarantineId?: string
+      failure: DraftRepositoryFailure
+    }>
+
 export type ResolveDocumentDraftConflictResult =
   | DraftValueResult<DocumentDraftConflict>
   | Readonly<{
@@ -495,6 +693,19 @@ type DraftMetadataIntegrityScanSetting = Readonly<{
     afterPrimaryKey: IDBValidKey | null
     completedAt: string | null
   }>
+}>
+
+type LocalMediaAdmissionReceiptQuarantineRecord = Readonly<{
+  schemaVersion: 1
+  receiptId: string
+  kind: "local_media_admission_quarantine"
+  documentId: string
+  createdAt: string
+  acknowledgedAt: string
+  originalReceiptId: string
+  detectedAt: string
+  failure: string
+  receipt: unknown
 }>
 
 type DraftListCorruptObservation = Readonly<{
@@ -1074,6 +1285,331 @@ const parseConflict = (value: unknown): DocumentDraftConflict | null => {
   }
 }
 
+const headIdentityFor = (summary: DocumentDraftSummary): DraftHeadIdentity => ({
+  documentId: summary.documentId,
+  recordVersion: summary.recordVersion,
+  contentSnapshotId: summary.contentSnapshotId,
+  draftSnapshotId: summary.draftSnapshotId,
+  deletedAt: summary.deletedAt,
+})
+
+const parseHeadIdentity = (value: unknown): DraftHeadIdentity | null => {
+  if (
+    !isRecord(value) ||
+    !validRequiredString(value.documentId) ||
+    !validPositiveInteger(value.recordVersion) ||
+    !validSnapshotId(value.contentSnapshotId) ||
+    !validSnapshotId(value.draftSnapshotId) ||
+    (value.deletedAt !== null && !validTimestamp(value.deletedAt))
+  )
+    return null
+  return value as DraftHeadIdentity
+}
+
+const headIdentityMatches = (
+  summary: DocumentDraftSummary,
+  expected: DraftHeadIdentity
+) => storedValueEqual(headIdentityFor(summary), expected)
+
+const parseAdmissionMigrationAlias = (
+  value: unknown
+): AdmissionMigrationAlias | null => {
+  if (!isRecord(value)) return null
+  const localAssetId = localAssetIdSchema.safeParse(value.localAssetId)
+  const managedAssetId = mediaAssetIdSchema.safeParse(value.managedAssetId)
+  const managedSource = managedAssetSourceSchema.safeParse(value.managedSource)
+  const mappingRequestId = mediaRequestIdSchema.safeParse(
+    value.mappingRequestId
+  )
+  if (
+    !localAssetId.success ||
+    !managedAssetId.success ||
+    !managedSource.success ||
+    managedSource.data !== `asset:managed/${managedAssetId.data}` ||
+    typeof value.contentSha256 !== "string" ||
+    !/^[0-9a-f]{64}$/.test(value.contentSha256) ||
+    (value.managedStatus !== "ready" && value.managedStatus !== "archived") ||
+    !Array.isArray(value.expectedReferenceKeys) ||
+    value.expectedReferenceKeys.length === 0 ||
+    value.expectedReferenceKeys.some(
+      (key) => typeof key !== "string" || key.length === 0
+    ) ||
+    (value.localState !== "ready" &&
+      value.localState !== "missing_bytes" &&
+      value.localState !== "absent" &&
+      value.localState !== "quarantined") ||
+    (value.relationship !== "same_hash" &&
+      value.relationship !== "no_local_bytes") ||
+    (value.localState === "ready"
+      ? value.relationship !== "same_hash"
+      : value.relationship !== "no_local_bytes") ||
+    !mappingRequestId.success
+  ) {
+    return null
+  }
+  const expectedReferenceKeys = [...value.expectedReferenceKeys] as string[]
+  if (
+    new Set(expectedReferenceKeys).size !== expectedReferenceKeys.length ||
+    expectedReferenceKeys.some(
+      (key, index) => index > 0 && expectedReferenceKeys[index - 1] >= key
+    )
+  ) {
+    return null
+  }
+  return {
+    localAssetId: localAssetId.data,
+    managedAssetId: managedAssetId.data,
+    managedSource: managedSource.data as `asset:managed/${string}`,
+    contentSha256: value.contentSha256,
+    managedStatus: value.managedStatus,
+    expectedReferenceKeys,
+    localState: value.localState,
+    relationship: value.relationship,
+    mappingRequestId: mappingRequestId.data,
+  }
+}
+
+const parseAdmissionMigrationAliases = (
+  value: unknown
+): readonly AdmissionMigrationAlias[] | null => {
+  if (!Array.isArray(value) || value.length === 0) return null
+  const aliases: AdmissionMigrationAlias[] = []
+  for (const candidate of value) {
+    const alias = parseAdmissionMigrationAlias(candidate)
+    if (!alias) return null
+    aliases.push(alias)
+  }
+  if (
+    new Set(aliases.map((alias) => alias.localAssetId)).size !==
+      aliases.length ||
+    aliases.some(
+      (alias, index) =>
+        index > 0 && aliases[index - 1].localAssetId >= alias.localAssetId
+    )
+  ) {
+    return null
+  }
+  return aliases
+}
+
+const parseLocalMediaAdmissionManagedUses = (
+  value: unknown
+): readonly LocalMediaAdmissionManagedUse[] | null => {
+  if (!Array.isArray(value) || value.length === 0) return null
+  const uses: LocalMediaAdmissionManagedUse[] = []
+  for (const candidate of value) {
+    if (
+      !isRecord(candidate) ||
+      !mediaAssetIdSchema.safeParse(candidate.assetId).success ||
+      typeof candidate.idempotencyKey !== "string" ||
+      !/^[A-Za-z0-9._:-]{1,128}$/.test(candidate.idempotencyKey) ||
+      (candidate.requestId !== null &&
+        !mediaRequestIdSchema.safeParse(candidate.requestId).success) ||
+      (candidate.usedAt !== null && !validTimestamp(candidate.usedAt)) ||
+      (candidate.assetRevision !== null &&
+        !validPositiveInteger(candidate.assetRevision))
+    ) {
+      return null
+    }
+    const settled =
+      candidate.requestId !== null &&
+      candidate.usedAt !== null &&
+      candidate.assetRevision !== null
+    const pending =
+      candidate.requestId === null &&
+      candidate.usedAt === null &&
+      candidate.assetRevision === null
+    if (!settled && !pending) return null
+    uses.push(candidate as LocalMediaAdmissionManagedUse)
+  }
+  if (
+    new Set(uses.map((use) => use.assetId)).size !== uses.length ||
+    uses.some(
+      (use, index) => index > 0 && uses[index - 1].assetId >= use.assetId
+    )
+  ) {
+    return null
+  }
+  return uses
+}
+
+const parseLocalMediaAdmissionReceipt = (
+  value: unknown
+): LocalMediaAdmissionReceiptRecord | null => {
+  if (
+    !isRecord(value) ||
+    value.schemaVersion !== 1 ||
+    value.kind !== "local_media_admission" ||
+    !validRequiredString(value.receiptId) ||
+    value.receiptId.length > 128 ||
+    !validRequiredString(value.documentId) ||
+    !validTimestamp(value.createdAt) ||
+    (value.acknowledgedAt !== null && !validTimestamp(value.acknowledgedAt)) ||
+    (value.restoredAt !== null && !validTimestamp(value.restoredAt))
+  ) {
+    return null
+  }
+  const source = parseHeadIdentity(value.source)
+  const result = parseHeadIdentity(value.result)
+  const aliases = parseAdmissionMigrationAliases(value.aliases)
+  const managedUses = parseLocalMediaAdmissionManagedUses(value.managedUses)
+  if (
+    !source ||
+    !result ||
+    !aliases ||
+    !managedUses ||
+    source.documentId !== value.documentId ||
+    result.documentId !== value.documentId ||
+    source.deletedAt !== null ||
+    result.deletedAt !== null ||
+    result.recordVersion !== source.recordVersion + 1 ||
+    new Set(aliases.map((alias) => alias.managedAssetId)).size !==
+      managedUses.length ||
+    aliases.some(
+      (alias) =>
+        !managedUses.some((use) => use.assetId === alias.managedAssetId)
+    )
+  ) {
+    return null
+  }
+  if (value.acknowledgedAt !== null) {
+    if (value.preimage !== null) return null
+    return {
+      ...(value as Omit<
+        LocalMediaAdmissionAuditReceipt,
+        "aliases" | "managedUses"
+      >),
+      aliases,
+      managedUses,
+      acknowledgedAt: value.acknowledgedAt,
+      preimage: null,
+    }
+  }
+  if (!isRecord(value.preimage) || value.preimage.schemaVersion !== 1) {
+    return null
+  }
+  const preimage = validateCurrentDraftSnapshot({
+    document: value.preimage.document,
+    sourceContext: value.preimage.sourceContext,
+    reviewJournal: value.preimage.reviewJournal,
+    quotationRefresh: value.preimage.quotationRefresh,
+  })
+  if (!preimage.ok || preimage.envelope.document.id !== value.documentId) {
+    return null
+  }
+  return {
+    ...(value as Omit<
+      LocalMediaAdmissionReceipt,
+      "aliases" | "managedUses" | "preimage"
+    >),
+    aliases,
+    managedUses,
+    preimage: preimage.envelope,
+  }
+}
+
+const isPendingLocalMediaAdmissionReceipt = (
+  receipt: LocalMediaAdmissionReceiptRecord
+): receipt is LocalMediaAdmissionReceipt =>
+  receipt.acknowledgedAt === null && receipt.preimage !== null
+
+const receiptPreimageMatchesSource = async (
+  receipt: LocalMediaAdmissionReceiptRecord
+) => {
+  if (receipt.preimage === null) return true
+  const prepared = await prepareDraftAdmission(
+    snapshotForEnvelope(receipt.preimage)
+  )
+  return (
+    prepared.ok &&
+    prepared.envelope.document.id === receipt.documentId &&
+    prepared.contentSnapshotId === receipt.source.contentSnapshotId &&
+    prepared.draftSnapshotId === receipt.source.draftSnapshotId
+  )
+}
+
+const exactMigrationEnvelope = (
+  source: CurrentDraftEnvelope,
+  result: CurrentDraftEnvelope,
+  aliases: readonly AdmissionMigrationAlias[]
+) => {
+  const sourceRest = { ...source, document: null }
+  const resultRest = { ...result, document: null }
+  if (!storedValueEqual(sourceRest, resultRest)) return false
+  if (
+    source.document.id !== result.document.id ||
+    result.document.revision !== source.document.revision + aliases.length
+  ) {
+    return false
+  }
+  const projected = structuredClone(source.document)
+  const sourceReferences = new Map(
+    extractAssetReferences(source.document).map((reference) => [
+      reference.key,
+      reference,
+    ])
+  )
+  const resultReferences = new Map(
+    extractAssetReferences(result.document).map((reference) => [
+      reference.key,
+      reference,
+    ])
+  )
+  for (const alias of aliases) {
+    const localSource = `asset:local/${alias.localAssetId}`
+    if (
+      !storedValueEqual(
+        assetReferenceKeysForSource(source.document, localSource),
+        alias.expectedReferenceKeys
+      ) ||
+      assetReferenceKeysForSource(result.document, localSource).length > 0
+    ) {
+      return false
+    }
+    for (const key of alias.expectedReferenceKeys) {
+      const before = sourceReferences.get(key)
+      const after = resultReferences.get(key)
+      if (
+        before?.source !== localSource ||
+        after?.source !== alias.managedSource ||
+        (after.location === "node" && after.assetId !== alias.managedAssetId)
+      ) {
+        return false
+      }
+    }
+    for (const field of projected.fields) {
+      if (field.type === "asset" && field.defaultValue === localSource) {
+        field.defaultValue = alias.managedSource
+      }
+      if (projected.fieldValues[field.id] === localSource) {
+        projected.fieldValues[field.id] = alias.managedSource
+      }
+    }
+    for (const node of projected.nodes) {
+      if (node.type === "image" && node.src === localSource) {
+        node.src = alias.managedSource
+        node.assetId = alias.managedAssetId
+      }
+    }
+  }
+  projected.revision = result.document.revision
+  projected.updatedAt = result.document.updatedAt
+  return storedValueEqual(projected, result.document)
+}
+
+const sha256Hex = async (value: string) => {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value)
+  )
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("")
+}
+
+const abortReason = (signal: AbortSignal) =>
+  signal.reason ?? new DOMException("The operation was aborted.", "AbortError")
+
 const pairMatches = (body: StoredDraftBody, summary: DocumentDraftSummary) => {
   if (
     body.documentId !== summary.documentId ||
@@ -1443,6 +1979,13 @@ export class DocumentDraftRepository {
       const conflicts = database.objectStoreNames.contains(CONFLICT_STORE)
         ? transaction?.objectStore(CONFLICT_STORE)
         : database.createObjectStore(CONFLICT_STORE, { keyPath: "conflictId" })
+      const mediaMigrations = database.objectStoreNames.contains(
+        MEDIA_MIGRATION_STORE
+      )
+        ? transaction?.objectStore(MEDIA_MIGRATION_STORE)
+        : database.createObjectStore(MEDIA_MIGRATION_STORE, {
+            keyPath: "receiptId",
+          })
       if (!database.objectStoreNames.contains(SETTINGS_STORE)) {
         database.createObjectStore(SETTINGS_STORE, { keyPath: "key" })
       }
@@ -1492,6 +2035,28 @@ export class DocumentDraftRepository {
         quarantine.createIndex(
           QUARANTINE_DETECTED_AT_INDEX,
           QUARANTINE_DETECTED_AT_INDEX
+        )
+      }
+      if (
+        mediaMigrations &&
+        !mediaMigrations.indexNames.contains(
+          MEDIA_MIGRATION_DOCUMENT_CREATED_AT_INDEX
+        )
+      ) {
+        mediaMigrations.createIndex(MEDIA_MIGRATION_DOCUMENT_CREATED_AT_INDEX, [
+          "documentId",
+          "createdAt",
+        ])
+      }
+      if (
+        mediaMigrations &&
+        !mediaMigrations.indexNames.contains(
+          MEDIA_MIGRATION_ACKNOWLEDGED_CREATED_AT_INDEX
+        )
+      ) {
+        mediaMigrations.createIndex(
+          MEDIA_MIGRATION_ACKNOWLEDGED_CREATED_AT_INDEX,
+          ["acknowledgedAt", "createdAt"]
         )
       }
     }
@@ -2115,6 +2680,1239 @@ export class DocumentDraftRepository {
     } finally {
       database?.close()
     }
+  }
+
+  async migrateLocalMedia(
+    input: MigrateLocalMediaInput,
+    signal?: AbortSignal
+  ): Promise<MigrateLocalMediaResult> {
+    const candidate: unknown = input
+    if (!isRecord(candidate)) {
+      return this.#invalidMediaMigration(
+        "A complete local-media migration request is required."
+      )
+    }
+    const source = parseHeadIdentity(candidate.source)
+    const aliases = parseAdmissionMigrationAliases(candidate.aliases)
+    const receiptId = candidate.receiptId
+    const createdAt = candidate.createdAt
+    if (
+      !source ||
+      source.deletedAt !== null ||
+      !aliases ||
+      !validRequiredString(receiptId) ||
+      receiptId.length > 128 ||
+      !validTimestamp(createdAt) ||
+      !isRecord(candidate.resultEnvelope)
+    ) {
+      return this.#invalidMediaMigration(
+        "The local-media source head, aliases, receipt, or timestamp is invalid."
+      )
+    }
+    if (signal?.aborted) throw abortReason(signal)
+    const prepared = await this.#prepared(
+      snapshotForEnvelope(candidate.resultEnvelope as CurrentDraftEnvelope)
+    )
+    if (!prepared.ok) {
+      return this.#invalidMediaMigration(admissionFailure(prepared).message)
+    }
+    if (prepared.envelope.document.id !== source.documentId) {
+      return this.#invalidMediaMigration(
+        "The local-media result belongs to a different document."
+      )
+    }
+    if (signal?.aborted) throw abortReason(signal)
+
+    const resultHead: DraftHeadIdentity = {
+      documentId: source.documentId,
+      recordVersion: source.recordVersion + 1,
+      contentSnapshotId: prepared.contentSnapshotId,
+      draftSnapshotId: prepared.draftSnapshotId,
+      deletedAt: null,
+    }
+    const managedAssetIds = [
+      ...new Set(aliases.map((alias) => alias.managedAssetId)),
+    ].sort()
+    const managedUses = await Promise.all(
+      managedAssetIds.map(async (assetId) => ({
+        assetId,
+        idempotencyKey: `admission-use:${await sha256Hex(
+          `local-media-admission-use\0${receiptId}\0${assetId}`
+        )}`,
+        requestId: null,
+        usedAt: null,
+        assetRevision: null,
+      }))
+    )
+    if (signal?.aborted) throw abortReason(signal)
+
+    const baseRead = await this.get(source.documentId)
+    if (!baseRead.ok) {
+      return baseRead.reason === "corrupt_record"
+        ? {
+            ok: false,
+            reason: "corrupt_record",
+            quarantineId: baseRead.quarantineId,
+            failure: baseRead.failure,
+          }
+        : {
+            ok: false,
+            reason: "storage_unavailable",
+            failure: baseRead.failure,
+          }
+    }
+    if (signal?.aborted) throw abortReason(signal)
+
+    const pendingRead =
+      await this.getPendingLocalMediaAdmissionReceiptForDocument(
+        source.documentId,
+        signal
+      )
+    if (!pendingRead.ok) {
+      return pendingRead.reason === "corrupt_record"
+        ? {
+            ok: false,
+            reason: "corrupt_record",
+            quarantineId: pendingRead.quarantineId,
+            failure: pendingRead.failure,
+          }
+        : {
+            ok: false,
+            reason: pendingRead.reason,
+            failure: pendingRead.failure,
+          }
+    }
+    if (pendingRead.status === "found") {
+      const pending = pendingRead.receipt
+      const exactReceipt =
+        pending.receiptId === receiptId &&
+        storedValueEqual(pending.source, source) &&
+        storedValueEqual(pending.result, resultHead) &&
+        storedValueEqual(pending.aliases, aliases) &&
+        exactMigrationEnvelope(pending.preimage, prepared.envelope, aliases)
+      if (!exactReceipt) {
+        return pending.receiptId === receiptId
+          ? this.#invalidMediaMigration(
+              "The admission receipt ID is already bound to another migration."
+            )
+          : { ok: false, reason: "receipt_pending", receipt: pending }
+      }
+      if (
+        baseRead.status === "found" &&
+        headIdentityMatches(baseRead.record.summary, pending.result)
+      ) {
+        return {
+          ok: true,
+          status: "replayed",
+          record: baseRead.record,
+          receipt: pending,
+        }
+      }
+      return { ok: false, reason: "receipt_pending", receipt: pending }
+    }
+
+    let database: IDBDatabase | null = null
+    try {
+      database = await this.#open()
+      if (signal?.aborted) throw abortReason(signal)
+      const transaction = database.transaction(
+        [BODY_STORE, METADATA_STORE, PREVIEW_STORE, MEDIA_MIGRATION_STORE],
+        "readwrite"
+      )
+      const done = transactionDone(transaction)
+      const abort = () => {
+        try {
+          transaction.abort()
+        } catch {
+          // A commit that already won cancellation is acknowledged by `done`.
+        }
+      }
+      signal?.addEventListener("abort", abort, { once: true })
+      try {
+        const bodies = transaction.objectStore(BODY_STORE)
+        const metadata = transaction.objectStore(METADATA_STORE)
+        const previews = transaction.objectStore(PREVIEW_STORE)
+        const receipts = transaction.objectStore(MEDIA_MIGRATION_STORE)
+        const [rawBody, rawSummary, rawReceipt, rawDocumentReceipts] =
+          await Promise.all([
+            requestResult(bodies.get(source.documentId)),
+            requestResult(metadata.get(source.documentId)),
+            requestResult(receipts.get(receiptId)),
+            requestResult(
+              receipts
+                .index(MEDIA_MIGRATION_DOCUMENT_CREATED_AT_INDEX)
+                .getAll(
+                  IDBKeyRange.bound(
+                    [source.documentId, ""],
+                    [source.documentId, "\uffff"]
+                  )
+                )
+            ),
+          ])
+        if (rawBody === undefined && rawSummary === undefined) {
+          await done
+          return this.#invalidMediaMigration(
+            "The document no longer exists in Studio storage."
+          )
+        }
+        const body = parseBody(rawBody)
+        const summary = parseSummary(rawSummary)
+        if (!body || !summary || !pairMatches(body, summary)) {
+          await done
+          const quarantined = await this.#quarantine(
+            source.documentId,
+            rawBody,
+            rawSummary
+          )
+          return {
+            ok: false,
+            reason: "corrupt_record",
+            quarantineId: quarantined.quarantineId,
+            failure: {
+              kind: "corrupt_record",
+              message:
+                "The stored document is corrupt and media migration was stopped.",
+            },
+          }
+        }
+
+        const existingReceipt =
+          rawReceipt === undefined
+            ? null
+            : parseLocalMediaAdmissionReceipt(rawReceipt)
+        if (rawReceipt !== undefined && !existingReceipt) {
+          const quarantineId = this.#quarantineMediaReceipt(
+            receipts,
+            receiptId,
+            rawReceipt,
+            "The admission receipt could not be decoded."
+          )
+          await done
+          return {
+            ok: false,
+            reason: "corrupt_record",
+            quarantineId,
+            failure: {
+              kind: "corrupt_record",
+              message:
+                "A media migration receipt was corrupt and was quarantined.",
+            },
+          }
+        }
+        if (existingReceipt) {
+          const exactReceipt =
+            existingReceipt.preimage !== null &&
+            storedValueEqual(existingReceipt.source, source) &&
+            storedValueEqual(existingReceipt.result, resultHead) &&
+            storedValueEqual(existingReceipt.aliases, aliases) &&
+            exactMigrationEnvelope(
+              existingReceipt.preimage,
+              prepared.envelope,
+              aliases
+            )
+          if (!exactReceipt) {
+            await done
+            return this.#invalidMediaMigration(
+              "The admission receipt ID is already bound to another migration."
+            )
+          }
+          if (
+            isPendingLocalMediaAdmissionReceipt(existingReceipt) &&
+            headIdentityMatches(summary, existingReceipt.result)
+          ) {
+            await done
+            return {
+              ok: true,
+              status: "replayed",
+              record: {
+                summary,
+                envelope: envelopeForBody(body),
+              },
+              receipt: existingReceipt,
+            }
+          }
+        }
+
+        for (const raw of rawDocumentReceipts) {
+          if (
+            isRecord(raw) &&
+            raw.kind === "local_media_admission_quarantine"
+          ) {
+            continue
+          }
+          const receipt = parseLocalMediaAdmissionReceipt(raw)
+          if (!receipt) {
+            const originalReceiptId =
+              isRecord(raw) && validRequiredString(raw.receiptId)
+                ? raw.receiptId
+                : `unknown-${this.#createId()}`
+            const quarantineId = this.#quarantineMediaReceipt(
+              receipts,
+              originalReceiptId,
+              raw,
+              "A document admission receipt could not be decoded."
+            )
+            await done
+            return {
+              ok: false,
+              reason: "corrupt_record",
+              quarantineId,
+              failure: {
+                kind: "corrupt_record",
+                message:
+                  "A media migration receipt was corrupt and was quarantined.",
+              },
+            }
+          }
+          if (isPendingLocalMediaAdmissionReceipt(receipt)) {
+            await done
+            return { ok: false, reason: "receipt_pending", receipt }
+          }
+        }
+
+        if (summary.deletedAt !== null) {
+          await done
+          return { ok: false, reason: "deleted", current: summary }
+        }
+        if (!headIdentityMatches(summary, source)) {
+          await done
+          return { ok: false, reason: "stale_head", current: summary }
+        }
+        if (
+          baseRead.status !== "found" ||
+          !headIdentityMatches(baseRead.record.summary, source) ||
+          !storedValueEqual(baseRead.record.envelope, envelopeForBody(body))
+        ) {
+          await done
+          return { ok: false, reason: "stale_head", current: summary }
+        }
+        if (
+          !exactMigrationEnvelope(
+            envelopeForBody(body),
+            prepared.envelope,
+            aliases
+          )
+        ) {
+          await done
+          return this.#invalidMediaMigration(
+            "The media migration result is not an exact identity-only transformation of the source head."
+          )
+        }
+
+        const now = createdAt
+        const nextBody: StoredDraftBody = {
+          schemaVersion: 1,
+          documentId: source.documentId,
+          recordVersion: resultHead.recordVersion,
+          contentSnapshotId: prepared.contentSnapshotId,
+          draftSnapshotId: prepared.draftSnapshotId,
+          encodedByteLength: prepared.encodedByteLength,
+          document: prepared.envelope.document,
+          sourceContext: prepared.envelope.sourceContext,
+          reviewJournal: prepared.envelope.reviewJournal,
+          ...(prepared.envelope.quotationRefresh
+            ? { quotationRefresh: prepared.envelope.quotationRefresh }
+            : {}),
+        }
+        const nextSummary = summaryFor({
+          envelope: prepared.envelope,
+          recordVersion: resultHead.recordVersion,
+          contentSnapshotId: prepared.contentSnapshotId,
+          draftSnapshotId: prepared.draftSnapshotId,
+          encodedByteLength: prepared.encodedByteLength,
+          createdAt: summary.createdAt,
+          savedAt: now,
+          lastOpenedAt: summary.lastOpenedAt,
+          activityAt: now,
+          deletedAt: null,
+          origin: summary.origin,
+          lastPublished: summary.lastPublished,
+        })
+        const receipt: LocalMediaAdmissionReceipt = {
+          schemaVersion: 1,
+          receiptId,
+          kind: "local_media_admission",
+          documentId: source.documentId,
+          createdAt,
+          acknowledgedAt: null,
+          restoredAt: null,
+          source,
+          result: resultHead,
+          aliases,
+          preimage: envelopeForBody(body),
+          managedUses,
+        }
+        const writes: Promise<unknown>[] = []
+        const enqueue = <T>(request: IDBRequest<T>) => {
+          const write = requestResult(request)
+          void write.catch(() => undefined)
+          const observedWrite = write.then((value) => value as unknown)
+          void observedWrite.catch(() => undefined)
+          writes.push(observedWrite)
+        }
+        enqueue(bodies.put(nextBody))
+        enqueue(metadata.put(nextSummary))
+        enqueue(previews.delete(source.documentId))
+        enqueue(receipts.put(receipt))
+        await Promise.all(writes)
+        await done
+        this.#publish({
+          type: "saved",
+          reason: "content_saved",
+          documentId: source.documentId,
+          recordVersion: nextSummary.recordVersion,
+          contentSnapshotId: nextSummary.contentSnapshotId,
+          draftSnapshotId: nextSummary.draftSnapshotId,
+          sessionId: this.#sessionId,
+        })
+        return {
+          ok: true,
+          status: "migrated",
+          record: { summary: nextSummary, envelope: prepared.envelope },
+          receipt,
+        }
+      } catch (error) {
+        try {
+          transaction.abort()
+        } catch {
+          // A request may already have aborted the transaction.
+        }
+        await done.catch(() => undefined)
+        throw error
+      } finally {
+        signal?.removeEventListener("abort", abort)
+      }
+    } catch (error) {
+      if (signal?.aborted) throw abortReason(signal)
+      return {
+        ok: false,
+        reason: "storage_unavailable",
+        failure: storageFailure(error),
+      }
+    } finally {
+      database?.close()
+    }
+  }
+
+  async getLocalMediaAdmissionReceipt(
+    receiptId: string
+  ): Promise<LocalMediaAdmissionReceiptReadResult> {
+    if (!validRequiredString(receiptId) || receiptId.length > 128) {
+      return {
+        ok: false,
+        reason: "validation_failed",
+        failure: {
+          kind: "validation_failed",
+          message: "A valid admission receipt ID is required.",
+        },
+      }
+    }
+    let database: IDBDatabase | null = null
+    try {
+      database = await this.#open()
+      const transaction = database.transaction(
+        MEDIA_MIGRATION_STORE,
+        "readwrite"
+      )
+      const done = transactionDone(transaction)
+      const store = transaction.objectStore(MEDIA_MIGRATION_STORE)
+      const raw = await requestResult(store.get(receiptId))
+      if (raw === undefined) {
+        await done
+        return { ok: true, status: "missing" }
+      }
+      const receipt = parseLocalMediaAdmissionReceipt(raw)
+      if (!receipt) {
+        const quarantineId = this.#quarantineMediaReceipt(
+          store,
+          receiptId,
+          raw,
+          "The admission receipt could not be decoded."
+        )
+        await done
+        return {
+          ok: false,
+          reason: "corrupt_record",
+          quarantineId,
+          failure: {
+            kind: "corrupt_record",
+            message:
+              "The media migration receipt was corrupt and was quarantined.",
+          },
+        }
+      }
+      await done
+      if (!(await receiptPreimageMatchesSource(receipt))) {
+        const quarantined = await this.#quarantineStoredMediaReceipt(
+          receiptId,
+          raw,
+          "The admission preimage does not match its stored source identity."
+        )
+        return {
+          ok: false,
+          reason: "corrupt_record",
+          ...(quarantined.quarantineId
+            ? { quarantineId: quarantined.quarantineId }
+            : {}),
+          failure: {
+            kind: "corrupt_record",
+            message:
+              "The media migration receipt failed its canonical integrity check.",
+          },
+        }
+      }
+      return { ok: true, status: "found", receipt }
+    } catch (error) {
+      return {
+        ok: false,
+        reason: "storage_unavailable",
+        failure: storageFailure(error),
+      }
+    } finally {
+      database?.close()
+    }
+  }
+
+  async getPendingLocalMediaAdmissionReceiptForDocument(
+    documentId: string,
+    signal?: AbortSignal
+  ): Promise<PendingLocalMediaAdmissionReceiptReadResult> {
+    if (!validRequiredString(documentId)) {
+      return {
+        ok: false,
+        reason: "validation_failed",
+        failure: {
+          kind: "validation_failed",
+          message: "A valid document ID is required to read admission state.",
+        },
+      }
+    }
+    if (signal?.aborted) throw abortReason(signal)
+    let database: IDBDatabase | null = null
+    try {
+      database = await this.#open()
+      if (signal?.aborted) throw abortReason(signal)
+      const transaction = database.transaction(
+        MEDIA_MIGRATION_STORE,
+        "readwrite"
+      )
+      const done = transactionDone(transaction)
+      const abort = () => {
+        try {
+          transaction.abort()
+        } catch {
+          // A settled transaction already acknowledged the read.
+        }
+      }
+      signal?.addEventListener("abort", abort, { once: true })
+      try {
+        const store = transaction.objectStore(MEDIA_MIGRATION_STORE)
+        const rawValues = await requestResult(
+          store
+            .index(MEDIA_MIGRATION_DOCUMENT_CREATED_AT_INDEX)
+            .getAll(IDBKeyRange.bound([documentId, ""], [documentId, "\uffff"]))
+        )
+        const pending: Array<{
+          receipt: LocalMediaAdmissionReceipt
+          raw: unknown
+        }> = []
+        for (const raw of rawValues) {
+          if (
+            isRecord(raw) &&
+            raw.kind === "local_media_admission_quarantine"
+          ) {
+            continue
+          }
+          const receipt = parseLocalMediaAdmissionReceipt(raw)
+          if (!receipt) {
+            const originalReceiptId =
+              isRecord(raw) && validRequiredString(raw.receiptId)
+                ? raw.receiptId
+                : `unknown-${this.#createId()}`
+            const quarantineId = this.#quarantineMediaReceipt(
+              store,
+              originalReceiptId,
+              raw,
+              "A document admission receipt could not be decoded."
+            )
+            await done
+            return {
+              ok: false,
+              reason: "corrupt_record",
+              quarantineId,
+              failure: {
+                kind: "corrupt_record",
+                message:
+                  "A media migration receipt was corrupt and was quarantined.",
+              },
+            }
+          }
+          if (isPendingLocalMediaAdmissionReceipt(receipt)) {
+            pending.push({ receipt, raw })
+          }
+        }
+        await done
+        if (pending.length === 0) return { ok: true, status: "missing" }
+        if (pending.length > 1) {
+          const quarantineId = await this.#recordMediaReceiptInvariant(
+            documentId,
+            pending.map((candidate) => candidate.raw),
+            "The document has more than one pending media recovery receipt."
+          )
+          return {
+            ok: false,
+            reason: "corrupt_record",
+            quarantineId,
+            failure: {
+              kind: "corrupt_record",
+              message:
+                "The document has more than one pending media recovery receipt.",
+            },
+          }
+        }
+        const found = pending[0]
+        if (!(await receiptPreimageMatchesSource(found.receipt))) {
+          const quarantined = await this.#quarantineStoredMediaReceipt(
+            found.receipt.receiptId,
+            found.raw,
+            "The admission preimage does not match its stored source identity."
+          )
+          const quarantineId =
+            quarantined.quarantineId ??
+            (await this.#recordMediaReceiptInvariant(
+              documentId,
+              found.raw,
+              "The invalid admission receipt changed while it was being quarantined."
+            ))
+          return {
+            ok: false,
+            reason: "corrupt_record",
+            quarantineId,
+            failure: {
+              kind: "corrupt_record",
+              message:
+                "The media migration receipt failed its canonical integrity check.",
+            },
+          }
+        }
+        return { ok: true, status: "found", receipt: found.receipt }
+      } catch (error) {
+        try {
+          transaction.abort()
+        } catch {
+          // A request may already have aborted the transaction.
+        }
+        await done.catch(() => undefined)
+        throw error
+      } finally {
+        signal?.removeEventListener("abort", abort)
+      }
+    } catch (error) {
+      if (signal?.aborted) throw abortReason(signal)
+      return {
+        ok: false,
+        reason: "storage_unavailable",
+        failure: storageFailure(error),
+      }
+    } finally {
+      database?.close()
+    }
+  }
+
+  async markLocalMediaAdmissionManagedUse(
+    input: MarkLocalMediaAdmissionManagedUseInput
+  ): Promise<MarkLocalMediaAdmissionManagedUseResult> {
+    const candidate: unknown = input
+    if (
+      !isRecord(candidate) ||
+      !validRequiredString(candidate.receiptId) ||
+      candidate.receiptId.length > 128 ||
+      !mediaAssetIdSchema.safeParse(candidate.assetId).success ||
+      !mediaIdempotencyKeySchema.safeParse(candidate.idempotencyKey).success ||
+      !mediaRequestIdSchema.safeParse(candidate.requestId).success ||
+      !validTimestamp(candidate.usedAt) ||
+      !validPositiveInteger(candidate.assetRevision)
+    ) {
+      return {
+        ok: false,
+        reason: "validation_failed",
+        failure: {
+          kind: "validation_failed",
+          message:
+            "A valid receipt, managed asset, idempotency key, and use receipt are required.",
+        },
+      }
+    }
+    const receiptId = candidate.receiptId
+    const assetId = candidate.assetId as string
+    const idempotencyKey = candidate.idempotencyKey as string
+    const requestId = candidate.requestId as string
+    const usedAt = candidate.usedAt
+    const assetRevision = candidate.assetRevision
+    let database: IDBDatabase | null = null
+    try {
+      database = await this.#open()
+      const transaction = database.transaction(
+        MEDIA_MIGRATION_STORE,
+        "readwrite"
+      )
+      const done = transactionDone(transaction)
+      const store = transaction.objectStore(MEDIA_MIGRATION_STORE)
+      const raw = await requestResult(store.get(receiptId))
+      if (raw === undefined) {
+        await done
+        return { ok: false, reason: "missing" }
+      }
+      const receipt = parseLocalMediaAdmissionReceipt(raw)
+      if (!receipt) {
+        const quarantineId = this.#quarantineMediaReceipt(
+          store,
+          receiptId,
+          raw,
+          "The admission receipt could not be decoded."
+        )
+        await done
+        return {
+          ok: false,
+          reason: "corrupt_record",
+          quarantineId,
+          failure: {
+            kind: "corrupt_record",
+            message:
+              "The media migration receipt was corrupt and was quarantined.",
+          },
+        }
+      }
+      const useIndex = receipt.managedUses.findIndex(
+        (use) => use.assetId === assetId
+      )
+      if (useIndex < 0) {
+        await done
+        return { ok: false, reason: "asset_missing" }
+      }
+      const currentUse = receipt.managedUses[useIndex]
+      if (currentUse.idempotencyKey !== idempotencyKey) {
+        await done
+        return {
+          ok: false,
+          reason: "validation_failed",
+          failure: {
+            kind: "validation_failed",
+            message:
+              "The managed-use idempotency key does not match the admission receipt.",
+          },
+        }
+      }
+      const settled: LocalMediaAdmissionManagedUse = {
+        assetId,
+        idempotencyKey,
+        requestId,
+        usedAt,
+        assetRevision,
+      }
+      if (currentUse.requestId !== null) {
+        await done
+        if (storedValueEqual(currentUse, settled)) {
+          return { ok: true, status: "replayed", receipt }
+        }
+        return {
+          ok: false,
+          reason: "validation_failed",
+          failure: {
+            kind: "validation_failed",
+            message:
+              "This managed use was already recorded with another server receipt.",
+          },
+        }
+      }
+      const managedUses = [...receipt.managedUses]
+      managedUses[useIndex] = settled
+      const updated: LocalMediaAdmissionReceiptRecord = {
+        ...receipt,
+        managedUses,
+      }
+      await requestResult(store.put(updated))
+      await done
+      return { ok: true, status: "updated", receipt: updated }
+    } catch (error) {
+      return {
+        ok: false,
+        reason: "storage_unavailable",
+        failure: storageFailure(error),
+      }
+    } finally {
+      database?.close()
+    }
+  }
+
+  async acknowledgeLocalMediaAdmissionReceipt(
+    receiptId: string,
+    acknowledgedAt = this.#now()
+  ): Promise<AcknowledgeLocalMediaAdmissionReceiptResult> {
+    if (
+      !validRequiredString(receiptId) ||
+      receiptId.length > 128 ||
+      !validTimestamp(acknowledgedAt)
+    ) {
+      return {
+        ok: false,
+        reason: "validation_failed",
+        failure: {
+          kind: "validation_failed",
+          message:
+            "A valid receipt ID and acknowledgement timestamp are required.",
+        },
+      }
+    }
+    let database: IDBDatabase | null = null
+    try {
+      database = await this.#open()
+      const transaction = database.transaction(
+        [BODY_STORE, METADATA_STORE, MEDIA_MIGRATION_STORE],
+        "readwrite"
+      )
+      const done = transactionDone(transaction)
+      const store = transaction.objectStore(MEDIA_MIGRATION_STORE)
+      const raw = await requestResult(store.get(receiptId))
+      if (raw === undefined) {
+        await done
+        return { ok: false, reason: "missing" }
+      }
+      const receipt = parseLocalMediaAdmissionReceipt(raw)
+      if (!receipt) {
+        const quarantineId = this.#quarantineMediaReceipt(
+          store,
+          receiptId,
+          raw,
+          "The admission receipt could not be decoded."
+        )
+        await done
+        return {
+          ok: false,
+          reason: "corrupt_record",
+          quarantineId,
+          failure: {
+            kind: "corrupt_record",
+            message:
+              "The media migration receipt was corrupt and was quarantined.",
+          },
+        }
+      }
+      if (receipt.preimage === null) {
+        await done
+        return { ok: true, status: "replayed", receipt }
+      }
+      const unsettledManagedUse = receipt.managedUses.find(
+        (use) =>
+          use.requestId === null ||
+          use.usedAt === null ||
+          use.assetRevision === null
+      )
+      if (receipt.restoredAt === null && unsettledManagedUse) {
+        await done
+        return {
+          ok: false,
+          reason: "validation_failed",
+          failure: {
+            kind: "validation_failed",
+            message:
+              "Finish adding every recovered image to Recent before keeping this version.",
+          },
+        }
+      }
+      const [rawBody, rawSummary] = await Promise.all([
+        requestResult(
+          transaction.objectStore(BODY_STORE).get(receipt.documentId)
+        ),
+        requestResult(
+          transaction.objectStore(METADATA_STORE).get(receipt.documentId)
+        ),
+      ])
+      const body = parseBody(rawBody)
+      const summary = parseSummary(rawSummary)
+      if (!body || !summary || !pairMatches(body, summary)) {
+        await done
+        return {
+          ok: false,
+          reason: "corrupt_record",
+          failure: {
+            kind: "corrupt_record",
+            message:
+              "The saved document head could not be verified before acknowledgement.",
+          },
+        }
+      }
+      if (summary.deletedAt !== null) {
+        await done
+        return { ok: false, reason: "deleted", current: summary, receipt }
+      }
+      const audit: LocalMediaAdmissionAuditReceipt = {
+        ...receipt,
+        acknowledgedAt,
+        restoredAt: receipt.restoredAt,
+        preimage: null,
+      }
+      await requestResult(store.put(audit))
+      const acknowledged = (
+        await requestResult(
+          store.index(MEDIA_MIGRATION_ACKNOWLEDGED_CREATED_AT_INDEX).getAll()
+        )
+      )
+        .map(parseLocalMediaAdmissionReceipt)
+        .filter(
+          (candidate): candidate is LocalMediaAdmissionAuditReceipt =>
+            candidate?.preimage === null
+        )
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+      for (const expired of acknowledged.slice(
+        0,
+        Math.max(
+          0,
+          acknowledged.length - MAX_ACKNOWLEDGED_MEDIA_MIGRATION_RECEIPTS
+        )
+      )) {
+        await requestResult(store.delete(expired.receiptId))
+      }
+      await done
+      return { ok: true, status: "acknowledged", receipt: audit }
+    } catch (error) {
+      return {
+        ok: false,
+        reason: "storage_unavailable",
+        failure: storageFailure(error),
+      }
+    } finally {
+      database?.close()
+    }
+  }
+
+  async restoreLocalMediaAdmissionReceipt(
+    receiptId: string,
+    restoredAt = this.#now(),
+    signal?: AbortSignal
+  ): Promise<RestoreLocalMediaAdmissionReceiptResult> {
+    if (
+      !validRequiredString(receiptId) ||
+      receiptId.length > 128 ||
+      !validTimestamp(restoredAt)
+    ) {
+      return {
+        ok: false,
+        reason: "validation_failed",
+        failure: {
+          kind: "validation_failed",
+          message: "A valid receipt ID and restoration timestamp are required.",
+        },
+      }
+    }
+    if (signal?.aborted) throw abortReason(signal)
+    const receiptRead = await this.getLocalMediaAdmissionReceipt(receiptId)
+    if (!receiptRead.ok) {
+      return {
+        ok: false,
+        reason: receiptRead.reason,
+        ...(receiptRead.quarantineId
+          ? { quarantineId: receiptRead.quarantineId }
+          : {}),
+        failure: receiptRead.failure,
+      }
+    }
+    if (receiptRead.status === "missing") {
+      return { ok: false, reason: "missing" }
+    }
+    if (receiptRead.receipt.preimage === null) {
+      return { ok: false, reason: "preimage_unavailable" }
+    }
+    const preimageReceipt = receiptRead.receipt
+    const prepared = await this.#prepared(
+      snapshotForEnvelope(preimageReceipt.preimage)
+    )
+    if (!prepared.ok) {
+      return {
+        ok: false,
+        reason: "corrupt_record",
+        failure: {
+          kind: "corrupt_record",
+          message: "The admission preimage failed canonical validation.",
+        },
+      }
+    }
+    if (signal?.aborted) throw abortReason(signal)
+    let database: IDBDatabase | null = null
+    try {
+      database = await this.#open()
+      if (signal?.aborted) throw abortReason(signal)
+      const transaction = database.transaction(
+        [BODY_STORE, METADATA_STORE, PREVIEW_STORE, MEDIA_MIGRATION_STORE],
+        "readwrite"
+      )
+      const done = transactionDone(transaction)
+      const abort = () => {
+        try {
+          transaction.abort()
+        } catch {
+          // Commit already won; `done` is the acknowledgement.
+        }
+      }
+      signal?.addEventListener("abort", abort, { once: true })
+      try {
+        const receipts = transaction.objectStore(MEDIA_MIGRATION_STORE)
+        const rawReceipt = await requestResult(receipts.get(receiptId))
+        const receipt = parseLocalMediaAdmissionReceipt(rawReceipt)
+        if (!receipt || receipt.preimage === null) {
+          await done
+          return receipt
+            ? { ok: false, reason: "preimage_unavailable" }
+            : {
+                ok: false,
+                reason: "corrupt_record",
+                failure: {
+                  kind: "corrupt_record",
+                  message: "The admission receipt changed or became corrupt.",
+                },
+              }
+        }
+        const bodies = transaction.objectStore(BODY_STORE)
+        const metadata = transaction.objectStore(METADATA_STORE)
+        const [rawBody, rawSummary] = await Promise.all([
+          requestResult(bodies.get(receipt.documentId)),
+          requestResult(metadata.get(receipt.documentId)),
+        ])
+        const body = parseBody(rawBody)
+        const summary = parseSummary(rawSummary)
+        if (!body || !summary || !pairMatches(body, summary)) {
+          await done
+          return {
+            ok: false,
+            reason: "corrupt_record",
+            failure: {
+              kind: "corrupt_record",
+              message:
+                "The saved document head could not be verified before restoration.",
+            },
+          }
+        }
+        if (summary.deletedAt !== null) {
+          await done
+          return { ok: false, reason: "deleted", current: summary, receipt }
+        }
+        if (receipt.restoredAt !== null) {
+          if (
+            summary.draftSnapshotId === prepared.draftSnapshotId &&
+            summary.contentSnapshotId === prepared.contentSnapshotId &&
+            summary.recordVersion > receipt.result.recordVersion
+          ) {
+            await done
+            return {
+              ok: true,
+              status: "replayed",
+              record: { summary, envelope: envelopeForBody(body) },
+              receipt,
+            }
+          }
+          await done
+          return {
+            ok: false,
+            reason: "advanced_head",
+            current: summary,
+            receipt,
+          }
+        }
+        if (!headIdentityMatches(summary, receipt.result)) {
+          await done
+          return {
+            ok: false,
+            reason: "advanced_head",
+            current: summary,
+            receipt,
+          }
+        }
+        const recordVersion = summary.recordVersion + 1
+        const nextBody: StoredDraftBody = {
+          schemaVersion: 1,
+          documentId: receipt.documentId,
+          recordVersion,
+          contentSnapshotId: prepared.contentSnapshotId,
+          draftSnapshotId: prepared.draftSnapshotId,
+          encodedByteLength: prepared.encodedByteLength,
+          document: prepared.envelope.document,
+          sourceContext: prepared.envelope.sourceContext,
+          reviewJournal: prepared.envelope.reviewJournal,
+          ...(prepared.envelope.quotationRefresh
+            ? { quotationRefresh: prepared.envelope.quotationRefresh }
+            : {}),
+        }
+        const nextSummary = summaryFor({
+          envelope: prepared.envelope,
+          recordVersion,
+          contentSnapshotId: prepared.contentSnapshotId,
+          draftSnapshotId: prepared.draftSnapshotId,
+          encodedByteLength: prepared.encodedByteLength,
+          createdAt: summary.createdAt,
+          savedAt: restoredAt,
+          lastOpenedAt: summary.lastOpenedAt,
+          activityAt: restoredAt,
+          deletedAt: null,
+          origin: summary.origin,
+          lastPublished: summary.lastPublished,
+        })
+        const restoredReceipt: LocalMediaAdmissionReceipt = {
+          ...receipt,
+          restoredAt,
+        }
+        const writes: Promise<unknown>[] = []
+        const enqueue = <T>(request: IDBRequest<T>) => {
+          const write = requestResult(request)
+          void write.catch(() => undefined)
+          const observedWrite = write.then((value) => value as unknown)
+          void observedWrite.catch(() => undefined)
+          writes.push(observedWrite)
+        }
+        enqueue(bodies.put(nextBody))
+        enqueue(metadata.put(nextSummary))
+        enqueue(
+          transaction.objectStore(PREVIEW_STORE).delete(receipt.documentId)
+        )
+        enqueue(receipts.put(restoredReceipt))
+        await Promise.all(writes)
+        await done
+        this.#publish({
+          type: "saved",
+          reason: "content_saved",
+          documentId: receipt.documentId,
+          recordVersion,
+          contentSnapshotId: prepared.contentSnapshotId,
+          draftSnapshotId: prepared.draftSnapshotId,
+          sessionId: this.#sessionId,
+        })
+        return {
+          ok: true,
+          status: "restored",
+          record: { summary: nextSummary, envelope: prepared.envelope },
+          receipt: restoredReceipt,
+        }
+      } catch (error) {
+        try {
+          transaction.abort()
+        } catch {
+          // A request may already have aborted the transaction.
+        }
+        await done.catch(() => undefined)
+        throw error
+      } finally {
+        signal?.removeEventListener("abort", abort)
+      }
+    } catch (error) {
+      if (signal?.aborted) throw abortReason(signal)
+      return {
+        ok: false,
+        reason: "storage_unavailable",
+        failure: storageFailure(error),
+      }
+    } finally {
+      database?.close()
+    }
+  }
+
+  #invalidMediaMigration(message: string): MigrateLocalMediaResult {
+    return {
+      ok: false,
+      reason: "validation_failed",
+      failure: { kind: "validation_failed", message },
+    }
+  }
+
+  async #quarantineStoredMediaReceipt(
+    receiptId: string,
+    observed: unknown,
+    failure: string
+  ) {
+    let database: IDBDatabase | null = null
+    try {
+      database = await this.#open()
+      const transaction = database.transaction(
+        MEDIA_MIGRATION_STORE,
+        "readwrite"
+      )
+      const done = transactionDone(transaction)
+      const store = transaction.objectStore(MEDIA_MIGRATION_STORE)
+      const current = await requestResult(store.get(receiptId))
+      if (!storedValueEqual(current, observed)) {
+        await done
+        return { status: "superseded" as const, quarantineId: null }
+      }
+      const quarantineId = this.#quarantineMediaReceipt(
+        store,
+        receiptId,
+        observed,
+        failure
+      )
+      await done
+      return { status: "quarantined" as const, quarantineId }
+    } finally {
+      database?.close()
+    }
+  }
+
+  async #recordMediaReceiptInvariant(
+    documentId: string,
+    observed: unknown,
+    failure: string
+  ) {
+    let database: IDBDatabase | null = null
+    try {
+      database = await this.#open()
+      const transaction = database.transaction(
+        MEDIA_MIGRATION_STORE,
+        "readwrite"
+      )
+      const done = transactionDone(transaction)
+      const store = transaction.objectStore(MEDIA_MIGRATION_STORE)
+      const quarantineId = `receipt-quarantine-${this.#createId()}`
+      const now = this.#now()
+      store.put({
+        schemaVersion: 1,
+        receiptId: quarantineId,
+        kind: "local_media_admission_quarantine",
+        documentId,
+        createdAt: now,
+        acknowledgedAt: now,
+        originalReceiptId: "multiple-pending-receipts",
+        detectedAt: now,
+        failure,
+        receipt: observed,
+      } satisfies LocalMediaAdmissionReceiptQuarantineRecord)
+      await done
+      return quarantineId
+    } finally {
+      database?.close()
+    }
+  }
+
+  #quarantineMediaReceipt(
+    store: IDBObjectStore,
+    originalReceiptId: string,
+    receipt: unknown,
+    failure: string
+  ) {
+    const quarantineId = `receipt-quarantine-${this.#createId()}`
+    store.put({
+      schemaVersion: 1,
+      receiptId: quarantineId,
+      kind: "local_media_admission_quarantine",
+      documentId:
+        isRecord(receipt) && validRequiredString(receipt.documentId)
+          ? receipt.documentId
+          : "unknown-document",
+      createdAt: this.#now(),
+      acknowledgedAt: this.#now(),
+      originalReceiptId,
+      detectedAt: this.#now(),
+      failure,
+      receipt,
+    } satisfies LocalMediaAdmissionReceiptQuarantineRecord)
+    store.delete(originalReceiptId)
+    return quarantineId
   }
 
   async linkPublication(

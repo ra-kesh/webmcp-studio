@@ -30,17 +30,31 @@ import type {
 import { startActiveLocalAssetPromotion } from "./active-local-asset-promotion"
 import type { CurrentDraftEnvelope } from "./current-draft-repository"
 import { DocumentDraftRepository } from "./document-draft-repository"
-import type { DocumentDraftRecord } from "./document-draft-repository"
+import type {
+  DocumentDraftRecord,
+  LocalMediaAdmissionReceipt,
+} from "./document-draft-repository"
 import { DocumentDraftSaveController } from "./document-draft-save-controller"
+import type { DocumentRouteMediaAdmission } from "./document-route-admission"
 import {
   checkpointReleasedLocalAssetPromotionConflict,
   localAssetPromotionJournalSchema,
   readLocalAssetPromotionJournal,
 } from "./local-asset-promotion-journal"
 import type { LocalAssetPromotionJournal } from "./local-asset-promotion-journal"
-import { getLocalAssetRecord } from "./local-asset-store"
+import {
+  getLocalAssetRecord,
+  inspectRequestedLocalAssets,
+} from "./local-asset-store"
 import type { LocalAssetRecord } from "./local-asset-store"
-import { markManagedMediaUsed } from "./managed-media-repository"
+import {
+  getManagedMedia,
+  markManagedMediaUsed,
+} from "./managed-media-repository"
+import {
+  MOUNTED_MEDIA_RECOVERY_DATABASE_NAME,
+  MountedMediaRecoveryRepository,
+} from "./mounted-media-recovery-repository"
 import {
   StudioPersistenceTestWrapper,
   useStudioPersistence,
@@ -56,7 +70,9 @@ const checkpointConflictMock = vi.mocked(
   checkpointReleasedLocalAssetPromotionConflict
 )
 const getLocalRecordMock = vi.mocked(getLocalAssetRecord)
+const inspectRequestedLocalAssetsMock = vi.mocked(inspectRequestedLocalAssets)
 const markManagedUsedMock = vi.mocked(markManagedMediaUsed)
+const getManagedMediaMock = vi.mocked(getManagedMedia)
 const readJournalMock = vi.mocked(readLocalAssetPromotionJournal)
 const startActiveMock = vi.mocked(startActiveLocalAssetPromotion)
 
@@ -83,6 +99,16 @@ const deferred = <TValue,>() => {
 const deleteDocumentDatabase = () =>
   new Promise<void>((resolve) => {
     const request = realIndexedDB.deleteDatabase(documentDatabaseName)
+    request.onsuccess = () => resolve()
+    request.onerror = () => resolve()
+    request.onblocked = () => resolve()
+  })
+
+const deleteMountedRecoveryDatabase = () =>
+  new Promise<void>((resolve) => {
+    const request = realIndexedDB.deleteDatabase(
+      MOUNTED_MEDIA_RECOVERY_DATABASE_NAME
+    )
     request.onsuccess = () => resolve()
     request.onerror = () => resolve()
     request.onblocked = () => resolve()
@@ -133,6 +159,22 @@ const imageNode = (src: string, assetId = localAssetId): SceneNode => ({
   decorative: false,
 })
 
+const readyManagedAsset: Parameters<
+  Editor["chooseManagedImageForLocalAsset"]
+>[1] = {
+  id: managedAssetId,
+  name: "Studio portrait.jpg",
+  mediaType: "image/jpeg",
+  bytes: 1_024,
+  width: 1_600,
+  height: 1_200,
+  createdAt: "2026-08-30T00:00:00.000Z",
+  updatedAt: "2026-08-30T00:00:00.000Z",
+  lastUsedAt: "2026-08-30T00:00:00.000Z",
+  status: "ready",
+}
+const readyManagedLookup = { ...readyManagedAsset, selectable: true }
+
 const documentWithImage = (
   id: string,
   source: string,
@@ -182,6 +224,123 @@ const documentWithImage = (
       imageNode(source, assetId),
       ...(addUnrelatedNode ? [unrelatedNode] : []),
     ],
+  })
+}
+
+const documentWithOptionalBoundAssetField = (id: string): Document => {
+  const source = localAssetSource(localAssetId)
+  const document = documentWithImage(id, source)
+  return documentSchema.parse({
+    ...document,
+    fields: [
+      ...document.fields,
+      {
+        id: "field-hero-image",
+        key: "hero_image",
+        label: "Hero image",
+        type: "asset",
+        required: false,
+        defaultValue: source,
+        agentDescription: "Optional shared hero image.",
+        validation: {},
+      },
+    ],
+    fieldValues: {
+      ...document.fieldValues,
+      "field-hero-image": source,
+    },
+    bindings: [
+      ...document.bindings,
+      {
+        id: "binding-hero-image",
+        fieldId: "field-hero-image",
+        nodeId: imageNodeId,
+        property: "src",
+      },
+    ],
+  })
+}
+
+const documentWithPreexistingManagedTarget = (id: string): Document => {
+  const document = documentWithImage(id, localAssetSource(localAssetId))
+  const preexistingNode = {
+    ...imageNode(managedAssetSource(managedAssetId), managedAssetId),
+    id: "preexisting-managed-image",
+    name: "Existing Studio portrait",
+  }
+  return documentSchema.parse({
+    ...document,
+    outputs: [
+      ...document.outputs,
+      {
+        id: "preexisting-output",
+        name: "Existing output",
+        kind: "custom",
+        pageIds: ["preexisting-page"],
+        exportFormats: ["png"],
+      },
+    ],
+    pages: [
+      ...document.pages,
+      {
+        id: "preexisting-page",
+        outputId: "preexisting-output",
+        name: "Existing page",
+        width: 400,
+        height: 400,
+        background: "#fff",
+        nodeIds: [preexistingNode.id],
+      },
+    ],
+    nodes: [...document.nodes, preexistingNode],
+  })
+}
+
+const relinkDocumentToManagedTarget = (document: Document): Document =>
+  documentSchema.parse({
+    ...document,
+    nodes: document.nodes.map((node) =>
+      node.id === imageNodeId && node.type === "image"
+        ? {
+            ...node,
+            assetId: managedAssetId,
+            src: managedAssetSource(managedAssetId),
+          }
+        : node
+    ),
+  })
+
+const addLaterManagedTargetUse = (document: Document): Document => {
+  const node = {
+    ...imageNode(managedAssetSource(managedAssetId), managedAssetId),
+    id: "later-managed-image",
+    name: "Later Studio portrait use",
+  }
+  return documentSchema.parse({
+    ...document,
+    outputs: [
+      ...document.outputs,
+      {
+        id: "later-output",
+        name: "Later output",
+        kind: "custom",
+        pageIds: ["later-page"],
+        exportFormats: ["png"],
+      },
+    ],
+    pages: [
+      ...document.pages,
+      {
+        id: "later-page",
+        outputId: "later-output",
+        name: "Later page",
+        width: 400,
+        height: 400,
+        background: "#fff",
+        nodeIds: [node.id],
+      },
+    ],
+    nodes: [...document.nodes, node],
   })
 }
 
@@ -283,12 +442,18 @@ const pendingOperation = (operationId = "mounted-operation-1") => {
 function MountedEditor({
   capture,
   initialRecord,
+  initialMediaAdmission,
 }: {
   capture: (editor: Editor) => void
   initialRecord: DocumentDraftRecord
+  initialMediaAdmission?: DocumentRouteMediaAdmission
 }) {
   const persistence = useStudioPersistence()
-  const editor = useDocumentEditor({ initialRecord, persistence })
+  const editor = useDocumentEditor({
+    initialRecord,
+    initialMediaAdmission,
+    persistence,
+  })
   useLayoutEffect(() => capture(editor), [capture, editor])
   return null
 }
@@ -314,6 +479,7 @@ describe.sequential("useDocumentEditor mounted local asset promotion", () => {
   beforeEach(async () => {
     localStorage.clear()
     await deleteDocumentDatabase()
+    await deleteMountedRecoveryDatabase()
     host = document.createElement("div")
     document.body.appendChild(host)
     root = createRoot(host)
@@ -335,6 +501,7 @@ describe.sequential("useDocumentEditor mounted local asset promotion", () => {
       assetRevision: 3,
       requestId: "recent-request-1",
     })
+    getManagedMediaMock.mockResolvedValue(readyManagedLookup)
   })
 
   afterEach(async () => {
@@ -345,19 +512,30 @@ describe.sequential("useDocumentEditor mounted local asset promotion", () => {
     vi.clearAllMocks()
     localStorage.clear()
     await deleteDocumentDatabase()
+    await deleteMountedRecoveryDatabase()
   })
 
-  const mount = async (record: DocumentDraftRecord) => {
+  const mount = async (
+    record: DocumentDraftRecord,
+    initialMediaAdmission?: DocumentRouteMediaAdmission
+  ) => {
     await act(async () => {
       root.render(
         <StudioPersistenceTestWrapper createRepository={() => repository}>
-          <MountedEditor capture={capture} initialRecord={record} />
+          <MountedEditor
+            capture={capture}
+            initialRecord={record}
+            initialMediaAdmission={initialMediaAdmission}
+          />
         </StudioPersistenceTestWrapper>
       )
     })
     await vi.waitFor(() => {
       expect(captured.current?.routeSessionStatus).toBe("ready")
       expect(captured.current?.sessionMode).toBe("workspace")
+      expect(captured.current?.mountedMediaRecoveryReconciliation.status).toBe(
+        "ready"
+      )
     })
     return captured.current!
   }
@@ -1021,5 +1199,696 @@ describe.sequential("useDocumentEditor mounted local asset promotion", () => {
       message: "Stopped by test.",
       retryable: true,
     })
+  })
+
+  it("clears only the reviewed default asset slot with one durable history entry", async () => {
+    const source = localAssetSource(localAssetId)
+    const document = documentWithOptionalBoundAssetField(
+      "clear-default-slot-document"
+    )
+    const record = await createRecord(repository, document)
+    const editor = await mount(record)
+    const operationVersion = editor.operationVersion
+
+    let cleared = false
+    await act(async () => {
+      cleared = await editor.removeMissingLocalAsset(
+        localAssetId,
+        "field/field-hero-image/default"
+      )
+    })
+
+    expect(cleared).toBe(true)
+    expect(captured.current?.operationVersion).toBe(operationVersion + 1)
+    expect(captured.current?.documentUndoEntry?.label).toBe(
+      "Clear image field value"
+    )
+    expect(
+      captured.current?.document.fields.find(
+        (field) => field.id === "field-hero-image"
+      )
+    ).toMatchObject({ defaultValue: "" })
+    expect(captured.current?.document.fieldValues["field-hero-image"]).toBe(
+      source
+    )
+    expect(
+      captured.current?.document.nodes.some((node) => node.id === imageNodeId)
+    ).toBe(true)
+    expect(
+      captured.current?.document.bindings.some(
+        (binding) => binding.id === "binding-hero-image"
+      )
+    ).toBe(true)
+    expect(
+      captured.current?.localMediaRecoveryOperations[localAssetId]
+    ).toMatchObject({ phase: "complete", retryable: false })
+  })
+
+  it("atomically clears a reviewed current slot, projection, and binding", async () => {
+    const source = localAssetSource(localAssetId)
+    const document = documentWithOptionalBoundAssetField(
+      "clear-current-slot-document"
+    )
+    const record = await createRecord(repository, document)
+    const editor = await mount(record)
+    const operationVersion = editor.operationVersion
+
+    let cleared = false
+    await act(async () => {
+      cleared = await editor.removeMissingLocalAsset(
+        localAssetId,
+        "field/field-hero-image/current"
+      )
+    })
+
+    expect(cleared).toBe(true)
+    expect(captured.current?.operationVersion).toBe(operationVersion + 1)
+    expect(captured.current?.document.fieldValues["field-hero-image"]).toBe("")
+    expect(
+      captured.current?.document.fields.find(
+        (field) => field.id === "field-hero-image"
+      )
+    ).toMatchObject({ defaultValue: source })
+    expect(
+      captured.current?.document.nodes.some((node) => node.id === imageNodeId)
+    ).toBe(false)
+    expect(
+      captured.current?.document.bindings.some(
+        (binding) => binding.id === "binding-hero-image"
+      )
+    ).toBe(false)
+    expect(
+      captured.current?.localMediaRecoveryOperations[localAssetId]
+    ).toMatchObject({ phase: "complete", retryable: false })
+  })
+
+  it("cancels a deferred precommit recovery without history or document changes", async () => {
+    const document = documentWithOptionalBoundAssetField(
+      "cancel-precommit-recovery-document"
+    )
+    const record = await createRecord(repository, document)
+    const editor = await mount(record)
+    const inspection =
+      deferred<Awaited<ReturnType<typeof inspectRequestedLocalAssets>>>()
+    inspectRequestedLocalAssetsMock.mockReturnValueOnce(inspection.promise)
+    const operationVersion = editor.operationVersion
+    let recovery!: Promise<boolean>
+
+    await act(() => {
+      recovery = editor.removeMissingLocalAsset(
+        localAssetId,
+        "field/field-hero-image/default"
+      )
+    })
+    await vi.waitFor(() =>
+      expect(
+        captured.current?.localMediaRecoveryOperations[localAssetId]?.phase
+      ).toBe("preparing")
+    )
+    await act(async () => {
+      expect(editor.cancelLocalMediaRecovery(localAssetId)).toBe(true)
+      inspection.resolve([{ status: "absent" }])
+      expect(await recovery).toBe(false)
+    })
+
+    expect(captured.current?.operationVersion).toBe(operationVersion)
+    expect(captured.current?.document).toEqual(document)
+    expect(
+      captured.current?.localMediaRecoveryOperations[localAssetId]
+    ).toMatchObject({
+      phase: "complete",
+      message: "Image recovery was cancelled before the document changed.",
+    })
+  })
+
+  it("abandons a prepared managed checkpoint when Cancel wins before history install", async () => {
+    const document = documentWithImage(
+      "cancel-prepared-managed-recovery-document",
+      localAssetSource(localAssetId)
+    )
+    const record = await createRecord(repository, document)
+    const editor = await mount(record)
+    const sourceOperationVersion = editor.operationVersion
+    const originalPrepared =
+      MountedMediaRecoveryRepository.prototype.recordHistoryPrepared
+    const preparedEntered =
+      deferred<
+        Parameters<MountedMediaRecoveryRepository["recordHistoryPrepared"]>[0]
+      >()
+    const releasePrepared = deferred<void>()
+    vi.spyOn(
+      MountedMediaRecoveryRepository.prototype,
+      "recordHistoryPrepared"
+    ).mockImplementation(async function (
+      this: MountedMediaRecoveryRepository,
+      input
+    ) {
+      preparedEntered.resolve(input)
+      await releasePrepared.promise
+      return originalPrepared.call(this, input)
+    })
+    const flushSpy = vi.spyOn(
+      DocumentDraftSaveController.prototype,
+      "flushWithReceipt"
+    )
+    const flushCallsBefore = flushSpy.mock.calls.length
+    let recovery!: Promise<boolean>
+
+    await act(() => {
+      recovery = editor.chooseManagedImageForLocalAsset(
+        localAssetId,
+        readyManagedAsset
+      )
+    })
+    const preparedInput = await preparedEntered.promise
+    expect(captured.current?.cancelLocalMediaRecovery(localAssetId)).toBe(true)
+    await act(async () => {
+      releasePrepared.resolve()
+      expect(await recovery).toBe(false)
+    })
+
+    expect(captured.current?.operationVersion).toBe(sourceOperationVersion)
+    expect(captured.current?.document).toEqual(document)
+    expect(flushSpy).toHaveBeenCalledTimes(flushCallsBefore + 1)
+    const recoveryRepository = new MountedMediaRecoveryRepository()
+    expect(
+      await recoveryRepository.get(preparedInput.operationId)
+    ).toMatchObject({
+      ok: true,
+      status: "found",
+      record: { status: "abandoned", documentCommit: null },
+    })
+    expect(
+      captured.current?.localMediaRecoveryOperations[localAssetId]
+    ).toMatchObject({
+      phase: "complete",
+      completionKind: "cancelled",
+    })
+  })
+
+  it("abandons a prepared checkpoint when mounted ownership is lost without an abort signal", async () => {
+    const document = documentWithImage(
+      "ownership-loss-prepared-document",
+      localAssetSource(localAssetId)
+    )
+    const record = await createRecord(repository, document)
+    const editor = await mount(record)
+    const originalPrepared =
+      MountedMediaRecoveryRepository.prototype.recordHistoryPrepared
+    const preparedEntered =
+      deferred<
+        Parameters<MountedMediaRecoveryRepository["recordHistoryPrepared"]>[0]
+      >()
+    const releasePrepared = deferred<void>()
+    vi.spyOn(
+      MountedMediaRecoveryRepository.prototype,
+      "recordHistoryPrepared"
+    ).mockImplementation(async function (
+      this: MountedMediaRecoveryRepository,
+      input
+    ) {
+      preparedEntered.resolve(input)
+      await releasePrepared.promise
+      return originalPrepared.call(this, input)
+    })
+    vi.spyOn(AbortController.prototype, "abort").mockImplementation(() => {})
+    let recovery!: Promise<boolean>
+
+    await act(() => {
+      recovery = editor.chooseManagedImageForLocalAsset(
+        localAssetId,
+        readyManagedAsset
+      )
+    })
+    const preparedInput = await preparedEntered.promise
+    await act(async () => root.unmount())
+    rootUnmounted = true
+    releasePrepared.resolve()
+    await expect(recovery).resolves.toBe(false)
+
+    const recoveryRepository = new MountedMediaRecoveryRepository()
+    expect(
+      await recoveryRepository.get(preparedInput.operationId)
+    ).toMatchObject({
+      ok: true,
+      status: "found",
+      record: { status: "abandoned", documentCommit: null },
+    })
+    const durable = await repository.get(document.id)
+    expect(durable).toMatchObject({
+      ok: true,
+      status: "found",
+      record: { envelope: { document } },
+    })
+  })
+
+  it("gates editing when a prepared checkpoint cannot be abandoned and recovers on Retry", async () => {
+    const document = documentWithImage(
+      "abandon-failure-prepared-document",
+      localAssetSource(localAssetId)
+    )
+    const record = await createRecord(repository, document)
+    const editor = await mount(record)
+    const originalPrepared =
+      MountedMediaRecoveryRepository.prototype.recordHistoryPrepared
+    const originalAbandon =
+      MountedMediaRecoveryRepository.prototype.abandonPrecommitIntent
+    const preparedEntered =
+      deferred<
+        Parameters<MountedMediaRecoveryRepository["recordHistoryPrepared"]>[0]
+      >()
+    const releasePrepared = deferred<void>()
+    vi.spyOn(
+      MountedMediaRecoveryRepository.prototype,
+      "recordHistoryPrepared"
+    ).mockImplementation(async function (
+      this: MountedMediaRecoveryRepository,
+      input
+    ) {
+      preparedEntered.resolve(input)
+      await releasePrepared.promise
+      return originalPrepared.call(this, input)
+    })
+    vi.spyOn(MountedMediaRecoveryRepository.prototype, "abandonPrecommitIntent")
+      .mockResolvedValueOnce({
+        ok: false,
+        reason: "storage_unavailable",
+        failure: {
+          kind: "storage_unavailable",
+          message: "Recovery journal is temporarily unavailable.",
+        },
+      })
+      .mockImplementation(function (
+        this: MountedMediaRecoveryRepository,
+        input
+      ) {
+        return originalAbandon.call(this, input)
+      })
+    let recovery!: Promise<boolean>
+
+    await act(() => {
+      recovery = editor.chooseManagedImageForLocalAsset(
+        localAssetId,
+        readyManagedAsset
+      )
+    })
+    await preparedEntered.promise
+    expect(captured.current?.cancelLocalMediaRecovery(localAssetId)).toBe(true)
+    await act(async () => {
+      releasePrepared.resolve()
+      expect(await recovery).toBe(false)
+    })
+
+    expect(captured.current?.mountedMediaRecoveryReconciliation.status).toBe(
+      "error"
+    )
+    const blockedOperationVersion = captured.current!.operationVersion
+    captured.current?.addRectangle()
+    expect(captured.current?.operationVersion).toBe(blockedOperationVersion)
+    await act(async () =>
+      captured.current?.retryMountedMediaRecoveryReconciliation()
+    )
+    await vi.waitFor(() =>
+      expect(captured.current?.mountedMediaRecoveryReconciliation.status).toBe(
+        "ready"
+      )
+    )
+    expect(captured.current?.document).toEqual(document)
+  })
+
+  it("adopts and abandons a prepared checkpoint after its write response is lost", async () => {
+    const document = documentWithImage(
+      "lost-prepared-response-document",
+      localAssetSource(localAssetId)
+    )
+    const record = await createRecord(repository, document)
+    const editor = await mount(record)
+    const sourceOperationVersion = editor.operationVersion
+    const originalPrepared =
+      MountedMediaRecoveryRepository.prototype.recordHistoryPrepared
+    let preparedInput:
+      | Parameters<MountedMediaRecoveryRepository["recordHistoryPrepared"]>[0]
+      | null = null
+    vi.spyOn(
+      MountedMediaRecoveryRepository.prototype,
+      "recordHistoryPrepared"
+    ).mockImplementationOnce(async function (
+      this: MountedMediaRecoveryRepository,
+      input
+    ) {
+      preparedInput = input
+      const written = await originalPrepared.call(this, input)
+      if (!written.ok) return written
+      return {
+        ok: false as const,
+        reason: "storage_unavailable" as const,
+        failure: {
+          kind: "storage_unavailable" as const,
+          message: "The checkpoint response was lost.",
+        },
+      }
+    })
+    const flushSpy = vi.spyOn(
+      DocumentDraftSaveController.prototype,
+      "flushWithReceipt"
+    )
+    const flushCallsBefore = flushSpy.mock.calls.length
+
+    await act(async () => {
+      expect(
+        await editor.chooseManagedImageForLocalAsset(
+          localAssetId,
+          readyManagedAsset
+        )
+      ).toBe(false)
+    })
+
+    expect(preparedInput).not.toBeNull()
+    expect(captured.current?.operationVersion).toBe(sourceOperationVersion)
+    expect(captured.current?.document).toEqual(document)
+    expect(flushSpy).toHaveBeenCalledTimes(flushCallsBefore + 1)
+    const recoveryRepository = new MountedMediaRecoveryRepository()
+    expect(
+      await recoveryRepository.get(preparedInput!.operationId)
+    ).toMatchObject({
+      ok: true,
+      status: "found",
+      record: { status: "abandoned", documentCommit: null },
+    })
+  })
+
+  it("refuses cancellation after history commit while the durable save is held", async () => {
+    const document = documentWithOptionalBoundAssetField(
+      "refuse-postcommit-cancel-document"
+    )
+    const record = await createRecord(repository, document)
+    const editor = await mount(record)
+    const sourceOperationVersion = editor.operationVersion
+    const releaseFlush = deferred<void>()
+    const originalFlush = DocumentDraftSaveController.prototype.flushWithReceipt
+    let flushCalls = 0
+    vi.spyOn(
+      DocumentDraftSaveController.prototype,
+      "flushWithReceipt"
+    ).mockImplementation(function (this: DocumentDraftSaveController) {
+      flushCalls += 1
+      return flushCalls === 2
+        ? releaseFlush.promise.then(() => originalFlush.call(this))
+        : originalFlush.call(this)
+    })
+    let recovery!: Promise<boolean>
+
+    await act(() => {
+      recovery = editor.removeMissingLocalAsset(
+        localAssetId,
+        "field/field-hero-image/default"
+      )
+    })
+    await vi.waitFor(() =>
+      expect(
+        captured.current?.localMediaRecoveryOperations[localAssetId]?.phase
+      ).toBe("saving")
+    )
+    expect(captured.current?.cancelLocalMediaRecovery(localAssetId)).toBe(false)
+    expect(captured.current?.operationVersion).toBe(sourceOperationVersion + 1)
+
+    await act(async () => {
+      releaseFlush.resolve()
+      expect(await recovery).toBe(true)
+    })
+    expect(
+      captured.current?.localMediaRecoveryOperations[localAssetId]
+    ).toMatchObject({ phase: "complete", retryable: false })
+  })
+
+  it("preserves unrelated preexisting target uses through durable relink and reopen", async () => {
+    const document = documentWithPreexistingManagedTarget(
+      "preexisting-target-document"
+    )
+    const record = await createRecord(repository, document)
+    const editor = await mount(record)
+
+    await act(async () => {
+      expect(
+        await editor.chooseManagedImageForLocalAsset(
+          localAssetId,
+          readyManagedAsset
+        )
+      ).toBe(true)
+    })
+    expect(
+      assetReferenceKeysForSource(
+        captured.current!.document,
+        managedAssetSource(managedAssetId)
+      )
+    ).toEqual(["node/preexisting-managed-image/src", `node/${imageNodeId}/src`])
+    const saved = await repository.get(document.id)
+    if (!saved.ok || saved.status !== "found") {
+      throw new Error("Expected durable recovered document")
+    }
+    await reroute(saved.record)
+    expect(
+      assetReferenceKeysForSource(
+        captured.current!.document,
+        managedAssetSource(managedAssetId)
+      )
+    ).toEqual(["node/preexisting-managed-image/src", `node/${imageNodeId}/src`])
+    expect(captured.current?.mountedMediaRecoveryReconciliation.status).toBe(
+      "ready"
+    )
+    expect(markManagedUsedMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("reconciles a prepared recovery after a later durable edit without changing the later head", async () => {
+    const sourceDocument = documentWithPreexistingManagedTarget(
+      "observed-later-recovery-document"
+    )
+    const sourceRecord = await createRecord(repository, sourceDocument)
+    const recoveredDocument = relinkDocumentToManagedTarget(sourceDocument)
+    const laterDocument = addLaterManagedTargetUse(recoveredDocument)
+    const expectedReferenceKeys = assetReferenceKeysForSource(
+      sourceDocument,
+      localAssetSource(localAssetId)
+    )
+    const preexistingTargetReferenceKeys = assetReferenceKeysForSource(
+      sourceDocument,
+      managedAssetSource(managedAssetId)
+    )
+    const recoveryRepository = new MountedMediaRecoveryRepository()
+    const operationId = "observed-later-mounted-recovery"
+    const intent = await recoveryRepository.createIntent({
+      operationId,
+      documentId: sourceDocument.id,
+      localAssetId,
+      localSource: localAssetSource(localAssetId),
+      managedAssetId,
+      managedSource: managedAssetSource(managedAssetId),
+      expectedReferenceKeys,
+      preexistingTargetReferenceKeys,
+      sourceContentSnapshotId: sourceRecord.summary.contentSnapshotId,
+      sourceHistorySnapshotId: "history-before-observed-recovery",
+      sourceOperationVersion: 0,
+      sourceDraftRecordVersion: sourceRecord.summary.recordVersion,
+      sourceDraftSnapshotId: sourceRecord.summary.draftSnapshotId,
+      createdAt: new Date().toISOString(),
+    })
+    if (!intent.ok) throw new Error("Expected mounted recovery intent")
+    const prepared = await recoveryRepository.recordHistoryPrepared({
+      operationId,
+      expectedRevision: intent.record.revision,
+      historyCheckpoint: {
+        resultContentSnapshotId:
+          await deriveDocumentSnapshotId(recoveredDocument),
+        resultHistorySnapshotId: "history-after-observed-recovery",
+        resultOperationVersion: 1,
+        commitId: "commit-observed-recovery",
+        undoable: true,
+      },
+      updatedAt: new Date().toISOString(),
+    })
+    if (!prepared.ok) throw new Error("Expected prepared history checkpoint")
+    const recoveredSave = await repository.save(
+      {
+        document: recoveredDocument,
+        sourceContext: envelopeFor(recoveredDocument).sourceContext,
+      },
+      sourceRecord.summary.recordVersion,
+      sourceRecord.summary.draftSnapshotId
+    )
+    if (!recoveredSave.ok) throw new Error("Expected recovered durable body")
+    const laterSave = await repository.save(
+      {
+        document: laterDocument,
+        sourceContext: envelopeFor(laterDocument).sourceContext,
+      },
+      recoveredSave.record.summary.recordVersion,
+      recoveredSave.record.summary.draftSnapshotId
+    )
+    if (!laterSave.ok) throw new Error("Expected later durable edit")
+
+    await mount(laterSave.record)
+
+    expect(captured.current?.document).toEqual(laterDocument)
+    expect(markManagedUsedMock).toHaveBeenCalledTimes(1)
+    const reconciled = await recoveryRepository.get(operationId)
+    expect(reconciled).toMatchObject({
+      ok: true,
+      status: "found",
+      record: {
+        status: "complete",
+        historyCheckpoint: {
+          resultOperationVersion: 1,
+          commitId: "commit-observed-recovery",
+        },
+        documentCommit: {
+          kind: "observed_later",
+          resultContentSnapshotId: laterSave.record.summary.contentSnapshotId,
+          durable: {
+            recordVersion: laterSave.record.summary.recordVersion,
+            draftSnapshotId: laterSave.record.summary.draftSnapshotId,
+          },
+        },
+      },
+    })
+  })
+
+  it("abandons an untouched interrupted intent and succeeds with a fresh user attempt", async () => {
+    const sourceDocument = documentWithImage(
+      "abandoned-retry-recovery-document",
+      localAssetSource(localAssetId)
+    )
+    const sourceRecord = await createRecord(repository, sourceDocument)
+    const recoveryRepository = new MountedMediaRecoveryRepository()
+    const interruptedOperationId = "interrupted-mounted-recovery"
+    const intent = await recoveryRepository.createIntent({
+      operationId: interruptedOperationId,
+      documentId: sourceDocument.id,
+      localAssetId,
+      localSource: localAssetSource(localAssetId),
+      managedAssetId,
+      managedSource: managedAssetSource(managedAssetId),
+      expectedReferenceKeys: assetReferenceKeysForSource(
+        sourceDocument,
+        localAssetSource(localAssetId)
+      ),
+      preexistingTargetReferenceKeys: [],
+      sourceContentSnapshotId: sourceRecord.summary.contentSnapshotId,
+      sourceHistorySnapshotId: "history-before-interrupted-recovery",
+      sourceOperationVersion: 0,
+      sourceDraftRecordVersion: sourceRecord.summary.recordVersion,
+      sourceDraftSnapshotId: sourceRecord.summary.draftSnapshotId,
+      createdAt: new Date().toISOString(),
+    })
+    if (!intent.ok) throw new Error("Expected interrupted recovery intent")
+
+    const editor = await mount(sourceRecord)
+    const abandoned = await recoveryRepository.get(interruptedOperationId)
+    expect(abandoned).toMatchObject({
+      ok: true,
+      status: "found",
+      record: { status: "abandoned" },
+    })
+
+    await act(async () => {
+      expect(
+        await editor.chooseManagedImageForLocalAsset(
+          localAssetId,
+          readyManagedAsset
+        )
+      ).toBe(true)
+    })
+    expect(
+      assetReferenceKeysForSource(
+        captured.current!.document,
+        managedAssetSource(managedAssetId)
+      )
+    ).toEqual([`node/${imageNodeId}/src`])
+    expect(markManagedUsedMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("switches a missing admission preimage to preservation actions instead of looping Restore", async () => {
+    const document = documentWithImage(
+      "missing-admission-preimage-document",
+      managedAssetSource(managedAssetId),
+      managedAssetId
+    )
+    const record = await createRecord(repository, document)
+    const head = {
+      documentId: record.summary.documentId,
+      recordVersion: record.summary.recordVersion,
+      contentSnapshotId: record.summary.contentSnapshotId,
+      draftSnapshotId: record.summary.draftSnapshotId,
+      deletedAt: record.summary.deletedAt,
+    }
+    const receipt: LocalMediaAdmissionReceipt = {
+      schemaVersion: 1,
+      receiptId: "missing-preimage-receipt",
+      kind: "local_media_admission",
+      documentId: document.id,
+      createdAt: new Date().toISOString(),
+      acknowledgedAt: null,
+      restoredAt: null,
+      source: head,
+      result: head,
+      aliases: [],
+      preimage: envelopeFor(document),
+      managedUses: [],
+    }
+    const admission: DocumentRouteMediaAdmission = {
+      status: "receipt_pending",
+      aliasCount: 0,
+      migratedLocalAssetIds: [],
+      unresolved: [],
+      receipt,
+      message: "Review recovered document images.",
+    }
+    vi.spyOn(
+      DocumentDraftRepository.prototype,
+      "restoreLocalMediaAdmissionReceipt"
+    ).mockResolvedValue({ ok: false, reason: "preimage_unavailable" })
+    const editor = await mount(record, admission)
+
+    await act(async () => {
+      expect(await editor.restoreDocumentMediaAdmission()).toBe(false)
+    })
+
+    expect(captured.current?.documentMediaAdmissionRestoreUnavailable).toBe(
+      true
+    )
+    expect(captured.current?.documentMediaAdmission?.receipt?.receiptId).toBe(
+      receipt.receiptId
+    )
+    expect(captured.current?.document).toEqual(document)
+  })
+
+  it("restores the local alias on Undo without repeating the durable Recent use", async () => {
+    const document = documentWithImage(
+      "managed-recovery-undo-document",
+      localAssetSource(localAssetId)
+    )
+    const record = await createRecord(repository, document)
+    const editor = await mount(record)
+
+    await act(async () => {
+      expect(
+        await editor.chooseManagedImageForLocalAsset(
+          localAssetId,
+          readyManagedAsset
+        )
+      ).toBe(true)
+    })
+    expect(markManagedUsedMock).toHaveBeenCalledTimes(1)
+
+    await act(async () => captured.current?.undo())
+    expect(
+      assetReferenceKeysForSource(
+        captured.current!.document,
+        localAssetSource(localAssetId)
+      )
+    ).toEqual([`node/${imageNodeId}/src`])
+    expect(
+      captured.current?.localMediaRecoveryOperations[localAssetId]
+    ).toMatchObject({ completionKind: "relinked" })
+    expect(markManagedUsedMock).toHaveBeenCalledTimes(1)
   })
 })

@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { assetReferenceKeysForSource, localAssetSource } from "@webmcp/document"
+import {
+  LOCAL_MEDIA_ADMISSION_ALIAS_LIMIT,
+  assetReferenceKeysForSource,
+  extractAssetReferences,
+  localAssetSource,
+} from "@webmcp/document"
 import type { Document } from "@webmcp/document"
 import {
   AlertCircleIcon,
@@ -44,18 +49,23 @@ import {
   isUploadActive,
   LocalAssetCard,
   LoadingGrid,
+  MissingLocalAssetRecoveryCard,
   nextManagedUploadClaims,
   RepositoryNotice,
   UploadQueue,
 } from "./asset-library-components"
 import type {
   AssetLibraryCollection,
+  LocalMediaRecoveryMappingState,
+  LocalMediaRecoveryDeviceState,
+  LocalMediaRecoveryOperationState,
   UploadQueueItem,
 } from "./asset-library-components"
 import {
   assetReferenceUsage,
   formatStoragePercentage,
-  healthyLocalAssetIds,
+  localMediaRecoveryImpact,
+  localMediaRecoveryImpactForReferenceKeys,
   matchesAssetSearch,
   missingLocalAssetIds,
   parseRecentLibraryUse,
@@ -65,25 +75,30 @@ import {
   sortManagedMediaAssets,
   wasMediaAssetUsed,
 } from "./asset-library-model"
+import type { LocalMediaRecoveryImpact } from "./asset-library-model"
 import { studioAssets } from "./asset-catalog"
 import type { StudioAsset } from "./asset-catalog"
 import { formatAssetBytes } from "./local-asset-model"
 import {
   archiveLocalAsset,
-  hasLocalAssetBlob,
+  inspectRequestedLocalAssets,
   listLocalAssetInventory,
   localAssetStorageSummary,
 } from "./local-asset-store"
 import type {
+  LocalAssetAdmissionState,
   LocalAssetStorageSummary,
   LocalAssetSummary,
 } from "./local-asset-store"
 import type { LocalAssetPromotionViewState } from "./use-document-editor"
+import type { DocumentRouteMediaAdmission } from "./document-route-admission"
 import {
   readLocalAssetPromotionJournal,
   subscribeToLocalAssetPromotionJournal,
 } from "./local-asset-promotion-journal"
 import type { LocalAssetPromotionJournal } from "./local-asset-promotion-journal"
+import { resolveLocalAssetPromotions } from "./local-asset-promotion-client"
+import { hashLocalAssetBlobSha256 } from "./local-asset-promotion-owner"
 import {
   hasExactManagedProjection,
   isLiveLocalAssetPromotionVisible,
@@ -119,24 +134,152 @@ export type AssetLibrarySelectionResult =
 export type AssetLibraryDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
-  mode: "insert" | "replace"
+  mode: "insert" | "replace" | "recover-local"
   targetName?: string
   document: Document
+  documentMediaAdmission?: DocumentRouteMediaAdmission | null
+  localAssetRevision?: number
+  recoveryMutationDisabledReason?: string | null
   initialCollection?: AssetLibraryCollection
   onSelect: (
     selection: AssetLibrarySelection
   ) => Promise<AssetLibrarySelectionResult> | AssetLibrarySelectionResult
-  onLocateMissingLocalAsset?: (assetId: string) => void
+  onLocateMissingLocalAsset?: (assetId: string, file: File) => void
+  onKeepLocatedFileAsNewLocalAsset?: (assetId: string) => void
+  onUseStudioCopyForLocalAsset?: (
+    assetId: string,
+    confirmIdentityConflict?: boolean
+  ) => void
+  onChooseStudioImageForLocalAsset?: (assetId: string) => void
+  onRemoveMissingLocalAsset?: (assetId: string, referenceKey?: string) => void
+  onRetryLocalMediaRecovery?: (assetId: string) => void
+  onCancelLocalMediaRecovery?: (assetId: string) => void
+  localMediaRecoveryOperations?: Readonly<
+    Partial<Record<string, LocalMediaRecoveryOperationState>>
+  >
   onNavigateToReference?: (reference: {
     nodeId: string | null
     pageId: string | null
     fieldId: string | null
+    outputId?: string | null
   }) => void
   localAssetPromotions?: Readonly<
     Partial<Record<string, LocalAssetPromotionViewState>>
   >
   onPromoteLocalAsset?: (assetId: string) => void
   onCancelLocalAssetPromotion?: (assetId: string) => void
+}
+
+export type LocalMediaRecoveryReferenceRow = Readonly<{
+  key: string
+  label: string
+  detail: string
+  nodeId: string | null
+  pageId: string | null
+  fieldId: string | null
+  outputId?: string | null
+  clearReferenceKey?: string | null
+  clearDisabledReason?: string | null
+}>
+
+export function localMediaRecoveryReferenceRows(
+  document: Document,
+  impact: LocalMediaRecoveryImpact
+): LocalMediaRecoveryReferenceRow[] {
+  const canonicalReferences = extractAssetReferences(document).filter(
+    (reference) => reference.source === impact.source
+  )
+  return [
+    ...impact.referenceKeys
+      .filter((key) => key.startsWith("field/"))
+      .map((referenceKey) => {
+        const [, fieldId, slot] = referenceKey.split("/")
+        const canonicalReference = canonicalReferences.find(
+          (reference) => reference.key === referenceKey
+        )
+        const field = document.fields.find(
+          (candidate) => candidate.id === fieldId
+        )
+        return {
+          key: `field:${fieldId}:${slot}`,
+          label: field?.label ?? fieldId,
+          detail:
+            slot === "current" ? "Current field value" : "Default field value",
+          nodeId: null,
+          pageId: null,
+          fieldId,
+          clearReferenceKey: referenceKey,
+          clearDisabledReason: field?.required
+            ? "Required fields need a replacement and cannot be cleared."
+            : slot === "current" &&
+                canonicalReference?.projectedNodeIds.some((nodeId) =>
+                  impact.lockedNodeIds.includes(nodeId)
+                )
+              ? "Unlock every projected layer before clearing this current field value."
+              : null,
+        }
+      }),
+    ...impact.directNodeIds.map((nodeId) => {
+      const node = document.nodes.find((candidate) => candidate.id === nodeId)
+      const page = document.pages.find((candidate) =>
+        candidate.nodeIds.includes(nodeId)
+      )
+      return {
+        key: `node:${nodeId}`,
+        label: node?.name ?? nodeId,
+        detail: impact.projectedNodeIds.includes(nodeId)
+          ? `Bound layer${page ? ` on ${page.name}` : ""}`
+          : (page?.name ?? "Document layer"),
+        nodeId,
+        pageId: page?.id ?? null,
+        fieldId: null,
+        clearReferenceKey: impact.referenceKeys.includes(`node/${nodeId}/src`)
+          ? `node/${nodeId}/src`
+          : null,
+        clearDisabledReason: impact.projectedNodeIds.includes(nodeId)
+          ? "Clear the owning current field value for this bound layer."
+          : impact.lockedNodeIds.includes(nodeId)
+            ? "Unlock this layer before removing it."
+            : null,
+      }
+    }),
+    ...impact.pageIds.map((pageId) => ({
+      key: `page:${pageId}`,
+      label:
+        document.pages.find((candidate) => candidate.id === pageId)?.name ??
+        pageId,
+      detail: "Affected page",
+      nodeId: null,
+      pageId,
+      fieldId: null,
+    })),
+    ...impact.outputIds.map((outputId) => {
+      const output = document.outputs.find(
+        (candidate) => candidate.id === outputId
+      )
+      return {
+        key: `output:${outputId}`,
+        label: output?.name ?? outputId,
+        detail: "Affected output",
+        nodeId: null,
+        pageId:
+          output?.pageIds.find((candidate) =>
+            impact.pageIds.includes(candidate)
+          ) ?? null,
+        fieldId: null,
+        outputId,
+      }
+    }),
+  ]
+}
+
+export function displayedLocalMediaRecoveryOperation(
+  operation: LocalMediaRecoveryOperationState | undefined,
+  liveReferenceCount: number
+) {
+  return operation?.completionKind === "relinked" && liveReferenceCount > 0
+    ? undefined
+    : operation
 }
 
 type RepositoryStatus = "idle" | "loading" | "ready" | "error"
@@ -311,9 +454,19 @@ export function AssetLibraryDialog({
   mode,
   targetName,
   document,
+  documentMediaAdmission = null,
+  localAssetRevision = 0,
+  recoveryMutationDisabledReason = null,
   initialCollection = "recent",
   onSelect,
   onLocateMissingLocalAsset,
+  onKeepLocatedFileAsNewLocalAsset,
+  onUseStudioCopyForLocalAsset,
+  onChooseStudioImageForLocalAsset,
+  onRemoveMissingLocalAsset,
+  onRetryLocalMediaRecovery,
+  onCancelLocalMediaRecovery,
+  localMediaRecoveryOperations = {},
   onNavigateToReference,
   localAssetPromotions = {},
   onPromoteLocalAsset,
@@ -332,9 +485,14 @@ export function AssetLibraryDialog({
     useState<AssetLibraryCollection>(initialCollection)
   const [query, setQuery] = useState("")
   const [localAssets, setLocalAssets] = useState<LocalAssetSummary[]>([])
-  const [knownLocalAssetIds, setKnownLocalAssetIds] = useState<string[]>([])
   const [healthyReferencedLocalAssetIds, setHealthyReferencedLocalAssetIds] =
     useState<string[]>([])
+  const [localInspectionStates, setLocalInspectionStates] = useState<
+    Partial<Record<string, LocalAssetAdmissionState>>
+  >({})
+  const [localRecoveryDeviceStates, setLocalRecoveryDeviceStates] = useState<
+    Partial<Record<string, LocalMediaRecoveryDeviceState>>
+  >({})
   const [localIntegrityReady, setLocalIntegrityReady] = useState(false)
   const [localStorage, setLocalStorage] =
     useState<LocalAssetStorageSummary | null>(null)
@@ -358,6 +516,13 @@ export function AssetLibraryDialog({
   >({})
   const [persistedLocalAssetPromotionJournals, setPersistedPromotionJournals] =
     useState<Partial<Record<string, LocalAssetPromotionJournal>>>({})
+  const [missingMappingStates, setMissingMappingStates] = useState<
+    Partial<Record<string, LocalMediaRecoveryMappingState>>
+  >({})
+  const [missingMappingGeneration, setMissingMappingGeneration] = useState(0)
+  const retainedRecoveryImpactsRef = useRef(
+    new Map<string, ReturnType<typeof localMediaRecoveryImpact>>()
+  )
 
   const normalizedQuery = query.trim()
   const normalizedQueryRef = useRef(normalizedQuery)
@@ -365,6 +530,12 @@ export function AssetLibraryDialog({
   const hasActiveUploads = uploadQueue.some(isUploadActive)
   const hasCriticalPromotion = Object.values(localAssetPromotions).some(
     (promotion) => promotion?.phase === "saving"
+  )
+  const hasActiveRecovery = Object.values(localMediaRecoveryOperations).some(
+    (operation) =>
+      operation?.phase === "preparing" ||
+      operation?.phase === "cancelling" ||
+      operation?.phase === "saving"
   )
 
   useEffect(() => {
@@ -417,6 +588,7 @@ export function AssetLibraryDialog({
     void refresh()
     const unsubscribe = subscribeToLocalAssetPromotionJournal(() => {
       void refresh()
+      setMissingMappingGeneration((current) => current + 1)
     })
     return () => {
       disposed = true
@@ -435,7 +607,6 @@ export function AssetLibraryDialog({
       })
       const records = inventory.assets
       const storage = await localAssetStorageSummary(records)
-      setKnownLocalAssetIds(records.map((record) => record.id))
       setLocalAssets(
         sortLocalUploadsByCreatedAt(
           records.filter((record) => record.archivedAt === null)
@@ -554,49 +725,80 @@ export function AssetLibraryDialog({
     [document]
   )
   const referencedLocalAssetSignature = referencedLocalAssetIds.join("\u0000")
-  const knownLocalAssetSignature = knownLocalAssetIds.join("\u0000")
-
   useEffect(() => {
-    if (!open || localStatus !== "ready") {
+    if (!open) {
       setLocalIntegrityReady(false)
+      setLocalInspectionStates({})
       return
     }
-    let cancelled = false
+    const controller = new AbortController()
     setLocalIntegrityReady(false)
-    const metadataIds = new Set(knownLocalAssetIds)
-    const candidates = referencedLocalAssetIds.filter((assetId) =>
-      metadataIds.has(assetId)
-    )
-    void Promise.all(
-      candidates.map(async (assetId) => ({
-        assetId,
-        hasBlob: await hasLocalAssetBlob(assetId),
-      }))
-    )
-      .then((results) => {
-        if (cancelled) return
-        setHealthyReferencedLocalAssetIds(
-          healthyLocalAssetIds(
-            candidates,
-            results
-              .filter((result) => result.hasBlob)
-              .map((result) => result.assetId)
+    if (referencedLocalAssetIds.length > LOCAL_MEDIA_ADMISSION_ALIAS_LIMIT) {
+      setHealthyReferencedLocalAssetIds([])
+      setLocalInspectionStates({})
+      setLocalRecoveryDeviceStates(
+        Object.fromEntries(
+          referencedLocalAssetIds.map((assetId) => [assetId, "unavailable"])
+        )
+      )
+      setLocalIntegrityReady(true)
+      return () => controller.abort()
+    }
+    void inspectRequestedLocalAssets(referencedLocalAssetIds, {
+      signal: controller.signal,
+    })
+      .then((states) => {
+        if (controller.signal.aborted) return
+        const exact =
+          states.length === referencedLocalAssetIds.length &&
+          states.every((state: LocalAssetAdmissionState, index) => {
+            const expectedId = referencedLocalAssetIds[index]
+            return state.status === "ready"
+              ? state.record.id === expectedId
+              : state.status === "missing_bytes"
+                ? state.summary.id === expectedId
+                : state.status === "quarantined"
+                  ? state.issue.assetId === expectedId
+                  : true
+          })
+        const normalized = exact
+          ? states
+          : referencedLocalAssetIds.map(
+              () => ({ status: "unavailable" }) as LocalAssetAdmissionState
+            )
+        setHealthyReferencedLocalAssetIds([])
+        setLocalInspectionStates(
+          Object.fromEntries(
+            referencedLocalAssetIds.map((assetId, index) => [
+              assetId,
+              normalized[index],
+            ])
+          )
+        )
+        setLocalRecoveryDeviceStates(
+          Object.fromEntries(
+            referencedLocalAssetIds.map((assetId, index) => [
+              assetId,
+              normalized[index]?.status ?? "unavailable",
+            ])
           )
         )
         setLocalIntegrityReady(true)
       })
       .catch(() => {
-        if (cancelled) return
+        if (controller.signal.aborted) return
         setHealthyReferencedLocalAssetIds([])
+        setLocalInspectionStates({})
+        setLocalRecoveryDeviceStates(
+          Object.fromEntries(
+            referencedLocalAssetIds.map((assetId) => [assetId, "unavailable"])
+          )
+        )
         setLocalIntegrityReady(true)
       })
-    return () => {
-      cancelled = true
-    }
+    return () => controller.abort()
   }, [
-    knownLocalAssetSignature,
-    knownLocalAssetIds,
-    localStatus,
+    localAssetRevision,
     open,
     referencedLocalAssetIds,
     referencedLocalAssetSignature,
@@ -670,6 +872,12 @@ export function AssetLibraryDialog({
                 : asset
             )
           )
+        }
+        if (mode === "recover-local") {
+          setDialogNotice(
+            "Every reviewed use now points to the selected Studio image. The Media dialog stayed open so you can verify the result."
+          )
+          return
         }
         if (hasActiveUploads) {
           setDialogNotice(
@@ -1142,46 +1350,170 @@ export function AssetLibraryDialog({
       ),
     [localAssets, query]
   )
-  const missingAssetIds = useMemo(
+  const allMissingAssetIds = useMemo(
     () =>
       localIntegrityReady
-        ? missingLocalAssetIds(document, healthyReferencedLocalAssetIds).filter(
-            (assetId) => matchesAssetSearch(query, assetId, "missing")
-          )
+        ? missingLocalAssetIds(document, healthyReferencedLocalAssetIds)
         : [],
-    [document, healthyReferencedLocalAssetIds, localIntegrityReady, query]
+    [document, healthyReferencedLocalAssetIds, localIntegrityReady]
   )
+  const missingAssetIds = useMemo(
+    () =>
+      allMissingAssetIds.filter((assetId) =>
+        matchesAssetSearch(query, assetId, "missing")
+      ),
+    [allMissingAssetIds, query]
+  )
+  const recoveryCardAssetIds = useMemo(
+    () =>
+      [
+        ...new Set([
+          ...missingAssetIds,
+          ...(documentMediaAdmission?.unresolved.map(
+            (item) => item.localAssetId
+          ) ?? []),
+          ...(documentMediaAdmission?.receipt?.aliases.map(
+            (item) => item.localAssetId
+          ) ?? []),
+          ...Object.entries(localMediaRecoveryOperations).flatMap(
+            ([assetId, operation]) => (operation ? [assetId] : [])
+          ),
+        ]),
+      ].sort(),
+    [documentMediaAdmission, localMediaRecoveryOperations, missingAssetIds]
+  )
+  useEffect(() => {
+    if (!open || !localIntegrityReady || !referencedLocalAssetIds.length) {
+      setMissingMappingStates({})
+      setHealthyReferencedLocalAssetIds([])
+      return
+    }
+    const controller = new AbortController()
+    const aliases = [...referencedLocalAssetIds]
+    if (aliases.length > LOCAL_MEDIA_ADMISSION_ALIAS_LIMIT) {
+      setMissingMappingStates(
+        Object.fromEntries(aliases.map((assetId) => [assetId, "unavailable"]))
+      )
+      setHealthyReferencedLocalAssetIds(
+        aliases.filter(
+          (assetId) => localInspectionStates[assetId]?.status === "ready"
+        )
+      )
+      return
+    }
+    setMissingMappingStates(
+      Object.fromEntries(aliases.map((assetId) => [assetId, "checking"]))
+    )
+    void (async () => {
+      try {
+        const resolutions = []
+        for (let index = 0; index < aliases.length; index += 100) {
+          controller.signal.throwIfAborted()
+          const chunk = aliases.slice(index, index + 100)
+          const result = await resolveLocalAssetPromotions(chunk, {
+            signal: controller.signal,
+          })
+          resolutions.push(...result.results)
+        }
+        controller.signal.throwIfAborted()
+        if (
+          resolutions.length !== aliases.length ||
+          resolutions.some(
+            (resolution, index) =>
+              resolution.localAssetId !== aliases[index] ||
+              (resolution.promotion !== null &&
+                resolution.promotion.localAssetId !== aliases[index])
+          )
+        ) {
+          throw new Error("Studio returned a different image mapping order.")
+        }
+        const healthy = await Promise.all(
+          resolutions.map(async (resolution) => {
+            const localState = localInspectionStates[resolution.localAssetId]
+            if (localState?.status !== "ready") return null
+            if (!resolution.promotion) return resolution.localAssetId
+            const hash = await hashLocalAssetBlobSha256(
+              localState.record.blob,
+              controller.signal
+            )
+            return hash === resolution.promotion.contentSha256
+              ? resolution.localAssetId
+              : null
+          })
+        )
+        controller.signal.throwIfAborted()
+        setHealthyReferencedLocalAssetIds(
+          healthy.filter((assetId): assetId is string => assetId !== null)
+        )
+        setMissingMappingStates(
+          Object.fromEntries(
+            resolutions.map((resolution) => [
+              resolution.localAssetId,
+              resolution.promotion?.asset.status ?? "unmapped",
+            ])
+          )
+        )
+      } catch {
+        if (controller.signal.aborted) return
+        setHealthyReferencedLocalAssetIds(
+          aliases.filter(
+            (assetId) => localInspectionStates[assetId]?.status === "ready"
+          )
+        )
+        setMissingMappingStates(
+          Object.fromEntries(aliases.map((assetId) => [assetId, "unavailable"]))
+        )
+      }
+    })()
+    return () => controller.abort()
+  }, [
+    localIntegrityReady,
+    localInspectionStates,
+    missingMappingGeneration,
+    open,
+    referencedLocalAssetIds,
+    referencedLocalAssetSignature,
+  ])
   const recentAssets = useMemo(() => {
     const managed = managedRecent.assets.map((asset) => ({
       kind: "managed" as const,
       sortAt: Date.parse(asset.lastUsedAt || asset.updatedAt),
       asset,
     }))
-    const local = visibleLocalAssets.filter(wasMediaAssetUsed).map((asset) => ({
-      kind: "local" as const,
-      sortAt: Date.parse(asset.lastUsedAt),
-      asset,
-    }))
-    const library = visibleLibraryAssets
-      .filter((asset) => recentLibraryUse[asset.id])
-      .map((asset) => ({
-        kind: "library" as const,
-        sortAt: recentLibraryUse[asset.id] ?? 0,
-        asset,
-      }))
+    const local =
+      mode === "recover-local"
+        ? []
+        : visibleLocalAssets.filter(wasMediaAssetUsed).map((asset) => ({
+            kind: "local" as const,
+            sortAt: Date.parse(asset.lastUsedAt),
+            asset,
+          }))
+    const library =
+      mode === "recover-local"
+        ? []
+        : visibleLibraryAssets
+            .filter((asset) => recentLibraryUse[asset.id])
+            .map((asset) => ({
+              kind: "library" as const,
+              sortAt: recentLibraryUse[asset.id] ?? 0,
+              asset,
+            }))
     return [...managed, ...local, ...library].sort(
       (left, right) => right.sortAt - left.sortAt
     )
   }, [
     managedRecent.assets,
+    mode,
     recentLibraryUse,
     visibleLibraryAssets,
     visibleLocalAssets,
   ])
   const collectionCounts = {
     recent: recentAssets.length,
-    uploads: managedUploads.assets.length + visibleLocalAssets.length,
-    library: visibleLibraryAssets.length,
+    uploads:
+      managedUploads.assets.length +
+      (mode === "recover-local" ? 0 : visibleLocalAssets.length),
+    library: mode === "recover-local" ? 0 : visibleLibraryAssets.length,
   }
   const deleteReferenceRows = useMemo(() => {
     if (!deleteReview) return []
@@ -1261,11 +1593,13 @@ export function AssetLibraryDialog({
       )
     : null
   const atLocalQuota = localStoragePercent !== null && localStoragePercent >= 95
-  const interactionLocked = selectingId !== null
+  const interactionLocked = selectingId !== null || hasActiveRecovery
   const actionPrefix =
     mode === "replace"
       ? `Replace ${targetName ? `“${targetName}”` : "selected image"} with`
-      : "Insert"
+      : mode === "recover-local"
+        ? "Recover every use with"
+        : "Insert"
 
   const renderLibraryCard = (asset: StudioAsset) => {
     const assetKey = `library:${asset.id}`
@@ -1339,7 +1673,7 @@ export function AssetLibraryDialog({
         onDelete={() => startLocalDeleteReview(asset)}
         onLocateMissing={
           onLocateMissingLocalAsset
-            ? () => onLocateMissingLocalAsset(asset.id)
+            ? (file) => onLocateMissingLocalAsset(asset.id, file)
             : undefined
         }
         onPreviewFailure={markPreviewFailed}
@@ -1384,9 +1718,12 @@ export function AssetLibraryDialog({
       setDialogNotice("Wait for the current image change to finish.")
       return false
     }
-    if (!nextOpen && (hasActiveUploads || hasCriticalPromotion)) {
+    if (
+      !nextOpen &&
+      (hasActiveUploads || hasCriticalPromotion || hasActiveRecovery)
+    ) {
       setDialogNotice(
-        hasCriticalPromotion
+        hasCriticalPromotion || hasActiveRecovery
           ? "Wait for the image to finish saving everywhere before closing Media."
           : "Uploads are still in progress. Cancel them before closing."
       )
@@ -1420,12 +1757,18 @@ export function AssetLibraryDialog({
       >
         <DialogHeader className="border-b px-4 pt-[max(1rem,env(safe-area-inset-top))] pr-16 pb-3 sm:px-5 sm:py-4 sm:pr-16">
           <DialogTitle>
-            {mode === "replace" ? "Replace image" : "Add image"}
+            {mode === "replace"
+              ? "Replace image"
+              : mode === "recover-local"
+                ? "Choose Studio image"
+                : "Add image"}
           </DialogTitle>
           <DialogDescription id="asset-library-description" className="text-xs">
             {mode === "replace"
               ? `Choose a replacement${targetName ? ` for “${targetName}”` : ""}. Your crop and layer position stay intact.`
-              : "Choose from recent media, reusable uploads, or original Studio artwork."}
+              : mode === "recover-local"
+                ? "Choose a ready Studio upload for every reviewed use of the missing image. Local files and Studio originals are not applied from this view."
+                : "Choose from recent media, reusable uploads, or original Studio artwork."}
           </DialogDescription>
         </DialogHeader>
         <Button
@@ -1530,7 +1873,11 @@ export function AssetLibraryDialog({
             <TabsTrigger className="h-full flex-none px-0" value="uploads">
               Uploads <span aria-hidden="true">{collectionCounts.uploads}</span>
             </TabsTrigger>
-            <TabsTrigger className="h-full flex-none px-0" value="library">
+            <TabsTrigger
+              className="h-full flex-none px-0"
+              disabled={mode === "recover-local"}
+              value="library"
+            >
               Library <span aria-hidden="true">{collectionCounts.library}</span>
             </TabsTrigger>
           </TabsList>
@@ -1653,50 +2000,158 @@ export function AssetLibraryDialog({
                 </div>
               ) : null}
               <div className="p-4 pb-8">
-                {missingAssetIds.length ? (
-                  <div className="mb-4 rounded-lg border border-destructive/25 bg-destructive/5 p-3">
+                {recoveryCardAssetIds.length ? (
+                  <div className="mb-5 grid gap-3">
                     <div className="flex items-start gap-2">
-                      <AlertCircleIcon className="mt-0.5 size-4 shrink-0 text-destructive" />
+                      <AlertCircleIcon className="mt-0.5 size-4 shrink-0 text-amber-700" />
                       <div>
-                        <p className="text-xs font-medium">
-                          {missingAssetIds.length} local{" "}
-                          {missingAssetIds.length === 1
-                            ? "file is"
-                            : "files are"}{" "}
-                          missing
+                        <p className="text-xs font-medium">Document media</p>
+                        <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+                          Review every place each missing file is used before
+                          choosing a recovery. Geometry, crop, and bindings stay
+                          unchanged unless the action says otherwise.
                         </p>
-                        <p className="mt-0.5 text-xs text-muted-foreground">
-                          This design still references files that are not
-                          available on this device. Locate a replacement to
-                          preserve each layer's geometry.
-                        </p>
-                        <div className="mt-2 grid gap-1.5">
-                          {missingAssetIds.map((assetId) => (
-                            <Button
-                              key={assetId}
-                              className="h-11 justify-start"
-                              disabled={
-                                interactionLocked || !onLocateMissingLocalAsset
-                              }
-                              size="sm"
-                              type="button"
-                              variant="outline"
-                              onClick={() =>
-                                onLocateMissingLocalAsset?.(assetId)
-                              }
-                            >
-                              Locate replacement for {assetId}
-                            </Button>
-                          ))}
-                        </div>
                       </div>
                     </div>
+                    {recoveryCardAssetIds.map((assetId) => {
+                      const receiptAlias =
+                        documentMediaAdmission?.receipt?.aliases.find(
+                          (item) => item.localAssetId === assetId
+                        )
+                      const liveImpact = receiptAlias
+                        ? localMediaRecoveryImpactForReferenceKeys(
+                            document,
+                            assetId,
+                            receiptAlias.expectedReferenceKeys
+                          )
+                        : localMediaRecoveryImpact(document, assetId)
+                      if (liveImpact.referenceCount > 0) {
+                        retainedRecoveryImpactsRef.current.set(
+                          assetId,
+                          liveImpact
+                        )
+                      }
+                      const impact =
+                        liveImpact.referenceCount > 0
+                          ? liveImpact
+                          : (retainedRecoveryImpactsRef.current.get(assetId) ??
+                            liveImpact)
+                      const storedOperation =
+                        localMediaRecoveryOperations[assetId]
+                      const displayedOperation =
+                        displayedLocalMediaRecoveryOperation(
+                          storedOperation,
+                          liveImpact.referenceCount
+                        )
+                      const removable =
+                        impact.referenceCount > 0 &&
+                        impact.lockedNodeIds.length === 0 &&
+                        impact.requiredFieldIds.length === 0
+                      const removeDisabledReason = removable
+                        ? null
+                        : impact.lockedNodeIds.length
+                          ? "Unlock the affected layer before removing it."
+                          : impact.requiredFieldIds.length
+                            ? "A required field uses this image, so it cannot be cleared or removed."
+                            : "Choose a replacement before clearing protected image uses."
+                      return (
+                        <MissingLocalAssetRecoveryCard
+                          key={assetId}
+                          disabled={
+                            interactionLocked ||
+                            Boolean(recoveryMutationDisabledReason)
+                          }
+                          actionDisabledReason={recoveryMutationDisabledReason}
+                          admissionOutcome={
+                            documentMediaAdmission?.unresolved.find(
+                              (item) => item.localAssetId === assetId
+                            )?.outcome
+                          }
+                          deviceState={
+                            receiptAlias?.localState ??
+                            localRecoveryDeviceStates[assetId] ??
+                            "unavailable"
+                          }
+                          impact={impact}
+                          localAssetId={assetId}
+                          mappingState={
+                            receiptAlias?.managedStatus ??
+                            missingMappingStates[assetId] ??
+                            "checking"
+                          }
+                          operation={displayedOperation}
+                          reviewOnly={
+                            Boolean(receiptAlias) ||
+                            (displayedOperation?.completionKind ===
+                              "relinked" &&
+                              liveImpact.referenceCount === 0)
+                          }
+                          references={localMediaRecoveryReferenceRows(
+                            document,
+                            impact
+                          )}
+                          onNavigateToReference={onNavigateToReference}
+                          onClearReference={(referenceKey) =>
+                            onRemoveMissingLocalAsset?.(assetId, referenceKey)
+                          }
+                          removeDisabledReason={
+                            impact.referenceKeys.length
+                              ? null
+                              : removeDisabledReason
+                          }
+                          onChooseStudioImage={() =>
+                            onChooseStudioImageForLocalAsset?.(assetId)
+                          }
+                          onLocateFile={(file) =>
+                            onLocateMissingLocalAsset?.(assetId, file)
+                          }
+                          onKeepLocatedFile={
+                            onKeepLocatedFileAsNewLocalAsset
+                              ? () => onKeepLocatedFileAsNewLocalAsset(assetId)
+                              : undefined
+                          }
+                          onRemove={
+                            onRemoveMissingLocalAsset
+                              ? () => onRemoveMissingLocalAsset(assetId)
+                              : undefined
+                          }
+                          onRetryMapping={() =>
+                            setMissingMappingGeneration(
+                              (current) => current + 1
+                            )
+                          }
+                          onRetryRecovery={
+                            onRetryLocalMediaRecovery
+                              ? () => onRetryLocalMediaRecovery(assetId)
+                              : undefined
+                          }
+                          onCancelRecovery={
+                            onCancelLocalMediaRecovery
+                              ? () => onCancelLocalMediaRecovery(assetId)
+                              : undefined
+                          }
+                          onUseStudioCopy={
+                            onUseStudioCopyForLocalAsset
+                              ? () =>
+                                  onUseStudioCopyForLocalAsset(
+                                    assetId,
+                                    localMediaRecoveryOperations[assetId]
+                                      ?.phase === "identity_conflict"
+                                  )
+                              : undefined
+                          }
+                        />
+                      )
+                    })}
                   </div>
                 ) : null}
-                {managedUploads.assets.length || visibleLocalAssets.length ? (
+                {managedUploads.assets.length ||
+                (mode !== "recover-local" && visibleLocalAssets.length) ? (
                   <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                     {managedUploads.assets.map(renderManagedCard)}
-                    {visibleLocalAssets.map(renderLocalCard)}
+                    {mode === "recover-local"
+                      ? null
+                      : visibleLocalAssets.map(renderLocalCard)}
                   </div>
                 ) : managedUploads.status === "loading" ||
                   localStatus === "loading" ? (
@@ -1740,7 +2195,7 @@ export function AssetLibraryDialog({
           >
             <ScrollArea className="min-h-0 flex-1">
               <div className="p-4 pb-8">
-                {visibleLibraryAssets.length ? (
+                {mode !== "recover-local" && visibleLibraryAssets.length ? (
                   <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                     {visibleLibraryAssets.map(renderLibraryCard)}
                   </div>

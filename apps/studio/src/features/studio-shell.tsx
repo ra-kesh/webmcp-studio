@@ -99,6 +99,15 @@ import type { CanvasCamera } from "@webmcp/editor/viewport"
 import { Badge } from "@webmcp/ui/components/badge"
 import { Button } from "@webmcp/ui/components/button"
 import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@webmcp/ui/components/alert-dialog"
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
@@ -124,7 +133,9 @@ import {
   TooltipTrigger,
 } from "@webmcp/ui/components/tooltip"
 import { cn } from "@webmcp/ui/lib/utils"
+
 import { ProductPageFilmstrip } from "./editor/page-filmstrip"
+import { namedDocumentMediaUses } from "./editor/asset-library-model"
 import { EditorPanelSplitter } from "./editor/editor-panel-splitter"
 import type { StudioShellLayoutRepository } from "./editor/studio-shell-layout"
 import {
@@ -189,6 +200,7 @@ import {
 } from "./editor/use-document-editor"
 import type { ReviewAffectedTarget } from "./editor/review-journal"
 import type { DocumentDraftRecord } from "./editor/document-draft-repository"
+import type { DocumentRouteMediaAdmission } from "./editor/document-route-admission"
 import { useStudioPersistence } from "./persistence/studio-persistence-provider"
 import { useCriticalActionOwner } from "./editor/use-critical-action-owner"
 import { CriticalActionStatus } from "./editor/critical-action-status"
@@ -246,12 +258,25 @@ import {
 import type { StudioTextPresetId } from "./editor/text-presets"
 import { materializeLocalExportNodes } from "./editor/materialize-local-export-nodes"
 
+export function documentMediaAdmissionActionModel(
+  restoredAt: string | null,
+  restoreUnavailable: boolean
+) {
+  return {
+    showRestore: restoredAt === null && !restoreUnavailable,
+    showPreservation: restoredAt === null && restoreUnavailable,
+    keepLabel:
+      restoredAt === null ? "Keep recovered images" : "Keep restored version",
+  } as const
+}
+
 const HEART_ICON_PATH =
   "M12 21.35 10.55 20.03C5.4 15.36 2 12.27 2 8.5 2 5.41 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.08C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.41 22 8.5c0 3.77-3.4 6.86-8.55 11.54Z"
 
 type MediaPickerState = {
-  mode: "insert" | "replace"
+  mode: "insert" | "replace" | "recover-local"
   targetNodeId?: string
+  targetLocalAssetId?: string
   targetName?: string
   initialCollection: "recent" | "uploads" | "library"
 }
@@ -359,6 +384,8 @@ function IconButton({
 export type StudioShellProps = Readonly<{
   initialDocumentRecord?: DocumentDraftRecord | null
   initialDocumentWarning?: string | null
+  initialDocumentMediaAdmission?: DocumentRouteMediaAdmission | null
+  onInitialDocumentInstalled?: (record: DocumentDraftRecord) => void
   routeDocumentId?: string | null
   routeNotice?: string | null
   onDismissRouteNotice?: () => void | Promise<void>
@@ -372,6 +399,8 @@ export type StudioShellProps = Readonly<{
 export function StudioShell({
   initialDocumentRecord = null,
   initialDocumentWarning = null,
+  initialDocumentMediaAdmission = null,
+  onInitialDocumentInstalled,
   routeDocumentId = null,
   routeNotice = null,
   onDismissRouteNotice,
@@ -550,6 +579,8 @@ export function StudioShell({
   const editor = useDocumentEditor({
     initialRecord: initialDocumentRecord,
     initialRecordWarning: initialDocumentWarning,
+    initialMediaAdmission: initialDocumentMediaAdmission,
+    onInitialRecordInstalled: onInitialDocumentInstalled,
     persistence,
     onHistoryCommit: onDocumentHistoryCommit,
   })
@@ -624,6 +655,9 @@ export function StudioShell({
   const [structureCommandDialog, setStructureCommandDialog] =
     useState<StructureCommandDialogState | null>(null)
   const [mediaPicker, setMediaPicker] = useState<MediaPickerState | null>(null)
+  const [mediaReviewFieldId, setMediaReviewFieldId] = useState<string | null>(
+    null
+  )
   const [newDocumentOpen, setNewDocumentOpen] = useState(false)
   const [startInitialFocus, setStartInitialFocus] = useState<
     "heading" | "document-library"
@@ -2224,6 +2258,21 @@ export function StudioShell({
 
   const selectMediaAsset = async (selection: AssetLibrarySelection) => {
     if (!mediaPicker) return false
+    if (mediaPicker.mode === "recover-local") {
+      const localAssetId = mediaPicker.targetLocalAssetId
+      if (!localAssetId) return false
+      if (selection.kind !== "managed") {
+        return {
+          ok: false,
+          message:
+            "Choose a ready Studio upload for alias-wide recovery. Use Locate file for a device file.",
+        }
+      }
+      return editor.chooseManagedImageForLocalAsset(
+        localAssetId,
+        selection.asset
+      )
+    }
     if (mediaPicker.mode === "replace") {
       const nodeId = mediaPicker.targetNodeId
       if (!nodeId) return false
@@ -3647,6 +3696,140 @@ export function StudioShell({
           </div>
         </header>
 
+        {editor.mountedMediaRecoveryReconciliation.status === "checking" ||
+        editor.mountedMediaRecoveryReconciliation.status === "error" ? (
+          <section
+            aria-label="Interrupted image recovery"
+            className="flex shrink-0 flex-wrap items-center gap-2 border-b bg-amber-500/8 px-3 py-2 text-xs"
+          >
+            {editor.mountedMediaRecoveryReconciliation.status === "checking" ? (
+              <LoaderCircle className="size-4 shrink-0 animate-spin" />
+            ) : (
+              <AlertTriangle className="size-4 shrink-0 text-amber-700" />
+            )}
+            <p className="min-w-48 flex-1 leading-5" role="status">
+              {editor.mountedMediaRecoveryReconciliation.status === "checking"
+                ? "Checking interrupted image recovery…"
+                : (editor.mountedMediaRecoveryReconciliation.message ??
+                  "Studio could not finish checking interrupted image recovery.")}
+            </p>
+            {editor.mountedMediaRecoveryReconciliation.status === "error" ? (
+              <Button
+                className="h-9"
+                size="sm"
+                type="button"
+                onClick={editor.retryMountedMediaRecoveryReconciliation}
+              >
+                Retry
+              </Button>
+            ) : null}
+          </section>
+        ) : null}
+
+        {editor.documentMediaAdmission &&
+        (editor.documentMediaAdmission.receipt !== null ||
+          editor.documentMediaAdmission.status === "receipt_pending" ||
+          editor.documentMediaAdmission.status === "deferred" ||
+          editor.documentMediaAdmission.unresolved.length > 0) ? (
+          <section
+            aria-label="Document image recovery"
+            className="flex shrink-0 flex-wrap items-center gap-2 border-b bg-amber-500/8 px-3 py-2 text-xs"
+          >
+            <AlertTriangle className="size-4 shrink-0 text-amber-700" />
+            <p className="min-w-48 flex-1 leading-5" role="status">
+              {editor.documentMediaAdmission.receipt
+                ? (() => {
+                    const aliases =
+                      editor.documentMediaAdmission.receipt.aliases
+                    const archived = aliases.filter(
+                      (alias) => alias.managedStatus === "archived"
+                    ).length
+                    const ready = aliases.length - archived
+                    return ready === 0
+                      ? `Recovered ${archived} Studio ${archived === 1 ? "backup" : "backups"}. Review the affected uses before keeping or restoring this version.`
+                      : archived === 0
+                        ? `Recovered ${ready} Studio ${ready === 1 ? "image" : "images"}. Review the affected uses before keeping or restoring this version.`
+                        : `Recovered ${ready} Studio ${ready === 1 ? "image" : "images"} and ${archived} ${archived === 1 ? "backup" : "backups"}. Review the affected uses before keeping or restoring this version.`
+                  })()
+                : (editor.documentMediaAdmission.message ??
+                  `${editor.documentMediaAdmission.aliasCount} document images need review.`)}
+            </p>
+            <Button
+              className="h-9"
+              size="sm"
+              type="button"
+              variant="outline"
+              onClick={() =>
+                setMediaPicker({
+                  mode: "insert",
+                  targetName: "document images",
+                  initialCollection: "uploads",
+                })
+              }
+            >
+              Review document images
+            </Button>
+            {editor.documentMediaAdmission.receipt ? (
+              <>
+                {documentMediaAdmissionActionModel(
+                  editor.documentMediaAdmission.receipt.restoredAt,
+                  editor.documentMediaAdmissionRestoreUnavailable
+                ).showRestore ? (
+                  <Button
+                    className="h-9"
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                    onClick={() => void editor.restoreDocumentMediaAdmission()}
+                  >
+                    Restore device-only version
+                  </Button>
+                ) : null}
+                <Button
+                  className="h-9"
+                  size="sm"
+                  type="button"
+                  onClick={() => void editor.keepDocumentMediaAdmission()}
+                >
+                  {
+                    documentMediaAdmissionActionModel(
+                      editor.documentMediaAdmission.receipt.restoredAt,
+                      editor.documentMediaAdmissionRestoreUnavailable
+                    ).keepLabel
+                  }
+                </Button>
+                {documentMediaAdmissionActionModel(
+                  editor.documentMediaAdmission.receipt.restoredAt,
+                  editor.documentMediaAdmissionRestoreUnavailable
+                ).showPreservation ? (
+                  <>
+                    <Button
+                      className="h-9"
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                      onClick={editor.downloadDocumentMediaAdmissionPreimage}
+                    >
+                      Download device-only version
+                    </Button>
+                    <Button
+                      className="h-9"
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                      onClick={() =>
+                        void editor.saveDocumentMediaAdmissionPreimageAsCopy()
+                      }
+                    >
+                      Save device-only version as a copy
+                    </Button>
+                  </>
+                ) : null}
+              </>
+            ) : null}
+          </section>
+        ) : null}
+
         <div
           ref={installDesktopShellElement}
           className="relative flex min-h-0 min-w-0 flex-1"
@@ -4205,6 +4388,7 @@ export function StudioShell({
                   selectedNodes={editor.selectedNodes}
                   imageCropPreviewStore={editor.imageCropPreviewStore}
                   capabilityContext={inspectorCapabilityContext}
+                  focusFieldId={mediaReviewFieldId}
                   pendingChangeSet={editor.pendingChangeSet}
                   lastResolvedChangeSet={editor.lastResolvedChangeSet}
                   reviewJournal={editor.reviewJournal}
@@ -4244,6 +4428,14 @@ export function StudioShell({
                     artboardRef.current?.retryImageSource(nodeId)
                   }
                   onRemoveImageLayer={editor.deleteSelection}
+                  onReviewDocumentImage={(localAssetId) =>
+                    setMediaPicker({
+                      mode: "recover-local",
+                      targetLocalAssetId: localAssetId,
+                      targetName: "document image",
+                      initialCollection: "uploads",
+                    })
+                  }
                 />
               </div>
             </>
@@ -4367,6 +4559,7 @@ export function StudioShell({
                 selectedNodes={editor.selectedNodes}
                 imageCropPreviewStore={editor.imageCropPreviewStore}
                 capabilityContext={inspectorCapabilityContext}
+                focusFieldId={mediaReviewFieldId}
                 pendingChangeSet={editor.pendingChangeSet}
                 lastResolvedChangeSet={editor.lastResolvedChangeSet}
                 reviewJournal={editor.reviewJournal}
@@ -4418,6 +4611,14 @@ export function StudioShell({
                   artboardRef.current?.retryImageSource(nodeId)
                 }
                 onRemoveImageLayer={editor.deleteSelection}
+                onReviewDocumentImage={(localAssetId) =>
+                  setMediaPicker({
+                    mode: "recover-local",
+                    targetLocalAssetId: localAssetId,
+                    targetName: "document image",
+                    initialCollection: "uploads",
+                  })
+                }
               />
             )}
           </SheetContent>
@@ -4437,37 +4638,189 @@ export function StudioShell({
           mode={mediaPicker?.mode ?? "insert"}
           targetName={mediaPicker?.targetName}
           document={editor.document}
+          documentMediaAdmission={editor.documentMediaAdmission}
+          localAssetRevision={editor.assetVersion}
+          recoveryMutationDisabledReason={
+            editor.imageCropSession
+              ? "Finish or cancel the active image crop before recovering document images."
+              : editor.pendingChangeSet
+                ? "Resolve or discard the pending Review before recovering document images."
+                : pendingQuotationRefresh
+                  ? "Accept or reject the pending quotation refresh before recovering document images."
+                  : null
+          }
           localAssetPromotions={editor.localAssetPromotions}
+          localMediaRecoveryOperations={editor.localMediaRecoveryOperations}
           initialCollection={mediaPicker?.initialCollection}
           onSelect={selectMediaAsset}
           onPromoteLocalAsset={(assetId) => {
             void editor.startLocalAssetPromotion(assetId)
           }}
           onCancelLocalAssetPromotion={editor.cancelLocalAssetPromotion}
-          onLocateMissingLocalAsset={(assetId) => {
-            const target = editor.document.nodes.find(
-              (node) =>
-                node.type === "image" &&
-                (node.assetId === assetId ||
-                  node.src === `asset:local/${assetId}`)
-            )
-            if (!target) return
-            focusNode(target.id)
-            setMediaPicker({
-              mode: "replace",
-              targetNodeId: target.id,
-              targetName: target.name,
-              initialCollection: "uploads",
-            })
+          onLocateMissingLocalAsset={(assetId, file) => {
+            void editor.locateMissingLocalAsset(assetId, file)
           }}
-          onNavigateToReference={({ nodeId, pageId }) => {
-            if (nodeId) {
+          onKeepLocatedFileAsNewLocalAsset={(assetId) => {
+            void editor.keepLocatedFileAsNewLocalAsset(assetId)
+          }}
+          onUseStudioCopyForLocalAsset={(assetId, confirmIdentityConflict) => {
+            void editor.useStudioCopyForLocalAsset(
+              assetId,
+              confirmIdentityConflict
+            )
+          }}
+          onRetryLocalMediaRecovery={(assetId) => {
+            void editor.retryLocalMediaRecoverySave(assetId)
+          }}
+          onCancelLocalMediaRecovery={(assetId) => {
+            editor.cancelLocalMediaRecovery(assetId)
+          }}
+          onRemoveMissingLocalAsset={(assetId, referenceKey) => {
+            void editor.removeMissingLocalAsset(assetId, referenceKey)
+          }}
+          onChooseStudioImageForLocalAsset={(assetId) => {
+            setMediaPicker((current) => ({
+              mode: "recover-local",
+              targetLocalAssetId: assetId,
+              targetName: current?.targetName ?? "missing image",
+              initialCollection: "uploads",
+            }))
+          }}
+          onNavigateToReference={({ nodeId, pageId, fieldId }) => {
+            if (fieldId) {
+              setMediaReviewFieldId(null)
+              setCompactPanel("inspector")
+              window.requestAnimationFrame(() => setMediaReviewFieldId(fieldId))
+            } else if (nodeId) {
               focusNode(nodeId)
             } else if (pageId) {
               editor.selectPage(pageId)
             }
           }}
         />
+        <AlertDialog
+          open={editor.pendingDocumentImportMediaReview !== null}
+          onOpenChange={(open) => {
+            if (!open) editor.cancelDocumentImportMediaReview()
+          }}
+        >
+          <AlertDialogContent className="max-h-[min(760px,calc(100dvh-32px))] max-w-[min(680px,calc(100vw-32px))] overflow-y-auto sm:max-w-[680px]">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Review document images</AlertDialogTitle>
+              <AlertDialogDescription>
+                {editor.pendingDocumentImportMediaReview
+                  ? `${editor.pendingDocumentImportMediaReview.fileName} contains ${editor.pendingDocumentImportMediaReview.manifest.aliasCount} device-only image ${editor.pendingDocumentImportMediaReview.manifest.aliasCount === 1 ? "reference" : "references"}. Choose whether exact Studio copies should be used before the document is installed.`
+                  : "Review image recovery before installing this document."}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            {editor.pendingDocumentImportMediaReview ? (
+              <div
+                className="grid gap-2"
+                aria-label="Imported document image review"
+              >
+                {editor.pendingDocumentImportMediaReview.manifest.items.map(
+                  (item) => {
+                    const reviewDocument =
+                      editor.pendingDocumentImportMediaReview!.originalDocument
+                    const namedUses = namedDocumentMediaUses(
+                      reviewDocument,
+                      item
+                    )
+                    const visibleUses = namedUses.slice(0, 50)
+                    return (
+                      <div
+                        key={item.localAssetId}
+                        className="rounded-lg border bg-muted/25 px-3 py-2.5 text-xs"
+                      >
+                        <p className="font-medium">
+                          {item.state === "studio_backup"
+                            ? "Studio backup found"
+                            : item.state === "studio_copy"
+                              ? "Studio copy available"
+                              : item.state === "identity_conflict"
+                                ? "Different file on this device"
+                                : item.state === "on_device"
+                                  ? "On this device"
+                                  : item.state === "backup_status_unknown"
+                                    ? "Backup status unknown"
+                                    : "File missing"}
+                        </p>
+                        <p className="mt-1 text-muted-foreground">
+                          {item.pageIds.length}{" "}
+                          {item.pageIds.length === 1 ? "page" : "pages"} ·{" "}
+                          {item.nodeIds.length}{" "}
+                          {item.nodeIds.length === 1 ? "layer" : "layers"} ·{" "}
+                          {item.fieldIds.length}{" "}
+                          {item.fieldIds.length === 1 ? "field" : "fields"} ·{" "}
+                          {item.outputIds.length}{" "}
+                          {item.outputIds.length === 1 ? "output" : "outputs"}
+                        </p>
+                        {item.requiresChoice ? (
+                          <p className="mt-1 text-amber-800">
+                            This identity is unresolved and will remain
+                            unchanged.
+                          </p>
+                        ) : null}
+                        {visibleUses.length ? (
+                          <details className="mt-2">
+                            <summary className="cursor-pointer font-medium">
+                              Review named uses
+                            </summary>
+                            <ul className="mt-2 grid gap-1">
+                              {visibleUses.map((use) => (
+                                <li
+                                  key={use.key}
+                                  className="flex items-center justify-between gap-3 rounded-md bg-background px-2 py-1.5"
+                                >
+                                  <span className="min-w-0 truncate">
+                                    {use.label}
+                                  </span>
+                                  <span className="shrink-0 text-muted-foreground">
+                                    {use.kind}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                            {namedUses.length > visibleUses.length ? (
+                              <p className="mt-1 text-muted-foreground">
+                                {namedUses.length - visibleUses.length} more
+                                uses are included in this recovery decision.
+                              </p>
+                            ) : null}
+                          </details>
+                        ) : null}
+                      </div>
+                    )
+                  }
+                )}
+              </div>
+            ) : null}
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() =>
+                  void editor.resolveDocumentImportMediaReview(false)
+                }
+              >
+                {editor.pendingDocumentImportMediaReview?.kind === "open"
+                  ? "Open without recovering"
+                  : "Import without recovering"}
+              </Button>
+              <Button
+                type="button"
+                onClick={() =>
+                  void editor.resolveDocumentImportMediaReview(true)
+                }
+              >
+                {editor.pendingDocumentImportMediaReview?.kind === "open"
+                  ? "Open with Studio copies"
+                  : "Import with Studio copies"}
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
         <DraftRecoveryDialog
           recovery={editor.draftRecovery}
           notice={editor.draftRecoveryNotice}

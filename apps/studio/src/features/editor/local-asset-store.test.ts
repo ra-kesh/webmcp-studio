@@ -8,14 +8,24 @@ import {
   getLocalAssetRecord,
   hasLocalAssetBlob,
   hasLocalAsset,
+  inspectRequestedLocalAssets,
   listLocalAssetSummaries,
   listLocalAssetInventory,
   localAssetStorageSummary,
   localAssetSource,
+  restoreLocalAssetBlob,
   saveLocalAsset,
 } from "./local-asset-store"
 
 const DATABASE_NAME = "webmcp-studio-assets"
+
+const deferred = () => {
+  let resolve: () => void = () => {}
+  const promise = new Promise<void>((resolvePromise) => {
+    resolve = resolvePromise
+  })
+  return { promise, resolve }
+}
 
 const deleteDatabase = () =>
   new Promise<void>((resolve, reject) => {
@@ -24,7 +34,7 @@ const deleteDatabase = () =>
     request.onerror = () => reject(request.error)
   })
 
-const openLegacyDatabase = (record: object) =>
+const openLegacyDatabase = (record: object | object[]) =>
   new Promise<void>((resolve, reject) => {
     const request = indexedDB.open(DATABASE_NAME, 1)
     request.onupgradeneeded = () => {
@@ -34,7 +44,9 @@ const openLegacyDatabase = (record: object) =>
     request.onsuccess = () => {
       const database = request.result
       const transaction = database.transaction("assets", "readwrite")
-      transaction.objectStore("assets").put(record)
+      for (const entry of Array.isArray(record) ? record : [record]) {
+        transaction.objectStore("assets").put(entry)
+      }
       transaction.oncomplete = () => {
         database.close()
         resolve()
@@ -131,6 +143,465 @@ afterEach(async () => {
 })
 
 describe("local asset store", () => {
+  it("inspects only requested aliases in exact order and keeps missing bytes distinct", async () => {
+    const first = new File(["first"], "first.png", { type: "image/png" })
+    const missing = new File(["missing"], "missing.png", {
+      type: "image/png",
+    })
+    const unrelated = new File(["unrelated"], "unrelated.png", {
+      type: "image/png",
+    })
+    await saveLocalAsset(first, "asset-first", { width: 1, height: 1 })
+    await saveLocalAsset(missing, "asset-missing", { width: 1, height: 1 })
+    await saveLocalAsset(unrelated, "asset-unrelated", {
+      width: 1,
+      height: 1,
+    })
+    await updateCurrentAssetStorage("asset-missing", { deleteBlob: true })
+    const getAll = vi.spyOn(IDBObjectStore.prototype, "getAll")
+    const verifyBlob = vi.fn(async () => ({ width: 1, height: 1 }))
+
+    const states = await inspectRequestedLocalAssets(
+      ["asset-absent", "asset-first", "asset-missing"],
+      { verifyBlob }
+    )
+
+    expect(states).toEqual([
+      { status: "absent" },
+      {
+        status: "ready",
+        record: expect.objectContaining({ id: "asset-first", blob: first }),
+      },
+      {
+        status: "missing_bytes",
+        summary: expect.objectContaining({
+          id: "asset-missing",
+          integrity: "missing_bytes",
+        }),
+        issue: expect.objectContaining({
+          assetId: "asset-missing",
+          code: "missing_bytes",
+        }),
+      },
+    ])
+    expect(verifyBlob).toHaveBeenCalledTimes(1)
+    expect(verifyBlob).toHaveBeenCalledWith(first)
+    expect(getAll).toHaveBeenCalledTimes(3)
+    expect(getAll.mock.calls.every((call) => call[1] === 101)).toBe(true)
+  })
+
+  it("restores missing bytes only against the exact inspected revision", async () => {
+    const original = new File(["same-image"], "original.png", {
+      type: "image/png",
+    })
+    await saveLocalAsset(original, "asset-restore", {
+      width: 10,
+      height: 20,
+      now: "2026-08-30T00:00:00.000Z",
+    })
+    await updateCurrentAssetStorage("asset-restore", { deleteBlob: true })
+    const [state] = await inspectRequestedLocalAssets(["asset-restore"], {
+      verifyBlob: async () => ({ width: 10, height: 20 }),
+    })
+    expect(state.status).toBe("missing_bytes")
+    if (state.status !== "missing_bytes")
+      throw new Error("Expected missing bytes")
+
+    const restored = await restoreLocalAssetBlob({
+      assetId: "asset-restore",
+      file: original,
+      expected: {
+        status: "missing_bytes",
+        revision: state.summary.revision,
+        updatedAt: state.summary.updatedAt,
+      },
+      expectedContentSha256: "a".repeat(64),
+      contentSha256: "a".repeat(64),
+      width: 10,
+      height: 20,
+      now: "2026-08-30T00:01:00.000Z",
+    })
+
+    expect(restored).toEqual({
+      ok: true,
+      status: "restored",
+      record: expect.objectContaining({
+        id: "asset-restore",
+        revision: 2,
+        updatedAt: "2026-08-30T00:01:00.000Z",
+        blob: original,
+      }),
+    })
+    await expect(getLocalAssetRecord("asset-restore")).resolves.toEqual(
+      expect.objectContaining({ id: "asset-restore", revision: 2 })
+    )
+    await expect(hasLocalAssetBlob("asset-restore")).resolves.toBe(true)
+  })
+
+  it("does not overwrite a local alias that changed after inspection", async () => {
+    const original = new File(["same-image"], "original.png", {
+      type: "image/png",
+    })
+    await saveLocalAsset(original, "asset-restore-race", {
+      width: 10,
+      height: 20,
+      now: "2026-08-30T00:00:00.000Z",
+    })
+    await updateCurrentAssetStorage("asset-restore-race", { deleteBlob: true })
+    const [state] = await inspectRequestedLocalAssets(["asset-restore-race"], {
+      verifyBlob: async () => ({ width: 10, height: 20 }),
+    })
+    if (state.status !== "missing_bytes")
+      throw new Error("Expected missing bytes")
+    await saveLocalAsset(
+      new File(["newer-image"], "newer.png", { type: "image/png" }),
+      "asset-restore-race",
+      { width: 30, height: 40, now: "2026-08-30T00:01:00.000Z" }
+    )
+
+    await expect(
+      restoreLocalAssetBlob({
+        assetId: "asset-restore-race",
+        file: original,
+        expected: {
+          status: "missing_bytes",
+          revision: state.summary.revision,
+          updatedAt: state.summary.updatedAt,
+        },
+        expectedContentSha256: "a".repeat(64),
+        contentSha256: "a".repeat(64),
+        width: 10,
+        height: 20,
+      })
+    ).resolves.toEqual(
+      expect.objectContaining({ ok: false, reason: "state_changed" })
+    )
+    await expect(getLocalAssetRecord("asset-restore-race")).resolves.toEqual(
+      expect.objectContaining({ name: "newer.png", width: 30, height: 40 })
+    )
+  })
+
+  it("rejects a different selected file before touching local storage", async () => {
+    await expect(
+      restoreLocalAssetBlob({
+        assetId: "asset-absent-restore",
+        file: new File(["different"], "different.png", {
+          type: "image/png",
+        }),
+        expected: { status: "absent" },
+        expectedContentSha256: "a".repeat(64),
+        contentSha256: "b".repeat(64),
+        width: 10,
+        height: 20,
+      })
+    ).resolves.toEqual(
+      expect.objectContaining({ ok: false, reason: "identity_mismatch" })
+    )
+    await expect(hasLocalAsset("asset-absent-restore")).resolves.toBe(false)
+  })
+
+  it("restores an exact quarantined identity while retaining its forensic record", async () => {
+    const file = new File(["recoverable-image"], "recoverable.png", {
+      type: "image/png",
+    })
+    await saveLocalAsset(file, "asset-quarantined-restore", {
+      width: 10,
+      height: 20,
+    })
+    const [quarantined] = await inspectRequestedLocalAssets(
+      ["asset-quarantined-restore"],
+      { verifyBlob: async () => Promise.reject(new Error("decode failed")) }
+    )
+    expect(quarantined).toEqual(
+      expect.objectContaining({ status: "quarantined" })
+    )
+    if (quarantined.status !== "quarantined") {
+      throw new Error("Expected quarantined image")
+    }
+
+    await expect(
+      restoreLocalAssetBlob({
+        assetId: "asset-quarantined-restore",
+        file,
+        expected: {
+          status: "quarantined",
+          quarantine: quarantined.expectation,
+        },
+        expectedContentSha256: "a".repeat(64),
+        contentSha256: "a".repeat(64),
+        width: 10,
+        height: 20,
+      })
+    ).resolves.toEqual(
+      expect.objectContaining({ ok: true, status: "restored" })
+    )
+    await expect(
+      getLocalAssetRecord("asset-quarantined-restore")
+    ).resolves.toEqual(
+      expect.objectContaining({ integrity: "ready", revision: 1 })
+    )
+    await expect(quarantineCount()).resolves.toBe(1)
+  })
+
+  it("refuses a stale quarantine expectation after the alias is re-quarantined", async () => {
+    const first = new File(["first-image"], "first.png", {
+      type: "image/png",
+    })
+    await saveLocalAsset(first, "asset-quarantine-race", {
+      width: 10,
+      height: 20,
+    })
+    const [firstState] = await inspectRequestedLocalAssets(
+      ["asset-quarantine-race"],
+      { verifyBlob: async () => Promise.reject(new Error("decode failed")) }
+    )
+    if (firstState.status !== "quarantined") {
+      throw new Error("Expected first quarantine")
+    }
+    await restoreLocalAssetBlob({
+      assetId: "asset-quarantine-race",
+      file: first,
+      expected: {
+        status: "quarantined",
+        quarantine: firstState.expectation,
+      },
+      expectedContentSha256: "a".repeat(64),
+      contentSha256: "a".repeat(64),
+      width: 10,
+      height: 20,
+    })
+    await saveLocalAsset(
+      new File(["newer-image"], "newer.png", { type: "image/png" }),
+      "asset-quarantine-race",
+      { width: 30, height: 40 }
+    )
+    const [newerState] = await inspectRequestedLocalAssets(
+      ["asset-quarantine-race"],
+      { verifyBlob: async () => Promise.reject(new Error("decode failed")) }
+    )
+    expect(newerState.status).toBe("quarantined")
+
+    await expect(
+      restoreLocalAssetBlob({
+        assetId: "asset-quarantine-race",
+        file: first,
+        expected: {
+          status: "quarantined",
+          quarantine: firstState.expectation,
+        },
+        expectedContentSha256: "a".repeat(64),
+        contentSha256: "a".repeat(64),
+        width: 10,
+        height: 20,
+      })
+    ).resolves.toEqual(
+      expect.objectContaining({ ok: false, reason: "state_changed" })
+    )
+    await expect(getLocalAssetRecord("asset-quarantine-race")).resolves.toBeNull()
+    await expect(quarantineCount()).resolves.toBe(2)
+  })
+
+  it("migrates only requested legacy aliases without scanning the retained library", async () => {
+    await openLegacyDatabase([
+      {
+        id: "legacy-requested",
+        blob: new Blob(["requested"], { type: "image/png" }),
+        name: "requested.png",
+        mediaType: "image/png",
+        createdAt: "2026-08-01T00:00:00.000Z",
+      },
+      {
+        id: "legacy-unrelated",
+        blob: new Blob(["unrelated"], { type: "image/png" }),
+        name: "unrelated.png",
+        mediaType: "image/png",
+        createdAt: "2026-08-01T00:00:00.000Z",
+      },
+    ])
+
+    await expect(
+      inspectRequestedLocalAssets(["legacy-requested"], {
+        verifyBlob: async () => ({ width: 1, height: 1 }),
+      })
+    ).resolves.toEqual([
+      {
+        status: "ready",
+        record: expect.objectContaining({ id: "legacy-requested" }),
+      },
+    ])
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(DATABASE_NAME)
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    const transaction = database.transaction("assets", "readonly")
+    const keys = transaction.objectStore("assets").getAllKeys()
+    await expect(
+      new Promise<IDBValidKey[]>((resolve, reject) => {
+        keys.onsuccess = () => resolve(keys.result)
+        keys.onerror = () => reject(keys.error)
+      })
+    ).resolves.toEqual(["legacy-unrelated"])
+    database.close()
+  })
+
+  it("quarantines only proven corrupt requested bytes and remembers that state", async () => {
+    const corrupt = new File(["corrupt"], "corrupt.png", {
+      type: "image/png",
+    })
+    const healthy = new File(["healthy"], "healthy.png", {
+      type: "image/png",
+    })
+    await saveLocalAsset(corrupt, "asset-corrupt", { width: 1, height: 1 })
+    await saveLocalAsset(healthy, "asset-healthy", { width: 1, height: 1 })
+
+    await expect(
+      inspectRequestedLocalAssets(["asset-corrupt"], {
+        verifyBlob: async () => {
+          throw new Error("decode failed")
+        },
+      })
+    ).resolves.toEqual([
+      expect.objectContaining({
+        status: "quarantined",
+        issue: expect.objectContaining({
+          assetId: "asset-corrupt",
+          code: "corrupt_bytes",
+        }),
+      }),
+    ])
+    await expect(
+      inspectRequestedLocalAssets(["asset-corrupt"], {
+        verifyBlob: async () => ({ width: 1, height: 1 }),
+      })
+    ).resolves.toEqual([
+      expect.objectContaining({
+        status: "quarantined",
+        issue: expect.objectContaining({
+          assetId: "asset-corrupt",
+          code: "corrupt_bytes",
+        }),
+      }),
+    ])
+    await expect(getLocalAssetRecord("asset-healthy")).resolves.toEqual(
+      expect.objectContaining({ id: "asset-healthy" })
+    )
+    expect(await quarantineCount()).toBe(1)
+  })
+
+  it("returns ordered unavailable states when local storage cannot be read", async () => {
+    await saveLocalAsset(
+      new File(["ready"], "ready.png", { type: "image/png" }),
+      "asset-ready"
+    )
+    vi.spyOn(indexedDB, "open").mockImplementation(() => {
+      throw new Error("storage unavailable")
+    })
+
+    await expect(
+      inspectRequestedLocalAssets(["asset-ready", "asset-absent"])
+    ).resolves.toEqual([
+      {
+        status: "unavailable",
+        code: "local_media_local_repository_unavailable",
+        message: "Studio could not inspect saved images on this device.",
+      },
+      {
+        status: "unavailable",
+        code: "local_media_local_repository_unavailable",
+        message: "Studio could not inspect saved images on this device.",
+      },
+    ])
+  })
+
+  it("rejects invalid, duplicate, empty, and over-limit requested alias sets", async () => {
+    await expect(inspectRequestedLocalAssets([])).rejects.toBeInstanceOf(
+      RangeError
+    )
+    await expect(
+      inspectRequestedLocalAssets(["asset-one", "asset-one"])
+    ).rejects.toBeInstanceOf(TypeError)
+    await expect(inspectRequestedLocalAssets(["../escape"])).rejects.toThrow()
+    await expect(
+      inspectRequestedLocalAssets(
+        Array.from({ length: 5_001 }, (_, index) => `asset-${index}`)
+      )
+    ).rejects.toBeInstanceOf(RangeError)
+  })
+
+  it("waits for a requested byte check to acknowledge cancellation", async () => {
+    const file = new File(["ready"], "ready.png", { type: "image/png" })
+    await saveLocalAsset(file, "asset-ready")
+    const controller = new AbortController()
+    let finishVerification: () => void = () => {}
+    const verification = new Promise<void>((resolve) => {
+      finishVerification = resolve
+    })
+    const reason = new DOMException("Superseded", "AbortError")
+    const inspection = inspectRequestedLocalAssets(["asset-ready"], {
+      signal: controller.signal,
+      verifyBlob: async () => {
+        await verification
+        return { width: 1, height: 1 }
+      },
+    })
+    const rejection = expect(inspection).rejects.toBe(reason)
+    await vi.waitFor(() => expect(controller.signal.aborted).toBe(false))
+
+    controller.abort(reason)
+    finishVerification()
+
+    await rejection
+  })
+
+  it("waits for every concurrent requested byte check after cancellation", async () => {
+    await saveLocalAsset(
+      new File(["first"], "first.png", { type: "image/png" }),
+      "asset-first"
+    )
+    await saveLocalAsset(
+      new File(["second"], "second.png", { type: "image/png" }),
+      "asset-second"
+    )
+    const gates = [deferred(), deferred()]
+    let verificationCount = 0
+    const controller = new AbortController()
+    const reason = new DOMException("Superseded", "AbortError")
+    const inspection = inspectRequestedLocalAssets(
+      ["asset-first", "asset-second"],
+      {
+        signal: controller.signal,
+        verificationConcurrency: 2,
+        verifyBlob: async () => {
+          const gate = gates[verificationCount]
+          verificationCount += 1
+          await gate.promise
+          return { width: 1, height: 1 }
+        },
+      }
+    )
+    await vi.waitFor(() => expect(verificationCount).toBe(2))
+    let settled = false
+    void inspection.then(
+      () => {
+        settled = true
+      },
+      () => {
+        settled = true
+      }
+    )
+
+    controller.abort(reason)
+    gates[0].resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(settled).toBe(false)
+
+    gates[1].resolve()
+
+    await expect(inspection).rejects.toBe(reason)
+  })
+
   it("uses the shared bounded local alias contract before writing bytes", async () => {
     const file = new File(["image"], "image.png", { type: "image/png" })
 

@@ -3,6 +3,7 @@ import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import {
   LocalAssetPromotionControl,
+  MissingLocalAssetRecoveryCard,
   nextManagedUploadClaims,
   UploadQueue,
 } from "./asset-library-components"
@@ -178,5 +179,180 @@ describe("local asset promotion control", () => {
     expect(active).toContain(">Cancel<")
     expect(stopping).toContain("Stopping…")
     expect(stopping).not.toContain(">Cancel<")
+  })
+})
+
+describe("missing local media recovery card", () => {
+  const impact = {
+    localAssetId: "missing-1",
+    source: "asset:local/missing-1" as const,
+    referenceKeys: ["field/hero/current", "node/photo/src"],
+    directNodeIds: ["photo"],
+    projectedNodeIds: ["photo"],
+    fieldIds: ["hero"],
+    pageIds: ["page-1"],
+    outputIds: ["output-1"],
+    lockedNodeIds: [],
+    requiredFieldIds: ["hero"],
+    referenceCount: 2,
+  }
+
+  it("discloses complete impact and a ready Studio copy", () => {
+    const markup = renderToStaticMarkup(
+      createElement(MissingLocalAssetRecoveryCard, {
+        localAssetId: "missing-1",
+        impact,
+        mappingState: "ready",
+        onUseStudioCopy: () => undefined,
+        onLocateFile: () => undefined,
+        onChooseStudioImage: () => undefined,
+      })
+    )
+
+    expect(markup).toContain("2 uses · 1 page · 1 layer · 1 field · 1 output")
+    expect(markup).toContain("Studio copy available")
+    expect(markup).toContain("Use Studio copy")
+    expect(markup).toContain(
+      "Undo restores the device-only reference. If its file is still unavailable"
+    )
+    expect(markup).toContain("Locate file")
+    expect(markup).toContain("Choose Studio image")
+  })
+
+  it("keeps unknown backup status distinct from unmapped and explains refusal", () => {
+    const markup = renderToStaticMarkup(
+      createElement(MissingLocalAssetRecoveryCard, {
+        localAssetId: "missing-1",
+        impact,
+        mappingState: "unavailable",
+        removeDisabledReason:
+          "This required field cannot be cleared or removed.",
+        onLocateFile: () => undefined,
+        onChooseStudioImage: () => undefined,
+        onRemove: () => undefined,
+      })
+    )
+
+    expect(markup).toContain("Backup status unknown")
+    expect(markup).not.toContain("Use Studio copy")
+    expect(markup).toContain("This required field cannot be cleared")
+    expect(markup).toContain("disabled")
+  })
+
+  it("keeps a restored alias card open for exact-use review without recovery controls", () => {
+    const markup = renderToStaticMarkup(
+      createElement(MissingLocalAssetRecoveryCard, {
+        localAssetId: "missing-1",
+        impact,
+        deviceState: "ready",
+        mappingState: "archived",
+        reviewOnly: true,
+        references: [
+          {
+            key: "field:hero",
+            label: "Hero image",
+            detail: "Field on Cover",
+            nodeId: "photo",
+            pageId: "page-1",
+            fieldId: "hero",
+          },
+        ],
+        onLocateFile: () => undefined,
+        onChooseStudioImage: () => undefined,
+      })
+    )
+
+    expect(markup).toContain("On this device")
+    expect(markup).toContain("Studio backup found")
+    expect(markup).toContain("Hero image")
+    expect(markup).not.toContain("Locate file")
+    expect(markup).not.toContain("Choose Studio image")
+  })
+
+  it("offers exact current/default slot clears and refuses only the protected slot", () => {
+    const markup = renderToStaticMarkup(
+      createElement(MissingLocalAssetRecoveryCard, {
+        localAssetId: "missing-1",
+        impact,
+        mappingState: "unmapped",
+        references: [
+          {
+            key: "field:hero:current",
+            label: "Hero image",
+            detail: "Current field value",
+            nodeId: null,
+            pageId: null,
+            fieldId: "hero",
+            clearReferenceKey: "field/hero/current",
+          },
+          {
+            key: "field:hero:default",
+            label: "Hero image",
+            detail: "Default field value",
+            nodeId: null,
+            pageId: null,
+            fieldId: "hero",
+            clearReferenceKey: "field/hero/default",
+            clearDisabledReason:
+              "Required fields need a replacement and cannot be cleared.",
+          },
+        ],
+        onLocateFile: () => undefined,
+        onChooseStudioImage: () => undefined,
+        onRemove: () => undefined,
+        onClearReference: () => undefined,
+      })
+    )
+
+    expect(markup).toContain("Current field value")
+    expect(markup).toContain("Default field value")
+    expect(markup.match(/>Clear<\/button>/g)).toHaveLength(2)
+    expect(markup).toContain(
+      'title="Required fields need a replacement and cannot be cleared."'
+    )
+    expect(markup).not.toContain("Clear from document")
+  })
+
+  it("offers Cancel only before commit and replaces stale actions with Finish saving after commit", () => {
+    const preparing = renderToStaticMarkup(
+      createElement(MissingLocalAssetRecoveryCard, {
+        localAssetId: "missing-1",
+        impact,
+        mappingState: "ready",
+        operation: {
+          phase: "preparing",
+          message: "Reviewing uses…",
+          retryable: false,
+        },
+        onUseStudioCopy: () => undefined,
+        onCancelRecovery: () => undefined,
+        onLocateFile: () => undefined,
+        onChooseStudioImage: () => undefined,
+      })
+    )
+    const failedSave = renderToStaticMarkup(
+      createElement(MissingLocalAssetRecoveryCard, {
+        localAssetId: "missing-1",
+        impact,
+        mappingState: "ready",
+        operation: {
+          phase: "failed",
+          message: "Durable save is unfinished.",
+          retryable: true,
+          retryAction: "finish_saving",
+        },
+        onUseStudioCopy: () => undefined,
+        onRetryRecovery: () => undefined,
+        onLocateFile: () => undefined,
+        onChooseStudioImage: () => undefined,
+      })
+    )
+
+    expect(preparing).toContain("Cancel recovery")
+    expect(preparing).not.toContain("Finish saving")
+    expect(failedSave).toContain("Finish saving")
+    expect(failedSave).not.toContain("Use Studio copy")
+    expect(failedSave).not.toContain("Locate file")
+    expect(failedSave).not.toContain("Choose Studio image")
   })
 })

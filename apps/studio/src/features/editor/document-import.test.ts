@@ -79,10 +79,19 @@ const withImage = (source: string) => {
 const localAsset = (id: string) => {
   const blob = new Blob(["verified local image"], { type: "image/png" })
   return {
+    schemaVersion: 4 as const,
     id,
+    name: "Verified local image",
     blob,
     mediaType: blob.type,
     size: blob.size,
+    width: 100,
+    height: 100,
+    createdAt: "2026-08-30T00:00:00.000Z",
+    updatedAt: "2026-08-30T00:00:00.000Z",
+    lastUsedAt: "2026-08-30T00:00:00.000Z",
+    archivedAt: null,
+    revision: 1,
     integrity: "ready" as const,
   }
 }
@@ -93,14 +102,57 @@ const managedAsset = (id: string, status: "ready" | "archived" = "ready") => ({
   selectable: status === "ready",
 })
 
+const localPromotion = (
+  localAssetId: string,
+  {
+    status = "ready",
+    contentSha256 = "a".repeat(64),
+    assetId = "asset-importcopy01",
+  }: {
+    status?: "ready" | "archived"
+    contentSha256?: string
+    assetId?: string
+  } = {}
+) => ({
+  localAssetId,
+  contentSha256,
+  asset: {
+    id: assetId,
+    name: "Imported Studio copy",
+    mediaType: "image/png" as const,
+    bytes: 20,
+    width: 100,
+    height: 100,
+    createdAt: "2026-08-30T00:00:00.000Z",
+    updatedAt: "2026-08-30T00:00:00.000Z",
+    lastUsedAt: "2026-08-30T00:00:00.000Z",
+    status,
+    selectable: status === "ready",
+    revision: 1,
+  },
+})
+
 const resourceAdmission = ({
-  local = async () => null,
+  local = async (assetIds) =>
+    assetIds.map(() => ({ status: "absent" as const })),
+  mappings = async (assetIds) => ({
+    results: assetIds.map((localAssetId) => ({
+      localAssetId,
+      promotion: null,
+    })),
+    requestId: "request-import-plan",
+  }),
+  hash = async () => "a".repeat(64),
   managed = async () => null,
 }: {
-  local?: DocumentImportResourceAdmission["resolveLocalAsset"]
+  local?: DocumentImportResourceAdmission["inspectLocalAssets"]
+  mappings?: DocumentImportResourceAdmission["resolveLocalPromotions"]
+  hash?: DocumentImportResourceAdmission["hashLocalAsset"]
   managed?: DocumentImportResourceAdmission["resolveManagedAsset"]
 } = {}): DocumentImportResourceAdmission => ({
-  resolveLocalAsset: vi.fn(local),
+  inspectLocalAssets: vi.fn(local),
+  resolveLocalPromotions: vi.fn(mappings),
+  hashLocalAsset: vi.fn(hash),
   resolveManagedAsset: vi.fn(managed),
 })
 
@@ -286,11 +338,11 @@ describe("document JSON import admission", () => {
       ).resolves.toMatchObject({
         ok: false,
         failure: {
-          kind: "resource_policy_failed",
-          issue: { code: "unmanaged_asset", nodeId: "import-image" },
+          kind: "schema_invalid",
         },
       })
-      expect(admission.resolveLocalAsset).not.toHaveBeenCalled()
+      expect(admission.inspectLocalAssets).not.toHaveBeenCalled()
+      expect(admission.resolveLocalPromotions).not.toHaveBeenCalled()
       expect(admission.resolveManagedAsset).not.toHaveBeenCalled()
     }
   )
@@ -393,10 +445,13 @@ describe("document JSON import admission", () => {
   it("accepts a canonical current document without changing it", async () => {
     await expect(
       parseDocumentImportFile(importFile(JSON.stringify(northstarSeed)))
-    ).resolves.toEqual({
+    ).resolves.toMatchObject({
       ok: true,
       document: northstarSeed,
       migrations: [],
+      mediaPlan: { status: "not_required" },
+      candidateDocument: null,
+      recoveryManifest: { requiresReview: false, aliasCount: 0 },
     })
   })
 
@@ -419,22 +474,39 @@ describe("document JSON import admission", () => {
     const assetId = "local-round-trip"
     const document = withImage(`asset:local/${assetId}`)
     const admission = resourceAdmission({
-      local: async (requestedId) =>
-        requestedId === assetId ? localAsset(assetId) : null,
+      local: async (requestedIds) =>
+        requestedIds.map((requestedId) =>
+          requestedId === assetId
+            ? { status: "ready" as const, record: localAsset(assetId) }
+            : { status: "absent" as const }
+        ),
     })
 
     await expect(
       parseDocumentImportFile(importFile(JSON.stringify(document)), admission)
-    ).resolves.toEqual({
+    ).resolves.toMatchObject({
       ok: true,
       document,
       migrations: [],
+      mediaPlan: {
+        status: "planned",
+        plan: {
+          safeMigrations: [],
+          unresolved: [
+            expect.objectContaining({
+              localAssetId: assetId,
+              outcome: "local_only",
+            }),
+          ],
+        },
+      },
+      candidateDocument: null,
     })
-    expect(admission.resolveLocalAsset).toHaveBeenCalledOnce()
-    expect(admission.resolveLocalAsset).toHaveBeenCalledWith(assetId)
+    expect(admission.inspectLocalAssets).toHaveBeenCalledOnce()
+    expect(admission.inspectLocalAssets).toHaveBeenCalledWith([assetId])
   })
 
-  it("rejects a missing local image before installing the document", async () => {
+  it("plans a missing local image for review without rejecting the valid document", async () => {
     const assetId = "local-missing"
     const admission = resourceAdmission()
 
@@ -444,49 +516,412 @@ describe("document JSON import admission", () => {
         admission
       )
     ).resolves.toMatchObject({
-      ok: false,
-      failure: {
-        kind: "resource_policy_failed",
-        issue: { code: "missing_asset", nodeId: "import-image" },
+      ok: true,
+      mediaPlan: {
+        status: "planned",
+        plan: {
+          unresolved: [
+            {
+              localAssetId: assetId,
+              outcome: "missing_unmapped",
+              localStatus: "absent",
+              mappingStatus: "unmapped",
+              managedCandidate: null,
+              localSource: `asset:local/${assetId}`,
+              expectedReferenceKeys: ["node/import-image/src"],
+            },
+          ],
+        },
+      },
+      candidateDocument: null,
+      recoveryManifest: {
+        requiresReview: true,
+        aliasCount: 1,
+        unresolvedCount: 1,
+        items: [
+          expect.objectContaining({
+            localAssetId: assetId,
+            state: "file_missing",
+            transformed: false,
+            nodeIds: ["import-image"],
+          }),
+        ],
       },
     })
-    expect(admission.resolveLocalAsset).toHaveBeenCalledWith(assetId)
+    expect(admission.inspectLocalAssets).toHaveBeenCalledWith([assetId])
+  })
+
+  it("finishes canonical and render validation before any local mapping lookup", async () => {
+    const document = withImage("asset:local/local-validation-order")
+    document.pages[0].width = 8_193
+    const admission = resourceAdmission()
+
+    await expect(
+      parseDocumentImportFile(importFile(JSON.stringify(document)), admission)
+    ).resolves.toMatchObject({
+      ok: false,
+      failure: { kind: "render_policy_failed" },
+    })
+    expect(admission.inspectLocalAssets).not.toHaveBeenCalled()
+    expect(admission.resolveLocalPromotions).not.toHaveBeenCalled()
+    expect(admission.hashLocalAsset).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { status: "ready" as const, state: "studio_copy" },
+    { status: "archived" as const, state: "studio_backup" },
+  ])(
+    "returns an isolated exact $status mapping candidate and review manifest",
+    async ({ status, state }) => {
+      const localAssetId = `local-mapped-${status}`
+      const source = `asset:local/${localAssetId}`
+      const document = withImage(source)
+      const original = structuredClone(document)
+      const promotion = localPromotion(localAssetId, { status })
+      const admission = resourceAdmission({
+        local: async () => [{ status: "absent" }],
+        mappings: async () => ({
+          results: [{ localAssetId, promotion }],
+          requestId: `request-mapped-${status}`,
+        }),
+      })
+
+      const result = await parseDocumentImportFile(
+        importFile(JSON.stringify(document)),
+        admission
+      )
+
+      expect(result).toMatchObject({
+        ok: true,
+        document: original,
+        mediaPlan: {
+          status: "planned",
+          mappingRequestIds: [`request-mapped-${status}`],
+          plan: {
+            safeMigrations: [
+              expect.objectContaining({
+                localAssetId,
+                managedStatus: status,
+                relationship: "no_local_bytes",
+              }),
+            ],
+            unresolved: [],
+          },
+        },
+        candidateDocument: {
+          nodes: expect.arrayContaining([
+            expect.objectContaining({
+              id: "import-image",
+              assetId: promotion.asset.id,
+              src: `asset:managed/${promotion.asset.id}`,
+            }),
+          ]),
+        },
+        recoveryManifest: {
+          requiresReview: true,
+          transformedCount: 1,
+          unresolvedCount: 0,
+          archivedBackupCount: status === "archived" ? 1 : 0,
+          items: [
+            expect.objectContaining({
+              localAssetId,
+              state,
+              transformed: true,
+              requiresChoice: false,
+              nodeIds: ["import-image"],
+            }),
+          ],
+        },
+      })
+      expect(document).toEqual(original)
+      expect(admission.hashLocalAsset).not.toHaveBeenCalled()
+    }
+  )
+
+  it("accepts a healthy local file only when its exact hash matches the mapping", async () => {
+    const localAssetId = "local-import-same-hash"
+    const document = withImage(`asset:local/${localAssetId}`)
+    const admission = resourceAdmission({
+      local: async () => [
+        { status: "ready", record: localAsset(localAssetId) },
+      ],
+      mappings: async () => ({
+        results: [
+          {
+            localAssetId,
+            promotion: localPromotion(localAssetId),
+          },
+        ],
+        requestId: "request-import-same-hash",
+      }),
+      hash: async () => "a".repeat(64),
+    })
+
+    await expect(
+      parseDocumentImportFile(importFile(JSON.stringify(document)), admission)
+    ).resolves.toMatchObject({
+      ok: true,
+      mediaPlan: {
+        status: "planned",
+        plan: {
+          safeMigrations: [
+            expect.objectContaining({
+              localAssetId,
+              relationship: "same_hash",
+            }),
+          ],
+          unresolved: [],
+        },
+      },
+      candidateDocument: expect.objectContaining({
+        nodes: expect.arrayContaining([
+          expect.objectContaining({
+            id: "import-image",
+            src: "asset:managed/asset-importcopy01",
+          }),
+        ]),
+      }),
+    })
+    expect(admission.hashLocalAsset).toHaveBeenCalledOnce()
+  })
+
+  it("returns an identity-conflict decision without creating a candidate", async () => {
+    const localAssetId = "local-import-conflict"
+    const document = withImage(`asset:local/${localAssetId}`)
+    const admission = resourceAdmission({
+      local: async () => [
+        { status: "ready", record: localAsset(localAssetId) },
+      ],
+      mappings: async () => ({
+        results: [
+          {
+            localAssetId,
+            promotion: localPromotion(localAssetId, {
+              contentSha256: "b".repeat(64),
+            }),
+          },
+        ],
+        requestId: "request-import-conflict",
+      }),
+      hash: async () => "a".repeat(64),
+    })
+
+    await expect(
+      parseDocumentImportFile(importFile(JSON.stringify(document)), admission)
+    ).resolves.toMatchObject({
+      ok: true,
+      candidateDocument: null,
+      mediaPlan: {
+        status: "planned",
+        plan: {
+          unresolved: [
+            expect.objectContaining({
+              localAssetId,
+              outcome: "identity_conflict",
+              managedCandidate: expect.objectContaining({
+                managedAssetId: "asset-importcopy01",
+              }),
+            }),
+          ],
+        },
+      },
+      recoveryManifest: {
+        items: [
+          expect.objectContaining({
+            state: "identity_conflict",
+            requiresChoice: true,
+          }),
+        ],
+      },
+    })
+  })
+
+  it.each([
+    {
+      label: "mapping timeout",
+      local: async () => [{ status: "absent" as const }],
+      mappings: async () => {
+        throw new DOMException("Mapping timed out", "TimeoutError")
+      },
+      state: "backup_status_unknown",
+      outcome: "mapping_unavailable",
+    },
+    {
+      label: "local repository failure with an exact Studio copy",
+      local: async () => {
+        throw new Error("IndexedDB unavailable")
+      },
+      mappings: async (assetIds: readonly string[]) => ({
+        results: assetIds.map((localAssetId) => ({
+          localAssetId,
+          promotion: localPromotion(localAssetId),
+        })),
+        requestId: "request-local-unknown",
+      }),
+      state: "device_status_unknown",
+      outcome: "local_unavailable",
+    },
+  ])("represents $label as reviewable unknown state", async (fixture) => {
+    const localAssetId = "local-import-unknown"
+    const admission = resourceAdmission({
+      local: fixture.local,
+      mappings: fixture.mappings,
+    })
+
+    await expect(
+      parseDocumentImportFile(
+        importFile(JSON.stringify(withImage(`asset:local/${localAssetId}`))),
+        admission
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      candidateDocument: null,
+      mediaPlan: {
+        status: "planned",
+        plan: {
+          unresolved: [expect.objectContaining({ outcome: fixture.outcome })],
+        },
+      },
+      recoveryManifest: {
+        items: [expect.objectContaining({ state: fixture.state })],
+      },
+    })
+  })
+
+  it("treats a malformed ordered mapping response as unknown, never unmapped", async () => {
+    const localAssetId = "local-import-order-drift"
+    const admission = resourceAdmission({
+      mappings: async () => ({
+        results: [
+          {
+            localAssetId: "local-other-alias",
+            promotion: null,
+          },
+        ],
+        requestId: "request-order-drift",
+      }),
+    })
+
+    await expect(
+      parseDocumentImportFile(
+        importFile(JSON.stringify(withImage(`asset:local/${localAssetId}`))),
+        admission
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      mediaPlan: {
+        status: "planned",
+        mappingRequestIds: [],
+        plan: {
+          unresolved: [
+            expect.objectContaining({
+              localAssetId,
+              outcome: "mapping_unavailable",
+              mappingStatus: "unavailable",
+            }),
+          ],
+        },
+      },
+      recoveryManifest: {
+        items: [expect.objectContaining({ state: "backup_status_unknown" })],
+      },
+    })
+  })
+
+  it("forwards mapping cancellation and waits for resolver acknowledgement", async () => {
+    const localAssetId = "local-import-cancel"
+    let receivedSignal: AbortSignal | undefined
+    let acknowledgeAbort!: (reason: unknown) => void
+    const resolver = new Promise<never>((_resolve, reject) => {
+      acknowledgeAbort = reject
+    })
+    const admission = resourceAdmission({
+      mappings: async (_assetIds, signal) => {
+        receivedSignal = signal
+        return resolver
+      },
+    })
+    const controller = new AbortController()
+    const reason = new DOMException("Import cancelled", "AbortError")
+    const pending = parseDocumentImportFile(
+      importFile(JSON.stringify(withImage(`asset:local/${localAssetId}`))),
+      admission,
+      { signal: controller.signal }
+    )
+
+    await vi.waitFor(() => expect(receivedSignal).toBe(controller.signal))
+    controller.abort(reason)
+    let settled = false
+    void pending.then(
+      () => {
+        settled = true
+      },
+      () => {
+        settled = true
+      }
+    )
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    acknowledgeAbort(reason)
+    await expect(pending).rejects.toBe(reason)
   })
 
   it.each([
     {
       label: "repository read failure",
-      resolve: async () => {
+      inspect: async () => {
         throw new Error("IndexedDB unavailable")
       },
     },
     {
       label: "missing bytes",
-      resolve: async () => {
+      inspect: async () => {
         const asset = localAsset("local-unreadable")
-        return { ...asset, blob: null as unknown as Blob }
+        const { blob: _blob, ...summary } = asset
+        return [
+          {
+            status: "missing_bytes" as const,
+            summary: { ...summary, integrity: "missing_bytes" as const },
+            issue: {
+              assetId: asset.id,
+              code: "missing_bytes" as const,
+              message: "The saved image bytes are missing.",
+            },
+          },
+        ]
       },
     },
     {
       label: "metadata and byte mismatch",
-      resolve: async () => {
+      inspect: async () => {
         const asset = localAsset("local-unreadable")
-        return { ...asset, size: asset.size + 1 }
+        return [
+          {
+            status: "ready" as const,
+            record: { ...asset, size: asset.size + 1 },
+          },
+        ]
       },
     },
-  ])("rejects an unreadable local image: $label", async ({ resolve }) => {
-    const document = withImage("asset:local/local-unreadable")
+  ])(
+    "preserves an unreadable local image for review: $label",
+    async ({ inspect }) => {
+      const document = withImage("asset:local/local-unreadable")
 
-    await expect(
-      parseDocumentImportFile(
-        importFile(JSON.stringify(document)),
-        resourceAdmission({ local: resolve })
-      )
-    ).resolves.toMatchObject({
-      ok: false,
-      failure: { kind: "resource_policy_failed" },
-    })
-  })
+      await expect(
+        parseDocumentImportFile(
+          importFile(JSON.stringify(document)),
+          resourceAdmission({
+            local: inspect,
+          })
+        )
+      ).resolves.toMatchObject({
+        ok: true,
+        candidateDocument: null,
+        recoveryManifest: { requiresReview: true, unresolvedCount: 1 },
+      })
+    }
+  )
 
   it("admits canonical managed image identities only after an exact workspace lookup", async () => {
     const document = withImage("asset:managed/asset-abcdefghij")
@@ -582,10 +1017,11 @@ describe("document JSON import admission", () => {
 
     await expect(
       parseDocumentImportFile(importFile(JSON.stringify(document)), admission)
-    ).resolves.toEqual({
+    ).resolves.toMatchObject({
       ok: true,
       document,
       migrations: [],
+      mediaPlan: { status: "not_required" },
     })
   })
 

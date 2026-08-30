@@ -2,8 +2,7 @@
 
 Date: 2026-08-30
 
-Status: frozen implementation map; production code has not been changed by
-this audit
+Status: **implemented and independently accepted; Slice 6 and row 10 remain active**
 
 Ledger boundary: row 10, Cross-browser local media — Slice 5 only
 
@@ -891,6 +890,27 @@ non-browser evidence proves:
    contracts.
 
 This closes Slice 5 implementation only. It does not close ledger row 10.
+
+### Exit record — 2026-08-30
+
+- The final independent review in
+  `cross-browser-media-admission-recovery-independent-review.md` is **ACCEPT**
+  with zero open P0/P1.
+- Its expanded final-tree evidence covers 18 focused files and 321 passing
+  tests, document and Studio typechecks, scoped lint for every changed Studio
+  TypeScript file outside the deliberately guarded large editor hook, and a
+  clean diff check.
+- The mounted/UI freeze matrix passes 159/159. Root reruns also cover the
+  route/domain/import/local boundary and the post-lint delta. Counts overlap
+  and are recorded as freeze evidence rather than summed.
+- The accepted implementation includes exact admission CAS and receipts,
+  bounded private mapping, import planning, local Blob recovery, mounted
+  recovery choices, a durable history-prepared checkpoint, exact/later body
+  reconciliation, stable Recent replay, stale-owner fences, and truthful
+  recovery/Undo presentation.
+- Slice 6 remains the only owner of real two-browser, real IndexedDB,
+  deployed Worker/D1/R2, network-fault, cross-browser output, privacy-payload,
+  repository-wide build/lint, and final deployed acceptance claims.
 
 ## Slice 6 boundary kept explicitly separate
 

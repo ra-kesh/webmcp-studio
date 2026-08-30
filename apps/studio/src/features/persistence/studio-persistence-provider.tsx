@@ -7,6 +7,10 @@ import {
   useSyncExternalStore,
 } from "react"
 import type { PropsWithChildren } from "react"
+import { resolveLocalAssetPromotions } from "../editor/local-asset-promotion-client"
+import { hashLocalAssetBlobSha256 } from "../editor/local-asset-promotion-owner"
+import { inspectRequestedLocalAssets } from "../editor/local-asset-store"
+import { markManagedMediaUsed } from "../editor/managed-media-repository"
 import type {
   DocumentDraftRepository,
   DraftRepositoryEvent,
@@ -47,6 +51,19 @@ export function StudioPersistenceProvider({
       new DocumentRouteAdmissionController({
         get: (documentId) => runtime.repository.get(documentId),
         touchOpened: (documentId) => runtime.repository.touchOpened(documentId),
+        getPendingReceipt: (documentId, signal) =>
+          runtime.repository.getPendingLocalMediaAdmissionReceiptForDocument(
+            documentId,
+            signal
+          ),
+        inspectLocalAssets: inspectRequestedLocalAssets,
+        resolvePromotions: resolveLocalAssetPromotions,
+        hashBlob: hashLocalAssetBlobSha256,
+        migrateLocalMedia: (input, signal) =>
+          runtime.repository.migrateLocalMedia(input, signal),
+        markManagedUsed: markManagedMediaUsed,
+        updateManagedUse: (input) =>
+          runtime.repository.markLocalMediaAdmissionManagedUse(input),
       })
   )
   const state = useSyncExternalStore(
@@ -62,7 +79,7 @@ export function StudioPersistenceProvider({
     return () => {
       globalThis.queueMicrotask(() => {
         if (admissionLifecycle.generation === generation) {
-          documentRouteAdmission.dispose()
+          void documentRouteAdmission.dispose()
         }
       })
     }

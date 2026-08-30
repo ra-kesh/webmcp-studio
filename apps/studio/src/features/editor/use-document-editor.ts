@@ -11,6 +11,7 @@ import {
   createTemplateVersion,
   deriveDocumentSnapshotId,
   assetReferenceKeysForSource,
+  extractAssetReferences,
   documentSchema,
   findSelectedGroupId,
   getChangeSetConflict,
@@ -95,14 +96,20 @@ import {
   assertLocalAssetCapacity,
   getLocalAssetRecord,
   getImageDimensions,
+  inspectRequestedLocalAssets,
   loadLocalAsset,
   localAssetIdFromSource,
   localAssetSource,
   markLocalAssetUsed,
   rollbackLocalAsset,
+  restoreLocalAssetBlob,
   saveLocalAsset,
 } from "./local-asset-store"
-import type { LocalAssetSummary } from "./local-asset-store"
+import type {
+  LocalAssetAdmissionState,
+  LocalAssetBlobRestoreExpectation,
+  LocalAssetSummary,
+} from "./local-asset-store"
 import {
   decodeBrowserImageSource,
   stageUsableLocalImageSource,
@@ -147,6 +154,11 @@ import {
   readLocalAssetPromotionJournal,
 } from "./local-asset-promotion-journal"
 import type { LocalAssetPromotionJournal } from "./local-asset-promotion-journal"
+import { resolveLocalAssetPromotions } from "./local-asset-promotion-client"
+import { hashLocalAssetBlobSha256 } from "./local-asset-promotion-owner"
+import type { DocumentRouteMediaAdmission } from "./document-route-admission"
+import { MountedMediaRecoveryRepository } from "./mounted-media-recovery-repository"
+import type { MountedMediaRecoveryRecord } from "./mounted-media-recovery-repository"
 import {
   hasCurrentRelinkUndo,
   hasExactManagedProjection,
@@ -221,6 +233,7 @@ import {
   readBoundedDocumentImportText,
   waitForDocumentImportOperation,
 } from "./document-import"
+import type { DocumentImportRecoveryManifest } from "./document-import"
 import { createStudioTextNode, defaultStudioTextPresetId } from "./text-presets"
 import type { StudioTextPresetId } from "./text-presets"
 import { quotationStarter } from "./quotation-starter"
@@ -455,6 +468,19 @@ type PendingRendererReplacement =
 
 export type StudioSessionMode = "start" | "workspace"
 
+export type PendingDocumentImportMediaReview = Readonly<{
+  kind: "import" | "open"
+  fileName: string
+  originalDocument: Document
+  studioCandidateDocument: Document | null
+  manifest: DocumentImportRecoveryManifest
+  anchor: Readonly<{
+    sessionGeneration: number
+    documentId: string
+    historySnapshotId: string
+  }> | null
+}>
+
 export type LocalAssetPromotionViewState = ActiveLocalAssetPromotionProgress &
   Readonly<{
     operationId: string
@@ -463,6 +489,170 @@ export type LocalAssetPromotionViewState = ActiveLocalAssetPromotionProgress &
     managedAssetId: string | null
     relinkCommitId: string | null
   }>
+
+export type LocalMediaRecoveryOperationViewState = Readonly<{
+  phase:
+    | "preparing"
+    | "cancelling"
+    | "saving"
+    | "identity_conflict"
+    | "complete"
+    | "failed"
+  message: string
+  retryable: boolean
+  retryAction?: "repeat_action" | "finish_saving"
+  completionKind?: "restored" | "relinked" | "cancelled"
+}>
+
+type PreparedMountedMediaRecoveryTarget =
+  | Readonly<{
+      assetId: string
+      source: `asset:local/${string}`
+      kind: "local"
+      recentUseIdempotencyKey: null
+    }>
+  | Readonly<{
+      assetId: string
+      source: `asset:managed/${string}`
+      kind: "managed"
+      recentUseIdempotencyKey: string | null
+      preexistingTargetReferenceKeys?: readonly string[]
+    }>
+  | Readonly<{
+      assetId: string
+      source: `asset:local/${string}`
+      kind: "restored"
+      recentUseIdempotencyKey: null
+    }>
+  | Readonly<{
+      assetId: string
+      source: `asset:local/${string}`
+      kind: "remove"
+      nodeIds: readonly string[]
+      bindingIds: readonly string[]
+      clearCurrentFieldIds: readonly string[]
+      clearDefaultFieldIds: readonly string[]
+      removedReferenceKeys: readonly string[]
+      recentUseIdempotencyKey: null
+    }>
+
+type MountedLocalMediaRecovery = Readonly<{
+  token: string
+  localAssetId: string
+  documentId: string
+  session: ActivePersistenceSession
+  sessionGeneration: number
+  critical: boolean
+  controller: AbortController
+  criticalSettlement: Promise<void>
+}>
+
+type MountedLocalMediaRecoveryCheckpoint = Readonly<{
+  localAssetId: string
+  source: string
+  target: PreparedMountedMediaRecoveryTarget
+  expectedReferenceKeys: readonly string[]
+  documentId: string
+  session: ActivePersistenceSession
+  sessionGeneration: number
+  undoable: boolean
+  commitId: string
+  resultHistorySnapshotId: string
+  resultOperationVersion: number
+  durableOperation: MountedMediaRecoveryRecord | null
+}>
+
+type PendingLocatedMediaConflict = Readonly<{
+  file: File
+  contentSha256: string
+  expectedContentSha256: string
+}>
+
+class LocalMediaIdentityConflictError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "LocalMediaIdentityConflictError"
+  }
+}
+
+const localRestoreExpectation = (
+  state: Exclude<LocalAssetAdmissionState, { status: "ready" | "unavailable" }>
+): LocalAssetBlobRestoreExpectation => {
+  switch (state.status) {
+    case "missing_bytes":
+      return {
+        status: "missing_bytes",
+        revision: state.summary.revision,
+        updatedAt: state.summary.updatedAt,
+      }
+    case "quarantined":
+      return { status: "quarantined", quarantine: state.expectation }
+    case "absent":
+      return { status: "absent" }
+  }
+}
+
+const localAdmissionStateFingerprint = async (
+  state: LocalAssetAdmissionState,
+  signal: AbortSignal,
+  allowUnavailable = false
+) => {
+  signal.throwIfAborted()
+  switch (state.status) {
+    case "ready":
+      return `ready:${state.record.revision}:${state.record.updatedAt}:${await hashLocalAssetBlobSha256(state.record.blob, signal)}`
+    case "missing_bytes":
+      return `missing_bytes:${state.summary.revision}:${state.summary.updatedAt}`
+    case "absent":
+      return "absent"
+    case "quarantined":
+      return `quarantined:${JSON.stringify(state.expectation)}`
+    case "unavailable":
+      if (allowUnavailable) return "unavailable"
+      throw new Error(state.message)
+  }
+}
+
+const stableMediaRecoveryHash = async (input: string) => {
+  const bytes = new TextEncoder().encode(input)
+  const digest = await crypto.subtle.digest("SHA-256", bytes)
+  const hash = [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")
+  return hash
+}
+
+const stableMountedMediaRecoveryOperationId = async (input: string) =>
+  `mounted-recovery:${await stableMediaRecoveryHash(input)}`
+
+const hasExactRecoveredProjection = (
+  document: Document,
+  source: string,
+  target: Exclude<PreparedMountedMediaRecoveryTarget, { kind: "restored" }>,
+  expectedReferenceKeys: readonly string[]
+) => {
+  if (target.kind === "remove") {
+    const removed = new Set(target.removedReferenceKeys)
+    return sameReferenceKeys(
+      assetReferenceKeysForSource(document, source),
+      expectedReferenceKeys.filter((key) => !removed.has(key))
+    )
+  }
+  if (assetReferenceKeysForSource(document, source).length > 0) return false
+  const expectedTargetReferenceKeys =
+    target.kind === "managed"
+      ? [
+          ...new Set([
+            ...(target.preexistingTargetReferenceKeys ?? []),
+            ...expectedReferenceKeys,
+          ]),
+        ].sort()
+      : expectedReferenceKeys
+  return sameReferenceKeys(
+    assetReferenceKeysForSource(document, target.source),
+    expectedTargetReferenceKeys
+  )
+}
 
 type MountedLocalAssetPromotion = Readonly<{
   operationId: string
@@ -671,12 +861,16 @@ function reconcileSelection(
 export function useDocumentEditor({
   initialRecord = null,
   initialRecordWarning = null,
+  initialMediaAdmission = null,
+  onInitialRecordInstalled,
   onHistoryCommit,
   historyOptions,
   persistence,
 }: {
   initialRecord?: DocumentDraftRecord | null
   initialRecordWarning?: string | null
+  initialMediaAdmission?: DocumentRouteMediaAdmission | null
+  onInitialRecordInstalled?: (record: DocumentDraftRecord) => void
   onHistoryCommit?: (entry: DocumentHistoryCommit) => void
   historyOptions?: DocumentHistoryOptions
   persistence: StudioPersistenceApi
@@ -694,6 +888,19 @@ export function useDocumentEditor({
   sessionModeRef.current = sessionMode
   const [routeSessionStatus, setRouteSessionStatus] =
     useState<RouteSessionStatus>(initialRecord ? "installing" : "not_requested")
+  const [documentMediaAdmission, setDocumentMediaAdmission] =
+    useState<DocumentRouteMediaAdmission | null>(initialMediaAdmission)
+  const [
+    documentMediaAdmissionRestoreUnavailable,
+    setDocumentMediaAdmissionRestoreUnavailable,
+  ] = useState(false)
+  const [
+    pendingDocumentImportMediaReview,
+    setPendingDocumentImportMediaReview,
+  ] = useState<PendingDocumentImportMediaReview | null>(null)
+  const onInitialRecordInstalledRef = useRef(onInitialRecordInstalled)
+  onInitialRecordInstalledRef.current = onInitialRecordInstalled
+  const initialInstallNotificationRef = useRef<string | null>(null)
   const [history, setHistory] = useState<DocumentHistory>(() =>
     createDocumentHistory(
       createNeutralBootstrapDocument(),
@@ -744,6 +951,8 @@ export function useDocumentEditor({
   const [localAssetPromotions, setLocalAssetPromotions] = useState<
     Partial<Record<string, LocalAssetPromotionViewState>>
   >({})
+  const [localMediaRecoveryOperations, setLocalMediaRecoveryOperations] =
+    useState<Partial<Record<string, LocalMediaRecoveryOperationViewState>>>({})
   const [pendingImageReplacement, setPendingImageReplacement] =
     useState<PendingRendererReplacement | null>(null)
   const [documentError, setDocumentError] = useState<string | null>(
@@ -859,6 +1068,36 @@ export function useDocumentEditor({
   const mountedRef = useRef(true)
   const activeLocalAssetPromotionRef =
     useRef<MountedLocalAssetPromotion | null>(null)
+  const activeLocalMediaRecoveryRef = useRef<MountedLocalMediaRecovery | null>(
+    null
+  )
+  const localMediaRecoveryCheckpointRef = useRef(
+    new Map<string, MountedLocalMediaRecoveryCheckpoint>()
+  )
+  const pendingLocatedMediaConflictRef = useRef(
+    new Map<string, PendingLocatedMediaConflict>()
+  )
+  const mountedMediaRecoveryRepositoryRef = useRef(
+    new MountedMediaRecoveryRepository()
+  )
+  const mountedMediaRecoveryReconciledSessionRef = useRef<string | null>(null)
+  const [
+    mountedMediaRecoveryReconciliation,
+    setMountedMediaRecoveryReconciliation,
+  ] = useState<{
+    status: "idle" | "checking" | "ready" | "error"
+    sessionKey: string | null
+    message: string | null
+  }>({ status: "idle", sessionKey: null, message: null })
+  const mountedMediaRecoveryReconciliationRef = useRef(
+    mountedMediaRecoveryReconciliation
+  )
+  mountedMediaRecoveryReconciliationRef.current =
+    mountedMediaRecoveryReconciliation
+  const [
+    mountedMediaRecoveryRetryGeneration,
+    setMountedMediaRecoveryRetryGeneration,
+  ] = useState(0)
   const localAssetPromotionStartGateRef = useRef(
     new LocalAssetPromotionStartGate()
   )
@@ -1283,6 +1522,18 @@ export function useDocumentEditor({
 
       const settlement = Promise.resolve().then(async () => {
         try {
+          const mediaRecovery = activeLocalMediaRecoveryRef.current
+          if (mediaRecovery?.session === session) {
+            if (!mediaRecovery.critical) {
+              mediaRecovery.controller.abort(
+                new DOMException(
+                  "Studio changed documents before image recovery committed.",
+                  "AbortError"
+                )
+              )
+            }
+            await mediaRecovery.criticalSettlement
+          }
           if (localSaveStateRef.current.status === "external_change")
             return false
           if (!capturePersistenceSession(session)) return false
@@ -1361,6 +1612,12 @@ export function useDocumentEditor({
         )
         return null
       }
+      if (activeLocalMediaRecoveryRef.current?.critical) {
+        setDocumentError(
+          "Wait for the recovered image references to finish saving before opening another document."
+        )
+        return null
+      }
       if (publicationOperationRef.current) {
         setDocumentError(
           "Wait for publication to finish or cancel it before opening another document."
@@ -1386,6 +1643,15 @@ export function useDocumentEditor({
           delete next[promotion.localAssetId]
           return next
         })
+      }
+      const mediaRecovery = activeLocalMediaRecoveryRef.current
+      if (mediaRecovery && !mediaRecovery.critical) {
+        mediaRecovery.controller.abort(
+          new DOMException(
+            "Studio changed documents before image recovery committed.",
+            "AbortError"
+          )
+        )
       }
       const reservation = localAssetPromotionReservationRef.current
       if (reservation) {
@@ -1434,7 +1700,8 @@ export function useDocumentEditor({
       record: DocumentDraftRecord,
       transition: SessionTransition,
       canInstall: () => boolean = () => true,
-      replacement: "settle" | "preserved_recovery" = "settle"
+      replacement:
+        "settle" | "preserved_recovery" | "repository_replaced" = "settle"
     ) => {
       if (!ownsSessionTransition(transition) || !canInstall()) return false
       if (
@@ -1443,6 +1710,26 @@ export function useDocumentEditor({
       ) {
         setDocumentError(
           "Studio refused to open a document whose stored identity is inconsistent."
+        )
+        return false
+      }
+      if (activeLocalMediaRecoveryRef.current) {
+        setDocumentError(
+          activeLocalMediaRecoveryRef.current.critical
+            ? "Wait for the recovered image references to finish saving."
+            : "Wait for the current document-image recovery to finish."
+        )
+        return false
+      }
+      if (localMediaRecoveryCheckpointRef.current.size > 0) {
+        setDocumentError(
+          "Finish saving the recovered document image before making another edit."
+        )
+        return false
+      }
+      if (pendingDocumentImportMediaReview) {
+        setDocumentError(
+          "Finish or cancel the document image review before editing this document."
         )
         return false
       }
@@ -1490,6 +1777,16 @@ export function useDocumentEditor({
       }
 
       const previousSession = activePersistenceSessionRef.current
+      const mountedRecoveryPreflight =
+        await mountedMediaRecoveryRepositoryRef.current.listPendingByDocument(
+          record.summary.documentId
+        )
+      if (!ownsSessionTransition(transition) || !canInstall()) {
+        nextSession.unsubscribe()
+        nextSession.controller.close()
+        nextSession.releaseLease()
+        return false
+      }
       if (previousSession) {
         if (replacement === "settle") {
           if (!(await retirePersistenceSession(previousSession, canInstall))) {
@@ -1501,9 +1798,12 @@ export function useDocumentEditor({
         } else {
           const recovery = conflictRecoveryStateRef.current
           const preservesCurrentDocument =
-            recovery.status !== "inactive" &&
-            recovery.status !== "discovering" &&
-            recovery.documentId === previousSession.controller.documentId
+            replacement === "repository_replaced"
+              ? previousSession.controller.documentId ===
+                record.summary.documentId
+              : recovery.status !== "inactive" &&
+                recovery.status !== "discovering" &&
+                recovery.documentId === previousSession.controller.documentId
           if (
             !preservesCurrentDocument ||
             !ownsSessionTransition(transition) ||
@@ -1539,6 +1839,30 @@ export function useDocumentEditor({
       liveConflictIdRef.current = null
       activeRecordRef.current = record
       activePersistenceSessionRef.current = nextSession
+      const mountedRecoverySessionKey = `${record.summary.documentId}:${nextSession.generation}`
+      if (!mountedRecoveryPreflight.ok) {
+        mountedMediaRecoveryReconciledSessionRef.current = null
+        setMountedMediaRecoveryReconciliation({
+          status: "error",
+          sessionKey: mountedRecoverySessionKey,
+          message: mountedRecoveryPreflight.failure.message,
+        })
+      } else if (mountedRecoveryPreflight.records.length === 0) {
+        mountedMediaRecoveryReconciledSessionRef.current =
+          mountedRecoverySessionKey
+        setMountedMediaRecoveryReconciliation({
+          status: "ready",
+          sessionKey: mountedRecoverySessionKey,
+          message: null,
+        })
+      } else {
+        mountedMediaRecoveryReconciledSessionRef.current = null
+        setMountedMediaRecoveryReconciliation({
+          status: "checking",
+          sessionKey: mountedRecoverySessionKey,
+          message: null,
+        })
+      }
       lastCapturedDocumentRef.current = record.envelope.document
       lastCapturedSourceContextRef.current =
         record.envelope.sourceContext ?? null
@@ -2335,6 +2659,20 @@ export function useDocumentEditor({
             head = headFromRecord(confirmed.record)
             continue
           }
+          if (
+            admitted.status === "opened" &&
+            sameDraftHead(admitted.record, confirmed.record)
+          ) {
+            const touch =
+              await persistenceRef.current.documentRouteAdmission.confirmInstalled(
+                admitted,
+                confirmed.record
+              )
+            if (!canInstall()) return { ok: false as const }
+            if (touch.status === "confirmed" && touch.warning) {
+              setDocumentError(touch.warning.message)
+            }
+          }
           if (conflict) {
             const resolved = await getDraftRepository().resolveConflict(
               conflict.conflictId,
@@ -2726,6 +3064,7 @@ export function useDocumentEditor({
     mountedRef.current = true
     return () => {
       mountedRef.current = false
+      pendingLocatedMediaConflictRef.current.clear()
       const publication = publicationOperationRef.current
       if (publication) {
         clearTimeout(publication.timer)
@@ -2741,6 +3080,16 @@ export function useDocumentEditor({
       const criticalPromotionSettlement = promotion?.critical
         ? promotion.criticalSettlement
         : null
+      const mediaRecovery = activeLocalMediaRecoveryRef.current
+      if (mediaRecovery && !mediaRecovery.critical) {
+        mediaRecovery.controller.abort(
+          new DOMException(
+            "Studio closed before image recovery committed.",
+            "AbortError"
+          )
+        )
+      }
+      const mediaRecoverySettlement = mediaRecovery?.criticalSettlement ?? null
       const reservation = localAssetPromotionReservationRef.current
       if (reservation) {
         reservation.cancel()
@@ -2791,6 +3140,7 @@ export function useDocumentEditor({
           if (criticalPromotionSettlement) {
             await criticalPromotionSettlement
           }
+          if (mediaRecoverySettlement) await mediaRecoverySettlement
           await session.controller.flush()
         } catch {
           // Teardown cannot surface UI, but the exact lease remains held until
@@ -2809,6 +3159,8 @@ export function useDocumentEditor({
   useEffect(() => {
     if (!initialRecord) {
       setRouteSessionStatus("not_requested")
+      setDocumentMediaAdmission(null)
+      setDocumentMediaAdmissionRestoreUnavailable(false)
       return
     }
     let active = true
@@ -2823,8 +3175,26 @@ export function useDocumentEditor({
       }
       const canInstall = () => active && ownsSessionTransition(transition!)
       try {
+        const authoritative = await getDraftRepository().get(
+          initialRecord.summary.documentId
+        )
+        if (!canInstall()) return
+        if (
+          !authoritative.ok ||
+          authoritative.status !== "found" ||
+          authoritative.record.summary.deletedAt !== null ||
+          !sameDraftHead(initialRecord, authoritative.record)
+        ) {
+          setDocumentError(
+            !authoritative.ok
+              ? authoritative.failure.message
+              : "The saved document advanced before this route could install it. Reload to open the authoritative version."
+          )
+          setRouteSessionStatus("failed")
+          return
+        }
         const installed = await installDraftRecord(
-          initialRecord,
+          authoritative.record,
           transition,
           canInstall
         )
@@ -2834,12 +3204,26 @@ export function useDocumentEditor({
           return
         }
         const conflictsReady = await discoverDocumentConflict(
-          initialRecord.summary.documentId
+          authoritative.record.summary.documentId
         )
         if (!canInstall()) return
         releaseSessionTransition(transition)
         transition = null
         setRouteSessionStatus(conflictsReady ? "ready" : "failed")
+        if (conflictsReady) {
+          setDocumentMediaAdmission(initialMediaAdmission)
+          setDocumentMediaAdmissionRestoreUnavailable(false)
+          const notificationKey = [
+            authoritative.record.summary.documentId,
+            authoritative.record.summary.recordVersion,
+            authoritative.record.summary.contentSnapshotId,
+            authoritative.record.summary.draftSnapshotId,
+          ].join(":")
+          if (initialInstallNotificationRef.current !== notificationKey) {
+            initialInstallNotificationRef.current = notificationKey
+            onInitialRecordInstalledRef.current?.(authoritative.record)
+          }
+        }
       } catch (error: unknown) {
         if (!transition || !canInstall()) return
         setDocumentError(
@@ -2859,7 +3243,9 @@ export function useDocumentEditor({
   }, [
     claimSessionTransition,
     discoverDocumentConflict,
+    getDraftRepository,
     initialRecord,
+    initialMediaAdmission,
     installDraftRecord,
     ownsSessionTransition,
     releaseSessionTransition,
@@ -3292,7 +3678,11 @@ export function useDocumentEditor({
   )
 
   const allowMutation = useCallback(
-    (allowActiveImageCrop = false, allowSeparateDocumentTransition = false) => {
+    (
+      allowActiveImageCrop = false,
+      allowSeparateDocumentTransition = false,
+      allowMediaAdmissionDecision = false
+    ) => {
       if (
         separateDocumentTransitionRef.current &&
         !allowSeparateDocumentTransition
@@ -3300,9 +3690,49 @@ export function useDocumentEditor({
         setDocumentError(DOCUMENT_TRANSITION_DISABLED_REASON)
         return false
       }
+      const persistenceSession = activePersistenceSessionRef.current
+      if (sessionModeRef.current === "workspace" && persistenceSession) {
+        const expectedRecoverySessionKey = `${historyRef.current.document.id}:${persistenceSession.generation}`
+        const reconciliation = mountedMediaRecoveryReconciliationRef.current
+        if (
+          reconciliation.status !== "ready" ||
+          reconciliation.sessionKey !== expectedRecoverySessionKey
+        ) {
+          setDocumentError(
+            reconciliation.status === "error"
+              ? "Retry the interrupted image-recovery check before editing this document."
+              : "Wait while Studio checks interrupted image recovery before editing this document."
+          )
+          return false
+        }
+      }
       if (activeLocalAssetPromotionRef.current?.critical) {
         setDocumentError(
           "Wait for the image to finish saving everywhere before editing this document."
+        )
+        return false
+      }
+      const mediaRecovery = activeLocalMediaRecoveryRef.current
+      if (mediaRecovery) {
+        setDocumentError(
+          mediaRecovery.critical
+            ? "Wait for the recovered image references to finish saving before editing this document."
+            : "Wait for the current document-image recovery to finish before editing this document."
+        )
+        return false
+      }
+      if (localMediaRecoveryCheckpointRef.current.size > 0) {
+        setDocumentError(
+          "Finish saving the recovered document image before making another edit."
+        )
+        return false
+      }
+      const mediaAdmissionReceipt = documentMediaAdmission?.receipt
+      if (mediaAdmissionReceipt && !allowMediaAdmissionDecision) {
+        setDocumentError(
+          mediaAdmissionReceipt.restoredAt
+            ? "Keep the restored device-only document before editing it."
+            : "Keep or restore the recovered document images before editing this document."
         )
         return false
       }
@@ -3336,8 +3766,154 @@ export function useDocumentEditor({
       setChangeSetError("Resolve or discard the preview before editing.")
       return false
     },
-    []
+    [documentMediaAdmission, pendingDocumentImportMediaReview]
   )
+
+  const keepDocumentMediaAdmission = useCallback(async () => {
+    if (!allowMutation(false, false, true)) return false
+    const receipt = documentMediaAdmission?.receipt
+    if (!receipt) {
+      return false
+    }
+    const acknowledged =
+      await getDraftRepository().acknowledgeLocalMediaAdmissionReceipt(
+        receipt.receiptId
+      )
+    if (!acknowledged.ok) {
+      setDocumentError(
+        "failure" in acknowledged
+          ? acknowledged.failure.message
+          : "The saved document changed before Studio could keep this image decision. Reload and review it again."
+      )
+      return false
+    }
+    setDocumentMediaAdmission({
+      status: "unchanged",
+      aliasCount: documentMediaAdmission.aliasCount,
+      migratedLocalAssetIds: [],
+      unresolved: [],
+      receipt: null,
+      message: "Document image recovery was reviewed and kept.",
+    })
+    setDocumentMediaAdmissionRestoreUnavailable(false)
+    return true
+  }, [allowMutation, documentMediaAdmission, getDraftRepository])
+
+  const restoreDocumentMediaAdmission = useCallback(async () => {
+    if (!allowMutation(false, false, true)) return false
+    const receipt = documentMediaAdmission?.receipt
+    if (!receipt || receipt.restoredAt !== null) {
+      return false
+    }
+    const transition = claimSessionTransition("recovery")
+    if (!transition) return false
+    try {
+      const session = activePersistenceSessionRef.current
+      if (session && !(await settlePersistenceSession(session))) return false
+      if (!ownsSessionTransition(transition)) return false
+      const restored =
+        await getDraftRepository().restoreLocalMediaAdmissionReceipt(
+          receipt.receiptId
+        )
+      if (!ownsSessionTransition(transition)) return false
+      if (!restored.ok) {
+        if (!("failure" in restored)) {
+          setDocumentMediaAdmissionRestoreUnavailable(true)
+        }
+        setDocumentError(
+          "failure" in restored
+            ? restored.failure.message
+            : restored.reason === "preimage_unavailable"
+              ? "The device-only preimage is no longer available. Keep the recovered document instead."
+              : "The saved document changed before Studio could restore its device-only version. Reload and review it again."
+        )
+        return false
+      }
+      const installed = await installDraftRecord(
+        restored.record,
+        transition,
+        () => ownsSessionTransition(transition),
+        "repository_replaced"
+      )
+      if (!installed || !ownsSessionTransition(transition)) return false
+      const conflictsReady = await discoverDocumentConflict(
+        restored.record.summary.documentId
+      )
+      if (!conflictsReady || !ownsSessionTransition(transition)) return false
+      setDocumentMediaAdmission({
+        status: "receipt_pending",
+        aliasCount: restored.receipt.aliases.length,
+        migratedLocalAssetIds: [],
+        unresolved: [],
+        receipt: restored.receipt,
+        message:
+          "The device-only version was restored. Review it, then choose Keep restored version.",
+      })
+      setDocumentMediaAdmissionRestoreUnavailable(false)
+      return true
+    } finally {
+      releaseSessionTransition(transition)
+    }
+  }, [
+    allowMutation,
+    claimSessionTransition,
+    discoverDocumentConflict,
+    documentMediaAdmission,
+    getDraftRepository,
+    installDraftRecord,
+    ownsSessionTransition,
+    releaseSessionTransition,
+    settlePersistenceSession,
+  ])
+
+  const downloadDocumentMediaAdmissionPreimage = useCallback(() => {
+    const receipt = documentMediaAdmission?.receipt
+    if (!receipt) return false
+    return downloadEnvelope(receipt.preimage, "-device-only-version")
+  }, [documentMediaAdmission, downloadEnvelope])
+
+  const saveDocumentMediaAdmissionPreimageAsCopy = useCallback(async () => {
+    const receipt = documentMediaAdmission?.receipt
+    if (!receipt) return { ok: false as const }
+    const now = new Date().toISOString()
+    const newDocumentId = `document-${crypto.randomUUID()}`
+    const preimage = receipt.preimage
+    const created = await getDraftRepository().create(
+      {
+        document: {
+          ...structuredClone(preimage.document),
+          id: newDocumentId,
+          name: `${preimage.document.name} device-only copy`,
+          revision: 0,
+          createdAt: now,
+          updatedAt: now,
+        },
+        sourceContext: structuredClone(preimage.sourceContext),
+        ...(preimage.reviewJournal
+          ? { reviewJournal: structuredClone(preimage.reviewJournal) }
+          : {}),
+        ...(preimage.quotationRefresh
+          ? { quotationRefresh: structuredClone(preimage.quotationRefresh) }
+          : {}),
+      },
+      { kind: "duplicate", sourceDocumentId: receipt.documentId }
+    )
+    if (!created.ok) {
+      setDocumentError(
+        "failure" in created
+          ? created.failure.message
+          : "Studio could not preserve the device-only version as a copy."
+      )
+      return { ok: false as const }
+    }
+    setDocumentError(
+      `Saved “${created.record.envelope.document.name}” without changing the current document.`
+    )
+    return {
+      ok: true as const,
+      documentId: created.record.summary.documentId,
+    }
+  }, [documentMediaAdmission, getDraftRepository])
 
   const setSeparateDocumentTransition = useCallback((active: boolean) => {
     separateDocumentTransitionRef.current = active
@@ -5936,11 +6512,1667 @@ export function useDocumentEditor({
     return true
   }, [])
 
+  const runMountedLocalMediaRelink = useCallback(
+    async (
+      localAssetId: string,
+      label: string,
+      prepareTarget: (
+        signal: AbortSignal
+      ) => Promise<PreparedMountedMediaRecoveryTarget>,
+      options: Readonly<{ allowUnavailableLocalState?: boolean }> = {}
+    ) => {
+      if (activeLocalMediaRecoveryRef.current) return false
+      if (!allowMutation()) return false
+      const session = activePersistenceSessionRef.current
+      if (!session || sessionModeRef.current !== "workspace") {
+        setAssetError(
+          "Save this document in Studio before recovering its missing images."
+        )
+        return false
+      }
+      if (!captureSettledDraft()) return false
+      const source = localAssetSource(localAssetId)
+      const sourceDocument = historyRef.current.document
+      const expectedReferenceKeys = assetReferenceKeysForSource(
+        sourceDocument,
+        source
+      )
+      if (!expectedReferenceKeys.length) {
+        setAssetError("This missing image is no longer used by the document.")
+        return false
+      }
+      const sourceHistorySnapshotId = historyRef.current.snapshotId
+      const sourceOperationVersion = historyRef.current.operationVersion
+      const generation = sessionGenerationRef.current
+      const token = crypto.randomUUID()
+      const controller = new AbortController()
+      let settleCritical!: () => void
+      const criticalSettlement = new Promise<void>((resolve) => {
+        settleCritical = resolve
+      })
+      const operation: MountedLocalMediaRecovery = {
+        token,
+        localAssetId,
+        documentId: sourceDocument.id,
+        session,
+        sessionGeneration: generation,
+        critical: false,
+        controller,
+        criticalSettlement,
+      }
+      activeLocalMediaRecoveryRef.current = operation
+      const owns = () =>
+        mountedRef.current &&
+        activeLocalMediaRecoveryRef.current?.token === token &&
+        activePersistenceSessionRef.current === session &&
+        sessionGenerationRef.current === generation &&
+        historyRef.current.document.id === sourceDocument.id
+      const publish = (state: LocalMediaRecoveryOperationViewState) => {
+        if (!owns()) return
+        setLocalMediaRecoveryOperations((current) => ({
+          ...current,
+          [localAssetId]: state,
+        }))
+      }
+      publish({
+        phase: "preparing",
+        message: "Reviewing every use of this image…",
+        retryable: false,
+      })
+      let reservedDurableOperation: MountedMediaRecoveryRecord | null = null
+      const abandonReservedOperation = async () => {
+        if (!reservedDurableOperation) return true
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          const candidate = reservedDurableOperation
+          const abandoned =
+            await mountedMediaRecoveryRepositoryRef.current.abandonPrecommitIntent(
+              {
+                operationId: candidate.operationId,
+                expectedRevision: candidate.revision,
+                source: {
+                  contentSnapshotId: candidate.sourceContentSnapshotId,
+                  historySnapshotId: candidate.sourceHistorySnapshotId,
+                  operationVersion: candidate.sourceOperationVersion,
+                  draftRecordVersion: candidate.sourceDraftRecordVersion,
+                  draftSnapshotId: candidate.sourceDraftSnapshotId,
+                },
+                code: "prepared_recovery_not_installed",
+                message:
+                  "The prepared image recovery stopped before changing the document.",
+                requestId: null,
+                updatedAt: new Date().toISOString(),
+              }
+            )
+          if (abandoned.ok) {
+            reservedDurableOperation = abandoned.record
+            return true
+          }
+          if (
+            abandoned.reason !== "cas_conflict" ||
+            abandoned.current.operationId !== candidate.operationId ||
+            abandoned.current.documentCommit !== null
+          ) {
+            return false
+          }
+          reservedDurableOperation = abandoned.current
+        }
+        return false
+      }
+      try {
+        const initialFlush = await session.controller.flushWithReceipt()
+        controller.signal.throwIfAborted()
+        if (!owns()) return false
+        if (!initialFlush.ok) {
+          throw new Error(
+            "Finish saving the current document, then retry image recovery."
+          )
+        }
+        const sourceContentSnapshotId =
+          await deriveDocumentSnapshotId(sourceDocument)
+        if (!owns()) return false
+        const initialLocalInspection = await inspectRequestedLocalAssets(
+          [localAssetId],
+          { signal: controller.signal }
+        )
+        const initialLocalState = initialLocalInspection[0]
+        if (!initialLocalState || initialLocalInspection.length !== 1) {
+          throw new Error(
+            "Studio could not capture this device image identity before recovery. Retry."
+          )
+        }
+        const initialLocalFingerprint = await localAdmissionStateFingerprint(
+          initialLocalState,
+          controller.signal,
+          options.allowUnavailableLocalState
+        )
+        const target = await prepareTarget(controller.signal)
+        controller.signal.throwIfAborted()
+        if (!owns()) return false
+        if (
+          historyRef.current.document !== sourceDocument ||
+          historyRef.current.snapshotId !== sourceHistorySnapshotId ||
+          historyRef.current.operationVersion !== sourceOperationVersion ||
+          session.controller.recordVersion !==
+            initialFlush.receipt.recordVersion ||
+          session.controller.draftSnapshotId !==
+            initialFlush.receipt.draftSnapshotId ||
+          session.controller.contentSnapshotId !== sourceContentSnapshotId ||
+          !sameReferenceKeys(
+            assetReferenceKeysForSource(historyRef.current.document, source),
+            expectedReferenceKeys
+          )
+        ) {
+          throw new Error(
+            "The document changed while Studio prepared image recovery. Review its current uses and retry."
+          )
+        }
+        if (target.kind !== "restored") {
+          const currentLocalInspection = await inspectRequestedLocalAssets(
+            [localAssetId],
+            { signal: controller.signal }
+          )
+          const currentLocalState = currentLocalInspection[0]
+          if (
+            !currentLocalState ||
+            currentLocalInspection.length !== 1 ||
+            (await localAdmissionStateFingerprint(
+              currentLocalState,
+              controller.signal,
+              options.allowUnavailableLocalState
+            )) !== initialLocalFingerprint
+          ) {
+            throw new Error(
+              "The device image identity changed while Studio prepared recovery. Review the current file and retry."
+            )
+          }
+        }
+        if (target.kind === "restored") {
+          pendingLocatedMediaConflictRef.current.delete(localAssetId)
+          publish({
+            phase: "complete",
+            message:
+              "The exact file was restored to its existing device identity. The document did not need a new Undo step.",
+            retryable: false,
+            completionKind: "restored",
+          })
+          setAssetVersion((current) => current + 1)
+          return true
+        }
+        let durableOperation: MountedMediaRecoveryRecord | null = null
+        let normalizedTarget =
+          target.kind === "managed"
+            ? {
+                ...target,
+                preexistingTargetReferenceKeys: assetReferenceKeysForSource(
+                  sourceDocument,
+                  target.source
+                ),
+              }
+            : target
+        if (target.kind === "managed") {
+          const operationId = await stableMountedMediaRecoveryOperationId(
+            [
+              sourceDocument.id,
+              localAssetId,
+              target.assetId,
+              token,
+              normalizedTarget.kind === "managed"
+                ? normalizedTarget.preexistingTargetReferenceKeys.join(",")
+                : "",
+              sourceContentSnapshotId,
+              sourceHistorySnapshotId,
+              sourceOperationVersion,
+              initialFlush.receipt.recordVersion,
+              initialFlush.receipt.draftSnapshotId,
+            ].join("\u0000")
+          )
+          const intent =
+            await mountedMediaRecoveryRepositoryRef.current.createIntent({
+              operationId,
+              documentId: sourceDocument.id,
+              localAssetId,
+              localSource: source,
+              managedAssetId: target.assetId,
+              managedSource: target.source,
+              preexistingTargetReferenceKeys:
+                normalizedTarget.kind === "managed"
+                  ? normalizedTarget.preexistingTargetReferenceKeys
+                  : [],
+              expectedReferenceKeys,
+              sourceContentSnapshotId,
+              sourceHistorySnapshotId,
+              sourceOperationVersion,
+              sourceDraftRecordVersion: initialFlush.receipt.recordVersion,
+              sourceDraftSnapshotId: initialFlush.receipt.draftSnapshotId,
+              createdAt: new Date().toISOString(),
+            })
+          if (!intent.ok) {
+            throw new Error(
+              "failure" in intent
+                ? intent.failure.message
+                : "Studio could not reserve this exact image recovery operation."
+            )
+          }
+          if (
+            intent.record.documentCommit !== null ||
+            intent.record.status === "complete" ||
+            intent.record.status === "conflict" ||
+            intent.record.status === "abandoned"
+          ) {
+            throw new Error(
+              "A durable recovery receipt already exists for another document state. Reload this document before retrying."
+            )
+          }
+          durableOperation = intent.record
+          reservedDurableOperation = intent.record
+          normalizedTarget = {
+            assetId: target.assetId,
+            source: target.source,
+            kind: "managed",
+            preexistingTargetReferenceKeys:
+              normalizedTarget.kind === "managed"
+                ? [...normalizedTarget.preexistingTargetReferenceKeys]
+                : [],
+            recentUseIdempotencyKey: intent.record.recentUseIdempotencyKey,
+          }
+        }
+        const recoveryDrafts: CommandDraft[] =
+          normalizedTarget.kind === "remove"
+            ? [
+                ...normalizedTarget.bindingIds.map(
+                  (bindingId): CommandDraft => ({
+                    type: "unbind_field",
+                    bindingId,
+                  })
+                ),
+                ...normalizedTarget.nodeIds.map((nodeId): CommandDraft => ({
+                  type: "remove_node",
+                  nodeId,
+                })),
+                ...normalizedTarget.clearDefaultFieldIds.map(
+                  (fieldId): CommandDraft => ({
+                    type: "update_field",
+                    fieldId,
+                    patch: { defaultValue: "" },
+                  })
+                ),
+                ...normalizedTarget.clearCurrentFieldIds.map(
+                  (fieldId): CommandDraft => ({
+                    type: "set_field",
+                    fieldId,
+                    value: "",
+                  })
+                ),
+              ]
+            : [
+                normalizedTarget.kind === "managed"
+                  ? {
+                      type: "relink_asset_references",
+                      from: source,
+                      toAssetId: normalizedTarget.assetId,
+                      toSource: normalizedTarget.source,
+                      expectedReferenceKeys,
+                    }
+                  : {
+                      type: "relink_local_asset_references",
+                      from: source,
+                      toAssetId: normalizedTarget.assetId,
+                      toSource: normalizedTarget.source,
+                      expectedReferenceKeys,
+                    },
+              ]
+        const result = commitCommandsWithResult(
+          historyRef.current,
+          recoveryDrafts.map(commandFromDraft),
+          { label }
+        )
+        if (!result) throw new Error("The image recovery made no change.")
+        if (durableOperation) {
+          const preparedContentSnapshotId = await deriveDocumentSnapshotId(
+            result.history.document
+          )
+          controller.signal.throwIfAborted()
+          if (!owns()) {
+            await abandonReservedOperation()
+            return false
+          }
+          const prepared =
+            await mountedMediaRecoveryRepositoryRef.current.recordHistoryPrepared(
+              {
+                operationId: durableOperation.operationId,
+                expectedRevision: durableOperation.revision,
+                historyCheckpoint: {
+                  resultContentSnapshotId: preparedContentSnapshotId,
+                  resultHistorySnapshotId: result.history.snapshotId,
+                  resultOperationVersion: result.history.operationVersion,
+                  commitId: result.commit.id,
+                  undoable: result.commit.undoable,
+                },
+                updatedAt: new Date().toISOString(),
+              }
+            )
+          if (!prepared.ok) {
+            throw new Error(
+              "failure" in prepared
+                ? prepared.failure.message
+                : "Studio could not checkpoint the prepared image recovery."
+            )
+          }
+          durableOperation = prepared.record
+          reservedDurableOperation = prepared.record
+          controller.signal.throwIfAborted()
+          if (!owns()) {
+            await abandonReservedOperation()
+            return false
+          }
+        }
+        historyRef.current = result.history
+        setHistory(result.history)
+        pruneTemplateSourceContexts(result.history)
+        localMediaRecoveryCheckpointRef.current.set(localAssetId, {
+          localAssetId,
+          source,
+          target: normalizedTarget,
+          expectedReferenceKeys,
+          documentId: sourceDocument.id,
+          session,
+          sessionGeneration: generation,
+          undoable: result.commit.undoable,
+          commitId: result.commit.id,
+          resultHistorySnapshotId: result.history.snapshotId,
+          resultOperationVersion: result.history.operationVersion,
+          durableOperation,
+        })
+        activeLocalMediaRecoveryRef.current = { ...operation, critical: true }
+        notifyHistoryCommit(result.commit)
+        publish({
+          phase: "saving",
+          message: "Saving recovered image references…",
+          retryable: false,
+          completionKind: "relinked",
+        })
+        if (!captureSettledDraft()) {
+          throw new Error(
+            "The recovered document could not be queued for save."
+          )
+        }
+        if (session.controller.state.status === "failed") {
+          await session.controller.retry()
+        }
+        const flushed = await session.controller.flushWithReceipt()
+        if (!flushed.ok) {
+          throw new Error(
+            "The image was recovered in this tab, but its durable save did not finish. Keep this tab open and retry saving."
+          )
+        }
+        const readBack = await getDraftRepository().get(
+          flushed.receipt.documentId
+        )
+        if (
+          !readBack.ok ||
+          readBack.status !== "found" ||
+          readBack.record.summary.documentId !== sourceDocument.id ||
+          readBack.record.summary.recordVersion !==
+            flushed.receipt.recordVersion ||
+          readBack.record.summary.contentSnapshotId !==
+            flushed.receipt.contentSnapshotId ||
+          readBack.record.summary.draftSnapshotId !==
+            flushed.receipt.draftSnapshotId ||
+          !hasExactRecoveredProjection(
+            readBack.record.envelope.document,
+            source,
+            normalizedTarget,
+            expectedReferenceKeys
+          )
+        ) {
+          throw new Error(
+            "Studio could not verify the durable recovered image references."
+          )
+        }
+        if (durableOperation) {
+          const recorded =
+            await mountedMediaRecoveryRepositoryRef.current.recordDocumentCommitted(
+              {
+                operationId: durableOperation.operationId,
+                expectedRevision: durableOperation.revision,
+                documentCommit: {
+                  kind: "committed",
+                  resultContentSnapshotId: flushed.receipt.contentSnapshotId,
+                  resultHistorySnapshotId: result.history.snapshotId,
+                  resultOperationVersion: result.history.operationVersion,
+                  commitId: result.commit.id,
+                  undoable: result.commit.undoable,
+                  durable: {
+                    documentId: flushed.receipt.documentId,
+                    recordVersion: flushed.receipt.recordVersion,
+                    contentSnapshotId: flushed.receipt.contentSnapshotId,
+                    draftSnapshotId: flushed.receipt.draftSnapshotId,
+                    savedAt: flushed.receipt.savedAt,
+                  },
+                },
+                updatedAt: new Date().toISOString(),
+              }
+            )
+          if (!recorded.ok) {
+            throw new Error(
+              "failure" in recorded
+                ? recorded.failure.message
+                : "Studio saved the recovered document but could not checkpoint its exact recovery receipt."
+            )
+          }
+          durableOperation = recorded.record
+          localMediaRecoveryCheckpointRef.current.set(localAssetId, {
+            ...localMediaRecoveryCheckpointRef.current.get(localAssetId)!,
+            durableOperation,
+          })
+        }
+        let recentWarning = false
+        if (
+          normalizedTarget.kind === "managed" &&
+          normalizedTarget.recentUseIdempotencyKey
+        ) {
+          try {
+            const recent = await markManagedMediaUsed(
+              normalizedTarget.assetId,
+              {
+                idempotencyKey: normalizedTarget.recentUseIdempotencyKey,
+              }
+            )
+            if (durableOperation) {
+              const completed =
+                await mountedMediaRecoveryRepositoryRef.current.recordRecentComplete(
+                  {
+                    operationId: durableOperation.operationId,
+                    expectedRevision: durableOperation.revision,
+                    idempotencyKey: durableOperation.recentUseIdempotencyKey,
+                    requestId: recent.requestId,
+                    usedAt: recent.usedAt,
+                    assetRevision: recent.assetRevision,
+                    updatedAt: new Date().toISOString(),
+                  }
+                )
+              if (!completed.ok) {
+                throw new Error(
+                  "failure" in completed
+                    ? completed.failure.message
+                    : "Studio could not store the Recent receipt."
+                )
+              }
+            }
+          } catch {
+            recentWarning = true
+          }
+        }
+        if (recentWarning && durableOperation) {
+          throw new Error(
+            "The document recovery is saved, but Studio still needs to finish the durable Recent receipt."
+          )
+        }
+        publish({
+          phase: "complete",
+          message: recentWarning
+            ? "Image recovered and saved. Studio could not update its Recent position."
+            : result.commit.undoable
+              ? "Image recovered and saved. Undo restores the device-only reference."
+              : "Image recovered and saved. No new Undo step is available.",
+          retryable: false,
+          completionKind: "relinked",
+        })
+        localMediaRecoveryCheckpointRef.current.delete(localAssetId)
+        setAssetVersion((current) => current + 1)
+        return true
+      } catch (error) {
+        const message =
+          error instanceof Error && error.message
+            ? error.message
+            : "Studio could not recover this image."
+        const hasCheckpoint =
+          localMediaRecoveryCheckpointRef.current.has(localAssetId)
+        const checkpoint =
+          localMediaRecoveryCheckpointRef.current.get(localAssetId)
+        if (checkpoint?.durableOperation) {
+          const retry =
+            await mountedMediaRecoveryRepositoryRef.current.markRetry({
+              operationId: checkpoint.durableOperation.operationId,
+              expectedRevision: checkpoint.durableOperation.revision,
+              code: "mounted_recovery_incomplete",
+              message,
+              requestId: null,
+              updatedAt: new Date().toISOString(),
+            })
+          if (retry.ok) {
+            localMediaRecoveryCheckpointRef.current.set(localAssetId, {
+              ...checkpoint,
+              durableOperation: retry.record,
+            })
+          }
+        }
+        if (!hasCheckpoint && reservedDurableOperation) {
+          if (!(await abandonReservedOperation())) {
+            const dispositionMessage =
+              "Studio could not close the unused recovery checkpoint. Retry the recovery check before editing."
+            if (owns()) {
+              mountedMediaRecoveryReconciledSessionRef.current = null
+              setMountedMediaRecoveryReconciliation({
+                status: "error",
+                sessionKey: `${sourceDocument.id}:${generation}`,
+                message: dispositionMessage,
+              })
+              publish({
+                phase: "failed",
+                message: dispositionMessage,
+                retryable: false,
+              })
+              setAssetError(dispositionMessage)
+            }
+            return false
+          }
+        }
+        if (controller.signal.aborted && !hasCheckpoint) {
+          publish({
+            phase: "complete",
+            message:
+              "Image recovery was cancelled before the document changed.",
+            retryable: false,
+            completionKind: "cancelled",
+          })
+          return false
+        }
+        publish({
+          phase:
+            error instanceof LocalMediaIdentityConflictError
+              ? "identity_conflict"
+              : "failed",
+          message,
+          retryable:
+            !(error instanceof LocalMediaIdentityConflictError) &&
+            hasCheckpoint,
+          ...(hasCheckpoint ? { retryAction: "finish_saving" as const } : {}),
+        })
+        setAssetError(message)
+        return false
+      } finally {
+        settleCritical()
+        if (activeLocalMediaRecoveryRef.current?.token === token) {
+          activeLocalMediaRecoveryRef.current = null
+        }
+      }
+    },
+    [
+      allowMutation,
+      captureSettledDraft,
+      getDraftRepository,
+      notifyHistoryCommit,
+      pruneTemplateSourceContexts,
+    ]
+  )
+
+  const cancelLocalMediaRecovery = useCallback((localAssetId: string) => {
+    const operation = activeLocalMediaRecoveryRef.current
+    if (!operation || operation.localAssetId !== localAssetId) return false
+    if (operation.critical) {
+      setAssetError(
+        "This recovery is already saving. Keep Media open until the durable save finishes."
+      )
+      return false
+    }
+    setLocalMediaRecoveryOperations((current) => ({
+      ...current,
+      [localAssetId]: {
+        phase: "cancelling",
+        message: "Cancelling before the document changes…",
+        retryable: false,
+      },
+    }))
+    operation.controller.abort(
+      new DOMException("Image recovery cancelled", "AbortError")
+    )
+    return true
+  }, [])
+
+  const useStudioCopyForLocalAsset = useCallback(
+    (localAssetId: string, confirmIdentityConflict = false) =>
+      runMountedLocalMediaRelink(
+        localAssetId,
+        "Use Studio image copy",
+        async (signal) => {
+          const resolved = await resolveLocalAssetPromotions([localAssetId], {
+            signal,
+          })
+          const resolution = resolved.results[0]
+          const promotion = resolution?.promotion
+          if (
+            resolved.results.length !== 1 ||
+            resolution?.localAssetId !== localAssetId ||
+            !promotion ||
+            promotion.localAssetId !== localAssetId
+          ) {
+            throw new Error(
+              "No exact Studio copy is available for this missing image."
+            )
+          }
+          const inspected = await inspectRequestedLocalAssets([localAssetId], {
+            signal,
+          })
+          const localState = inspected[0]
+          if (!localState || inspected.length !== 1) {
+            throw new Error(
+              "Studio could not verify the current device file state."
+            )
+          }
+          if (localState.status === "unavailable") {
+            if (!confirmIdentityConflict) {
+              throw new LocalMediaIdentityConflictError(
+                "This device's image storage cannot be verified. Review every affected use, then choose Replace with Studio copy to use the exact saved Studio identity without changing unknown device bytes."
+              )
+            }
+          }
+          if (localState.status === "ready") {
+            const localHash = await hashLocalAssetBlobSha256(
+              localState.record.blob,
+              signal
+            )
+            if (localHash !== promotion.contentSha256) {
+              if (!confirmIdentityConflict) {
+                throw new LocalMediaIdentityConflictError(
+                  "A different file now exists under this device identity. Review every affected use, then choose Replace with Studio copy to keep both files without overwriting the device copy."
+                )
+              }
+            }
+            const confirmed = await inspectRequestedLocalAssets(
+              [localAssetId],
+              { signal }
+            )
+            if (
+              confirmed[0]?.status !== "ready" ||
+              confirmed[0].record.revision !== localState.record.revision
+            ) {
+              throw new Error(
+                "The device file changed while Studio prepared recovery. Retry."
+              )
+            }
+          }
+          const mappingConfirmation = await resolveLocalAssetPromotions(
+            [localAssetId],
+            { signal }
+          )
+          const confirmedPromotion =
+            mappingConfirmation.results[0]?.promotion ?? null
+          if (
+            mappingConfirmation.results.length !== 1 ||
+            mappingConfirmation.results[0]?.localAssetId !== localAssetId ||
+            !confirmedPromotion ||
+            confirmedPromotion.localAssetId !== localAssetId ||
+            confirmedPromotion.asset.id !== promotion.asset.id ||
+            confirmedPromotion.asset.status !== promotion.asset.status ||
+            confirmedPromotion.asset.revision !== promotion.asset.revision ||
+            confirmedPromotion.contentSha256 !== promotion.contentSha256
+          ) {
+            throw new Error(
+              "The Studio copy changed while recovery was prepared. Retry."
+            )
+          }
+          const managed = await getManagedMedia(promotion.asset.id, signal)
+          if (
+            !managed ||
+            managed.id !== promotion.asset.id ||
+            managed.status !== promotion.asset.status
+          ) {
+            throw new Error(
+              "The saved Studio copy changed while recovery was prepared. Retry."
+            )
+          }
+          return {
+            assetId: managed.id,
+            source: managedAssetSource(managed.id),
+            kind: "managed" as const,
+            recentUseIdempotencyKey: `media-recovery-${crypto.randomUUID()}`,
+          }
+        },
+        { allowUnavailableLocalState: true }
+      ),
+    [runMountedLocalMediaRelink]
+  )
+
+  const locateMissingLocalAsset = useCallback(
+    (localAssetId: string, file: File) =>
+      runMountedLocalMediaRelink(
+        localAssetId,
+        "Locate missing image",
+        async (signal) => {
+          const validationError = validateMediaFile(file)
+          if (validationError) throw new Error(validationError)
+          await assertLocalAssetCapacity(file.size)
+          const [dimensions, contentSha256, resolved, inspected] =
+            await Promise.all([
+              decodeValidatedImageDimensions(file),
+              hashLocalAssetBlobSha256(file, signal),
+              resolveLocalAssetPromotions([localAssetId], { signal }),
+              inspectRequestedLocalAssets([localAssetId], { signal }),
+            ])
+          signal.throwIfAborted()
+          const resolution = resolved.results[0]
+          const localState = inspected[0]
+          if (
+            resolved.results.length !== 1 ||
+            resolution?.localAssetId !== localAssetId ||
+            !localState ||
+            inspected.length !== 1
+          ) {
+            throw new Error(
+              "Studio could not verify the selected file against this exact image identity. Retry."
+            )
+          }
+          if (localState.status === "unavailable") {
+            throw new Error(localState.message)
+          }
+          const promotion = resolution.promotion
+          if (promotion && promotion.localAssetId !== localAssetId) {
+            throw new Error(
+              "Studio returned a saved copy for another image identity. Retry."
+            )
+          }
+          if (promotion && contentSha256 !== promotion.contentSha256) {
+            pendingLocatedMediaConflictRef.current.set(localAssetId, {
+              file,
+              contentSha256,
+              expectedContentSha256: promotion.contentSha256,
+            })
+            throw new LocalMediaIdentityConflictError(
+              "This file is different from the saved Studio copy. Use the Studio copy to keep the old identity, or keep this file as a new upload."
+            )
+          }
+          if (promotion) {
+            if (localState.status === "ready") {
+              const currentHash = await hashLocalAssetBlobSha256(
+                localState.record.blob,
+                signal
+              )
+              const confirmed = await inspectRequestedLocalAssets(
+                [localAssetId],
+                { signal }
+              )
+              if (
+                confirmed[0]?.status !== "ready" ||
+                confirmed[0].record.revision !== localState.record.revision
+              ) {
+                throw new Error(
+                  "The device file changed while Studio checked it. Retry."
+                )
+              }
+              if (currentHash !== promotion.contentSha256) {
+                pendingLocatedMediaConflictRef.current.set(localAssetId, {
+                  file,
+                  contentSha256,
+                  expectedContentSha256: promotion.contentSha256,
+                })
+                throw new LocalMediaIdentityConflictError(
+                  "A different file now exists under this device identity. Use the Studio copy to keep the old identity, or keep the located file as a new upload."
+                )
+              }
+              return {
+                assetId: localAssetId,
+                source: localAssetSource(localAssetId),
+                kind: "restored" as const,
+                recentUseIdempotencyKey: null,
+              }
+            }
+            const restored = await restoreLocalAssetBlob(
+              {
+                assetId: localAssetId,
+                file,
+                expected: localRestoreExpectation(localState),
+                expectedContentSha256: promotion.contentSha256,
+                contentSha256,
+                width: dimensions.width,
+                height: dimensions.height,
+              },
+              signal
+            )
+            if (!restored.ok) throw new Error(restored.message)
+            return {
+              assetId: localAssetId,
+              source: localAssetSource(localAssetId),
+              kind: "restored" as const,
+              recentUseIdempotencyKey: null,
+            }
+          }
+          if (localState.status === "ready") {
+            const currentHash = await hashLocalAssetBlobSha256(
+              localState.record.blob,
+              signal
+            )
+            if (currentHash === contentSha256) {
+              return {
+                assetId: localAssetId,
+                source: localAssetSource(localAssetId),
+                kind: "restored" as const,
+                recentUseIdempotencyKey: null,
+              }
+            }
+            pendingLocatedMediaConflictRef.current.set(localAssetId, {
+              file,
+              contentSha256,
+              expectedContentSha256: currentHash,
+            })
+            throw new LocalMediaIdentityConflictError(
+              "A different file now exists under this device identity. Keep the located file as a new upload to preserve both."
+            )
+          }
+          const nextAssetId = `asset-${crypto.randomUUID()}`
+          await saveLocalAsset(file, nextAssetId, dimensions)
+          const saved = await getLocalAssetRecord(nextAssetId, signal)
+          if (!saved || saved.revision < 1) {
+            throw new Error(
+              "Studio saved the located file but could not verify its new local identity."
+            )
+          }
+          return {
+            assetId: nextAssetId,
+            source: localAssetSource(nextAssetId),
+            kind: "local" as const,
+            recentUseIdempotencyKey: null,
+          }
+        }
+      ),
+    [runMountedLocalMediaRelink]
+  )
+
+  const keepLocatedFileAsNewLocalAsset = useCallback(
+    (localAssetId: string) => {
+      const pending = pendingLocatedMediaConflictRef.current.get(localAssetId)
+      if (!pending) {
+        setAssetError(
+          "Choose Locate file again before keeping it as a new upload."
+        )
+        return Promise.resolve(false)
+      }
+      return runMountedLocalMediaRelink(
+        localAssetId,
+        "Keep located image as new upload",
+        async (signal) => {
+          const file = pending.file
+          const validationError = validateMediaFile(file)
+          if (validationError) throw new Error(validationError)
+          const [dimensions, confirmedHash] = await Promise.all([
+            decodeValidatedImageDimensions(file),
+            hashLocalAssetBlobSha256(file, signal),
+          ])
+          if (confirmedHash !== pending.contentSha256) {
+            throw new Error(
+              "The selected file changed before Studio could keep it. Locate it again."
+            )
+          }
+          await assertLocalAssetCapacity(file.size)
+          signal.throwIfAborted()
+          const nextAssetId = `asset-${crypto.randomUUID()}`
+          await saveLocalAsset(file, nextAssetId, dimensions)
+          const saved = await getLocalAssetRecord(nextAssetId, signal)
+          if (!saved || saved.revision < 1) {
+            throw new Error(
+              "Studio saved the located file but could not verify its new local identity."
+            )
+          }
+          pendingLocatedMediaConflictRef.current.delete(localAssetId)
+          return {
+            assetId: nextAssetId,
+            source: localAssetSource(nextAssetId),
+            kind: "local" as const,
+            recentUseIdempotencyKey: null,
+          }
+        }
+      )
+    },
+    [runMountedLocalMediaRelink]
+  )
+
+  const chooseManagedImageForLocalAsset = useCallback(
+    (localAssetId: string, asset: ManagedMediaAsset) =>
+      runMountedLocalMediaRelink(
+        localAssetId,
+        "Choose Studio image",
+        async (signal) => {
+          const current = await getManagedMedia(asset.id, signal)
+          if (!current?.selectable || current.status !== "ready") {
+            throw new Error(
+              "That Studio image is no longer selectable. Refresh Media and choose another."
+            )
+          }
+          return {
+            assetId: current.id,
+            source: managedAssetSource(current.id),
+            kind: "managed" as const,
+            recentUseIdempotencyKey: `media-recovery-${crypto.randomUUID()}`,
+          }
+        }
+      ),
+    [runMountedLocalMediaRelink]
+  )
+
+  const removeMissingLocalAsset = useCallback(
+    (localAssetId: string, referenceKey?: string) =>
+      runMountedLocalMediaRelink(
+        localAssetId,
+        referenceKey?.startsWith("field/")
+          ? "Clear image field value"
+          : "Remove missing image layer",
+        async (signal) => {
+          signal.throwIfAborted()
+          const document = historyRef.current.document
+          const source = localAssetSource(localAssetId)
+          const references = extractAssetReferences(document).filter(
+            (reference) => reference.source === source
+          )
+          const chosen = referenceKey
+            ? references.find((reference) => reference.key === referenceKey)
+            : references.length === 1
+              ? references[0]
+              : null
+          if (!chosen) {
+            throw new Error(
+              "Choose one exact optional field slot or image layer to clear."
+            )
+          }
+          if (chosen.location === "node" && chosen.fieldId) {
+            throw new Error(
+              "This layer is field-bound. Clear its optional current field slot instead."
+            )
+          }
+          if (!references.length) {
+            throw new Error("The affected image uses are no longer available.")
+          }
+          const nodeIds = [
+            ...new Set(
+              chosen.location === "field_current"
+                ? chosen.projectedNodeIds
+                : chosen.nodeId
+                  ? [chosen.nodeId]
+                  : []
+            ),
+          ].sort()
+          const affectedNodes = document.nodes.filter((node) =>
+            nodeIds.includes(node.id)
+          )
+          if (affectedNodes.length !== nodeIds.length) {
+            throw new Error("An affected image layer is no longer available.")
+          }
+          if (affectedNodes.some((node) => node.locked)) {
+            throw new Error(
+              "Unlock every affected image layer before clearing this image."
+            )
+          }
+          const fieldIds = chosen.fieldId ? [chosen.fieldId] : []
+          const affectedFields = document.fields.filter((field) =>
+            fieldIds.includes(field.id)
+          )
+          if (affectedFields.some((field) => field.required)) {
+            throw new Error(
+              "A required field uses this image. Choose a replacement instead of clearing it."
+            )
+          }
+          const clearCurrentFieldIds = affectedFields
+            .filter(
+              (field) =>
+                chosen.location === "field_current" &&
+                document.fieldValues[field.id] === source
+            )
+            .map((field) => field.id)
+          const clearDefaultFieldIds = affectedFields
+            .filter(
+              (field) =>
+                field.type === "asset" &&
+                field.defaultValue === source &&
+                chosen.location === "field_default"
+            )
+            .map((field) => field.id)
+          const bindingIds = document.bindings
+            .filter(
+              (binding) =>
+                binding.property === "src" &&
+                fieldIds.includes(binding.fieldId) &&
+                nodeIds.includes(binding.nodeId)
+            )
+            .map((binding) => binding.id)
+            .sort()
+          const removedReferenceKeys = [
+            chosen.key,
+            ...references
+              .filter(
+                (reference) =>
+                  reference.location === "node" &&
+                  reference.nodeId !== null &&
+                  nodeIds.includes(reference.nodeId)
+              )
+              .map((reference) => reference.key),
+          ].sort()
+          return {
+            assetId: localAssetId,
+            source,
+            kind: "remove" as const,
+            nodeIds,
+            bindingIds,
+            clearCurrentFieldIds,
+            clearDefaultFieldIds,
+            removedReferenceKeys,
+            recentUseIdempotencyKey: null,
+          }
+        }
+      ),
+    [runMountedLocalMediaRelink]
+  )
+
+  const retryLocalMediaRecoverySave = useCallback(
+    async (localAssetId: string) => {
+      if (activeLocalMediaRecoveryRef.current) return false
+      const checkpoint =
+        localMediaRecoveryCheckpointRef.current.get(localAssetId)
+      if (!checkpoint) return false
+      const session = checkpoint.session
+      if (
+        !mountedRef.current ||
+        activePersistenceSessionRef.current !== session ||
+        sessionGenerationRef.current !== checkpoint.sessionGeneration ||
+        historyRef.current.document.id !== checkpoint.documentId ||
+        checkpoint.target.kind === "restored" ||
+        !hasExactRecoveredProjection(
+          historyRef.current.document,
+          checkpoint.source,
+          checkpoint.target,
+          checkpoint.expectedReferenceKeys
+        )
+      ) {
+        setAssetError(
+          "The document changed after image recovery. Reload its durable version before retrying."
+        )
+        return false
+      }
+      const token = crypto.randomUUID()
+      const controller = new AbortController()
+      let settle!: () => void
+      const criticalSettlement = new Promise<void>((resolve) => {
+        settle = resolve
+      })
+      const operation: MountedLocalMediaRecovery = {
+        token,
+        localAssetId,
+        documentId: checkpoint.documentId,
+        session,
+        sessionGeneration: checkpoint.sessionGeneration,
+        critical: true,
+        controller,
+        criticalSettlement,
+      }
+      activeLocalMediaRecoveryRef.current = operation
+      const owns = () =>
+        mountedRef.current &&
+        activeLocalMediaRecoveryRef.current?.token === token &&
+        activePersistenceSessionRef.current === session &&
+        sessionGenerationRef.current === checkpoint.sessionGeneration &&
+        historyRef.current.document.id === checkpoint.documentId
+      if (owns()) {
+        setLocalMediaRecoveryOperations((current) => ({
+          ...current,
+          [localAssetId]: {
+            phase: "saving",
+            message: "Finishing the recovered document save…",
+            retryable: false,
+          },
+        }))
+      }
+      try {
+        let durableOperation = checkpoint.durableOperation
+        if (
+          durableOperation &&
+          durableOperation.documentCommit === null &&
+          durableOperation.historyCheckpoint === null
+        ) {
+          const preparedContentSnapshotId = await deriveDocumentSnapshotId(
+            historyRef.current.document
+          )
+          const prepared =
+            await mountedMediaRecoveryRepositoryRef.current.recordHistoryPrepared(
+              {
+                operationId: durableOperation.operationId,
+                expectedRevision: durableOperation.revision,
+                historyCheckpoint: {
+                  resultContentSnapshotId: preparedContentSnapshotId,
+                  resultHistorySnapshotId: checkpoint.resultHistorySnapshotId,
+                  resultOperationVersion: checkpoint.resultOperationVersion,
+                  commitId: checkpoint.commitId,
+                  undoable: checkpoint.undoable,
+                },
+                updatedAt: new Date().toISOString(),
+              }
+            )
+          if (!prepared.ok) {
+            throw new Error(
+              "failure" in prepared
+                ? prepared.failure.message
+                : "Studio could not checkpoint the prepared image recovery."
+            )
+          }
+          durableOperation = prepared.record
+          localMediaRecoveryCheckpointRef.current.set(localAssetId, {
+            ...checkpoint,
+            durableOperation,
+          })
+        }
+        if (!captureSettledDraft()) {
+          throw new Error(
+            "The recovered document could not be queued for its retry save."
+          )
+        }
+        if (session.controller.state.status === "failed") {
+          await session.controller.retry()
+        }
+        const flushed = await session.controller.flushWithReceipt()
+        if (!flushed.ok) throw new Error("The recovered save is not finished.")
+        const readBack = await getDraftRepository().get(checkpoint.documentId)
+        if (
+          !readBack.ok ||
+          readBack.status !== "found" ||
+          readBack.record.summary.recordVersion !==
+            flushed.receipt.recordVersion ||
+          readBack.record.summary.contentSnapshotId !==
+            flushed.receipt.contentSnapshotId ||
+          readBack.record.summary.draftSnapshotId !==
+            flushed.receipt.draftSnapshotId ||
+          !hasExactRecoveredProjection(
+            readBack.record.envelope.document,
+            checkpoint.source,
+            checkpoint.target,
+            checkpoint.expectedReferenceKeys
+          )
+        ) {
+          throw new Error(
+            "Studio could not verify the recovered document save."
+          )
+        }
+        if (durableOperation && durableOperation.documentCommit === null) {
+          const recorded =
+            await mountedMediaRecoveryRepositoryRef.current.recordDocumentCommitted(
+              {
+                operationId: durableOperation.operationId,
+                expectedRevision: durableOperation.revision,
+                documentCommit: {
+                  kind: "committed",
+                  resultContentSnapshotId: flushed.receipt.contentSnapshotId,
+                  resultHistorySnapshotId: checkpoint.resultHistorySnapshotId,
+                  resultOperationVersion: checkpoint.resultOperationVersion,
+                  commitId: checkpoint.commitId,
+                  undoable: checkpoint.undoable,
+                  durable: {
+                    documentId: flushed.receipt.documentId,
+                    recordVersion: flushed.receipt.recordVersion,
+                    contentSnapshotId: flushed.receipt.contentSnapshotId,
+                    draftSnapshotId: flushed.receipt.draftSnapshotId,
+                    savedAt: flushed.receipt.savedAt,
+                  },
+                },
+                updatedAt: new Date().toISOString(),
+              }
+            )
+          if (!recorded.ok) {
+            throw new Error(
+              "failure" in recorded
+                ? recorded.failure.message
+                : "Studio could not checkpoint the recovered document receipt."
+            )
+          }
+          durableOperation = recorded.record
+          localMediaRecoveryCheckpointRef.current.set(localAssetId, {
+            ...checkpoint,
+            durableOperation,
+          })
+        }
+        let recentWarning = false
+        if (
+          checkpoint.target.kind === "managed" &&
+          checkpoint.target.recentUseIdempotencyKey
+        ) {
+          try {
+            const recent = await markManagedMediaUsed(
+              checkpoint.target.assetId,
+              {
+                idempotencyKey: checkpoint.target.recentUseIdempotencyKey,
+              }
+            )
+            if (durableOperation) {
+              const completed =
+                await mountedMediaRecoveryRepositoryRef.current.recordRecentComplete(
+                  {
+                    operationId: durableOperation.operationId,
+                    expectedRevision: durableOperation.revision,
+                    idempotencyKey: durableOperation.recentUseIdempotencyKey,
+                    requestId: recent.requestId,
+                    usedAt: recent.usedAt,
+                    assetRevision: recent.assetRevision,
+                    updatedAt: new Date().toISOString(),
+                  }
+                )
+              if (!completed.ok) {
+                throw new Error(
+                  "failure" in completed
+                    ? completed.failure.message
+                    : "Studio could not store the Recent receipt."
+                )
+              }
+            }
+          } catch {
+            recentWarning = true
+          }
+        }
+        if (recentWarning && durableOperation) {
+          throw new Error(
+            "The document recovery is saved, but Studio still needs to finish the durable Recent receipt."
+          )
+        }
+        localMediaRecoveryCheckpointRef.current.delete(localAssetId)
+        if (owns()) {
+          setLocalMediaRecoveryOperations((current) => ({
+            ...current,
+            [localAssetId]: {
+              phase: "complete",
+              message: recentWarning
+                ? "Image recovery is saved. Studio could not update Recent."
+                : checkpoint.undoable
+                  ? "Image recovered and saved. Undo restores the device-only reference."
+                  : "Image recovered and saved. No new Undo step is available.",
+              retryable: false,
+              completionKind: "relinked",
+            },
+          }))
+        }
+        return true
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? `${error.message} Choose Finish saving to retry without relinking again.`
+            : "The recovered save is not finished. Choose Finish saving to retry."
+        if (owns()) {
+          setLocalMediaRecoveryOperations((current) => ({
+            ...current,
+            [localAssetId]: {
+              phase: "failed",
+              message,
+              retryable: true,
+              retryAction: "finish_saving",
+            },
+          }))
+        }
+        setAssetError(message)
+        return false
+      } finally {
+        settle()
+        if (activeLocalMediaRecoveryRef.current?.token === token) {
+          activeLocalMediaRecoveryRef.current = null
+        }
+      }
+    },
+    [captureSettledDraft, getDraftRepository]
+  )
+
+  useEffect(() => {
+    const session = activePersistenceSessionRef.current
+    if (!session || sessionMode !== "workspace") return
+    const document = historyRef.current.document
+    const reconciliationKey = `${document.id}:${session.generation}`
+    if (
+      mountedMediaRecoveryReconciledSessionRef.current === reconciliationKey
+    ) {
+      setMountedMediaRecoveryReconciliation({
+        status: "ready",
+        sessionKey: reconciliationKey,
+        message: null,
+      })
+      return
+    }
+    setMountedMediaRecoveryReconciliation({
+      status: "checking",
+      sessionKey: reconciliationKey,
+      message: null,
+    })
+    let active = true
+    void (async () => {
+      const listed =
+        await mountedMediaRecoveryRepositoryRef.current.listPendingByDocument(
+          document.id
+        )
+      if (!active || !mountedRef.current) return
+      if (!listed.ok) {
+        mountedMediaRecoveryReconciledSessionRef.current = null
+        setMountedMediaRecoveryReconciliation({
+          status: "error",
+          sessionKey: reconciliationKey,
+          message: listed.failure.message,
+        })
+        setAssetError(listed.failure.message)
+        return
+      }
+      const finishDurableRecent = async (
+        durable: MountedMediaRecoveryRecord
+      ) => {
+        try {
+          const recent = await markManagedMediaUsed(durable.managedAssetId, {
+            idempotencyKey: durable.recentUseIdempotencyKey,
+          })
+          const completed =
+            await mountedMediaRecoveryRepositoryRef.current.recordRecentComplete(
+              {
+                operationId: durable.operationId,
+                expectedRevision: durable.revision,
+                idempotencyKey: durable.recentUseIdempotencyKey,
+                requestId: recent.requestId,
+                usedAt: recent.usedAt,
+                assetRevision: recent.assetRevision,
+                updatedAt: new Date().toISOString(),
+              }
+            )
+          if (!completed.ok) {
+            throw new Error(
+              "failure" in completed
+                ? completed.failure.message
+                : "Studio could not store the durable Recent receipt."
+            )
+          }
+          setLocalMediaRecoveryOperations((current) => ({
+            ...current,
+            [durable.localAssetId]: {
+              phase: "complete",
+              message:
+                "The recovered document and its durable Recent receipt are complete.",
+              retryable: false,
+              completionKind: "relinked",
+            },
+          }))
+          return true
+        } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : "Studio could not finish the durable Recent receipt."
+          await mountedMediaRecoveryRepositoryRef.current.markRetry({
+            operationId: durable.operationId,
+            expectedRevision: durable.revision,
+            code: "recent_receipt_incomplete",
+            message,
+            requestId: null,
+            updatedAt: new Date().toISOString(),
+          })
+          setLocalMediaRecoveryOperations((current) => ({
+            ...current,
+            [durable.localAssetId]: {
+              phase: "failed",
+              message,
+              retryable: true,
+              retryAction: "finish_saving",
+            },
+          }))
+          return false
+        }
+      }
+      let reconciliationFailed = false
+      for (const pending of listed.records) {
+        if (!active || !mountedRef.current) return
+        const currentSession = activePersistenceSessionRef.current
+        const currentDocument = historyRef.current.document
+        if (
+          currentSession !== session ||
+          currentDocument.id !== pending.documentId ||
+          sessionGenerationRef.current !== session.generation
+        ) {
+          return
+        }
+        if (pending.documentCommit !== null) {
+          if (!(await finishDurableRecent(pending))) reconciliationFailed = true
+          continue
+        }
+        const sourceKeys = assetReferenceKeysForSource(
+          currentDocument,
+          pending.localSource
+        )
+        const targetKeys = assetReferenceKeysForSource(
+          currentDocument,
+          pending.managedSource
+        )
+        const sourceIsExact = sameReferenceKeys(
+          sourceKeys,
+          pending.expectedReferenceKeys
+        )
+        const targetIsExact =
+          !sourceKeys.some((key) =>
+            pending.expectedReferenceKeys.includes(key)
+          ) &&
+          pending.expectedReferenceKeys.every((key) => targetKeys.includes(key))
+        if (sourceIsExact && pending.documentCommit === null) {
+          const abandoned =
+            await mountedMediaRecoveryRepositoryRef.current.abandonPrecommitIntent(
+              {
+                operationId: pending.operationId,
+                expectedRevision: pending.revision,
+                source: {
+                  contentSnapshotId: pending.sourceContentSnapshotId,
+                  historySnapshotId: pending.sourceHistorySnapshotId,
+                  operationVersion: pending.sourceOperationVersion,
+                  draftRecordVersion: pending.sourceDraftRecordVersion,
+                  draftSnapshotId: pending.sourceDraftSnapshotId,
+                },
+                code: "precommit_recovery_stopped",
+                message:
+                  "The prior recovery stopped before changing the document and can be reviewed again.",
+                requestId: null,
+                updatedAt: new Date().toISOString(),
+              }
+            )
+          setLocalMediaRecoveryOperations((current) => ({
+            ...current,
+            [pending.localAssetId]: {
+              phase: "failed",
+              message:
+                "A previous recovery stopped before changing the document. Review the current uses and choose the recovery action again.",
+              retryable: false,
+              retryAction: "repeat_action",
+            },
+          }))
+          if (!abandoned.ok) {
+            reconciliationFailed = true
+            setAssetError(
+              "failure" in abandoned
+                ? abandoned.failure.message
+                : "Studio could not close an interrupted image recovery checkpoint. Retry the recovery check."
+            )
+          }
+          continue
+        }
+        if (!targetIsExact) {
+          const conflicted =
+            await mountedMediaRecoveryRepositoryRef.current.markConflict({
+              operationId: pending.operationId,
+              expectedRevision: pending.revision,
+              code: "document_projection_changed",
+              message:
+                "The document image references changed after this recovery checkpoint.",
+              requestId: null,
+              updatedAt: new Date().toISOString(),
+            })
+          if (!active || !mountedRef.current) return
+          setLocalMediaRecoveryOperations((current) => ({
+            ...current,
+            [pending.localAssetId]: {
+              phase: "failed",
+              message: conflicted.ok
+                ? "The document changed after this image recovery. Review its current references before choosing another action."
+                : "Studio could not reconcile an earlier image recovery receipt.",
+              retryable: false,
+            },
+          }))
+          if (!conflicted.ok) reconciliationFailed = true
+          continue
+        }
+        let durable = pending
+        if (durable.documentCommit === null) {
+          const historyCheckpoint = pending.historyCheckpoint
+          if (!historyCheckpoint) {
+            const conflicted =
+              await mountedMediaRecoveryRepositoryRef.current.markConflict({
+                operationId: pending.operationId,
+                expectedRevision: pending.revision,
+                code: "history_checkpoint_missing",
+                message:
+                  "The recovered document has no durable history checkpoint proving this recovery.",
+                requestId: null,
+                updatedAt: new Date().toISOString(),
+              })
+            if (!conflicted.ok) reconciliationFailed = true
+            continue
+          }
+          const contentSnapshotId =
+            await deriveDocumentSnapshotId(currentDocument)
+          if (!active || !mountedRef.current) return
+          const observedLater =
+            currentSession.controller.recordVersion >
+            pending.sourceDraftRecordVersion + 1
+          const exactAdvancedHead =
+            currentSession.controller.recordVersion ===
+            pending.sourceDraftRecordVersion + 1
+          if (
+            (!observedLater && !exactAdvancedHead) ||
+            (exactAdvancedHead &&
+              contentSnapshotId !== historyCheckpoint.resultContentSnapshotId)
+          ) {
+            const conflicted =
+              await mountedMediaRecoveryRepositoryRef.current.markConflict({
+                operationId: pending.operationId,
+                expectedRevision: pending.revision,
+                code: "durable_head_not_advanced",
+                message:
+                  "The durable document and history heads do not prove the interrupted recovery advance.",
+                requestId: null,
+                updatedAt: new Date().toISOString(),
+              })
+            if (!conflicted.ok) reconciliationFailed = true
+            continue
+          }
+          const recorded =
+            await mountedMediaRecoveryRepositoryRef.current.recordDocumentCommitted(
+              {
+                operationId: durable.operationId,
+                expectedRevision: durable.revision,
+                documentCommit: {
+                  kind: observedLater ? "observed_later" : "already_applied",
+                  resultContentSnapshotId: contentSnapshotId,
+                  resultHistorySnapshotId:
+                    historyCheckpoint.resultHistorySnapshotId,
+                  resultOperationVersion:
+                    historyCheckpoint.resultOperationVersion,
+                  commitId: historyCheckpoint.commitId,
+                  undoable: historyCheckpoint.undoable,
+                  durable: {
+                    documentId: currentDocument.id,
+                    recordVersion: currentSession.controller.recordVersion,
+                    contentSnapshotId,
+                    draftSnapshotId: currentSession.controller.draftSnapshotId,
+                    savedAt:
+                      currentSession.controller.state.status === "saved"
+                        ? currentSession.controller.state.savedAt
+                        : new Date().toISOString(),
+                  },
+                },
+                updatedAt: new Date().toISOString(),
+              }
+            )
+          if (!recorded.ok) {
+            setAssetError(
+              "failure" in recorded
+                ? recorded.failure.message
+                : "Studio could not reconcile the recovered document receipt."
+            )
+            reconciliationFailed = true
+            continue
+          }
+          durable = recorded.record
+        }
+        if (!(await finishDurableRecent(durable))) reconciliationFailed = true
+      }
+      if (!active || !mountedRef.current) return
+      if (reconciliationFailed) {
+        mountedMediaRecoveryReconciledSessionRef.current = null
+        setMountedMediaRecoveryReconciliation({
+          status: "error",
+          sessionKey: reconciliationKey,
+          message:
+            "Studio could not finish an interrupted image recovery receipt.",
+        })
+        return
+      }
+      mountedMediaRecoveryReconciledSessionRef.current = reconciliationKey
+      setMountedMediaRecoveryReconciliation({
+        status: "ready",
+        sessionKey: reconciliationKey,
+        message: null,
+      })
+    })()
+    return () => {
+      active = false
+    }
+  }, [history.document.id, mountedMediaRecoveryRetryGeneration, sessionMode])
+
+  const retryMountedMediaRecoveryReconciliation = useCallback(() => {
+    mountedMediaRecoveryReconciledSessionRef.current = null
+    setMountedMediaRecoveryRetryGeneration((current) => current + 1)
+  }, [])
+
   const imageReplacementBlock = useCallback(
     (nodeId: string) =>
       imageReplacementBindingImpact(historyRef.current.document, nodeId)
         ?.message ?? null,
     []
+  )
+
+  const installImportedDocumentIntoCurrent = useCallback(
+    (document: Document) => {
+      templateSourceBySnapshotRef.current.set(
+        historyRef.current.snapshotId,
+        templateSourceContextRef.current
+      )
+      const result = replaceDocumentWithResult(historyRef.current, document, {
+        label: "Import document",
+      })
+      const nextHistory = result.history
+      const sourceContext: TemplateSourceContext = {
+        quotationSource: null,
+        quotationTemplateId:
+          templateSourceContextRef.current.quotationTemplateId,
+        designTemplate: null,
+      }
+      historyRef.current = nextHistory
+      templateSourceBySnapshotRef.current.set(
+        nextHistory.snapshotId,
+        sourceContext
+      )
+      setHistory(nextHistory)
+      pruneTemplateSourceContexts(nextHistory)
+      notifyHistoryCommit(result.commit)
+      installTemplateSourceContext(sourceContext)
+      clearReviewJournal()
+      captureSettledDraft()
+      const nextPageId = document.pages.some(
+        (page) => page.id === activePageIdRef.current
+      )
+        ? activePageIdRef.current
+        : (document.pages[0]?.id ?? activePageIdRef.current)
+      activePageIdRef.current = nextPageId
+      setActivePageId(nextPageId)
+      setSelection(null)
+      return true
+    },
+    [
+      captureSettledDraft,
+      clearReviewJournal,
+      installTemplateSourceContext,
+      notifyHistoryCommit,
+      pruneTemplateSourceContexts,
+    ]
   )
 
   const importDocumentFile = useCallback(
@@ -5987,45 +8219,23 @@ export function useDocumentEditor({
         )
         return false
       }
-      try {
-        templateSourceBySnapshotRef.current.set(
-          historyRef.current.snapshotId,
-          templateSourceContextRef.current
-        )
-        const result = replaceDocumentWithResult(
-          historyRef.current,
-          parsed.document,
-          {
-            label: "Import document",
-          }
-        )
-        const nextHistory = result.history
-        const sourceContext: TemplateSourceContext = {
-          quotationSource: null,
-          quotationTemplateId:
-            templateSourceContextRef.current.quotationTemplateId,
-          designTemplate: null,
-        }
-        historyRef.current = nextHistory
-        templateSourceBySnapshotRef.current.set(
-          nextHistory.snapshotId,
-          sourceContext
-        )
-        setHistory(nextHistory)
-        pruneTemplateSourceContexts(nextHistory)
-        notifyHistoryCommit(result.commit)
-        installTemplateSourceContext(sourceContext)
-        clearReviewJournal()
-        captureSettledDraft()
-        const nextPageId = parsed.document.pages.some(
-          (page) => page.id === activePageIdRef.current
-        )
-          ? activePageIdRef.current
-          : (parsed.document.pages[0]?.id ?? activePageIdRef.current)
-        activePageIdRef.current = nextPageId
-        setActivePageId(nextPageId)
-        setSelection(null)
+      if (parsed.recoveryManifest.requiresReview) {
+        setPendingDocumentImportMediaReview({
+          kind: "import",
+          fileName: file.name,
+          originalDocument: parsed.document,
+          studioCandidateDocument: parsed.candidateDocument,
+          manifest: parsed.recoveryManifest,
+          anchor: {
+            sessionGeneration: requestGeneration,
+            documentId: requestDocumentId,
+            historySnapshotId: requestSnapshotId,
+          },
+        })
         return true
+      }
+      try {
+        return installImportedDocumentIntoCurrent(parsed.document)
       } catch (error) {
         setDocumentError(
           error instanceof Error
@@ -6035,16 +8245,7 @@ export function useDocumentEditor({
         return false
       }
     },
-    [
-      allowMutation,
-      captureSettledDraft,
-      clearReviewJournal,
-      flushActiveDraft,
-      installTemplateSourceContext,
-      notifyHistoryCommit,
-      projectQuotationRefreshJournal,
-      pruneTemplateSourceContexts,
-    ]
+    [allowMutation, installImportedDocumentIntoCurrent]
   )
 
   const openDocumentFile = useCallback(
@@ -6056,7 +8257,26 @@ export function useDocumentEditor({
       if (draftRecoveryRef.current) return false
       signal?.throwIfAborted()
       setDocumentError(null)
+      const requestGeneration = sessionGenerationRef.current
+      const requestDocumentId = historyRef.current.document.id
+      const requestSnapshotId = historyRef.current.snapshotId
+      const importRequestGeneration =
+        documentImportRequestGenerationRef.current + 1
+      documentImportRequestGenerationRef.current = importRequestGeneration
       const parsed = await parseDocumentImportFile(file, undefined, { signal })
+      if (
+        !mountedRef.current ||
+        documentImportRequestGenerationRef.current !==
+          importRequestGeneration ||
+        sessionGenerationRef.current !== requestGeneration ||
+        historyRef.current.document.id !== requestDocumentId ||
+        historyRef.current.snapshotId !== requestSnapshotId
+      ) {
+        setDocumentError(
+          "The active document changed while the file was being reviewed, so it was not opened."
+        )
+        return false
+      }
       signal?.throwIfAborted()
       if (!parsed.ok) {
         setDocumentError(
@@ -6065,6 +8285,21 @@ export function useDocumentEditor({
         return false
       }
       onAdmissionComplete?.()
+      if (parsed.recoveryManifest.requiresReview) {
+        setPendingDocumentImportMediaReview({
+          kind: "open",
+          fileName: file.name,
+          originalDocument: parsed.document,
+          studioCandidateDocument: parsed.candidateDocument,
+          manifest: parsed.recoveryManifest,
+          anchor: {
+            sessionGeneration: requestGeneration,
+            documentId: requestDocumentId,
+            historySnapshotId: requestSnapshotId,
+          },
+        })
+        return true
+      }
       const envelope: CurrentDraftEnvelope = {
         schemaVersion: 1,
         document: parsed.document,
@@ -6074,6 +8309,78 @@ export function useDocumentEditor({
     },
     [persistAndInstallSession]
   )
+
+  const resolveDocumentImportMediaReview = useCallback(
+    async (useStudioCopies: boolean) => {
+      const pending = pendingDocumentImportMediaReview
+      if (!pending) return false
+      if (pending.kind === "import") {
+        const anchor = pending.anchor
+        if (
+          !anchor ||
+          sessionGenerationRef.current !== anchor.sessionGeneration ||
+          historyRef.current.document.id !== anchor.documentId ||
+          historyRef.current.snapshotId !== anchor.historySnapshotId
+        ) {
+          setDocumentError(
+            "The document changed while its imported images were being reviewed. Start the import again."
+          )
+          setPendingDocumentImportMediaReview(null)
+          return false
+        }
+        try {
+          installImportedDocumentIntoCurrent(
+            useStudioCopies
+              ? (pending.studioCandidateDocument ?? pending.originalDocument)
+              : pending.originalDocument
+          )
+          setPendingDocumentImportMediaReview(null)
+          return true
+        } catch (error) {
+          setDocumentError(
+            error instanceof Error
+              ? `The document could not be imported: ${error.message}`
+              : "The document could not be imported."
+          )
+          return false
+        }
+      }
+      const anchor = pending.anchor
+      if (
+        !anchor ||
+        sessionGenerationRef.current !== anchor.sessionGeneration ||
+        historyRef.current.document.id !== anchor.documentId ||
+        historyRef.current.snapshotId !== anchor.historySnapshotId
+      ) {
+        setDocumentError(
+          "The active document changed while its imported images were being reviewed. Open the file again."
+        )
+        setPendingDocumentImportMediaReview(null)
+        return false
+      }
+      const envelope: CurrentDraftEnvelope = {
+        schemaVersion: 1,
+        document: useStudioCopies
+          ? (pending.studioCandidateDocument ?? pending.originalDocument)
+          : pending.originalDocument,
+        sourceContext: null,
+      }
+      const installed = await persistAndInstallSession(envelope, {
+        kind: "import",
+      })
+      if (installed) setPendingDocumentImportMediaReview(null)
+      return installed
+    },
+    [
+      installImportedDocumentIntoCurrent,
+      pendingDocumentImportMediaReview,
+      persistAndInstallSession,
+    ]
+  )
+
+  const cancelDocumentImportMediaReview = useCallback(() => {
+    setPendingDocumentImportMediaReview(null)
+  }, [])
 
   const importQuotationFile = useCallback(
     async (file: File, signal?: AbortSignal) => {
@@ -7949,10 +10256,41 @@ export function useDocumentEditor({
       ),
     [history.document, history.past, localAssetPromotions]
   )
+  const mediaAdmissionReceipt = documentMediaAdmission?.receipt ?? null
+  const activeAdmissionHead = activeRecordRef.current?.summary ?? null
+  const isDocumentMediaAdmissionRestoreUnavailable = Boolean(
+    mediaAdmissionReceipt?.restoredAt === null &&
+    (documentMediaAdmissionRestoreUnavailable ||
+      localSaveState.status === "external_change" ||
+      localSaveState.status === "conflict" ||
+      !activeAdmissionHead ||
+      activeAdmissionHead.documentId !==
+        mediaAdmissionReceipt.result.documentId ||
+      activeAdmissionHead.recordVersion !==
+        mediaAdmissionReceipt.result.recordVersion ||
+      activeAdmissionHead.contentSnapshotId !==
+        mediaAdmissionReceipt.result.contentSnapshotId ||
+      activeAdmissionHead.draftSnapshotId !==
+        mediaAdmissionReceipt.result.draftSnapshotId ||
+      activeAdmissionHead.deletedAt !== mediaAdmissionReceipt.result.deletedAt)
+  )
 
   return {
     sessionMode,
     routeSessionStatus,
+    documentMediaAdmission,
+    assetVersion,
+    pendingDocumentImportMediaReview,
+    resolveDocumentImportMediaReview,
+    cancelDocumentImportMediaReview,
+    mountedMediaRecoveryReconciliation,
+    retryMountedMediaRecoveryReconciliation,
+    keepDocumentMediaAdmission,
+    restoreDocumentMediaAdmission,
+    documentMediaAdmissionRestoreUnavailable:
+      isDocumentMediaAdmissionRestoreUnavailable,
+    downloadDocumentMediaAdmissionPreimage,
+    saveDocumentMediaAdmissionPreimageAsCopy,
     startModel,
     document: history.document,
     starterMetadata: quotationStarter.metadata,
@@ -7993,6 +10331,7 @@ export function useDocumentEditor({
     isImportingAsset,
     assetError,
     localAssetPromotions: projectedLocalAssetPromotions,
+    localMediaRecoveryOperations,
     documentError,
     templateActionError,
     draftRecovery,
@@ -8059,6 +10398,13 @@ export function useDocumentEditor({
     replaceImageWithLocalAsset,
     startLocalAssetPromotion,
     cancelLocalAssetPromotion,
+    useStudioCopyForLocalAsset,
+    locateMissingLocalAsset,
+    keepLocatedFileAsNewLocalAsset,
+    chooseManagedImageForLocalAsset,
+    removeMissingLocalAsset,
+    retryLocalMediaRecoverySave,
+    cancelLocalMediaRecovery,
     replaceImageWithManagedMediaAsset,
     reportImageReplacementRendererState,
     imageReplacementBlock,

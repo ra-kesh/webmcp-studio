@@ -52,6 +52,66 @@ export type LocalAssetInventory = {
   issues: LocalAssetIntegrityIssue[]
 }
 
+export type LocalAssetAdmissionState =
+  | { status: "ready"; record: LocalAssetRecord }
+  | {
+      status: "missing_bytes"
+      summary: LocalAssetSummary
+      issue: LocalAssetIntegrityIssue
+    }
+  | { status: "absent" }
+  | {
+      status: "quarantined"
+      issue: LocalAssetIntegrityIssue
+      expectation: LocalAssetQuarantineExpectation
+    }
+  | { status: "unavailable"; code: string; message: string }
+
+export type LocalAssetAdmissionInspectionOptions = {
+  /** Injectable for deterministic repository tests. Production verifies in-browser bytes. */
+  verifyBlob?: LocalAssetBlobVerifier
+  verificationConcurrency?: number
+}
+
+export type LocalAssetBlobRestoreExpectation =
+  | Readonly<{
+      status: "missing_bytes"
+      revision: number
+      updatedAt: string
+    }>
+  | Readonly<{ status: "absent" }>
+  | Readonly<{
+      status: "quarantined"
+      quarantine: LocalAssetQuarantineExpectation
+    }>
+
+export type LocalAssetQuarantineExpectation = Readonly<{
+  records: readonly Readonly<{
+    recordId: string
+    detectedAt: string
+    issueCode: LocalAssetIntegrityIssue["code"]
+  }>[]
+}>
+
+export type LocalAssetBlobRestoreResult =
+  | Readonly<{
+      ok: true
+      status: "restored"
+      record: LocalAssetRecord
+    }>
+  | Readonly<{
+      ok: false
+      reason:
+        | "identity_mismatch"
+        | "state_changed"
+        | "validation_failed"
+        | "storage_unavailable"
+      message: string
+    }>
+
+export const LOCAL_ASSET_ADMISSION_MAX_IDS = 5_000
+const LOCAL_ASSET_QUARANTINE_EXPECTATION_MAX_RECORDS = 100
+
 export type LocalAssetBlobVerifier = (
   blob: Blob
 ) => Promise<{ width: number; height: number } | null>
@@ -227,6 +287,15 @@ type StoredAssetInspection =
       blob: unknown
     }
 
+type RequestedStoredAssetInspection = Readonly<{
+  inspection: StoredAssetInspection
+  quarantineOverflow: boolean
+  quarantine: Readonly<{
+    issue: LocalAssetIntegrityIssue
+    expectation: LocalAssetQuarantineExpectation
+  }> | null
+}>
+
 const inspectStoredAsset = (
   assetId: string,
   metadata: unknown,
@@ -333,6 +402,32 @@ async function mapWithConcurrency<T, TResult>(
     }
   })
   await Promise.all(workers)
+  return results
+}
+
+async function mapWithConcurrencyAndAcknowledgement<T, TResult>(
+  values: readonly T[],
+  concurrency: number,
+  operation: (value: T) => Promise<TResult>
+) {
+  const results = new Array<TResult>(values.length)
+  let nextIndex = 0
+  const workerCount = Number.isSafeInteger(concurrency)
+    ? Math.min(Math.max(1, concurrency), values.length)
+    : 1
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (nextIndex < values.length) {
+      const index = nextIndex
+      nextIndex += 1
+      results[index] = await operation(values[index])
+    }
+  })
+  const settlements = await Promise.allSettled(workers)
+  const failure = settlements.find(
+    (settlement): settlement is PromiseRejectedResult =>
+      settlement.status === "rejected"
+  )
+  if (failure) throw failure.reason
   return results
 }
 
@@ -548,6 +643,123 @@ const ensureLegacyMigration = () => {
   })
   activeLegacyMigration = migration
   return migration
+}
+
+const migrateRequestedLegacyAssets = async (
+  assetIds: readonly string[],
+  signal?: AbortSignal
+) => {
+  if (activeLegacyMigration) {
+    await waitForLocalAssetOperation(activeLegacyMigration, signal)
+    return
+  }
+  signal?.throwIfAborted()
+  const database = await openDatabaseForAbortableOperation(signal)
+  if (!database.objectStoreNames.contains(LEGACY_STORE_NAME)) {
+    database.close()
+    return
+  }
+  if (signal?.aborted) {
+    database.close()
+    signal.throwIfAborted()
+  }
+  await new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(
+      [
+        LEGACY_STORE_NAME,
+        METADATA_STORE_NAME,
+        BLOB_STORE_NAME,
+        QUARANTINE_STORE_NAME,
+      ],
+      "readwrite"
+    )
+    const legacyStore = transaction.objectStore(LEGACY_STORE_NAME)
+    const metadataStore = transaction.objectStore(METADATA_STORE_NAME)
+    const blobStore = transaction.objectStore(BLOB_STORE_NAME)
+    const quarantineStore = transaction.objectStore(QUARANTINE_STORE_NAME)
+    for (const assetId of assetIds) {
+      const legacyRequest = legacyStore.get(assetId)
+      const metadataRequest = metadataStore.get(assetId)
+      const blobRequest = blobStore.get(assetId)
+      let completedRequests = 0
+      const reconcile = () => {
+        completedRequests += 1
+        if (completedRequests < 3 || legacyRequest.result === undefined) return
+        const legacyRecord = normalizeLegacyRecord(legacyRequest.result)
+        if (!legacyRecord) {
+          quarantineStore.put({
+            id: `legacy-${assetId}`,
+            assetId,
+            code: "corrupt_metadata",
+            legacyKey: assetId,
+            reason: "Legacy asset metadata could not be validated",
+            detectedAt: new Date().toISOString(),
+            record: legacyRequest.result,
+          })
+          legacyStore.delete(assetId)
+          return
+        }
+        const current = inspectStoredAsset(
+          assetId,
+          metadataRequest.result,
+          blobRequest.result
+        )
+        if (current.status === "absent") {
+          metadataStore.put(summaryForRecord(legacyRecord))
+          blobStore.put(legacyRecord.blob, legacyRecord.id)
+        } else if (current.status !== "ready") {
+          quarantineStore.put({
+            id: `legacy-conflict-${assetId}`,
+            assetId,
+            code: "metadata_mismatch",
+            legacyKey: assetId,
+            reason:
+              "Legacy asset conflicts with incomplete current asset storage",
+            detectedAt: new Date().toISOString(),
+            record: legacyRequest.result,
+            currentMetadata: metadataRequest.result,
+            currentBlob: blobRequest.result,
+          })
+          metadataStore.delete(assetId)
+          blobStore.delete(assetId)
+        }
+        legacyStore.delete(assetId)
+      }
+      legacyRequest.onsuccess = reconcile
+      metadataRequest.onsuccess = reconcile
+      blobRequest.onsuccess = reconcile
+    }
+    const cleanUp = () => signal?.removeEventListener("abort", abort)
+    const abort = () => {
+      try {
+        transaction.abort()
+      } catch {
+        // Completion won the race; its handler preserves the abort reason.
+      }
+    }
+    transaction.oncomplete = () => {
+      cleanUp()
+      database.close()
+      if (signal?.aborted) reject(signal.reason)
+      else resolve()
+    }
+    transaction.onerror = () => {
+      // The abort event is the rollback acknowledgement. Do not release the
+      // foreground owner while IndexedDB is still unwinding the transaction.
+    }
+    transaction.onabort = () => {
+      cleanUp()
+      database.close()
+      reject(
+        signal?.aborted
+          ? signal.reason
+          : (transaction.error ??
+              new Error("Requested asset migration was aborted"))
+      )
+    }
+    signal?.addEventListener("abort", abort, { once: true })
+    if (signal?.aborted) abort()
+  })
 }
 
 const waitForLocalAssetOperation = <T>(
@@ -931,6 +1143,606 @@ const readStoredAsset = async (assetId: string, signal?: AbortSignal) => {
     signal?.addEventListener("abort", abort, { once: true })
     if (signal?.aborted) abort()
   })
+}
+
+const quarantineIssueFromRecord = (
+  assetId: string,
+  value: unknown
+): LocalAssetIntegrityIssue | null => {
+  if (!value || typeof value !== "object") return null
+  const record = value as {
+    assetId?: unknown
+    code?: unknown
+    reason?: unknown
+  }
+  const code = record.code
+  if (
+    record.assetId !== assetId ||
+    ![
+      "corrupt_metadata",
+      "missing_bytes",
+      "corrupt_bytes",
+      "metadata_mismatch",
+      "orphaned_bytes",
+    ].includes(typeof code === "string" ? code : "")
+  ) {
+    return null
+  }
+  return {
+    assetId,
+    code: code as LocalAssetIntegrityIssue["code"],
+    message:
+      typeof record.reason === "string" && record.reason.length > 0
+        ? record.reason.slice(0, 512)
+        : "Saved image data was quarantined on this device.",
+  }
+}
+
+const quarantineExpectationRecordFrom = (
+  value: unknown,
+  fallback: Readonly<{
+    recordId: string
+    issueCode: LocalAssetIntegrityIssue["code"]
+  }>
+) => {
+  if (!value || typeof value !== "object") return null
+  const record = value as {
+    id?: unknown
+    detectedAt?: unknown
+    code?: unknown
+  }
+  const recordId = typeof record.id === "string" ? record.id : fallback.recordId
+  const detectedAt =
+    typeof record.detectedAt === "string" && isValidTimestamp(record.detectedAt)
+      ? record.detectedAt
+      : null
+  const issueCode =
+    typeof record.code === "string" &&
+    [
+      "corrupt_metadata",
+      "missing_bytes",
+      "corrupt_bytes",
+      "metadata_mismatch",
+      "orphaned_bytes",
+    ].includes(record.code)
+      ? (record.code as LocalAssetIntegrityIssue["code"])
+      : fallback.issueCode
+  if (!recordId || !detectedAt) return null
+  return { recordId, detectedAt, issueCode }
+}
+
+const sameQuarantineExpectation = (
+  left: LocalAssetQuarantineExpectation,
+  right: LocalAssetQuarantineExpectation
+) =>
+  left.records.length === right.records.length &&
+  left.records.every((record, index) => {
+    const other = right.records[index]
+    return (
+      other.recordId === record.recordId &&
+      other.detectedAt === record.detectedAt &&
+      other.issueCode === record.issueCode
+    )
+  })
+
+const readRequestedStoredAssets = async (
+  assetIds: readonly string[],
+  signal?: AbortSignal
+) => {
+  signal?.throwIfAborted()
+  const database = await openDatabaseForAbortableOperation(signal)
+  if (signal?.aborted) {
+    database.close()
+    signal.throwIfAborted()
+  }
+  return new Promise<RequestedStoredAssetInspection[]>((resolve, reject) => {
+    const transaction = database.transaction(
+      [METADATA_STORE_NAME, BLOB_STORE_NAME, QUARANTINE_STORE_NAME],
+      "readonly"
+    )
+    const metadataStore = transaction.objectStore(METADATA_STORE_NAME)
+    const blobStore = transaction.objectStore(BLOB_STORE_NAME)
+    const quarantineStore = transaction.objectStore(QUARANTINE_STORE_NAME)
+    const reads = assetIds.map((assetId) => {
+      const metadata = metadataStore.get(assetId)
+      const blob = blobStore.get(assetId)
+      const currentQuarantine = quarantineStore.getAll(
+        IDBKeyRange.bound(`current-${assetId}-`, `current-${assetId}-\uffff`),
+        LOCAL_ASSET_QUARANTINE_EXPECTATION_MAX_RECORDS + 1
+      )
+      const legacyConflict = quarantineStore.get(`legacy-conflict-${assetId}`)
+      const legacyQuarantine = quarantineStore.get(`legacy-${assetId}`)
+      return {
+        assetId,
+        metadata,
+        blob,
+        currentQuarantine,
+        legacyConflict,
+        legacyQuarantine,
+      }
+    })
+    const cleanUp = () => signal?.removeEventListener("abort", abort)
+    const abort = () => {
+      try {
+        transaction.abort()
+      } catch {
+        // Completion won the race; its handler preserves the abort reason.
+      }
+    }
+    transaction.oncomplete = () => {
+      cleanUp()
+      database.close()
+      if (signal?.aborted) {
+        reject(signal.reason)
+        return
+      }
+      resolve(
+        reads.map((read) => {
+          const currentRecords = read.currentQuarantine.result
+          const quarantineOverflow =
+            currentRecords.length >
+            LOCAL_ASSET_QUARANTINE_EXPECTATION_MAX_RECORDS
+          const currentIssue = currentRecords
+            .map((record) => quarantineIssueFromRecord(read.assetId, record))
+            .find((issue): issue is LocalAssetIntegrityIssue => issue !== null)
+          const legacyIssue = read.legacyConflict.result
+            ? {
+                assetId: read.assetId,
+                code: "metadata_mismatch" as const,
+                message:
+                  "A conflicting saved image record was quarantined on this device.",
+              }
+            : null
+          const corruptLegacyIssue = read.legacyQuarantine.result
+            ? (quarantineIssueFromRecord(
+                read.assetId,
+                read.legacyQuarantine.result
+              ) ?? {
+                assetId: read.assetId,
+                code: "corrupt_metadata" as const,
+                message: "Saved image metadata was quarantined on this device.",
+              })
+            : null
+          const issue = currentIssue ?? legacyIssue ?? corruptLegacyIssue
+          const expectationRecords = [
+            ...currentRecords.map((record) =>
+              quarantineExpectationRecordFrom(record, {
+                recordId: "",
+                issueCode: "corrupt_metadata",
+              })
+            ),
+            read.legacyConflict.result
+              ? quarantineExpectationRecordFrom(read.legacyConflict.result, {
+                  recordId: `legacy-conflict-${read.assetId}`,
+                  issueCode: "metadata_mismatch",
+                })
+              : null,
+            read.legacyQuarantine.result
+              ? quarantineExpectationRecordFrom(read.legacyQuarantine.result, {
+                  recordId: `legacy-${read.assetId}`,
+                  issueCode: "corrupt_metadata",
+                })
+              : null,
+          ]
+            .filter(
+              (
+                record
+              ): record is LocalAssetQuarantineExpectation["records"][number] =>
+                record !== null
+            )
+            .sort((left, right) => left.recordId.localeCompare(right.recordId))
+          return {
+            inspection: inspectStoredAsset(
+              read.assetId,
+              read.metadata.result,
+              read.blob.result
+            ),
+            quarantineOverflow,
+            quarantine:
+              !quarantineOverflow && issue && expectationRecords.length > 0
+                ? {
+                    issue,
+                    expectation: { records: expectationRecords },
+                  }
+                : null,
+          }
+        })
+      )
+    }
+    transaction.onerror = () => {
+      // The abort event is the rollback acknowledgement. Do not release the
+      // foreground owner while IndexedDB is still unwinding the transaction.
+    }
+    transaction.onabort = () => {
+      cleanUp()
+      database.close()
+      reject(
+        signal?.aborted
+          ? signal.reason
+          : (transaction.error ?? new Error("Asset inspection was aborted"))
+      )
+    }
+    signal?.addEventListener("abort", abort, { once: true })
+    if (signal?.aborted) abort()
+  })
+}
+
+const unavailableAdmissionStates = (
+  assetIds: readonly string[]
+): LocalAssetAdmissionState[] =>
+  assetIds.map(() => ({
+    status: "unavailable",
+    code: "local_media_local_repository_unavailable",
+    message: "Studio could not inspect saved images on this device.",
+  }))
+
+export async function inspectRequestedLocalAssets(
+  assetIdsInput: readonly string[],
+  options: LocalAssetAdmissionInspectionOptions & { signal?: AbortSignal } = {}
+): Promise<LocalAssetAdmissionState[]> {
+  if (
+    assetIdsInput.length < 1 ||
+    assetIdsInput.length > LOCAL_ASSET_ADMISSION_MAX_IDS
+  ) {
+    throw new RangeError(
+      `Local asset inspection requires 1-${LOCAL_ASSET_ADMISSION_MAX_IDS} IDs.`
+    )
+  }
+  const assetIds = assetIdsInput.map((assetId) =>
+    localAssetIdSchema.parse(assetId)
+  )
+  if (new Set(assetIds).size !== assetIds.length) {
+    throw new TypeError("Local asset inspection IDs must be distinct.")
+  }
+
+  const signal = options.signal
+  signal?.throwIfAborted()
+  try {
+    await waitForLocalAssetOperation(abortableDatabaseOpenTail, signal)
+    signal?.throwIfAborted()
+    await migrateRequestedLegacyAssets(assetIds, signal)
+    signal?.throwIfAborted()
+    const inspections = await readRequestedStoredAssets(assetIds, signal)
+    const verifyBlob = options.verifyBlob ?? verifyStoredBlobInBrowser
+    return await mapWithConcurrencyAndAcknowledgement(
+      inspections,
+      options.verificationConcurrency ?? 2,
+      async ({ inspection, quarantine, quarantineOverflow }) => {
+        signal?.throwIfAborted()
+        if (quarantineOverflow) {
+          return {
+            status: "unavailable" as const,
+            code: "local_media_quarantine_limit_exceeded",
+            message:
+              "Studio retained too many recovery records for this image. Review local storage before restoring it.",
+          }
+        }
+        if (inspection.status === "absent") {
+          return quarantine
+            ? {
+                status: "quarantined" as const,
+                issue: quarantine.issue,
+                expectation: quarantine.expectation,
+              }
+            : { status: "absent" as const }
+        }
+        if (inspection.status === "missing_bytes") {
+          return {
+            status: "missing_bytes" as const,
+            summary: inspection.summary,
+            issue: inspection.issue,
+          }
+        }
+        if (inspection.status === "quarantine") {
+          const issue = await quarantineStoredAsset(
+            inspection.issue.assetId,
+            signal
+          )
+          signal?.throwIfAborted()
+          if (!issue) {
+            return {
+              status: "unavailable" as const,
+              code: "local_media_local_repository_changed",
+              message:
+                "The saved image changed while Studio was checking it. Retry the check.",
+            }
+          }
+          const [reinspected] = await readRequestedStoredAssets(
+            [inspection.issue.assetId],
+            signal
+          )
+          return reinspected.quarantine
+            ? {
+                status: "quarantined" as const,
+                issue: reinspected.quarantine.issue,
+                expectation: reinspected.quarantine.expectation,
+              }
+            : {
+                status: "unavailable" as const,
+                code: "local_media_local_repository_changed",
+                message:
+                  "The saved image changed while Studio was checking it. Retry the check.",
+              }
+        }
+
+        try {
+          const dimensions = await waitForLocalAssetOperation(
+            verifyBlob(inspection.blob),
+            signal
+          )
+          signal?.throwIfAborted()
+          if (dimensions !== null && !dimensionsAreRendererSafe(dimensions)) {
+            throw new Error("Saved image dimensions are outside Studio limits.")
+          }
+          return {
+            status: "ready" as const,
+            record: { ...inspection.summary, blob: inspection.blob },
+          }
+        } catch {
+          signal?.throwIfAborted()
+          const issue: LocalAssetIntegrityIssue = {
+            assetId: inspection.summary.id,
+            code: "corrupt_bytes",
+            message: "Saved image bytes could not be decoded.",
+          }
+          const quarantined = await waitForLocalAssetOperation(
+            quarantineUnreadableStoredAsset(inspection.summary, issue),
+            signal
+          )
+          signal?.throwIfAborted()
+          if (!quarantined) {
+            return {
+              status: "unavailable" as const,
+              code: "local_media_local_repository_changed",
+              message:
+                "The saved image changed while Studio was checking it. Retry the check.",
+            }
+          }
+          const [reinspected] = await readRequestedStoredAssets(
+            [inspection.summary.id],
+            signal
+          )
+          return reinspected.quarantine
+            ? {
+                status: "quarantined" as const,
+                issue: reinspected.quarantine.issue,
+                expectation: reinspected.quarantine.expectation,
+              }
+            : {
+                status: "unavailable" as const,
+                code: "local_media_local_repository_changed",
+                message:
+                  "The saved image changed while Studio was checking it. Retry the check.",
+              }
+        }
+      }
+    )
+  } catch (error) {
+    signal?.throwIfAborted()
+    return unavailableAdmissionStates(assetIds)
+  }
+}
+
+export async function restoreLocalAssetBlob(
+  input: Readonly<{
+    assetId: string
+    file: File
+    expected: LocalAssetBlobRestoreExpectation
+    expectedContentSha256: string
+    contentSha256: string
+    width: number
+    height: number
+    now?: string
+  }>,
+  signal?: AbortSignal
+): Promise<LocalAssetBlobRestoreResult> {
+  const now = input.now ?? new Date().toISOString()
+  let assetId: string
+  try {
+    assetId = localAssetIdSchema.parse(input.assetId)
+  } catch {
+    return {
+      ok: false,
+      reason: "validation_failed",
+      message: "A valid local image identity is required.",
+    }
+  }
+  if (
+    !/^[0-9a-f]{64}$/.test(input.expectedContentSha256) ||
+    !/^[0-9a-f]{64}$/.test(input.contentSha256) ||
+    !isSupportedMediaType(input.file.type) ||
+    input.file.size < 1 ||
+    input.file.size > MEDIA_ASSET_MAX_BYTES ||
+    !dimensionsAreRendererSafe({ width: input.width, height: input.height }) ||
+    !isValidTimestamp(now)
+  ) {
+    return {
+      ok: false,
+      reason: "validation_failed",
+      message: "The selected image does not meet Studio's media limits.",
+    }
+  }
+  if (input.contentSha256 !== input.expectedContentSha256) {
+    return {
+      ok: false,
+      reason: "identity_mismatch",
+      message: "The selected file is different from the saved image copy.",
+    }
+  }
+
+  signal?.throwIfAborted()
+  try {
+    await waitForLocalAssetOperation(abortableDatabaseOpenTail, signal)
+    await migrateRequestedLegacyAssets([assetId], signal)
+    const database = await openDatabaseForAbortableOperation(signal)
+    if (signal?.aborted) {
+      database.close()
+      signal.throwIfAborted()
+    }
+    return await new Promise<LocalAssetBlobRestoreResult>((resolve, reject) => {
+      let result: LocalAssetBlobRestoreResult = {
+        ok: false,
+        reason: "state_changed",
+        message: "The local image changed in another Studio tab. Retry.",
+      }
+      const transaction = database.transaction(
+        [METADATA_STORE_NAME, BLOB_STORE_NAME, QUARANTINE_STORE_NAME],
+        "readwrite"
+      )
+      const metadataStore = transaction.objectStore(METADATA_STORE_NAME)
+      const blobStore = transaction.objectStore(BLOB_STORE_NAME)
+      const quarantineStore = transaction.objectStore(QUARANTINE_STORE_NAME)
+      const metadataRequest = metadataStore.get(assetId)
+      const blobRequest = blobStore.get(assetId)
+      const currentQuarantineRequest = quarantineStore.getAll(
+        IDBKeyRange.bound(`current-${assetId}-`, `current-${assetId}-\uffff`),
+        LOCAL_ASSET_QUARANTINE_EXPECTATION_MAX_RECORDS + 1
+      )
+      const legacyConflictRequest = quarantineStore.get(
+        `legacy-conflict-${assetId}`
+      )
+      const legacyQuarantineRequest = quarantineStore.get(`legacy-${assetId}`)
+      let completed = 0
+      const reconcile = () => {
+        completed += 1
+        if (completed !== 5) return
+        const inspection = inspectStoredAsset(
+          assetId,
+          metadataRequest.result,
+          blobRequest.result
+        )
+        const quarantineIssue = [
+          ...currentQuarantineRequest.result,
+          legacyConflictRequest.result,
+          legacyQuarantineRequest.result,
+        ]
+          .filter((value) => value !== undefined)
+          .map((value) => quarantineIssueFromRecord(assetId, value))
+          .find((issue): issue is LocalAssetIntegrityIssue => issue !== null)
+        const quarantineExpectation: LocalAssetQuarantineExpectation = {
+          records: [
+            ...currentQuarantineRequest.result.map((record) =>
+              quarantineExpectationRecordFrom(record, {
+                recordId: "",
+                issueCode: "corrupt_metadata",
+              })
+            ),
+            legacyConflictRequest.result
+              ? quarantineExpectationRecordFrom(
+                  legacyConflictRequest.result,
+                  {
+                    recordId: `legacy-conflict-${assetId}`,
+                    issueCode: "metadata_mismatch",
+                  }
+                )
+              : null,
+            legacyQuarantineRequest.result
+              ? quarantineExpectationRecordFrom(
+                  legacyQuarantineRequest.result,
+                  {
+                    recordId: `legacy-${assetId}`,
+                    issueCode: "corrupt_metadata",
+                  }
+                )
+              : null,
+          ]
+            .filter(
+              (
+                record
+              ): record is LocalAssetQuarantineExpectation["records"][number] =>
+                record !== null
+            )
+            .sort((left, right) => left.recordId.localeCompare(right.recordId)),
+        }
+        const matchesExpected =
+          (input.expected.status === "missing_bytes" &&
+            inspection.status === "missing_bytes" &&
+            inspection.summary.revision === input.expected.revision &&
+            inspection.summary.updatedAt === input.expected.updatedAt) ||
+          (input.expected.status === "absent" &&
+            inspection.status === "absent" &&
+            quarantineIssue === undefined) ||
+          (input.expected.status === "quarantined" &&
+            inspection.status === "absent" &&
+            currentQuarantineRequest.result.length <=
+              LOCAL_ASSET_QUARANTINE_EXPECTATION_MAX_RECORDS &&
+            quarantineIssue !== undefined &&
+            sameQuarantineExpectation(
+              quarantineExpectation,
+              input.expected.quarantine
+            ))
+        if (!matchesExpected) return
+
+        const previousSummary =
+          inspection.status === "missing_bytes" ? inspection.summary : null
+        const summary: LocalAssetSummary = {
+          schemaVersion: 4,
+          id: assetId,
+          name: previousSummary?.name ?? input.file.name,
+          mediaType: input.file.type,
+          size: input.file.size,
+          width: input.width,
+          height: input.height,
+          createdAt: previousSummary?.createdAt ?? now,
+          updatedAt: now,
+          lastUsedAt: now,
+          archivedAt: previousSummary?.archivedAt ?? null,
+          revision: (previousSummary?.revision ?? 0) + 1,
+          integrity: "ready",
+        }
+        metadataStore.put(summary)
+        blobStore.put(input.file, assetId)
+        result = {
+          ok: true,
+          status: "restored",
+          record: { ...summary, blob: input.file },
+        }
+      }
+      metadataRequest.onsuccess = reconcile
+      blobRequest.onsuccess = reconcile
+      currentQuarantineRequest.onsuccess = reconcile
+      legacyConflictRequest.onsuccess = reconcile
+      legacyQuarantineRequest.onsuccess = reconcile
+      const cleanUp = () => signal?.removeEventListener("abort", abort)
+      const abort = () => {
+        try {
+          transaction.abort()
+        } catch {
+          // Commit already acknowledged completion.
+        }
+      }
+      transaction.oncomplete = () => {
+        cleanUp()
+        database.close()
+        if (signal?.aborted) reject(signal.reason)
+        else resolve(result)
+      }
+      transaction.onerror = () => {
+        // Abort is the acknowledgement boundary.
+      }
+      transaction.onabort = () => {
+        cleanUp()
+        database.close()
+        reject(
+          signal?.aborted
+            ? signal.reason
+            : (transaction.error ?? new Error("Local image restore aborted"))
+        )
+      }
+      signal?.addEventListener("abort", abort, { once: true })
+      if (signal?.aborted) abort()
+    })
+  } catch (error) {
+    signal?.throwIfAborted()
+    return {
+      ok: false,
+      reason: "storage_unavailable",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Studio could not restore the selected image on this device.",
+    }
+  }
 }
 
 export async function getLocalAssetRecord(

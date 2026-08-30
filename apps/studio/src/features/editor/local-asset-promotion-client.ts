@@ -1,6 +1,8 @@
 import {
   localAssetIdSchema,
   localAssetPromotionLookupResponseSchema,
+  localAssetPromotionResolveRequestSchema,
+  localAssetPromotionResolveResponseSchema,
   localAssetPromotionResponseSchema,
   mediaIdempotencyKeySchema,
 } from "@webmcp/document"
@@ -43,6 +45,16 @@ export type LocalAssetPromotionLookupResult = Readonly<{
 
 export type LocalAssetPromotionUploadResult = Readonly<{
   promotion: LocalAssetPromotion
+  requestId: string
+}>
+
+export type LocalAssetPromotionResolution = Readonly<{
+  localAssetId: string
+  promotion: LocalAssetPromotion | null
+}>
+
+export type LocalAssetPromotionResolveResult = Readonly<{
+  results: readonly LocalAssetPromotionResolution[]
   requestId: string
 }>
 
@@ -100,6 +112,30 @@ const httpErrorFrom = (
         ? detail.retryable
         : retryableFor(status, code),
   })
+}
+
+const mappingHttpErrorFrom = (
+  status: number,
+  value: unknown,
+  requestIdHeader: string
+) => {
+  const detail = parseErrorBody(value)
+  const requestIdBody =
+    typeof detail?.requestId === "string" &&
+    REQUEST_ID_PATTERN.test(detail.requestId)
+      ? detail.requestId
+      : null
+  if (requestIdBody !== requestIdHeader) {
+    return new LocalAssetPromotionHttpError({
+      code: "local_media_mapping_invalid_response",
+      status,
+      message:
+        "Studio returned image mapping error data with a mismatched request identity.",
+      requestId: requestIdHeader,
+      retryable: true,
+    })
+  }
+  return httpErrorFrom(status, value, requestIdHeader)
 }
 
 const requireRequestId = (requestId: string | null) => {
@@ -183,6 +219,7 @@ export async function lookupLocalAssetPromotion(
     bounded.cleanUp()
   }
 
+  options.signal?.throwIfAborted()
   const requestId = requestIdFromHeaders(response.headers)
   if (response.status === 404) {
     const error = httpErrorFrom(response.status, value, requestId)
@@ -215,6 +252,105 @@ export async function lookupLocalAssetPromotion(
     promotion: parsed.data.promotion,
     requestId: requireRequestId(requestId),
   }
+}
+
+export async function resolveLocalAssetPromotions(
+  localAssetIdsInput: readonly string[],
+  options: {
+    signal?: AbortSignal
+    timeoutMilliseconds?: number
+  } = {}
+): Promise<LocalAssetPromotionResolveResult> {
+  options.signal?.throwIfAborted()
+  const request = localAssetPromotionResolveRequestSchema.parse({
+    localAssetIds: localAssetIdsInput,
+  })
+  const bounded = boundedFetchSignal(
+    options.signal,
+    options.timeoutMilliseconds ?? LOCAL_ASSET_PROMOTION_LOOKUP_TIMEOUT_MS
+  )
+  let response: Response
+  let value: unknown
+  try {
+    response = await fetch("/v1/studio/assets/local-promotions/resolve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+      signal: bounded.signal,
+      cache: "no-store",
+    })
+    try {
+      value = await response.json()
+    } catch (error) {
+      if (options.signal?.aborted) throw options.signal.reason
+      if (bounded.timedOut()) throw error
+      value = null
+    }
+  } catch (error) {
+    if (options.signal?.aborted) throw options.signal.reason
+    if (bounded.timedOut()) {
+      throw new LocalAssetPromotionHttpError({
+        code: "local_media_mapping_unavailable",
+        status: 0,
+        message: "Studio took too long to check saved image copies.",
+        retryable: true,
+      })
+    }
+    throw new LocalAssetPromotionHttpError({
+      code: "local_media_mapping_unavailable",
+      status: 0,
+      message: "Studio could not check saved image copies.",
+      retryable: true,
+    })
+  } finally {
+    bounded.cleanUp()
+  }
+
+  options.signal?.throwIfAborted()
+  const requestId = requestIdFromHeaders(response.headers)
+  if (!requestId) {
+    throw new LocalAssetPromotionHttpError({
+      code: "local_media_mapping_invalid_response",
+      status: response.status,
+      message: "Studio returned image mapping data without a request identity.",
+      retryable: true,
+    })
+  }
+  if (!response.ok) {
+    throw mappingHttpErrorFrom(response.status, value, requestId)
+  }
+
+  const parsed = localAssetPromotionResolveResponseSchema.safeParse(value)
+  if (
+    !parsed.success ||
+    parsed.data.results.length !== request.localAssetIds.length
+  ) {
+    throw new LocalAssetPromotionHttpError({
+      code: "local_media_mapping_invalid_response",
+      status: response.status,
+      message: "Studio returned an incomplete image mapping response.",
+      requestId,
+      retryable: true,
+    })
+  }
+  for (let index = 0; index < request.localAssetIds.length; index += 1) {
+    const expectedLocalAssetId = request.localAssetIds[index]
+    const resolution = parsed.data.results[index]
+    if (
+      resolution.localAssetId !== expectedLocalAssetId ||
+      (resolution.promotion !== null &&
+        resolution.promotion.localAssetId !== expectedLocalAssetId)
+    ) {
+      throw new LocalAssetPromotionHttpError({
+        code: "local_media_mapping_invalid_response",
+        status: response.status,
+        message: "Studio returned image mappings in the wrong order.",
+        requestId,
+        retryable: true,
+      })
+    }
+  }
+  return { results: parsed.data.results, requestId }
 }
 
 export function uploadLocalAssetPromotion(

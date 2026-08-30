@@ -185,21 +185,28 @@ describe("StudioPersistenceProvider StrictMode lifecycle", () => {
     })
     expect(created).not.toBeNull()
     expect(created).toMatchObject({ ok: true })
-    let admitted: Awaited<
-      ReturnType<StudioPersistenceApi["documentRouteAdmission"]["admit"]>
-    > | null = null
-    await act(async () => {
-      admitted = await captured.current!.documentRouteAdmission.admit(
+    const admitted = await act(() =>
+      captured.current!.documentRouteAdmission.admit(
         "strict-mode-route-document"
       )
-    })
-    expect(admitted).not.toBeNull()
+    )
     expect(admitted).toMatchObject({
       status: "opened",
       record: {
         summary: { documentId: "strict-mode-route-document" },
         envelope: { document: { id: "strict-mode-route-document" } },
       },
+    })
+    if (admitted.status !== "opened") {
+      throw new Error("Expected the strict-mode route record to open")
+    }
+    await act(async () => {
+      await expect(
+        captured.current!.documentRouteAdmission.confirmInstalled(
+          admitted,
+          admitted.record
+        )
+      ).resolves.toEqual({ status: "confirmed", warning: null })
     })
     expect(captured.current!.documentRouteAdmission.disposed).toBe(false)
 

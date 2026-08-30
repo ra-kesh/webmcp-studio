@@ -30,11 +30,18 @@ describe("canonical document route cutover", () => {
     expect(documentRouteSource).toContain(
       "<StudioDocumentRouteSession key={documentId} routeDocumentId={documentId} />"
     )
-    expect(documentRouteSource).toContain(".admit(routeIdentity.documentId)")
+    expect(documentRouteSource).toContain(".admit(routeIdentity.documentId, {")
     expect(documentRouteSource).toContain('if (state.status !== "opened")')
     expect(documentRouteSource).toContain(
       "initialDocumentRecord={state.admission.record}"
     )
+    expect(documentRouteSource).toContain(
+      ".confirmInstalled(admission, record)"
+    )
+    expect(documentRouteSource).toContain(
+      "onInitialDocumentInstalled={confirmInitialDocumentInstalled}"
+    )
+    expect(documentRouteSource).not.toContain("useLayoutEffect")
     expect(documentRouteSource).toContain("key={documentId}")
     expect(documentRouteSource).not.toContain("openStoredDocument(")
   })
@@ -60,5 +67,7 @@ describe("canonical document route cutover", () => {
     expect(libraryRouteSource).toContain("routeNotice={notice}")
     expect(documentRouteSource).toContain("search: redirectSearchFor(result)")
     expect(documentRouteSource).toContain("replace: true")
+    expect(documentRouteSource).toContain("Open without recovering images")
+    expect(documentRouteSource).toContain("admissionErrorHeadingRef.current?.focus()")
   })
 })

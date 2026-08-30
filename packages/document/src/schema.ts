@@ -3,6 +3,7 @@ import { isRenderSafeImageSource } from "./image-source-policy"
 import {
   LOCAL_ASSET_PREFIX,
   MANAGED_ASSET_PREFIX,
+  localAssetIdSchema,
   localAssetSourceSchema,
   localImageAssetIdentity,
   managedAssetSourceSchema,
@@ -656,6 +657,22 @@ export const documentCommandSchema = z.discriminatedUnion("type", [
     from: localAssetSourceSchema,
     toAssetId: mediaAssetIdSchema,
     toSource: managedAssetSourceSchema,
+    expectedReferenceKeys: z
+      .array(z.string().min(1))
+      .min(1)
+      .refine(
+        (keys) =>
+          keys.every(
+            (key, index) => index === 0 || (keys[index - 1] ?? "") < key
+          ),
+        "Reference keys must be unique and sorted"
+      ),
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("relink_local_asset_references"),
+    from: localAssetSourceSchema,
+    toAssetId: localAssetIdSchema,
+    toSource: localAssetSourceSchema,
     expectedReferenceKeys: z
       .array(z.string().min(1))
       .min(1)

@@ -2594,3 +2594,42 @@ Status: **implemented and independently accepted; Slice 5 and row 10 remain acti
   only five pre-existing unrelated quotation-refresh lint diagnostics.
 - Slice 5 admission/missing-byte recovery and Slice 6 real-browser/deployed
   evidence remain open and cannot be inferred from this local acceptance.
+
+## 2026-08-30 — Cross-browser local media, Slice 5 admission and missing-byte recovery
+
+Status: **implemented and independently accepted; Slice 6 and row 10 remain active**
+
+- Reread the complete frozen Slice 5 phase map, the original row-10 contract,
+  prior slice reviews, persistence/history/failure evidence and the exact media
+  reference model before implementation. The gate remained limited to focused
+  local evidence; no real two-browser or deployed Cloudflare claim is inferred.
+- Added canonical admission planning across nodes, field slots, bindings,
+  pages and outputs; bounded exact local-state inspection and rehashing;
+  ordered private mapping resolution; atomic draft migration with a preimage
+  receipt and stable managed-use keys; stale route/import/session fences; and
+  explicit unresolved recovery rather than guessed mutation.
+- Completed mounted **Use Studio copy**, **Locate file**, new local identity,
+  managed image selection and reviewed clear/remove behavior. Managed recovery
+  now persists an exact intent and pure history-prepared checkpoint before live
+  history installation, then proves the critical durable body and replays one
+  stable Recent receipt. Cancellation, ownership loss, lost responses,
+  interrupted preparation, later durable heads, concurrent adoption and failed
+  terminalization all retain truthful, recoverable state.
+- The shared Media workflow and Inspector now project exact named impacts,
+  current/default field slots, bound layers, page/output references,
+  per-reference lock reasons, cancellable versus critical phases, Finish-saving
+  state, preservation escape actions and current-session Undo truth.
+- Independent review rejected and drove repairs across route installation,
+  receipt acknowledgement, final local CAS, mounted journaling, startup replay,
+  cancellation ownership, target overlap, later-head evidence, mutation gates,
+  exact reference actions and recovery presentation. The final report in
+  `cross-browser-media-admission-recovery-independent-review.md` is **ACCEPT**
+  with zero open P0/P1.
+- Final independent evidence: 18 focused files / 321 tests, document and Studio
+  typechecks, scoped changed-file lint and `git diff --check` pass. The mounted
+  freeze matrix passes 159/159; additional root matrices overlap this evidence
+  and are recorded without inflating a unique-test total.
+- Slice 6 still owns real isolated Chromium profiles, IndexedDB/BroadcastChannel
+  behavior, deployed Access/Worker/D1/R2, network fault injection,
+  cross-browser render/publication/WebMCP, payload privacy inspection,
+  repository-wide gates and the final row-10 acceptance.

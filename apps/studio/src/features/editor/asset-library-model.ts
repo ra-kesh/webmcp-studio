@@ -1,3 +1,4 @@
+import { extractAssetReferences, localAssetSource } from "@webmcp/document"
 import type { Document, PublicMediaAsset } from "@webmcp/document"
 import { localAssetIdFromSource } from "./local-asset-store"
 import { managedMediaIdFromSource } from "./managed-media-repository"
@@ -11,6 +12,186 @@ export type AssetReferenceUsage = {
 }
 
 export type AssetReferenceKind = "local" | "managed"
+
+export type LocalMediaRecoveryImpact = Readonly<{
+  localAssetId: string
+  source: `asset:local/${string}`
+  referenceKeys: readonly string[]
+  directNodeIds: readonly string[]
+  projectedNodeIds: readonly string[]
+  fieldIds: readonly string[]
+  pageIds: readonly string[]
+  outputIds: readonly string[]
+  lockedNodeIds: readonly string[]
+  requiredFieldIds: readonly string[]
+  referenceCount: number
+}>
+
+export type NamedDocumentMediaUse = Readonly<{
+  key: string
+  label: string
+  kind: "Layer" | "Field" | "Page" | "Output"
+}>
+
+export function namedDocumentMediaUses(
+  document: Document,
+  impact: Readonly<{
+    nodeIds: readonly string[]
+    fieldIds: readonly string[]
+    pageIds: readonly string[]
+    outputIds: readonly string[]
+  }>
+): NamedDocumentMediaUse[] {
+  return [
+    ...impact.nodeIds.map((nodeId) => ({
+      key: `node:${nodeId}`,
+      label:
+        document.nodes.find((node) => node.id === nodeId)?.name ??
+        "Unnamed layer",
+      kind: "Layer" as const,
+    })),
+    ...impact.fieldIds.map((fieldId) => ({
+      key: `field:${fieldId}`,
+      label:
+        document.fields.find((field) => field.id === fieldId)?.label ??
+        "Unnamed field",
+      kind: "Field" as const,
+    })),
+    ...impact.pageIds.map((pageId) => ({
+      key: `page:${pageId}`,
+      label:
+        document.pages.find((page) => page.id === pageId)?.name ??
+        "Unnamed page",
+      kind: "Page" as const,
+    })),
+    ...impact.outputIds.map((outputId) => ({
+      key: `output:${outputId}`,
+      label:
+        document.outputs.find((output) => output.id === outputId)?.name ??
+        "Unnamed output",
+      kind: "Output" as const,
+    })),
+  ]
+}
+
+const sortedUnique = (values: readonly string[]) =>
+  [...new Set(values)].sort((left, right) => left.localeCompare(right))
+
+/**
+ * Canonical alias-wide impact used by every missing-media action. A field
+ * source is counted once even when it projects into several bound layers;
+ * projected layers are still listed so review and navigation never collapse
+ * to the first node using the alias.
+ */
+export function localMediaRecoveryImpact(
+  document: Document,
+  localAssetId: string
+): LocalMediaRecoveryImpact {
+  const source = localAssetSource(localAssetId)
+  const references = extractAssetReferences(document).filter(
+    (reference) => reference.source === source
+  )
+  return localMediaRecoveryImpactFromReferences(
+    document,
+    localAssetId,
+    source,
+    references
+  )
+}
+
+export function localMediaRecoveryImpactForReferenceKeys(
+  document: Document,
+  localAssetId: string,
+  referenceKeys: readonly string[]
+): LocalMediaRecoveryImpact {
+  const keySet = new Set(referenceKeys)
+  return localMediaRecoveryImpactFromReferences(
+    document,
+    localAssetId,
+    localAssetSource(localAssetId),
+    extractAssetReferences(document).filter((reference) =>
+      keySet.has(reference.key)
+    )
+  )
+}
+
+function localMediaRecoveryImpactFromReferences(
+  document: Document,
+  localAssetId: string,
+  source: `asset:local/${string}`,
+  references: ReturnType<typeof extractAssetReferences>
+): LocalMediaRecoveryImpact {
+  const directNodeIds = sortedUnique(
+    references.flatMap((reference) =>
+      reference.location === "node" && reference.nodeId
+        ? [reference.nodeId]
+        : []
+    )
+  )
+  const projectedNodeIds = sortedUnique(
+    references.flatMap((reference) => reference.projectedNodeIds)
+  )
+  const allNodeIds = new Set([...directNodeIds, ...projectedNodeIds])
+  const fieldIds = sortedUnique(
+    references.flatMap((reference) =>
+      reference.fieldId ? [reference.fieldId] : []
+    )
+  )
+  return {
+    localAssetId,
+    source,
+    referenceKeys: references.map((reference) => reference.key),
+    directNodeIds,
+    projectedNodeIds,
+    fieldIds,
+    pageIds: sortedUnique(references.flatMap((reference) => reference.pageIds)),
+    outputIds: sortedUnique(
+      references.flatMap((reference) => reference.outputIds)
+    ),
+    lockedNodeIds: sortedUnique(
+      document.nodes
+        .filter((node) => allNodeIds.has(node.id) && node.locked)
+        .map((node) => node.id)
+    ),
+    requiredFieldIds: sortedUnique(
+      document.fields
+        .filter((field) => fieldIds.includes(field.id) && field.required)
+        .map((field) => field.id)
+    ),
+    referenceCount: references.length,
+  }
+}
+
+export const localMediaRecoveryImpactSummary = (
+  impact: LocalMediaRecoveryImpact
+) => {
+  const parts = [
+    `${impact.referenceCount} ${impact.referenceCount === 1 ? "use" : "uses"}`,
+  ]
+  if (impact.pageIds.length) {
+    parts.push(
+      `${impact.pageIds.length} ${impact.pageIds.length === 1 ? "page" : "pages"}`
+    )
+  }
+  if (impact.directNodeIds.length || impact.projectedNodeIds.length) {
+    const layerCount = new Set([
+      ...impact.directNodeIds,
+      ...impact.projectedNodeIds,
+    ]).size
+    parts.push(`${layerCount} ${layerCount === 1 ? "layer" : "layers"}`)
+  }
+  if (impact.fieldIds.length) {
+    parts.push(
+      `${impact.fieldIds.length} ${impact.fieldIds.length === 1 ? "field" : "fields"}`
+    )
+  }
+  if (impact.outputIds.length) {
+    parts.push(
+      `${impact.outputIds.length} ${impact.outputIds.length === 1 ? "output" : "outputs"}`
+    )
+  }
+  return parts.join(" · ")
+}
 
 const assetIdFromSource = (kind: AssetReferenceKind, source: string) =>
   kind === "local"

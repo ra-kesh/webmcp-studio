@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   LocalAssetPromotionHttpError,
   lookupLocalAssetPromotion,
+  resolveLocalAssetPromotions,
   uploadLocalAssetPromotion,
 } from "./local-asset-promotion-client"
 
@@ -122,6 +123,329 @@ afterEach(() => {
 })
 
 describe("local asset promotion HTTP client", () => {
+  it("resolves a strict ordered mapping batch with no-store and a request ID", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json(
+        {
+          results: [
+            { localAssetId: "local-missing", promotion: null },
+            { localAssetId: "local-photo-1", promotion },
+          ],
+        },
+        { headers: { "X-Request-Id": "request-resolve-1" } }
+      )
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(
+      resolveLocalAssetPromotions(["local-missing", "local-photo-1"])
+    ).resolves.toEqual({
+      results: [
+        { localAssetId: "local-missing", promotion: null },
+        { localAssetId: "local-photo-1", promotion },
+      ],
+      requestId: "request-resolve-1",
+    })
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/v1/studio/assets/local-promotions/resolve",
+      expect.objectContaining({
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          localAssetIds: ["local-missing", "local-photo-1"],
+        }),
+      })
+    )
+  })
+
+  it("rejects empty, duplicate, invalid, and over-limit mapping batches before fetch", async () => {
+    const fetchMock = vi.fn<typeof fetch>()
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(resolveLocalAssetPromotions([])).rejects.toThrow()
+    await expect(
+      resolveLocalAssetPromotions(["local-one", "local-one"])
+    ).rejects.toThrow()
+    await expect(resolveLocalAssetPromotions(["../escape"])).rejects.toThrow()
+    await expect(
+      resolveLocalAssetPromotions(
+        Array.from({ length: 101 }, (_, index) => `local-${index}`)
+      )
+    ).rejects.toThrow()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    {
+      name: "missing result",
+      results: [{ localAssetId: "local-one", promotion: null }],
+    },
+    {
+      name: "wrong order",
+      results: [
+        { localAssetId: "local-two", promotion: null },
+        { localAssetId: "local-one", promotion: null },
+      ],
+    },
+    {
+      name: "nested alias drift",
+      results: [
+        {
+          localAssetId: "local-one",
+          promotion: { ...promotion, localAssetId: "local-two" },
+        },
+        { localAssetId: "local-two", promotion: null },
+      ],
+    },
+  ])("rejects $name in a mapping response", async ({ results }) => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(
+          Response.json(
+            { results },
+            { headers: { "X-Request-Id": "request-invalid-1" } }
+          )
+        )
+    )
+
+    await expect(
+      resolveLocalAssetPromotions(["local-one", "local-two"])
+    ).rejects.toMatchObject({
+      code: "local_media_mapping_invalid_response",
+      requestId: "request-invalid-1",
+    })
+  })
+
+  it("rejects private fields instead of returning them", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(
+        Response.json(
+          {
+            results: [
+              {
+                localAssetId: "local-photo-1",
+                promotion: {
+                  ...promotion,
+                  r2Key: "private/object-key",
+                },
+              },
+            ],
+          },
+          { headers: { "X-Request-Id": "request-private-1" } }
+        )
+      )
+    )
+
+    await expect(
+      resolveLocalAssetPromotions(["local-photo-1"])
+    ).rejects.toMatchObject({
+      code: "local_media_mapping_invalid_response",
+      requestId: "request-private-1",
+    })
+  })
+
+  it("requires a valid request ID on a successful mapping response", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(
+        Response.json({
+          results: [{ localAssetId: "local-one", promotion: null }],
+        })
+      )
+    )
+
+    await expect(
+      resolveLocalAssetPromotions(["local-one"])
+    ).rejects.toMatchObject({
+      code: "local_media_mapping_invalid_response",
+      requestId: null,
+    })
+  })
+
+  it("rejects malformed successful JSON as unavailable mapping data", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response("{", {
+          headers: {
+            "Content-Type": "application/json",
+            "X-Request-Id": "request-malformed-1",
+          },
+        })
+      )
+    )
+
+    await expect(
+      resolveLocalAssetPromotions(["local-one"])
+    ).rejects.toMatchObject({
+      code: "local_media_mapping_invalid_response",
+      requestId: "request-malformed-1",
+    })
+  })
+
+  it("preserves a canonical mapping server error and never treats it as unmapped", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(
+        Response.json(
+          {
+            error: {
+              code: "media_database_unavailable",
+              message: "Mapping database unavailable",
+              requestId: "request-error-1",
+              retryable: true,
+            },
+          },
+          {
+            status: 503,
+            headers: { "X-Request-Id": "request-error-1" },
+          }
+        )
+      )
+    )
+
+    await expect(
+      resolveLocalAssetPromotions(["local-one"])
+    ).rejects.toMatchObject({
+      code: "media_database_unavailable",
+      status: 503,
+      requestId: "request-error-1",
+      retryable: true,
+    })
+  })
+
+  it.each([
+    {
+      name: "missing body request identity",
+      bodyRequestId: undefined,
+    },
+    {
+      name: "mismatched body request identity",
+      bodyRequestId: "request-error-other",
+    },
+  ])("rejects a mapping server error with $name", async ({ bodyRequestId }) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(
+        Response.json(
+          {
+            error: {
+              code: "local_asset_promotion_not_found",
+              message: "No mapping exists",
+              ...(bodyRequestId ? { requestId: bodyRequestId } : {}),
+              retryable: false,
+            },
+          },
+          {
+            status: 404,
+            headers: { "X-Request-Id": "request-error-header" },
+          }
+        )
+      )
+    )
+
+    await expect(
+      resolveLocalAssetPromotions(["local-one"])
+    ).rejects.toMatchObject({
+      code: "local_media_mapping_invalid_response",
+      status: 404,
+      requestId: "request-error-header",
+      retryable: true,
+    })
+  })
+
+  it("keeps cancellation active while a mapping response body is read", async () => {
+    const controller = new AbortController()
+    const bodyStarted = deferred<void>()
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockImplementation(
+        async (_url, init) =>
+          ({
+            status: 200,
+            ok: true,
+            headers: new Headers({ "X-Request-Id": "request-cancel-1" }),
+            json: () =>
+              new Promise((_, reject) => {
+                bodyStarted.resolve()
+                init?.signal?.addEventListener(
+                  "abort",
+                  () => reject(init.signal?.reason),
+                  { once: true }
+                )
+              }),
+          }) as Response
+      )
+    )
+    const reason = new DOMException("Superseded", "AbortError")
+    const resolution = resolveLocalAssetPromotions(["local-one"], {
+      signal: controller.signal,
+    })
+    const rejection = expect(resolution).rejects.toBe(reason)
+    await bodyStarted.promise
+
+    controller.abort(reason)
+
+    await rejection
+  })
+
+  it("does not start mapping network work after caller cancellation", async () => {
+    const controller = new AbortController()
+    const reason = new DOMException("Superseded", "AbortError")
+    controller.abort(reason)
+    const fetchMock = vi.fn<typeof fetch>()
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(
+      resolveLocalAssetPromotions(["local-one"], {
+        signal: controller.signal,
+      })
+    ).rejects.toBe(reason)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("classifies mapping timeout and network failure without inventing unmapped", async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockImplementation(
+        (_url, init) =>
+          new Promise((_, reject) => {
+            init?.signal?.addEventListener(
+              "abort",
+              () => reject(init.signal?.reason),
+              { once: true }
+            )
+          })
+      )
+    )
+    const timeout = resolveLocalAssetPromotions(["local-one"], {
+      timeoutMilliseconds: 10,
+    })
+    const timeoutRejection = expect(timeout).rejects.toMatchObject({
+      code: "local_media_mapping_unavailable",
+      retryable: true,
+    })
+    await vi.advanceTimersByTimeAsync(11)
+    await timeoutRejection
+    vi.useRealTimers()
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockRejectedValue(new TypeError("offline"))
+    )
+    await expect(
+      resolveLocalAssetPromotions(["local-one"])
+    ).rejects.toMatchObject({
+      code: "local_media_mapping_unavailable",
+      retryable: true,
+    })
+  })
+
   it("reconciles an exact mapping with no-store and a required request ID", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()

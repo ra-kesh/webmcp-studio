@@ -16,6 +16,8 @@ const toAssetId = "asset-managedportrait01"
 const toSource = managedAssetSource(toAssetId)
 const otherAssetId = "asset-otherportrait001"
 const otherSource = managedAssetSource(otherAssetId)
+const replacementLocalAssetId = "local-portrait-02"
+const replacementLocalSource = localAssetSource(replacementLocalAssetId)
 const at = "2026-08-30T05:00:00.000Z"
 
 const image = (id: string, assetId = localAssetId, src = from, x = 10) =>
@@ -179,6 +181,17 @@ const commandFor = (document: Document) => ({
   expectedReferenceKeys: assetReferenceKeysForSource(document, from),
 })
 
+const localCommandFor = (document: Document) => ({
+  id: "reidentify-local-portrait",
+  type: "relink_local_asset_references" as const,
+  actor: "human" as const,
+  at,
+  from,
+  toAssetId: replacementLocalAssetId,
+  toSource: replacementLocalSource,
+  expectedReferenceKeys: assetReferenceKeysForSource(document, from),
+})
+
 describe("asset reference extraction and relink", () => {
   it("extracts stable sorted node, field, page, output, and bound-projection references", () => {
     const document = mediaRelinkDocument()
@@ -257,6 +270,131 @@ describe("asset reference extraction and relink", () => {
     expect(updated.nodes.find((node) => node.id === "managed-other")).toEqual(
       document.nodes.find((node) => node.id === "managed-other")
     )
+  })
+
+  it("atomically reidentifies every local alias use while preserving all non-identity properties", () => {
+    const document = mediaRelinkDocument()
+    const command = localCommandFor(document)
+    const updated = applyCommand(document, command)
+    const expected = structuredClone(document)
+    expected.revision += 1
+    expected.updatedAt = at
+    for (const field of expected.fields) {
+      if (field.type === "asset" && field.defaultValue === from) {
+        field.defaultValue = replacementLocalSource
+      }
+      if (expected.fieldValues[field.id] === from) {
+        expected.fieldValues[field.id] = replacementLocalSource
+      }
+    }
+    for (const node of expected.nodes) {
+      if (node.type === "image" && node.src === from) {
+        node.src = replacementLocalSource
+        node.assetId = replacementLocalAssetId
+      }
+    }
+
+    expect(updated).toEqual(expected)
+    expect(documentSchema.parse(updated)).toEqual(updated)
+    expect(assetReferenceKeysForSource(updated, from)).toEqual([])
+    expect(
+      assetReferenceKeysForSource(updated, replacementLocalSource)
+    ).toEqual(command.expectedReferenceKeys)
+    expect(
+      extractAssetReferences(updated)
+        .filter((reference) => reference.source === replacementLocalSource)
+        .map(({ key, pageIds, outputIds, projectedNodeIds }) => ({
+          key,
+          pageIds,
+          outputIds,
+          projectedNodeIds,
+        }))
+    ).toEqual(
+      extractAssetReferences(document)
+        .filter((reference) => reference.source === from)
+        .map(({ key, pageIds, outputIds, projectedNodeIds }) => ({
+          key,
+          pageIds,
+          outputIds,
+          projectedNodeIds,
+        }))
+    )
+    expect(updated.nodes.find((node) => node.id === "managed-other")).toEqual(
+      document.nodes.find((node) => node.id === "managed-other")
+    )
+    expect(updated.groups).toEqual(document.groups)
+    expect(updated.pages).toEqual(document.pages)
+    expect(updated.outputs).toEqual(document.outputs)
+    expect(updated.bindings).toEqual(document.bindings)
+  })
+
+  it("requires a genuinely new coherent local identity so different bytes cannot reuse the old alias", () => {
+    const document = mediaRelinkDocument()
+    const command = localCommandFor(document)
+
+    expect(() =>
+      applyCommand(document, {
+        ...command,
+        toAssetId: localAssetId,
+        toSource: from,
+      })
+    ).toThrow("must be distinct")
+    expect(() =>
+      applyCommand(document, {
+        ...command,
+        toSource: localAssetSource("another-local-identity"),
+      })
+    ).toThrow("new local asset identity is incoherent")
+
+    const targetAlreadyUsed = structuredClone(document)
+    const defaultOnly = targetAlreadyUsed.fields.find(
+      (field) => field.id === "default-only"
+    )
+    if (!defaultOnly || defaultOnly.type !== "asset") {
+      throw new Error("Expected an asset field")
+    }
+    defaultOnly.defaultValue = replacementLocalSource
+    expect(() =>
+      applyCommand(targetAlreadyUsed, localCommandFor(targetAlreadyUsed))
+    ).toThrow("new local asset identity is already in use")
+  })
+
+  it("rejects stale local reidentity preflights, projection drift, and replay without partial mutation", () => {
+    const document = mediaRelinkDocument()
+    const command = localCommandFor(document)
+    const before = structuredClone(document)
+
+    expect(() =>
+      applyCommand(document, {
+        ...command,
+        expectedReferenceKeys: command.expectedReferenceKeys.slice(1),
+      })
+    ).toThrow("reference set changed")
+    expect(document).toEqual(before)
+
+    const projectionDrift = structuredClone(document)
+    projectionDrift.bindings.push({
+      id: "bind-unrelated-managed-for-local-reidentity",
+      fieldId: "default-only",
+      nodeId: "managed-other",
+      property: "src",
+    })
+    const unrelatedNode = projectionDrift.nodes.find(
+      (node) => node.id === "managed-other"
+    )
+    if (!unrelatedNode || unrelatedNode.type !== "image") {
+      throw new Error("Expected an image")
+    }
+    unrelatedNode.assetId = "asset-driftedmanaged02"
+    unrelatedNode.src = managedAssetSource("asset-driftedmanaged02")
+    const driftBefore = structuredClone(projectionDrift)
+    expect(() =>
+      applyCommand(projectionDrift, localCommandFor(projectionDrift))
+    ).toThrow("unrelated field projection changes")
+    expect(projectionDrift).toEqual(driftBefore)
+
+    const updated = applyCommand(document, command)
+    expect(() => applyCommand(updated, command)).toThrow("already in use")
   })
 
   it("rejects stale, missing, unsorted, and incoherent target reference sets", () => {

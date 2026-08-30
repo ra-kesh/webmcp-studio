@@ -7,9 +7,12 @@ import {
 import { describe, expect, it } from "vitest"
 import {
   chooseLocalAssetPromotionProjection,
+  displayedLocalMediaRecoveryOperation,
+  localMediaRecoveryReferenceRows,
   projectLiveLocalAssetPromotion,
   projectPersistedLocalAssetPromotion,
 } from "./asset-library-dialog"
+import { localMediaRecoveryImpact } from "./asset-library-model"
 import { localAssetPromotionJournalSchema } from "./local-asset-promotion-journal"
 import { hasCurrentRelinkUndo } from "./local-asset-relink-projection"
 
@@ -124,6 +127,109 @@ const completeJournal = localAssetPromotionJournalSchema.parse({
 })
 
 describe("persisted promotion UI projection", () => {
+  it("drops stale relink completion after Undo restores the local alias", () => {
+    const completed = {
+      phase: "complete" as const,
+      message: "Image recovered and saved.",
+      retryable: false,
+      completionKind: "relinked" as const,
+    }
+    expect(displayedLocalMediaRecoveryOperation(completed, 2)).toBeUndefined()
+    expect(
+      displayedLocalMediaRecoveryOperation(
+        { ...completed, completionKind: "restored" },
+        2
+      )
+    ).toMatchObject({ completionKind: "restored" })
+  })
+
+  it("projects every affected layer, field slot, page, and output as a navigable row", () => {
+    const first = documentFor("document-impact", localSource, localAssetId)
+    const secondNode = sceneNodeSchema.parse({
+      ...first.nodes[0],
+      id: "photo-second",
+      name: "Second photo",
+    })
+    const document = documentSchema.parse({
+      ...first,
+      outputs: [
+        ...first.outputs,
+        {
+          id: "output-2",
+          name: "Second output",
+          kind: "custom",
+          pageIds: ["page-2"],
+          exportFormats: ["png"],
+        },
+      ],
+      pages: [
+        ...first.pages,
+        {
+          id: "page-2",
+          outputId: "output-2",
+          name: "Second page",
+          width: 400,
+          height: 400,
+          background: "#fff",
+          nodeIds: [secondNode.id],
+        },
+      ],
+      nodes: [...first.nodes, secondNode],
+      fields: [
+        {
+          id: "field-photo",
+          key: "photo",
+          label: "Shared photo",
+          type: "asset",
+          required: false,
+          defaultValue: localSource,
+          agentDescription: "",
+          validation: {},
+        },
+      ],
+      fieldValues: { "field-photo": localSource },
+      bindings: [
+        {
+          id: "binding-photo",
+          fieldId: "field-photo",
+          nodeId: "photo",
+          property: "src",
+        },
+      ],
+    })
+    const rows = localMediaRecoveryReferenceRows(
+      document,
+      localMediaRecoveryImpact(document, localAssetId)
+    )
+
+    expect(rows.map((row) => row.key)).toEqual(
+      expect.arrayContaining([
+        "field:field-photo:current",
+        "field:field-photo:default",
+        "node:photo",
+        "node:photo-second",
+        "page:page-1",
+        "page:page-2",
+        "output:output-1",
+        "output:output-2",
+      ])
+    )
+    expect(
+      rows.find((row) => row.key === "field:field-photo:current")
+    ).toMatchObject({
+      fieldId: "field-photo",
+      clearReferenceKey: "field/field-photo/current",
+    })
+    expect(rows.find((row) => row.key === "node:photo-second")).toMatchObject({
+      nodeId: "photo-second",
+      pageId: "page-2",
+    })
+    expect(rows.find((row) => row.key === "output:output-2")).toMatchObject({
+      outputId: "output-2",
+      pageId: "page-2",
+    })
+  })
+
   it("shows completion only for the exact managed target in its source document", () => {
     const exact = documentFor("document-1", managedSource, managedAssetId)
     const anotherDocument = documentFor("document-2", localSource, localAssetId)

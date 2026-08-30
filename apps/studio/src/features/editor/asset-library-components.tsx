@@ -4,6 +4,7 @@ import {
   CheckIcon,
   ImageIcon,
   ImageOffIcon,
+  LibraryIcon,
   LoaderCircleIcon,
   MoreHorizontalIcon,
   RefreshCwIcon,
@@ -30,9 +31,12 @@ import {
 } from "@webmcp/ui/components/empty"
 import { Skeleton } from "@webmcp/ui/components/skeleton"
 import type { ManagedMediaAsset } from "./managed-media-repository"
+import type { UnresolvedLocalMediaAdmission } from "@webmcp/document"
 import { loadLocalAsset } from "./local-asset-store"
 import type { LocalAssetSummary } from "./local-asset-store"
 import type { LocalAssetPromotionViewState } from "./use-document-editor"
+import type { LocalMediaRecoveryImpact } from "./asset-library-model"
+import { localMediaRecoveryImpactSummary } from "./asset-library-model"
 
 export type AssetLibraryCollection = "recent" | "uploads" | "library"
 export type UploadPhase =
@@ -56,6 +60,369 @@ export type UploadQueueItem = {
   asset: ManagedMediaAsset | null
   retryable: boolean
   attempt: number
+}
+
+export type LocalMediaRecoveryMappingState =
+  "checking" | "ready" | "archived" | "unmapped" | "unavailable"
+
+export type LocalMediaRecoveryDeviceState =
+  "ready" | "missing_bytes" | "absent" | "quarantined" | "unavailable"
+
+export type LocalMediaRecoveryOperationState = Readonly<{
+  phase:
+    | "preparing"
+    | "cancelling"
+    | "saving"
+    | "identity_conflict"
+    | "complete"
+    | "failed"
+  message: string
+  retryable: boolean
+  retryAction?: "repeat_action" | "finish_saving"
+  completionKind?: "restored" | "relinked" | "cancelled"
+}>
+
+export function MissingLocalAssetRecoveryCard({
+  localAssetId,
+  impact,
+  deviceState = "absent",
+  mappingState,
+  operation,
+  admissionOutcome,
+  disabled = false,
+  removeDisabledReason = null,
+  onUseStudioCopy,
+  onRetryMapping,
+  onRetryRecovery,
+  onCancelRecovery,
+  onLocateFile,
+  onKeepLocatedFile,
+  onChooseStudioImage,
+  onRemove,
+  references = [],
+  onNavigateToReference,
+  onClearReference,
+  reviewOnly = false,
+  actionDisabledReason = null,
+}: {
+  localAssetId: string
+  impact: LocalMediaRecoveryImpact
+  deviceState?: LocalMediaRecoveryDeviceState
+  mappingState: LocalMediaRecoveryMappingState
+  operation?: LocalMediaRecoveryOperationState
+  admissionOutcome?: UnresolvedLocalMediaAdmission["outcome"]
+  disabled?: boolean
+  removeDisabledReason?: string | null
+  onUseStudioCopy?: () => void
+  onRetryMapping?: () => void
+  onRetryRecovery?: () => void
+  onCancelRecovery?: () => void
+  onLocateFile: (file: File) => void
+  onKeepLocatedFile?: () => void
+  onChooseStudioImage: () => void
+  onRemove?: () => void
+  references?: readonly Readonly<{
+    key: string
+    label: string
+    detail: string
+    nodeId: string | null
+    pageId: string | null
+    fieldId: string | null
+    outputId?: string | null
+    clearReferenceKey?: string | null
+    clearDisabledReason?: string | null
+  }>[]
+  onNavigateToReference?: (reference: {
+    nodeId: string | null
+    pageId: string | null
+    fieldId: string | null
+    outputId?: string | null
+  }) => void
+  onClearReference?: (referenceKey: string) => void
+  reviewOnly?: boolean
+  actionDisabledReason?: string | null
+}) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const recoveryActionRef = useRef<HTMLButtonElement>(null)
+  const previousOperationPhaseRef = useRef(operation?.phase)
+  const busy =
+    operation?.phase === "preparing" ||
+    operation?.phase === "cancelling" ||
+    operation?.phase === "saving"
+  const mappingLabel =
+    mappingState === "checking"
+      ? "Checking Studio copies…"
+      : mappingState === "ready"
+        ? "Studio copy available"
+        : mappingState === "archived"
+          ? "Studio backup found"
+          : mappingState === "unmapped"
+            ? "No Studio copy found"
+            : "Backup status unknown"
+  const deviceLabel =
+    deviceState === "ready"
+      ? "On this device"
+      : deviceState === "missing_bytes"
+        ? "File bytes are missing from this device"
+        : deviceState === "quarantined"
+          ? "A damaged local copy was quarantined"
+          : deviceState === "unavailable"
+            ? "Device media status unknown"
+            : "File missing on this device"
+  const statusMessage =
+    operation?.message ??
+    (admissionOutcome === "identity_conflict"
+      ? "The device file and Studio copy have different contents."
+      : mappingLabel)
+  const useCopyAvailable =
+    (mappingState === "ready" || mappingState === "archived") &&
+    Boolean(onUseStudioCopy)
+  const finishSavingOnly =
+    operation?.phase === "failed" &&
+    operation.retryable &&
+    operation.retryAction === "finish_saving"
+
+  useEffect(() => {
+    const previous = previousOperationPhaseRef.current
+    previousOperationPhaseRef.current = operation?.phase
+    if (
+      previous !== operation?.phase &&
+      (operation?.phase === "identity_conflict" ||
+        (operation?.phase === "failed" &&
+          operation.retryAction === "finish_saving"))
+    ) {
+      recoveryActionRef.current?.focus()
+    }
+  }, [operation?.phase, operation?.retryAction])
+
+  return (
+    <section
+      aria-labelledby={`missing-media-${localAssetId}`}
+      className="grid gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3"
+      data-missing-local-asset-id={localAssetId}
+    >
+      <div className="flex min-w-0 items-start gap-3">
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border bg-background text-muted-foreground">
+          <ImageOffIcon className="size-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <h3
+            id={`missing-media-${localAssetId}`}
+            className="text-sm font-medium"
+          >
+            {deviceLabel}
+          </h3>
+          <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+            {localMediaRecoveryImpactSummary(impact)}
+          </p>
+          <p
+            className="mt-1 text-xs leading-5 text-muted-foreground"
+            role={
+              operation?.phase === "failed" ||
+              operation?.phase === "identity_conflict"
+                ? "alert"
+                : "status"
+            }
+            aria-live="polite"
+          >
+            {statusMessage}
+          </p>
+        </div>
+      </div>
+
+      {!reviewOnly && useCopyAvailable && deviceState !== "ready" ? (
+        <p className="text-xs leading-5 text-muted-foreground">
+          Undo restores the device-only reference. If its file is still
+          unavailable on this device, the placeholder returns until you locate
+          it.
+        </p>
+      ) : null}
+
+      {references.length ? (
+        <div className="grid gap-1" aria-label="Affected document uses">
+          {references.map((reference) => (
+            <div
+              key={reference.key}
+              className="flex min-h-11 items-center gap-1 rounded-lg border bg-background p-1"
+            >
+              <button
+                className="flex min-h-9 min-w-0 flex-1 items-center justify-between gap-3 rounded-md px-2 text-left text-xs hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                type="button"
+                onClick={() => onNavigateToReference?.(reference)}
+              >
+                <span className="min-w-0 truncate font-medium">
+                  {reference.label}
+                </span>
+                <span className="shrink-0 text-muted-foreground">
+                  {reference.detail}
+                </span>
+              </button>
+              {!reviewOnly &&
+              !finishSavingOnly &&
+              reference.clearReferenceKey &&
+              onClearReference ? (
+                <Button
+                  className="h-9 shrink-0"
+                  disabled={
+                    disabled || busy || Boolean(reference.clearDisabledReason)
+                  }
+                  size="sm"
+                  title={reference.clearDisabledReason ?? undefined}
+                  type="button"
+                  variant="ghost"
+                  onClick={() => onClearReference(reference.clearReferenceKey!)}
+                >
+                  Clear
+                </Button>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {!reviewOnly ? (
+        <div className="grid gap-2 sm:grid-cols-2">
+          {operation?.phase === "preparing" && onCancelRecovery ? (
+            <Button
+              className="h-11"
+              size="sm"
+              type="button"
+              variant="outline"
+              onClick={onCancelRecovery}
+            >
+              Cancel recovery
+            </Button>
+          ) : null}
+          {finishSavingOnly && onRetryRecovery ? (
+            <Button
+              ref={recoveryActionRef}
+              className="h-11"
+              disabled={disabled || busy}
+              size="sm"
+              type="button"
+              onClick={onRetryRecovery}
+            >
+              <RefreshCwIcon />
+              Finish saving
+            </Button>
+          ) : null}
+          {!finishSavingOnly && useCopyAvailable ? (
+            <Button
+              ref={
+                operation?.phase === "identity_conflict"
+                  ? recoveryActionRef
+                  : undefined
+              }
+              className="h-11"
+              disabled={disabled || busy}
+              size="sm"
+              type="button"
+              onClick={onUseStudioCopy}
+            >
+              {busy ? (
+                <LoaderCircleIcon className="animate-spin" />
+              ) : (
+                <CheckIcon />
+              )}
+              {operation?.phase === "identity_conflict"
+                ? "Replace with Studio copy"
+                : `Use Studio ${mappingState === "archived" ? "backup" : "copy"}`}
+            </Button>
+          ) : null}
+          {operation?.phase === "identity_conflict" && onKeepLocatedFile ? (
+            <Button
+              ref={useCopyAvailable ? undefined : recoveryActionRef}
+              className="h-11"
+              disabled={disabled || busy}
+              size="sm"
+              type="button"
+              variant="outline"
+              onClick={onKeepLocatedFile}
+            >
+              <UploadIcon />
+              Keep as new upload
+            </Button>
+          ) : null}
+          {!finishSavingOnly &&
+          mappingState === "unavailable" &&
+          onRetryMapping ? (
+            <Button
+              className="h-11"
+              disabled={disabled || busy}
+              size="sm"
+              type="button"
+              variant="outline"
+              onClick={onRetryMapping}
+            >
+              <RefreshCwIcon />
+              Retry Studio check
+            </Button>
+          ) : null}
+          {!finishSavingOnly ? (
+            <>
+              <Button
+                className="h-11"
+                disabled={disabled || busy}
+                size="sm"
+                type="button"
+                variant="outline"
+                onClick={() => inputRef.current?.click()}
+              >
+                <UploadIcon />
+                Locate file
+              </Button>
+              <input
+                ref={inputRef}
+                className="sr-only"
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                onChange={(event) => {
+                  const file = event.currentTarget.files?.[0]
+                  if (file) onLocateFile(file)
+                  event.currentTarget.value = ""
+                }}
+              />
+              <Button
+                className="h-11"
+                disabled={disabled || busy}
+                size="sm"
+                type="button"
+                variant="outline"
+                onClick={onChooseStudioImage}
+              >
+                <LibraryIcon />
+                Choose Studio image
+              </Button>
+              {onRemove && references.length === 0 ? (
+                <Button
+                  className="h-11"
+                  disabled={disabled || busy || Boolean(removeDisabledReason)}
+                  size="sm"
+                  title={removeDisabledReason ?? undefined}
+                  type="button"
+                  variant="outline"
+                  onClick={onRemove}
+                >
+                  <Trash2Icon />
+                  Clear from document
+                </Button>
+              ) : null}
+            </>
+          ) : null}
+        </div>
+      ) : null}
+      {!reviewOnly && removeDisabledReason ? (
+        <p className="text-xs leading-5 text-muted-foreground">
+          {removeDisabledReason}
+        </p>
+      ) : null}
+      {!reviewOnly && actionDisabledReason ? (
+        <p className="text-xs leading-5 text-muted-foreground">
+          {actionDisabledReason}
+        </p>
+      ) : null}
+    </section>
+  )
 }
 
 export const uploadPhaseLabel: Record<UploadPhase, string> = {
@@ -417,13 +784,14 @@ export function LocalAssetCard({
   busy: boolean
   mutationDisabled: boolean
   promotionBlockedByOther?: boolean
-  onLocateMissing?: () => void
+  onLocateMissing?: (file: File) => void
   promotion?: LocalAssetPromotionViewState
   referenceCount: number
   onPromote?: () => void
   onCancelPromotion?: () => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const locateInputRef = useRef<HTMLInputElement>(null)
   const [visible, setVisible] = useState(false)
   const [preview, setPreview] = useState<{
     state: "pending" | "ready" | "missing"
@@ -500,16 +868,29 @@ export function LocalAssetCard({
         onPreviewFailure={onPreviewFailure}
       />
       {preview.state === "missing" && onLocateMissing ? (
-        <Button
-          className="h-11 w-full"
-          disabled={mutationDisabled}
-          size="sm"
-          type="button"
-          variant="outline"
-          onClick={onLocateMissing}
-        >
-          Locate replacement
-        </Button>
+        <>
+          <Button
+            className="h-11 w-full"
+            disabled={mutationDisabled}
+            size="sm"
+            type="button"
+            variant="outline"
+            onClick={() => locateInputRef.current?.click()}
+          >
+            Locate replacement
+          </Button>
+          <input
+            ref={locateInputRef}
+            accept="image/png,image/jpeg,image/webp"
+            className="sr-only"
+            type="file"
+            onChange={(event) => {
+              const file = event.currentTarget.files?.[0]
+              if (file) onLocateMissing(file)
+              event.currentTarget.value = ""
+            }}
+          />
+        </>
       ) : null}
       {(preview.state === "ready" || promotion) &&
       (referenceCount > 0 || promotion) &&

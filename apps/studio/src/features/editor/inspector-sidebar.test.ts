@@ -127,6 +127,72 @@ describe("InspectorSidebar image replacement capability", () => {
     expect(markup).toContain("Remove")
     expect(markup).not.toContain("Crop image")
   })
+
+  it("routes an unavailable local alias to shared document-image review", () => {
+    const localImage = {
+      ...image,
+      assetId: "missing-local-image",
+      src: "asset:local/missing-local-image",
+    }
+    const markup = renderToStaticMarkup(
+      createElement(InspectorSidebar, {
+        document: {
+          ...renderConformanceDocument,
+          nodes: renderConformanceDocument.nodes.map((node) =>
+            node.id === image.id ? localImage : node
+          ),
+        },
+        selectedNodes: [localImage],
+        pendingChangeSet: null,
+        lastResolvedChangeSet: null,
+        changeSetConflict: null,
+        changeSetError: null,
+        isApplyingChangeSet: false,
+        webMcpStatus: "ready",
+        webMcpError: null,
+        capabilityContext: {
+          documentEditable: true,
+          imageSourceStateByNodeId: {
+            [image.id]: { src: localImage.src, readiness: "unavailable" },
+          },
+        },
+        onUpdateNode: vi.fn(),
+        onUpdateSelection: vi.fn(),
+        onUpdateField: vi.fn(),
+        onCreateField: vi.fn(),
+        onUpdateFieldDefinition: vi.fn(),
+        onRemoveField: vi.fn(),
+        onBindField: vi.fn(),
+        onUnbindField: vi.fn(),
+        onFocusNode: vi.fn(),
+        onDecideChangeOperation: vi.fn(),
+        onDecideAllChangeOperations: vi.fn(),
+        onApplyChangeSet: vi.fn(),
+        onDiscardChangeSet: vi.fn(),
+        onAlignSelection: vi.fn(),
+        onAlignSelectionToPage: vi.fn(),
+        onDistributeSelection: vi.fn(),
+        onSetSelectionLocked: vi.fn(),
+        onSetSelectionVisible: vi.fn(),
+        onReorderSelection: vi.fn(),
+        onDuplicateSelection: vi.fn(),
+        onDeleteSelection: vi.fn(),
+        onUpdateImageFrameGeometry: vi.fn(),
+        onSetImagePlacement: vi.fn(),
+        onSetImageFrameMask: vi.fn(),
+        onRunImageCommand: vi.fn(),
+        isImageCommandEnabled: () => true,
+        onRetryImageSource: vi.fn(),
+        onRemoveImageLayer: vi.fn(),
+        onReviewDocumentImage: vi.fn(),
+      })
+    )
+
+    expect(markup).toContain("Review document image")
+    expect(markup).not.toContain("Retry image source")
+    expect(markup).not.toContain("Locate replacement image")
+    expect(markup).not.toContain("Remove image layer")
+  })
 })
 
 describe("Review target navigation", () => {
