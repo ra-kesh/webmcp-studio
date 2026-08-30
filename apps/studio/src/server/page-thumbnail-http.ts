@@ -4,7 +4,8 @@ import {
   assertRenderableDocument,
   createPageThumbnailDocument,
   createPageThumbnailRenderResourcePlan,
-  documentSchema,
+  decodeDocument,
+  DocumentMigrationError,
   DocumentValidationError,
   pageThumbnailLimits,
   PageThumbnailSizeError,
@@ -55,7 +56,9 @@ export const pageThumbnailRequestSchema = z
   .object({
     pageId: z.string().min(1),
     size: thumbnailSizeSchema,
-    document: documentSchema,
+    document: z
+      .unknown()
+      .refine((document) => document !== undefined, "Document is required"),
   })
   .strict()
 
@@ -217,7 +220,47 @@ export function createPageThumbnailRequestHandler(
       )
     }
 
-    const requestedPage = parsed.data.document.pages.find(
+    let document: Document
+    try {
+      document = decodeDocument(parsed.data.document).document
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return respond(
+          Response.json(
+            {
+              error: "invalid_thumbnail_request",
+              issues: apiIssuesFrom(
+                error.issues.map((issue) => ({
+                  ...issue,
+                  path: ["document", ...issue.path],
+                }))
+              ),
+            },
+            { status: 400 }
+          )
+        )
+      }
+      if (error instanceof DocumentMigrationError) {
+        return respond(
+          Response.json(
+            {
+              error: "invalid_thumbnail_request",
+              issues: [
+                {
+                  path: ["document"],
+                  code: "document_migration_failed",
+                  message: error.message,
+                },
+              ],
+            },
+            { status: 400 }
+          )
+        )
+      }
+      throw error
+    }
+
+    const requestedPage = document.pages.find(
       (candidate) => candidate.id === parsed.data.pageId
     )
     if (!requestedPage) {
@@ -225,7 +268,7 @@ export function createPageThumbnailRequestHandler(
         Response.json({ error: "page_not_found" }, { status: 404 })
       )
     }
-    const requestedOutput = parsed.data.document.outputs.find(
+    const requestedOutput = document.outputs.find(
       (candidate) =>
         candidate.id === requestedPage.outputId &&
         candidate.pageIds.includes(requestedPage.id)
@@ -245,7 +288,7 @@ export function createPageThumbnailRequestHandler(
     }
 
     const thumbnailDocument = createPageThumbnailDocument(
-      parsed.data.document,
+      document,
       requestedPage.id
     )
 

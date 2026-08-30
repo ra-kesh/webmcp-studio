@@ -146,6 +146,57 @@ function dependencies(options?: {
 }
 
 describe("page thumbnail Studio boundary", () => {
+  it("migrates a legacy document before preview admission", async () => {
+    const legacy = structuredClone(northstarSeed) as unknown as Record<
+      string,
+      unknown
+    >
+    legacy.schemaVersion = 2
+    delete legacy.typographyStyles
+    delete legacy.paintStyles
+    delete legacy.variables
+    const fixture = dependencies()
+    const handler = createPageThumbnailRequestHandler(fixture.value)
+
+    const response = await handler(
+      jsonRequest(thumbnailRequest({ document: legacy })),
+      {} as Env
+    )
+
+    expect(response.status).toBe(200)
+    expect(fixture.prepareDocument).toHaveBeenCalledWith(
+      {},
+      principal,
+      createPageThumbnailDocument(northstarSeed, "cover"),
+      expect.any(AbortSignal)
+    )
+    expect(fixture.reserveCapacity).toHaveBeenCalledOnce()
+  })
+
+  it("reports an invalid legacy document under the document boundary", async () => {
+    const fixture = dependencies()
+    const handler = createPageThumbnailRequestHandler(fixture.value)
+
+    const response = await handler(
+      jsonRequest(thumbnailRequest({ document: { schemaVersion: 2 } })),
+      {} as Env
+    )
+
+    expect(response.status).toBe(400)
+    const payload = (await response.json()) as {
+      error: string
+      issues: Array<{ path: Array<string | number> }>
+    }
+    expect(payload.error).toBe("invalid_thumbnail_request")
+    expect(payload.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: ["document", "id"] }),
+      ])
+    )
+    expect(fixture.prepareDocument).not.toHaveBeenCalled()
+    expect(fixture.reserveCapacity).not.toHaveBeenCalled()
+  })
+
   it("authenticates, admits capacity, and proxies the exact private request", async () => {
     const invokeRenderer = vi.fn(async (_env: Env, request: Request) => {
       expect(request.url).toBe("https://renderer.internal/render/thumbnail")

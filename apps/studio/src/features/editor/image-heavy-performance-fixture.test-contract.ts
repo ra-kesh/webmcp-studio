@@ -102,7 +102,7 @@ export function createImageHeavyPerformanceFixture(
   }
 
   const document = documentSchema.parse({
-    schemaVersion: 2,
+    schemaVersion: 3,
     id: `image-heavy-performance-document-${pageCount}-${imagesPerPage}`,
     name: `${pageCount}-page image-heavy performance fixture`,
     revision: 0,
@@ -120,6 +120,9 @@ export function createImageHeavyPerformanceFixture(
     pages,
     nodes,
     groups: [],
+    typographyStyles: [],
+    paintStyles: [],
+    variables: [],
     fields: [],
     fieldValues: {},
     bindings: [],
