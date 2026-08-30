@@ -359,6 +359,42 @@ export function ProductCommandDropdownGroups({
   ))
 }
 
+export function ResponsiveProductCommandDropdownGroups({
+  menus,
+  runtime,
+}: {
+  menus: readonly ProductAppMenu[]
+  runtime: ProductCommandMenuRuntime
+}) {
+  const responsiveMenus = responsiveProductCommandMenus(menus)
+
+  return (
+    <>
+      <div className="min-[640px]:hidden" data-compact-product-menus>
+        <ProductCommandDropdownGroups
+          menus={responsiveMenus.compact}
+          runtime={runtime}
+        />
+      </div>
+      <div className="hidden min-[640px]:contents" data-desktop-product-menus>
+        <ProductCommandDropdownGroups
+          menus={responsiveMenus.desktop}
+          runtime={runtime}
+        />
+      </div>
+    </>
+  )
+}
+
+export function responsiveProductCommandMenus(
+  menus: readonly ProductAppMenu[]
+) {
+  return {
+    compact: menus.filter((menu) => menu.id !== "text"),
+    desktop: menus,
+  } as const
+}
+
 export function ProductCommandDropdownItems({
   groups,
   runtime,

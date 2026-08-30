@@ -2799,3 +2799,23 @@ Status: **completed locally; EDITOR-POLISH-01 remains active**
 - Studio typecheck, 72 focused tests, scoped Studio ESLint and
   `git diff --check` pass.
 - Gate 5 owns menus, dialogs, loading/empty/error states, and compact sheets.
+
+## 2026-08-30 — EDITOR-POLISH-01 Gate 5A menus and dialog sizing
+
+Status: **completed locally; Gate 5 state/sheet work remains active**
+
+- Revisited the original audit, retained topbar placement review,
+  OpenPencil's menu/dialog recipes, Studio's shared product-menu model, and the
+  mounted More, shortcuts, and Publish surfaces before editing.
+- Fixed the desktop overflow's missing Text category. From 640 through 1599 px,
+  More now presents the exact shared File/Edit/View/Object/Text/Arrange/Help
+  sequence; narrow compact mode retains the richer Text styles surface without
+  duplicating it.
+- Fixed a responsive cascade bug that constrained the desktop shortcuts dialog
+  to 384 px. It now uses the intended 768 px, two-column reference layout.
+- Mounted `1440 x 900` acceptance confirmed menu order, readable untruncated
+  shortcuts, modal focus/close semantics and the unaffected Publish workflow.
+- Studio typecheck, focused tests, scoped Studio ESLint and `git diff --check`
+  pass.
+- Gate 5B owns loading, empty, error and recovery-state hierarchy; Gate 5C owns
+  the compact sheet composition.

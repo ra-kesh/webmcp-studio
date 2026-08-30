@@ -238,9 +238,9 @@ import type { StudioCommandPaletteItem } from "./editor/command-palette"
 import { KeyboardShortcutsDialog } from "./editor/keyboard-shortcuts-dialog"
 import {
   ProductCommandContextMenu,
-  ProductCommandDropdownGroups,
   ProductCommandDropdownItems,
   ProductCommandMenubar,
+  ResponsiveProductCommandDropdownGroups,
 } from "./editor/product-command-menu"
 import type { ProductCommandMenuRuntime } from "./editor/product-command-menu"
 import { RenameLayerDialog } from "./editor/rename-layer-dialog"
@@ -3689,8 +3689,8 @@ export function StudioShell({
                   />
                   <DropdownMenuSeparator />
                 </div>
-                <ProductCommandDropdownGroups
-                  menus={productMenus.filter((menu) => menu.id !== "text")}
+                <ResponsiveProductCommandDropdownGroups
+                  menus={productMenus}
                   runtime={productMenuRuntime}
                 />
               </DropdownMenuContent>

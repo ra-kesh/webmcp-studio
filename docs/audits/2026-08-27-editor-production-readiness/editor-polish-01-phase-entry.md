@@ -2,7 +2,7 @@
 
 Date: 2026-08-30
 
-Status: active; Gates 1-4 accepted locally
+Status: active; Gates 1-4 and Gate 5A accepted locally
 
 ## Purpose
 
@@ -255,5 +255,47 @@ Focused evidence:
 - Studio typecheck passes;
 - 72 focused filmstrip, zoom, ruler/guide, selected-image, crop, and placement
   tests pass;
+- scoped Studio ESLint passes;
+- `git diff --check` passes.
+
+## Gate 5A result — application menus and dialog sizing
+
+Sources revisited before implementation:
+
+- the compact reachability and modal-surface findings in
+  `visual-and-interaction-audit.md`;
+- `menu-01-topbar-placement-review.md` and its exact seven-heading contract;
+- OpenPencil `src/components/Shell/AppMenu.vue` and `src/theme/dialog.ts`;
+- Studio's product-menu model, responsive More menu, shared Dialog primitive,
+  shortcuts dialog, and mounted Publish dialog.
+
+Implemented:
+
+- the 1280-1599 px More menu now exposes the complete File, Edit, View, Object,
+  Text, Arrange, and Help sequence from the shared product-menu model;
+- below 640 px, Text continues to use the richer preset surface and is omitted
+  only from the duplicate product submenu;
+- the shortcuts dialog now correctly overrides the shared responsive width at
+  `sm:max-w-3xl` instead of being forced back to the primitive's 384 px
+  default;
+- the responsive menu projection is a named, tested component contract rather
+  than local filter markup inside the shell;
+- existing Radix submenu semantics, command enablement, shortcuts, focus
+  return, compact targets, and Publish dialog anatomy remain unchanged.
+
+Mounted acceptance at `1440 x 900` confirmed:
+
+- More exposes all seven ordered application groups, including Text;
+- the shortcuts dialog renders as a readable two-column 768 px surface with no
+  truncated command labels caused by the old width cascade;
+- the close control, modal focus, scroll containment, backdrop, and keyboard
+  shortcut regions remain correctly named;
+- the Publish dialog retains its clear summary, validation state, footer, and
+  focus-owning actions.
+
+Focused evidence:
+
+- Studio typecheck passes;
+- focused responsive-menu and shortcut-disclosure tests pass;
 - scoped Studio ESLint passes;
 - `git diff --check` passes.

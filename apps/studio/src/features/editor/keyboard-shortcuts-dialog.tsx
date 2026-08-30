@@ -32,7 +32,7 @@ export function KeyboardShortcutsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[min(44rem,calc(100vh-2rem))] max-w-3xl overflow-hidden p-0">
+      <DialogContent className="max-h-[min(44rem,calc(100vh-2rem))] overflow-hidden p-0 sm:max-w-3xl">
         <DialogHeader className="border-b px-5 py-4">
           <DialogTitle>Keyboard shortcuts</DialogTitle>
           <DialogDescription>
