@@ -18,6 +18,11 @@ const asset = {
   lastUsedAt: now,
   status: "ready" as const,
 }
+const useReceipt = {
+  assetId,
+  usedAt: "2026-08-28T00:01:00.000Z",
+  assetRevision: 2,
+}
 const promotion = {
   localAssetId: "local-portrait:1",
   contentSha256: "a".repeat(64),
@@ -324,16 +329,50 @@ describe("media asset HTTP contract", () => {
     })
   })
 
-  it("marks successful insertion/replacement use and returns current metadata", async () => {
-    repository.markUsed.mockResolvedValue({ ...asset, lastUsedAt: now })
+  it("marks use with a stable key and returns a private canonical receipt", async () => {
+    repository.markUsed.mockResolvedValue(useReceipt)
     const response = await handlers.markUsed(
       new Request(`https://studio.test/v1/studio/assets/${assetId}/used`, {
         method: "POST",
+        headers: {
+          "Idempotency-Key": "document-relink-use-1",
+          "X-Request-Id": "request-use-1",
+        },
       }),
       assetId
     )
-    expect(repository.markUsed).toHaveBeenCalledWith("workspace-a", assetId)
-    expect(await response.json()).toEqual({ asset })
+    expect(repository.markUsed).toHaveBeenCalledWith(
+      "workspace-a",
+      assetId,
+      "document-relink-use-1"
+    )
+    expect(await response.json()).toEqual({
+      receipt: useReceipt,
+    })
+    expect(response.headers.get("x-request-id")).toBe("request-use-1")
+    expect(response.headers.get("cache-control")).toBe("private, no-store")
+  })
+
+  it.each([
+    [null, "Marking an asset used requires Idempotency-Key"],
+    ["bad key", "Idempotency-Key must contain"],
+  ])("rejects a missing or malformed use key", async (key, message) => {
+    const headers = key ? { "Idempotency-Key": key } : undefined
+    const response = await handlers.markUsed(
+      new Request(`https://studio.test/v1/studio/assets/${assetId}/used`, {
+        method: "POST",
+        headers,
+      }),
+      assetId
+    )
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({
+      error: {
+        code: "invalid_idempotency_key",
+        message: expect.stringContaining(message),
+      },
+    })
+    expect(repository.markUsed).not.toHaveBeenCalled()
   })
 
   it("promotes authoritative multipart bytes after admission and exposes no private source", async () => {

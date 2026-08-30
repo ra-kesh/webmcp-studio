@@ -9,10 +9,11 @@ import {
   mediaAssetDeletionImpactResponseSchema,
   mediaAssetListResponseSchema,
   mediaAssetLookupResponseSchema,
+  mediaAssetUseResponseSchema,
   mediaAssetUploadResponseSchema,
 } from "@webmcp/document"
 import { JsonBodyError, jsonBodyErrorResponse } from "@webmcp/worker-boundary"
-import { apiIssuesFrom } from "./api-boundary"
+import { apiIssuesFrom, requestIdFor } from "./api-boundary"
 import {
   assertMediaAssetId,
   assertMediaIdempotencyKey,
@@ -506,12 +507,29 @@ export function createMediaAssetHttpHandlers(
 
     markUsed: (request: Request, assetIdInput: string) =>
       withMediaPrincipal(dependencies, request, async (principal) => {
-        const asset = await repository.markUsed(
-          principal.workspaceId,
-          assertMediaAssetId(assetIdInput)
+        const idempotencyKey = assertMediaIdempotencyKey(
+          request.headers.get("idempotency-key")
         )
+        if (!idempotencyKey) {
+          throw new MediaAssetError(
+            "invalid_idempotency_key",
+            400,
+            "Marking an asset used requires Idempotency-Key"
+          )
+        }
+        const receipt = await repository.markUsed(
+          principal.workspaceId,
+          assertMediaAssetId(assetIdInput),
+          idempotencyKey
+        )
+        const requestId = requestIdFor(request)
         return principal.respond(
-          Response.json(mediaAssetUploadResponseSchema.parse({ asset }))
+          Response.json(mediaAssetUseResponseSchema.parse({ receipt }), {
+            headers: {
+              "Cache-Control": "private, no-store",
+              "X-Request-Id": requestId,
+            },
+          })
         )
       }),
 

@@ -72,6 +72,13 @@ class FakeD1Statement {
           request.idempotency_key === second
       )
     }
+    if (marker === "media:use-request-get") {
+      return this.state.useRequests.filter(
+        (request) =>
+          request.workspace_id === workspaceId &&
+          request.idempotency_key === second
+      )
+    }
     if (marker === "media:promotion-get") {
       const promotion = this.state.promotions.find(
         (candidate) =>
@@ -262,12 +269,41 @@ class FakeD1Statement {
         (candidate) =>
           candidate.workspace_id === workspaceId &&
           candidate.id === id &&
-          candidate.status === "ready"
+          (candidate.status === "ready" || candidate.status === "archived")
       )
       if (!asset) return 0
       asset.last_used_at = now
       asset.updated_at = now
       asset.revision = Number(asset.revision) + 1
+      return 1
+    }
+    if (marker === "media:use-request-insert") {
+      const [workspaceId, key, requestHash, assetId, now] = this.values
+      if (
+        this.state.useRequests.some(
+          (request) =>
+            request.workspace_id === workspaceId &&
+            request.idempotency_key === key
+        )
+      ) {
+        throw new Error("UNIQUE constraint failed")
+      }
+      const asset = this.state.assets.find(
+        (candidate) =>
+          candidate.workspace_id === workspaceId &&
+          candidate.id === assetId &&
+          (candidate.status === "ready" || candidate.status === "archived")
+      )
+      if (!asset) return 0
+      this.state.useRequests.push({
+        workspace_id: workspaceId,
+        idempotency_key: key,
+        request_hash: requestHash,
+        asset_id: assetId,
+        used_at: now,
+        result_revision: asset.revision,
+        created_at: now,
+      })
       return 1
     }
     if (marker === "media:restore") {
@@ -341,9 +377,11 @@ class FakeD1Statement {
 class FakeD1 {
   assets: Row[] = []
   requests: Row[] = []
+  useRequests: Row[] = []
   promotions: Row[] = []
   references: Row[] = []
   batchFailure: Error | (() => Error) | null = null
+  batchFailureAfterMutation: Error | (() => Error) | null = null
   batchResultChanges: number[] | null = null
   skipPromotionRequestMutation = false
   archiveAssetAfterBatch: string | null = null
@@ -358,11 +396,31 @@ class FakeD1 {
       this.batchFailure = null
       throw typeof failure === "function" ? failure() : failure
     }
-    const results = await Promise.all(
-      statements.map((statement) =>
-        (statement as unknown as FakeD1Statement).run<T>()
-      )
-    )
+    const snapshot = structuredClone({
+      assets: this.assets,
+      requests: this.requests,
+      useRequests: this.useRequests,
+      promotions: this.promotions,
+      references: this.references,
+    })
+    const results: D1Result<T>[] = []
+    try {
+      for (const statement of statements) {
+        results.push(await (statement as unknown as FakeD1Statement).run<T>())
+      }
+    } catch (error) {
+      this.assets = snapshot.assets
+      this.requests = snapshot.requests
+      this.useRequests = snapshot.useRequests
+      this.promotions = snapshot.promotions
+      this.references = snapshot.references
+      throw error
+    }
+    if (this.batchFailureAfterMutation) {
+      const failure = this.batchFailureAfterMutation
+      this.batchFailureAfterMutation = null
+      throw typeof failure === "function" ? failure() : failure
+    }
     if (this.archiveAssetAfterBatch) {
       const asset = this.assets.find(
         (candidate) => candidate.id === this.archiveAssetAfterBatch
@@ -626,7 +684,7 @@ describe("MediaAssetRepository", () => {
       await validatedUpload("private.png"),
       null
     )
-    await repository.markUsed("workspace-a", first.asset.id)
+    await repository.markUsed("workspace-a", first.asset.id, "recent-list-use")
     const list = await repository.list("workspace-a", {
       collection: "recent",
       query: "first",
@@ -635,6 +693,236 @@ describe("MediaAssetRepository", () => {
     })
     expect(list.assets.map((asset) => asset.name)).toEqual(["first.png"])
     expect(list.storage).toEqual({ bytes: png1x1.length, count: 1 })
+  })
+
+  it("marks Recent exactly once and replays the durable receipt", async () => {
+    const { db, repository } = repositoryFixture()
+    const first = await repository.upload(
+      "workspace-a",
+      await validatedUpload(),
+      null
+    )
+
+    const receipt = await repository.markUsed(
+      "workspace-a",
+      first.asset.id,
+      "document-relink-use-1"
+    )
+    const replay = await repository.markUsed(
+      "workspace-a",
+      first.asset.id,
+      "document-relink-use-1"
+    )
+
+    expect(receipt).toEqual({
+      assetId: first.asset.id,
+      usedAt: "2026-08-28T00:00:01.000Z",
+      assetRevision: 2,
+    })
+    expect(replay).toEqual(receipt)
+    expect(db.assets[0]).toMatchObject({
+      revision: 2,
+      updated_at: receipt.usedAt,
+      last_used_at: receipt.usedAt,
+    })
+    expect(db.useRequests).toHaveLength(1)
+    expect(db.useRequests[0]?.request_hash).toBe(
+      "2ffcb08745510fd707b3b56d7841ee5d8424c3cec985ba477e5c88222f39c69c"
+    )
+  })
+
+  it("replays the original receipt after a later distinct use advances the asset", async () => {
+    const { db, repository } = repositoryFixture()
+    const first = await repository.upload(
+      "workspace-a",
+      await validatedUpload(),
+      null
+    )
+    const original = await repository.markUsed(
+      "workspace-a",
+      first.asset.id,
+      "document-relink-use-original"
+    )
+    const later = await repository.markUsed(
+      "workspace-a",
+      first.asset.id,
+      "document-relink-use-later"
+    )
+    const replay = await repository.markUsed(
+      "workspace-a",
+      first.asset.id,
+      "document-relink-use-original"
+    )
+
+    expect(later).toMatchObject({ assetRevision: 3 })
+    expect(replay).toEqual(original)
+    expect(db.assets[0]).toMatchObject({
+      revision: 3,
+      last_used_at: later.usedAt,
+      updated_at: later.usedAt,
+    })
+    expect(db.useRequests).toHaveLength(2)
+  })
+
+  it("rejects a use key replay for another asset without changing either asset", async () => {
+    const { db, repository } = repositoryFixture()
+    const first = await repository.upload(
+      "workspace-a",
+      await validatedUpload(),
+      null
+    )
+    const secondId = "asset-0000000000000000000000000000999"
+    db.assets.push({
+      ...db.assets[0],
+      id: secondId,
+      content_hash: "b".repeat(64),
+      r2_key: "media/workspaces/workspace-a/content/b/original",
+    })
+    await repository.markUsed(
+      "workspace-a",
+      first.asset.id,
+      "document-relink-use-conflict"
+    )
+
+    await expect(
+      repository.markUsed(
+        "workspace-a",
+        secondId,
+        "document-relink-use-conflict"
+      )
+    ).rejects.toMatchObject({ code: "idempotency_key_reused", status: 409 })
+    expect(db.assets.map((row) => row.revision)).toEqual([2, 1])
+  })
+
+  it("keeps use accounting workspace-scoped and retains archived state", async () => {
+    const { db, repository } = repositoryFixture()
+    const first = await repository.upload(
+      "workspace-a",
+      await validatedUpload(),
+      null
+    )
+    await expect(
+      repository.markUsed(
+        "workspace-b",
+        first.asset.id,
+        "foreign-workspace-use"
+      )
+    ).rejects.toMatchObject({ code: "asset_not_found", status: 404 })
+    db.assets[0].status = "archived"
+    await expect(
+      repository.markUsed("workspace-a", first.asset.id, "archived-asset-use")
+    ).resolves.toMatchObject({ assetId: first.asset.id, assetRevision: 2 })
+    expect(db.assets[0]).toMatchObject({ status: "archived", revision: 2 })
+    expect(db.useRequests).toHaveLength(1)
+    await expect(
+      repository.list("workspace-a", {
+        collection: "recent",
+        query: "",
+        limit: 10,
+        cursor: null,
+      })
+    ).resolves.toMatchObject({ assets: [] })
+  })
+
+  it("replays an archived committed-but-reported receipt without restoring or recounting", async () => {
+    const { db, repository } = repositoryFixture()
+    const first = await repository.upload(
+      "workspace-a",
+      await validatedUpload(),
+      null
+    )
+    db.assets[0].status = "archived"
+    db.batchFailureAfterMutation = new Error("D1 response lost")
+
+    const firstReceipt = await repository.markUsed(
+      "workspace-a",
+      first.asset.id,
+      "archived-recovery-use"
+    )
+    const replay = await repository.markUsed(
+      "workspace-a",
+      first.asset.id,
+      "archived-recovery-use"
+    )
+
+    expect(replay).toEqual(firstReceipt)
+    expect(db.assets[0]).toMatchObject({ status: "archived", revision: 2 })
+    expect(db.useRequests).toHaveLength(1)
+  })
+
+  it("reconciles a committed-but-reported use without a second revision", async () => {
+    const { db, repository } = repositoryFixture()
+    const first = await repository.upload(
+      "workspace-a",
+      await validatedUpload(),
+      null
+    )
+    db.batchFailureAfterMutation = new Error("D1 transport lost response")
+
+    await expect(
+      repository.markUsed(
+        "workspace-a",
+        first.asset.id,
+        "committed-use-response-lost"
+      )
+    ).resolves.toMatchObject({ assetId: first.asset.id, assetRevision: 2 })
+    expect(db.assets[0].revision).toBe(2)
+    expect(db.useRequests).toHaveLength(1)
+  })
+
+  it("adopts a same-key D1 race without applying the losing update", async () => {
+    const { db, repository } = repositoryFixture()
+    const first = await repository.upload(
+      "workspace-a",
+      await validatedUpload(),
+      null
+    )
+    db.batchFailure = () => {
+      const row = db.assets[0]
+      row.last_used_at = "2026-08-28T00:10:00.000Z"
+      row.updated_at = "2026-08-28T00:10:00.000Z"
+      row.revision = 2
+      db.useRequests.push({
+        workspace_id: "workspace-a",
+        idempotency_key: "raced-use-request",
+        request_hash:
+          "2ffcb08745510fd707b3b56d7841ee5d8424c3cec985ba477e5c88222f39c69c",
+        asset_id: first.asset.id,
+        used_at: "2026-08-28T00:10:00.000Z",
+        result_revision: 2,
+        created_at: "2026-08-28T00:10:00.000Z",
+      })
+      return new Error("UNIQUE constraint failed")
+    }
+
+    await expect(
+      repository.markUsed("workspace-a", first.asset.id, "raced-use-request")
+    ).resolves.toEqual({
+      assetId: first.asset.id,
+      usedAt: "2026-08-28T00:10:00.000Z",
+      assetRevision: 2,
+    })
+    expect(db.assets[0].revision).toBe(2)
+    expect(db.useRequests).toHaveLength(1)
+  })
+
+  it("trusts the durable receipt over anomalous D1 result counts", async () => {
+    const { db, repository } = repositoryFixture()
+    const first = await repository.upload(
+      "workspace-a",
+      await validatedUpload(),
+      null
+    )
+    db.batchResultChanges = [0, 0]
+
+    const receipt = await repository.markUsed(
+      "workspace-a",
+      first.asset.id,
+      "anomalous-result-use"
+    )
+    expect(receipt.assetRevision).toBe(2)
+    expect(db.assets[0].revision).toBe(2)
+    expect(db.useRequests).toHaveLength(1)
   })
 
   it("streams workspace-owned bytes with an integrity-checked renderer source", async () => {

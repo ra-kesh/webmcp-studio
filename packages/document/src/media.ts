@@ -27,6 +27,12 @@ export const mediaIdempotencyKeySchema = z
   .max(128)
   .regex(/^[A-Za-z0-9._:-]+$/)
 
+export const mediaRequestIdSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/)
+
 export const localAssetIdSchema = z
   .string()
   .min(1)
@@ -276,6 +282,18 @@ export const mediaAssetUploadResponseSchema = z
   .object({ asset: publicMediaAssetSchema })
   .strict()
 
+export const mediaAssetUseReceiptSchema = z
+  .object({
+    assetId: mediaAssetIdSchema,
+    usedAt: z.iso.datetime(),
+    assetRevision: z.number().int().positive(),
+  })
+  .strict()
+
+export const mediaAssetUseResponseSchema = z
+  .object({ receipt: mediaAssetUseReceiptSchema })
+  .strict()
+
 export const mediaAssetLookupSchema = z
   .object({
     id: mediaAssetIdSchema,
@@ -413,6 +431,7 @@ export const mediaAssetArchiveResponseSchema = z
   .strict()
 
 export type PublicMediaAsset = z.infer<typeof publicMediaAssetSchema>
+export type MediaAssetUseReceipt = z.infer<typeof mediaAssetUseReceiptSchema>
 export type MediaAssetLookup = z.infer<typeof mediaAssetLookupSchema>
 export type MediaAssetPromotionAsset = z.infer<
   typeof mediaAssetPromotionAssetSchema

@@ -218,6 +218,35 @@ describe("API boundary", () => {
     )
   })
 
+  it("normalizes managed-media use receipts without exposing asset identity in the audit path", async () => {
+    const db = database()
+    const request = new Request(
+      "https://studio.test/v1/studio/assets/asset-0123456789abcdef/used",
+      { method: "POST" }
+    )
+    const result = await finalizeApiResponse(
+      db as unknown as D1Database,
+      request,
+      Response.json({ receipt: {} }),
+      "request-use",
+      performance.now()
+    )
+    await result.audit
+    const bind = db.prepare.mock.results[0]?.value.bind
+    expect(bind).toHaveBeenCalledWith(
+      "request-use",
+      expect.any(String),
+      "POST",
+      "/v1/studio/assets/:assetId/used",
+      200,
+      expect.any(Number),
+      null,
+      null,
+      null,
+      0
+    )
+  })
+
   it("normalizes GET on the static resolve file as the valid alias literal", async () => {
     const db = database()
     const request = new Request(

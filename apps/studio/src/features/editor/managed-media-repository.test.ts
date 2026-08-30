@@ -36,6 +36,17 @@ const impact = {
   publishedReferences: 0,
   references: [],
 }
+const useReceipt = {
+  assetId: asset.id,
+  usedAt: "2026-08-28T00:01:00.000Z",
+  assetRevision: 2,
+  requestId: "request-use-1",
+}
+const serverUseReceipt = {
+  assetId: useReceipt.assetId,
+  usedAt: useReceipt.usedAt,
+  assetRevision: useReceipt.assetRevision,
+}
 
 class MockXMLHttpRequest {
   static instances: MockXMLHttpRequest[] = []
@@ -119,6 +130,11 @@ describe("managed media repository", () => {
         new ManagedMediaError("invalid_image", 422, "Invalid image")
       )
     ).toBe(false)
+    expect(
+      managedMediaErrorIsRetryable(
+        new ManagedMediaError("media_use_status_unknown", 200, "Unknown")
+      )
+    ).toBe(true)
     expect(managedMediaErrorIsRetryable(new Error("unknown"))).toBe(false)
   })
 
@@ -297,6 +313,11 @@ describe("managed media repository", () => {
     ).toBe(true)
     expect(
       managedMediaErrorHasUnknownCommitStatus(
+        new ManagedMediaError("media_use_status_unknown", 200, "Unknown")
+      )
+    ).toBe(true)
+    expect(
+      managedMediaErrorHasUnknownCommitStatus(
         new ManagedMediaError("upload_too_large", 413, "Too large")
       )
     ).toBe(false)
@@ -345,25 +366,277 @@ describe("managed media repository", () => {
     })
   })
 
-  it("marks an asset used through the canonical POST endpoint", async () => {
-    const updatedAsset = {
-      ...asset,
-      lastUsedAt: "2026-08-28T00:01:00.000Z",
-    }
+  it("marks an asset used with a retained key and returns its receipt", async () => {
+    const signal = new AbortController().signal
     const fetchMock = vi
       .fn<typeof fetch>()
-      .mockResolvedValue(Response.json({ asset: updatedAsset }))
+      .mockResolvedValue(
+        Response.json(
+          { receipt: serverUseReceipt },
+          { headers: { "X-Request-Id": useReceipt.requestId } }
+        )
+      )
     vi.stubGlobal("fetch", fetchMock)
 
-    await expect(markManagedMediaUsed(asset.id)).resolves.toEqual(updatedAsset)
+    await expect(
+      markManagedMediaUsed(asset.id, {
+        idempotencyKey: "document-relink-use-1",
+        signal,
+      })
+    ).resolves.toEqual(useReceipt)
     expect(fetchMock).toHaveBeenCalledWith(
       `/v1/studio/assets/${asset.id}/used`,
-      { method: "POST" }
+      {
+        method: "POST",
+        headers: { "Idempotency-Key": "document-relink-use-1" },
+        signal,
+      }
     )
+  })
+
+  it("generates a stable key for an ordinary one-shot use update", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        Response.json(
+          { receipt: serverUseReceipt },
+          { headers: { "X-Request-Id": useReceipt.requestId } }
+        )
+      )
+    vi.stubGlobal("fetch", fetchMock)
+
+    await markManagedMediaUsed(asset.id)
+
+    const init = fetchMock.mock.calls[0]?.[1]
+    expect(init?.headers).toEqual({
+      "Idempotency-Key": expect.stringMatching(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+      ),
+    })
+  })
+
+  it("rejects a malformed retained use key before sending a request", async () => {
+    const fetchMock = vi.fn<typeof fetch>()
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(
+      markManagedMediaUsed(asset.id, { idempotencyKey: "bad key" })
+    ).rejects.toMatchObject({ name: "ZodError" })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("rejects a successful use response with malformed request identity", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(
+          Response.json(
+            { receipt: serverUseReceipt },
+            { headers: { "X-Request-Id": "bad request" } }
+          )
+        )
+    )
+
+    await expect(
+      markManagedMediaUsed(asset.id, { idempotencyKey: "use-mismatch" })
+    ).rejects.toMatchObject({
+      code: "media_use_status_unknown",
+      status: 200,
+      idempotencyKey: "use-mismatch",
+      requestId: null,
+    })
+  })
+
+  it("treats a valid wrong-asset receipt as unknown without notifying", async () => {
+    const listener = vi.fn()
+    const unsubscribe = subscribeManagedMediaMutations(listener)
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(
+        Response.json(
+          {
+            receipt: {
+              ...serverUseReceipt,
+              assetId: "asset-0000000000000000000000000000999",
+            },
+          },
+          { headers: { "X-Request-Id": useReceipt.requestId } }
+        )
+      )
+    )
+
+    await expect(
+      markManagedMediaUsed(asset.id, { idempotencyKey: "use-wrong-asset" })
+    ).rejects.toMatchObject({
+      code: "media_use_status_unknown",
+      idempotencyKey: "use-wrong-asset",
+      requestId: useReceipt.requestId,
+    })
+    expect(listener).not.toHaveBeenCalled()
+    unsubscribe()
+  })
+
+  it("retains the use key when a committed 2xx receipt is malformed", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(
+        Response.json({
+          receipt: { ...serverUseReceipt, assetRevision: 0 },
+        })
+      )
+    )
+
+    await expect(
+      markManagedMediaUsed(asset.id, { idempotencyKey: "use-malformed" })
+    ).rejects.toMatchObject({
+      code: "media_use_status_unknown",
+      status: 200,
+      idempotencyKey: "use-malformed",
+    })
+  })
+
+  it("treats abort after dispatch as unknown and retains the use key", async () => {
+    const controller = new AbortController()
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => {
+      controller.abort()
+      throw new DOMException("Aborted", "AbortError")
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(
+      markManagedMediaUsed(asset.id, {
+        idempotencyKey: "use-aborted-after-dispatch",
+        signal: controller.signal,
+      })
+    ).rejects.toMatchObject({
+      code: "media_use_status_unknown",
+      status: 0,
+      idempotencyKey: "use-aborted-after-dispatch",
+    })
+    expect(fetchMock).toHaveBeenCalledOnce()
+  })
+
+  it("cancels a pre-aborted use before dispatch", async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const fetchMock = vi.fn<typeof fetch>()
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(
+      markManagedMediaUsed(asset.id, {
+        idempotencyKey: "use-pre-aborted",
+        signal: controller.signal,
+      })
+    ).rejects.toMatchObject({
+      code: "media_use_cancelled",
+      status: 0,
+      idempotencyKey: "use-pre-aborted",
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it.each([425, 503])(
+    "treats an ambiguous %i server failure as unknown after dispatch",
+    async (status) => {
+      const requestId = `request-use-${status}`
+      vi.stubGlobal(
+        "fetch",
+        vi.fn<typeof fetch>().mockResolvedValue(
+          Response.json(
+            {
+              error: {
+                code: "request_status_unknown",
+                message: "Request could not be confirmed",
+                requestId,
+              },
+            },
+            { status, headers: { "X-Request-Id": requestId } }
+          )
+        )
+      )
+
+      await expect(
+        markManagedMediaUsed(asset.id, {
+          idempotencyKey: `use-${status}`,
+        })
+      ).rejects.toMatchObject({
+        code: "media_use_status_unknown",
+        status,
+        idempotencyKey: `use-${status}`,
+        requestId,
+      })
+    }
+  )
+
+  it("retains a canonical request ID on a deterministic use failure", async () => {
+    const requestId = "request-use-conflict"
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(
+        Response.json(
+          {
+            error: {
+              code: "idempotency_key_reused",
+              message: "Key already used",
+              requestId,
+            },
+          },
+          { status: 409, headers: { "X-Request-Id": requestId } }
+        )
+      )
+    )
+
+    await expect(
+      markManagedMediaUsed(asset.id, { idempotencyKey: "use-conflict" })
+    ).rejects.toMatchObject({
+      code: "idempotency_key_reused",
+      status: 409,
+      requestId,
+    })
+  })
+
+  it("treats a mismatched canonical error identity as unknown", async () => {
+    const listener = vi.fn()
+    const unsubscribe = subscribeManagedMediaMutations(listener)
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(
+        Response.json(
+          {
+            error: {
+              code: "idempotency_key_reused",
+              message: "Key already used",
+              requestId: "request-use-body",
+            },
+          },
+          {
+            status: 409,
+            headers: { "X-Request-Id": "request-use-header" },
+          }
+        )
+      )
+    )
+
+    await expect(
+      markManagedMediaUsed(asset.id, {
+        idempotencyKey: "use-conflict-mismatched-identity",
+      })
+    ).rejects.toMatchObject({
+      code: "media_use_status_unknown",
+      status: 409,
+      idempotencyKey: "use-conflict-mismatched-identity",
+      requestId: null,
+    })
+    expect(listener).not.toHaveBeenCalled()
+    unsubscribe()
   })
 
   it("notifies catalog subscribers only after successful mutations", async () => {
     const listener = vi.fn()
+    const unsubscribeThrowing = subscribeManagedMediaMutations(() => {
+      throw new Error("view subscriber failed")
+    })
     const unsubscribe = subscribeManagedMediaMutations(listener)
     const upload = uploadManagedMedia(
       new File([new Uint8Array([1])], "portrait.jpg", {
@@ -377,7 +650,12 @@ describe("managed media repository", () => {
       "fetch",
       vi
         .fn<typeof fetch>()
-        .mockResolvedValueOnce(Response.json({ asset }))
+        .mockResolvedValueOnce(
+          Response.json(
+            { receipt: serverUseReceipt },
+            { headers: { "X-Request-Id": useReceipt.requestId } }
+          )
+        )
         .mockResolvedValueOnce(
           Response.json({ assetId: asset.id, status: "archived", revision: 5 })
         )
@@ -390,6 +668,7 @@ describe("managed media repository", () => {
       "used",
       "archive",
     ])
+    unsubscribeThrowing()
     unsubscribe()
   })
 })

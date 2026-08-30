@@ -12,6 +12,7 @@ import {
   mediaAssetDeletionImpactResponseSchema,
   mediaAssetListResponseSchema,
   mediaAssetLookupResponseSchema,
+  mediaAssetUseResponseSchema,
   mediaIdempotencyKeySchema,
   publicMediaAssetSchema,
 } from "../src"
@@ -59,6 +60,22 @@ describe("shared media transport contract", () => {
       mediaAssetListResponseSchema.parse({
         ...response,
         assets: [{ ...response.assets[0], r2Key: "private/key" }],
+      })
+    ).toThrow()
+  })
+
+  it("strictly parses a managed-media use receipt", () => {
+    const response = {
+      receipt: {
+        assetId,
+        usedAt: now,
+        assetRevision: 2,
+      },
+    }
+    expect(mediaAssetUseResponseSchema.parse(response)).toEqual(response)
+    expect(() =>
+      mediaAssetUseResponseSchema.parse({
+        receipt: { ...response.receipt, r2Key: "private/key" },
       })
     ).toThrow()
   })

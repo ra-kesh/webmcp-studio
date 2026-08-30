@@ -1,5 +1,6 @@
 import {
   assertMediaAssetId,
+  assertMediaIdempotencyKey,
   assertLocalAssetId,
   createOpaqueMediaAssetId,
   inspectMediaAssetDimensions,
@@ -50,6 +51,22 @@ type UploadRequestRow = MediaAssetRow & { request_hash: string }
 
 type LocalPromotionRow = MediaAssetRow & {
   local_asset_id: string
+}
+
+type MediaAssetUseRequestRow = {
+  workspace_id: string
+  idempotency_key: string
+  request_hash: string
+  asset_id: string
+  used_at: string
+  result_revision: number
+  created_at: string
+}
+
+export type MediaAssetUseResult = {
+  assetId: string
+  usedAt: string
+  assetRevision: number
 }
 
 export type MediaAssetListOptions = {
@@ -170,6 +187,9 @@ const promotionRequestHash = (
       `local-promotion\0${localAssetId}\0${uploadRequestHash}`
     )
   )
+
+const useRequestHash = (assetId: string) =>
+  sha256Hex(new TextEncoder().encode(`media-used\0${assetId}`))
 
 const exactBatchChanges = (
   results: D1Result<unknown>[],
@@ -475,6 +495,37 @@ export class MediaAssetRepository {
       )
       .bind(workspaceId, idempotencyKey)
       .first<UploadRequestRow>()
+  }
+
+  private async useRequestRow(workspaceId: string, idempotencyKey: string) {
+    return this.db
+      .prepare(
+        `/* media:use-request-get */ SELECT workspace_id, idempotency_key,
+                request_hash, asset_id, used_at, result_revision, created_at
+         FROM media_asset_use_requests
+         WHERE workspace_id = ?1 AND idempotency_key = ?2`
+      )
+      .bind(workspaceId, idempotencyKey)
+      .first<MediaAssetUseRequestRow>()
+  }
+
+  private useReceipt(
+    request: MediaAssetUseRequestRow,
+    requestHash: string,
+    assetId: string
+  ): MediaAssetUseResult {
+    if (request.request_hash !== requestHash || request.asset_id !== assetId) {
+      throw new MediaAssetError(
+        "idempotency_key_reused",
+        409,
+        "Idempotency-Key was already used for a different request"
+      )
+    }
+    return {
+      assetId: request.asset_id,
+      usedAt: request.used_at,
+      assetRevision: Number(request.result_revision),
+    }
   }
 
   private assertPromotionRequest(
@@ -1273,32 +1324,71 @@ export class MediaAssetRepository {
     }
   }
 
-  async markUsed(workspaceId: string, assetId: string) {
-    const now = this.now()
-    const result = await this.db
-      .prepare(
-        `/* media:mark-used */ UPDATE media_assets
-         SET last_used_at = ?3, updated_at = ?3, revision = revision + 1
-         WHERE workspace_id = ?1 AND id = ?2 AND status = 'ready'`
-      )
-      .bind(workspaceId, assertMediaAssetId(assetId), now)
-      .run()
-    if (Number(result.meta.changes) !== 1) {
+  async markUsed(
+    workspaceId: string,
+    assetIdInput: string,
+    idempotencyKeyInput: string
+  ): Promise<MediaAssetUseResult> {
+    const assetId = assertMediaAssetId(assetIdInput)
+    const idempotencyKey = assertMediaIdempotencyKey(idempotencyKeyInput)
+    if (!idempotencyKey) {
       throw new MediaAssetError(
-        "asset_not_found",
-        404,
-        "Asset was not found in this workspace"
+        "invalid_idempotency_key",
+        400,
+        "Marking an asset used requires Idempotency-Key"
       )
     }
-    const updated = await this.row(workspaceId, assetId)
-    if (!updated) {
-      throw new MediaAssetError(
-        "asset_not_found",
-        404,
-        "Asset was not found in this workspace"
-      )
+    const requestHash = await useRequestHash(assetId)
+    const replay = await this.useRequestRow(workspaceId, idempotencyKey)
+    if (replay) return this.useReceipt(replay, requestHash, assetId)
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const current = await this.row(workspaceId, assetId)
+      if (!current) {
+        throw new MediaAssetError(
+          "asset_not_found",
+          404,
+          "Asset was not found in this workspace"
+        )
+      }
+      const now = this.now()
+      const statements = [
+        this.db
+          .prepare(
+            `/* media:mark-used */ UPDATE media_assets
+             SET last_used_at = ?3, updated_at = ?3, revision = revision + 1
+             WHERE workspace_id = ?1 AND id = ?2
+               AND status IN ('ready', 'archived')`
+          )
+          .bind(workspaceId, assetId, now),
+        this.db
+          .prepare(
+            `/* media:use-request-insert */ INSERT INTO media_asset_use_requests
+             (workspace_id, idempotency_key, request_hash, asset_id,
+              used_at, result_revision, created_at)
+             SELECT ?1, ?2, ?3, id, ?5, revision, ?5
+             FROM media_assets
+             WHERE workspace_id = ?1 AND id = ?4
+               AND status IN ('ready', 'archived')`
+          )
+          .bind(workspaceId, idempotencyKey, requestHash, assetId, now),
+      ]
+      let results: D1Result<unknown>[] | null = null
+      let writeError: unknown = null
+      try {
+        results = await this.db.batch(statements)
+      } catch (error) {
+        writeError = error
+      }
+
+      const committed = await this.useRequestRow(workspaceId, idempotencyKey)
+      if (committed) return this.useReceipt(committed, requestHash, assetId)
+      if (writeError && attempt === 1) throw writeError
+      if (results && batchChangesMatch(results, [1, 1]) && attempt === 1) {
+        throw new Error("media_asset_use_receipt_unreadable")
+      }
     }
-    return publicAsset(updated)
+    throw new Error("media_asset_use_request_incomplete")
   }
 
   async deletionImpact(

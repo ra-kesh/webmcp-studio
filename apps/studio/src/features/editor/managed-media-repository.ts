@@ -7,10 +7,14 @@ import {
   mediaAssetDeletionImpactResponseSchema,
   mediaAssetListResponseSchema,
   mediaAssetLookupResponseSchema,
+  mediaAssetUseResponseSchema,
   mediaAssetUploadResponseSchema,
+  mediaIdempotencyKeySchema,
+  mediaRequestIdSchema,
 } from "@webmcp/document"
 import type {
   MediaAssetDeletionImpact,
+  MediaAssetUseReceipt,
   PublicMediaAsset,
 } from "@webmcp/document"
 
@@ -32,6 +36,10 @@ export type ManagedMediaList = {
 
 export type ManagedMediaDeletionImpact = MediaAssetDeletionImpact
 
+export type ManagedMediaUseReceipt = MediaAssetUseReceipt & {
+  requestId: string
+}
+
 export type ManagedMediaMutation = "upload" | "archive" | "used"
 
 let managedMediaRevision = 0
@@ -42,7 +50,12 @@ const managedMediaListeners = new Set<
 const notifyManagedMediaMutation = (mutation: ManagedMediaMutation) => {
   managedMediaRevision += 1
   for (const listener of managedMediaListeners) {
-    listener(mutation, managedMediaRevision)
+    try {
+      listener(mutation, managedMediaRevision)
+    } catch {
+      // A view subscriber is advisory. It cannot change whether a repository
+      // mutation or durable use receipt succeeded.
+    }
   }
 }
 
@@ -56,12 +69,31 @@ export const subscribeManagedMediaMutations = (
 export class ManagedMediaError extends Error {
   readonly code: string
   readonly status: number
+  readonly idempotencyKey: string | null
+  readonly requestId: string | null
+  readonly requestIdentityValid: boolean
 
-  constructor(code: string, status: number, message: string) {
+  constructor(
+    code: string,
+    status: number,
+    message: string,
+    {
+      idempotencyKey = null,
+      requestId = null,
+      requestIdentityValid = false,
+    }: {
+      idempotencyKey?: string | null
+      requestId?: string | null
+      requestIdentityValid?: boolean
+    } = {}
+  ) {
     super(message)
     this.name = "ManagedMediaError"
     this.code = code
     this.status = status
+    this.idempotencyKey = idempotencyKey
+    this.requestId = requestId
+    this.requestIdentityValid = requestIdentityValid
   }
 }
 
@@ -72,38 +104,76 @@ export const managedMediaErrorIsRetryable = (error: unknown) =>
     error.status === 429 ||
     error.status >= 500 ||
     error.code === "media_network_error" ||
+    error.code === "media_use_status_unknown" ||
     error.code === "media_upload_timeout" ||
     error.code === "media_upload_cancelled")
 
 export const managedMediaErrorHasUnknownCommitStatus = (error: unknown) =>
   error instanceof ManagedMediaError &&
   (error.code === "media_upload_timeout" ||
-    error.code === "media_network_error")
+    error.code === "media_network_error" ||
+    error.code === "media_use_status_unknown")
+
+const mediaUseStatusUnknown = (
+  idempotencyKey: string,
+  status: number,
+  message: string,
+  requestId: string | null = null
+) =>
+  new ManagedMediaError("media_use_status_unknown", status, message, {
+    idempotencyKey,
+    requestId,
+    requestIdentityValid: requestId !== null,
+  })
+
+const responseRequestIdentity = (
+  response: Response,
+  bodyRequestId: unknown = null
+) => {
+  const headerValue = response.headers.get("x-request-id")
+  const header = mediaRequestIdSchema.safeParse(headerValue)
+  const body = mediaRequestIdSchema.safeParse(bodyRequestId)
+  const valid = header.success && body.success && header.data === body.data
+  return {
+    requestId: valid ? header.data : null,
+    valid,
+  }
+}
 
 const readError = async (response: Response) => {
   const fallback = `Media request failed (${response.status})`
   try {
     const body: {
-      error?: { code?: string; message?: string } | string
+      error?: { code?: string; message?: string; requestId?: string } | string
       message?: string
     } = await response.json()
     if (typeof body.error === "string") {
       return new ManagedMediaError(
         body.error,
         response.status,
-        body.message ?? fallback
+        body.message ?? fallback,
+        { requestId: null, requestIdentityValid: false }
       )
     }
+    const identity = responseRequestIdentity(
+      response,
+      body.error?.requestId ?? null
+    )
     return new ManagedMediaError(
       body.error?.code ?? "media_request_failed",
       response.status,
-      body.error?.message ?? body.message ?? fallback
+      body.error?.message ?? body.message ?? fallback,
+      {
+        requestId: identity.requestId,
+        requestIdentityValid: identity.valid,
+      }
     )
   } catch {
     return new ManagedMediaError(
       "media_request_failed",
       response.status,
-      fallback
+      fallback,
+      { requestId: null, requestIdentityValid: false }
     )
   }
 }
@@ -229,17 +299,87 @@ export async function getManagedMediaDeletionImpact(assetId: string) {
     .impact
 }
 
-export async function markManagedMediaUsed(assetId: string) {
-  const response = await fetch(
-    `/v1/studio/assets/${encodeURIComponent(assetId)}/used`,
-    { method: "POST" }
+export async function markManagedMediaUsed(
+  assetId: string,
+  {
+    idempotencyKey = crypto.randomUUID(),
+    signal,
+  }: { idempotencyKey?: string; signal?: AbortSignal } = {}
+): Promise<ManagedMediaUseReceipt> {
+  const parsedAssetId = mediaAssetIdSchema.parse(assetId)
+  const parsedIdempotencyKey = mediaIdempotencyKeySchema.parse(idempotencyKey)
+  if (signal?.aborted) {
+    throw new ManagedMediaError(
+      "media_use_cancelled",
+      0,
+      "Updating Recent was cancelled before the request started.",
+      { idempotencyKey: parsedIdempotencyKey }
+    )
+  }
+  let response: Response
+  try {
+    response = await fetch(
+      `/v1/studio/assets/${encodeURIComponent(parsedAssetId)}/used`,
+      {
+        method: "POST",
+        headers: { "Idempotency-Key": parsedIdempotencyKey },
+        signal,
+      }
+    )
+  } catch {
+    throw mediaUseStatusUnknown(
+      parsedIdempotencyKey,
+      0,
+      "Studio could not confirm whether Recent was updated. Retry with the same request key."
+    )
+  }
+  if (!response.ok) {
+    const responseError = await readError(response)
+    if (!responseError.requestIdentityValid) {
+      throw mediaUseStatusUnknown(
+        parsedIdempotencyKey,
+        response.status,
+        "Studio returned an unverified error identity after the Recent request. Retry with the same request key."
+      )
+    }
+    if (
+      response.status === 408 ||
+      response.status === 425 ||
+      response.status >= 500
+    ) {
+      throw mediaUseStatusUnknown(
+        parsedIdempotencyKey,
+        response.status,
+        "Studio could not confirm whether Recent was updated. Retry with the same request key.",
+        responseError.requestId
+      )
+    }
+    throw responseError
+  }
+  const successRequestId = mediaRequestIdSchema.safeParse(
+    response.headers.get("x-request-id")
   )
-  if (!response.ok) throw await readError(response)
-  const asset = mediaAssetUploadResponseSchema.parse(
-    await response.json()
-  ).asset
+  let receipt: MediaAssetUseReceipt
+  try {
+    receipt = mediaAssetUseResponseSchema.parse(await response.json()).receipt
+  } catch {
+    throw mediaUseStatusUnknown(
+      parsedIdempotencyKey,
+      response.status,
+      "Studio may have updated Recent, but its receipt could not be verified. Retry with the same request key.",
+      successRequestId.success ? successRequestId.data : null
+    )
+  }
+  if (receipt.assetId !== parsedAssetId || !successRequestId.success) {
+    throw mediaUseStatusUnknown(
+      parsedIdempotencyKey,
+      response.status,
+      "Studio may have updated Recent, but its receipt identity could not be verified. Retry with the same request key.",
+      successRequestId.success ? successRequestId.data : null
+    )
+  }
   notifyManagedMediaMutation("used")
-  return asset
+  return { ...receipt, requestId: successRequestId.data }
 }
 
 export async function archiveManagedMedia(
