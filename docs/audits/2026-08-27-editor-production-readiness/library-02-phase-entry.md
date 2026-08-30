@@ -349,10 +349,9 @@ Status: **independently accepted on 2026-08-31; Gate 4 is closed**
   hidden subscriptions, error announcements, empty-state recovery and focus
   loss/stealing across result replacement and virtual-row remounts.
 - Final independent review reports zero P0/P1 findings. Its focused evidence
-  passes 6 files / 32 tests, Studio typecheck and `git diff --check`. One
-  non-blocking duplicate Start error announcement remains recorded for the
-  later visual/accessibility polish pass; it does not weaken template action
-  correctness or recovery.
+  passes 6 files / 32 tests, Studio typecheck and `git diff --check`. The one
+  non-blocking duplicate Start error announcement reported at acceptance was
+  then deduplicated without changing template action correctness or recovery.
 
 ### Gate 5 - favorites, recent use and collections
 

@@ -3344,10 +3344,7 @@ export function StudioShell({
         />
         <StudioStartSurface
           actionError={
-            routeNotice ??
-            criticalActionError ??
-            editor.documentError ??
-            editor.templateActionError
+            routeNotice ?? criticalActionError ?? editor.documentError
           }
           hasQuotationSource={Boolean(editor.quotationSource)}
           initialFocus={startInitialFocus}

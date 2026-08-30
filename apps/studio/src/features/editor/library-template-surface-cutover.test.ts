@@ -28,6 +28,9 @@ describe("shared library template surface cutover", () => {
     expect(shellSource).toContain("confirmCreateFromLibraryTemplate")
     expect(shellSource).toContain("resolveApplyLibraryTemplate")
     expect(shellSource).toContain("confirmApplyLibraryTemplate")
+    expect(shellSource).not.toMatch(
+      /editor\.documentError\s*\?\?\s*editor\.templateActionError/
+    )
   })
 
   it("uses one breakpoint-aligned visibility decision for both editor surfaces", () => {

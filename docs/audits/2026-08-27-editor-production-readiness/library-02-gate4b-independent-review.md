@@ -38,9 +38,10 @@ and current Studio code rather than screenshots alone.
 - Studio TypeScript check passed.
 - `git diff --check` passed.
 
-## Non-blocking follow-up
+## Non-blocking follow-up closed
 
-Start currently projects the same template action failure into both the global
-document alert and the contextual template browser error. The action remains
-recoverable and correctly owned, so this is a P2 announcement/polish issue. It
-must be deduplicated during the next bounded visual/accessibility polish pass.
+Start previously projected the same template action failure into both the global
+document alert and the contextual template browser error. After gate acceptance,
+the duplicate projection was removed: template action failures now stay in the
+contextual browser while unrelated route, critical-action and document failures
+retain the global alert.

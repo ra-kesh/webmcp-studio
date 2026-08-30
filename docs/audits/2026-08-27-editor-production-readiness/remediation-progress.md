@@ -3658,6 +3658,7 @@ Status: **closed and independently accepted; Gate 5 is active**
   subscriptions, announcement priority and focus behavior. Final review reports
   zero P0/P1 findings; its evidence passes 6 files / 32 tests, Studio typecheck
   and `git diff --check`.
-- Recorded one non-blocking duplicate Start error announcement for the later
-  visual/accessibility polish pass. Gate 5 now owns durable favorites, recent
-  use and collections.
+- Deduplicated the one non-blocking Start error announcement reported at final
+  review: template action failures stay contextual, while unrelated route,
+  critical-action and document failures retain the global alert. Gate 5 now
+  owns durable favorites, recent use and collections.

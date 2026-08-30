@@ -9950,7 +9950,6 @@ export function useDocumentEditor({
         return
       }
       setTemplateActionError(message)
-      setDocumentError(message)
     },
     []
   )
