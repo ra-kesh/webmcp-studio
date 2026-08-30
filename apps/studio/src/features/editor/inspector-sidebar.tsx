@@ -285,7 +285,7 @@ function InspectorSection({
     <section
       data-slot="inspector-section"
       className={cn(
-        "border-b border-border/80 px-3 pb-3 transition-colors outline-none",
+        "border-b border-border/80 px-3 pb-2.5 transition-colors outline-none [&_[data-slot=input]]:rounded-[5px] [&_[data-slot=select-trigger]]:rounded-[5px] [&_[data-slot=select-trigger]]:border-transparent [&_[data-slot=select-trigger]]:bg-muted/55 [&_[data-slot=select-trigger]]:hover:bg-muted/75 [&_[data-slot=select-trigger]]:focus-visible:border-studio-accent [&_[data-slot=select-trigger]]:focus-visible:bg-background [&_[data-slot=select-trigger]]:focus-visible:ring-2 [&_[data-slot=select-trigger]]:focus-visible:ring-studio-accent/25",
         className
       )}
       {...props}
@@ -295,7 +295,7 @@ function InspectorSection({
           {title}
         </h3>
       </div>
-      <div className="flex min-w-0 flex-col gap-3">{children}</div>
+      <div className="flex min-w-0 flex-col gap-2.5">{children}</div>
     </section>
   )
 }

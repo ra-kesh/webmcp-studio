@@ -425,16 +425,7 @@ function LayerRow({
       ) : null}
 
       {!isRename ? (
-        <div
-          className={cn(
-            "ml-1 flex shrink-0 items-center",
-            !row.item.locked &&
-              !row.item.lockMixed &&
-              row.item.visible &&
-              !row.item.visibilityMixed &&
-              "opacity-0 group-focus-within/layer:opacity-100 group-hover/layer:opacity-100"
-          )}
-        >
+        <div className="ml-1 flex shrink-0 items-center">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -445,7 +436,10 @@ function LayerRow({
                 disabled={reviewPending}
                 aria-label={`${row.item.locked ? "Unlock" : "Lock"} ${row.item.name}`}
                 className={cn(
-                  "rounded-[4px] text-muted-foreground hover:text-foreground",
+                  "rounded-[4px] text-muted-foreground transition-opacity hover:text-foreground",
+                  !row.item.locked &&
+                    !row.item.lockMixed &&
+                    "opacity-0 group-focus-within/layer:opacity-100 group-hover/layer:opacity-100",
                   compact ? "size-11" : "size-6"
                 )}
                 onPointerDown={(event) => event.stopPropagation()}
@@ -478,7 +472,10 @@ function LayerRow({
                 disabled={reviewPending}
                 aria-label={`${row.item.visible ? "Hide" : "Show"} ${row.item.name}`}
                 className={cn(
-                  "rounded-[4px] text-muted-foreground hover:text-foreground",
+                  "rounded-[4px] text-muted-foreground transition-opacity hover:text-foreground",
+                  row.item.visible &&
+                    !row.item.visibilityMixed &&
+                    "opacity-0 group-focus-within/layer:opacity-100 group-hover/layer:opacity-100",
                   compact ? "size-11" : "size-6"
                 )}
                 onPointerDown={(event) => event.stopPropagation()}
@@ -512,7 +509,7 @@ function LayerRow({
                 disabled={reviewPending}
                 aria-label={`Drag ${row.item.name}`}
                 className={cn(
-                  "cursor-grab rounded-[4px] text-muted-foreground active:cursor-grabbing",
+                  "cursor-grab rounded-[4px] text-muted-foreground opacity-0 transition-opacity group-focus-within/layer:opacity-100 group-hover/layer:opacity-100 active:cursor-grabbing",
                   compact ? "size-11" : "size-6"
                 )}
                 onClick={(event) => event.stopPropagation()}

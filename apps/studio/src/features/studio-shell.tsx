@@ -3458,13 +3458,18 @@ export function StudioShell({
             className="hidden min-[1600px]:block"
             orientation="vertical"
           />
-          <div className="hidden shrink-0 items-center gap-0.5 min-[640px]:flex">
+          <div
+            aria-label="Canvas tools"
+            className="hidden shrink-0 items-center gap-0.5 rounded-md bg-muted/55 p-0.5 ring-1 ring-border/65 min-[640px]:flex"
+            role="toolbar"
+          >
             <IconButton
               label="Select"
               shortcut="V"
-              className="size-11 min-[1280px]:size-7"
+              aria-pressed={tool === "select"}
+              className="size-11 aria-pressed:bg-studio-accent aria-pressed:text-white aria-pressed:hover:bg-studio-accent/90 min-[1280px]:size-7"
               disabled={!commandEnabled("tool.select")}
-              variant={tool === "select" ? "secondary" : "ghost"}
+              variant="ghost"
               onClick={() => runEditorCommand("tool.select")}
             >
               <MousePointer2 />
@@ -3472,9 +3477,10 @@ export function StudioShell({
             <IconButton
               label="Hand tool"
               shortcut="H"
-              className="size-11 min-[1280px]:size-7"
+              aria-pressed={tool === "hand"}
+              className="size-11 aria-pressed:bg-studio-accent aria-pressed:text-white aria-pressed:hover:bg-studio-accent/90 min-[1280px]:size-7"
               disabled={!commandEnabled("tool.hand")}
-              variant={tool === "hand" ? "secondary" : "ghost"}
+              variant="ghost"
               onClick={() => runEditorCommand("tool.hand")}
             >
               <Hand />
@@ -3673,7 +3679,11 @@ export function StudioShell({
             className="hidden min-[860px]:block"
             orientation="vertical"
           />
-          <div className="hidden shrink-0 items-center gap-0.5 min-[860px]:flex">
+          <div
+            aria-label="History"
+            className="hidden shrink-0 items-center gap-0.5 rounded-md bg-muted/40 p-0.5 min-[860px]:flex"
+            role="group"
+          >
             <IconButton
               label="Undo"
               shortcut="⌘Z"
@@ -3700,7 +3710,11 @@ export function StudioShell({
                 className="hidden min-[1280px]:block"
                 orientation="vertical"
               />
-              <div className="hidden items-center gap-0.5 min-[1280px]:flex">
+              <div
+                aria-label="Selection actions"
+                className="hidden items-center gap-0.5 rounded-md bg-muted/40 p-0.5 min-[1280px]:flex"
+                role="toolbar"
+              >
                 <IconButton
                   label="Copy"
                   shortcut="⌘C"

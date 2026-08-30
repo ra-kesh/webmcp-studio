@@ -43,9 +43,11 @@ retained conformance/scale artifacts.
 2. **TEXT-02 closure:** the independent review found a valid long unbroken token
    that can block layout for seconds, plus missing immutable publication → real
    PNG/PDF resource-conformance evidence.
-3. **OpenPencil-level visual sophistication:** core control workflows are
-   accepted, including the formerly freezing color picker, but density,
-   spacing, hierarchy and finish still need a deliberate visual pass.
+3. **OpenPencil-level visual sophistication:** core control workflows and one
+   focused toolbar/Layers/Inspector refinement pass are accepted, including
+   the formerly freezing color picker. Broader recipe consolidation and the
+   compact/dark/coarse-pointer visual matrix remain open; this is improved,
+   not full visual parity.
 4. **LIBRARY-02:** the template/media system works, but catalog breadth,
    categories, collections, favorites/team ownership and discovery quality are
    still far below Canva.

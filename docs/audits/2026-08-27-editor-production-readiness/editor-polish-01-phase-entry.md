@@ -468,3 +468,27 @@ Acceptance evidence:
 `EDITOR-POLISH-01` is therefore complete locally. Further sophistication is
 owned by the named depth phases rather than another unbounded polish loop:
 `TEXT-02`, `COMPONENT-01`, `LIBRARY-02`, and remaining `ASSET-02` depth.
+
+## Follow-up OpenPencil refinement checkpoint — 2026-08-31
+
+Before this bounded pass, the current polish ledger, Inspector reacceptance,
+OpenPencil north-star document, and OpenPencil's actual toolbar, layer-tree,
+number-field, panel, Properties and Layers implementations were reread. The
+live Studio was then exercised at 1440 x 900 rather than judged from static
+markup.
+
+Implemented:
+
+- Select and Hand now expose truthful pressed state with one clear accent;
+- canvas tools, history and selection actions read as quiet command groups;
+- Inspector number, percent and color fields use a compact 28 px anatomy,
+  sentence-case 11 px labels, tabular values and consistent neutral
+  hover/focus/invalid surfaces;
+- locked and hidden Layers states remain persistently visible, while routine
+  visibility and drag controls reveal on row hover or keyboard focus.
+
+Focused editor coverage passes 34/34. Scoped ESLint, Prettier and whitespace
+checks pass, and live inspection found no console error or horizontal overflow.
+This is a retained sophistication checkpoint, not a claim of full OpenPencil
+parity; broad Inspector recipe consolidation and the complete compact/dark/
+coarse-pointer visual matrix remain later refinement work.

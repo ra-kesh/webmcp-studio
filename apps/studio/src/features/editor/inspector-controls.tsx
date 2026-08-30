@@ -146,7 +146,7 @@ export function CommitPercentSlider({
       <div className="flex items-center justify-between gap-3">
         <FieldLabel
           htmlFor={id}
-          className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase"
+          className="text-[11px] leading-4 font-medium text-muted-foreground"
         >
           {label}
         </FieldLabel>
@@ -159,7 +159,7 @@ export function CommitPercentSlider({
             disabled={disabled}
             aria-invalid={Boolean(error) || undefined}
             aria-describedby={error ? `${id}-error` : undefined}
-            className="h-7 pr-5 text-right font-mono text-[10px] tabular-nums"
+            className="h-7 rounded-[5px] border-transparent bg-muted/55 pr-5 text-right font-mono text-[11px] tabular-nums hover:bg-muted/75 focus-visible:border-studio-accent focus-visible:bg-background focus-visible:ring-2 focus-visible:ring-studio-accent/25 md:text-[11px]"
             onChange={(event) => {
               setTextDraft(event.target.value)
               if (error) setError(null)
@@ -281,7 +281,7 @@ export function InspectorNumberField({
     >
       <FieldLabel
         htmlFor={id}
-        className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase"
+        className="text-[11px] leading-4 font-medium text-muted-foreground"
       >
         {label}
         {value.kind === "mixed" ? (
@@ -303,7 +303,11 @@ export function InspectorNumberField({
           disabled={disabled}
           aria-invalid={Boolean(error) || undefined}
           aria-describedby={error ? `${id}-error` : undefined}
-          className={suffix ? "pr-8" : undefined}
+          className={
+            suffix
+              ? "h-7 rounded-[5px] border-transparent bg-muted/55 pr-8 font-mono text-[11px] tabular-nums hover:bg-muted/75 focus-visible:border-studio-accent focus-visible:bg-background focus-visible:ring-2 focus-visible:ring-studio-accent/25 md:text-[11px]"
+              : "h-7 rounded-[5px] border-transparent bg-muted/55 font-mono text-[11px] tabular-nums hover:bg-muted/75 focus-visible:border-studio-accent focus-visible:bg-background focus-visible:ring-2 focus-visible:ring-studio-accent/25 md:text-[11px]"
+          }
           onChange={(event) => {
             setDraft(event.target.value)
             if (error) setError(null)
@@ -489,11 +493,11 @@ export function InspectorColorField({
     >
       <FieldLabel
         htmlFor={id}
-        className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase"
+        className="text-[11px] leading-4 font-medium text-muted-foreground"
       >
         {label}
       </FieldLabel>
-      <div className="flex h-8 items-center gap-2 rounded-lg border border-input px-2 has-[:focus-visible]:border-ring has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50 has-[input[aria-invalid=true]]:border-destructive has-[input[aria-invalid=true]]:ring-3 has-[input[aria-invalid=true]]:ring-destructive/20">
+      <div className="flex h-7 items-center gap-2 rounded-[5px] border border-transparent bg-muted/55 px-2 transition-colors hover:bg-muted/75 has-[:focus-visible]:border-studio-accent has-[:focus-visible]:bg-background has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-studio-accent/25 has-[input[aria-invalid=true]]:border-destructive has-[input[aria-invalid=true]]:ring-2 has-[input[aria-invalid=true]]:ring-destructive/20">
         <span
           className="relative size-4 shrink-0 overflow-hidden rounded-sm border border-black/10 shadow-[inset_0_0_0_1px_rgb(255_255_255_/_0.16)]"
           style={{ backgroundColor: swatchColor }}
