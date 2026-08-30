@@ -29,13 +29,15 @@ describe("Studio persistence route layout", () => {
     expect(layoutSource).toContain('createFileRoute("/_studio")')
     expect(layoutSource).toContain("ssr: false")
     expect(layoutSource).toContain("<StudioPersistenceProvider>")
+    expect(layoutSource).toContain("<LibraryPreviewProvider>")
     expect(layoutSource).toContain("<DocumentPreviewProvider>")
     expect(layoutSource).toContain("<RecentDocumentsProvider>")
     expect(layoutSource).toContain("</RecentDocumentsProvider>")
     expect(layoutSource).toContain("</DocumentPreviewProvider>")
+    expect(layoutSource).toContain("</LibraryPreviewProvider>")
     expect(layoutSource).toContain("<Outlet />")
     expect(layoutSource).toMatch(
-      /<StudioPersistenceProvider>\s*<DocumentPreviewProvider>\s*<RecentDocumentsProvider>\s*<Outlet \/>\s*<\/RecentDocumentsProvider>\s*<\/DocumentPreviewProvider>\s*<\/StudioPersistenceProvider>/
+      /<StudioPersistenceProvider>\s*<LibraryPreviewProvider>\s*<DocumentPreviewProvider>\s*<RecentDocumentsProvider>\s*<Outlet \/>\s*<\/RecentDocumentsProvider>\s*<\/DocumentPreviewProvider>\s*<\/LibraryPreviewProvider>\s*<\/StudioPersistenceProvider>/
     )
 
     expect(generatedTree).toContain("id: '/_studio'")

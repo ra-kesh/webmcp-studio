@@ -3,6 +3,8 @@ export {
   getStudioLibraryCatalogDetail,
   studioLibraryCatalogIndex,
 } from "./catalog"
+export * from "./library-preview-controller"
+export * from "./templates/preview-manifest"
 export {
   parseStudioMediaManifest,
   studioMediaManifest,

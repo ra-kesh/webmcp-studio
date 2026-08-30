@@ -12,15 +12,22 @@ import type {
   LibraryTemplateDetail,
 } from "@webmcp/document"
 import { studioMediaManifest } from "./media/manifest"
+import { getStudioTemplatePreviewDescriptor } from "./templates/preview-manifest"
 
 type StudioLibraryCatalogDetail = LibraryTemplateDetail | LibraryMediaDetail
 
 const activeTemplates = builtInDesignTemplateRepository.list()
 
-const projectedTemplates = activeTemplates.map((template, curatedRank) => ({
-  summary: projectDesignTemplateSummary(template, { curatedRank }),
-  detail: projectDesignTemplateDetail(template, { curatedRank }),
-}))
+const projectedTemplates = activeTemplates.map((template, curatedRank) => {
+  const preview = getStudioTemplatePreviewDescriptor(
+    template.id,
+    template.version
+  )
+  return {
+    summary: projectDesignTemplateSummary(template, { curatedRank, preview }),
+    detail: projectDesignTemplateDetail(template, { curatedRank, preview }),
+  }
+})
 
 const projectedMedia = studioMediaManifest.map((media, mediaIndex) => {
   const curatedRank = activeTemplates.length + mediaIndex

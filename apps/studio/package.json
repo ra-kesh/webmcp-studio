@@ -16,6 +16,8 @@
     "test:e2e": "playwright test --config playwright.config.ts",
     "capture:conformance": "bun scripts/capture-render-conformance.ts",
     "capture:live-editor": "bun scripts/capture-live-editor-matrix.ts",
+    "library:previews:generate": "bun scripts/generate-library-template-previews.ts generate",
+    "library:previews:verify": "bun scripts/generate-library-template-previews.ts verify",
     "routes:generate": "tsr generate",
     "typecheck": "tsc --noEmit"
   },

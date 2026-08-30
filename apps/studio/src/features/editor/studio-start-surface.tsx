@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import type { ChangeEvent, Ref } from "react"
 import type { DesignTemplateCatalogItem } from "@webmcp/document"
-import { Artboard } from "@webmcp/render-view"
 import { Badge } from "@webmcp/ui/components/badge"
 import { Button } from "@webmcp/ui/components/button"
 import {
@@ -43,6 +42,8 @@ import {
   ShieldAlert,
   Sparkles,
 } from "lucide-react"
+import { LibraryPreview } from "../../content/library/library-preview"
+import { getStudioTemplatePreviewDescriptor } from "../../content/library/templates/preview-manifest"
 import type { StudioStartIntent, StudioStartModel } from "./studio-start-model"
 import { RecentDocuments } from "./recent-documents"
 import {
@@ -52,7 +53,6 @@ import {
   templateCatalogKey,
   templateCompatibility,
   templateDimensionsLabel,
-  templatePreviewLayout,
 } from "./template-catalog-model"
 import type { TemplateCatalogLoadState } from "./template-catalog-panel"
 
@@ -195,31 +195,24 @@ function StorageWarning({
 
 function StartTemplatePreview({
   template,
+  selected,
+  onSelect,
 }: {
   template: DesignTemplateCatalogItem
+  selected: boolean
+  onSelect: () => void
 }) {
-  const layout = templatePreviewLayout(template, { width: 264, height: 150 })
-
   return (
-    <div
-      aria-label={`Preview of ${template.name}`}
-      className="grid h-40 w-full place-items-center overflow-hidden border-b bg-muted/40 p-2"
-      role="img"
-    >
-      <div
-        aria-hidden="true"
-        className="overflow-hidden rounded-[3px] border bg-background shadow-sm"
-        style={{ width: layout.width, height: layout.height }}
-      >
-        <Artboard
-          document={template.previewDocument}
-          imageSemantics="thumbnail"
-          pageId={template.previewPageId}
-          scale={layout.scale}
-          showImageRecoveryActions={false}
-        />
-      </div>
-    </div>
+    <LibraryPreview
+      className="rounded-none border-0 border-b bg-muted/40"
+      descriptor={getStudioTemplatePreviewDescriptor(
+        template.id,
+        template.version
+      )}
+      label={`Select ${template.name}`}
+      selected={selected}
+      onSelect={onSelect}
+    />
   )
 }
 
@@ -507,19 +500,28 @@ function TemplateBrowser({
                 hasQuotationSource
               )
               const selected = template === selectedTemplate
+              const selectTemplate = () =>
+                setSelectedKey(templateCatalogKey(template))
               return (
                 <li key={templateCatalogKey(template)}>
-                  <button
-                    aria-pressed={selected}
+                  <div
                     className={cn(
                       "group/template flex w-full flex-col overflow-hidden border bg-background text-left transition-[border-color,background-color,box-shadow,transform] duration-150 outline-none hover:border-foreground/20 hover:bg-muted/20 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/40 active:translate-y-px",
                       selected && "border-foreground ring-1 ring-foreground/10"
                     )}
-                    type="button"
-                    onClick={() => setSelectedKey(templateCatalogKey(template))}
                   >
-                    <StartTemplatePreview template={template} />
-                    <span className="flex min-h-20 w-full items-start gap-3 p-3">
+                    <StartTemplatePreview
+                      onSelect={selectTemplate}
+                      selected={selected}
+                      template={template}
+                    />
+                    <button
+                      aria-label={`Show details for ${template.name}`}
+                      aria-pressed={selected}
+                      className="flex min-h-20 w-full items-start gap-3 p-3 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/40 focus-visible:ring-inset"
+                      type="button"
+                      onClick={selectTemplate}
+                    >
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm font-medium">
                           {template.name}
@@ -536,8 +538,8 @@ function TemplateBrowser({
                           className="size-4 shrink-0 text-muted-foreground"
                         />
                       ) : null}
-                    </span>
-                  </button>
+                    </button>
+                  </div>
                 </li>
               )
             })}

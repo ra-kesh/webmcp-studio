@@ -2,7 +2,7 @@
 
 Date: 2026-08-31
 
-Status: Gates 1 and 2 closed; Gate 3 raster preview production is active
+Status: Gates 1–3 closed; Gate 4 discovery controller and interface is active
 
 ## Purpose
 
@@ -272,6 +272,28 @@ Node/Vitest Studio tests, both package typechecks and `git diff --check`.
 - retain live `Artboard` only as a labelled fallback;
 - keep failure local to one card with Retry while selection and other results
   remain usable.
+
+Result: **closed and independently accepted on 2026-08-31.** All 21 active
+exact template versions now have Renderer-produced, fingerprinted PNG previews
+in an immutable generation. The checked-in manifest binds template, version,
+page, renderer revision, dimensions, MIME type and SHA-256 to each resource.
+Generation and verification enforce complete current coverage while retaining
+older generations; stale manifests remain parseable only so the generator can
+replace them and are rejected by current consumers.
+
+One route-owned preview controller now admits work only within a 240 px
+near-view margin, deduplicates exact descriptors, hard-caps global fetches at
+three, rejects stale/aborted results, verifies PNG bytes before publishing an
+object URL, bounds the released URL cache to 64 entries and makes manual Retry
+bypass a potentially corrupt browser cache. Start and editor template cards
+use the same fixed 4:3 raster preview; a normal grid mounts no live Artboard.
+Preview failure keeps both Retry and template selection available.
+
+Independent review found one P1 configuration escape that allowed an injected
+concurrency above three. It is clamped with a retained regression test. Re-review
+reports zero open P0/P1 findings. Focused evidence passes 36/36 tests, exact
+verification of 21/21 previews, Studio typecheck and the Node 22 production
+build. Gate 4 now owns discovery state and the shared browser interface.
 
 ### Gate 4 - discovery controller and interface
 

@@ -1,0 +1,322 @@
+{
+  "schemaVersion": 1,
+  "generation": "b24c6913501d8a26544db9451a889c9cf2e0e303bf3570a1182b4d13c0f00002",
+  "rendererRevision": "renderer-thumbnail-v1",
+  "entries": [
+    {
+      "key": "template:annual-snapshot-report@1",
+      "preview": {
+        "kind": "raster",
+        "itemId": "annual-snapshot-report",
+        "itemVersion": 1,
+        "pageId": "annual-snapshot-report-page-1-cover",
+        "width": 320,
+        "height": 180,
+        "resourcePath": "/library/previews/templates/generations/b24c6913501d8a26544db9451a889c9cf2e0e303bf3570a1182b4d13c0f00002/annual-snapshot-report/v1/annual-snapshot-report-page-1-cover.422fd792bf981e01.png",
+        "mediaType": "image/png",
+        "contentSha256": "422fd792bf981e01fffbeb97131a20f3299d4de270d4fb5cb95e56a767237aa8",
+        "rendererRevision": "renderer-thumbnail-v1"
+      }
+    },
+    {
+      "key": "template:bold-square-announcement@1",
+      "preview": {
+        "kind": "raster",
+        "itemId": "bold-square-announcement",
+        "itemVersion": 1,
+        "pageId": "bold-square-page",
+        "width": 240,
+        "height": 240,
+        "resourcePath": "/library/previews/templates/generations/b24c6913501d8a26544db9451a889c9cf2e0e303bf3570a1182b4d13c0f00002/bold-square-announcement/v1/bold-square-page.078312f56d9d6206.png",
+        "mediaType": "image/png",
+        "contentSha256": "078312f56d9d620672a47e9e87db7839b79bdd211d97db33cf0274c24a27b45d",
+        "rendererRevision": "renderer-thumbnail-v1"
+      }
+    },
+    {
+      "key": "template:case-study-carousel@1",
+      "preview": {
+        "kind": "raster",
+        "itemId": "case-study-carousel",
+        "itemVersion": 1,
+        "pageId": "case-study-carousel-page-1-context",
+        "width": 240,
+        "height": 240,
+        "resourcePath": "/library/previews/templates/generations/b24c6913501d8a26544db9451a889c9cf2e0e303bf3570a1182b4d13c0f00002/case-study-carousel/v1/case-study-carousel-page-1-context.ce94a600e0ad0d3a.png",
+        "mediaType": "image/png",
+        "contentSha256": "ce94a600e0ad0d3ab051a8b85a63500a32c530e7dbb096021c7044ca3b9d6f36",
+        "rendererRevision": "renderer-thumbnail-v1"
+      }
+    },
+    {
+      "key": "template:editorial-one-pager@1",
+      "preview": {
+        "kind": "raster",
+        "itemId": "editorial-one-pager",
+        "itemVersion": 1,
+        "pageId": "editorial-one-pager-page",
+        "width": 170,
+        "height": 240,
+        "resourcePath": "/library/previews/templates/generations/b24c6913501d8a26544db9451a889c9cf2e0e303bf3570a1182b4d13c0f00002/editorial-one-pager/v1/editorial-one-pager-page.e6d51e3b3a69d40a.png",
+        "mediaType": "image/png",
+        "contentSha256": "e6d51e3b3a69d40a5c573c2530e767da352abf84ccc6bf76e748392d318df0f7",
+        "rendererRevision": "renderer-thumbnail-v1"
+      }
+    },
+    {
+      "key": "template:editorial-proposal@1",
+      "preview": {
+        "kind": "raster",
+        "itemId": "editorial-proposal",
+        "itemVersion": 1,
+        "pageId": "editorial-proposal-page-1-cover",
+        "width": 170,
+        "height": 240,
+        "resourcePath": "/library/previews/templates/generations/b24c6913501d8a26544db9451a889c9cf2e0e303bf3570a1182b4d13c0f00002/editorial-proposal/v1/editorial-proposal-page-1-cover.669b327e484f9c06.png",
+        "mediaType": "image/png",
+        "contentSha256": "669b327e484f9c0665a319b8a1f278e8405adb5c6d7d85f73fbf73613bfc42a5",
+        "rendererRevision": "renderer-thumbnail-v1"
+      }
+    },
+    {
+      "key": "template:event-countdown-story@1",
+      "preview": {
+        "kind": "raster",
+        "itemId": "event-countdown-story",
+        "itemVersion": 1,
+        "pageId": "event-countdown-story-page-1-countdown",
+        "width": 135,
+        "height": 240,
+        "resourcePath": "/library/previews/templates/generations/b24c6913501d8a26544db9451a889c9cf2e0e303bf3570a1182b4d13c0f00002/event-countdown-story/v1/event-countdown-story-page-1-countdown.2b6846e03cca39dd.png",
+        "mediaType": "image/png",
+        "contentSha256": "2b6846e03cca39dd2a13cc9ad92543d844fa3097761b9fd5db2705f2e6314153",
+        "rendererRevision": "renderer-thumbnail-v1"
+      }
+    },
+    {
+      "key": "template:field-notes-report@1",
+      "preview": {
+        "kind": "raster",
+        "itemId": "field-notes-report",
+        "itemVersion": 1,
+        "pageId": "field-notes-report-page-1-cover",
+        "width": 170,
+        "height": 240,
+        "resourcePath": "/library/previews/templates/generations/b24c6913501d8a26544db9451a889c9cf2e0e303bf3570a1182b4d13c0f00002/field-notes-report/v1/field-notes-report-page-1-cover.29d84cc1f2f86f0d.png",
+        "mediaType": "image/png",
+        "contentSha256": "29d84cc1f2f86f0d07e090dbb6c0c094b08a875e10ed35b40f2efd0fd0747768",
+        "rendererRevision": "renderer-thumbnail-v1"
+      }
+    },
+    {
+      "key": "template:gallery-opening-invitation@1",
+      "preview": {
+        "kind": "raster",
+        "itemId": "gallery-opening-invitation",
+        "itemVersion": 1,
+        "pageId": "gallery-opening-invitation-page-1-poster",
+        "width": 180,
+        "height": 240,
+        "resourcePath": "/library/previews/templates/generations/b24c6913501d8a26544db9451a889c9cf2e0e303bf3570a1182b4d13c0f00002/gallery-opening-invitation/v1/gallery-opening-invitation-page-1-poster.0af650a78f8c673e.png",
+        "mediaType": "image/png",
+        "contentSha256": "0af650a78f8c673ed274137a49d9c7251c630b90726070dd581d11ceb3c08eef",
+        "rendererRevision": "renderer-thumbnail-v1"
+      }
+    },
+    {
+      "key": "template:garden-wedding-invitation@1",
+      "preview": {
+        "kind": "raster",
+        "itemId": "garden-wedding-invitation",
+        "itemVersion": 1,
+        "pageId": "garden-wedding-invitation-page-1-front",
+        "width": 180,
+        "height": 240,
+        "resourcePath": "/library/previews/templates/generations/b24c6913501d8a26544db9451a889c9cf2e0e303bf3570a1182b4d13c0f00002/garden-wedding-invitation/v1/garden-wedding-invitation-page-1-front.7995414ab08ccf85.png",
+        "mediaType": "image/png",
+        "contentSha256": "7995414ab08ccf8572b468bce18a034ee3dd0d7a487ed8be79d5005f8214d390",
+        "rendererRevision": "renderer-thumbnail-v1"
+      }
+    },
+    {
+      "key": "template:how-to-carousel@1",
+      "preview": {
+        "kind": "raster",
+        "itemId": "how-to-carousel",
+        "itemVersion": 1,
+        "pageId": "how-to-carousel-page-1-cover",
+        "width": 240,
+        "height": 240,
+        "resourcePath": "/library/previews/templates/generations/b24c6913501d8a26544db9451a889c9cf2e0e303bf3570a1182b4d13c0f00002/how-to-carousel/v1/how-to-carousel-page-1-cover.dd39f7a560124322.png",
+        "mediaType": "image/png",
+        "contentSha256": "dd39f7a5601243224514373b40674c35b4092ba45352081aabe592eb9bba57ed",
+        "rendererRevision": "renderer-thumbnail-v1"
+      }
+    },
+    {
+      "key": "template:modular-service-proposal@1",
+      "preview": {
+        "kind": "raster",
+        "itemId": "modular-service-proposal",
+        "itemVersion": 1,
+        "pageId": "modular-service-proposal-page-1-cover",
+        "width": 170,
+        "height": 240,
+        "resourcePath": "/library/previews/templates/generations/b24c6913501d8a26544db9451a889c9cf2e0e303bf3570a1182b4d13c0f00002/modular-service-proposal/v1/modular-service-proposal-page-1-cover.0e5b11c817206838.png",
+        "mediaType": "image/png",
+        "contentSha256": "0e5b11c817206838b82445b2d8ba7d69a84c77cb1e03386ce63d55ef7919d26c",
+        "rendererRevision": "renderer-thumbnail-v1"
+      }
+    },
+    {
+      "key": "template:press-room-media-kit@1",
+      "preview": {
+        "kind": "raster",
+        "itemId": "press-room-media-kit",
+        "itemVersion": 1,
+        "pageId": "press-room-media-kit-page-1-profile",
+        "width": 170,
+        "height": 240,
+        "resourcePath": "/library/previews/templates/generations/b24c6913501d8a26544db9451a889c9cf2e0e303bf3570a1182b4d13c0f00002/press-room-media-kit/v1/press-room-media-kit-page-1-profile.fee252958dd1aabb.png",
+        "mediaType": "image/png",
+        "contentSha256": "fee252958dd1aabb2f831999c56b6d13851497fe8206ff92cd749f2ac6f2c19b",
+        "rendererRevision": "renderer-thumbnail-v1"
+      }
+    },
+    {
+      "key": "template:product-demo-deck@1",
+      "preview": {
+        "kind": "raster",
+        "itemId": "product-demo-deck",
+        "itemVersion": 1,
+        "pageId": "product-demo-deck-page-1-opening",
+        "width": 320,
+        "height": 180,
+        "resourcePath": "/library/previews/templates/generations/b24c6913501d8a26544db9451a889c9cf2e0e303bf3570a1182b4d13c0f00002/product-demo-deck/v1/product-demo-deck-page-1-opening.2f2f7a80b176e1c0.png",
+        "mediaType": "image/png",
+        "contentSha256": "2f2f7a80b176e1c0f5ce5a7c7a6bfcf6575adcb91e9102128ba318af78ae2c41",
+        "rendererRevision": "renderer-thumbnail-v1"
+      }
+    },
+    {
+      "key": "template:program-overview-one-pager@1",
+      "preview": {
+        "kind": "raster",
+        "itemId": "program-overview-one-pager",
+        "itemVersion": 1,
+        "pageId": "program-overview-one-pager-page-1-overview",
+        "width": 170,
+        "height": 240,
+        "resourcePath": "/library/previews/templates/generations/b24c6913501d8a26544db9451a889c9cf2e0e303bf3570a1182b4d13c0f00002/program-overview-one-pager/v1/program-overview-one-pager-page-1-overview.83d28f6ad1b36c0a.png",
+        "mediaType": "image/png",
+        "contentSha256": "83d28f6ad1b36c0a24dad5096716eecdeca7975de73008ae5a557b92ab7b9476",
+        "rendererRevision": "renderer-thumbnail-v1"
+      }
+    },
+    {
+      "key": "template:quiet-quote-post@1",
+      "preview": {
+        "kind": "raster",
+        "itemId": "quiet-quote-post",
+        "itemVersion": 1,
+        "pageId": "quiet-quote-post-page-1-quote",
+        "width": 240,
+        "height": 240,
+        "resourcePath": "/library/previews/templates/generations/b24c6913501d8a26544db9451a889c9cf2e0e303bf3570a1182b4d13c0f00002/quiet-quote-post/v1/quiet-quote-post-page-1-quote.59387e167c52d55a.png",
+        "mediaType": "image/png",
+        "contentSha256": "59387e167c52d55ab0de482022887383da7310012e39da0f5346691a4fb652ce",
+        "rendererRevision": "renderer-thumbnail-v1"
+      }
+    },
+    {
+      "key": "template:quotation-editorial-olive@3",
+      "preview": {
+        "kind": "raster",
+        "itemId": "quotation-editorial-olive",
+        "itemVersion": 3,
+        "pageId": "quotation-page-1",
+        "width": 170,
+        "height": 240,
+        "resourcePath": "/library/previews/templates/generations/b24c6913501d8a26544db9451a889c9cf2e0e303bf3570a1182b4d13c0f00002/quotation-editorial-olive/v3/quotation-page-1.5cd0e80c054e44e5.png",
+        "mediaType": "image/png",
+        "contentSha256": "5cd0e80c054e44e584eb67ea478344ae9d260796dbb48753de1aeb4ea7c4f442",
+        "rendererRevision": "renderer-thumbnail-v1"
+      }
+    },
+    {
+      "key": "template:quotation-midnight-film@3",
+      "preview": {
+        "kind": "raster",
+        "itemId": "quotation-midnight-film",
+        "itemVersion": 3,
+        "pageId": "quotation-page-1",
+        "width": 170,
+        "height": 240,
+        "resourcePath": "/library/previews/templates/generations/b24c6913501d8a26544db9451a889c9cf2e0e303bf3570a1182b4d13c0f00002/quotation-midnight-film/v3/quotation-page-1.457256b7cdbf0fff.png",
+        "mediaType": "image/png",
+        "contentSha256": "457256b7cdbf0fffbb0e8519dd998ef1fef1cc04c578cf5472ecea1b685ba908",
+        "rendererRevision": "renderer-thumbnail-v1"
+      }
+    },
+    {
+      "key": "template:quotation-warm-paper@3",
+      "preview": {
+        "kind": "raster",
+        "itemId": "quotation-warm-paper",
+        "itemVersion": 3,
+        "pageId": "quotation-page-1",
+        "width": 170,
+        "height": 240,
+        "resourcePath": "/library/previews/templates/generations/b24c6913501d8a26544db9451a889c9cf2e0e303bf3570a1182b4d13c0f00002/quotation-warm-paper/v3/quotation-page-1.8f2259ff20dce5df.png",
+        "mediaType": "image/png",
+        "contentSha256": "8f2259ff20dce5dfa053d9f5b68e329556c3669bb17b305e6b837f24c023e609",
+        "rendererRevision": "renderer-thumbnail-v1"
+      }
+    },
+    {
+      "key": "template:signal-creative-brief@1",
+      "preview": {
+        "kind": "raster",
+        "itemId": "signal-creative-brief",
+        "itemVersion": 1,
+        "pageId": "signal-creative-brief-page-1-direction",
+        "width": 170,
+        "height": 240,
+        "resourcePath": "/library/previews/templates/generations/b24c6913501d8a26544db9451a889c9cf2e0e303bf3570a1182b4d13c0f00002/signal-creative-brief/v1/signal-creative-brief-page-1-direction.c4ffabcb735be686.png",
+        "mediaType": "image/png",
+        "contentSha256": "c4ffabcb735be686bfa3b90c38d39a81354df296f49e13680d1e973e1d975ab8",
+        "rendererRevision": "renderer-thumbnail-v1"
+      }
+    },
+    {
+      "key": "template:venture-pitch-deck@1",
+      "preview": {
+        "kind": "raster",
+        "itemId": "venture-pitch-deck",
+        "itemVersion": 1,
+        "pageId": "venture-pitch-deck-page-1-cover",
+        "width": 320,
+        "height": 180,
+        "resourcePath": "/library/previews/templates/generations/b24c6913501d8a26544db9451a889c9cf2e0e303bf3570a1182b4d13c0f00002/venture-pitch-deck/v1/venture-pitch-deck-page-1-cover.0bdce224ff4ff957.png",
+        "mediaType": "image/png",
+        "contentSha256": "0bdce224ff4ff95708668dfe4d967c848b1cb4513dda8b42f997c73acb41f27d",
+        "rendererRevision": "renderer-thumbnail-v1"
+      }
+    },
+    {
+      "key": "template:workshop-alignment-brief@1",
+      "preview": {
+        "kind": "raster",
+        "itemId": "workshop-alignment-brief",
+        "itemVersion": 1,
+        "pageId": "workshop-alignment-brief-page-1-map",
+        "width": 320,
+        "height": 180,
+        "resourcePath": "/library/previews/templates/generations/b24c6913501d8a26544db9451a889c9cf2e0e303bf3570a1182b4d13c0f00002/workshop-alignment-brief/v1/workshop-alignment-brief-page-1-map.95ffd26223f95361.png",
+        "mediaType": "image/png",
+        "contentSha256": "95ffd26223f953617cf3e42cc09670db3acf706861f19670572218dc8c312cb5",
+        "rendererRevision": "renderer-thumbnail-v1"
+      }
+    }
+  ]
+}

@@ -44,10 +44,10 @@ artifacts.
    compact/dark/coarse-pointer visual matrix remain open; this is improved,
    not full visual parity.
 2. **LIBRARY-02:** the compact catalog, compatibility/ownership contracts, 21
-   active template entries and 37-item curated media manifest are independently
-   accepted. Raster previews, discovery UI, collections, favorites, media
-   materialization and integrated Assets navigation remain active and still sit
-   below Canva's product depth.
+   active template entries, 37-item curated media manifest and all 21 immutable
+   Renderer-backed template previews are independently accepted. Discovery UI,
+   collections, favorites, media materialization and integrated Assets
+   navigation remain active and still sit below Canva's product depth.
 3. **ASSET-02 depth:** placement, crop and frame masks are real; general masks
    and a production background-removal workflow are not built.
 4. **Environment proof:** deployed migrations 0012/0013 and the remaining
@@ -57,9 +57,9 @@ artifacts.
 
 ## No-bounce execution order
 
-1. Continue LIBRARY-02 from accepted catalog content/provenance into raster
-   previews, discovery, preferences and Assets integration without putting full
-   documents or media bytes in list records.
+1. Continue LIBRARY-02 from accepted catalog content/provenance and raster
+   previews into discovery, preferences and Assets integration without putting
+   full documents or media bytes in list records.
 2. Run one bounded OpenPencil comparison and visual-sophistication pass without
    reopening already accepted command semantics.
 3. Build remaining ASSET-02 mask/background-removal depth.

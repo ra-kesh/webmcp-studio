@@ -3598,3 +3598,28 @@ Status: **closed and independently accepted; Gate 3 is active**
   composer/template version 3 and retaining v1/v2 as retired exact identities.
 - Independent final review found zero P0/P1 issues. Focused Document, composer,
   Studio catalog and persistence suites plus both package typechecks pass.
+
+## 2026-08-31 — LIBRARY-02 Gate 3 immutable raster previews
+
+Status: **closed and independently accepted; Gate 4 is active**
+
+- Produced and checked in exact Renderer-backed PNG previews for all 21 active
+  template versions. The immutable generation and manifest bind template,
+  version, preview page, renderer revision, dimensions, MIME type and SHA-256.
+- Added safe generation and verification with a three-job ceiling, temporary
+  publication, complete current-generation coverage and retained older
+  generations. Schema parsing remains available to replace a stale manifest;
+  generation, verification and consumers still reject stale catalog coverage.
+- Added one route-owned preview controller with 240 px near-view admission,
+  exact-descriptor deduplication, abort/generation rejection, verified object
+  URLs, a bounded released-entry LRU, StrictMode-safe release and cache-bypassing
+  per-card Retry.
+- Replaced live Artboard previews in both template surfaces with the shared
+  fixed 4:3 raster component. Preview failure is local and never disables
+  template selection or turns into catalog repository failure.
+- Independent review found one P1 injected-concurrency escape. The controller
+  now hard-caps every configuration at three and retains a regression test;
+  re-review reports zero P0/P1 findings.
+- Focused evidence passes 36/36 tests, 21/21 published preview verification,
+  Studio typecheck and the Node 22 production build. Gate 4 now owns the shared
+  discovery controller and browser.

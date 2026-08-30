@@ -3,7 +3,6 @@ import type {
   DesignTemplateCatalogItem,
   TemplateApplicationImpact,
 } from "@webmcp/document"
-import { Artboard } from "@webmcp/render-view"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -47,6 +46,8 @@ import {
   Search,
   Sparkles,
 } from "lucide-react"
+import { LibraryPreview } from "../../content/library/library-preview"
+import { getStudioTemplatePreviewDescriptor } from "../../content/library/templates/preview-manifest"
 import {
   allTemplateCategoriesValue,
   filterTemplateCatalog,
@@ -56,7 +57,6 @@ import {
   templateCompatibility,
   templateDimensionsLabel,
   templateImpactRows,
-  templatePreviewLayout,
 } from "./template-catalog-model"
 import type {
   TemplateCatalogIdentity,
@@ -94,34 +94,23 @@ type ApplyConfirmation = {
 
 function TemplatePreview({
   template,
+  selected,
+  onSelect,
 }: {
   template: DesignTemplateCatalogItem
+  selected: boolean
+  onSelect: () => void
 }) {
-  const layout = templatePreviewLayout(template)
-  const page = template.previewDocument.pages.find(
-    (candidate) => candidate.id === template.previewPageId
-  )
-
   return (
-    <div
-      aria-label={`Preview of ${template.name}, ${page?.name ?? "first page"}`}
-      className="grid h-32 w-full place-items-center overflow-hidden rounded-[5px] border border-border/70 bg-workspace/70 p-2"
-      role="img"
-    >
-      <div
-        aria-hidden="true"
-        className="overflow-hidden rounded-[3px] border bg-background shadow-sm"
-        style={{ width: layout.width, height: layout.height }}
-      >
-        <Artboard
-          document={template.previewDocument}
-          imageSemantics="thumbnail"
-          pageId={template.previewPageId}
-          scale={layout.scale}
-          showImageRecoveryActions={false}
-        />
-      </div>
-    </div>
+    <LibraryPreview
+      descriptor={getStudioTemplatePreviewDescriptor(
+        template.id,
+        template.version
+      )}
+      label={`Select ${template.name}`}
+      selected={selected}
+      onSelect={onSelect}
+    />
   )
 }
 
@@ -217,8 +206,7 @@ function TemplateCard({
 
   return (
     <li>
-      <button
-        aria-pressed={selected}
+      <div
         className={cn(
           "group/template flex w-full flex-col gap-0 rounded-md border border-border/80 bg-background p-1.5 text-left transition-[border-color,background-color,box-shadow] outline-none hover:border-foreground/20 hover:bg-muted/25 focus-visible:border-studio-accent focus-visible:ring-2 focus-visible:ring-studio-accent/35",
           selected &&
@@ -226,11 +214,19 @@ function TemplateCard({
         )}
         data-active={active}
         data-compatible={compatibility.compatible}
-        onClick={onSelect}
-        type="button"
       >
-        <TemplatePreview template={template} />
-        <span className="flex w-full items-start gap-2 px-1.5 pt-1.5 pb-1">
+        <TemplatePreview
+          onSelect={onSelect}
+          selected={selected}
+          template={template}
+        />
+        <button
+          aria-label={`Show details for ${template.name}`}
+          aria-pressed={selected}
+          className="flex w-full items-start gap-2 rounded-sm px-1.5 pt-1.5 pb-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-studio-accent/35"
+          type="button"
+          onClick={onSelect}
+        >
           <span className="min-w-0 flex-1">
             <span className="flex items-center gap-1.5">
               <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
@@ -256,8 +252,8 @@ function TemplateCard({
               </span>
             ) : null}
           </span>
-        </span>
-      </button>
+        </button>
+      </div>
     </li>
   )
 }

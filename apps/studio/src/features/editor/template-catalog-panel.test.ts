@@ -29,15 +29,18 @@ const renderPanel = (overrides: Partial<TemplateCatalogPanelProps> = {}) =>
   )
 
 describe("TemplateCatalogPanel", () => {
-  it("renders repository-backed preview content and complete template metadata", () => {
+  it("renders immutable preview slots and complete template metadata without live artboards", () => {
     const html = renderPanel()
 
-    expect(html).toContain("data-page-id")
-    expect(html).toContain("Preview of Editorial one-pager")
-    expect(html).toContain("A clear story,")
+    expect(html).toContain('data-preview-state="deferred"')
+    expect(html).toContain('aria-label="Select Editorial one-pager"')
+    expect(html).not.toContain("data-page-id")
+    expect(html).toContain(
+      "A two-page creative brief that pairs the decision with audience and guardrails."
+    )
     expect(html).toContain("1240 × 1754 px")
     expect(html).toContain("Studio originals")
-    expect(html).toContain("Internal")
+    expect(html).toContain("Studio original template")
     expect(html).toContain('data-template-details-dock="true"')
     expect(html).toContain("Create new")
     expect(html).toContain("Apply to this design")
