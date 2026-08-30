@@ -30,6 +30,7 @@ import {
   enterFabricTextEditing,
   equivalentImageSources,
   FABRIC_TRANSFORM_MODIFIER_POLICY,
+  fabricTextSelection,
   fabricTextControlVisibility,
   fabricObjectToNodePatch,
   fabricComparableNodeGeometry,
@@ -40,6 +41,7 @@ import {
   projectFabricImageCropDrag,
   projectFabricTextState,
   recordTextEdit,
+  richTextEditPatch,
   resolveTextEditExit,
   settleTextEditCache,
   shouldPreserveTextEditingSelection,
@@ -1360,6 +1362,38 @@ describe("Fabric document boundary", () => {
     })
     expect(canonicalText.get("text-1")).toBe("After")
     expect(recordTextEdit(canonicalText, "text-1", "After")).toBeNull()
+  })
+
+  it("bridges Fabric grapheme indexes to canonical UTF-16 selections", () => {
+    const text = Object.create(Textbox.prototype) as Textbox
+    Object.assign(text, {
+      text: "A😀B",
+      selectionStart: 1,
+      selectionEnd: 2,
+      hiddenTextarea: null,
+      graphemeSplit: (value: string) => Array.from(value),
+    })
+
+    expect(fabricTextSelection(text)).toEqual({ anchor: 1, focus: 3 })
+  })
+
+  it("commits text and rich ranges together as one direct-edit patch", () => {
+    const baseline = renderConformanceDocument.nodes.find(
+      (candidate) => candidate.type === "text"
+    )!
+    if (baseline.type !== "text") throw new Error("Expected text")
+    const draft = {
+      ...baseline,
+      runs: [{ start: 0, end: 2, style: { italic: true } }],
+    }
+
+    expect(richTextEditPatch(baseline, draft)).toEqual({
+      text: draft.text,
+      runs: draft.runs,
+      paragraphs: draft.paragraphs,
+      links: draft.links,
+    })
+    expect(richTextEditPatch(draft, structuredClone(draft))).toBeNull()
   })
 
   it("restores the edit baseline on cancel and commits once on normal exit", () => {

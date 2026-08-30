@@ -37,6 +37,7 @@ const fakeAdapter = (
   enterTextEditing: vi.fn(() => false),
   commitTextEditing: vi.fn(() => false),
   cancelTextEditing: vi.fn(() => false),
+  applyTextEditingStyle: vi.fn(() => false),
   cancelTransform: vi.fn(() => false),
   setImageCropMode: vi.fn(() => false),
   previewImageCropDraft: vi.fn(() => false),

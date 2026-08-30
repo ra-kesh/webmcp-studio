@@ -250,3 +250,34 @@ Acceptance evidence:
 
 Gate 1 is accepted. Gate 2 now owns selection-aware range editing and the
 everyday rich-text toolbar/inspector workflow.
+
+## Gate 2A/2B result — selection engine and first direct-edit surface
+
+Implemented:
+
+- one canonical UTF-16 selection/range-editing engine with directional
+  selection normalization, surrogate-safe boundaries, shared/mixed style
+  reporting, collapsed-caret inheritance and explicit typing overrides;
+- interval-based character-style application plus text replacement that remaps
+  runs, paragraphs and links together without expanding the document into one
+  record per character;
+- a Fabric direct-edit session that translates grapheme indexes to canonical
+  offsets, preserves rich payload through typing/deletion/paste, applies live
+  selection formatting and commits the complete text edit as one history step;
+- a first context toolbar for bold, italic, underline, strike, size, weight and
+  color, including mixed states and focus-safe mouse interaction;
+- a fixed workspace scroll boundary so focusing Fabric's hidden editing
+  textarea cannot zoom or scroll the surrounding application chrome away.
+
+Acceptance evidence:
+
+- 91/91 focused document, Fabric-adapter and toolbar tests pass;
+- document, editor and Studio typechecks pass;
+- the live port-3001 editor retained the formatting toolbar while applying a
+  bold selection, kept `window.scrollY` at zero during direct editing, and
+  returned to the fitted page without leaving the temporary verification layer;
+- Prettier and `git diff --check` pass.
+
+Gate 2 remains active. Link set/remove UX, selection-aware inspector state,
+semantic paragraph/list keyboard behavior, rich internal clipboard/plain-text
+paste and compact keyboard/screen-reader/focus acceptance remain open.

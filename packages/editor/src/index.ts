@@ -5,6 +5,9 @@ import type {
   ImageFrameMask,
   ImagePlacement,
   SceneNode,
+  TextRunStylePatch,
+  TextSelection,
+  TextSelectionStyleState,
 } from "@webmcp/document"
 import type { AlignmentSnapTarget } from "./snapping"
 
@@ -25,7 +28,15 @@ export type CanvasAdapterEvents = {
   onContextMenu?(request: CanvasContextMenuRequest): void
   onImageDoubleClick?(nodeId: string): void
   onImageCropPreview?(preview: CanvasImageCropPreview): void
+  onTextEditingChange?(state: CanvasTextEditingState | null): void
 }
+
+export type CanvasTextEditingState = Readonly<{
+  nodeId: string
+  text: string
+  selection: TextSelection
+  style: TextSelectionStyleState
+}>
 
 export type CanvasContextMenuRequest = Readonly<{
   clientX: number
@@ -68,6 +79,7 @@ export interface CanvasAdapter {
   enterTextEditing(nodeId: string): boolean
   commitTextEditing(): boolean
   cancelTextEditing(): boolean
+  applyTextEditingStyle(patch: TextRunStylePatch): boolean
   cancelTransform(): boolean
   setImageCropMode(mode: CanvasImageCropMode | null): boolean
   previewImageCropDraft(draft: CanvasImageCropDraft): boolean

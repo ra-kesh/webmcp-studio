@@ -23,9 +23,17 @@ import {
 } from "fabric"
 import {
   IMAGE_PLACEMENT_MAX_ZOOM,
+  applyTextStyleToRange,
+  deriveTextReplacement,
+  normalizeTextSelection,
+  patchTextRunStyle,
   projectImagePaint,
   projectNodeForRender,
   projectSvgViewport,
+  replaceRichTextRange,
+  resolveTextSelectionStyle,
+  textNodeBaseStyle,
+  textRunOverrideAtCaret,
   type Document,
   type ImagePlacement,
   type RenderImageAffine,
@@ -33,6 +41,10 @@ import {
   type ProjectedTextLine,
   type ProjectedTextSegment,
   type SceneNode,
+  type TextNode,
+  type TextRunStyle,
+  type TextRunStylePatch,
+  type TextSelection,
 } from "@webmcp/document"
 import type {
   CanvasAdapter,
@@ -1836,7 +1848,9 @@ export class FabricCanvasAdapter implements CanvasAdapter {
   private textEditSession: {
     nodeId: string
     target: Textbox
-    baseline: string
+    baselineNode: TextNode
+    draftNode: TextNode
+    typingOverride: TextRunStyle | undefined
     cancelled: boolean
   } | null = null
 
@@ -1864,6 +1878,8 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     this.canvas.on("mouse:up", this.onImageCropPointerUp)
     this.canvas.on("mouse:up", this.onTransformPointerUp)
     this.canvas.on("text:editing:entered", this.onTextEditingEntered)
+    this.canvas.on("text:selection:changed", this.onTextSelectionChanged)
+    this.canvas.on("text:changed", this.onTextChanged)
     this.canvas.on("before:transform", this.onBeforeTransform)
     this.canvas.on("object:modified", this.onObjectModified)
     this.canvas.on("object:moving", this.onObjectMoving)
@@ -1929,6 +1945,8 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     canvas.off("mouse:up", this.onImageCropPointerUp)
     canvas.off("mouse:up", this.onTransformPointerUp)
     canvas.off("text:editing:entered", this.onTextEditingEntered)
+    canvas.off("text:selection:changed", this.onTextSelectionChanged)
+    canvas.off("text:changed", this.onTextChanged)
     canvas.off("before:transform", this.onBeforeTransform)
     canvas.off("object:modified", this.onObjectModified)
     canvas.off("object:moving", this.onObjectMoving)
@@ -2254,11 +2272,10 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     const session = this.textEditSession
     if (!session) return false
     session.cancelled = true
-    this.textByNodeId.set(session.nodeId, session.baseline)
-    cancelFabricTextEditing(session.target, session.baseline)
-    const node = this.nodeByNodeId.get(session.nodeId)
-    if (node?.type === "text") {
-      const projection = projectFabricTextState(node)
+    this.textByNodeId.set(session.nodeId, session.baselineNode.text)
+    cancelFabricTextEditing(session.target, session.baselineNode.text)
+    if (session.baselineNode.type === "text") {
+      const projection = projectFabricTextState(session.baselineNode)
       setFabricTextboxContent(
         session.target,
         projection.displayText,
@@ -2269,6 +2286,36 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     }
     this.clearTextEditSession()
     this.canvas?.requestRenderAll()
+    return true
+  }
+
+  applyTextEditingStyle(patch: TextRunStylePatch): boolean {
+    const session = this.textEditSession
+    if (!session || session.cancelled) return false
+    const selection = fabricTextSelection(session.target)
+    if (selection.anchor === selection.focus) {
+      const active =
+        session.typingOverride ??
+        textRunOverrideAtCaret(
+          session.draftNode.text,
+          session.draftNode.runs,
+          selection.focus
+        )
+      session.typingOverride = patchTextRunStyle(active, patch)
+    } else {
+      session.draftNode = {
+        ...session.draftNode,
+        runs: applyTextStyleToRange(
+          session.draftNode.text,
+          session.draftNode.runs,
+          selection,
+          patch
+        ),
+      }
+      session.typingOverride = undefined
+      this.projectTextEditDraft(session)
+    }
+    this.publishTextEditingState(session)
     return true
   }
 
@@ -3389,45 +3436,40 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     if (!nodeId) return
     const session =
       this.textEditSession?.nodeId === nodeId ? this.textEditSession : null
-    const baseline =
-      session?.baseline ?? this.textByNodeId.get(nodeId) ?? target.text
-    const resolved = resolveTextEditExit(
-      baseline,
-      target.text,
-      session?.cancelled ?? false
-    )
+    if (session && !session.cancelled) this.updateTextEditDraft(session)
+    const baseline = session?.baselineNode
+    const draft = session?.draftNode
+    const cancelled = session?.cancelled ?? false
     this.clearTextEditSession()
-    if (resolved.cancelled) {
-      const node = this.nodeByNodeId.get(nodeId)
+    if (cancelled || !baseline || !draft) {
+      const node = baseline ?? this.nodeByNodeId.get(nodeId)
       const projection =
         node?.type === "text" ? projectFabricTextState(node) : null
       setFabricTextboxContent(
         target,
-        projection?.displayText ?? resolved.text,
+        projection?.displayText ?? baseline?.text ?? target.text,
         "canonical",
         projection?.canonicalStyles
       )
-      this.textByNodeId.set(nodeId, resolved.text)
+      if (baseline) this.textByNodeId.set(nodeId, baseline.text)
       target.setCoords()
       this.canvas?.requestRenderAll()
       return
     }
-    const patch = recordTextEdit(this.textByNodeId, nodeId, resolved.text)
+    const patch = richTextEditPatch(baseline, draft)
     if (!patch) {
-      const node = this.nodeByNodeId.get(nodeId)
-      if (node?.type === "text") {
-        const projection = projectFabricTextState(node)
-        setFabricTextboxContent(
-          target,
-          projection.displayText,
-          "canonical",
-          projection.canonicalStyles
-        )
-        target.setCoords()
-        this.canvas?.requestRenderAll()
-      }
+      const projection = projectFabricTextState(baseline)
+      setFabricTextboxContent(
+        target,
+        projection.displayText,
+        "canonical",
+        projection.canonicalStyles
+      )
+      target.setCoords()
+      this.canvas?.requestRenderAll()
       return
     }
+    this.textByNodeId.set(nodeId, draft.text)
     const accepted = this.events.onNodesChange([
       {
         nodeId,
@@ -3438,36 +3480,25 @@ export class FabricCanvasAdapter implements CanvasAdapter {
       const settled = settleTextEditCache(
         this.textByNodeId,
         nodeId,
-        baseline,
-        resolved.text,
+        baseline.text,
+        draft.text,
         accepted
       )
-      const node = this.nodeByNodeId.get(nodeId)
-      const projection =
-        node?.type === "text" ? projectFabricTextState(node) : null
+      const projection = projectFabricTextState(baseline)
       setFabricTextboxContent(
         target,
-        projection?.displayText ?? settled,
+        projection.displayText ?? settled,
         "canonical",
-        projection?.canonicalStyles
+        projection.canonicalStyles
       )
     } else {
-      const node = this.nodeByNodeId.get(nodeId)
-      if (node?.type === "text") {
-        const projection = projectFabricTextState({
-          ...node,
-          text: resolved.text,
-          runs: [],
-          paragraphs: [],
-          links: [],
-        })
-        setFabricTextboxContent(
-          target,
-          projection.displayText,
-          "canonical",
-          projection.canonicalStyles
-        )
-      }
+      const projection = projectFabricTextState(draft)
+      setFabricTextboxContent(
+        target,
+        projection.displayText,
+        "canonical",
+        projection.canonicalStyles
+      )
     }
     target.setCoords()
     this.canvas?.requestRenderAll()
@@ -3480,11 +3511,15 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     }
     const nodeId = this.nodeIdByObject.get(target)
     if (!nodeId) return
+    const node = this.nodeByNodeId.get(nodeId)
+    if (node?.type !== "text") return
     this.clearTextEditSession()
     this.textEditSession = {
       nodeId,
       target,
-      baseline: this.textByNodeId.get(nodeId) ?? target.text,
+      baselineNode: structuredClone(node),
+      draftNode: structuredClone(node),
+      typingOverride: undefined,
       cancelled: false,
     }
     target.hiddenTextarea?.addEventListener(
@@ -3492,6 +3527,25 @@ export class FabricCanvasAdapter implements CanvasAdapter {
       this.onTextEditingKeyDown,
       true
     )
+    this.publishTextEditingState(this.textEditSession)
+  }
+
+  private onTextChanged = ({ target }: { target: FabricObject }) => {
+    if (!(target instanceof Textbox)) return
+    const session = this.textEditSession
+    if (!session || session.target !== target || session.cancelled) return
+    this.updateTextEditDraft(session)
+    this.publishTextEditingState(session)
+  }
+
+  private onTextSelectionChanged = ({ target }: { target: FabricObject }) => {
+    if (!(target instanceof Textbox)) return
+    const session = this.textEditSession
+    if (!session || session.target !== target || session.cancelled) return
+    queueMicrotask(() => {
+      if (this.textEditSession !== session || session.cancelled) return
+      this.publishTextEditingState(session)
+    })
   }
 
   private onTextEditingKeyDown = (event: KeyboardEvent) => {
@@ -3503,8 +3557,61 @@ export class FabricCanvasAdapter implements CanvasAdapter {
       this.cancelTextEditing()
       return
     }
+    const primary = event.metaKey || event.ctrlKey
+    const formattingKey = event.key.toLowerCase()
+    if (
+      primary &&
+      !event.altKey &&
+      !event.shiftKey &&
+      ["b", "i", "u"].includes(formattingKey)
+    ) {
+      const selection = fabricTextSelection(session.target)
+      const state = resolveTextSelectionStyle(
+        session.draftNode.text,
+        session.draftNode.runs,
+        selection,
+        textNodeBaseStyle(session.draftNode),
+        session.typingOverride
+      )
+      const value = <Value>(shared: {
+        kind: "value" | "mixed"
+        value?: Value
+      }) => (shared.kind === "value" ? shared.value : undefined)
+      const patch: TextRunStylePatch =
+        formattingKey === "b"
+          ? {
+              fontWeight: (value(state.fontWeight) ?? 0) >= 700 ? 400 : 700,
+            }
+          : formattingKey === "i"
+            ? { italic: value(state.italic) !== true }
+            : {
+                decoration:
+                  value(state.decoration) === "underline"
+                    ? "none"
+                    : "underline",
+              }
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      this.applyTextEditingStyle(patch)
+      return
+    }
     if (event.isComposing || event.metaKey || event.ctrlKey || event.altKey) {
       return
+    }
+
+    if (
+      [
+        "ArrowLeft",
+        "ArrowRight",
+        "ArrowUp",
+        "ArrowDown",
+        "Home",
+        "End",
+        "PageUp",
+        "PageDown",
+      ].includes(event.key)
+    ) {
+      session.typingOverride = undefined
     }
 
     const textarea = session.target.hiddenTextarea
@@ -3525,6 +3632,63 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     }
   }
 
+  private updateTextEditDraft(
+    session: NonNullable<FabricCanvasAdapter["textEditSession"]>
+  ) {
+    const nextText = session.target.text
+    if (nextText === session.draftNode.text) return
+    const replacement = deriveTextReplacement(session.draftNode.text, nextText)
+    const result = replaceRichTextRange(
+      session.draftNode.text,
+      {
+        runs: session.draftNode.runs,
+        paragraphs: session.draftNode.paragraphs,
+        links: session.draftNode.links,
+      },
+      replacement.selection,
+      replacement.replacement,
+      session.typingOverride
+    )
+    session.draftNode = {
+      ...session.draftNode,
+      text: result.text,
+      runs: result.content.runs,
+      paragraphs: result.content.paragraphs,
+      links: result.content.links,
+    }
+    this.projectTextEditDraft(session)
+  }
+
+  private projectTextEditDraft(
+    session: NonNullable<FabricCanvasAdapter["textEditSession"]>
+  ) {
+    const selection = fabricTextSelection(session.target)
+    const projection = projectFabricTextState(session.draftNode)
+    session.target.set({ styles: projection.editingStyles })
+    session.target.initDimensions()
+    restoreFabricTextSelection(session.target, selection)
+    session.target.setCoords()
+    this.canvas?.requestRenderAll()
+  }
+
+  private publishTextEditingState(
+    session: NonNullable<FabricCanvasAdapter["textEditSession"]>
+  ) {
+    const selection = fabricTextSelection(session.target)
+    this.events.onTextEditingChange?.({
+      nodeId: session.nodeId,
+      text: session.draftNode.text,
+      selection,
+      style: resolveTextSelectionStyle(
+        session.draftNode.text,
+        session.draftNode.runs,
+        selection,
+        textNodeBaseStyle(session.draftNode),
+        session.typingOverride
+      ),
+    })
+  }
+
   private clearTextEditSession() {
     this.textEditSession?.target.hiddenTextarea?.removeEventListener(
       "keydown",
@@ -3532,6 +3696,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
       true
     )
     this.textEditSession = null
+    this.events.onTextEditingChange?.(null)
   }
 }
 
@@ -3623,6 +3788,61 @@ export function settleTextEditCache(
   return settled
 }
 
+export function richTextEditPatch(
+  baseline: TextNode,
+  draft: TextNode
+): Pick<TextNode, "text" | "runs" | "paragraphs" | "links"> | null {
+  if (
+    baseline.text === draft.text &&
+    JSON.stringify(baseline.runs) === JSON.stringify(draft.runs) &&
+    JSON.stringify(baseline.paragraphs) === JSON.stringify(draft.paragraphs) &&
+    JSON.stringify(baseline.links) === JSON.stringify(draft.links)
+  ) {
+    return null
+  }
+  return {
+    text: draft.text,
+    runs: structuredClone(draft.runs),
+    paragraphs: structuredClone(draft.paragraphs),
+    links: structuredClone(draft.links),
+  }
+}
+
+const fabricIndexToUtf16Offset = (object: Textbox, index: number) =>
+  object.graphemeSplit(object.text).slice(0, index).join("").length
+
+const utf16OffsetToFabricIndex = (object: Textbox, offset: number) =>
+  object.graphemeSplit(object.text.slice(0, offset)).length
+
+export function fabricTextSelection(object: Textbox): TextSelection {
+  const textarea = object.hiddenTextarea
+  if (textarea && textarea.value === object.text) {
+    const start = textarea.selectionStart
+    const end = textarea.selectionEnd
+    return textarea.selectionDirection === "backward"
+      ? { anchor: end, focus: start }
+      : { anchor: start, focus: end }
+  }
+  return {
+    anchor: fabricIndexToUtf16Offset(object, object.selectionStart),
+    focus: fabricIndexToUtf16Offset(object, object.selectionEnd),
+  }
+}
+
+export function restoreFabricTextSelection(
+  object: Textbox,
+  selection: TextSelection
+) {
+  const normalized = normalizeTextSelection(object.text, selection)
+  object.setSelectionStart(utf16OffsetToFabricIndex(object, normalized.start))
+  object.setSelectionEnd(utf16OffsetToFabricIndex(object, normalized.end))
+  object.hiddenTextarea?.setSelectionRange(
+    normalized.start,
+    normalized.end,
+    normalized.direction === "backward" ? "backward" : "forward"
+  )
+}
+
 export function enterFabricTextEditing(
   canvas: Pick<Canvas, "setActiveObject" | "requestRenderAll">,
   object: FabricObject | undefined
@@ -3636,9 +3856,26 @@ export function enterFabricTextEditing(
     return false
   }
 
+  const ownerDocument = object.canvas?.upperCanvasEl.ownerDocument
+  const scrollingElement = ownerDocument?.scrollingElement
+  const scrollLeft = scrollingElement?.scrollLeft ?? 0
+  const scrollTop = scrollingElement?.scrollTop ?? 0
   canvas.setActiveObject(object)
   object.enterEditing()
-  object.hiddenTextarea?.focus()
+  object.hiddenTextarea?.focus({ preventScroll: true })
+  if (scrollingElement) {
+    const restoreScroll = () => {
+      if (
+        scrollingElement.scrollLeft !== scrollLeft ||
+        scrollingElement.scrollTop !== scrollTop
+      ) {
+        scrollingElement.scrollTo({ left: scrollLeft, top: scrollTop })
+      }
+    }
+    restoreScroll()
+    queueMicrotask(restoreScroll)
+    ownerDocument?.defaultView?.requestAnimationFrame(restoreScroll)
+  }
   canvas.requestRenderAll()
   return object.isEditing
 }

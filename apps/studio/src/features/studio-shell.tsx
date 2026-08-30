@@ -45,7 +45,7 @@ import {
   Ungroup,
 } from "lucide-react"
 import type { DesignTemplateCatalogItem, SceneNode } from "@webmcp/document"
-import type { NodeGeometryPatch } from "@webmcp/editor"
+import type { CanvasTextEditingState, NodeGeometryPatch } from "@webmcp/editor"
 import type { ImageResourceStateChange } from "@webmcp/render-view"
 import {
   applyEditorImageFrameCommand,
@@ -181,6 +181,7 @@ import type {
 } from "./editor/image-crop-focus"
 import { ImageCropToolbar } from "./editor/image-crop-toolbar"
 import { SelectedImageToolbar } from "./editor/selected-image-toolbar"
+import { TextFormattingToolbar } from "./editor/text-formatting-toolbar"
 import {
   applySelectedImageToolbarCameraProjection,
   resolveSelectedImageToolbarPlacement,
@@ -682,6 +683,42 @@ export function StudioShell({
   const [textEditingNodeId, setTextEditingNodeId] = useState<string | null>(
     null
   )
+  const [textEditingState, setTextEditingState] =
+    useState<CanvasTextEditingState | null>(null)
+  useLayoutEffect(() => {
+    if (editor.sessionMode !== "workspace") return
+    const root = document.documentElement
+    const body = document.body
+    const previous = {
+      rootOverflow: root.style.overflow,
+      rootOverscrollBehavior: root.style.overscrollBehavior,
+      bodyOverflow: body.style.overflow,
+      bodyOverscrollBehavior: body.style.overscrollBehavior,
+      bodyPosition: body.style.position,
+      bodyInset: body.style.inset,
+      bodyWidth: body.style.width,
+      bodyHeight: body.style.height,
+    }
+    root.style.overflow = "hidden"
+    root.style.overscrollBehavior = "none"
+    body.style.overflow = "hidden"
+    body.style.overscrollBehavior = "none"
+    body.style.position = "fixed"
+    body.style.inset = "0"
+    body.style.width = "100%"
+    body.style.height = "100%"
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" })
+    return () => {
+      root.style.overflow = previous.rootOverflow
+      root.style.overscrollBehavior = previous.rootOverscrollBehavior
+      body.style.overflow = previous.bodyOverflow
+      body.style.overscrollBehavior = previous.bodyOverscrollBehavior
+      body.style.position = previous.bodyPosition
+      body.style.inset = previous.bodyInset
+      body.style.width = previous.bodyWidth
+      body.style.height = previous.bodyHeight
+    }
+  }, [editor.sessionMode])
   const [documentPanelTab, setDocumentPanelTab] =
     useState<DocumentPanelTab>("templates")
   const {
@@ -705,6 +742,7 @@ export function StudioShell({
   const workspaceRef = useRef<HTMLDivElement>(null)
   const cameraTransformRef = useRef<HTMLDivElement>(null)
   const selectedImageToolbarOverlayRef = useRef<HTMLDivElement>(null)
+  const textFormattingToolbarOverlayRef = useRef<HTMLDivElement>(null)
   const cameraSettlementTimerRef = useRef<number | null>(null)
   const [workspaceElement, setWorkspaceElement] =
     useState<HTMLDivElement | null>(null)
@@ -982,9 +1020,56 @@ export function StudioShell({
         viewportHeight: workspaceSize.height,
       })
     : null
+  const textEditingNode = textEditingState
+    ? editor.previewDocument.nodes.find(
+        (node) => node.id === textEditingState.nodeId && node.type === "text"
+      )
+    : null
+  const textEditingBounds = textEditingNode
+    ? getNodeBounds(textEditingNode)
+    : null
+  const textEditingBoundsRef = useRef(textEditingBounds)
+  textEditingBoundsRef.current = textEditingBounds
+  const projectTextFormattingToolbarOverlay = useCallback(
+    (camera: CanvasCamera) => {
+      const element = textFormattingToolbarOverlayRef.current
+      const bounds = textEditingBoundsRef.current
+      if (!element || !bounds) return
+      applySelectedImageToolbarCameraProjection(element, {
+        bounds,
+        camera,
+        viewport: workspaceSizeRef.current,
+      })
+    },
+    []
+  )
+  const installTextFormattingToolbarOverlay = useCallback(
+    (element: HTMLDivElement | null) => {
+      textFormattingToolbarOverlayRef.current = element
+      if (element) projectTextFormattingToolbarOverlay(cameraRef.current)
+    },
+    [projectTextFormattingToolbarOverlay]
+  )
+  const textFormattingToolbarPlacement = textEditingBounds
+    ? resolveSelectedImageToolbarPlacement({
+        frameLeft: cameraPosition.x + textEditingBounds.left * zoom,
+        frameRight: cameraPosition.x + textEditingBounds.right * zoom,
+        frameTop: cameraPosition.y + textEditingBounds.top * zoom,
+        frameBottom: cameraPosition.y + textEditingBounds.bottom * zoom,
+        viewportWidth: workspaceSize.width,
+        viewportHeight: workspaceSize.height,
+      })
+    : null
   useLayoutEffect(() => {
     projectSelectedImageToolbarOverlay(cameraRef.current)
-  }, [projectSelectedImageToolbarOverlay, selectedImageBounds, workspaceSize])
+    projectTextFormattingToolbarOverlay(cameraRef.current)
+  }, [
+    projectSelectedImageToolbarOverlay,
+    projectTextFormattingToolbarOverlay,
+    selectedImageBounds,
+    textEditingBounds,
+    workspaceSize,
+  ])
   const cropImageBounds = cropImageNode ? getNodeBounds(cropImageNode) : null
   const cropToolbarEdge = cropImageBounds
     ? resolveImageCropToolbarEdge({
@@ -1192,6 +1277,7 @@ export function StudioShell({
       )
       rulerGuideOverlayRef.current?.updateCamera(camera)
       projectSelectedImageToolbarOverlay(camera)
+      projectTextFormattingToolbarOverlay(camera)
 
       if (cameraSettlementTimerRef.current !== null) {
         window.clearTimeout(cameraSettlementTimerRef.current)
@@ -1203,7 +1289,7 @@ export function StudioShell({
         setCameraPosition({ x: camera.x, y: camera.y })
       }, 120)
     },
-    [projectSelectedImageToolbarOverlay]
+    [projectSelectedImageToolbarOverlay, projectTextFormattingToolbarOverlay]
   )
 
   useEffect(
@@ -4061,6 +4147,19 @@ export function StudioShell({
                 />
               </div>
             ) : null}
+            {!editor.imageCropSession &&
+            textEditingState &&
+            textFormattingToolbarPlacement?.mode === "docked" ? (
+              <div className="relative z-30 flex shrink-0 justify-center border-b bg-background/92 p-1 backdrop-blur-sm">
+                <TextFormattingToolbar
+                  state={textEditingState}
+                  className="max-w-full shadow-sm"
+                  onApply={(patch) => {
+                    artboardRef.current?.applyTextEditingStyle(patch)
+                  }}
+                />
+              </div>
+            ) : null}
             <ProductCommandContextMenu
               groups={canvasContextMenuGroups}
               runtime={productMenuRuntime}
@@ -4166,6 +4265,7 @@ export function StudioShell({
                         requestedNodeId === nodeId ? null : requestedNodeId
                       )
                     }}
+                    onTextEditingChange={setTextEditingState}
                     onSelectionChange={editor.setSelection}
                     onNodesChange={editor.updateNodes}
                   />
@@ -4251,6 +4351,29 @@ export function StudioShell({
                       className="pointer-events-auto"
                       onRunCommand={runEditorCommand}
                       isCommandEnabled={commandEnabled}
+                    />
+                  </div>
+                ) : null}
+                {!editor.imageCropSession &&
+                textEditingState &&
+                textFormattingToolbarPlacement?.mode === "overlay" ? (
+                  <div
+                    ref={installTextFormattingToolbarOverlay}
+                    className="pointer-events-none absolute z-30 flex justify-center"
+                    data-editor-overlay-control="true"
+                    data-text-formatting-toolbar-overlay="true"
+                    style={{
+                      top: textFormattingToolbarPlacement.top,
+                      left: textFormattingToolbarPlacement.left,
+                      width: textFormattingToolbarPlacement.width,
+                    }}
+                  >
+                    <TextFormattingToolbar
+                      state={textEditingState}
+                      className="pointer-events-auto"
+                      onApply={(patch) => {
+                        artboardRef.current?.applyTextEditingStyle(patch)
+                      }}
                     />
                   </div>
                 ) : null}

@@ -10,7 +10,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react"
-import type { Document } from "@webmcp/document"
+import type { Document, TextRunStylePatch } from "@webmcp/document"
 import type {
   CanvasAdapter,
   CanvasAdapterEvents,
@@ -18,6 +18,7 @@ import type {
   CanvasImageCropPreview,
   CanvasImageSourceReadiness,
   CanvasNodeChange,
+  CanvasTextEditingState,
   AlignmentSnapTarget,
   Selection,
 } from "@webmcp/editor"
@@ -35,6 +36,7 @@ export type FabricArtboardHandle = {
   enterTextEditing: (nodeId: string) => boolean
   commitTextEditing: () => boolean
   cancelTextEditing: () => boolean
+  applyTextEditingStyle: (patch: TextRunStylePatch) => boolean
   cancelTransform: () => boolean
   getImageNaturalSize: (
     nodeId: string
@@ -137,6 +139,7 @@ export const FabricArtboard = forwardRef<
     onRuntimeStateChange?: (state: CanvasRuntimeReport) => void
     runtimeOptions?: FabricArtboardRuntimeOptions
     onTextEditingStart?: (nodeId: string) => void
+    onTextEditingChange?: (state: CanvasTextEditingState | null) => void
     onSelectionChange: (selection: Selection | null) => void
     onNodesChange: (changes: CanvasNodeChange[]) => boolean | void
   }
@@ -163,6 +166,7 @@ export const FabricArtboard = forwardRef<
     onRuntimeStateChange,
     runtimeOptions,
     onTextEditingStart,
+    onTextEditingChange,
     onSelectionChange,
     onNodesChange,
   },
@@ -185,6 +189,7 @@ export const FabricArtboard = forwardRef<
     onImageSourceStateChange,
     onRuntimeStateChange,
     onTextEditingStart,
+    onTextEditingChange,
     onSelectionChange,
     onNodesChange,
     textEditingNodeId,
@@ -215,6 +220,7 @@ export const FabricArtboard = forwardRef<
     onImageSourceStateChange,
     onRuntimeStateChange,
     onTextEditingStart,
+    onTextEditingChange,
     onSelectionChange,
     onNodesChange,
     textEditingNodeId,
@@ -439,6 +445,8 @@ export const FabricArtboard = forwardRef<
         adapterRef.current?.enterTextEditing(nodeId) ?? false,
       commitTextEditing: () => adapterRef.current?.commitTextEditing() ?? false,
       cancelTextEditing: () => adapterRef.current?.cancelTextEditing() ?? false,
+      applyTextEditingStyle: (patch) =>
+        adapterRef.current?.applyTextEditingStyle(patch) ?? false,
       cancelTransform: () => adapterRef.current?.cancelTransform() ?? false,
       getImageNaturalSize: (nodeId) =>
         adapterRef.current?.getImageNaturalSize(nodeId) ?? null,
@@ -485,6 +493,8 @@ export const FabricArtboard = forwardRef<
             callbacksRef.current.onImageDoubleClick?.(nodeId),
           onImageCropPreview: (preview) =>
             callbacksRef.current.onImageCropPreview?.(preview),
+          onTextEditingChange: (state) =>
+            callbacksRef.current.onTextEditingChange?.(state),
         })
         adapter = nextAdapter
         nextAdapter.mount(element)

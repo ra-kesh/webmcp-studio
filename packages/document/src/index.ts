@@ -26,6 +26,7 @@ export * from "./semantic-clone"
 export * from "./schema"
 export * from "./seed"
 export * from "./text-layout"
+export * from "./text-range-editing"
 export {
   assertValidDocument,
   DocumentValidationError,

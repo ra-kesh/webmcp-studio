@@ -2997,3 +2997,26 @@ Status: **accepted; Gate 1 is closed and Gate 2 range-editing UX is active**
   checks pass. Semantic duplication and immutable publication explicitly retain
   rich ranges; full-document history continues to snapshot the same canonical
   fixture exactly.
+
+## 2026-08-30 — TEXT-02 Gate 2A/2B selection-aware direct editing
+
+Status: **accepted as a bounded slice; Gate 2 remains active**
+
+- Revisited the Gate 2 contract and OpenPencil's editing, formatting,
+  keyboard, textarea and style-run paths before implementation. Loora remains
+  the command/transaction reference; no reference code was imported.
+- Added one canonical, surrogate-safe UTF-16 selection engine for normalized
+  forward/backward selections, shared/mixed styles, collapsed-caret
+  inheritance, typing overrides, range styling and coordinated
+  text/run/paragraph/link replacement.
+- Fabric now translates grapheme selection indexes to canonical offsets,
+  preserves the full rich-text payload through direct typing and commits one
+  complete edit/history action. Cancel restores the full baseline.
+- Added the first focus-safe floating text toolbar for character formatting and
+  fixed the workspace scroll boundary exposed by live direct-edit testing.
+- 91/91 focused tests and all three affected package typechecks pass. The live
+  port-3001 editor retained the toolbar during formatting and kept the
+  application viewport fixed at `window.scrollY === 0`.
+- Gate 2 still owns link UX, selection-aware inspector state, semantic
+  paragraph/list keyboard behavior, rich/plain clipboard handling and compact
+  accessibility acceptance.

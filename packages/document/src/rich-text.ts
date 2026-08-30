@@ -118,14 +118,23 @@ export class RichTextRangeError extends Error {
   }
 }
 
-const splitsSurrogatePair = (text: string, offset: number) => {
-  if (offset <= 0 || offset >= text.length) return false
+export const isRichTextBoundary = (text: string, offset: number) => {
+  if (!Number.isInteger(offset) || offset < 0 || offset > text.length) {
+    return false
+  }
+  if (offset <= 0 || offset >= text.length) return true
   const before = text.charCodeAt(offset - 1)
   const after = text.charCodeAt(offset)
-  return (
-    before >= 0xd800 && before <= 0xdbff && after >= 0xdc00 && after <= 0xdfff
+  return !(
+    before >= 0xd800 &&
+    before <= 0xdbff &&
+    after >= 0xdc00 &&
+    after <= 0xdfff
   )
 }
+
+const splitsSurrogatePair = (text: string, offset: number) =>
+  !isRichTextBoundary(text, offset)
 
 const assertCharacterRange = (
   text: string,
