@@ -9,6 +9,7 @@ import {
   projectPageForRender,
   projectSvgViewport,
   renderConformanceDocument,
+  textDesignSystemConformanceDocument,
   validateDocument,
   validateRenderPolicy,
 } from "../src"
@@ -36,6 +37,44 @@ const parityFingerprint = (
 })
 
 describe("render conformance corpus", () => {
+  it("round-trips reusable styles and all typed variable targets with resolved values", () => {
+    const document = textDesignSystemConformanceDocument
+    expect(
+      validateDocument(document).filter((issue) => issue.severity === "error")
+    ).toEqual([])
+    expect(document.typographyStyles).toHaveLength(1)
+    expect(document.paintStyles).toHaveLength(1)
+    expect(
+      new Set(document.variables.map((variable) => variable.type))
+    ).toEqual(new Set(["color", "number", "string", "font_family"]))
+    expect(
+      new Set(document.variableBindings.map((binding) => binding.target.kind))
+    ).toEqual(
+      new Set(["node", "text_range", "typography_style", "paint_style"])
+    )
+    expect(JSON.parse(JSON.stringify(document))).toEqual(document)
+
+    const panel = document.nodes.find(
+      (node) => node.id === "rect-stroke-radius"
+    )!
+    const label = document.nodes.find((node) => node.id === "auto-width-label")!
+    const body = document.nodes.find((node) => node.id === "long-text-only")!
+    expect(projectNodeForRender(panel)).toMatchObject({
+      content: { fill: "#fef3c7", radius: 24 },
+      frame: { opacity: 0.86 },
+    })
+    expect(projectNodeForRender(label)).toMatchObject({
+      content: { text: "AUTO WIDTH" },
+    })
+    expect(projectNodeForRender(body)).toMatchObject({
+      content: {
+        fontFamily: "Geist Variable",
+        fontSize: 24,
+        fontWeight: 450,
+      },
+    })
+  })
+
   it("is a valid, render-safe mixed-output canonical document", () => {
     expect(
       validateDocument(renderConformanceDocument).filter(

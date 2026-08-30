@@ -10,6 +10,7 @@ import {
   projectImagePaint,
   projectNodeForRender,
   renderConformanceDocument,
+  textDesignSystemConformanceDocument,
   serializeImagePaintProjector,
   type ImageFrameMask,
   type ImagePaintProjectionInput,
@@ -114,6 +115,29 @@ function renderResourceFixture(options?: {
 }
 
 describe("renderer HTML", () => {
+  it("serializes the same resolved style and variable values used by the editor", () => {
+    const properties = renderDocumentToHtml(
+      textDesignSystemConformanceDocument,
+      "properties-page"
+    )
+    const longText = renderDocumentToHtml(
+      textDesignSystemConformanceDocument,
+      "long-text-page"
+    )
+    const square = renderDocumentToHtml(
+      textDesignSystemConformanceDocument,
+      "square-page"
+    )
+
+    expect(properties).toContain('data-node-id="rect-stroke-radius"')
+    expect(properties).toContain("background:#fef3c7")
+    expect(properties).toContain("border-radius:24px")
+    expect(properties).toContain("opacity:0.86")
+    expect(longText).toContain("font-family:Geist Variable,sans-serif")
+    expect(longText).toContain("font-size:24px")
+    expect(square).toContain("AUTO WIDTH")
+  })
+
   it("scales thumbnail markup into the exact low-resolution viewport", () => {
     const html = renderDocumentThumbnailToHtml(northstarSeed, "cover", {
       width: 124,

@@ -158,6 +158,86 @@ describe("quotation template application", () => {
     ).toBe(current)
   })
 
+  it("keeps rich text, reusable paint, and variable-controlled colors coherent", () => {
+    const current = createEditedDocument()
+    const editorial = quotationTemplates.find(
+      (template) => template.id === "editorial-olive"
+    )!
+    const midnight = quotationTemplates.find(
+      (template) => template.id === "midnight-film"
+    )!
+    const note = current.nodes.find((node) => node.id === "manual-note")
+    const panel = current.nodes.find((node) => node.type === "rect")
+    if (!note || note.type !== "text" || !panel || panel.type !== "rect") {
+      throw new Error("Missing template resource fixtures")
+    }
+
+    current.paintStyles = [
+      {
+        id: "paint-template-accent",
+        name: "Template / Accent",
+        color: editorial.palette.accent,
+        opacity: 0.84,
+      },
+    ]
+    note.paintStyleId = "paint-template-accent"
+    note.color = editorial.palette.accent
+    note.opacity = 0.84
+    note.runs = [
+      {
+        start: 0,
+        end: 4,
+        style: { color: editorial.palette.muted },
+      },
+    ]
+    current.variables = [
+      {
+        id: "variable-template-surface",
+        name: "Template / Surface",
+        type: "color",
+        value: editorial.palette.surface,
+      },
+    ]
+    current.variableBindings = [
+      {
+        id: "binding-template-surface",
+        variableId: "variable-template-surface",
+        target: { kind: "node", nodeId: panel.id, property: "fill" },
+      },
+    ]
+    panel.fill = editorial.palette.surface
+
+    const next = applyQuotationTemplate(
+      current,
+      "editorial-olive",
+      "midnight-film"
+    )
+    const nextNote = next.nodes.find((node) => node.id === note.id)
+    const nextPanel = next.nodes.find((node) => node.id === panel.id)
+
+    expect(next.paintStyles[0]).toMatchObject({
+      id: "paint-template-accent",
+      color: midnight.palette.accent,
+    })
+    expect(nextNote).toMatchObject({
+      paintStyleId: "paint-template-accent",
+      color: midnight.palette.accent,
+      opacity: 0.84,
+    })
+    expect(nextNote?.type === "text" ? nextNote.runs[0]?.style.color : null).toBe(
+      midnight.palette.muted
+    )
+    expect(next.variables[0]).toMatchObject({
+      id: "variable-template-surface",
+      value: midnight.palette.surface,
+    })
+    expect(nextPanel).toMatchObject({ fill: midnight.palette.surface })
+    expect(next.variableBindings).toEqual(current.variableBindings)
+    expect(
+      validateDocument(next).filter((issue) => issue.severity === "error")
+    ).toEqual([])
+  })
+
   it("uses the supplied fallback when a document has no quotation tokens", () => {
     const current = createEditedDocument()
     current.pages.forEach((page) => {

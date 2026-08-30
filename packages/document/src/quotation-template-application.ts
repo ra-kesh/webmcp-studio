@@ -4,7 +4,9 @@ import {
   type QuotationTemplateId,
 } from "./quotation-composer"
 import type { Document, SceneNode } from "./schema"
+import { propagatePaintStyle } from "./design-styles"
 import { assertValidDocument } from "./validation"
+import { applyVariableToBinding } from "./variables"
 
 const getTemplate = (templateId: QuotationTemplateId) => {
   const template = quotationTemplates.find(
@@ -36,7 +38,19 @@ const applyNodePalette = (
 ): SceneNode => {
   switch (node.type) {
     case "text":
-      return { ...node, color: replacePaint(node.color, palette) }
+      return {
+        ...node,
+        color: replacePaint(node.color, palette),
+        runs: node.runs.map((run) => ({
+          ...run,
+          style: run.style.color
+            ? {
+                ...run.style,
+                color: replacePaint(run.style.color, palette),
+              }
+            : run.style,
+        })),
+      }
     case "rect":
     case "ellipse":
       return {
@@ -120,7 +134,7 @@ export function applyQuotationTemplate(
     getTemplate(nextTemplateId)
   )
 
-  return assertValidDocument({
+  let next: Document = {
     ...document,
     revision: document.revision + 1,
     updatedAt: options.now ?? new Date().toISOString(),
@@ -129,5 +143,30 @@ export function applyQuotationTemplate(
       background: replacePaint(page.background, palette),
     })),
     nodes: document.nodes.map((node) => applyNodePalette(node, palette)),
-  })
+    paintStyles: document.paintStyles.map((style) => ({
+      ...style,
+      color: replacePaint(style.color, palette),
+    })),
+    variables: document.variables.map((variable) =>
+      variable.type === "color"
+        ? { ...variable, value: replacePaint(variable.value, palette) }
+        : variable
+    ),
+  }
+
+  for (const style of next.paintStyles) {
+    next = {
+      ...next,
+      nodes: next.nodes.map((node) => propagatePaintStyle(node, style)),
+    }
+  }
+  for (const binding of next.variableBindings) {
+    const variable = next.variables.find(
+      (candidate) => candidate.id === binding.variableId
+    )
+    if (!variable) continue
+    next = applyVariableToBinding(next, binding, variable)
+  }
+
+  return assertValidDocument(next)
 }

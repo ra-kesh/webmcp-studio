@@ -69,20 +69,45 @@ const nodeBaseRunStyle = (node: TextNode): TextRunStyle => ({
   fontFamily: node.fontFamily,
   fontSize: node.fontSize,
   fontWeight: node.fontWeight,
-  italic: false,
-  decoration: "none",
+  italic: node.italic,
+  decoration: node.decoration,
   lineHeight: node.lineHeight,
   letterSpacing: node.letterSpacing,
+})
+
+const materializedRunStyle = (style: TextRunStyle): TextRunStyle => {
+  const {
+    typographyStyleId: _typographyStyleId,
+    paintStyleId: _paintStyleId,
+    ...appearance
+  } = style
+  return appearance
+}
+
+const materializedRichTextContent = (
+  text: string,
+  content: RichTextContent
+): RichTextContent => ({
+  ...content,
+  runs: normalizeTextRuns(
+    text,
+    content.runs.flatMap((run) => {
+      const style = materializedRunStyle(run.style)
+      return Object.keys(style).length ? [{ ...run, style }] : []
+    })
+  ),
 })
 
 const runStyleAt = (
   runs: ReturnType<typeof normalizeTextRuns>,
   offset: number,
   base: TextRunStyle
-) => ({
-  ...base,
-  ...(runs.find((run) => run.start <= offset && offset < run.end)?.style ?? {}),
-})
+) =>
+  materializedRunStyle({
+    ...base,
+    ...(runs.find((run) => run.start <= offset && offset < run.end)?.style ??
+      {}),
+  })
 
 const paragraphStyleAt = (
   text: string,
@@ -193,9 +218,10 @@ export function parseTextClipboardPayload(
   if (!value || value.length > MAX_CLIPBOARD_JSON_LENGTH) return null
   try {
     const parsed = textClipboardPayloadSchema.parse(JSON.parse(value))
+    const content = normalizeRichTextContent(parsed.text, parsed.content)
     return {
       ...parsed,
-      content: normalizeRichTextContent(parsed.text, parsed.content),
+      content: materializedRichTextContent(parsed.text, content),
     }
   } catch {
     return null
@@ -246,7 +272,10 @@ export function pasteTextClipboardPayload(
   payloadInput: TextClipboardPayload
 ): ReplaceRichTextRangeResult {
   const payload = textClipboardPayloadSchema.parse(payloadInput)
-  const payloadContent = normalizeRichTextContent(payload.text, payload.content)
+  const payloadContent = materializedRichTextContent(
+    payload.text,
+    normalizeRichTextContent(payload.text, payload.content)
+  )
   const selection = normalizeTextSelection(text, selectionInput)
   const replaced = replaceRichTextRange(
     text,

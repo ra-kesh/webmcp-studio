@@ -41,6 +41,43 @@ const textNode = (patch: Partial<TextNode> = {}): TextNode => ({
 })
 
 describe("canonical text layout", () => {
+  it("keeps a 1,000-run document within an interactive projection budget", () => {
+    const text = Array.from(
+      { length: 1_000 },
+      (_, index) => `${index % 10}`.repeat(6) + " "
+    ).join("")
+    const node = textNode({
+      text,
+      width: 760,
+      height: 20_000,
+      sizingMode: "auto_height",
+      runs: Array.from({ length: 1_000 }, (_, index) => ({
+        start: index * 7,
+        end: index * 7 + 7,
+        style: {
+          color: index % 2 === 0 ? "#333333" : "#111111",
+          fontWeight: index % 3 === 0 ? 600 : 400,
+        },
+      })),
+    })
+
+    // Mirror mature editors: keep canonical rich data, but project it once into
+    // a bounded paint model. Warm the managed-font tables before measuring.
+    projectTextLayout(node)
+    const startedAt = performance.now()
+    const projection = projectTextLayout(node)
+    const elapsed = performance.now() - startedAt
+
+    expect(
+      projection.lines.reduce(
+        (count, line) => count + line.segments.length,
+        0
+      )
+    ).toBe(1_000)
+    expect(JSON.stringify(projection).length).toBeLessThan(400_000)
+    expect(elapsed).toBeLessThan(250)
+  })
+
   it("migrates pre-sizing-mode documents to fixed without changing geometry", () => {
     const legacy = structuredClone(northstarSeed) as unknown as {
       nodes: Array<Record<string, unknown>>

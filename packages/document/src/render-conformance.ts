@@ -5,6 +5,7 @@ import {
   type ImagePlacement,
   type SceneNode,
 } from "./schema"
+import { applyCommand } from "./commands"
 
 export const renderConformanceImageSource = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="240" viewBox="0 0 400 240"><path fill="#ef4444" d="M0 0h200v120H0z"/><path fill="#22c55e" d="M200 0h200v120H200z"/><path fill="#3b82f6" d="M0 120h200v120H0z"/><path fill="#facc15" d="M200 120h200v120H200z"/></svg>'
@@ -586,3 +587,145 @@ export const renderConformanceDocument: Document = documentSchema.parse({
   fieldValues: {},
   bindings: [],
 })
+
+const conformanceCommand = (id: string) => ({
+  id,
+  actor: "human" as const,
+  at: "2026-08-30T14:00:00.000Z",
+})
+
+/**
+ * A resource-bearing variant of the golden scene. The resolved node values are
+ * deliberately visible in every renderer while the document retains the
+ * reusable-style and variable identities needed for round-trip assertions.
+ */
+export const textDesignSystemConformanceDocument: Document = [
+  {
+    type: "create_typography_style" as const,
+    ...conformanceCommand("conformance-create-typography-style"),
+    style: {
+      id: "typography-conformance-body",
+      name: "Conformance / Body",
+      fontFamily: "Geist Variable",
+      fontSize: 24,
+      fontWeight: 450,
+      italic: false,
+      lineHeight: 1.6,
+      letterSpacing: -0.5,
+      decoration: "none" as const,
+    },
+  },
+  {
+    type: "apply_typography_style" as const,
+    ...conformanceCommand("conformance-apply-typography-style"),
+    styleId: "typography-conformance-body",
+    targets: [{ nodeId: "long-text-only" }],
+  },
+  {
+    type: "create_paint_style" as const,
+    ...conformanceCommand("conformance-create-paint-style"),
+    style: {
+      id: "paint-conformance-panel",
+      name: "Conformance / Panel",
+      color: "#fef3c7",
+      opacity: 0.86,
+    },
+  },
+  {
+    type: "apply_paint_style" as const,
+    ...conformanceCommand("conformance-apply-paint-style"),
+    styleId: "paint-conformance-panel",
+    targets: [{ nodeId: "rect-stroke-radius" }],
+  },
+  ...[
+    {
+      id: "variable-conformance-font",
+      name: "Conformance / Font",
+      type: "font_family" as const,
+      value: "Geist Variable",
+    },
+    {
+      id: "variable-conformance-panel",
+      name: "Conformance / Panel color",
+      type: "color" as const,
+      value: "#fef3c7",
+    },
+    {
+      id: "variable-conformance-label",
+      name: "Conformance / Label",
+      type: "string" as const,
+      value: "AUTO WIDTH",
+    },
+    {
+      id: "variable-conformance-radius",
+      name: "Conformance / Radius",
+      type: "number" as const,
+      value: 24,
+    },
+    {
+      id: "variable-conformance-run-color",
+      name: "Conformance / Run color",
+      type: "color" as const,
+      value: "#166534",
+    },
+  ].map((variable, index) => ({
+    type: "create_variable" as const,
+    ...conformanceCommand(`conformance-create-variable-${index}`),
+    variable,
+  })),
+  ...[
+    {
+      id: "binding-conformance-font",
+      variableId: "variable-conformance-font",
+      target: {
+        kind: "typography_style" as const,
+        styleId: "typography-conformance-body",
+        property: "fontFamily" as const,
+      },
+    },
+    {
+      id: "binding-conformance-panel",
+      variableId: "variable-conformance-panel",
+      target: {
+        kind: "paint_style" as const,
+        styleId: "paint-conformance-panel",
+        property: "color" as const,
+      },
+    },
+    {
+      id: "binding-conformance-label",
+      variableId: "variable-conformance-label",
+      target: {
+        kind: "node" as const,
+        nodeId: "auto-width-label",
+        property: "text" as const,
+      },
+    },
+    {
+      id: "binding-conformance-radius",
+      variableId: "variable-conformance-radius",
+      target: {
+        kind: "node" as const,
+        nodeId: "rect-stroke-radius",
+        property: "radius" as const,
+      },
+    },
+    {
+      id: "binding-conformance-run-color",
+      variableId: "variable-conformance-run-color",
+      target: {
+        kind: "text_range" as const,
+        nodeId: "text-typography",
+        range: { start: 18, end: 30 },
+        property: "color" as const,
+      },
+    },
+  ].map((binding, index) => ({
+    type: "bind_variable" as const,
+    ...conformanceCommand(`conformance-bind-variable-${index}`),
+    binding,
+  })),
+].reduce(
+  (document, command) => applyCommand(document, command),
+  renderConformanceDocument
+)

@@ -80,6 +80,79 @@ describe("rich text clipboard", () => {
     })
   })
 
+  it("materializes base emphasis and removes document-local style identities", () => {
+    const payload = createTextClipboardPayload(
+      textNode({
+        italic: true,
+        decoration: "underline",
+        typographyStyleId: "typography-editorial",
+        paintStyleId: "paint-brand",
+        runs: [
+          {
+            start: 0,
+            end: 5,
+            style: {
+              typographyStyleId: "typography-editorial",
+              paintStyleId: "paint-brand",
+              color: "#7C3AED",
+              fontWeight: 700,
+            },
+          },
+        ],
+      }),
+      { anchor: 0, focus: 10 }
+    )
+
+    expect(payload?.content.runs).not.toEqual([])
+    for (const run of payload?.content.runs ?? []) {
+      expect(run.style.typographyStyleId).toBeUndefined()
+      expect(run.style.paintStyleId).toBeUndefined()
+      expect(run.style.italic).toBe(true)
+      expect(run.style.decoration).toBe("underline")
+    }
+  })
+
+  it("strips resource identities from parsed and pasted portable payloads", () => {
+    const portable = {
+      kind: "webmcp-studio/rich-text" as const,
+      version: 1 as const,
+      text: "Styled",
+      content: {
+        runs: [
+          {
+            start: 0,
+            end: 6,
+            style: {
+              typographyStyleId: "missing-typography-style",
+              paintStyleId: "missing-paint-style",
+              color: "#2563EB",
+              fontWeight: 700,
+            },
+          },
+        ],
+        paragraphs: [],
+        links: [],
+      },
+    }
+    const parsed = parseTextClipboardPayload(JSON.stringify(portable))
+
+    expect(parsed?.content.runs[0]?.style).toEqual({
+      color: "#2563EB",
+      fontWeight: 700,
+    })
+
+    const pasted = pasteTextClipboardPayload(
+      "Target",
+      { runs: [], paragraphs: [], links: [] },
+      { anchor: 0, focus: 6 },
+      portable
+    )
+    expect(pasted.content.runs[0]?.style).toEqual({
+      color: "#2563EB",
+      fontWeight: 700,
+    })
+  })
+
   it("rejects unknown, malformed, oversized, and unsafe payloads", () => {
     expect(parseTextClipboardPayload("not json")).toBeNull()
     expect(

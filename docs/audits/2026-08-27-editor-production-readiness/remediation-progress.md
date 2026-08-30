@@ -3259,3 +3259,33 @@ Status: **accepted; Gate 4 is closed and Gate 5 is next**
 - Gate 5 next owns conformance, scale, the complete real-use journey and
   independent P0/P1 closure. Broader OpenPencil-level visual refinement remains
   active separately; Gate 4 acceptance does not claim visual parity.
+
+## 2026-08-30 — TEXT-02 Gate 5 implementation and live acceptance
+
+Status: **implementation and live acceptance complete; independent review
+pending**
+
+- Revisited the Gate 5 contract plus OpenPencil's fixed-row Layer tree and
+  typography controls, and Loora's shared transaction/export/capture paths.
+- Added a resource-bearing Fabric/React/Renderer/PDF conformance document,
+  portable rich-text clipboard materialization, coherent quotation restyling
+  for runs/styles/variables, and a measured 1,000-run text-layout bound.
+- A desktop/compact live journey completed edit → reusable style → variable
+  bind/update → immutable publish → six-page PDF render, then removed its
+  temporary working-document resources through Undo.
+- The journey also exposed the root of apparently broken Publish CSS and the
+  collapsed Layers screenshot: Fast Refresh could recreate the persistence
+  context inside the provider module, trip the route error boundary and leave
+  virtual rows with transient zero starts. Context identity now lives in a
+  dependency-only module and Layer rows use their canonical fixed geometry.
+- Two deliberate live updates retained the styled 448 px Publish dialog and
+  kept compact Layer rows exactly 44 px apart with no new provider errors.
+- The Layers E2E fixture now uses the current IndexedDB repository plus
+  canonical document import. The hierarchy/non-overlap and 1,000-layer
+  virtualization/search/scroll/persistence specifications pass.
+- Focused tests pass 35 document, 14 render-view, 23 Renderer, 83 Fabric, 40
+  WebMCP and four Studio persistence cases. All affected typechecks and the
+  diff check pass.
+- TEXT-02 remains active until a separate reviewer reads the complete Gate 5
+  diff and closes every P0/P1 finding. Broader EDITOR-POLISH-01 remains a
+  separate active product gate.

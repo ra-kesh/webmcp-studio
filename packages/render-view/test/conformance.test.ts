@@ -7,6 +7,7 @@ import {
   projectImagePaint,
   projectNodeForRender,
   renderConformanceDocument,
+  textDesignSystemConformanceDocument,
 } from "@webmcp/document"
 import {
   createImageResourceLoadState,
@@ -25,6 +26,33 @@ import {
 } from "../src"
 
 describe("React render-view conformance", () => {
+  it("renders resource-bound values without consulting editor state", () => {
+    const panel = textDesignSystemConformanceDocument.nodes.find(
+      (node) => node.id === "rect-stroke-radius"
+    )!
+    const label = textDesignSystemConformanceDocument.nodes.find(
+      (node) => node.id === "auto-width-label"
+    )!
+    const body = textDesignSystemConformanceDocument.nodes.find(
+      (node) => node.id === "long-text-only"
+    )!
+
+    expect(renderNodeStyle(projectNodeForRender(panel))).toMatchObject({
+      background: "#fef3c7",
+      borderRadius: 24,
+      opacity: 0.86,
+    })
+    expect(renderNodeStyle(projectNodeForRender(label))).toMatchObject({
+      width: label.width,
+      height: label.height,
+    })
+    expect(renderNodeStyle(projectNodeForRender(body))).toMatchObject({
+      fontFamily: "Geist Variable, sans-serif",
+      fontSize: 24,
+      fontWeight: 450,
+    })
+  })
+
   it("maps every golden frame to explicit host-independent CSS", () => {
     for (const node of renderConformanceDocument.nodes) {
       const projection = projectNodeForRender(node)

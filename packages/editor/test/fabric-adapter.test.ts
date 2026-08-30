@@ -19,6 +19,7 @@ import {
   projectImagePaint,
   projectNodeForRender,
   renderConformanceDocument,
+  textDesignSystemConformanceDocument,
 } from "@webmcp/document"
 import {
   createFabricSyncObject,
@@ -172,6 +173,38 @@ function setFabricPreviewRect(
 }
 
 describe("Fabric document boundary", () => {
+  it("uses canonical resolved resource values for Fabric objects and text", () => {
+    const panel = textDesignSystemConformanceDocument.nodes.find(
+      (node) => node.id === "rect-stroke-radius"
+    )!
+    const body = textDesignSystemConformanceDocument.nodes.find(
+      (node) => node.id === "long-text-only"
+    )!
+    const label = textDesignSystemConformanceDocument.nodes.find(
+      (node) => node.id === "auto-width-label"
+    )!
+    if (body.type !== "text" || label.type !== "text") {
+      throw new Error("Missing resource conformance text")
+    }
+
+    const object = createFabricSyncObject(panel)
+    expect(object).toBeInstanceOf(Rect)
+    expect(object).toMatchObject({
+      fill: "#fef3c7",
+      opacity: 0.86,
+      // Fabric draws the stroke centered on the path, so the inner path radius
+      // is reduced by half the 8px stroke to preserve the canonical 24px edge.
+      rx: 20,
+      ry: 20,
+    })
+    expect(projectFabricTextState(body)).toMatchObject({
+      fontFamily: "Geist Variable",
+      fontSize: 24,
+      fontWeight: 450,
+    })
+    expect(projectFabricTextState(label).text).toBe("AUTO WIDTH")
+  })
+
   it("uses familiar resize and center-origin modifier semantics", () => {
     expect(FABRIC_TRANSFORM_MODIFIER_POLICY).toEqual({
       uniformScaling: false,

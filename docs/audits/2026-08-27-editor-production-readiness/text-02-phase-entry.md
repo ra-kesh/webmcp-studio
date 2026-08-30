@@ -2,7 +2,8 @@
 
 Date: 2026-08-30
 
-Status: active; architecture and Gates 1–4 accepted, Gate 5 next
+Status: active; architecture and Gates 1–4 accepted, Gate 5 implementation and
+live acceptance complete, independent review pending
 
 ## Product outcome
 
@@ -581,3 +582,56 @@ Acceptance evidence:
 
 Gate 5 next owns cross-surface conformance, scale bounds, the full real-use
 journey and independent P0/P1 closure.
+
+## Gate 5 implementation result — conformance and real-use closure
+
+Implemented:
+
+- a resource-bearing conformance document now carries whole-layer typography
+  and paint styles plus color, number, string and font-family variables bound
+  across nodes, exact text ranges and reusable styles;
+- Fabric, React render view, Renderer HTML/PNG/PDF and immutable publication
+  tests assert the same resolved geometry, text, resources and binding targets;
+- portable rich-text clipboard payloads materialize appearance and remove
+  document-local typography/paint style IDs, preventing pasted ranges from
+  retaining dangling references in another document;
+- quotation restyling now maps rich-run colors, paint styles and color
+  variables, then reapplies style and variable bindings so the stored visual
+  system and resolved nodes remain coherent;
+- a measured 1,000-run text projection retains all exact segments, stays below
+  400 KiB and completes its warm projection below 250 ms. The accepted
+  PERF-01 100-page gate remains the complete-document scale bound;
+- the desktop and compact port-3001 journey created a reusable typography
+  style, created and bound a color variable, updated its value, published the
+  immutable snapshot and rendered a six-page PDF through API Playground;
+- the same journey exposed a development live-update failure that could make
+  publish/style surfaces appear unstyled and collapse every virtual Layers row
+  onto y=0. Persistence context identity now lives outside the provider Fast
+  Refresh boundary, and the fixed-height virtual tree derives every row offset
+  from its canonical 28 px desktop or 44 px compact geometry;
+- the Layers production fixture now enters through the current IndexedDB draft
+  repository and canonical JSON import path rather than the retired
+  localStorage bootstrap. It asserts non-overlap and retains the 1,000-layer
+  virtualization/search/scroll/persistence gate.
+
+Acceptance evidence:
+
+- focused conformance, clipboard, template and layout runs pass 35/35 document,
+  14/14 render-view, 23/23 Renderer, 83/83 Fabric-adapter and 40/40 WebMCP
+  tests;
+- the persistence ownership tests pass 4/4 and Studio plus document, editor,
+  render-view, Renderer and WebMCP typechecks pass;
+- focused real-browser Layers hierarchy and 1,000-layer specifications pass;
+- two deliberate hot updates with the compact Layers panel and Publish dialog
+  open produced no new provider/route error, retained four stylesheets, kept
+  every row exactly 44 px apart and retained the 448 px centred publish surface
+  with fully styled controls;
+- the published verification render completed as
+  `render-a236b56a-db28-418f-a948-cc84699f6113` with a six-page 293.1 KiB PDF;
+- the temporary working-document style and variable were removed through Undo,
+  leaving the immutable published version as the retained artifact;
+- Prettier and `git diff --check` pass.
+
+Gate 5 has no known P0/P1 implementation or live-acceptance blocker. TEXT-02
+remains active until a separate code reviewer reads the final Gate 5 diff and
+records explicit closure; this result does not waive that independent gate.

@@ -881,7 +881,11 @@ describe("WebMCP registration", () => {
     const document = withImageLayer({ id: "private-image" })
     document.nodes = document.nodes.map((node) =>
       node.id === "private-image"
-        ? { ...node, src: "asset:managed/private-renderer-secret" }
+        ? {
+            ...node,
+            assetId: "asset-private-renderer-secret",
+            src: "asset:managed/asset-private-renderer-secret",
+          }
         : node
     )
     const baseContext = productCommandContext(document)
