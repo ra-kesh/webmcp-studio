@@ -67,6 +67,8 @@ const createEditedDocument = () => {
     fontFamily: "Geist Variable",
     fontSize: 32,
     fontWeight: 600,
+    italic: false,
+    decoration: "none",
     lineHeight: 1.2,
     letterSpacing: 0,
     align: "left",

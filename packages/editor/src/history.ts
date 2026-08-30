@@ -65,6 +65,26 @@ const commandLabel = (commands: DocumentCommand[]) => {
       return "Add layer"
     case "update_node":
       return "Update layer"
+    case "create_typography_style":
+      return "Create text style"
+    case "update_typography_style":
+      return "Update text style"
+    case "delete_typography_style":
+      return "Delete text style"
+    case "apply_typography_style":
+      return "Apply text style"
+    case "detach_typography_style":
+      return "Detach text style"
+    case "create_paint_style":
+      return "Create paint style"
+    case "update_paint_style":
+      return "Update paint style"
+    case "delete_paint_style":
+      return "Delete paint style"
+    case "apply_paint_style":
+      return "Apply paint style"
+    case "detach_paint_style":
+      return "Detach paint style"
     case "replace_image_source":
       return "Replace image"
     case "relink_asset_references":

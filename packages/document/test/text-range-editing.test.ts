@@ -19,6 +19,8 @@ const node = {
   fontFamily: "Geist",
   fontSize: 24,
   fontWeight: 400,
+  italic: false,
+  decoration: "none",
   lineHeight: 1.2,
   letterSpacing: 0,
 } as TextNode

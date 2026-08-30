@@ -309,6 +309,8 @@ const nodes = [
     fontFamily: "Geist Variable",
     fontSize: 28,
     fontWeight: 650,
+    italic: false,
+    decoration: "none",
     lineHeight: 1.35,
     letterSpacing: 2.5,
     align: "right",

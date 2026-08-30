@@ -1247,6 +1247,8 @@ describe("canonical document commands", () => {
           fontFamily: "Geist Variable",
           fontSize: 64,
           fontWeight: 600,
+          italic: false,
+          decoration: "none",
           lineHeight: 1.1,
           letterSpacing: -1,
           align: "center",

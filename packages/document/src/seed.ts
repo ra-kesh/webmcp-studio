@@ -33,6 +33,8 @@ const text = (
   fontFamily: "Geist Variable",
   fontSize,
   fontWeight: fontSize >= 52 ? 600 : 450,
+  italic: false,
+  decoration: "none",
   lineHeight: 1.18,
   letterSpacing: 0,
   align,

@@ -111,6 +111,8 @@ export const textNodePatchSchema = baseNodePatchSchema.extend({
   fontFamily: z.string().min(1).optional(),
   fontSize: z.number().positive().optional(),
   fontWeight: z.number().int().min(100).max(900).optional(),
+  italic: z.boolean().optional(),
+  decoration: textDecorationSchema.optional(),
   lineHeight: z.number().min(0.5).max(3).optional(),
   letterSpacing: z.number().min(-20).max(200).optional(),
   align: z.enum(["left", "center", "right"]).optional(),
@@ -121,21 +123,25 @@ export const sceneNodePatchSchema = z
   .union([
     textNodePatchSchema,
     baseNodePatchSchema.extend({
+      paintStyleId: id.optional(),
       fill: z.string().optional(),
       radius: z.number().min(0).optional(),
       stroke: z.string().optional(),
       strokeWidth: z.number().nonnegative().optional(),
     }),
     baseNodePatchSchema.extend({
+      paintStyleId: id.optional(),
       fill: z.string().optional(),
       stroke: z.string().optional(),
       strokeWidth: z.number().nonnegative().optional(),
     }),
     baseNodePatchSchema.extend({
+      paintStyleId: id.optional(),
       stroke: z.string().optional(),
       strokeWidth: z.number().positive().optional(),
     }),
     baseNodePatchSchema.extend({
+      paintStyleId: id.optional(),
       path: z.string().min(1).optional(),
       viewBox: z.string().min(1).optional(),
       fill: z.string().optional(),
@@ -170,6 +176,8 @@ export const sceneNodeSchema = z
       fontFamily: z.string().min(1),
       fontSize: z.number().positive(),
       fontWeight: z.number().int().min(100).max(900),
+      italic: z.boolean().default(false),
+      decoration: textDecorationSchema.default("none"),
       lineHeight: z.number().min(0.5).max(3).default(1.18),
       letterSpacing: z.number().min(-20).max(200).default(0),
       align: z.enum(["left", "center", "right"]).default("left"),
@@ -177,6 +185,7 @@ export const sceneNodeSchema = z
     }),
     baseNodeSchema.extend({
       type: z.literal("rect"),
+      paintStyleId: id.optional(),
       fill: z.string(),
       radius: z.number().min(0).default(0),
       stroke: z.string().optional(),
@@ -184,17 +193,20 @@ export const sceneNodeSchema = z
     }),
     baseNodeSchema.extend({
       type: z.literal("ellipse"),
+      paintStyleId: id.optional(),
       fill: z.string(),
       stroke: z.string().optional(),
       strokeWidth: z.number().nonnegative().default(0),
     }),
     baseNodeSchema.extend({
       type: z.literal("line"),
+      paintStyleId: id.optional(),
       stroke: z.string(),
       strokeWidth: z.number().positive().default(2),
     }),
     baseNodeSchema.extend({
       type: z.literal("icon"),
+      paintStyleId: id.optional(),
       path: z.string().min(1),
       viewBox: z.string().default("0 0 24 24"),
       fill: z.string(),
@@ -577,7 +589,7 @@ export const groupDefinitionSchema = z
 export const typographyStyleSchema = z
   .object({
     id,
-    name: z.string().min(1),
+    name: z.string().trim().min(1).max(120),
     fontFamily: z.string().min(1),
     fontSize: z.number().positive(),
     fontWeight: z.number().int().min(100).max(900),
@@ -591,9 +603,39 @@ export const typographyStyleSchema = z
 export const paintStyleSchema = z
   .object({
     id,
-    name: z.string().min(1),
-    color: z.string(),
+    name: z.string().trim().min(1).max(120),
+    color: z.string().min(1).max(128),
     opacity: z.number().min(0).max(1),
+  })
+  .strict()
+
+export const typographyStylePatchSchema = typographyStyleSchema
+  .omit({ id: true })
+  .partial()
+  .refine((patch) => Object.keys(patch).length > 0, {
+    message: "A typography style update must change at least one property",
+  })
+
+export const paintStylePatchSchema = paintStyleSchema
+  .omit({ id: true })
+  .partial()
+  .refine((patch) => Object.keys(patch).length > 0, {
+    message: "A paint style update must change at least one property",
+  })
+
+export const designStyleTargetSchema = z
+  .object({
+    nodeId: id,
+    range: z
+      .object({
+        start: z.number().int().nonnegative(),
+        end: z.number().int().positive(),
+      })
+      .strict()
+      .refine((range) => range.start < range.end, {
+        message: "A style target range must not be empty",
+      })
+      .optional(),
   })
   .strict()
 
@@ -710,6 +752,50 @@ export const documentCommandSchema = z.discriminatedUnion("type", [
     type: z.literal("update_node"),
     nodeId: id,
     patch: sceneNodePatchSchema,
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("create_typography_style"),
+    style: typographyStyleSchema,
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("update_typography_style"),
+    styleId: id,
+    patch: typographyStylePatchSchema,
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("delete_typography_style"),
+    styleId: id,
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("apply_typography_style"),
+    styleId: id,
+    targets: z.array(designStyleTargetSchema).min(1).max(1_000),
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("detach_typography_style"),
+    targets: z.array(designStyleTargetSchema).min(1).max(1_000),
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("create_paint_style"),
+    style: paintStyleSchema,
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("update_paint_style"),
+    styleId: id,
+    patch: paintStylePatchSchema,
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("delete_paint_style"),
+    styleId: id,
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("apply_paint_style"),
+    styleId: id,
+    targets: z.array(designStyleTargetSchema).min(1).max(1_000),
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("detach_paint_style"),
+    targets: z.array(designStyleTargetSchema).min(1).max(1_000),
   }),
   commandBaseSchema.extend({
     type: z.literal("set_image_placement"),
@@ -990,6 +1076,9 @@ export type FieldBinding = z.infer<typeof fieldBindingSchema>
 export type GroupDefinition = z.infer<typeof groupDefinitionSchema>
 export type TypographyStyle = z.infer<typeof typographyStyleSchema>
 export type PaintStyle = z.infer<typeof paintStyleSchema>
+export type TypographyStylePatch = z.infer<typeof typographyStylePatchSchema>
+export type PaintStylePatch = z.infer<typeof paintStylePatchSchema>
+export type DesignStyleTarget = z.infer<typeof designStyleTargetSchema>
 export type DesignVariable = z.infer<typeof designVariableSchema>
 export type Document = z.infer<typeof documentSchema>
 export type DocumentCommand = z.infer<typeof documentCommandSchema>

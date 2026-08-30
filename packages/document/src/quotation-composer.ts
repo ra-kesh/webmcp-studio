@@ -288,6 +288,8 @@ class QuotationCanvasWriter {
       fontFamily: "Geist Variable",
       fontSize: options.fontSize,
       fontWeight: options.weight ?? 400,
+      italic: false,
+      decoration: "none",
       lineHeight,
       letterSpacing: 0,
       align: options.align ?? "left",

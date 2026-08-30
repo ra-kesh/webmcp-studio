@@ -2,7 +2,7 @@
 
 Date: 2026-08-30
 
-Status: active; architecture, Gate 1 and Gate 2 accepted, Gate 3 next
+Status: active; architecture, Gate 1 and Gate 2 accepted, Gate 3 active
 
 ## Product outcome
 
@@ -437,3 +437,35 @@ Acceptance evidence:
 Gate 2 is accepted and closed. Gate 3 now owns reusable typography and paint
 styles, including their complete lifecycle, propagation, history, publication
 and API/WebMCP surfaces.
+
+## Gate 3A result — canonical reusable-style lifecycle
+
+Implemented:
+
+- typography and paint styles are document-owned resources with stable IDs,
+  unique names and strict validated values;
+- one atomic command vocabulary creates, renames/updates, applies, detaches and
+  deletes each resource kind across whole layers or exact text ranges;
+- application stores the stable attachment and explicit resolved values;
+  resource updates propagate to every attached layer/range in the same command
+  and recompute managed text geometry where typography changed;
+- direct edits detach the affected node or range attachment while preserving
+  its last resolved appearance;
+- paint styles cover text, rectangles, ellipses, lines and icons, while
+  unsupported image/range targets are rejected;
+- usage analysis reports affected layers and node/range attachment counts, and
+  deletion is refused while any attachment remains;
+- canonical validation rejects dangling attachments and duplicate resource
+  names, including attachments inside rich-text runs.
+
+Acceptance evidence:
+
+- 268/268 document tests pass, including focused create/apply/propagate/detach,
+  range, paint, direct-edit and protected-deletion coverage;
+- document, editor and Studio typechecks pass, and publication/template cloning
+  continues to preserve the canonical resource arrays through the existing
+  immutable snapshot boundary.
+
+Gate 3 remains active. The next slice owns the production editor UI for the
+complete lifecycle, mixed/missing states and affected-layer navigation; the
+following slice owns API/WebMCP discovery and control.

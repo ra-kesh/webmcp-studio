@@ -15,6 +15,8 @@ export const textDecorationSchema = z.enum([
 ])
 
 export const textRunStyleSchema = nonEmptyObject({
+  typographyStyleId: z.string().min(1).optional(),
+  paintStyleId: z.string().min(1).optional(),
   color: z.string().optional(),
   fontFamily: z.string().min(1).optional(),
   fontSize: z.number().positive().optional(),

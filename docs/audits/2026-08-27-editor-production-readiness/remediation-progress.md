@@ -3139,3 +3139,25 @@ Status: **accepted; Gate 2 is closed and Gate 3 is next**
   toolbar overflow, `Tab`, `Shift+Tab`, `Cmd+B`, dialog semantics and cleanup.
 - Gate 3 now owns reusable typography and paint styles. Gate 2 has no retained
   implementation item.
+
+## 2026-08-30 — TEXT-02 Gate 3A canonical reusable styles
+
+Status: **accepted as a bounded slice; Gate 3 remains active**
+
+- Revisited the exact Gate 3 contract, OpenPencil shared-style discovery,
+  bind/detach and missing/mixed patterns, and Loora's validated transaction,
+  usage-protected deletion and agent-operation patterns. No reference code was
+  imported.
+- Added strict document-owned typography and paint resources with atomic
+  create, update/rename, apply, detach and protected-delete commands. Targets
+  can be whole layers or exact text ranges.
+- Style updates propagate resolved values to every attachment in one document
+  command; typography propagation reuses the canonical managed-text geometry
+  boundary. Direct property edits detach only the affected style relationship
+  and preserve the current appearance.
+- Paint attachments now work across text, rectangles, ellipses, lines and
+  icons. Validation covers duplicate names and dangling whole-layer/range
+  references, and usage analysis returns exact affected layer IDs and counts.
+- 268/268 document tests and affected document/editor/Studio typechecks pass.
+- Gate 3 next owns the complete editor lifecycle UI, mixed/missing states and
+  affected-layer navigation, followed by API/WebMCP discovery and control.

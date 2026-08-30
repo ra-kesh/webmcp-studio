@@ -22,6 +22,16 @@ import {
 } from "./media"
 import { applyTextLayoutPatch } from "./text-layout"
 import { normalizeRichTextContent } from "./rich-text"
+import {
+  applyPaintStyleToTarget,
+  applyTypographyStyleToTarget,
+  designStyleUsage,
+  detachPaintStyleFromTarget,
+  detachStyleForDirectNodePatch,
+  detachTypographyStyleFromTarget,
+  propagatePaintStyle,
+  propagateTypographyStyle,
+} from "./design-styles"
 import { assertValidCanonicalDocument, assertValidDocument } from "./validation"
 
 type FieldValue = string | number | boolean
@@ -615,10 +625,13 @@ function applyParsedCommand(
           `Image source is bound to a field. Update the field or unbind Source before replacing this layer.`
         )
       }
+      const directPatchBase = current
+        ? detachStyleForDirectNodePatch(current, command.patch)
+        : current
       const updated =
         current?.type === "text"
           ? applyTextLayoutPatch(
-              current,
+              directPatchBase as Extract<SceneNode, { type: "text" }>,
               normalizeTextNodePatch(
                 current,
                 textNodePatchSchema.parse(command.patch)
@@ -631,10 +644,226 @@ function applyParsedCommand(
                 id: command.nodeId,
                 altProvenance: command.patch.altProvenance ?? "authored",
               }
-            : { ...current, ...command.patch, id: command.nodeId }
+            : { ...directPatchBase, ...command.patch, id: command.nodeId }
       const nodes = [...document.nodes]
       nodes[index] = updated as SceneNode
       next = { ...document, nodes }
+      break
+    }
+    case "create_typography_style": {
+      if (
+        document.typographyStyles.some(
+          (style) =>
+            style.id === command.style.id || style.name === command.style.name
+        )
+      ) {
+        throw new Error(
+          `Typography style already exists: ${command.style.name}`
+        )
+      }
+      next = {
+        ...document,
+        typographyStyles: [...document.typographyStyles, command.style],
+      }
+      break
+    }
+    case "update_typography_style": {
+      const current = document.typographyStyles.find(
+        (style) => style.id === command.styleId
+      )
+      if (!current) {
+        throw new Error(`Unknown typography style: ${command.styleId}`)
+      }
+      const updated = { ...current, ...command.patch, id: current.id }
+      if (
+        document.typographyStyles.some(
+          (style) => style.id !== current.id && style.name === updated.name
+        )
+      ) {
+        throw new Error(`Typography style already exists: ${updated.name}`)
+      }
+      next = {
+        ...document,
+        typographyStyles: document.typographyStyles.map((style) =>
+          style.id === current.id ? updated : style
+        ),
+        nodes: document.nodes.map((node) =>
+          propagateTypographyStyle(node, updated)
+        ),
+      }
+      break
+    }
+    case "delete_typography_style": {
+      const style = document.typographyStyles.find(
+        (candidate) => candidate.id === command.styleId
+      )
+      if (!style) {
+        throw new Error(`Unknown typography style: ${command.styleId}`)
+      }
+      const usage = designStyleUsage(document, "typography", style.id)
+      if (usage.totalAttachmentCount > 0) {
+        throw new Error(
+          `${style.name} is used in ${usage.totalAttachmentCount} place${usage.totalAttachmentCount === 1 ? "" : "s"}. Detach it before deleting.`
+        )
+      }
+      next = {
+        ...document,
+        typographyStyles: document.typographyStyles.filter(
+          (candidate) => candidate.id !== style.id
+        ),
+      }
+      break
+    }
+    case "apply_typography_style": {
+      const style = document.typographyStyles.find(
+        (candidate) => candidate.id === command.styleId
+      )
+      if (!style) {
+        throw new Error(`Unknown typography style: ${command.styleId}`)
+      }
+      const targets = new Map(
+        command.targets.map((target) => [target.nodeId, target])
+      )
+      if (targets.size !== command.targets.length) {
+        throw new Error("A style command cannot target the same layer twice")
+      }
+      for (const target of command.targets) {
+        if (!document.nodes.some((node) => node.id === target.nodeId)) {
+          throw new Error(`Unknown node: ${target.nodeId}`)
+        }
+      }
+      next = {
+        ...document,
+        nodes: document.nodes.map((node) => {
+          const target = targets.get(node.id)
+          return target
+            ? applyTypographyStyleToTarget(node, target, style)
+            : node
+        }),
+      }
+      break
+    }
+    case "detach_typography_style": {
+      const targets = new Map(
+        command.targets.map((target) => [target.nodeId, target])
+      )
+      if (targets.size !== command.targets.length) {
+        throw new Error("A style command cannot target the same layer twice")
+      }
+      for (const target of command.targets) {
+        if (!document.nodes.some((node) => node.id === target.nodeId)) {
+          throw new Error(`Unknown node: ${target.nodeId}`)
+        }
+      }
+      next = {
+        ...document,
+        nodes: document.nodes.map((node) => {
+          const target = targets.get(node.id)
+          return target ? detachTypographyStyleFromTarget(node, target) : node
+        }),
+      }
+      break
+    }
+    case "create_paint_style": {
+      if (
+        document.paintStyles.some(
+          (style) =>
+            style.id === command.style.id || style.name === command.style.name
+        )
+      ) {
+        throw new Error(`Paint style already exists: ${command.style.name}`)
+      }
+      next = {
+        ...document,
+        paintStyles: [...document.paintStyles, command.style],
+      }
+      break
+    }
+    case "update_paint_style": {
+      const current = document.paintStyles.find(
+        (style) => style.id === command.styleId
+      )
+      if (!current) throw new Error(`Unknown paint style: ${command.styleId}`)
+      const updated = { ...current, ...command.patch, id: current.id }
+      if (
+        document.paintStyles.some(
+          (style) => style.id !== current.id && style.name === updated.name
+        )
+      ) {
+        throw new Error(`Paint style already exists: ${updated.name}`)
+      }
+      next = {
+        ...document,
+        paintStyles: document.paintStyles.map((style) =>
+          style.id === current.id ? updated : style
+        ),
+        nodes: document.nodes.map((node) => propagatePaintStyle(node, updated)),
+      }
+      break
+    }
+    case "delete_paint_style": {
+      const style = document.paintStyles.find(
+        (candidate) => candidate.id === command.styleId
+      )
+      if (!style) throw new Error(`Unknown paint style: ${command.styleId}`)
+      const usage = designStyleUsage(document, "paint", style.id)
+      if (usage.totalAttachmentCount > 0) {
+        throw new Error(
+          `${style.name} is used in ${usage.totalAttachmentCount} place${usage.totalAttachmentCount === 1 ? "" : "s"}. Detach it before deleting.`
+        )
+      }
+      next = {
+        ...document,
+        paintStyles: document.paintStyles.filter(
+          (candidate) => candidate.id !== style.id
+        ),
+      }
+      break
+    }
+    case "apply_paint_style": {
+      const style = document.paintStyles.find(
+        (candidate) => candidate.id === command.styleId
+      )
+      if (!style) throw new Error(`Unknown paint style: ${command.styleId}`)
+      const targets = new Map(
+        command.targets.map((target) => [target.nodeId, target])
+      )
+      if (targets.size !== command.targets.length) {
+        throw new Error("A style command cannot target the same layer twice")
+      }
+      for (const target of command.targets) {
+        if (!document.nodes.some((node) => node.id === target.nodeId)) {
+          throw new Error(`Unknown node: ${target.nodeId}`)
+        }
+      }
+      next = {
+        ...document,
+        nodes: document.nodes.map((node) => {
+          const target = targets.get(node.id)
+          return target ? applyPaintStyleToTarget(node, target, style) : node
+        }),
+      }
+      break
+    }
+    case "detach_paint_style": {
+      const targets = new Map(
+        command.targets.map((target) => [target.nodeId, target])
+      )
+      if (targets.size !== command.targets.length) {
+        throw new Error("A style command cannot target the same layer twice")
+      }
+      for (const target of command.targets) {
+        if (!document.nodes.some((node) => node.id === target.nodeId)) {
+          throw new Error(`Unknown node: ${target.nodeId}`)
+        }
+      }
+      next = {
+        ...document,
+        nodes: document.nodes.map((node) => {
+          const target = targets.get(node.id)
+          return target ? detachPaintStyleFromTarget(node, target) : node
+        }),
+      }
       break
     }
     case "set_image_placement": {

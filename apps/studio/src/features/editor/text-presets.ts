@@ -211,6 +211,8 @@ export function createStudioTextNode(
     fontFamily: "Geist Variable",
     fontSize: placement.fontSize,
     fontWeight: placement.preset.fontWeight,
+    italic: false,
+    decoration: "none",
     lineHeight: placement.preset.lineHeight,
     letterSpacing: placement.preset.letterSpacing,
     align: "left",

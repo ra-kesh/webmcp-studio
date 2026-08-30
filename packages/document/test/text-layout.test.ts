@@ -31,6 +31,8 @@ const textNode = (patch: Partial<TextNode> = {}): TextNode => ({
   fontFamily: "Geist Variable",
   fontSize: 20,
   fontWeight: 400,
+  italic: false,
+  decoration: "none",
   lineHeight: 1.2,
   letterSpacing: 0,
   align: "left",

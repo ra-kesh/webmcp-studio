@@ -55,6 +55,8 @@ const textNode = (
   fontFamily: "Geist Variable",
   fontSize: options.fontSize ?? 32,
   fontWeight: options.fontWeight ?? 500,
+  italic: false,
+  decoration: "none",
   lineHeight: options.lineHeight ?? 1.15,
   letterSpacing: options.letterSpacing ?? 0,
   align: options.align ?? "left",

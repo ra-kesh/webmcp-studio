@@ -53,6 +53,8 @@ export type TextRunStylePatch = {
 }
 
 const styleKeys = [
+  "typographyStyleId",
+  "paintStyleId",
   "color",
   "fontFamily",
   "fontSize",
@@ -62,6 +64,18 @@ const styleKeys = [
   "lineHeight",
   "letterSpacing",
 ] as const satisfies readonly (keyof TextRunStyle)[]
+
+const typographyStyleKeys = new Set<keyof TextRunStyle>([
+  "fontFamily",
+  "fontSize",
+  "fontWeight",
+  "italic",
+  "decoration",
+  "lineHeight",
+  "letterSpacing",
+])
+
+const paintStyleKeys = new Set<keyof TextRunStyle>(["color"])
 
 const splitsSurrogatePair = (text: string, offset: number) => {
   if (offset <= 0 || offset >= text.length) return false
@@ -111,8 +125,8 @@ export function textNodeBaseStyle(node: TextNode): ResolvedTextStyle {
     fontFamily: node.fontFamily,
     fontSize: node.fontSize,
     fontWeight: node.fontWeight,
-    italic: false,
-    decoration: "none",
+    italic: node.italic,
+    decoration: node.decoration,
     lineHeight: node.lineHeight,
     letterSpacing: node.letterSpacing,
   }
@@ -376,6 +390,21 @@ const patchedStyle = (
   patch: Readonly<TextRunStylePatch>
 ) => {
   const next = { ...style }
+  const patchKeys = Object.keys(patch) as (keyof TextRunStyle)[]
+  if (
+    next.typographyStyleId &&
+    patch.typographyStyleId === undefined &&
+    patchKeys.some((key) => typographyStyleKeys.has(key))
+  ) {
+    delete next.typographyStyleId
+  }
+  if (
+    next.paintStyleId &&
+    patch.paintStyleId === undefined &&
+    patchKeys.some((key) => paintStyleKeys.has(key))
+  ) {
+    delete next.paintStyleId
+  }
   for (const key of styleKeys) {
     const value = patch[key]
     if (value === undefined) continue

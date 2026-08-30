@@ -109,6 +109,25 @@ export function validateDocument(document: Document): ValidationIssue[] {
   )
   const paintStyles = new Set(document.paintStyles.map((style) => style.id))
 
+  for (const [label, styles] of [
+    ["typography", document.typographyStyles],
+    ["paint", document.paintStyles],
+  ] as const) {
+    const names = new Set<string>()
+    for (const style of styles) {
+      const normalizedName = style.name.trim().toLocaleLowerCase()
+      if (names.has(normalizedName)) {
+        issues.push({
+          id: `${label}-style:${style.id}:duplicate-name`,
+          severity: "error",
+          code: "duplicate_id",
+          message: `${label} styles contains duplicate name ${style.name}`,
+        })
+      }
+      names.add(normalizedName)
+    }
+  }
+
   const pageOwner = new Map<string, string>()
 
   for (const output of document.outputs) {
@@ -255,16 +274,48 @@ export function validateDocument(document: Document): ValidationIssue[] {
             nodeId: node.id,
           })
         }
-        if (node.paintStyleId && !paintStyles.has(node.paintStyleId)) {
-          issues.push({
-            id: `node:${node.id}:paint-style`,
-            severity: "error",
-            code: "invalid_style",
-            message: `${node.name} points to missing paint style ${node.paintStyleId}`,
-            pageId: page.id,
-            nodeId: node.id,
-          })
+        for (const run of node.runs) {
+          if (
+            run.style.typographyStyleId &&
+            !typographyStyles.has(run.style.typographyStyleId)
+          ) {
+            issues.push({
+              id: `node:${node.id}:run:${run.start}:typography-style`,
+              severity: "error",
+              code: "invalid_style",
+              message: `${node.name} contains a range pointing to missing typography style ${run.style.typographyStyleId}`,
+              pageId: page.id,
+              nodeId: node.id,
+            })
+          }
+          if (
+            run.style.paintStyleId &&
+            !paintStyles.has(run.style.paintStyleId)
+          ) {
+            issues.push({
+              id: `node:${node.id}:run:${run.start}:paint-style`,
+              severity: "error",
+              code: "invalid_style",
+              message: `${node.name} contains a range pointing to missing paint style ${run.style.paintStyleId}`,
+              pageId: page.id,
+              nodeId: node.id,
+            })
+          }
         }
+      }
+      if (
+        node.type !== "image" &&
+        node.paintStyleId &&
+        !paintStyles.has(node.paintStyleId)
+      ) {
+        issues.push({
+          id: `node:${node.id}:paint-style`,
+          severity: "error",
+          code: "invalid_style",
+          message: `${node.name} points to missing paint style ${node.paintStyleId}`,
+          pageId: page.id,
+          nodeId: node.id,
+        })
       }
       if (textOverflow) {
         issues.push({
