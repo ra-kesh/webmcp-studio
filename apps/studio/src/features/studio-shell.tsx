@@ -48,6 +48,7 @@ import {
   applyTextLinkToRange,
   type DesignTemplateCatalogItem,
   type SceneNode,
+  type TextParagraphStylePatch,
   type TextRunStylePatch,
   type TextSelection,
   type TextSelectionLinkState,
@@ -1173,6 +1174,13 @@ export function StudioShell({
   const applyActiveTextEditingStyle = useCallback(
     (patch: TextRunStylePatch) => {
       artboardRef.current?.applyTextEditingStyle(patch)
+    },
+    []
+  )
+
+  const applyActiveTextEditingParagraphStyle = useCallback(
+    (patch: TextParagraphStylePatch) => {
+      artboardRef.current?.applyTextEditingParagraphStyle(patch)
     },
     []
   )
@@ -4622,6 +4630,9 @@ export function StudioShell({
                     })
                   }
                   onApplyTextEditingStyle={applyActiveTextEditingStyle}
+                  onApplyTextEditingParagraphStyle={
+                    applyActiveTextEditingParagraphStyle
+                  }
                   onEditTextLink={openTextLinkEditor}
                 />
               </div>
@@ -4838,6 +4849,9 @@ export function StudioShell({
                   })
                 }
                 onApplyTextEditingStyle={applyActiveTextEditingStyle}
+                onApplyTextEditingParagraphStyle={
+                  applyActiveTextEditingParagraphStyle
+                }
                 onEditTextLink={openTextLinkEditor}
               />
             )}

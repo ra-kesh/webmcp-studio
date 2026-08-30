@@ -40,6 +40,7 @@ import {
   projectFabricImagePaint,
   projectFabricImageCropDrag,
   projectFabricTextState,
+  projectedTextOffsetToSource,
   recordTextEdit,
   richTextEditPatch,
   resolveTextEditExit,
@@ -1352,6 +1353,44 @@ describe("Fabric document boundary", () => {
     })
     expect(state.editingStyles[0]?.[0]).toEqual(state.canonicalStyles[0]?.[0])
     expect(state.editingStyles[0]?.[4]).toBeUndefined()
+  })
+
+  it("maps projected list markers and soft wraps back to authored offsets", () => {
+    const source = renderConformanceDocument.nodes.find(
+      (candidate) => candidate.id === "text-typography"
+    )!
+    if (source.type !== "text") throw new Error("Expected text")
+    const text = "Alpha beta gamma delta epsilon"
+    const state = projectFabricTextState({
+      ...source,
+      text,
+      width: 180,
+      height: 200,
+      sizingMode: "auto_height",
+      paragraphs: [
+        {
+          start: 0,
+          end: text.length,
+          style: { list: { kind: "bulleted", level: 0 } },
+        },
+      ],
+    })
+    const markerLength = state.displayText.indexOf("Alpha")
+    const softWrap = state.displayText.indexOf("\n")
+
+    expect(markerLength).toBeGreaterThan(0)
+    expect(projectedTextOffsetToSource(state.layoutLines, 0)).toBe(0)
+    expect(projectedTextOffsetToSource(state.layoutLines, markerLength)).toBe(0)
+    expect(
+      projectedTextOffsetToSource(state.layoutLines, markerLength + 3)
+    ).toBe(3)
+    expect(softWrap).toBeGreaterThan(0)
+    expect(projectedTextOffsetToSource(state.layoutLines, softWrap)).toBe(
+      state.layoutLines[0]?.sourceEnd
+    )
+    expect(
+      projectedTextOffsetToSource(state.layoutLines, state.displayText.length)
+    ).toBe(text.length)
   })
 
   it("records changed text before a fast second edit can exit", () => {

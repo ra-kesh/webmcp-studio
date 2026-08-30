@@ -48,6 +48,7 @@ import {
 } from "lucide-react"
 import {
   analyzeFieldDeletion,
+  applyTextParagraphStyleToRange,
   bindingPropertiesForNode,
   defaultFieldValue,
   fieldDefinitionSchema,
@@ -58,6 +59,7 @@ import {
   parseCurrencyValue,
   projectTextLayout,
   repairTextOverflowPatch,
+  resolveTextSelectionParagraphState,
 } from "@webmcp/document"
 import type {
   BindableProperty,
@@ -70,6 +72,7 @@ import type {
   ImageFrameMask,
   ImagePlacement,
   SceneNode,
+  TextParagraphStylePatch,
   TextRunStylePatch,
 } from "@webmcp/document"
 import type { Alignment } from "@webmcp/editor/geometry"
@@ -175,6 +178,8 @@ const DEMO_AGENT_BRIEF =
 const EMPTY_REVIEW_JOURNAL = createEmptyReviewJournal()
 const ignoreReviewTarget = () => undefined
 const ignoreTextStylePatch = (_patch: TextRunStylePatch) => undefined
+const ignoreTextParagraphStylePatch = (_patch: TextParagraphStylePatch) =>
+  undefined
 const reviewTargetKindLabel: Record<ReviewAffectedTarget["kind"], string> = {
   node: "Layer",
   group: "Group",
@@ -572,6 +577,7 @@ function NodeInspector({
   onReviewDocumentImage = () => undefined,
   capabilityContext,
   onApplyTextEditingStyle = ignoreTextStylePatch,
+  onApplyTextEditingParagraphStyle = ignoreTextParagraphStylePatch,
   onEditTextLink = ignoreReviewTarget,
 }: {
   node: SceneNode
@@ -592,6 +598,7 @@ function NodeInspector({
   onReviewDocumentImage?: (localAssetId: string) => void
   capabilityContext?: InspectorCapabilityContext
   onApplyTextEditingStyle?: (patch: TextRunStylePatch) => void
+  onApplyTextEditingParagraphStyle?: (patch: TextParagraphStylePatch) => void
   onEditTextLink?: () => void
 }) {
   const inspector = useMemo(
@@ -617,8 +624,29 @@ function NodeInspector({
     node.type === "text" && node.sizingMode === "auto_width"
   const textHeightIsManaged =
     node.type === "text" && node.sizingMode !== "fixed"
-  const textListStyle =
-    node.type === "text" ? detectStudioTextListStyle(node.text) : "none"
+  const liveTextEditingState =
+    node.type === "text" && textEditingState?.nodeId === node.id
+      ? textEditingState
+      : null
+  const paragraphState =
+    node.type === "text"
+      ? (liveTextEditingState?.paragraph ??
+        resolveTextSelectionParagraphState(
+          node.text,
+          node.paragraphs,
+          { anchor: 0, focus: node.text.length },
+          node.align
+        ))
+      : null
+  const paragraphAlign =
+    paragraphState?.align.kind === "value" ? paragraphState.align.value : null
+  const paragraphList =
+    paragraphState?.list.kind === "value" ? paragraphState.list.value : null
+  const legacyTextListStyle =
+    node.type === "text" && node.paragraphs.length === 0
+      ? detectStudioTextListStyle(node.text)
+      : "none"
+  const textListStyle = paragraphList?.kind ?? legacyTextListStyle
   const imageCropBarOwnsTransforms =
     node.type === "image" &&
     capabilityContext?.activeImageCropNodeId === node.id
@@ -789,9 +817,9 @@ function NodeInspector({
                 "bg-accent/70 ring-2 ring-ring ring-inset"
             )}
           >
-            {textEditingState?.nodeId === node.id ? (
+            {liveTextEditingState ? (
               <TextSelectionInspector
-                state={textEditingState}
+                state={liveTextEditingState}
                 disabled={node.locked}
                 onApply={onApplyTextEditingStyle}
                 onEditLink={onEditTextLink}
@@ -898,7 +926,7 @@ function NodeInspector({
               </div>
             ) : null}
             <label className="space-y-1.5">
-              {textEditingState?.nodeId === node.id ? (
+              {liveTextEditingState ? (
                 <span className="mb-2 block border-t pt-3">
                   <span className="block text-[10px] font-semibold">
                     Layer defaults
@@ -986,12 +1014,24 @@ function NodeInspector({
                     className="min-h-11 min-[1280px]:min-h-0"
                     size="sm"
                     disabled={node.locked}
-                    variant={node.align === align ? "secondary" : "ghost"}
-                    onClick={() =>
+                    variant={paragraphAlign === align ? "secondary" : "ghost"}
+                    onClick={() => {
+                      const nextAlign = align as "left" | "center" | "right"
+                      if (liveTextEditingState) {
+                        onApplyTextEditingParagraphStyle({ align: nextAlign })
+                        return
+                      }
                       onUpdate({
-                        align: align as "left" | "center" | "right",
+                        align: nextAlign,
+                        paragraphs: applyTextParagraphStyleToRange(
+                          node.text,
+                          node.paragraphs,
+                          { anchor: 0, focus: node.text.length },
+                          { align: nextAlign },
+                          nextAlign
+                        ),
                       })
-                    }
+                    }}
                   >
                     <Icon />
                   </Button>
@@ -999,7 +1039,9 @@ function NodeInspector({
               </div>
               <div className="flex items-center justify-between gap-3">
                 <span className="text-[10px] leading-4 text-muted-foreground">
-                  Apply a list to each non-empty paragraph.
+                  {liveTextEditingState
+                    ? "Applies to the selected paragraph. Use Tab to indent."
+                    : "Applies semantic list structure to every paragraph."}
                 </span>
                 <ToggleGroup
                   aria-label="Paragraph list style"
@@ -1015,13 +1057,38 @@ function NodeInspector({
                   }
                   disabled={node.locked}
                   onValueChange={(value) => {
-                    const text = applyStudioTextListStyle(
-                      node.text,
+                    const style =
                       value === "bulleted" || value === "numbered"
                         ? value
                         : "none"
-                    )
-                    if (text !== node.text) onUpdate({ text })
+                    if (legacyTextListStyle !== "none") {
+                      const text = applyStudioTextListStyle(node.text, style)
+                      if (text !== node.text) onUpdate({ text })
+                      return
+                    }
+                    const list =
+                      style === "none"
+                        ? null
+                        : style === "bulleted"
+                          ? { kind: "bulleted" as const, level: 0 }
+                          : {
+                              kind: "numbered" as const,
+                              level: 0,
+                              start: 1,
+                            }
+                    if (liveTextEditingState) {
+                      onApplyTextEditingParagraphStyle({ list })
+                      return
+                    }
+                    onUpdate({
+                      paragraphs: applyTextParagraphStyleToRange(
+                        node.text,
+                        node.paragraphs,
+                        { anchor: 0, focus: node.text.length },
+                        { list },
+                        node.align
+                      ),
+                    })
                   }}
                 >
                   <ToggleGroupItem
@@ -3387,6 +3454,7 @@ export function InspectorSidebar({
   onRemoveImageLayer,
   onReviewDocumentImage = () => undefined,
   onApplyTextEditingStyle = ignoreTextStylePatch,
+  onApplyTextEditingParagraphStyle = ignoreTextParagraphStylePatch,
   onEditTextLink = ignoreReviewTarget,
   capabilityContext,
   focusFieldId = null,
@@ -3449,6 +3517,7 @@ export function InspectorSidebar({
   onRemoveImageLayer: () => void
   onReviewDocumentImage?: (localAssetId: string) => void
   onApplyTextEditingStyle?: (patch: TextRunStylePatch) => void
+  onApplyTextEditingParagraphStyle?: (patch: TextParagraphStylePatch) => void
   onEditTextLink?: () => void
   capabilityContext?: InspectorCapabilityContext
   focusFieldId?: string | null
@@ -3583,6 +3652,9 @@ export function InspectorSidebar({
                 onReviewDocumentImage={onReviewDocumentImage}
                 capabilityContext={capabilityContext}
                 onApplyTextEditingStyle={onApplyTextEditingStyle}
+                onApplyTextEditingParagraphStyle={
+                  onApplyTextEditingParagraphStyle
+                }
                 onEditTextLink={onEditTextLink}
               />
             ) : selectedNodes.length > 1 ? (

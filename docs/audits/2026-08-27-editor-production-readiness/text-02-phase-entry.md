@@ -339,3 +339,35 @@ Acceptance evidence:
 Gate 2 remains active. Semantic paragraph/list keyboard behavior, rich internal
 clipboard/plain-text paste and compact keyboard/screen-reader/focus acceptance
 remain open.
+
+## Gate 2E result — semantic paragraph and list editing
+
+Implemented:
+
+- paragraph alignment and bulleted/numbered list state now live in canonical
+  paragraph annotations rather than being written into the authored string;
+- the canvas toolbar and Design inspector resolve shared/mixed paragraph state
+  from the active caret or selection and apply changes to only the affected
+  paragraphs;
+- Enter continues a semantic list, Enter on an empty item exits it, Backspace
+  at the start outdents or removes it, and Tab/Shift+Tab changes nesting without
+  inserting a literal tab;
+- Fabric idle rendering projects list markers while direct editing keeps the
+  hidden textarea canonical. Projected marker and soft-wrap offsets are mapped
+  back to source offsets before the edit session starts, preventing caret drift
+  or marker text from leaking into the document.
+
+Acceptance evidence:
+
+- 6/6 paragraph-engine tests and 80/80 Fabric-adapter tests pass alongside the
+  focused inspector/toolbar suite and document, editor and Studio typechecks;
+- the live port-3001 editor created a Body layer, applied a semantic bullet,
+  retained `Add body text` as canonical text, rendered the marker after edit
+  exit and saved the paragraph annotation; the temporary layer was deleted and
+  the saved document reloaded cleanly;
+- direct-edit inspection exposed and closed a hidden-textarea/caret mismatch
+  between projected markers and authored text.
+
+Gate 2 remains active. Rich internal clipboard/plain-text paste, active-edit
+marker affordance, and compact keyboard/screen-reader/focus acceptance remain
+open.

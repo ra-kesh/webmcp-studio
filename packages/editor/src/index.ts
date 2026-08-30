@@ -6,8 +6,10 @@ import type {
   ImagePlacement,
   SceneNode,
   TextRunStylePatch,
+  TextParagraphStylePatch,
   TextSelection,
   TextSelectionLinkState,
+  TextSelectionParagraphState,
   TextSelectionStyleState,
 } from "@webmcp/document"
 import type { AlignmentSnapTarget } from "./snapping"
@@ -38,6 +40,7 @@ export type CanvasTextEditingState = Readonly<{
   selection: TextSelection
   style: TextSelectionStyleState
   link: TextSelectionLinkState
+  paragraph: TextSelectionParagraphState
 }>
 
 export type CanvasContextMenuRequest = Readonly<{
@@ -82,6 +85,7 @@ export interface CanvasAdapter {
   commitTextEditing(): boolean
   cancelTextEditing(): boolean
   applyTextEditingStyle(patch: TextRunStylePatch): boolean
+  applyTextEditingParagraphStyle(patch: TextParagraphStylePatch): boolean
   cancelTransform(): boolean
   setImageCropMode(mode: CanvasImageCropMode | null): boolean
   previewImageCropDraft(draft: CanvasImageCropDraft): boolean

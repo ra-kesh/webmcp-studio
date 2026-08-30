@@ -38,6 +38,7 @@ const fakeAdapter = (
   commitTextEditing: vi.fn(() => false),
   cancelTextEditing: vi.fn(() => false),
   applyTextEditingStyle: vi.fn(() => false),
+  applyTextEditingParagraphStyle: vi.fn(() => false),
   cancelTransform: vi.fn(() => false),
   setImageCropMode: vi.fn(() => false),
   previewImageCropDraft: vi.fn(() => false),
@@ -294,10 +295,7 @@ describe("FabricArtboard lifecycle", () => {
 
     await act(async () => {
       root.render(
-        <FabricArtboard
-          {...baseProps}
-          runtimeOptions={{ loadAdapter }}
-        />
+        <FabricArtboard {...baseProps} runtimeOptions={{ loadAdapter }} />
       )
       await Promise.resolve()
       await Promise.resolve()

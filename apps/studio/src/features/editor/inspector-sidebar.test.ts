@@ -216,6 +216,10 @@ describe("InspectorSidebar text selection state", () => {
             target: "https://example.com",
             newTab: true,
           },
+          paragraph: {
+            align: { kind: "value", value: "left" },
+            list: { kind: "value", value: null },
+          },
           style: {
             color: { kind: "value", value: "#111827" },
             fontFamily: { kind: "value", value: "Geist Variable" },

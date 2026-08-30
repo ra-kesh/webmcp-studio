@@ -8,6 +8,10 @@ const state = (overrides: Partial<CanvasTextEditingState["style"]> = {}) =>
     text: "Hello",
     selection: { anchor: 0, focus: 5 },
     link: { kind: "none" },
+    paragraph: {
+      align: { kind: "value", value: "left" },
+      list: { kind: "value", value: null },
+    },
     style: {
       color: { kind: "value", value: "#111827" },
       fontFamily: { kind: "value", value: "Geist Variable" },

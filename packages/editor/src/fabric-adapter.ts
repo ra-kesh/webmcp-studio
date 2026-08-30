@@ -23,6 +23,7 @@ import {
 } from "fabric"
 import {
   IMAGE_PLACEMENT_MAX_ZOOM,
+  applyTextParagraphStyleToRange,
   applyTextStyleToRange,
   deriveTextReplacement,
   normalizeTextSelection,
@@ -33,6 +34,8 @@ import {
   replaceRichTextRange,
   resolveTextSelectionStyle,
   resolveTextSelectionLink,
+  resolveTextSelectionParagraphState,
+  editTextParagraphListByKey,
   textNodeBaseStyle,
   textRunOverrideAtCaret,
   type Document,
@@ -45,6 +48,7 @@ import {
   type TextNode,
   type TextRunStyle,
   type TextRunStylePatch,
+  type TextParagraphStylePatch,
   type TextSelection,
 } from "@webmcp/document"
 import type {
@@ -794,6 +798,42 @@ export function projectFabricTextState(
     clipOverflow: projection.content.sizingMode === "fixed",
     layoutLines: projection.content.layout.lines,
   }
+}
+
+/**
+ * Convert an offset in the idle render projection back to the authored text.
+ * Synthetic list markers and soft-wrap newlines do not exist in the canonical
+ * string, so direct editing must collapse them onto the nearest source caret.
+ */
+export function projectedTextOffsetToSource(
+  lines: readonly ProjectedTextLine[],
+  offset: number
+): number {
+  const target = Math.max(0, offset)
+  let displayOffset = 0
+  let lastSourceOffset = 0
+
+  for (const [lineIndex, line] of lines.entries()) {
+    for (const segment of line.segments) {
+      const segmentEnd = displayOffset + segment.text.length
+      if (target <= segmentEnd) {
+        if (segment.synthetic) return segment.sourceStart
+        return Math.min(
+          segment.sourceEnd,
+          segment.sourceStart + Math.max(0, target - displayOffset)
+        )
+      }
+      displayOffset = segmentEnd
+      lastSourceOffset = segment.sourceEnd
+    }
+
+    if (lineIndex < lines.length - 1) {
+      if (target <= displayOffset + 1) return line.sourceEnd
+      displayOffset += 1
+    }
+  }
+
+  return lastSourceOffset
 }
 
 function fabricStyleForSegment(segment: ProjectedTextSegment) {
@@ -2321,6 +2361,25 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     return true
   }
 
+  applyTextEditingParagraphStyle(patch: TextParagraphStylePatch): boolean {
+    const session = this.textEditSession
+    if (!session || session.cancelled) return false
+    const selection = fabricTextSelection(session.target)
+    session.draftNode = {
+      ...session.draftNode,
+      paragraphs: applyTextParagraphStyleToRange(
+        session.draftNode.text,
+        session.draftNode.paragraphs,
+        selection,
+        patch,
+        session.draftNode.align
+      ),
+    }
+    this.projectTextEditDraft(session)
+    this.publishTextEditingState(session)
+    return true
+  }
+
   cancelTransform(): boolean {
     const context = this.transformContext()
     if (!context) return false
@@ -3508,13 +3567,37 @@ export class FabricCanvasAdapter implements CanvasAdapter {
 
   private onTextEditingEntered = ({ target }: { target: FabricObject }) => {
     if (!(target instanceof Textbox)) return
-    if (target instanceof StudioTextbox) {
-      target.setStudioUsesCanonicalLines(false)
-    }
     const nodeId = this.nodeIdByObject.get(target)
     if (!nodeId) return
     const node = this.nodeByNodeId.get(nodeId)
     if (node?.type !== "text") return
+    const projection = projectFabricTextState(node)
+    if (target.text !== node.text) {
+      const projectedSelection = fabricTextSelection(target)
+      const selection = {
+        anchor: projectedTextOffsetToSource(
+          projection.layoutLines,
+          projectedSelection.anchor
+        ),
+        focus: projectedTextOffsetToSource(
+          projection.layoutLines,
+          projectedSelection.focus
+        ),
+      }
+      setFabricTextboxContent(
+        target,
+        node.text,
+        "editing",
+        projection.editingStyles
+      )
+      if (target.hiddenTextarea) target.hiddenTextarea.value = node.text
+      target.initDimensions()
+      restoreFabricTextSelection(target, selection)
+      target.setCoords()
+      this.canvas?.requestRenderAll()
+    } else if (target instanceof StudioTextbox) {
+      target.setStudioUsesCanonicalLines(false)
+    }
     this.clearTextEditSession()
     this.textEditSession = {
       nodeId,
@@ -3618,6 +3701,23 @@ export class FabricCanvasAdapter implements CanvasAdapter {
 
     const textarea = session.target.hiddenTextarea
     if (!textarea) return
+    if (["Enter", "Backspace", "Tab"].includes(event.key)) {
+      const paragraphs = editTextParagraphListByKey({
+        key: event.key as "Enter" | "Backspace" | "Tab",
+        shiftKey: event.shiftKey,
+        text: session.draftNode.text,
+        paragraphs: session.draftNode.paragraphs,
+        selection: fabricTextSelection(session.target),
+      })
+      if (paragraphs) {
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        session.draftNode = { ...session.draftNode, paragraphs }
+        this.projectTextEditDraft(session)
+        this.publishTextEditingState(session)
+        return
+      }
+    }
     const edit = resolvePlainTextListKey({
       key: event.key,
       shiftKey: event.shiftKey,
@@ -3692,6 +3792,12 @@ export class FabricCanvasAdapter implements CanvasAdapter {
         session.draftNode.text,
         session.draftNode.links,
         selection
+      ),
+      paragraph: resolveTextSelectionParagraphState(
+        session.draftNode.text,
+        session.draftNode.paragraphs,
+        selection,
+        session.draftNode.align
       ),
     })
   }

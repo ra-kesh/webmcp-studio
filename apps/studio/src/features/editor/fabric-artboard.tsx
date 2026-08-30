@@ -12,6 +12,7 @@ import {
 } from "react"
 import type {
   Document,
+  TextParagraphStylePatch,
   TextRunStylePatch,
   TextSelection,
 } from "@webmcp/document"
@@ -41,6 +42,7 @@ export type FabricArtboardHandle = {
   commitTextEditing: () => boolean
   cancelTextEditing: () => boolean
   applyTextEditingStyle: (patch: TextRunStylePatch) => boolean
+  applyTextEditingParagraphStyle: (patch: TextParagraphStylePatch) => boolean
   cancelTransform: () => boolean
   getImageNaturalSize: (
     nodeId: string
@@ -453,6 +455,8 @@ export const FabricArtboard = forwardRef<
       cancelTextEditing: () => adapterRef.current?.cancelTextEditing() ?? false,
       applyTextEditingStyle: (patch) =>
         adapterRef.current?.applyTextEditingStyle(patch) ?? false,
+      applyTextEditingParagraphStyle: (patch) =>
+        adapterRef.current?.applyTextEditingParagraphStyle(patch) ?? false,
       cancelTransform: () => adapterRef.current?.cancelTransform() ?? false,
       getImageNaturalSize: (nodeId) =>
         adapterRef.current?.getImageNaturalSize(nodeId) ?? null,

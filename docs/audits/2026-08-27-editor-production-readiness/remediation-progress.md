@@ -3067,3 +3067,28 @@ Status: **accepted as a bounded slice; Gate 2 remains active**
   temporary layer was removed and the temporary viewport override was reset.
 - Gate 2 still owns semantic paragraph/list keyboard behavior, rich/plain
   clipboard handling and compact accessibility acceptance.
+
+## 2026-08-30 — TEXT-02 Gate 2E semantic paragraphs and lists
+
+Status: **accepted as a bounded slice; Gate 2 remains active**
+
+- Revisited the TEXT-02 contract, OpenPencil text-edit projection and Loora's
+  transaction-driven property flow before implementation. No reference code
+  was imported.
+- Added canonical paragraph-range state and mutations for alignment, bullets,
+  numbering, nesting and numbered starts. Canvas and Design-inspector controls
+  now edit the selected paragraphs instead of mutating the complete node or
+  inserting marker glyphs into authored text.
+- Direct Fabric editing handles semantic Enter, empty-item exit, Backspace,
+  Tab and Shift+Tab as metadata edits. One edit exit still produces one
+  history command.
+- Idle list markers and soft-wrap delimiters are projected display content.
+  Direct-edit entry maps those display offsets back to canonical source
+  offsets and synchronizes Fabric's hidden textarea, preventing caret drift or
+  synthetic marker persistence.
+- The focused paragraph, Fabric, inspector and toolbar tests pass with all
+  affected package typechecks. Live port-3001 acceptance proved canonical text
+  stayed marker-free while the paragraph annotation rendered a bullet after
+  exit; the temporary layer was removed and the saved document reloaded.
+- Gate 2 still owns rich/plain clipboard handling, an explicit active-edit
+  marker affordance and compact keyboard/screen-reader/focus acceptance.

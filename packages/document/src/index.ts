@@ -27,6 +27,7 @@ export * from "./schema"
 export * from "./seed"
 export * from "./text-layout"
 export * from "./text-range-editing"
+export * from "./text-paragraph-editing"
 export {
   assertValidDocument,
   DocumentValidationError,
