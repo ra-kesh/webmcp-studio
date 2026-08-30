@@ -2,7 +2,7 @@
 
 Date: 2026-08-30
 
-Status: active; architecture gate recorded, implementation gates open
+Status: active; architecture and Gate 1A range foundation accepted
 
 ## Product outcome
 
@@ -144,3 +144,26 @@ Before each gate, reread this contract and the exact matching reference code.
 After each accepted gate, update this file, `remediation-progress.md`, and the
 remaining-work row, then commit the bounded result before starting the next
 gate.
+
+## Gate 1A result — canonical range foundation
+
+Implemented:
+
+- strict character-style, paragraph-style and link schemas;
+- one public `normalizeRichTextContent` boundary plus focused normalizers;
+- sorted, non-overlapping UTF-16 half-open character and link ranges;
+- surrogate-pair boundary protection so an edit cannot split an emoji;
+- deterministic merging of adjacent equal character styles;
+- newline-aligned paragraph annotations, including empty paragraphs;
+- semantic bulleted/numbered list metadata with bounded nesting and starts;
+- explicit `https`, `mailto` and `tel` link admission;
+- rejection of empty style overrides and ambiguous overlapping ranges.
+
+Evidence:
+
+- 7/7 focused range tests pass;
+- the document package typecheck passes;
+- Prettier and `git diff --check` pass.
+
+Gate 1 remains active. Gate 1B owns schema-version-3 attachment and draft
+migration; Gate 1C owns mixed-style layout and Fabric/React/Renderer projection.

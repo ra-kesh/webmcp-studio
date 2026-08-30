@@ -2921,3 +2921,18 @@ Status: **accepted; Gate 1 implementation is active**
 - Recorded five bounded gates covering model/rendering, everyday range editing,
   shared styles, variables/API/WebMCP control, and final parity/performance
   acceptance.
+
+## 2026-08-30 — TEXT-02 Gate 1A canonical ranges
+
+Status: **accepted; Gate 1 schema attachment remains active**
+
+- Added strict character-run, paragraph/list and safe-link contracts under one
+  public rich-text normalization boundary.
+- Ranges use sorted non-overlapping UTF-16 half-open offsets, reject surrogate
+  splits, reject empty overrides and merge adjacent equal styles.
+- Paragraph annotations align to newline boundaries and permit semantic empty
+  paragraphs; list levels and numbered starts are bounded data rather than
+  characters inserted into the authored string.
+- Links admit only `https`, `mailto` and `tel` and may not overlap each other.
+- Seven focused tests and the document-package typecheck pass. Gate 1B now owns
+  schema-version-3 attachment and explicit version-2 draft migration.
