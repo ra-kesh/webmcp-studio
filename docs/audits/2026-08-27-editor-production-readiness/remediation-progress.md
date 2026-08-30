@@ -2900,3 +2900,24 @@ Status: **completed locally; EDITOR-POLISH-01 is closed**
   the width/compact acceptance evidence.
 - The next product-depth phase is `TEXT-02`; component, library, and advanced
   asset depth remain explicitly sequenced after it.
+
+## 2026-08-30 — TEXT-02 architecture gate
+
+Status: **accepted; Gate 1 implementation is active**
+
+- Revisited every retained rich-text limitation, Studio's canonical
+  schema/layout/render/command boundaries, OpenPencil's StyleRun/shared-style
+  implementation and Loora's TextRun/token transaction model.
+- Chose one canonical string plus validated, normalized UTF-16 half-open ranges
+  rather than HTML, Markdown or editor-library JSON.
+- Separated character formatting, paragraph/list semantics and links so list
+  markers are no longer stored as authored text.
+- Defined stable document-owned typography/paint styles and typed variables,
+  explicit attachment/detachment, atomic propagation and usage-protected
+  deletion.
+- Required schema version 3 and an explicit version-2 draft migration. Existing
+  published version-2 templates must be republished under new immutable
+  identity; schema defaults may not silently change their meaning.
+- Recorded five bounded gates covering model/rendering, everyday range editing,
+  shared styles, variables/API/WebMCP control, and final parity/performance
+  acceptance.
