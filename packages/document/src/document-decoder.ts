@@ -30,7 +30,7 @@ const legacyFieldDefinitionSchema = z
   .strict()
 
 const legacyDocumentSchema = documentSchema.extend({
-  schemaVersion: z.union([z.literal(1), z.literal(2)]),
+  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]),
   fields: z.array(legacyFieldDefinitionSchema),
   fieldValues: z.record(z.string(), fieldValueSchema),
 })
@@ -47,6 +47,8 @@ export type DocumentMigration = {
     | "legacy_image_placement_migrated"
     | "legacy_image_frame_mask_defaulted"
     | "legacy_image_accessibility_unresolved"
+    | "legacy_rich_text_initialized"
+    | "legacy_design_resources_initialized"
     | "document_schema_upgraded"
     | "legacy_field_preserved_as_text"
     | "legacy_fill_promoted_to_color"
@@ -120,10 +122,70 @@ function normalizeLegacyImageModel(input: unknown): {
     }
   }
 
-  migrations.push({
-    code: "document_schema_upgraded",
-    message: "Document schema was upgraded from version 1 to version 2",
-  })
+  return { input: normalized, migrations }
+}
+
+function normalizeLegacyRichTextModel(input: unknown): {
+  input: unknown
+  migrations: DocumentMigration[]
+} {
+  const normalized = structuredClone(input)
+  const migrations: DocumentMigration[] = []
+  if (!normalized || typeof normalized !== "object") {
+    return { input: normalized, migrations }
+  }
+  const document = normalized as Record<string, unknown>
+  if (![1, 2].includes(document.schemaVersion as number)) {
+    return { input: normalized, migrations }
+  }
+  let initializedTextNodes = 0
+  if (Array.isArray(document.nodes)) {
+    for (const candidate of document.nodes) {
+      if (!candidate || typeof candidate !== "object") continue
+      const node = candidate as Record<string, unknown>
+      if (node.type !== "text") continue
+      let changed = false
+      if (!Array.isArray(node.runs)) {
+        node.runs = []
+        changed = true
+      }
+      if (!Array.isArray(node.paragraphs)) {
+        node.paragraphs = []
+        changed = true
+      }
+      if (!Array.isArray(node.links)) {
+        node.links = []
+        changed = true
+      }
+      if (changed) initializedTextNodes += 1
+    }
+  }
+  let initializedResources = false
+  if (!Array.isArray(document.typographyStyles)) {
+    document.typographyStyles = []
+    initializedResources = true
+  }
+  if (!Array.isArray(document.paintStyles)) {
+    document.paintStyles = []
+    initializedResources = true
+  }
+  if (!Array.isArray(document.variables)) {
+    document.variables = []
+    initializedResources = true
+  }
+  if (initializedTextNodes > 0) {
+    migrations.push({
+      code: "legacy_rich_text_initialized",
+      message: `${initializedTextNodes} legacy text layer${initializedTextNodes === 1 ? "" : "s"} received explicit empty rich-text ranges`,
+    })
+  }
+  if (initializedResources) {
+    migrations.push({
+      code: "legacy_design_resources_initialized",
+      message:
+        "Legacy typography styles, paint styles, and variables were initialized as explicit empty collections",
+    })
+  }
   return { input: normalized, migrations }
 }
 
@@ -403,26 +465,38 @@ function migrateLegacyDocument(input: unknown): DecodedDocument {
 
   const migrated = documentSchema.parse({
     ...legacy,
-    schemaVersion: 2,
+    schemaVersion: 3,
     fields: legacy.fields.map((field) => fieldsById.get(field.id)),
   })
   return {
     document: assertValidDocument(applyFieldValues(migrated)),
-    migrations,
+    migrations: [
+      ...migrations,
+      ...(legacy.schemaVersion === 3
+        ? []
+        : [
+            {
+              code: "document_schema_upgraded" as const,
+              message: `Document schema was upgraded from version ${legacy.schemaVersion} to version 3`,
+            },
+          ]),
+    ],
   }
 }
 
 export function decodeDocument(input: unknown): DecodedDocument {
   const imageModel = normalizeLegacyImageModel(input)
   const normalized = normalizeLegacyManagedImageIdentities(imageModel.input)
-  const current = documentSchema.safeParse(normalized.input)
+  const richText = normalizeLegacyRichTextModel(normalized.input)
+  const current = documentSchema.safeParse(richText.input)
   if (!current.success) {
-    const migrated = migrateLegacyDocument(normalized.input)
+    const migrated = migrateLegacyDocument(richText.input)
     return {
       document: migrated.document,
       migrations: [
         ...imageModel.migrations,
         ...normalized.migrations,
+        ...richText.migrations,
         ...migrated.migrations,
       ],
     }
@@ -450,19 +524,24 @@ export function decodeDocument(input: unknown): DecodedDocument {
     })
   })
   if (legacyFillBindings.length || legacyCurrency) {
-    const migrated = migrateLegacyDocument(normalized.input)
+    const migrated = migrateLegacyDocument(richText.input)
     return {
       document: migrated.document,
       migrations: [
         ...imageModel.migrations,
         ...normalized.migrations,
+        ...richText.migrations,
         ...migrated.migrations,
       ],
     }
   }
   return {
     document: assertValidDocument(current.data),
-    migrations: [...imageModel.migrations, ...normalized.migrations],
+    migrations: [
+      ...imageModel.migrations,
+      ...normalized.migrations,
+      ...richText.migrations,
+    ],
   }
 }
 
@@ -471,9 +550,9 @@ export function decodeTemplateVersion(input: unknown): DecodedTemplateVersion {
   const documentVersion = (
     persisted as { document?: { schemaVersion?: unknown } }
   ).document?.schemaVersion
-  if (documentVersion === 1) {
+  if (documentVersion === 1 || documentVersion === 2) {
     throw new DocumentMigrationError(
-      "Published schemaVersion 1 template versions are immutable and cannot be migrated in place. Republish the source document under a new version identity."
+      `Published schemaVersion ${documentVersion} template versions are immutable and cannot be migrated in place. Republish the source document under a new version identity.`
     )
   }
   const validated = templateVersionSchema.parse(persisted)

@@ -93,6 +93,29 @@ describe("strict document validation", () => {
     expect(codes).toContain("invalid_output")
   })
 
+  it("rejects noncanonical rich-text ranges and missing shared styles", () => {
+    const document = clone()
+    const title = document.nodes.find((node) => node.id === "cover-title")
+    if (!title || title.type !== "text") throw new Error("Expected cover title")
+    title.runs = [
+      { start: 4, end: 8, style: { fontWeight: 700 } },
+      { start: 0, end: 4, style: { fontWeight: 700 } },
+    ]
+    title.typographyStyleId = "missing-typography-style"
+    title.paintStyleId = "missing-paint-style"
+
+    const issues = errorsFor(document)
+    expect(issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "invalid_rich_text" }),
+        expect.objectContaining({
+          code: "invalid_style",
+          nodeId: title.id,
+        }),
+      ])
+    )
+  })
+
   it("rejects orphaned and cross-owned pages and nodes", () => {
     const document = clone()
     const page = document.pages[0]!

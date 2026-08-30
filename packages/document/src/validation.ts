@@ -8,6 +8,7 @@ import {
 import { getGroupNodeIds } from "./groups"
 import { managedImageAssetIdentity } from "./media"
 import { projectTextLayout } from "./text-layout"
+import { normalizeRichTextContent } from "./rich-text"
 
 export type ValidationIssue = {
   id: string
@@ -32,6 +33,8 @@ export type ValidationIssue = {
     | "unsafe_render_value"
     | "unmanaged_asset"
     | "missing_alt_text"
+    | "invalid_rich_text"
+    | "invalid_style"
   message: string
   pageId?: string
   nodeId?: string
@@ -97,6 +100,14 @@ export function validateDocument(document: Document): ValidationIssue[] {
   reportDuplicateIds("groups", document.groups)
   reportDuplicateIds("fields", document.fields)
   reportDuplicateIds("bindings", document.bindings)
+  reportDuplicateIds("typography styles", document.typographyStyles)
+  reportDuplicateIds("paint styles", document.paintStyles)
+  reportDuplicateIds("variables", document.variables)
+
+  const typographyStyles = new Set(
+    document.typographyStyles.map((style) => style.id)
+  )
+  const paintStyles = new Set(document.paintStyles.map((style) => style.id))
 
   const pageOwner = new Map<string, string>()
 
@@ -206,6 +217,55 @@ export function validateDocument(document: Document): ValidationIssue[] {
       nodeOwner.set(nodeId, page.id)
       const textOverflow =
         node.type === "text" ? projectTextLayout(node).overflow : false
+      if (node.type === "text") {
+        try {
+          const normalized = normalizeRichTextContent(node.text, {
+            runs: node.runs,
+            paragraphs: node.paragraphs,
+            links: node.links,
+          })
+          if (
+            JSON.stringify(normalized.runs) !== JSON.stringify(node.runs) ||
+            JSON.stringify(normalized.paragraphs) !==
+              JSON.stringify(node.paragraphs) ||
+            JSON.stringify(normalized.links) !== JSON.stringify(node.links)
+          ) {
+            throw new Error("Rich-text ranges are not canonical")
+          }
+        } catch (error) {
+          issues.push({
+            id: `node:${node.id}:rich-text`,
+            severity: "error",
+            code: "invalid_rich_text",
+            message: `${node.name} has invalid rich-text ranges: ${error instanceof Error ? error.message : "unknown range error"}`,
+            pageId: page.id,
+            nodeId: node.id,
+          })
+        }
+        if (
+          node.typographyStyleId &&
+          !typographyStyles.has(node.typographyStyleId)
+        ) {
+          issues.push({
+            id: `node:${node.id}:typography-style`,
+            severity: "error",
+            code: "invalid_style",
+            message: `${node.name} points to missing typography style ${node.typographyStyleId}`,
+            pageId: page.id,
+            nodeId: node.id,
+          })
+        }
+        if (node.paintStyleId && !paintStyles.has(node.paintStyleId)) {
+          issues.push({
+            id: `node:${node.id}:paint-style`,
+            severity: "error",
+            code: "invalid_style",
+            message: `${node.name} points to missing paint style ${node.paintStyleId}`,
+            pageId: page.id,
+            nodeId: node.id,
+          })
+        }
+      }
       if (textOverflow) {
         issues.push({
           id: `node:${node.id}:overflow`,

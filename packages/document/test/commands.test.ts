@@ -7,8 +7,78 @@ import {
 } from "../src"
 
 describe("canonical document commands", () => {
+  it("clears stale ranges when replacing text and canonicalizes supplied runs", () => {
+    const document = structuredClone(northstarSeed)
+    const title = document.nodes.find((node) => node.id === "cover-eyebrow")
+    if (!title || title.type !== "text") throw new Error("Expected cover title")
+    title.runs = [{ start: 0, end: 5, style: { fontWeight: 700 } }]
+    title.links = [
+      { start: 0, end: 5, target: "https://example.com", newTab: true },
+    ]
+
+    const replaced = applyCommand(document, {
+      id: "cmd-replace-rich-text",
+      type: "update_node",
+      actor: "human",
+      at: "2026-08-26T09:29:00.000Z",
+      nodeId: title.id,
+      patch: { text: "New title" },
+    })
+    expect(replaced.nodes.find((node) => node.id === title.id)).toMatchObject({
+      text: "New title",
+      runs: [],
+      paragraphs: [],
+      links: [],
+    })
+
+    const styled = applyCommand(replaced, {
+      id: "cmd-style-rich-text",
+      type: "update_node",
+      actor: "human",
+      at: "2026-08-26T09:29:30.000Z",
+      nodeId: title.id,
+      patch: {
+        runs: [
+          { start: 4, end: 9, style: { fontWeight: 700 } },
+          { start: 0, end: 4, style: { fontWeight: 700 } },
+        ],
+      },
+    })
+    expect(styled.nodes.find((node) => node.id === title.id)).toMatchObject({
+      runs: [{ start: 0, end: 9, style: { fontWeight: 700 } }],
+    })
+  })
+
+  it("rejects a rich-text update whose ranges split a surrogate pair", () => {
+    const document = structuredClone(northstarSeed)
+    const title = document.nodes.find((node) => node.id === "cover-eyebrow")
+    if (!title || title.type !== "text") throw new Error("Expected cover title")
+
+    expect(() =>
+      applyCommand(document, {
+        id: "cmd-invalid-rich-text",
+        type: "update_node",
+        actor: "human",
+        at: "2026-08-26T09:29:00.000Z",
+        nodeId: title.id,
+        patch: {
+          text: "A😀B",
+          runs: [{ start: 1, end: 2, style: { fontWeight: 700 } }],
+        },
+      })
+    ).toThrow("splits a surrogate pair")
+  })
+
   it("applies one shared field to every bound output", () => {
-    const updated = applyCommand(northstarSeed, {
+    const document = structuredClone(northstarSeed)
+    const packageName = document.nodes.find(
+      (node) => node.id === "package-name"
+    )
+    if (!packageName || packageName.type !== "text") {
+      throw new Error("Expected package name")
+    }
+    packageName.runs = [{ start: 0, end: 3, style: { fontWeight: 700 } }]
+    const updated = applyCommand(document, {
       id: "cmd-package-name",
       type: "set_field",
       actor: "agent",
@@ -22,6 +92,9 @@ describe("canonical document commands", () => {
       updated.nodes.find((node) => node.id === "package-name")
     ).toMatchObject({
       text: "The Monsoon Weekend",
+      runs: [],
+      paragraphs: [],
+      links: [],
     })
     expect(updated.nodes.find((node) => node.id === "wa-title")).toMatchObject({
       text: "The Monsoon Weekend",
@@ -1159,6 +1232,9 @@ describe("canonical document commands", () => {
           type: "text",
           name: "Couple names",
           text: "Placeholder",
+          runs: [],
+          paragraphs: [],
+          links: [],
           x: 96,
           y: 120,
           width: 888,

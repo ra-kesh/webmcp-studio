@@ -13,7 +13,7 @@ const at = "2026-08-28T01:00:00.000Z"
 
 function semanticFixture(): Document {
   return documentSchema.parse({
-    schemaVersion: 2,
+    schemaVersion: 3,
     id: "semantic-document",
     name: "Semantic clone fixture",
     revision: 1,
@@ -76,6 +76,9 @@ function semanticFixture(): Document {
         lineHeight: 1.1,
         letterSpacing: -1,
         align: "left",
+        runs: [],
+        paragraphs: [],
+        links: [],
       },
       {
         id: "portrait",
@@ -120,6 +123,9 @@ function semanticFixture(): Document {
         strokeWidth: 2,
       },
     ],
+    typographyStyles: [],
+    paintStyles: [],
+    variables: [],
     groups: [
       {
         id: "cover-group",

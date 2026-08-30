@@ -212,7 +212,7 @@ const imageParityNodes = imageRenderParityCases.map((fixture) =>
 )
 
 export const imageRenderParityDocument: Document = documentSchema.parse({
-  schemaVersion: 2,
+  schemaVersion: 3,
   id: "image-render-parity-v1",
   name: "Image renderer parity corpus",
   revision: 1,
@@ -241,6 +241,9 @@ export const imageRenderParityDocument: Document = documentSchema.parse({
   fieldValues: {},
   bindings: [],
   groups: [],
+  typographyStyles: [],
+  paintStyles: [],
+  variables: [],
 })
 
 const nodes = [
@@ -257,6 +260,9 @@ const nodes = [
     visible: true,
     locked: false,
     text: "Spacing   stays\nA deliberately long line wraps against the same canonical width.",
+    runs: [],
+    paragraphs: [],
+    links: [],
     color: "#172554",
     fontFamily: "Geist Variable",
     fontSize: 28,
@@ -405,7 +411,7 @@ const nodes = [
 ] satisfies SceneNode[]
 
 export const renderConformanceDocument: Document = documentSchema.parse({
-  schemaVersion: 2,
+  schemaVersion: 3,
   id: "render-conformance-golden-v3",
   name: "Render conformance golden corpus",
   revision: 1,
@@ -471,6 +477,9 @@ export const renderConformanceDocument: Document = documentSchema.parse({
       visible: true,
       locked: false,
       text: "A long paragraph must wrap deterministically without collapsing   intentional spaces.\nIts second line makes newline handling observable across thumbnail, editor, PNG, and PDF rendering.",
+      runs: [],
+      paragraphs: [],
+      links: [],
       color: "#431407",
       fontFamily: "Geist Variable",
       fontSize: 24,
@@ -510,6 +519,9 @@ export const renderConformanceDocument: Document = documentSchema.parse({
       visible: true,
       locked: false,
       text: "AUTO WIDTH",
+      runs: [],
+      paragraphs: [],
+      links: [],
       color: "#365314",
       fontFamily: "Geist Variable",
       fontSize: 30,
@@ -521,6 +533,9 @@ export const renderConformanceDocument: Document = documentSchema.parse({
     },
   ],
   groups: [],
+  typographyStyles: [],
+  paintStyles: [],
+  variables: [],
   fields: [],
   fieldValues: {},
   bindings: [],

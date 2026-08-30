@@ -1,6 +1,12 @@
 import { z } from "zod"
 import { isRenderSafeImageSource } from "./image-source-policy"
 import {
+  textDecorationSchema,
+  textLinkSchema,
+  textParagraphSchema,
+  textRunSchema,
+} from "./rich-text"
+import {
   LOCAL_ASSET_PREFIX,
   MANAGED_ASSET_PREFIX,
   localAssetIdSchema,
@@ -96,6 +102,11 @@ const baseNodePatchSchema = z
 
 export const textNodePatchSchema = baseNodePatchSchema.extend({
   text: z.string().optional(),
+  runs: z.array(textRunSchema).optional(),
+  paragraphs: z.array(textParagraphSchema).optional(),
+  links: z.array(textLinkSchema).optional(),
+  typographyStyleId: id.optional(),
+  paintStyleId: id.optional(),
   color: z.string().optional(),
   fontFamily: z.string().min(1).optional(),
   fontSize: z.number().positive().optional(),
@@ -150,6 +161,11 @@ export const sceneNodeSchema = z
     baseNodeSchema.extend({
       type: z.literal("text"),
       text: z.string(),
+      runs: z.array(textRunSchema),
+      paragraphs: z.array(textParagraphSchema),
+      links: z.array(textLinkSchema),
+      typographyStyleId: id.optional(),
+      paintStyleId: id.optional(),
       color: z.string(),
       fontFamily: z.string().min(1),
       fontSize: z.number().positive(),
@@ -558,9 +574,67 @@ export const groupDefinitionSchema = z
   })
   .strict()
 
+export const typographyStyleSchema = z
+  .object({
+    id,
+    name: z.string().min(1),
+    fontFamily: z.string().min(1),
+    fontSize: z.number().positive(),
+    fontWeight: z.number().int().min(100).max(900),
+    italic: z.boolean(),
+    lineHeight: z.number().min(0.5).max(3),
+    letterSpacing: z.number().min(-20).max(200),
+    decoration: textDecorationSchema,
+  })
+  .strict()
+
+export const paintStyleSchema = z
+  .object({
+    id,
+    name: z.string().min(1),
+    color: z.string(),
+    opacity: z.number().min(0).max(1),
+  })
+  .strict()
+
+export const designVariableSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      id,
+      name: z.string().min(1),
+      type: z.literal("color"),
+      value: z.string(),
+    })
+    .strict(),
+  z
+    .object({
+      id,
+      name: z.string().min(1),
+      type: z.literal("number"),
+      value: z.number(),
+    })
+    .strict(),
+  z
+    .object({
+      id,
+      name: z.string().min(1),
+      type: z.literal("string"),
+      value: z.string(),
+    })
+    .strict(),
+  z
+    .object({
+      id,
+      name: z.string().min(1),
+      type: z.literal("font_family"),
+      value: z.string().min(1),
+    })
+    .strict(),
+])
+
 export const documentSchema = z
   .object({
-    schemaVersion: z.literal(2),
+    schemaVersion: z.literal(3),
     id,
     name: z.string().min(1),
     revision: z.number().int().nonnegative(),
@@ -570,6 +644,9 @@ export const documentSchema = z
     pages: z.array(pageSchema).min(1),
     nodes: z.array(sceneNodeSchema),
     groups: z.array(groupDefinitionSchema).default([]),
+    typographyStyles: z.array(typographyStyleSchema),
+    paintStyles: z.array(paintStyleSchema),
+    variables: z.array(designVariableSchema),
     fields: z.array(fieldDefinitionSchema),
     fieldValues: z.record(z.string(), fieldValueSchema),
     bindings: z.array(fieldBindingSchema),
@@ -911,6 +988,9 @@ export type FieldValidation = z.infer<typeof fieldValidationSchema>
 export type FieldDefinition = z.infer<typeof fieldDefinitionSchema>
 export type FieldBinding = z.infer<typeof fieldBindingSchema>
 export type GroupDefinition = z.infer<typeof groupDefinitionSchema>
+export type TypographyStyle = z.infer<typeof typographyStyleSchema>
+export type PaintStyle = z.infer<typeof paintStyleSchema>
+export type DesignVariable = z.infer<typeof designVariableSchema>
 export type Document = z.infer<typeof documentSchema>
 export type DocumentCommand = z.infer<typeof documentCommandSchema>
 export type ChangeOperation = z.infer<typeof changeOperationSchema>

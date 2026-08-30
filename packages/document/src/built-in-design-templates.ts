@@ -48,6 +48,9 @@ const textNode = (
   ...baseNode(id, name, x, y, width, height),
   type: "text",
   text,
+  runs: [],
+  paragraphs: [],
+  links: [],
   color: options.color ?? "#1F2923",
   fontFamily: "Geist Variable",
   fontSize: options.fontSize ?? 32,
@@ -152,7 +155,7 @@ function editorialOnePager(): Document {
     ),
   ]
   return documentSchema.parse({
-    schemaVersion: 2,
+    schemaVersion: 3,
     id: "editorial-one-pager-template-document",
     name: "Editorial one-pager",
     revision: 0,
@@ -180,6 +183,9 @@ function editorialOnePager(): Document {
     ],
     nodes,
     groups: [],
+    typographyStyles: [],
+    paintStyles: [],
+    variables: [],
     fields: [
       {
         id: "editorial-title-field",
@@ -276,7 +282,7 @@ function boldSquareAnnouncement(): Document {
     ),
   ]
   return documentSchema.parse({
-    schemaVersion: 2,
+    schemaVersion: 3,
     id: "bold-square-template-document",
     name: "Bold square announcement",
     revision: 0,
@@ -304,6 +310,9 @@ function boldSquareAnnouncement(): Document {
     ],
     nodes,
     groups: [],
+    typographyStyles: [],
+    paintStyles: [],
+    variables: [],
     fields: [
       {
         id: "bold-title-field",

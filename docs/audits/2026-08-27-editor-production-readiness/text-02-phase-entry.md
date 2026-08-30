@@ -2,7 +2,7 @@
 
 Date: 2026-08-30
 
-Status: active; architecture and Gate 1A range foundation accepted
+Status: active; architecture, Gate 1A and Gate 1B accepted
 
 ## Product outcome
 
@@ -165,5 +165,31 @@ Evidence:
 - the document package typecheck passes;
 - Prettier and `git diff --check` pass.
 
-Gate 1 remains active. Gate 1B owns schema-version-3 attachment and draft
-migration; Gate 1C owns mixed-style layout and Fabric/React/Renderer projection.
+## Gate 1B result — schema attachment and migration
+
+Implemented:
+
+- document schema version 3 with explicit text runs, paragraph annotations,
+  links, typography styles, paint styles and typed variables;
+- deterministic version-1/version-2 draft migration that records initialized
+  rich-text and resource collections without mutating persisted input;
+- immutable version-1/version-2 template rejection in the read path, with the
+  existing replacement-publication path retained;
+- semantic validation for canonical ranges, duplicate resource IDs and dangling
+  typography/paint attachments;
+- command normalization that sorts and merges supplied ranges, rejects invalid
+  boundaries, and clears stale character/paragraph/link data whenever a full
+  string changes through direct editing or a bound field;
+- schema-version-3 seed, quotation composition, built-in templates, render
+  fixtures and Studio text-node creation.
+
+Evidence:
+
+- 240/240 document-package tests pass;
+- every workspace package typechecks;
+- focused tests cover direct and bound replacement, normalization, surrogate
+  rejection, v2 migration, immutable v2 publication and dangling styles;
+- Prettier and `git diff --check` pass.
+
+Gate 1 remains active. Gate 1C now owns mixed-style layout and exact
+Fabric/React/Renderer/PDF projection.

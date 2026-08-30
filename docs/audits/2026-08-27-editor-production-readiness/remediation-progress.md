@@ -2936,3 +2936,23 @@ Status: **accepted; Gate 1 schema attachment remains active**
 - Links admit only `https`, `mailto` and `tel` and may not overlap each other.
 - Seven focused tests and the document-package typecheck pass. Gate 1B now owns
   schema-version-3 attachment and explicit version-2 draft migration.
+
+## 2026-08-30 — TEXT-02 Gate 1B schema attachment and migration
+
+Status: **accepted; Gate 1C mixed-style projection is active**
+
+- Raised the canonical document to schema version 3 and attached explicit
+  character runs, paragraph annotations, links, typography styles, paint styles
+  and typed variables. Current seeds, quotation composition, templates, render
+  fixtures and Studio-created text nodes now emit the same shape.
+- Added a recorded version-1/version-2 draft migration. It initializes only
+  missing rich-text/resource data and leaves the stored input untouched.
+  Published version-1/version-2 templates still cannot change in place.
+- Canonical validation now rejects invalid or non-normalized ranges, duplicate
+  design-resource IDs and dangling typography/paint attachments.
+- Direct full-string edits and bound-field projections clear stale ranges.
+  Supplied ranges pass through the same sorting, merging, overlap and surrogate
+  checks before entering history.
+- Document tests pass 240/240 and every workspace package typechecks. Focused
+  coverage includes v2 migration, immutable publication, direct and bound text
+  replacement, range normalization and missing shared styles.

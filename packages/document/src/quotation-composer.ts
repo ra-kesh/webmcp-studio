@@ -281,6 +281,9 @@ class QuotationCanvasWriter {
       visible: true,
       locked: options.locked ?? true,
       text,
+      runs: [],
+      paragraphs: [],
+      links: [],
       color: options.color,
       fontFamily: "Geist Variable",
       fontSize: options.fontSize,
@@ -898,7 +901,7 @@ export function composeTracedQuotationDocument(
   const cover = buildQuotation(writer)
   const now = payload.quote.createdAt
   const document = assertValidDocument({
-    schemaVersion: 2,
+    schemaVersion: 3,
     id: `quotation-${payload.source.quotationId}`,
     name: payload.document.title,
     revision: payload.source.revision,
@@ -916,6 +919,9 @@ export function composeTracedQuotationDocument(
     pages: writer.pages,
     nodes: writer.nodes,
     groups: writer.groups,
+    typographyStyles: [],
+    paintStyles: [],
+    variables: [],
     fields: [
       {
         id: "field-quotation-title",

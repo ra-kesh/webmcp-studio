@@ -37,10 +37,67 @@ function legacyDocument(document = northstarSeed): Record<string, unknown> {
 }
 
 describe("persisted document compatibility decoding", () => {
-  it("decodes current schemaVersion 2 documents without migrations", () => {
+  it("decodes current schemaVersion 3 documents without migrations", () => {
     const decoded = decodeDocument(northstarSeed)
     expect(decoded.migrations).toEqual([])
     expect(decoded.document).toEqual(northstarSeed)
+  })
+
+  it("migrates schemaVersion 2 rich-text storage explicitly", () => {
+    const persisted = structuredClone(northstarSeed) as any
+    persisted.schemaVersion = 2
+    for (const node of persisted.nodes) {
+      if (node.type !== "text") continue
+      delete node.runs
+      delete node.paragraphs
+      delete node.links
+    }
+    delete persisted.typographyStyles
+    delete persisted.paintStyles
+    delete persisted.variables
+    const before = structuredClone(persisted)
+
+    const decoded = decodeDocument(persisted)
+
+    expect(persisted).toEqual(before)
+    expect(decoded.document.schemaVersion).toBe(3)
+    expect(
+      decoded.document.nodes
+        .filter((node) => node.type === "text")
+        .every(
+          (node) =>
+            node.runs.length === 0 &&
+            node.paragraphs.length === 0 &&
+            node.links.length === 0
+        )
+    ).toBe(true)
+    expect(decoded.document).toMatchObject({
+      typographyStyles: [],
+      paintStyles: [],
+      variables: [],
+    })
+    expect(decoded.migrations.map((migration) => migration.code)).toEqual(
+      expect.arrayContaining([
+        "legacy_rich_text_initialized",
+        "legacy_design_resources_initialized",
+        "document_schema_upgraded",
+      ])
+    )
+  })
+
+  it("requires republishing an immutable schemaVersion 2 template", () => {
+    const version = createTemplateVersion(northstarSeed, {
+      id: "version-schema-two",
+      templateId: "northstar",
+      version: 1,
+      sourceSnapshotId: `sha256-${"2".repeat(64)}`,
+      publishedAt: "2026-08-28T11:00:00.000Z",
+    }) as any
+    version.document.schemaVersion = 2
+
+    expect(() => decodeTemplateVersion(version)).toThrow(
+      "Published schemaVersion 2 template versions are immutable"
+    )
   })
 
   it("normalizes a writable legacy managed image to one canonical identity", () => {
@@ -92,7 +149,7 @@ describe("persisted document compatibility decoding", () => {
     )
   })
 
-  it("migrates legacy cover placement and accessibility intent to schemaVersion 2", () => {
+  it("migrates legacy cover placement and accessibility intent to schemaVersion 3", () => {
     const persisted = legacyDocument() as any
     persisted.nodes.push({
       id: "legacy-cover-image",
@@ -119,7 +176,7 @@ describe("persisted document compatibility decoding", () => {
     const decoded = decodeDocument(persisted)
 
     expect(persisted).toEqual(before)
-    expect(decoded.document.schemaVersion).toBe(2)
+    expect(decoded.document.schemaVersion).toBe(3)
     expect(
       decoded.document.nodes.find((node) => node.id === "legacy-cover-image")
     ).toMatchObject({

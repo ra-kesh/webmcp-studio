@@ -6,6 +6,7 @@ import {
   type Document,
   type DocumentCommand,
   type SceneNode,
+  type TextNodePatch,
 } from "./schema"
 import {
   fieldCanBindToProperty,
@@ -20,9 +21,29 @@ import {
   managedAssetIdFromSource,
 } from "./media"
 import { applyTextLayoutPatch } from "./text-layout"
+import { normalizeRichTextContent } from "./rich-text"
 import { assertValidCanonicalDocument, assertValidDocument } from "./validation"
 
 type FieldValue = string | number | boolean
+
+function normalizeTextNodePatch(
+  node: Extract<SceneNode, { type: "text" }>,
+  patch: TextNodePatch
+): TextNodePatch {
+  const text = patch.text ?? node.text
+  const textChanged = patch.text !== undefined && patch.text !== node.text
+  const content = normalizeRichTextContent(text, {
+    runs: patch.runs ?? (textChanged ? [] : node.runs),
+    paragraphs: patch.paragraphs ?? (textChanged ? [] : node.paragraphs),
+    links: patch.links ?? (textChanged ? [] : node.links),
+  })
+  return {
+    ...patch,
+    runs: content.runs,
+    paragraphs: content.paragraphs,
+    links: content.links,
+  }
+}
 
 function groupNodeIds(
   groups: Document["groups"],
@@ -115,9 +136,7 @@ function applyValue(
   if (property === "text" && node.type === "text") {
     const text = formatFieldValueForText(field, value)
     if (node.text === text) return node
-    return applyTextLayoutPatch(node, {
-      text,
-    })
+    return applyTextLayoutPatch(node, normalizeTextNodePatch(node, { text }))
   }
   if (property === "src" && node.type === "image") {
     const src = String(value)
@@ -600,7 +619,10 @@ function applyParsedCommand(
         current?.type === "text"
           ? applyTextLayoutPatch(
               current,
-              textNodePatchSchema.parse(command.patch)
+              normalizeTextNodePatch(
+                current,
+                textNodePatchSchema.parse(command.patch)
+              )
             )
           : current?.type === "image" && "alt" in command.patch
             ? {

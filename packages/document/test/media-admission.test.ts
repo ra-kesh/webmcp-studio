@@ -59,7 +59,7 @@ function admissionDocument(
     nodes.push(image("alpha-bound", alpha, 420))
   }
   return documentSchema.parse({
-    schemaVersion: 2,
+    schemaVersion: 3,
     id: "media-admission-document",
     name: "Admission fixture",
     revision: 11,
@@ -106,6 +106,9 @@ function admissionDocument(
       },
     ],
     nodes,
+    typographyStyles: [],
+    paintStyles: [],
+    variables: [],
     groups: [
       {
         id: "media-group",
