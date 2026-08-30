@@ -5,7 +5,7 @@ import {
   type QuotationRenderPayloadV1,
 } from "./quotation-contract"
 
-export const QUOTATION_COMPOSER_VERSION = 2
+export const QUOTATION_COMPOSER_VERSION = 3
 
 const PAGE_WIDTH = 1240
 const PAGE_HEIGHT = 1754
@@ -87,14 +87,16 @@ const formatDate = (value: string | null) => {
   }).format(new Date(`${value}T00:00:00.000Z`))
 }
 
-const formatMoney = (value: string | null) =>
-  value === null
-    ? "Price on request"
-    : new Intl.NumberFormat("en-IN", {
-        style: "currency",
-        currency: "INR",
-        maximumFractionDigits: 0,
-      }).format(Number(value))
+const formatMoney = (value: string | null) => {
+  if (value === null) return "Price on request"
+  const rounded = Math.round(Number(value))
+  const digits = Math.abs(rounded).toString()
+  const tail = digits.slice(-3)
+  const head = digits.slice(0, -3)
+  const groupedHead = head.replace(/\B(?=(\d{2})+(?!\d))/g, ",")
+  const grouped = head ? `${groupedHead},${tail}` : tail
+  return `${rounded < 0 ? "-" : ""}₹${grouped}`
+}
 
 function wrapText(value: string, width: number, fontSize: number) {
   const maxCharacters = Math.max(12, Math.floor(width / (fontSize * 0.54)))

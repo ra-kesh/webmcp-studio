@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import type { StudioAsset } from "./asset-catalog"
+import { studioAssets } from "./asset-catalog"
 import { createManagedWebMcpCatalog } from "./managed-webmcp-catalog"
 
 const media = vi.hoisted(() => ({
@@ -12,21 +12,7 @@ vi.mock("./managed-media-repository", () => ({
   listManagedMedia: media.list,
 }))
 
-const builtIns: StudioAsset[] = [
-  {
-    id: "olive-botanical",
-    version: 1,
-    contentSha256:
-      "85cc8f05bda0255e74a2057f4d27c948eafaa4156bee4bab83f4e725bb056f24",
-    name: "Olive botanical",
-    description: "Soft botanical composition",
-    tags: ["olive", "botanical"],
-    width: 1_200,
-    height: 1_500,
-    src: "data:image/svg+xml,builtin",
-    license: "Original Studio artwork",
-  },
-]
+const builtIns = [studioAssets[0]!]
 
 const readyManaged = {
   id: "asset-abcdefghij",

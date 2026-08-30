@@ -74,7 +74,7 @@ const reviewFor = (candidate: CurrentDraftSnapshot) => {
 }
 
 const quotationRefreshSnapshot = async (): Promise<CurrentDraftSnapshot> => {
-  const designTemplate = { id: "quotation-editorial-olive", version: 2 }
+  const designTemplate = { id: "quotation-editorial-olive", version: 3 }
   const document = builtInDesignTemplateRepository.materialize(
     designTemplate.id,
     designTemplate.version,
@@ -216,7 +216,7 @@ describe("draft admission", () => {
   it("admits exact quotation composition provenance and rejects source drift", async () => {
     const designTemplate = {
       id: "quotation-editorial-olive",
-      version: 2,
+      version: 3,
     }
     const composition = await createKnownQuotationComposition(
       northstarQuotationPayload,

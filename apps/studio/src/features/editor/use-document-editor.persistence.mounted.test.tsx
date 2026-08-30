@@ -3775,7 +3775,7 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     })
     await act(async () => {
       expect(
-        captured.current!.applyDesignTemplate("quotation-midnight-film", 2)
+        captured.current!.applyDesignTemplate("quotation-midnight-film", 3)
       ).toBe(true)
       expect(await captured.current!.flushActiveDraft()).toBe(true)
     })

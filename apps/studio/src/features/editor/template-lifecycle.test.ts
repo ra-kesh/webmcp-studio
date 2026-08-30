@@ -86,12 +86,12 @@ describe("design-template lifecycle", () => {
 
     const composition = await createKnownQuotationComposition(
       northstarQuotationPayload,
-      { id: "quotation-editorial-olive", version: 2 }
+      { id: "quotation-editorial-olive", version: 3 }
     )
     const mutation = prepareApplyTemplate({
       repository: builtInDesignTemplateRepository,
       templateId: "quotation-midnight-film",
-      version: 2,
+      version: 3,
       currentDocument: edited,
       sourceContext: { ...linkedContext, composition },
       now: "2026-08-28T12:00:00.000Z",
@@ -108,7 +108,7 @@ describe("design-template lifecycle", () => {
     expect(mutation.sourceContext.quotationTemplateId).toBe("midnight-film")
     expect(mutation.sourceContext.designTemplate).toEqual({
       id: "quotation-midnight-film",
-      version: 2,
+      version: 3,
     })
     expect(mutation.sourceContext.composition).toEqual(composition)
     expect(mutation.impact.disconnectsQuotationSource).toBe(false)
@@ -120,7 +120,7 @@ describe("design-template lifecycle", () => {
       prepareCreateFromTemplate({
         repository: builtInDesignTemplateRepository,
         templateId: "quotation-warm-paper",
-        version: 2,
+        version: 3,
         currentDocument: quotationStarter.document,
         sourceContext: {
           quotationSource: null,

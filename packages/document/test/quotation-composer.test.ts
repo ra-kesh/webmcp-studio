@@ -83,6 +83,8 @@ describe("quotation composition", () => {
     expect(renderedText).toContain("Legacy Story")
     expect(renderedText).toContain("Same-day edit")
     expect(renderedText).toContain("The booking amount is non-refundable")
+    expect(renderedText).toContain("₹4,85,000")
+    expect(renderedText).not.toContain("₹\u00a0")
     expect(validateDocument(document)).toEqual([])
   })
 

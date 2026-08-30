@@ -3579,3 +3579,22 @@ Status: **closed and independently accepted; Gate 2 is active**
   and independent re-review reports no open P0/P1 blocker. Gate 2 now owns the
   validated authoring manifest, structural template breadth, media taxonomy,
   complete provenance and synthetic seed-content boundary.
+
+## 2026-08-31 — LIBRARY-02 Gate 2 content and provenance
+
+Status: **closed and independently accepted; Gate 3 is active**
+
+- Expanded the active library to 18 structurally distinct document starters,
+  three quotation styles and 37 curated media items across the required jobs,
+  formats and media families.
+- Split starter authoring into six product-family modules and bound every
+  template to exact identity, profile, source/license metadata and SHA-256.
+- Added pinned, byte-verified OpenMoji and CC0 Wikimedia evidence while keeping
+  private/customer content and remote renderer locators out of the seed set.
+- Projected all 58 active items into one compact immutable Studio catalog with
+  exact detail resolution and no canonical documents, source bytes, data URIs
+  or private media locators in list state.
+- Removed cross-runtime quotation byte drift by publishing deterministic
+  composer/template version 3 and retaining v1/v2 as retired exact identities.
+- Independent final review found zero P0/P1 issues. Focused Document, composer,
+  Studio catalog and persistence suites plus both package typechecks pass.

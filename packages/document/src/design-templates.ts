@@ -8,6 +8,12 @@ import type { QuotationRenderPayloadV1 } from "./quotation-contract"
 import { documentSchema } from "./schema"
 import type { Document } from "./schema"
 import { assertValidDocument } from "./validation"
+import {
+  assertTemplateManifestMatchesDocument,
+  assertTemplateManifestMatchesQuotationIdentity,
+  assertTemplateManifestMatchesQuotationStyle,
+  builtInTemplateManifestSchema,
+} from "./built-ins/templates/template-manifest"
 
 const designTemplateSourceSchema = z
   .object({
@@ -27,6 +33,7 @@ const designTemplateCommonSchema = z.object({
   tags: z.array(z.string().min(1)).min(1),
   createdAt: z.string().datetime(),
   source: designTemplateSourceSchema,
+  manifest: builtInTemplateManifestSchema,
   catalogStatus: z.enum(["active", "retired"]).optional(),
 })
 
@@ -125,12 +132,28 @@ const immutableDefinition = (definition: DesignTemplateDefinition) => {
   )
   if (parsed.kind === "document_starter") {
     assertValidDocument(parsed.document)
+    assertTemplateManifestMatchesDocument(parsed.manifest, parsed.document)
+  } else if (parsed.catalogStatus === "retired") {
+    assertTemplateManifestMatchesQuotationIdentity(
+      parsed.manifest,
+      parsed.quotationTemplateId,
+      parsed.composerVersion
+    )
+  }
+  if (
+    parsed.manifest.provenance.sourceName !== parsed.source.name ||
+    parsed.manifest.provenance.license.name !== parsed.source.license ||
+    parsed.manifest.provenance.sourceUrl !== (parsed.source.url ?? null)
+  ) {
+    throw new Error(
+      `Template ${parsed.id}@${parsed.version} source metadata does not match its manifest provenance`
+    )
   }
   return deepFreeze(parsed)
 }
 
 const normalizeSearch = (value: string) =>
-  value.trim().toLocaleLowerCase().replace(/\s+/g, " ")
+  value.trim().toLowerCase().replace(/\s+/g, " ")
 
 const matchesQuery = (
   definition: DesignTemplateDefinition,
@@ -451,6 +474,22 @@ export class DesignTemplateRepository {
         return definition
       })
     this.#previewQuotation = structuredClone(previewQuotation)
+    for (const definition of this.#definitions) {
+      if (
+        definition.kind === "quotation_style" &&
+        definition.catalogStatus !== "retired"
+      ) {
+        assertTemplateManifestMatchesQuotationStyle(
+          definition.manifest,
+          definition.quotationTemplateId,
+          definition.composerVersion,
+          composeQuotationDocument(
+            this.#previewQuotation,
+            definition.quotationTemplateId
+          )
+        )
+      }
+    }
   }
 
   list(query: DesignTemplateQuery = {}): DesignTemplateCatalogItem[] {
@@ -544,6 +583,14 @@ export class DesignTemplateRepository {
     const previewPageId = previewDocument.pages[0]?.id
     if (!previewPageId) {
       throw new Error(`Template ${definition.id} has no preview page.`)
+    }
+    if (definition.kind === "quotation_style") {
+      assertTemplateManifestMatchesQuotationStyle(
+        definition.manifest,
+        definition.quotationTemplateId,
+        definition.composerVersion,
+        previewDocument
+      )
     }
     const { document: _document, ...metadata } =
       definition.kind === "document_starter"

@@ -3,8 +3,16 @@ import {
   type DesignTemplateDefinition,
 } from "./design-templates"
 import { northstarQuotationPayload } from "./quotation-fixture"
-import { QUOTATION_COMPOSER_VERSION } from "./quotation-composer"
+import {
+  composeQuotationDocument,
+  QUOTATION_COMPOSER_VERSION,
+} from "./quotation-composer"
 import { documentSchema, type Document, type SceneNode } from "./schema"
+import { builtInDocumentStarterDefinitions } from "./built-ins/templates/starter-manifests"
+import {
+  createStudioQuotationStyleManifest,
+  createStudioTemplateManifest,
+} from "./built-ins/templates/template-manifest"
 
 const createdAt = "2026-08-27T00:00:00.000Z"
 
@@ -345,6 +353,9 @@ function boldSquareAnnouncement(): Document {
   })
 }
 
+const legacyEditorialOnePager = editorialOnePager()
+const legacyBoldSquareAnnouncement = boldSquareAnnouncement()
+
 export const builtInDesignTemplateDefinitions: DesignTemplateDefinition[] = [
   {
     schemaVersion: 1,
@@ -357,8 +368,20 @@ export const builtInDesignTemplateDefinitions: DesignTemplateDefinition[] = [
     category: "Documents",
     tags: ["editorial", "proposal", "brief", "minimal"],
     createdAt,
-    source: { name: "Studio originals", license: "Internal" },
-    document: editorialOnePager(),
+    source: {
+      name: "Studio originals",
+      license: "Studio original template",
+    },
+    manifest: createStudioTemplateManifest({
+      id: "editorial-one-pager",
+      formatFamily: "a4-portrait",
+      useCaseIds: ["proposal", "brief", "client-work"],
+      job: "Create a concise printable proposal, brief or client introduction.",
+      document: legacyEditorialOnePager,
+      contentSha256:
+        "4503cffb03b304e7a743a2c2bc99cae9e44d6af7151534168ee0fc699d0b50cf",
+    }),
+    document: legacyEditorialOnePager,
   },
   {
     schemaVersion: 1,
@@ -371,9 +394,22 @@ export const builtInDesignTemplateDefinitions: DesignTemplateDefinition[] = [
     category: "Social",
     tags: ["square", "launch", "event", "announcement"],
     createdAt,
-    source: { name: "Studio originals", license: "Internal" },
-    document: boldSquareAnnouncement(),
+    source: {
+      name: "Studio originals",
+      license: "Studio original template",
+    },
+    manifest: createStudioTemplateManifest({
+      id: "bold-square-announcement",
+      formatFamily: "social-square",
+      useCaseIds: ["social-post", "launch", "announcement"],
+      job: "Publish a legible launch or event announcement for social feeds.",
+      document: legacyBoldSquareAnnouncement,
+      contentSha256:
+        "479a303090c36a362e9bc03e1097afa2299a486c23fac4ffa475a33b37aeee03",
+    }),
+    document: legacyBoldSquareAnnouncement,
   },
+  ...builtInDocumentStarterDefinitions,
   ...(
     [
       {
@@ -404,11 +440,65 @@ export const builtInDesignTemplateDefinitions: DesignTemplateDefinition[] = [
   ).flatMap((template): DesignTemplateDefinition[] => [
     {
       schemaVersion: 1,
-      version: 2,
+      version: 3,
       kind: "quotation_style",
       composerVersion: QUOTATION_COMPOSER_VERSION,
       createdAt: "2026-08-29T00:00:00.000Z",
-      source: { name: "Studio originals", license: "Internal" },
+      source: {
+        name: "Studio originals",
+        license: "Studio original template",
+      },
+      manifest: createStudioQuotationStyleManifest({
+        id: template.id,
+        quotationTemplateId: template.quotationTemplateId,
+        composerVersion: QUOTATION_COMPOSER_VERSION,
+        formatFamily: "quotation-proposal",
+        useCaseIds: ["quotation", "proposal", "wedding"],
+        job: "Restyle a source-backed wedding quotation without changing its commercial content.",
+        previewDocument: composeQuotationDocument(
+          northstarQuotationPayload,
+          template.quotationTemplateId
+        ),
+        contentSha256: {
+          "quotation-editorial-olive":
+            "4b6b01ee5d85456e18a6a3d37eaa247c5097024f6bb187f2221377dcfd3a71ed",
+          "quotation-warm-paper":
+            "ab933c32d03440916f8f5fe58a221177a810ad7843cec59ef7d36ad06ade85f0",
+          "quotation-midnight-film":
+            "604e45cf1a1161bf2ef040e83c1fe19cc61d2f200ec8e1b1063943bec5ee142e",
+        }[template.id],
+      }),
+      ...template,
+      tags: [...template.tags],
+    },
+    {
+      schemaVersion: 1,
+      version: 2,
+      kind: "quotation_style",
+      composerVersion: 2,
+      catalogStatus: "retired",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      source: {
+        name: "Studio originals",
+        license: "Studio original template",
+      },
+      manifest: createStudioQuotationStyleManifest({
+        id: template.id,
+        quotationTemplateId: template.quotationTemplateId,
+        composerVersion: 2,
+        formatFamily: "quotation-proposal",
+        useCaseIds: ["quotation", "proposal", "wedding"],
+        job: "Retain the immutable identity of a quotation style created by composer version 2.",
+        previewDocument: null,
+        contentSha256: {
+          "quotation-editorial-olive":
+            "6c79df28b8e0e309f13a0eaf57419cd82ad18f96376984d67b4ab6c1f30ae835",
+          "quotation-warm-paper":
+            "d484bfa8ef073bf9f9ee6fc2822d6f61f20fa6f5d42c592fea24a2a3d4289b7b",
+          "quotation-midnight-film":
+            "a409002c141fd6d1dd447f52cdf1dbe47e0c7bd8a81d2f456d90fe4aa3ba7df4",
+        }[template.id],
+      }),
       ...template,
       tags: [...template.tags],
     },
@@ -419,7 +509,27 @@ export const builtInDesignTemplateDefinitions: DesignTemplateDefinition[] = [
       composerVersion: 1,
       catalogStatus: "retired",
       createdAt,
-      source: { name: "Studio originals", license: "Internal" },
+      source: {
+        name: "Studio originals",
+        license: "Studio original template",
+      },
+      manifest: createStudioQuotationStyleManifest({
+        id: template.id,
+        quotationTemplateId: template.quotationTemplateId,
+        composerVersion: 1,
+        formatFamily: "quotation-proposal",
+        useCaseIds: ["quotation", "proposal", "wedding"],
+        job: "Retain the immutable identity of a quotation style created by composer version 1.",
+        previewDocument: null,
+        contentSha256: {
+          "quotation-editorial-olive":
+            "8246e678290ab53527a54dd321e6f0de2c0c31dd3a9d281a02c7d7e250bd2759",
+          "quotation-warm-paper":
+            "6a639ca9c3c7c20d8b019a9291d3d348f23f48af575eda416a418e69ccf1bdb6",
+          "quotation-midnight-film":
+            "50d06ffe7a3cb915849c3cb5f47cdd933c54389108abd943360b58147acfb106",
+        }[template.id],
+      }),
       ...template,
       tags: [...template.tags],
     },

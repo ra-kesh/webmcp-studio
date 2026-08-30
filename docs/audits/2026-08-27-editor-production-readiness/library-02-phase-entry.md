@@ -2,7 +2,7 @@
 
 Date: 2026-08-31
 
-Status: Gate 1 closed; Gate 2 content and provenance is active
+Status: Gates 1 and 2 closed; Gate 3 raster preview production is active
 
 ## Purpose
 
@@ -240,6 +240,28 @@ both affected package typechecks pass.
 
 These counts are a first quality bar, not a reason to duplicate weak designs.
 Each item needs distinct composition, useful defaults and a stated job.
+
+Result: **closed and independently accepted on 2026-08-31.** Studio now has
+18 active document starters across the required jobs, three active quotation
+styles, and 37 curated media items. The starter source is split by product
+family rather than held in one monolith. Every template is bound to an exact
+immutable identity, canonical profile and SHA-256; generated paint styles and
+variables are attached to visible content. Every curated media record is bound
+to exact bytes, dimensions, MIME type, license and source evidence. The seven
+CC0 photographs and 24 OpenMoji graphics use pinned upstream identities, while
+the six Studio originals retain their proven safe insertion facade until Gate
+6 materialization.
+
+One runtime-dependent `Intl.NumberFormat` difference was found during review:
+Bun emitted a non-breaking space in INR values while Node did not. The
+quotation composer now formats INR deterministically, composer version 3 and
+quotation template version 3 own the new canonical bytes, and v1/v2 remain
+retired exact identities without fabricated previews. The Studio catalog now
+projects all 21 active templates and all 37 media items into one compact
+immutable index with exact detail resolution and without canonical documents,
+source bytes, data URIs or private locators. Independent final review reports
+zero P0/P1 findings. Retained evidence passes 42 focused Document tests, 34
+Node/Vitest Studio tests, both package typechecks and `git diff --check`.
 
 ### Gate 3 - raster preview production
 

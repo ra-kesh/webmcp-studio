@@ -88,27 +88,34 @@ function componentTemplateDocument(): Document {
 describe("design template repository", () => {
   it("lists immutable, renderer-backed catalog items in deterministic order", () => {
     const items = builtInDesignTemplateRepository.list()
-    expect(items).toHaveLength(5)
-    expect(items.map((item) => item.name)).toEqual([
-      "Editorial one-pager",
-      "Editorial Olive",
-      "Midnight Film",
-      "Warm Paper",
-      "Bold square announcement",
-    ])
+    expect(items).toHaveLength(21)
+    expect(items.map((item) => item.id)).toEqual(
+      builtInDesignTemplateRepository.list().map((item) => item.id)
+    )
+    expect(
+      items.filter((item) => item.kind === "document_starter")
+    ).toHaveLength(18)
     expect(
       items
         .filter((item) => item.kind === "quotation_style")
         .map((item) => [item.version, item.composerVersion])
     ).toEqual([
-      [2, QUOTATION_COMPOSER_VERSION],
-      [2, QUOTATION_COMPOSER_VERSION],
-      [2, QUOTATION_COMPOSER_VERSION],
+      [3, QUOTATION_COMPOSER_VERSION],
+      [3, QUOTATION_COMPOSER_VERSION],
+      [3, QUOTATION_COMPOSER_VERSION],
     ])
     expect(builtInDesignTemplateRepository.categories()).toEqual([
+      "Briefs",
+      "Carousels",
       "Documents",
+      "Invitations",
+      "Media kits",
+      "Presentations",
       "Proposals",
+      "Reports",
       "Social",
+      "Social posts",
+      "Stories",
     ])
     for (const item of items) {
       expect(item.previewDocument.pages).toHaveLength(item.pageCount)
@@ -131,7 +138,7 @@ describe("design template repository", () => {
     ).toBe("bold-square-announcement")
     expect(
       builtInDesignTemplateRepository.list({ kind: "document_starter" })
-    ).toHaveLength(2)
+    ).toHaveLength(18)
     expect(
       builtInDesignTemplateRepository.list({ search: "not present" })
     ).toEqual([])
@@ -203,16 +210,16 @@ describe("design template repository", () => {
 
   it("requires source data for quotation styles and supports canonical apply identity", () => {
     expect(() =>
-      builtInDesignTemplateRepository.materialize("quotation-midnight-film", 2)
+      builtInDesignTemplateRepository.materialize("quotation-midnight-film", 3)
     ).toThrow("requires quotation source data")
     const canonical = builtInDesignTemplateRepository.materialize(
       "quotation-midnight-film",
-      2,
+      3,
       { quotation: northstarQuotationPayload, identity: "canonical" }
     )
     const fresh = builtInDesignTemplateRepository.materialize(
       "quotation-midnight-film",
-      2,
+      3,
       { quotation: northstarQuotationPayload }
     )
     expect(canonical.pages[0]?.id).toBe("quotation-page-1")
@@ -298,7 +305,7 @@ describe("template application impact", () => {
   it("reports structural and source-link transitions before replacement", () => {
     const current = builtInDesignTemplateRepository.materialize(
       "quotation-editorial-olive",
-      2,
+      3,
       { quotation: northstarQuotationPayload, identity: "canonical" }
     )
     const next = builtInDesignTemplateRepository.materialize(

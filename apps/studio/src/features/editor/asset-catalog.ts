@@ -1,15 +1,12 @@
 import { validateAssetFieldPublicationIdentities } from "@webmcp/document"
 import type { Document, ValidationIssue } from "@webmcp/document"
+import {
+  studioMediaManifest,
+  type StudioMediaManifestItem,
+} from "../../content/library/media/manifest"
 
-export type StudioAsset = {
-  id: string
-  version: number
-  contentSha256: string
-  name: string
-  description: string
-  tags: string[]
-  width: number
-  height: number
+export type StudioAsset = Omit<StudioMediaManifestItem, "resourcePath"> & {
+  resourcePath: null
   src: string
   license: string
 }
@@ -17,16 +14,42 @@ export type StudioAsset = {
 const svgDataUri = (svg: string) =>
   `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
 
+type LegacyStudioAssetDefinition = Pick<
+  StudioAsset,
+  "id" | "version" | "contentSha256" | "width" | "height"
+>
+
 const asset = (
-  definition: Omit<StudioAsset, "src" | "license">,
+  definition: LegacyStudioAssetDefinition,
   artwork: string
-): StudioAsset => ({
-  ...definition,
-  src: svgDataUri(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${definition.width}" height="${definition.height}" viewBox="0 0 ${definition.width} ${definition.height}">${artwork}</svg>`
-  ),
-  license: "Original Studio artwork",
-})
+): StudioAsset => {
+  const manifestItem = studioMediaManifest.find(
+    (candidate) => candidate.id === definition.id
+  )
+  if (!manifestItem) {
+    throw new Error(`Missing Studio media manifest item ${definition.id}`)
+  }
+  if (
+    manifestItem.width !== definition.width ||
+    manifestItem.height !== definition.height
+  ) {
+    throw new Error(`Studio media dimensions drifted for ${definition.id}`)
+  }
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${definition.width}" height="${definition.height}" viewBox="0 0 ${definition.width} ${definition.height}">${artwork}</svg>`
+  return {
+    ...manifestItem,
+    version: definition.version,
+    contentSha256: definition.contentSha256,
+    provenance: {
+      ...manifestItem.provenance,
+      contentSha256: definition.contentSha256,
+    },
+    resourcePath: null,
+    bytes: new TextEncoder().encode(svg).byteLength,
+    src: svgDataUri(svg),
+    license: manifestItem.provenance.license.name,
+  }
+}
 
 export const studioAssets: StudioAsset[] = [
   asset(
@@ -35,9 +58,6 @@ export const studioAssets: StudioAsset[] = [
       version: 1,
       contentSha256:
         "85cc8f05bda0255e74a2057f4d27c948eafaa4156bee4bab83f4e725bb056f24",
-      name: "Olive botanical",
-      description: "Soft botanical composition on warm ivory",
-      tags: ["botanical", "olive", "wedding", "editorial", "ivory"],
       width: 1200,
       height: 1500,
     },
@@ -49,9 +69,6 @@ export const studioAssets: StudioAsset[] = [
       version: 1,
       contentSha256:
         "9d439ee5bbcef006feb158ec818d9f3c69cf4206e8d2d166c29deb9c7c439571",
-      name: "Sandstone arches",
-      description: "Architectural arches with restrained earth tones",
-      tags: ["architecture", "arches", "sandstone", "travel", "minimal"],
       width: 1600,
       height: 1200,
     },
@@ -63,9 +80,6 @@ export const studioAssets: StudioAsset[] = [
       version: 1,
       contentSha256:
         "af55dfd6f6ed63652ebf6107bb66ec21de4aa0e00b5b52001ac9c017454a594c",
-      name: "Linen paper",
-      description: "Subtle woven paper texture for quiet backgrounds",
-      tags: ["paper", "linen", "texture", "neutral", "background"],
       width: 1400,
       height: 1400,
     },
@@ -77,9 +91,6 @@ export const studioAssets: StudioAsset[] = [
       version: 1,
       contentSha256:
         "f06daf3c63c4bc03ec13680269d20c068d51f21f8ee838720cb19197cc0c803d",
-      name: "Dusk blocks",
-      description: "Deep plum and clay geometric editorial study",
-      tags: ["abstract", "plum", "clay", "geometric", "modern"],
       width: 1600,
       height: 1000,
     },
@@ -91,9 +102,6 @@ export const studioAssets: StudioAsset[] = [
       version: 1,
       contentSha256:
         "c172e192873d1d354685e49c9fb4bef9bf3c4668026255bf76b053ea8d90988a",
-      name: "Floral linework",
-      description: "Fine ink flowers on a muted blush field",
-      tags: ["floral", "linework", "blush", "invitation", "delicate"],
       width: 1200,
       height: 1500,
     },
@@ -105,9 +113,6 @@ export const studioAssets: StudioAsset[] = [
       version: 1,
       contentSha256:
         "b85dca42ce5c01c6b5d419c127afd5420b313b0e91785eb12ee2bc9984ed3db4",
-      name: "Warm grain",
-      description: "Soft terracotta gradient with an organic grain",
-      tags: ["gradient", "terracotta", "warm", "grain", "background"],
       width: 1600,
       height: 1200,
     },

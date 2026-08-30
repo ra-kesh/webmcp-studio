@@ -136,7 +136,7 @@ test("catalog renders real previews and separates confirmed apply from fresh cre
   expect(restored?.sourceContext?.quotationSource).not.toBeNull()
   expect(restored?.sourceContext?.designTemplate).toEqual({
     id: "quotation-editorial-olive",
-    version: 2,
+    version: 3,
   })
 
   await page.getByRole("button", { name: /Editorial one-pager/ }).click()

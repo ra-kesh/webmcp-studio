@@ -33,9 +33,17 @@ describe("template catalog model", () => {
     ).toEqual(["editorial-one-pager"])
     expect(items.map(templateCatalogKey)).toEqual(sourceOrder)
     expect(templateCatalogCategories(items)).toEqual([
+      "Briefs",
+      "Carousels",
       "Documents",
+      "Invitations",
+      "Media kits",
+      "Presentations",
       "Proposals",
+      "Reports",
       "Social",
+      "Social posts",
+      "Stories",
     ])
   })
 

@@ -35,7 +35,6 @@ type ProjectionOptions = {
 
 export type DesignTemplateLibraryProjectionOptions = ProjectionOptions & {
   useCaseIds?: readonly string[]
-  attribution?: LibraryProvenance["attribution"]
 }
 
 export type CuratedLibraryMediaSource = Readonly<{
@@ -47,16 +46,17 @@ export type CuratedLibraryMediaSource = Readonly<{
   tags: readonly string[]
   width: number
   height: number
-  src: string
-  license: string
-}>
-
-export type CuratedLibraryMediaProjectionOptions = ProjectionOptions & {
+  mimeType: LibraryMediaSummary["mimeType"]
+  bytes: number
   categoryId: string
-  useCaseIds?: readonly string[]
+  useCaseIds: readonly string[]
+  formatFamily: string
   createdAt: string
   updatedAt: string
-}
+  provenance: LibraryProvenance
+}>
+
+export type CuratedLibraryMediaProjectionOptions = ProjectionOptions
 
 export type WorkspaceLibraryMediaMetadata = ProjectionOptions & {
   catalogVersion: number
@@ -89,7 +89,6 @@ export type LocalLibraryMediaMetadata = Omit<
 >
 
 type ProjectionFailureReason =
-  | "unsupported_provenance"
   | "unverifiable_use_case"
   | "invalid_curated_source"
   | "local_asset_archived"
@@ -112,7 +111,10 @@ export function projectDesignTemplateSummary(
   item: DesignTemplateCatalogItem,
   options: DesignTemplateLibraryProjectionOptions = {}
 ): LibraryTemplateSummary {
-  const useCaseIds = verifiedUseCaseIds(item.tags, options.useCaseIds ?? [])
+  const useCaseIds = verifiedUseCaseIds(
+    item.manifest.useCaseIds,
+    options.useCaseIds ?? item.manifest.useCaseIds
+  )
   const previewPage = item.previewDocument.pages.find(
     (page) => page.id === item.previewPageId
   )
@@ -122,7 +124,6 @@ export function projectDesignTemplateSummary(
       `Template ${item.id}@${item.version} has no matching preview page`
     )
   }
-  const attribution = options.attribution ?? internalTemplateAttribution(item)
   const dimensions = item.dimensions.map(({ width, height }) => ({
     width,
     height,
@@ -137,7 +138,7 @@ export function projectDesignTemplateSummary(
     description: item.description,
     categoryId: normalizeCatalogToken(item.category),
     useCaseIds,
-    formatFamily: templateFormatFamily(item),
+    formatFamily: normalizeCatalogToken(item.manifest.formatFamily),
     orientation: orientationForDimensions(dimensions),
     dimensions,
     pageCount: item.pageCount,
@@ -145,15 +146,15 @@ export function projectDesignTemplateSummary(
     owner: { kind: "studio" },
     permissions: options.permissions ?? defaultPermissions,
     provenance: {
-      sourceName: item.source.name,
-      sourceUrl: item.source.url ?? null,
+      sourceName: item.manifest.provenance.sourceName,
+      sourceUrl: item.manifest.provenance.sourceUrl,
       license: {
-        id: normalizeCatalogToken(item.source.license),
-        name: item.source.license,
-        url: null,
+        id: item.manifest.provenance.license.id,
+        name: item.manifest.provenance.license.name,
+        url: item.manifest.provenance.license.url,
       },
-      attribution,
-      contentSha256: null,
+      attribution: item.manifest.provenance.attribution,
+      contentSha256: item.manifest.provenance.contentSha256,
     },
     compatibility: {
       availability:
@@ -200,16 +201,8 @@ export function projectDesignTemplateDetail(
 
 export function projectCuratedMediaSummary(
   asset: CuratedLibraryMediaSource,
-  options: CuratedLibraryMediaProjectionOptions
+  options: CuratedLibraryMediaProjectionOptions = {}
 ): LibraryMediaSummary {
-  if (asset.license !== "Original Studio artwork") {
-    throw new LibraryCatalogProjectionError(
-      "unsupported_provenance",
-      `Curated media ${asset.id} needs explicit external provenance`
-    )
-  }
-  const source = inspectCuratedDataUri(asset.src)
-  const useCaseIds = verifiedUseCaseIds(asset.tags, options.useCaseIds ?? [])
   return libraryMediaSummarySchema.parse({
     schemaVersion: 1,
     itemKind: "media",
@@ -218,28 +211,18 @@ export function projectCuratedMediaSummary(
     mediaSource: "curated",
     name: asset.name,
     description: asset.description,
-    categoryId: normalizeCatalogToken(options.categoryId),
-    useCaseIds,
-    formatFamily: normalizeCatalogToken(source.mediaType.split("/").at(-1)!),
+    categoryId: normalizeCatalogToken(asset.categoryId),
+    useCaseIds: normalizedValues(asset.useCaseIds),
+    formatFamily: normalizeCatalogToken(asset.formatFamily),
     orientation: orientationForDimensions([asset]),
-    mimeType: source.mediaType,
+    mimeType: asset.mimeType,
     dimensions: { width: asset.width, height: asset.height },
-    bytes: source.bytes,
+    bytes: asset.bytes,
     selectable: (options.permissions ?? defaultPermissions).canUse,
     tags: normalizedValues(asset.tags),
     owner: { kind: "studio" },
     permissions: options.permissions ?? defaultPermissions,
-    provenance: {
-      sourceName: "Studio originals",
-      sourceUrl: null,
-      license: {
-        id: normalizeCatalogToken(asset.license),
-        name: asset.license,
-        url: null,
-      },
-      attribution: { required: false, text: null },
-      contentSha256: asset.contentSha256,
-    },
+    provenance: asset.provenance,
     compatibility: mediaCompatibility(),
     preview:
       options.preview ??
@@ -247,8 +230,8 @@ export function projectCuratedMediaSummary(
     preferences: options.preferences ?? noPreferences,
     catalogStatus: "active",
     curatedRank: options.curatedRank ?? null,
-    createdAt: options.createdAt,
-    updatedAt: options.updatedAt,
+    createdAt: asset.createdAt,
+    updatedAt: asset.updatedAt,
   })
 }
 
@@ -383,36 +366,6 @@ export function projectLocalMediaDetail(
   })
 }
 
-function internalTemplateAttribution(item: DesignTemplateCatalogItem) {
-  if (
-    item.source.name === "Studio originals" &&
-    item.source.license === "Internal"
-  ) {
-    return { required: false, text: null } as const
-  }
-  throw new LibraryCatalogProjectionError(
-    "unsupported_provenance",
-    `Template ${item.id}@${item.version} needs explicit attribution metadata`
-  )
-}
-
-function templateFormatFamily(item: DesignTemplateCatalogItem) {
-  const pageOutputIds = new Set(
-    item.previewDocument.pages.map((page) => page.outputId)
-  )
-  const families = normalizedValues(
-    item.previewDocument.outputs
-      .filter((output) => pageOutputIds.has(output.id))
-      .map((output) => output.kind)
-  )
-  if (families.length === 1) return families[0]!
-  if (families.length > 1) return "mixed"
-  throw new LibraryCatalogProjectionError(
-    "invalid_curated_source",
-    `Template ${item.id}@${item.version} has no output format`
-  )
-}
-
 function verifiedUseCaseIds(
   sourceTags: readonly string[],
   requested: readonly string[]
@@ -490,37 +443,6 @@ function mediaCompatibility() {
     requirements: [],
     supportedActions: ["insert", "replace", "assign_field"] as const,
     reason: null,
-  }
-}
-
-function inspectCuratedDataUri(src: string) {
-  if (!src.startsWith("data:")) {
-    throw new LibraryCatalogProjectionError(
-      "invalid_curated_source",
-      "Curated media source must be an existing data URI"
-    )
-  }
-  const separator = src.indexOf(",")
-  if (separator < 6) {
-    throw new LibraryCatalogProjectionError(
-      "invalid_curated_source",
-      "Curated media data URI is malformed"
-    )
-  }
-  const header = src.slice(5, separator)
-  const mediaType = header.split(";", 1)[0]
-  const payload = src.slice(separator + 1)
-  try {
-    const bytes = header.split(";").includes("base64")
-      ? atob(payload).length
-      : new TextEncoder().encode(decodeURIComponent(payload)).byteLength
-    if (!mediaType || bytes < 1) throw new Error("Empty curated media")
-    return { mediaType, bytes }
-  } catch {
-    throw new LibraryCatalogProjectionError(
-      "invalid_curated_source",
-      "Curated media data URI cannot be decoded"
-    )
   }
 }
 

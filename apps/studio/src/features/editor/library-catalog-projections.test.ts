@@ -23,16 +23,6 @@ import { studioAssets } from "./asset-catalog"
 import type { LocalAssetSummary } from "./local-asset-store"
 
 const catalogTimestamp = "2026-08-31T00:00:00.000Z"
-const templateUseCaseTags = new Set([
-  "announcement",
-  "brief",
-  "event",
-  "launch",
-  "proposal",
-  "quotation",
-  "wedding",
-])
-
 const workspaceProvenance: LibraryProvenance = {
   sourceName: "Workspace upload",
   sourceUrl: null,
@@ -76,11 +66,16 @@ describe("library catalog source projections", () => {
     const summaries = sourceItems.map((item, index) =>
       projectDesignTemplateSummary(item, {
         curatedRank: index,
-        useCaseIds: item.tags.filter((tag) => templateUseCaseTags.has(tag)),
       })
     )
 
-    expect(summaries).toHaveLength(5)
+    expect(summaries).toHaveLength(sourceItems.length)
+    expect(
+      summaries.filter((summary) => summary.templateKind === "document_starter")
+    ).toHaveLength(18)
+    expect(
+      summaries.filter((summary) => summary.templateKind === "quotation_style")
+    ).toHaveLength(3)
     expect(summaries.map((summary) => summary.id)).toEqual(
       sourceItems.map((item) => item.id)
     )
@@ -92,9 +87,12 @@ describe("library catalog source projections", () => {
         pageCount: source.pageCount,
         owner: { kind: "studio" },
         provenance: {
-          sourceName: source.source.name,
-          license: { name: source.source.license },
+          sourceName: source.manifest.provenance.sourceName,
+          license: { name: source.manifest.provenance.license.name },
+          contentSha256: source.manifest.provenance.contentSha256,
         },
+        formatFamily: source.manifest.formatFamily,
+        useCaseIds: source.manifest.useCaseIds,
       })
       expect(summary.dimensions).toEqual(source.dimensions)
       expect(summary.preview.pageId).toBe(source.previewPageId)
@@ -120,12 +118,6 @@ describe("library catalog source projections", () => {
   it("projects all current curated Studio assets without exposing their data URIs", () => {
     const summaries = studioAssets.map((asset, index) =>
       projectCuratedMediaSummary(asset, {
-        categoryId: asset.tags[0]!,
-        useCaseIds: asset.tags.filter((tag) =>
-          ["background", "invitation", "travel", "wedding"].includes(tag)
-        ),
-        createdAt: catalogTimestamp,
-        updatedAt: catalogTimestamp,
         curatedRank: index,
       })
     )
@@ -151,11 +143,7 @@ describe("library catalog source projections", () => {
       expect(JSON.stringify(summary)).not.toContain("data:image")
     }
 
-    const detail = projectCuratedMediaDetail(studioAssets[0]!, {
-      categoryId: studioAssets[0]!.tags[0]!,
-      createdAt: catalogTimestamp,
-      updatedAt: catalogTimestamp,
-    })
+    const detail = projectCuratedMediaDetail(studioAssets[0]!, {})
     expect(detail.selectionIdentity).toEqual({
       source: "curated",
       assetId: studioAssets[0]!.id,
@@ -276,17 +264,10 @@ describe("library catalog source projections", () => {
       .map((item, index) =>
         projectDesignTemplateSummary(item, {
           curatedRank: index,
-          useCaseIds: item.tags.filter((tag) => templateUseCaseTags.has(tag)),
         })
       )
     const media = studioAssets.map((asset, index) =>
       projectCuratedMediaSummary(asset, {
-        categoryId: asset.tags[0]!,
-        useCaseIds: asset.tags.filter((tag) =>
-          ["background", "invitation", "travel", "wedding"].includes(tag)
-        ),
-        createdAt: catalogTimestamp,
-        updatedAt: catalogTimestamp,
         curatedRank: templates.length + index,
       })
     )
@@ -309,21 +290,15 @@ describe("library catalog source projections", () => {
         })
         .items.map((item) => item.id)
     ).toContain("editorial-one-pager")
-    expect(catalog.list({ generation: "all-current" }).total).toBe(11)
+    expect(catalog.list({ generation: "all-current" }).total).toBe(
+      templates.length + media.length
+    )
   })
 
   it("does not promote new use cases that are absent from source tags", () => {
     const template = builtInDesignTemplateRepository.list()[0]!
     expect(() =>
       projectDesignTemplateSummary(template, { useCaseIds: ["annual-report"] })
-    ).toThrow(LibraryCatalogProjectionError)
-    expect(() =>
-      projectCuratedMediaSummary(studioAssets[0]!, {
-        categoryId: studioAssets[0]!.tags[0]!,
-        useCaseIds: ["annual-report"],
-        createdAt: catalogTimestamp,
-        updatedAt: catalogTimestamp,
-      })
     ).toThrow(LibraryCatalogProjectionError)
   })
 })
