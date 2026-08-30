@@ -3463,3 +3463,19 @@ Status: **implemented and locally accepted; Gate 3E remains**
   retained its existing override count, saved and produced no runtime errors;
   the fixture was restored through Undo and Reset all.
 - Gate 3E is the remaining compact real-use acceptance gate.
+
+## 2026-08-30 — COMPONENT-01 Gate 3E compact acceptance
+
+Status: **accepted; Gate 3 complete**
+
+- Re-read the component compact contract and verified the shared document and
+  Inspector projections at an 820 × 900 viewport in the live port-3001 app.
+- Compact Assets exposed the actual component preview, search, insertion and
+  source action. Compact Layers retained expandable main-component and instance
+  roots, and compact Properties exposed variant, source, reset and detach
+  controls for the selected real 9-layer instance.
+- Main-component navigation returned to the source and exposed its independent
+  name, default variant and linked usage. The saved fixture was not cleared or
+  structurally mutated.
+- COMPONENT-01 Gate 3 is complete. Gate 4 begins with template portability,
+  then Review and WebMCP/API command parity.

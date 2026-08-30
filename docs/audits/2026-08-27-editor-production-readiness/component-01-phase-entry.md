@@ -404,3 +404,24 @@ active**
   errors were recorded.
 
 Gate 3E compact real-use acceptance remains before Gate 3 closes.
+
+## Gate 3E result — compact real-use acceptance
+
+Status: **accepted on 2026-08-30; Gate 3 complete**
+
+- Revisited the retained compact-layout contract and both shared
+  `QuotationSidebar` and `InspectorSidebar` mounts before acceptance.
+- At an 820 × 900 viewport, the compact Document sheet exposes the Components
+  Assets surface, searchable component preview, insertion action and source
+  navigation without substituting the image/media library.
+- Compact Layers preserves both the main-component and instance roots as
+  expandable trees with their semantic identities and ordinary child layers.
+- Selecting the real 9-layer instance from compact Layers opens the compact
+  Inspector with variant, source navigation, override count, Reset all and
+  Detach controls before ordinary geometry. Source navigation returns to the
+  real main component and exposes its name, default variant and linked usage.
+- The acceptance used the running port-3001 application and the existing saved
+  document without clearing browser storage or mutating the fixture.
+
+Gate 3 is closed. Gate 4 now owns template portability, Review and WebMCP/API
+parity.
