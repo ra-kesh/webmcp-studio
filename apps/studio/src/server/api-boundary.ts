@@ -178,6 +178,20 @@ const normalizedApiPath = (request: Request) => {
       "/v1/studio/templates/:templateId"
     )
     .replace(
+      /^\/v1\/studio\/library\/items\/[^/]+\/[^/]+\/versions\/[^/]+(?:\/(favorite|used))?$/,
+      (_match, suffix: string | undefined) =>
+        `/v1/studio/library/items/:itemKind/:itemId/versions/:version${suffix ? `/${suffix}` : ""}`
+    )
+    .replace(
+      /^\/v1\/studio\/library\/collections\/[^/]+\/items\/[^/]+\/[^/]+\/versions\/[^/]+$/,
+      "/v1/studio/library/collections/:collectionId/items/:itemKind/:itemId/versions/:version"
+    )
+    .replace(
+      /^\/v1\/studio\/library\/collections\/[^/]+(?:\/(order))?$/,
+      (_match, suffix: string | undefined) =>
+        `/v1/studio/library/collections/:collectionId${suffix ? `/${suffix}` : ""}`
+    )
+    .replace(
       /^\/v1\/renders\/[^/]+\/outputs\/[^/]+$/,
       "/v1/renders/:renderId/outputs/:outputId"
     )

@@ -247,6 +247,61 @@ describe("API boundary", () => {
     )
   })
 
+  it("normalizes every dynamic library identity out of audit paths", async () => {
+    const cases = [
+      [
+        "PUT",
+        "/v1/studio/library/items/template/private-proposal/versions/7/favorite",
+        "/v1/studio/library/items/:itemKind/:itemId/versions/:version/favorite",
+      ],
+      [
+        "GET",
+        "/v1/studio/library/items/media/private-photo/versions/3",
+        "/v1/studio/library/items/:itemKind/:itemId/versions/:version",
+      ],
+      [
+        "PATCH",
+        "/v1/studio/library/collections/collection-private-client",
+        "/v1/studio/library/collections/:collectionId",
+      ],
+      [
+        "PUT",
+        "/v1/studio/library/collections/collection-private-client/order",
+        "/v1/studio/library/collections/:collectionId/order",
+      ],
+      [
+        "DELETE",
+        "/v1/studio/library/collections/collection-private-client/items/template/private-proposal/versions/7",
+        "/v1/studio/library/collections/:collectionId/items/:itemKind/:itemId/versions/:version",
+      ],
+    ] as const
+
+    for (const [method, path, expectedPath] of cases) {
+      const db = database()
+      const requestId = `request-library-${method.toLowerCase()}`
+      const result = await finalizeApiResponse(
+        db as unknown as D1Database,
+        new Request(`https://studio.test${path}`, { method }),
+        Response.json({ ok: true }),
+        requestId,
+        performance.now()
+      )
+      await result.audit
+      expect(db.prepare.mock.results[0]?.value.bind).toHaveBeenCalledWith(
+        requestId,
+        expect.any(String),
+        method,
+        expectedPath,
+        200,
+        expect.any(Number),
+        null,
+        null,
+        null,
+        0
+      )
+    }
+  })
+
   it("normalizes GET on the static resolve file as the valid alias literal", async () => {
     const db = database()
     const request = new Request(
