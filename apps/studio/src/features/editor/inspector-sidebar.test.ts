@@ -64,6 +64,9 @@ describe("InspectorSidebar image replacement capability", () => {
       })
     )
 
+    expect(markup).toContain("Name in Layers")
+    expect(markup).toContain('data-slot="inspector-section"')
+    expect(markup).toContain(">Image</h3>")
     expect(markup).toContain(reason)
     expect(markup).toMatch(
       /<button[^>]*aria-describedby="[^"]+"[^>]*disabled=""[^>]*>[^<]*<svg[^>]*>.*Replace image…<\/button>/

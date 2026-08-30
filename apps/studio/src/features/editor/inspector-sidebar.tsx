@@ -198,6 +198,31 @@ export function reviewTargetExists(
 
 const FieldLabel = InspectorSectionLabel
 
+function InspectorSection({
+  title,
+  children,
+  className,
+  ...props
+}: React.ComponentProps<"section"> & { title: string }) {
+  return (
+    <section
+      data-slot="inspector-section"
+      className={cn(
+        "border-b border-border/80 px-3 pb-3 transition-colors outline-none",
+        className
+      )}
+      {...props}
+    >
+      <div className="flex h-8 min-w-0 items-center">
+        <h3 className="truncate text-[11px] leading-4 font-semibold">
+          {title}
+        </h3>
+      </div>
+      <div className="flex min-w-0 flex-col gap-3">{children}</div>
+    </section>
+  )
+}
+
 const inspectorValue = (value: number): InspectorSharedValue<number> => ({
   kind: "value",
   value,
@@ -358,16 +383,16 @@ function NodeInspector({
         data-inspector-property="visible"
         tabIndex={-1}
         className={cn(
-          "flex scroll-mt-2 flex-col gap-3 px-3 py-3.5 transition-colors outline-none",
+          "flex scroll-mt-2 flex-col gap-3 border-b border-border/80 px-3 py-3 transition-colors outline-none",
           focusedProperty === "visible" &&
             "bg-accent/70 ring-2 ring-ring ring-inset"
         )}
       >
         <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-xs font-medium">Selected layer</p>
-            <p className="mt-0.5 text-[10px] text-muted-foreground">
-              Edit its identity or visible properties below.
+          <div className="min-w-0">
+            <h2 className="truncate text-xs font-semibold">{node.name}</h2>
+            <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
+              Selected {nodeTypeLabel.toLocaleLowerCase()} layer
             </p>
           </div>
           <Badge variant="outline" className="font-normal">
@@ -376,7 +401,7 @@ function NodeInspector({
         </div>
         <div className="flex items-end gap-2">
           <label className="min-w-0 flex-1 space-y-1.5">
-            <FieldLabel>Layer name</FieldLabel>
+            <FieldLabel>Name in Layers</FieldLabel>
             <CommitInput
               value={node.name}
               disabled={nodeMutationDisabled}
@@ -402,9 +427,9 @@ function NodeInspector({
             {node.locked ? <Lock /> : <Unlock />}
           </Button>
         </div>
-        <p className="text-[10px] leading-4 text-muted-foreground">
-          Used to identify this object in Layers. It does not change the visible
-          content.
+        <p className="text-[11px] leading-4 text-muted-foreground">
+          Identifies this object in Layers only. For text layers, visible copy
+          is edited under Typography.
         </p>
         {node.locked ? (
           <p
@@ -417,18 +442,14 @@ function NodeInspector({
         ) : null}
       </section>
 
-      <Separator />
-      <section className="flex flex-col gap-3 px-3 py-3.5">
-        <FieldLabel>Align to page</FieldLabel>
+      <InspectorSection title="Align to page">
         <AlignmentGrid
           onAlign={onAlignToPage}
           disabled={nodeMutationDisabled}
         />
-      </section>
+      </InspectorSection>
 
-      <Separator />
-      <section className="flex flex-col gap-3 px-3 py-3.5">
-        <FieldLabel>Position &amp; size</FieldLabel>
+      <InspectorSection title="Position & size">
         <div className="grid grid-cols-2 gap-2">
           <InspectorNumberField
             label="X"
@@ -463,26 +484,25 @@ function NodeInspector({
           disabled={node.locked}
           onCommit={(rotation) => commitFrameGeometry({ rotation })}
         />
-      </section>
+      </InspectorSection>
 
-      <Separator />
-      <section className="flex flex-col gap-3 px-3 py-3.5">
+      <InspectorSection title="Opacity">
         <CommitPercentSlider
           label="Opacity"
           value={node.opacity * 100}
           disabled={nodeMutationDisabled}
           onCommit={(opacity) => onUpdate({ opacity: opacity / 100 })}
         />
-      </section>
+      </InspectorSection>
 
       {inspector.capabilities.text && node.type === "text" ? (
         <>
-          <Separator />
-          <section
+          <InspectorSection
+            title="Typography"
             data-inspector-property="text"
             tabIndex={-1}
             className={cn(
-              "flex scroll-mt-2 flex-col gap-3 px-3 py-3.5 transition-colors outline-none",
+              "scroll-mt-2",
               focusedProperty === "text" &&
                 "bg-accent/70 ring-2 ring-ring ring-inset"
             )}
@@ -721,495 +741,483 @@ function NodeInspector({
                 </ToggleGroup>
               </div>
             </div>
-          </section>
+          </InspectorSection>
         </>
       ) : null}
 
       {inspector.capabilities.cornerRadius && node.type === "rect" ? (
-        <>
-          <Separator />
-          <section
-            data-inspector-property="fill"
-            tabIndex={-1}
-            className={cn(
-              "flex scroll-mt-2 flex-col gap-3 px-3 py-3.5 transition-colors outline-none",
-              focusedProperty === "fill" &&
-                "bg-accent/70 ring-2 ring-ring ring-inset"
-            )}
-          >
-            <InspectorColorField
-              label="Fill"
-              value={node.fill}
-              disabled={imageTransformDisabled}
-              onCommit={(fill) => onUpdate({ fill })}
-            />
-            <InspectorNumberField
-              label="Corner radius"
-              value={inspectorValue(node.radius)}
-              min={0}
-              disabled={node.locked}
-              onCommit={(radius) => onUpdate({ radius })}
-            />
-            <InspectorColorField
-              label="Stroke"
-              value={node.stroke ?? "#1e2622"}
-              disabled={node.locked}
-              onCommit={(stroke) => onUpdate({ stroke })}
-            />
-            <InspectorNumberField
-              label="Stroke width"
-              value={inspectorValue(node.strokeWidth)}
-              min={0}
-              disabled={node.locked}
-              onCommit={(strokeWidth) => onUpdate({ strokeWidth })}
-            />
-          </section>
-        </>
+        <InspectorSection
+          title="Appearance"
+          data-inspector-property="fill"
+          tabIndex={-1}
+          className={cn(
+            "scroll-mt-2",
+            focusedProperty === "fill" &&
+              "bg-accent/70 ring-2 ring-ring ring-inset"
+          )}
+        >
+          <InspectorColorField
+            label="Fill"
+            value={node.fill}
+            disabled={imageTransformDisabled}
+            onCommit={(fill) => onUpdate({ fill })}
+          />
+          <InspectorNumberField
+            label="Corner radius"
+            value={inspectorValue(node.radius)}
+            min={0}
+            disabled={node.locked}
+            onCommit={(radius) => onUpdate({ radius })}
+          />
+          <InspectorColorField
+            label="Stroke"
+            value={node.stroke ?? "#1e2622"}
+            disabled={node.locked}
+            onCommit={(stroke) => onUpdate({ stroke })}
+          />
+          <InspectorNumberField
+            label="Stroke width"
+            value={inspectorValue(node.strokeWidth)}
+            min={0}
+            disabled={node.locked}
+            onCommit={(strokeWidth) => onUpdate({ strokeWidth })}
+          />
+        </InspectorSection>
       ) : null}
 
       {inspector.capabilities.fill &&
       (node.type === "ellipse" || node.type === "icon") ? (
-        <>
-          <Separator />
-          <section
-            data-inspector-property="fill"
-            tabIndex={-1}
-            className={cn(
-              "flex scroll-mt-2 flex-col gap-3 px-3 py-3.5 transition-colors outline-none",
-              focusedProperty === "fill" &&
-                "bg-accent/70 ring-2 ring-ring ring-inset"
-            )}
-          >
-            <InspectorColorField
-              label="Fill"
-              value={node.fill}
-              disabled={node.locked}
-              onCommit={(fill) => onUpdate({ fill })}
-            />
-            <InspectorColorField
-              label="Stroke"
-              value={node.stroke ?? "#1e2622"}
-              disabled={node.locked}
-              onCommit={(stroke) => onUpdate({ stroke })}
-            />
-            <InspectorNumberField
-              label="Stroke width"
-              value={inspectorValue(node.strokeWidth)}
-              min={0}
-              disabled={node.locked}
-              onCommit={(strokeWidth) => onUpdate({ strokeWidth })}
-            />
-          </section>
-        </>
+        <InspectorSection
+          title="Appearance"
+          data-inspector-property="fill"
+          tabIndex={-1}
+          className={cn(
+            "scroll-mt-2",
+            focusedProperty === "fill" &&
+              "bg-accent/70 ring-2 ring-ring ring-inset"
+          )}
+        >
+          <InspectorColorField
+            label="Fill"
+            value={node.fill}
+            disabled={node.locked}
+            onCommit={(fill) => onUpdate({ fill })}
+          />
+          <InspectorColorField
+            label="Stroke"
+            value={node.stroke ?? "#1e2622"}
+            disabled={node.locked}
+            onCommit={(stroke) => onUpdate({ stroke })}
+          />
+          <InspectorNumberField
+            label="Stroke width"
+            value={inspectorValue(node.strokeWidth)}
+            min={0}
+            disabled={node.locked}
+            onCommit={(strokeWidth) => onUpdate({ strokeWidth })}
+          />
+        </InspectorSection>
       ) : null}
 
       {inspector.capabilities.stroke && node.type === "line" ? (
-        <>
-          <Separator />
-          <section className="flex flex-col gap-3 px-3 py-3.5">
-            <InspectorColorField
-              label="Stroke"
-              value={node.stroke}
-              disabled={node.locked}
-              onCommit={(stroke) => onUpdate({ stroke })}
-            />
-            <InspectorNumberField
-              label="Stroke width"
-              value={inspectorValue(node.strokeWidth)}
-              min={0.1}
-              disabled={node.locked}
-              onCommit={(strokeWidth) => onUpdate({ strokeWidth })}
-            />
-          </section>
-        </>
+        <InspectorSection title="Appearance">
+          <InspectorColorField
+            label="Stroke"
+            value={node.stroke}
+            disabled={node.locked}
+            onCommit={(stroke) => onUpdate({ stroke })}
+          />
+          <InspectorNumberField
+            label="Stroke width"
+            value={inspectorValue(node.strokeWidth)}
+            min={0.1}
+            disabled={node.locked}
+            onCommit={(strokeWidth) => onUpdate({ strokeWidth })}
+          />
+        </InspectorSection>
       ) : null}
 
       {inspector.capabilities.image && node.type === "image" ? (
-        <>
-          <Separator />
-          <section
-            data-inspector-property="src"
-            tabIndex={-1}
-            className={cn(
-              "flex scroll-mt-2 flex-col gap-3 px-3 py-3.5 transition-colors outline-none",
-              focusedProperty === "src" &&
-                "bg-accent/70 ring-2 ring-ring ring-inset"
-            )}
-          >
+        <InspectorSection
+          title="Image"
+          data-inspector-property="src"
+          tabIndex={-1}
+          className={cn(
+            "scroll-mt-2",
+            focusedProperty === "src" &&
+              "bg-accent/70 ring-2 ring-ring ring-inset"
+          )}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <FieldLabel>Image placement</FieldLabel>
+            <ToggleGroup
+              type="single"
+              size="sm"
+              spacing={0}
+              variant="outline"
+              value={node.placement.mode}
+              disabled={imageTransformDisabled}
+              onValueChange={(mode) => {
+                if (mode === "fill") onRunImageCommand("image.fill")
+                if (mode === "fit") onRunImageCommand("image.fit")
+              }}
+            >
+              <ToggleGroupItem
+                value="fill"
+                disabled={!isImageCommandEnabled("image.fill")}
+              >
+                Fill
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="fit"
+                disabled={!isImageCommandEnabled("image.fit")}
+              >
+                Fit
+              </ToggleGroupItem>
+            </ToggleGroup>
+          </div>
+          <CommitPercentSlider
+            label="Horizontal focus"
+            value={node.placement.focalX * 100}
+            disabled={imageTransformDisabled}
+            onCommit={(focalX) =>
+              onSetImagePlacement(node.id, {
+                ...node.placement,
+                focalX: focalX / 100,
+              })
+            }
+          />
+          <CommitPercentSlider
+            label="Vertical focus"
+            value={node.placement.focalY * 100}
+            disabled={imageTransformDisabled}
+            onCommit={(focalY) =>
+              onSetImagePlacement(node.id, {
+                ...node.placement,
+                focalY: focalY / 100,
+              })
+            }
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <InspectorNumberField
+              label="Image zoom"
+              value={inspectorValue(node.placement.zoom * 100)}
+              min={5}
+              max={6400}
+              suffix="%"
+              disabled={imageTransformDisabled}
+              onCommit={(zoom) =>
+                onSetImagePlacement(node.id, {
+                  ...node.placement,
+                  mode:
+                    node.placement.mode === "fill"
+                      ? "manual"
+                      : node.placement.mode,
+                  zoom: zoom / 100,
+                })
+              }
+            />
+            <InspectorNumberField
+              label="Image rotation"
+              value={inspectorValue(node.placement.rotation)}
+              min={-180}
+              max={180}
+              suffix="°"
+              disabled={imageTransformDisabled}
+              onCommit={(rotation) =>
+                onSetImagePlacement(node.id, {
+                  ...node.placement,
+                  rotation,
+                })
+              }
+            />
+          </div>
+          <div className="space-y-2">
+            <FieldLabel>Flip image</FieldLabel>
+            <ToggleGroup
+              type="multiple"
+              size="sm"
+              spacing={0}
+              variant="outline"
+              value={imageFlipValues(node.placement)}
+              disabled={imageTransformDisabled}
+              aria-label="Flip image"
+              onValueChange={(values) => {
+                if (values.includes("horizontal") !== node.placement.flipX) {
+                  onRunImageCommand("image.flip-horizontal")
+                }
+                if (values.includes("vertical") !== node.placement.flipY) {
+                  onRunImageCommand("image.flip-vertical")
+                }
+              }}
+            >
+              <ToggleGroupItem
+                value="horizontal"
+                aria-label="Flip image horizontally"
+                className="flex-1"
+                disabled={!isImageCommandEnabled("image.flip-horizontal")}
+              >
+                <FlipHorizontal2 aria-hidden="true" />
+                Horizontal
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="vertical"
+                aria-label="Flip image vertically"
+                className="flex-1"
+                disabled={!isImageCommandEnabled("image.flip-vertical")}
+              >
+                <FlipVertical2 aria-hidden="true" />
+                Vertical
+              </ToggleGroupItem>
+            </ToggleGroup>
+          </div>
+          <div className="space-y-2 border-t pt-3">
             <div className="flex items-center justify-between gap-3">
-              <FieldLabel>Image placement</FieldLabel>
+              <FieldLabel>Image frame</FieldLabel>
               <ToggleGroup
                 type="single"
                 size="sm"
                 spacing={0}
                 variant="outline"
-                value={node.placement.mode}
-                disabled={imageTransformDisabled}
-                onValueChange={(mode) => {
-                  if (mode === "fill") onRunImageCommand("image.fill")
-                  if (mode === "fit") onRunImageCommand("image.fit")
+                value={node.frameMask.shape}
+                disabled={imageFrameDisabled}
+                onValueChange={(type) => {
+                  const commandByShape: Partial<
+                    Record<string, EditorImageFrameCommandId>
+                  > = {
+                    rectangle: "image.frame.rectangle",
+                    rounded_rectangle: "image.frame.rounded-rectangle",
+                    ellipse: "image.frame.ellipse",
+                  }
+                  const commandId = commandByShape[type]
+                  if (commandId) onRunImageCommand(commandId)
                 }}
               >
                 <ToggleGroupItem
-                  value="fill"
-                  disabled={!isImageCommandEnabled("image.fill")}
+                  value="rectangle"
+                  disabled={!isImageCommandEnabled("image.frame.rectangle")}
                 >
-                  Fill
+                  Rectangle
                 </ToggleGroupItem>
                 <ToggleGroupItem
-                  value="fit"
-                  disabled={!isImageCommandEnabled("image.fit")}
+                  value="rounded_rectangle"
+                  disabled={
+                    !isImageCommandEnabled("image.frame.rounded-rectangle")
+                  }
                 >
-                  Fit
+                  Rounded
+                </ToggleGroupItem>
+                <ToggleGroupItem
+                  value="ellipse"
+                  disabled={!isImageCommandEnabled("image.frame.ellipse")}
+                >
+                  Ellipse
                 </ToggleGroupItem>
               </ToggleGroup>
             </div>
-            <CommitPercentSlider
-              label="Horizontal focus"
-              value={node.placement.focalX * 100}
-              disabled={imageTransformDisabled}
-              onCommit={(focalX) =>
-                onSetImagePlacement(node.id, {
-                  ...node.placement,
-                  focalX: focalX / 100,
-                })
-              }
-            />
-            <CommitPercentSlider
-              label="Vertical focus"
-              value={node.placement.focalY * 100}
-              disabled={imageTransformDisabled}
-              onCommit={(focalY) =>
-                onSetImagePlacement(node.id, {
-                  ...node.placement,
-                  focalY: focalY / 100,
-                })
-              }
-            />
-            <div className="grid grid-cols-2 gap-2">
-              <InspectorNumberField
-                label="Image zoom"
-                value={inspectorValue(node.placement.zoom * 100)}
-                min={5}
-                max={6400}
-                suffix="%"
-                disabled={imageTransformDisabled}
-                onCommit={(zoom) =>
-                  onSetImagePlacement(node.id, {
-                    ...node.placement,
-                    mode:
-                      node.placement.mode === "fill"
-                        ? "manual"
-                        : node.placement.mode,
-                    zoom: zoom / 100,
+            {node.frameMask.shape === "rounded_rectangle" ? (
+              <CommitPercentSlider
+                label="Corner radius"
+                value={node.frameMask.radius * 200}
+                disabled={imageFrameDisabled}
+                onCommit={(radius) =>
+                  onSetImageFrameMask(node.id, {
+                    shape: "rounded_rectangle",
+                    radius: radius / 200,
                   })
                 }
               />
-              <InspectorNumberField
-                label="Image rotation"
-                value={inspectorValue(node.placement.rotation)}
-                min={-180}
-                max={180}
-                suffix="°"
-                disabled={imageTransformDisabled}
-                onCommit={(rotation) =>
-                  onSetImagePlacement(node.id, {
-                    ...node.placement,
-                    rotation,
+            ) : null}
+          </div>
+          <div className="space-y-2 border-t pt-3">
+            <div className="flex items-start gap-2.5 text-xs">
+              <Checkbox
+                id={decorativeCheckboxId}
+                className="mt-0.5"
+                checked={node.decorative}
+                disabled={nodeMutationDisabled}
+                onCheckedChange={(checked) =>
+                  onUpdate({
+                    decorative: checked === true,
+                    ...(checked === true ? { alt: "" } : {}),
                   })
                 }
               />
+              <label htmlFor={decorativeCheckboxId}>
+                <span className="block font-medium">Decorative image</span>
+                <span className="mt-0.5 block text-muted-foreground">
+                  Screen readers will skip this image.
+                </span>
+              </label>
             </div>
-            <div className="space-y-2">
-              <FieldLabel>Flip image</FieldLabel>
-              <ToggleGroup
-                type="multiple"
-                size="sm"
-                spacing={0}
-                variant="outline"
-                value={imageFlipValues(node.placement)}
-                disabled={imageTransformDisabled}
-                aria-label="Flip image"
-                onValueChange={(values) => {
-                  if (values.includes("horizontal") !== node.placement.flipX) {
-                    onRunImageCommand("image.flip-horizontal")
-                  }
-                  if (values.includes("vertical") !== node.placement.flipY) {
-                    onRunImageCommand("image.flip-vertical")
-                  }
-                }}
-              >
-                <ToggleGroupItem
-                  value="horizontal"
-                  aria-label="Flip image horizontally"
-                  className="flex-1"
-                  disabled={!isImageCommandEnabled("image.flip-horizontal")}
-                >
-                  <FlipHorizontal2 aria-hidden="true" />
-                  Horizontal
-                </ToggleGroupItem>
-                <ToggleGroupItem
-                  value="vertical"
-                  aria-label="Flip image vertically"
-                  className="flex-1"
-                  disabled={!isImageCommandEnabled("image.flip-vertical")}
-                >
-                  <FlipVertical2 aria-hidden="true" />
-                  Vertical
-                </ToggleGroupItem>
-              </ToggleGroup>
-            </div>
-            <div className="space-y-2 border-t pt-3">
-              <div className="flex items-center justify-between gap-3">
-                <FieldLabel>Image frame</FieldLabel>
-                <ToggleGroup
-                  type="single"
-                  size="sm"
-                  spacing={0}
-                  variant="outline"
-                  value={node.frameMask.shape}
-                  disabled={imageFrameDisabled}
-                  onValueChange={(type) => {
-                    const commandByShape: Partial<
-                      Record<string, EditorImageFrameCommandId>
-                    > = {
-                      rectangle: "image.frame.rectangle",
-                      rounded_rectangle: "image.frame.rounded-rectangle",
-                      ellipse: "image.frame.ellipse",
-                    }
-                    const commandId = commandByShape[type]
-                    if (commandId) onRunImageCommand(commandId)
-                  }}
-                >
-                  <ToggleGroupItem
-                    value="rectangle"
-                    disabled={!isImageCommandEnabled("image.frame.rectangle")}
-                  >
-                    Rectangle
-                  </ToggleGroupItem>
-                  <ToggleGroupItem
-                    value="rounded_rectangle"
-                    disabled={
-                      !isImageCommandEnabled("image.frame.rounded-rectangle")
-                    }
-                  >
-                    Rounded
-                  </ToggleGroupItem>
-                  <ToggleGroupItem
-                    value="ellipse"
-                    disabled={!isImageCommandEnabled("image.frame.ellipse")}
-                  >
-                    Ellipse
-                  </ToggleGroupItem>
-                </ToggleGroup>
-              </div>
-              {node.frameMask.shape === "rounded_rectangle" ? (
-                <CommitPercentSlider
-                  label="Corner radius"
-                  value={node.frameMask.radius * 200}
-                  disabled={imageFrameDisabled}
-                  onCommit={(radius) =>
-                    onSetImageFrameMask(node.id, {
-                      shape: "rounded_rectangle",
-                      radius: radius / 200,
-                    })
-                  }
-                />
-              ) : null}
-            </div>
-            <div className="space-y-2 border-t pt-3">
-              <div className="flex items-start gap-2.5 text-xs">
-                <Checkbox
-                  id={decorativeCheckboxId}
-                  className="mt-0.5"
-                  checked={node.decorative}
+            {!node.decorative ? (
+              <label className="space-y-1.5">
+                <FieldLabel>Alternative text</FieldLabel>
+                <CommitInput
+                  placeholder="Describe the image"
+                  value={node.alt}
                   disabled={nodeMutationDisabled}
-                  onCheckedChange={(checked) =>
-                    onUpdate({
-                      decorative: checked === true,
-                      ...(checked === true ? { alt: "" } : {}),
-                    })
-                  }
+                  onCommit={(alt) => onUpdate({ alt })}
                 />
-                <label htmlFor={decorativeCheckboxId}>
-                  <span className="block font-medium">Decorative image</span>
-                  <span className="mt-0.5 block text-muted-foreground">
-                    Screen readers will skip this image.
-                  </span>
-                </label>
-              </div>
-              {!node.decorative ? (
-                <label className="space-y-1.5">
-                  <FieldLabel>Alternative text</FieldLabel>
-                  <CommitInput
-                    placeholder="Describe the image"
-                    value={node.alt}
-                    disabled={nodeMutationDisabled}
-                    onCommit={(alt) => onUpdate({ alt })}
-                  />
-                </label>
-              ) : null}
-            </div>
-            {node.src.startsWith("asset:local/") ||
-            node.assetId.startsWith("library-") ? (
-              <div className="space-y-1.5">
-                <FieldLabel>Source</FieldLabel>
-                <div className="rounded-lg border bg-muted/40 px-2.5 py-2">
-                  <p className="text-xs font-medium">
-                    {node.assetId.startsWith("library-")
-                      ? "Studio library asset"
-                      : "Uploaded image"}
-                  </p>
-                  <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
-                    {node.assetId}
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-1.5">
-                <FieldLabel>Image URL</FieldLabel>
-                <div className="rounded-lg border bg-muted/40 px-2.5 py-2">
-                  <p className="text-xs font-medium">External image</p>
-                  <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
-                    {node.src}
-                  </p>
-                </div>
-                <p className="text-[11px] text-muted-foreground">
-                  Use Replace image to change this source safely.
+              </label>
+            ) : null}
+          </div>
+          {node.src.startsWith("asset:local/") ||
+          node.assetId.startsWith("library-") ? (
+            <div className="space-y-1.5">
+              <FieldLabel>Source</FieldLabel>
+              <div className="rounded-lg border bg-muted/40 px-2.5 py-2">
+                <p className="text-xs font-medium">
+                  {node.assetId.startsWith("library-")
+                    ? "Studio library asset"
+                    : "Uploaded image"}
+                </p>
+                <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
+                  {node.assetId}
                 </p>
               </div>
-            )}
-            {imageSourceReadiness !== "ready" ? (
-              <div
-                className="space-y-2 rounded-lg border bg-muted/40 p-2.5"
-                role={
-                  imageSourceReadiness === "unavailable" ? "alert" : "status"
-                }
-              >
-                <div className="flex items-start gap-2">
-                  {imageSourceReadiness === "unavailable" ? (
-                    <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-600" />
-                  ) : (
-                    <LoaderCircleIcon className="mt-0.5 size-3.5 shrink-0 animate-spin text-muted-foreground" />
-                  )}
-                  <div>
-                    <p className="text-[11px] font-medium text-foreground">
-                      {imageSourceReadiness === "unavailable"
-                        ? "Image unavailable"
-                        : imageSourceReadiness === "loading"
-                          ? "Preparing image"
-                          : "Checking image"}
-                    </p>
-                    <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
-                      {imageSourceReadiness === "loading"
-                        ? "Preparing this image for direct editing…"
-                        : imageSourceReadiness === "unavailable"
-                          ? "The frame and layer position are preserved. Retry the source, locate a replacement, or remove the layer."
-                          : "Image editing becomes available after the canvas verifies this source."}
-                    </p>
-                  </div>
-                </div>
-                {imageSourceReadiness === "unavailable" && localAssetId ? (
-                  <Button
-                    className="w-full"
-                    size="sm"
-                    variant="outline"
-                    onClick={() => onReviewDocumentImage(localAssetId)}
-                  >
-                    <ImageUp data-icon="inline-start" />
-                    Review document image
-                  </Button>
-                ) : imageSourceReadiness === "unavailable" ? (
-                  <div className="grid grid-cols-3 gap-1.5">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      aria-label="Retry image source"
-                      disabled={!missingImageRecoveryById.retry.enabled}
-                      title={
-                        missingImageRecoveryById.retry.disabledReason ??
-                        undefined
-                      }
-                      onClick={() => onRetryImageSource(node.id)}
-                    >
-                      <RefreshCw data-icon="inline-start" />
-                      Retry
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      aria-label="Locate replacement image"
-                      aria-describedby={
-                        inspector.capabilities.replaceImageDisabledReason
-                          ? imageReplacementReasonId
-                          : undefined
-                      }
-                      disabled={!missingImageRecoveryById.locate.enabled}
-                      title={
-                        missingImageRecoveryById.locate.disabledReason ??
-                        undefined
-                      }
-                      onClick={() => onRunImageCommand("image.replace")}
-                    >
-                      <ImageUp data-icon="inline-start" />
-                      Locate
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      aria-label="Remove image layer"
-                      disabled={!missingImageRecoveryById.remove.enabled}
-                      title={
-                        missingImageRecoveryById.remove.disabledReason ??
-                        undefined
-                      }
-                      onClick={onRemoveImageLayer}
-                    >
-                      <Trash2 data-icon="inline-start" />
-                      Remove
-                    </Button>
-                  </div>
-                ) : null}
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <FieldLabel>Image URL</FieldLabel>
+              <div className="rounded-lg border bg-muted/40 px-2.5 py-2">
+                <p className="text-xs font-medium">External image</p>
+                <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
+                  {node.src}
+                </p>
               </div>
-            ) : null}
-            {inspector.capabilities.replaceImageDisabledReason ? (
-              <p
-                id={imageReplacementReasonId}
-                className="rounded-lg border bg-muted/40 px-2.5 py-2 text-[11px] leading-4 text-muted-foreground"
-                role="status"
-              >
-                {inspector.capabilities.replaceImageDisabledReason}
+              <p className="text-[11px] text-muted-foreground">
+                Use Replace image to change this source safely.
               </p>
-            ) : null}
-            {imageSourceReadiness !== "unavailable" ? (
-              <div className="grid grid-cols-2 gap-2">
+            </div>
+          )}
+          {imageSourceReadiness !== "ready" ? (
+            <div
+              className="space-y-2 rounded-lg border bg-muted/40 p-2.5"
+              role={imageSourceReadiness === "unavailable" ? "alert" : "status"}
+            >
+              <div className="flex items-start gap-2">
+                {imageSourceReadiness === "unavailable" ? (
+                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-600" />
+                ) : (
+                  <LoaderCircleIcon className="mt-0.5 size-3.5 shrink-0 animate-spin text-muted-foreground" />
+                )}
+                <div>
+                  <p className="text-[11px] font-medium text-foreground">
+                    {imageSourceReadiness === "unavailable"
+                      ? "Image unavailable"
+                      : imageSourceReadiness === "loading"
+                        ? "Preparing image"
+                        : "Checking image"}
+                  </p>
+                  <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
+                    {imageSourceReadiness === "loading"
+                      ? "Preparing this image for direct editing…"
+                      : imageSourceReadiness === "unavailable"
+                        ? "The frame and layer position are preserved. Retry the source, locate a replacement, or remove the layer."
+                        : "Image editing becomes available after the canvas verifies this source."}
+                  </p>
+                </div>
+              </div>
+              {imageSourceReadiness === "unavailable" && localAssetId ? (
                 <Button
+                  className="w-full"
                   size="sm"
                   variant="outline"
-                  disabled={!isImageCommandEnabled("image.crop")}
-                  onClick={() => onRunImageCommand("image.crop")}
-                >
-                  <Crop data-icon="inline-start" />
-                  Crop image
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  aria-describedby={
-                    inspector.capabilities.replaceImageDisabledReason
-                      ? imageReplacementReasonId
-                      : undefined
-                  }
-                  disabled={!isImageCommandEnabled("image.replace")}
-                  onClick={() => onRunImageCommand("image.replace")}
+                  onClick={() => onReviewDocumentImage(localAssetId)}
                 >
                   <ImageUp data-icon="inline-start" />
-                  Replace image…
+                  Review document image
                 </Button>
-              </div>
-            ) : null}
-          </section>
-        </>
+              ) : imageSourceReadiness === "unavailable" ? (
+                <div className="grid grid-cols-3 gap-1.5">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    aria-label="Retry image source"
+                    disabled={!missingImageRecoveryById.retry.enabled}
+                    title={
+                      missingImageRecoveryById.retry.disabledReason ?? undefined
+                    }
+                    onClick={() => onRetryImageSource(node.id)}
+                  >
+                    <RefreshCw data-icon="inline-start" />
+                    Retry
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    aria-label="Locate replacement image"
+                    aria-describedby={
+                      inspector.capabilities.replaceImageDisabledReason
+                        ? imageReplacementReasonId
+                        : undefined
+                    }
+                    disabled={!missingImageRecoveryById.locate.enabled}
+                    title={
+                      missingImageRecoveryById.locate.disabledReason ??
+                      undefined
+                    }
+                    onClick={() => onRunImageCommand("image.replace")}
+                  >
+                    <ImageUp data-icon="inline-start" />
+                    Locate
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    aria-label="Remove image layer"
+                    disabled={!missingImageRecoveryById.remove.enabled}
+                    title={
+                      missingImageRecoveryById.remove.disabledReason ??
+                      undefined
+                    }
+                    onClick={onRemoveImageLayer}
+                  >
+                    <Trash2 data-icon="inline-start" />
+                    Remove
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          {inspector.capabilities.replaceImageDisabledReason ? (
+            <p
+              id={imageReplacementReasonId}
+              className="rounded-lg border bg-muted/40 px-2.5 py-2 text-[11px] leading-4 text-muted-foreground"
+              role="status"
+            >
+              {inspector.capabilities.replaceImageDisabledReason}
+            </p>
+          ) : null}
+          {imageSourceReadiness !== "unavailable" ? (
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!isImageCommandEnabled("image.crop")}
+                onClick={() => onRunImageCommand("image.crop")}
+              >
+                <Crop data-icon="inline-start" />
+                Crop image
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                aria-describedby={
+                  inspector.capabilities.replaceImageDisabledReason
+                    ? imageReplacementReasonId
+                    : undefined
+                }
+                disabled={!isImageCommandEnabled("image.replace")}
+                onClick={() => onRunImageCommand("image.replace")}
+              >
+                <ImageUp data-icon="inline-start" />
+                Replace image…
+              </Button>
+            </div>
+          ) : null}
+        </InspectorSection>
       ) : null}
     </div>
   )
@@ -1252,7 +1260,7 @@ function MultiSelectionInspector({
     inspector.values.visible.kind === "value" && inspector.values.visible.value
   return (
     <div className="flex flex-col">
-      <section className="flex flex-col gap-3 px-3 py-3.5">
+      <section className="flex flex-col gap-3 border-b border-border/80 px-3 py-3">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-xs font-medium">{nodes.length} layers</h2>
@@ -1313,9 +1321,7 @@ function MultiSelectionInspector({
         ) : null}
       </section>
 
-      <Separator />
-      <section className="flex flex-col gap-3 px-3 py-3.5">
-        <FieldLabel>Position &amp; size</FieldLabel>
+      <InspectorSection title="Position & size">
         <div className="grid grid-cols-2 gap-2">
           <InspectorNumberField
             label="X"
@@ -1375,11 +1381,9 @@ function MultiSelectionInspector({
             before resizing the complete selection on those axes.
           </p>
         ) : null}
-      </section>
+      </InspectorSection>
 
-      <Separator />
-      <section className="flex flex-col gap-3 px-3 py-3.5">
-        <FieldLabel>Align</FieldLabel>
+      <InspectorSection title="Align & distribute">
         <AlignmentGrid onAlign={onAlign} disabled={movableCount < 2} />
         <div className="grid grid-cols-2 gap-2">
           <Button
@@ -1403,11 +1407,9 @@ function MultiSelectionInspector({
         </div>
         <FieldLabel>Align selection to page</FieldLabel>
         <AlignmentGrid onAlign={onAlignToPage} disabled={!movableCount} />
-      </section>
+      </InspectorSection>
 
-      <Separator />
-      <section className="flex flex-col gap-3 px-3 py-3.5">
-        <FieldLabel>Layer order</FieldLabel>
+      <InspectorSection title="Layer order">
         <div className="grid grid-cols-2 gap-2">
           <Button
             disabled={!movableCount || inspector.lockedCount > 0}
@@ -1428,7 +1430,7 @@ function MultiSelectionInspector({
             To back
           </Button>
         </div>
-      </section>
+      </InspectorSection>
 
       <Separator />
       <section className="grid grid-cols-2 gap-2 p-4">

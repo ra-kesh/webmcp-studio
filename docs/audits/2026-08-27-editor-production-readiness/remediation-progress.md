@@ -2754,3 +2754,25 @@ Status: **completed locally; EDITOR-POLISH-01 remains active**
 - Studio typecheck, six focused tests, scoped Studio/UI ESLint and
   `git diff --check` pass.
 - Gate 3 owns inspector section anatomy and contextual property grouping.
+
+## 2026-08-30 — EDITOR-POLISH-01 Gate 3 inspector hierarchy
+
+Status: **completed locally; EDITOR-POLISH-01 remains active**
+
+- Revisited the phase entry, original visual audit, current inspector flows and
+  OpenPencil's section, field, grid, position and appearance recipes before
+  editing.
+- Replaced the inspector's anonymous padded blocks with named contextual
+  sections for alignment, geometry, opacity, typography, appearance and
+  images. Multi-selection uses the same hierarchy for geometry, distribution
+  and ordering.
+- Removed the most confusing identity collision: `Name in Layers` now states
+  that it identifies the object in Layers, while visible copy lives under
+  Typography. The selected object's real name and type lead the inspector.
+- Mounted `1440 x 900` acceptance confirmed linked canvas/tree/inspector
+  selection, clear contextual sections for both text and shapes, and no
+  horizontal overflow.
+- Studio typecheck, 18 focused tests, scoped Studio ESLint and
+  `git diff --check` pass.
+- Gate 4 owns the page filmstrip, canvas HUD, rulers, overlays and floating
+  controls.

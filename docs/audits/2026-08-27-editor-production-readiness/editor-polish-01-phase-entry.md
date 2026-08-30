@@ -2,7 +2,7 @@
 
 Date: 2026-08-30
 
-Status: active; Gate 1 accepted locally
+Status: active; Gates 1-3 accepted locally
 
 ## Purpose
 
@@ -162,4 +162,46 @@ Focused evidence:
 - Studio typecheck passes;
 - six focused template and page-context tests pass;
 - scoped Studio and UI ESLint passes;
+- `git diff --check` passes.
+
+## Gate 3 result — inspector information architecture
+
+Sources revisited before implementation:
+
+- OpenPencil `src/theme/panel/{section,header,field,grid}.ts`;
+- OpenPencil `src/theme/number-field.ts`;
+- OpenPencil `src/components/properties/PropertyListRoot.vue`;
+- OpenPencil `src/components/properties/{PositionSection,AppearanceSection}.vue`;
+- Studio's mounted inspector, selection projection, typed controls, crop
+  preview, and image-recovery paths.
+
+Implemented:
+
+- selected-object identity now names the actual object and its type instead of
+  presenting an ambiguous generic layer-name form;
+- `Name in Layers` explicitly explains that it changes Layers identity only,
+  while visible text is edited under Typography;
+- inspector properties are organized into named, compact sections for
+  alignment, geometry, opacity, typography, appearance, and images;
+- multi-selection uses the same hierarchy for geometry, alignment and
+  distribution, and layer order;
+- contextual controls, capability explanations, recovery actions, typed value
+  commits, crop projection, and review locks remain unchanged.
+
+Mounted acceptance at `1440 x 900` confirmed:
+
+- selecting a rectangle shows clear `Align to page`, `Position & size`,
+  `Opacity`, and `Appearance` sections;
+- selecting `Quotation title` exposes its Layers identity separately from the
+  visible `Content` field under Typography;
+- section headers use one readable 11 px semibold hierarchy and compact 32 px
+  anatomy;
+- canvas, tree, and inspector selection remain linked;
+- no horizontal inspector or shell overflow appeared.
+
+Focused evidence:
+
+- Studio typecheck passes;
+- 18 focused inspector, crop-preview, slider, and typed-control tests pass;
+- scoped Studio ESLint passes;
 - `git diff --check` passes.
