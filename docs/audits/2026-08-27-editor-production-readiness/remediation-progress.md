@@ -3219,3 +3219,11 @@ Status: **active; prior broad inspector/polish acceptance withdrawn**
 - The full live control matrix is recorded in
   `inspector-core-workflow-reacceptance-2026-08-30.md`. Editor polish remains
   active until every row passes; schema or command presence is not acceptance.
+- The cold acceptance rerun now passes empty, locked, text, rectangle, ellipse,
+  icon, line, image, invalid-draft and multi-selection workflows. It includes
+  mutation, named history, save, undo/redo, error-log review and a committed
+  Fill surviving reload. All temporary layers were removed and the sample's
+  original Fill and lock state were restored.
+- The only remaining matrix row is the reusable-style/variable attachment
+  lifecycle owned by TEXT-02 Gate 4. The broader inspector/polish gate remains
+  open until that row passes in the running editor.

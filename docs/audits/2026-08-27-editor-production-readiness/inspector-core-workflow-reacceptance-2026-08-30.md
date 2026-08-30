@@ -42,16 +42,16 @@ and leave no console or error-boundary failure.
 
 | Selection                           | Required inspector workflow                                                                 | Status                                              |
 | ----------------------------------- | ------------------------------------------------------------------------------------------- | --------------------------------------------------- |
-| Nothing selected                    | truthful empty state; no stale controls                                                     | Pending rerun                                       |
-| Locked layer                        | properties disabled; visibility and unlock available                                        | Pending rerun                                       |
-| Text                                | content, sizing mode, typography, text color, paragraph and link controls                   | Enabled-state defect fixed; mutation matrix pending |
-| Rectangle                           | Fill, Stroke, radius and stroke width                                                       | Fill and Stroke live mutation, save and undo pass   |
-| Ellipse and icon                    | Fill, Stroke and stroke width                                                               | Pending                                             |
-| Line                                | Stroke and stroke width                                                                     | Pending                                             |
-| Image                               | placement, focal point, zoom, inner rotation, flip, frame, alt/decorative, crop and replace | Pending retained regression                         |
-| Multi-selection                     | mixed values, geometry, align/distribute, visibility, lock, order and delete                | Pending                                             |
+| Nothing selected                    | truthful empty state; no stale controls                                                     | Live pass                                           |
+| Locked layer                        | properties disabled; visibility and unlock available                                        | Live pass                                           |
+| Text                                | content, sizing mode, typography, text color, paragraph and link controls                   | Live mutation, save, undo and restore pass          |
+| Rectangle                           | Fill, Stroke, radius and stroke width                                                       | Live mutation, validation, save, reload and undo pass |
+| Ellipse and icon                    | Fill, Stroke and stroke width                                                               | Live pass with temporary layers removed             |
+| Line                                | Stroke and stroke width                                                                     | Live pass with temporary layer removed              |
+| Image                               | placement, focal point, zoom, inner rotation, flip, frame, alt/decorative, crop and replace | Live pass with temporary asset layer removed        |
+| Multi-selection                     | mixed values, geometry, align/distribute, visibility, lock, order and delete                | Live pass with temporary layers removed             |
 | Reusable style or variable attached | clear attachment state, propagation, detach-on-direct-edit and protected delete             | Pending with TEXT-02 Gate 4                         |
-| Invalid/intermediate draft          | inline error, canonical value preserved, Escape cancels                                     | Pending full matrix                                 |
+| Invalid/intermediate draft          | inline error, canonical value preserved, Escape cancels                                     | Live pass                                           |
 
 ## Repair already proven
 
@@ -67,6 +67,16 @@ and leave no console or error-boundary failure.
 - A cold live page changed rectangle Fill and Stroke, saved through revision 24,
   emitted no runtime errors, and undid back to revision 22. A separate live
   change accepted `rgb(31 41 55 / 80%)`, saved it, and undid it cleanly.
+- A second clean browser profile exercised text, ellipse, line, icon, image and
+  multi-selection controls. Image focus, zoom, inner rotation, flip, frame,
+  fit, crop cancellation, replacement dialog and alternative text remained
+  interactive; temporary test layers were deleted afterwards.
+- Invalid color and negative-width drafts stayed local, showed inline errors,
+  did not advance the document revision and restored the canonical values on
+  Escape.
+- Rectangle Fill persisted after a cold reload once the field commit and
+  autosave completed. The sample's original `#2F493C` Fill and locked state
+  were restored after the check.
 
 ## Completion rule
 
