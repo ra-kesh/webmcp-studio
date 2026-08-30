@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest"
 import type { TextNode } from "../src/schema"
 import {
+  applyTextLinkToRange,
   applyTextStyleToRange,
   deriveTextReplacement,
   normalizeTextSelection,
   replaceTextRunRange,
+  resolveTextSelectionLink,
   replaceRichTextRange,
   resolveTextSelectionStyle,
   textNodeBaseStyle,
@@ -214,5 +216,126 @@ describe("text range editing", () => {
         ],
       },
     })
+  })
+
+  it("reports none, one shared link, and partial mixed link selections", () => {
+    const text = "One linked phrase"
+    const links = [
+      {
+        start: 4,
+        end: 10,
+        target: "https://example.com",
+        newTab: true,
+      },
+    ]
+
+    expect(
+      resolveTextSelectionLink(text, links, { anchor: 0, focus: 3 })
+    ).toEqual({ kind: "none" })
+    expect(
+      resolveTextSelectionLink(text, links, { anchor: 10, focus: 4 })
+    ).toEqual({
+      kind: "value",
+      target: "https://example.com",
+      newTab: true,
+    })
+    expect(
+      resolveTextSelectionLink(text, links, { anchor: 2, focus: 8 })
+    ).toEqual({ kind: "mixed" })
+  })
+
+  it("sets, replaces, removes, and recompacts links over an exact range", () => {
+    const text = "Alpha beta gamma"
+    const initial = [
+      {
+        start: 0,
+        end: 5,
+        target: "https://old.example",
+        newTab: true,
+      },
+      {
+        start: 11,
+        end: 16,
+        target: "https://old.example",
+        newTab: true,
+      },
+    ]
+    const linked = applyTextLinkToRange(
+      text,
+      initial,
+      { anchor: 6, focus: 10 },
+      { target: "mailto:hello@example.com", newTab: false }
+    )
+    expect(linked).toEqual([
+      initial[0],
+      {
+        start: 6,
+        end: 10,
+        target: "mailto:hello@example.com",
+        newTab: false,
+      },
+      initial[1],
+    ])
+
+    expect(
+      applyTextLinkToRange(
+        text,
+        linked,
+        { anchor: 3, focus: 13 },
+        { target: "https://new.example", newTab: true }
+      )
+    ).toEqual([
+      {
+        start: 0,
+        end: 3,
+        target: "https://old.example",
+        newTab: true,
+      },
+      {
+        start: 3,
+        end: 13,
+        target: "https://new.example",
+        newTab: true,
+      },
+      {
+        start: 13,
+        end: 16,
+        target: "https://old.example",
+        newTab: true,
+      },
+    ])
+    expect(
+      applyTextLinkToRange(text, initial, { anchor: 0, focus: 16 }, null)
+    ).toEqual([])
+  })
+
+  it("edits the containing link from a collapsed caret", () => {
+    const text = "Linked text"
+    const links = [
+      {
+        start: 0,
+        end: text.length,
+        target: "https://example.com",
+        newTab: true,
+      },
+    ]
+    expect(
+      applyTextLinkToRange(
+        text,
+        links,
+        { anchor: 6, focus: 6 },
+        { target: "tel:+15551234567", newTab: false }
+      )
+    ).toEqual([
+      {
+        start: 0,
+        end: text.length,
+        target: "tel:+15551234567",
+        newTab: false,
+      },
+    ])
+    expect(() =>
+      applyTextLinkToRange(text, [], { anchor: 6, focus: 6 }, null)
+    ).toThrow("Select text before adding a link")
   })
 })

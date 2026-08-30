@@ -32,6 +32,7 @@ import {
   projectSvgViewport,
   replaceRichTextRange,
   resolveTextSelectionStyle,
+  resolveTextSelectionLink,
   textNodeBaseStyle,
   textRunOverrideAtCaret,
   type Document,
@@ -2236,7 +2237,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     return nodeIds.length ? { pageId: this.pageId, nodeIds } : null
   }
 
-  enterTextEditing(nodeId: string): boolean {
+  enterTextEditing(nodeId: string, selection?: TextSelection): boolean {
     const canvas = this.canvas
     const object = this.objectByNodeId.get(nodeId)
     if (!canvas || !(object instanceof Textbox)) return false
@@ -2257,6 +2258,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
       object.setCoords()
     }
     const entered = enterFabricTextEditing(canvas, object)
+    if (entered && selection) restoreFabricTextSelection(object, selection)
     if (entered) canvas.requestRenderAll()
     return entered
   }
@@ -3685,6 +3687,11 @@ export class FabricCanvasAdapter implements CanvasAdapter {
         selection,
         textNodeBaseStyle(session.draftNode),
         session.typingOverride
+      ),
+      link: resolveTextSelectionLink(
+        session.draftNode.text,
+        session.draftNode.links,
+        selection
       ),
     })
   }

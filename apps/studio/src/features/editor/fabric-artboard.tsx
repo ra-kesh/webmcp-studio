@@ -10,7 +10,11 @@ import {
   useState,
   useSyncExternalStore,
 } from "react"
-import type { Document, TextRunStylePatch } from "@webmcp/document"
+import type {
+  Document,
+  TextRunStylePatch,
+  TextSelection,
+} from "@webmcp/document"
 import type {
   CanvasAdapter,
   CanvasAdapterEvents,
@@ -33,7 +37,7 @@ export type FabricArtboardHandle = {
   previewViewportZoom: (zoom: number, committedZoom: number) => void
   retryImageSources: () => void
   retryImageSource: (nodeId: string) => void
-  enterTextEditing: (nodeId: string) => boolean
+  enterTextEditing: (nodeId: string, selection?: TextSelection) => boolean
   commitTextEditing: () => boolean
   cancelTextEditing: () => boolean
   applyTextEditingStyle: (patch: TextRunStylePatch) => boolean
@@ -119,6 +123,7 @@ export const FabricArtboard = forwardRef<
     selection: Selection | null
     hoveredNodeId?: string | null
     textEditingNodeId?: string | null
+    textEditingSelection?: TextSelection | null
     imageCropMode?: CanvasImageCropMode | null
     imageCropPreviewStore?: ImageCropPreviewStore | null
     imageResourceTokens?: Readonly<Record<string, string>>
@@ -150,6 +155,7 @@ export const FabricArtboard = forwardRef<
     selection,
     hoveredNodeId = null,
     textEditingNodeId = null,
+    textEditingSelection = null,
     imageCropMode = null,
     imageCropPreviewStore = null,
     imageResourceTokens,
@@ -441,8 +447,8 @@ export const FabricArtboard = forwardRef<
       },
       retryImageSources,
       retryImageSource,
-      enterTextEditing: (nodeId) =>
-        adapterRef.current?.enterTextEditing(nodeId) ?? false,
+      enterTextEditing: (nodeId, selection) =>
+        adapterRef.current?.enterTextEditing(nodeId, selection) ?? false,
       commitTextEditing: () => adapterRef.current?.commitTextEditing() ?? false,
       cancelTextEditing: () => adapterRef.current?.cancelTextEditing() ?? false,
       applyTextEditingStyle: (patch) =>
@@ -663,14 +669,6 @@ export const FabricArtboard = forwardRef<
                 : null,
           })
         }
-        const requestedNodeId = callbacksRef.current.textEditingNodeId
-        if (
-          callbacksRef.current.interactive &&
-          requestedNodeId &&
-          adapter.enterTextEditing(requestedNodeId)
-        ) {
-          callbacksRef.current.onTextEditingStart?.(requestedNodeId)
-        }
         applyImageCropMode(
           adapter,
           callbacksRef.current.interactive
@@ -736,10 +734,28 @@ export const FabricArtboard = forwardRef<
 
   useEffect(() => {
     if (!ready || !interactive || !textEditingNodeId) return
-    if (adapterRef.current?.enterTextEditing(textEditingNodeId)) {
-      callbacksRef.current.onTextEditingStart?.(textEditingNodeId)
+    const adapter = adapterRef.current
+    if (!adapter) return
+    let active = true
+    const requestedNodeId = textEditingNodeId
+    const requestedSelection = textEditingSelection ?? undefined
+    void syncTailRef.current.then(() => {
+      if (
+        !active ||
+        adapterRef.current !== adapter ||
+        !callbacksRef.current.interactive ||
+        callbacksRef.current.textEditingNodeId !== requestedNodeId
+      ) {
+        return
+      }
+      if (adapter.enterTextEditing(requestedNodeId, requestedSelection)) {
+        callbacksRef.current.onTextEditingStart?.(requestedNodeId)
+      }
+    })
+    return () => {
+      active = false
     }
-  }, [interactive, ready, textEditingNodeId])
+  }, [interactive, ready, textEditingNodeId, textEditingSelection])
 
   useEffect(() => {
     if (!ready) return

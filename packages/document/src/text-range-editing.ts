@@ -39,6 +39,15 @@ export type TextSelectionStyleState = {
   >
 }
 
+export type TextSelectionLinkState =
+  | Readonly<{ kind: "none" }>
+  | Readonly<{ kind: "mixed" }>
+  | Readonly<{
+      kind: "value"
+      target: string
+      newTab: boolean
+    }>
+
 export type TextRunStylePatch = {
   [Key in keyof TextRunStyle]?: TextRunStyle[Key] | null
 }
@@ -265,6 +274,88 @@ export function resolveTextSelectionStyle(
   }
 }
 
+const sameLink = (
+  left: Pick<TextLink, "target" | "newTab">,
+  right: Pick<TextLink, "target" | "newTab">
+) => left.target === right.target && left.newTab === right.newTab
+
+const linkAtCaret = (links: readonly TextLink[], caret: number) =>
+  links.find((link) => link.start < caret && caret <= link.end)
+
+export function resolveTextSelectionLink(
+  text: string,
+  input: readonly TextLinkInput[],
+  selectionInput: TextSelection
+): TextSelectionLinkState {
+  const selection = normalizeTextSelection(text, selectionInput)
+  const links = normalizeTextLinks(text, input)
+  if (selection.collapsed) {
+    const link = linkAtCaret(links, selection.start)
+    return link
+      ? { kind: "value", target: link.target, newTab: link.newTab }
+      : { kind: "none" }
+  }
+
+  const boundaries = new Set([selection.start, selection.end])
+  for (const link of links) {
+    if (link.start < selection.end && link.end > selection.start) {
+      boundaries.add(Math.max(link.start, selection.start))
+      boundaries.add(Math.min(link.end, selection.end))
+    }
+  }
+  const ordered = [...boundaries].sort((left, right) => left - right)
+  const values: Array<Pick<TextLink, "target" | "newTab"> | null> = []
+  for (let index = 0; index < ordered.length - 1; index += 1) {
+    const start = ordered[index]!
+    const end = ordered[index + 1]!
+    if (start >= end) continue
+    values.push(
+      links.find((link) => link.start <= start && end <= link.end) ?? null
+    )
+  }
+  if (values.every((value) => value === null)) return { kind: "none" }
+  const first = values[0]
+  if (
+    first &&
+    values.every((value) => value !== null && sameLink(first, value))
+  ) {
+    return { kind: "value", target: first.target, newTab: first.newTab }
+  }
+  return { kind: "mixed" }
+}
+
+export function applyTextLinkToRange(
+  text: string,
+  input: readonly TextLinkInput[],
+  selectionInput: TextSelection,
+  value: Pick<TextLinkInput, "target" | "newTab"> | null
+): TextLink[] {
+  let selection = normalizeTextSelection(text, selectionInput)
+  const links = normalizeTextLinks(text, input)
+  if (selection.collapsed) {
+    const current = linkAtCaret(links, selection.start)
+    if (!current) {
+      throw new RichTextRangeError("Select text before adding a link")
+    }
+    selection = normalizeTextSelection(text, {
+      anchor: current.start,
+      focus: current.end,
+    })
+  }
+
+  const output: TextLinkInput[] = []
+  for (const link of links) {
+    appendLink(output, link, link.start, Math.min(link.end, selection.start))
+    if (link.end > selection.end) {
+      appendLink(output, link, Math.max(link.start, selection.end), link.end)
+    }
+  }
+  if (value) {
+    appendLink(output, value, selection.start, selection.end)
+  }
+  return normalizeTextLinks(text, output)
+}
+
 const parsePatch = (patch: Readonly<TextRunStylePatch>) => {
   if (Object.keys(patch).length === 0) {
     throw new RichTextRangeError("A text style patch must change a property")
@@ -485,7 +576,7 @@ const remapParagraphs = (
 
 const appendLink = (
   output: TextLinkInput[],
-  link: TextLinkInput,
+  link: Pick<TextLinkInput, "target" | "newTab">,
   start: number,
   end: number
 ) => {

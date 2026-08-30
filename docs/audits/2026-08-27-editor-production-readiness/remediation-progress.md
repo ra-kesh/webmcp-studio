@@ -3020,3 +3020,26 @@ Status: **accepted as a bounded slice; Gate 2 remains active**
 - Gate 2 still owns link UX, selection-aware inspector state, semantic
   paragraph/list keyboard behavior, rich/plain clipboard handling and compact
   accessibility acceptance.
+
+## 2026-08-30 — TEXT-02 Gate 2C selection-aware links
+
+Status: **accepted as a bounded slice; Gate 2 remains active**
+
+- Revisited the Gate 2 contract, OpenPencil's text-edit formatting path and
+  Loora's validated link-property surface before implementation. No reference
+  code was imported.
+- Added canonical none/shared/mixed link selection state plus exact range set,
+  replace, split and remove operations, including caret-inside-link editing.
+- Added a compact link popover with safe target normalization, inline
+  validation, new-tab policy and focus-safe direct-edit handoff. The browser's
+  blocking prompt API is not used.
+- Live testing exposed and closed a real synchronization race: re-entering text
+  editing before Fabric finished applying the new document collapsed the
+  selection. Text re-entry now waits for the latest canvas sync and restores
+  the exact UTF-16 range before publishing the editing state.
+- 102/102 focused tests and all three affected package typechecks pass. The live
+  port-3001 editor added, reopened and removed a link while retaining the same
+  selection; canonical links ended empty and the temporary layer was removed.
+- Gate 2 still owns selection-aware inspector state, semantic paragraph/list
+  keyboard behavior, rich/plain clipboard handling and compact accessibility
+  acceptance.

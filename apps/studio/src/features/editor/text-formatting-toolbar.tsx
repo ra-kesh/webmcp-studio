@@ -3,6 +3,7 @@
 import {
   Bold,
   Italic,
+  Link2,
   Minus,
   Plus,
   Strikethrough,
@@ -50,12 +51,14 @@ function FormattingButton({
   label,
   active,
   mixed,
+  disabled,
   children,
   onClick,
 }: {
   label: string
   active: boolean
   mixed?: boolean
+  disabled?: boolean
   children: ReactNode
   onClick: () => void
 }) {
@@ -70,6 +73,7 @@ function FormattingButton({
           aria-pressed={active}
           className="size-8 rounded-md aria-pressed:bg-foreground aria-pressed:text-background data-[mixed=true]:bg-muted [&_svg]:size-3.5"
           data-mixed={mixed ? "true" : "false"}
+          disabled={disabled}
           onClick={onClick}
         >
           {children}
@@ -85,10 +89,12 @@ function FormattingButton({
 export function TextFormattingToolbar({
   state,
   onApply,
+  onEditLink,
   className,
 }: {
   state: CanvasTextEditingState
   onApply: (patch: TextRunStylePatch) => void
+  onEditLink: () => void
   className?: string
 }) {
   const fontSize = sharedValue(state.style.fontSize)
@@ -184,6 +190,27 @@ export function TextFormattingToolbar({
           }
         >
           <Strikethrough />
+        </FormattingButton>
+        <FormattingButton
+          label={
+            state.selection.anchor === state.selection.focus &&
+            state.link.kind === "none"
+              ? "Select text to add a link"
+              : state.link.kind === "value"
+                ? "Edit link"
+                : state.link.kind === "mixed"
+                  ? "Replace links"
+                  : "Add link"
+          }
+          active={state.link.kind === "value"}
+          mixed={state.link.kind === "mixed"}
+          disabled={
+            state.selection.anchor === state.selection.focus &&
+            state.link.kind === "none"
+          }
+          onClick={onEditLink}
+        >
+          <Link2 />
         </FormattingButton>
         <Button
           type="button"

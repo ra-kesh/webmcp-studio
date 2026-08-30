@@ -274,6 +274,71 @@ describe("FabricArtboard lifecycle", () => {
     expect(window.document.activeElement).toBe(upperCanvas)
   })
 
+  it("restores a requested text selection only after the latest canvas sync", async () => {
+    const textNode = quotationStarter.document.nodes.find(
+      (node) => node.type === "text"
+    )
+    if (!textNode) throw new Error("Expected a text node fixture")
+    const updateSync = deferred<void>()
+    let syncCount = 0
+    const enterTextEditing = vi.fn(() => true)
+    const adapter = fakeAdapter({
+      sync: vi.fn(async () => {
+        syncCount += 1
+        if (syncCount === 2) await updateSync.promise
+      }),
+      enterTextEditing,
+    })
+    const loadAdapter = async () => adapterModule(() => adapter)
+    const onTextEditingStart = vi.fn()
+
+    await act(async () => {
+      root.render(
+        <FabricArtboard
+          {...baseProps}
+          runtimeOptions={{ loadAdapter }}
+        />
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    expect(adapter.sync).toHaveBeenCalledTimes(1)
+
+    const selection = { anchor: 1, focus: 7 }
+    await act(async () => {
+      root.render(
+        <FabricArtboard
+          {...baseProps}
+          document={{
+            ...quotationStarter.document,
+            revision: quotationStarter.document.revision + 1,
+          }}
+          textEditingNodeId={textNode.id}
+          textEditingSelection={selection}
+          onTextEditingStart={onTextEditingStart}
+          runtimeOptions={{ loadAdapter }}
+        />
+      )
+      await Promise.resolve()
+    })
+
+    expect(enterTextEditing).not.toHaveBeenCalled()
+
+    await act(async () => {
+      updateSync.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+      await vi.advanceTimersByTimeAsync(0)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(enterTextEditing).toHaveBeenCalledWith(textNode.id, selection)
+    expect(onTextEditingStart).toHaveBeenCalledWith(textNode.id)
+  })
+
   it("bounds a visible image retry and reports the exact resource token", async () => {
     const image = renderConformanceDocument.nodes.find(
       (node) => node.id === "image-cover"

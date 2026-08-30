@@ -44,7 +44,13 @@ import {
   Undo2,
   Ungroup,
 } from "lucide-react"
-import type { DesignTemplateCatalogItem, SceneNode } from "@webmcp/document"
+import {
+  applyTextLinkToRange,
+  type DesignTemplateCatalogItem,
+  type SceneNode,
+  type TextSelection,
+  type TextSelectionLinkState,
+} from "@webmcp/document"
 import type { CanvasTextEditingState, NodeGeometryPatch } from "@webmcp/editor"
 import type { ImageResourceStateChange } from "@webmcp/render-view"
 import {
@@ -182,6 +188,10 @@ import type {
 import { ImageCropToolbar } from "./editor/image-crop-toolbar"
 import { SelectedImageToolbar } from "./editor/selected-image-toolbar"
 import { TextFormattingToolbar } from "./editor/text-formatting-toolbar"
+import {
+  TextLinkEditor,
+  type TextLinkEditorResult,
+} from "./editor/text-link-editor"
 import {
   applySelectedImageToolbarCameraProjection,
   resolveSelectedImageToolbarPlacement,
@@ -683,8 +693,16 @@ export function StudioShell({
   const [textEditingNodeId, setTextEditingNodeId] = useState<string | null>(
     null
   )
+  const [textEditingSelection, setTextEditingSelection] =
+    useState<TextSelection | null>(null)
   const [textEditingState, setTextEditingState] =
     useState<CanvasTextEditingState | null>(null)
+  const [textLinkEditor, setTextLinkEditor] = useState<{
+    nodeId: string
+    text: string
+    selection: TextSelection
+    link: TextSelectionLinkState
+  } | null>(null)
   useLayoutEffect(() => {
     if (editor.sessionMode !== "workspace") return
     const root = document.documentElement
@@ -1091,6 +1109,65 @@ export function StudioShell({
     if (committed) setTextEditingNodeId(null)
     return committed
   }, [textEditingNodeId])
+
+  const returnToTextEditing = useCallback(
+    (nodeId: string, selection?: TextSelection) => {
+      window.requestAnimationFrame(() => {
+        setTextEditingSelection(selection ?? null)
+        setTextEditingNodeId(nodeId)
+      })
+    },
+    []
+  )
+
+  const openTextLinkEditor = useCallback(() => {
+    const state = textEditingState
+    if (!state) return
+    if (
+      state.selection.anchor === state.selection.focus &&
+      state.link.kind === "none"
+    ) {
+      return
+    }
+    const session = {
+      nodeId: state.nodeId,
+      text: state.text,
+      selection: { ...state.selection },
+      link: { ...state.link },
+    }
+    const committed = artboardRef.current?.commitTextEditing() ?? false
+    if (!committed) return
+    setTextEditingNodeId(null)
+    setTextLinkEditor(session)
+  }, [textEditingState])
+
+  const closeTextLinkEditor = useCallback(() => {
+    const nodeId = textLinkEditor?.nodeId
+    setTextLinkEditor(null)
+    if (nodeId) returnToTextEditing(nodeId, textLinkEditor?.selection)
+  }, [returnToTextEditing, textLinkEditor?.nodeId, textLinkEditor?.selection])
+
+  const applyTextLinkEditor = useCallback(
+    (value: TextLinkEditorResult) => {
+      const session = textLinkEditor
+      if (!session) return
+      const node = editor.document.nodes.find(
+        (candidate) =>
+          candidate.id === session.nodeId && candidate.type === "text"
+      )
+      if (!node || node.type !== "text" || node.text !== session.text) return
+      const links = applyTextLinkToRange(
+        node.text,
+        node.links,
+        session.selection,
+        value
+      )
+      if (!editor.updateNode(node.id, { links })) return
+      setTextLinkEditor(null)
+      returnToTextEditing(node.id, session.selection)
+    },
+    [editor, returnToTextEditing, textLinkEditor]
+  )
 
   const prepareDocumentRouteExit = useCallback(async () => {
     if (editor.imageCropSession || editor.pendingChangeSet) return false
@@ -4157,6 +4234,7 @@ export function StudioShell({
                   onApply={(patch) => {
                     artboardRef.current?.applyTextEditingStyle(patch)
                   }}
+                  onEditLink={openTextLinkEditor}
                 />
               </div>
             ) : null}
@@ -4217,6 +4295,7 @@ export function StudioShell({
                     selection={editor.selection}
                     hoveredNodeId={hoveredNodeId}
                     textEditingNodeId={textEditingNodeId}
+                    textEditingSelection={textEditingSelection}
                     imageCropMode={
                       editor.imageCropSession
                         ? {
@@ -4261,6 +4340,7 @@ export function StudioShell({
                     }}
                     onImageSourceStateChange={handleImageSourceStateChange}
                     onTextEditingStart={(nodeId) => {
+                      setTextEditingSelection(null)
                       setTextEditingNodeId((requestedNodeId) =>
                         requestedNodeId === nodeId ? null : requestedNodeId
                       )
@@ -4374,6 +4454,21 @@ export function StudioShell({
                       onApply={(patch) => {
                         artboardRef.current?.applyTextEditingStyle(patch)
                       }}
+                      onEditLink={openTextLinkEditor}
+                    />
+                  </div>
+                ) : null}
+                {textLinkEditor ? (
+                  <div
+                    className="pointer-events-none absolute inset-x-0 top-3 z-40 flex justify-center px-2"
+                    data-editor-overlay-control="true"
+                  >
+                    <TextLinkEditor
+                      key={`${textLinkEditor.nodeId}:${textLinkEditor.selection.anchor}:${textLinkEditor.selection.focus}`}
+                      link={textLinkEditor.link}
+                      className="pointer-events-auto"
+                      onApply={applyTextLinkEditor}
+                      onCancel={closeTextLinkEditor}
                     />
                   </div>
                 ) : null}

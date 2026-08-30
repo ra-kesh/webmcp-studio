@@ -281,3 +281,32 @@ Acceptance evidence:
 Gate 2 remains active. Link set/remove UX, selection-aware inspector state,
 semantic paragraph/list keyboard behavior, rich internal clipboard/plain-text
 paste and compact keyboard/screen-reader/focus acceptance remain open.
+
+## Gate 2C result — selection-aware text links
+
+Implemented:
+
+- canonical shared/mixed/none link state for a selected UTF-16 range or a
+  collapsed caret inside an existing link;
+- exact set, replace, split and remove operations that preserve unaffected
+  annotations and reject a collapsed caret outside a link;
+- a compact focus-safe link editor with schemeless `https://` normalization,
+  explicit `https`, `mailto` and `tel` admission, new-tab policy, inline errors
+  and no browser prompt;
+- direct-edit handoff that commits the current rich text once, applies the link
+  as one document update, waits for the latest Fabric sync, then restores the
+  exact directional text selection for continued editing.
+
+Acceptance evidence:
+
+- 102/102 focused document, Fabric-adapter, artboard-lifecycle, toolbar and link
+  editor tests pass;
+- document, editor and Studio typechecks pass;
+- the live port-3001 editor added, reopened and removed an `https` link, kept
+  the same text range active across both document synchronizations, and left
+  the canonical link array empty after removal;
+- the temporary verification layer was removed after the live journey.
+
+Gate 2 remains active. Selection-aware inspector state, semantic paragraph/list
+keyboard behavior, rich internal clipboard/plain-text paste and compact
+keyboard/screen-reader/focus acceptance remain open.

@@ -7,6 +7,7 @@ import type {
   SceneNode,
   TextRunStylePatch,
   TextSelection,
+  TextSelectionLinkState,
   TextSelectionStyleState,
 } from "@webmcp/document"
 import type { AlignmentSnapTarget } from "./snapping"
@@ -36,6 +37,7 @@ export type CanvasTextEditingState = Readonly<{
   text: string
   selection: TextSelection
   style: TextSelectionStyleState
+  link: TextSelectionLinkState
 }>
 
 export type CanvasContextMenuRequest = Readonly<{
@@ -76,7 +78,7 @@ export interface CanvasAdapter {
   setSnapTargets(pageId: string, targets: readonly AlignmentSnapTarget[]): void
   select(selection: Selection | null): void
   getSelection(): Selection | null
-  enterTextEditing(nodeId: string): boolean
+  enterTextEditing(nodeId: string, selection?: TextSelection): boolean
   commitTextEditing(): boolean
   cancelTextEditing(): boolean
   applyTextEditingStyle(patch: TextRunStylePatch): boolean
