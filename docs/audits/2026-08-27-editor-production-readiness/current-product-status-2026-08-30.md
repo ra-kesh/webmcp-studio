@@ -31,8 +31,8 @@ from obscuring current truth. Detailed evidence remains in
   and direct execution policy using the same canonical command boundaries as
   the visible editor.
 
-These are not README-only claims: the repository contains 127 committed slices
-through COMPONENT-01 Gate 4, focused unit/integration/browser evidence, and
+These are not README-only claims: the repository contains more than 120
+committed slices through COMPONENT-01 Gate 4, focused unit/integration/browser evidence, and
 retained conformance/scale artifacts.
 
 ## What is not honestly complete
