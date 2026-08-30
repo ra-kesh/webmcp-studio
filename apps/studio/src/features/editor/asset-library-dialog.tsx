@@ -1821,8 +1821,8 @@ export function AssetLibraryDialog({
           <input
             ref={fileInputRef}
             accept={MEDIA_UPLOAD_ACCEPT}
-            aria-label="Choose media files to upload"
-            className="sr-only"
+            aria-hidden="true"
+            hidden
             multiple
             name="media-upload-files"
             tabIndex={-1}

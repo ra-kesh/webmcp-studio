@@ -3328,7 +3328,9 @@ export function StudioShell({
             </DropdownMenu>
             <input
               ref={documentInputRef}
-              className="sr-only"
+              aria-hidden="true"
+              hidden
+              tabIndex={-1}
               type="file"
               accept=".json,application/json"
               onChange={(event) => {
@@ -3358,7 +3360,9 @@ export function StudioShell({
             />
             <input
               ref={quotationInputRef}
-              className="sr-only"
+              aria-hidden="true"
+              hidden
+              tabIndex={-1}
               type="file"
               accept=".json,application/json"
               onChange={(event) => {

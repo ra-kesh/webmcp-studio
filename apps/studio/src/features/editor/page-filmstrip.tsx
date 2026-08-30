@@ -271,6 +271,7 @@ const PageFilmstripItem = memo(function PageFilmstripItem({
       >
         <span
           ref={thumbnailRef}
+          aria-hidden="true"
           className={cn(
             "relative grid place-items-center",
             compactDensity ? "h-[60px] w-[48px]" : "h-[76px] w-[58px]"

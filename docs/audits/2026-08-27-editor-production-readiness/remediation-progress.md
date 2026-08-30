@@ -2857,3 +2857,22 @@ Status: **completed locally; Gate 5 is closed and cleanup/visual acceptance rema
   with Studio/UI typechecks, scoped ESLint, and `git diff --check`.
 - The next EDITOR-POLISH-01 gate is dead/duplicate/placeholder UI cleanup,
   followed by the retained full-width visual matrix and real-use acceptance.
+
+## 2026-08-30 — EDITOR-POLISH-01 Gate 6 duplicate/dead UI cleanup
+
+Status: **completed locally; final visual/use acceptance remains active**
+
+- Revisited `A11Y-02`, the parity/code audits, and every currently mounted
+  file-input and thumbnail path before editing.
+- Removed anonymous duplicate file controls from the accessibility tree while
+  preserving the named Import, Upload, Locate, and Replace command paths.
+- Marked filmstrip artboards decorative and retained the named page selectors
+  as the accessible navigation objects.
+- Deleted one unused recent-documents wrapper and one unused media label export.
+- Live inspection reduced anonymous `Choose File` controls from two to zero;
+  direct browser evidence confirmed File → Import document JSON still opens the
+  native single-file chooser.
+- 46 focused tests, Studio typecheck, scoped ESLint, the compact/responsive
+  end-to-end journeys, and `git diff --check` pass.
+- The remaining EDITOR-POLISH-01 work is the retained visual matrix and a real
+  create/edit/navigate/review/export use pass.

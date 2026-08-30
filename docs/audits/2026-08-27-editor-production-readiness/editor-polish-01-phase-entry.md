@@ -2,7 +2,7 @@
 
 Date: 2026-08-30
 
-Status: active; Gates 1-5 accepted locally
+Status: active; Gates 1-6 accepted locally
 
 ## Purpose
 
@@ -170,6 +170,49 @@ Focused evidence:
 - the compact modal/focus/recovery end-to-end test passes with new bounds,
   heading-focus, and action-reachability assertions;
 - the ten-width business-action reachability matrix passes;
+- `git diff --check` passes.
+
+## Gate 6 result — duplicate and dead editor UI cleanup
+
+Sources revisited before implementation:
+
+- the `A11Y-02` duplicate-control and decorative-preview findings in
+  `visual-and-interaction-audit.md`;
+- the retained feature-parity and independent-code audits to distinguish old
+  findings from currently mounted surfaces;
+- Studio's editor import controls, start surface, media library, local-media
+  recovery, filmstrip, and mounted accessibility projection.
+
+Implemented:
+
+- all programmatically triggered document, quotation, media-upload, and
+  locate-replacement file inputs are now truly hidden implementation controls;
+- the user-facing Import, Upload, Locate, and Replace buttons remain the only
+  announced controls and continue to own the file chooser action;
+- page-filmstrip preview artboards are explicitly decorative; the named page
+  selector remains the accessible page-navigation object;
+- removed an unused recent-documents test wrapper and an unused media-library
+  label export instead of preserving orphaned scaffolding;
+- retained intentional parallel command placements, such as toolbar, menu,
+  keyboard, and WebMCP access, because those are capability projections rather
+  than duplicate ownership.
+
+Mounted acceptance confirmed:
+
+- the live editor's two anonymous `Choose File` buttons dropped to zero while
+  Publish and the interactive canvas kept one canonical accessible control;
+- File → Import document JSON still raises the native file chooser against the
+  hidden single-file input;
+- the responsive 320-1920 px action matrix and compact modal journey remain
+  green.
+
+Focused evidence:
+
+- 46 focused start-surface, filmstrip, and media-promotion tests pass;
+- Studio typecheck and scoped ESLint pass;
+- the two focused responsive end-to-end journeys pass;
+- direct browser file-chooser evidence reports `multiple: false`, zero
+  `Choose File` controls, and two hidden editor import inputs;
 - `git diff --check` passes.
 
 ## Gate 2 result — document-panel composition

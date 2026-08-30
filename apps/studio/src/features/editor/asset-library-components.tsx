@@ -373,9 +373,11 @@ export function MissingLocalAssetRecoveryCard({
               </Button>
               <input
                 ref={inputRef}
-                className="sr-only"
-                type="file"
                 accept="image/png,image/jpeg,image/webp"
+                aria-hidden="true"
+                hidden
+                tabIndex={-1}
+                type="file"
                 onChange={(event) => {
                   const file = event.currentTarget.files?.[0]
                   if (file) onLocateFile(file)
@@ -435,12 +437,6 @@ export const uploadPhaseLabel: Record<UploadPhase, string> = {
   status_unknown: "Status unknown",
   failed: "Upload failed",
   cancelled: "Cancelled",
-}
-
-export const collectionLabels: Record<AssetLibraryCollection, string> = {
-  recent: "Recent",
-  uploads: "Uploads",
-  library: "Library",
 }
 
 export function isUploadActive(item: UploadQueueItem) {
@@ -882,7 +878,9 @@ export function LocalAssetCard({
           <input
             ref={locateInputRef}
             accept="image/png,image/jpeg,image/webp"
-            className="sr-only"
+            aria-hidden="true"
+            hidden
+            tabIndex={-1}
             type="file"
             onChange={(event) => {
               const file = event.currentTarget.files?.[0]

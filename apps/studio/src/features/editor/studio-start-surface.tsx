@@ -692,10 +692,11 @@ function QuickStarts({
       <input
         ref={inputRef}
         accept=".json,application/json"
-        aria-label="Choose a Studio document JSON file"
-        className="sr-only"
+        aria-hidden="true"
+        hidden
         id={inputId}
         name="studioDocument"
+        tabIndex={-1}
         type="file"
         onChange={importFile}
       />

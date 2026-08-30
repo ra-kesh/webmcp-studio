@@ -21,6 +21,9 @@ async function openSampleEditor(page: Page) {
   await expect(
     page.getByRole("heading", { name: "Studio documents" })
   ).toBeVisible()
+  await expect(
+    page.getByRole("button", { name: "Choose File", exact: true })
+  ).toHaveCount(0)
   await page.getByRole("button", { name: "Open sample", exact: true }).click()
   await expect(page).toHaveURL(/\/documents\/[^/]+$/)
   await expect(page.getByLabel("Canvas viewport")).toBeVisible({
@@ -29,6 +32,12 @@ async function openSampleEditor(page: Page) {
   await expect(page.locator("canvas.upper-canvas")).toBeVisible({
     timeout: 30_000,
   })
+  await expect(
+    page.getByRole("button", { name: "Choose File", exact: true })
+  ).toHaveCount(0)
+  await expect(
+    page.locator("[data-page-thumbnail-id]").first()
+  ).toHaveAttribute("aria-hidden", "true")
 }
 
 async function expectAutoFitArtboardCentered(page: Page) {
