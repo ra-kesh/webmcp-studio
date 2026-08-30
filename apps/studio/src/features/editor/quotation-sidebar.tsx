@@ -10,6 +10,7 @@ import { EditorPanelTabsList } from "@webmcp/ui/components/editor-chrome"
 import { Tabs, TabsContent, TabsTrigger } from "@webmcp/ui/components/tabs"
 import { cn } from "@webmcp/ui/lib/utils"
 import { LayerTree } from "./layer-tree"
+import { ComponentAssetsPanel } from "./component-assets-panel"
 import type { ProductCommandMenuRuntime } from "./product-command-menu"
 import { PageOutputPanel } from "./page-output-panel"
 import type { PageOutputPanelProps } from "./page-output-panel"
@@ -20,7 +21,7 @@ import type {
 } from "./template-catalog-model"
 import type { TemplateCatalogLoadState } from "./template-catalog-panel"
 
-export type DocumentPanelTab = "templates" | "pages" | "layers"
+export type DocumentPanelTab = "templates" | "components" | "pages" | "layers"
 
 export function QuotationSidebar({
   document,
@@ -49,6 +50,10 @@ export function QuotationSidebar({
   onUpdateLayerNodes,
   onMoveLayer,
   onDeleteLayerNodes,
+  canCreateComponentFromSelection,
+  onCreateComponentFromSelection,
+  onInsertComponent,
+  onFocusComponentSource,
   productCommandContext,
   productCommandRuntime,
   compact = false,
@@ -95,6 +100,10 @@ export function QuotationSidebar({
     intent: LayerDropIntent
   ) => boolean
   onDeleteLayerNodes: (nodeIds: string[]) => boolean
+  canCreateComponentFromSelection: boolean
+  onCreateComponentFromSelection: () => void
+  onInsertComponent: (componentId: string) => void
+  onFocusComponentSource: (componentId: string) => void
   productCommandContext: ProductCommandRuntimeContext
   productCommandRuntime: ProductCommandMenuRuntime
   compact?: boolean
@@ -126,6 +135,9 @@ export function QuotationSidebar({
           <TabsTrigger value="templates" className="flex-none px-2.5 text-xs">
             Templates
           </TabsTrigger>
+          <TabsTrigger value="components" className="flex-none px-2.5 text-xs">
+            Assets
+          </TabsTrigger>
           <TabsTrigger value="pages" className="flex-none px-2.5 text-xs">
             Pages
           </TabsTrigger>
@@ -153,6 +165,19 @@ export function QuotationSidebar({
             onCreate={onCreateFromTemplate}
             onLayerOrganizationUpgrade={onLayerOrganizationUpgrade}
             onRetry={onRetryTemplates}
+          />
+        </TabsContent>
+        <TabsContent
+          value="components"
+          className="flex min-h-0 flex-col overflow-hidden"
+        >
+          <ComponentAssetsPanel
+            document={document}
+            canCreateFromSelection={canCreateComponentFromSelection}
+            reviewPending={reviewPending}
+            onCreateFromSelection={onCreateComponentFromSelection}
+            onInsert={onInsertComponent}
+            onFocusSource={onFocusComponentSource}
           />
         </TabsContent>
         <TabsContent

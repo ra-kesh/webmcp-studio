@@ -6,6 +6,7 @@ import {
   captureSemanticFragment,
   cloneTemplateDocument,
   cloneSemanticFragment,
+  componentSourceSubtree,
   analyzeQuotationGroupOrganization,
   applyQuotationGroupOrganization,
   createTemplateVersion,
@@ -9362,6 +9363,190 @@ export function useDocumentEditor({
     selection?.nodeIds ?? []
   )
 
+  const createComponentFromSelection = useCallback(
+    (requestedName?: string) => {
+      const document = historyRef.current.document
+      const nodeIds = selection?.nodeIds ?? []
+      if (!nodeIds.length || selection?.pageId !== activePageId) return null
+      let sourceGroupId = selectedGroupId
+      const sourceGroup = sourceGroupId
+        ? document.groups.find((group) => group.id === sourceGroupId)
+        : undefined
+      const name =
+        requestedName?.trim() || sourceGroup?.name.trim() || "Component"
+      const drafts: CommandDraft[] = []
+      if (!sourceGroupId) {
+        if (nodeIds.length < 2) {
+          setDocumentError(
+            "Select a complete group or at least two layers to create a component."
+          )
+          return null
+        }
+        sourceGroupId = `group-${crypto.randomUUID()}`
+        drafts.push({
+          type: "group_nodes",
+          groupId: sourceGroupId,
+          pageId: activePageId,
+          name,
+          nodeIds,
+        })
+      }
+      const existing = document.components.find(
+        (component) => component.sourceGroupId === sourceGroupId
+      )
+      if (existing) {
+        setDocumentError(`${existing.name} is already a main component.`)
+        return existing.id
+      }
+      const componentId = `component-${crypto.randomUUID()}`
+      const variantId = `component-variant-${crypto.randomUUID()}`
+      drafts.push({
+        type: "create_component",
+        component: {
+          id: componentId,
+          name,
+          description: "",
+          sourceGroupId,
+          defaultVariantId: variantId,
+          variants: [{ id: variantId, name: "Default", overrides: {} }],
+        },
+      })
+      if (!commit(drafts, { label: `Create component “${name}”` })) return null
+      setDocumentError(null)
+      return componentId
+    },
+    [activePageId, commit, selectedGroupId, selection]
+  )
+
+  const createComponentInstance = useCallback(
+    (componentId: string, center?: { x: number; y: number }) => {
+      const document = historyRef.current.document
+      const component = document.components.find(
+        (candidate) => candidate.id === componentId
+      )
+      const page = document.pages.find(
+        (candidate) => candidate.id === activePageId
+      )
+      const source = component
+        ? componentSourceSubtree(document, component.sourceGroupId)
+        : null
+      if (!component || !page || !source?.nodeIds.length) {
+        setDocumentError("This component is not available for insertion.")
+        return null
+      }
+      const sourceNodes = source.nodeIds.flatMap((nodeId) => {
+        const node = document.nodes.find((candidate) => candidate.id === nodeId)
+        return node ? [node] : []
+      })
+      if (!sourceNodes.length) {
+        setDocumentError("This component has no visible source layers.")
+        return null
+      }
+      const left = Math.min(...sourceNodes.map((node) => node.x))
+      const top = Math.min(...sourceNodes.map((node) => node.y))
+      const right = Math.max(...sourceNodes.map((node) => node.x + node.width))
+      const bottom = Math.max(
+        ...sourceNodes.map((node) => node.y + node.height)
+      )
+      const width = right - left
+      const height = bottom - top
+      const placement = center ?? { x: page.width / 2, y: page.height / 2 }
+      const instanceId = `component-instance-${crypto.randomUUID()}`
+      const groupMappings = source.groupIds.map((sourceGroupId) => ({
+        sourceGroupId,
+        instanceGroupId: `component-instance-group-${crypto.randomUUID()}`,
+      }))
+      const nodeMappings = source.nodeIds.map((sourceNodeId) => ({
+        sourceNodeId,
+        instanceNodeId: `component-instance-node-${crypto.randomUUID()}`,
+      }))
+      const rootGroupId = groupMappings.find(
+        (mapping) => mapping.sourceGroupId === component.sourceGroupId
+      )?.instanceGroupId
+      if (!rootGroupId) {
+        setDocumentError("This component has an incomplete source hierarchy.")
+        return null
+      }
+      const instanceNumber =
+        document.componentInstances.filter(
+          (instance) => instance.componentId === component.id
+        ).length + 1
+      const name = `${component.name} ${instanceNumber}`
+      const instance = {
+        id: instanceId,
+        name,
+        componentId: component.id,
+        variantId: component.defaultVariantId,
+        rootGroupId,
+        transform: {
+          x: Math.max(0, Math.min(page.width - width, placement.x - width / 2)),
+          y: Math.max(
+            0,
+            Math.min(page.height - height, placement.y - height / 2)
+          ),
+          scale: 1,
+          rotation: 0,
+        },
+        nodeMappings,
+        groupMappings,
+        overrides: {},
+      }
+      if (
+        !commit(
+          [
+            {
+              type: "create_component_instance",
+              pageId: page.id,
+              instance,
+            },
+          ],
+          { label: `Insert “${component.name}” instance` }
+        )
+      ) {
+        return null
+      }
+      setEditorSelection({
+        pageId: page.id,
+        nodeIds: nodeMappings.map((mapping) => mapping.instanceNodeId),
+      })
+      setDocumentError(null)
+      return instanceId
+    },
+    [activePageId, commit, setEditorSelection]
+  )
+
+  const switchComponentVariant = useCallback(
+    (instanceId: string, variantId: string) =>
+      commit([{ type: "switch_component_variant", instanceId, variantId }], {
+        label: "Switch component variant",
+      }),
+    [commit]
+  )
+
+  const resetComponentLayerOverrides = useCallback(
+    (instanceId: string, sourceNodeId: string) =>
+      commit([{ type: "reset_component_override", instanceId, sourceNodeId }], {
+        label: "Reset component layer overrides",
+      }),
+    [commit]
+  )
+
+  const resetAllComponentOverrides = useCallback(
+    (instanceId: string) =>
+      commit([{ type: "reset_all_component_overrides", instanceId }], {
+        label: "Reset all component overrides",
+      }),
+    [commit]
+  )
+
+  const detachComponentInstance = useCallback(
+    (instanceId: string) =>
+      commit([{ type: "detach_component_instance", instanceId }], {
+        label: "Detach component instance",
+      }),
+    [commit]
+  )
+
   const selectGroup = useCallback(
     (groupId: string, additive: boolean) => {
       const groupNodeIds = getGroupNodeIds(historyRef.current.document, groupId)
@@ -10615,6 +10800,12 @@ export function useDocumentEditor({
     reorderSelection,
     reorderNode,
     groupSelection,
+    createComponentFromSelection,
+    createComponentInstance,
+    switchComponentVariant,
+    resetComponentLayerOverrides,
+    resetAllComponentOverrides,
+    detachComponentInstance,
     ungroupSelection,
     selectGroup,
     updateGroup,

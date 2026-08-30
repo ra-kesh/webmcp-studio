@@ -326,3 +326,23 @@ active**
 
 Gate 3A is projection only. Assets insertion, Inspector variant/reset/detach,
 source navigation, canvas behavior and compact acceptance remain Gate 3 work.
+
+## Gate 3B result — component Assets and insertion
+
+Status: **implemented and locally accepted on 2026-08-30; Gate 3 remains
+active**
+
+- Added a first-class Assets tab to the shared desktop/compact document panel.
+  It is deliberately separate from the image/media picker, matching the
+  OpenPencil distinction between reusable components and uploaded media.
+- Components are searchable and grouped by source page. Each item uses a live
+  render of the actual source subtree, reports variant and instance counts,
+  inserts on click/keyboard, and exposes Go to main component.
+- Selection-to-component and component-to-instance actions now cross the same
+  canonical command/history boundary as every other editor mutation. Ungrouped
+  multi-selection is grouped atomically; a lone ungrouped layer is rejected
+  with explicit guidance instead of inventing a hidden wrapper.
+- Instances are inserted at the visible canvas centre, mapped with fresh stable
+  node/group identities, selected after creation and fully Undo/Redo-able.
+- Focused projection tests pass, and Studio typechecks. Gate 3C now owns the
+  component-aware Inspector and its variant/reset/detach/source controls.

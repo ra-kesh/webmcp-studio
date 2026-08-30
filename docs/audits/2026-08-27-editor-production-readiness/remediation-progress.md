@@ -3401,3 +3401,19 @@ Status: **implemented and locally accepted; Gate 3 remains active**
   markers without flattening groups or weakening virtualization.
 - Focused Layers tests pass 11/11; Editor and Studio typecheck. Gate 3 next
   owns Assets component discovery/insertion and Inspector lifecycle controls.
+
+## 2026-08-30 — COMPONENT-01 Gate 3B component Assets
+
+Status: **implemented and locally accepted; Gate 3 remains active**
+
+- Followed the Gate 3 reference finding that OpenPencil treats reusable
+  components as a first-class Assets surface, separate from image/media
+  management.
+- Added a shared desktop/compact Assets tab with search, source-page grouping,
+  renderer-derived thumbnails, variant/instance counts, insertion and source
+  navigation.
+- Exposed create-component and viewport-centred create-instance actions through
+  the existing canonical transaction/history boundary with fresh mappings and
+  selected-result behavior.
+- The focused component Assets projection test passes and Studio typechecks.
+  Gate 3 next owns the component-aware Inspector lifecycle.

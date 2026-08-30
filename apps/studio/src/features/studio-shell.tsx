@@ -47,6 +47,7 @@ import {
 } from "lucide-react"
 import {
   applyTextLinkToRange,
+  getGroupNodeIds,
   type DesignTemplateCatalogItem,
   type SceneNode,
   type TextParagraphStylePatch,
@@ -2299,6 +2300,58 @@ export function StudioShell({
     focusBounds(getNodeBounds(node))
   }
 
+  const createComponentFromSelection = useCallback(() => {
+    const componentId = editor.createComponentFromSelection()
+    if (componentId) setDocumentPanelTab("components")
+  }, [editor])
+
+  const insertComponent = useCallback(
+    (componentId: string) => {
+      const workspace = workspaceRef.current
+      const camera = cameraRef.current
+      const center = workspace
+        ? {
+            x: (workspace.clientWidth / 2 - camera.x) / camera.zoom,
+            y: (workspace.clientHeight / 2 - camera.y) / camera.zoom,
+          }
+        : undefined
+      const instanceId = editor.createComponentInstance(componentId, center)
+      if (!instanceId) return
+      setDocumentPanelTab("layers")
+      setCompactPanel(null)
+      window.requestAnimationFrame(() => zoomToSelection())
+    },
+    [editor, zoomToSelection]
+  )
+
+  const focusComponentSource = useCallback(
+    (componentId: string) => {
+      const component = editor.document.components.find(
+        (candidate) => candidate.id === componentId
+      )
+      if (!component) return
+      const group = editor.document.groups.find(
+        (candidate) => candidate.id === component.sourceGroupId
+      )
+      if (!group) return
+      const nodeIds = getGroupNodeIds(editor.document, group.id)
+      const nodes = nodeIds.flatMap((nodeId) => {
+        const node = editor.document.nodes.find(
+          (candidate) => candidate.id === nodeId
+        )
+        return node ? [node] : []
+      })
+      if (!nodes.length) return
+      if (group.pageId !== editor.activePageId) editor.selectPage(group.pageId)
+      editor.setSelection({ pageId: group.pageId, nodeIds })
+      setDocumentPanelTab("layers")
+      setCompactPanel(null)
+      const bounds = getSelectionBounds(nodes)
+      if (bounds) focusBounds(bounds)
+    },
+    [editor, focusBounds]
+  )
+
   const focusReviewTarget = (target: ReviewAffectedTarget) => {
     if (target.kind === "node") {
       focusNode(target.id)
@@ -4123,6 +4176,12 @@ export function StudioShell({
                   onUpdateLayerNodes={editor.updateLayerNodes}
                   onMoveLayer={editor.moveLayer}
                   onDeleteLayerNodes={editor.deleteLayerNodes}
+                  canCreateComponentFromSelection={Boolean(
+                    editor.selectedGroupId || editor.selectedNodes.length >= 2
+                  )}
+                  onCreateComponentFromSelection={createComponentFromSelection}
+                  onInsertComponent={insertComponent}
+                  onFocusComponentSource={focusComponentSource}
                   productCommandContext={productCommandContext}
                   productCommandRuntime={productMenuRuntime}
                   onSelectPage={editor.selectPage}
@@ -4820,6 +4879,12 @@ export function StudioShell({
                 onUpdateLayerNodes={editor.updateLayerNodes}
                 onMoveLayer={editor.moveLayer}
                 onDeleteLayerNodes={editor.deleteLayerNodes}
+                canCreateComponentFromSelection={Boolean(
+                  editor.selectedGroupId || editor.selectedNodes.length >= 2
+                )}
+                onCreateComponentFromSelection={createComponentFromSelection}
+                onInsertComponent={insertComponent}
+                onFocusComponentSource={focusComponentSource}
                 productCommandContext={productCommandContext}
                 productCommandRuntime={productMenuRuntime}
                 onSelectPage={(pageId) => {
