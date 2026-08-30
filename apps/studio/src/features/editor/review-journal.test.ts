@@ -5,6 +5,7 @@ import {
   MAX_REVIEW_RESOLVED_ENTRIES,
   createEmptyReviewJournal,
   createReviewProposal,
+  deriveReviewAffectedTargets,
   resolveAppliedReview,
   resolveDiscardedReview,
   reviewJournalForStorage,
@@ -90,6 +91,79 @@ describe("review journal", () => {
         id: node.id,
         label: node.name,
         pageId: page.id,
+      },
+    ])
+  })
+
+  it("names components and linked instances as navigable review targets", () => {
+    const componentDocument = structuredClone(document)
+    const sourceGroup = componentDocument.groups[0]!
+    const sourceNodeId = sourceGroup.nodeIds[0]!
+    componentDocument.components = [
+      {
+        id: "review-component",
+        name: "Review card",
+        description: "Reusable review fixture",
+        sourceGroupId: sourceGroup.id,
+        defaultVariantId: "review-component-default",
+        variants: [
+          {
+            id: "review-component-default",
+            name: "Default",
+            overrides: {},
+          },
+        ],
+      },
+    ]
+    componentDocument.componentInstances = [
+      {
+        id: "review-component-instance",
+        name: "Review card 1",
+        componentId: "review-component",
+        variantId: "review-component-default",
+        rootGroupId: sourceGroup.id,
+        transform: { x: 0, y: 0, scale: 1, rotation: 0 },
+        nodeMappings: [{ sourceNodeId, instanceNodeId: sourceNodeId }],
+        groupMappings: [
+          {
+            sourceGroupId: sourceGroup.id,
+            instanceGroupId: sourceGroup.id,
+          },
+        ],
+        overrides: {},
+      },
+    ]
+    const proposal: ChangeSet = {
+      ...changeSet("component-review"),
+      operations: [
+        {
+          id: "operation-component-review",
+          status: "pending",
+          summary: "Rename the reusable card",
+          command: {
+            id: "command-component-review",
+            type: "update_component",
+            actor: "agent",
+            at: "2026-08-29T06:00:00.000Z",
+            componentId: "review-component",
+            patch: { name: "Reviewed card" },
+          },
+        },
+      ],
+    }
+
+    expect(deriveReviewAffectedTargets(componentDocument, proposal)).toEqual([
+      {
+        kind: "component",
+        id: "review-component",
+        label: "Review card",
+        pageId: sourceGroup.pageId,
+      },
+      {
+        kind: "component_instance",
+        id: "review-component-instance",
+        label: "Review card 1",
+        pageId: sourceGroup.pageId,
       },
     ])
   })

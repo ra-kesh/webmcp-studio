@@ -3494,3 +3494,19 @@ Status: **implemented and locally accepted; Gate 4 remains active**
   counts so destructive replacement does not hide reusable-resource loss.
 - Focused document and Studio projection tests pass. Gate 4 next owns Review
   affected-object navigation, followed by WebMCP/API parity.
+
+## 2026-08-30 — COMPONENT-01 Gate 4B Review navigation
+
+Status: **implemented and locally accepted; Gate 4 remains active**
+
+- Re-read the Review journal and affected-object navigation path before
+  implementation. Component commands previously had no component-aware impact
+  projection.
+- Review now persists explicit main-component and instance targets, includes
+  linked instances for source/variant changes and identifies mapped instance
+  layers for layer-specific override operations.
+- Review target existence and labels understand both object kinds, and
+  navigation selects/focuses complete source or instance roots in the preview
+  document.
+- Focused Review tests and Studio typecheck pass. Gate 4C WebMCP/API parity is
+  next.

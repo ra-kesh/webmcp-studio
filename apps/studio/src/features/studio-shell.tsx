@@ -2353,18 +2353,44 @@ export function StudioShell({
   )
 
   const focusReviewTarget = (target: ReviewAffectedTarget) => {
+    const focusGroup = (groupId: string) => {
+      const group = editor.previewDocument.groups.find(
+        (candidate) => candidate.id === groupId
+      )
+      if (!group) return
+      const nodeIds = getGroupNodeIds(editor.previewDocument, group.id)
+      const nodes = nodeIds.flatMap((nodeId) => {
+        const node = editor.previewDocument.nodes.find(
+          (candidate) => candidate.id === nodeId
+        )
+        return node ? [node] : []
+      })
+      if (!nodes.length) return
+      if (group.pageId !== editor.activePageId) editor.selectPage(group.pageId)
+      editor.setSelection({ pageId: group.pageId, nodeIds })
+      const bounds = getSelectionBounds(nodes)
+      if (bounds) focusBounds(bounds)
+    }
     if (target.kind === "node") {
       focusNode(target.id)
       return
     }
     if (target.kind === "group") {
-      const group = editor.previewDocument.groups.find(
+      focusGroup(target.id)
+      return
+    }
+    if (target.kind === "component") {
+      const component = editor.previewDocument.components.find(
         (candidate) => candidate.id === target.id
       )
-      const nodeId = group?.nodeIds.find((id) =>
-        editor.previewDocument.nodes.some((node) => node.id === id)
+      if (component) focusGroup(component.sourceGroupId)
+      return
+    }
+    if (target.kind === "component_instance") {
+      const instance = editor.previewDocument.componentInstances.find(
+        (candidate) => candidate.id === target.id
       )
-      if (nodeId) focusNode(nodeId)
+      if (instance) focusGroup(instance.rootGroupId)
       return
     }
     if (target.kind === "field") {

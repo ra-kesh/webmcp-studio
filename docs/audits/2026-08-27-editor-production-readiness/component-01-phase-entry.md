@@ -448,3 +448,25 @@ active**
 
 Gate 4B/4C still own Review affected-object navigation and WebMCP/API command
 parity.
+
+## Gate 4B result — component-aware Review
+
+Status: **implemented and locally accepted on 2026-08-30; Gate 4 remains
+active**
+
+- Audited the persisted Review journal, affected-target projection and shell
+  navigation before implementation. Component commands previously produced no
+  affected targets even when a source edit propagated to linked instances.
+- Review targets now represent main components and component instances as
+  explicit, persisted object kinds with their names and page ownership.
+- Source/variant updates and component deletion name the reusable component and
+  every linked instance. Instance variant/override/reset/detach operations name
+  the controlling component and exact instance, and layer-specific overrides
+  also name the mapped instance layer.
+- Affected-object navigation focuses the complete component source or instance
+  root in the preview document. Generic group review navigation now also keeps
+  the full group selection instead of choosing an arbitrary first child.
+- Focused Review journal/operation tests pass and Studio typechecks.
+
+Gate 4C WebMCP/API capability, query and execution parity remains before Gate 4
+closes.

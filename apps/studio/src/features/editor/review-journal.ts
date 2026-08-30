@@ -32,7 +32,15 @@ export type ReviewProposalProvenance = z.infer<
 
 export const reviewAffectedTargetSchema = z
   .object({
-    kind: z.enum(["page", "node", "group", "field", "output"]),
+    kind: z.enum([
+      "page",
+      "node",
+      "group",
+      "field",
+      "output",
+      "component",
+      "component_instance",
+    ]),
     id: z.string().min(1),
     label: z.string().trim().min(1).max(240),
     pageId: z.string().min(1).nullable(),
@@ -138,6 +146,14 @@ const labelForField = (document: Document, fieldId: string) =>
   document.fields.find((field) => field.id === fieldId)?.label ??
   `Field ${fieldId}`
 
+const labelForComponent = (document: Document, componentId: string) =>
+  document.components.find((component) => component.id === componentId)?.name ??
+  `Component ${componentId}`
+
+const labelForComponentInstance = (document: Document, instanceId: string) =>
+  document.componentInstances.find((instance) => instance.id === instanceId)
+    ?.name ?? `Component instance ${instanceId}`
+
 type TargetCollector = (target: ReviewAffectedTarget) => void
 
 function collectNode(
@@ -163,12 +179,123 @@ function collectField(
   }
 }
 
+function collectComponentInstance(
+  document: Document,
+  instanceId: string,
+  collect: TargetCollector,
+  label = labelForComponentInstance(document, instanceId),
+  pageId?: string | null
+) {
+  const instance = document.componentInstances.find(
+    (candidate) => candidate.id === instanceId
+  )
+  const root = instance
+    ? document.groups.find((group) => group.id === instance.rootGroupId)
+    : undefined
+  collect({
+    kind: "component_instance",
+    id: instanceId,
+    label,
+    pageId: pageId ?? root?.pageId ?? null,
+  })
+}
+
+function collectComponent(
+  document: Document,
+  componentId: string,
+  collect: TargetCollector,
+  options: { label?: string; includeInstances?: boolean } = {}
+) {
+  const component = document.components.find(
+    (candidate) => candidate.id === componentId
+  )
+  const source = component
+    ? document.groups.find((group) => group.id === component.sourceGroupId)
+    : undefined
+  collect({
+    kind: "component",
+    id: componentId,
+    label: options.label ?? labelForComponent(document, componentId),
+    pageId: source?.pageId ?? null,
+  })
+  if (options.includeInstances === false) return
+  for (const instance of document.componentInstances) {
+    if (instance.componentId === componentId) {
+      collectComponentInstance(document, instance.id, collect)
+    }
+  }
+}
+
 function collectCommandTargets(
   document: Document,
   command: DocumentCommand,
   collect: TargetCollector
 ) {
   switch (command.type) {
+    case "create_component":
+      collectComponent(document, command.component.id, collect, {
+        label: command.component.name,
+        includeInstances: false,
+      })
+      return
+    case "update_component":
+    case "delete_component":
+    case "create_component_variant":
+    case "update_component_variant":
+    case "delete_component_variant":
+      collectComponent(document, command.componentId, collect)
+      return
+    case "create_component_instance":
+      collectComponent(document, command.instance.componentId, collect, {
+        includeInstances: false,
+      })
+      collectComponentInstance(
+        document,
+        command.instance.id,
+        collect,
+        command.instance.name,
+        command.pageId
+      )
+      return
+    case "switch_component_variant":
+    case "update_component_instance_metadata":
+    case "reset_all_component_overrides":
+    case "detach_component_instance": {
+      const instance = document.componentInstances.find(
+        (candidate) => candidate.id === command.instanceId
+      )
+      if (instance) {
+        collectComponent(document, instance.componentId, collect, {
+          includeInstances: false,
+        })
+      }
+      collectComponentInstance(document, command.instanceId, collect)
+      return
+    }
+    case "update_component_instance":
+    case "reset_component_override": {
+      const instance = document.componentInstances.find(
+        (candidate) => candidate.id === command.instanceId
+      )
+      if (instance) {
+        collectComponent(document, instance.componentId, collect, {
+          includeInstances: false,
+        })
+        const mapping = instance.nodeMappings.find(
+          (candidate) => candidate.sourceNodeId === command.sourceNodeId
+        )
+        if (mapping) collectNode(document, mapping.instanceNodeId, collect)
+      }
+      collectComponentInstance(document, command.instanceId, collect)
+      return
+    }
+    case "synchronize_component_instances":
+      for (const component of document.components) {
+        collectComponent(document, component.id, collect, {
+          includeInstances: false,
+        })
+      }
+      return
     case "set_field":
     case "update_field":
     case "remove_field":

@@ -248,6 +248,8 @@ const reviewTargetKindLabel: Record<ReviewAffectedTarget["kind"], string> = {
   page: "Page",
   field: "Field",
   output: "Output",
+  component: "Component",
+  component_instance: "Instance",
 }
 
 export function reviewTargetExists(
@@ -262,6 +264,12 @@ export function reviewTargetExists(
     return document.pages.some((page) => page.id === target.id)
   if (target.kind === "output")
     return document.outputs.some((output) => output.id === target.id)
+  if (target.kind === "component")
+    return document.components.some((component) => component.id === target.id)
+  if (target.kind === "component_instance")
+    return document.componentInstances.some(
+      (instance) => instance.id === target.id
+    )
   return document.fields.some((field) => field.id === target.id)
 }
 
