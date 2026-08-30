@@ -4653,6 +4653,31 @@ export function StudioShell({
                     applyActiveTextEditingParagraphStyle
                   }
                   onEditTextLink={openTextLinkEditor}
+                  onCreateTypographyStyle={(style, nodeId) =>
+                    editor.createTypographyStyle(
+                      style,
+                      nodeId ? [{ nodeId }] : []
+                    )
+                  }
+                  onUpdateTypographyStyle={editor.updateTypographyStyle}
+                  onDeleteTypographyStyle={editor.deleteTypographyStyle}
+                  onApplyTypographyStyle={(styleId, nodeId) =>
+                    editor.applyTypographyStyle(styleId, [{ nodeId }])
+                  }
+                  onDetachTypographyStyle={(nodeId) =>
+                    editor.detachTypographyStyle([{ nodeId }])
+                  }
+                  onCreatePaintStyle={(style, nodeId) =>
+                    editor.createPaintStyle(style, nodeId ? [{ nodeId }] : [])
+                  }
+                  onUpdatePaintStyle={editor.updatePaintStyle}
+                  onDeletePaintStyle={editor.deletePaintStyle}
+                  onApplyPaintStyle={(styleId, nodeId) =>
+                    editor.applyPaintStyle(styleId, [{ nodeId }])
+                  }
+                  onDetachPaintStyle={(nodeId) =>
+                    editor.detachPaintStyle([{ nodeId }])
+                  }
                 />
               </div>
             </>
@@ -4872,6 +4897,31 @@ export function StudioShell({
                   applyActiveTextEditingParagraphStyle
                 }
                 onEditTextLink={openTextLinkEditor}
+                onCreateTypographyStyle={(style, nodeId) =>
+                  editor.createTypographyStyle(
+                    style,
+                    nodeId ? [{ nodeId }] : []
+                  )
+                }
+                onUpdateTypographyStyle={editor.updateTypographyStyle}
+                onDeleteTypographyStyle={editor.deleteTypographyStyle}
+                onApplyTypographyStyle={(styleId, nodeId) =>
+                  editor.applyTypographyStyle(styleId, [{ nodeId }])
+                }
+                onDetachTypographyStyle={(nodeId) =>
+                  editor.detachTypographyStyle([{ nodeId }])
+                }
+                onCreatePaintStyle={(style, nodeId) =>
+                  editor.createPaintStyle(style, nodeId ? [{ nodeId }] : [])
+                }
+                onUpdatePaintStyle={editor.updatePaintStyle}
+                onDeletePaintStyle={editor.deletePaintStyle}
+                onApplyPaintStyle={(styleId, nodeId) =>
+                  editor.applyPaintStyle(styleId, [{ nodeId }])
+                }
+                onDetachPaintStyle={(nodeId) =>
+                  editor.detachPaintStyle([{ nodeId }])
+                }
               />
             )}
           </SheetContent>

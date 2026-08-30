@@ -37,6 +37,7 @@ import {
   projectSvgViewport,
   replaceRichTextRange,
   resolveTextSelectionStyle,
+  resolveTextSelectionStyleAttachment,
   resolveTextSelectionLink,
   resolveTextSelectionParagraphState,
   serializeTextClipboardPayload,
@@ -4066,6 +4067,22 @@ export class FabricCanvasAdapter implements CanvasAdapter {
         session.draftNode.runs,
         selection,
         textNodeBaseStyle(session.draftNode),
+        session.typingOverride
+      ),
+      typographyStyle: resolveTextSelectionStyleAttachment(
+        session.draftNode.text,
+        session.draftNode.runs,
+        selection,
+        "typography",
+        session.draftNode.typographyStyleId,
+        session.typingOverride
+      ),
+      paintStyle: resolveTextSelectionStyleAttachment(
+        session.draftNode.text,
+        session.draftNode.runs,
+        selection,
+        "paint",
+        session.draftNode.paintStyleId,
         session.typingOverride
       ),
       link: resolveTextSelectionLink(

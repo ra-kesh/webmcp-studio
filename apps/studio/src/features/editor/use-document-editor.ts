@@ -35,15 +35,20 @@ import type {
   Document,
   DocumentCommand,
   DesignTemplateCatalogItem,
+  DesignStyleTarget,
   FieldBinding,
   FieldDefinition,
   ImageFrameMask,
+  PaintStyle,
+  PaintStylePatch,
   QuotationRenderPayloadV1,
   QuotationGroupOrganizationAnalysis,
   QuotationTemplateId,
   SceneNode,
   SemanticFragment,
   TemplateVersion,
+  TypographyStyle,
+  TypographyStylePatch,
   QuotationRefreshConflictPolicy,
 } from "@webmcp/document"
 import { layerDropCommands } from "@webmcp/editor/layer-tree"
@@ -4134,6 +4139,108 @@ export function useDocumentEditor({
       )
     },
     [commit, selection]
+  )
+
+  const createTypographyStyle = useCallback(
+    (style: Omit<TypographyStyle, "id">, targets: DesignStyleTarget[] = []) => {
+      const id = `typography-style-${crypto.randomUUID()}`
+      return commit(
+        [
+          { type: "create_typography_style", style: { ...style, id } },
+          ...(targets.length
+            ? ([
+                { type: "apply_typography_style", styleId: id, targets },
+              ] as const)
+            : []),
+        ],
+        { label: `Create ${style.name}` }
+      )
+        ? id
+        : null
+    },
+    [commit]
+  )
+
+  const updateTypographyStyle = useCallback(
+    (styleId: string, patch: TypographyStylePatch) =>
+      commit([{ type: "update_typography_style", styleId, patch }], {
+        label: "Update text style",
+      }),
+    [commit]
+  )
+
+  const deleteTypographyStyle = useCallback(
+    (styleId: string) =>
+      commit([{ type: "delete_typography_style", styleId }], {
+        label: "Delete text style",
+      }),
+    [commit]
+  )
+
+  const applyTypographyStyle = useCallback(
+    (styleId: string, targets: DesignStyleTarget[]) =>
+      commit([{ type: "apply_typography_style", styleId, targets }], {
+        label: "Apply text style",
+      }),
+    [commit]
+  )
+
+  const detachTypographyStyle = useCallback(
+    (targets: DesignStyleTarget[]) =>
+      commit([{ type: "detach_typography_style", targets }], {
+        label: "Detach text style",
+      }),
+    [commit]
+  )
+
+  const createPaintStyle = useCallback(
+    (style: Omit<PaintStyle, "id">, targets: DesignStyleTarget[] = []) => {
+      const id = `paint-style-${crypto.randomUUID()}`
+      return commit(
+        [
+          { type: "create_paint_style", style: { ...style, id } },
+          ...(targets.length
+            ? ([{ type: "apply_paint_style", styleId: id, targets }] as const)
+            : []),
+        ],
+        { label: `Create ${style.name}` }
+      )
+        ? id
+        : null
+    },
+    [commit]
+  )
+
+  const updatePaintStyle = useCallback(
+    (styleId: string, patch: PaintStylePatch) =>
+      commit([{ type: "update_paint_style", styleId, patch }], {
+        label: "Update paint style",
+      }),
+    [commit]
+  )
+
+  const deletePaintStyle = useCallback(
+    (styleId: string) =>
+      commit([{ type: "delete_paint_style", styleId }], {
+        label: "Delete paint style",
+      }),
+    [commit]
+  )
+
+  const applyPaintStyle = useCallback(
+    (styleId: string, targets: DesignStyleTarget[]) =>
+      commit([{ type: "apply_paint_style", styleId, targets }], {
+        label: "Apply paint style",
+      }),
+    [commit]
+  )
+
+  const detachPaintStyle = useCallback(
+    (targets: DesignStyleTarget[]) =>
+      commit([{ type: "detach_paint_style", targets }], {
+        label: "Detach paint style",
+      }),
+    [commit]
   )
 
   const beginImageCrop = useCallback(
@@ -10370,6 +10477,16 @@ export function useDocumentEditor({
     runImagePlacementCommand,
     runImageFrameCommand,
     updateSelectionNodes,
+    createTypographyStyle,
+    updateTypographyStyle,
+    deleteTypographyStyle,
+    applyTypographyStyle,
+    detachTypographyStyle,
+    createPaintStyle,
+    updatePaintStyle,
+    deletePaintStyle,
+    applyPaintStyle,
+    detachPaintStyle,
     beginImageCrop,
     reportImageCropReadiness,
     previewImageCrop,

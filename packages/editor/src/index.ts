@@ -11,6 +11,7 @@ import type {
   TextSelectionLinkState,
   TextSelectionParagraphState,
   TextSelectionStyleState,
+  TextSelectionStyleAttachmentState,
 } from "@webmcp/document"
 import type { AlignmentSnapTarget } from "./snapping"
 
@@ -39,6 +40,8 @@ export type CanvasTextEditingState = Readonly<{
   text: string
   selection: TextSelection
   style: TextSelectionStyleState
+  typographyStyle: TextSelectionStyleAttachmentState
+  paintStyle: TextSelectionStyleAttachmentState
   link: TextSelectionLinkState
   paragraph: TextSelectionParagraphState
 }>

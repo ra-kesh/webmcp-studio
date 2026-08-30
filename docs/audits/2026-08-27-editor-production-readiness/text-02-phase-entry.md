@@ -469,3 +469,32 @@ Acceptance evidence:
 Gate 3 remains active. The next slice owns the production editor UI for the
 complete lifecycle, mixed/missing states and affected-layer navigation; the
 following slice owns API/WebMCP discovery and control.
+
+## Gate 3B result — reusable-style editor lifecycle
+
+Implemented:
+
+- text and supported shape inspectors expose document typography and paint
+  resources through compact named-style controls;
+- users can create a style from the current layer or active text selection,
+  apply and detach it, update it from the current appearance, rename it and
+  delete it once every attachment has been detached;
+- the control represents no-style, mixed and missing-reference states without
+  inventing a resolved value;
+- exact whole-layer and rich-range usage counts are visible, deletion is
+  disabled while the style is in use, and affected layers can be focused from
+  the inspector;
+- direct text editing resolves attachment state for the active selection, so
+  applying a style to a range updates the Fabric draft immediately and commits
+  through the existing direct-edit transaction boundary.
+
+Acceptance evidence:
+
+- document, editor and Studio typechecks pass; 16 focused document lifecycle
+  tests and 15 focused inspector/toolbar/Fabric tests pass under the required
+  Node 22 runtime;
+- a live port-3001 compact journey created `Editorial / Hero` from the selected
+  title, attached it, advanced the saved document and reported one affected
+  layer with working navigation.
+
+Gate 3 remains active only for API/WebMCP discovery and control.

@@ -211,6 +211,8 @@ describe("InspectorSidebar text selection state", () => {
           nodeId: textNode.id,
           text: textNode.type === "text" ? textNode.text : "",
           selection: { anchor: 0, focus: 5 },
+          typographyStyle: { kind: "value", value: null },
+          paintStyle: { kind: "value", value: null },
           link: {
             kind: "value",
             target: "https://example.com",
@@ -276,6 +278,8 @@ describe("InspectorSidebar text selection state", () => {
     expect(markup).toContain('aria-label="Mixed font sizes"')
     expect(markup).toContain('aria-label="Edit link for selected text"')
     expect(markup).toContain("Geist Variable")
+    expect(markup).toContain('data-reusable-style-field="Text style"')
+    expect(markup).toContain('data-reusable-style-field="Paint style"')
     expect(markup).toContain("Layer defaults")
   })
 })

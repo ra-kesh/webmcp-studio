@@ -10,6 +10,8 @@ const state = (overrides: Partial<CanvasTextEditingState["style"]> = {}) =>
     nodeId: "text-1",
     text: "Hello",
     selection: { anchor: 0, focus: 5 },
+    typographyStyle: { kind: "value", value: null },
+    paintStyle: { kind: "value", value: null },
     link: { kind: "none" },
     paragraph: {
       align: { kind: "value", value: "left" },

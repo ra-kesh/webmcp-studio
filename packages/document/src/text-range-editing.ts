@@ -48,6 +48,10 @@ export type TextSelectionLinkState =
       newTab: boolean
     }>
 
+export type TextSelectionStyleAttachmentState = TextSelectionSharedValue<
+  string | null
+>
+
 export type TextRunStylePatch = {
   [Key in keyof TextRunStyle]?: TextRunStyle[Key] | null
 }
@@ -286,6 +290,38 @@ export function resolveTextSelectionStyle(
     lineHeight: valueState(styles.map((style) => style.lineHeight)),
     letterSpacing: valueState(styles.map((style) => style.letterSpacing)),
   }
+}
+
+export function resolveTextSelectionStyleAttachment(
+  text: string,
+  input: readonly TextRunInput[],
+  selectionInput: TextSelection,
+  kind: "typography" | "paint",
+  baseStyleId: string | undefined,
+  typingOverride?: Readonly<TextRunStyle>
+): TextSelectionStyleAttachmentState {
+  const selection = normalizeTextSelection(text, selectionInput)
+  const normalized = normalizedRunsAndBoundaries(text, input, [
+    selection.start,
+    selection.end,
+  ])
+  const key = kind === "typography" ? "typographyStyleId" : "paintStyleId"
+  if (selection.collapsed) {
+    const override =
+      typingOverride ??
+      textRunOverrideAtCaret(text, normalized.runs, selection.start)
+    return { kind: "value", value: override[key] ?? baseStyleId ?? null }
+  }
+  const values: Array<string | null> = []
+  for (let index = 0; index < normalized.boundaries.length - 1; index += 1) {
+    const start = normalized.boundaries[index]!
+    const end = normalized.boundaries[index + 1]!
+    if (start >= selection.end || end <= selection.start) continue
+    values.push(
+      overrideAtCharacter(normalized.runs, start)[key] ?? baseStyleId ?? null
+    )
+  }
+  return valueState(values)
 }
 
 const sameLink = (

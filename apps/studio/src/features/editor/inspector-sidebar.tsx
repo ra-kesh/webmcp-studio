@@ -51,6 +51,7 @@ import {
   applyTextParagraphStyleToRange,
   bindingPropertiesForNode,
   defaultFieldValue,
+  designStyleUsage,
   fieldDefinitionSchema,
   fieldDefinitionValidationMessage,
   isManagedRendererFont,
@@ -71,9 +72,13 @@ import type {
   FieldValue,
   ImageFrameMask,
   ImagePlacement,
+  PaintStyle,
+  PaintStylePatch,
   SceneNode,
   TextParagraphStylePatch,
   TextRunStylePatch,
+  TypographyStyle,
+  TypographyStylePatch,
 } from "@webmcp/document"
 import type { Alignment } from "@webmcp/editor/geometry"
 import type { CanvasTextEditingState, NodeGeometryPatch } from "@webmcp/editor"
@@ -171,15 +176,33 @@ import {
   textColorChoices,
   textFormattingTogglePatch,
 } from "./text-formatting-model"
+import { ReusableStyleField } from "./reusable-style-field"
 
 const DEMO_AGENT_BRIEF =
   "Inspect and validate the open design. Adapt it for Mira & Dev, 14 February 2027 in Udaipur, using The Moonlit Weekend package at ₹4,25,000, valid until 30 November 2026. Search the approved asset library for warm sandstone architecture. Then create one coordinated human-reviewed proposal that updates those shared fields and inserts the best asset on the Cover at x 620, y 120, width 540, height 900 with cover fit. Do not apply or publish anything. Summarize the affected outputs and wait for my review."
 
 const EMPTY_REVIEW_JOURNAL = createEmptyReviewJournal()
 const ignoreReviewTarget = () => undefined
+const ignoreNodeId = (_nodeId: string) => undefined
 const ignoreTextStylePatch = (_patch: TextRunStylePatch) => undefined
 const ignoreTextParagraphStylePatch = (_patch: TextParagraphStylePatch) =>
   undefined
+const ignoreCreateTypographyStyle = (
+  _style: Omit<TypographyStyle, "id">,
+  _nodeId?: string
+) => null
+const ignoreCreatePaintStyle = (
+  _style: Omit<PaintStyle, "id">,
+  _nodeId?: string
+) => null
+const ignoreTypographyStyleUpdate = (
+  _styleId: string,
+  _patch: TypographyStylePatch
+) => false
+const ignorePaintStyleUpdate = (_styleId: string, _patch: PaintStylePatch) =>
+  false
+const ignoreStyleMutation = (_styleId: string, _nodeId?: string) => false
+const ignoreNodeStyleDetach = (_nodeId: string) => false
 const reviewTargetKindLabel: Record<ReviewAffectedTarget["kind"], string> = {
   node: "Layer",
   group: "Group",
@@ -562,6 +585,7 @@ function TextSelectionInspector({
 }
 
 function NodeInspector({
+  document,
   node,
   textEditingState,
   focusedProperty,
@@ -579,7 +603,19 @@ function NodeInspector({
   onApplyTextEditingStyle = ignoreTextStylePatch,
   onApplyTextEditingParagraphStyle = ignoreTextParagraphStylePatch,
   onEditTextLink = ignoreReviewTarget,
+  onCreateTypographyStyle = ignoreCreateTypographyStyle,
+  onUpdateTypographyStyle = ignoreTypographyStyleUpdate,
+  onDeleteTypographyStyle = ignoreStyleMutation,
+  onApplyTypographyStyle = ignoreStyleMutation,
+  onDetachTypographyStyle = ignoreNodeStyleDetach,
+  onCreatePaintStyle = ignoreCreatePaintStyle,
+  onUpdatePaintStyle = ignorePaintStyleUpdate,
+  onDeletePaintStyle = ignoreStyleMutation,
+  onApplyPaintStyle = ignoreStyleMutation,
+  onDetachPaintStyle = ignoreNodeStyleDetach,
+  onFocusStyleNode = ignoreNodeId,
 }: {
+  document: Document
   node: SceneNode
   textEditingState?: CanvasTextEditingState | null
   focusedProperty?: BindableProperty
@@ -600,6 +636,26 @@ function NodeInspector({
   onApplyTextEditingStyle?: (patch: TextRunStylePatch) => void
   onApplyTextEditingParagraphStyle?: (patch: TextParagraphStylePatch) => void
   onEditTextLink?: () => void
+  onCreateTypographyStyle?: (
+    style: Omit<TypographyStyle, "id">,
+    nodeId?: string
+  ) => string | null
+  onUpdateTypographyStyle?: (
+    styleId: string,
+    patch: TypographyStylePatch
+  ) => boolean
+  onDeleteTypographyStyle?: (styleId: string) => boolean
+  onApplyTypographyStyle?: (styleId: string, nodeId: string) => boolean
+  onDetachTypographyStyle?: (nodeId: string) => boolean
+  onCreatePaintStyle?: (
+    style: Omit<PaintStyle, "id">,
+    nodeId?: string
+  ) => string | null
+  onUpdatePaintStyle?: (styleId: string, patch: PaintStylePatch) => boolean
+  onDeletePaintStyle?: (styleId: string) => boolean
+  onApplyPaintStyle?: (styleId: string, nodeId: string) => boolean
+  onDetachPaintStyle?: (nodeId: string) => boolean
+  onFocusStyleNode?: (nodeId: string) => void
 }) {
   const inspector = useMemo(
     () => createInspectorSelectionModel([node], capabilityContext),
@@ -628,6 +684,214 @@ function NodeInspector({
     node.type === "text" && textEditingState?.nodeId === node.id
       ? textEditingState
       : null
+  const typographyStyleValue =
+    node.type !== "text"
+      ? null
+      : liveTextEditingState?.typographyStyle.kind === "mixed"
+        ? "mixed"
+        : (liveTextEditingState?.typographyStyle.value ??
+          node.typographyStyleId ??
+          null)
+  const paintStyleValue =
+    node.type === "image"
+      ? null
+      : node.type === "text" && liveTextEditingState
+        ? liveTextEditingState.paintStyle.kind === "mixed"
+          ? "mixed"
+          : liveTextEditingState.paintStyle.value
+        : (node.paintStyleId ?? null)
+  const typographyUsage =
+    typeof typographyStyleValue === "string" && typographyStyleValue !== "mixed"
+      ? designStyleUsage(document, "typography", typographyStyleValue)
+      : null
+  const paintUsage =
+    typeof paintStyleValue === "string" && paintStyleValue !== "mixed"
+      ? designStyleUsage(document, "paint", paintStyleValue)
+      : null
+  const usageNodes = (nodeIds: readonly string[]) =>
+    nodeIds.flatMap((nodeId) => {
+      const target = document.nodes.find((candidate) => candidate.id === nodeId)
+      return target ? [{ id: target.id, name: target.name }] : []
+    })
+  const captureTypographyStyle = (
+    name: string
+  ): Omit<TypographyStyle, "id"> | null => {
+    if (node.type !== "text") return null
+    const fontFamily = liveTextEditingState
+      ? sharedTextSelectionValue(liveTextEditingState.style.fontFamily)
+      : node.fontFamily
+    const fontSize = liveTextEditingState
+      ? sharedTextSelectionValue(liveTextEditingState.style.fontSize)
+      : node.fontSize
+    const fontWeight = liveTextEditingState
+      ? sharedTextSelectionValue(liveTextEditingState.style.fontWeight)
+      : node.fontWeight
+    const italic = liveTextEditingState
+      ? sharedTextSelectionValue(liveTextEditingState.style.italic)
+      : node.italic
+    const decoration = liveTextEditingState
+      ? sharedTextSelectionValue(liveTextEditingState.style.decoration)
+      : node.decoration
+    const lineHeight = liveTextEditingState
+      ? sharedTextSelectionValue(liveTextEditingState.style.lineHeight)
+      : node.lineHeight
+    const letterSpacing = liveTextEditingState
+      ? sharedTextSelectionValue(liveTextEditingState.style.letterSpacing)
+      : node.letterSpacing
+    if (
+      fontFamily === null ||
+      fontSize === null ||
+      fontWeight === null ||
+      italic === null ||
+      decoration === null ||
+      lineHeight === null ||
+      letterSpacing === null
+    ) {
+      return null
+    }
+    return {
+      name,
+      fontFamily,
+      fontSize,
+      fontWeight,
+      italic,
+      decoration,
+      lineHeight,
+      letterSpacing,
+    }
+  }
+  const paintColor = () => {
+    if (node.type === "text") {
+      return liveTextEditingState
+        ? sharedTextSelectionValue(liveTextEditingState.style.color)
+        : node.color
+    }
+    if (node.type === "line") return node.stroke
+    if (
+      node.type === "rect" ||
+      node.type === "ellipse" ||
+      node.type === "icon"
+    ) {
+      return node.fill
+    }
+    return null
+  }
+  const typographyRunPatch = (style: TypographyStyle): TextRunStylePatch => ({
+    typographyStyleId: style.id,
+    fontFamily: style.fontFamily,
+    fontSize: style.fontSize,
+    fontWeight: style.fontWeight,
+    italic: style.italic,
+    decoration: style.decoration,
+    lineHeight: style.lineHeight,
+    letterSpacing: style.letterSpacing,
+  })
+  const paintRunPatch = (style: PaintStyle): TextRunStylePatch => ({
+    paintStyleId: style.id,
+    color: style.color,
+  })
+  const typographyStyleControl =
+    node.type === "text" ? (
+      <ReusableStyleField
+        label="Text style"
+        value={typographyStyleValue}
+        styles={document.typographyStyles}
+        usageNodes={usageNodes(typographyUsage?.nodeIds ?? [])}
+        attachmentCount={typographyUsage?.totalAttachmentCount ?? 0}
+        rangeAttachmentCount={typographyUsage?.rangeAttachmentCount ?? 0}
+        disabled={node.locked}
+        onApply={(styleId) => {
+          if (liveTextEditingState) {
+            if (!styleId) {
+              onApplyTextEditingStyle({ typographyStyleId: null })
+              return true
+            }
+            const style = document.typographyStyles.find(
+              (candidate) => candidate.id === styleId
+            )
+            if (!style) return false
+            onApplyTextEditingStyle(typographyRunPatch(style))
+            return true
+          }
+          return styleId
+            ? onApplyTypographyStyle(styleId, node.id)
+            : onDetachTypographyStyle(node.id)
+        }}
+        onCreate={(name) => {
+          const style = captureTypographyStyle(name)
+          if (!style) return null
+          const id = onCreateTypographyStyle(
+            style,
+            liveTextEditingState ? undefined : node.id
+          )
+          if (id && liveTextEditingState) {
+            onApplyTextEditingStyle(typographyRunPatch({ ...style, id }))
+          }
+          return id
+        }}
+        onRename={(styleId, name) => onUpdateTypographyStyle(styleId, { name })}
+        onUpdateFromSelection={(styleId) => {
+          const current = document.typographyStyles.find(
+            (style) => style.id === styleId
+          )
+          const captured = current ? captureTypographyStyle(current.name) : null
+          return captured ? onUpdateTypographyStyle(styleId, captured) : false
+        }}
+        onDelete={onDeleteTypographyStyle}
+        onFocusNode={onFocusStyleNode}
+      />
+    ) : null
+  const paintStyleControl =
+    node.type !== "image" ? (
+      <ReusableStyleField
+        label="Paint style"
+        value={paintStyleValue}
+        styles={document.paintStyles}
+        usageNodes={usageNodes(paintUsage?.nodeIds ?? [])}
+        attachmentCount={paintUsage?.totalAttachmentCount ?? 0}
+        rangeAttachmentCount={paintUsage?.rangeAttachmentCount ?? 0}
+        disabled={node.locked}
+        onApply={(styleId) => {
+          if (liveTextEditingState && node.type === "text") {
+            if (!styleId) {
+              onApplyTextEditingStyle({ paintStyleId: null })
+              return true
+            }
+            const style = document.paintStyles.find(
+              (candidate) => candidate.id === styleId
+            )
+            if (!style) return false
+            onApplyTextEditingStyle(paintRunPatch(style))
+            return true
+          }
+          return styleId
+            ? onApplyPaintStyle(styleId, node.id)
+            : onDetachPaintStyle(node.id)
+        }}
+        onCreate={(name) => {
+          const color = paintColor()
+          if (color === null) return null
+          const style = { name, color, opacity: node.opacity }
+          const id = onCreatePaintStyle(
+            style,
+            liveTextEditingState ? undefined : node.id
+          )
+          if (id && liveTextEditingState && node.type === "text") {
+            onApplyTextEditingStyle(paintRunPatch({ ...style, id }))
+          }
+          return id
+        }}
+        onRename={(styleId, name) => onUpdatePaintStyle(styleId, { name })}
+        onUpdateFromSelection={(styleId) => {
+          const color = paintColor()
+          return color === null
+            ? false
+            : onUpdatePaintStyle(styleId, { color, opacity: node.opacity })
+        }}
+        onDelete={onDeletePaintStyle}
+        onFocusNode={onFocusStyleNode}
+      />
+    ) : null
   const paragraphState =
     node.type === "text"
       ? (liveTextEditingState?.paragraph ??
@@ -817,6 +1081,8 @@ function NodeInspector({
                 "bg-accent/70 ring-2 ring-ring ring-inset"
             )}
           >
+            {typographyStyleControl}
+            {paintStyleControl}
             {liveTextEditingState ? (
               <TextSelectionInspector
                 state={liveTextEditingState}
@@ -1123,6 +1389,7 @@ function NodeInspector({
               "bg-accent/70 ring-2 ring-ring ring-inset"
           )}
         >
+          {paintStyleControl}
           <InspectorColorField
             label="Fill"
             value={node.fill}
@@ -1164,6 +1431,7 @@ function NodeInspector({
               "bg-accent/70 ring-2 ring-ring ring-inset"
           )}
         >
+          {paintStyleControl}
           <InspectorColorField
             label="Fill"
             value={node.fill}
@@ -1188,6 +1456,7 @@ function NodeInspector({
 
       {inspector.capabilities.stroke && node.type === "line" ? (
         <InspectorSection title="Appearance">
+          {paintStyleControl}
           <InspectorColorField
             label="Stroke"
             value={node.stroke}
@@ -3456,6 +3725,16 @@ export function InspectorSidebar({
   onApplyTextEditingStyle = ignoreTextStylePatch,
   onApplyTextEditingParagraphStyle = ignoreTextParagraphStylePatch,
   onEditTextLink = ignoreReviewTarget,
+  onCreateTypographyStyle = ignoreCreateTypographyStyle,
+  onUpdateTypographyStyle = ignoreTypographyStyleUpdate,
+  onDeleteTypographyStyle = ignoreStyleMutation,
+  onApplyTypographyStyle = ignoreStyleMutation,
+  onDetachTypographyStyle = ignoreNodeStyleDetach,
+  onCreatePaintStyle = ignoreCreatePaintStyle,
+  onUpdatePaintStyle = ignorePaintStyleUpdate,
+  onDeletePaintStyle = ignoreStyleMutation,
+  onApplyPaintStyle = ignoreStyleMutation,
+  onDetachPaintStyle = ignoreNodeStyleDetach,
   capabilityContext,
   focusFieldId = null,
   className,
@@ -3519,6 +3798,25 @@ export function InspectorSidebar({
   onApplyTextEditingStyle?: (patch: TextRunStylePatch) => void
   onApplyTextEditingParagraphStyle?: (patch: TextParagraphStylePatch) => void
   onEditTextLink?: () => void
+  onCreateTypographyStyle?: (
+    style: Omit<TypographyStyle, "id">,
+    nodeId?: string
+  ) => string | null
+  onUpdateTypographyStyle?: (
+    styleId: string,
+    patch: TypographyStylePatch
+  ) => boolean
+  onDeleteTypographyStyle?: (styleId: string) => boolean
+  onApplyTypographyStyle?: (styleId: string, nodeId: string) => boolean
+  onDetachTypographyStyle?: (nodeId: string) => boolean
+  onCreatePaintStyle?: (
+    style: Omit<PaintStyle, "id">,
+    nodeId?: string
+  ) => string | null
+  onUpdatePaintStyle?: (styleId: string, patch: PaintStylePatch) => boolean
+  onDeletePaintStyle?: (styleId: string) => boolean
+  onApplyPaintStyle?: (styleId: string, nodeId: string) => boolean
+  onDetachPaintStyle?: (nodeId: string) => boolean
   capabilityContext?: InspectorCapabilityContext
   focusFieldId?: string | null
   className?: string
@@ -3633,6 +3931,7 @@ export function InspectorSidebar({
           <ScrollArea className="h-full">
             {selectedNode ? (
               <NodeInspector
+                document={document}
                 node={selectedNode}
                 textEditingState={textEditingState}
                 focusedProperty={
@@ -3656,6 +3955,17 @@ export function InspectorSidebar({
                   onApplyTextEditingParagraphStyle
                 }
                 onEditTextLink={onEditTextLink}
+                onCreateTypographyStyle={onCreateTypographyStyle}
+                onUpdateTypographyStyle={onUpdateTypographyStyle}
+                onDeleteTypographyStyle={onDeleteTypographyStyle}
+                onApplyTypographyStyle={onApplyTypographyStyle}
+                onDetachTypographyStyle={onDetachTypographyStyle}
+                onCreatePaintStyle={onCreatePaintStyle}
+                onUpdatePaintStyle={onUpdatePaintStyle}
+                onDeletePaintStyle={onDeletePaintStyle}
+                onApplyPaintStyle={onApplyPaintStyle}
+                onDetachPaintStyle={onDetachPaintStyle}
+                onFocusStyleNode={onFocusNode}
               />
             ) : selectedNodes.length > 1 ? (
               <MultiSelectionInspector

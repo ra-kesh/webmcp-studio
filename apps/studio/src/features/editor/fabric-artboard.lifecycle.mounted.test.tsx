@@ -379,6 +379,8 @@ describe("FabricArtboard lifecycle", () => {
       nodeId: textNode.id,
       text: textNode.text,
       selection: { anchor: 0, focus: 0 },
+      typographyStyle: { kind: "value", value: null },
+      paintStyle: { kind: "value", value: null },
       link: { kind: "none" },
       paragraph: {
         align: { kind: "value", value: textNode.align },

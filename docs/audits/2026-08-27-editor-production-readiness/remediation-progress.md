@@ -3161,3 +3161,22 @@ Status: **accepted as a bounded slice; Gate 3 remains active**
 - 268/268 document tests and affected document/editor/Studio typechecks pass.
 - Gate 3 next owns the complete editor lifecycle UI, mixed/missing states and
   affected-layer navigation, followed by API/WebMCP discovery and control.
+
+## 2026-08-30 — TEXT-02 Gate 3B reusable-style editor lifecycle
+
+Status: **accepted as a bounded slice; Gate 3 remains active**
+
+- Revisited the Gate 3 contract and the OpenPencil/Loora shared-style control
+  patterns before wiring the canonical lifecycle into Studio.
+- Text and supported shape inspectors now expose named typography/paint
+  resources with create-from-selection, apply, detach, update, rename and
+  protected-delete flows. Mixed, missing and unattached states remain explicit.
+- Usage counts include range attachments, and the inspector can focus every
+  affected layer. Active direct text editing projects attachment state and
+  applies styles through the existing Fabric draft transaction.
+- Document, editor and Studio typechecks pass. 16 focused document tests and
+  15 focused inspector/toolbar/Fabric tests pass under Node 22.
+- Live port-3001 acceptance created and attached `Editorial / Hero`, observed
+  the saved revision advance and verified the one-layer usage/navigation state.
+- Gate 3 next owns API/WebMCP discovery and control for the same canonical
+  operations.
