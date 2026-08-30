@@ -513,3 +513,21 @@ active**
 - Focused draft tests pass 34/34 and Studio typecheck passes.
 
 Gate 5 conformance, full-journey and independent-review work remains active.
+
+## Gate 5B result — canonical create-to-publication journey
+
+Status: **implemented and locally accepted on 2026-08-30; Gate 5 remains
+active**
+
+- Revisited OpenPencil's create/instance/propagate/detach journey and Loora's
+  shared transaction/export boundary before writing the acceptance case.
+- One focused journey now creates a main component and variant set, inserts a
+  mapped nested instance, captures a child override, switches variant, updates
+  the source while preserving the override, resets ownership, detaches to
+  ordinary content and publishes an immutable schema-v4 version.
+- The published snapshot retains the detached rendered nodes and main
+  component while correctly removing the instance relationship.
+- The focused journey passes and the Document package typechecks.
+
+Renderer/PDF parity, the final combined user journey and independent review
+remain active.

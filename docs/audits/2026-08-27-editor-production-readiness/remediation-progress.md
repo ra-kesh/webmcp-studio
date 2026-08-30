@@ -3537,3 +3537,13 @@ Status: **implemented and locally accepted; Gate 5 remains active**
 - Corrected the retained legacy migration expectation to require the current
   component schema instead of the obsolete rich-text-only schema version.
 - Focused draft repository tests pass 34/34 and Studio typecheck passes.
+
+## 2026-08-30 — COMPONENT-01 Gate 5B canonical journey
+
+Status: **implemented and locally accepted; Gate 5 remains active**
+
+- Retained a create -> insert -> override -> variant -> source update -> reset
+  -> detach -> immutable publication journey using only canonical commands.
+- The resulting published document keeps ordinary detached content and the
+  reusable source without an orphan instance relationship.
+- The focused journey passes and the Document package typechecks.
