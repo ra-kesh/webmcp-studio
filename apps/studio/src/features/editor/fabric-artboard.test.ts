@@ -55,6 +55,22 @@ describe("FabricArtboard crop preview", () => {
     )
   })
 
+  it("loads every visible rich-text run face with its own sample", () => {
+    const requests = canvasDocumentFontRequests(
+      renderConformanceDocument,
+      "properties-page"
+    )
+
+    expect(requests).toContainEqual({
+      descriptor: 'italic 780 36px "Geist Variable"',
+      sample: "Spacing",
+    })
+    expect(requests).toContainEqual({
+      descriptor: '520 24px "Geist Variable"',
+      sample: "deliberately",
+    })
+  })
+
   it("rejects fallback measurement when the requested face is unavailable", async () => {
     const ready = Promise.resolve({}) as Promise<FontFaceSet>
 

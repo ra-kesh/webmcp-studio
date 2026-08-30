@@ -20,6 +20,8 @@ import {
   renderImagePaintStyle,
   renderNodeDataAttributes,
   renderNodeStyle,
+  renderTextLineStyle,
+  renderTextSegmentStyle,
 } from "../src"
 
 describe("React render-view conformance", () => {
@@ -63,6 +65,55 @@ describe("React render-view conformance", () => {
       whiteSpace: "pre",
       overflowWrap: "normal",
       overflow: "hidden",
+    })
+  })
+
+  it("maps mixed-run and paragraph projection to explicit React styles", () => {
+    const source = renderConformanceDocument.nodes.find(
+      (candidate) => candidate.id === "text-typography"
+    )!
+    if (source.type !== "text") throw new Error("Expected text")
+    const node = {
+      ...source,
+      text: "Rich text",
+      width: 500,
+      sizingMode: "auto_width" as const,
+      runs: [
+        {
+          start: 0,
+          end: 4,
+          style: {
+            color: "#dc2626",
+            fontSize: 36,
+            fontWeight: 700,
+            italic: true,
+            decoration: "line_through" as const,
+          },
+        },
+      ],
+      paragraphs: [{ start: 0, end: 9, style: { align: "center" as const } }],
+      links: [],
+    }
+    const projection = projectNodeForRender(node)
+    if (projection.type !== "text") throw new Error("Expected text")
+    const line = projection.content.layout.lines[0]!
+    const segment = line.segments[0]!
+
+    expect(renderTextLineStyle(line)).toMatchObject({
+      display: "block",
+      height: line.height,
+      lineHeight: `${line.height}px`,
+      textAlign: "center",
+      whiteSpace: "pre",
+    })
+    expect(renderTextSegmentStyle(segment, line)).toMatchObject({
+      color: "#dc2626",
+      fontFamily: "Geist Variable, sans-serif",
+      fontSize: 36,
+      fontWeight: 700,
+      fontStyle: "italic",
+      textDecorationLine: "line-through",
+      lineHeight: `${line.height}px`,
     })
   })
 

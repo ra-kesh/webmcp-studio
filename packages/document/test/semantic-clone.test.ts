@@ -76,9 +76,22 @@ function semanticFixture(): Document {
         lineHeight: 1.1,
         letterSpacing: -1,
         align: "left",
-        runs: [],
-        paragraphs: [],
-        links: [],
+        runs: [
+          {
+            start: 0,
+            end: 5,
+            style: { fontWeight: 760, italic: true, color: "#fde68a" },
+          },
+        ],
+        paragraphs: [{ start: 0, end: 11, style: { align: "center" } }],
+        links: [
+          {
+            start: 6,
+            end: 11,
+            target: "https://example.com/proposal",
+            newTab: true,
+          },
+        ],
       },
       {
         id: "portrait",
@@ -271,6 +284,17 @@ describe("semantic document cloning", () => {
           clone.nodeIds.includes(binding.nodeId)
       )
     ).toBe(true)
+    const sourceTitle = source.nodes.find((node) => node.id === "title")
+    if (!sourceTitle || sourceTitle.type !== "text") {
+      throw new Error("Expected rich title")
+    }
+    expect(
+      clone.nodes.find((node) => node.id === "node-copy-title")
+    ).toMatchObject({
+      runs: sourceTitle.runs,
+      paragraphs: sourceTitle.paragraphs,
+      links: sourceTitle.links,
+    })
 
     const manifest = createTemplateManifest(duplicated)
     for (const field of manifest.parameters) {

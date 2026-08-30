@@ -113,6 +113,26 @@ describe("template publishing", () => {
 
   it("creates an immutable snapshot detached from later source edits", () => {
     const source = structuredClone(northstarSeed)
+    const richText = source.nodes.find(
+      (node) => node.id === "cover-eyebrow" && node.type === "text"
+    )
+    if (!richText || richText.type !== "text") {
+      throw new Error("Expected cover eyebrow")
+    }
+    richText.runs = [
+      { start: 0, end: 5, style: { fontWeight: 760, italic: true } },
+    ]
+    richText.paragraphs = [
+      { start: 0, end: richText.text.length, style: { align: "center" } },
+    ]
+    richText.links = [
+      {
+        start: 0,
+        end: 5,
+        target: "https://example.com/template",
+        newTab: true,
+      },
+    ]
     const published = createTemplateVersion(source, {
       id: "template-version-1",
       templateId: "northstar-wedding-proposal",
@@ -123,11 +143,34 @@ describe("template publishing", () => {
 
     source.name = "Changed after publishing"
     source.fieldValues.package_name = "Changed after publishing"
+    richText.runs = []
+    richText.paragraphs = []
+    richText.links = []
     expect(published.document.name).toBe(northstarSeed.name)
     expect(published.document.fieldValues.package_name).toBe(
       "The Heirloom Weekend"
     )
     expect(published.sourceRevision).toBe(northstarSeed.revision)
+    expect(
+      published.document.nodes.find((node) => node.id === richText.id)
+    ).toMatchObject({
+      runs: [{ start: 0, end: 5, style: { fontWeight: 760, italic: true } }],
+      paragraphs: [
+        {
+          start: 0,
+          end: richText.text.length,
+          style: { align: "center" },
+        },
+      ],
+      links: [
+        {
+          start: 0,
+          end: 5,
+          target: "https://example.com/template",
+          newTab: true,
+        },
+      ],
+    })
   })
 
   it("derives source revision, snapshot identity, and manifest from the server publish request", async () => {

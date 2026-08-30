@@ -2,7 +2,7 @@
 
 Date: 2026-08-30
 
-Status: active; architecture, Gate 1A and Gate 1B accepted
+Status: active; architecture and Gate 1 accepted, Gate 2 active
 
 ## Product outcome
 
@@ -208,5 +208,45 @@ Gate 1B rollout follow-up:
   reopened on port 3001 and `inspect_design` confirmed its six-page document,
   canonical groups and explicit rich-text ranges.
 
-Gate 1 remains active. Gate 1C now owns mixed-style layout and exact
-Fabric/React/Renderer/PDF projection.
+## Gate 1C result — mixed-style projection and retained parity
+
+Implemented:
+
+- one deterministic rich-text projector for per-run family, size, weight,
+  italic, decoration, color, line height and letter spacing;
+- UTF-16 source offsets, safe link annotations, paragraph alignment and
+  semantic list-prefix projection without changing canonical authored text;
+- mixed-height soft wrapping, deterministic justified intermediate lines and
+  unstretched final lines;
+- explicit React and Renderer HTML line/segment output, including safe anchors;
+- Fabric canonical display styles and raw-edit styles, mixed line heights,
+  measured per-segment Canvas placement, edit/cancel restoration and run-aware
+  font readiness;
+- render-policy rejection of unmanaged run fonts;
+- golden rich-text structural and lossless visual fixtures across React,
+  Fabric, Renderer PNG and Renderer PDF;
+- rich-range preservation through semantic duplication and immutable template
+  publication. Full-document history already snapshots this same golden rich
+  fixture exactly.
+
+Acceptance evidence:
+
+- 177/177 focused tests pass across document, editor, render view, renderer,
+  Studio and the ink-geometry boundary (including 8/8 geometry cases);
+- document, editor, render-view, renderer and Studio typechecks pass;
+- the canonical structural verifier passes;
+- immutable local capture run
+  `2026-08-30T09-50-42.082Z-461a7857-e1fa-434a-b02d-c10a1a64dbbe`
+  retains all 12 report-bound artifacts at exact page dimensions;
+- the existing raw thresholds remain unchanged. The simple centered-text page
+  retains the one-pixel complete-page geometry rule. The mixed-color rich-text
+  page additionally requires the raw changed-pixel ratio to remain below 1.5%,
+  exact line count, at most four edge pixels for synthesized italic/variable
+  Canvas glyph metrics, at most 10% coverage and contrast drift, and at most
+  0.01 baseline-relative foreground-direction drift. Fabric, React and PDF all
+  pass; raw failures remain visible in the report rather than being erased;
+- visual inspection of the retained rich page confirms matching run styling,
+  list marker, whitespace, wrapping, decoration, shapes and page geometry.
+
+Gate 1 is accepted. Gate 2 now owns selection-aware range editing and the
+everyday rich-text toolbar/inspector workflow.

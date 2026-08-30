@@ -13,6 +13,8 @@ import {
   type RenderFrameProjection,
   type RenderImagePaintProjection,
   type RenderNodeProjection,
+  type ProjectedTextLine,
+  type ProjectedTextSegment,
   type SceneNode,
 } from "@webmcp/document"
 
@@ -62,6 +64,82 @@ export const renderFrameStyle = (
   transformOrigin: "top left",
   display: frame.visible ? undefined : "none",
 })
+
+export function renderTextLineStyle(line: ProjectedTextLine): CSSProperties {
+  return {
+    display: "block",
+    height: line.height,
+    lineHeight: `${line.height}px`,
+    textAlign: line.align === "justify" ? "left" : line.align,
+    wordSpacing: line.justifySpacing || undefined,
+    whiteSpace: "pre",
+  }
+}
+
+export function renderTextSegmentStyle(
+  segment: ProjectedTextSegment,
+  line: ProjectedTextLine
+): CSSProperties {
+  return {
+    color: segment.style.color,
+    fontFamily: `${segment.style.fontFamily}, sans-serif`,
+    fontSize: segment.style.fontSize,
+    fontWeight: segment.style.fontWeight,
+    fontStyle: segment.style.italic ? "italic" : "normal",
+    textDecorationLine:
+      segment.style.decoration === "line_through"
+        ? "line-through"
+        : segment.style.decoration,
+    letterSpacing: segment.style.letterSpacing,
+    lineHeight: `${line.height}px`,
+  }
+}
+
+function RenderTextContent({
+  projection,
+}: {
+  projection: Extract<RenderNodeProjection, { type: "text" }>
+}) {
+  return projection.content.layout.lines.map((line, lineIndex) => (
+    <span
+      data-text-line={lineIndex}
+      key={`${line.sourceStart}:${line.sourceEnd}:${lineIndex}`}
+      style={renderTextLineStyle(line)}
+    >
+      {line.segments.map((segment, segmentIndex) => {
+        const content = (
+          <span
+            data-text-source-end={segment.sourceEnd}
+            data-text-source-start={segment.sourceStart}
+            data-text-synthetic={segment.synthetic ? "true" : undefined}
+            key={`${segment.sourceStart}:${segment.sourceEnd}:${segmentIndex}`}
+            style={renderTextSegmentStyle(segment, line)}
+          >
+            {segment.text}
+          </span>
+        )
+        return segment.link ? (
+          <a
+            href={segment.link.target}
+            key={`link:${segment.sourceStart}:${segment.sourceEnd}:${segmentIndex}`}
+            rel={segment.link.newTab ? "noopener noreferrer" : undefined}
+            style={{
+              color: "inherit",
+              pointerEvents: "none",
+              textDecoration: "inherit",
+            }}
+            tabIndex={-1}
+            target={segment.link.newTab ? "_blank" : undefined}
+          >
+            {content}
+          </a>
+        ) : (
+          content
+        )
+      })}
+    </span>
+  ))
+}
 
 export const renderNodeDataAttributes = (projection: RenderNodeProjection) => {
   const shared = {
@@ -165,7 +243,7 @@ function RenderNode({
   if (projection.type === "text") {
     return (
       <div {...dataAttributes} style={style}>
-        {projection.content.displayText}
+        <RenderTextContent projection={projection} />
       </div>
     )
   }

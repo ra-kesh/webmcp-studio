@@ -35,6 +35,7 @@ export type InkGeometryComparison = Readonly<{
   maximumEdgeDelta: number | null
   maximumInkPixelRatioDelta: number | null
   maximumContrastFractionDelta: number | null
+  maximumDirectionCosineDelta: number | null
   minimumCandidateDirectionCosine: number | null
   baselineBands: readonly InkBand[]
   candidateBands: readonly InkBand[]
@@ -51,6 +52,7 @@ export type InkGeometryComparison = Readonly<{
     maximumEdgeDelta: number
     inkPixelRatioDelta: number
     contrastFractionDelta: number
+    directionCosineDelta: number
   }>[]
   reason: string | null
 }>
@@ -60,6 +62,7 @@ export type InkGeometryComparisonLimits = Readonly<{
   maximumInkPixelRatioDelta: number
   maximumContrastFractionDelta: number
   minimumDirectionCosine: number
+  maximumDirectionCosineDelta?: number
 }>
 
 export function extractHorizontalInkBands(
@@ -209,7 +212,9 @@ export function compareHorizontalInkBands(
     limits.maximumEdgeDelta < 0 ||
     !isUnitInterval(limits.maximumInkPixelRatioDelta) ||
     !isUnitInterval(limits.maximumContrastFractionDelta) ||
-    !isUnitInterval(limits.minimumDirectionCosine)
+    !isUnitInterval(limits.minimumDirectionCosine) ||
+    (limits.maximumDirectionCosineDelta !== undefined &&
+      !isUnitInterval(limits.maximumDirectionCosineDelta))
   ) {
     throw new Error("Ink geometry comparison limits are invalid")
   }
@@ -219,6 +224,7 @@ export function compareHorizontalInkBands(
       maximumEdgeDelta: null,
       maximumInkPixelRatioDelta: null,
       maximumContrastFractionDelta: null,
+      maximumDirectionCosineDelta: null,
       minimumCandidateDirectionCosine: null,
       baselineBands,
       candidateBands,
@@ -232,6 +238,7 @@ export function compareHorizontalInkBands(
       maximumEdgeDelta: null,
       maximumInkPixelRatioDelta: null,
       maximumContrastFractionDelta: null,
+      maximumDirectionCosineDelta: null,
       minimumCandidateDirectionCosine: null,
       baselineBands,
       candidateBands,
@@ -259,6 +266,9 @@ export function compareHorizontalInkBands(
       contrastFractionDelta: Math.abs(
         baseline.upperContrastFraction - candidate.upperContrastFraction
       ),
+      directionCosineDelta: Math.abs(
+        baseline.lowerDirectionCosine - candidate.lowerDirectionCosine
+      ),
     }
   })
   const maximumEdgeDelta = Math.max(
@@ -273,13 +283,18 @@ export function compareHorizontalInkBands(
   const minimumCandidateDirectionCosine = Math.min(
     ...bands.map((band) => band.candidate.lowerDirectionCosine)
   )
+  const maximumDirectionCosineDelta = Math.max(
+    ...bands.map((band) => band.directionCosineDelta)
+  )
   const edgePassed = maximumEdgeDelta <= limits.maximumEdgeDelta
   const coveragePassed =
     maximumInkPixelRatioDelta <= limits.maximumInkPixelRatioDelta
   const contrastPassed =
     maximumContrastFractionDelta <= limits.maximumContrastFractionDelta
   const directionPassed =
-    minimumCandidateDirectionCosine >= limits.minimumDirectionCosine
+    minimumCandidateDirectionCosine >= limits.minimumDirectionCosine &&
+    (limits.maximumDirectionCosineDelta === undefined ||
+      maximumDirectionCosineDelta <= limits.maximumDirectionCosineDelta)
   const passed =
     edgePassed && coveragePassed && contrastPassed && directionPassed
   return {
@@ -287,6 +302,7 @@ export function compareHorizontalInkBands(
     maximumEdgeDelta,
     maximumInkPixelRatioDelta,
     maximumContrastFractionDelta,
+    maximumDirectionCosineDelta,
     minimumCandidateDirectionCosine,
     baselineBands,
     candidateBands,
@@ -298,7 +314,10 @@ export function compareHorizontalInkBands(
         : !contrastPassed
           ? `Text ink contrast changed by ${maximumContrastFractionDelta.toFixed(4)}; the limit is ${limits.maximumContrastFractionDelta.toFixed(4)}.`
           : !directionPassed
-            ? `Text ink foreground direction cosine fell to ${minimumCandidateDirectionCosine.toFixed(4)}; the minimum is ${limits.minimumDirectionCosine.toFixed(4)}.`
+            ? limits.maximumDirectionCosineDelta !== undefined &&
+              maximumDirectionCosineDelta > limits.maximumDirectionCosineDelta
+              ? `Text ink foreground direction cosine changed by ${maximumDirectionCosineDelta.toFixed(4)}; the limit is ${limits.maximumDirectionCosineDelta.toFixed(4)}.`
+              : `Text ink foreground direction cosine fell to ${minimumCandidateDirectionCosine.toFixed(4)}; the minimum is ${limits.minimumDirectionCosine.toFixed(4)}.`
             : null,
   }
 }

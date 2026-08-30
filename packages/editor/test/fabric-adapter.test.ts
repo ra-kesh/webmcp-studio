@@ -1308,6 +1308,50 @@ describe("Fabric document boundary", () => {
     ).toMatchObject({ sizingMode: "auto_height", clipOverflow: false })
   })
 
+  it("maps rich-text runs to canonical and raw-edit Fabric style indexes", () => {
+    const source = renderConformanceDocument.nodes.find(
+      (candidate) => candidate.id === "text-typography"
+    )!
+    if (source.type !== "text") throw new Error("Expected text")
+    const node = {
+      ...source,
+      text: "Bold text wraps",
+      width: 90,
+      height: 200,
+      sizingMode: "auto_height" as const,
+      runs: [
+        {
+          start: 0,
+          end: 4,
+          style: {
+            color: "#dc2626",
+            fontSize: 36,
+            fontWeight: 700,
+            italic: true,
+            decoration: "underline" as const,
+          },
+        },
+      ],
+      paragraphs: [],
+      links: [],
+    }
+
+    const state = projectFabricTextState(node)
+
+    expect(state.displayText).toContain("\n")
+    expect(state.canonicalStyles[0]?.[0]).toMatchObject({
+      fill: "#dc2626",
+      fontFamily: "Geist Variable",
+      fontSize: 36,
+      fontWeight: 700,
+      fontStyle: "italic",
+      underline: true,
+      linethrough: false,
+    })
+    expect(state.editingStyles[0]?.[0]).toEqual(state.canonicalStyles[0]?.[0])
+    expect(state.editingStyles[0]?.[4]).toBeUndefined()
+  })
+
   it("records changed text before a fast second edit can exit", () => {
     const canonicalText = new Map([["text-1", "Before"]])
 

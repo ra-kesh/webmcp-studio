@@ -67,6 +67,22 @@ describe("renderer policy", () => {
         nodeId: text.id,
       })
     )
+
+    text.fontFamily = "Geist Variable"
+    text.runs = [
+      {
+        start: 0,
+        end: 1,
+        style: { fontFamily: "Unmanaged Rich Text Font" },
+      },
+    ]
+    expect(validateRenderPolicy(document)).toContainEqual(
+      expect.objectContaining({
+        code: "unsupported_font",
+        nodeId: text.id,
+        message: expect.stringContaining("rich-text font"),
+      })
+    )
   })
 
   it("rejects CSS token injection separately from HTML escaping", () => {

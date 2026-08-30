@@ -20,7 +20,9 @@ type GeometryGate = {
   maximumInkPixelRatioDelta: number
   maximumContrastFractionDelta: number
   minimumDirectionCosine: number
+  maximumDirectionCosineDelta?: number
   acceptWhenRawFails: boolean
+  acceptWhenRawRatioPasses?: boolean
 }
 
 type Comparison = {
@@ -184,11 +186,13 @@ for (const comparison of manifest.comparisons) {
         comparison.name
       )
     : null
-  const passed =
-    rawPassed ||
-    Boolean(
-      comparison.geometry?.acceptWhenRawFails && geometry?.passed === true
-    )
+  const geometryAccepted = Boolean(
+    geometry?.passed === true &&
+    (comparison.geometry?.acceptWhenRawFails ||
+      (comparison.geometry?.acceptWhenRawRatioPasses &&
+        differentPixelRatio <= comparison.maxDifferentPixelRatio))
+  )
+  const passed = rawPassed || geometryAccepted
   failed ||= !passed
 
   await mkdir(dirname(diffPath), { recursive: true })
@@ -215,7 +219,13 @@ for (const comparison of manifest.comparisons) {
     },
     rawPassed,
     geometry,
-    acceptance: rawPassed ? "raw" : passed ? "geometry" : "failed",
+    acceptance: rawPassed
+      ? "raw"
+      : geometryAccepted && comparison.geometry?.acceptWhenRawRatioPasses
+        ? "geometry_with_raw_ratio"
+        : passed
+          ? "geometry"
+          : "failed",
     passed,
   })
 }
@@ -299,6 +309,7 @@ function compareTextInkGeometry(
         maximumInkPixelRatioDelta: gate.maximumInkPixelRatioDelta,
         maximumContrastFractionDelta: gate.maximumContrastFractionDelta,
         minimumDirectionCosine: gate.minimumDirectionCosine,
+        maximumDirectionCosineDelta: gate.maximumDirectionCosineDelta,
       }),
     }
   })
@@ -310,7 +321,10 @@ function compareTextInkGeometry(
     maximumAllowedInkPixelRatioDelta: gate.maximumInkPixelRatioDelta,
     maximumAllowedContrastFractionDelta: gate.maximumContrastFractionDelta,
     minimumAllowedDirectionCosine: gate.minimumDirectionCosine,
+    maximumAllowedDirectionCosineDelta:
+      gate.maximumDirectionCosineDelta ?? null,
     completePageSubstitute: gate.acceptWhenRawFails,
+    rawRatioRequired: gate.acceptWhenRawRatioPasses === true,
     maximumEdgeDelta:
       nodes.length > 0 && nodes.every((node) => node.maximumEdgeDelta !== null)
         ? Math.max(...nodes.map((node) => node.maximumEdgeDelta!))
@@ -462,7 +476,15 @@ function validateGeometryGate(
     !Number.isFinite(gate.minimumDirectionCosine) ||
     gate.minimumDirectionCosine < 0 ||
     gate.minimumDirectionCosine > 1 ||
-    typeof gate.acceptWhenRawFails !== "boolean"
+    (gate.maximumDirectionCosineDelta !== undefined &&
+      (typeof gate.maximumDirectionCosineDelta !== "number" ||
+        !Number.isFinite(gate.maximumDirectionCosineDelta) ||
+        gate.maximumDirectionCosineDelta < 0 ||
+        gate.maximumDirectionCosineDelta > 1)) ||
+    typeof gate.acceptWhenRawFails !== "boolean" ||
+    (gate.acceptWhenRawRatioPasses !== undefined &&
+      typeof gate.acceptWhenRawRatioPasses !== "boolean") ||
+    (gate.acceptWhenRawFails && gate.acceptWhenRawRatioPasses)
   ) {
     throw new Error(`Comparison ${comparisonIndex} has invalid ink geometry`)
   }

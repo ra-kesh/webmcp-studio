@@ -192,6 +192,39 @@ describe("render conformance ink geometry", () => {
     })
   })
 
+  it("compares multicolor ink direction against its retained baseline", () => {
+    const baseline = extract(
+      imageWithBands([
+        { left: 4, top: 3, right: 18, bottom: 6, color: [180, 20, 80] },
+      ])
+    )
+    const unchanged = extract(
+      imageWithBands([
+        { left: 4, top: 3, right: 18, bottom: 6, color: [180, 20, 80] },
+      ])
+    )
+    const changed = extract(
+      imageWithBands([
+        { left: 4, top: 3, right: 18, bottom: 6, color: [20, 140, 80] },
+      ])
+    )
+    const multicolorLimits = {
+      ...limits,
+      minimumDirectionCosine: 0,
+      maximumDirectionCosineDelta: 0.01,
+    }
+
+    expect(
+      compareHorizontalInkBands(baseline, unchanged, multicolorLimits)
+    ).toMatchObject({ passed: true, maximumDirectionCosineDelta: 0 })
+    expect(
+      compareHorizontalInkBands(baseline, changed, multicolorLimits)
+    ).toMatchObject({
+      passed: false,
+      reason: expect.stringContaining("direction cosine changed"),
+    })
+  })
+
   it("rejects materially reduced foreground opacity", () => {
     const baseline = extract(
       imageWithBands([{ left: 4, top: 3, right: 18, bottom: 6 }])

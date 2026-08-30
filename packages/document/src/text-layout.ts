@@ -1,3 +1,4 @@
+import type { TextLink, TextRunStyle } from "./rich-text"
 import type { TextNode, TextNodePatch } from "./schema"
 
 const MIN_TEXT_DIMENSION = 1
@@ -5,10 +6,12 @@ const LAYOUT_PRECISION = 10
 const LAYOUT_EPSILON = 0.05
 
 export const TEXT_LAYOUT_MEASUREMENT_VERSION =
-  "managed_font_approximation_v1" as const
+  "managed_font_rich_text_v2" as const
 
 const TEXT_LAYOUT_KEYS = new Set<keyof TextNodePatch>([
   "text",
+  "runs",
+  "paragraphs",
   "fontFamily",
   "fontSize",
   "fontWeight",
@@ -19,9 +22,37 @@ const TEXT_LAYOUT_KEYS = new Set<keyof TextNodePatch>([
   "height",
 ])
 
+export type ResolvedTextStyle = {
+  color: string
+  fontFamily: string
+  fontSize: number
+  fontWeight: number
+  italic: boolean
+  decoration: "none" | "underline" | "line_through"
+  lineHeight: number
+  letterSpacing: number
+}
+
+export type ProjectedTextSegment = {
+  text: string
+  width: number
+  sourceStart: number
+  sourceEnd: number
+  synthetic: boolean
+  styled: boolean
+  style: ResolvedTextStyle
+  link?: TextLink
+}
+
 export type ProjectedTextLine = {
   text: string
   width: number
+  height: number
+  align: "left" | "center" | "right" | "justify"
+  justifySpacing: number
+  sourceStart: number
+  sourceEnd: number
+  segments: ProjectedTextSegment[]
 }
 
 export type TextLayoutProjection = {
@@ -56,6 +87,26 @@ function glyphAdvanceEm(glyph: string): number {
   return 0.62
 }
 
+function baseResolvedTextStyle(node: TextNode): ResolvedTextStyle {
+  return {
+    color: node.color,
+    fontFamily: node.fontFamily,
+    fontSize: node.fontSize,
+    fontWeight: node.fontWeight,
+    italic: false,
+    decoration: "none",
+    lineHeight: node.lineHeight,
+    letterSpacing: node.letterSpacing,
+  }
+}
+
+function resolveRunStyle(
+  base: ResolvedTextStyle,
+  override: TextRunStyle | undefined
+): ResolvedTextStyle {
+  return override ? { ...base, ...override } : base
+}
+
 export function estimateManagedTextWidth(
   value: string,
   typography: Pick<TextNode, "fontSize" | "fontWeight" | "letterSpacing">
@@ -76,93 +127,287 @@ export function estimateManagedTextWidth(
   )
 }
 
-function splitTokenToWidth(
-  token: string,
-  maxWidth: number,
-  typography: Pick<TextNode, "fontSize" | "fontWeight" | "letterSpacing">
-): string[] {
-  const chunks: string[] = []
-  let chunk = ""
-  for (const glyph of Array.from(token)) {
-    const candidate = `${chunk}${glyph}`
-    if (chunk && estimateManagedTextWidth(candidate, typography) > maxWidth) {
-      chunks.push(chunk)
-      chunk = glyph
-    } else {
-      chunk = candidate
-    }
-  }
-  if (chunk || !chunks.length) chunks.push(chunk)
-  return chunks
+type StyledGlyph = {
+  text: string
+  sourceStart: number
+  sourceEnd: number
+  synthetic: boolean
+  styled: boolean
+  style: ResolvedTextStyle
+  link?: TextLink
 }
 
-function wrapParagraph(
-  paragraph: string,
-  maxWidth: number,
-  typography: Pick<TextNode, "fontSize" | "fontWeight" | "letterSpacing">
-): ProjectedTextLine[] {
-  if (!paragraph) return [{ text: "", width: 0 }]
-  const tokens = paragraph.split(/(\s+)/u).filter(Boolean)
-  const lines: string[] = []
-  let line = ""
+type HardParagraph = {
+  start: number
+  end: number
+  glyphs: StyledGlyph[]
+  align: ProjectedTextLine["align"]
+}
 
+function glyphWidth(glyph: StyledGlyph) {
+  const weightAdjustment = 1 + (glyph.style.fontWeight - 400) / 20_000
+  return glyphAdvanceEm(glyph.text) * glyph.style.fontSize * weightAdjustment
+}
+
+function measuredGlyphs(glyphs: readonly StyledGlyph[], trimEnd = false) {
+  let end = glyphs.length
+  if (trimEnd) {
+    while (end > 0 && /[ \t]/u.test(glyphs[end - 1]?.text ?? "")) end -= 1
+  }
+  if (!end) return 0
+  let width = 0
+  for (let index = 0; index < end; index += 1) {
+    const glyph = glyphs[index]
+    if (!glyph) continue
+    width += glyphWidth(glyph)
+    if (index < end - 1) width += glyph.style.letterSpacing
+  }
+  return Math.max(0, roundLayout(width))
+}
+
+function sameStyle(left: ResolvedTextStyle, right: ResolvedTextStyle) {
+  return (
+    left.color === right.color &&
+    left.fontFamily === right.fontFamily &&
+    left.fontSize === right.fontSize &&
+    left.fontWeight === right.fontWeight &&
+    left.italic === right.italic &&
+    left.decoration === right.decoration &&
+    left.lineHeight === right.lineHeight &&
+    left.letterSpacing === right.letterSpacing
+  )
+}
+
+function sameLink(left: TextLink | undefined, right: TextLink | undefined) {
+  return (
+    left?.target === right?.target &&
+    left?.newTab === right?.newTab &&
+    left?.start === right?.start &&
+    left?.end === right?.end
+  )
+}
+
+function segmentsForGlyphs(glyphs: readonly StyledGlyph[]) {
+  const segments: ProjectedTextSegment[] = []
+  for (const glyph of glyphs) {
+    const previous = segments.at(-1)
+    if (
+      previous &&
+      previous.synthetic === glyph.synthetic &&
+      previous.styled === glyph.styled &&
+      sameStyle(previous.style, glyph.style) &&
+      sameLink(previous.link, glyph.link) &&
+      (glyph.synthetic || previous.sourceEnd === glyph.sourceStart)
+    ) {
+      previous.text += glyph.text
+      previous.sourceEnd = glyph.sourceEnd
+      continue
+    }
+    segments.push({ ...glyph, width: 0 })
+  }
+  return segments.map((segment) => ({
+    ...segment,
+    width: estimateManagedTextWidth(segment.text, segment.style),
+  }))
+}
+
+function projectedLine(
+  glyphs: readonly StyledGlyph[],
+  align: ProjectedTextLine["align"],
+  fallback: Readonly<{ start: number; end: number; style: ResolvedTextStyle }>
+): ProjectedTextLine {
+  const sourceGlyphs = glyphs.filter((glyph) => !glyph.synthetic)
+  const height = Math.max(
+    fallback.style.fontSize * fallback.style.lineHeight,
+    ...glyphs.map((glyph) => glyph.style.fontSize * glyph.style.lineHeight)
+  )
+  return {
+    text: glyphs.map((glyph) => glyph.text).join(""),
+    width: measuredGlyphs(glyphs, true),
+    height: roundLayout(height),
+    align,
+    justifySpacing: 0,
+    sourceStart: sourceGlyphs[0]?.sourceStart ?? fallback.start,
+    sourceEnd: sourceGlyphs.at(-1)?.sourceEnd ?? fallback.end,
+    segments: segmentsForGlyphs(glyphs),
+  }
+}
+
+function justifyProjectedLine(line: ProjectedTextLine, maxWidth: number) {
+  const visibleText = line.text.replace(/[ \t]+$/u, "")
+  const gaps = Array.from(visibleText).filter((glyph) =>
+    /[ \t]/u.test(glyph)
+  ).length
+  if (!gaps || line.width >= maxWidth) return line
+  const justifySpacing = roundLayout((maxWidth - line.width) / gaps)
+  return {
+    ...line,
+    width: roundLayout(line.width + justifySpacing * gaps),
+    justifySpacing,
+    segments: line.segments.map((segment) => ({
+      ...segment,
+      width: roundLayout(
+        segment.width +
+          justifySpacing *
+            Array.from(segment.text).filter((glyph) => /[ \t]/u.test(glyph))
+              .length
+      ),
+    })),
+  }
+}
+
+function wrapStyledGlyphs(
+  paragraph: HardParagraph,
+  maxWidth: number,
+  baseStyle: ResolvedTextStyle
+) {
+  if (!paragraph.glyphs.length) {
+    return [
+      projectedLine([], paragraph.align, {
+        start: paragraph.start,
+        end: paragraph.end,
+        style: baseStyle,
+      }),
+    ]
+  }
+  const tokens: StyledGlyph[][] = []
+  for (const glyph of paragraph.glyphs) {
+    const whitespace = /^\s$/u.test(glyph.text)
+    const current = tokens.at(-1)
+    if (current && /^\s$/u.test(current[0]?.text ?? "") === whitespace) {
+      current.push(glyph)
+    } else {
+      tokens.push([glyph])
+    }
+  }
+  const lines: StyledGlyph[][] = []
+  let line: StyledGlyph[] = []
   const pushLine = () => {
     lines.push(line)
-    line = ""
+    line = []
   }
-
   for (const token of tokens) {
-    const candidate = `${line}${token}`
-    if (estimateManagedTextWidth(candidate, typography) <= maxWidth) {
+    const candidate = [...line, ...token]
+    if (measuredGlyphs(candidate) <= maxWidth) {
       line = candidate
       continue
     }
-
-    if (line && /^\s+$/u.test(token)) {
-      // Keep the original delimiter at the soft-wrap edge. Moving it to the
-      // next line creates visible indentation when projected lines are rendered
-      // with preserved whitespace.
+    const whitespace = /^\s$/u.test(token[0]?.text ?? "")
+    if (line.length && whitespace) {
       line = candidate
       pushLine()
       continue
     }
-
-    if (line) pushLine()
-    if (estimateManagedTextWidth(token, typography) <= maxWidth) {
+    if (line.length) pushLine()
+    if (measuredGlyphs(token) <= maxWidth) {
       line = token
       continue
     }
-
-    const chunks = splitTokenToWidth(token, maxWidth, typography)
-    for (const [index, chunk] of chunks.entries()) {
-      if (index < chunks.length - 1) lines.push(chunk)
-      else line = chunk
+    for (const glyph of token) {
+      const next = [...line, glyph]
+      if (line.length && measuredGlyphs(next) > maxWidth) pushLine()
+      line.push(glyph)
     }
   }
-  if (line || !lines.length) lines.push(line)
-  return lines.map((text) => ({
-    text,
-    width: estimateManagedTextWidth(text.replace(/[ \t]+$/u, ""), typography),
-  }))
+  if (line.length || !lines.length) lines.push(line)
+  return lines.map((glyphs, index) => {
+    const projected = projectedLine(glyphs, paragraph.align, {
+      start: paragraph.start,
+      end: paragraph.end,
+      style: baseStyle,
+    })
+    return paragraph.align === "justify" && index < lines.length - 1
+      ? justifyProjectedLine(projected, maxWidth)
+      : projected
+  })
 }
 
-function explicitLines(
-  text: string,
-  typography: Pick<TextNode, "fontSize" | "fontWeight" | "letterSpacing">
-): ProjectedTextLine[] {
-  return text.split("\n").map((line) => ({
-    text: line,
-    width: estimateManagedTextWidth(line, typography),
-  }))
+function paragraphRanges(text: string) {
+  const ranges: Array<{ start: number; end: number }> = []
+  let start = 0
+  for (let index = 0; index <= text.length; index += 1) {
+    if (index === text.length || text[index] === "\n") {
+      ranges.push({ start, end: index })
+      start = index + 1
+    }
+  }
+  return ranges
+}
+
+function listPrefix(
+  style: TextNode["paragraphs"][number]["style"] | undefined
+) {
+  if (!style?.list) return ""
+  const indent = "  ".repeat(style.list.level)
+  return style.list.kind === "bulleted"
+    ? `${indent}• `
+    : `${indent}${style.list.start}. `
+}
+
+function styledParagraphs(node: TextNode): HardParagraph[] {
+  const baseStyle = baseResolvedTextStyle(node)
+  let runIndex = 0
+  let linkIndex = 0
+  return paragraphRanges(node.text).map((range) => {
+    const annotation = node.paragraphs.find(
+      (paragraph) =>
+        paragraph.start === range.start && paragraph.end === range.end
+    )
+    const glyphs: StyledGlyph[] = []
+    const prefix = listPrefix(annotation?.style)
+    for (const glyph of Array.from(prefix)) {
+      glyphs.push({
+        text: glyph,
+        sourceStart: range.start,
+        sourceEnd: range.start,
+        synthetic: true,
+        styled: false,
+        style: baseStyle,
+      })
+    }
+    for (let offset = range.start; offset < range.end;) {
+      while (node.runs[runIndex] && node.runs[runIndex]!.end <= offset) {
+        runIndex += 1
+      }
+      while (node.links[linkIndex] && node.links[linkIndex]!.end <= offset) {
+        linkIndex += 1
+      }
+      const text = String.fromCodePoint(node.text.codePointAt(offset) ?? 0)
+      const end = offset + text.length
+      const run = node.runs[runIndex]
+      const link = node.links[linkIndex]
+      glyphs.push({
+        text,
+        sourceStart: offset,
+        sourceEnd: end,
+        synthetic: false,
+        styled: Boolean(run && run.start <= offset && run.end >= end),
+        style: resolveRunStyle(
+          baseStyle,
+          run && run.start <= offset && run.end >= end ? run.style : undefined
+        ),
+        ...(link && link.start <= offset && link.end >= end ? { link } : {}),
+      })
+      offset = end
+    }
+    return {
+      ...range,
+      glyphs,
+      align: annotation?.style.align ?? node.align,
+    }
+  })
 }
 
 export function projectTextLayout(node: TextNode): TextLayoutProjection {
-  const typography = {
-    fontSize: node.fontSize,
-    fontWeight: node.fontWeight,
-    letterSpacing: node.letterSpacing,
-  }
-  const unwrappedLines = explicitLines(node.text, typography)
+  const baseStyle = baseResolvedTextStyle(node)
+  const paragraphs = styledParagraphs(node)
+  const unwrappedLines = paragraphs.map((paragraph) =>
+    projectedLine(paragraph.glyphs, paragraph.align, {
+      start: paragraph.start,
+      end: paragraph.end,
+      style: baseStyle,
+    })
+  )
   const intrinsicWidth = Math.max(
     MIN_TEXT_DIMENSION,
     ...unwrappedLines.map((line) => line.width)
@@ -170,11 +415,9 @@ export function projectTextLayout(node: TextNode): TextLayoutProjection {
   const lines =
     node.sizingMode === "auto_width"
       ? unwrappedLines
-      : node.text
-          .split("\n")
-          .flatMap((paragraph) =>
-            wrapParagraph(paragraph, node.width, typography)
-          )
+      : paragraphs.flatMap((paragraph) =>
+          wrapStyledGlyphs(paragraph, node.width, baseStyle)
+        )
   const lineHeightPx = roundLayout(node.fontSize * node.lineHeight)
   const requiredWidth = Math.max(
     MIN_TEXT_DIMENSION,
@@ -182,7 +425,7 @@ export function projectTextLayout(node: TextNode): TextLayoutProjection {
   )
   const requiredHeight = Math.max(
     MIN_TEXT_DIMENSION,
-    roundLayout(lines.length * lineHeightPx)
+    roundLayout(lines.reduce((sum, line) => sum + line.height, 0))
   )
   const overflowX = requiredWidth - node.width > LAYOUT_EPSILON
   const overflowY = requiredHeight - node.height > LAYOUT_EPSILON

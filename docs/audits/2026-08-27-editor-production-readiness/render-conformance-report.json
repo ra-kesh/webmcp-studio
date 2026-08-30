@@ -2,68 +2,767 @@
   "results": [
     {
       "name": "properties page Fabric versus renderer PNG",
-      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-29T13-39-06.443Z-9baa78c6-b315-4788-bcd3-0a357e3ad709/renderer-png/properties-page.png",
-      "candidate": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-29T13-39-06.443Z-9baa78c6-b315-4788-bcd3-0a357e3ad709/fabric/properties-page.png",
+      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-30T09-50-42.082Z-461a7857-e1fa-434a-b02d-c10a1a64dbbe/renderer-png/properties-page.png",
+      "candidate": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-30T09-50-42.082Z-461a7857-e1fa-434a-b02d-c10a1a64dbbe/fabric/properties-page.png",
       "diff": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/diff/properties-page-fabric.png",
       "width": 720,
       "height": 960,
-      "differentPixels": 5382,
-      "differentPixelRatio": 0.007786458333333334,
-      "rootMeanSquareError": 3.1901300877631704,
+      "differentPixels": 7205,
+      "differentPixelRatio": 0.010423900462962963,
+      "rootMeanSquareError": 7.304572358718202,
       "limits": {
         "pixelDeltaThreshold": 24,
         "maxDifferentPixelRatio": 0.015,
         "maxRootMeanSquareError": 6
       },
-      "rawPassed": true,
-      "geometry": null,
-      "acceptance": "raw",
+      "rawPassed": false,
+      "geometry": {
+        "pageId": "properties-page",
+        "minimumContrastFraction": 0.2,
+        "minimumInkPixelsPerRow": 2,
+        "maximumAllowedEdgeDelta": 4,
+        "maximumAllowedInkPixelRatioDelta": 0.1,
+        "maximumAllowedContrastFractionDelta": 0.1,
+        "minimumAllowedDirectionCosine": 0,
+        "maximumAllowedDirectionCosineDelta": 0.01,
+        "completePageSubstitute": false,
+        "rawRatioRequired": true,
+        "maximumEdgeDelta": 4,
+        "passed": true,
+        "nodes": [
+          {
+            "nodeId": "text-typography",
+            "region": {
+              "left": 48,
+              "top": 52,
+              "right": 388,
+              "bottom": 242
+            },
+            "passed": true,
+            "maximumEdgeDelta": 4,
+            "maximumInkPixelRatioDelta": 0.018779342723004695,
+            "maximumContrastFractionDelta": 0.0024717080260493463,
+            "maximumDirectionCosineDelta": 0.0008109634962036871,
+            "minimumCandidateDirectionCosine": 0.8752139989363414,
+            "baselineBands": [
+              {
+                "top": 65,
+                "bottom": 96,
+                "left": 84,
+                "right": 348,
+                "inkPixels": 3298,
+                "upperContrastFraction": 0.8702937820025226,
+                "lowerDirectionCosine": 0.8760249624325451
+              },
+              {
+                "top": 113,
+                "bottom": 137,
+                "left": 49,
+                "right": 371,
+                "inkPixels": 2556,
+                "upperContrastFraction": 1,
+                "lowerDirectionCosine": 0.9794701541393485
+              },
+              {
+                "top": 151,
+                "bottom": 175,
+                "left": 48,
+                "right": 329,
+                "inkPixels": 2269,
+                "upperContrastFraction": 1,
+                "lowerDirectionCosine": 0.9999868031805104
+              },
+              {
+                "top": 189,
+                "bottom": 209,
+                "left": 49,
+                "right": 387,
+                "inkPixels": 2675,
+                "upperContrastFraction": 1,
+                "lowerDirectionCosine": 0.9999890273627212
+              }
+            ],
+            "candidateBands": [
+              {
+                "top": 62,
+                "bottom": 95,
+                "left": 88,
+                "right": 348,
+                "inkPixels": 3307,
+                "upperContrastFraction": 0.872765490028572,
+                "lowerDirectionCosine": 0.8752139989363414
+              },
+              {
+                "top": 113,
+                "bottom": 137,
+                "left": 49,
+                "right": 371,
+                "inkPixels": 2508,
+                "upperContrastFraction": 1.002384626836839,
+                "lowerDirectionCosine": 0.9795079297044448
+              },
+              {
+                "top": 151,
+                "bottom": 175,
+                "left": 48,
+                "right": 329,
+                "inkPixels": 2269,
+                "upperContrastFraction": 1.002384626836839,
+                "lowerDirectionCosine": 0.9999890273627212
+              },
+              {
+                "top": 188,
+                "bottom": 208,
+                "left": 49,
+                "right": 387,
+                "inkPixels": 2675,
+                "upperContrastFraction": 1.002384626836839,
+                "lowerDirectionCosine": 0.9999896848318579
+              }
+            ],
+            "bands": [
+              {
+                "index": 0,
+                "baseline": {
+                  "top": 65,
+                  "bottom": 96,
+                  "left": 84,
+                  "right": 348,
+                  "inkPixels": 3298,
+                  "upperContrastFraction": 0.8702937820025226,
+                  "lowerDirectionCosine": 0.8760249624325451
+                },
+                "candidate": {
+                  "top": 62,
+                  "bottom": 95,
+                  "left": 88,
+                  "right": 348,
+                  "inkPixels": 3307,
+                  "upperContrastFraction": 0.872765490028572,
+                  "lowerDirectionCosine": 0.8752139989363414
+                },
+                "edgeDeltas": {
+                  "top": 3,
+                  "bottom": 1,
+                  "left": 4,
+                  "right": 0
+                },
+                "maximumEdgeDelta": 4,
+                "inkPixelRatioDelta": 0.0027289266221952697,
+                "contrastFractionDelta": 0.0024717080260493463,
+                "directionCosineDelta": 0.0008109634962036871
+              },
+              {
+                "index": 1,
+                "baseline": {
+                  "top": 113,
+                  "bottom": 137,
+                  "left": 49,
+                  "right": 371,
+                  "inkPixels": 2556,
+                  "upperContrastFraction": 1,
+                  "lowerDirectionCosine": 0.9794701541393485
+                },
+                "candidate": {
+                  "top": 113,
+                  "bottom": 137,
+                  "left": 49,
+                  "right": 371,
+                  "inkPixels": 2508,
+                  "upperContrastFraction": 1.002384626836839,
+                  "lowerDirectionCosine": 0.9795079297044448
+                },
+                "edgeDeltas": {
+                  "top": 0,
+                  "bottom": 0,
+                  "left": 0,
+                  "right": 0
+                },
+                "maximumEdgeDelta": 0,
+                "inkPixelRatioDelta": 0.018779342723004695,
+                "contrastFractionDelta": 0.0023846268368390433,
+                "directionCosineDelta": 0.00003777556509632074
+              },
+              {
+                "index": 2,
+                "baseline": {
+                  "top": 151,
+                  "bottom": 175,
+                  "left": 48,
+                  "right": 329,
+                  "inkPixels": 2269,
+                  "upperContrastFraction": 1,
+                  "lowerDirectionCosine": 0.9999868031805104
+                },
+                "candidate": {
+                  "top": 151,
+                  "bottom": 175,
+                  "left": 48,
+                  "right": 329,
+                  "inkPixels": 2269,
+                  "upperContrastFraction": 1.002384626836839,
+                  "lowerDirectionCosine": 0.9999890273627212
+                },
+                "edgeDeltas": {
+                  "top": 0,
+                  "bottom": 0,
+                  "left": 0,
+                  "right": 0
+                },
+                "maximumEdgeDelta": 0,
+                "inkPixelRatioDelta": 0,
+                "contrastFractionDelta": 0.0023846268368390433,
+                "directionCosineDelta": 0.000002224182210852632
+              },
+              {
+                "index": 3,
+                "baseline": {
+                  "top": 189,
+                  "bottom": 209,
+                  "left": 49,
+                  "right": 387,
+                  "inkPixels": 2675,
+                  "upperContrastFraction": 1,
+                  "lowerDirectionCosine": 0.9999890273627212
+                },
+                "candidate": {
+                  "top": 188,
+                  "bottom": 208,
+                  "left": 49,
+                  "right": 387,
+                  "inkPixels": 2675,
+                  "upperContrastFraction": 1.002384626836839,
+                  "lowerDirectionCosine": 0.9999896848318579
+                },
+                "edgeDeltas": {
+                  "top": 1,
+                  "bottom": 1,
+                  "left": 0,
+                  "right": 0
+                },
+                "maximumEdgeDelta": 1,
+                "inkPixelRatioDelta": 0,
+                "contrastFractionDelta": 0.0023846268368390433,
+                "directionCosineDelta": 6.574691366889596e-7
+              }
+            ],
+            "reason": null
+          }
+        ]
+      },
+      "acceptance": "geometry_with_raw_ratio",
       "passed": true
     },
     {
       "name": "properties page React view versus renderer PNG",
-      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-29T13-39-06.443Z-9baa78c6-b315-4788-bcd3-0a357e3ad709/renderer-png/properties-page.png",
-      "candidate": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-29T13-39-06.443Z-9baa78c6-b315-4788-bcd3-0a357e3ad709/render-view/properties-page.png",
+      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-30T09-50-42.082Z-461a7857-e1fa-434a-b02d-c10a1a64dbbe/renderer-png/properties-page.png",
+      "candidate": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-30T09-50-42.082Z-461a7857-e1fa-434a-b02d-c10a1a64dbbe/render-view/properties-page.png",
       "diff": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/diff/properties-page-render-view.png",
       "width": 720,
       "height": 960,
-      "differentPixels": 4209,
-      "differentPixelRatio": 0.006089409722222223,
-      "rootMeanSquareError": 4.032738922567712,
+      "differentPixels": 6433,
+      "differentPixelRatio": 0.009307002314814815,
+      "rootMeanSquareError": 6.464010805339896,
       "limits": {
         "pixelDeltaThreshold": 24,
         "maxDifferentPixelRatio": 0.015,
         "maxRootMeanSquareError": 6
       },
-      "rawPassed": true,
-      "geometry": null,
-      "acceptance": "raw",
+      "rawPassed": false,
+      "geometry": {
+        "pageId": "properties-page",
+        "minimumContrastFraction": 0.2,
+        "minimumInkPixelsPerRow": 2,
+        "maximumAllowedEdgeDelta": 4,
+        "maximumAllowedInkPixelRatioDelta": 0.1,
+        "maximumAllowedContrastFractionDelta": 0.1,
+        "minimumAllowedDirectionCosine": 0,
+        "maximumAllowedDirectionCosineDelta": 0.01,
+        "completePageSubstitute": false,
+        "rawRatioRequired": true,
+        "maximumEdgeDelta": 1,
+        "passed": true,
+        "nodes": [
+          {
+            "nodeId": "text-typography",
+            "region": {
+              "left": 48,
+              "top": 52,
+              "right": 388,
+              "bottom": 242
+            },
+            "passed": true,
+            "maximumEdgeDelta": 1,
+            "maximumInkPixelRatioDelta": 0.03699211643420255,
+            "maximumContrastFractionDelta": 0,
+            "maximumDirectionCosineDelta": 0.00001929671941225397,
+            "minimumCandidateDirectionCosine": 0.8760249624325451,
+            "baselineBands": [
+              {
+                "top": 65,
+                "bottom": 96,
+                "left": 84,
+                "right": 348,
+                "inkPixels": 3298,
+                "upperContrastFraction": 0.8702937820025226,
+                "lowerDirectionCosine": 0.8760249624325451
+              },
+              {
+                "top": 113,
+                "bottom": 137,
+                "left": 49,
+                "right": 371,
+                "inkPixels": 2556,
+                "upperContrastFraction": 1,
+                "lowerDirectionCosine": 0.9794701541393485
+              },
+              {
+                "top": 151,
+                "bottom": 175,
+                "left": 48,
+                "right": 329,
+                "inkPixels": 2269,
+                "upperContrastFraction": 1,
+                "lowerDirectionCosine": 0.9999868031805104
+              },
+              {
+                "top": 189,
+                "bottom": 209,
+                "left": 49,
+                "right": 387,
+                "inkPixels": 2675,
+                "upperContrastFraction": 1,
+                "lowerDirectionCosine": 0.9999890273627212
+              }
+            ],
+            "candidateBands": [
+              {
+                "top": 64,
+                "bottom": 95,
+                "left": 84,
+                "right": 348,
+                "inkPixels": 3176,
+                "upperContrastFraction": 0.8702937820025226,
+                "lowerDirectionCosine": 0.8760249624325451
+              },
+              {
+                "top": 112,
+                "bottom": 136,
+                "left": 49,
+                "right": 371,
+                "inkPixels": 2497,
+                "upperContrastFraction": 1,
+                "lowerDirectionCosine": 0.9794894508587607
+              },
+              {
+                "top": 150,
+                "bottom": 174,
+                "left": 48,
+                "right": 329,
+                "inkPixels": 2269,
+                "upperContrastFraction": 1,
+                "lowerDirectionCosine": 0.9999868031805104
+              },
+              {
+                "top": 188,
+                "bottom": 208,
+                "left": 49,
+                "right": 387,
+                "inkPixels": 2675,
+                "upperContrastFraction": 1,
+                "lowerDirectionCosine": 0.9999890273627212
+              }
+            ],
+            "bands": [
+              {
+                "index": 0,
+                "baseline": {
+                  "top": 65,
+                  "bottom": 96,
+                  "left": 84,
+                  "right": 348,
+                  "inkPixels": 3298,
+                  "upperContrastFraction": 0.8702937820025226,
+                  "lowerDirectionCosine": 0.8760249624325451
+                },
+                "candidate": {
+                  "top": 64,
+                  "bottom": 95,
+                  "left": 84,
+                  "right": 348,
+                  "inkPixels": 3176,
+                  "upperContrastFraction": 0.8702937820025226,
+                  "lowerDirectionCosine": 0.8760249624325451
+                },
+                "edgeDeltas": {
+                  "top": 1,
+                  "bottom": 1,
+                  "left": 0,
+                  "right": 0
+                },
+                "maximumEdgeDelta": 1,
+                "inkPixelRatioDelta": 0.03699211643420255,
+                "contrastFractionDelta": 0,
+                "directionCosineDelta": 0
+              },
+              {
+                "index": 1,
+                "baseline": {
+                  "top": 113,
+                  "bottom": 137,
+                  "left": 49,
+                  "right": 371,
+                  "inkPixels": 2556,
+                  "upperContrastFraction": 1,
+                  "lowerDirectionCosine": 0.9794701541393485
+                },
+                "candidate": {
+                  "top": 112,
+                  "bottom": 136,
+                  "left": 49,
+                  "right": 371,
+                  "inkPixels": 2497,
+                  "upperContrastFraction": 1,
+                  "lowerDirectionCosine": 0.9794894508587607
+                },
+                "edgeDeltas": {
+                  "top": 1,
+                  "bottom": 1,
+                  "left": 0,
+                  "right": 0
+                },
+                "maximumEdgeDelta": 1,
+                "inkPixelRatioDelta": 0.023082942097026604,
+                "contrastFractionDelta": 0,
+                "directionCosineDelta": 0.00001929671941225397
+              },
+              {
+                "index": 2,
+                "baseline": {
+                  "top": 151,
+                  "bottom": 175,
+                  "left": 48,
+                  "right": 329,
+                  "inkPixels": 2269,
+                  "upperContrastFraction": 1,
+                  "lowerDirectionCosine": 0.9999868031805104
+                },
+                "candidate": {
+                  "top": 150,
+                  "bottom": 174,
+                  "left": 48,
+                  "right": 329,
+                  "inkPixels": 2269,
+                  "upperContrastFraction": 1,
+                  "lowerDirectionCosine": 0.9999868031805104
+                },
+                "edgeDeltas": {
+                  "top": 1,
+                  "bottom": 1,
+                  "left": 0,
+                  "right": 0
+                },
+                "maximumEdgeDelta": 1,
+                "inkPixelRatioDelta": 0,
+                "contrastFractionDelta": 0,
+                "directionCosineDelta": 0
+              },
+              {
+                "index": 3,
+                "baseline": {
+                  "top": 189,
+                  "bottom": 209,
+                  "left": 49,
+                  "right": 387,
+                  "inkPixels": 2675,
+                  "upperContrastFraction": 1,
+                  "lowerDirectionCosine": 0.9999890273627212
+                },
+                "candidate": {
+                  "top": 188,
+                  "bottom": 208,
+                  "left": 49,
+                  "right": 387,
+                  "inkPixels": 2675,
+                  "upperContrastFraction": 1,
+                  "lowerDirectionCosine": 0.9999890273627212
+                },
+                "edgeDeltas": {
+                  "top": 1,
+                  "bottom": 1,
+                  "left": 0,
+                  "right": 0
+                },
+                "maximumEdgeDelta": 1,
+                "inkPixelRatioDelta": 0,
+                "contrastFractionDelta": 0,
+                "directionCosineDelta": 0
+              }
+            ],
+            "reason": null
+          }
+        ]
+      },
+      "acceptance": "geometry_with_raw_ratio",
       "passed": true
     },
     {
       "name": "properties page PDF raster versus renderer PNG",
-      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-29T13-39-06.443Z-9baa78c6-b315-4788-bcd3-0a357e3ad709/renderer-png/properties-page.png",
-      "candidate": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-29T13-39-06.443Z-9baa78c6-b315-4788-bcd3-0a357e3ad709/renderer-pdf/properties-page.png",
+      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-30T09-50-42.082Z-461a7857-e1fa-434a-b02d-c10a1a64dbbe/renderer-png/properties-page.png",
+      "candidate": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-30T09-50-42.082Z-461a7857-e1fa-434a-b02d-c10a1a64dbbe/renderer-pdf/properties-page.png",
       "diff": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/diff/properties-page-pdf.png",
       "width": 720,
       "height": 960,
-      "differentPixels": 4122,
-      "differentPixelRatio": 0.0059635416666666665,
-      "rootMeanSquareError": 4.199624299430336,
+      "differentPixels": 6147,
+      "differentPixelRatio": 0.008893229166666667,
+      "rootMeanSquareError": 6.576982971377305,
       "limits": {
         "pixelDeltaThreshold": 24,
         "maxDifferentPixelRatio": 0.015,
         "maxRootMeanSquareError": 6
       },
-      "rawPassed": true,
-      "geometry": null,
-      "acceptance": "raw",
+      "rawPassed": false,
+      "geometry": {
+        "pageId": "properties-page",
+        "minimumContrastFraction": 0.2,
+        "minimumInkPixelsPerRow": 2,
+        "maximumAllowedEdgeDelta": 4,
+        "maximumAllowedInkPixelRatioDelta": 0.1,
+        "maximumAllowedContrastFractionDelta": 0.1,
+        "minimumAllowedDirectionCosine": 0,
+        "maximumAllowedDirectionCosineDelta": 0.01,
+        "completePageSubstitute": false,
+        "rawRatioRequired": true,
+        "maximumEdgeDelta": 2,
+        "passed": true,
+        "nodes": [
+          {
+            "nodeId": "text-typography",
+            "region": {
+              "left": 48,
+              "top": 52,
+              "right": 388,
+              "bottom": 242
+            },
+            "passed": true,
+            "maximumEdgeDelta": 2,
+            "maximumInkPixelRatioDelta": 0.05670103092783505,
+            "maximumContrastFractionDelta": 0.006781682896648045,
+            "maximumDirectionCosineDelta": 0.00020932628718228763,
+            "minimumCandidateDirectionCosine": 0.8760651061188836,
+            "baselineBands": [
+              {
+                "top": 65,
+                "bottom": 96,
+                "left": 84,
+                "right": 348,
+                "inkPixels": 3298,
+                "upperContrastFraction": 0.8702937820025226,
+                "lowerDirectionCosine": 0.8760249624325451
+              },
+              {
+                "top": 113,
+                "bottom": 137,
+                "left": 49,
+                "right": 371,
+                "inkPixels": 2556,
+                "upperContrastFraction": 1,
+                "lowerDirectionCosine": 0.9794701541393485
+              },
+              {
+                "top": 151,
+                "bottom": 175,
+                "left": 48,
+                "right": 329,
+                "inkPixels": 2269,
+                "upperContrastFraction": 1,
+                "lowerDirectionCosine": 0.9999868031805104
+              },
+              {
+                "top": 189,
+                "bottom": 209,
+                "left": 49,
+                "right": 387,
+                "inkPixels": 2675,
+                "upperContrastFraction": 1,
+                "lowerDirectionCosine": 0.9999890273627212
+              }
+            ],
+            "candidateBands": [
+              {
+                "top": 64,
+                "bottom": 95,
+                "left": 84,
+                "right": 348,
+                "inkPixels": 3111,
+                "upperContrastFraction": 0.8757454197015028,
+                "lowerDirectionCosine": 0.8760651061188836
+              },
+              {
+                "top": 112,
+                "bottom": 136,
+                "left": 49,
+                "right": 371,
+                "inkPixels": 2445,
+                "upperContrastFraction": 1.006781682896648,
+                "lowerDirectionCosine": 0.9796794804265307
+              },
+              {
+                "top": 150,
+                "bottom": 174,
+                "left": 49,
+                "right": 329,
+                "inkPixels": 2224,
+                "upperContrastFraction": 1.006781682896648,
+                "lowerDirectionCosine": 0.9999907712906664
+              },
+              {
+                "top": 188,
+                "bottom": 207,
+                "left": 49,
+                "right": 387,
+                "inkPixels": 2582,
+                "upperContrastFraction": 1.006781682896648,
+                "lowerDirectionCosine": 0.9999933113709184
+              }
+            ],
+            "bands": [
+              {
+                "index": 0,
+                "baseline": {
+                  "top": 65,
+                  "bottom": 96,
+                  "left": 84,
+                  "right": 348,
+                  "inkPixels": 3298,
+                  "upperContrastFraction": 0.8702937820025226,
+                  "lowerDirectionCosine": 0.8760249624325451
+                },
+                "candidate": {
+                  "top": 64,
+                  "bottom": 95,
+                  "left": 84,
+                  "right": 348,
+                  "inkPixels": 3111,
+                  "upperContrastFraction": 0.8757454197015028,
+                  "lowerDirectionCosine": 0.8760651061188836
+                },
+                "edgeDeltas": {
+                  "top": 1,
+                  "bottom": 1,
+                  "left": 0,
+                  "right": 0
+                },
+                "maximumEdgeDelta": 1,
+                "inkPixelRatioDelta": 0.05670103092783505,
+                "contrastFractionDelta": 0.005451637698980161,
+                "directionCosineDelta": 0.000040143686338423024
+              },
+              {
+                "index": 1,
+                "baseline": {
+                  "top": 113,
+                  "bottom": 137,
+                  "left": 49,
+                  "right": 371,
+                  "inkPixels": 2556,
+                  "upperContrastFraction": 1,
+                  "lowerDirectionCosine": 0.9794701541393485
+                },
+                "candidate": {
+                  "top": 112,
+                  "bottom": 136,
+                  "left": 49,
+                  "right": 371,
+                  "inkPixels": 2445,
+                  "upperContrastFraction": 1.006781682896648,
+                  "lowerDirectionCosine": 0.9796794804265307
+                },
+                "edgeDeltas": {
+                  "top": 1,
+                  "bottom": 1,
+                  "left": 0,
+                  "right": 0
+                },
+                "maximumEdgeDelta": 1,
+                "inkPixelRatioDelta": 0.04342723004694836,
+                "contrastFractionDelta": 0.006781682896648045,
+                "directionCosineDelta": 0.00020932628718228763
+              },
+              {
+                "index": 2,
+                "baseline": {
+                  "top": 151,
+                  "bottom": 175,
+                  "left": 48,
+                  "right": 329,
+                  "inkPixels": 2269,
+                  "upperContrastFraction": 1,
+                  "lowerDirectionCosine": 0.9999868031805104
+                },
+                "candidate": {
+                  "top": 150,
+                  "bottom": 174,
+                  "left": 49,
+                  "right": 329,
+                  "inkPixels": 2224,
+                  "upperContrastFraction": 1.006781682896648,
+                  "lowerDirectionCosine": 0.9999907712906664
+                },
+                "edgeDeltas": {
+                  "top": 1,
+                  "bottom": 1,
+                  "left": 1,
+                  "right": 0
+                },
+                "maximumEdgeDelta": 1,
+                "inkPixelRatioDelta": 0.01983252534156016,
+                "contrastFractionDelta": 0.006781682896648045,
+                "directionCosineDelta": 0.00000396811015601628
+              },
+              {
+                "index": 3,
+                "baseline": {
+                  "top": 189,
+                  "bottom": 209,
+                  "left": 49,
+                  "right": 387,
+                  "inkPixels": 2675,
+                  "upperContrastFraction": 1,
+                  "lowerDirectionCosine": 0.9999890273627212
+                },
+                "candidate": {
+                  "top": 188,
+                  "bottom": 207,
+                  "left": 49,
+                  "right": 387,
+                  "inkPixels": 2582,
+                  "upperContrastFraction": 1.006781682896648,
+                  "lowerDirectionCosine": 0.9999933113709184
+                },
+                "edgeDeltas": {
+                  "top": 1,
+                  "bottom": 2,
+                  "left": 0,
+                  "right": 0
+                },
+                "maximumEdgeDelta": 2,
+                "inkPixelRatioDelta": 0.034766355140186916,
+                "contrastFractionDelta": 0.006781682896648045,
+                "directionCosineDelta": 0.000004284008197186218
+              }
+            ],
+            "reason": null
+          }
+        ]
+      },
+      "acceptance": "geometry_with_raw_ratio",
       "passed": true
     },
     {
       "name": "long text page Fabric versus renderer PNG",
-      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-29T13-39-06.443Z-9baa78c6-b315-4788-bcd3-0a357e3ad709/renderer-png/long-text-page.png",
-      "candidate": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-29T13-39-06.443Z-9baa78c6-b315-4788-bcd3-0a357e3ad709/fabric/long-text-page.png",
+      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-30T09-50-42.082Z-461a7857-e1fa-434a-b02d-c10a1a64dbbe/renderer-png/long-text-page.png",
+      "candidate": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-30T09-50-42.082Z-461a7857-e1fa-434a-b02d-c10a1a64dbbe/fabric/long-text-page.png",
       "diff": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/diff/long-text-page-fabric.png",
       "width": 640,
       "height": 360,
@@ -84,7 +783,9 @@
         "maximumAllowedInkPixelRatioDelta": 0.1,
         "maximumAllowedContrastFractionDelta": 0.1,
         "minimumAllowedDirectionCosine": 0.98,
+        "maximumAllowedDirectionCosineDelta": null,
         "completePageSubstitute": true,
+        "rawRatioRequired": false,
         "maximumEdgeDelta": 1,
         "passed": true,
         "nodes": [
@@ -100,6 +801,7 @@
             "maximumEdgeDelta": 1,
             "maximumInkPixelRatioDelta": 0.00411522633744856,
             "maximumContrastFractionDelta": 0,
+            "maximumDirectionCosineDelta": 0.0000025602451161343964,
             "minimumCandidateDirectionCosine": 0.9999937152267825,
             "baselineBands": [
               {
@@ -206,7 +908,8 @@
                 },
                 "maximumEdgeDelta": 1,
                 "inkPixelRatioDelta": 0,
-                "contrastFractionDelta": 0
+                "contrastFractionDelta": 0,
+                "directionCosineDelta": 0.000002139655162491927
               },
               {
                 "index": 1,
@@ -236,7 +939,8 @@
                 },
                 "maximumEdgeDelta": 0,
                 "inkPixelRatioDelta": 0,
-                "contrastFractionDelta": 0
+                "contrastFractionDelta": 0,
+                "directionCosineDelta": 0.0000025602451161343964
               },
               {
                 "index": 2,
@@ -266,7 +970,8 @@
                 },
                 "maximumEdgeDelta": 1,
                 "inkPixelRatioDelta": 0.00411522633744856,
-                "contrastFractionDelta": 0
+                "contrastFractionDelta": 0,
+                "directionCosineDelta": 0.000002544816446348186
               },
               {
                 "index": 3,
@@ -296,7 +1001,8 @@
                 },
                 "maximumEdgeDelta": 1,
                 "inkPixelRatioDelta": 0,
-                "contrastFractionDelta": 0
+                "contrastFractionDelta": 0,
+                "directionCosineDelta": 0.0000025602451161343964
               }
             ],
             "reason": null
@@ -308,8 +1014,8 @@
     },
     {
       "name": "long text page React view versus renderer PNG",
-      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-29T13-39-06.443Z-9baa78c6-b315-4788-bcd3-0a357e3ad709/renderer-png/long-text-page.png",
-      "candidate": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-29T13-39-06.443Z-9baa78c6-b315-4788-bcd3-0a357e3ad709/render-view/long-text-page.png",
+      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-30T09-50-42.082Z-461a7857-e1fa-434a-b02d-c10a1a64dbbe/renderer-png/long-text-page.png",
+      "candidate": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-30T09-50-42.082Z-461a7857-e1fa-434a-b02d-c10a1a64dbbe/render-view/long-text-page.png",
       "diff": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/diff/long-text-page-render-view.png",
       "width": 640,
       "height": 360,
@@ -330,7 +1036,9 @@
         "maximumAllowedInkPixelRatioDelta": 0.1,
         "maximumAllowedContrastFractionDelta": 0.1,
         "minimumAllowedDirectionCosine": 0.98,
+        "maximumAllowedDirectionCosineDelta": null,
         "completePageSubstitute": true,
+        "rawRatioRequired": false,
         "maximumEdgeDelta": 1,
         "passed": true,
         "nodes": [
@@ -346,6 +1054,7 @@
             "maximumEdgeDelta": 1,
             "maximumInkPixelRatioDelta": 0.0015028554253080854,
             "maximumContrastFractionDelta": 0,
+            "maximumDirectionCosineDelta": 0,
             "minimumCandidateDirectionCosine": 0.9999962754718986,
             "baselineBands": [
               {
@@ -452,7 +1161,8 @@
                 },
                 "maximumEdgeDelta": 1,
                 "inkPixelRatioDelta": 0.0015028554253080854,
-                "contrastFractionDelta": 0
+                "contrastFractionDelta": 0,
+                "directionCosineDelta": 0
               },
               {
                 "index": 1,
@@ -482,7 +1192,8 @@
                 },
                 "maximumEdgeDelta": 1,
                 "inkPixelRatioDelta": 0,
-                "contrastFractionDelta": 0
+                "contrastFractionDelta": 0,
+                "directionCosineDelta": 0
               },
               {
                 "index": 2,
@@ -512,7 +1223,8 @@
                 },
                 "maximumEdgeDelta": 1,
                 "inkPixelRatioDelta": 0,
-                "contrastFractionDelta": 0
+                "contrastFractionDelta": 0,
+                "directionCosineDelta": 0
               },
               {
                 "index": 3,
@@ -542,7 +1254,8 @@
                 },
                 "maximumEdgeDelta": 1,
                 "inkPixelRatioDelta": 0,
-                "contrastFractionDelta": 0
+                "contrastFractionDelta": 0,
+                "directionCosineDelta": 0
               }
             ],
             "reason": null
@@ -554,8 +1267,8 @@
     },
     {
       "name": "long text page PDF raster versus renderer PNG",
-      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-29T13-39-06.443Z-9baa78c6-b315-4788-bcd3-0a357e3ad709/renderer-png/long-text-page.png",
-      "candidate": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-29T13-39-06.443Z-9baa78c6-b315-4788-bcd3-0a357e3ad709/renderer-pdf/long-text-page.png",
+      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-30T09-50-42.082Z-461a7857-e1fa-434a-b02d-c10a1a64dbbe/renderer-png/long-text-page.png",
+      "candidate": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-30T09-50-42.082Z-461a7857-e1fa-434a-b02d-c10a1a64dbbe/renderer-pdf/long-text-page.png",
       "diff": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/diff/long-text-page-pdf.png",
       "width": 640,
       "height": 360,
@@ -576,7 +1289,9 @@
         "maximumAllowedInkPixelRatioDelta": 0.1,
         "maximumAllowedContrastFractionDelta": 0.1,
         "minimumAllowedDirectionCosine": 0.98,
+        "maximumAllowedDirectionCosineDelta": null,
         "completePageSubstitute": true,
+        "rawRatioRequired": false,
         "maximumEdgeDelta": 1,
         "passed": true,
         "nodes": [
@@ -592,6 +1307,7 @@
             "maximumEdgeDelta": 1,
             "maximumInkPixelRatioDelta": 0.03807899971582836,
             "maximumContrastFractionDelta": 0,
+            "maximumDirectionCosineDelta": 0.0000014732209775436544,
             "minimumCandidateDirectionCosine": 0.9999948022509211,
             "baselineBands": [
               {
@@ -698,7 +1414,8 @@
                 },
                 "maximumEdgeDelta": 1,
                 "inkPixelRatioDelta": 0.02043883378418996,
-                "contrastFractionDelta": 0
+                "contrastFractionDelta": 0,
+                "directionCosineDelta": 0.0000014732209775436544
               },
               {
                 "index": 1,
@@ -728,7 +1445,8 @@
                 },
                 "maximumEdgeDelta": 1,
                 "inkPixelRatioDelta": 0.009071117561683599,
-                "contrastFractionDelta": 0
+                "contrastFractionDelta": 0,
+                "directionCosineDelta": 8.115013570009211e-7
               },
               {
                 "index": 2,
@@ -758,7 +1476,8 @@
                 },
                 "maximumEdgeDelta": 1,
                 "inkPixelRatioDelta": 0.030452674897119343,
-                "contrastFractionDelta": 0
+                "contrastFractionDelta": 0,
+                "directionCosineDelta": 0.0000011837116666857384
               },
               {
                 "index": 3,
@@ -788,7 +1507,8 @@
                 },
                 "maximumEdgeDelta": 1,
                 "inkPixelRatioDelta": 0.03807899971582836,
-                "contrastFractionDelta": 0
+                "contrastFractionDelta": 0,
+                "directionCosineDelta": 3.8698236748402337e-7
               }
             ],
             "reason": null
@@ -800,14 +1520,14 @@
     },
     {
       "name": "square output Fabric versus renderer PNG",
-      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-29T13-39-06.443Z-9baa78c6-b315-4788-bcd3-0a357e3ad709/renderer-png/square-page.png",
-      "candidate": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-29T13-39-06.443Z-9baa78c6-b315-4788-bcd3-0a357e3ad709/fabric/square-page.png",
+      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-30T09-50-42.082Z-461a7857-e1fa-434a-b02d-c10a1a64dbbe/renderer-png/square-page.png",
+      "candidate": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-30T09-50-42.082Z-461a7857-e1fa-434a-b02d-c10a1a64dbbe/fabric/square-page.png",
       "diff": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/diff/square-page-fabric.png",
       "width": 512,
       "height": 512,
       "differentPixels": 51,
       "differentPixelRatio": 0.000194549560546875,
-      "rootMeanSquareError": 0.5629626596647044,
+      "rootMeanSquareError": 0.5629558835132878,
       "limits": {
         "pixelDeltaThreshold": 24,
         "maxDifferentPixelRatio": 0.015,
@@ -820,14 +1540,14 @@
     },
     {
       "name": "square output React view versus renderer PNG",
-      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-29T13-39-06.443Z-9baa78c6-b315-4788-bcd3-0a357e3ad709/renderer-png/square-page.png",
-      "candidate": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-29T13-39-06.443Z-9baa78c6-b315-4788-bcd3-0a357e3ad709/render-view/square-page.png",
+      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-30T09-50-42.082Z-461a7857-e1fa-434a-b02d-c10a1a64dbbe/renderer-png/square-page.png",
+      "candidate": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-30T09-50-42.082Z-461a7857-e1fa-434a-b02d-c10a1a64dbbe/render-view/square-page.png",
       "diff": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/diff/square-page-render-view.png",
       "width": 512,
       "height": 512,
       "differentPixels": 0,
       "differentPixelRatio": 0,
-      "rootMeanSquareError": 0.022269051271467537,
+      "rootMeanSquareError": 0.0225245363177164,
       "limits": {
         "pixelDeltaThreshold": 24,
         "maxDifferentPixelRatio": 0.015,

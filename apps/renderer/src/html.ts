@@ -7,6 +7,7 @@ import {
   type Document,
   type ImagePaintProjectionInput,
   type RenderImagePaintProjection,
+  type RenderNodeProjection,
   type SceneNode,
 } from "@webmcp/document"
 import type { PageThumbnailSize } from "@webmcp/document"
@@ -158,6 +159,47 @@ const escapeHtml = (value: string): string =>
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;")
 
+function renderTextMarkup(
+  projection: Extract<RenderNodeProjection, { type: "text" }>
+) {
+  return projection.content.layout.lines
+    .map((line, lineIndex) => {
+      const lineStyle = [
+        "display:block",
+        `height:${line.height}px`,
+        `line-height:${line.height}px`,
+        `text-align:${line.align === "justify" ? "left" : line.align}`,
+        ...(line.justifySpacing
+          ? [`word-spacing:${line.justifySpacing}px`]
+          : []),
+        "white-space:pre",
+      ].join(";")
+      const segments = line.segments
+        .map((segment) => {
+          const decoration =
+            segment.style.decoration === "line_through"
+              ? "line-through"
+              : segment.style.decoration
+          const segmentStyle = [
+            `color:${escapeHtml(segment.style.color)}`,
+            `font-family:${escapeHtml(segment.style.fontFamily)},sans-serif`,
+            `font-size:${segment.style.fontSize}px`,
+            `font-weight:${segment.style.fontWeight}`,
+            `font-style:${segment.style.italic ? "italic" : "normal"}`,
+            `text-decoration-line:${decoration}`,
+            `letter-spacing:${segment.style.letterSpacing}px`,
+            `line-height:${line.height}px`,
+          ].join(";")
+          const content = `<span data-text-source-start="${segment.sourceStart}" data-text-source-end="${segment.sourceEnd}"${segment.synthetic ? ' data-text-synthetic="true"' : ""} style="${segmentStyle}">${escapeHtml(segment.text)}</span>`
+          if (!segment.link) return content
+          return `<a href="${escapeHtml(segment.link.target)}"${segment.link.newTab ? ' target="_blank" rel="noopener noreferrer"' : ""} style="color:inherit;text-decoration:inherit">${content}</a>`
+        })
+        .join("")
+      return `<span data-text-line="${lineIndex}" style="${lineStyle}">${segments}</span>`
+    })
+    .join("")
+}
+
 export function renderNodeToHtml(node: SceneNode): string {
   const projection = projectNodeForRender(node)
   const { frame } = projection
@@ -231,7 +273,7 @@ export function renderNodeToHtml(node: SceneNode): string {
     `overflow:${projection.content.sizingMode === "fixed" ? "hidden" : "visible"}`,
   ].join(";")
   const textIdentity = `${identity} data-text-sizing-mode="${projection.content.sizingMode}" data-text-measurement="${projection.content.layout.measurement}" data-text-line-count="${projection.content.layout.lineCount}" data-text-overflow="${projection.content.layout.overflow ? "true" : "false"}" data-text-overflow-x="${projection.content.layout.overflowX ? "true" : "false"}" data-text-overflow-y="${projection.content.layout.overflowY ? "true" : "false"}"`
-  return `<div ${textIdentity} style="${textStyle}">${escapeHtml(projection.content.displayText)}</div>`
+  return `<div ${textIdentity} style="${textStyle}">${renderTextMarkup(projection)}</div>`
 }
 
 function pageNodesMarkup(document: Document, pageId: string): string {

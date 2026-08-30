@@ -110,6 +110,38 @@ describe("render conformance corpus", () => {
       projection.content.layout.displayText
     )
     expect(projection.content.displayText).not.toBe(projection.content.text)
+    expect(projection.content.layout.lines[0]).toMatchObject({
+      align: "center",
+      height: 52.2,
+    })
+    expect(
+      projection.content.layout.lines.flatMap((line) => line.segments)
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          text: "Spacing",
+          styled: true,
+          style: expect.objectContaining({
+            color: "#be123c",
+            fontSize: 36,
+            fontWeight: 780,
+            italic: true,
+            decoration: "underline",
+          }),
+        }),
+        expect.objectContaining({
+          text: "• ",
+          synthetic: true,
+        }),
+        expect.objectContaining({
+          text: "stays",
+          link: expect.objectContaining({
+            target: "https://example.com/conformance",
+            newTab: true,
+          }),
+        }),
+      ])
+    )
   })
 
   it("covers all text sizing modes with derived auto geometry", () => {

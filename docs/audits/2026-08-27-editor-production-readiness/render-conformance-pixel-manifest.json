@@ -9,7 +9,20 @@
       "diff": "artifacts/diff/properties-page-fabric.png",
       "pixelDeltaThreshold": 24,
       "maxDifferentPixelRatio": 0.015,
-      "maxRootMeanSquareError": 6
+      "maxRootMeanSquareError": 6,
+      "geometry": {
+        "pageId": "properties-page",
+        "textNodeIds": ["text-typography"],
+        "minimumContrastFraction": 0.2,
+        "minimumInkPixelsPerRow": 2,
+        "maximumEdgeDelta": 4,
+        "maximumInkPixelRatioDelta": 0.1,
+        "maximumContrastFractionDelta": 0.1,
+        "minimumDirectionCosine": 0,
+        "maximumDirectionCosineDelta": 0.01,
+        "acceptWhenRawFails": false,
+        "acceptWhenRawRatioPasses": true
+      }
     },
     {
       "name": "properties page React view versus renderer PNG",
@@ -18,7 +31,20 @@
       "diff": "artifacts/diff/properties-page-render-view.png",
       "pixelDeltaThreshold": 24,
       "maxDifferentPixelRatio": 0.015,
-      "maxRootMeanSquareError": 6
+      "maxRootMeanSquareError": 6,
+      "geometry": {
+        "pageId": "properties-page",
+        "textNodeIds": ["text-typography"],
+        "minimumContrastFraction": 0.2,
+        "minimumInkPixelsPerRow": 2,
+        "maximumEdgeDelta": 4,
+        "maximumInkPixelRatioDelta": 0.1,
+        "maximumContrastFractionDelta": 0.1,
+        "minimumDirectionCosine": 0,
+        "maximumDirectionCosineDelta": 0.01,
+        "acceptWhenRawFails": false,
+        "acceptWhenRawRatioPasses": true
+      }
     },
     {
       "name": "properties page PDF raster versus renderer PNG",
@@ -27,7 +53,20 @@
       "diff": "artifacts/diff/properties-page-pdf.png",
       "pixelDeltaThreshold": 24,
       "maxDifferentPixelRatio": 0.015,
-      "maxRootMeanSquareError": 6
+      "maxRootMeanSquareError": 6,
+      "geometry": {
+        "pageId": "properties-page",
+        "textNodeIds": ["text-typography"],
+        "minimumContrastFraction": 0.2,
+        "minimumInkPixelsPerRow": 2,
+        "maximumEdgeDelta": 4,
+        "maximumInkPixelRatioDelta": 0.1,
+        "maximumContrastFractionDelta": 0.1,
+        "minimumDirectionCosine": 0,
+        "maximumDirectionCosineDelta": 0.01,
+        "acceptWhenRawFails": false,
+        "acceptWhenRawRatioPasses": true
+      }
     },
     {
       "name": "long text page Fabric versus renderer PNG",

@@ -190,6 +190,20 @@ export function validateRenderPolicy(document: Document): ValidationIssue[] {
           )
         )
       }
+      for (const run of node.runs) {
+        if (
+          run.style.fontFamily &&
+          !isManagedRendererFont(run.style.fontFamily)
+        ) {
+          issues.push(
+            issue(
+              "unsupported_font",
+              `${node.name} uses a rich-text font that is unavailable to the renderer`,
+              { nodeId: node.id }
+            )
+          )
+        }
+      }
     }
 
     if (

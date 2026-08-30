@@ -2963,3 +2963,37 @@ Status: **accepted; Gate 1C mixed-style projection is active**
   quarantined by this exact mismatch while leaving unrelated corruption
   untouched. The affected six-page quotation reopened successfully in the live
   port-3001 editor and exposed its canonical group tree through `inspect_design`.
+
+## 2026-08-30 — TEXT-02 Gate 1C mixed-style projection
+
+Status: **accepted; Gate 1 is closed and Gate 2 range-editing UX is active**
+
+- Revisited the TEXT-02 contract, OpenPencil text drawing/outline paths and
+  Loora model/export/React rendering boundary before implementation.
+- Added one shared mixed-style projector with UTF-16 source offsets, semantic
+  paragraph/list projection, safe links, run-specific typography/paint,
+  mixed-height wrapping and deterministic justified soft lines.
+- React, Renderer HTML/PNG/PDF and Fabric now consume the same explicit lines
+  and segments. Fabric retains separate canonical-display and raw-edit styles,
+  loads every visible run face before measurement, and measures segment advances
+  in the actual Canvas context instead of positioning styled spans with heuristic
+  widths.
+- The retained capture exposed and repaired an 11 px Fabric alignment defect in
+  justified lines. The final simple-text geometry returns to the established
+  one-pixel limit.
+- Added a mixed-color rich-text parity contract without loosening the existing
+  raw pixel thresholds: a geometry fallback is eligible only while the raw
+  changed-pixel ratio remains below 1.5%, and it separately checks line count,
+  edge position, ink coverage, contrast and baseline-relative multicolor
+  direction. Wrong hue, missing interiors, opacity loss, wrapping changes and
+  displacement remain failing synthetic cases.
+- Immutable run
+  `2026-08-30T09-50-42.082Z-461a7857-e1fa-434a-b02d-c10a1a64dbbe`
+  retains exact-dimension React, Fabric, Renderer PNG and PDF evidence. Visual
+  inspection confirms the same run styling, underline/strike, list marker,
+  whitespace, wrapping and page geometry.
+- Focused projection/geometry tests, all five affected package typechecks, the
+  structural verifier, pixel/geometry verifier, formatting and whitespace
+  checks pass. Semantic duplication and immutable publication explicitly retain
+  rich ranges; full-document history continues to snapshot the same canonical
+  fixture exactly.

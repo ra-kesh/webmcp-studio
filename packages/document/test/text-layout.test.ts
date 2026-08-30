@@ -71,12 +71,87 @@ describe("canonical text layout", () => {
     )
 
     expect(projection.lines.length).toBeGreaterThan(2)
-    expect(projection.measurement).toBe("managed_font_approximation_v1")
+    expect(projection.measurement).toBe("managed_font_rich_text_v2")
     expect(projection.displayText).toContain("Hello   ")
     expect(projection.displayText).toContain("\n")
     expect(projection.requiredWidth).toBeLessThanOrEqual(100)
     expect(projection.requiredHeight).toBe(
       projection.lineCount * projection.lineHeightPx
+    )
+  })
+
+  it("measures mixed runs and projects semantic list markers without changing source text", () => {
+    const node = textNode({
+      text: "Bold quiet\nLinked item",
+      width: 180,
+      height: 200,
+      sizingMode: "auto_height",
+      runs: [
+        {
+          start: 0,
+          end: 4,
+          style: {
+            color: "#dc2626",
+            fontSize: 32,
+            fontWeight: 700,
+            italic: true,
+            decoration: "underline",
+            lineHeight: 1.5,
+            letterSpacing: 1,
+          },
+        },
+      ],
+      paragraphs: [
+        { start: 0, end: 10, style: { align: "center" } },
+        {
+          start: 11,
+          end: 22,
+          style: { list: { kind: "bulleted", level: 1 } },
+        },
+      ],
+      links: [
+        {
+          start: 11,
+          end: 17,
+          target: "https://example.com",
+          newTab: true,
+        },
+      ],
+    })
+
+    const projection = projectTextLayout(node)
+    const segments = projection.lines.flatMap((line) => line.segments)
+    const bold = segments.find((segment) => segment.text === "Bold")
+    const linked = segments.find((segment) => segment.link)
+
+    expect(node.text).toBe("Bold quiet\nLinked item")
+    expect(projection.displayText).toContain("  • Linked item")
+    expect(projection.lines[0]).toMatchObject({ align: "center", height: 48 })
+    expect(bold).toMatchObject({
+      sourceStart: 0,
+      sourceEnd: 4,
+      styled: true,
+      style: {
+        color: "#dc2626",
+        fontSize: 32,
+        fontWeight: 700,
+        italic: true,
+        decoration: "underline",
+      },
+    })
+    expect(linked).toMatchObject({
+      text: "Linked",
+      sourceStart: 11,
+      sourceEnd: 17,
+      link: { target: "https://example.com", newTab: true },
+    })
+    expect(segments.find((segment) => segment.synthetic)).toMatchObject({
+      text: "  • ",
+      sourceStart: 11,
+      sourceEnd: 11,
+    })
+    expect(projection.requiredHeight).toBe(
+      projection.lines.reduce((sum, line) => sum + line.height, 0)
     )
   })
 
@@ -102,6 +177,33 @@ describe("canonical text layout", () => {
     ).toBe(true)
     expect(projection.displayText.replaceAll("\n", "")).toBe(text)
     expect(projection.requiredWidth).toBeLessThanOrEqual(wordBoundaryWidth)
+  })
+
+  it("justifies soft-wrapped paragraph lines without stretching the final line", () => {
+    const text = "One two three four"
+    const projection = projectTextLayout(
+      textNode({
+        text,
+        width: 112,
+        height: 200,
+        sizingMode: "auto_height",
+        paragraphs: [
+          { start: 0, end: text.length, style: { align: "justify" } },
+        ],
+      })
+    )
+
+    expect(projection.lines.length).toBeGreaterThan(1)
+    expect(projection.lines[0]).toMatchObject({
+      align: "justify",
+      width: 112,
+      justifySpacing: expect.any(Number),
+    })
+    expect(projection.lines[0]?.justifySpacing).toEqual(35.6)
+    expect(projection.lines.at(-1)).toMatchObject({
+      align: "justify",
+      justifySpacing: 0,
+    })
   })
 
   it("derives width and height together for auto-width text", () => {
@@ -135,6 +237,38 @@ describe("canonical text layout", () => {
     expect(narrower.lineCount).toBeGreaterThan(wider.lineCount)
     expect(next.width).toBe(80)
     expect(next.height).toBe(projectTextLayout(next).requiredHeight)
+  })
+
+  it("recomputes managed geometry when run or list formatting changes", () => {
+    const autoWidth = textNode({
+      text: "Large word",
+      sizingMode: "auto_width",
+      width: 100,
+      height: 24,
+    })
+    const withRun = applyTextLayoutPatch(autoWidth, {
+      runs: [{ start: 0, end: 5, style: { fontSize: 48, lineHeight: 1.5 } }],
+    })
+    expect(withRun.width).toBeGreaterThan(autoWidth.width)
+    expect(withRun.height).toBe(72)
+
+    const autoHeight = textNode({
+      text: "List item",
+      sizingMode: "auto_height",
+      width: 92,
+      height: 24,
+    })
+    const withList = applyTextLayoutPatch(autoHeight, {
+      paragraphs: [
+        {
+          start: 0,
+          end: 9,
+          style: { list: { kind: "bulleted", level: 1 } },
+        },
+      ],
+    })
+    expect(withList.height).toBeGreaterThan(autoHeight.height)
+    expect(withList.height).toBe(projectTextLayout(withList).requiredHeight)
   })
 
   it("rejects manual managed-axis geometry by reasserting derived size", () => {

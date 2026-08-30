@@ -544,9 +544,7 @@ describe("renderer HTML", () => {
     )
     expect(html).toContain("white-space:pre")
     expect(html).toContain('data-text-sizing-mode="fixed"')
-    expect(html).toContain(
-      'data-text-measurement="managed_font_approximation_v1"'
-    )
+    expect(html).toContain('data-text-measurement="managed_font_rich_text_v2"')
     expect(html).toMatch(/data-text-line-count="[1-9][0-9]*"/)
     expect(html).toMatch(/data-text-overflow="(?:true|false)"/)
     expect(html).toMatch(/data-text-overflow-x="(?:true|false)"/)
@@ -558,7 +556,11 @@ describe("renderer HTML", () => {
     )!
     const textProjection = projectNodeForRender(textNode)
     if (textProjection.type !== "text") throw new Error("Expected text")
-    expect(html).toContain(textProjection.content.displayText)
+    for (const line of textProjection.content.layout.lines) {
+      for (const segment of line.segments) {
+        expect(html).toContain(segment.text)
+      }
+    }
     expect(textProjection.content.displayText).not.toBe(
       textProjection.content.text
     )
@@ -575,6 +577,57 @@ describe("renderer HTML", () => {
     )
     expect(html).toContain("border-radius:24px;border:8px solid #92400e")
     expect(html).toContain("border-radius:50%;border:5px solid #1d4ed8")
+  })
+
+  it("serializes mixed character styles, paragraph alignment and safe links", () => {
+    const source = renderConformanceDocument.nodes.find(
+      (candidate) => candidate.id === "text-typography"
+    )!
+    if (source.type !== "text") throw new Error("Expected text")
+    const node: SceneNode = {
+      ...source,
+      text: "Bold link",
+      width: 500,
+      sizingMode: "auto_width",
+      runs: [
+        {
+          start: 0,
+          end: 4,
+          style: {
+            color: "#dc2626",
+            fontSize: 36,
+            fontWeight: 700,
+            italic: true,
+            decoration: "underline",
+            letterSpacing: 1,
+          },
+        },
+      ],
+      paragraphs: [{ start: 0, end: 9, style: { align: "center" } }],
+      links: [
+        {
+          start: 5,
+          end: 9,
+          target: "https://example.com/path?a=1&b=2",
+          newTab: true,
+        },
+      ],
+    }
+
+    const markup = renderNodeToHtml(node)
+
+    expect(markup).toContain('data-text-line="0"')
+    expect(markup).toContain("text-align:center")
+    expect(markup).toContain("color:#dc2626")
+    expect(markup).toContain("font-size:36px")
+    expect(markup).toContain("font-style:italic")
+    expect(markup).toContain("text-decoration-line:underline")
+    expect(markup).toContain(
+      'href="https://example.com/path?a=1&amp;b=2" target="_blank" rel="noopener noreferrer"'
+    )
+    expect(markup).toContain(
+      'data-text-source-start="5" data-text-source-end="9"'
+    )
   })
 
   it("serializes auto-height sizing separately from fixed overflow", () => {

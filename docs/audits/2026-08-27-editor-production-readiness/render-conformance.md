@@ -200,3 +200,31 @@ CONFORM-01 / EXPORT-01 evidence boundary
 without hiding raster variance or converting the PDF to screenshots. A repeat
 of the same immutable capture against the deployed Renderer remains the final
 environment gate.
+
+## Rich-text projection extension, 2026-08-30
+
+TEXT-02 revision 2 adds mixed character runs, paragraph alignment, a semantic
+list marker, a safe link and differing font size/weight/italic/decoration,
+line-height, letter-spacing and color to the properties-page text fixture. Local
+immutable run
+`2026-08-30T09-50-42.082Z-461a7857-e1fa-434a-b02d-c10a1a64dbbe`
+retains the complete 12-artifact set after that extension.
+
+The unchanged raw ratio/RMSE thresholds remain the first result. Mixed
+variable-font and synthesized-italic raster intensity crosses the RMSE limit
+while all three candidates remain below the unchanged 1.5% changed-pixel ratio.
+For this mixed-color node only, acceptance therefore also requires horizontal
+ink geometry while the raw ratio continues to pass: exact line count, at most
+four pixels of edge variance, at most 10% coverage and contrast drift, and at
+most 0.01 baseline-relative foreground-direction drift. Baseline-relative
+direction is required because one canonical line deliberately contains three
+foreground colors; the original absolute 0.98 hue rule remains unchanged for
+the uniform-color text-only page.
+
+The mixed node passes at 4 px / 1.88% coverage / 0.0025 contrast / 0.0009
+direction delta for Fabric, 1 px / 3.70% / 0 / 0.0001 for React, and 2 px /
+5.67% / 0.0068 / 0.0003 for PDF. The separate centered-text page continues to
+pass its original one-pixel complete-page geometry contract. The capture first
+exposed an 11-pixel Fabric justified-line shift; Fabric now measures canonical
+segment advances in its actual Canvas context, and the repaired result is back
+to one pixel.

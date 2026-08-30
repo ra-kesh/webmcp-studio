@@ -825,9 +825,34 @@ export function canvasDocumentFontRequests(document: Document, pageId: string) {
     if (node.type !== "text" || !pageNodeIds.has(node.id) || !node.visible) {
       continue
     }
-    const descriptor = `${node.fontWeight} ${node.fontSize}px ${JSON.stringify(node.fontFamily)}`
-    const key = `${descriptor}\u0000${node.text}`
-    requests.set(key, { descriptor, sample: node.text || "M" })
+    const addRequest = (
+      family: string,
+      size: number,
+      weight: number,
+      italic: boolean,
+      sample: string
+    ) => {
+      const descriptor = `${italic ? "italic " : ""}${weight} ${size}px ${JSON.stringify(family)}`
+      const resolvedSample = sample || "M"
+      const key = `${descriptor}\u0000${resolvedSample}`
+      requests.set(key, { descriptor, sample: resolvedSample })
+    }
+    addRequest(
+      node.fontFamily,
+      node.fontSize,
+      node.fontWeight,
+      false,
+      node.text
+    )
+    for (const run of node.runs) {
+      addRequest(
+        run.style.fontFamily ?? node.fontFamily,
+        run.style.fontSize ?? node.fontSize,
+        run.style.fontWeight ?? node.fontWeight,
+        run.style.italic ?? false,
+        node.text.slice(run.start, run.end)
+      )
+    }
   }
   return [...requests.values()]
 }
