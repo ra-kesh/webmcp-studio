@@ -671,7 +671,7 @@ async function seedLocalAssets(
 ) {
   await page.evaluate(async (localAssets) => {
     const database = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("webmcp-studio-assets", 4)
+      const request = indexedDB.open("webmcp-studio-assets", 6)
       request.onupgradeneeded = () => {
         const db = request.result
         if (!db.objectStoreNames.contains("asset-metadata")) {
@@ -682,6 +682,11 @@ async function seedLocalAssets(
         }
         if (!db.objectStoreNames.contains("asset-quarantine")) {
           db.createObjectStore("asset-quarantine", { keyPath: "id" })
+        }
+        if (!db.objectStoreNames.contains("asset-promotion-journal")) {
+          db.createObjectStore("asset-promotion-journal", {
+            keyPath: "localAssetId",
+          })
         }
       }
       request.onsuccess = () => resolve(request.result)
@@ -1157,10 +1162,12 @@ test("multi-file uploads expose real progress and independent success, error, ca
     .getByRole("button", { name: "Cancel upload of cancel.png" })
     .click()
   await expect(dialog.getByText("Ready", { exact: true })).toBeVisible()
-  await expect(dialog.getByText("Upload failed", { exact: true })).toBeVisible()
+  await expect(
+    dialog.getByText("Status unknown", { exact: true })
+  ).toBeVisible()
   await expect(dialog.getByText("Cancelled", { exact: true })).toBeVisible()
   await expect(dialog).toContainText(
-    "The image could not reach Studio. Check your connection and retry."
+    "Studio lost contact before it could confirm the result. Retry checks the server with the same request key before creating anything new."
   )
 
   const failedRow = dialog
@@ -1301,20 +1308,17 @@ test("a missing local blob is explicit and can be repaired through geometry-safe
   const { dialog } = await openMediaFromToolbar(page, "Upload image…")
 
   await expect(
-    dialog.getByRole("button", {
-      name: `Locate replacement for ${missingLocalAssetId}`,
-    })
-  ).toBeVisible()
-  await expect(
-    dialog.getByText("File missing on this device", { exact: true })
+    dialog.getByText("File bytes are missing from this device", { exact: true })
   ).toBeVisible()
   await expect(
     dialog.getByRole("button", { name: "Insert Missing portrait.png" })
   ).toBeDisabled()
-  await dialog
-    .getByRole("button", {
-      name: `Locate replacement for ${missingLocalAssetId}`,
-    })
+  await dialog.getByRole("button", { name: "Close media library" }).click()
+  await expect(dialog).toBeHidden()
+  await selectReplacementTarget(page)
+  await page
+    .getByLabel("Design", { exact: true })
+    .getByRole("button", { name: "Replace image…" })
     .click()
   const repair = page.getByRole("dialog", { name: "Replace image" })
   await expect(repair).toContainText("Replace target")
@@ -1322,6 +1326,9 @@ test("a missing local blob is explicit and can be repaired through geometry-safe
   await repair
     .getByRole("button", { name: /Replace .* with Olive botanical/ })
     .click()
+  await expect
+    .poll(async () => imageNode(await inspectDesign(page)).assetId)
+    .toBe("library-olive-botanical")
   const repaired = imageNode(await inspectDesign(page))
   expect(repaired).toMatchObject({
     id: before.id,
@@ -1552,8 +1559,8 @@ for (const width of [320, 390]) {
 
     const dialogBounds = await dialog.boundingBox()
     expect(dialogBounds).not.toBeNull()
-    expect(Math.round(dialogBounds!.x)).toBe(0)
-    expect(Math.round(dialogBounds!.width)).toBe(width)
+    expect(Math.round(dialogBounds!.x)).toBeLessThanOrEqual(1)
+    expect(Math.round(dialogBounds!.width)).toBeGreaterThanOrEqual(width - 2)
     expect(Math.abs(dialogBounds!.height - 760)).toBeLessThanOrEqual(1)
     const layout = await page.evaluate(() => ({
       clientWidth: document.documentElement.clientWidth,

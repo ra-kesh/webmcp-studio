@@ -233,9 +233,24 @@ real shell defect: the recovery banner opened the Media dialog without
 recording its focus-return element.
 
 This is not the Slice 6A exit yet. Native browser race/recovery cases,
-the remaining busy-state announcement/focus cases, the existing MEDIA-01
-browser regression and the focused Slice 1 through Slice 5 matrix still need
-to pass before 6A can be marked complete.
+the remaining busy-state announcement/focus cases and their retained evidence
+still need to pass before 6A can be marked complete.
+
+The existing regression gates were rerun after the compact evidence pass:
+
+- Slice 1 domain/command/history: 3 files, 61 tests passing;
+- current Slice 2 through Slice 5 local repository, promotion owner/journal,
+  use receipt, admission, import, recovery and mounted editor matrix: 15 files,
+  280 tests passing; and
+- the complete existing MEDIA-01 Playwright suite: 18 of 18 journeys passing.
+
+The MEDIA-01 run also repaired three stale browser-harness assumptions without
+weakening product behavior: ambiguous XHR failure now expects truthful
+`status_unknown`; the native IndexedDB seed opens current database version 6;
+and compact containment tolerates the dialog's one-pixel border inset while
+still enforcing zero overflow and fully contained controls. Its missing-byte
+journey now follows the production impact-review and inspector-replacement
+workflow and waits for the WebMCP snapshot to observe the saved mutation.
 
 ## Slice 6B — production runner and read-only baseline
 
