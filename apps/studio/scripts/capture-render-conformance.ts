@@ -15,7 +15,15 @@ import { basename, dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { chromium } from "@playwright/test"
 import { DOMMatrix, ImageData, Path2D, createCanvas } from "@napi-rs/canvas"
-import { documentSchema, renderConformanceDocument } from "@webmcp/document"
+import {
+  buildComponentPublicationJourney,
+  componentRenderConformanceDocument,
+  createTemplateVersion,
+  documentSchema,
+  renderConformanceDocument,
+  textDesignSystemConformanceDocument,
+  type Document,
+} from "@webmcp/document"
 import sharp from "sharp"
 
 const repositoryRoot = resolve(
@@ -28,10 +36,37 @@ const auditRoot = join(
 )
 const artifactRoot = join(auditRoot, "artifacts")
 const artifactRunsRoot = join(artifactRoot, "runs")
+const conformanceCorpus =
+  process.env.CONFORMANCE_CORPUS === "resources" ||
+  process.env.CONFORMANCE_CORPUS === "components" ||
+  process.env.CONFORMANCE_CORPUS === "component-journey"
+    ? process.env.CONFORMANCE_CORPUS
+    : "golden"
+const captureDocument =
+  conformanceCorpus === "resources"
+    ? createTemplateVersion(textDesignSystemConformanceDocument, {
+        id: "text-design-system-conformance-v1",
+        templateId: "text-design-system-conformance",
+        version: 1,
+        sourceSnapshotId: `sha256-${"b".repeat(64)}`,
+        publishedAt: "2026-08-30T16:00:00.000Z",
+      }).document
+    : conformanceCorpus === "components"
+      ? createTemplateVersion(componentRenderConformanceDocument, {
+          id: "component-render-conformance-v1",
+          templateId: "component-render-conformance",
+          version: 1,
+          sourceSnapshotId: `sha256-${"c".repeat(64)}`,
+          publishedAt: "2026-08-30T16:05:00.000Z",
+        }).document
+      : conformanceCorpus === "component-journey"
+        ? buildComponentPublicationJourney().published.document
+        : renderConformanceDocument
 const baseUrl = (
   process.env.CONFORMANCE_BASE_URL ?? "http://localhost:3001"
 ).replace(/\/$/, "")
-const pageIds = renderConformanceDocument.pages.map((page) => page.id)
+const pageIds = captureDocument.pages.map((page) => page.id)
+const pdfOutput = requirePdfOutput(captureDocument)
 const rendererRetryDelayMs = Number(
   process.env.CONFORMANCE_RENDER_RETRY_DELAY_MS ?? 5_000
 )
@@ -47,6 +82,19 @@ const retainedDirectories = [
   "renderer-png",
   "renderer-pdf",
 ] as const
+const browserCaptureSurfaces = ["render-view", "fabric"] as const
+type BrowserCaptureSurface = (typeof browserCaptureSurfaces)[number]
+type BrowserCaptureScope = Readonly<{
+  pageId: string
+  phase: "navigation" | "readiness" | "capture"
+  surface: BrowserCaptureSurface | null
+}>
+type BrowserPageErrorEvidence = BrowserCaptureScope &
+  Readonly<{
+    name: string
+    message: string
+    stack: string | null
+  }>
 let browserCaptureRuntime: {
   browserVersion: string
   userAgent: string
@@ -54,12 +102,29 @@ let browserCaptureRuntime: {
   hostOperatingSystem: NodeJS.Platform
   hostArchitecture: string
 } | null = null
+const browserPageErrors: BrowserPageErrorEvidence[] = []
+const browserSurfaceCaptures: Array<
+  Readonly<{
+    pageId: string
+    surface: BrowserCaptureSurface
+    state: "ready"
+  }>
+> = []
 
 await mkdir(artifactRunsRoot, { recursive: true })
 const captureRunId = `${new Date().toISOString().replaceAll(":", "-")}-${randomUUID()}`
 const stagingRoot = await mkdtemp(join(artifactRunsRoot, ".capture-"))
 const finalRunRoot = join(artifactRunsRoot, captureRunId)
-const reportPath = join(auditRoot, "render-conformance-capture-report.json")
+const reportPath = join(
+  auditRoot,
+  conformanceCorpus === "resources"
+    ? "text-design-system-conformance-capture-report.json"
+    : conformanceCorpus === "components"
+      ? "component-conformance-capture-report.json"
+      : conformanceCorpus === "component-journey"
+        ? "component-journey-conformance-capture-report.json"
+        : "render-conformance-capture-report.json"
+)
 const temporaryReportPath = join(
   auditRoot,
   `.render-conformance-capture-report-${randomUUID()}.tmp`
@@ -89,8 +154,16 @@ try {
   }
 }
 
+function requirePdfOutput(document: Document) {
+  const output = document.outputs.find((candidate) =>
+    candidate.exportFormats.includes("pdf")
+  )
+  if (!output) throw new Error("Conformance corpus requires a PDF output")
+  return output
+}
+
 function verifyDocumentRoundTrip() {
-  const serialized = JSON.stringify(renderConformanceDocument)
+  const serialized = JSON.stringify(captureDocument)
   const roundTripped = documentSchema.parse(JSON.parse(serialized) as unknown)
   assert.equal(
     JSON.stringify(roundTripped),
@@ -102,13 +175,29 @@ function verifyDocumentRoundTrip() {
       id,
       pageIds: outputPageIds,
     })),
-    [
-      {
-        id: "mixed-document",
-        pageIds: ["properties-page", "long-text-page"],
-      },
-      { id: "square-image", pageIds: ["square-page"] },
-    ]
+    conformanceCorpus === "components"
+      ? [
+          {
+            id: "component-render-output",
+            pageIds: ["component-render-page"],
+          },
+        ]
+      : conformanceCorpus === "component-journey"
+        ? [
+            {
+              id: "proposal",
+              pageIds: ["cover", "story", "package", "timeline", "terms"],
+            },
+            { id: "whatsapp", pageIds: ["whatsapp-card"] },
+            { id: "follow-up", pageIds: ["square-card"] },
+          ]
+        : [
+            {
+              id: "mixed-document",
+              pageIds: ["properties-page", "long-text-page"],
+            },
+            { id: "square-image", pageIds: ["square-page"] },
+          ]
   )
 }
 
@@ -119,6 +208,18 @@ async function captureBrowserSurfaces() {
     viewport: { width: 2_000, height: 1_200 },
   })
   const browserPage = await context.newPage()
+  let captureScope: BrowserCaptureScope | null = null
+  const onPageError = (error: Error) => {
+    browserPageErrors.push({
+      pageId: captureScope?.pageId ?? "unscoped",
+      phase: captureScope?.phase ?? "navigation",
+      surface: captureScope?.surface ?? null,
+      name: error.name || "Error",
+      message: error.message || String(error),
+      stack: error.stack?.slice(0, 8_000) ?? null,
+    })
+  }
+  browserPage.on("pageerror", onPageError)
   try {
     const browserRuntime = await browserPage.evaluate(() => ({
       userAgent: navigator.userAgent,
@@ -131,20 +232,23 @@ async function captureBrowserSurfaces() {
       hostArchitecture: process.arch,
     }
     for (const pageId of pageIds) {
+      captureScope = { pageId, phase: "navigation", surface: null }
       await browserPage.goto(
-        `${baseUrl}/render-conformance?page=${encodeURIComponent(pageId)}`,
+        `${baseUrl}/render-conformance?corpus=${conformanceCorpus}&page=${encodeURIComponent(pageId)}`,
         { waitUntil: "networkidle" }
       )
+      assertNoBrowserPageErrors(`${pageId} navigation`)
       const embeddedDocument = await browserPage
         .locator('script[data-conformance-document="v3"]')
         .textContent()
       assert.ok(embeddedDocument, "Conformance route omitted its document")
       assert.equal(
         JSON.stringify(documentSchema.parse(JSON.parse(embeddedDocument))),
-        JSON.stringify(renderConformanceDocument),
+        JSON.stringify(captureDocument),
         `${pageId} browser fixture differs from the imported document`
       )
 
+      captureScope = { pageId, phase: "readiness", surface: null }
       await browserPage.waitForFunction(
         (targetPageId) =>
           ["render-view", "fabric"].every((surface) => {
@@ -159,11 +263,14 @@ async function captureBrowserSurfaces() {
         pageId,
         { timeout: 30_000 }
       )
+      assertNoBrowserPageErrors(`${pageId} surface readiness`)
 
-      for (const surface of ["render-view", "fabric"] as const) {
+      for (const surface of browserCaptureSurfaces) {
+        captureScope = { pageId, phase: "capture", surface }
         const locator = browserPage.locator(
           `[data-conformance-capture="${surface}:${pageId}"]`
         )
+        assertNoBrowserPageErrors(`${surface}:${pageId} ready claim`)
         assert.equal(
           await locator.getAttribute("data-conformance-state"),
           "ready",
@@ -175,24 +282,28 @@ async function captureBrowserSurfaces() {
           scale: "css",
           type: "png",
         })
+        assertNoBrowserPageErrors(`${surface}:${pageId} screenshot`)
         await writeFile(join(stagingRoot, surface, `${pageId}.png`), bytes)
+        browserSurfaceCaptures.push({ pageId, surface, state: "ready" })
       }
+      captureScope = null
     }
   } finally {
+    browserPage.off("pageerror", onPageError)
     await context.close()
     await browser.close()
   }
 }
 
 async function captureRendererArtifacts() {
-  for (const page of renderConformanceDocument.pages) {
+  for (const page of captureDocument.pages) {
     const { response, body } = await fetchRendererArtifact(
       `${baseUrl}/v1/studio/export-png`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          document: renderConformanceDocument,
+          document: captureDocument,
           pageId: page.id,
         }),
       },
@@ -215,16 +326,14 @@ async function captureRendererArtifacts() {
     await writeFile(join(stagingRoot, "renderer-png", `${page.id}.png`), body)
   }
 
-  const output = renderConformanceDocument.outputs.find(
-    (candidate) => candidate.id === "mixed-document"
-  )!
+  const output = pdfOutput
   const { response, body: pdf } = await fetchRendererArtifact(
     `${baseUrl}/v1/studio/export-pdf`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        document: renderConformanceDocument,
+        document: captureDocument,
         outputId: output.id,
       }),
     },
@@ -302,13 +411,19 @@ async function rasterizePdf(pdfBytes: Uint8Array, outputPageIds: string[]) {
     assert.equal(pdf.numPages, outputPageIds.length, "Renderer PDF page count")
     for (let index = 0; index < outputPageIds.length; index += 1) {
       const pageId = outputPageIds[index]
-      const canonicalPage = renderConformanceDocument.pages.find(
+      const canonicalPage = captureDocument.pages.find(
         (candidate) => candidate.id === pageId
       )!
       const pdfPage = await pdf.getPage(index + 1)
       const viewport = pdfPage.getViewport({ scale: 96 / 72 })
-      assert.equal(Math.round(viewport.width), canonicalPage.width)
-      assert.equal(Math.round(viewport.height), canonicalPage.height)
+      assert.ok(
+        Math.abs(viewport.width - canonicalPage.width) < 1,
+        `${pageId} PDF width ${viewport.width} differs from ${canonicalPage.width}px`
+      )
+      assert.ok(
+        Math.abs(viewport.height - canonicalPage.height) < 1,
+        `${pageId} PDF height ${viewport.height} differs from ${canonicalPage.height}px`
+      )
       const canvas = createCanvas(canonicalPage.width, canonicalPage.height)
       const canvasContext = canvas.getContext("2d")
       await pdfPage.render({
@@ -332,7 +447,10 @@ async function buildCaptureReport() {
   for (const directory of retainedDirectories) {
     const names =
       directory === "renderer-pdf"
-        ? ["mixed-document.pdf", "properties-page.png", "long-text-page.png"]
+        ? [
+            `${pdfOutput.id}.pdf`,
+            ...pdfOutput.pageIds.map((pageId) => `${pageId}.png`),
+          ]
         : pageIds.map((pageId) => `${pageId}.png`)
     for (const name of names) {
       const path = join(stagingRoot, directory, name)
@@ -345,7 +463,7 @@ async function buildCaptureReport() {
       if (name.endsWith(".png")) {
         const metadata = await sharp(bytes).metadata()
         const pageId = basename(name, ".png")
-        const page = renderConformanceDocument.pages.find(
+        const page = captureDocument.pages.find(
           (candidate) => candidate.id === pageId
         )!
         assert.equal(metadata.width, page.width, `${directory}/${name} width`)
@@ -364,18 +482,37 @@ async function buildCaptureReport() {
     version: 2,
     runId: captureRunId,
     artifactRoot: `artifacts/runs/${captureRunId}`,
-    documentId: renderConformanceDocument.id,
-    revision: renderConformanceDocument.revision,
+    corpus: conformanceCorpus,
+    documentId: captureDocument.id,
+    revision: captureDocument.revision,
     baseUrl,
     deviceScaleFactor: 1,
     browserCaptureRuntime,
-    pageOrder: renderConformanceDocument.pages.map((page) => page.id),
-    outputs: renderConformanceDocument.outputs.map(({ id, pageIds: ids }) => ({
+    browserCaptureEvidence: {
+      pageErrorPolicy: "fail_before_surface_ready",
+      pageErrors: browserPageErrors,
+      surfaces: browserSurfaceCaptures,
+    },
+    pageOrder: captureDocument.pages.map((page) => page.id),
+    outputs: captureDocument.outputs.map(({ id, pageIds: ids }) => ({
       id,
       pageIds: ids,
     })),
     artifacts,
   }
+}
+
+function assertNoBrowserPageErrors(stage: string) {
+  assert.equal(
+    browserPageErrors.length,
+    0,
+    `${stage} emitted browser page errors:\n${browserPageErrors
+      .map(
+        (error) =>
+          `${error.name}: ${error.message} [page=${error.pageId}, phase=${error.phase}, surface=${error.surface ?? "none"}]${error.stack ? `\n${error.stack}` : ""}`
+      )
+      .join("\n\n")}`
+  )
 }
 
 function decodeErrorBody(body: Uint8Array) {

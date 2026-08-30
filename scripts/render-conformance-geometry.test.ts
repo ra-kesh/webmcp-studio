@@ -57,7 +57,7 @@ function extract(image: RgbaImage) {
 
 const limits = {
   maximumEdgeDelta: 1,
-  maximumInkPixelRatioDelta: 0.1,
+  maximumInkMassRatioDelta: 0.1,
   maximumContrastFractionDelta: 0.1,
   minimumDirectionCosine: 0.98,
 } as const
@@ -106,6 +106,27 @@ describe("render conformance ink geometry", () => {
       left: 1,
       right: 1,
     })
+  })
+
+  it("treats equal-energy underline rasterizations as equivalent", () => {
+    const baseline = extract(
+      imageWithBands([
+        { left: 4, top: 3, right: 18, bottom: 3, alpha: 128 },
+        { left: 4, top: 4, right: 18, bottom: 4 },
+        { left: 4, top: 5, right: 18, bottom: 5, alpha: 128 },
+      ])
+    )
+    const candidate = extract(
+      imageWithBands([{ left: 4, top: 4, right: 18, bottom: 5 }])
+    )
+    const result = compareHorizontalInkBands(baseline, candidate, limits)
+
+    expect(result).toMatchObject({
+      passed: true,
+      maximumEdgeDelta: 1,
+      reason: null,
+    })
+    expect(result.maximumInkMassRatioDelta).toBeLessThan(0.01)
   })
 
   it("rejects a two-pixel edge displacement", () => {
@@ -166,7 +187,7 @@ describe("render conformance ink geometry", () => {
     ).toMatchObject({
       passed: false,
       maximumEdgeDelta: 0,
-      reason: expect.stringContaining("coverage changed"),
+      reason: expect.stringContaining("ink mass changed"),
     })
   })
 

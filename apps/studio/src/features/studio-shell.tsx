@@ -1831,6 +1831,13 @@ export function StudioShell({
   const productCommandRunnerRef = useRef<
     ((invocation: ProductCommandInvocation) => ProductCommandRunResult) | null
   >(null)
+  const executeProductCommandRef = useRef<
+    | ((
+        invocation: ProductCommandInvocation,
+        context: ProductCommandRuntimeContext
+      ) => boolean)
+    | null
+  >(null)
   const documentTransitionDisabledReason =
     replacementRunning || routeTransitionPending
       ? DOCUMENT_TRANSITION_DISABLED_REASON
@@ -3153,10 +3160,22 @@ export function StudioShell({
     }
   }
 
-  const productCommandRuntime = createProductCommandRuntime({
-    getContext: () => productCommandContext,
-    execute: executeProductCommand,
-  })
+  executeProductCommandRef.current = executeProductCommand
+  const productCommandRuntime = useMemo(
+    () =>
+      createProductCommandRuntime({
+        getContext: () => {
+          const context = productCommandContextRef.current
+          if (!context) {
+            throw new Error("Canonical command context is not ready yet.")
+          }
+          return context
+        },
+        execute: (invocation, context) =>
+          executeProductCommandRef.current?.(invocation, context) === true,
+      }),
+    []
+  )
   productCommandRunnerRef.current = productCommandRuntime.run
   const homeCommand = productCommandRuntime.resolve({
     commandId: "document.home",
@@ -3177,11 +3196,14 @@ export function StudioShell({
             item.command.invocation.commandId.startsWith("output.export-")
         ),
       })) ?? []
-  const productMenuRuntime: ProductCommandMenuRuntime = {
-    run: productCommandRuntime.run,
-    shortcut: (commandId) =>
-      formatProductCommandShortcut(commandId, shortcutPlatform),
-  }
+  const productMenuRuntime = useMemo<ProductCommandMenuRuntime>(
+    () => ({
+      run: productCommandRuntime.run,
+      shortcut: (commandId) =>
+        formatProductCommandShortcut(commandId, shortcutPlatform),
+    }),
+    [productCommandRuntime, shortcutPlatform]
+  )
   const commandPaletteItems: readonly StudioCommandPaletteItem[] =
     projectProductCommandPalette(productCommandContext, shortcutPlatform).map(
       (command) => ({

@@ -3547,3 +3547,14 @@ Status: **implemented and locally accepted; Gate 5 remains active**
 - The resulting published document keeps ordinary detached content and the
   reusable source without an orphan instance relationship.
 - The focused journey passes and the Document package typechecks.
+
+## 2026-08-31 — TEXT-02 and COMPONENT-01 Gate 5 final closure
+
+Status: **completed and independently accepted; LIBRARY-02 is active**
+
+- Closed the adverse late-wrap and painted-resource evidence findings from the initial independent TEXT-02 review. The exact published resources and component journeys now pass retained Renderer PNG/PDF comparison with zero browser page errors.
+- Corrected the PERF-01 oracle to include every long task overlapping the click-to-paint interval. Stabilized the canonical command/menu runtime so a page click does not invalidate all 100 memoized filmstrip controls, memoized closed Publish scans by document identity, and aggregated font readiness by resolved descriptor with distinct codepoint coverage.
+- The retained 100-page/801-node/1,000-run profile captured at `2026-08-30T20:42:11.360Z` passes at 203.4 ms click-to-ready, 224.9 ms click-to-paint, 206 ms maximum overlapping long task, 23.5 ms p95 frame and 16.43 MB heap growth.
+- Fresh retained captures pass for resources (`2026-08-30T20-24-21.290Z-eced26b5-0ce1-4445-95fd-c0223d05e89d`), components (`2026-08-30T20-24-01.428Z-ffdf6a4f-3f2d-43a0-bc6b-4dea01935749`) and the complete component journey (`2026-08-30T20-24-34.290Z-13d3a12d-6e8a-4df5-9c8c-59d1f4855f95`).
+- Independent final review reports no remaining P0/P1 finding and explicitly approves both phase closures. Integrated evidence passes Document 314/314, Editor 327/327, Render View 16/16, Renderer 70/70 and focused Studio 71/71.
+- TEXT-02 and COMPONENT-01 are closed. The next active gate is LIBRARY-02 compact catalog contracts and real template/media projections.

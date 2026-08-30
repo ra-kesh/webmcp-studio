@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   applyCommand,
   applyTextLayoutPatch,
+  createAdverseRichTextConformanceNode,
   deriveTextGeometryPatch,
   documentSchema,
   northstarSeed,
@@ -40,6 +41,8 @@ const textNode = (patch: Partial<TextNode> = {}): TextNode => ({
   ...patch,
 })
 
+const adverseRichTextNode = createAdverseRichTextConformanceNode
+
 describe("canonical text layout", () => {
   it("keeps a 1,000-run document within an interactive projection budget", () => {
     const text = Array.from(
@@ -69,11 +72,39 @@ describe("canonical text layout", () => {
     const elapsed = performance.now() - startedAt
 
     expect(
-      projection.lines.reduce(
-        (count, line) => count + line.segments.length,
-        0
-      )
+      projection.lines.reduce((count, line) => count + line.segments.length, 0)
     ).toBe(1_000)
+    expect(JSON.stringify(projection).length).toBeLessThan(400_000)
+    expect(elapsed).toBeLessThan(250)
+  })
+
+  it("bounds a 1,000-run unbroken token that wraps late", () => {
+    const node = adverseRichTextNode()
+
+    projectTextLayout(node)
+    const startedAt = performance.now()
+    const projection = projectTextLayout(node)
+    const elapsed = performance.now() - startedAt
+
+    expect(projection.lines).toHaveLength(2)
+    expect(projection.lines.map((line) => line.sourceEnd)).toEqual([
+      6_301, 7_000,
+    ])
+    expect(
+      projection.lines.reduce((count, line) => count + line.segments.length, 0)
+    ).toBe(1_001)
+    expect(projection.lines[0]?.segments.at(-1)).toMatchObject({
+      text: "A",
+      sourceStart: 6_300,
+      sourceEnd: 6_301,
+      style: { color: "#111111" },
+    })
+    expect(projection.lines[1]?.segments[0]).toMatchObject({
+      text: "AAAAAA",
+      sourceStart: 6_301,
+      sourceEnd: 6_307,
+      style: { color: "#111111" },
+    })
     expect(JSON.stringify(projection).length).toBeLessThan(400_000)
     expect(elapsed).toBeLessThan(250)
   })

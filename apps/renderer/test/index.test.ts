@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { northstarSeed } from "@webmcp/document"
+import {
+  buildComponentPublicationJourney,
+  componentRenderConformanceCases,
+  componentRenderConformanceDocument,
+  northstarSeed,
+} from "@webmcp/document"
 import { launch } from "@cloudflare/playwright"
 import { MAX_RENDER_ARTIFACT_BYTES } from "../src/artifact-body"
 
@@ -17,7 +22,7 @@ const deferred = <T>() => {
 
 function successfulBrowserPage(pdfBytes: number[]) {
   return {
-    setContent: vi.fn(async () => undefined),
+    setContent: vi.fn(async (_html: string) => undefined),
     waitForFunction: vi.fn(async () => undefined),
     evaluate: vi.fn(async () => ({
       ready: true,
@@ -164,6 +169,94 @@ describe("renderer Worker", () => {
     expect(put).toHaveBeenCalledOnce()
     expect(get).toHaveBeenCalledOnce()
     expect(close).toHaveBeenCalledOnce()
+  })
+
+  it("sends every component semantic case through the real PDF browser boundary", async () => {
+    const { default: worker } = await import("../src/index")
+    const pdfBytes = [37, 80, 68, 70]
+    const browserPage = successfulBrowserPage(pdfBytes)
+    vi.mocked(launch).mockResolvedValue({
+      newPage: vi.fn(async () => browserPage),
+      close: vi.fn(async () => undefined),
+    } as never)
+    const put = vi.fn(async () => ({
+      size: pdfBytes.length,
+      etag: "component-conformance",
+    }))
+    const response = await worker.fetch(
+      new Request("https://renderer.internal/render/pdf", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Prefer: "return=minimal",
+        },
+        body: JSON.stringify({
+          renderId: "component-conformance",
+          outputId: "component-render-output",
+          document: componentRenderConformanceDocument,
+          expectedImageResources: [],
+        }),
+      }) as never,
+      { BROWSER: {}, RENDERS: { put, get: vi.fn() } } as unknown as Env
+    )
+
+    expect(response.status).toBe(204)
+    expect(browserPage.pdf).toHaveBeenCalledOnce()
+    expect(browserPage.setContent).toHaveBeenCalledOnce()
+    const html = browserPage.setContent.mock.calls[0]?.[0]
+    expect(html).toEqual(expect.any(String))
+    for (const fixture of componentRenderConformanceCases) {
+      for (const nodeId of fixture.nodeIds) {
+        expect(html).toContain(`data-node-id="${nodeId}"`)
+      }
+    }
+    expect(put).toHaveBeenCalledOnce()
+  })
+
+  it("passes the exact published component journey through output HTML and the Worker PDF call", async () => {
+    const { default: worker, renderOutputToHtml } = await import("../src/index")
+    const { published } = buildComponentPublicationJourney()
+    const pdfBytes = [37, 80, 68, 70]
+    const browserPage = successfulBrowserPage(pdfBytes)
+    vi.mocked(launch).mockResolvedValue({
+      newPage: vi.fn(async () => browserPage),
+      close: vi.fn(async () => undefined),
+    } as never)
+    const put = vi.fn(async () => ({
+      size: pdfBytes.length,
+      etag: "component-journey-structure",
+    }))
+
+    const response = await worker.fetch(
+      new Request("https://renderer.internal/render/pdf", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Prefer: "return=minimal",
+        },
+        body: JSON.stringify({
+          renderId: "component-publication-journey",
+          outputId: "proposal",
+          document: published.document,
+          expectedImageResources: [],
+        }),
+      }) as never,
+      { BROWSER: {}, RENDERS: { put, get: vi.fn() } } as unknown as Env
+    )
+
+    expect(response.status).toBe(204)
+    expect(browserPage.setContent).toHaveBeenCalledOnce()
+    const html = browserPage.setContent.mock.calls[0]?.[0]
+    expect(html).toBe(renderOutputToHtml(published.document, "proposal"))
+    expect(html).toContain('data-node-id="journey-instance-panel"')
+    expect(html).toContain('data-node-id="journey-instance-eyebrow"')
+    expect(html).toContain("Updated reusable proposal")
+    expect(published.document.componentInstances).toHaveLength(0)
+
+    // Browser artifact bytes are mocked here. This proves Worker admission and
+    // exact output HTML structure, not pixel or PDF raster conformance.
+    expect(browserPage.pdf).toHaveBeenCalledOnce()
+    expect(put).toHaveBeenCalledOnce()
   })
 
   it("stores a durable-job PDF once and returns metadata without reading it back", async () => {

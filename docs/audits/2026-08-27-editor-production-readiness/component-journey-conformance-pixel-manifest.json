@@ -1,0 +1,61 @@
+{
+  "version": 2,
+  "captureReport": "component-journey-conformance-capture-report.json",
+  "report": "component-journey-conformance-report.json",
+  "comparisons": [
+    {
+      "name": "component journey source Fabric versus renderer PNG",
+      "baseline": "artifacts/renderer-png/cover.png",
+      "candidate": "artifacts/fabric/cover.png",
+      "diff": "artifacts/diff/component-journey/cover-fabric.png",
+      "pixelDeltaThreshold": 24,
+      "maxDifferentPixelRatio": 0.015,
+      "maxRootMeanSquareError": 6
+    },
+    {
+      "name": "component journey source React view versus renderer PNG",
+      "baseline": "artifacts/renderer-png/cover.png",
+      "candidate": "artifacts/render-view/cover.png",
+      "diff": "artifacts/diff/component-journey/cover-render-view.png",
+      "pixelDeltaThreshold": 24,
+      "maxDifferentPixelRatio": 0.015,
+      "maxRootMeanSquareError": 6
+    },
+    {
+      "name": "component journey source PDF raster versus renderer PNG",
+      "baseline": "artifacts/renderer-png/cover.png",
+      "candidate": "artifacts/renderer-pdf/cover.png",
+      "diff": "artifacts/diff/component-journey/cover-pdf.png",
+      "pixelDeltaThreshold": 24,
+      "maxDifferentPixelRatio": 0.015,
+      "maxRootMeanSquareError": 6
+    },
+    {
+      "name": "component journey detached instance Fabric versus renderer PNG",
+      "baseline": "artifacts/renderer-png/story.png",
+      "candidate": "artifacts/fabric/story.png",
+      "diff": "artifacts/diff/component-journey/story-fabric.png",
+      "pixelDeltaThreshold": 24,
+      "maxDifferentPixelRatio": 0.015,
+      "maxRootMeanSquareError": 6
+    },
+    {
+      "name": "component journey detached instance React view versus renderer PNG",
+      "baseline": "artifacts/renderer-png/story.png",
+      "candidate": "artifacts/render-view/story.png",
+      "diff": "artifacts/diff/component-journey/story-render-view.png",
+      "pixelDeltaThreshold": 24,
+      "maxDifferentPixelRatio": 0.015,
+      "maxRootMeanSquareError": 6
+    },
+    {
+      "name": "component journey detached instance PDF raster versus renderer PNG",
+      "baseline": "artifacts/renderer-png/story.png",
+      "candidate": "artifacts/renderer-pdf/story.png",
+      "diff": "artifacts/diff/component-journey/story-pdf.png",
+      "pixelDeltaThreshold": 24,
+      "maxDifferentPixelRatio": 0.015,
+      "maxRootMeanSquareError": 6
+    }
+  ]
+}

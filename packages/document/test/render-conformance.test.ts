@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
+  componentRenderConformanceCases,
+  componentRenderConformanceDocument,
   imageRenderParityCases,
   imageRenderParityDocument,
   imageRenderParityInput,
@@ -37,6 +39,87 @@ const parityFingerprint = (
 })
 
 describe("render conformance corpus", () => {
+  it("retains default, variant, overridden, nested and canonically detached component cases", () => {
+    const document = componentRenderConformanceDocument
+    expect(
+      validateDocument(document).filter((issue) => issue.severity === "error")
+    ).toEqual([])
+    expect(validateRenderPolicy(document)).toEqual([])
+    expect(
+      componentRenderConformanceCases.map((fixture) => fixture.id)
+    ).toEqual(["default", "variant", "overridden", "nested", "detached"])
+
+    const node = (id: string) => {
+      const match = document.nodes.find((candidate) => candidate.id === id)
+      if (!match || match.type !== "rect") throw new Error(`Missing ${id}`)
+      return match
+    }
+    expect(node("component-render-default-card")).toMatchObject({
+      fill: "#e2e8f0",
+      width: 180,
+      height: 120,
+    })
+    expect(node("component-render-variant-card")).toMatchObject({
+      fill: "#1d4ed8",
+      rotation: 4,
+    })
+    expect(node("component-render-variant-badge")).toMatchObject({
+      fill: "#facc15",
+    })
+    expect(node("component-render-overridden-card")).toMatchObject({
+      fill: "#be123c",
+      opacity: 0.82,
+      rotation: -5,
+    })
+    expect(node("component-render-default-badge")).toMatchObject({
+      fill: "#334155",
+      width: 60,
+      height: 18,
+    })
+    expect(node("component-render-detached-card")).toMatchObject({
+      fill: "#1d4ed8",
+    })
+
+    const detached = componentRenderConformanceCases.find(
+      (fixture) => fixture.id === "detached"
+    )!
+    const linkedNodeIds = new Set(
+      document.componentInstances.flatMap((instance) =>
+        instance.nodeMappings.map((mapping) => mapping.instanceNodeId)
+      )
+    )
+    expect(detached.nodeIds.every((nodeId) => !linkedNodeIds.has(nodeId))).toBe(
+      true
+    )
+    expect(
+      document.groups.find((group) => group.id === detached.rootGroupId)
+    ).toBeDefined()
+  })
+
+  it("projects every component case through the ordinary canonical node projector", () => {
+    const nodesById = new Map(
+      componentRenderConformanceDocument.nodes.map((node) => [node.id, node])
+    )
+    for (const fixture of componentRenderConformanceCases) {
+      for (const nodeId of fixture.nodeIds) {
+        const node = nodesById.get(nodeId)
+        if (!node) throw new Error(`Missing ${nodeId}`)
+        expect(projectNodeForRender(node).frame).toEqual({
+          id: node.id,
+          name: node.name,
+          x: node.x,
+          y: node.y,
+          width: node.width,
+          height: node.height,
+          rotation: node.rotation,
+          opacity: node.opacity,
+          visible: node.visible,
+          locked: node.locked,
+        })
+      }
+    }
+  })
+
   it("round-trips reusable styles and all typed variable targets with resolved values", () => {
     const document = textDesignSystemConformanceDocument
     expect(
@@ -52,6 +135,17 @@ describe("render conformance corpus", () => {
     ).toEqual(
       new Set(["node", "text_range", "typography_style", "paint_style"])
     )
+    expect(
+      Object.fromEntries(
+        document.variables.map((variable) => [variable.id, variable.value])
+      )
+    ).toEqual({
+      "variable-conformance-font": "Geist Variable",
+      "variable-conformance-panel": "#0f766e",
+      "variable-conformance-label": "UPDATED LABEL",
+      "variable-conformance-radius": 32,
+      "variable-conformance-run-color": "#0e7490",
+    })
     expect(JSON.parse(JSON.stringify(document))).toEqual(document)
 
     const panel = document.nodes.find(
@@ -59,18 +153,54 @@ describe("render conformance corpus", () => {
     )!
     const label = document.nodes.find((node) => node.id === "auto-width-label")!
     const body = document.nodes.find((node) => node.id === "long-text-only")!
+    const mixedText = document.nodes.find(
+      (node) => node.id === "text-typography"
+    )!
     expect(projectNodeForRender(panel)).toMatchObject({
-      content: { fill: "#fef3c7", radius: 24 },
-      frame: { opacity: 0.86 },
+      content: { fill: "#0f766e", radius: 32 },
+      frame: { opacity: 0.63 },
     })
     expect(projectNodeForRender(label)).toMatchObject({
-      content: { text: "AUTO WIDTH" },
+      content: { text: "UPDATED LABEL" },
     })
     expect(projectNodeForRender(body)).toMatchObject({
       content: {
         fontFamily: "Geist Variable",
-        fontSize: 24,
-        fontWeight: 450,
+        fontSize: 22,
+        fontWeight: 510,
+        lineHeight: 1.25,
+        letterSpacing: 1.3,
+        layout: {
+          lines: expect.arrayContaining([
+            expect.objectContaining({
+              segments: expect.arrayContaining([
+                expect.objectContaining({
+                  style: expect.objectContaining({
+                    italic: true,
+                    decoration: "underline",
+                  }),
+                }),
+              ]),
+            }),
+          ]),
+        },
+      },
+    })
+    expect(projectNodeForRender(mixedText)).toMatchObject({
+      content: {
+        layout: {
+          lines: expect.arrayContaining([
+            expect.objectContaining({
+              segments: expect.arrayContaining([
+                expect.objectContaining({
+                  sourceStart: 18,
+                  sourceEnd: 30,
+                  style: expect.objectContaining({ color: "#0e7490" }),
+                }),
+              ]),
+            }),
+          ]),
+        },
       },
     })
   })

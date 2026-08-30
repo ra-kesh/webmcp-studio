@@ -1,7 +1,10 @@
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
-import { renderConformanceDocument } from "@webmcp/document"
+import {
+  createAdverseRichTextConformanceNode,
+  renderConformanceDocument,
+} from "@webmcp/document"
 import {
   CanvasRuntimeOverlay,
   CropPreviewDimmer,
@@ -46,16 +49,13 @@ describe("FabricArtboard crop preview", () => {
 
     expect(requests).toContainEqual({
       descriptor: '650 30px "Geist Variable"',
-      sample: "AUTO WIDTH",
+      sample: "AUTO WIDH",
     })
-    expect(load).toHaveBeenCalledWith('650 30px "Geist Variable"', "AUTO WIDTH")
-    expect(check).toHaveBeenCalledWith(
-      '650 30px "Geist Variable"',
-      "AUTO WIDTH"
-    )
+    expect(load).toHaveBeenCalledWith('650 30px "Geist Variable"', "AUTO WIDH")
+    expect(check).toHaveBeenCalledWith('650 30px "Geist Variable"', "AUTO WIDH")
   })
 
-  it("loads every visible rich-text run face with its own sample", () => {
+  it("loads every distinct visible rich-text run face", () => {
     const requests = canvasDocumentFontRequests(
       renderConformanceDocument,
       "properties-page"
@@ -67,8 +67,51 @@ describe("FabricArtboard crop preview", () => {
     })
     expect(requests).toContainEqual({
       descriptor: '520 24px "Geist Variable"',
-      sample: "deliberately",
+      sample: "delibraty",
     })
+  })
+
+  it("aggregates repeated rich-text faces with a distinct-codepoint sample", () => {
+    const source = createAdverseRichTextConformanceNode()
+    const distinctCodePoints = ["A", "é", "中", "🙂"]
+    const graphemes = Array.from(
+      { length: 1_000 },
+      (_, index) => distinctCodePoints[index % distinctCodePoints.length]
+    )
+    const text = graphemes.join("")
+    let sourceOffset = 0
+    const node = {
+      ...source,
+      text,
+      italic: true,
+      runs: graphemes.map((grapheme, index) => {
+        const start = sourceOffset
+        sourceOffset += grapheme.length
+        return {
+          start,
+          end: sourceOffset,
+          style: { color: index % 2 ? "#111111" : "#333333" },
+        }
+      }),
+    }
+    const document = {
+      ...renderConformanceDocument,
+      pages: [
+        {
+          ...renderConformanceDocument.pages[0]!,
+          id: "font-request-page",
+          nodeIds: [node.id],
+        },
+      ],
+      nodes: [node],
+    }
+
+    expect(canvasDocumentFontRequests(document, "font-request-page")).toEqual([
+      {
+        descriptor: 'italic 400 20px "Geist Variable"',
+        sample: distinctCodePoints.join(""),
+      },
+    ])
   })
 
   it("rejects fallback measurement when the requested face is unavailable", async () => {

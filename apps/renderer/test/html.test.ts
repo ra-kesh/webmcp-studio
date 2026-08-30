@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest"
 import {
   applyCommand,
+  componentRenderConformanceCases,
+  componentRenderConformanceDocument,
+  createAdverseRichTextConformanceNode,
   imageRenderParityCases,
   imageRenderParityDocument,
   imageRenderParityInput,
@@ -28,6 +31,7 @@ import {
 
 function renderResourceFixture(options?: {
   fontCheck?: boolean
+  fontLoadRejects?: boolean
   fontStatus?: string
   imageComplete?: boolean
   imageFrameHeight?: number
@@ -44,18 +48,28 @@ function renderResourceFixture(options?: {
     removeAttribute: (name: string) => attributes.delete(name),
     setAttribute: (name: string, value: string) => attributes.set(name, value),
   }
-  const faces = Object.assign(
-    [
-      {
-        family: "Geist Variable",
-        status: options?.fontStatus ?? "loaded",
-      },
-    ],
-    {
-      ready: Promise.resolve(),
-      check: () => options?.fontCheck ?? true,
-    }
-  )
+  const fontLoads: Array<{ query: string; text?: string }> = []
+  const fontChecks: Array<{ query: string; text?: string }> = []
+  const managedFace = {
+    family: "Geist Variable",
+    status: "unloaded",
+  }
+  const faces = Object.assign([managedFace], {
+    ready: Promise.resolve(),
+    check: (query: string, text?: string) => {
+      fontChecks.push({ query, text })
+      return options?.fontCheck ?? true
+    },
+    load: (query: string, text?: string) => {
+      fontLoads.push({ query, text })
+      if (options?.fontLoadRejects) {
+        return Promise.reject(new Error("managed font failed"))
+      }
+      managedFace.status = options?.fontStatus ?? "loaded"
+      return Promise.resolve([managedFace])
+    },
+  })
+  let imageDecodeCalls = 0
   const imageStyle = new Map<string, string>()
   const frameStyle = new Map<string, string>()
   const images = [
@@ -80,9 +94,12 @@ function renderResourceFixture(options?: {
           options?.imageFrameMask ?? { shape: "rectangle" }
         ),
       },
-      decode: options?.imageRejects
-        ? () => Promise.reject(new Error("corrupt image"))
-        : () => Promise.resolve(),
+      decode: () => {
+        imageDecodeCalls += 1
+        return options?.imageRejects
+          ? Promise.reject(new Error("corrupt image"))
+          : Promise.resolve()
+      },
       naturalWidth: options?.imageNaturalWidth ?? 1200,
       naturalHeight: options?.imageNaturalHeight ?? 800,
       parentElement: {
@@ -99,7 +116,12 @@ function renderResourceFixture(options?: {
   ]
   return {
     attributes,
+    fontChecks,
+    fontLoads,
     frameStyle,
+    get imageDecodeCalls() {
+      return imageDecodeCalls
+    },
     imageStyle,
     input: {
       root,
@@ -115,6 +137,32 @@ function renderResourceFixture(options?: {
 }
 
 describe("renderer HTML", () => {
+  it("serializes every component semantic case into the shared HTML/PDF source", () => {
+    const html = renderOutputToHtml(
+      componentRenderConformanceDocument,
+      "component-render-output"
+    )
+    const nodesById = new Map(
+      componentRenderConformanceDocument.nodes.map((node) => [node.id, node])
+    )
+
+    for (const fixture of componentRenderConformanceCases) {
+      for (const nodeId of fixture.nodeIds) {
+        const node = nodesById.get(nodeId)
+        if (!node || node.type !== "rect") throw new Error(`Missing ${nodeId}`)
+        expect(html).toContain(`data-node-id="${node.id}"`)
+        expect(html).toContain(`left:${node.x}px`)
+        expect(html).toContain(`top:${node.y}px`)
+        expect(html).toContain(`width:${node.width}px`)
+        expect(html).toContain(`height:${node.height}px`)
+        expect(html).toContain(`background:${node.fill}`)
+        expect(html).toContain(`opacity:${node.opacity}`)
+        expect(html).toContain(`transform:rotate(${node.rotation}deg)`)
+      }
+    }
+    expect(html).toContain("fonts.load(query, probeText)")
+  })
+
   it("serializes the same resolved style and variable values used by the editor", () => {
     const properties = renderDocumentToHtml(
       textDesignSystemConformanceDocument,
@@ -130,12 +178,14 @@ describe("renderer HTML", () => {
     )
 
     expect(properties).toContain('data-node-id="rect-stroke-radius"')
-    expect(properties).toContain("background:#fef3c7")
-    expect(properties).toContain("border-radius:24px")
-    expect(properties).toContain("opacity:0.86")
+    expect(properties).toContain("background:#0f766e")
+    expect(properties).toContain("border-radius:32px")
+    expect(properties).toContain("opacity:0.63")
     expect(longText).toContain("font-family:Geist Variable,sans-serif")
-    expect(longText).toContain("font-size:24px")
-    expect(square).toContain("AUTO WIDTH")
+    expect(longText).toContain("font-size:22px")
+    expect(longText).toContain("font-weight:510")
+    expect(longText).toContain("font-style:italic")
+    expect(square).toContain("UPDATED LABEL")
   })
 
   it("scales thumbnail markup into the exact low-resolution viewport", () => {
@@ -161,6 +211,13 @@ describe("renderer HTML", () => {
 
     expect(fixture.attributes.get("data-render-ready")).toBe("true")
     expect(fixture.attributes.has("data-render-error")).toBe(false)
+    expect(fixture.fontLoads).toEqual([
+      { query: '16px "Geist Variable"', text: "WebMCP" },
+    ])
+    expect(fixture.fontChecks).toEqual([
+      { query: '16px "Geist Variable"', text: "WebMCP" },
+    ])
+    expect(fixture.imageDecodeCalls).toBe(1)
   })
 
   it("marks an exact managed-font failure instead of accepting fallback", async () => {
@@ -171,6 +228,17 @@ describe("renderer HTML", () => {
       "managed_font_failed"
     )
     expect(fixture.attributes.has("data-render-ready")).toBe(false)
+  })
+
+  it("marks a managed-font load rejection before decoding images", async () => {
+    const fixture = renderResourceFixture({ fontLoadRejects: true })
+    await markRenderResourcesReady(fixture.input)
+
+    expect(fixture.attributes.get("data-render-error")).toBe(
+      "managed_font_failed"
+    )
+    expect(fixture.attributes.has("data-render-ready")).toBe(false)
+    expect(fixture.imageDecodeCalls).toBe(0)
   })
 
   it("marks the corrupt image node instead of accepting blank output", async () => {
@@ -536,7 +604,8 @@ describe("renderer HTML", () => {
     const embeddedFont = html.match(/data:font\/woff2;base64,([A-Za-z0-9+/=]+)/)
     expect(embeddedFont?.[1]).toHaveLength(39_200)
     expect(html).not.toMatch(/https?:\/\//)
-    expect(html).toContain("input.fonts.check(query)")
+    expect(html).toContain("input.fonts.load(query, probeText)")
+    expect(html).toContain("input.fonts.check(query, probeText)")
     expect(html).toMatch(/face\.status\s*===\s*"loaded"/)
     expect(html).toMatch(/await\s+image\.decode\(\)/)
     expect(html).toContain("image.naturalWidth <= 0")
@@ -652,6 +721,19 @@ describe("renderer HTML", () => {
     expect(markup).toContain(
       'data-text-source-start="5" data-text-source-end="9"'
     )
+  })
+
+  it("serializes a 1,000-run unbroken token with one late wrap", () => {
+    const node = createAdverseRichTextConformanceNode()
+
+    const startedAt = performance.now()
+    const html = renderNodeToHtml(node)
+    const elapsed = performance.now() - startedAt
+
+    expect(html.match(/data-text-line=/g)).toHaveLength(2)
+    expect(html.match(/data-text-source-start=/g)).toHaveLength(1_001)
+    expect(html.length).toBeLessThan(500_000)
+    expect(elapsed).toBeLessThan(250)
   })
 
   it("serializes auto-height sizing separately from fixed overflow", () => {

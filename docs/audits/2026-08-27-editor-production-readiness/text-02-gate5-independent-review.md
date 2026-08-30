@@ -2,7 +2,20 @@
 
 - Date: 2026-08-30
 - Reviewed commits: `dbdab41f46722ac5b608a72ae820afa25ec0cbde` through `786bf35ff34b1f4795dbf06772ed9908bed58cb5`, inclusive
-- Verdict: **TEXT-02 may not close.** One confirmed P1 implementation defect and one P1 Gate 5 evidence gap remain.
+- Final verdict: **TEXT-02 Gate 5 may close.** The two original P1 findings were repaired, the corrected retained evidence passed, and the independent closure review found no remaining P0/P1 issue. The original findings remain below as the audit trail; final closure evidence is recorded at the end of this document.
+
+## Final closure re-review — 2026-08-31
+
+- The adverse 7,000-character/1,000-run late-wrap path now uses bounded incremental layout and is exercised through canonical layout, Fabric paste/edit, React/Renderer projection and the retained 100-page browser workload.
+- The exact resource-bearing and component-bearing documents now cross immutable publication, Renderer HTML, real PNG and real PDF raster comparison. Fresh captures report zero page errors and pass their pixel/geometry policies:
+  - resources: `2026-08-30T20-24-21.290Z-eced26b5-0ce1-4445-95fd-c0223d05e89d`;
+  - components: `2026-08-30T20-24-01.428Z-ffdf6a4f-3f2d-43a0-bc6b-4dea01935749`;
+  - component journey: `2026-08-30T20-24-34.290Z-13d3a12d-6e8a-4df5-9c8c-59d1f4855f95`.
+- The performance oracle now counts every long task overlapping the interaction interval rather than excluding the click task because it began immediately before the capture listener.
+- The retained PERF-01 profile captured at `2026-08-30T20:42:11.360Z` passes: click-to-ready 203.4 ms / 500 ms, click-to-paint 224.9 ms / 750 ms, maximum overlapping long task 206 ms / 500 ms, p95 frame 23.5 ms / 32 ms and heap growth 16.43 MB / 64 MiB. The filmstrip retained zero live Artboards, renderer thumbnail concurrency stayed at three, and font readiness used one descriptor request with a one-codepoint sample.
+- Page switching no longer changes the canonical command/menu runtime identity and therefore no longer invalidates every memoized page control. Closed Publish readiness scans are memoized by document identity instead of revalidating and laying out the complete document on a page-only selection change.
+- Independent focused reruns passed 147/147 document/editor/conformance tests and 116/116 final Fabric/artboard/textbox tests. The final integrated runs passed Document 314/314, Editor 327/327, Render View 16/16, Renderer 70/70 and focused Studio 71/71. `git diff --check` passes.
+- Independent final verdict: no remaining P0 or P1 finding; TEXT-02 Gate 5 may close.
 
 ## Findings
 

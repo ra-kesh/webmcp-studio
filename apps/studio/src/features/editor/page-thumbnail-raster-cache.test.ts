@@ -397,6 +397,130 @@ describe("page thumbnail raster cache", () => {
     expect(producer).toHaveBeenCalledTimes(2)
   })
 
+  it("holds queued work during a shared renderer retry window", async () => {
+    vi.useFakeTimers()
+    const loads = new Map<string, Deferred<Blob>>()
+    const started: string[] = []
+    const cache = createPageThumbnailRasterCache({
+      concurrency: 3,
+      producer: (request) => {
+        started.push(request.pageId)
+        const load = deferred<Blob>()
+        loads.set(request.pageId, load)
+        return load.promise
+      },
+      retryAfterMs: (error) =>
+        typeof error === "object" &&
+        error !== null &&
+        "retryAfterMs" in error &&
+        typeof error.retryAfterMs === "number"
+          ? error.retryAfterMs
+          : null,
+    })
+    const requests = Array.from({ length: 6 }, (_, index) =>
+      cache.request(key(`page-${index + 1}`)).catch((error: unknown) => error)
+    )
+
+    try {
+      expect(started).toEqual(["page-1", "page-2", "page-3"])
+      loads.get("page-1")!.reject({ retryAfterMs: 30_000 })
+      loads.get("page-2")!.resolve(raster("page-2"))
+      loads.get("page-3")!.resolve(raster("page-3"))
+      await settleMicrotasks()
+
+      expect(started).toEqual(["page-1", "page-2", "page-3"])
+      expect(cache.getStats()).toMatchObject({ active: 0, queued: 3 })
+
+      cache.cancel(key("page-4"))
+      expect(await requests[3]).toBeInstanceOf(PageThumbnailRasterStaleError)
+      expect(cache.getStats()).toMatchObject({ active: 0, queued: 2 })
+
+      await vi.advanceTimersByTimeAsync(29_999)
+      expect(started).toEqual(["page-1", "page-2", "page-3"])
+      await vi.advanceTimersByTimeAsync(1)
+      expect(started).toEqual([
+        "page-1",
+        "page-2",
+        "page-3",
+        "page-5",
+        "page-6",
+      ])
+      expect(cache.getStats()).toMatchObject({ active: 2, queued: 0 })
+
+      loads.get("page-5")!.resolve(raster("page-5"))
+      loads.get("page-6")!.resolve(raster("page-6"))
+      await Promise.all(requests)
+    } finally {
+      cache.dispose()
+      vi.useRealTimers()
+    }
+  })
+
+  it("extends one shared backoff deadline and cancels its wake on dispose", async () => {
+    vi.useFakeTimers()
+    const loads = new Map<string, Deferred<Blob>>()
+    const started: string[] = []
+    const cache = createPageThumbnailRasterCache({
+      concurrency: 2,
+      producer: (request) => {
+        started.push(request.pageId)
+        const load = deferred<Blob>()
+        loads.set(request.pageId, load)
+        return load.promise
+      },
+      retryAfterMs: (error) =>
+        typeof error === "object" &&
+        error !== null &&
+        "retryAfterMs" in error &&
+        typeof error.retryAfterMs === "number"
+          ? error.retryAfterMs
+          : null,
+    })
+    const initialRequests = ["page-1", "page-2", "page-3"].map((pageId) =>
+      cache.request(key(pageId)).catch((error: unknown) => error)
+    )
+
+    try {
+      expect(started).toEqual(["page-1", "page-2"])
+      loads.get("page-1")!.reject({ retryAfterMs: 30_000 })
+      await settleMicrotasks()
+      await vi.advanceTimersByTimeAsync(1_000)
+      loads.get("page-2")!.reject({ retryAfterMs: 60_000 })
+      await settleMicrotasks()
+
+      await vi.advanceTimersByTimeAsync(29_000)
+      expect(started).toEqual(["page-1", "page-2"])
+      await vi.advanceTimersByTimeAsync(30_999)
+      expect(started).toEqual(["page-1", "page-2"])
+      await vi.advanceTimersByTimeAsync(1)
+      expect(started).toEqual(["page-1", "page-2", "page-3"])
+
+      loads.get("page-3")!.resolve(raster("page-3"))
+      await Promise.all(initialRequests)
+
+      const disposeRequests = ["page-4", "page-5", "page-6"].map((pageId) =>
+        cache.request(key(pageId)).catch((error: unknown) => error)
+      )
+      expect(started).toEqual([
+        "page-1",
+        "page-2",
+        "page-3",
+        "page-4",
+        "page-5",
+      ])
+      loads.get("page-4")!.reject({ retryAfterMs: 30_000 })
+      await settleMicrotasks()
+      const startsBeforeDispose = started.length
+      cache.dispose()
+      await Promise.all(disposeRequests)
+      await vi.advanceTimersByTimeAsync(30_000)
+      expect(started).toHaveLength(startsBeforeDispose)
+    } finally {
+      cache.dispose()
+      vi.useRealTimers()
+    }
+  })
+
   it("rejects malformed revision identities before scheduling work", () => {
     const producer = vi.fn(async () => raster("never"))
     const cache = createPageThumbnailRasterCache({ producer })

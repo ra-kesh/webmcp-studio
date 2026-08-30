@@ -2,7 +2,7 @@
 
 Date: 2026-08-30
 
-Status: active; Gates 1–4 locally accepted, Gate 5 next
+Status: completed; Gates 1–5 independently accepted on 2026-08-31
 
 ## Purpose
 
@@ -531,3 +531,15 @@ active**
 
 Renderer/PDF parity, the final combined user journey and independent review
 remain active.
+
+## Gate 5C result — renderer parity, scale and independent closure
+
+Status: **completed and independently accepted on 2026-08-31**
+
+- Added retained default, variant, overridden, reset, detached and complete component-journey conformance across Fabric, React, Renderer HTML, real PNG and rasterized PDF.
+- The canonical full journey now asserts the materialized reset state before detach and the same state after immutable publication; it cannot pass by checking metadata alone.
+- Fresh component capture `2026-08-30T20-24-01.428Z-ffdf6a4f-3f2d-43a0-bc6b-4dea01935749` and component-journey capture `2026-08-30T20-24-34.290Z-13d3a12d-6e8a-4df5-9c8c-59d1f4855f95` pass their PNG/PDF comparisons with zero page errors.
+- Component indexing, reconciliation, migration, semantic clone, history, template portability, persistence and the public 1,000-instance `applyCommand` benchmark are retained in focused coverage.
+- The final independent review found no remaining P0/P1 issue and explicitly approved COMPONENT-01 Gate 5 closure. Integrated evidence passed Document 314/314, Editor 327/327, Render View 16/16, Renderer 70/70 and focused Studio 71/71.
+
+COMPONENT-01 is closed. Team/remote libraries and the broader catalog experience remain owned by LIBRARY-02 rather than being hidden inside this phase.

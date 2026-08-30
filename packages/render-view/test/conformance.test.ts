@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest"
 import {
+  componentRenderConformanceCases,
+  componentRenderConformanceDocument,
+  createAdverseRichTextConformanceNode,
   imageRenderParityCases,
   imageRenderParityInput,
   imageRenderParityNode,
@@ -26,6 +29,29 @@ import {
 } from "../src"
 
 describe("React render-view conformance", () => {
+  it("renders every component semantic case from its materialized ordinary nodes", () => {
+    const nodesById = new Map(
+      componentRenderConformanceDocument.nodes.map((node) => [node.id, node])
+    )
+    for (const fixture of componentRenderConformanceCases) {
+      for (const nodeId of fixture.nodeIds) {
+        const node = nodesById.get(nodeId)
+        if (!node || node.type !== "rect") throw new Error(`Missing ${nodeId}`)
+        expect(renderNodeStyle(projectNodeForRender(node))).toMatchObject({
+          left: node.x,
+          top: node.y,
+          width: node.width,
+          height: node.height,
+          opacity: node.opacity,
+          transform: `rotate(${node.rotation}deg)`,
+          background: node.fill,
+          borderRadius: node.radius,
+          border: `${node.strokeWidth}px solid ${node.stroke}`,
+        })
+      }
+    }
+  })
+
   it("renders resource-bound values without consulting editor state", () => {
     const panel = textDesignSystemConformanceDocument.nodes.find(
       (node) => node.id === "rect-stroke-radius"
@@ -36,20 +62,48 @@ describe("React render-view conformance", () => {
     const body = textDesignSystemConformanceDocument.nodes.find(
       (node) => node.id === "long-text-only"
     )!
+    const mixedText = textDesignSystemConformanceDocument.nodes.find(
+      (node) => node.id === "text-typography"
+    )!
 
     expect(renderNodeStyle(projectNodeForRender(panel))).toMatchObject({
-      background: "#fef3c7",
-      borderRadius: 24,
-      opacity: 0.86,
+      background: "#0f766e",
+      borderRadius: 32,
+      opacity: 0.63,
     })
     expect(renderNodeStyle(projectNodeForRender(label))).toMatchObject({
       width: label.width,
       height: label.height,
     })
-    expect(renderNodeStyle(projectNodeForRender(body))).toMatchObject({
+    const bodyProjection = projectNodeForRender(body)
+    expect(renderNodeStyle(bodyProjection)).toMatchObject({
       fontFamily: "Geist Variable, sans-serif",
-      fontSize: 24,
-      fontWeight: 450,
+      fontSize: 22,
+      fontWeight: 510,
+      lineHeight: 1.25,
+      letterSpacing: 1.3,
+    })
+    if (bodyProjection.type !== "text") throw new Error("Missing body text")
+    const firstLine = bodyProjection.content.layout.lines[0]!
+    expect(renderTextSegmentStyle(firstLine.segments[0]!, firstLine)).toMatchObject(
+      {
+        fontStyle: "italic",
+        textDecorationLine: "underline",
+      }
+    )
+    const mixedProjection = projectNodeForRender(mixedText)
+    if (mixedProjection.type !== "text") throw new Error("Missing mixed text")
+    const rangeLine = mixedProjection.content.layout.lines.find((line) =>
+      line.segments.some(
+        (segment) => segment.sourceStart === 18 && segment.sourceEnd === 30
+      )
+    )!
+    const rangeSegment = rangeLine.segments.find(
+      (segment) => segment.sourceStart === 18 && segment.sourceEnd === 30
+    )!
+    expect(renderTextSegmentStyle(rangeSegment, rangeLine)).toMatchObject({
+      color: "#0e7490",
+      textDecorationLine: "line-through",
     })
   })
 
@@ -143,6 +197,29 @@ describe("React render-view conformance", () => {
       textDecorationLine: "line-through",
       lineHeight: `${line.height}px`,
     })
+  })
+
+  it("projects every run in a late-wrapping unbroken token", () => {
+    const node = createAdverseRichTextConformanceNode()
+
+    const startedAt = performance.now()
+    const projection = projectNodeForRender(node)
+    if (projection.type !== "text") throw new Error("Expected text")
+    const reactStyles = projection.content.layout.lines.flatMap((line) => [
+      renderTextLineStyle(line),
+      ...line.segments.map((segment) => renderTextSegmentStyle(segment, line)),
+    ])
+    const elapsed = performance.now() - startedAt
+
+    expect(projection.content.layout.lines).toHaveLength(2)
+    expect(
+      projection.content.layout.lines.map((line) => line.sourceEnd)
+    ).toEqual([6_301, 7_000])
+    expect(
+      projection.content.layout.lines.flatMap((line) => line.segments)
+    ).toHaveLength(1_001)
+    expect(reactStyles).toHaveLength(1_003)
+    expect(elapsed).toBeLessThan(250)
   })
 
   it("makes fixed-box overflow observable without changing its frame", () => {

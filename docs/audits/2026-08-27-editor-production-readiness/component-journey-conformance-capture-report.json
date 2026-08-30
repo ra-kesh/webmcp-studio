@@ -1,0 +1,315 @@
+{
+  "version": 2,
+  "runId": "2026-08-30T20-24-34.290Z-13d3a12d-6e8a-4df5-9c8c-59d1f4855f95",
+  "artifactRoot": "artifacts/runs/2026-08-30T20-24-34.290Z-13d3a12d-6e8a-4df5-9c8c-59d1f4855f95",
+  "corpus": "component-journey",
+  "documentId": "doc-northstar-aditi-kabir",
+  "revision": 10,
+  "baseUrl": "http://localhost:3001",
+  "deviceScaleFactor": 1,
+  "browserCaptureRuntime": {
+    "browserVersion": "152.0.7977.64",
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+    "platform": "MacIntel",
+    "hostOperatingSystem": "darwin",
+    "hostArchitecture": "arm64"
+  },
+  "browserCaptureEvidence": {
+    "pageErrorPolicy": "fail_before_surface_ready",
+    "pageErrors": [],
+    "surfaces": [
+      {
+        "pageId": "cover",
+        "surface": "render-view",
+        "state": "ready"
+      },
+      {
+        "pageId": "cover",
+        "surface": "fabric",
+        "state": "ready"
+      },
+      {
+        "pageId": "story",
+        "surface": "render-view",
+        "state": "ready"
+      },
+      {
+        "pageId": "story",
+        "surface": "fabric",
+        "state": "ready"
+      },
+      {
+        "pageId": "package",
+        "surface": "render-view",
+        "state": "ready"
+      },
+      {
+        "pageId": "package",
+        "surface": "fabric",
+        "state": "ready"
+      },
+      {
+        "pageId": "timeline",
+        "surface": "render-view",
+        "state": "ready"
+      },
+      {
+        "pageId": "timeline",
+        "surface": "fabric",
+        "state": "ready"
+      },
+      {
+        "pageId": "terms",
+        "surface": "render-view",
+        "state": "ready"
+      },
+      {
+        "pageId": "terms",
+        "surface": "fabric",
+        "state": "ready"
+      },
+      {
+        "pageId": "whatsapp-card",
+        "surface": "render-view",
+        "state": "ready"
+      },
+      {
+        "pageId": "whatsapp-card",
+        "surface": "fabric",
+        "state": "ready"
+      },
+      {
+        "pageId": "square-card",
+        "surface": "render-view",
+        "state": "ready"
+      },
+      {
+        "pageId": "square-card",
+        "surface": "fabric",
+        "state": "ready"
+      }
+    ]
+  },
+  "pageOrder": [
+    "cover",
+    "story",
+    "package",
+    "timeline",
+    "terms",
+    "whatsapp-card",
+    "square-card"
+  ],
+  "outputs": [
+    {
+      "id": "proposal",
+      "pageIds": [
+        "cover",
+        "story",
+        "package",
+        "timeline",
+        "terms"
+      ]
+    },
+    {
+      "id": "whatsapp",
+      "pageIds": [
+        "whatsapp-card"
+      ]
+    },
+    {
+      "id": "follow-up",
+      "pageIds": [
+        "square-card"
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "render-view/cover.png",
+      "bytes": 34523,
+      "sha256": "323bb6d9df3dc602a764bbd57527999be001b5c8c04ad0cd1d56657d74699830",
+      "width": 1240,
+      "height": 1754
+    },
+    {
+      "path": "render-view/story.png",
+      "bytes": 77228,
+      "sha256": "6a7de4c6f4077e47ee6b7d3d0b445e81c309c8ca9df747b176a4e3d4549d1b7f",
+      "width": 1240,
+      "height": 1754
+    },
+    {
+      "path": "render-view/package.png",
+      "bytes": 79679,
+      "sha256": "7271b8dbf2bca70a95bb87946ef956869b641edf5598cff16be8d540ad7e0314",
+      "width": 1240,
+      "height": 1754
+    },
+    {
+      "path": "render-view/timeline.png",
+      "bytes": 69575,
+      "sha256": "875536654818c75a293a7326b4aff0e6bc126593aa33517168db6ce9368caf91",
+      "width": 1240,
+      "height": 1754
+    },
+    {
+      "path": "render-view/terms.png",
+      "bytes": 82195,
+      "sha256": "1b48bd0d3b8db4eef9c10f9c597292e55da692f2212547b3cf74f8dd1e9abea6",
+      "width": 1240,
+      "height": 1754
+    },
+    {
+      "path": "render-view/whatsapp-card.png",
+      "bytes": 59022,
+      "sha256": "7d02feecfc33776b5897356aa4c9468a8ad3c18b408e502dd57c4307ea206f71",
+      "width": 1080,
+      "height": 1350
+    },
+    {
+      "path": "render-view/square-card.png",
+      "bytes": 41993,
+      "sha256": "603733dd9c9c2ba33f9cdb5bc57ba116fbb39ad20b405dc832863ca7ede5723b",
+      "width": 1080,
+      "height": 1080
+    },
+    {
+      "path": "fabric/cover.png",
+      "bytes": 35122,
+      "sha256": "4aa6a6f8c8a25e193d5c0727bc505a2332d6c0e6bbee63d030c9fcee93654ce0",
+      "width": 1240,
+      "height": 1754
+    },
+    {
+      "path": "fabric/story.png",
+      "bytes": 78741,
+      "sha256": "7d15bd06d711f5e47fcb2c78c9b8f861fd8f6121c3856ff514eafee7bf853f58",
+      "width": 1240,
+      "height": 1754
+    },
+    {
+      "path": "fabric/package.png",
+      "bytes": 81605,
+      "sha256": "2c87c22b842c22f0470f698b57a3a65c6e53becd6c74ee7fe9ad794e397b09aa",
+      "width": 1240,
+      "height": 1754
+    },
+    {
+      "path": "fabric/timeline.png",
+      "bytes": 70920,
+      "sha256": "20e282cb7e16445d8cfe51ed0d510f193f2ec040e7c69ea31ab0cf7d15a4fe67",
+      "width": 1240,
+      "height": 1754
+    },
+    {
+      "path": "fabric/terms.png",
+      "bytes": 83352,
+      "sha256": "16641fec78fb64e16a190550c6f24b8b3fde7b8a9a960fd286625e85d42460be",
+      "width": 1240,
+      "height": 1754
+    },
+    {
+      "path": "fabric/whatsapp-card.png",
+      "bytes": 59672,
+      "sha256": "b7ce77e0c574b4bbda6df4ce51e1ca7c0b178d0d7cb5ee58efd84db600b67c20",
+      "width": 1080,
+      "height": 1350
+    },
+    {
+      "path": "fabric/square-card.png",
+      "bytes": 41795,
+      "sha256": "c2e13557745fa01602f3dc1c2d09616cae205fb16f0a74fba72f392ba03bcc31",
+      "width": 1080,
+      "height": 1080
+    },
+    {
+      "path": "renderer-png/cover.png",
+      "bytes": 36478,
+      "sha256": "2dbb9458240000df0e9718386a35074cdf5ec4ae97edc6b03c2cf6a298f33266",
+      "width": 1240,
+      "height": 1754
+    },
+    {
+      "path": "renderer-png/story.png",
+      "bytes": 81717,
+      "sha256": "2ddca714595238e86c1966c253de3407d8222309ab9156917bcbc5aa1b169cfa",
+      "width": 1240,
+      "height": 1754
+    },
+    {
+      "path": "renderer-png/package.png",
+      "bytes": 83355,
+      "sha256": "0ade5951734db21b2edac4bf46ccc9c141dec9c311fb9a7b0ee63d7fea0d6e1d",
+      "width": 1240,
+      "height": 1754
+    },
+    {
+      "path": "renderer-png/timeline.png",
+      "bytes": 72814,
+      "sha256": "10cdcb428f988244d3867af339c36c354f11148ea26326893f83369748c768f7",
+      "width": 1240,
+      "height": 1754
+    },
+    {
+      "path": "renderer-png/terms.png",
+      "bytes": 86531,
+      "sha256": "9130eaaa8a3f08c519dbec796ab2e96d3ec57f478f8c2a761b64a9a1913a32a6",
+      "width": 1240,
+      "height": 1754
+    },
+    {
+      "path": "renderer-png/whatsapp-card.png",
+      "bytes": 61222,
+      "sha256": "2298cadee451b59bf5e2ae30195a4f0500558ff2b93379fa3253487f20d9986f",
+      "width": 1080,
+      "height": 1350
+    },
+    {
+      "path": "renderer-png/square-card.png",
+      "bytes": 44223,
+      "sha256": "566019139399fa48f41d8ded3fa42c4d8d028da8876f1985cd6b7b723e1587f5",
+      "width": 1080,
+      "height": 1080
+    },
+    {
+      "path": "renderer-pdf/proposal.pdf",
+      "bytes": 209173,
+      "sha256": "9e1ba6bb81949c5b45a2237107fd59158745c294ab3a1f5b57fb099973d6b303"
+    },
+    {
+      "path": "renderer-pdf/cover.png",
+      "bytes": 39961,
+      "sha256": "b9384d7277e48cfd90faa0f72a8d9ea8a8f3b96db97101b5bf174cfe0417e576",
+      "width": 1240,
+      "height": 1754
+    },
+    {
+      "path": "renderer-pdf/story.png",
+      "bytes": 94970,
+      "sha256": "99f152167f375dc14d07142dc7619647ae0e6820d5eddc2a76c9ff388fa620eb",
+      "width": 1240,
+      "height": 1754
+    },
+    {
+      "path": "renderer-pdf/package.png",
+      "bytes": 93162,
+      "sha256": "1021061bf20a150950bd5f2d5bb7d1f20e1ef038ce47dec4492b3272552aa14a",
+      "width": 1240,
+      "height": 1754
+    },
+    {
+      "path": "renderer-pdf/timeline.png",
+      "bytes": 83947,
+      "sha256": "23b1e7a158446027c34841e44b2ba289d5efb355fdaaf82a10d5711ecf5b2835",
+      "width": 1240,
+      "height": 1754
+    },
+    {
+      "path": "renderer-pdf/terms.png",
+      "bytes": 99095,
+      "sha256": "858905004ec90988172c3abf9d31dad9ccf036f8fe1cfbb34922618b21154165",
+      "width": 1240,
+      "height": 1754
+    }
+  ]
+}

@@ -6,6 +6,7 @@ import {
   cloneSemanticFragment,
   componentGraphCycles,
   componentIntegrityIssues,
+  componentRenderConformanceDocument,
   materializeComponentInstances,
   northstarSeed,
   resolveComponentInstanceNodes,
@@ -874,5 +875,178 @@ describe("canonical document components", () => {
 
     expect(resolvedCount).toBe(2_000)
     expect(duration).toBeLessThan(1_000)
+  })
+
+  it("propagates a source edit through 1,000 materialized nested instances within a bounded pass", () => {
+    const seed = structuredClone(componentRenderConformanceDocument)
+    const nestedSourceInstance = seed.componentInstances.find(
+      (instance) => instance.id === "component-card-nested-badge-instance"
+    )!
+    const sourceNodeIds = new Set([
+      "component-badge-source",
+      "component-card-source",
+      "component-card-nested-badge",
+    ])
+    const sourceGroupIds = new Set([
+      "component-badge-source-root",
+      "component-card-source-root",
+      "component-card-nested-badge-root",
+    ])
+    const sourceNodes = seed.nodes.filter((node) => sourceNodeIds.has(node.id))
+    const instances = Array.from({ length: 1_000 }, (_, index) => ({
+      id: `component-propagation-${index}`,
+      name: `Propagation ${index}`,
+      componentId: "component-card",
+      variantId: "component-card-default",
+      rootGroupId: `component-propagation-${index}-root`,
+      transform: { x: index, y: index, scale: 1, rotation: 0 },
+      nodeMappings: [
+        {
+          sourceNodeId: "component-card-source",
+          instanceNodeId: `component-propagation-${index}-card`,
+        },
+        {
+          sourceNodeId: "component-card-nested-badge",
+          instanceNodeId: `component-propagation-${index}-badge`,
+        },
+      ],
+      groupMappings: [
+        {
+          sourceGroupId: "component-card-source-root",
+          instanceGroupId: `component-propagation-${index}-root`,
+        },
+        {
+          sourceGroupId: "component-card-nested-badge-root",
+          instanceGroupId: `component-propagation-${index}-nested-root`,
+        },
+      ],
+      overrides: {},
+    }))
+    const nodes = instances.flatMap((instance, index) => [
+      {
+        ...sourceNodes.find((node) => node.id === "component-card-source")!,
+        id: `component-propagation-${index}-card`,
+      },
+      {
+        ...sourceNodes.find(
+          (node) => node.id === "component-card-nested-badge"
+        )!,
+        id: `component-propagation-${index}-badge`,
+      },
+    ])
+    const groups = instances.flatMap((instance, index) => [
+      {
+        id: instance.rootGroupId,
+        pageId: "component-render-page",
+        name: instance.name,
+        nodeIds: [`component-propagation-${index}-card`],
+      },
+      {
+        id: `component-propagation-${index}-nested-root`,
+        pageId: "component-render-page",
+        name: "Badge nested in card",
+        nodeIds: [`component-propagation-${index}-badge`],
+        parentGroupId: instance.rootGroupId,
+      },
+    ])
+    const fixture = materializeComponentInstances({
+      ...seed,
+      nodes: [...sourceNodes, ...nodes],
+      groups: [
+        ...seed.groups.filter((group) => sourceGroupIds.has(group.id)),
+        ...groups,
+      ],
+      pages: seed.pages.map((page) => ({
+        ...page,
+        nodeIds: [
+          ...sourceNodes.map((node) => node.id),
+          ...nodes.map((node) => node.id),
+        ],
+      })),
+      componentInstances: [nestedSourceInstance, ...instances],
+    })
+    assertValidDocument(fixture)
+
+    // The package suite runs files in parallel. Current-thread CPU time keeps
+    // this algorithmic gate from charging unrelated workers to this command.
+    const threadCpuUsage = (
+      globalThis as typeof globalThis & {
+        process?: {
+          threadCpuUsage?: (previous?: { user: number; system: number }) => {
+            user: number
+            system: number
+          }
+        }
+      }
+    ).process?.threadCpuUsage
+    const cpuStartedAt = threadCpuUsage?.()
+    const startedAt = performance.now()
+    const propagated = applyCommand(fixture, {
+      ...commandMeta("scale-source-update"),
+      type: "update_node",
+      nodeId: "component-card-source",
+      patch: { fill: "#0f766e" },
+    })
+    const duration = performance.now() - startedAt
+    const cpuUsage = cpuStartedAt ? threadCpuUsage?.(cpuStartedAt) : undefined
+    const cpuDuration = cpuUsage
+      ? (cpuUsage.user + cpuUsage.system) / 1_000
+      : duration
+
+    const propagatedCards = propagated.nodes.filter(
+      (node) =>
+        node.id.startsWith("component-propagation-") &&
+        node.id.endsWith("-card") &&
+        node.type === "rect" &&
+        node.fill === "#0f766e"
+    )
+    expect(propagatedCards).toHaveLength(1_000)
+    expect(propagated.revision).toBe(fixture.revision + 1)
+    expect(propagated.componentInstances).toHaveLength(1_001)
+    expect(
+      propagated.pages[0]?.nodeIds.filter((nodeId) =>
+        nodeId.startsWith("component-propagation-")
+      )
+    ).toEqual(
+      instances.flatMap((_, index) => [
+        `component-propagation-${index}-card`,
+        `component-propagation-${index}-badge`,
+      ])
+    )
+    for (const index of [0, 499, 999]) {
+      expect(
+        propagated.groups.find(
+          (group) => group.id === `component-propagation-${index}-root`
+        )
+      ).toMatchObject({
+        nodeIds: [`component-propagation-${index}-card`],
+      })
+      expect(
+        propagated.groups.find(
+          (group) => group.id === `component-propagation-${index}-nested-root`
+        )
+      ).toMatchObject({
+        parentGroupId: `component-propagation-${index}-root`,
+        nodeIds: [`component-propagation-${index}-badge`],
+      })
+      expect(
+        propagated.nodes.find(
+          (node) => node.id === `component-propagation-${index}-badge`
+        )
+      ).toMatchObject({
+        type: "rect",
+        fill: "#334155",
+      })
+    }
+    expect(
+      propagated.nodes.filter(
+        (node) =>
+          node.id === "component-card-nested-badge" &&
+          node.type === "rect" &&
+          node.fill === "#334155"
+      )
+    ).toHaveLength(1)
+    expect(cpuDuration).toBeLessThan(750)
+    expect(duration).toBeLessThan(5_000)
   })
 })

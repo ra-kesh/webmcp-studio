@@ -3,7 +3,12 @@
 import { createHash } from "node:crypto"
 import { mkdir, readFile } from "node:fs/promises"
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path"
-import { renderConformanceDocument } from "@webmcp/document"
+import {
+  buildComponentPublicationJourney,
+  componentRenderConformanceDocument,
+  renderConformanceDocument,
+  textDesignSystemConformanceDocument,
+} from "@webmcp/document"
 import sharp from "sharp"
 import {
   compareHorizontalInkBands,
@@ -39,6 +44,7 @@ type Comparison = {
 type Manifest = {
   version: 1 | 2
   captureReport: string
+  report?: string
   comparisons: Comparison[]
 }
 
@@ -50,6 +56,7 @@ type CaptureArtifact = {
 
 type CaptureReport = {
   version: 1 | 2
+  corpus?: "golden" | "resources" | "components" | "component-journey"
   runId?: string
   artifactRoot?: string
   baseUrl: string
@@ -82,6 +89,14 @@ const captureReportPath = resolveSafeRelative(
 const captureReport = validateCaptureReport(
   await Bun.file(captureReportPath).json()
 )
+const comparisonDocument =
+  captureReport.corpus === "resources"
+    ? textDesignSystemConformanceDocument
+    : captureReport.corpus === "components"
+      ? componentRenderConformanceDocument
+      : captureReport.corpus === "component-journey"
+        ? buildComponentPublicationJourney().published.document
+        : renderConformanceDocument
 const captureArtifactRoot =
   captureReport.version === 2
     ? resolveSafeRelative(
@@ -230,7 +245,9 @@ for (const comparison of manifest.comparisons) {
   })
 }
 
-const reportPath = resolve(manifestDirectory, "render-conformance-report.json")
+const reportPath = manifest.report
+  ? resolveSafeRelative(manifestDirectory, manifest.report, "comparison report")
+  : resolve(manifestDirectory, "render-conformance-report.json")
 await Bun.write(reportPath, `${JSON.stringify({ results }, null, 2)}\n`)
 console.log(JSON.stringify({ reportPath, results }, null, 2))
 if (failed) process.exit(1)
@@ -241,7 +258,7 @@ function compareTextInkGeometry(
   gate: GeometryGate,
   comparisonName: string
 ) {
-  const page = renderConformanceDocument.pages.find(
+  const page = comparisonDocument.pages.find(
     (candidatePage) => candidatePage.id === gate.pageId
   )
   if (!page) {
@@ -265,7 +282,7 @@ function compareTextInkGeometry(
 
   const background = parseHexColor(page.background, `${page.id} background`)
   const nodes = gate.textNodeIds.map((nodeId) => {
-    const node = renderConformanceDocument.nodes.find(
+    const node = comparisonDocument.nodes.find(
       (candidateNode) => candidateNode.id === nodeId
     )
     if (!node || node.type !== "text" || !node.visible) {
@@ -306,7 +323,7 @@ function compareTextInkGeometry(
       region,
       ...compareHorizontalInkBands(baselineBands, candidateBands, {
         maximumEdgeDelta: gate.maximumEdgeDelta,
-        maximumInkPixelRatioDelta: gate.maximumInkPixelRatioDelta,
+        maximumInkMassRatioDelta: gate.maximumInkPixelRatioDelta,
         maximumContrastFractionDelta: gate.maximumContrastFractionDelta,
         minimumDirectionCosine: gate.minimumDirectionCosine,
         maximumDirectionCosineDelta: gate.maximumDirectionCosineDelta,
@@ -318,7 +335,7 @@ function compareTextInkGeometry(
     minimumContrastFraction: gate.minimumContrastFraction,
     minimumInkPixelsPerRow: gate.minimumInkPixelsPerRow,
     maximumAllowedEdgeDelta: gate.maximumEdgeDelta,
-    maximumAllowedInkPixelRatioDelta: gate.maximumInkPixelRatioDelta,
+    maximumAllowedInkMassRatioDelta: gate.maximumInkPixelRatioDelta,
     maximumAllowedContrastFractionDelta: gate.maximumContrastFractionDelta,
     minimumAllowedDirectionCosine: gate.minimumDirectionCosine,
     maximumAllowedDirectionCosineDelta:
@@ -427,9 +444,16 @@ function validateManifest(value: unknown): Manifest {
         : validateGeometryGate(item.geometry, index, candidate.version!)
     return { ...item, geometry } as Comparison
   })
+  if (
+    candidate.report !== undefined &&
+    (typeof candidate.report !== "string" || candidate.report === "")
+  ) {
+    throw new Error("Render conformance manifest report must be a path")
+  }
   return {
     version: candidate.version,
     captureReport: candidate.captureReport,
+    report: candidate.report,
     comparisons,
   }
 }

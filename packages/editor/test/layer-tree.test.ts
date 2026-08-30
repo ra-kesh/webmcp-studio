@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   applyCommand,
   assertValidDocument,
+  componentRenderConformanceDocument,
   getGroupNodeIds,
   northstarSeed,
   resolveComponentInstanceNodes,
@@ -538,6 +539,87 @@ describe("layer tree model", () => {
 
     expect(model.items).toHaveLength(1_000)
     expect(model.byKey).toHaveLength(1_000)
+    expect(elapsed).toBeLessThan(1_000)
+  })
+
+  it("indexes 1,000 component instance roots and children for bounded selection lookup", () => {
+    const seed = structuredClone(componentRenderConformanceDocument)
+    const source = seed.nodes.find(
+      (node) => node.id === "component-badge-source"
+    )!
+    const instances = Array.from({ length: 1_000 }, (_, index) => ({
+      id: `selection-instance-${index}`,
+      name: `Selection instance ${index}`,
+      componentId: "component-badge",
+      variantId: "component-badge-default",
+      rootGroupId: `selection-instance-${index}-root`,
+      transform: { x: index, y: index, scale: 1, rotation: 0 },
+      nodeMappings: [
+        {
+          sourceNodeId: source.id,
+          instanceNodeId: `selection-instance-${index}-node`,
+        },
+      ],
+      groupMappings: [
+        {
+          sourceGroupId: "component-badge-source-root",
+          instanceGroupId: `selection-instance-${index}-root`,
+        },
+      ],
+      overrides: {},
+    }))
+    const nodes = instances.map((_, index) => ({
+      ...source,
+      id: `selection-instance-${index}-node`,
+      name: `Selection node ${index}`,
+    }))
+    const groups = instances.map((instance, index) => ({
+      id: instance.rootGroupId,
+      pageId: "component-render-page",
+      name: instance.name,
+      nodeIds: [`selection-instance-${index}-node`],
+    }))
+    const document: Document = {
+      ...seed,
+      nodes: [source, ...nodes],
+      groups: [
+        seed.groups.find(
+          (group) => group.id === "component-badge-source-root"
+        )!,
+        ...groups,
+      ],
+      pages: seed.pages.map((page) => ({
+        ...page,
+        nodeIds: [source.id, ...nodes.map((node) => node.id)],
+      })),
+      components: seed.components.filter(
+        (component) => component.id === "component-badge"
+      ),
+      componentInstances: instances,
+    }
+
+    const startedAt = performance.now()
+    const model = buildLayerTreeModel(document, "component-render-page")
+    for (let index = 0; index < 1_000; index += 1) {
+      expect(
+        model.byKey.get(layerKey("group", `selection-instance-${index}-root`))
+          ?.component
+      ).toMatchObject({
+        role: "instance",
+        instanceId: `selection-instance-${index}`,
+      })
+      expect(
+        model.byKey.get(layerKey("node", `selection-instance-${index}-node`))
+          ?.component
+      ).toMatchObject({
+        role: "instance-child",
+        instanceId: `selection-instance-${index}`,
+      })
+    }
+    const elapsed = performance.now() - startedAt
+
+    expect(model.items).toHaveLength(1_001)
+    expect(model.byKey).toHaveLength(2_002)
     expect(elapsed).toBeLessThan(1_000)
   })
 })

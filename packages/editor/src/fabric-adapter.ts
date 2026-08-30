@@ -1,6 +1,7 @@
 import {
   ActiveSelection,
   Canvas,
+  config,
   controlsUtils,
   Ellipse,
   FabricImage,
@@ -31,7 +32,7 @@ import {
   parseTextClipboardPayload,
   parseTextClipboardHtml,
   patchTextRunStyle,
-  pasteTextClipboardPayload,
+  pasteParsedTextClipboardPayload,
   projectImagePaint,
   projectNodeForRender,
   projectSvgViewport,
@@ -133,8 +134,56 @@ class StudioTextbox<
   studioUsesCanonicalLines = true
   studioProjectedLines: readonly ProjectedTextLine[] = []
   studioEditingListMarkers: readonly (string | null)[] = []
+  studioDirectClip = false
+
+  constructor(
+    text: string,
+    options: Props,
+    layout: {
+      mode: TextSizingMode
+      topOffset: number
+      lines: readonly ProjectedTextLine[]
+      editingListMarkers: readonly (string | null)[]
+      directClip: boolean
+    }
+  ) {
+    super("", options)
+    this.studioSizingMode = layout.mode
+    this.studioTopOffset = layout.topOffset
+    this.studioProjectedLines = layout.lines
+    this.studioEditingListMarkers = layout.editingListMarkers
+    this.studioDirectClip = layout.directClip
+    this.text = text
+    this.initDimensions()
+    this.setCoords()
+  }
 
   override initDimensions() {
+    if (
+      this.initialized &&
+      this.studioUsesCanonicalLines &&
+      this.studioProjectedLines.length
+    ) {
+      this._clearCache()
+      this.dynamicMinWidth = 0
+      const lines = this.studioProjectedLines.map((line) =>
+        line.segments.map((segment) => segment.text).join("")
+      )
+      this.textLines = lines
+      this._textLines = lines.map((line) => [line])
+      this._unwrappedTextLines = this._textLines
+      this._text = lines.flatMap((line, index) =>
+        index < lines.length - 1 ? [line, "\n"] : [line]
+      )
+      this._styleMap = Object.fromEntries(
+        lines.map((_, line) => [line, { line, offset: 0 }])
+      )
+      this.styles = fabricMetricStylesForLines(this.studioProjectedLines)
+      this.__charBounds = []
+      this.height = this.calcTextHeight()
+      this.dirty = true
+      return
+    }
     const fixedHeight =
       this.studioSizingMode === "fixed" ? this.height : undefined
     super.initDimensions()
@@ -147,7 +196,8 @@ class StudioTextbox<
     mode: TextSizingMode,
     topOffset: number,
     lines: readonly ProjectedTextLine[] = [],
-    editingListMarkers: readonly (string | null)[] = []
+    editingListMarkers: readonly (string | null)[] = [],
+    reinitialize = true
   ) {
     if (
       this.studioSizingMode === mode &&
@@ -155,20 +205,34 @@ class StudioTextbox<
       this.studioProjectedLines === lines &&
       this.studioEditingListMarkers === editingListMarkers
     ) {
+      if (this.studioUsesCanonicalLines && !this.isEditing) {
+        this.styles = fabricMetricStylesForLines(lines)
+        this._clearCache()
+      }
       return
     }
     this.studioSizingMode = mode
     this.studioTopOffset = topOffset
     this.studioProjectedLines = lines
     this.studioEditingListMarkers = editingListMarkers
-    this.initDimensions()
+    if (this.studioUsesCanonicalLines && !this.isEditing) {
+      this.styles = fabricMetricStylesForLines(lines)
+      this._clearCache()
+    }
+    if (reinitialize) this.initDimensions()
     this.dirty = true
   }
 
-  setStudioUsesCanonicalLines(value: boolean) {
+  setStudioUsesCanonicalLines(value: boolean, reinitialize = true) {
     if (this.studioUsesCanonicalLines === value) return
     this.studioUsesCanonicalLines = value
-    this.initDimensions()
+    if (reinitialize) this.initDimensions()
+    this.dirty = true
+  }
+
+  setStudioDirectClip(value: boolean) {
+    if (this.studioDirectClip === value) return
+    this.studioDirectClip = value
     this.dirty = true
   }
 
@@ -186,12 +250,26 @@ class StudioTextbox<
     return super._getTopOffset() + (this.studioTopOffset ?? 0)
   }
 
+  override _getLineLeftOffset(lineIndex: number): number {
+    return this.studioUsesCanonicalLines && !this.isEditing
+      ? 0
+      : super._getLineLeftOffset(lineIndex)
+  }
+
   override getHeightOfLine(lineIndex: number): number {
     const projected =
       this.studioUsesCanonicalLines && !this.isEditing
         ? this.studioProjectedLines[lineIndex]
         : undefined
     return projected?.height ?? super.getHeightOfLine(lineIndex)
+  }
+
+  override getLineWidth(lineIndex: number): number {
+    const projected =
+      this.studioUsesCanonicalLines && !this.isEditing
+        ? this.studioProjectedLines[lineIndex]
+        : undefined
+    return projected?.width ?? super.getLineWidth(lineIndex)
   }
 
   override calcTextHeight(): number {
@@ -206,6 +284,58 @@ class StudioTextbox<
       )
     }
     return super.calcTextHeight()
+  }
+
+  override _render(context: CanvasRenderingContext2D) {
+    if (!this.studioDirectClip) {
+      super._render(context)
+      return
+    }
+    context.save()
+    context.beginPath()
+    context.rect(-this.width / 2, -this.height / 2, this.width, this.height)
+    context.clip()
+    super._render(context)
+    context.restore()
+  }
+
+  private canonicalLineMeasurements(
+    context: CanvasRenderingContext2D,
+    line: ProjectedTextLine
+  ) {
+    const metricCache = new Map<string, number>()
+    const segmentWidths = line.segments.map((segment) => {
+      const style = fabricStyleForSegment(segment)
+      this._setTextStyles(context, style)
+      if ("letterSpacing" in context) {
+        context.letterSpacing = `${segment.style.letterSpacing}px`
+      }
+      if ("wordSpacing" in context) {
+        context.wordSpacing = `${line.justifySpacing}px`
+      }
+      const key = [
+        context.font,
+        segment.style.letterSpacing,
+        line.justifySpacing,
+        segment.text,
+      ].join("\u0000")
+      const cached = metricCache.get(key)
+      if (cached !== undefined) return cached
+      const width = context.measureText(segment.text).width
+      metricCache.set(key, width)
+      return width
+    })
+    const lineWidth = segmentWidths.reduce((sum, width) => sum + width, 0)
+    const offset =
+      line.align === "center"
+        ? (this.width - lineWidth) / 2
+        : line.align === "right"
+          ? this.width - lineWidth
+          : 0
+    return {
+      left: this._getLeftOffset() + offset,
+      segmentWidths,
+    }
   }
 
   override _renderChars(
@@ -238,56 +368,128 @@ class StudioTextbox<
     context.save()
     context.fontKerning = "normal"
     context.textRendering = "geometricPrecision"
-    const segmentMeasurements: number[] = []
-    let charIndex = 0
-    for (const segment of projected.segments) {
-      this._setTextStyles(
-        context,
-        this.getCompleteStyleDeclaration(lineIndex, charIndex)
-      )
-      context.letterSpacing = `${segment.style.letterSpacing}px`
-      if ("wordSpacing" in context) {
-        context.wordSpacing = `${projected.justifySpacing}px`
-      }
-      segmentMeasurements.push(context.measureText(segment.text).width)
-      charIndex += Array.from(segment.text).length
-    }
-    const measuredLineWidth = segmentMeasurements.reduce(
-      (width, segmentWidth) => width + segmentWidth,
-      0
-    )
-    const lineOffset =
-      projected.align === "center"
-        ? (this.width - measuredLineWidth) / 2
-        : projected.align === "right"
-          ? this.width - measuredLineWidth
-          : 0
-    left = this._getLeftOffset() + lineOffset
+    const measurements = this.canonicalLineMeasurements(context, projected)
+    left = measurements.left
     const maxFontSize = Math.max(
       this.fontSize,
       ...projected.segments.map((segment) => segment.style.fontSize)
     )
     top -=
       maxFontSize * FABRIC_TEXT_LINE_HEIGHT_MULTIPLIER * this._fontSizeFraction
-    charIndex = 0
+    const viewport = this.objectCaching
+      ? null
+      : localCanvasViewportBounds(
+          context.getTransform(),
+          context.canvas.width,
+          context.canvas.height
+        )
+    const overdraw = maxFontSize * 2
+    const lineTop = top - overdraw
+    const lineBottom = top + overdraw
+    const lineIsVisible =
+      !viewport || (lineBottom >= viewport.top && lineTop <= viewport.bottom)
     for (const [segmentIndex, segment] of projected.segments.entries()) {
-      context.letterSpacing = `${segment.style.letterSpacing}px`
-      if ("wordSpacing" in context) {
-        context.wordSpacing = `${projected.justifySpacing}px`
+      const width = measurements.segmentWidths[segmentIndex] ?? segment.width
+      const segmentRight = left + width
+      if (
+        lineIsVisible &&
+        (!viewport ||
+          projectedSegmentIntersectsViewport(
+            left,
+            segmentRight,
+            overdraw,
+            viewport
+          ))
+      ) {
+        const style = fabricStyleForSegment(segment)
+        this._setTextStyles(context, style)
+        if ("letterSpacing" in context) {
+          context.letterSpacing = `${segment.style.letterSpacing}px`
+        }
+        if ("wordSpacing" in context) {
+          context.wordSpacing = `${projected.justifySpacing}px`
+        }
+        if (method === "fillText" && style.fill) {
+          const fillOffsets = this._setFillStyles(context, style)
+          context.fillText(
+            segment.text,
+            left - fillOffsets.offsetX,
+            top - fillOffsets.offsetY
+          )
+        }
       }
-      this._renderChar(
-        method,
-        context,
-        lineIndex,
-        charIndex,
-        segment.text,
-        left,
-        top
-      )
-      left += segmentMeasurements[segmentIndex] ?? 0
-      charIndex += Array.from(segment.text).length
+      left = segmentRight
+      if (viewport && left - overdraw > viewport.right) break
     }
     context.restore()
+  }
+
+  override _renderTextDecoration(
+    context: CanvasRenderingContext2D,
+    type: "underline" | "linethrough" | "overline"
+  ) {
+    if (!this.studioUsesCanonicalLines || this.isEditing) {
+      super._renderTextDecoration(context, type)
+      return
+    }
+    if (type === "overline") return
+
+    const decoration = type === "linethrough" ? "line_through" : "underline"
+    if (
+      !this.studioProjectedLines.some((line) =>
+        line.segments.some((segment) => segment.style.decoration === decoration)
+      )
+    ) {
+      return
+    }
+    const offsetAligner = type === "linethrough" ? 0.5 : 0
+    const offsetY = this.offsets[type]
+    const thickness = (this.fontSize * this.textDecorationThickness) / 1000
+    let topOffset = this._getTopOffset()
+
+    context.save()
+    const viewport = this.objectCaching
+      ? null
+      : localCanvasViewportBounds(
+          context.getTransform(),
+          context.canvas.width,
+          context.canvas.height
+        )
+    for (const line of this.studioProjectedLines) {
+      const measurements = this.canonicalLineMeasurements(context, line)
+      const top =
+        topOffset +
+        (line.height / this.lineHeight) * (1 - this._fontSizeFraction)
+      let left = measurements.left
+      const lineIsVisible =
+        !viewport ||
+        (top + line.height >= viewport.top && top <= viewport.bottom)
+      for (const [segmentIndex, segment] of line.segments.entries()) {
+        const width = measurements.segmentWidths[segmentIndex] ?? segment.width
+        const segmentRight = left + width
+        if (
+          lineIsVisible &&
+          segment.style.decoration === decoration &&
+          width > 0 &&
+          (!viewport ||
+            (segmentRight >= viewport.left && left <= viewport.right))
+        ) {
+          context.fillStyle = segment.style.color
+          context.fillRect(
+            left,
+            top + offsetY * segment.style.fontSize - offsetAligner * thickness,
+            width,
+            thickness
+          )
+        }
+        left = segmentRight
+        if (viewport && left > viewport.right) break
+      }
+      topOffset += line.height
+      if (viewport && topOffset > viewport.bottom) break
+    }
+    context.restore()
+    this._removeShadow(context)
   }
 
   /**
@@ -384,7 +586,7 @@ function setFabricTextboxContent(
   styles?: TextStyle
 ) {
   if (object instanceof StudioTextbox) {
-    object.setStudioUsesCanonicalLines(content === "canonical")
+    object.setStudioUsesCanonicalLines(content === "canonical", false)
   }
   object.set({ text, ...(styles ? { styles } : {}) })
 }
@@ -767,8 +969,10 @@ export function fabricTransformKind(
   return null
 }
 
-function sharedOptions(node: SceneNode) {
-  const { frame } = projectNodeForRender(node)
+function sharedOptions(
+  node: SceneNode,
+  frame = projectNodeForRender(node).frame
+) {
   return {
     left: frame.x,
     top: frame.y,
@@ -865,14 +1069,6 @@ export function projectFabricTextState(
 ) {
   const projection = projectNodeForRender(node)
   if (projection.type !== "text") throw new Error("Expected text projection")
-  const editingProjection = projectNodeForRender({
-    ...node,
-    paragraphs: [],
-    sizingMode: "auto_width",
-  })
-  if (editingProjection.type !== "text") {
-    throw new Error("Expected editing text projection")
-  }
   let sourceStart = 0
   const editingListMarkers = node.text.split("\n").map((paragraph) => {
     const line = projection.content.layout.lines.find(
@@ -888,16 +1084,21 @@ export function projectFabricTextState(
     return marker || null
   })
   return {
+    frame: projection.frame,
     text: projection.content.text,
     displayText: projection.content.displayText,
-    canonicalStyles: fabricStylesForLines(projection.content.layout.lines),
-    editingStyles: fabricStylesForLines(editingProjection.content.layout.lines),
+    get editingStyles() {
+      return projectFabricTextEditingStyles(node)
+    },
     width: projection.frame.width,
     height: projection.frame.height,
     fill: projection.content.color,
     fontFamily: projection.content.fontFamily,
     fontSize: projection.content.fontSize,
     fontWeight: projection.content.fontWeight,
+    fontStyle: node.italic ? ("italic" as const) : ("normal" as const),
+    underline: node.decoration === "underline",
+    linethrough: node.decoration === "line_through",
     textAlign: projection.content.align,
     lineHeight:
       projection.content.lineHeight / FABRIC_TEXT_LINE_HEIGHT_MULTIPLIER,
@@ -912,6 +1113,128 @@ export function projectFabricTextState(
     layoutLines: projection.content.layout.lines,
     editingListMarkers,
   }
+}
+
+/**
+ * Direct editing consumes the authored string on one explicit source line per
+ * paragraph. Keep that projection separate from idle canvas rendering so a
+ * paste or keystroke does not also build the canonical display style map.
+ */
+export function projectFabricTextEditingStyles(
+  node: Extract<SceneNode, { type: "text" }>
+) {
+  const projection = projectNodeForRender({
+    ...node,
+    paragraphs: [],
+    sizingMode: "auto_width",
+  })
+  if (projection.type !== "text") {
+    throw new Error("Expected editing text projection")
+  }
+  return fabricStylesForLines(projection.content.layout.lines)
+}
+
+/**
+ * Exact constructor contract for the Fabric text object. Keeping this pure
+ * lets conformance tests verify every resolved option without pretending that
+ * Fabric's browser-owned Textbox constructor is a Node primitive.
+ */
+export function fabricTextObjectOptions(
+  node: Extract<SceneNode, { type: "text" }>,
+  projection = projectFabricTextState(node)
+) {
+  const objectCaching = shouldUseFabricTextObjectCache(
+    projection.width,
+    projection.height
+  )
+  return {
+    ...sharedOptions(node, projection.frame),
+    fill: projection.fill,
+    fontFamily: projection.fontFamily,
+    fontSize: projection.fontSize,
+    fontWeight: projection.fontWeight,
+    fontStyle: projection.fontStyle,
+    underline: projection.underline,
+    linethrough: projection.linethrough,
+    textAlign: projection.textAlign,
+    lineHeight: projection.lineHeight,
+    charSpacing: projection.charSpacing,
+    styles: {},
+    splitByGrapheme: false,
+    editable: !node.locked,
+    strokeWidth: 0,
+    objectCaching,
+    clipPath: objectCaching ? fixedTextClip(node) : undefined,
+  }
+}
+
+export function shouldUseFabricTextObjectCache(width: number, height: number) {
+  return (
+    Number.isFinite(width) &&
+    Number.isFinite(height) &&
+    width > 0 &&
+    height > 0 &&
+    width <= config.maxCacheSideLimit &&
+    height <= config.maxCacheSideLimit &&
+    width * height <= config.perfLimitSizeTotal
+  )
+}
+
+type CanvasTransformLike = Readonly<{
+  a: number
+  b: number
+  c: number
+  d: number
+  e: number
+  f: number
+}>
+
+export function localCanvasViewportBounds(
+  transform: CanvasTransformLike,
+  canvasWidth: number,
+  canvasHeight: number
+) {
+  const determinant = transform.a * transform.d - transform.b * transform.c
+  if (
+    !Number.isFinite(determinant) ||
+    Math.abs(determinant) < Number.EPSILON ||
+    !Number.isFinite(canvasWidth) ||
+    !Number.isFinite(canvasHeight) ||
+    canvasWidth <= 0 ||
+    canvasHeight <= 0
+  ) {
+    return null
+  }
+  const toLocal = (x: number, y: number) => ({
+    x:
+      (transform.d * (x - transform.e) - transform.c * (y - transform.f)) /
+      determinant,
+    y:
+      (-transform.b * (x - transform.e) + transform.a * (y - transform.f)) /
+      determinant,
+  })
+  const corners = [
+    toLocal(0, 0),
+    toLocal(canvasWidth, 0),
+    toLocal(0, canvasHeight),
+    toLocal(canvasWidth, canvasHeight),
+  ]
+  return {
+    left: Math.min(...corners.map((point) => point.x)),
+    right: Math.max(...corners.map((point) => point.x)),
+    top: Math.min(...corners.map((point) => point.y)),
+    bottom: Math.max(...corners.map((point) => point.y)),
+  }
+}
+
+export function projectedSegmentIntersectsViewport(
+  left: number,
+  right: number,
+  overdraw: number,
+  viewport: Readonly<{ left: number; right: number }>
+) {
+  const margin = Math.max(0, overdraw)
+  return right + margin >= viewport.left && left - margin <= viewport.right
 }
 
 /**
@@ -997,6 +1320,28 @@ function fabricStyleForSegment(segment: ProjectedTextSegment) {
     underline: segment.style.decoration === "underline",
     linethrough: segment.style.decoration === "line_through",
   } satisfies TextStyle[number][number]
+}
+
+function fabricMetricStylesForLines(
+  lines: readonly ProjectedTextLine[]
+): TextStyle {
+  const styles: TextStyle = {}
+  for (const [lineIndex, line] of lines.entries()) {
+    const maxMetricSegment = line.segments.reduce<ProjectedTextSegment | null>(
+      (current, segment) =>
+        !current || segment.style.fontSize > current.style.fontSize
+          ? segment
+          : current,
+      null
+    )
+    if (maxMetricSegment) {
+      // Canonical _textLines stores one whole-line token. Fabric's private
+      // baseline calculation therefore reads only style index 0; retain the
+      // line's maximum metric there while projected segments own actual paint.
+      styles[lineIndex] = { 0: fabricStyleForSegment(maxMetricSegment) }
+    }
+  }
+  return styles
 }
 
 function fabricStylesForLines(lines: readonly ProjectedTextLine[]): TextStyle {
@@ -1109,28 +1454,21 @@ export function createFabricSyncObject(
   }
 
   const projection = projectFabricTextState(node)
-  const text = new StudioTextbox(projection.displayText, {
-    ...sharedOptions(node),
-    fill: projection.fill,
-    fontFamily: projection.fontFamily,
-    fontSize: projection.fontSize,
-    fontWeight: projection.fontWeight,
-    textAlign: projection.textAlign,
-    lineHeight: projection.lineHeight,
-    charSpacing: projection.charSpacing,
-    styles: projection.canonicalStyles,
-    splitByGrapheme: false,
-    editable: !node.locked,
-    strokeWidth: 0,
-    clipPath: fixedTextClip(node),
-  })
-  text.set({ width: node.width, height: node.height })
-  text.setStudioTextLayout(
-    node.sizingMode,
-    projection.topOffset,
-    projection.layoutLines,
-    projection.editingListMarkers
+  const textOptions = fabricTextObjectOptions(node, projection)
+  const text = new StudioTextbox(
+    projection.displayText,
+    {
+      ...textOptions,
+    },
+    {
+      mode: node.sizingMode,
+      topOffset: projection.topOffset,
+      lines: projection.layoutLines,
+      editingListMarkers: projection.editingListMarkers,
+      directClip: node.sizingMode === "fixed" && !textOptions.objectCaching,
+    }
   )
+  text.set({ width: node.width, height: node.height })
   text.set({ height: node.height })
   positionFixedTextboxFrame(text, node)
   applyFabricTextControlPolicy(text, node)
@@ -1849,8 +2187,10 @@ export function syncFabricObjectFromNode(
   object: FabricObject,
   node: SceneNode
 ) {
+  const textProjection =
+    node.type === "text" ? projectFabricTextState(node) : null
   const options: Record<string, unknown> = {
-    ...sharedOptions(node),
+    ...sharedOptions(node, textProjection?.frame),
     scaleX: 1,
     scaleY: 1,
   }
@@ -1918,24 +2258,43 @@ export function syncFabricObjectFromNode(
     object.setCoords()
     return
   } else if (node.type === "text" && object instanceof Textbox) {
-    const text = projectFabricTextState(node)
+    const text = textProjection
+    if (!text) return
+    const objectCaching = shouldUseFabricTextObjectCache(
+      text.width,
+      text.height
+    )
+    if (object instanceof StudioTextbox) {
+      object.setStudioDirectClip(node.sizingMode === "fixed" && !objectCaching)
+    }
     if (!object.isEditing) {
       if (object instanceof StudioTextbox) {
-        object.setStudioUsesCanonicalLines(true)
+        object.setStudioUsesCanonicalLines(true, false)
+        object.setStudioTextLayout(
+          node.sizingMode,
+          text.topOffset,
+          text.layoutLines,
+          text.editingListMarkers,
+          false
+        )
       }
       options.text = text.displayText
-      options.styles = text.canonicalStyles
+      options.styles = {}
     }
     Object.assign(options, {
       fill: text.fill,
       fontFamily: text.fontFamily,
       fontSize: text.fontSize,
       fontWeight: text.fontWeight,
+      fontStyle: text.fontStyle,
+      underline: text.underline,
+      linethrough: text.linethrough,
       textAlign: text.textAlign,
       lineHeight: text.lineHeight,
       charSpacing: text.charSpacing,
       editable: !node.locked,
-      clipPath: fixedTextClip(node),
+      objectCaching,
+      clipPath: objectCaching ? fixedTextClip(node) : undefined,
     })
   } else if (node.type === "image" && object instanceof Group) {
     syncImageGroup(object, node)
@@ -1949,13 +2308,13 @@ export function syncFabricObjectFromNode(
     positionFabricLineFrame(object, node)
   }
   if (node.type === "text" && object instanceof Textbox) {
-    if (object instanceof StudioTextbox) {
-      const projection = projectFabricTextState(node)
+    if (object instanceof StudioTextbox && textProjection) {
       object.setStudioTextLayout(
         node.sizingMode,
-        projection.topOffset,
-        projection.layoutLines,
-        projection.editingListMarkers
+        textProjection.topOffset,
+        textProjection.layoutLines,
+        textProjection.editingListMarkers,
+        false
       )
     }
     object.set({ height: node.height })
@@ -2048,6 +2407,10 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     pasteAsPlainRequested: boolean
     cancelled: boolean
   } | null = null
+  private pendingTextEditingStateSession: NonNullable<
+    FabricCanvasAdapter["textEditSession"]
+  > | null = null
+  private textEditingStatePublishQueued = false
 
   constructor(private readonly events: CanvasAdapterEvents) {}
 
@@ -2458,16 +2821,14 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     const node = this.nodeByNodeId.get(nodeId)
     const rawText = this.textByNodeId.get(nodeId)
     if (object instanceof StudioTextbox) {
-      object.setStudioUsesCanonicalLines(false)
+      object.setStudioUsesCanonicalLines(false, false)
     }
     if (rawText !== undefined && object.text !== rawText) {
       setFabricTextboxContent(
         object,
         rawText,
         "editing",
-        node?.type === "text"
-          ? projectFabricTextState(node).editingStyles
-          : undefined
+        node?.type === "text" ? projectFabricTextEditingStyles(node) : undefined
       )
       object.setCoords()
     }
@@ -2496,7 +2857,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
         session.target,
         projection.displayText,
         "canonical",
-        projection.canonicalStyles
+        {}
       )
       session.target.setCoords()
     }
@@ -3226,7 +3587,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
           rawText,
           "editing",
           node?.type === "text"
-            ? projectFabricTextState(node).editingStyles
+            ? projectFabricTextEditingStyles(node)
             : undefined
         )
         transform.target.setCoords()
@@ -3677,7 +4038,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     const baseline = session?.baselineNode
     const draft = session?.draftNode
     const cancelled = session?.cancelled ?? false
-    this.clearTextEditSession()
+    this.clearTextEditSession(!cancelled)
     if (cancelled || !baseline || !draft) {
       const node = baseline ?? this.nodeByNodeId.get(nodeId)
       const projection =
@@ -3686,7 +4047,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
         target,
         projection?.displayText ?? baseline?.text ?? target.text,
         "canonical",
-        projection?.canonicalStyles
+        {}
       )
       if (baseline) this.textByNodeId.set(nodeId, baseline.text)
       target.setCoords()
@@ -3696,12 +4057,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     const patch = richTextEditPatch(baseline, draft)
     if (!patch) {
       const projection = projectFabricTextState(baseline)
-      setFabricTextboxContent(
-        target,
-        projection.displayText,
-        "canonical",
-        projection.canonicalStyles
-      )
+      setFabricTextboxContent(target, projection.displayText, "canonical", {})
       target.setCoords()
       this.canvas?.requestRenderAll()
       return
@@ -3726,16 +4082,11 @@ export class FabricCanvasAdapter implements CanvasAdapter {
         target,
         projection.displayText ?? settled,
         "canonical",
-        projection.canonicalStyles
+        {}
       )
     } else {
       const projection = projectFabricTextState(draft)
-      setFabricTextboxContent(
-        target,
-        projection.displayText,
-        "canonical",
-        projection.canonicalStyles
-      )
+      setFabricTextboxContent(target, projection.displayText, "canonical", {})
     }
     target.setCoords()
     this.canvas?.requestRenderAll()
@@ -3748,32 +4099,33 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     const node = this.nodeByNodeId.get(nodeId)
     if (node?.type !== "text") return
     const projection = projectFabricTextState(node)
-    if (target.text !== node.text) {
-      const projectedSelection = fabricTextSelection(target)
-      const selection = {
-        anchor: projectedTextOffsetToSource(
-          projection.layoutLines,
-          projectedSelection.anchor
-        ),
-        focus: projectedTextOffsetToSource(
-          projection.layoutLines,
-          projectedSelection.focus
-        ),
-      }
-      setFabricTextboxContent(
-        target,
-        node.text,
-        "editing",
-        projection.editingStyles
-      )
+    const usesProjectedText = target.text !== node.text
+    const projectedSelection = fabricTextSelection(target)
+    const selection = usesProjectedText
+      ? {
+          anchor: projectedTextOffsetToSource(
+            projection.layoutLines,
+            projectedSelection.anchor
+          ),
+          focus: projectedTextOffsetToSource(
+            projection.layoutLines,
+            projectedSelection.focus
+          ),
+        }
+      : projectedSelection
+    setFabricTextboxContent(
+      target,
+      node.text,
+      "editing",
+      projection.editingStyles
+    )
+    if (usesProjectedText) {
       if (target.hiddenTextarea) target.hiddenTextarea.value = node.text
-      target.initDimensions()
-      restoreFabricTextSelection(target, selection)
-      target.setCoords()
-      this.canvas?.requestRenderAll()
-    } else if (target instanceof StudioTextbox) {
-      target.setStudioUsesCanonicalLines(false)
     }
+    target.initDimensions()
+    restoreFabricTextSelection(target, selection)
+    target.setCoords()
+    this.canvas?.requestRenderAll()
     this.clearTextEditSession()
     this.textEditSession = {
       nodeId,
@@ -3806,17 +4158,14 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     const session = this.textEditSession
     if (!session || session.target !== target || session.cancelled) return
     this.updateTextEditDraft(session)
-    this.publishTextEditingState(session)
+    this.scheduleTextEditingState(session)
   }
 
   private onTextSelectionChanged = ({ target }: { target: FabricObject }) => {
     if (!(target instanceof Textbox)) return
     const session = this.textEditSession
     if (!session || session.target !== target || session.cancelled) return
-    queueMicrotask(() => {
-      if (this.textEditSession !== session || session.cancelled) return
-      this.publishTextEditingState(session)
-    })
+    this.scheduleTextEditingState(session)
   }
 
   private onTextEditingKeyDown = (event: KeyboardEvent) => {
@@ -3942,12 +4291,11 @@ export class FabricCanvasAdapter implements CanvasAdapter {
       links: [...result.content.links],
     }
     session.typingOverride = undefined
-    const projection = projectFabricTextState(session.draftNode)
     setFabricTextboxContent(
       session.target,
       result.text,
       "editing",
-      projection.editingStyles
+      projectFabricTextEditingStyles(session.draftNode)
     )
     if (session.target.hiddenTextarea) {
       session.target.hiddenTextarea.value = result.text
@@ -3956,7 +4304,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     restoreFabricTextSelection(session.target, result.selection)
     session.target.setCoords()
     this.canvas?.requestRenderAll()
-    this.publishTextEditingState(session)
+    this.scheduleTextEditingState(session)
   }
 
   private onTextEditingCopy = (event: ClipboardEvent) => {
@@ -4021,7 +4369,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     this.applyTextClipboardResult(
       session,
       clipboard.kind === "rich"
-        ? pasteTextClipboardPayload(
+        ? pasteParsedTextClipboardPayload(
             session.draftNode.text,
             content,
             selection,
@@ -4068,8 +4416,9 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     session: NonNullable<FabricCanvasAdapter["textEditSession"]>
   ) {
     const selection = fabricTextSelection(session.target)
-    const projection = projectFabricTextState(session.draftNode)
-    session.target.set({ styles: projection.editingStyles })
+    session.target.set({
+      styles: projectFabricTextEditingStyles(session.draftNode),
+    })
     session.target.initDimensions()
     restoreFabricTextSelection(session.target, selection)
     session.target.setCoords()
@@ -4079,6 +4428,9 @@ export class FabricCanvasAdapter implements CanvasAdapter {
   private publishTextEditingState(
     session: NonNullable<FabricCanvasAdapter["textEditSession"]>
   ) {
+    if (this.pendingTextEditingStateSession === session) {
+      this.pendingTextEditingStateSession = null
+    }
     const selection = fabricTextSelection(session.target)
     this.events.onTextEditingChange?.({
       nodeId: session.nodeId,
@@ -4121,7 +4473,30 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     })
   }
 
-  private clearTextEditSession() {
+  private scheduleTextEditingState(
+    session: NonNullable<FabricCanvasAdapter["textEditSession"]>
+  ) {
+    this.pendingTextEditingStateSession = session
+    if (this.textEditingStatePublishQueued) return
+    this.textEditingStatePublishQueued = true
+    queueMicrotask(() => {
+      this.textEditingStatePublishQueued = false
+      this.flushScheduledTextEditingState()
+    })
+  }
+
+  private flushScheduledTextEditingState() {
+    const session = this.pendingTextEditingStateSession
+    this.pendingTextEditingStateSession = null
+    if (!session || this.textEditSession !== session || session.cancelled) {
+      return
+    }
+    this.publishTextEditingState(session)
+  }
+
+  private clearTextEditSession(flushScheduledState = false) {
+    if (flushScheduledState) this.flushScheduledTextEditingState()
+    else this.pendingTextEditingStateSession = null
     this.textEditSession?.target.hiddenTextarea?.removeEventListener(
       "keydown",
       this.onTextEditingKeyDown,

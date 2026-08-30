@@ -5,7 +5,6 @@ import {
   fieldDefinitionValidationMessage,
   fieldValueSatisfiesDefinition,
 } from "./fields"
-import { getGroupNodeIds } from "./groups"
 import { managedImageAssetIdentity } from "./media"
 import { projectTextLayout } from "./text-layout"
 import { normalizeRichTextContent } from "./rich-text"
@@ -78,6 +77,42 @@ export function validateDocument(document: Document): ValidationIssue[] {
   const nodes = new Map(document.nodes.map((node) => [node.id, node]))
   const fields = new Map(document.fields.map((field) => [field.id, field]))
   const groups = new Map(document.groups.map((group) => [group.id, group]))
+  const outputIds = new Set(document.outputs.map((output) => output.id))
+  const pageNodeIds = new Map(
+    document.pages.map((page) => [page.id, new Set(page.nodeIds)])
+  )
+  const pageNodeIndexes = new Map(
+    document.pages.map((page) => [
+      page.id,
+      new Map(page.nodeIds.map((nodeId, index) => [nodeId, index])),
+    ])
+  )
+  const childGroupsByParent = new Map<string, Document["groups"]>()
+  for (const group of document.groups) {
+    if (!group.parentGroupId) continue
+    const children = childGroupsByParent.get(group.parentGroupId)
+    if (children) children.push(group)
+    else childGroupsByParent.set(group.parentGroupId, [group])
+  }
+  const descendantNodeIdsByGroup = new Map<string, string[]>()
+  const resolvingGroupIds = new Set<string>()
+  const descendantNodeIds = (groupId: string): string[] => {
+    const cached = descendantNodeIdsByGroup.get(groupId)
+    if (cached) return cached
+    if (resolvingGroupIds.has(groupId)) return []
+    const group = groups.get(groupId)
+    if (!group) return []
+    resolvingGroupIds.add(groupId)
+    const nodeIds = [
+      ...group.nodeIds,
+      ...(childGroupsByParent.get(groupId) ?? []).flatMap((child) =>
+        descendantNodeIds(child.id)
+      ),
+    ]
+    resolvingGroupIds.delete(groupId)
+    descendantNodeIdsByGroup.set(groupId, nodeIds)
+    return nodeIds
+  }
 
   const reportDuplicateIds = (
     collection: string,
@@ -199,7 +234,7 @@ export function validateDocument(document: Document): ValidationIssue[] {
 
   const nodeOwner = new Map<string, string>()
   for (const page of document.pages) {
-    if (!document.outputs.some((output) => output.id === page.outputId)) {
+    if (!outputIds.has(page.outputId)) {
       issues.push({
         id: `page:${page.id}:output:${page.outputId}`,
         severity: "error",
@@ -443,10 +478,7 @@ export function validateDocument(document: Document): ValidationIssue[] {
       }
     }
     const directNodeIds = new Set<string>()
-    if (
-      group.nodeIds.length === 0 &&
-      !document.groups.some((candidate) => candidate.parentGroupId === group.id)
-    ) {
+    if (group.nodeIds.length === 0 && !childGroupsByParent.has(group.id)) {
       issues.push({
         id: `group:${group.id}:empty`,
         severity: "error",
@@ -468,7 +500,7 @@ export function validateDocument(document: Document): ValidationIssue[] {
         continue
       }
       directNodeIds.add(nodeId)
-      if (!nodes.has(nodeId) || !page.nodeIds.includes(nodeId)) {
+      if (!nodes.has(nodeId) || !pageNodeIds.get(page.id)?.has(nodeId)) {
         issues.push({
           id: `group:${group.id}:node:${nodeId}`,
           severity: "error",
@@ -509,9 +541,9 @@ export function validateDocument(document: Document): ValidationIssue[] {
       parentId = groups.get(parentId)?.parentGroupId
     }
 
-    const descendantNodeIds = getGroupNodeIds(document, group.id)
-    const descendantIndexes = descendantNodeIds
-      .map((nodeId) => page.nodeIds.indexOf(nodeId))
+    const nodeIndexes = pageNodeIndexes.get(page.id)
+    const descendantIndexes = descendantNodeIds(group.id)
+      .map((nodeId) => nodeIndexes?.get(nodeId) ?? -1)
       .filter((index) => index >= 0)
       .sort((left, right) => left - right)
     if (

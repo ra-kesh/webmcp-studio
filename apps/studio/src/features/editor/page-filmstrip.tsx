@@ -62,7 +62,10 @@ import type {
   PageThumbnailRasterKey,
   PageThumbnailRasterProducer,
 } from "./page-thumbnail-raster-cache"
-import { pageThumbnailRasterRetryDelay } from "./page-thumbnail-raster-producer"
+import {
+  pageThumbnailRasterRetryDelay,
+  StudioPageThumbnailRasterError,
+} from "./page-thumbnail-raster-producer"
 
 const menuItemClass = "min-h-11 min-[1280px]:min-h-0"
 const DeferredThumbnailArtboard = memo(Artboard)
@@ -279,9 +282,7 @@ const PageFilmstripItem = memo(function PageFilmstripItem({
           data-page-thumbnail-id={page.id}
         >
           <span className="overflow-hidden rounded-[2px] border bg-white shadow-xs transition-[border-color,box-shadow] group-data-[active=true]:border-studio-accent group-data-[active=true]:ring-2 group-data-[active=true]:ring-studio-accent/20">
-            {active ||
-            (renderThumbnail &&
-              (rasterState === "disabled" || rasterState === "error")) ? (
+            {renderThumbnail && rasterState === "disabled" ? (
               <DeferredThumbnailArtboard
                 document={document}
                 imageSemantics="thumbnail"
@@ -312,7 +313,8 @@ const PageFilmstripItem = memo(function PageFilmstripItem({
                 className={cn(
                   "block bg-muted",
                   rasterState === "loading" &&
-                    "animate-pulse motion-reduce:animate-none"
+                    "animate-pulse motion-reduce:animate-none",
+                  rasterState === "error" && "bg-muted-foreground/15"
                 )}
                 data-thumbnail-state={rasterState}
                 style={{
@@ -532,8 +534,6 @@ export const PageFilmstrip = memo(function PageFilmstrip({
   const activePage =
     document.pages.find((page) => page.id === activePageId) ?? document.pages[0]
   const effectiveActivePageId = activePage.id
-  const effectiveActivePageIdRef = useRef(effectiveActivePageId)
-  effectiveActivePageIdRef.current = effectiveActivePageId
   const output = document.outputs.find(
     (candidate) => candidate.id === activePage.outputId
   )
@@ -571,6 +571,35 @@ export const PageFilmstrip = memo(function PageFilmstrip({
       ),
     [deferredThumbnailDocument, nodesById, output?.id, pages]
   )
+  const productCommandContextRef = useRef(productCommandContext)
+  productCommandContextRef.current = productCommandContext
+  const productMenuGroupsByPageId = useMemo(() => {
+    const context = productCommandContextRef.current
+    if (!context) {
+      return new Map<string, readonly ProductMenuGroup[]>()
+    }
+    return new Map(
+      pages.map((page) => [
+        page.id,
+        buildPageContextMenu(
+          context,
+          createPageProductCommandTarget(context, page)
+        ),
+      ])
+    )
+  }, [
+    pages,
+    productCommandContext?.documentId,
+    productCommandContext?.snapshotId,
+    productCommandContext?.editor.reviewPending,
+    productCommandContext?.editor.imageCropActive,
+    productCommandContext?.stateByCommandId?.["page.add"],
+    productCommandContext?.stateByCommandId?.["page.duplicate"],
+    productCommandContext?.stateByCommandId?.["page.move-down"],
+    productCommandContext?.stateByCommandId?.["page.move-up"],
+    productCommandContext?.stateByCommandId?.["page.remove"],
+    productCommandContext?.stateByCommandId?.["page.update"],
+  ])
   const [rasterCacheState, setRasterCacheState] = useState<{
     producer: PageThumbnailRasterProducer
     cache: ReturnType<typeof createPageThumbnailRasterCache>
@@ -594,6 +623,10 @@ export const PageFilmstrip = memo(function PageFilmstrip({
       producer: raster.producer,
       concurrency: 3,
       maxEntries: 64,
+      retryAfterMs: (error) =>
+        error instanceof StudioPageThumbnailRasterError
+          ? error.retryAfterMs
+          : null,
     })
     setRasterCacheState({ producer: raster.producer, cache })
     return () => cache.dispose()
@@ -818,9 +851,7 @@ export const PageFilmstrip = memo(function PageFilmstrip({
   )
 
   useEffect(() => {
-    const desiredPageIds = new Set(
-      [...visiblePageIds].filter((pageId) => pageId !== effectiveActivePageId)
-    )
+    const desiredPageIds = new Set(visiblePageIds)
     for (const [pageId, timer] of rasterAdmissionTimersRef.current) {
       if (rasterCache && desiredPageIds.has(pageId)) continue
       clearTimeout(timer)
@@ -855,10 +886,7 @@ export const PageFilmstrip = memo(function PageFilmstrip({
           return
         }
         rasterAdmissionTimersRef.current.delete(pageId)
-        if (
-          !observedVisiblePageIdsRef.current.has(pageId) ||
-          effectiveActivePageIdRef.current === pageId
-        ) {
+        if (!observedVisiblePageIdsRef.current.has(pageId)) {
           return
         }
         setAdmittedRasterPageIds((current) =>
@@ -868,12 +896,7 @@ export const PageFilmstrip = memo(function PageFilmstrip({
       const timer = setTimeout(admitAfterScrollSettles, rasterAdmissionDelayMs)
       rasterAdmissionTimersRef.current.set(pageId, timer)
     }
-  }, [
-    effectiveActivePageId,
-    rasterAdmissionDelayMs,
-    rasterCache,
-    visiblePageIds,
-  ])
+  }, [rasterAdmissionDelayMs, rasterCache, visiblePageIds])
 
   useEffect(() => {
     if (!rasterCache) {
@@ -927,7 +950,6 @@ export const PageFilmstrip = memo(function PageFilmstrip({
     let cancelled = false
     for (const [pageId, key] of rasterKeysByPageId) {
       if (
-        pageId === effectiveActivePageId ||
         !visiblePageIds.has(pageId) ||
         !observedVisiblePageIdsRef.current.has(pageId)
       ) {
@@ -938,10 +960,7 @@ export const PageFilmstrip = memo(function PageFilmstrip({
     const requestPageIds =
       rasterAdmissionDelayMs === 0 ? visiblePageIds : admittedRasterPageIds
     for (const pageId of requestPageIds) {
-      if (
-        pageId === effectiveActivePageId ||
-        !observedVisiblePageIdsRef.current.has(pageId)
-      ) {
+      if (!observedVisiblePageIdsRef.current.has(pageId)) {
         continue
       }
       const key = rasterKeysByPageId.get(pageId)
@@ -966,10 +985,6 @@ export const PageFilmstrip = memo(function PageFilmstrip({
         },
         (error: unknown) => {
           if (cancelled) return
-          setRasterErrors((current) => {
-            if (current.has(pageId)) return current
-            return new Set(current).add(pageId)
-          })
           const previousRetry = rasterRetriesRef.current.get(pageId)
           const attempt =
             previousRetry &&
@@ -978,7 +993,19 @@ export const PageFilmstrip = memo(function PageFilmstrip({
               : 1
           const delay = pageThumbnailRasterRetryDelay(error, attempt)
           clearRasterRetry(pageId)
-          if (delay === null) return
+          if (delay === null) {
+            setRasterErrors((current) => {
+              if (current.has(pageId)) return current
+              return new Set(current).add(pageId)
+            })
+            return
+          }
+          setRasterErrors((current) => {
+            if (!current.has(pageId)) return current
+            const next = new Set(current)
+            next.delete(pageId)
+            return next
+          })
           const retry: RasterRetryState = { key, attempt, timer: null }
           const timer = setTimeout(() => {
             const current = rasterRetriesRef.current.get(pageId)
@@ -997,7 +1024,6 @@ export const PageFilmstrip = memo(function PageFilmstrip({
   }, [
     clearRasterRetry,
     admittedRasterPageIds,
-    effectiveActivePageId,
     rasterCache,
     rasterAdmissionDelayMs,
     rasterKeysByPageId,
@@ -1054,12 +1080,7 @@ export const PageFilmstrip = memo(function PageFilmstrip({
         <div className="flex min-w-max items-start gap-1.5 px-2 py-1 min-[1280px]:gap-2 min-[1280px]:px-3">
           {pages.map((page, index) => {
             const active = page.id === effectiveActivePageId
-            const productMenuGroups = productCommandContext
-              ? buildPageContextMenu(
-                  productCommandContext,
-                  createPageProductCommandTarget(productCommandContext, page)
-                )
-              : undefined
+            const productMenuGroups = productMenuGroupsByPageId.get(page.id)
             const rasterKey = rasterKeysByPageId.get(page.id)
             const rasterEntry =
               rasterKey && rasterEntries.has(page.id)
@@ -1071,13 +1092,11 @@ export const PageFilmstrip = memo(function PageFilmstrip({
                 : "deferred"
               : !visiblePageIds.has(page.id) && !active
                 ? "deferred"
-                : active
-                  ? "disabled"
-                  : rasterEntry
-                    ? "ready"
-                    : rasterErrors.has(page.id)
-                      ? "error"
-                      : "loading"
+                : rasterEntry
+                  ? "ready"
+                  : rasterErrors.has(page.id)
+                    ? "error"
+                    : "loading"
             return (
               <PageFilmstripItem
                 key={page.id}

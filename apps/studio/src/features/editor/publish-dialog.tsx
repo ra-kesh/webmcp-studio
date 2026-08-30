@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Check, CircleAlert, Code2, LoaderCircle, Rocket } from "lucide-react"
 import { getPublishReadiness } from "@webmcp/document"
 import type { Document, TemplateVersion } from "@webmcp/document"
@@ -72,8 +72,11 @@ export function PublishDialog({
     setPublishing(false)
   }, [document.id, documentSnapshotId])
 
-  const readiness = getPublishReadiness(document)
-  const studioAssetIssues = studioAssetFieldPublicationIssues(document)
+  const readiness = useMemo(() => getPublishReadiness(document), [document])
+  const studioAssetIssues = useMemo(
+    () => studioAssetFieldPublicationIssues(document),
+    [document]
+  )
   const currentVersion =
     published ??
     (currentSnapshotVersion?.sourceSnapshotId === documentSnapshotId

@@ -42,6 +42,16 @@ const textClipboardPayloadSchema = z
 
 export type TextClipboardPayload = z.infer<typeof textClipboardPayloadSchema>
 
+declare const parsedTextClipboardPayload: unique symbol
+
+/**
+ * A clipboard payload that already crossed the untrusted JSON boundary and
+ * had its ranges normalized and resource attachments materialized.
+ */
+export type ParsedTextClipboardPayload = TextClipboardPayload & {
+  readonly [parsedTextClipboardPayload]: true
+}
+
 const textParagraphRanges = (text: string) => {
   const ranges: Array<{ start: number; end: number }> = []
   let start = 0
@@ -214,7 +224,7 @@ export function serializeTextClipboardHtml(payload: TextClipboardPayload) {
 
 export function parseTextClipboardPayload(
   value: string
-): TextClipboardPayload | null {
+): ParsedTextClipboardPayload | null {
   if (!value || value.length > MAX_CLIPBOARD_JSON_LENGTH) return null
   try {
     const parsed = textClipboardPayloadSchema.parse(JSON.parse(value))
@@ -222,7 +232,7 @@ export function parseTextClipboardPayload(
     return {
       ...parsed,
       content: materializedRichTextContent(parsed.text, content),
-    }
+    } as ParsedTextClipboardPayload
   } catch {
     return null
   }
@@ -272,10 +282,45 @@ export function pasteTextClipboardPayload(
   payloadInput: TextClipboardPayload
 ): ReplaceRichTextRangeResult {
   const payload = textClipboardPayloadSchema.parse(payloadInput)
-  const payloadContent = materializedRichTextContent(
-    payload.text,
-    normalizeRichTextContent(payload.text, payload.content)
+  return pasteMaterializedTextClipboardPayload(
+    text,
+    contentInput,
+    selectionInput,
+    {
+      ...payload,
+      content: materializedRichTextContent(
+        payload.text,
+        normalizeRichTextContent(payload.text, payload.content)
+      ),
+    }
   )
+}
+
+/**
+ * Paste a payload returned by parseTextClipboardPayload without validating and
+ * normalizing the same untrusted bytes a second time on the editor thread.
+ */
+export function pasteParsedTextClipboardPayload(
+  text: string,
+  contentInput: RichTextContent,
+  selectionInput: TextSelection,
+  payload: ParsedTextClipboardPayload
+): ReplaceRichTextRangeResult {
+  return pasteMaterializedTextClipboardPayload(
+    text,
+    contentInput,
+    selectionInput,
+    payload
+  )
+}
+
+function pasteMaterializedTextClipboardPayload(
+  text: string,
+  contentInput: RichTextContent,
+  selectionInput: TextSelection,
+  payload: TextClipboardPayload
+): ReplaceRichTextRangeResult {
+  const payloadContent = payload.content
   const selection = normalizeTextSelection(text, selectionInput)
   const replaced = replaceRichTextRange(
     text,

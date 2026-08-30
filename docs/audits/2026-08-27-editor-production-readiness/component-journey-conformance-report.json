@@ -1,0 +1,124 @@
+{
+  "results": [
+    {
+      "name": "component journey source Fabric versus renderer PNG",
+      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-30T20-24-34.290Z-13d3a12d-6e8a-4df5-9c8c-59d1f4855f95/renderer-png/cover.png",
+      "candidate": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-30T20-24-34.290Z-13d3a12d-6e8a-4df5-9c8c-59d1f4855f95/fabric/cover.png",
+      "diff": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/diff/component-journey/cover-fabric.png",
+      "width": 1240,
+      "height": 1754,
+      "differentPixels": 5600,
+      "differentPixelRatio": 0.0025747599955861255,
+      "rootMeanSquareError": 4.321117279539151,
+      "limits": {
+        "pixelDeltaThreshold": 24,
+        "maxDifferentPixelRatio": 0.015,
+        "maxRootMeanSquareError": 6
+      },
+      "rawPassed": true,
+      "geometry": null,
+      "acceptance": "raw",
+      "passed": true
+    },
+    {
+      "name": "component journey source React view versus renderer PNG",
+      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-30T20-24-34.290Z-13d3a12d-6e8a-4df5-9c8c-59d1f4855f95/renderer-png/cover.png",
+      "candidate": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-30T20-24-34.290Z-13d3a12d-6e8a-4df5-9c8c-59d1f4855f95/render-view/cover.png",
+      "diff": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/diff/component-journey/cover-render-view.png",
+      "width": 1240,
+      "height": 1754,
+      "differentPixels": 5598,
+      "differentPixelRatio": 0.002573840438444845,
+      "rootMeanSquareError": 4.32139089873449,
+      "limits": {
+        "pixelDeltaThreshold": 24,
+        "maxDifferentPixelRatio": 0.015,
+        "maxRootMeanSquareError": 6
+      },
+      "rawPassed": true,
+      "geometry": null,
+      "acceptance": "raw",
+      "passed": true
+    },
+    {
+      "name": "component journey source PDF raster versus renderer PNG",
+      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-30T20-24-34.290Z-13d3a12d-6e8a-4df5-9c8c-59d1f4855f95/renderer-png/cover.png",
+      "candidate": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-30T20-24-34.290Z-13d3a12d-6e8a-4df5-9c8c-59d1f4855f95/renderer-pdf/cover.png",
+      "diff": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/diff/component-journey/cover-pdf.png",
+      "width": 1240,
+      "height": 1754,
+      "differentPixels": 6007,
+      "differentPixelRatio": 0.0027618898738367603,
+      "rootMeanSquareError": 4.378420138235255,
+      "limits": {
+        "pixelDeltaThreshold": 24,
+        "maxDifferentPixelRatio": 0.015,
+        "maxRootMeanSquareError": 6
+      },
+      "rawPassed": true,
+      "geometry": null,
+      "acceptance": "raw",
+      "passed": true
+    },
+    {
+      "name": "component journey detached instance Fabric versus renderer PNG",
+      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-30T20-24-34.290Z-13d3a12d-6e8a-4df5-9c8c-59d1f4855f95/renderer-png/story.png",
+      "candidate": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-30T20-24-34.290Z-13d3a12d-6e8a-4df5-9c8c-59d1f4855f95/fabric/story.png",
+      "diff": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/diff/component-journey/story-fabric.png",
+      "width": 1240,
+      "height": 1754,
+      "differentPixels": 3402,
+      "differentPixelRatio": 0.0015641666973185715,
+      "rootMeanSquareError": 3.0655167118563456,
+      "limits": {
+        "pixelDeltaThreshold": 24,
+        "maxDifferentPixelRatio": 0.015,
+        "maxRootMeanSquareError": 6
+      },
+      "rawPassed": true,
+      "geometry": null,
+      "acceptance": "raw",
+      "passed": true
+    },
+    {
+      "name": "component journey detached instance React view versus renderer PNG",
+      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-30T20-24-34.290Z-13d3a12d-6e8a-4df5-9c8c-59d1f4855f95/renderer-png/story.png",
+      "candidate": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-30T20-24-34.290Z-13d3a12d-6e8a-4df5-9c8c-59d1f4855f95/render-view/story.png",
+      "diff": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/diff/component-journey/story-render-view.png",
+      "width": 1240,
+      "height": 1754,
+      "differentPixels": 6269,
+      "differentPixelRatio": 0.0028823518593445395,
+      "rootMeanSquareError": 4.61756057778173,
+      "limits": {
+        "pixelDeltaThreshold": 24,
+        "maxDifferentPixelRatio": 0.015,
+        "maxRootMeanSquareError": 6
+      },
+      "rawPassed": true,
+      "geometry": null,
+      "acceptance": "raw",
+      "passed": true
+    },
+    {
+      "name": "component journey detached instance PDF raster versus renderer PNG",
+      "baseline": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-30T20-24-34.290Z-13d3a12d-6e8a-4df5-9c8c-59d1f4855f95/renderer-png/story.png",
+      "candidate": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/runs/2026-08-30T20-24-34.290Z-13d3a12d-6e8a-4df5-9c8c-59d1f4855f95/renderer-pdf/story.png",
+      "diff": "/Users/rakesh/Developer/webmcp-studio/docs/audits/2026-08-27-editor-production-readiness/artifacts/diff/component-journey/story-pdf.png",
+      "width": 1240,
+      "height": 1754,
+      "differentPixels": 9499,
+      "differentPixelRatio": 0.004367436642512966,
+      "rootMeanSquareError": 4.853147106513369,
+      "limits": {
+        "pixelDeltaThreshold": 24,
+        "maxDifferentPixelRatio": 0.015,
+        "maxRootMeanSquareError": 6
+      },
+      "rawPassed": true,
+      "geometry": null,
+      "acceptance": "raw",
+      "passed": true
+    }
+  ]
+}

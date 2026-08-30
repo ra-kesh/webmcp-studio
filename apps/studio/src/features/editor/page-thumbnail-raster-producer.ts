@@ -138,6 +138,15 @@ function exactPositiveIntegerHeader(response: Response, name: string) {
   return Number.isSafeInteger(parsed) ? parsed : null
 }
 
+async function discardResponseBody(response: Response) {
+  try {
+    await response.body?.cancel()
+  } catch {
+    // Preserve the renderer's stable domain error even if a runtime has
+    // already closed or locked the response stream.
+  }
+}
+
 /**
  * Produces one renderer-backed raster from the immutable snapshot admitted by
  * the caller. The operation keeps no active-editor state, so concurrent
@@ -177,10 +186,15 @@ export async function produceStudioPageThumbnailRaster({
     signal,
   })
   if (!response.ok) {
+    const retryAfterMs = responseRetryAfterMs(response)
+    // A fetch resolves as soon as response headers arrive. Release the unread
+    // error body before freeing the raster-cache slot so browser-level network
+    // concurrency cannot grow beyond the cache's own concurrency budget.
+    await discardResponseBody(response)
     throw new StudioPageThumbnailRasterError(
       "request_failed",
       `Page thumbnail rendering failed with status ${response.status}.`,
-      responseRetryAfterMs(response)
+      retryAfterMs
     )
   }
 
@@ -197,6 +211,7 @@ export async function produceStudioPageThumbnailRaster({
     height !== key.pixelHeight ||
     byteLength === null
   ) {
+    await discardResponseBody(response)
     throw new StudioPageThumbnailRasterError(
       "invalid_response",
       "The thumbnail renderer returned an invalid resource identity."

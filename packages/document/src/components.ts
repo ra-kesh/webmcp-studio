@@ -33,6 +33,52 @@ export type ComponentSourceSubtree = {
   nodeIds: string[]
 }
 
+type ComponentDocumentIndex = {
+  componentsById: Map<string, ComponentDefinition>
+  groupsById: Map<string, Document["groups"][number]>
+  childGroupIdsByParent: Map<string, string[]>
+  nodesById: Map<string, SceneNode>
+  pagesById: Map<string, Document["pages"][number]>
+  pageNodeOrderById: Map<string, Map<string, number>>
+  instancesByComponentId: Map<string, ComponentInstance[]>
+  sourceSubtrees: Map<string, ComponentSourceSubtree | null>
+}
+
+function buildComponentDocumentIndex(
+  document: Document
+): ComponentDocumentIndex {
+  const childGroupIdsByParent = new Map<string, string[]>()
+  for (const group of document.groups) {
+    if (!group.parentGroupId) continue
+    const children = childGroupIdsByParent.get(group.parentGroupId)
+    if (children) children.push(group.id)
+    else childGroupIdsByParent.set(group.parentGroupId, [group.id])
+  }
+  const instancesByComponentId = new Map<string, ComponentInstance[]>()
+  for (const instance of document.componentInstances) {
+    const instances = instancesByComponentId.get(instance.componentId)
+    if (instances) instances.push(instance)
+    else instancesByComponentId.set(instance.componentId, [instance])
+  }
+  return {
+    componentsById: new Map(
+      document.components.map((component) => [component.id, component])
+    ),
+    groupsById: new Map(document.groups.map((group) => [group.id, group])),
+    childGroupIdsByParent,
+    nodesById: new Map(document.nodes.map((node) => [node.id, node])),
+    pagesById: new Map(document.pages.map((page) => [page.id, page])),
+    pageNodeOrderById: new Map(
+      document.pages.map((page) => [
+        page.id,
+        new Map(page.nodeIds.map((nodeId, index) => [nodeId, index])),
+      ])
+    ),
+    instancesByComponentId,
+    sourceSubtrees: new Map(),
+  }
+}
+
 const own = (value: object, key: PropertyKey) =>
   Object.prototype.hasOwnProperty.call(value, key)
 
@@ -64,41 +110,62 @@ function rotatePoint(x: number, y: number, degrees: number) {
 
 export function componentSourceSubtree(
   document: Document,
-  sourceGroupId: string
+  sourceGroupId: string,
+  index?: ComponentDocumentIndex
 ): ComponentSourceSubtree | null {
-  const root = document.groups.find((group) => group.id === sourceGroupId)
+  const cached = index?.sourceSubtrees.get(sourceGroupId)
+  if (cached !== undefined || index?.sourceSubtrees.has(sourceGroupId)) {
+    return cached ?? null
+  }
+  const root =
+    index?.groupsById.get(sourceGroupId) ??
+    document.groups.find((group) => group.id === sourceGroupId)
   if (!root) return null
 
   const groupIds: string[] = []
   const nodeIds: string[] = []
   const visited = new Set<string>()
   const queue = [sourceGroupId]
-  for (let index = 0; index < queue.length; index += 1) {
-    const groupId = queue[index]
+  for (let cursor = 0; cursor < queue.length; cursor += 1) {
+    const groupId = queue[cursor]
     if (!groupId || visited.has(groupId)) continue
     visited.add(groupId)
-    const group = document.groups.find((candidate) => candidate.id === groupId)
+    const group =
+      index?.groupsById.get(groupId) ??
+      document.groups.find((candidate) => candidate.id === groupId)
     if (!group) continue
     groupIds.push(group.id)
     nodeIds.push(...group.nodeIds)
-    for (const child of document.groups) {
-      if (child.parentGroupId === group.id) queue.push(child.id)
+    if (index) {
+      queue.push(...(index.childGroupIdsByParent.get(group.id) ?? []))
+    } else {
+      for (const child of document.groups) {
+        if (child.parentGroupId === group.id) queue.push(child.id)
+      }
     }
   }
 
-  return {
+  const subtree = {
     groupIds,
     nodeIds: [...new Set(nodeIds)],
   }
+  index?.sourceSubtrees.set(sourceGroupId, subtree)
+  return subtree
 }
 
 export function componentSourceNodes(
   document: Document,
-  component: ComponentDefinition
+  component: ComponentDefinition,
+  index?: ComponentDocumentIndex
 ): SceneNode[] {
-  const subtree = componentSourceSubtree(document, component.sourceGroupId)
+  const subtree = componentSourceSubtree(
+    document,
+    component.sourceGroupId,
+    index
+  )
   if (!subtree) return []
-  const nodesById = new Map(document.nodes.map((node) => [node.id, node]))
+  const nodesById =
+    index?.nodesById ?? new Map(document.nodes.map((node) => [node.id, node]))
   return subtree.nodeIds.flatMap((nodeId) => {
     const node = nodesById.get(nodeId)
     return node ? [node] : []
@@ -210,17 +277,20 @@ function transformComponentNode(
 
 export function resolveComponentInstanceNodes(
   document: Document,
-  instance: ComponentInstance
+  instance: ComponentInstance,
+  index?: ComponentDocumentIndex
 ): SceneNode[] {
-  const component = document.components.find(
-    (candidate) => candidate.id === instance.componentId
-  )
+  const component =
+    index?.componentsById.get(instance.componentId) ??
+    document.components.find(
+      (candidate) => candidate.id === instance.componentId
+    )
   if (!component) return []
   const variant = component.variants.find(
     (candidate) => candidate.id === instance.variantId
   )
   if (!variant) return []
-  const sourceNodes = componentSourceNodes(document, component)
+  const sourceNodes = componentSourceNodes(document, component, index)
   const sourceBounds = boundsForNodes(sourceNodes)
   if (!sourceBounds) return []
   const mapping = new Map(
@@ -352,7 +422,10 @@ export function componentDifferingProperties(
   )
 }
 
-export function componentGraphCycles(document: Document): string[][] {
+function findComponentGraphCycles(
+  document: Document,
+  index?: ComponentDocumentIndex
+): string[][] {
   const edges = new Map(
     document.components.map((component) => [component.id, new Set<string>()])
   )
@@ -363,7 +436,11 @@ export function componentGraphCycles(document: Document): string[][] {
     ])
   )
   for (const component of document.components) {
-    const subtree = componentSourceSubtree(document, component.sourceGroupId)
+    const subtree = componentSourceSubtree(
+      document,
+      component.sourceGroupId,
+      index
+    )
     if (!subtree) continue
     for (const groupId of subtree.groupIds) {
       const nested = instanceByRootGroup.get(groupId)
@@ -404,15 +481,18 @@ export function componentGraphCycles(document: Document): string[][] {
   return cycles
 }
 
+export function componentGraphCycles(document: Document): string[][] {
+  return findComponentGraphCycles(document)
+}
+
 export function componentIntegrityIssues(
   document: Document
 ): ComponentIntegrityIssue[] {
   const issues: ComponentIntegrityIssue[] = []
-  const groups = new Map(document.groups.map((group) => [group.id, group]))
-  const nodes = new Map(document.nodes.map((node) => [node.id, node]))
-  const components = new Map(
-    document.components.map((component) => [component.id, component])
-  )
+  const index = buildComponentDocumentIndex(document)
+  const groups = index.groupsById
+  const nodes = index.nodesById
+  const components = index.componentsById
   const sourceGroupOwners = new Map<string, string>()
   const instanceNodeOwners = new Map<string, string>()
   const instanceGroupOwners = new Map<string, string>()
@@ -429,7 +509,11 @@ export function componentIntegrityIssues(
       continue
     }
     sourceGroupOwners.set(component.sourceGroupId, component.id)
-    const subtree = componentSourceSubtree(document, component.sourceGroupId)
+    const subtree = componentSourceSubtree(
+      document,
+      component.sourceGroupId,
+      index
+    )
     if (!subtree) {
       issues.push({
         code: "component_source_missing",
@@ -514,7 +598,11 @@ export function componentIntegrityIssues(
       })
       continue
     }
-    const source = componentSourceSubtree(document, component.sourceGroupId)
+    const source = componentSourceSubtree(
+      document,
+      component.sourceGroupId,
+      index
+    )
     if (!source) continue
     const sourceNodeIds = new Set(source.nodeIds)
     const sourceGroupIds = new Set(source.groupIds)
@@ -615,10 +703,10 @@ export function componentIntegrityIssues(
     const sourceRoot = groups.get(component.sourceGroupId)
     const instanceRootGroup = groups.get(instance.rootGroupId)
     const sourcePage = sourceRoot
-      ? document.pages.find((page) => page.id === sourceRoot.pageId)
+      ? index.pagesById.get(sourceRoot.pageId)
       : undefined
     const instancePage = instanceRootGroup
-      ? document.pages.find((page) => page.id === instanceRootGroup.pageId)
+      ? index.pagesById.get(instanceRootGroup.pageId)
       : undefined
     const mappedSourceNodeIds = new Set(source.nodeIds)
     const nodeMappingBySourceForOrder = new Map(
@@ -632,12 +720,19 @@ export function componentIntegrityIssues(
       const instanceNodeId = nodeMappingBySourceForOrder.get(nodeId)
       return instanceNodeId ? [instanceNodeId] : []
     })
-    const mappedInstanceNodeIds = new Set(
-      instance.nodeMappings.map((mapping) => mapping.instanceNodeId)
-    )
-    const actualInstanceOrder = instancePage?.nodeIds.filter((nodeId) =>
-      mappedInstanceNodeIds.has(nodeId)
-    )
+    const instanceNodeOrder = instancePage
+      ? index.pageNodeOrderById.get(instancePage.id)
+      : undefined
+    const actualInstanceOrder = instancePage
+      ? instance.nodeMappings
+          .map((mapping) => mapping.instanceNodeId)
+          .filter((nodeId) => instanceNodeOrder?.has(nodeId))
+          .sort(
+            (left, right) =>
+              (instanceNodeOrder?.get(left) ?? Number.MAX_SAFE_INTEGER) -
+              (instanceNodeOrder?.get(right) ?? Number.MAX_SAFE_INTEGER)
+          )
+      : undefined
     if (
       stableValue(expectedInstanceOrder) !== stableValue(actualInstanceOrder)
     ) {
@@ -649,7 +744,11 @@ export function componentIntegrityIssues(
       })
     }
 
-    const expectedNodes = resolveComponentInstanceNodes(document, instance)
+    const expectedNodes = resolveComponentInstanceNodes(
+      document,
+      instance,
+      index
+    )
     for (const expected of expectedNodes) {
       const actual = nodes.get(expected.id)
       if (!actual) continue
@@ -665,7 +764,7 @@ export function componentIntegrityIssues(
     }
   }
 
-  for (const cycle of componentGraphCycles(document)) {
+  for (const cycle of findComponentGraphCycles(document, index)) {
     issues.push({
       code: "component_cycle",
       componentId: cycle[0],
@@ -679,6 +778,7 @@ export function componentIntegrityIssues(
 export function materializeComponentInstances(document: Document): Document {
   if (!document.componentInstances.length) return document
 
+  const initialIndex = buildComponentDocumentIndex(document)
   const dependencies = new Map(
     document.components.map((component) => [component.id, new Set<string>()])
   )
@@ -689,7 +789,11 @@ export function materializeComponentInstances(document: Document): Document {
     ])
   )
   for (const component of document.components) {
-    const subtree = componentSourceSubtree(document, component.sourceGroupId)
+    const subtree = componentSourceSubtree(
+      document,
+      component.sourceGroupId,
+      initialIndex
+    )
     if (!subtree) continue
     for (const groupId of subtree.groupIds) {
       const nested = instanceByRootGroup.get(groupId)
@@ -726,34 +830,47 @@ export function materializeComponentInstances(document: Document): Document {
 
   let materialized = document
   for (const componentId of orderedComponentIds) {
+    const index = buildComponentDocumentIndex(materialized)
     const resolvedById = new Map<string, SceneNode>()
-    const component = materialized.components.find(
-      (candidate) => candidate.id === componentId
-    )
+    const component = index.componentsById.get(componentId)
     const groupUpdates = new Map<string, Document["groups"][number]>()
-    const pageOrderUpdates = new Map<string, string[]>()
-    for (const instance of materialized.componentInstances) {
-      if (instance.componentId !== componentId) continue
+    const pageOrderEntries = new Map<
+      string,
+      Array<{
+        orderedNodeIds: string[]
+        mappedNodeIds: Set<string>
+        insertionIndex: number
+      }>
+    >()
+    const source = component
+      ? componentSourceSubtree(materialized, component.sourceGroupId, index)
+      : null
+    const sourceGroups = new Map(
+      (source?.groupIds ?? []).flatMap((groupId) => {
+        const group = index.groupsById.get(groupId)
+        return group ? [[group.id, group] as const] : []
+      })
+    )
+    const sourceRoot = component
+      ? sourceGroups.get(component.sourceGroupId)
+      : undefined
+    const sourcePage = sourceRoot
+      ? index.pagesById.get(sourceRoot.pageId)
+      : undefined
+    const sourceSet = new Set(source?.nodeIds ?? [])
+
+    for (const instance of index.instancesByComponentId.get(componentId) ??
+      []) {
       for (const node of resolveComponentInstanceNodes(
         materialized,
-        instance
+        instance,
+        index
       )) {
         resolvedById.set(node.id, node)
       }
-      if (!component) continue
-      const source = componentSourceSubtree(
-        materialized,
-        component.sourceGroupId
-      )
-      const root = materialized.groups.find(
-        (group) => group.id === instance.rootGroupId
-      )
-      if (!source || !root) continue
-      const sourceGroups = new Map(
-        materialized.groups
-          .filter((group) => source.groupIds.includes(group.id))
-          .map((group) => [group.id, group])
-      )
+      if (!component || !source) continue
+      const root = index.groupsById.get(instance.rootGroupId)
+      if (!root) continue
       const nodeMapping = new Map(
         instance.nodeMappings.map((mapping) => [
           mapping.sourceNodeId,
@@ -768,9 +885,7 @@ export function materializeComponentInstances(document: Document): Document {
       )
       for (const mapping of instance.groupMappings) {
         const sourceGroup = sourceGroups.get(mapping.sourceGroupId)
-        const current = materialized.groups.find(
-          (group) => group.id === mapping.instanceGroupId
-        )
+        const current = index.groupsById.get(mapping.instanceGroupId)
         if (!sourceGroup || !current) continue
         const sourceParent = sourceGroup.parentGroupId
         const parentGroupId =
@@ -793,15 +908,8 @@ export function materializeComponentInstances(document: Document): Document {
         })
       }
 
-      const sourceRoot = sourceGroups.get(component.sourceGroupId)
-      const sourcePage = sourceRoot
-        ? materialized.pages.find((page) => page.id === sourceRoot.pageId)
-        : undefined
-      const targetPage = materialized.pages.find(
-        (page) => page.id === root.pageId
-      )
+      const targetPage = index.pagesById.get(root.pageId)
       if (!sourcePage || !targetPage) continue
-      const sourceSet = new Set(source.nodeIds)
       const orderedInstanceNodeIds = sourcePage.nodeIds.flatMap(
         (sourceNodeId) => {
           if (!sourceSet.has(sourceNodeId)) return []
@@ -810,16 +918,47 @@ export function materializeComponentInstances(document: Document): Document {
         }
       )
       const mapped = new Set(orderedInstanceNodeIds)
-      const currentOrder =
-        pageOrderUpdates.get(targetPage.id) ?? targetPage.nodeIds
-      const firstIndex = currentOrder.findIndex((nodeId) => mapped.has(nodeId))
-      const remaining = currentOrder.filter((nodeId) => !mapped.has(nodeId))
-      const insertionIndex = firstIndex < 0 ? remaining.length : firstIndex
-      pageOrderUpdates.set(targetPage.id, [
-        ...remaining.slice(0, insertionIndex),
-        ...orderedInstanceNodeIds,
-        ...remaining.slice(insertionIndex),
-      ])
+      const order = index.pageNodeOrderById.get(targetPage.id)
+      const insertionIndex = Math.min(
+        ...orderedInstanceNodeIds.map(
+          (nodeId) => order?.get(nodeId) ?? Number.MAX_SAFE_INTEGER
+        )
+      )
+      const entries = pageOrderEntries.get(targetPage.id)
+      const entry = {
+        orderedNodeIds: orderedInstanceNodeIds,
+        mappedNodeIds: mapped,
+        insertionIndex,
+      }
+      if (entries) entries.push(entry)
+      else pageOrderEntries.set(targetPage.id, [entry])
+    }
+    const pageOrderUpdates = new Map<string, string[]>()
+    for (const [pageId, entries] of pageOrderEntries) {
+      const page = index.pagesById.get(pageId)
+      if (!page) continue
+      const mappedNodeIds = new Set(
+        entries.flatMap((entry) => [...entry.mappedNodeIds])
+      )
+      const insertions = new Map<number, string[]>()
+      const appended: string[] = []
+      for (const entry of entries) {
+        if (entry.insertionIndex === Number.MAX_SAFE_INTEGER) {
+          appended.push(...entry.orderedNodeIds)
+          continue
+        }
+        const insertion = insertions.get(entry.insertionIndex)
+        if (insertion) insertion.push(...entry.orderedNodeIds)
+        else insertions.set(entry.insertionIndex, [...entry.orderedNodeIds])
+      }
+      const nodeIds: string[] = []
+      for (let position = 0; position < page.nodeIds.length; position += 1) {
+        nodeIds.push(...(insertions.get(position) ?? []))
+        const nodeId = page.nodeIds[position]
+        if (nodeId && !mappedNodeIds.has(nodeId)) nodeIds.push(nodeId)
+      }
+      nodeIds.push(...appended)
+      pageOrderUpdates.set(pageId, nodeIds)
     }
     if (!resolvedById.size && !groupUpdates.size && !pageOrderUpdates.size) {
       continue

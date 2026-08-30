@@ -32,41 +32,35 @@ from obscuring current truth. Detailed evidence remains in
   the visible editor.
 
 These are not README-only claims: the repository contains more than 120
-committed slices through COMPONENT-01 Gate 4, focused unit/integration/browser evidence, and
-retained conformance/scale artifacts.
+committed slices through independently accepted TEXT-02 and COMPONENT-01,
+focused unit/integration/browser evidence, and retained conformance/scale
+artifacts.
 
 ## What is not honestly complete
 
-1. **COMPONENT-01 Gate 5:** renderer/PDF parity, 1,000-instance behavior,
-   persistence/migration/clipboard/template matrix, complete create-to-render
-   journey and independent P0/P1 review.
-2. **TEXT-02 closure:** the independent review found a valid long unbroken token
-   that can block layout for seconds, plus missing immutable publication → real
-   PNG/PDF resource-conformance evidence.
-3. **OpenPencil-level visual sophistication:** core control workflows and one
+1. **OpenPencil-level visual sophistication:** core control workflows and one
    focused toolbar/Layers/Inspector refinement pass are accepted, including
    the formerly freezing color picker. Broader recipe consolidation and the
    compact/dark/coarse-pointer visual matrix remain open; this is improved,
    not full visual parity.
-4. **LIBRARY-02:** the template/media system works, but catalog breadth,
+2. **LIBRARY-02:** the template/media system works, but catalog breadth,
    categories, collections, favorites/team ownership and discovery quality are
    still far below Canva.
-5. **ASSET-02 depth:** placement, crop and frame masks are real; general masks
+3. **ASSET-02 depth:** placement, crop and frame masks are real; general masks
    and a production background-removal workflow are not built.
-6. **Environment proof:** deployed migrations 0012/0013 and the remaining
+4. **Environment proof:** deployed migrations 0012/0013 and the remaining
    deployed restart/parity/hostile-input evidence require explicit production
    authorization. Live Stuwiz retrieval still needs its upstream authenticated
    complete-source contract.
 
 ## No-bounce execution order
 
-1. Finish COMPONENT-01 Gate 5 and close its independent review.
-2. Close the two TEXT-02 P1 findings.
-3. Run one bounded OpenPencil comparison and visual-sophistication pass without
+1. Complete LIBRARY-02 compact catalog projection, discovery and ownership
+   gates without putting full preview documents or media bytes in list records.
+2. Run one bounded OpenPencil comparison and visual-sophistication pass without
    reopening already accepted command semantics.
-4. Build LIBRARY-02 catalog breadth.
-5. Build remaining ASSET-02 mask/background-removal depth.
-6. Perform authorized deployed evidence/migrations separately from local
+3. Build remaining ASSET-02 mask/background-removal depth.
+4. Perform authorized deployed evidence/migrations separately from local
    product development.
 
 Do not reopen a completed phase merely because a later phase shares its code.

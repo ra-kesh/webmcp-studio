@@ -1118,7 +1118,7 @@ describe("PageFilmstrip thumbnail visibility", () => {
     }
   })
 
-  it("falls back to a viewport-bounded live thumbnail after raster failure", async () => {
+  it("keeps raster failures on a bounded placeholder instead of mounting a live Artboard", async () => {
     const host = document.createElement("div")
     document.body.appendChild(host)
     const root = createRoot(host)
@@ -1157,11 +1157,13 @@ describe("PageFilmstrip thumbnail visibility", () => {
       })
 
       expect(producer).toHaveBeenCalledOnce()
-      expect(renderedThumbnailIds(host)).toEqual([
-        "performance-page-1",
-        "performance-page-2",
-      ])
-      expect(host.querySelector('[data-thumbnail-state="error"]')).toBeNull()
+      expect(renderedThumbnailIds(host)).toEqual([])
+      expect(
+        host.querySelector(
+          '[data-page-thumbnail-id="performance-page-2"] [data-thumbnail-state="error"]'
+        )
+      ).not.toBeNull()
+      expect(renderedThumbnailIds(host)).toEqual([])
     } finally {
       await act(async () => root.unmount())
       host.remove()
@@ -1344,9 +1346,10 @@ describe("PageFilmstrip thumbnail visibility", () => {
       expect(producer).toHaveBeenCalledOnce()
       expect(
         host.querySelector(
-          '[data-page-thumbnail-id="performance-page-2"] [data-artboard-page-id="performance-page-2"]'
+          '[data-page-thumbnail-id="performance-page-2"] [data-thumbnail-state="loading"]'
         )
       ).not.toBeNull()
+      expect(renderedThumbnailIds(host)).toEqual([])
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(500)
@@ -1429,7 +1432,7 @@ describe("PageFilmstrip thumbnail visibility", () => {
     }
   })
 
-  it("uses exact cached rasters for visible inactive pages and keeps the active page live", async () => {
+  it("resolves a visible renderer-backed active page to its raster", async () => {
     const host = document.createElement("div")
     document.body.appendChild(host)
     const root = createRoot(host)
@@ -1478,8 +1481,13 @@ describe("PageFilmstrip thumbnail visibility", () => {
         await Promise.resolve()
       })
 
-      expect(renderedThumbnailIds(host)).toEqual(["performance-page-1"])
-      expect(producer).toHaveBeenCalledTimes(3)
+      expect(renderedThumbnailIds(host)).toEqual([])
+      expect(
+        host.querySelector(
+          '[data-page-thumbnail-id="performance-page-1"] img[data-thumbnail-state="ready"]'
+        )
+      ).not.toBeNull()
+      expect(producer).toHaveBeenCalledTimes(4)
       expect(
         producer.mock.calls.map(([key]) => ({
           pageId: key.pageId,
@@ -1488,6 +1496,12 @@ describe("PageFilmstrip thumbnail visibility", () => {
           pixelHeight: key.pixelHeight,
         }))
       ).toEqual([
+        {
+          pageId: "performance-page-1",
+          documentSnapshotId: "snapshot-1",
+          pixelWidth: 88,
+          pixelHeight: 57,
+        },
         {
           pageId: "performance-page-2",
           documentSnapshotId: "snapshot-1",
@@ -1509,7 +1523,7 @@ describe("PageFilmstrip thumbnail visibility", () => {
       ])
       expect(
         host.querySelectorAll('img[data-thumbnail-state="ready"]')
-      ).toHaveLength(3)
+      ).toHaveLength(4)
       const readyThumbnail = host.querySelector<HTMLImageElement>(
         '[data-page-thumbnail-id="performance-page-2"] img[data-thumbnail-state="ready"]'
       )
@@ -1522,7 +1536,7 @@ describe("PageFilmstrip thumbnail visibility", () => {
       expect(readyThumbnail?.getAttribute("height")).toBe(
         String(Math.max(1, Math.round(pageTwoGeometry.height)))
       )
-      expect(createObjectUrl).toHaveBeenCalledTimes(3)
+      expect(createObjectUrl).toHaveBeenCalledTimes(4)
 
       await act(async () =>
         root.render(
@@ -1542,7 +1556,7 @@ describe("PageFilmstrip thumbnail visibility", () => {
         await Promise.resolve()
       })
 
-      expect(producer).toHaveBeenCalledTimes(3)
+      expect(producer).toHaveBeenCalledTimes(4)
       expect(revokeObjectUrl).not.toHaveBeenCalled()
 
       const changedCanonicalDocument = {
@@ -1572,23 +1586,94 @@ describe("PageFilmstrip thumbnail visibility", () => {
         await Promise.resolve()
       })
 
-      expect(producer).toHaveBeenCalledTimes(4)
-      expect(producer.mock.calls.at(3)?.[0]).toMatchObject({
+      expect(producer).toHaveBeenCalledTimes(5)
+      expect(producer.mock.calls.at(4)?.[0]).toMatchObject({
         pageId: "performance-page-2",
         documentSnapshotId: "snapshot-3",
       })
-      expect(createObjectUrl).toHaveBeenCalledTimes(4)
+      expect(createObjectUrl).toHaveBeenCalledTimes(5)
       expect(revokeObjectUrl).toHaveBeenCalledTimes(1)
       expect(
         host.querySelectorAll('img[data-thumbnail-state="ready"]')
-      ).toHaveLength(3)
-      expect(renderedThumbnailIds(host)).toEqual(["performance-page-1"])
+      ).toHaveLength(4)
+      expect(renderedThumbnailIds(host)).toEqual([])
     } finally {
       await act(async () => root.unmount())
       host.remove()
     }
 
-    expect(revokeObjectUrl).toHaveBeenCalledTimes(4)
+    expect(revokeObjectUrl).toHaveBeenCalledTimes(5)
+  })
+
+  it("reuses a cached raster when keyboard or pointer selection makes its page active", async () => {
+    const host = document.createElement("div")
+    document.body.appendChild(host)
+    const root = createRoot(host)
+    const producer = vi.fn(async (key: PageThumbnailRasterKey) =>
+      Promise.resolve(new Blob([key.pageId], { type: "image/png" }))
+    )
+    const props = {
+      document: fixture.document,
+      activePageId: fixture.document.pages[0].id,
+      reviewPending: false,
+      onSelectPage: vi.fn(),
+      onAddPage: vi.fn(),
+      onDuplicatePage: vi.fn(),
+      onRemovePage: vi.fn(),
+      onReorderPage: vi.fn(),
+      raster: {
+        canonicalDocument: fixture.document,
+        documentSnapshotId: "snapshot-1",
+        rendererRevision: "renderer-1",
+        producer,
+      },
+    }
+
+    try {
+      await act(async () => root.render(createElement(PageFilmstrip, props)))
+      const observer = TestIntersectionObserver.instances.at(-1)
+      if (!observer) throw new Error("Expected the shared thumbnail observer")
+      await act(async () => {
+        observer.trigger(["performance-page-1", "performance-page-2"], true)
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+
+      expect(producer).toHaveBeenCalledTimes(2)
+      expect(producer.mock.calls.map(([key]) => key.pageId)).toEqual([
+        "performance-page-1",
+        "performance-page-2",
+      ])
+      await act(async () =>
+        root.render(
+          createElement(PageFilmstrip, {
+            ...props,
+            activePageId: fixture.document.pages[1].id,
+          })
+        )
+      )
+
+      expect(renderedThumbnailIds(host)).toEqual([])
+      expect(
+        host.querySelector(
+          '[data-page-thumbnail-id="performance-page-2"] img[data-thumbnail-state="ready"]'
+        )
+      ).not.toBeNull()
+      expect(
+        host
+          .querySelector('[data-page-selector-id="performance-page-2"]')
+          ?.getAttribute("aria-current")
+      ).toBe("page")
+      expect(
+        producer.mock.calls.filter(
+          ([key]) => key.pageId === "performance-page-2"
+        )
+      ).toHaveLength(1)
+      expect(producer).toHaveBeenCalledTimes(2)
+    } finally {
+      await act(async () => root.unmount())
+      host.remove()
+    }
   })
 
   it("uses the canonical first page when a stale active ID is restored", async () => {

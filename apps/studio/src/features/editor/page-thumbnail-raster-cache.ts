@@ -25,6 +25,7 @@ export type PageThumbnailRasterCacheOptions = Readonly<{
   producer: PageThumbnailRasterProducer
   concurrency?: number
   maxEntries?: number
+  retryAfterMs?: (error: unknown) => number | null
   createObjectURL?: (blob: Blob) => string
   revokeObjectURL?: (url: string) => void
 }>
@@ -93,6 +94,7 @@ type CachedEntry = {
 
 const DEFAULT_CONCURRENCY = 4
 const DEFAULT_MAX_ENTRIES = 64
+const MAX_BACKOFF_DELAY_MS = 5 * 60_000
 
 function boundedInteger(value: number | undefined, fallback: number): number {
   if (value === undefined || !Number.isFinite(value)) return fallback
@@ -175,6 +177,8 @@ export function createPageThumbnailRasterCache(
   const queue: Work[] = []
   const active = new Set<Work>()
   let disposed = false
+  let blockedUntil = 0
+  let backoffTimer: ReturnType<typeof setTimeout> | null = null
   const isDisposed = () => disposed
   const isAborted = (work: Work) => work.controller.signal.aborted
   const isSettled = (work: Work) => work.state === "settled"
@@ -222,8 +226,59 @@ export function createPageThumbnailRasterCache(
     })
   }
 
+  const clearBackoff = () => {
+    if (backoffTimer !== null) clearTimeout(backoffTimer)
+    backoffTimer = null
+    blockedUntil = 0
+  }
+
+  const scheduleBackoffDrain = (delay: number) => {
+    if (backoffTimer !== null) clearTimeout(backoffTimer)
+    backoffTimer = setTimeout(() => {
+      backoffTimer = null
+      const remaining = blockedUntil - Date.now()
+      if (remaining > 0) {
+        scheduleBackoffDrain(remaining)
+        return
+      }
+      blockedUntil = 0
+      drain()
+    }, delay)
+  }
+
+  const applyBackoff = (error: unknown) => {
+    let candidate: number | null | undefined
+    try {
+      candidate = options.retryAfterMs?.(error)
+    } catch {
+      return
+    }
+    if (
+      candidate === null ||
+      candidate === undefined ||
+      !Number.isFinite(candidate)
+    ) {
+      return
+    }
+    const delay = Math.min(
+      MAX_BACKOFF_DELAY_MS,
+      Math.max(0, Math.ceil(candidate))
+    )
+    if (delay === 0) return
+    const until = Date.now() + delay
+    if (until <= blockedUntil) return
+    blockedUntil = until
+    scheduleBackoffDrain(delay)
+  }
+
   const drain = () => {
     if (disposed) return
+    const remainingBackoff = blockedUntil - Date.now()
+    if (remainingBackoff > 0) {
+      if (backoffTimer === null) scheduleBackoffDrain(remainingBackoff)
+      return
+    }
+    if (blockedUntil !== 0) clearBackoff()
     while (active.size < concurrency) {
       const work = queue.shift()
       if (!work) return
@@ -268,6 +323,7 @@ export function createPageThumbnailRasterCache(
         } catch (error: unknown) {
           if (work.state === "settled") return
           const stale = isDisposed() || isAborted(work)
+          if (!stale) applyBackoff(error)
           settle(work, {
             status: "rejected",
             error: stale ? new PageThumbnailRasterStaleError() : error,
@@ -359,11 +415,13 @@ export function createPageThumbnailRasterCache(
       )
     },
     clear() {
+      clearBackoff()
       invalidateWhere(() => true)
     },
     dispose() {
       if (disposed) return
       disposed = true
+      clearBackoff()
       for (const serializedKey of [...entries.keys()]) {
         removeEntry(serializedKey)
       }

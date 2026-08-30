@@ -304,20 +304,43 @@ describe("Studio page thumbnail raster producer", () => {
       document: fixture.document,
       snapshotId: "snapshot-1",
     })
+    const cancelFailureBody = vi.fn()
     const failureProducer = createStudioPageThumbnailRasterProducer({
       getSnapshot,
       fetcher: vi.fn(
         async () =>
-          new Response(null, {
-            status: 429,
-            headers: { "Retry-After": "2" },
-          })
+          new Response(
+            new ReadableStream({
+              cancel: cancelFailureBody,
+            }),
+            {
+              status: 429,
+              headers: { "Retry-After": "2" },
+            }
+          )
       ),
     })
+    const cancelMismatchedBody = vi.fn()
     const mismatchedProducer = createStudioPageThumbnailRasterProducer({
       getSnapshot,
-      fetcher: vi.fn(async () =>
-        thumbnailResponse(requestKey, { "X-Output-Id": "wrong-output" })
+      fetcher: vi.fn(
+        async () =>
+          new Response(
+            new ReadableStream({
+              cancel: cancelMismatchedBody,
+            }),
+            {
+              headers: {
+                "Content-Type": "image/png",
+                "X-Render-Mode": "ephemeral-thumbnail",
+                "X-Page-Id": requestKey.pageId,
+                "X-Output-Id": "wrong-output",
+                "X-Width": String(requestKey.pixelWidth),
+                "X-Height": String(requestKey.pixelHeight),
+                "X-Bytes": "1",
+              },
+            }
+          )
       ),
     })
 
@@ -329,6 +352,7 @@ describe("Studio page thumbnail raster producer", () => {
       code: "request_failed",
       retryAfterMs: 2_000,
     })
+    expect(cancelFailureBody).toHaveBeenCalledOnce()
     expect(pageThumbnailRasterRetryDelay(failure, 1)).toBe(2_000)
     expect(pageThumbnailRasterRetryDelay(failure, 2)).toBe(2_000)
     expect(pageThumbnailRasterRetryDelay(failure, 3)).toBe(2_000)
@@ -341,5 +365,6 @@ describe("Studio page thumbnail raster producer", () => {
     ).rejects.toMatchObject({
       code: "invalid_response",
     })
+    expect(cancelMismatchedBody).toHaveBeenCalledOnce()
   })
 })

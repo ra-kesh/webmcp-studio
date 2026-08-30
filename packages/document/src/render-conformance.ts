@@ -6,6 +6,7 @@ import {
   type SceneNode,
 } from "./schema"
 import { applyCommand } from "./commands"
+import { materializeComponentInstances } from "./components"
 
 export const renderConformanceImageSource = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="240" viewBox="0 0 400 240"><path fill="#ef4444" d="M0 0h200v120H0z"/><path fill="#22c55e" d="M200 0h200v120H200z"/><path fill="#3b82f6" d="M0 120h200v120H0z"/><path fill="#facc15" d="M200 120h200v120H200z"/></svg>'
@@ -249,6 +250,338 @@ export const imageRenderParityDocument: Document = documentSchema.parse({
   variables: [],
   variableBindings: [],
 })
+
+const componentConformanceRect = (
+  id: string,
+  name: string,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  fill: string
+): Extract<SceneNode, { type: "rect" }> => ({
+  id,
+  type: "rect",
+  name,
+  x,
+  y,
+  width,
+  height,
+  rotation: 0,
+  opacity: 1,
+  visible: true,
+  locked: false,
+  fill,
+  radius: 12,
+  stroke: "#0f172a",
+  strokeWidth: 2,
+})
+
+const componentConformanceInstances = [
+  {
+    id: "component-render-default",
+    name: "Default card",
+    variantId: "component-card-default",
+    rootGroupId: "component-render-default-root",
+    transform: { x: 40, y: 240, scale: 0.75, rotation: 0 },
+    overrides: {},
+  },
+  {
+    id: "component-render-variant",
+    name: "Variant card",
+    variantId: "component-card-accent",
+    rootGroupId: "component-render-variant-root",
+    transform: { x: 280, y: 240, scale: 1, rotation: 4 },
+    overrides: {},
+  },
+  {
+    id: "component-render-overridden",
+    name: "Overridden card",
+    variantId: "component-card-accent",
+    rootGroupId: "component-render-overridden-root",
+    transform: { x: 570, y: 250, scale: 0.8, rotation: -5 },
+    overrides: {
+      "component-card-source": { fill: "#be123c", opacity: 0.82 },
+    },
+  },
+  {
+    id: "component-render-detached",
+    name: "Detached card",
+    variantId: "component-card-accent",
+    rootGroupId: "component-render-detached-root",
+    transform: { x: 40, y: 470, scale: 1, rotation: 0 },
+    overrides: {},
+  },
+] as const
+
+const componentConformanceSourceNodes = [
+  componentConformanceRect(
+    "component-badge-source",
+    "Badge source",
+    20,
+    20,
+    80,
+    24,
+    "#334155"
+  ),
+  componentConformanceRect(
+    "component-card-source",
+    "Card source",
+    120,
+    20,
+    240,
+    160,
+    "#e2e8f0"
+  ),
+  componentConformanceRect(
+    "component-card-nested-badge",
+    "Nested badge",
+    260,
+    130,
+    80,
+    24,
+    "#334155"
+  ),
+]
+
+const componentConformanceMappedNodes = componentConformanceInstances.flatMap(
+  (instance) => [
+    componentConformanceRect(
+      `${instance.id}-card`,
+      instance.name,
+      instance.transform.x,
+      instance.transform.y,
+      240,
+      160,
+      "#e2e8f0"
+    ),
+    componentConformanceRect(
+      `${instance.id}-badge`,
+      `${instance.name} nested badge`,
+      instance.transform.x,
+      instance.transform.y,
+      80,
+      24,
+      "#334155"
+    ),
+  ]
+)
+
+const componentConformanceDraft: Document = documentSchema.parse({
+  schemaVersion: 4,
+  id: "component-render-conformance-v1",
+  name: "Component renderer conformance",
+  revision: 1,
+  createdAt: "2026-08-30T00:00:00.000Z",
+  updatedAt: "2026-08-30T00:00:00.000Z",
+  outputs: [
+    {
+      id: "component-render-output",
+      name: "Component render output",
+      kind: "proposal",
+      pageIds: ["component-render-page"],
+      exportFormats: ["png", "pdf"],
+    },
+  ],
+  pages: [
+    {
+      id: "component-render-page",
+      outputId: "component-render-output",
+      name: "Component render cases",
+      width: 900,
+      height: 700,
+      background: "#f8fafc",
+      nodeIds: [
+        ...componentConformanceSourceNodes.map((node) => node.id),
+        ...componentConformanceMappedNodes.map((node) => node.id),
+      ],
+    },
+  ],
+  nodes: [
+    ...componentConformanceSourceNodes,
+    ...componentConformanceMappedNodes,
+  ],
+  groups: [
+    {
+      id: "component-badge-source-root",
+      pageId: "component-render-page",
+      name: "Badge source",
+      nodeIds: ["component-badge-source"],
+    },
+    {
+      id: "component-card-source-root",
+      pageId: "component-render-page",
+      name: "Card source",
+      nodeIds: ["component-card-source"],
+    },
+    {
+      id: "component-card-nested-badge-root",
+      pageId: "component-render-page",
+      name: "Badge nested in card",
+      nodeIds: ["component-card-nested-badge"],
+      parentGroupId: "component-card-source-root",
+    },
+    ...componentConformanceInstances.flatMap((instance) => [
+      {
+        id: instance.rootGroupId,
+        pageId: "component-render-page",
+        name: instance.name,
+        nodeIds: [`${instance.id}-card`],
+      },
+      {
+        id: `${instance.id}-nested-root`,
+        pageId: "component-render-page",
+        name: "Badge nested in card",
+        nodeIds: [`${instance.id}-badge`],
+        parentGroupId: instance.rootGroupId,
+      },
+    ]),
+  ],
+  components: [
+    {
+      id: "component-badge",
+      name: "Badge",
+      description: "Nested renderer conformance component",
+      sourceGroupId: "component-badge-source-root",
+      defaultVariantId: "component-badge-default",
+      variants: [
+        { id: "component-badge-default", name: "Default", overrides: {} },
+      ],
+    },
+    {
+      id: "component-card",
+      name: "Card",
+      description: "Renderer conformance component",
+      sourceGroupId: "component-card-source-root",
+      defaultVariantId: "component-card-default",
+      variants: [
+        { id: "component-card-default", name: "Default", overrides: {} },
+        {
+          id: "component-card-accent",
+          name: "Accent",
+          overrides: {
+            "component-card-source": { fill: "#1d4ed8" },
+            "component-card-nested-badge": { fill: "#facc15" },
+          },
+        },
+      ],
+    },
+  ],
+  componentInstances: [
+    {
+      id: "component-card-nested-badge-instance",
+      name: "Badge nested in card",
+      componentId: "component-badge",
+      variantId: "component-badge-default",
+      rootGroupId: "component-card-nested-badge-root",
+      transform: { x: 260, y: 130, scale: 1, rotation: 0 },
+      nodeMappings: [
+        {
+          sourceNodeId: "component-badge-source",
+          instanceNodeId: "component-card-nested-badge",
+        },
+      ],
+      groupMappings: [
+        {
+          sourceGroupId: "component-badge-source-root",
+          instanceGroupId: "component-card-nested-badge-root",
+        },
+      ],
+      overrides: {},
+    },
+    ...componentConformanceInstances.map((instance) => ({
+      ...instance,
+      componentId: "component-card",
+      nodeMappings: [
+        {
+          sourceNodeId: "component-card-source",
+          instanceNodeId: `${instance.id}-card`,
+        },
+        {
+          sourceNodeId: "component-card-nested-badge",
+          instanceNodeId: `${instance.id}-badge`,
+        },
+      ],
+      groupMappings: [
+        {
+          sourceGroupId: "component-card-source-root",
+          instanceGroupId: instance.rootGroupId,
+        },
+        {
+          sourceGroupId: "component-card-nested-badge-root",
+          instanceGroupId: `${instance.id}-nested-root`,
+        },
+      ],
+    })),
+  ],
+  fields: [],
+  fieldValues: {},
+  bindings: [],
+  typographyStyles: [],
+  paintStyles: [],
+  variables: [],
+  variableBindings: [],
+})
+
+const materializedComponentConformanceDocument = materializeComponentInstances(
+  componentConformanceDraft
+)
+
+/**
+ * Retained component corpus shared by Fabric, React, Renderer HTML and the PDF
+ * worker boundary. The detached case is produced by the canonical command so
+ * it keeps ordinary scene nodes while surrendering all component authority.
+ */
+export const componentRenderConformanceDocument = applyCommand(
+  materializedComponentConformanceDocument,
+  {
+    id: "component-render-detach",
+    type: "detach_component_instance",
+    actor: "human",
+    at: "2026-08-30T00:01:00.000Z",
+    instanceId: "component-render-detached",
+  }
+)
+
+export const componentRenderConformanceCases = [
+  {
+    id: "default",
+    rootGroupId: "component-render-default-root",
+    nodeIds: [
+      "component-render-default-card",
+      "component-render-default-badge",
+    ],
+  },
+  {
+    id: "variant",
+    rootGroupId: "component-render-variant-root",
+    nodeIds: [
+      "component-render-variant-card",
+      "component-render-variant-badge",
+    ],
+  },
+  {
+    id: "overridden",
+    rootGroupId: "component-render-overridden-root",
+    nodeIds: [
+      "component-render-overridden-card",
+      "component-render-overridden-badge",
+    ],
+  },
+  {
+    id: "nested",
+    rootGroupId: "component-render-default-nested-root",
+    nodeIds: ["component-render-default-badge"],
+  },
+  {
+    id: "detached",
+    rootGroupId: "component-render-detached-root",
+    nodeIds: [
+      "component-render-detached-card",
+      "component-render-detached-badge",
+    ],
+  },
+] as const
 
 const nodes = [
   {
@@ -592,6 +925,47 @@ export const renderConformanceDocument: Document = documentSchema.parse({
   bindings: [],
 })
 
+/**
+ * Shared adverse rich-text input for the retained interactive-scale gate. Its
+ * wide unbroken token wraps once, late and inside run 901, which previously
+ * forced quadratic line copying and blocked the editor thread for seconds.
+ */
+export function createAdverseRichTextConformanceNode(options?: {
+  id?: string
+  name?: string
+  x?: number
+  y?: number
+}) {
+  const source = renderConformanceDocument.nodes.find(
+    (candidate) => candidate.type === "text"
+  )
+  if (!source || source.type !== "text") {
+    throw new Error("Render conformance text source is missing")
+  }
+  const text = "A".repeat(7_000)
+  return {
+    ...source,
+    id: options?.id ?? "adverse-rich-text",
+    name: options?.name ?? "Adverse 1,000-run rich text",
+    x: options?.x ?? source.x,
+    y: options?.y ?? source.y,
+    text,
+    width: 80_652.8,
+    height: 20_000,
+    sizingMode: "auto_height" as const,
+    fontSize: 20,
+    fontWeight: 400,
+    letterSpacing: 0,
+    runs: Array.from({ length: 1_000 }, (_, index) => ({
+      start: index * 7,
+      end: index * 7 + 7,
+      style: { color: index % 2 === 0 ? "#111111" : "#333333" },
+    })),
+    paragraphs: [],
+    links: [],
+  }
+}
+
 const conformanceCommand = (id: string) => ({
   id,
   actor: "human" as const,
@@ -610,13 +984,13 @@ export const textDesignSystemConformanceDocument: Document = [
     style: {
       id: "typography-conformance-body",
       name: "Conformance / Body",
-      fontFamily: "Geist Variable",
-      fontSize: 24,
-      fontWeight: 450,
-      italic: false,
-      lineHeight: 1.6,
-      letterSpacing: -0.5,
-      decoration: "none" as const,
+      fontFamily: "Courier New",
+      fontSize: 22,
+      fontWeight: 510,
+      italic: true,
+      lineHeight: 1.25,
+      letterSpacing: 1.3,
+      decoration: "underline" as const,
     },
   },
   {
@@ -631,8 +1005,8 @@ export const textDesignSystemConformanceDocument: Document = [
     style: {
       id: "paint-conformance-panel",
       name: "Conformance / Panel",
-      color: "#fef3c7",
-      opacity: 0.86,
+      color: "#fde68a",
+      opacity: 0.63,
     },
   },
   {
@@ -646,31 +1020,31 @@ export const textDesignSystemConformanceDocument: Document = [
       id: "variable-conformance-font",
       name: "Conformance / Font",
       type: "font_family" as const,
-      value: "Geist Variable",
+      value: "Arial",
     },
     {
       id: "variable-conformance-panel",
       name: "Conformance / Panel color",
       type: "color" as const,
-      value: "#fef3c7",
+      value: "#f97316",
     },
     {
       id: "variable-conformance-label",
       name: "Conformance / Label",
       type: "string" as const,
-      value: "AUTO WIDTH",
+      value: "BOUND LABEL",
     },
     {
       id: "variable-conformance-radius",
       name: "Conformance / Radius",
       type: "number" as const,
-      value: 24,
+      value: 8,
     },
     {
       id: "variable-conformance-run-color",
       name: "Conformance / Run color",
       type: "color" as const,
-      value: "#166534",
+      value: "#7c3aed",
     },
   ].map((variable, index) => ({
     type: "create_variable" as const,
@@ -728,6 +1102,18 @@ export const textDesignSystemConformanceDocument: Document = [
     type: "bind_variable" as const,
     ...conformanceCommand(`conformance-bind-variable-${index}`),
     binding,
+  })),
+  ...[
+    { variableId: "variable-conformance-font", value: "Geist Variable" },
+    { variableId: "variable-conformance-panel", value: "#0f766e" },
+    { variableId: "variable-conformance-label", value: "UPDATED LABEL" },
+    { variableId: "variable-conformance-radius", value: 32 },
+    { variableId: "variable-conformance-run-color", value: "#0e7490" },
+  ].map(({ variableId, value }, index) => ({
+    type: "update_variable" as const,
+    ...conformanceCommand(`conformance-update-variable-${index}`),
+    variableId,
+    patch: { value },
   })),
 ].reduce(
   (document, command) => applyCommand(document, command),

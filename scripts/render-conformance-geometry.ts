@@ -19,6 +19,7 @@ export type InkBand = Readonly<{
   left: number
   right: number
   inkPixels: number
+  inkMass: number
   upperContrastFraction: number
   lowerDirectionCosine: number
 }>
@@ -33,7 +34,7 @@ export type InkGeometryOptions = Readonly<{
 export type InkGeometryComparison = Readonly<{
   passed: boolean
   maximumEdgeDelta: number | null
-  maximumInkPixelRatioDelta: number | null
+  maximumInkMassRatioDelta: number | null
   maximumContrastFractionDelta: number | null
   maximumDirectionCosineDelta: number | null
   minimumCandidateDirectionCosine: number | null
@@ -50,7 +51,7 @@ export type InkGeometryComparison = Readonly<{
       right: number
     }>
     maximumEdgeDelta: number
-    inkPixelRatioDelta: number
+    inkMassRatioDelta: number
     contrastFractionDelta: number
     directionCosineDelta: number
   }>[]
@@ -59,7 +60,7 @@ export type InkGeometryComparison = Readonly<{
 
 export type InkGeometryComparisonLimits = Readonly<{
   maximumEdgeDelta: number
-  maximumInkPixelRatioDelta: number
+  maximumInkMassRatioDelta: number
   maximumContrastFractionDelta: number
   minimumDirectionCosine: number
   maximumDirectionCosineDelta?: number
@@ -106,6 +107,7 @@ export function extractHorizontalInkBands(
     left: number
     right: number
     inkPixels: number
+    inkMass: number
     contrastFractions: number[]
     directionCosines: number[]
   }> = []
@@ -113,6 +115,7 @@ export function extractHorizontalInkBands(
     let rowLeft = right
     let rowRight = left - 1
     let inkPixels = 0
+    let inkMass = 0
     const contrastFractions: number[] = []
     const directionCosines: number[] = []
     for (let x = left; x < right; x += 1) {
@@ -137,6 +140,7 @@ export function extractHorizontalInkBands(
         continue
       }
       inkPixels += 1
+      inkMass += Math.min(1, contrastFraction)
       rowLeft = Math.min(rowLeft, x)
       rowRight = Math.max(rowRight, x)
       contrastFractions.push(contrastFraction)
@@ -150,6 +154,7 @@ export function extractHorizontalInkBands(
         left: rowLeft,
         right: rowRight,
         inkPixels,
+        inkMass,
         contrastFractions,
         directionCosines,
       })
@@ -162,6 +167,7 @@ export function extractHorizontalInkBands(
     left: number
     right: number
     inkPixels: number
+    inkMass: number
     contrastFractions: number[]
     directionCosines: number[]
   }> = []
@@ -174,6 +180,7 @@ export function extractHorizontalInkBands(
         left: row.left,
         right: row.right,
         inkPixels: row.inkPixels,
+        inkMass: row.inkMass,
         contrastFractions: row.contrastFractions,
         directionCosines: row.directionCosines,
       })
@@ -185,6 +192,7 @@ export function extractHorizontalInkBands(
       left: Math.min(previous.left, row.left),
       right: Math.max(previous.right, row.right),
       inkPixels: previous.inkPixels + row.inkPixels,
+      inkMass: previous.inkMass + row.inkMass,
       contrastFractions: previous.contrastFractions.concat(
         row.contrastFractions
       ),
@@ -197,6 +205,7 @@ export function extractHorizontalInkBands(
     left: band.left,
     right: band.right,
     inkPixels: band.inkPixels,
+    inkMass: band.inkMass,
     upperContrastFraction: percentile(band.contrastFractions, 0.75),
     lowerDirectionCosine: percentile(band.directionCosines, 0.1),
   }))
@@ -210,7 +219,7 @@ export function compareHorizontalInkBands(
   if (
     !Number.isInteger(limits.maximumEdgeDelta) ||
     limits.maximumEdgeDelta < 0 ||
-    !isUnitInterval(limits.maximumInkPixelRatioDelta) ||
+    !isUnitInterval(limits.maximumInkMassRatioDelta) ||
     !isUnitInterval(limits.maximumContrastFractionDelta) ||
     !isUnitInterval(limits.minimumDirectionCosine) ||
     (limits.maximumDirectionCosineDelta !== undefined &&
@@ -222,7 +231,7 @@ export function compareHorizontalInkBands(
     return {
       passed: false,
       maximumEdgeDelta: null,
-      maximumInkPixelRatioDelta: null,
+      maximumInkMassRatioDelta: null,
       maximumContrastFractionDelta: null,
       maximumDirectionCosineDelta: null,
       minimumCandidateDirectionCosine: null,
@@ -236,7 +245,7 @@ export function compareHorizontalInkBands(
     return {
       passed: false,
       maximumEdgeDelta: null,
-      maximumInkPixelRatioDelta: null,
+      maximumInkMassRatioDelta: null,
       maximumContrastFractionDelta: null,
       maximumDirectionCosineDelta: null,
       minimumCandidateDirectionCosine: null,
@@ -261,8 +270,8 @@ export function compareHorizontalInkBands(
       candidate,
       edgeDeltas,
       maximumEdgeDelta: Math.max(...Object.values(edgeDeltas)),
-      inkPixelRatioDelta:
-        Math.abs(baseline.inkPixels - candidate.inkPixels) / baseline.inkPixels,
+      inkMassRatioDelta:
+        Math.abs(baseline.inkMass - candidate.inkMass) / baseline.inkMass,
       contrastFractionDelta: Math.abs(
         baseline.upperContrastFraction - candidate.upperContrastFraction
       ),
@@ -274,8 +283,8 @@ export function compareHorizontalInkBands(
   const maximumEdgeDelta = Math.max(
     ...bands.map((band) => band.maximumEdgeDelta)
   )
-  const maximumInkPixelRatioDelta = Math.max(
-    ...bands.map((band) => band.inkPixelRatioDelta)
+  const maximumInkMassRatioDelta = Math.max(
+    ...bands.map((band) => band.inkMassRatioDelta)
   )
   const maximumContrastFractionDelta = Math.max(
     ...bands.map((band) => band.contrastFractionDelta)
@@ -288,7 +297,7 @@ export function compareHorizontalInkBands(
   )
   const edgePassed = maximumEdgeDelta <= limits.maximumEdgeDelta
   const coveragePassed =
-    maximumInkPixelRatioDelta <= limits.maximumInkPixelRatioDelta
+    maximumInkMassRatioDelta <= limits.maximumInkMassRatioDelta
   const contrastPassed =
     maximumContrastFractionDelta <= limits.maximumContrastFractionDelta
   const directionPassed =
@@ -300,7 +309,7 @@ export function compareHorizontalInkBands(
   return {
     passed,
     maximumEdgeDelta,
-    maximumInkPixelRatioDelta,
+    maximumInkMassRatioDelta,
     maximumContrastFractionDelta,
     maximumDirectionCosineDelta,
     minimumCandidateDirectionCosine,
@@ -309,15 +318,15 @@ export function compareHorizontalInkBands(
     bands,
     reason: !edgePassed
       ? `Text ink moved by ${maximumEdgeDelta}px; the limit is ${limits.maximumEdgeDelta}px.`
-      : !coveragePassed
-        ? `Text ink coverage changed by ${(maximumInkPixelRatioDelta * 100).toFixed(2)}%; the limit is ${(limits.maximumInkPixelRatioDelta * 100).toFixed(2)}%.`
-        : !contrastPassed
-          ? `Text ink contrast changed by ${maximumContrastFractionDelta.toFixed(4)}; the limit is ${limits.maximumContrastFractionDelta.toFixed(4)}.`
-          : !directionPassed
-            ? limits.maximumDirectionCosineDelta !== undefined &&
-              maximumDirectionCosineDelta > limits.maximumDirectionCosineDelta
-              ? `Text ink foreground direction cosine changed by ${maximumDirectionCosineDelta.toFixed(4)}; the limit is ${limits.maximumDirectionCosineDelta.toFixed(4)}.`
-              : `Text ink foreground direction cosine fell to ${minimumCandidateDirectionCosine.toFixed(4)}; the minimum is ${limits.minimumDirectionCosine.toFixed(4)}.`
+      : !contrastPassed
+        ? `Text ink contrast changed by ${maximumContrastFractionDelta.toFixed(4)}; the limit is ${limits.maximumContrastFractionDelta.toFixed(4)}.`
+        : !directionPassed
+          ? limits.maximumDirectionCosineDelta !== undefined &&
+            maximumDirectionCosineDelta > limits.maximumDirectionCosineDelta
+            ? `Text ink foreground direction cosine changed by ${maximumDirectionCosineDelta.toFixed(4)}; the limit is ${limits.maximumDirectionCosineDelta.toFixed(4)}.`
+            : `Text ink foreground direction cosine fell to ${minimumCandidateDirectionCosine.toFixed(4)}; the minimum is ${limits.minimumDirectionCosine.toFixed(4)}.`
+          : !coveragePassed
+            ? `Text ink mass changed by ${(maximumInkMassRatioDelta * 100).toFixed(2)}%; the limit is ${(limits.maximumInkMassRatioDelta * 100).toFixed(2)}%.`
             : null,
   }
 }

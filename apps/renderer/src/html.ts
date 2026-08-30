@@ -27,7 +27,8 @@ type RenderFontFace = {
 
 type RenderFontSet = Iterable<RenderFontFace> & {
   ready: Promise<unknown>
-  check(query: string): boolean
+  check(query: string, text?: string): boolean
+  load(query: string, text?: string): Promise<RenderFontFace[]>
 }
 
 type RenderImage = {
@@ -67,14 +68,26 @@ export async function markRenderResourcesReady(input: {
   }
 
   try {
-    await input.fonts.ready
     const query = '16px "Geist Variable"'
-    const managedFaceLoaded = Array.from(input.fonts).some(
-      (face) =>
-        face.family.replace(/["']/g, "") === "Geist Variable" &&
-        face.status === "loaded"
-    )
-    if (!input.fonts.check(query) || !managedFaceLoaded) {
+    const probeText = "WebMCP"
+    let managedFontReady = false
+    try {
+      // CSS-connected faces are lazy: an all-shape document does not request
+      // the embedded font merely because its @font-face rule exists.
+      await input.fonts.load(query, probeText)
+      await input.fonts.ready
+      const managedFaceLoaded = Array.from(input.fonts).some(
+        (face) =>
+          face.family.replace(/["']/g, "") === "Geist Variable" &&
+          face.status === "loaded"
+      )
+      managedFontReady =
+        input.fonts.check(query, probeText) && managedFaceLoaded
+    } catch {
+      fail("managed_font_failed")
+      return
+    }
+    if (!managedFontReady) {
       fail("managed_font_failed")
       return
     }

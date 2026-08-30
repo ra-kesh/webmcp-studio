@@ -1,0 +1,79 @@
+{
+  "version": 2,
+  "runId": "2026-08-30T20-24-01.428Z-ffdf6a4f-3f2d-43a0-bc6b-4dea01935749",
+  "artifactRoot": "artifacts/runs/2026-08-30T20-24-01.428Z-ffdf6a4f-3f2d-43a0-bc6b-4dea01935749",
+  "corpus": "components",
+  "documentId": "component-render-conformance-v1",
+  "revision": 2,
+  "baseUrl": "http://localhost:3001",
+  "deviceScaleFactor": 1,
+  "browserCaptureRuntime": {
+    "browserVersion": "152.0.7977.64",
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+    "platform": "MacIntel",
+    "hostOperatingSystem": "darwin",
+    "hostArchitecture": "arm64"
+  },
+  "browserCaptureEvidence": {
+    "pageErrorPolicy": "fail_before_surface_ready",
+    "pageErrors": [],
+    "surfaces": [
+      {
+        "pageId": "component-render-page",
+        "surface": "render-view",
+        "state": "ready"
+      },
+      {
+        "pageId": "component-render-page",
+        "surface": "fabric",
+        "state": "ready"
+      }
+    ]
+  },
+  "pageOrder": [
+    "component-render-page"
+  ],
+  "outputs": [
+    {
+      "id": "component-render-output",
+      "pageIds": [
+        "component-render-page"
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "render-view/component-render-page.png",
+      "bytes": 17865,
+      "sha256": "c1e221c1fb6a00c601fe84a153e1c6acdde7af1c600acff96425686593390802",
+      "width": 900,
+      "height": 700
+    },
+    {
+      "path": "fabric/component-render-page.png",
+      "bytes": 17731,
+      "sha256": "947ee54764cce01983cab85a1e15ae672740ce43f09968fea6395ce646cb9446",
+      "width": 900,
+      "height": 700
+    },
+    {
+      "path": "renderer-png/component-render-page.png",
+      "bytes": 18636,
+      "sha256": "88925f5f8568e106b02e37934faf342744adc53cbf3da7eb079879deb28605a2",
+      "width": 900,
+      "height": 700
+    },
+    {
+      "path": "renderer-pdf/component-render-output.pdf",
+      "bytes": 5983,
+      "sha256": "0fb90780c895b6246be9c7cc52f5e02bcf97e7982efec7e55b424a75d93af31f"
+    },
+    {
+      "path": "renderer-pdf/component-render-page.png",
+      "bytes": 22055,
+      "sha256": "70d25383f3b3eea4945b5cc90b9fc58193877a043c642e247a62666ecbb3986b",
+      "width": 900,
+      "height": 700
+    }
+  ]
+}

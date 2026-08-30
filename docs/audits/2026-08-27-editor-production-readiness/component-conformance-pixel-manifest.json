@@ -1,0 +1,34 @@
+{
+  "version": 2,
+  "captureReport": "component-conformance-capture-report.json",
+  "report": "component-conformance-report.json",
+  "comparisons": [
+    {
+      "name": "component corpus Fabric versus renderer PNG",
+      "baseline": "artifacts/renderer-png/component-render-page.png",
+      "candidate": "artifacts/fabric/component-render-page.png",
+      "diff": "artifacts/diff/components/fabric.png",
+      "pixelDeltaThreshold": 24,
+      "maxDifferentPixelRatio": 0.015,
+      "maxRootMeanSquareError": 6
+    },
+    {
+      "name": "component corpus React view versus renderer PNG",
+      "baseline": "artifacts/renderer-png/component-render-page.png",
+      "candidate": "artifacts/render-view/component-render-page.png",
+      "diff": "artifacts/diff/components/render-view.png",
+      "pixelDeltaThreshold": 24,
+      "maxDifferentPixelRatio": 0.015,
+      "maxRootMeanSquareError": 6
+    },
+    {
+      "name": "component corpus PDF raster versus renderer PNG",
+      "baseline": "artifacts/renderer-png/component-render-page.png",
+      "candidate": "artifacts/renderer-pdf/component-render-page.png",
+      "diff": "artifacts/diff/components/pdf.png",
+      "pixelDeltaThreshold": 24,
+      "maxDifferentPixelRatio": 0.015,
+      "maxRootMeanSquareError": 6
+    }
+  ]
+}

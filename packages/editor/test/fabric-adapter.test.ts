@@ -12,6 +12,9 @@ import {
 } from "fabric"
 import { describe, expect, it, vi } from "vitest"
 import {
+  componentRenderConformanceCases,
+  componentRenderConformanceDocument,
+  createAdverseRichTextConformanceNode,
   imageRenderParityCases,
   imageRenderParityInput,
   imageRenderParityNode,
@@ -37,6 +40,7 @@ import {
   fabricComparableNodeGeometry,
   fabricTransformKind,
   FabricCanvasAdapter,
+  fabricTextObjectOptions,
   isMissingImagePlaceholder,
   projectFabricImagePaint,
   projectFabricImageCropDrag,
@@ -173,6 +177,30 @@ function setFabricPreviewRect(
 }
 
 describe("Fabric document boundary", () => {
+  it("projects every component semantic case through ordinary Fabric objects", () => {
+    const nodesById = new Map(
+      componentRenderConformanceDocument.nodes.map((node) => [node.id, node])
+    )
+    for (const fixture of componentRenderConformanceCases) {
+      for (const nodeId of fixture.nodeIds) {
+        const node = nodesById.get(nodeId)
+        if (!node || node.type !== "rect") throw new Error(`Missing ${nodeId}`)
+        const object = createFabricSyncObject(node)
+        expect(object).toBeInstanceOf(Rect)
+        expect(object).toMatchObject({
+          fill: node.fill,
+          opacity: node.opacity,
+          stroke: node.stroke,
+          strokeWidth: node.strokeWidth,
+          angle: node.rotation,
+        })
+        expect(
+          fabricComparableNodeGeometry(fabricObjectToNodePatch(object))
+        ).toEqual(fabricComparableNodeGeometry(node))
+      }
+    }
+  })
+
   it("uses canonical resolved resource values for Fabric objects and text", () => {
     const panel = textDesignSystemConformanceDocument.nodes.find(
       (node) => node.id === "rect-stroke-radius"
@@ -190,19 +218,39 @@ describe("Fabric document boundary", () => {
     const object = createFabricSyncObject(panel)
     expect(object).toBeInstanceOf(Rect)
     expect(object).toMatchObject({
-      fill: "#fef3c7",
-      opacity: 0.86,
+      fill: "#0f766e",
+      opacity: 0.63,
       // Fabric draws the stroke centered on the path, so the inner path radius
       // is reduced by half the 8px stroke to preserve the canonical 24px edge.
-      rx: 20,
-      ry: 20,
+      rx: 28,
+      ry: 28,
     })
-    expect(projectFabricTextState(body)).toMatchObject({
+    const bodyProjection = projectFabricTextState(body)
+    expect(bodyProjection).toMatchObject({
       fontFamily: "Geist Variable",
-      fontSize: 24,
-      fontWeight: 450,
+      fontSize: 22,
+      fontWeight: 510,
+      fontStyle: "italic",
+      underline: true,
     })
-    expect(projectFabricTextState(label).text).toBe("AUTO WIDTH")
+    expect(bodyProjection.lineHeight).toBeCloseTo(1.106194690265487)
+    expect(bodyProjection.charSpacing).toBeCloseTo(59.090909090909086)
+    expect(fabricTextObjectOptions(body, bodyProjection)).toMatchObject({
+      fontStyle: "italic",
+      underline: true,
+    })
+    const mixedText = textDesignSystemConformanceDocument.nodes.find(
+      (node) => node.id === "text-typography"
+    )
+    if (!mixedText || mixedText.type !== "text") {
+      throw new Error("Missing mixed resource conformance text")
+    }
+    expect(
+      projectFabricTextState(mixedText)
+        .layoutLines.flatMap((line) => line.segments)
+        .some((segment) => segment.style.color === "#0e7490")
+    ).toBe(true)
+    expect(projectFabricTextState(label).text).toBe("UPDATED LABEL")
   })
 
   it("uses familiar resize and center-origin modifier semantics", () => {
@@ -1411,7 +1459,125 @@ describe("Fabric document boundary", () => {
     ).toMatchObject({ sizingMode: "auto_height", clipOverflow: false })
   })
 
-  it("maps rich-text runs to canonical and raw-edit Fabric style indexes", () => {
+  it("keeps a 1,000-run late-wrap paste inside the Fabric edit budget", async () => {
+    const source = createAdverseRichTextConformanceNode()
+    const destination = {
+      ...source,
+      text: "",
+      runs: [],
+    }
+    const target = Object.create(Textbox.prototype) as Textbox
+    const textarea = {
+      value: "",
+      selectionStart: 0,
+      selectionEnd: 0,
+      selectionDirection: "forward",
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      setSelectionRange(start: number, end: number, direction: string) {
+        this.selectionStart = start
+        this.selectionEnd = end
+        this.selectionDirection = direction
+      },
+    }
+    Object.assign(target, {
+      text: "",
+      hiddenTextarea: textarea,
+      isEditing: true,
+      selectionStart: 0,
+      selectionEnd: 0,
+      graphemeSplit: (value: string) => Array.from(value),
+      initDimensions: vi.fn(),
+      set(patch: Record<string, unknown>) {
+        Object.assign(this, patch)
+        return this
+      },
+      setCoords: vi.fn(),
+      setSelectionStart(value: number) {
+        this.selectionStart = value
+      },
+      setSelectionEnd(value: number) {
+        this.selectionEnd = value
+      },
+    })
+    const onTextEditingChange = vi.fn()
+    const adapter = new FabricCanvasAdapter({
+      onSelectionChange: vi.fn(),
+      onNodesChange: vi.fn(() => true),
+      onTextEditingChange,
+    })
+    Reflect.set(adapter, "canvas", { requestRenderAll: vi.fn() })
+    Reflect.get(adapter, "nodeIdByObject").set(target, destination.id)
+    Reflect.get(adapter, "nodeByNodeId").set(destination.id, destination)
+    Reflect.get(adapter, "onTextEditingEntered")({ target })
+    onTextEditingChange.mockClear()
+
+    const clipboardValues = new Map<string, string>()
+    const clipboard = {
+      getData: (type: string) => clipboardValues.get(type) ?? "",
+      setData: (type: string, value: string) => {
+        clipboardValues.set(type, value)
+      },
+    }
+    expect(
+      writeTextEditingClipboardData(clipboard, source, {
+        anchor: 0,
+        focus: source.text.length,
+      })
+    ).toBe(true)
+
+    const preventDefault = vi.fn()
+    const startedAt = performance.now()
+    Reflect.get(
+      adapter,
+      "onTextEditingPaste"
+    )({
+      clipboardData: clipboard,
+      preventDefault,
+    })
+    const elapsed = performance.now() - startedAt
+    const session = Reflect.get(adapter, "textEditSession")
+
+    expect(preventDefault).toHaveBeenCalledOnce()
+    expect(session.draftNode).toMatchObject({
+      text: source.text,
+      runs: source.runs,
+    })
+    expect(session.target.text).toBe(source.text)
+    expect(onTextEditingChange).not.toHaveBeenCalled()
+    Reflect.get(adapter, "onTextSelectionChanged")({ target })
+    Reflect.get(adapter, "onTextSelectionChanged")({ target })
+    await Promise.resolve()
+    expect(onTextEditingChange).toHaveBeenCalledOnce()
+    expect(onTextEditingChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ text: source.text })
+    )
+    const fabricProjection = projectFabricTextState(session.draftNode)
+    expect(fabricProjection.layoutLines.map((line) => line.sourceEnd)).toEqual([
+      6_301, 7_000,
+    ])
+    expect(
+      fabricProjection.layoutLines.flatMap((line) => line.segments)
+    ).toHaveLength(1_001)
+    expect(
+      Object.values(fabricProjection.editingStyles).reduce(
+        (count, styles) => count + Object.keys(styles ?? {}).length,
+        0
+      )
+    ).toBe(7_000)
+    expect(elapsed).toBeLessThan(250)
+
+    onTextEditingChange.mockClear()
+    Reflect.get(adapter, "onTextSelectionChanged")({ target })
+    Reflect.get(adapter, "onTextEditingExited")({ target })
+    expect(
+      onTextEditingChange.mock.calls.map(([state]) => state?.text ?? null)
+    ).toEqual([source.text, null])
+    await Promise.resolve()
+    expect(onTextEditingChange).toHaveBeenCalledTimes(2)
+  })
+
+  it("keeps rich-text styles segment-based until direct editing", () => {
     const source = renderConformanceDocument.nodes.find(
       (candidate) => candidate.id === "text-typography"
     )!
@@ -1442,7 +1608,19 @@ describe("Fabric document boundary", () => {
     const state = projectFabricTextState(node)
 
     expect(state.displayText).toContain("\n")
-    expect(state.canonicalStyles[0]?.[0]).toMatchObject({
+    expect(state.layoutLines[0]?.segments[0]).toMatchObject({
+      text: "Bold",
+      style: {
+        color: "#dc2626",
+        fontFamily: "Geist Variable",
+        fontSize: 36,
+        fontWeight: 700,
+        italic: true,
+        decoration: "underline",
+      },
+    })
+    expect(fabricTextObjectOptions(node, state).styles).toEqual({})
+    expect(state.editingStyles[0]?.[0]).toMatchObject({
       fill: "#dc2626",
       fontFamily: "Geist Variable",
       fontSize: 36,
@@ -1451,7 +1629,6 @@ describe("Fabric document boundary", () => {
       underline: true,
       linethrough: false,
     })
-    expect(state.editingStyles[0]?.[0]).toEqual(state.canonicalStyles[0]?.[0])
     expect(state.editingStyles[0]?.[4]).toBeUndefined()
   })
 

@@ -1,25 +1,46 @@
 import { createFileRoute } from "@tanstack/react-router"
-import { renderConformanceDocument } from "@webmcp/document"
+import {
+  buildComponentPublicationJourney,
+  componentRenderConformanceDocument,
+  renderConformanceDocument,
+  textDesignSystemConformanceDocument,
+  type Document,
+} from "@webmcp/document"
 import { Artboard } from "@webmcp/render-view"
 import { useEffect, useRef, useState } from "react"
 import { FabricArtboard } from "../features/editor/fabric-artboard"
 import { waitForRenderViewDocumentFonts } from "../features/editor/render-conformance-readiness"
 
+const componentJourneyDocument =
+  buildComponentPublicationJourney().published.document
+
 export const Route = createFileRoute("/render-conformance")({
   ssr: false,
   validateSearch: (search: Record<string, unknown>) => ({
     page: typeof search.page === "string" ? search.page : undefined,
+    corpus:
+      search.corpus === "resources" ||
+      search.corpus === "components" ||
+      search.corpus === "component-journey"
+        ? search.corpus
+        : "golden",
   }),
   component: RenderConformanceHarness,
 })
 
 function RenderConformanceHarness() {
-  const { page: requestedPageId } = Route.useSearch()
+  const { corpus, page: requestedPageId } = Route.useSearch()
+  const document =
+    corpus === "resources"
+      ? textDesignSystemConformanceDocument
+      : corpus === "components"
+        ? componentRenderConformanceDocument
+        : corpus === "component-journey"
+          ? componentJourneyDocument
+        : renderConformanceDocument
   const pages = requestedPageId
-    ? renderConformanceDocument.pages.filter(
-        (page) => page.id === requestedPageId
-      )
-    : renderConformanceDocument.pages
+    ? document.pages.filter((page) => page.id === requestedPageId)
+    : document.pages
 
   return (
     <main
@@ -36,21 +57,28 @@ function RenderConformanceHarness() {
         data-conformance-document="v3"
         type="application/json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify(renderConformanceDocument).replaceAll(
-            "<",
-            "\\u003c"
-          ),
+          __html: JSON.stringify(document).replaceAll("<", "\\u003c"),
         }}
       />
       {pages.map((page) => (
-        <RenderConformancePair key={page.id} pageId={page.id} />
+        <RenderConformancePair
+          key={page.id}
+          document={document}
+          pageId={page.id}
+        />
       ))}
     </main>
   )
 }
 
-function RenderConformancePair({ pageId }: { pageId: string }) {
-  const page = renderConformanceDocument.pages.find(
+function RenderConformancePair({
+  document,
+  pageId,
+}: {
+  document: Document
+  pageId: string
+}) {
+  const page = document.pages.find(
     (candidate) => candidate.id === pageId
   )!
   const renderViewRef = useRef<HTMLDivElement>(null)
@@ -62,13 +90,13 @@ function RenderConformancePair({ pageId }: { pageId: string }) {
     const element = renderViewRef.current
     if (!element) return
     let active = true
-    void waitForRenderViewCapture(element, pageId)
+    void waitForRenderViewCapture(element, document, pageId)
       .then(() => active && setRenderViewState("ready"))
       .catch(() => active && setRenderViewState("error"))
     return () => {
       active = false
     }
-  }, [pageId])
+  }, [document, pageId])
 
   return (
     <section
@@ -85,7 +113,7 @@ function RenderConformancePair({ pageId }: { pageId: string }) {
         }}
       >
         <Artboard
-          document={renderConformanceDocument}
+          document={document}
           pageId={page.id}
           showImageRecoveryActions={false}
         />
@@ -100,7 +128,7 @@ function RenderConformancePair({ pageId }: { pageId: string }) {
         }}
       >
         <FabricArtboard
-          document={renderConformanceDocument}
+          document={document}
           interactive={false}
           pageId={page.id}
           selection={null}
@@ -130,9 +158,13 @@ function waitForPaintedFrame() {
   )
 }
 
-async function waitForRenderViewCapture(element: HTMLElement, pageId: string) {
+async function waitForRenderViewCapture(
+  element: HTMLElement,
+  canonicalDocument: Document,
+  pageId: string
+) {
   await waitForRenderViewDocumentFonts(
-    renderConformanceDocument,
+    canonicalDocument,
     pageId,
     document.fonts
   )

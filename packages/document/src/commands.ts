@@ -674,26 +674,57 @@ function reconcileOrdinaryComponentMutations(
   if (!updated.componentInstances.length) return updated
   const beforeNodes = new Map(before.nodes.map((node) => [node.id, node]))
   const actualNodes = new Map(updated.nodes.map((node) => [node.id, node]))
+  const instanceMappingByNodeId = new Map(
+    updated.componentInstances.flatMap((instance) =>
+      instance.nodeMappings.map(
+        (mapping) => [mapping.instanceNodeId, { instance, mapping }] as const
+      )
+    )
+  )
+  const changedInstanceMappings = new Map<
+    string,
+    Array<{
+      sourceNodeId: string
+      instanceNodeId: string
+      directlyChanged: Set<string>
+    }>
+  >()
+  const semanticallyChangedNodeIds = new Set<string>()
+  for (const [nodeId, actual] of actualNodes) {
+    const previous = beforeNodes.get(nodeId)
+    if (!previous || previous === actual) continue
+    const differing = componentDifferingProperties(actual, previous)
+    if (!differing.length) continue
+    semanticallyChangedNodeIds.add(nodeId)
+    const ownership = instanceMappingByNodeId.get(nodeId)
+    if (!ownership) continue
+    const changed = changedInstanceMappings.get(ownership.instance.id)
+    const entry = {
+      sourceNodeId: ownership.mapping.sourceNodeId,
+      instanceNodeId: ownership.mapping.instanceNodeId,
+      directlyChanged: new Set(differing),
+    }
+    if (changed) changed.push(entry)
+    else changedInstanceMappings.set(ownership.instance.id, [entry])
+  }
   let reconciled = updated
   let captured = false
 
   for (const instance of updated.componentInstances) {
+    const changedMappings = changedInstanceMappings.get(instance.id)
+    if (!changedMappings?.length) continue
     const expectedNodes = new Map(
       resolveComponentInstanceNodes(updated, instance).map((node) => [
         node.id,
         node,
       ])
     )
-    for (const mapping of instance.nodeMappings) {
-      const previous = beforeNodes.get(mapping.instanceNodeId)
+    for (const mapping of changedMappings) {
       const actual = actualNodes.get(mapping.instanceNodeId)
       const expected = expectedNodes.get(mapping.instanceNodeId)
-      if (!previous || !actual || !expected) continue
-      const directlyChanged = new Set(
-        componentDifferingProperties(actual, previous)
-      )
+      if (!actual || !expected) continue
       const unresolved = componentDifferingProperties(actual, expected).filter(
-        (property) => directlyChanged.has(property)
+        (property) => mapping.directlyChanged.has(property)
       )
       if (!unresolved.length) continue
 
@@ -724,15 +755,9 @@ function reconcileOrdinaryComponentMutations(
 
   const sourceChanged = updated.components.some((component) => {
     const subtree = componentSourceSubtree(updated, component.sourceGroupId)
-    return subtree?.nodeIds.some((nodeId) => {
-      const previous = beforeNodes.get(nodeId)
-      const actual = actualNodes.get(nodeId)
-      return Boolean(
-        previous &&
-        actual &&
-        componentDifferingProperties(actual, previous).length
-      )
-    })
+    return subtree?.nodeIds.some((nodeId) =>
+      semanticallyChangedNodeIds.has(nodeId)
+    )
   })
   const sourceStructureChanged = updated.components.some((component) => {
     const subtree = componentSourceSubtree(updated, component.sourceGroupId)

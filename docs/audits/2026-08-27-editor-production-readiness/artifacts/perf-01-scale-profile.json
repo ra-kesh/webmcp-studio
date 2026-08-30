@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "capturedAt": "2026-08-29T14:25:29.670Z",
+  "capturedAt": "2026-08-30T20:42:11.360Z",
   "runtime": {
     "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
     "viewport": {
@@ -10,50 +10,152 @@
   },
   "document": {
     "pages": 100,
-    "nodes": 800
+    "nodes": 801,
+    "adverseRichTextRuns": 1000
   },
-  "readyWallTime": 3475,
-  "pageSwitchWallTime": 361,
+  "readyWallTime": 4137,
+  "pageSwitchWallTime": 203.40000000037253,
+  "pageReadyToPaintTime": 21.5,
+  "pageSwitchPaintTime": 224.90000000037253,
   "frameProfile": {
     "frames": 90,
-    "p50FrameMs": 17.699999999254942,
-    "p95FrameMs": 24.199999999254942,
-    "p99FrameMs": 29.5,
-    "maximumFrameMs": 32.09999999962747,
+    "p50FrameMs": 16.59999999962747,
+    "p95FrameMs": 23.5,
+    "p99FrameMs": 29.699999999254942,
+    "maximumFrameMs": 33.79999999888241,
     "scrollWidth": 7684,
-    "clientWidth": 776
+    "clientWidth": 780
   },
   "thumbnailMode": "renderer-backed",
   "requests": {
     "started": 3,
+    "startedPageIds": [
+      "performance-page-88",
+      "performance-page-89",
+      "performance-page-90"
+    ],
     "completed": 0,
     "failed": 0,
     "active": 3,
     "maximumConcurrency": 3
   },
+  "thumbnailAdmission": {
+    "rootMarginPx": 240,
+    "initialExpandedPageIds": [
+      "performance-page-1",
+      "performance-page-2",
+      "performance-page-3",
+      "performance-page-4",
+      "performance-page-5",
+      "performance-page-6",
+      "performance-page-7",
+      "performance-page-8",
+      "performance-page-9",
+      "performance-page-10",
+      "performance-page-11",
+      "performance-page-12",
+      "performance-page-13",
+      "performance-page-14"
+    ],
+    "finalExpandedPageIds": [
+      "performance-page-88",
+      "performance-page-89",
+      "performance-page-90",
+      "performance-page-91",
+      "performance-page-92",
+      "performance-page-93",
+      "performance-page-94",
+      "performance-page-95",
+      "performance-page-96",
+      "performance-page-97",
+      "performance-page-98",
+      "performance-page-99",
+      "performance-page-100"
+    ],
+    "expandedPageIdUnion": [
+      "performance-page-1",
+      "performance-page-2",
+      "performance-page-3",
+      "performance-page-4",
+      "performance-page-5",
+      "performance-page-6",
+      "performance-page-7",
+      "performance-page-8",
+      "performance-page-9",
+      "performance-page-10",
+      "performance-page-11",
+      "performance-page-12",
+      "performance-page-13",
+      "performance-page-14",
+      "performance-page-88",
+      "performance-page-89",
+      "performance-page-90",
+      "performance-page-91",
+      "performance-page-92",
+      "performance-page-93",
+      "performance-page-94",
+      "performance-page-95",
+      "performance-page-96",
+      "performance-page-97",
+      "performance-page-98",
+      "performance-page-99",
+      "performance-page-100"
+    ],
+    "startedPageIds": [
+      "performance-page-88",
+      "performance-page-89",
+      "performance-page-90"
+    ]
+  },
   "browser": {
     "activeObjectUrls": 0,
     "createdObjectUrls": 0,
     "revokedObjectUrls": 0,
-    "longTaskCount": 12,
-    "maximumLongTaskMs": 766,
-    "longTaskTotalMs": 1668,
-    "usedJSHeapBytes": 121930754,
-    "totalJSHeapBytes": 176444810,
-    "domContentLoadedMs": 213.60000000149012,
-    "loadEventMs": 238.10000000149012,
+    "longTaskSupported": true,
+    "longTaskCount": 18,
+    "maximumLongTaskMs": 574,
+    "longTaskTotalMs": 2633,
+    "interactionLongTasks": [
+      {
+        "duration": 206,
+        "startTime": 6243.5999999996275
+      }
+    ],
+    "fontLoads": [
+      {
+        "descriptor": "400 20px \"Geist Variable\"",
+        "sampleLength": 1,
+        "startedAt": 6431.4000000003725,
+        "endedAt": 6431.9000000003725
+      }
+    ],
+    "usedJSHeapBytes": 125449986,
+    "totalJSHeapBytes": 182649522,
+    "domContentLoadedMs": 118.59999999962747,
+    "loadEventMs": 152.40000000037253,
     "thumbnailElements": 100,
-    "liveArtboards": 1,
+    "liveArtboards": 0,
     "deferredThumbnails": 87,
     "readyRasterThumbnails": 0,
     "canvases": 3
   },
+  "interaction": {
+    "maximumLongTaskMs": 206,
+    "usedJSHeapBytesAtPaint": 129393888,
+    "heapGrowthBytes": 16425562,
+    "clickToReadyMs": 203.40000000037253,
+    "readyToPaintMs": 21.5,
+    "clickToPaintMs": 224.90000000037253
+  },
   "budgets": {
     "maximumThumbnailConcurrency": 3,
-    "maximumTotalThumbnailStarts": 3,
+    "maximumTotalThumbnailStarts": 27,
     "maximumRetainedObjectUrls": 64,
     "maximumDevelopmentLiveArtboards": 8,
     "maximumP95FrameMs": 32,
-    "maximumPageSwitchWallTime": 500
+    "maximumPageSwitchWallTime": 500,
+    "maximumClickToPaintWallTime": 750,
+    "maximumRichTextSwitchLongTaskMs": 500,
+    "maximumRichTextSwitchHeapGrowthBytes": 67108864
   }
 }

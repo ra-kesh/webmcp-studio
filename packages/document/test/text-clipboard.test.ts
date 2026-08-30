@@ -5,6 +5,7 @@ import {
   createTextClipboardPayload,
   parseTextClipboardHtml,
   parseTextClipboardPayload,
+  pasteParsedTextClipboardPayload,
   serializeTextClipboardHtml,
   pasteTextClipboardPayload,
   serializeTextClipboardPayload,
@@ -215,8 +216,23 @@ describe("rich text clipboard", () => {
       { anchor: 0, focus: 6 },
       source
     )
+    const parsedSource = parseTextClipboardPayload(
+      serializeTextClipboardPayload(source)
+    )
+    if (!parsedSource) throw new Error("Expected parsed rich clipboard payload")
+    const parsedResult = pasteParsedTextClipboardPayload(
+      target.text,
+      {
+        runs: target.runs,
+        paragraphs: target.paragraphs,
+        links: target.links,
+      },
+      { anchor: 0, focus: 6 },
+      parsedSource
+    )
 
     expect(result.text).toBe("Alpha\nBeta after")
+    expect(parsedResult).toEqual(result)
     expect(result.selection).toMatchObject({ anchor: 10, focus: 10 })
     expect(result.content.runs.some((run) => run.style.italic)).toBe(true)
     expect(result.content.runs[0]).toMatchObject({

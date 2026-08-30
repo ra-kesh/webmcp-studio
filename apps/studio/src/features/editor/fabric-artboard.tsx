@@ -220,6 +220,7 @@ export const FabricArtboard = forwardRef<
   const [runtime, setRuntime] = useState<CanvasRuntimeState>(() =>
     createCanvasRuntimeState()
   )
+  const [readyPageId, setReadyPageId] = useState<string | null>(null)
   const [activeTextEditingNodeId, setActiveTextEditingNodeId] = useState<
     string | null
   >(null)
@@ -661,6 +662,7 @@ export const FabricArtboard = forwardRef<
       ...identity,
       stage: null,
     })
+    setReadyPageId(null)
     setRuntime((current) =>
       reduceCanvasRuntimeState(current, { type: "preparing", attempt })
     )
@@ -703,6 +705,7 @@ export const FabricArtboard = forwardRef<
           ...identity,
           stage: null,
         })
+        setReadyPageId(identity.pageId)
         setRuntime((current) =>
           reduceCanvasRuntimeState(current, { type: "ready", attempt })
         )
@@ -789,6 +792,9 @@ export const FabricArtboard = forwardRef<
   return (
     <div
       ref={artboardChromeRef}
+      data-canvas-page-id={page.id}
+      data-canvas-ready-page-id={readyPageId ?? undefined}
+      data-canvas-runtime-state={runtime.status}
       className="relative shrink-0 shadow-[0_24px_70px_rgba(35,31,25,0.18)] ring-1 ring-black/10"
       style={{ width: page.width * zoom, height: page.height * zoom }}
     >
@@ -868,7 +874,10 @@ export function canvasDocumentFontRequests(document: Document, pageId: string) {
   const page = document.pages.find((candidate) => candidate.id === pageId)
   if (!page) return []
   const pageNodeIds = new Set(page.nodeIds)
-  const requests = new Map<string, { descriptor: string; sample: string }>()
+  const requests = new Map<
+    string,
+    { descriptor: string; codePoints: Set<string> }
+  >()
   for (const node of document.nodes) {
     if (node.type !== "text" || !pageNodeIds.has(node.id) || !node.visible) {
       continue
@@ -881,15 +890,20 @@ export function canvasDocumentFontRequests(document: Document, pageId: string) {
       sample: string
     ) => {
       const descriptor = `${italic ? "italic " : ""}${weight} ${size}px ${JSON.stringify(family)}`
-      const resolvedSample = sample || "M"
-      const key = `${descriptor}\u0000${resolvedSample}`
-      requests.set(key, { descriptor, sample: resolvedSample })
+      const request = requests.get(descriptor) ?? {
+        descriptor,
+        codePoints: new Set<string>(),
+      }
+      for (const codePoint of sample || "M") {
+        request.codePoints.add(codePoint)
+      }
+      requests.set(descriptor, request)
     }
     addRequest(
       node.fontFamily,
       node.fontSize,
       node.fontWeight,
-      false,
+      node.italic,
       node.text
     )
     for (const run of node.runs) {
@@ -897,12 +911,15 @@ export function canvasDocumentFontRequests(document: Document, pageId: string) {
         run.style.fontFamily ?? node.fontFamily,
         run.style.fontSize ?? node.fontSize,
         run.style.fontWeight ?? node.fontWeight,
-        run.style.italic ?? false,
+        run.style.italic ?? node.italic,
         node.text.slice(run.start, run.end)
       )
     }
   }
-  return [...requests.values()]
+  return [...requests.values()].map(({ descriptor, codePoints }) => ({
+    descriptor,
+    sample: [...codePoints].join(""),
+  }))
 }
 
 export async function waitForCanvasDocumentFonts(

@@ -1,0 +1,151 @@
+{
+  "version": 2,
+  "captureReport": "text-design-system-conformance-capture-report.json",
+  "report": "text-design-system-conformance-report.json",
+  "comparisons": [
+    {
+      "name": "resource corpus properties Fabric versus renderer PNG",
+      "baseline": "artifacts/renderer-png/properties-page.png",
+      "candidate": "artifacts/fabric/properties-page.png",
+      "diff": "artifacts/diff/resources/properties-fabric.png",
+      "pixelDeltaThreshold": 24,
+      "maxDifferentPixelRatio": 0.015,
+      "maxRootMeanSquareError": 6,
+      "geometry": {
+        "pageId": "properties-page",
+        "textNodeIds": ["text-typography"],
+        "minimumContrastFraction": 0.2,
+        "minimumInkPixelsPerRow": 2,
+        "maximumEdgeDelta": 4,
+        "maximumInkPixelRatioDelta": 0.1,
+        "maximumContrastFractionDelta": 0.1,
+        "minimumDirectionCosine": 0,
+        "maximumDirectionCosineDelta": 0.01,
+        "acceptWhenRawFails": false,
+        "acceptWhenRawRatioPasses": true
+      }
+    },
+    {
+      "name": "resource corpus properties React view versus renderer PNG",
+      "baseline": "artifacts/renderer-png/properties-page.png",
+      "candidate": "artifacts/render-view/properties-page.png",
+      "diff": "artifacts/diff/resources/properties-render-view.png",
+      "pixelDeltaThreshold": 24,
+      "maxDifferentPixelRatio": 0.015,
+      "maxRootMeanSquareError": 6,
+      "geometry": {
+        "pageId": "properties-page",
+        "textNodeIds": ["text-typography"],
+        "minimumContrastFraction": 0.2,
+        "minimumInkPixelsPerRow": 2,
+        "maximumEdgeDelta": 4,
+        "maximumInkPixelRatioDelta": 0.1,
+        "maximumContrastFractionDelta": 0.1,
+        "minimumDirectionCosine": 0,
+        "maximumDirectionCosineDelta": 0.01,
+        "acceptWhenRawFails": false,
+        "acceptWhenRawRatioPasses": true
+      }
+    },
+    {
+      "name": "resource corpus properties PDF raster versus renderer PNG",
+      "baseline": "artifacts/renderer-png/properties-page.png",
+      "candidate": "artifacts/renderer-pdf/properties-page.png",
+      "diff": "artifacts/diff/resources/properties-pdf.png",
+      "pixelDeltaThreshold": 24,
+      "maxDifferentPixelRatio": 0.015,
+      "maxRootMeanSquareError": 6,
+      "geometry": {
+        "pageId": "properties-page",
+        "textNodeIds": ["text-typography"],
+        "minimumContrastFraction": 0.2,
+        "minimumInkPixelsPerRow": 2,
+        "maximumEdgeDelta": 4,
+        "maximumInkPixelRatioDelta": 0.1,
+        "maximumContrastFractionDelta": 0.1,
+        "minimumDirectionCosine": 0,
+        "maximumDirectionCosineDelta": 0.01,
+        "acceptWhenRawFails": false,
+        "acceptWhenRawRatioPasses": true
+      }
+    },
+    {
+      "name": "resource corpus long text Fabric versus renderer PNG",
+      "baseline": "artifacts/renderer-png/long-text-page.png",
+      "candidate": "artifacts/fabric/long-text-page.png",
+      "diff": "artifacts/diff/resources/long-text-fabric.png",
+      "pixelDeltaThreshold": 24,
+      "maxDifferentPixelRatio": 0.015,
+      "maxRootMeanSquareError": 6,
+      "geometry": {
+        "pageId": "long-text-page",
+        "textNodeIds": ["long-text-only"],
+        "minimumContrastFraction": 0.2,
+        "minimumInkPixelsPerRow": 2,
+        "maximumEdgeDelta": 1,
+        "maximumInkPixelRatioDelta": 0.1,
+        "maximumContrastFractionDelta": 0.1,
+        "minimumDirectionCosine": 0.98,
+        "acceptWhenRawFails": true
+      }
+    },
+    {
+      "name": "resource corpus long text React view versus renderer PNG",
+      "baseline": "artifacts/renderer-png/long-text-page.png",
+      "candidate": "artifacts/render-view/long-text-page.png",
+      "diff": "artifacts/diff/resources/long-text-render-view.png",
+      "pixelDeltaThreshold": 24,
+      "maxDifferentPixelRatio": 0.015,
+      "maxRootMeanSquareError": 6,
+      "geometry": {
+        "pageId": "long-text-page",
+        "textNodeIds": ["long-text-only"],
+        "minimumContrastFraction": 0.2,
+        "minimumInkPixelsPerRow": 2,
+        "maximumEdgeDelta": 1,
+        "maximumInkPixelRatioDelta": 0.1,
+        "maximumContrastFractionDelta": 0.1,
+        "minimumDirectionCosine": 0.98,
+        "acceptWhenRawFails": true
+      }
+    },
+    {
+      "name": "resource corpus long text PDF raster versus renderer PNG",
+      "baseline": "artifacts/renderer-png/long-text-page.png",
+      "candidate": "artifacts/renderer-pdf/long-text-page.png",
+      "diff": "artifacts/diff/resources/long-text-pdf.png",
+      "pixelDeltaThreshold": 24,
+      "maxDifferentPixelRatio": 0.015,
+      "maxRootMeanSquareError": 6,
+      "geometry": {
+        "pageId": "long-text-page",
+        "textNodeIds": ["long-text-only"],
+        "minimumContrastFraction": 0.2,
+        "minimumInkPixelsPerRow": 2,
+        "maximumEdgeDelta": 1,
+        "maximumInkPixelRatioDelta": 0.1,
+        "maximumContrastFractionDelta": 0.1,
+        "minimumDirectionCosine": 0.98,
+        "acceptWhenRawFails": true
+      }
+    },
+    {
+      "name": "resource corpus square Fabric versus renderer PNG",
+      "baseline": "artifacts/renderer-png/square-page.png",
+      "candidate": "artifacts/fabric/square-page.png",
+      "diff": "artifacts/diff/resources/square-fabric.png",
+      "pixelDeltaThreshold": 24,
+      "maxDifferentPixelRatio": 0.015,
+      "maxRootMeanSquareError": 6
+    },
+    {
+      "name": "resource corpus square React view versus renderer PNG",
+      "baseline": "artifacts/renderer-png/square-page.png",
+      "candidate": "artifacts/render-view/square-page.png",
+      "diff": "artifacts/diff/resources/square-render-view.png",
+      "pixelDeltaThreshold": 24,
+      "maxDifferentPixelRatio": 0.015,
+      "maxRootMeanSquareError": 6
+    }
+  ]
+}

@@ -2,17 +2,180 @@
 
 import { Rect, Textbox, type TPointerEvent, type Transform } from "fabric"
 import { describe, expect, it, vi } from "vitest"
-import { renderConformanceDocument } from "@webmcp/document"
+import {
+  createAdverseRichTextConformanceNode,
+  renderConformanceDocument,
+} from "@webmcp/document"
 import {
   createFabricSyncObject,
+  FabricCanvasAdapter,
   fabricComparableNodeGeometry,
   fabricObjectToNodePatch,
-  FabricCanvasAdapter,
+  localCanvasViewportBounds,
+  projectedSegmentIntersectsViewport,
   projectFabricTextState,
+  shouldUseFabricTextObjectCache,
   syncFabricObjectFromNode,
 } from "../src/fabric-adapter"
 
 describe("Fabric text resize constraints", () => {
+  it("materializes rich styles when auto-width text enters direct editing", () => {
+    const source = renderConformanceDocument.nodes.find(
+      (candidate) => candidate.id === "text-typography"
+    )
+    if (!source || source.type !== "text") throw new Error("Expected text")
+    const node = { ...source, sizingMode: "auto_width" as const }
+    const target = createFabricSyncObject(node)
+    if (!(target instanceof Textbox)) throw new Error("Expected Textbox")
+    expect(target.text).toBe(projectFabricTextState(node).displayText)
+    expect(target.styles[0]?.[0]).toMatchObject({
+      fontSize: 36,
+      fontWeight: 780,
+      fontStyle: "italic",
+    })
+    target.isEditing = true
+    target.selectionStart = 0
+    target.selectionEnd = 0
+
+    const adapter = new FabricCanvasAdapter({
+      onSelectionChange: vi.fn(),
+      onNodesChange: vi.fn(() => true),
+    })
+    Reflect.set(adapter, "canvas", { requestRenderAll: vi.fn() })
+    Reflect.get(adapter, "nodeIdByObject").set(target, node.id)
+    Reflect.get(adapter, "nodeByNodeId").set(node.id, node)
+    Reflect.get(adapter, "onTextEditingEntered")({ target })
+
+    expect(target.text).toBe(node.text)
+    expect(target.styles[0]?.[0]).toMatchObject({
+      fill: "#be123c",
+      fontWeight: 780,
+      fontStyle: "italic",
+      underline: true,
+    })
+    expect(
+      (target as Textbox & { studioUsesCanonicalLines: boolean })
+        .studioUsesCanonicalLines
+    ).toBe(false)
+  })
+
+  it("constructs and syncs adverse rich text without per-character idle state", () => {
+    const node = createAdverseRichTextConformanceNode()
+    const constructionStartedAt = performance.now()
+    const object = createFabricSyncObject(node)
+    const constructionMs = performance.now() - constructionStartedAt
+    const syncStartedAt = performance.now()
+    syncFabricObjectFromNode(object, { ...node, x: node.x + 1 })
+    const syncMs = performance.now() - syncStartedAt
+    expect(object).toBeInstanceOf(Textbox)
+    expect(Object.values((object as Textbox).styles)).toHaveLength(2)
+    expect(
+      Object.values((object as Textbox).styles).every(
+        (line) => Object.keys(line ?? {}).length === 1
+      )
+    ).toBe(true)
+    expect(object.objectCaching).toBe(false)
+    expect(object.clipPath).toBeUndefined()
+    expect(
+      (object as Textbox & { studioDirectClip: boolean }).studioDirectClip
+    ).toBe(false)
+    expect(
+      (
+        object as Textbox & {
+          _textLines: string[][]
+          studioProjectedLines: Array<{ segments: unknown[] }>
+        }
+      )._textLines.flat()
+    ).toHaveLength(2)
+    expect(
+      (
+        object as Textbox & {
+          studioProjectedLines: Array<{ segments: unknown[] }>
+        }
+      ).studioProjectedLines.flatMap((line) => line.segments)
+    ).toHaveLength(1_001)
+    expect(constructionMs).toBeLessThan(100)
+    expect(syncMs).toBeLessThan(75)
+    expect(constructionMs + syncMs).toBeLessThan(150)
+  })
+
+  it("switches cache and clipping strategy symmetrically across the Fabric cache limit", () => {
+    const adverse = {
+      ...createAdverseRichTextConformanceNode(),
+      sizingMode: "fixed" as const,
+    }
+    const object = createFabricSyncObject(adverse)
+    if (!(object instanceof Textbox)) throw new Error("Expected Textbox")
+
+    const cacheable = {
+      ...adverse,
+      width: 1_200,
+      height: 300,
+    }
+    syncFabricObjectFromNode(object, cacheable)
+    expect(object.objectCaching).toBe(true)
+    expect(object.clipPath).toBeInstanceOf(Rect)
+    expect(
+      (object as Textbox & { studioDirectClip: boolean }).studioDirectClip
+    ).toBe(false)
+
+    syncFabricObjectFromNode(object, adverse)
+    expect(object.objectCaching).toBe(false)
+    expect(object.clipPath).toBeUndefined()
+    expect(
+      (object as Textbox & { studioDirectClip: boolean }).studioDirectClip
+    ).toBe(true)
+  })
+
+  it("paints whole-node canonical decorations without Fabric char bounds", () => {
+    const source = renderConformanceDocument.nodes.find(
+      (candidate) => candidate.id === "long-text-only"
+    )
+    if (!source || source.type !== "text") throw new Error("Expected text")
+    const object = createFabricSyncObject({
+      ...source,
+      decoration: "underline",
+    })
+    if (!(object instanceof Textbox)) throw new Error("Expected Textbox")
+    const fillRect = vi.fn()
+    const context = {
+      canvas: { width: 640, height: 360 },
+      fillRect,
+      getTransform: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }),
+      measureText: (text: string) => ({ width: text.length * 10 }),
+      restore: vi.fn(),
+      save: vi.fn(),
+    } as unknown as CanvasRenderingContext2D
+
+    expect(() =>
+      Reflect.apply(Reflect.get(object, "_renderTextDecoration"), object, [
+        context,
+        "underline",
+      ])
+    ).not.toThrow()
+    expect(fillRect).toHaveBeenCalled()
+  })
+
+  it("maps the transformed canvas viewport to local text coordinates", () => {
+    expect(
+      localCanvasViewportBounds(
+        { a: 2, b: 0, c: 0, d: 2, e: 20, f: 40 },
+        1_240,
+        800
+      )
+    ).toEqual({ left: -10, right: 610, top: -20, bottom: 380 })
+  })
+
+  it("keeps glyph overdraw visible at the viewport edge", () => {
+    const viewport = { left: 0, right: 1_240 }
+    expect(projectedSegmentIntersectsViewport(-20, -5, 10, viewport)).toBe(true)
+    expect(projectedSegmentIntersectsViewport(-30, -11, 10, viewport)).toBe(
+      false
+    )
+    expect(shouldUseFabricTextObjectCache(1_200, 300)).toBe(true)
+    expect(shouldUseFabricTextObjectCache(80_652.8, 20_000)).toBe(false)
+  })
+
   it("keeps canonical auto-width text on explicit lines without soft wrapping", () => {
     const node = renderConformanceDocument.nodes.find(
       (candidate) => candidate.id === "auto-width-label"
@@ -33,7 +196,9 @@ describe("Fabric text resize constraints", () => {
     expect(object.left).toBe(node.x)
     expect(object.top).toBe(node.y)
     expect(object.width).toBe(node.width)
-    expect(object.getLineWidth(0)).toBeGreaterThan(node.width)
+    expect(object.getLineWidth(0)).toBe(
+      projectFabricTextState(node).layoutLines[0]?.width
+    )
 
     const fixedNode = {
       ...node,

@@ -151,7 +151,10 @@ function glyphWidth(glyph: StyledGlyph) {
   return glyphAdvanceEm(glyph.text) * glyph.style.fontSize * weightAdjustment
 }
 
-function measuredGlyphs(glyphs: readonly StyledGlyph[], trimEnd = false) {
+function rawGlyphSequenceWidth(
+  glyphs: readonly StyledGlyph[],
+  trimEnd = false
+) {
   let end = glyphs.length
   if (trimEnd) {
     while (end > 0 && /[ \t]/u.test(glyphs[end - 1]?.text ?? "")) end -= 1
@@ -164,7 +167,15 @@ function measuredGlyphs(glyphs: readonly StyledGlyph[], trimEnd = false) {
     width += glyphWidth(glyph)
     if (index < end - 1) width += glyph.style.letterSpacing
   }
+  return width
+}
+
+function measuredWidth(width: number) {
   return Math.max(0, roundLayout(width))
+}
+
+function measuredGlyphs(glyphs: readonly StyledGlyph[], trimEnd = false) {
+  return measuredWidth(rawGlyphSequenceWidth(glyphs, trimEnd))
 }
 
 function sameStyle(left: ResolvedTextStyle, right: ResolvedTextStyle) {
@@ -284,31 +295,56 @@ function wrapStyledGlyphs(
   }
   const lines: StyledGlyph[][] = []
   let line: StyledGlyph[] = []
+  // Keep the unrounded width beside the line. Each token and fallback glyph is
+  // measured once; only the existing one-decimal comparison is repeated.
+  let lineWidth = 0
   const pushLine = () => {
     lines.push(line)
     line = []
+    lineWidth = 0
+  }
+  const appendToken = (token: readonly StyledGlyph[], tokenWidth: number) => {
+    if (line.length) {
+      lineWidth += line.at(-1)!.style.letterSpacing
+    }
+    lineWidth += tokenWidth
+    for (const glyph of token) line.push(glyph)
+  }
+  const appendGlyph = (glyph: StyledGlyph) => {
+    if (line.length) {
+      lineWidth += line.at(-1)!.style.letterSpacing
+    }
+    lineWidth += glyphWidth(glyph)
+    line.push(glyph)
   }
   for (const token of tokens) {
-    const candidate = [...line, ...token]
-    if (measuredGlyphs(candidate) <= maxWidth) {
-      line = candidate
+    const tokenWidth = rawGlyphSequenceWidth(token)
+    const candidateWidth =
+      lineWidth +
+      (line.length ? line.at(-1)!.style.letterSpacing : 0) +
+      tokenWidth
+    if (measuredWidth(candidateWidth) <= maxWidth) {
+      appendToken(token, tokenWidth)
       continue
     }
     const whitespace = /^\s$/u.test(token[0]?.text ?? "")
     if (line.length && whitespace) {
-      line = candidate
+      appendToken(token, tokenWidth)
       pushLine()
       continue
     }
     if (line.length) pushLine()
-    if (measuredGlyphs(token) <= maxWidth) {
-      line = token
+    if (measuredWidth(tokenWidth) <= maxWidth) {
+      appendToken(token, tokenWidth)
       continue
     }
     for (const glyph of token) {
-      const next = [...line, glyph]
-      if (line.length && measuredGlyphs(next) > maxWidth) pushLine()
-      line.push(glyph)
+      const nextWidth =
+        lineWidth +
+        (line.length ? line.at(-1)!.style.letterSpacing : 0) +
+        glyphWidth(glyph)
+      if (line.length && measuredWidth(nextWidth) > maxWidth) pushLine()
+      appendGlyph(glyph)
     }
   }
   if (line.length || !lines.length) lines.push(line)
