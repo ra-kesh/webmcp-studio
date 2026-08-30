@@ -2819,3 +2819,21 @@ Status: **completed locally; Gate 5 state/sheet work remains active**
   pass.
 - Gate 5B owns loading, empty, error and recovery-state hierarchy; Gate 5C owns
   the compact sheet composition.
+
+## 2026-08-30 — EDITOR-POLISH-01 Gate 5B panel states
+
+Status: **completed locally; Gate 5C compact-sheet work remains active**
+
+- Revisited the retained async-state and compact-panel audit, OpenPencil's
+  dialog/state composition, and every primary Studio editor panel before
+  editing.
+- Added one shared compact panel-state recipe with neutral/error tones and
+  explicit icon, copy, and recovery-action anatomy.
+- Templates, Layers, Design, Fields, bindings, and Review now use that same
+  hierarchy instead of mixing generic empty cards, one-off centered blocks,
+  and unrelated error rows.
+- Mounted `1440 x 900` acceptance covered template no-results and recovery,
+  layer no-results, Design no-selection, and Review's empty action state.
+- Studio/UI typechecks, 11 focused tests, scoped Studio/UI ESLint and
+  `git diff --check` pass.
+- Gate 5C now owns compact modal-sheet composition and action reachability.

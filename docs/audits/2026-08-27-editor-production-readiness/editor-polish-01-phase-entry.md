@@ -2,7 +2,7 @@
 
 Date: 2026-08-30
 
-Status: active; Gates 1-4 and Gate 5A accepted locally
+Status: active; Gates 1-4 and Gates 5A-5B accepted locally
 
 ## Purpose
 
@@ -298,4 +298,47 @@ Focused evidence:
 - Studio typecheck passes;
 - focused responsive-menu and shortcut-disclosure tests pass;
 - scoped Studio ESLint passes;
+- `git diff --check` passes.
+
+## Gate 5B result — loading, empty, error, and recovery states
+
+Sources revisited before implementation:
+
+- the compact reachability, modal semantics, and asynchronous-state findings
+  in `visual-and-interaction-audit.md`;
+- OpenPencil `src/theme/dialog.ts`, its application menu, and selection rename
+  dialog;
+- Studio's Templates, Layers, Fields, Review, Design inspector, and shared
+  editor-chrome implementations.
+
+Implemented:
+
+- introduced one compact `EditorPanelState` recipe with explicit title,
+  description, icon, action, and destructive-error slots;
+- migrated Templates loading failures and filtered-empty recovery to the
+  shared state, preserving retry and clear-filter actions;
+- migrated Layers empty/search states and Design's no-selection state so the
+  three primary panels no longer use unrelated visual grammars;
+- migrated the Fields, selected-layer bindings, and Review secondary empty
+  states, including their create-field and copy-brief actions;
+- retained the asset library's purpose-built asynchronous surface and the
+  empty-canvas creation actions because those are workflows rather than panel
+  status messages.
+
+Mounted acceptance at `1440 x 900` confirmed:
+
+- a no-result template search shows a compact named state and an immediate
+  `Clear filters` recovery, then restores the catalog;
+- a no-result layer search shows the matching compact hierarchy without
+  disturbing the canvas;
+- Review shows the same hierarchy while keeping its available WebMCP action
+  reachable and the surrounding inspector sections intact;
+- the Design no-selection state is calm, centered, and no longer resembles a
+  generic marketing empty card.
+
+Focused evidence:
+
+- Studio and UI package typechecks pass;
+- 11 focused panel-state, catalog, inspector, and crop-preview tests pass;
+- scoped Studio and UI ESLint passes;
 - `git diff --check` passes.

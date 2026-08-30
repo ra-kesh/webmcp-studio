@@ -54,6 +54,7 @@ import type { Selection } from "@webmcp/editor"
 import { buildLayerContextMenu } from "@webmcp/editor/product-commands"
 import type { ProductCommandRuntimeContext } from "@webmcp/editor/product-commands"
 import { Button } from "@webmcp/ui/components/button"
+import { EditorPanelState } from "@webmcp/ui/components/editor-chrome"
 import { Input } from "@webmcp/ui/components/input"
 import {
   Tooltip,
@@ -1280,18 +1281,16 @@ export function LayerTree({
           </div>
         </div>
       ) : (
-        <div className="grid min-h-0 flex-1 place-items-center p-6 text-center">
-          <div>
-            <p className="text-xs font-medium">
-              {query ? "No matching layers" : "This page is empty"}
-            </p>
-            <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
-              {query
-                ? "Try a layer name or object type."
-                : "Add text, shapes, or an image to start designing."}
-            </p>
-          </div>
-        </div>
+        <EditorPanelState
+          className="min-h-0"
+          description={
+            query
+              ? "Try a layer name or object type."
+              : "Add text, shapes, or an image to start designing."
+          }
+          icon={query ? <Search /> : <Square />}
+          title={query ? "No matching layers" : "This page is empty"}
+        />
       )}
 
       <p className="sr-only" aria-live="polite" aria-atomic="true">

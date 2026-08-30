@@ -17,14 +17,7 @@ import {
 } from "@webmcp/ui/components/alert-dialog"
 import { Badge } from "@webmcp/ui/components/badge"
 import { Button } from "@webmcp/ui/components/button"
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@webmcp/ui/components/empty"
+import { EditorPanelState } from "@webmcp/ui/components/editor-chrome"
 import {
   InputGroup,
   InputGroupAddon,
@@ -164,21 +157,19 @@ function CatalogFailure({
   onRetry: () => void
 }) {
   return (
-    <Empty className="min-h-72" role="alert">
-      <EmptyHeader>
-        <EmptyMedia variant="icon">
-          <AlertTriangle />
-        </EmptyMedia>
-        <EmptyTitle>Templates could not be loaded</EmptyTitle>
-        <EmptyDescription>{message}</EmptyDescription>
-      </EmptyHeader>
-      <EmptyContent>
-        <Button size="sm" variant="outline" onClick={onRetry}>
-          <RefreshCw data-icon="inline-start" />
-          Try again
-        </Button>
-      </EmptyContent>
-    </Empty>
+    <EditorPanelState
+      className="min-h-72"
+      description={message}
+      icon={<AlertTriangle />}
+      role="alert"
+      title="Templates could not be loaded"
+      tone="error"
+    >
+      <Button size="sm" variant="outline" onClick={onRetry}>
+        <RefreshCw data-icon="inline-start" />
+        Try again
+      </Button>
+    </EditorPanelState>
   )
 }
 
@@ -190,28 +181,22 @@ function CatalogEmpty({
   onReset: () => void
 }) {
   return (
-    <Empty className="min-h-72">
-      <EmptyHeader>
-        <EmptyMedia variant="icon">
-          {filtered ? <Search /> : <FileStack />}
-        </EmptyMedia>
-        <EmptyTitle>
-          {filtered ? "No matching templates" : "No templates available"}
-        </EmptyTitle>
-        <EmptyDescription>
-          {filtered
-            ? "Try a different search term or show every category."
-            : "When templates are added to this catalog, they will appear here."}
-        </EmptyDescription>
-      </EmptyHeader>
+    <EditorPanelState
+      className="min-h-72"
+      description={
+        filtered
+          ? "Try a different search term or show every category."
+          : "When templates are added to this catalog, they will appear here."
+      }
+      icon={filtered ? <Search /> : <FileStack />}
+      title={filtered ? "No matching templates" : "No templates available"}
+    >
       {filtered ? (
-        <EmptyContent>
-          <Button size="sm" variant="outline" onClick={onReset}>
-            Clear filters
-          </Button>
-        </EmptyContent>
+        <Button size="sm" variant="outline" onClick={onReset}>
+          Clear filters
+        </Button>
       ) : null}
-    </Empty>
+    </EditorPanelState>
   )
 }
 

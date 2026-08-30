@@ -110,15 +110,10 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@webmcp/ui/components/dialog"
-import { EditorPanelTabsList } from "@webmcp/ui/components/editor-chrome"
 import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@webmcp/ui/components/empty"
+  EditorPanelState,
+  EditorPanelTabsList,
+} from "@webmcp/ui/components/editor-chrome"
 import {
   Field,
   FieldDescription,
@@ -2423,31 +2418,24 @@ function FieldsPanel({
             })}
           </div>
         ) : (
-          <Empty className="border">
-            <EmptyHeader>
-              <EmptyMedia variant="icon">
-                <Database />
-              </EmptyMedia>
-              <EmptyTitle>No shared fields</EmptyTitle>
-              <EmptyDescription>
-                Create a field for content that repeats across outputs.
-              </EmptyDescription>
-            </EmptyHeader>
-            <EmptyContent>
-              <FieldDefinitionDialog
-                document={document}
-                fields={document.fields}
-                controlIdPrefix={controlIdPrefix}
-                trigger={
-                  <Button className="h-11">
-                    <Plus data-icon="inline-start" />
-                    Create field
-                  </Button>
-                }
-                onSave={onCreateField}
-              />
-            </EmptyContent>
-          </Empty>
+          <EditorPanelState
+            icon={<Database />}
+            title="No shared fields"
+            description="Create a field for content that repeats across outputs."
+          >
+            <FieldDefinitionDialog
+              document={document}
+              fields={document.fields}
+              controlIdPrefix={controlIdPrefix}
+              trigger={
+                <Button size="sm">
+                  <Plus data-icon="inline-start" />
+                  Create field
+                </Button>
+              }
+              onSave={onCreateField}
+            />
+          </EditorPanelState>
         )}
       </section>
 
@@ -2588,17 +2576,11 @@ function FieldsPanel({
             </Button>
           </>
         ) : (
-          <Empty>
-            <EmptyHeader>
-              <EmptyMedia variant="icon">
-                <Link2 />
-              </EmptyMedia>
-              <EmptyTitle>No layer selected</EmptyTitle>
-              <EmptyDescription>
-                Select one layer on the canvas or in Layers.
-              </EmptyDescription>
-            </EmptyHeader>
-          </Empty>
+          <EditorPanelState
+            icon={<Link2 />}
+            title="No layer selected"
+            description="Select one layer on the canvas or in Layers."
+          />
         )}
       </section>
     </div>
@@ -2899,38 +2881,30 @@ function ReviewPanel({
             </div>
           </>
         ) : (
-          <Empty className="border">
-            <EmptyHeader>
-              <EmptyMedia variant="icon">
-                <Sparkles />
-              </EmptyMedia>
-              <EmptyTitle>No changes waiting</EmptyTitle>
-              <EmptyDescription>
-                Ask a browser agent to inspect the design and propose field or
-                canvas updates.
-              </EmptyDescription>
-            </EmptyHeader>
-            <EmptyContent className="flex flex-col gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={webMcpStatus !== "ready"}
-                onClick={() => {
-                  void navigator.clipboard.writeText(DEMO_AGENT_BRIEF)
-                  setBriefCopied(true)
-                  window.setTimeout(() => setBriefCopied(false), 1600)
-                }}
-              >
-                {briefCopied ? <Check /> : <ClipboardCopy />}
-                {briefCopied ? "Brief copied" : "Copy demo brief"}
-              </Button>
-              {lastResolvedChangeSet ? (
-                <Badge variant="outline">
-                  Last review: {lastResolvedChangeSet.status.replace("_", " ")}
-                </Badge>
-              ) : null}
-            </EmptyContent>
-          </Empty>
+          <EditorPanelState
+            icon={<Sparkles />}
+            title="No changes waiting"
+            description="Ask a browser agent to inspect the design and propose field or canvas updates."
+          >
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={webMcpStatus !== "ready"}
+              onClick={() => {
+                void navigator.clipboard.writeText(DEMO_AGENT_BRIEF)
+                setBriefCopied(true)
+                window.setTimeout(() => setBriefCopied(false), 1600)
+              }}
+            >
+              {briefCopied ? <Check /> : <ClipboardCopy />}
+              {briefCopied ? "Brief copied" : "Copy demo brief"}
+            </Button>
+            {lastResolvedChangeSet ? (
+              <Badge variant="outline">
+                Last review: {lastResolvedChangeSet.status.replace("_", " ")}
+              </Badge>
+            ) : null}
+          </EditorPanelState>
         )}
 
         {reviewJournal.resolved.length ? (
@@ -3311,16 +3285,11 @@ export function InspectorSidebar({
                 onDelete={onDeleteSelection}
               />
             ) : (
-              <div className="flex min-h-56 flex-col items-center justify-center px-8 text-center">
-                <div className="mb-3 flex size-9 items-center justify-center rounded-lg border bg-muted/40">
-                  <Square className="size-4 text-muted-foreground" />
-                </div>
-                <p className="text-xs font-medium">Nothing selected</p>
-                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                  Select an object on the canvas or in Layers to edit its
-                  properties.
-                </p>
-              </div>
+              <EditorPanelState
+                description="Select an object on the canvas or in Layers to edit its properties."
+                icon={<Square />}
+                title="Nothing selected"
+              />
             )}
           </ScrollArea>
         </TabsContent>
