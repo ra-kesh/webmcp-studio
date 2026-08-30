@@ -65,6 +65,32 @@ const commandLabel = (commands: DocumentCommand[]) => {
       return "Add layer"
     case "update_node":
       return "Update layer"
+    case "create_component":
+      return "Create component"
+    case "update_component":
+      return "Update component"
+    case "delete_component":
+      return "Delete component"
+    case "create_component_variant":
+      return "Create component variant"
+    case "update_component_variant":
+      return "Update component variant"
+    case "delete_component_variant":
+      return "Delete component variant"
+    case "create_component_instance":
+      return "Create component instance"
+    case "switch_component_variant":
+      return "Switch component variant"
+    case "update_component_instance":
+      return "Update component override"
+    case "reset_component_override":
+      return "Reset component override"
+    case "reset_all_component_overrides":
+      return "Reset component overrides"
+    case "detach_component_instance":
+      return "Detach component instance"
+    case "synchronize_component_instances":
+      return "Synchronize component instances"
     case "create_typography_style":
       return "Create text style"
     case "update_typography_style":

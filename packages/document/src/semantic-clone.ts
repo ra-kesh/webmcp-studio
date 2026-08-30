@@ -1,6 +1,7 @@
 import { getGroupNodeIds } from "./groups"
 import type {
   Document,
+  ComponentInstance,
   FieldBinding,
   GroupDefinition,
   SceneNode,
@@ -14,10 +15,11 @@ export type SemanticFragment = {
   groups: GroupDefinition[]
   bindings: FieldBinding[]
   variableBindings: VariableBinding[]
+  componentInstances: ComponentInstance[]
 }
 
 export type SemanticCloneIdKind =
-  "node" | "group" | "binding" | "variable_binding"
+  "node" | "group" | "binding" | "variable_binding" | "component_instance"
 
 export type SemanticCloneOptions = {
   targetPageId: string
@@ -33,10 +35,12 @@ export type SemanticClone = {
   groups: GroupDefinition[]
   bindings: FieldBinding[]
   variableBindings: VariableBinding[]
+  componentInstances: ComponentInstance[]
   nodeIdMap: ReadonlyMap<string, string>
   groupIdMap: ReadonlyMap<string, string>
   bindingIdMap: ReadonlyMap<string, string>
   variableBindingIdMap: ReadonlyMap<string, string>
+  componentInstanceIdMap: ReadonlyMap<string, string>
 }
 
 const defaultCreateId = (kind: SemanticCloneIdKind) =>
@@ -98,6 +102,17 @@ export function captureSemanticFragment(
       )
     })
     .map(copy)
+  const componentInstances = document.componentInstances
+    .filter(
+      (instance) =>
+        instance.nodeMappings.every((mapping) =>
+          requested.has(mapping.instanceNodeId)
+        ) &&
+        instance.groupMappings.every((mapping) =>
+          includedGroupIds.has(mapping.instanceGroupId)
+        )
+    )
+    .map(copy)
 
   return {
     sourcePageId,
@@ -106,6 +121,7 @@ export function captureSemanticFragment(
     groups,
     bindings,
     variableBindings,
+    componentInstances,
   }
 }
 
@@ -136,6 +152,12 @@ export function cloneSemanticFragment(
     fragment.variableBindings.map((binding) => [
       binding.id,
       createId("variable_binding", binding.id),
+    ])
+  )
+  const componentInstanceIdMap = new Map(
+    fragment.componentInstances.map((instance) => [
+      instance.id,
+      createId("component_instance", instance.id),
     ])
   )
   const sourceNodeById = new Map(fragment.nodes.map((node) => [node.id, node]))
@@ -205,6 +227,44 @@ export function cloneSemanticFragment(
       target: { ...copy(target), nodeId },
     }
   })
+  const componentInstances = fragment.componentInstances.map((source) => {
+    const id = componentInstanceIdMap.get(source.id)
+    const rootGroupId = groupIdMap.get(source.rootGroupId)
+    if (!id || !rootGroupId) {
+      throw new Error(`Incomplete component instance clone: ${source.id}`)
+    }
+    return {
+      ...copy(source),
+      id,
+      name: options.nameSuffix
+        ? `${source.name}${options.nameSuffix}`
+        : source.name,
+      rootGroupId,
+      transform: {
+        ...copy(source.transform),
+        x: source.transform.x + offsetX,
+        y: source.transform.y + offsetY,
+      },
+      nodeMappings: source.nodeMappings.map((mapping) => {
+        const instanceNodeId = nodeIdMap.get(mapping.instanceNodeId)
+        if (!instanceNodeId) {
+          throw new Error(
+            `Incomplete component instance layer: ${mapping.instanceNodeId}`
+          )
+        }
+        return { ...copy(mapping), instanceNodeId }
+      }),
+      groupMappings: source.groupMappings.map((mapping) => {
+        const instanceGroupId = groupIdMap.get(mapping.instanceGroupId)
+        if (!instanceGroupId) {
+          throw new Error(
+            `Incomplete component instance group: ${mapping.instanceGroupId}`
+          )
+        }
+        return { ...copy(mapping), instanceGroupId }
+      }),
+    }
+  })
 
   return {
     nodeIds: fragment.nodeIds.map((nodeId) => {
@@ -216,9 +276,11 @@ export function cloneSemanticFragment(
     groups,
     bindings,
     variableBindings,
+    componentInstances,
     nodeIdMap,
     groupIdMap,
     bindingIdMap,
     variableBindingIdMap,
+    componentInstanceIdMap,
   }
 }

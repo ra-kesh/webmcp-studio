@@ -3,6 +3,7 @@ import {
   documentCommandSchema,
   documentSchema,
   fieldDefinitionSchema,
+  sceneNodePatchSchema,
   textNodePatchSchema,
   type Document,
   type DocumentCommand,
@@ -41,6 +42,11 @@ import {
   detachVariableBindingsForStylePatch,
   variableUsage,
 } from "./variables"
+import {
+  componentSourceSubtree,
+  materializeComponentInstances,
+  resolveComponentInstanceNodes,
+} from "./components"
 import { assertValidCanonicalDocument, assertValidDocument } from "./validation"
 
 type FieldValue = string | number | boolean
@@ -217,6 +223,7 @@ type SemanticClonePayload = {
   pageId: string
   nodes: Document["nodes"]
   groups: Document["groups"]
+  componentInstances: Document["componentInstances"]
   bindings: Document["bindings"]
   variableBindings: Document["variableBindings"]
 }
@@ -236,11 +243,15 @@ function appendSemanticClone(
   const variableBindingIds = new Set(
     payload.variableBindings.map((binding) => binding.id)
   )
+  const componentInstanceIds = new Set(
+    payload.componentInstances.map((instance) => instance.id)
+  )
   if (
     nodeIds.size !== payload.nodes.length ||
     groupIds.size !== payload.groups.length ||
     bindingIds.size !== payload.bindings.length ||
     variableBindingIds.size !== payload.variableBindings.length ||
+    componentInstanceIds.size !== payload.componentInstances.length ||
     payload.nodes.some((node) =>
       document.nodes.some((existing) => existing.id === node.id)
     ) ||
@@ -252,6 +263,11 @@ function appendSemanticClone(
     ) ||
     payload.variableBindings.some((binding) =>
       document.variableBindings.some((existing) => existing.id === binding.id)
+    ) ||
+    payload.componentInstances.some((instance) =>
+      document.componentInstances.some(
+        (existing) => existing.id === instance.id
+      )
     )
   ) {
     throw new Error("The semantic clone contains conflicting identifiers")
@@ -266,6 +282,23 @@ function appendSemanticClone(
     )
   ) {
     throw new Error("The semantic clone contains invalid group references")
+  }
+
+  if (
+    payload.componentInstances.some(
+      (instance) =>
+        !document.components.some(
+          (component) => component.id === instance.componentId
+        ) ||
+        instance.nodeMappings.some(
+          (mapping) => !nodeIds.has(mapping.instanceNodeId)
+        ) ||
+        instance.groupMappings.some(
+          (mapping) => !groupIds.has(mapping.instanceGroupId)
+        )
+    )
+  ) {
+    throw new Error("The semantic clone contains an invalid component instance")
   }
 
   for (const binding of payload.bindings) {
@@ -312,6 +345,10 @@ function appendSemanticClone(
     ),
     nodes: [...document.nodes, ...payload.nodes],
     groups: [...document.groups, ...payload.groups],
+    componentInstances: [
+      ...document.componentInstances,
+      ...payload.componentInstances,
+    ],
     bindings: [...document.bindings, ...payload.bindings],
   })
   for (const binding of payload.variableBindings) {
@@ -436,6 +473,197 @@ function relinkAssetReferences(
     }
   })
   return { ...document, fields, fieldValues, nodes }
+}
+
+function createMaterializedComponentInstance(
+  document: Document,
+  command: Extract<DocumentCommand, { type: "create_component_instance" }>
+): Document {
+  const component = document.components.find(
+    (candidate) => candidate.id === command.instance.componentId
+  )
+  if (!component) {
+    throw new Error(`Unknown component: ${command.instance.componentId}`)
+  }
+  if (
+    document.componentInstances.some(
+      (instance) => instance.id === command.instance.id
+    )
+  ) {
+    throw new Error(`Component instance already exists: ${command.instance.id}`)
+  }
+  const page = document.pages.find(
+    (candidate) => candidate.id === command.pageId
+  )
+  if (!page) throw new Error(`Unknown page: ${command.pageId}`)
+  const parent = command.parentGroupId
+    ? document.groups.find((group) => group.id === command.parentGroupId)
+    : undefined
+  if (command.parentGroupId && (!parent || parent.pageId !== page.id)) {
+    throw new Error(
+      "A component instance parent must belong to its target page"
+    )
+  }
+  if (
+    command.parentGroupId &&
+    document.componentInstances.some((instance) =>
+      componentSourceSubtree(document, instance.rootGroupId)?.groupIds.includes(
+        command.parentGroupId!
+      )
+    )
+  ) {
+    throw new Error(
+      "Structural insertion inside a component instance is blocked"
+    )
+  }
+
+  const source = componentSourceSubtree(document, component.sourceGroupId)
+  if (!source)
+    throw new Error(`Component ${component.name} has no source group`)
+  const groupMapping = new Map(
+    command.instance.groupMappings.map((mapping) => [
+      mapping.sourceGroupId,
+      mapping.instanceGroupId,
+    ])
+  )
+  const nodeMapping = new Map(
+    command.instance.nodeMappings.map((mapping) => [
+      mapping.sourceNodeId,
+      mapping.instanceNodeId,
+    ])
+  )
+  const createdGroupIds = new Set(groupMapping.values())
+  const createdNodeIds = new Set(nodeMapping.values())
+  if (
+    document.groups.some((group) => createdGroupIds.has(group.id)) ||
+    document.nodes.some((node) => createdNodeIds.has(node.id))
+  ) {
+    throw new Error("A component instance layer or group ID is already in use")
+  }
+  const sourceGroups = new Map(
+    document.groups
+      .filter((group) => source.groupIds.includes(group.id))
+      .map((group) => [group.id, group])
+  )
+  const groups = source.groupIds.map((sourceGroupId) => {
+    const sourceGroup = sourceGroups.get(sourceGroupId)
+    const instanceGroupId = groupMapping.get(sourceGroupId)
+    if (!sourceGroup || !instanceGroupId) {
+      throw new Error("A component instance must map every source group")
+    }
+    const parentGroupId =
+      sourceGroupId === component.sourceGroupId
+        ? command.parentGroupId
+        : sourceGroup.parentGroupId
+          ? groupMapping.get(sourceGroup.parentGroupId)
+          : undefined
+    return {
+      id: instanceGroupId,
+      pageId: page.id,
+      name:
+        sourceGroupId === component.sourceGroupId
+          ? command.instance.name
+          : sourceGroup.name,
+      nodeIds: sourceGroup.nodeIds.map((sourceNodeId) => {
+        const instanceNodeId = nodeMapping.get(sourceNodeId)
+        if (!instanceNodeId) {
+          throw new Error("A component instance must map every source layer")
+        }
+        return instanceNodeId
+      }),
+      ...(parentGroupId ? { parentGroupId } : {}),
+    }
+  })
+  const nodes = resolveComponentInstanceNodes(document, command.instance)
+  if (nodes.length !== source.nodeIds.length) {
+    throw new Error("A component instance must resolve every source layer")
+  }
+  return materializeComponentInstances({
+    ...document,
+    nodes: [...document.nodes, ...nodes],
+    pages: document.pages.map((candidate) =>
+      candidate.id === page.id
+        ? {
+            ...candidate,
+            nodeIds: [...candidate.nodeIds, ...nodes.map((node) => node.id)],
+          }
+        : candidate
+    ),
+    groups: [...document.groups, ...groups],
+    componentInstances: [...document.componentInstances, command.instance],
+  })
+}
+
+function withComponentInstanceOverride(
+  document: Document,
+  instanceId: string,
+  sourceNodeId: string,
+  patch: Readonly<Record<string, unknown>>
+): Document {
+  const instance = document.componentInstances.find(
+    (candidate) => candidate.id === instanceId
+  )
+  if (!instance) throw new Error(`Unknown component instance: ${instanceId}`)
+  if (
+    !instance.nodeMappings.some(
+      (mapping) => mapping.sourceNodeId === sourceNodeId
+    )
+  ) {
+    throw new Error(
+      `Layer ${sourceNodeId} is not part of instance ${instance.name}`
+    )
+  }
+  return {
+    ...document,
+    componentInstances: document.componentInstances.map((candidate) =>
+      candidate.id === instance.id
+        ? {
+            ...candidate,
+            overrides: {
+              ...candidate.overrides,
+              [sourceNodeId]: {
+                ...candidate.overrides[sourceNodeId],
+                ...patch,
+              },
+            },
+          }
+        : candidate
+    ),
+  }
+}
+
+function synchronizeAfterDirectNodeUpdate(
+  before: Document,
+  updated: Document,
+  command: Extract<DocumentCommand, { type: "update_node" }>
+): Document {
+  const owningInstance = before.componentInstances.find((instance) =>
+    instance.nodeMappings.some(
+      (mapping) => mapping.instanceNodeId === command.nodeId
+    )
+  )
+  let synchronized = updated
+  if (owningInstance) {
+    const mapping = owningInstance.nodeMappings.find(
+      (candidate) => candidate.instanceNodeId === command.nodeId
+    )
+    if (mapping) {
+      synchronized = withComponentInstanceOverride(
+        synchronized,
+        owningInstance.id,
+        mapping.sourceNodeId,
+        command.patch
+      )
+    }
+  }
+  const sourceChanged = before.components.some((component) =>
+    componentSourceSubtree(before, component.sourceGroupId)?.nodeIds.includes(
+      command.nodeId
+    )
+  )
+  return owningInstance || sourceChanged
+    ? materializeComponentInstances(synchronized)
+    : synchronized
 }
 
 function applyParsedCommand(
@@ -710,6 +938,314 @@ function applyParsedCommand(
           command.patch
         ),
       }
+      next = synchronizeAfterDirectNodeUpdate(document, next, command)
+      break
+    }
+    case "create_component": {
+      if (
+        document.components.some(
+          (component) =>
+            component.id === command.component.id ||
+            component.sourceGroupId === command.component.sourceGroupId
+        )
+      ) {
+        throw new Error("The component ID or source group is already in use")
+      }
+      if (
+        !document.groups.some(
+          (group) => group.id === command.component.sourceGroupId
+        )
+      ) {
+        throw new Error(
+          `Unknown component source group: ${command.component.sourceGroupId}`
+        )
+      }
+      next = {
+        ...document,
+        components: [...document.components, command.component],
+      }
+      break
+    }
+    case "update_component": {
+      const component = document.components.find(
+        (candidate) => candidate.id === command.componentId
+      )
+      if (!component)
+        throw new Error(`Unknown component: ${command.componentId}`)
+      const updated = { ...component, ...command.patch, id: component.id }
+      if (
+        !updated.variants.some(
+          (variant) => variant.id === updated.defaultVariantId
+        )
+      ) {
+        throw new Error("The default variant must belong to the component")
+      }
+      next = {
+        ...document,
+        components: document.components.map((candidate) =>
+          candidate.id === component.id ? updated : candidate
+        ),
+      }
+      break
+    }
+    case "delete_component": {
+      const component = document.components.find(
+        (candidate) => candidate.id === command.componentId
+      )
+      if (!component)
+        throw new Error(`Unknown component: ${command.componentId}`)
+      const dependants = document.componentInstances.filter(
+        (instance) => instance.componentId === component.id
+      )
+      if (dependants.length && command.dependentPolicy === "reject") {
+        throw new Error(
+          `Component ${component.name} still has ${dependants.length} instance${
+            dependants.length === 1 ? "" : "s"
+          }`
+        )
+      }
+      const dependantIds = new Set(dependants.map((instance) => instance.id))
+      next = {
+        ...document,
+        components: document.components.filter(
+          (candidate) => candidate.id !== component.id
+        ),
+        componentInstances: document.componentInstances.filter(
+          (instance) => !dependantIds.has(instance.id)
+        ),
+      }
+      break
+    }
+    case "create_component_variant": {
+      const component = document.components.find(
+        (candidate) => candidate.id === command.componentId
+      )
+      if (!component)
+        throw new Error(`Unknown component: ${command.componentId}`)
+      if (
+        component.variants.some(
+          (variant) =>
+            variant.id === command.variant.id ||
+            variant.name === command.variant.name
+        )
+      ) {
+        throw new Error(
+          `Component variant already exists: ${command.variant.name}`
+        )
+      }
+      next = {
+        ...document,
+        components: document.components.map((candidate) =>
+          candidate.id === component.id
+            ? {
+                ...candidate,
+                variants: [...candidate.variants, command.variant],
+              }
+            : candidate
+        ),
+      }
+      break
+    }
+    case "update_component_variant": {
+      const component = document.components.find(
+        (candidate) => candidate.id === command.componentId
+      )
+      const variant = component?.variants.find(
+        (candidate) => candidate.id === command.variantId
+      )
+      if (!component || !variant) {
+        throw new Error(`Unknown component variant: ${command.variantId}`)
+      }
+      const updatedVariant = { ...variant, ...command.patch, id: variant.id }
+      if (
+        component.variants.some(
+          (candidate) =>
+            candidate.id !== variant.id &&
+            candidate.name === updatedVariant.name
+        )
+      ) {
+        throw new Error(
+          `Component variant already exists: ${updatedVariant.name}`
+        )
+      }
+      next = materializeComponentInstances({
+        ...document,
+        components: document.components.map((candidate) =>
+          candidate.id === component.id
+            ? {
+                ...candidate,
+                variants: candidate.variants.map((entry) =>
+                  entry.id === variant.id ? updatedVariant : entry
+                ),
+              }
+            : candidate
+        ),
+      })
+      break
+    }
+    case "delete_component_variant": {
+      const component = document.components.find(
+        (candidate) => candidate.id === command.componentId
+      )
+      const variant = component?.variants.find(
+        (candidate) => candidate.id === command.variantId
+      )
+      if (!component || !variant) {
+        throw new Error(`Unknown component variant: ${command.variantId}`)
+      }
+      if (component.variants.length === 1) {
+        throw new Error("A component must keep at least one variant")
+      }
+      const dependants = document.componentInstances.filter(
+        (instance) =>
+          instance.componentId === component.id &&
+          instance.variantId === variant.id
+      )
+      const replacement = command.replacementVariantId
+        ? component.variants.find(
+            (candidate) => candidate.id === command.replacementVariantId
+          )
+        : undefined
+      if (
+        (dependants.length || component.defaultVariantId === variant.id) &&
+        !replacement
+      ) {
+        throw new Error("A used or default variant needs a replacement")
+      }
+      if (replacement?.id === variant.id) {
+        throw new Error("A variant cannot replace itself")
+      }
+      next = materializeComponentInstances({
+        ...document,
+        components: document.components.map((candidate) =>
+          candidate.id === component.id
+            ? {
+                ...candidate,
+                defaultVariantId:
+                  candidate.defaultVariantId === variant.id
+                    ? replacement!.id
+                    : candidate.defaultVariantId,
+                variants: candidate.variants.filter(
+                  (entry) => entry.id !== variant.id
+                ),
+              }
+            : candidate
+        ),
+        componentInstances: document.componentInstances.map((instance) =>
+          instance.componentId === component.id &&
+          instance.variantId === variant.id
+            ? { ...instance, variantId: replacement!.id }
+            : instance
+        ),
+      })
+      break
+    }
+    case "create_component_instance": {
+      next = createMaterializedComponentInstance(document, command)
+      break
+    }
+    case "switch_component_variant": {
+      const instance = document.componentInstances.find(
+        (candidate) => candidate.id === command.instanceId
+      )
+      if (!instance) {
+        throw new Error(`Unknown component instance: ${command.instanceId}`)
+      }
+      const component = document.components.find(
+        (candidate) => candidate.id === instance.componentId
+      )
+      if (
+        !component?.variants.some((variant) => variant.id === command.variantId)
+      ) {
+        throw new Error(`Unknown component variant: ${command.variantId}`)
+      }
+      next = materializeComponentInstances({
+        ...document,
+        componentInstances: document.componentInstances.map((candidate) =>
+          candidate.id === instance.id
+            ? { ...candidate, variantId: command.variantId }
+            : candidate
+        ),
+      })
+      break
+    }
+    case "update_component_instance": {
+      next = materializeComponentInstances(
+        withComponentInstanceOverride(
+          document,
+          command.instanceId,
+          command.sourceNodeId,
+          command.patch
+        )
+      )
+      break
+    }
+    case "reset_component_override": {
+      const instance = document.componentInstances.find(
+        (candidate) => candidate.id === command.instanceId
+      )
+      if (!instance) {
+        throw new Error(`Unknown component instance: ${command.instanceId}`)
+      }
+      if (!instance.overrides[command.sourceNodeId]) {
+        throw new Error("The selected component layer has no overrides")
+      }
+      const overrides = structuredClone(instance.overrides)
+      if (!command.properties) {
+        delete overrides[command.sourceNodeId]
+      } else {
+        const patch: Record<string, unknown> = {
+          ...overrides[command.sourceNodeId],
+        }
+        for (const property of command.properties) delete patch[property]
+        if (Object.keys(patch).length) {
+          overrides[command.sourceNodeId] = sceneNodePatchSchema.parse(patch)
+        } else delete overrides[command.sourceNodeId]
+      }
+      next = materializeComponentInstances({
+        ...document,
+        componentInstances: document.componentInstances.map((candidate) =>
+          candidate.id === instance.id ? { ...candidate, overrides } : candidate
+        ),
+      })
+      break
+    }
+    case "reset_all_component_overrides": {
+      if (
+        !document.componentInstances.some(
+          (instance) => instance.id === command.instanceId
+        )
+      ) {
+        throw new Error(`Unknown component instance: ${command.instanceId}`)
+      }
+      next = materializeComponentInstances({
+        ...document,
+        componentInstances: document.componentInstances.map((instance) =>
+          instance.id === command.instanceId
+            ? { ...instance, overrides: {} }
+            : instance
+        ),
+      })
+      break
+    }
+    case "detach_component_instance": {
+      if (
+        !document.componentInstances.some(
+          (instance) => instance.id === command.instanceId
+        )
+      ) {
+        throw new Error(`Unknown component instance: ${command.instanceId}`)
+      }
+      next = {
+        ...document,
+        componentInstances: document.componentInstances.filter(
+          (instance) => instance.id !== command.instanceId
+        ),
+      }
+      break
+    }
+    case "synchronize_component_instances": {
+      next = materializeComponentInstances(document)
       break
     }
     case "create_typography_style": {
@@ -1557,6 +2093,7 @@ function applyParsedCommand(
         pageId: command.page.id,
         nodes: command.nodes,
         groups: command.groups,
+        componentInstances: command.componentInstances,
         bindings: command.bindings,
         variableBindings: command.variableBindings,
       })
@@ -1567,6 +2104,7 @@ function applyParsedCommand(
         pageId: command.pageId,
         nodes: command.nodes,
         groups: command.groups,
+        componentInstances: command.componentInstances,
         bindings: command.bindings,
         variableBindings: command.variableBindings,
       })
@@ -1688,6 +2226,7 @@ function applyParsedCommand(
         pageId: command.page.id,
         nodes: command.nodes,
         groups: command.groups,
+        componentInstances: command.componentInstances,
         bindings: command.bindings,
         variableBindings: command.variableBindings,
       })

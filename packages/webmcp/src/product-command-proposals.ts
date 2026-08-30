@@ -208,6 +208,7 @@ export function createProductCommandProposal(
           pageId: page.id,
           nodes: clone.nodes,
           groups: clone.groups,
+          componentInstances: clone.componentInstances,
           bindings: clone.bindings,
           variableBindings: clone.variableBindings,
         },

@@ -2,7 +2,7 @@
 
 Date: 2026-08-30
 
-Status: active; Gate 1 implemented and locally accepted, Gate 2 next
+Status: active; Gate 1 and Gate 2A locally accepted, Gate 2B next
 
 ## Purpose
 
@@ -239,3 +239,35 @@ Status: **implemented and locally accepted on 2026-08-30**
 
 Gate 1 does not claim user-facing component creation yet. Gate 2 owns canonical
 commands, history, propagation/override capture, detach and semantic cloning.
+
+## Gate 2A result — canonical lifecycle and semantic clone
+
+Status: **implemented and locally accepted on 2026-08-30; Gate 2 remains
+active**
+
+- Added named canonical commands for component definitions, variants,
+  instances, switching, controlled overrides, property/all reset, detach,
+  dependent-aware deletion and deterministic repair.
+- Instance creation derives ordinary page nodes/groups from complete stable
+  mappings. It rejects reused IDs, invalid parents, incomplete source mappings
+  and structural insertion inside an existing instance.
+- Direct `update_node` edits on main-component descendants rematerialize linked
+  instances. Direct edits on instance descendants record the matching source
+  property override first, so later source edits preserve user intent.
+- Materialization now walks nested component dependencies child-first and
+  scales text size, letter spacing, rich-text run metrics, radii and strokes in
+  addition to geometry.
+- Complete instance selection/page duplication retains the component link with
+  fresh instance/node/group identities and translated transform. Partial
+  selection deliberately becomes ordinary detached content.
+- Component lifecycle commands use the existing snapshot history boundary;
+  create/instance Undo and Redo restore exact canonical documents.
+- Current evidence: 31 document test files pass (292 tests), the focused editor
+  history suite passes (23 tests), focused WebMCP proposal/change/registration
+  suites pass (54 tests), and every workspace package typechecks.
+
+Gate 2 is not closed. Gate 2B must still make style/media/variable-specific
+node commands participate in exact override capture, represent removal of
+optional properties such as reusable-style attachments, add explicit
+structural dependant guards, and finish the remaining page/output ownership
+policies. No component UI is claimed by Gate 2A.

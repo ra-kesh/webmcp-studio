@@ -148,14 +148,48 @@ function transformComponentNode(
   const centerY = instance.transform.y + localX * sin + localY * cos
   const width = node.width * instance.transform.scale
   const height = node.height * instance.transform.scale
-  return sceneNodeSchema.parse({
+  const transformed = {
     ...node,
     x: centerX - width / 2,
     y: centerY - height / 2,
     width,
     height,
     rotation: normalizedRotation(node.rotation + instance.transform.rotation),
-  })
+  }
+  const scale = instance.transform.scale
+  if (node.type === "text") {
+    return sceneNodeSchema.parse({
+      ...transformed,
+      fontSize: node.fontSize * scale,
+      letterSpacing: node.letterSpacing * scale,
+      runs: node.runs.map((run) => ({
+        ...run,
+        style: {
+          ...run.style,
+          ...(run.style.fontSize !== undefined
+            ? { fontSize: run.style.fontSize * scale }
+            : {}),
+          ...(run.style.letterSpacing !== undefined
+            ? { letterSpacing: run.style.letterSpacing * scale }
+            : {}),
+        },
+      })),
+    })
+  }
+  if (node.type === "rect") {
+    return sceneNodeSchema.parse({
+      ...transformed,
+      radius: node.radius * scale,
+      strokeWidth: node.strokeWidth * scale,
+    })
+  }
+  if (node.type === "ellipse" || node.type === "line" || node.type === "icon") {
+    return sceneNodeSchema.parse({
+      ...transformed,
+      strokeWidth: node.strokeWidth * scale,
+    })
+  }
+  return sceneNodeSchema.parse(transformed)
 }
 
 export function resolveComponentInstanceNodes(
@@ -271,8 +305,22 @@ export function componentIntegrityIssues(
   const components = new Map(
     document.components.map((component) => [component.id, component])
   )
+  const sourceGroupOwners = new Map<string, string>()
+  const instanceNodeOwners = new Map<string, string>()
+  const instanceGroupOwners = new Map<string, string>()
 
   for (const component of document.components) {
+    const existingSourceOwner = sourceGroupOwners.get(component.sourceGroupId)
+    if (existingSourceOwner) {
+      issues.push({
+        code: "component_source_missing",
+        componentId: component.id,
+        groupId: component.sourceGroupId,
+        message: `Components ${existingSourceOwner} and ${component.id} share one source group`,
+      })
+      continue
+    }
+    sourceGroupOwners.set(component.sourceGroupId, component.id)
     const subtree = componentSourceSubtree(document, component.sourceGroupId)
     if (!subtree) {
       issues.push({
@@ -298,6 +346,32 @@ export function componentIntegrityIssues(
   }
 
   for (const instance of document.componentInstances) {
+    for (const mapping of instance.nodeMappings) {
+      const owner = instanceNodeOwners.get(mapping.instanceNodeId)
+      if (owner) {
+        issues.push({
+          code: "component_instance_mapping_invalid",
+          instanceId: instance.id,
+          nodeId: mapping.instanceNodeId,
+          message: `Instances ${owner} and ${instance.id} claim one materialized layer`,
+        })
+      } else {
+        instanceNodeOwners.set(mapping.instanceNodeId, instance.id)
+      }
+    }
+    for (const mapping of instance.groupMappings) {
+      const owner = instanceGroupOwners.get(mapping.instanceGroupId)
+      if (owner) {
+        issues.push({
+          code: "component_instance_mapping_invalid",
+          instanceId: instance.id,
+          groupId: mapping.instanceGroupId,
+          message: `Instances ${owner} and ${instance.id} claim one materialized group`,
+        })
+      } else {
+        instanceGroupOwners.set(mapping.instanceGroupId, instance.id)
+      }
+    }
     const component = components.get(instance.componentId)
     if (!component) {
       issues.push({
@@ -450,17 +524,73 @@ export function componentIntegrityIssues(
 
 export function materializeComponentInstances(document: Document): Document {
   if (!document.componentInstances.length) return document
-  const resolvedById = new Map<string, SceneNode>()
-  for (const instance of document.componentInstances) {
-    for (const node of resolveComponentInstanceNodes(document, instance)) {
-      resolvedById.set(node.id, node)
+
+  const dependencies = new Map(
+    document.components.map((component) => [component.id, new Set<string>()])
+  )
+  const instanceByRootGroup = new Map(
+    document.componentInstances.map((instance) => [
+      instance.rootGroupId,
+      instance,
+    ])
+  )
+  for (const component of document.components) {
+    const subtree = componentSourceSubtree(document, component.sourceGroupId)
+    if (!subtree) continue
+    for (const groupId of subtree.groupIds) {
+      const nested = instanceByRootGroup.get(groupId)
+      if (nested) dependencies.get(component.id)?.add(nested.componentId)
     }
   }
-  if (!resolvedById.size) return document
-  return {
-    ...document,
-    nodes: document.nodes.map((node) => resolvedById.get(node.id) ?? node),
+
+  const orderedComponentIds: string[] = []
+  const state = new Map<string, "active" | "done">()
+  for (const componentId of dependencies.keys()) {
+    if (state.has(componentId)) continue
+    const stack: Array<{ id: string; index: number }> = [
+      { id: componentId, index: 0 },
+    ]
+    state.set(componentId, "active")
+    while (stack.length) {
+      const frame = stack.at(-1)
+      if (!frame) break
+      const targets = [...(dependencies.get(frame.id) ?? [])]
+      const target = targets[frame.index]
+      if (target) {
+        frame.index += 1
+        if (!dependencies.has(target) || state.get(target) === "done") continue
+        if (state.get(target) === "active") continue
+        state.set(target, "active")
+        stack.push({ id: target, index: 0 })
+        continue
+      }
+      state.set(frame.id, "done")
+      orderedComponentIds.push(frame.id)
+      stack.pop()
+    }
   }
+
+  let materialized = document
+  for (const componentId of orderedComponentIds) {
+    const resolvedById = new Map<string, SceneNode>()
+    for (const instance of materialized.componentInstances) {
+      if (instance.componentId !== componentId) continue
+      for (const node of resolveComponentInstanceNodes(
+        materialized,
+        instance
+      )) {
+        resolvedById.set(node.id, node)
+      }
+    }
+    if (!resolvedById.size) continue
+    materialized = {
+      ...materialized,
+      nodes: materialized.nodes.map(
+        (node) => resolvedById.get(node.id) ?? node
+      ),
+    }
+  }
+  return materialized
 }
 
 export function componentOwnsProperty(

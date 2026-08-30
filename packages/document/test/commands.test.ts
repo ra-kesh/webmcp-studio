@@ -1256,6 +1256,7 @@ describe("canonical document commands", () => {
         },
       ],
       groups: [],
+      componentInstances: [],
       bindings: [
         {
           id: "bind-agent-story-couple",

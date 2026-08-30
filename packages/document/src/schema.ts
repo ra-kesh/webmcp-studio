@@ -709,6 +709,65 @@ export const componentInstanceSchema = z
     }
   })
 
+export const componentDefinitionPatchSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120).optional(),
+    description: z.string().trim().max(1_000).optional(),
+    defaultVariantId: id.optional(),
+  })
+  .strict()
+  .refine((patch) => Object.keys(patch).length > 0, {
+    message: "A component update must change at least one property",
+  })
+
+export const componentVariantPatchSchema = componentVariantSchema
+  .omit({ id: true })
+  .partial()
+  .refine((patch) => Object.keys(patch).length > 0, {
+    message: "A component variant update must change at least one property",
+  })
+
+export const componentOverridePropertySchema = z.enum([
+  "name",
+  "x",
+  "y",
+  "width",
+  "height",
+  "rotation",
+  "opacity",
+  "visible",
+  "locked",
+  "text",
+  "runs",
+  "paragraphs",
+  "links",
+  "typographyStyleId",
+  "paintStyleId",
+  "color",
+  "fontFamily",
+  "fontSize",
+  "fontWeight",
+  "italic",
+  "decoration",
+  "lineHeight",
+  "letterSpacing",
+  "align",
+  "sizingMode",
+  "fill",
+  "radius",
+  "stroke",
+  "strokeWidth",
+  "path",
+  "viewBox",
+  "assetId",
+  "src",
+  "placement",
+  "frameMask",
+  "alt",
+  "altProvenance",
+  "decorative",
+])
+
 export const typographyStyleSchema = z
   .object({
     id,
@@ -984,6 +1043,71 @@ export const documentCommandSchema = z.discriminatedUnion("type", [
     patch: sceneNodePatchSchema,
   }),
   commandBaseSchema.extend({
+    type: z.literal("create_component"),
+    component: componentDefinitionSchema,
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("update_component"),
+    componentId: id,
+    patch: componentDefinitionPatchSchema,
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("delete_component"),
+    componentId: id,
+    dependentPolicy: z.enum(["reject", "detach"]).default("reject"),
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("create_component_variant"),
+    componentId: id,
+    variant: componentVariantSchema,
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("update_component_variant"),
+    componentId: id,
+    variantId: id,
+    patch: componentVariantPatchSchema,
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("delete_component_variant"),
+    componentId: id,
+    variantId: id,
+    replacementVariantId: id.optional(),
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("create_component_instance"),
+    pageId: id,
+    parentGroupId: id.optional(),
+    instance: componentInstanceSchema,
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("switch_component_variant"),
+    instanceId: id,
+    variantId: id,
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("update_component_instance"),
+    instanceId: id,
+    sourceNodeId: id,
+    patch: sceneNodePatchSchema,
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("reset_component_override"),
+    instanceId: id,
+    sourceNodeId: id,
+    properties: z.array(componentOverridePropertySchema).min(1).optional(),
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("reset_all_component_overrides"),
+    instanceId: id,
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("detach_component_instance"),
+    instanceId: id,
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("synchronize_component_instances"),
+  }),
+  commandBaseSchema.extend({
     type: z.literal("create_typography_style"),
     style: typographyStyleSchema,
   }),
@@ -1153,6 +1277,7 @@ export const documentCommandSchema = z.discriminatedUnion("type", [
     page: pageSchema,
     nodes: z.array(sceneNodeSchema),
     groups: z.array(groupDefinitionSchema),
+    componentInstances: z.array(componentInstanceSchema),
     bindings: z.array(fieldBindingSchema),
     variableBindings: z.array(variableBindingSchema),
   }),
@@ -1161,6 +1286,7 @@ export const documentCommandSchema = z.discriminatedUnion("type", [
     pageId: id,
     nodes: z.array(sceneNodeSchema).min(1),
     groups: z.array(groupDefinitionSchema),
+    componentInstances: z.array(componentInstanceSchema),
     bindings: z.array(fieldBindingSchema),
     variableBindings: z.array(variableBindingSchema),
   }),
@@ -1197,6 +1323,7 @@ export const documentCommandSchema = z.discriminatedUnion("type", [
     page: pageSchema,
     nodes: z.array(sceneNodeSchema),
     groups: z.array(groupDefinitionSchema),
+    componentInstances: z.array(componentInstanceSchema),
     bindings: z.array(fieldBindingSchema),
     variableBindings: z.array(variableBindingSchema),
   }),

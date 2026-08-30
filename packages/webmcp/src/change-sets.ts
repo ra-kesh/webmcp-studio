@@ -921,6 +921,7 @@ export function createOutputVariantChangeSet(
           },
           nodes,
           groups,
+          componentInstances: [],
           bindings,
           variableBindings,
         },

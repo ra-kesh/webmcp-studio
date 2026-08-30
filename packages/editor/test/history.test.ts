@@ -214,6 +214,7 @@ describe("document history", () => {
         },
         nodes: clone.nodes,
         groups: clone.groups,
+        componentInstances: clone.componentInstances,
         bindings: clone.bindings,
         variableBindings: clone.variableBindings,
       },
@@ -251,6 +252,7 @@ describe("document history", () => {
         pageId: "cover",
         nodes: clone.nodes,
         groups: clone.groups,
+        componentInstances: clone.componentInstances,
         bindings: clone.bindings,
         variableBindings: clone.variableBindings,
       },
@@ -260,6 +262,87 @@ describe("document history", () => {
     expect(changed.past[0]?.label).toBe("Duplicate layers")
     expect(clone.bindings).toHaveLength(2)
     expect(undoDocument(changed).document).toEqual(northstarSeed)
+  })
+
+  it("creates and detaches component state through exact history snapshots", () => {
+    const initial = createDocumentHistory(northstarSeed)
+    const withComponent = commitCommands(
+      initial,
+      [
+        {
+          id: "group-component-source",
+          type: "group_nodes",
+          actor: "human",
+          at: "2026-08-30T16:00:00.000Z",
+          groupId: "history-component-source",
+          pageId: "cover",
+          name: "History component",
+          nodeIds: ["cover-panel", "cover-eyebrow"],
+        },
+        {
+          id: "create-history-component",
+          type: "create_component",
+          actor: "human",
+          at: "2026-08-30T16:00:00.000Z",
+          component: {
+            id: "history-component",
+            name: "History component",
+            description: "",
+            sourceGroupId: "history-component-source",
+            defaultVariantId: "history-component-default",
+            variants: [
+              {
+                id: "history-component-default",
+                name: "Default",
+                overrides: {},
+              },
+            ],
+          },
+        },
+      ],
+      { label: "Create component" }
+    )
+    expect(withComponent.past).toHaveLength(1)
+    expect(undoDocument(withComponent).document).toEqual(northstarSeed)
+
+    const withInstance = commitCommands(withComponent, [
+      {
+        id: "create-history-instance",
+        type: "create_component_instance",
+        actor: "human",
+        at: "2026-08-30T16:01:00.000Z",
+        pageId: "story",
+        instance: {
+          id: "history-instance",
+          name: "History instance",
+          componentId: "history-component",
+          variantId: "history-component-default",
+          rootGroupId: "history-instance-root",
+          transform: { x: 80, y: 80, scale: 0.5, rotation: 0 },
+          nodeMappings: [
+            {
+              sourceNodeId: "cover-panel",
+              instanceNodeId: "history-instance-panel",
+            },
+            {
+              sourceNodeId: "cover-eyebrow",
+              instanceNodeId: "history-instance-eyebrow",
+            },
+          ],
+          groupMappings: [
+            {
+              sourceGroupId: "history-component-source",
+              instanceGroupId: "history-instance-root",
+            },
+          ],
+          overrides: {},
+        },
+      },
+    ])
+    expect(withInstance.past.at(-1)?.label).toBe("Create component instance")
+    const instanceUndone = undoDocument(withInstance)
+    expect(instanceUndone.document).toEqual(withComponent.document)
+    expect(redoDocument(instanceUndone).document).toEqual(withInstance.document)
   })
 
   it("imports a replacement document as one undoable change", () => {

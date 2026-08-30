@@ -3315,3 +3315,45 @@ Status: **implemented and locally accepted; Gate 2 is next**
 - Gate 2 next owns commands/history, source propagation, override capture,
   reset/detach and semantic clone/clipboard/page/output behavior. Gate 1 does
   not claim editor UI or end-user component creation.
+
+## 2026-08-30 — TEXT-02 Gate 5 independent review result
+
+Status: **review complete; TEXT-02 remains active with two P1 blockers**
+
+- The independent code review is retained in
+  `text-02-gate5-independent-review.md` at commit `10932ff`.
+- P1 implementation defect: the legal long-unbroken-token path repeatedly
+  copies and remeasures a growing line and blocks synchronously for seconds at
+  the advertised rich-text scale. The favorable 1,000-run fixture did not
+  exercise this path.
+- P1 evidence defect: the resource-bearing conformance document is checked at
+  model/Fabric/style-object/HTML levels but never passes through immutable
+  publication and actual PNG/PDF artifact comparison. The previous completion
+  wording overstated that evidence and is corrected in the authoritative
+  remaining-work ledger.
+- TEXT-02 cannot close until both P1s and any follow-up P0/P1 findings close.
+
+## 2026-08-30 — COMPONENT-01 Gate 2A lifecycle commands
+
+Status: **implemented and locally accepted; Gate 2B is next**
+
+- Revisited the component phase contract, Studio command/history/semantic-clone
+  paths, OpenPencil component/instance create-detach actions and Loora's shared
+  transaction/instance-override operations before implementation.
+- Added canonical definition, variant and materialized-instance lifecycle
+  commands with explicit dependent deletion, switch/reset/detach and internal
+  repair behavior.
+- Main-source `update_node` changes propagate to linked instances; instance
+  `update_node` changes capture their exact source-property override and remain
+  stable through later source changes until reset.
+- Nested dependency materialization is child-first. Flat canonical nodes now
+  carry scaled text/run/stroke/radius metrics as well as scaled geometry.
+- Complete semantic copies retain component-instance linkage with fresh IDs;
+  partial copies intentionally detach. Page, duplicate and adapted-output
+  payloads now declare component-instance ownership explicitly.
+- History create/instance Undo and Redo restore exact snapshots. Current
+  evidence is 292 document tests, 23 focused history tests, 54 focused WebMCP
+  tests and all workspace package typechecks.
+- Gate 2B remains open for non-`update_node` style/media/variable direct edits,
+  optional-property removal, structural dependant guards and remaining
+  page/output policies. Gate 2A does not claim editor UI.
