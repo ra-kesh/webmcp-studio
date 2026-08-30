@@ -1,0 +1,26 @@
+import { renderToStaticMarkup } from "react-dom/server"
+import { describe, expect, it, vi } from "vitest"
+
+import { CanvasZoomControls } from "./canvas-zoom-controls"
+
+describe("CanvasZoomControls", () => {
+  it("keeps the frequent zoom actions visible and moves the full range into the percentage menu", () => {
+    const markup = renderToStaticMarkup(
+      <CanvasZoomControls
+        zoom={0.34}
+        hasSelection={false}
+        onZoomChange={vi.fn()}
+        onFit={vi.fn()}
+        onZoomToSelection={vi.fn()}
+      />
+    )
+
+    expect(markup).toContain('data-canvas-zoom-controls="true"')
+    expect(markup).toContain('aria-label="Canvas zoom: 34%"')
+    expect(markup).toContain('aria-label="Zoom out"')
+    expect(markup).toContain('aria-label="Zoom in"')
+    expect(markup).toContain('aria-label="Fit page"')
+    expect(markup).toContain('aria-label="Zoom to selection"')
+    expect(markup).toContain("disabled")
+  })
+})

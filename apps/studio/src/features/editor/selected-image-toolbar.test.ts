@@ -38,7 +38,7 @@ describe("SelectedImageToolbar", () => {
     expect(markup).toContain('data-command-id="image.crop"')
     expect(markup).toContain('data-command-id="image.replace"')
     expect(markup).toContain("size-11")
-    expect(markup).toContain("min-[1280px]:size-8")
+    expect(markup).toContain("min-[1280px]:size-7")
   })
 
   it("keeps the complete transform list in the shared command registry", () => {

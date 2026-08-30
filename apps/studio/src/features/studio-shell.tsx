@@ -19,7 +19,6 @@ import {
   Download,
   DatabaseZap,
   FileJson2,
-  Focus,
   Group,
   Heart,
   Hand,
@@ -36,7 +35,6 @@ import {
   PanelRightOpen,
   Redo2,
   Rocket,
-  Scan,
   Shapes,
   Sparkles,
   Square,
@@ -45,8 +43,6 @@ import {
   Type,
   Undo2,
   Ungroup,
-  ZoomIn,
-  ZoomOut,
 } from "lucide-react"
 import type { DesignTemplateCatalogItem, SceneNode } from "@webmcp/document"
 import type { NodeGeometryPatch } from "@webmcp/editor"
@@ -126,7 +122,6 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@webmcp/ui/components/sheet"
-import { Slider } from "@webmcp/ui/components/slider"
 import {
   Tooltip,
   TooltipContent,
@@ -135,6 +130,7 @@ import {
 import { cn } from "@webmcp/ui/lib/utils"
 
 import { ProductPageFilmstrip } from "./editor/page-filmstrip"
+import { CanvasZoomControls } from "./editor/canvas-zoom-controls"
 import { namedDocumentMediaUses } from "./editor/asset-library-model"
 import { EditorPanelSplitter } from "./editor/editor-panel-splitter"
 import type { StudioShellLayoutRepository } from "./editor/studio-shell-layout"
@@ -4298,73 +4294,22 @@ export function StudioShell({
             ) : null}
 
             {!editor.imageCropSession ? (
-              <div
+              <CanvasZoomControls
                 className={cn(
-                  "absolute left-1/2 flex h-12 max-w-[calc(100%-1rem)] -translate-x-1/2 items-center gap-1 rounded-lg border bg-background/96 px-1.5 shadow-sm backdrop-blur-sm min-[1280px]:h-9",
+                  "absolute left-1/2 -translate-x-1/2",
                   shellLayout.filmstripDensity === "compact"
                     ? "bottom-[100px] min-[1280px]:bottom-[108px]"
                     : "bottom-[100px] min-[1280px]:bottom-[132px]"
                 )}
-              >
-                <IconButton
-                  label="Zoom out"
-                  shortcut="⌘−"
-                  className="size-11 min-[1280px]:size-7"
-                  onClick={() => setManualZoom(zoom / 1.2)}
-                >
-                  <ZoomOut />
-                </IconButton>
-                <Slider
-                  aria-label="Canvas zoom"
-                  className="mx-1 hidden w-24 min-[480px]:flex"
-                  min={10}
-                  max={400}
-                  step={1}
-                  value={[zoom * 100]}
-                  onValueChange={([value]) => setManualZoom(value / 100)}
-                />
-                <Button
-                  aria-label="Reset zoom to 100%"
-                  className="h-11 w-14 px-1 font-mono text-[10px] text-muted-foreground tabular-nums min-[1280px]:h-7 min-[1280px]:w-12"
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setManualZoom(1)}
-                >
-                  {Math.round(zoom * 100)}%
-                </Button>
-                <IconButton
-                  label="Zoom in"
-                  shortcut="⌘+"
-                  className="size-11 min-[1280px]:size-7"
-                  onClick={() => setManualZoom(zoom * 1.2)}
-                >
-                  <ZoomIn />
-                </IconButton>
-                <Separator
-                  className="mx-0.5 hidden h-4 min-[640px]:block"
-                  orientation="vertical"
-                />
-                <IconButton
-                  label="Fit canvas"
-                  shortcut="⇧1"
-                  className="size-11 min-[1280px]:size-7"
-                  onClick={() => {
-                    setAutoFit(true)
-                    fitCanvas()
-                  }}
-                >
-                  <Scan />
-                </IconButton>
-                <IconButton
-                  label="Zoom to selection"
-                  shortcut="⇧2"
-                  className="hidden size-11 min-[640px]:inline-flex min-[1280px]:size-7"
-                  disabled={!editor.selectedNodes.length}
-                  onClick={zoomToSelection}
-                >
-                  <Focus />
-                </IconButton>
-              </div>
+                zoom={zoom}
+                hasSelection={editor.selectedNodes.length > 0}
+                onZoomChange={setManualZoom}
+                onFit={() => {
+                  setAutoFit(true)
+                  fitCanvas()
+                }}
+                onZoomToSelection={zoomToSelection}
+              />
             ) : null}
           </section>
 

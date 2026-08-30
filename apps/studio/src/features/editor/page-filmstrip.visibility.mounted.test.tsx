@@ -373,7 +373,7 @@ describe("PageFilmstrip thumbnail visibility", () => {
         "button[data-density-control]"
       )
       expect(comfortableToggle?.getAttribute("aria-label")).toBe(
-        "Comfortable page strip density"
+        "Use compact page strip"
       )
       expect(comfortableToggle?.getAttribute("aria-pressed")).toBe("true")
       expect(comfortableToggle?.dataset.state).toBe("on")

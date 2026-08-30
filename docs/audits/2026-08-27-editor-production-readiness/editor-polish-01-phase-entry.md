@@ -2,7 +2,7 @@
 
 Date: 2026-08-30
 
-Status: active; Gates 1-3 accepted locally
+Status: active; Gates 1-4 accepted locally
 
 ## Purpose
 
@@ -203,5 +203,57 @@ Focused evidence:
 
 - Studio typecheck passes;
 - 18 focused inspector, crop-preview, slider, and typed-control tests pass;
+- scoped Studio ESLint passes;
+- `git diff --check` passes.
+
+## Gate 4 result — page strip and canvas controls
+
+Sources revisited before implementation:
+
+- the filmstrip, gesture, ruler, canvas-HUD, and overlay findings in
+  `visual-and-interaction-audit.md`;
+- OpenPencil `src/components/editor/ZoomDropdown.vue`;
+- OpenPencil `src/components/canvas/CanvasPaneHeader.vue`;
+- OpenPencil `src/theme/{page-list,canvas-pane-header}.ts`;
+- Loora `packages/canvas/src/react.tsx` camera, fit, zoom, and input controls;
+- Studio's mounted filmstrip, zoom HUD, ruler/guide canvas, selected-image
+  toolbar, crop toolbar, and overlay-placement tests.
+
+Implemented:
+
+- the filmstrip's active page now uses the same Studio accent as canvas and
+  Layers selection instead of a separate black ring and neutral surface;
+- page hover, focus, Add page, and density states use one restrained editor
+  treatment, and the density toggle now describes the action it will perform;
+- the oversized permanent zoom slider was replaced with a compact, named
+  canvas toolbar: zoom out, current percentage, zoom in, Fit page, and Zoom to
+  selection remain immediately available;
+- clicking the percentage opens a complete zoom menu with the slider, live
+  percentage, shortcuts, fit/selection actions, and 25/50/100/200 presets;
+- selected-image and crop toolbars now share the 36 px desktop floating-control
+  anatomy, compact radii, shadow/ring treatment, and 28 px desktop controls
+  while retaining 44 px compact targets;
+- existing pointer-centred zoom, trackpad/pinch handling, rulers, guide hit
+  strips, crop placement, toolbar collision avoidance, and page raster
+  virtualization remain unchanged.
+
+Mounted acceptance at `1440 x 900` confirmed:
+
+- filmstrip selection, canvas selection, Layers selection, and ruler selection
+  bands use one accent;
+- the active page remains legible among all six quotation pages;
+- the zoom toolbar no longer exposes an unnecessary permanent slider across
+  the canvas;
+- the zoom menu opens above the toolbar without clipping the page strip;
+- selecting 50% changes the camera and Fit page returns it to 34%;
+- Zoom to selection enables as soon as a layer is selected;
+- the density action is named `Use comfortable page strip` in compact mode;
+- no horizontal shell overflow appeared.
+
+Focused evidence:
+
+- Studio typecheck passes;
+- 72 focused filmstrip, zoom, ruler/guide, selected-image, crop, and placement
+  tests pass;
 - scoped Studio ESLint passes;
 - `git diff --check` passes.

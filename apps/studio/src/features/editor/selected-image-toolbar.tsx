@@ -88,7 +88,7 @@ function ToolbarIconButton({
           variant="ghost"
           aria-label={label}
           className={cn(
-            "size-11 rounded-lg min-[1280px]:size-8 min-[1280px]:rounded-md",
+            "size-11 rounded-lg min-[1280px]:size-7 min-[1280px]:rounded-md [&_svg]:size-3.5",
             className
           )}
           {...props}
@@ -121,7 +121,7 @@ export function SelectedImageToolbar({
       <div
         aria-label={`Image actions for ${image.name}`}
         className={cn(
-          "flex h-12 max-w-[calc(100%-1rem)] items-center gap-0.5 rounded-xl border bg-background/96 p-0.5 shadow-md ring-1 ring-black/3 backdrop-blur-md min-[1280px]:h-10 min-[1280px]:gap-1 min-[1280px]:p-1",
+          "flex h-12 max-w-[calc(100%-1rem)] items-center gap-0.5 rounded-xl border bg-background/96 p-0.5 shadow-md ring-1 ring-black/3 backdrop-blur-md min-[1280px]:h-9 min-[1280px]:rounded-lg min-[1280px]:p-1",
           className
         )}
         data-selected-image-toolbar="true"
@@ -131,7 +131,7 @@ export function SelectedImageToolbar({
           type="button"
           size="sm"
           variant="ghost"
-          className="h-11 rounded-lg px-2.5 text-xs min-[1280px]:h-8 min-[1280px]:rounded-md"
+          className="h-11 rounded-lg px-2.5 text-xs min-[1280px]:h-7 min-[1280px]:rounded-md min-[1280px]:px-2 min-[1280px]:text-[11px]"
           data-command-id="image.crop"
           disabled={!isCommandEnabled("image.crop")}
           onClick={run("image.crop")}
@@ -143,7 +143,7 @@ export function SelectedImageToolbar({
           type="button"
           size="sm"
           variant="ghost"
-          className="h-11 rounded-lg px-2.5 text-xs min-[1280px]:h-8 min-[1280px]:rounded-md"
+          className="h-11 rounded-lg px-2.5 text-xs min-[1280px]:h-7 min-[1280px]:rounded-md min-[1280px]:px-2 min-[1280px]:text-[11px]"
           data-command-id="image.replace"
           disabled={!isCommandEnabled("image.replace")}
           onClick={run("image.replace")}
@@ -215,7 +215,7 @@ export function SelectedImageToolbar({
                   size="icon"
                   variant="ghost"
                   aria-label="More image actions"
-                  className="size-11 rounded-lg min-[1280px]:size-8 min-[1280px]:rounded-md"
+                  className="size-11 rounded-lg min-[1280px]:size-7 min-[1280px]:rounded-md [&_svg]:size-3.5"
                 >
                   <Ellipsis />
                 </Button>

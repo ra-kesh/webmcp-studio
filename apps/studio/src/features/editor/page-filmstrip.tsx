@@ -1,9 +1,10 @@
 import {
   ChevronLeft,
   ChevronRight,
+  ChevronsDown,
+  ChevronsUp,
   Copy,
   Ellipsis,
-  GalleryHorizontal,
   Plus,
   Trash2,
 } from "lucide-react"
@@ -246,7 +247,7 @@ const PageFilmstripItem = memo(function PageFilmstripItem({
         aria-label={`Open page ${index + 1}: ${page.name}`}
         aria-current={active ? "page" : undefined}
         className={cn(
-          "flex w-full flex-col items-center rounded-md p-1 text-center transition-colors outline-none group-data-[active=true]:bg-secondary hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50",
+          "flex w-full flex-col items-center rounded-md p-1 text-center transition-colors outline-none group-data-[active=true]:bg-studio-accent/8 hover:bg-muted focus-visible:ring-2 focus-visible:ring-studio-accent/35",
           compactDensity ? "min-[1280px]:gap-1" : "gap-1"
         )}
         data-page-selector-id={page.id}
@@ -276,7 +277,7 @@ const PageFilmstripItem = memo(function PageFilmstripItem({
           )}
           data-page-thumbnail-id={page.id}
         >
-          <span className="overflow-hidden rounded-[2px] border bg-white shadow-xs group-data-[active=true]:border-foreground group-data-[active=true]:ring-1 group-data-[active=true]:ring-foreground">
+          <span className="overflow-hidden rounded-[2px] border bg-white shadow-xs transition-[border-color,box-shadow] group-data-[active=true]:border-studio-accent group-data-[active=true]:ring-2 group-data-[active=true]:ring-studio-accent/20">
             {active ||
             (renderThumbnail &&
               (rasterState === "disabled" || rasterState === "error")) ? (
@@ -323,7 +324,7 @@ const PageFilmstripItem = memo(function PageFilmstripItem({
         </span>
         <span
           className={cn(
-            "w-full truncate text-[10px] leading-3 text-muted-foreground group-data-[active=true]:font-medium group-data-[active=true]:text-foreground",
+            "w-full truncate text-[10px] leading-3 text-muted-foreground group-data-[active=true]:font-semibold group-data-[active=true]:text-studio-accent",
             compactDensity && "hidden min-[1280px]:block"
           )}
         >
@@ -1034,7 +1035,7 @@ export const PageFilmstrip = memo(function PageFilmstrip({
     <div
       aria-label={`${output?.name ?? "Current output"} pages`}
       className={cn(
-        "flex shrink-0 border-t bg-background",
+        "flex shrink-0 border-t bg-background/98",
         density === "compact"
           ? "h-[88px] min-[1280px]:h-24"
           : "h-[88px] min-[1280px]:h-[120px]",
@@ -1112,6 +1113,7 @@ export const PageFilmstrip = memo(function PageFilmstrip({
               aria-label={`Add page to ${output.name}`}
               className={cn(
                 "mt-0.5 shrink-0 flex-col border-dashed text-[10px] font-normal text-muted-foreground",
+                "rounded-md hover:border-studio-accent/60 hover:bg-studio-accent/5 hover:text-foreground focus-visible:ring-studio-accent/35",
                 density === "compact"
                   ? "h-[68px] w-14 gap-1 min-[1280px]:h-[84px] min-[1280px]:w-[60px] min-[1280px]:gap-2"
                   : "h-[68px] w-14 gap-1 min-[1280px]:h-[108px] min-[1280px]:w-[68px] min-[1280px]:gap-2"
@@ -1129,21 +1131,29 @@ export const PageFilmstrip = memo(function PageFilmstrip({
         <ScrollBar orientation="horizontal" />
       </ScrollArea>
       {onDensityChange && desktopFilmstrip ? (
-        <div className="flex w-10 shrink-0 items-start justify-center border-l pt-2">
+        <div className="flex w-9 shrink-0 items-start justify-center border-l bg-muted/15 pt-2">
           <Button
-            aria-label="Comfortable page strip density"
+            aria-label={
+              density === "compact"
+                ? "Use comfortable page strip"
+                : "Use compact page strip"
+            }
             aria-pressed={density === "comfortable"}
-            className="size-7 text-muted-foreground hover:text-foreground data-[state=on]:bg-accent data-[state=on]:text-accent-foreground"
+            className="size-7 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-studio-accent/35"
             data-density-control
             data-state={density === "comfortable" ? "on" : "off"}
             onClick={() =>
               onDensityChange(density === "compact" ? "comfortable" : "compact")
             }
             size="icon-sm"
-            title="Comfortable page strip density"
+            title={
+              density === "compact"
+                ? "Use comfortable page strip"
+                : "Use compact page strip"
+            }
             variant="ghost"
           >
-            <GalleryHorizontal />
+            {density === "compact" ? <ChevronsUp /> : <ChevronsDown />}
           </Button>
         </div>
       ) : null}

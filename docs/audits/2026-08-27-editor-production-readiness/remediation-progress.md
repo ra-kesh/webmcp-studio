@@ -2776,3 +2776,26 @@ Status: **completed locally; EDITOR-POLISH-01 remains active**
   `git diff --check` pass.
 - Gate 4 owns the page filmstrip, canvas HUD, rulers, overlays and floating
   controls.
+
+## 2026-08-30 — EDITOR-POLISH-01 Gate 4 canvas controls
+
+Status: **completed locally; EDITOR-POLISH-01 remains active**
+
+- Revisited the phase entry, original audit, OpenPencil's zoom/menu and
+  page-list recipes, Loora's camera controls, and Studio's existing filmstrip,
+  ruler, guide, crop, image-toolbar, and placement code before editing.
+- Filmstrip selection now matches the canvas/Layers accent. Add, focus, hover,
+  and density states use the same restrained system, and the density button
+  describes the result of activating it.
+- Replaced the wide permanent zoom slider with a compact floating toolbar and a
+  full percentage menu. Frequent actions remain one click away; the slider,
+  presets, shortcuts, fit, and selection zoom remain discoverable in the menu.
+- Normalized selected-image and crop toolbars to the same 36 px desktop
+  floating-control anatomy while preserving 44 px compact targets and all
+  commands.
+- Mounted `1440 x 900` acceptance verified a 50% preset/Fit round-trip, linked
+  selection and ruler bands, correct Zoom to selection enablement, menu
+  containment, six-page legibility, and no horizontal overflow.
+- Studio typecheck, 72 focused tests, scoped Studio ESLint and
+  `git diff --check` pass.
+- Gate 5 owns menus, dialogs, loading/empty/error states, and compact sheets.

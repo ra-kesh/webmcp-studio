@@ -234,7 +234,10 @@ function IconButton({ label, children, className, ...props }: IconButtonProps) {
           variant="ghost"
           size="icon"
           aria-label={label}
-          className={cn("size-11 rounded-lg min-[1280px]:size-8", className)}
+          className={cn(
+            "size-11 rounded-lg min-[1280px]:size-7 min-[1280px]:rounded-md [&_svg]:size-3.5",
+            className
+          )}
           {...props}
         >
           {children}
@@ -312,7 +315,7 @@ function CropNumberField({
           aria-describedby={error ? `${id}-error` : undefined}
           inputMode="decimal"
           value={displayedValue}
-          className="h-11 pr-6 text-right font-mono text-xs tabular-nums min-[1280px]:h-8"
+          className="h-11 pr-6 text-right font-mono text-xs tabular-nums min-[1280px]:h-7 min-[1280px]:rounded-md min-[1280px]:text-[11px]"
           onChange={(event) => {
             setDraft(event.target.value)
             if (error) setError(null)
@@ -441,11 +444,11 @@ export function ImageCropToolbar({
         tabIndex={-1}
         onKeyDown={handleKeyDown}
         className={cn(
-          "fixed bottom-[calc(env(safe-area-inset-bottom)+0.5rem)] left-1/2 z-40 grid w-[calc(100vw-1rem)] max-w-5xl -translate-x-1/2 grid-cols-[minmax(0,1fr)_auto] overflow-hidden rounded-xl border bg-background/95 shadow-lg backdrop-blur-sm min-[1280px]:bottom-4 min-[1280px]:w-auto min-[1280px]:max-w-[calc(100vw-2rem)] min-[1280px]:grid-cols-[auto_minmax(0,1fr)_auto]",
+          "fixed bottom-[calc(env(safe-area-inset-bottom)+0.5rem)] left-1/2 z-40 grid w-[calc(100vw-1rem)] max-w-5xl -translate-x-1/2 grid-cols-[minmax(0,1fr)_auto] overflow-hidden rounded-xl border bg-background/95 shadow-lg ring-1 ring-black/3 backdrop-blur-md min-[1280px]:bottom-4 min-[1280px]:w-auto min-[1280px]:max-w-[calc(100vw-2rem)] min-[1280px]:grid-cols-[auto_minmax(0,1fr)_auto] min-[1280px]:rounded-lg",
           className
         )}
       >
-        <div className="col-start-1 row-start-1 flex min-h-11 min-w-0 items-center gap-2 px-3 min-[1280px]:min-h-0 min-[1280px]:border-r">
+        <div className="col-start-1 row-start-1 flex min-h-11 min-w-0 items-center gap-2 px-3 min-[1280px]:h-9 min-[1280px]:border-r min-[1280px]:px-2">
           <Crop aria-hidden="true" className="size-4 shrink-0" />
           <div className="min-w-0 leading-tight">
             <p className="text-sm font-medium">Crop image</p>
@@ -468,7 +471,7 @@ export function ImageCropToolbar({
           </p>
         </div>
 
-        <div className="col-span-2 col-start-1 row-start-2 flex min-w-0 [scrollbar-width:none] items-center gap-1 overflow-x-auto overscroll-x-contain border-t p-1.5 min-[1280px]:col-span-1 min-[1280px]:col-start-2 min-[1280px]:row-start-1 min-[1280px]:border-t-0 [&::-webkit-scrollbar]:hidden">
+        <div className="col-span-2 col-start-1 row-start-2 flex min-w-0 [scrollbar-width:none] items-center gap-1 overflow-x-auto overscroll-x-contain border-t p-1.5 min-[1280px]:col-span-1 min-[1280px]:col-start-2 min-[1280px]:row-start-1 min-[1280px]:border-t-0 min-[1280px]:p-1 [&::-webkit-scrollbar]:hidden">
           <div role="group" aria-label="Image fitting" className="shrink-0">
             <ToggleGroup
               type="single"
@@ -484,7 +487,7 @@ export function ImageCropToolbar({
               <ToggleGroupItem
                 value="fit"
                 aria-label="Fit image"
-                className="h-11 px-3 text-sm min-[1280px]:h-8"
+                className="h-11 px-3 text-sm min-[1280px]:h-7 min-[1280px]:px-2 min-[1280px]:text-[11px]"
                 disabled={!isCommandEnabled("image.fit")}
               >
                 Fit
@@ -492,7 +495,7 @@ export function ImageCropToolbar({
               <ToggleGroupItem
                 value="fill"
                 aria-label="Fill frame"
-                className="h-11 px-3 text-sm min-[1280px]:h-8"
+                className="h-11 px-3 text-sm min-[1280px]:h-7 min-[1280px]:px-2 min-[1280px]:text-[11px]"
                 disabled={!isCommandEnabled("image.fill")}
               >
                 Fill
@@ -590,7 +593,7 @@ export function ImageCropToolbar({
             <ToggleGroupItem
               value="horizontal"
               aria-label="Flip image horizontally"
-              className="size-11 p-0 min-[1280px]:size-8"
+              className="size-11 p-0 min-[1280px]:size-7"
               disabled={!isCommandEnabled("image.flip-horizontal")}
             >
               <FlipHorizontal2 aria-hidden="true" />
@@ -598,7 +601,7 @@ export function ImageCropToolbar({
             <ToggleGroupItem
               value="vertical"
               aria-label="Flip image vertically"
-              className="size-11 p-0 min-[1280px]:size-8"
+              className="size-11 p-0 min-[1280px]:size-7"
               disabled={!isCommandEnabled("image.flip-vertical")}
             >
               <FlipVertical2 aria-hidden="true" />
@@ -624,11 +627,11 @@ export function ImageCropToolbar({
           </IconButton>
         </div>
 
-        <div className="col-start-2 row-start-1 flex items-center gap-1 border-l p-1.5 min-[1280px]:col-start-3">
+        <div className="col-start-2 row-start-1 flex items-center gap-1 border-l p-1.5 min-[1280px]:col-start-3 min-[1280px]:p-1">
           <Button
             type="button"
             variant="ghost"
-            className="h-11 px-3 min-[1280px]:h-8"
+            className="h-11 px-3 min-[1280px]:h-7 min-[1280px]:px-2 min-[1280px]:text-[11px]"
             onClick={() => requestExit("cancel")}
           >
             <X data-icon="inline-start" aria-hidden="true" />
@@ -638,7 +641,7 @@ export function ImageCropToolbar({
             ref={doneButtonRef}
             type="button"
             data-crop-primary-action="true"
-            className="h-11 px-3 min-[1280px]:h-8"
+            className="h-11 px-3 min-[1280px]:h-7 min-[1280px]:px-2 min-[1280px]:text-[11px]"
             onClick={() => requestExit("done")}
           >
             <Check data-icon="inline-start" aria-hidden="true" />
