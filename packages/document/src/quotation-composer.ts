@@ -903,7 +903,7 @@ export function composeTracedQuotationDocument(
   const cover = buildQuotation(writer)
   const now = payload.quote.createdAt
   const document = assertValidDocument({
-    schemaVersion: 3,
+    schemaVersion: 4,
     id: `quotation-${payload.source.quotationId}`,
     name: payload.document.title,
     revision: payload.source.revision,
@@ -921,6 +921,8 @@ export function composeTracedQuotationDocument(
     pages: writer.pages,
     nodes: writer.nodes,
     groups: writer.groups,
+    components: [],
+    componentInstances: [],
     typographyStyles: [],
     paintStyles: [],
     variables: [],

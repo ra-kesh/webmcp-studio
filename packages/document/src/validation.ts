@@ -10,6 +10,7 @@ import { managedImageAssetIdentity } from "./media"
 import { projectTextLayout } from "./text-layout"
 import { normalizeRichTextContent } from "./rich-text"
 import { assertVariableBindingCompatible } from "./variables"
+import { componentIntegrityIssues } from "./components"
 
 export type ValidationIssue = {
   id: string
@@ -36,6 +37,7 @@ export type ValidationIssue = {
     | "missing_alt_text"
     | "invalid_rich_text"
     | "invalid_style"
+    | "invalid_component"
   message: string
   pageId?: string
   nodeId?: string
@@ -105,6 +107,8 @@ export function validateDocument(document: Document): ValidationIssue[] {
   reportDuplicateIds("paint styles", document.paintStyles)
   reportDuplicateIds("variables", document.variables)
   reportDuplicateIds("variable bindings", document.variableBindings)
+  reportDuplicateIds("components", document.components)
+  reportDuplicateIds("component instances", document.componentInstances)
 
   const typographyStyles = new Set(
     document.typographyStyles.map((style) => style.id)
@@ -648,6 +652,20 @@ export function validateDocument(document: Document): ValidationIssue[] {
           : {}),
       })
     }
+  }
+
+  for (const componentIssue of componentIntegrityIssues(document)) {
+    const group = componentIssue.groupId
+      ? groups.get(componentIssue.groupId)
+      : undefined
+    issues.push({
+      id: `component:${componentIssue.componentId ?? "unknown"}:${componentIssue.instanceId ?? "definition"}:${componentIssue.code}:${componentIssue.nodeId ?? componentIssue.groupId ?? componentIssue.property ?? "document"}`,
+      severity: "error",
+      code: "invalid_component",
+      message: componentIssue.message,
+      ...(group ? { pageId: group.pageId } : {}),
+      ...(componentIssue.nodeId ? { nodeId: componentIssue.nodeId } : {}),
+    })
   }
 
   return issues

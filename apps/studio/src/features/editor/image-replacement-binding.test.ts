@@ -36,7 +36,7 @@ const originalImage: Extract<SceneNode, { type: "image" }> = {
 
 function fixture(bound: boolean): Document {
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     id: "binding-replacement-document",
     name: "Binding replacement fixture",
     revision: 0,
@@ -67,6 +67,8 @@ function fixture(bound: boolean): Document {
       { ...originalImage, id: "image-secondary", name: "Secondary portrait" },
     ],
     groups: [],
+    components: [],
+    componentInstances: [],
     typographyStyles: [],
     paintStyles: [],
     variables: [],

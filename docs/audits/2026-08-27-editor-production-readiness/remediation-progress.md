@@ -3289,3 +3289,29 @@ pending**
 - TEXT-02 remains active until a separate reviewer reads the complete Gate 5
   diff and closes every P0/P1 finding. Broader EDITOR-POLISH-01 remains a
   separate active product gate.
+
+## 2026-08-30 — COMPONENT-01 Gate 1 canonical model
+
+Status: **implemented and locally accepted; Gate 2 is next**
+
+- Revisited the retained component audit, OpenPencil's materialized-instance
+  and source-mapping paths, and Loora's normalized resolver, transaction and
+  cycle-validation paths before fixing the Studio contract. No reference code
+  was imported.
+- Added schema version 4 component definitions, variants and instance records
+  while keeping instance descendants as ordinary canonical Studio nodes/groups
+  consumed by the existing editor and renderers.
+- Added deterministic source -> variant -> instance override resolution,
+  uniform instance transforms, materialization, exact stale-property reporting
+  and bounded iterative cycle detection.
+- Canonical validation now rejects duplicate resources, targets outside source
+  subtrees, incomplete or incoherent mappings, stale derived nodes and direct
+  or transitive recursive component graphs.
+- Draft versions 1–3 migrate through an explicit component-resource step.
+  Immutable version-3 publications are not silently upgraded and must be
+  republished. Every current producer now emits version 4 explicitly.
+- All 31 document-package test files pass (284 tests), including the
+  1,000-instance bound, and all workspace package typechecks pass.
+- Gate 2 next owns commands/history, source propagation, override capture,
+  reset/detach and semantic clone/clipboard/page/output behavior. Gate 1 does
+  not claim editor UI or end-user component creation.

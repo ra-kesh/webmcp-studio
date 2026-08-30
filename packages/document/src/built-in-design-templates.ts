@@ -157,7 +157,7 @@ function editorialOnePager(): Document {
     ),
   ]
   return documentSchema.parse({
-    schemaVersion: 3,
+    schemaVersion: 4,
     id: "editorial-one-pager-template-document",
     name: "Editorial one-pager",
     revision: 0,
@@ -185,6 +185,8 @@ function editorialOnePager(): Document {
     ],
     nodes,
     groups: [],
+    components: [],
+    componentInstances: [],
     typographyStyles: [],
     paintStyles: [],
     variables: [],
@@ -285,7 +287,7 @@ function boldSquareAnnouncement(): Document {
     ),
   ]
   return documentSchema.parse({
-    schemaVersion: 3,
+    schemaVersion: 4,
     id: "bold-square-template-document",
     name: "Bold square announcement",
     revision: 0,
@@ -313,6 +315,8 @@ function boldSquareAnnouncement(): Document {
     ],
     nodes,
     groups: [],
+    components: [],
+    componentInstances: [],
     typographyStyles: [],
     paintStyles: [],
     variables: [],

@@ -12,6 +12,8 @@ import {
 function legacyDocument(document = northstarSeed): Record<string, unknown> {
   const clone = structuredClone(document) as any
   clone.schemaVersion = 1
+  delete clone.components
+  delete clone.componentInstances
   clone.nodes = clone.nodes.map((node: any) => {
     if (node.type !== "image") return node
     const legacy = {
@@ -37,7 +39,7 @@ function legacyDocument(document = northstarSeed): Record<string, unknown> {
 }
 
 describe("persisted document compatibility decoding", () => {
-  it("decodes current schemaVersion 3 documents without migrations", () => {
+  it("decodes current schemaVersion 4 documents without migrations", () => {
     const decoded = decodeDocument(northstarSeed)
     expect(decoded.migrations).toEqual([])
     expect(decoded.document).toEqual(northstarSeed)
@@ -45,25 +47,32 @@ describe("persisted document compatibility decoding", () => {
 
   it("rewrites early schemaVersion 3 drafts that predate reusable resources", () => {
     const persisted = structuredClone(northstarSeed) as any
+    persisted.schemaVersion = 3
     delete persisted.typographyStyles
     delete persisted.paintStyles
     delete persisted.variables
     delete persisted.variableBindings
+    delete persisted.components
+    delete persisted.componentInstances
     const before = structuredClone(persisted)
 
     const decoded = decodeDocument(persisted)
 
     expect(persisted).toEqual(before)
     expect(decoded.document).toMatchObject({
-      schemaVersion: 3,
+      schemaVersion: 4,
       typographyStyles: [],
       paintStyles: [],
       variables: [],
       variableBindings: [],
+      components: [],
+      componentInstances: [],
     })
     expect(decoded.migrations.map((migration) => migration.code)).toEqual([
       "legacy_design_resources_initialized",
       "legacy_variable_bindings_initialized",
+      "legacy_components_initialized",
+      "document_schema_upgraded",
     ])
   })
 
@@ -80,12 +89,14 @@ describe("persisted document compatibility decoding", () => {
     delete persisted.paintStyles
     delete persisted.variables
     delete persisted.variableBindings
+    delete persisted.components
+    delete persisted.componentInstances
     const before = structuredClone(persisted)
 
     const decoded = decodeDocument(persisted)
 
     expect(persisted).toEqual(before)
-    expect(decoded.document.schemaVersion).toBe(3)
+    expect(decoded.document.schemaVersion).toBe(4)
     expect(
       decoded.document.nodes
         .filter((node) => node.type === "text")
@@ -107,6 +118,7 @@ describe("persisted document compatibility decoding", () => {
         "legacy_rich_text_initialized",
         "legacy_design_resources_initialized",
         "legacy_variable_bindings_initialized",
+        "legacy_components_initialized",
         "document_schema_upgraded",
       ])
     )
@@ -124,6 +136,21 @@ describe("persisted document compatibility decoding", () => {
 
     expect(() => decodeTemplateVersion(version)).toThrow(
       "Published schemaVersion 2 template versions are immutable"
+    )
+  })
+
+  it("requires republishing an immutable schemaVersion 3 template", () => {
+    const version = createTemplateVersion(northstarSeed, {
+      id: "version-schema-three",
+      templateId: "northstar",
+      version: 1,
+      sourceSnapshotId: `sha256-${"3".repeat(64)}`,
+      publishedAt: "2026-08-28T11:00:00.000Z",
+    }) as any
+    version.document.schemaVersion = 3
+
+    expect(() => decodeTemplateVersion(version)).toThrow(
+      "Published schemaVersion 3 template versions are immutable"
     )
   })
 
@@ -176,7 +203,7 @@ describe("persisted document compatibility decoding", () => {
     )
   })
 
-  it("migrates legacy cover placement and accessibility intent to schemaVersion 3", () => {
+  it("migrates legacy cover placement and accessibility intent to schemaVersion 4", () => {
     const persisted = legacyDocument() as any
     persisted.nodes.push({
       id: "legacy-cover-image",
@@ -203,7 +230,7 @@ describe("persisted document compatibility decoding", () => {
     const decoded = decodeDocument(persisted)
 
     expect(persisted).toEqual(before)
-    expect(decoded.document.schemaVersion).toBe(3)
+    expect(decoded.document.schemaVersion).toBe(4)
     expect(
       decoded.document.nodes.find((node) => node.id === "legacy-cover-image")
     ).toMatchObject({

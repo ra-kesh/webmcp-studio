@@ -30,7 +30,12 @@ const legacyFieldDefinitionSchema = z
   .strict()
 
 const legacyDocumentSchema = documentSchema.extend({
-  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+  schemaVersion: z.union([
+    z.literal(1),
+    z.literal(2),
+    z.literal(3),
+    z.literal(4),
+  ]),
   fields: z.array(legacyFieldDefinitionSchema),
   fieldValues: z.record(z.string(), fieldValueSchema),
 })
@@ -50,6 +55,7 @@ export type DocumentMigration = {
     | "legacy_rich_text_initialized"
     | "legacy_design_resources_initialized"
     | "legacy_variable_bindings_initialized"
+    | "legacy_components_initialized"
     | "document_schema_upgraded"
     | "legacy_field_preserved_as_text"
     | "legacy_fill_promoted_to_color"
@@ -136,7 +142,7 @@ function normalizeLegacyRichTextModel(input: unknown): {
     return { input: normalized, migrations }
   }
   const document = normalized as Record<string, unknown>
-  if (![1, 2, 3].includes(document.schemaVersion as number)) {
+  if (![1, 2, 3, 4].includes(document.schemaVersion as number)) {
     return { input: normalized, migrations }
   }
   let initializedTextNodes = 0
@@ -179,6 +185,15 @@ function normalizeLegacyRichTextModel(input: unknown): {
     document.variableBindings = []
     initializedVariableBindings = true
   }
+  let initializedComponents = false
+  if (!Array.isArray(document.components)) {
+    document.components = []
+    initializedComponents = true
+  }
+  if (!Array.isArray(document.componentInstances)) {
+    document.componentInstances = []
+    initializedComponents = true
+  }
   if (initializedTextNodes > 0) {
     migrations.push({
       code: "legacy_rich_text_initialized",
@@ -197,6 +212,13 @@ function normalizeLegacyRichTextModel(input: unknown): {
       code: "legacy_variable_bindings_initialized",
       message:
         "Legacy variable bindings were initialized as an explicit empty collection",
+    })
+  }
+  if (initializedComponents) {
+    migrations.push({
+      code: "legacy_components_initialized",
+      message:
+        "Legacy components and component instances were initialized as explicit empty collections",
     })
   }
   return { input: normalized, migrations }
@@ -478,19 +500,19 @@ function migrateLegacyDocument(input: unknown): DecodedDocument {
 
   const migrated = documentSchema.parse({
     ...legacy,
-    schemaVersion: 3,
+    schemaVersion: 4,
     fields: legacy.fields.map((field) => fieldsById.get(field.id)),
   })
   return {
     document: assertValidDocument(applyFieldValues(migrated)),
     migrations: [
       ...migrations,
-      ...(legacy.schemaVersion === 3
+      ...(legacy.schemaVersion === 4
         ? []
         : [
             {
               code: "document_schema_upgraded" as const,
-              message: `Document schema was upgraded from version ${legacy.schemaVersion} to version 3`,
+              message: `Document schema was upgraded from version ${legacy.schemaVersion} to version 4`,
             },
           ]),
     ],
@@ -563,7 +585,7 @@ export function decodeTemplateVersion(input: unknown): DecodedTemplateVersion {
   const documentVersion = (
     persisted as { document?: { schemaVersion?: unknown } }
   ).document?.schemaVersion
-  if (documentVersion === 1 || documentVersion === 2) {
+  if (documentVersion === 1 || documentVersion === 2 || documentVersion === 3) {
     throw new DocumentMigrationError(
       `Published schemaVersion ${documentVersion} template versions are immutable and cannot be migrated in place. Republish the source document under a new version identity.`
     )

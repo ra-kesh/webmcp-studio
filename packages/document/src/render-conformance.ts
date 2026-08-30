@@ -213,7 +213,7 @@ const imageParityNodes = imageRenderParityCases.map((fixture) =>
 )
 
 export const imageRenderParityDocument: Document = documentSchema.parse({
-  schemaVersion: 3,
+  schemaVersion: 4,
   id: "image-render-parity-v1",
   name: "Image renderer parity corpus",
   revision: 1,
@@ -242,6 +242,8 @@ export const imageRenderParityDocument: Document = documentSchema.parse({
   fieldValues: {},
   bindings: [],
   groups: [],
+  components: [],
+  componentInstances: [],
   typographyStyles: [],
   paintStyles: [],
   variables: [],
@@ -457,7 +459,7 @@ const nodes = [
 ] satisfies SceneNode[]
 
 export const renderConformanceDocument: Document = documentSchema.parse({
-  schemaVersion: 3,
+  schemaVersion: 4,
   id: "render-conformance-golden-v3",
   name: "Render conformance golden corpus",
   revision: 2,
@@ -579,6 +581,8 @@ export const renderConformanceDocument: Document = documentSchema.parse({
     },
   ],
   groups: [],
+  components: [],
+  componentInstances: [],
   typographyStyles: [],
   paintStyles: [],
   variables: [],

@@ -586,6 +586,129 @@ export const groupDefinitionSchema = z
   })
   .strict()
 
+export const componentTransformSchema = z
+  .object({
+    x: z.number().finite(),
+    y: z.number().finite(),
+    scale: z.number().positive().max(64),
+    rotation: z.number().finite().min(-360).max(360),
+  })
+  .strict()
+
+const componentNodePatchesSchema = z
+  .record(id, sceneNodePatchSchema)
+  .refine((patches) => Object.keys(patches).length <= 10_000, {
+    message: "A component cannot patch more than 10,000 source layers",
+  })
+
+export const componentVariantSchema = z
+  .object({
+    id,
+    name: z.string().trim().min(1).max(120),
+    overrides: componentNodePatchesSchema,
+  })
+  .strict()
+
+export const componentDefinitionSchema = z
+  .object({
+    id,
+    name: z.string().trim().min(1).max(120),
+    description: z.string().trim().max(1_000),
+    sourceGroupId: id,
+    defaultVariantId: id,
+    variants: z.array(componentVariantSchema).min(1).max(100),
+  })
+  .strict()
+  .superRefine((component, context) => {
+    const variantIds = component.variants.map((variant) => variant.id)
+    if (new Set(variantIds).size !== variantIds.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["variants"],
+        message: "Component variant IDs must be unique",
+      })
+    }
+    if (!variantIds.includes(component.defaultVariantId)) {
+      context.addIssue({
+        code: "custom",
+        path: ["defaultVariantId"],
+        message: "The default variant must belong to the component",
+      })
+    }
+  })
+
+export const componentNodeMappingSchema = z
+  .object({
+    sourceNodeId: id,
+    instanceNodeId: id,
+  })
+  .strict()
+
+export const componentGroupMappingSchema = z
+  .object({
+    sourceGroupId: id,
+    instanceGroupId: id,
+  })
+  .strict()
+
+export const componentInstanceSchema = z
+  .object({
+    id,
+    name: z.string().trim().min(1).max(120),
+    componentId: id,
+    variantId: id,
+    rootGroupId: id,
+    transform: componentTransformSchema,
+    nodeMappings: z.array(componentNodeMappingSchema).max(10_000),
+    groupMappings: z.array(componentGroupMappingSchema).min(1).max(10_000),
+    overrides: componentNodePatchesSchema,
+  })
+  .strict()
+  .superRefine((instance, context) => {
+    const sourceNodeIds = instance.nodeMappings.map(
+      (mapping) => mapping.sourceNodeId
+    )
+    const instanceNodeIds = instance.nodeMappings.map(
+      (mapping) => mapping.instanceNodeId
+    )
+    const sourceGroupIds = instance.groupMappings.map(
+      (mapping) => mapping.sourceGroupId
+    )
+    const instanceGroupIds = instance.groupMappings.map(
+      (mapping) => mapping.instanceGroupId
+    )
+    const duplicateMapping =
+      new Set(sourceNodeIds).size !== sourceNodeIds.length ||
+      new Set(instanceNodeIds).size !== instanceNodeIds.length ||
+      new Set(sourceGroupIds).size !== sourceGroupIds.length ||
+      new Set(instanceGroupIds).size !== instanceGroupIds.length
+    if (duplicateMapping) {
+      context.addIssue({
+        code: "custom",
+        path: ["nodeMappings"],
+        message: "Component instance mappings must be one-to-one",
+      })
+    }
+    if (!instanceGroupIds.includes(instance.rootGroupId)) {
+      context.addIssue({
+        code: "custom",
+        path: ["rootGroupId"],
+        message: "The instance root must be present in its group mappings",
+      })
+    }
+    if (
+      Object.keys(instance.overrides).some(
+        (sourceNodeId) => !sourceNodeIds.includes(sourceNodeId)
+      )
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["overrides"],
+        message: "Instance overrides must target a mapped source layer",
+      })
+    }
+  })
+
 export const typographyStyleSchema = z
   .object({
     id,
@@ -780,7 +903,7 @@ export const variableBindingSchema = z
 
 export const documentSchema = z
   .object({
-    schemaVersion: z.literal(3),
+    schemaVersion: z.literal(4),
     id,
     name: z.string().min(1),
     revision: z.number().int().nonnegative(),
@@ -790,6 +913,8 @@ export const documentSchema = z
     pages: z.array(pageSchema).min(1),
     nodes: z.array(sceneNodeSchema),
     groups: z.array(groupDefinitionSchema).default([]),
+    components: z.array(componentDefinitionSchema),
+    componentInstances: z.array(componentInstanceSchema),
     typographyStyles: z.array(typographyStyleSchema),
     paintStyles: z.array(paintStyleSchema),
     variables: z.array(designVariableSchema),
@@ -1203,6 +1328,12 @@ export type FieldValidation = z.infer<typeof fieldValidationSchema>
 export type FieldDefinition = z.infer<typeof fieldDefinitionSchema>
 export type FieldBinding = z.infer<typeof fieldBindingSchema>
 export type GroupDefinition = z.infer<typeof groupDefinitionSchema>
+export type ComponentTransform = z.infer<typeof componentTransformSchema>
+export type ComponentVariant = z.infer<typeof componentVariantSchema>
+export type ComponentDefinition = z.infer<typeof componentDefinitionSchema>
+export type ComponentNodeMapping = z.infer<typeof componentNodeMappingSchema>
+export type ComponentGroupMapping = z.infer<typeof componentGroupMappingSchema>
+export type ComponentInstance = z.infer<typeof componentInstanceSchema>
 export type TypographyStyle = z.infer<typeof typographyStyleSchema>
 export type PaintStyle = z.infer<typeof paintStyleSchema>
 export type TypographyStylePatch = z.infer<typeof typographyStylePatchSchema>
