@@ -99,6 +99,7 @@ export type LibraryDiscoveryAppliedQuery = LibraryDiscoveryFilters &
     order: "curated" | "recent" | "newest"
     entryPoint: LibraryDiscoveryEntryPoint
     favoritesOnly: boolean
+    recentOnly: boolean
   }>
 
 export type LibraryDiscoveryFailure = Readonly<{
@@ -959,6 +960,7 @@ export class LibraryDiscoveryController {
       order,
       entryPoint,
       favoritesOnly: entryPoint === "favorites",
+      recentOnly: entryPoint === "recent",
     }
   }
 
@@ -977,6 +979,7 @@ export class LibraryDiscoveryController {
       orientations: applied.orientations,
       ownerKinds: applied.ownerKinds,
       favoritesOnly: applied.favoritesOnly,
+      recentOnly: applied.recentOnly,
       collectionId: applied.collectionId,
       order:
         applied.entryPoint === "recent"

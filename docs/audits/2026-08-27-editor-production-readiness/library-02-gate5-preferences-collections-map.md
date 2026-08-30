@@ -2,7 +2,7 @@
 
 Date: 2026-08-31
 
-Status: implementation map only; no Gate 5 production code or closure claim
+Status: shared contract foundation independently accepted; migration and repository are active
 
 ## Decision
 
@@ -16,6 +16,22 @@ This split lets Gate 5 start without editing the active Gate 4B browser work.
 The server contracts, migration, repository and framework-independent client can
 land first. The route provider and shared browser receive the new ports only
 after Gate 4B is committed.
+
+## Step 1 result — shared preference and collection contracts
+
+Status: **independently accepted on 2026-08-31; zero open P0/P1 findings**
+
+- Added strict exact-item, preference, collection, snapshot, request, receipt
+  and response-envelope schemas in the shared Document package.
+- Added `recentOnly` to catalog query identity/filtering and mapped the Recent
+  entry point to used items rather than merely sorting unused items last.
+- Enforced preference/collection limits, exact reorder permutations, snapshot
+  membership integrity, normalized-name uniqueness, timestamp chronology and
+  operation-specific successful receipt semantics.
+- Collection names count grapheme clusters, allow joiners inside visible emoji
+  and reject control/default-ignorable-only names that would render blank.
+- Focused preference, catalog and discovery evidence passes 35/35; both Document
+  and Studio typechecks pass. Independent final review reports zero P0/P1.
 
 ## Evidence revisited
 

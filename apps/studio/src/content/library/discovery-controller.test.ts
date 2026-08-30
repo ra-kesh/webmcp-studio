@@ -132,6 +132,7 @@ const queryIdentity = (query: LibraryCatalogQuery) => {
     orientations: query.orientations,
     ownerKinds: query.ownerKinds,
     favoritesOnly: query.favoritesOnly,
+    recentOnly: query.recentOnly,
     collectionId: query.collectionId,
     order: query.order,
     limit: query.limit,
@@ -463,6 +464,7 @@ describe("LibraryDiscoveryController taxonomy and query ownership", () => {
     harness.controller.setEntryPoint("recent")
     expect(harness.listRequests[4].query).toMatchObject({
       favoritesOnly: false,
+      recentOnly: true,
       order: "recent",
     })
     expect(() =>

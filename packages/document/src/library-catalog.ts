@@ -11,7 +11,7 @@ const compareText = (left: string, right: string) =>
 const unique = <Value>(values: readonly Value[]) =>
   new Set(values).size === values.length
 
-const catalogIdSchema = z.string().regex(catalogIdPattern)
+export const catalogIdSchema = z.string().regex(catalogIdPattern)
 const normalizedTagSchema = z.string().regex(normalizedTagPattern)
 const sha256Schema = z.string().regex(sha256Pattern)
 const dateTimeSchema = z.string().datetime()
@@ -546,6 +546,7 @@ export const libraryCatalogQuerySchema = z
       2
     ).default([]),
     favoritesOnly: z.boolean().default(false),
+    recentOnly: z.boolean().default(false),
     collectionId: catalogIdSchema.nullable().default(null),
     order: z.enum(["curated", "recent", "newest"]).default("curated"),
     limit: z.number().int().min(1).max(50).default(24),
@@ -803,6 +804,7 @@ function matchesCatalogQuery(
     return false
   }
   if (query.favoritesOnly && !item.preferences?.favorite) return false
+  if (query.recentOnly && !item.preferences?.lastUsedAt) return false
   if (
     query.collectionId &&
     !item.preferences?.collectionIds.includes(query.collectionId)
@@ -862,6 +864,7 @@ function identityForQuery(query: LibraryCatalogQuery) {
     orientations: query.orientations,
     ownerKinds: query.ownerKinds,
     favoritesOnly: query.favoritesOnly,
+    recentOnly: query.recentOnly,
     collectionId: query.collectionId,
     order: query.order,
     limit: query.limit,

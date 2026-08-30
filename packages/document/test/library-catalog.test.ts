@@ -476,6 +476,11 @@ describe("library catalog index", () => {
         .list({ generation: "recent", order: "recent" })
         .items.map((item) => item.id)
     ).toEqual(["proposal-texture", "proposal-template", "workspace-brief"])
+    expect(
+      index
+        .list({ generation: "recent-only", recentOnly: true, order: "recent" })
+        .items.map((item) => item.id)
+    ).toEqual(["proposal-texture", "proposal-template"])
   })
 
   it("binds opaque cursors to catalog revision, generation, and normalized query identity", () => {
@@ -529,6 +534,16 @@ describe("library catalog index", () => {
           generation: "browse-1",
           limit: 2,
           order: "newest",
+          cursor: first.nextCursor,
+        })
+      )
+    ).toBe("query_mismatch")
+    expect(
+      failureReason(() =>
+        catalog.list({
+          generation: "browse-1",
+          limit: 2,
+          recentOnly: true,
           cursor: first.nextCursor,
         })
       )
