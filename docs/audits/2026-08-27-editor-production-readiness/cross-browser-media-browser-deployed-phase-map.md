@@ -232,9 +232,32 @@ no document or dialog horizontal overflow. This gate found and repaired one
 real shell defect: the recovery banner opened the Media dialog without
 recording its focus-return element.
 
-This is not the Slice 6A exit yet. Native browser race/recovery cases,
-the remaining busy-state announcement/focus cases and their retained evidence
-still need to pass before 6A can be marked complete.
+### Slice 6A native race and migration closure — 2026-08-30
+
+The remaining native-browser boundaries now pass in the same dedicated
+Playwright file:
+
+- two mounted documents in two tabs of one Chromium profile share the native
+  local Blob and promotion notifications. The owner performs exactly one
+  upload. The sibling rereads the authoritative D1 mapping after the
+  BroadcastChannel hint but does not silently rewrite its mounted document;
+  after its device bytes disappear it presents **Studio copy available** and
+  relinks all six canonical references only after the user chooses **Use
+  Studio copy**;
+- an older tab holds the real asset database at version 4 while Studio requests
+  version 6. Studio reports the device identity as unavailable without
+  deleting or rewriting it. After the old connection closes and Media is
+  reopened, the exact metadata and Blob are usable, the database is version 6,
+  and the promotion journal store exists; and
+- the retained MEDIA-01 browser matrix supplies the critical close guards,
+  cancellation, retry/status-unknown, compact containment and focus behavior,
+  while the focused promotion/recovery suites cover stable action-node focus
+  and polite/alert terminal-state semantics.
+
+Together with the selected version-2 desktop/compact evidence and the focused
+61 + 280 + 18/18 regression record below, this completes Slice 6A. It does not
+close row 10 or imply any deployed Cloudflare write, restart, isolation or
+time-dependent result.
 
 The existing regression gates were rerun after the compact evidence pass:
 
@@ -348,7 +371,8 @@ follow-ups pass.
 
 ## Immediate execution order under current authority
 
-1. Implement and pass Slice 6A local two-context browser evidence.
+1. **Completed:** implement and pass Slice 6A local two-context, same-profile
+   race and blocked-upgrade browser evidence.
 2. Build Slice 6B production runner/redaction tests and run its read-only
    baseline.
 3. Record the production-write, restart, second-identity and time-passage

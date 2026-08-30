@@ -62,6 +62,7 @@ type SafeNetworkRecord = {
 declare global {
   interface Window {
     __crossBrowserMediaTools?: Map<string, TestWebMcpTool>
+    __crossBrowserLegacyAssetDatabase?: IDBDatabase
   }
 }
 
@@ -222,6 +223,23 @@ async function installDocumentBootstrap(
           return undefined
         },
       }
+    },
+    { draftKey: currentDraftStorageKey, fixture: documentValue }
+  )
+}
+
+async function replacePageBootstrap(page: Page, documentValue: StudioDocument) {
+  await page.evaluate(
+    ({ draftKey, fixture }) => {
+      localStorage.setItem(
+        draftKey,
+        JSON.stringify({
+          schemaVersion: 1,
+          document: fixture,
+          sourceContext: null,
+        })
+      )
+      sessionStorage.setItem("cross-browser-media-e2e-initialized", "true")
     },
     { draftKey: currentDraftStorageKey, fixture: documentValue }
   )
@@ -397,6 +415,107 @@ async function inspectLocalAssetRepository(page: Page) {
       ],
     }
   )
+}
+
+async function deleteLocalAssetBlob(page: Page, localAssetId: string) {
+  await page.evaluate(
+    async ({ databaseName, blobStore, assetId }) => {
+      const database = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open(databaseName)
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () => reject(request.error)
+      })
+      await new Promise<void>((resolve, reject) => {
+        const transaction = database.transaction(blobStore, "readwrite")
+        transaction.objectStore(blobStore).delete(assetId)
+        transaction.oncomplete = () => resolve()
+        transaction.onerror = () => reject(transaction.error)
+        transaction.onabort = () => reject(transaction.error)
+      })
+      database.close()
+    },
+    {
+      databaseName: localAssetDatabaseName,
+      blobStore: localAssetBlobStore,
+      assetId: localAssetId,
+    }
+  )
+}
+
+async function holdLegacyLocalAssetDatabase(
+  page: Page,
+  localAssetId: string,
+  fileName: string
+) {
+  return page.evaluate(
+    async ({ databaseName, assetId, name, bytesBase64 }) => {
+      const database = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open(databaseName, 4)
+        request.onupgradeneeded = () => {
+          const upgradeDatabase = request.result
+          upgradeDatabase.createObjectStore("assets", { keyPath: "id" })
+          const metadata = upgradeDatabase.createObjectStore(
+            "asset-metadata",
+            { keyPath: "id" }
+          )
+          metadata.createIndex("createdAt", "createdAt")
+          metadata.createIndex("lastUsedAt", "lastUsedAt")
+          upgradeDatabase.createObjectStore("asset-blobs")
+          upgradeDatabase.createObjectStore("asset-quarantine", {
+            keyPath: "id",
+          })
+        }
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () => reject(request.error)
+      })
+      const binary = atob(bytesBase64)
+      const bytes = Uint8Array.from(binary, (character) =>
+        character.charCodeAt(0)
+      )
+      const blob = new Blob([bytes], { type: "image/png" })
+      const now = "2026-08-30T00:00:00.000Z"
+      await new Promise<void>((resolve, reject) => {
+        const transaction = database.transaction(
+          ["asset-metadata", "asset-blobs"],
+          "readwrite"
+        )
+        transaction.objectStore("asset-metadata").put({
+          schemaVersion: 4,
+          id: assetId,
+          name,
+          mediaType: "image/png",
+          size: blob.size,
+          width: 1,
+          height: 1,
+          createdAt: now,
+          updatedAt: now,
+          lastUsedAt: now,
+          archivedAt: null,
+          revision: 1,
+          integrity: "ready",
+        })
+        transaction.objectStore("asset-blobs").put(blob, assetId)
+        transaction.oncomplete = () => resolve()
+        transaction.onerror = () => reject(transaction.error)
+        transaction.onabort = () => reject(transaction.error)
+      })
+      window.__crossBrowserLegacyAssetDatabase = database
+      return database.version
+    },
+    {
+      databaseName: localAssetDatabaseName,
+      assetId: localAssetId,
+      name: fileName,
+      bytesBase64: onePixelPng,
+    }
+  )
+}
+
+async function releaseLegacyLocalAssetDatabase(page: Page) {
+  await page.evaluate(() => {
+    window.__crossBrowserLegacyAssetDatabase?.close()
+    delete window.__crossBrowserLegacyAssetDatabase
+  })
 }
 
 async function readDraftState(page: Page, documentId: string) {
@@ -1088,5 +1207,215 @@ test("a second isolated browser admits one promoted device image without its loc
       contextB.close(),
       compactContext.close(),
     ])
+  }
+})
+
+test("two tabs share promotion discovery without silently mutating the mounted sibling document", async ({
+  browser,
+}) => {
+  const runId = crypto.randomUUID()
+  const localAssetId = `same-profile-${runId}`
+  const ownerDocumentId = `document-promotion-owner-${runId}`
+  const siblingDocumentId = `document-promotion-sibling-${runId}`
+  const fileName = "Same-profile proof.png"
+  const ownerFixture = crossBrowserFixture(ownerDocumentId, localAssetId)
+  const siblingFixture = crossBrowserFixture(siblingDocumentId, localAssetId)
+  const context = await browser.newContext({
+    baseURL,
+    viewport: { width: 1440, height: 900 },
+  })
+
+  try {
+    const ownerPage = await context.newPage()
+    const siblingPage = await context.newPage()
+    const ownerNetwork: SafeNetworkRecord[] = []
+    const siblingNetwork: SafeNetworkRecord[] = []
+    const ownerRequests = observeMediaRequests(ownerPage, ownerNetwork)
+    const siblingRequests = observeMediaRequests(siblingPage, siblingNetwork)
+
+    await openOriginPage(ownerPage)
+    expect(
+      await seedNativeLocalAsset(ownerPage, localAssetId, fileName)
+    ).toEqual([1, 1, 0, 0])
+    await installDocumentBootstrap(context, ownerFixture)
+    await bootDocument(ownerPage, ownerDocumentId)
+
+    await openOriginPage(siblingPage)
+    await replacePageBootstrap(siblingPage, siblingFixture)
+    await bootDocument(siblingPage, siblingDocumentId)
+
+    const siblingDialog = await openUploads(siblingPage)
+    const siblingLocalCard = siblingDialog.locator("[data-local-asset-id]", {
+      hasText: fileName,
+    })
+    await expect(siblingLocalCard).toBeVisible()
+    await siblingLocalCard.scrollIntoViewIfNeeded()
+    await expect(
+      siblingLocalCard.getByRole("button", {
+        name: "Make available everywhere",
+      })
+    ).toBeEnabled()
+
+    const ownerDialog = await openUploads(ownerPage)
+    const ownerLocalCard = ownerDialog.locator("[data-local-asset-id]", {
+      hasText: fileName,
+    })
+    await ownerLocalCard.scrollIntoViewIfNeeded()
+    await ownerLocalCard
+      .getByRole("button", { name: "Make available everywhere" })
+      .click()
+    await expect(ownerLocalCard.getByRole("status")).toContainText(
+      "Available everywhere",
+      { timeout: 45_000 }
+    )
+
+    const mapping = await ownerPage.evaluate(async (assetId) => {
+      const response = await fetch(
+        `/v1/studio/assets/local-promotions/${encodeURIComponent(assetId)}`,
+        { cache: "no-store" }
+      )
+      const body: { promotion?: { asset?: { id?: string } } | null } =
+        await response.json()
+      return { ok: response.ok, assetId: body.promotion?.asset?.id ?? null }
+    }, localAssetId)
+    expect(mapping.ok).toBe(true)
+    expect(mapping.assetId).toBeTruthy()
+    const managedSource = `asset:managed/${mapping.assetId}`
+
+    await expect
+      .poll(async () => {
+        const result = await executeTool(ownerPage, "inspect_design", {})
+        return JSON.stringify(result.structuredContent)
+      })
+      .toContain(mapping.assetId!)
+    const siblingBeforeChoice = JSON.stringify(
+      (await executeTool(siblingPage, "inspect_design", {})).structuredContent
+    )
+    expect(siblingBeforeChoice).toContain("unavailable-local-asset")
+    expect(siblingBeforeChoice).not.toContain(mapping.assetId!)
+    expect(ownerRequests.promotionUploads + siblingRequests.promotionUploads).toBe(
+      1
+    )
+
+    await siblingDialog
+      .getByRole("button", { name: "Close media library" })
+      .click()
+    await deleteLocalAssetBlob(siblingPage, localAssetId)
+    expect(await inspectLocalAssetRepository(siblingPage)).toEqual([1, 0, 0, 1])
+
+    const recoveryDialog = await openUploads(siblingPage)
+    const recoveryCard = recoveryDialog.locator(
+      `[data-missing-local-asset-id="${localAssetId}"]`
+    )
+    await expect(recoveryCard).toBeVisible({ timeout: 15_000 })
+    await expect(
+      recoveryCard.getByText("File bytes are missing from this device", {
+        exact: true,
+      })
+    ).toBeVisible()
+    await expect(recoveryCard.getByRole("status")).toContainText(
+      "Studio copy available",
+      { timeout: 15_000 }
+    )
+
+    const siblingStillLocal = JSON.stringify(
+      (await executeTool(siblingPage, "inspect_design", {})).structuredContent
+    )
+    expect(siblingStillLocal).toContain("unavailable-local-asset")
+    expect(siblingStillLocal).not.toContain(mapping.assetId!)
+
+    await recoveryCard.getByRole("button", { name: "Use Studio copy" }).click()
+    await expect
+      .poll(async () => {
+        const result = await executeTool(siblingPage, "inspect_design", {})
+        return JSON.stringify(result.structuredContent)
+      })
+      .toContain(mapping.assetId!)
+    const siblingAfterChoice = await readDraftState(
+      siblingPage,
+      siblingDocumentId
+    )
+    expect(sourceOccurrences(siblingAfterChoice.document!, managedSource)).toBe(6)
+    expect(
+      ownerRequests.promotionUploads + siblingRequests.promotionUploads
+    ).toBe(1)
+    expect(siblingRequests.managedUseWrites).toBe(1)
+  } finally {
+    await context.close()
+  }
+})
+
+test("a blocked v4 asset database upgrade preserves media and succeeds after the older tab closes", async ({
+  browser,
+}) => {
+  const runId = crypto.randomUUID()
+  const localAssetId = `blocked-upgrade-${runId}`
+  const documentId = `document-blocked-upgrade-${runId}`
+  const fileName = "Preserved through upgrade.png"
+  const fixture = crossBrowserFixture(documentId, localAssetId)
+  const context = await browser.newContext({
+    baseURL,
+    viewport: { width: 1440, height: 900 },
+  })
+
+  try {
+    const legacyPage = await context.newPage()
+    await openOriginPage(legacyPage)
+    expect(
+      await holdLegacyLocalAssetDatabase(
+        legacyPage,
+        localAssetId,
+        fileName
+      )
+    ).toBe(4)
+
+    await installDocumentBootstrap(context, fixture)
+    const appPage = await context.newPage()
+    await bootDocument(appPage, documentId)
+    const blockedDialog = await openUploads(appPage)
+    await expect(
+      blockedDialog.getByRole("region", {
+        name: "Device media status unknown",
+      })
+    ).toBeVisible({ timeout: 15_000 })
+
+    await releaseLegacyLocalAssetDatabase(legacyPage)
+    await blockedDialog
+      .getByRole("button", { name: "Close media library" })
+      .click()
+    await expect(blockedDialog).toBeHidden()
+    const recoveredDialog = await openUploads(appPage)
+    const recoveredCard = recoveredDialog.locator("[data-local-asset-id]", {
+      hasText: fileName,
+    })
+    await expect(recoveredCard).toBeVisible({ timeout: 15_000 })
+    await recoveredCard.scrollIntoViewIfNeeded()
+    await expect(
+      recoveredCard.getByRole("button", {
+        name: `Insert ${fileName}`,
+      })
+    ).toBeEnabled()
+    expect(await inspectLocalAssetRepository(appPage)).toEqual([1, 1, 0, 0])
+    const databaseVersion = await appPage.evaluate(async (databaseName) => {
+      const database = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open(databaseName)
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () => reject(request.error)
+      })
+      const result = {
+        version: database.version,
+        hasPromotionJournal: database.objectStoreNames.contains(
+          "asset-promotion-journal"
+        ),
+      }
+      database.close()
+      return result
+    }, localAssetDatabaseName)
+    expect(databaseVersion).toEqual({
+      version: localAssetDatabaseVersion,
+      hasPromotionJournal: true,
+    })
+  } finally {
+    await context.close()
   }
 })

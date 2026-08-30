@@ -2633,3 +2633,34 @@ Status: **implemented and independently accepted; Slice 6 and row 10 remain acti
   behavior, deployed Access/Worker/D1/R2, network fault injection,
   cross-browser render/publication/WebMCP, payload privacy inspection,
   repository-wide gates and the final row-10 acceptance.
+
+## 2026-08-30 — Cross-browser local media, Slice 6A native browser closure
+
+Status: **completed locally; deployed Slice 6B onward and row 10 remain active**
+
+- The selected two-context Chromium run uses separate native IndexedDB stores
+  and the real local Worker/D1/Workflow topology. It proves one promotion and
+  six-reference relink, zero-byte admission and Keep recovery in the second
+  context, reload stability, PNG/PDF, immutable publication, and same-key
+  durable-render recovery after an ambiguous lost response. The version-2
+  evidence also retains the 390 px keyboard impact-review, focus-return and
+  overflow proof without private aliases or payloads.
+- A same-profile two-tab native test now covers the BroadcastChannel boundary.
+  Two different mounted documents share one device-only image. The owner
+  uploads once; the sibling sees the authoritative mapping but remains locally
+  referenced until its bytes are removed and the user explicitly chooses
+  **Use Studio copy**. The sibling then relinks all six references without a
+  second upload.
+- A real IndexedDB blocked-upgrade test starts with version 4 metadata and Blob
+  bytes held open by an older tab. Studio does not rewrite them while blocked.
+  Closing the old connection and reopening Media yields an enabled local image
+  at database version 6 with the promotion journal store present and the exact
+  metadata/Blob counts preserved.
+- The focused domain/history and current repository/mounted matrices pass
+  61 and 280 tests respectively; the complete existing MEDIA-01 Playwright
+  suite passes 18/18 and retains the cancellation, critical-close, truthful
+  status, compact containment and focus cases needed by this gate.
+- No production Cloudflare mutation was performed or inferred. Slice 6B now
+  owns the isolated production runner, redaction tests and read-only deployment
+  baseline; later writes, restart, second identity and time-dependent proofs
+  remain separately authorized.
