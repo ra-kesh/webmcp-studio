@@ -2837,3 +2837,23 @@ Status: **completed locally; Gate 5C compact-sheet work remains active**
 - Studio/UI typechecks, 11 focused tests, scoped Studio/UI ESLint and
   `git diff --check` pass.
 - Gate 5C now owns compact modal-sheet composition and action reachability.
+
+## 2026-08-30 — EDITOR-POLISH-01 Gate 5C compact sheets
+
+Status: **completed locally; Gate 5 is closed and cleanup/visual acceptance remains active**
+
+- Revisited `A11Y-01`, `VIS-02`, OpenPencil's independent mobile drawer and
+  dialog composition, and Studio's real Sheet/shell/sidebar code before
+  editing.
+- Phone-width panels now use a bounded bottom workspace sheet; tablet-width
+  compact layouts keep wider directional side panels.
+- Corrected the close-target/header collision, added safe-area and explicit
+  scroll containment, and made the named heading the deterministic focus entry
+  point while retaining exact-opener focus restoration.
+- Mounted `390 x 820` and `768 x 820` inspection confirmed correct geometry,
+  canvas context, action reachability, focus ownership, and zero horizontal
+  overflow.
+- The focused compact modal test and full 320-1920 px action matrix pass, along
+  with Studio/UI typechecks, scoped ESLint, and `git diff --check`.
+- The next EDITOR-POLISH-01 gate is dead/duplicate/placeholder UI cleanup,
+  followed by the retained full-width visual matrix and real-use acceptance.

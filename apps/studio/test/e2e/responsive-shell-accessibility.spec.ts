@@ -155,6 +155,9 @@ test("compact panels trap focus, isolate the editor, close with Escape, and rest
   await expect(documentPanel).toHaveAccessibleDescription(
     "Choose a template, manage pages and outputs, or select a document layer."
   )
+  await expect(
+    documentPanel.getByRole("heading", { name: "Document" })
+  ).toBeFocused()
   await expect(page.locator("main")).toHaveAttribute("aria-hidden", "true")
   await expect(page.locator("main")).toHaveAttribute("inert", "")
   await expect
@@ -162,6 +165,19 @@ test("compact panels trap focus, isolate the editor, close with Escape, and rest
       documentPanel.evaluate((panel) => panel.contains(document.activeElement))
     )
     .toBe(true)
+
+  const documentPanelBounds = await documentPanel.boundingBox()
+  expect(documentPanelBounds).not.toBeNull()
+  expect(Math.round(documentPanelBounds!.x)).toBe(0)
+  expect(Math.round(documentPanelBounds!.width)).toBe(390)
+  expect(documentPanelBounds!.y).toBeGreaterThan(0)
+  expect(documentPanelBounds!.height).toBeLessThan(820)
+
+  const createFromTemplate = documentPanel.getByRole("button", {
+    name: "Create new",
+  })
+  await createFromTemplate.scrollIntoViewIfNeeded()
+  await expect(createFromTemplate).toBeVisible()
 
   const closeButton = documentPanel.getByRole("button", { name: "Close" })
   await expect(closeButton).toHaveCount(1)
@@ -200,6 +216,9 @@ test("compact panels trap focus, isolate the editor, close with Escape, and rest
   await inspectorPanelButton.click()
   const inspectorPanel = page.getByRole("dialog", { name: "Properties" })
   await expect(inspectorPanel).toBeVisible()
+  await expect(
+    inspectorPanel.getByRole("heading", { name: "Properties" })
+  ).toBeFocused()
   await inspectorPanel.getByRole("button", { name: "Close" }).click()
   await expect(inspectorPanel).toBeHidden()
   await expect(inspectorPanelButton).toBeFocused()

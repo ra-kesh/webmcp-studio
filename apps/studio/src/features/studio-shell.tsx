@@ -537,6 +537,7 @@ export function StudioShell({
     () => resolveStudioShellLayout(shellLayout, shellAvailableWidth),
     [shellAvailableWidth, shellLayout]
   )
+  const compactPanelUsesBottomSheet = shellAvailableWidth < 640
   const leftShellResizeBounds = useMemo(
     () =>
       getStudioShellPanelResizeBounds(shellLayout, "left", shellAvailableWidth),
@@ -731,6 +732,7 @@ export function StudioShell({
   const documentInputRef = useRef<HTMLInputElement>(null)
   const quotationInputRef = useRef<HTMLInputElement>(null)
   const compactPanelTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const compactPanelHeadingRef = useRef<HTMLHeadingElement | null>(null)
   const insertShapeTriggerRef = useRef<HTMLButtonElement | null>(null)
   const studioMoreActionsTriggerRef = useRef<HTMLButtonElement | null>(null)
   const mediaPickerFocusReturnRef = useRef<HTMLElement | null>(null)
@@ -4399,15 +4401,45 @@ export function StudioShell({
                 ? "compact-document-panel"
                 : "compact-inspector-panel"
             }
-            side={compactPanel === "document" ? "left" : "right"}
-            className="w-[min(22rem,calc(100vw-0.5rem))] gap-0 overflow-hidden overscroll-contain bg-background min-[1280px]:hidden sm:max-w-[22rem] [&>[data-slot=sheet-close]]:size-11"
+            side={
+              compactPanelUsesBottomSheet
+                ? "bottom"
+                : compactPanel === "document"
+                  ? "left"
+                  : "right"
+            }
+            className={cn(
+              "gap-0 overflow-hidden overscroll-contain border-border/80 bg-background min-[1280px]:hidden [&>[data-slot=sheet-close]]:top-1.5 [&>[data-slot=sheet-close]]:right-1.5 [&>[data-slot=sheet-close]]:size-11",
+              compactPanelUsesBottomSheet
+                ? "!h-[min(78dvh,44rem)] w-full max-w-none rounded-t-2xl pb-[env(safe-area-inset-bottom)] shadow-[0_-12px_40px_rgba(0,0,0,0.18)]"
+                : "w-[min(24rem,calc(100vw-0.75rem))] rounded-r-xl shadow-[12px_0_40px_rgba(0,0,0,0.14)] data-[side=right]:rounded-l-xl data-[side=right]:rounded-r-none data-[side=right]:shadow-[-12px_0_40px_rgba(0,0,0,0.14)] sm:max-w-96"
+            )}
+            onOpenAutoFocus={(event) => {
+              event.preventDefault()
+              compactPanelHeadingRef.current?.focus({ preventScroll: true })
+            }}
             onCloseAutoFocus={(event) => {
               event.preventDefault()
-              compactPanelTriggerRef.current?.focus()
+              compactPanelTriggerRef.current?.focus({ preventScroll: true })
             }}
           >
-            <SheetHeader className="h-11 shrink-0 justify-center gap-0 border-b px-3 py-0 pr-14">
-              <SheetTitle className="text-xs leading-none font-medium">
+            <SheetHeader
+              className={cn(
+                "relative h-14 shrink-0 justify-center gap-0 border-b border-border/80 px-3 py-0 pr-14",
+                compactPanelUsesBottomSheet && "pt-1"
+              )}
+            >
+              {compactPanelUsesBottomSheet ? (
+                <div
+                  aria-hidden
+                  className="absolute top-1.5 left-1/2 h-1 w-8 -translate-x-1/2 rounded-full bg-border"
+                />
+              ) : null}
+              <SheetTitle
+                ref={compactPanelHeadingRef}
+                tabIndex={-1}
+                className="text-xs leading-none font-semibold outline-none"
+              >
                 {compactPanel === "document" ? "Document" : "Properties"}
               </SheetTitle>
               <SheetDescription className="sr-only">

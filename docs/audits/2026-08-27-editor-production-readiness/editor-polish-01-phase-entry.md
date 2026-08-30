@@ -2,7 +2,7 @@
 
 Date: 2026-08-30
 
-Status: active; Gates 1-4 and Gates 5A-5B accepted locally
+Status: active; Gates 1-5 accepted locally
 
 ## Purpose
 
@@ -124,6 +124,52 @@ Focused evidence:
 - Studio typecheck passes;
 - 35 focused inspector, shell-layout, and splitter tests pass;
 - scoped Studio and UI ESLint passes;
+- `git diff --check` passes.
+
+## Gate 5C result — compact panel composition
+
+Sources revisited before implementation:
+
+- the `A11Y-01` compact-drawer and `VIS-02` independent-composition findings
+  in `visual-and-interaction-audit.md`;
+- OpenPencil `EditorWorkspace.vue`, `MobileDrawer.vue`, and `theme/dialog.ts`;
+- Studio's shared Sheet primitive, responsive shell matrix, compact panel
+  triggers, Quotation sidebar, and Inspector sidebar.
+
+Implemented:
+
+- phone-width document and properties panels now open as a bounded bottom
+  workspace sheet instead of a narrow full-height rail;
+- 640-1279 px compact layouts retain directional side panels with a wider
+  384 px working width, correct inner-edge radius, and panel-specific shadow;
+- the phone sheet uses a 78dvh/44rem bound, safe-area padding, a restrained grab
+  affordance, and one contained scroll owner so the canvas remains visible as
+  context;
+- initial focus moves deliberately to the named panel heading, focus stays in
+  the modal, and close/Escape returns to the exact opener without scrolling;
+- the 44 px close target now fits inside a 56 px sheet header instead of
+  overhanging the first tab row;
+- the shared overlay has clear modal separation while preserving the existing
+  Radix dialog semantics, background inertness, Escape handling, and focus
+  trap.
+
+Mounted acceptance confirmed:
+
+- at `390 x 820`, the Document panel is exactly viewport-wide, 639.6 px high,
+  bottom anchored, horizontally contained, and leaves visible canvas context;
+- its heading owns initial focus and `Create new` remains reachable after
+  scrolling;
+- at `768 x 820`, Properties remains a 384 px right-side workspace with no
+  horizontal overflow and the same calm panel-state hierarchy;
+- the complete 320-1920 px responsive action matrix continues to expose every
+  required business action.
+
+Focused evidence:
+
+- Studio and UI typechecks plus scoped ESLint pass;
+- the compact modal/focus/recovery end-to-end test passes with new bounds,
+  heading-focus, and action-reachability assertions;
+- the ten-width business-action reachability matrix passes;
 - `git diff --check` passes.
 
 ## Gate 2 result — document-panel composition
