@@ -17,11 +17,13 @@ describe("Fabric double-click intent routing", () => {
   it("keeps image crop, text editing, and empty-canvas zoom distinct", () => {
     const onImageDoubleClick = vi.fn()
     const onCanvasDoubleClick = vi.fn()
+    const onNodeDoubleClick = vi.fn()
     const adapter = new FabricCanvasAdapter({
       onSelectionChange: vi.fn(),
       onNodesChange: vi.fn(),
       onImageDoubleClick,
       onCanvasDoubleClick,
+      onNodeDoubleClick,
     })
     const internals = adapter as unknown as DoubleClickInternals
     const imageNode = renderConformanceDocument.nodes.find(
@@ -39,6 +41,7 @@ describe("Fabric double-click intent routing", () => {
 
     expect(onImageDoubleClick).toHaveBeenCalledOnce()
     expect(onImageDoubleClick).toHaveBeenCalledWith(imageNode.id)
+    expect(onNodeDoubleClick).toHaveBeenCalledWith(imageNode.id)
     expect(onCanvasDoubleClick).not.toHaveBeenCalled()
 
     internals.onMouseDoubleClick({

@@ -140,6 +140,10 @@ import type {
   AssetMutationState,
 } from "./asset-mutation-transaction"
 import { canvasChangeHistoryOptions } from "./canvas-change-policy"
+import {
+  projectCanvasComponentSelection,
+  projectComponentInstanceCanvasTransform,
+} from "./component-canvas-interaction"
 import type { StudioAsset } from "./asset-catalog"
 import {
   getManagedMedia,
@@ -4067,13 +4071,30 @@ export function useDocumentEditor({
 
   const updateNodes = useCallback(
     (changes: CanvasNodeChange[]) => {
+      const document = historyRef.current.document
+      const instanceTransform = projectComponentInstanceCanvasTransform(
+        document,
+        changes
+      )
+      if (instanceTransform) {
+        return commit(
+          [
+            {
+              type: "update_component_instance_metadata",
+              instanceId: instanceTransform.instanceId,
+              patch: { transform: instanceTransform.transform },
+            },
+          ],
+          canvasChangeHistoryOptions(changes, document.nodes)
+        )
+      }
       return commit(
         changes.map(({ nodeId, patch }) => ({
           type: "update_node",
           nodeId,
           patch,
         })),
-        canvasChangeHistoryOptions(changes, historyRef.current.document.nodes)
+        canvasChangeHistoryOptions(changes, document.nodes)
       )
     },
     [commit]
@@ -4423,6 +4444,18 @@ export function useDocumentEditor({
       setSelection(nextSelection)
     },
     [settleImageCrop]
+  )
+
+  const setCanvasSelection = useCallback(
+    (nextSelection: Selection | null) => {
+      setEditorSelection(
+        projectCanvasComponentSelection(
+          historyRef.current.document,
+          nextSelection
+        )
+      )
+    },
+    [setEditorSelection]
   )
 
   const updateField = useCallback(
@@ -10735,6 +10768,7 @@ export function useDocumentEditor({
     publishSyncStatus,
     selectPage,
     setSelection: setEditorSelection,
+    setCanvasSelection,
     updateNodes,
     updateNode,
     setImagePlacement,

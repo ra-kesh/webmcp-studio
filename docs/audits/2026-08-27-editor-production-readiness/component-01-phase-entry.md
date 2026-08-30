@@ -374,3 +374,33 @@ active**
 
 Gate 3D/3E still own canvas direct-manipulation semantics and compact real-use
 acceptance. Gate 3 is not closed yet.
+
+## Gate 3D result — component canvas semantics
+
+Status: **implemented and locally accepted on 2026-08-30; Gate 3 remains
+active**
+
+- Revisited OpenPencil's container hit-testing, entered-container and root
+  transform behavior plus Studio's Fabric selection/transform boundary before
+  implementation.
+- Ordinary canvas clicks now select the complete main-component or instance
+  root. Explicit double-click supplies the child drill-in intent, preserving
+  existing text-edit and image-crop routing instead of making every second
+  single click ambiguous.
+- Uniform move/scale/rotate changes for a complete instance are projected back
+  to one canonical `update_component_instance_metadata` command. They no
+  longer create geometry overrides on every materialized child.
+- Root transforms rebase transform-sensitive instance-owned geometry, text-run
+  metrics, radii and strokes before rematerialization. Existing overrides keep
+  their visual relationship while source-linked properties continue to flow
+  from the component.
+- The live acceptance caught and closed an identity-transform bug where a
+  whole-instance non-geometry edit such as Unlock could be mistaken for a root
+  transform. The projector now requires a real non-identity geometry change.
+- Focused document, canvas-projection and Fabric double-click tests pass, and
+  Document, Editor and Studio typecheck. Live port-3001 acceptance preserved a
+  9-layer root selection through drag, kept the override count stable, saved,
+  Undo restored the move, Reset all restored the lock state, and no runtime
+  errors were recorded.
+
+Gate 3E compact real-use acceptance remains before Gate 3 closes.

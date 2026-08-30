@@ -55,6 +55,13 @@ function normalizedRotation(value: number) {
   return rotation > 180 ? rotation - 360 : rotation
 }
 
+function rotatePoint(x: number, y: number, degrees: number) {
+  const radians = (degrees * Math.PI) / 180
+  const cos = Math.cos(radians)
+  const sin = Math.sin(radians)
+  return { x: x * cos - y * sin, y: x * sin + y * cos }
+}
+
 export function componentSourceSubtree(
   document: Document,
   sourceGroupId: string
@@ -243,6 +250,93 @@ export function resolveComponentInstanceNodes(
     )
     return [{ ...resolved, id: instanceNodeId }]
   })
+}
+
+/**
+ * Keeps instance-owned visual overrides in the same local relationship when
+ * the instance root is moved, scaled, or rotated. Overrides are stored as
+ * resolved values, so the root transform must rebase the transform-sensitive
+ * subset before materialization applies them again.
+ */
+export function rebaseComponentInstanceOverridesForTransform(
+  document: Document,
+  instance: ComponentInstance,
+  transform: ComponentInstance["transform"]
+): ComponentInstance {
+  const scaleRatio = transform.scale / instance.transform.scale
+  const rotationDelta = transform.rotation - instance.transform.rotation
+  const nodeIdBySourceId = new Map(
+    instance.nodeMappings.map((mapping) => [
+      mapping.sourceNodeId,
+      mapping.instanceNodeId,
+    ])
+  )
+  const nodeById = new Map(document.nodes.map((node) => [node.id, node]))
+  const overrides = Object.fromEntries(
+    Object.entries(instance.overrides).map(([sourceNodeId, patch]) => {
+      const next = structuredClone(patch) as Record<string, unknown>
+      const instanceNodeId = nodeIdBySourceId.get(sourceNodeId)
+      const node = instanceNodeId ? nodeById.get(instanceNodeId) : undefined
+      const ownsGeometry = ["x", "y", "width", "height", "rotation"].some(
+        (property) => own(next, property)
+      )
+      if (node && ownsGeometry) {
+        const oldCenter = {
+          x: node.x + node.width / 2,
+          y: node.y + node.height / 2,
+        }
+        const relative = rotatePoint(
+          oldCenter.x - instance.transform.x,
+          oldCenter.y - instance.transform.y,
+          -instance.transform.rotation
+        )
+        const local = {
+          x: relative.x / instance.transform.scale,
+          y: relative.y / instance.transform.scale,
+        }
+        const transformedLocal = rotatePoint(
+          local.x * transform.scale,
+          local.y * transform.scale,
+          transform.rotation
+        )
+        const width = node.width * scaleRatio
+        const height = node.height * scaleRatio
+        next.x = transform.x + transformedLocal.x - width / 2
+        next.y = transform.y + transformedLocal.y - height / 2
+        next.width = width
+        next.height = height
+        next.rotation = normalizedRotation(node.rotation + rotationDelta)
+      }
+      for (const property of [
+        "fontSize",
+        "letterSpacing",
+        "strokeWidth",
+        "radius",
+      ]) {
+        if (typeof next[property] === "number") {
+          next[property] *= scaleRatio
+        }
+      }
+      if (Array.isArray(next.runs)) {
+        next.runs = next.runs.map((run) => {
+          if (!run || typeof run !== "object") return run
+          const value = structuredClone(run) as Record<string, unknown>
+          if (!value.style || typeof value.style !== "object") return value
+          const style = { ...(value.style as Record<string, unknown>) }
+          if (typeof style.fontSize === "number") {
+            style.fontSize *= scaleRatio
+          }
+          if (typeof style.letterSpacing === "number") {
+            style.letterSpacing *= scaleRatio
+          }
+          value.style = style
+          return value
+        })
+      }
+      return [sourceNodeId, next]
+    })
+  ) as ComponentInstance["overrides"]
+  return { ...instance, transform, overrides }
 }
 
 export function componentDifferingProperties(

@@ -136,6 +136,7 @@ export const FabricArtboard = forwardRef<
     snapTargets?: readonly AlignmentSnapTarget[]
     interactive?: boolean
     onCanvasDoubleClick?: (point: { clientX: number; clientY: number }) => void
+    onNodeDoubleClick?: (nodeId: string) => void
     onContextMenu?: (request: {
       clientX: number
       clientY: number
@@ -168,6 +169,7 @@ export const FabricArtboard = forwardRef<
     snapTargets = [],
     interactive = true,
     onCanvasDoubleClick,
+    onNodeDoubleClick,
     onContextMenu,
     onImageDoubleClick,
     onImageCropPreview,
@@ -192,6 +194,7 @@ export const FabricArtboard = forwardRef<
   const retryOwnedFocusRef = useRef(false)
   const callbacksRef = useRef({
     onCanvasDoubleClick,
+    onNodeDoubleClick,
     onContextMenu,
     onImageDoubleClick,
     onImageCropPreview,
@@ -226,6 +229,7 @@ export const FabricArtboard = forwardRef<
   const reportedUnavailableCropRef = useRef<string | null>(null)
   callbacksRef.current = {
     onCanvasDoubleClick,
+    onNodeDoubleClick,
     onContextMenu,
     onImageDoubleClick,
     onImageCropPreview,
@@ -507,6 +511,8 @@ export const FabricArtboard = forwardRef<
             callbacksRef.current.onNodesChange(changes),
           onCanvasDoubleClick: (point) =>
             callbacksRef.current.onCanvasDoubleClick?.(point),
+          onNodeDoubleClick: (nodeId) =>
+            callbacksRef.current.onNodeDoubleClick?.(nodeId),
           onContextMenu: (request) =>
             callbacksRef.current.onContextMenu?.(request),
           onImageDoubleClick: (nodeId) =>

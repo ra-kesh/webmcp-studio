@@ -389,6 +389,39 @@ describe("canonical document components", () => {
     })
   })
 
+  it("rebases transform-sensitive overrides with the instance root", () => {
+    let document = applyCommand(componentFixture(), {
+      ...commandMeta("override-before-root-transform"),
+      type: "update_component_instance",
+      instanceId: "instance-hero",
+      sourceNodeId: "cover-eyebrow",
+      patch: { x: 150, fontSize: 30 },
+    })
+    document = applyCommand(document, {
+      ...commandMeta("transform-overridden-instance"),
+      type: "update_component_instance_metadata",
+      instanceId: "instance-hero",
+      patch: {
+        transform: { x: 240, y: 320, scale: 0.75, rotation: 12 },
+      },
+    })
+
+    expect(
+      document.componentInstances[0]?.overrides["cover-eyebrow"]
+    ).toMatchObject({
+      fontSize: 45,
+      width: expect.any(Number),
+      height: expect.any(Number),
+      rotation: expect.any(Number),
+    })
+    expect(
+      document.componentInstances[0]?.overrides["cover-eyebrow"]?.x
+    ).not.toBe(150)
+    expect(
+      document.nodes.find((node) => node.id === "instance-cover-eyebrow")
+    ).toMatchObject({ fontSize: 45 })
+  })
+
   it("creates, updates, replaces and resets component variant state", () => {
     let document = applyCommand(componentFixture(), {
       ...commandMeta("create-variant"),

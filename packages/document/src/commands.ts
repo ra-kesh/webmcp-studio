@@ -47,6 +47,7 @@ import {
   componentDifferingProperties,
   componentSourceSubtree,
   materializeComponentInstances,
+  rebaseComponentInstanceOverridesForTransform,
   resolveComponentInstanceNodes,
 } from "./components"
 import { assertValidCanonicalDocument, assertValidDocument } from "./validation"
@@ -1334,18 +1335,27 @@ function applyParsedCommand(
       break
     }
     case "update_component_instance_metadata": {
-      if (
-        !document.componentInstances.some(
-          (instance) => instance.id === command.instanceId
-        )
-      ) {
+      const targetInstance = document.componentInstances.find(
+        (instance) => instance.id === command.instanceId
+      )
+      if (!targetInstance) {
         throw new Error(`Unknown component instance: ${command.instanceId}`)
       }
       next = materializeComponentInstances({
         ...document,
         componentInstances: document.componentInstances.map((instance) =>
           instance.id === command.instanceId
-            ? { ...instance, ...command.patch, id: instance.id }
+            ? {
+                ...(command.patch.transform
+                  ? rebaseComponentInstanceOverridesForTransform(
+                      document,
+                      instance,
+                      command.patch.transform
+                    )
+                  : instance),
+                ...command.patch,
+                id: instance.id,
+              }
             : instance
         ),
       })

@@ -2910,12 +2910,14 @@ export class FabricCanvasAdapter implements CanvasAdapter {
   }: TPointerEventInfo<TPointerEvent>) => {
     if (target instanceof Textbox) {
       const nodeId = this.nodeIdByObject.get(target)
+      if (nodeId) this.events.onNodeDoubleClick?.(nodeId)
       if (nodeId) this.enterTextEditing(nodeId)
       return
     }
     if (target) {
       const nodeId = this.nodeIdByObject.get(target)
       const node = nodeId ? this.nodeByNodeId.get(nodeId) : undefined
+      if (nodeId) this.events.onNodeDoubleClick?.(nodeId)
       if (node?.type === "image") {
         this.events.onImageDoubleClick?.(node.id)
       }

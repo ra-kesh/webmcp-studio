@@ -4409,6 +4409,12 @@ export function StudioShell({
                     onCanvasDoubleClick={({ clientX, clientY }) =>
                       zoomAtPoint(zoom * 1.75, clientX, clientY)
                     }
+                    onNodeDoubleClick={(nodeId) =>
+                      editor.setSelection({
+                        pageId: activePage.id,
+                        nodeIds: [nodeId],
+                      })
+                    }
                     onContextMenu={({ nodeId }) => {
                       if (!nodeId) {
                         editor.setSelection(null)
@@ -4441,7 +4447,7 @@ export function StudioShell({
                       )
                     }}
                     onTextEditingChange={setTextEditingState}
-                    onSelectionChange={editor.setSelection}
+                    onSelectionChange={editor.setCanvasSelection}
                     onNodesChange={editor.updateNodes}
                   />
                 </div>

@@ -29,6 +29,7 @@ export type CanvasAdapterEvents = {
   onSelectionChange(selection: Selection | null): void
   onNodesChange(changes: CanvasNodeChange[]): boolean | void
   onCanvasDoubleClick?(point: { clientX: number; clientY: number }): void
+  onNodeDoubleClick?(nodeId: string): void
   onContextMenu?(request: CanvasContextMenuRequest): void
   onImageDoubleClick?(nodeId: string): void
   onImageCropPreview?(preview: CanvasImageCropPreview): void

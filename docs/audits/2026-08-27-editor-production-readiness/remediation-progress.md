@@ -3442,3 +3442,24 @@ Status: **implemented and locally accepted; Gate 3 remains active**
   the browser recorded no runtime errors.
 - Gate 3 next owns component-aware canvas behavior and compact real-use
   acceptance. This entry does not close Gate 3.
+
+## 2026-08-30 — COMPONENT-01 Gate 3D canvas interaction
+
+Status: **implemented and locally accepted; Gate 3E remains**
+
+- Re-read the component gate and OpenPencil's root-selection, entered-container
+  and root-transform paths before editing.
+- Canvas selection promotes ordinary component-child clicks to the reusable
+  root; double-click explicitly drills into the child while retaining existing
+  text/image double-click behavior.
+- Complete instance move/scale/rotate batches now become one canonical instance
+  metadata transform. Transform-sensitive geometry and visual-metric overrides
+  are rebased rather than frozen as absolute child values.
+- Live acceptance found a non-geometry batch could initially be mistaken for an
+  identity transform. That path is now excluded and covered by a regression
+  test.
+- Focused model/projection/Fabric tests and affected package typechecks pass. A
+  real 9-layer instance remained selected as a root through canvas drag,
+  retained its existing override count, saved and produced no runtime errors;
+  the fixture was restored through Undo and Reset all.
+- Gate 3E is the remaining compact real-use acceptance gate.
