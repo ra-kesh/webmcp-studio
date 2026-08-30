@@ -2,7 +2,7 @@
 
 Date: 2026-08-31
 
-Status: shared contract foundation independently accepted; migration and repository are active
+Status: shared contract and migration independently accepted; repository, HTTP and client are active
 
 ## Decision
 
@@ -32,6 +32,25 @@ Status: **independently accepted on 2026-08-31; zero open P0/P1 findings**
   and reject control/default-ignorable-only names that would render blank.
 - Focused preference, catalog and discovery evidence passes 35/35; both Document
   and Studio typechecks pass. Independent final review reports zero P0/P1.
+
+## Step 2 result — durable preference and collection schema
+
+Status: **independently accepted and committed on 2026-08-31; zero open P0/P1 findings**
+
+- Added workspace/principal-scoped preference, collection, ordered membership,
+  workspace-revision and idempotency-receipt tables in migration `0014`.
+- Receipt claims bind the exact workspace, principal, target identity and
+  revision, operation, idempotency key and canonical request hash. Retained keys
+  cannot be reused for a different request after receipt cleanup.
+- Foreign keys and delete behavior prevent stale claims from recreating deleted
+  collection targets. Ordered membership changes use disjoint temporary
+  positions so swaps and removal compaction remain atomic under the unique
+  position constraint.
+- The migration verifier covers replay, hash/operation/principal mismatch,
+  deleted targets, reorder swaps, removal compaction, cascades and rollback.
+  `verify-library-preferences-collections-migration.sh` passes, and the final
+  independent review reports zero P0/P1.
+- Checkpoint: `32659d6 feat: add library preference persistence schema`.
 
 ## Evidence revisited
 
