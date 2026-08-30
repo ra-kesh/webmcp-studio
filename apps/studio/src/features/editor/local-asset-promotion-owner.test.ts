@@ -81,9 +81,13 @@ const journalFor = (
   const hasContent = !["queued", "hashing", "cancelled", "failed"].includes(
     state
   )
-  const hasMapping = ["mapped", "relinking", "complete", "conflict"].includes(
-    state
-  )
+  const hasMapping = [
+    "mapped",
+    "relinking",
+    "marking_used",
+    "complete",
+    "conflict",
+  ].includes(state)
   const mapped = hasMapping
     ? promotion(state === "conflict" ? HASH_B : HASH_A)
     : null
@@ -93,6 +97,7 @@ const journalFor = (
     revision: 1,
     contentSha256: hasContent ? HASH_A : null,
     idempotencyKey: "promotion-key-1",
+    recentUseIdempotencyKey: "recent-use-key-1",
     attempt: state === "queued" || state === "hashing" ? 0 : 1,
     state,
     managedAssetId: mapped?.asset.id ?? null,
@@ -110,10 +115,16 @@ const journalFor = (
     mappingRequestId: mapped ? "request-map-1" : null,
     relinkResultContentSnapshotId: null,
     relinkResultHistorySnapshotId: null,
+    relinkResultOperationVersion: null,
+    relinkResultKind: null,
+    relinkResultDraftContentSnapshotId: null,
     relinkResultDraftSnapshotId: null,
     relinkResultDraftRecordVersion: null,
     relinkCommitId: null,
     relinkUndoable: null,
+    recentUseUsedAt: null,
+    recentUseAssetRevision: null,
+    recentUseRequestId: null,
     errorCode: null,
     errorRequestId: null,
     createdAt: "2026-08-30T00:00:00.000Z",

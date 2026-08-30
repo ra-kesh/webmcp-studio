@@ -10,6 +10,7 @@ import {
   applyQuotationGroupOrganization,
   createTemplateVersion,
   deriveDocumentSnapshotId,
+  assetReferenceKeysForSource,
   documentSchema,
   findSelectedGroupId,
   getChangeSetConflict,
@@ -24,6 +25,7 @@ import {
   QUOTATION_GROUP_ORGANIZATION_MIGRATION_ID,
   quotationRenderPayloadV1Schema,
   quotationTemplates,
+  managedAssetSource,
   templateVersionSchema,
 } from "@webmcp/document"
 import type {
@@ -131,6 +133,26 @@ import {
 } from "./managed-media-repository"
 import { managedAssetIdsInCommands } from "./managed-asset-command-accounting"
 import type { ManagedMediaAsset } from "./managed-media-repository"
+import {
+  LocalAssetPromotionStartGate,
+  startActiveLocalAssetPromotion,
+} from "./active-local-asset-promotion"
+import type {
+  ActiveLocalAssetPromotionProgress,
+  ActiveRelinkResult,
+  DurableRelinkReceipt,
+} from "./active-local-asset-promotion"
+import {
+  checkpointReleasedLocalAssetPromotionConflict,
+  readLocalAssetPromotionJournal,
+} from "./local-asset-promotion-journal"
+import type { LocalAssetPromotionJournal } from "./local-asset-promotion-journal"
+import {
+  hasCurrentRelinkUndo,
+  hasExactManagedProjection,
+  isLiveLocalAssetPromotionVisible,
+  sameReferenceKeys,
+} from "./local-asset-relink-projection"
 import { verifyManagedBrowserImageResource } from "./managed-image-resource"
 import { validateMediaDimensions, validateMediaFile } from "./media-file-policy"
 import {
@@ -433,6 +455,37 @@ type PendingRendererReplacement =
 
 export type StudioSessionMode = "start" | "workspace"
 
+export type LocalAssetPromotionViewState = ActiveLocalAssetPromotionProgress &
+  Readonly<{
+    operationId: string
+    sourceDocumentId: string
+    expectedReferenceKeys: readonly string[]
+    managedAssetId: string | null
+    relinkCommitId: string | null
+  }>
+
+type MountedLocalAssetPromotion = Readonly<{
+  operationId: string
+  localAssetId: string
+  documentId: string
+  session: ActivePersistenceSession
+  sessionGeneration: number
+  critical: boolean
+  blocksPromotionStart: boolean
+  criticalSettlement: Promise<void>
+  cancel: () => boolean
+}>
+
+type MountedLocalAssetPromotionReservation = Readonly<{
+  key: string
+  token: string
+  localAssetId: string
+  documentId: string
+  session: ActivePersistenceSession
+  sessionGeneration: number
+  cancel: () => boolean
+}>
+
 function createNeutralBootstrapDocument(): Document {
   return documentSchema.parse({
     schemaVersion: 2,
@@ -688,6 +741,9 @@ export function useDocumentEditor({
   const [assetVersion, setAssetVersion] = useState(0)
   const [isImportingAsset, setIsImportingAsset] = useState(false)
   const [assetError, setAssetError] = useState<string | null>(null)
+  const [localAssetPromotions, setLocalAssetPromotions] = useState<
+    Partial<Record<string, LocalAssetPromotionViewState>>
+  >({})
   const [pendingImageReplacement, setPendingImageReplacement] =
     useState<PendingRendererReplacement | null>(null)
   const [documentError, setDocumentError] = useState<string | null>(
@@ -801,6 +857,13 @@ export function useDocumentEditor({
   } | null>(null)
   const documentImportRequestGenerationRef = useRef(0)
   const mountedRef = useRef(true)
+  const activeLocalAssetPromotionRef =
+    useRef<MountedLocalAssetPromotion | null>(null)
+  const localAssetPromotionStartGateRef = useRef(
+    new LocalAssetPromotionStartGate()
+  )
+  const localAssetPromotionReservationRef =
+    useRef<MountedLocalAssetPromotionReservation | null>(null)
   const draftRecoveryRef = useRef(draftRecovery)
   draftRecoveryRef.current = draftRecovery
   const clipboardRef = useRef<SemanticFragment | null>(null)
@@ -1292,6 +1355,12 @@ export function useDocumentEditor({
     (kind: SessionTransition["kind"]): SessionTransition | null => {
       if (!mountedRef.current) return null
       if (activeSessionTransitionRef.current) return null
+      if (activeLocalAssetPromotionRef.current?.critical) {
+        setDocumentError(
+          "Wait for the image to finish saving everywhere before opening another document."
+        )
+        return null
+      }
       if (publicationOperationRef.current) {
         setDocumentError(
           "Wait for publication to finish or cancel it before opening another document."
@@ -1301,6 +1370,41 @@ export function useDocumentEditor({
       const transition: SessionTransition = {
         token: sessionTransitionSequenceRef.current + 1,
         kind,
+      }
+      const promotion = activeLocalAssetPromotionRef.current
+      if (promotion) {
+        promotion.cancel()
+        activeLocalAssetPromotionRef.current = null
+        setLocalAssetPromotions((current) => {
+          if (
+            current[promotion.localAssetId]?.operationId !==
+            promotion.operationId
+          ) {
+            return current
+          }
+          const next = { ...current }
+          delete next[promotion.localAssetId]
+          return next
+        })
+      }
+      const reservation = localAssetPromotionReservationRef.current
+      if (reservation) {
+        reservation.cancel()
+        localAssetPromotionStartGateRef.current.release(
+          reservation.key,
+          reservation.token
+        )
+        localAssetPromotionReservationRef.current = null
+        setLocalAssetPromotions((current) => {
+          if (
+            current[reservation.localAssetId]?.operationId !== reservation.token
+          ) {
+            return current
+          }
+          const next = { ...current }
+          delete next[reservation.localAssetId]
+          return next
+        })
       }
       sessionTransitionSequenceRef.current = transition.token
       activeSessionTransitionRef.current = transition
@@ -2632,6 +2736,20 @@ export function useDocumentEditor({
           )
         )
       }
+      const promotion = activeLocalAssetPromotionRef.current
+      if (promotion && !promotion.critical) promotion.cancel()
+      const criticalPromotionSettlement = promotion?.critical
+        ? promotion.criticalSettlement
+        : null
+      const reservation = localAssetPromotionReservationRef.current
+      if (reservation) {
+        reservation.cancel()
+        localAssetPromotionStartGateRef.current.release(
+          reservation.key,
+          reservation.token
+        )
+        localAssetPromotionReservationRef.current = null
+      }
       sessionTransitionSequenceRef.current += 1
       activeSessionTransitionRef.current = null
       const session = activePersistenceSessionRef.current
@@ -2670,6 +2788,9 @@ export function useDocumentEditor({
       sessionGenerationRef.current += 1
       void (async () => {
         try {
+          if (criticalPromotionSettlement) {
+            await criticalPromotionSettlement
+          }
           await session.controller.flush()
         } catch {
           // Teardown cannot surface UI, but the exact lease remains held until
@@ -3177,6 +3298,12 @@ export function useDocumentEditor({
         !allowSeparateDocumentTransition
       ) {
         setDocumentError(DOCUMENT_TRANSITION_DISABLED_REASON)
+        return false
+      }
+      if (activeLocalAssetPromotionRef.current?.critical) {
+        setDocumentError(
+          "Wait for the image to finish saving everywhere before editing this document."
+        )
         return false
       }
       const recovery = conflictRecoveryStateRef.current
@@ -4928,6 +5055,886 @@ export function useDocumentEditor({
       reuseLocalAsset(asset, nodeId),
     [reuseLocalAsset]
   )
+
+  const startLocalAssetPromotion = useCallback(
+    async (localAssetId: string) => {
+      if (activeLocalAssetPromotionRef.current?.blocksPromotionStart) {
+        return false
+      }
+      if (!allowMutation()) return false
+      const session = activePersistenceSessionRef.current
+      if (!session || sessionModeRef.current !== "workspace") {
+        setAssetError(
+          "Save this document in Studio before making its images available everywhere."
+        )
+        return false
+      }
+      if (!captureSettledDraft()) return false
+      const generation = sessionGenerationRef.current
+      const sourceDocument = historyRef.current.document
+      const sourceHistorySnapshotId = historyRef.current.snapshotId
+      const sourceOperationVersion = historyRef.current.operationVersion
+      const source = localAssetSource(localAssetId)
+      const sourceReferenceKeys = assetReferenceKeysForSource(
+        sourceDocument,
+        source
+      )
+      const reservationKey = `${generation}\0${sourceDocument.id}\0${localAssetId}`
+      const reservationToken =
+        localAssetPromotionStartGateRef.current.reserve(reservationKey)
+      if (!reservationToken) return false
+      const reservationSignal = localAssetPromotionStartGateRef.current.signal(
+        reservationKey,
+        reservationToken
+      )
+      if (!reservationSignal) return false
+      localAssetPromotionReservationRef.current = {
+        key: reservationKey,
+        token: reservationToken,
+        localAssetId,
+        documentId: sourceDocument.id,
+        session,
+        sessionGeneration: generation,
+        cancel: () =>
+          localAssetPromotionStartGateRef.current.cancel(
+            reservationKey,
+            reservationToken
+          ),
+      }
+      const ownsReservation = () =>
+        !reservationSignal.aborted &&
+        mountedRef.current &&
+        localAssetPromotionReservationRef.current?.token === reservationToken &&
+        localAssetPromotionStartGateRef.current.owns(
+          reservationKey,
+          reservationToken
+        ) &&
+        activePersistenceSessionRef.current === session &&
+        sessionGenerationRef.current === generation &&
+        historyRef.current.document.id === sourceDocument.id
+      const reservationStillInstalled = () =>
+        localAssetPromotionReservationRef.current?.token === reservationToken
+      const reservationDisposition = { preserve: false }
+      const failReservation = (
+        message: string,
+        retryable = true,
+        options: {
+          phase?: LocalAssetPromotionViewState["phase"]
+          expectedReferenceKeys?: readonly string[]
+          managedAssetId?: string | null
+        } = {}
+      ) => {
+        if (!ownsReservation()) return false
+        reservationDisposition.preserve = true
+        setAssetError(message)
+        setLocalAssetPromotions((current) => ({
+          ...current,
+          [localAssetId]: {
+            operationId: reservationToken,
+            localAssetId,
+            sourceDocumentId: sourceDocument.id,
+            expectedReferenceKeys:
+              options.expectedReferenceKeys ?? sourceReferenceKeys,
+            managedAssetId: options.managedAssetId ?? null,
+            relinkCommitId: null,
+            phase: options.phase ?? "failed",
+            loaded: null,
+            total: null,
+            message,
+            retryable,
+            undoable: null,
+          },
+        }))
+        return false
+      }
+      setLocalAssetPromotions((current) => ({
+        ...current,
+        [localAssetId]: {
+          operationId: reservationToken,
+          localAssetId,
+          sourceDocumentId: sourceDocument.id,
+          expectedReferenceKeys: sourceReferenceKeys,
+          managedAssetId: null,
+          relinkCommitId: null,
+          phase: "preparing",
+          loaded: null,
+          total: null,
+          message: null,
+          retryable: false,
+          undoable: null,
+        },
+      }))
+      try {
+        const previous = await readLocalAssetPromotionJournal(
+          localAssetId,
+          reservationSignal
+        )
+        if (!ownsReservation()) return false
+        if (previous.status === "corrupt") {
+          return failReservation(
+            "Saved image backup progress is unreadable. Keep the local image and contact support before retrying.",
+            false
+          )
+        }
+        const previousJournal =
+          previous.status === "ready" ? previous.journal : null
+        const hasUnpersistedRelinkResult =
+          previousJournal?.state === "relinking" &&
+          previousJournal.relinkResultKind !== null &&
+          previousJournal.relinkResultDraftSnapshotId === null &&
+          previousJournal.recentUseUsedAt === null
+        const deferRelinkRetryUntilCritical =
+          hasUnpersistedRelinkResult &&
+          session.controller.state.status === "failed"
+        const initialFlush = deferRelinkRetryUntilCritical
+          ? {
+              ok: true as const,
+              receipt: {
+                documentId: previousJournal.sourceDocumentId,
+                recordVersion: previousJournal.sourceDraftRecordVersion,
+                contentSnapshotId: previousJournal.sourceContentSnapshotId,
+                draftSnapshotId: previousJournal.sourceDraftSnapshotId,
+                savedAt: previousJournal.updatedAt,
+              },
+            }
+          : await session.controller.flushWithReceipt()
+        if (!ownsReservation()) return false
+        if (!initialFlush.ok) {
+          return failReservation(
+            "Finish saving this document, then retry the image backup."
+          )
+        }
+        const verifiedJournal =
+          previousJournal &&
+          (previousJournal.state === "mapped" ||
+            previousJournal.state === "relinking" ||
+            previousJournal.state === "marking_used" ||
+            previousJournal.state === "complete") &&
+          previousJournal.managedAssetId !== null
+            ? previousJournal
+            : null
+        const verifiedManagedAssetId = verifiedJournal?.managedAssetId ?? null
+        const hasVerifiedMapping = verifiedManagedAssetId !== null
+        const canRecoverTargetOnly =
+          verifiedJournal !== null &&
+          verifiedManagedAssetId !== null &&
+          hasExactManagedProjection(
+            sourceDocument,
+            verifiedManagedAssetId,
+            verifiedJournal.expectedReferenceKeys
+          )
+        const expectedReferenceKeys = sourceReferenceKeys.length
+          ? sourceReferenceKeys
+          : canRecoverTargetOnly
+            ? verifiedJournal.expectedReferenceKeys
+            : verifiedJournal &&
+                verifiedJournal.sourceDocumentId === sourceDocument.id
+              ? verifiedJournal.expectedReferenceKeys
+              : []
+        if (!expectedReferenceKeys.length) {
+          return failReservation(
+            "This image is not used by the open document.",
+            false
+          )
+        }
+        const localRecord = await getLocalAssetRecord(
+          localAssetId,
+          reservationSignal
+        )
+        if (!ownsReservation()) return false
+        if (!localRecord && !hasVerifiedMapping) {
+          return failReservation(
+            "The image bytes are missing on this device. Locate a replacement first.",
+            false
+          )
+        }
+        const sourceLocalAssetRevision =
+          localRecord?.revision ??
+          previousJournal?.sourceLocalAssetRevision ??
+          null
+        if (sourceLocalAssetRevision === null) {
+          return failReservation(
+            "Studio could not verify this device-only image.",
+            false
+          )
+        }
+        const sourceContentSnapshotId =
+          await deriveDocumentSnapshotId(sourceDocument)
+        if (!ownsReservation()) return false
+        if (
+          !mountedRef.current ||
+          activePersistenceSessionRef.current !== session ||
+          sessionGenerationRef.current !== generation ||
+          historyRef.current.document !== sourceDocument ||
+          historyRef.current.snapshotId !== sourceHistorySnapshotId ||
+          historyRef.current.operationVersion !== sourceOperationVersion ||
+          session.controller.recordVersion !==
+            initialFlush.receipt.recordVersion ||
+          session.controller.draftSnapshotId !==
+            initialFlush.receipt.draftSnapshotId ||
+          (!deferRelinkRetryUntilCritical &&
+            session.controller.contentSnapshotId !== sourceContentSnapshotId)
+        ) {
+          return failReservation(
+            "The document changed while Studio prepared the image. Retry from its current version."
+          )
+        }
+
+        if (
+          verifiedJournal &&
+          verifiedJournal.sourceDocumentId === sourceDocument.id &&
+          sourceReferenceKeys.length === 0 &&
+          !canRecoverTargetOnly
+        ) {
+          await checkpointReleasedLocalAssetPromotionConflict(
+            {
+              localAssetId,
+              expectedRevision: verifiedJournal.revision,
+            },
+            reservationSignal
+          )
+          if (!ownsReservation()) return false
+          return failReservation(
+            "Backed up, relink not applied. The managed image references no longer match this document.",
+            false,
+            {
+              phase: "conflict",
+              expectedReferenceKeys,
+              managedAssetId: verifiedManagedAssetId,
+            }
+          )
+        }
+
+        const checkpointedRelinkResult =
+          previousJournal?.state === "relinking" &&
+          previousJournal.relinkResultKind !== null &&
+          previousJournal.relinkResultDraftSnapshotId === null &&
+          previousJournal.recentUseUsedAt === null
+        const originalCommitInPast = Boolean(
+          previousJournal?.relinkCommitId &&
+          historyRef.current.past.some(
+            (entry) => entry.id === previousJournal.relinkCommitId
+          )
+        )
+        const currentMatchesCheckpointedResult = Boolean(
+          checkpointedRelinkResult &&
+          previousJournal.relinkResultContentSnapshotId ===
+            sourceContentSnapshotId &&
+          previousJournal.relinkResultHistorySnapshotId ===
+            sourceHistorySnapshotId &&
+          previousJournal.relinkResultOperationVersion ===
+            sourceOperationVersion &&
+          originalCommitInPast
+        )
+        const exactCurrentSource = sameReferenceKeys(
+          sourceReferenceKeys,
+          expectedReferenceKeys
+        )
+        const supersedeUnpersistedRelinkRevision =
+          checkpointedRelinkResult &&
+          previousJournal.sourceDocumentId === sourceDocument.id &&
+          (exactCurrentSource ||
+            (canRecoverTargetOnly && !currentMatchesCheckpointedResult))
+            ? previousJournal.revision
+            : undefined
+        const resumeCheckpointedTarget =
+          canRecoverTargetOnly &&
+          supersedeUnpersistedRelinkRevision === undefined &&
+          ((verifiedJournal.state === "relinking" &&
+            verifiedJournal.relinkResultKind !== null) ||
+            verifiedJournal.state === "marking_used" ||
+            verifiedJournal.state === "complete")
+        const resumeJournal = resumeCheckpointedTarget ? verifiedJournal : null
+
+        const sameAnchor =
+          previousJournal !== null &&
+          previousJournal.sourceDocumentId === sourceDocument.id &&
+          previousJournal.sourceContentSnapshotId === sourceContentSnapshotId &&
+          previousJournal.sourceHistorySnapshotId === sourceHistorySnapshotId &&
+          previousJournal.sourceOperationVersion === sourceOperationVersion &&
+          previousJournal.sourceDraftRecordVersion ===
+            initialFlush.receipt.recordVersion &&
+          previousJournal.sourceDraftSnapshotId ===
+            initialFlush.receipt.draftSnapshotId &&
+          previousJournal.sourceLocalAssetRevision ===
+            sourceLocalAssetRevision &&
+          sameReferenceKeys(
+            previousJournal.expectedReferenceKeys,
+            expectedReferenceKeys
+          )
+        const supersedeCompletedRevision =
+          previousJournal && !sameAnchor && previousJournal.state === "complete"
+            ? previousJournal.revision
+            : undefined
+        const supersedeUnrelinkedRevision =
+          previousJournal &&
+          !sameAnchor &&
+          (previousJournal.state === "mapped" ||
+            (previousJournal.state === "relinking" &&
+              previousJournal.relinkResultKind === null))
+            ? previousJournal.revision
+            : undefined
+
+        let promotionManagedAssetId = verifiedManagedAssetId
+        let mountedOperationId: string | null = null
+        let criticalSettlementResolved = false
+        let resolveCriticalSettlement!: () => void
+        const criticalSettlement = new Promise<void>((resolve) => {
+          resolveCriticalSettlement = resolve
+        })
+        const finishCriticalSettlement = () => {
+          if (criticalSettlementResolved) return
+          criticalSettlementResolved = true
+          resolveCriticalSettlement()
+        }
+        const operation = startActiveLocalAssetPromotion(
+          {
+            localAssetId,
+            sourceDocumentId: resumeJournal
+              ? resumeJournal.sourceDocumentId
+              : sourceDocument.id,
+            sourceContentSnapshotId: resumeJournal
+              ? resumeJournal.sourceContentSnapshotId
+              : sourceContentSnapshotId,
+            sourceHistorySnapshotId: resumeJournal
+              ? resumeJournal.sourceHistorySnapshotId
+              : sourceHistorySnapshotId,
+            sourceOperationVersion: resumeJournal
+              ? resumeJournal.sourceOperationVersion
+              : sourceOperationVersion,
+            sourceDraftRecordVersion: resumeJournal
+              ? resumeJournal.sourceDraftRecordVersion
+              : initialFlush.receipt.recordVersion,
+            sourceDraftSnapshotId: resumeJournal
+              ? resumeJournal.sourceDraftSnapshotId
+              : initialFlush.receipt.draftSnapshotId,
+            sourceLocalAssetRevision: resumeJournal
+              ? resumeJournal.sourceLocalAssetRevision
+              : sourceLocalAssetRevision,
+            expectedReferenceKeys: resumeJournal
+              ? resumeJournal.expectedReferenceKeys
+              : expectedReferenceKeys,
+            ...(supersedeCompletedRevision === undefined
+              ? {}
+              : { supersedeCompletedRevision }),
+            ...(supersedeUnrelinkedRevision === undefined
+              ? {}
+              : { supersedeUnrelinkedRevision }),
+            ...(supersedeUnpersistedRelinkRevision === undefined
+              ? {}
+              : { supersedeUnpersistedRelinkRevision }),
+          },
+          {
+            onProgress: (progress) => {
+              const active = activeLocalAssetPromotionRef.current
+              if (
+                !mountedRef.current ||
+                !active ||
+                active.operationId !== mountedOperationId ||
+                active.localAssetId !== localAssetId ||
+                active.session !== session ||
+                active.sessionGeneration !== generation ||
+                active.documentId !== sourceDocument.id ||
+                activePersistenceSessionRef.current !== session ||
+                sessionGenerationRef.current !== generation ||
+                historyRef.current.document.id !== sourceDocument.id
+              )
+                return
+              if (progress.phase === "saving") {
+                activeLocalAssetPromotionRef.current = {
+                  ...active,
+                  critical: true,
+                  blocksPromotionStart: true,
+                }
+              } else if (progress.phase === "updating_recent") {
+                finishCriticalSettlement()
+                activeLocalAssetPromotionRef.current = {
+                  ...active,
+                  critical: false,
+                  blocksPromotionStart: false,
+                }
+              }
+              setLocalAssetPromotions((current) => ({
+                ...current,
+                [localAssetId]: {
+                  ...progress,
+                  operationId: active.operationId,
+                  sourceDocumentId: sourceDocument.id,
+                  expectedReferenceKeys,
+                  managedAssetId: promotionManagedAssetId,
+                  relinkCommitId: null,
+                },
+              }))
+            },
+            dependencies: {
+              mayPublish: (operationId) => {
+                const active = activeLocalAssetPromotionRef.current
+                return (
+                  mountedRef.current &&
+                  active?.operationId === operationId &&
+                  active.session === session &&
+                  active.sessionGeneration === generation &&
+                  active.documentId === sourceDocument.id &&
+                  activePersistenceSessionRef.current === session &&
+                  sessionGenerationRef.current === generation &&
+                  historyRef.current.document.id === sourceDocument.id
+                )
+              },
+              applyOrRecognizeRelink: async (
+                journal,
+                signal,
+                enterCritical,
+                reassertOwned
+              ): Promise<ActiveRelinkResult | null> => {
+                promotionManagedAssetId = journal.managedAssetId
+                const relinkContextIsCurrent = () =>
+                  mountedRef.current &&
+                  activePersistenceSessionRef.current === session &&
+                  sessionGenerationRef.current === generation &&
+                  sessionModeRef.current === "workspace" &&
+                  !activeSessionTransitionRef.current &&
+                  conflictRecoveryStateRef.current.status === "inactive" &&
+                  !draftRecoveryRef.current &&
+                  !imageCropSessionRef.current &&
+                  !pendingChangeSetRef.current &&
+                  !quotationRefreshJournalRef.current.pending &&
+                  session.controller.recordVersion ===
+                    journal.sourceDraftRecordVersion &&
+                  session.controller.draftSnapshotId ===
+                    journal.sourceDraftSnapshotId
+                signal.throwIfAborted()
+                const currentLocal = await getLocalAssetRecord(
+                  localAssetId,
+                  signal
+                )
+                signal.throwIfAborted()
+                if (
+                  !relinkContextIsCurrent() ||
+                  (currentLocal &&
+                    currentLocal.revision !== journal.sourceLocalAssetRevision)
+                ) {
+                  return null
+                }
+                const currentHistory = historyRef.current
+                const currentContentSnapshotId = await deriveDocumentSnapshotId(
+                  currentHistory.document
+                )
+                signal.throwIfAborted()
+                if (
+                  currentContentSnapshotId !==
+                    journal.sourceContentSnapshotId ||
+                  currentHistory.snapshotId !==
+                    journal.sourceHistorySnapshotId ||
+                  currentHistory.operationVersion !==
+                    journal.sourceOperationVersion
+                ) {
+                  return null
+                }
+                await reassertOwned()
+                signal.throwIfAborted()
+                if (
+                  !relinkContextIsCurrent() ||
+                  historyRef.current !== currentHistory
+                ) {
+                  return null
+                }
+                const sourceKeys = assetReferenceKeysForSource(
+                  currentHistory.document,
+                  source
+                )
+                if (!sourceKeys.length) {
+                  if (
+                    !journal.managedAssetId ||
+                    !hasExactManagedProjection(
+                      currentHistory.document,
+                      journal.managedAssetId,
+                      journal.expectedReferenceKeys
+                    )
+                  ) {
+                    return null
+                  }
+                  enterCritical(false)
+                  const active = activeLocalAssetPromotionRef.current
+                  if (active) {
+                    activeLocalAssetPromotionRef.current = {
+                      ...active,
+                      critical: true,
+                      blocksPromotionStart: true,
+                    }
+                  }
+                  return {
+                    kind: "already_applied",
+                    contentSnapshotId: currentContentSnapshotId,
+                    historySnapshotId: currentHistory.snapshotId,
+                    operationVersion: currentHistory.operationVersion,
+                    commitId: null,
+                    undoable: false,
+                  }
+                }
+                if (
+                  !journal.managedAssetId ||
+                  !sameReferenceKeys(sourceKeys, journal.expectedReferenceKeys)
+                ) {
+                  return null
+                }
+                signal.throwIfAborted()
+                const result = commitCommandsWithResult(
+                  currentHistory,
+                  [
+                    commandFromDraft({
+                      type: "relink_asset_references",
+                      from: source,
+                      toAssetId: journal.managedAssetId,
+                      toSource: managedAssetSource(journal.managedAssetId),
+                      expectedReferenceKeys: journal.expectedReferenceKeys,
+                    }),
+                  ],
+                  { label: "Make image available everywhere" }
+                )
+                if (!result) return null
+                historyRef.current = result.history
+                setHistory(result.history)
+                pruneTemplateSourceContexts(result.history)
+                notifyHistoryCommit(result.commit)
+                captureSettledDraft()
+                enterCritical(result.commit.undoable)
+                const active = activeLocalAssetPromotionRef.current
+                if (active) {
+                  activeLocalAssetPromotionRef.current = {
+                    ...active,
+                    critical: true,
+                    blocksPromotionStart: true,
+                  }
+                }
+                const resultContentSnapshotId = await deriveDocumentSnapshotId(
+                  result.history.document
+                )
+                if (
+                  !hasExactManagedProjection(
+                    result.history.document,
+                    journal.managedAssetId,
+                    journal.expectedReferenceKeys
+                  )
+                ) {
+                  throw new Error(
+                    "The relink result did not retain the exact image reference set."
+                  )
+                }
+                return {
+                  kind: "committed",
+                  contentSnapshotId: resultContentSnapshotId,
+                  historySnapshotId: result.history.snapshotId,
+                  operationVersion: result.history.operationVersion,
+                  commitId: result.commit.id,
+                  undoable: result.commit.undoable,
+                }
+              },
+              flushRelink: async (
+                journal: LocalAssetPromotionJournal,
+                relink: ActiveRelinkResult
+              ): Promise<DurableRelinkReceipt | null> => {
+                if (
+                  session.controller.documentId !== journal.sourceDocumentId ||
+                  historyRef.current.document.id !== journal.sourceDocumentId ||
+                  historyRef.current.snapshotId !== relink.historySnapshotId ||
+                  historyRef.current.operationVersion !==
+                    relink.operationVersion
+                ) {
+                  return null
+                }
+                if (!capturePersistenceSession(session)) return null
+                if (session.controller.state.status === "failed") {
+                  await session.controller.retry()
+                }
+                const flushed = await session.controller.flushWithReceipt()
+                if (!flushed.ok) return null
+                const readBack = await getDraftRepository().get(
+                  flushed.receipt.documentId
+                )
+                if (
+                  !readBack.ok ||
+                  readBack.status !== "found" ||
+                  readBack.record.summary.recordVersion !==
+                    flushed.receipt.recordVersion ||
+                  readBack.record.summary.documentId !==
+                    flushed.receipt.documentId ||
+                  readBack.record.summary.contentSnapshotId !==
+                    flushed.receipt.contentSnapshotId ||
+                  readBack.record.summary.draftSnapshotId !==
+                    flushed.receipt.draftSnapshotId ||
+                  readBack.record.summary.savedAt !== flushed.receipt.savedAt ||
+                  !hasExactManagedProjection(
+                    readBack.record.envelope.document,
+                    journal.managedAssetId!,
+                    journal.expectedReferenceKeys
+                  ) ||
+                  assetReferenceKeysForSource(
+                    readBack.record.envelope.document,
+                    source
+                  ).length
+                ) {
+                  return null
+                }
+                const storedContentSnapshotId = await deriveDocumentSnapshotId(
+                  readBack.record.envelope.document
+                )
+                if (
+                  storedContentSnapshotId !== flushed.receipt.contentSnapshotId
+                ) {
+                  return null
+                }
+                return {
+                  documentId: flushed.receipt.documentId,
+                  contentSnapshotId: flushed.receipt.contentSnapshotId,
+                  draftSnapshotId: flushed.receipt.draftSnapshotId,
+                  recordVersion: flushed.receipt.recordVersion,
+                  savedAt: flushed.receipt.savedAt,
+                }
+              },
+              markManagedUsed: (assetId, idempotencyKey) =>
+                markManagedMediaUsed(assetId, { idempotencyKey }),
+              onDurableRelink: finishCriticalSettlement,
+            },
+          }
+        )
+        mountedOperationId = operation.operationId
+        activeLocalAssetPromotionRef.current = {
+          operationId: operation.operationId,
+          localAssetId,
+          documentId: sourceDocument.id,
+          session,
+          sessionGeneration: generation,
+          critical: false,
+          blocksPromotionStart: true,
+          criticalSettlement,
+          cancel: operation.cancel,
+        }
+        localAssetPromotionStartGateRef.current.release(
+          reservationKey,
+          reservationToken
+        )
+        setLocalAssetPromotions((current) => ({
+          ...current,
+          [localAssetId]: {
+            operationId: operation.operationId,
+            localAssetId,
+            sourceDocumentId: sourceDocument.id,
+            expectedReferenceKeys,
+            managedAssetId: promotionManagedAssetId,
+            relinkCommitId: null,
+            phase: "preparing",
+            loaded: null,
+            total: null,
+            message: null,
+            retryable: false,
+            undoable: null,
+          },
+        }))
+        void operation.promise.then(
+          (result) => {
+            finishCriticalSettlement()
+            const active = activeLocalAssetPromotionRef.current
+            const ownsPresentation =
+              mountedRef.current &&
+              active?.operationId === operation.operationId &&
+              active.session === session &&
+              active.sessionGeneration === generation &&
+              active.documentId === sourceDocument.id &&
+              activePersistenceSessionRef.current === session &&
+              sessionGenerationRef.current === generation &&
+              historyRef.current.document.id === sourceDocument.id
+            if (active?.operationId === operation.operationId) {
+              activeLocalAssetPromotionRef.current = null
+            }
+            if (!ownsPresentation) return
+            const phase =
+              result.status === "complete"
+                ? "complete"
+                : result.status === "backed_up"
+                  ? "backed_up"
+                  : result.status
+            setLocalAssetPromotions((current) => ({
+              ...current,
+              [localAssetId]: {
+                operationId: operation.operationId,
+                localAssetId,
+                sourceDocumentId: sourceDocument.id,
+                expectedReferenceKeys,
+                managedAssetId:
+                  result.journal?.managedAssetId ?? promotionManagedAssetId,
+                relinkCommitId: result.journal?.relinkCommitId ?? null,
+                phase,
+                loaded: null,
+                total: null,
+                message: result.status === "complete" ? null : result.message,
+                retryable:
+                  result.status === "complete" ? false : result.retryable,
+                undoable:
+                  result.status === "complete"
+                    ? result.journal.relinkUndoable
+                    : (result.journal?.relinkUndoable ?? null),
+              },
+            }))
+          },
+          (error: unknown) => {
+            finishCriticalSettlement()
+            const active = activeLocalAssetPromotionRef.current
+            const ownsPresentation =
+              mountedRef.current &&
+              active?.operationId === operation.operationId &&
+              active.session === session &&
+              active.sessionGeneration === generation &&
+              active.documentId === sourceDocument.id &&
+              activePersistenceSessionRef.current === session &&
+              sessionGenerationRef.current === generation &&
+              historyRef.current.document.id === sourceDocument.id
+            if (active?.operationId === operation.operationId) {
+              activeLocalAssetPromotionRef.current = null
+            }
+            if (!ownsPresentation) return
+            setLocalAssetPromotions((current) => ({
+              ...current,
+              [localAssetId]: {
+                operationId: operation.operationId,
+                localAssetId,
+                sourceDocumentId: sourceDocument.id,
+                expectedReferenceKeys,
+                managedAssetId: promotionManagedAssetId,
+                relinkCommitId: null,
+                phase: "failed",
+                loaded: null,
+                total: null,
+                message:
+                  error instanceof Error
+                    ? error.message
+                    : "Studio could not finish making this image available everywhere.",
+                retryable: true,
+                undoable: null,
+              },
+            }))
+          }
+        )
+        return true
+      } catch (error) {
+        const code =
+          error && typeof error === "object" && "code" in error
+            ? String(error.code)
+            : null
+        const retryable =
+          code !== "local_asset_alias_conflict" &&
+          code !== "local_promotion_conflict"
+        return failReservation(
+          error instanceof Error && error.message
+            ? error.message
+            : "Studio could not prepare this image for shared use.",
+          retryable
+        )
+      } finally {
+        const wasCancelled = reservationSignal.aborted
+        const stillMountedForReservation =
+          mountedRef.current &&
+          reservationStillInstalled() &&
+          activePersistenceSessionRef.current === session &&
+          sessionGenerationRef.current === generation &&
+          historyRef.current.document.id === sourceDocument.id
+        if (reservationStillInstalled()) {
+          localAssetPromotionReservationRef.current = null
+        }
+        localAssetPromotionStartGateRef.current.release(
+          reservationKey,
+          reservationToken
+        )
+        if (wasCancelled && stillMountedForReservation) {
+          setLocalAssetPromotions((current) => {
+            const promotion = current[localAssetId]
+            if (promotion?.operationId !== reservationToken) return current
+            return {
+              ...current,
+              [localAssetId]: {
+                ...promotion,
+                phase: "cancelled",
+                message:
+                  "Making this image available everywhere was cancelled.",
+                retryable: true,
+              },
+            }
+          })
+        } else if (!reservationDisposition.preserve)
+          setLocalAssetPromotions((current) => {
+            if (current[localAssetId]?.operationId !== reservationToken) {
+              return current
+            }
+            const next = { ...current }
+            delete next[localAssetId]
+            return next
+          })
+      }
+    },
+    [
+      allowMutation,
+      capturePersistenceSession,
+      captureSettledDraft,
+      getDraftRepository,
+      notifyHistoryCommit,
+      pruneTemplateSourceContexts,
+    ]
+  )
+
+  const cancelLocalAssetPromotion = useCallback((localAssetId: string) => {
+    const active = activeLocalAssetPromotionRef.current
+    if (!active || active.localAssetId !== localAssetId) {
+      const reservation = localAssetPromotionReservationRef.current
+      if (!reservation || reservation.localAssetId !== localAssetId) {
+        return false
+      }
+      const accepted = reservation.cancel()
+      if (!accepted) return false
+      setLocalAssetPromotions((current) => {
+        const promotion = current[localAssetId]
+        if (!promotion || promotion.operationId !== reservation.token) {
+          return current
+        }
+        return {
+          ...current,
+          [localAssetId]: {
+            ...promotion,
+            phase: "cancelling",
+            message: "Stopping…",
+            retryable: false,
+          },
+        }
+      })
+      return true
+    }
+    const accepted = active.cancel()
+    if (
+      !accepted ||
+      !mountedRef.current ||
+      activeLocalAssetPromotionRef.current?.operationId !==
+        active.operationId ||
+      activePersistenceSessionRef.current !== active.session ||
+      sessionGenerationRef.current !== active.sessionGeneration ||
+      historyRef.current.document.id !== active.documentId
+    ) {
+      return accepted
+    }
+    setLocalAssetPromotions((current) => {
+      const promotion = current[localAssetId]
+      if (!promotion || promotion.operationId !== active.operationId) {
+        return current
+      }
+      return {
+        ...current,
+        [localAssetId]: {
+          ...promotion,
+          phase: "cancelling",
+          message: "Stopping…",
+          retryable: false,
+        },
+      }
+    })
+    return true
+  }, [])
 
   const imageReplacementBlock = useCallback(
     (nodeId: string) =>
@@ -6918,6 +7925,31 @@ export function useDocumentEditor({
     localSaveState,
   ])
 
+  const projectedLocalAssetPromotions = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(localAssetPromotions).flatMap(([assetId, promotion]) =>
+          promotion &&
+          isLiveLocalAssetPromotionVisible(history.document, promotion)
+            ? [
+                [
+                  assetId,
+                  {
+                    ...promotion,
+                    undoable: hasCurrentRelinkUndo(
+                      promotion.phase,
+                      promotion.relinkCommitId,
+                      history.past.map((entry) => entry.id)
+                    ),
+                  },
+                ] as const,
+              ]
+            : []
+        )
+      ),
+    [history.document, history.past, localAssetPromotions]
+  )
+
   return {
     sessionMode,
     routeSessionStatus,
@@ -6960,6 +7992,7 @@ export function useDocumentEditor({
     canPaste: clipboardCount > 0,
     isImportingAsset,
     assetError,
+    localAssetPromotions: projectedLocalAssetPromotions,
     documentError,
     templateActionError,
     draftRecovery,
@@ -7024,6 +8057,8 @@ export function useDocumentEditor({
     replaceImageFile,
     replaceImageWithLibraryAsset,
     replaceImageWithLocalAsset,
+    startLocalAssetPromotion,
+    cancelLocalAssetPromotion,
     replaceImageWithManagedMediaAsset,
     reportImageReplacementRendererState,
     imageReplacementBlock,

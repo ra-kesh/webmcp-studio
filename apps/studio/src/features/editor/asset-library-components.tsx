@@ -32,6 +32,7 @@ import { Skeleton } from "@webmcp/ui/components/skeleton"
 import type { ManagedMediaAsset } from "./managed-media-repository"
 import { loadLocalAsset } from "./local-asset-store"
 import type { LocalAssetSummary } from "./local-asset-store"
+import type { LocalAssetPromotionViewState } from "./use-document-editor"
 
 export type AssetLibraryCollection = "recent" | "uploads" | "library"
 export type UploadPhase =
@@ -259,6 +260,134 @@ export function AssetCard({
   )
 }
 
+export function LocalAssetPromotionControl({
+  promotion,
+  referenceCount,
+  mutationDisabled,
+  blockedByOtherPromotion = false,
+  onPromote,
+  onCancelPromotion,
+}: {
+  promotion?: LocalAssetPromotionViewState
+  referenceCount: number
+  mutationDisabled: boolean
+  blockedByOtherPromotion?: boolean
+  onPromote: () => void
+  onCancelPromotion?: () => void
+}) {
+  const cancellable =
+    promotion &&
+    [
+      "preparing",
+      "queued",
+      "hashing",
+      "reconciling",
+      "uploading",
+      "relinking",
+    ].includes(promotion.phase)
+  const finishing =
+    promotion?.phase === "saving" || promotion?.phase === "updating_recent"
+  const stopping = promotion?.phase === "cancelling"
+  const label = !promotion
+    ? blockedByOtherPromotion
+      ? "Another image is being made available."
+      : `${referenceCount} ${referenceCount === 1 ? "use" : "uses"} in this document`
+    : promotion.phase === "preparing" || promotion.phase === "queued"
+      ? "Preparing image…"
+      : promotion.phase === "hashing"
+        ? "Verifying image bytes…"
+        : promotion.phase === "reconciling"
+          ? (promotion.message ?? "Checking workspace copy…")
+          : promotion.phase === "uploading"
+            ? promotion.total && promotion.loaded !== null
+              ? `Uploading ${Math.round((promotion.loaded / promotion.total) * 100)}%…`
+              : "Uploading…"
+            : promotion.phase === "relinking"
+              ? "Relinking this document…"
+              : promotion.phase === "saving"
+                ? "Saving everywhere…"
+                : promotion.phase === "updating_recent"
+                  ? "Updating Recent…"
+                  : promotion.phase === "complete"
+                    ? promotion.undoable
+                      ? "Available everywhere. Undo restores the device-only reference."
+                      : "Available everywhere. No new Undo step is available."
+                    : promotion.phase === "backed_up"
+                      ? "Backed up, relink not applied"
+                      : promotion.message
+                        ? promotion.message
+                        : promotion.phase === "cancelling"
+                          ? "Stopping…"
+                          : promotion.phase === "cancelled"
+                            ? "Backup cancelled"
+                            : promotion.phase === "status_unknown"
+                              ? "Backup status unknown"
+                              : promotion.phase === "conflict"
+                                ? "This image conflicts with its workspace copy"
+                                : "Backup needs attention"
+
+  return (
+    <div
+      aria-busy={Boolean(cancellable || finishing || stopping)}
+      className="grid gap-2 rounded-lg border bg-muted/30 p-2.5"
+    >
+      <div
+        className="text-xs leading-5 text-muted-foreground"
+        role={promotion?.phase === "conflict" ? "alert" : "status"}
+        aria-live="polite"
+      >
+        {label}
+      </div>
+      {!promotion ? (
+        <Button
+          className="h-11 w-full"
+          disabled={mutationDisabled || blockedByOtherPromotion}
+          size="sm"
+          type="button"
+          variant="outline"
+          onClick={onPromote}
+        >
+          <UploadIcon />
+          Make available everywhere
+        </Button>
+      ) : cancellable && onCancelPromotion ? (
+        <Button
+          className="h-11 w-full"
+          size="sm"
+          type="button"
+          variant="outline"
+          onClick={onCancelPromotion}
+        >
+          <XIcon />
+          Cancel
+        </Button>
+      ) : stopping ? (
+        <Button
+          className="h-11 w-full"
+          disabled
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          <LoaderCircleIcon className="animate-spin" />
+          Stopping…
+        </Button>
+      ) : promotion.retryable ? (
+        <Button
+          className="h-11 w-full"
+          size="sm"
+          type="button"
+          variant="outline"
+          onClick={onPromote}
+        >
+          <RefreshCwIcon />
+          {promotion.phase === "backed_up" ? "Retry relink" : "Retry"}
+        </Button>
+      ) : null}
+    </div>
+  )
+}
+
 export function LocalAssetCard({
   asset,
   actionLabel,
@@ -270,7 +399,12 @@ export function LocalAssetCard({
   onPreviewFailure,
   busy,
   mutationDisabled,
+  promotionBlockedByOther,
   onLocateMissing,
+  promotion,
+  referenceCount,
+  onPromote,
+  onCancelPromotion,
 }: {
   asset: LocalAssetSummary
   actionLabel: string
@@ -282,7 +416,12 @@ export function LocalAssetCard({
   onPreviewFailure: (assetKey: string) => void
   busy: boolean
   mutationDisabled: boolean
+  promotionBlockedByOther?: boolean
   onLocateMissing?: () => void
+  promotion?: LocalAssetPromotionViewState
+  referenceCount: number
+  onPromote?: () => void
+  onCancelPromotion?: () => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [visible, setVisible] = useState(false)
@@ -291,7 +430,6 @@ export function LocalAssetCard({
     url: string | null
   }>({ state: "pending", url: null })
   const assetKey = `local:${asset.id}`
-
   useEffect(() => {
     const element = containerRef.current
     if (!element) return
@@ -372,6 +510,18 @@ export function LocalAssetCard({
         >
           Locate replacement
         </Button>
+      ) : null}
+      {(preview.state === "ready" || promotion) &&
+      (referenceCount > 0 || promotion) &&
+      onPromote ? (
+        <LocalAssetPromotionControl
+          blockedByOtherPromotion={promotionBlockedByOther}
+          mutationDisabled={mutationDisabled}
+          promotion={promotion}
+          referenceCount={referenceCount}
+          onCancelPromotion={onCancelPromotion}
+          onPromote={onPromote}
+        />
       ) : null}
     </div>
   )

@@ -34,6 +34,7 @@ export const localAssetPromotionStateSchema = z.enum([
   "status_unknown",
   "mapped",
   "relinking",
+  "marking_used",
   "complete",
   "cancelled",
   "failed",
@@ -47,6 +48,7 @@ export const localAssetPromotionJournalSchema = z
     revision: z.number().int().positive(),
     contentSha256: nullableContentSha256Schema,
     idempotencyKey: mediaIdempotencyKeySchema,
+    recentUseIdempotencyKey: mediaIdempotencyKeySchema,
     attempt: z.number().int().nonnegative(),
     state: localAssetPromotionStateSchema,
     managedAssetId: nullableManagedAssetIdSchema,
@@ -64,10 +66,16 @@ export const localAssetPromotionJournalSchema = z
     mappingRequestId: boundedIdentitySchema.nullable(),
     relinkResultContentSnapshotId: sha256Schema.nullable(),
     relinkResultHistorySnapshotId: boundedIdentitySchema.nullable(),
+    relinkResultOperationVersion: z.number().int().nonnegative().nullable(),
+    relinkResultKind: z.enum(["committed", "already_applied"]).nullable(),
+    relinkResultDraftContentSnapshotId: sha256Schema.nullable(),
     relinkResultDraftSnapshotId: sha256Schema.nullable(),
     relinkResultDraftRecordVersion: z.number().int().positive().nullable(),
     relinkCommitId: boundedIdentitySchema.nullable(),
     relinkUndoable: z.boolean().nullable(),
+    recentUseUsedAt: z.string().datetime().nullable(),
+    recentUseAssetRevision: z.number().int().positive().nullable(),
+    recentUseRequestId: boundedIdentitySchema.nullable(),
     errorCode: z
       .string()
       .min(1)
@@ -116,6 +124,7 @@ export const localAssetPromotionJournalSchema = z
       "conflict",
       "mapped",
       "relinking",
+      "marking_used",
       "complete",
     ]
     if (
@@ -132,6 +141,7 @@ export const localAssetPromotionJournalSchema = z
       "conflict",
       "mapped",
       "relinking",
+      "marking_used",
       "complete",
     ]
     const hasManagedMapping = journal.managedAssetId !== null
@@ -162,7 +172,9 @@ export const localAssetPromotionJournalSchema = z
       })
     }
     if (
-      ["mapped", "relinking", "complete"].includes(journal.state) &&
+      ["mapped", "relinking", "marking_used", "complete"].includes(
+        journal.state
+      ) &&
       journal.contentSha256 !== null &&
       journal.managedContentSha256 !== journal.contentSha256
     ) {
@@ -175,7 +187,8 @@ export const localAssetPromotionJournalSchema = z
     const relinkCommitFields = [
       journal.relinkResultContentSnapshotId,
       journal.relinkResultHistorySnapshotId,
-      journal.relinkCommitId,
+      journal.relinkResultOperationVersion,
+      journal.relinkResultKind,
       journal.relinkUndoable,
     ]
     const hasAnyRelinkCommitField = relinkCommitFields.some(
@@ -187,7 +200,7 @@ export const localAssetPromotionJournalSchema = z
     if (hasAnyRelinkCommitField && !hasEveryRelinkCommitField) {
       context.addIssue({
         code: "custom",
-        path: ["relinkCommitId"],
+        path: ["relinkResultKind"],
         message:
           "A relink commit requires its content, history, and Undo identities.",
       })
@@ -195,6 +208,7 @@ export const localAssetPromotionJournalSchema = z
     if (
       hasEveryRelinkCommitField &&
       journal.state !== "relinking" &&
+      journal.state !== "marking_used" &&
       journal.state !== "complete"
     ) {
       context.addIssue({
@@ -205,9 +219,47 @@ export const localAssetPromotionJournalSchema = z
       })
     }
     if (
-      (journal.relinkResultDraftSnapshotId === null) !==
-      (journal.relinkResultDraftRecordVersion === null)
+      hasEveryRelinkCommitField &&
+      journal.relinkResultKind === "committed" &&
+      journal.relinkCommitId === null
     ) {
+      context.addIssue({
+        code: "custom",
+        path: ["relinkCommitId"],
+        message: "A committed relink requires its history commit identity.",
+      })
+    }
+    if (
+      hasEveryRelinkCommitField &&
+      journal.relinkResultKind === "already_applied" &&
+      (journal.relinkCommitId !== null || journal.relinkUndoable !== false)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["relinkResultKind"],
+        message:
+          "An already-applied relink has no new history commit or Undo promise.",
+      })
+    }
+    if (!hasEveryRelinkCommitField && journal.relinkCommitId !== null) {
+      context.addIssue({
+        code: "custom",
+        path: ["relinkCommitId"],
+        message: "A relink commit identity requires a complete relink result.",
+      })
+    }
+    const durableDraftFields = [
+      journal.relinkResultDraftContentSnapshotId,
+      journal.relinkResultDraftSnapshotId,
+      journal.relinkResultDraftRecordVersion,
+    ]
+    const hasAnyDurableDraftField = durableDraftFields.some(
+      (value) => value !== null
+    )
+    const hasEveryDurableDraftField = durableDraftFields.every(
+      (value) => value !== null
+    )
+    if (hasAnyDurableDraftField && !hasEveryDurableDraftField) {
       context.addIssue({
         code: "custom",
         path: ["relinkResultDraftSnapshotId"],
@@ -215,10 +267,7 @@ export const localAssetPromotionJournalSchema = z
           "A durable relink draft requires both snapshot and record version.",
       })
     }
-    if (
-      journal.relinkResultDraftSnapshotId !== null &&
-      !hasEveryRelinkCommitField
-    ) {
+    if (hasEveryDurableDraftField && !hasEveryRelinkCommitField) {
       context.addIssue({
         code: "custom",
         path: ["relinkResultDraftSnapshotId"],
@@ -226,24 +275,64 @@ export const localAssetPromotionJournalSchema = z
       })
     }
     if (
-      journal.relinkResultDraftSnapshotId !== null &&
+      hasEveryDurableDraftField &&
+      journal.state !== "marking_used" &&
       journal.state !== "complete"
     ) {
       context.addIssue({
         code: "custom",
         path: ["relinkResultDraftSnapshotId"],
         message:
-          "A durable draft receipt belongs only to a completed promotion.",
+          "A durable draft receipt belongs only to Recent accounting or a completed promotion.",
+      })
+    }
+    const recentUseFields = [
+      journal.recentUseUsedAt,
+      journal.recentUseAssetRevision,
+      journal.recentUseRequestId,
+    ]
+    const hasAnyRecentUseField = recentUseFields.some((value) => value !== null)
+    const hasEveryRecentUseField = recentUseFields.every(
+      (value) => value !== null
+    )
+    if (hasAnyRecentUseField && !hasEveryRecentUseField) {
+      context.addIssue({
+        code: "custom",
+        path: ["recentUseUsedAt"],
+        message:
+          "Managed Recent accounting requires one complete server receipt.",
+      })
+    }
+    if (hasEveryRecentUseField && journal.state !== "complete") {
+      context.addIssue({
+        code: "custom",
+        path: ["recentUseUsedAt"],
+        message: "Managed Recent accounting is final only on completion.",
+      })
+    }
+    if (
+      journal.state === "marking_used" &&
+      journal.relinkResultDraftSnapshotId === null
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["state"],
+        message: "Recent accounting requires an exact durable relink receipt.",
       })
     }
     if (
       journal.state === "complete" &&
       (journal.relinkResultContentSnapshotId === null ||
         journal.relinkResultHistorySnapshotId === null ||
+        journal.relinkResultOperationVersion === null ||
+        journal.relinkResultDraftContentSnapshotId === null ||
         journal.relinkResultDraftSnapshotId === null ||
         journal.relinkResultDraftRecordVersion === null ||
-        journal.relinkCommitId === null ||
-        journal.relinkUndoable === null)
+        journal.relinkResultKind === null ||
+        journal.relinkUndoable === null ||
+        journal.recentUseUsedAt === null ||
+        journal.recentUseAssetRevision === null ||
+        journal.recentUseRequestId === null)
     ) {
       context.addIssue({
         code: "custom",
@@ -288,6 +377,7 @@ export type LocalAssetPromotionJournalReadResult =
 export type CreateLocalAssetPromotionJournalInput = Readonly<{
   localAssetId: string
   idempotencyKey: string
+  recentUseIdempotencyKey: string
   sourceDocumentId: string
   sourceContentSnapshotId: string
   sourceHistorySnapshotId: string
@@ -297,6 +387,8 @@ export type CreateLocalAssetPromotionJournalInput = Readonly<{
   sourceLocalAssetRevision: number
   expectedReferenceKeys: readonly string[]
   supersedeCompletedRevision?: number
+  supersedeUnrelinkedRevision?: number
+  supersedeUnpersistedRelinkRevision?: number
   now?: string
 }>
 
@@ -312,7 +404,18 @@ export const localAssetPromotionJournalPatchSchema = z
     mappingRequestId: boundedIdentitySchema.nullable().optional(),
     relinkResultContentSnapshotId: sha256Schema.nullable().optional(),
     relinkResultHistorySnapshotId: boundedIdentitySchema.nullable().optional(),
+    relinkResultOperationVersion: z
+      .number()
+      .int()
+      .nonnegative()
+      .nullable()
+      .optional(),
+    relinkResultKind: z
+      .enum(["committed", "already_applied"])
+      .nullable()
+      .optional(),
     relinkResultDraftSnapshotId: sha256Schema.nullable().optional(),
+    relinkResultDraftContentSnapshotId: sha256Schema.nullable().optional(),
     relinkResultDraftRecordVersion: z
       .number()
       .int()
@@ -321,6 +424,9 @@ export const localAssetPromotionJournalPatchSchema = z
       .optional(),
     relinkCommitId: boundedIdentitySchema.nullable().optional(),
     relinkUndoable: z.boolean().nullable().optional(),
+    recentUseUsedAt: z.string().datetime().nullable().optional(),
+    recentUseAssetRevision: z.number().int().positive().nullable().optional(),
+    recentUseRequestId: boundedIdentitySchema.nullable().optional(),
     errorCode: z
       .string()
       .min(1)
@@ -715,6 +821,7 @@ const matchesCreationAnchor = (
   input: CreateLocalAssetPromotionJournalInput
 ) =>
   journal.idempotencyKey === input.idempotencyKey &&
+  journal.recentUseIdempotencyKey === input.recentUseIdempotencyKey &&
   journal.sourceDocumentId === input.sourceDocumentId &&
   journal.sourceContentSnapshotId === input.sourceContentSnapshotId &&
   journal.sourceHistorySnapshotId === input.sourceHistorySnapshotId &&
@@ -736,6 +843,88 @@ export const createOrResumeLocalAssetPromotionJournal = async (
     (current) => {
       if (current) {
         if (!matchesCreationAnchor(current, input)) {
+          const canReanchorUnrelinked =
+            input.supersedeUnrelinkedRevision === current.revision &&
+            (current.state === "mapped" ||
+              (current.state === "relinking" &&
+                current.relinkResultKind === null)) &&
+            current.relinkResultDraftSnapshotId === null &&
+            current.recentUseUsedAt === null &&
+            current.sourceLocalAssetRevision ===
+              input.sourceLocalAssetRevision &&
+            current.idempotencyKey === input.idempotencyKey &&
+            current.recentUseIdempotencyKey === input.recentUseIdempotencyKey &&
+            current.managedAssetId !== null &&
+            current.managedContentSha256 !== null &&
+            current.managedStatus !== null &&
+            current.managedAssetRevision !== null &&
+            current.mappingRequestId !== null &&
+            current.contentSha256 !== null &&
+            current.managedContentSha256 === current.contentSha256
+          const canReanchorUnpersistedRelink =
+            input.supersedeUnpersistedRelinkRevision === current.revision &&
+            current.state === "relinking" &&
+            current.relinkResultKind !== null &&
+            current.relinkResultDraftContentSnapshotId === null &&
+            current.relinkResultDraftSnapshotId === null &&
+            current.relinkResultDraftRecordVersion === null &&
+            current.recentUseUsedAt === null &&
+            current.recentUseAssetRevision === null &&
+            current.recentUseRequestId === null &&
+            current.sourceLocalAssetRevision ===
+              input.sourceLocalAssetRevision &&
+            current.idempotencyKey === input.idempotencyKey &&
+            current.recentUseIdempotencyKey === input.recentUseIdempotencyKey &&
+            sameStringArray(
+              current.expectedReferenceKeys,
+              input.expectedReferenceKeys
+            ) &&
+            current.managedAssetId !== null &&
+            current.managedContentSha256 !== null &&
+            current.managedStatus !== null &&
+            current.managedAssetRevision !== null &&
+            current.mappingRequestId !== null &&
+            current.contentSha256 !== null &&
+            current.managedContentSha256 === current.contentSha256
+          if (canReanchorUnrelinked || canReanchorUnpersistedRelink) {
+            if (
+              current.lease &&
+              parseTimestamp(current.lease.expiresAt) > parseTimestamp(now)
+            ) {
+              throw new LocalAssetPromotionBusyError()
+            }
+            if (parseTimestamp(now) < parseTimestamp(current.updatedAt)) {
+              throw new LocalAssetPromotionJournalRevisionError()
+            }
+            return {
+              ...current,
+              revision: current.revision + 1,
+              state: "mapped",
+              sourceDocumentId: input.sourceDocumentId,
+              sourceContentSnapshotId: input.sourceContentSnapshotId,
+              sourceHistorySnapshotId: input.sourceHistorySnapshotId,
+              sourceOperationVersion: input.sourceOperationVersion,
+              sourceDraftRecordVersion: input.sourceDraftRecordVersion,
+              sourceDraftSnapshotId: input.sourceDraftSnapshotId,
+              expectedReferenceKeys: [...input.expectedReferenceKeys],
+              relinkResultContentSnapshotId: null,
+              relinkResultHistorySnapshotId: null,
+              relinkResultOperationVersion: null,
+              relinkResultKind: null,
+              relinkResultDraftContentSnapshotId: null,
+              relinkResultDraftSnapshotId: null,
+              relinkResultDraftRecordVersion: null,
+              relinkCommitId: null,
+              relinkUndoable: null,
+              recentUseUsedAt: null,
+              recentUseAssetRevision: null,
+              recentUseRequestId: null,
+              errorCode: null,
+              errorRequestId: null,
+              updatedAt: now,
+              lease: null,
+            }
+          }
           if (
             current.state !== "complete" ||
             input.supersedeCompletedRevision !== current.revision
@@ -751,10 +940,18 @@ export const createOrResumeLocalAssetPromotionJournal = async (
           if (parseTimestamp(now) < parseTimestamp(current.updatedAt)) {
             throw new LocalAssetPromotionJournalRevisionError()
           }
+          if (
+            current.sourceLocalAssetRevision !== input.sourceLocalAssetRevision
+          ) {
+            throw new LocalAssetPromotionJournalRevisionError()
+          }
           return {
             ...current,
             revision: current.revision + 1,
             idempotencyKey,
+            recentUseIdempotencyKey: mediaIdempotencyKeySchema.parse(
+              input.recentUseIdempotencyKey
+            ),
             attempt: 0,
             state: "mapped",
             sourceDocumentId: input.sourceDocumentId,
@@ -767,10 +964,16 @@ export const createOrResumeLocalAssetPromotionJournal = async (
             expectedReferenceKeys: [...input.expectedReferenceKeys],
             relinkResultContentSnapshotId: null,
             relinkResultHistorySnapshotId: null,
+            relinkResultOperationVersion: null,
+            relinkResultKind: null,
+            relinkResultDraftContentSnapshotId: null,
             relinkResultDraftSnapshotId: null,
             relinkResultDraftRecordVersion: null,
             relinkCommitId: null,
             relinkUndoable: null,
+            recentUseUsedAt: null,
+            recentUseAssetRevision: null,
+            recentUseRequestId: null,
             errorCode: null,
             errorRequestId: null,
             createdAt: now,
@@ -786,6 +989,9 @@ export const createOrResumeLocalAssetPromotionJournal = async (
         revision: 1,
         contentSha256: null,
         idempotencyKey,
+        recentUseIdempotencyKey: mediaIdempotencyKeySchema.parse(
+          input.recentUseIdempotencyKey
+        ),
         attempt: 0,
         state: "queued",
         managedAssetId: null,
@@ -803,13 +1009,57 @@ export const createOrResumeLocalAssetPromotionJournal = async (
         mappingRequestId: null,
         relinkResultContentSnapshotId: null,
         relinkResultHistorySnapshotId: null,
+        relinkResultOperationVersion: null,
+        relinkResultKind: null,
+        relinkResultDraftContentSnapshotId: null,
         relinkResultDraftSnapshotId: null,
         relinkResultDraftRecordVersion: null,
         relinkCommitId: null,
         relinkUndoable: null,
+        recentUseUsedAt: null,
+        recentUseAssetRevision: null,
+        recentUseRequestId: null,
         errorCode: null,
         errorRequestId: null,
         createdAt: now,
+        updatedAt: now,
+        lease: null,
+      }
+    },
+    signal
+  )
+}
+
+export const checkpointReleasedLocalAssetPromotionConflict = async (
+  input: {
+    localAssetId: string
+    expectedRevision: number
+    now?: string
+  },
+  signal?: AbortSignal
+) => {
+  const now = input.now ?? new Date().toISOString()
+  parseTimestamp(now)
+  return mutateJournal(
+    input.localAssetId,
+    (current) => {
+      if (!current || current.revision !== input.expectedRevision) {
+        throw new LocalAssetPromotionJournalRevisionError()
+      }
+      if (current.state !== "mapped" && current.state !== "relinking") {
+        throw new LocalAssetPromotionJournalRevisionError()
+      }
+      if (
+        current.lease &&
+        parseTimestamp(current.lease.expiresAt) > parseTimestamp(now)
+      ) {
+        throw new LocalAssetPromotionBusyError()
+      }
+      return {
+        ...current,
+        revision: current.revision + 1,
+        errorCode: "local_relink_conflict",
+        errorRequestId: null,
         updatedAt: now,
         lease: null,
       }

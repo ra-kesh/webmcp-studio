@@ -4437,8 +4437,13 @@ export function StudioShell({
           mode={mediaPicker?.mode ?? "insert"}
           targetName={mediaPicker?.targetName}
           document={editor.document}
+          localAssetPromotions={editor.localAssetPromotions}
           initialCollection={mediaPicker?.initialCollection}
           onSelect={selectMediaAsset}
+          onPromoteLocalAsset={(assetId) => {
+            void editor.startLocalAssetPromotion(assetId)
+          }}
+          onCancelLocalAssetPromotion={editor.cancelLocalAssetPromotion}
           onLocateMissingLocalAsset={(assetId) => {
             const target = editor.document.nodes.find(
               (node) =>

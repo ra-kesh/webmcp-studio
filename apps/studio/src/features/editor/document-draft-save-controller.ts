@@ -42,6 +42,20 @@ export type DocumentDraftSaveControllerOptions = Readonly<{
   cloneSnapshot?: (snapshot: CurrentDraftSnapshot) => CurrentDraftSnapshot
 }>
 
+export type DraftFlushReceipt = Readonly<{
+  documentId: string
+  recordVersion: number
+  contentSnapshotId: string
+  draftSnapshotId: string
+  savedAt: string
+}>
+
+export type DraftFlushFailure = Readonly<{
+  ok: false
+  reason: "not_saved" | "capture_pending" | "session_closed"
+  state: LocalSaveState
+}>
+
 type Listener = (state: LocalSaveState) => void
 
 const defaultTimer: DraftSaveTimer = {
@@ -197,6 +211,41 @@ export class DocumentDraftSaveController {
         return
     }
     await waitForDraftWrite(this.#ordered, signal)
+  }
+
+  /**
+   * Drains the ordered capture chain and returns the exact durable head. The
+   * receipt is sampled synchronously only after there is no pending capture.
+   */
+  async flushWithReceipt(): Promise<
+    Readonly<{ ok: true; receipt: DraftFlushReceipt }> | DraftFlushFailure
+  > {
+    await this.flush()
+    const state = this.#state
+    if (this.#closed) {
+      return { ok: false, reason: "session_closed", state }
+    }
+    if (
+      state.status !== "saved" ||
+      this.#pending !== null ||
+      this.#writeQueued
+    ) {
+      return {
+        ok: false,
+        reason: state.status === "saved" ? "capture_pending" : "not_saved",
+        state,
+      }
+    }
+    return {
+      ok: true,
+      receipt: {
+        documentId: this.documentId,
+        recordVersion: this.#recordVersion,
+        contentSnapshotId: this.#contentSnapshotId,
+        draftSnapshotId: this.#draftSnapshotId,
+        savedAt: state.savedAt,
+      },
+    }
   }
 
   /**

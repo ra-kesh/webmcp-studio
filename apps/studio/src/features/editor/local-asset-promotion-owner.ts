@@ -305,9 +305,10 @@ export class LocalAssetPromotionOwnerError extends Error {
 
 export type LocalAssetPromotionOwnerInput = Omit<
   CreateLocalAssetPromotionJournalInput,
-  "idempotencyKey" | "now"
+  "idempotencyKey" | "recentUseIdempotencyKey" | "now"
 > & {
   idempotencyKey?: string
+  recentUseIdempotencyKey?: string
 }
 
 export type LocalAssetPromotionOwnerResult = Readonly<{
@@ -316,6 +317,7 @@ export type LocalAssetPromotionOwnerResult = Readonly<{
     | "status_unknown"
     | "mapped"
     | "relinking"
+    | "marking_used"
     | "complete"
     | "cancelled"
     | "failed"
@@ -400,7 +402,8 @@ const allowedTransitions: Readonly<
   uploading: ["status_unknown", "mapped", "conflict", "cancelled", "failed"],
   status_unknown: ["reconciling"],
   mapped: ["relinking"],
-  relinking: ["complete"],
+  relinking: ["marking_used"],
+  marking_used: ["complete"],
   complete: [],
   cancelled: ["hashing", "reconciling"],
   failed: ["hashing", "reconciling", "cancelled"],
@@ -548,6 +551,7 @@ const resultFor = (
     journal.state !== "status_unknown" &&
     journal.state !== "mapped" &&
     journal.state !== "relinking" &&
+    journal.state !== "marking_used" &&
     journal.state !== "complete" &&
     journal.state !== "cancelled" &&
     journal.state !== "failed" &&
@@ -656,12 +660,18 @@ async function executePromotionOwner(
     existing.status === "ready"
       ? existing.journal.idempotencyKey
       : (input.idempotencyKey ?? dependencies.createId())
+  const recentUseIdempotencyKey =
+    existing.status === "ready" &&
+    input.supersedeCompletedRevision !== existing.journal.revision
+      ? existing.journal.recentUseIdempotencyKey
+      : (input.recentUseIdempotencyKey ?? dependencies.createId())
   let journal: LocalAssetPromotionJournal
   try {
     journal = await dependencies.createJournal(
       {
         ...input,
         idempotencyKey,
+        recentUseIdempotencyKey,
         now: dependencies.now(),
       },
       userSignal
@@ -682,6 +692,7 @@ async function executePromotionOwner(
   if (
     journal.state === "mapped" ||
     journal.state === "relinking" ||
+    journal.state === "marking_used" ||
     journal.state === "complete" ||
     journal.state === "conflict"
   ) {

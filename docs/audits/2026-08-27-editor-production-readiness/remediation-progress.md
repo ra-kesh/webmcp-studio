@@ -2557,3 +2557,40 @@ Status: **implemented and independently accepted; Slice 4 and row 10 remain acti
   ESLint, and `git diff --check`, with no remaining P0/P1.
 - Active document relink, critical draft flush, UI, admission migration and
   two-browser/deployed evidence remain explicitly outside this commit.
+
+## 2026-08-30 — Cross-browser local media, Slice 4 active-editor relink
+
+Status: **implemented and independently accepted; Slice 5 and row 10 remain active**
+
+- Reread the complete Slice 4 phase map, prior slice reviews, persistence,
+  history, failure-lifecycle and media UI evidence before implementation. The
+  gate stayed inside the mounted editor, durable draft and managed Recent
+  boundary; admission-time recovery and deployed/two-browser claims remain
+  excluded.
+- Added a synchronous, cancellable, session-owned promotion reservation; exact
+  current-document projection; lease-aware cross-tab hydration; canonical
+  source/target/conflict classification; one truthful relink history result;
+  exact durable flush/read-back; and stable idempotent Recent reconciliation.
+- Critical persistence now blocks mutation and navigation only through the
+  exact durable draft proof. Unmount joins that settlement before closing the
+  controller; Recent may finish noncritically without publishing into a stale
+  route. Crash recovery covers source reload, target replay, failed-save Retry,
+  response loss, receipt/checkpoint loss, terminal heartbeat ordering and
+  partial-target conflict without duplicate upload or relink.
+- The retained Media dialog shows authoritative per-alias progress, foreign
+  busy state, Cancel acknowledgement, durable conflict, Retry, exact use count
+  and current Undo truth. Raw journals are projected synchronously against the
+  mounted document, so route changes, Undo, cross-tab completion and async
+  IndexedDB refresh cannot leak stale presentation.
+- Independent review rejected sixteen P1 findings spanning single-flight,
+  stale session publication, lease loss, target-only recovery, critical save,
+  focus, cross-document projection, unmount ordering and terminal precedence.
+  All were repaired. The final review in
+  `cross-browser-media-editor-relink-independent-review.md` is **ACCEPT** with
+  no open P0/P1.
+- Final root evidence under the bundled runtime: 144 tests across 9 focused
+  files, Studio typecheck, scoped ESLint for the changed Slice 4 files outside
+  the large hook, scoped Prettier, and `git diff --check` pass. The hook retains
+  only five pre-existing unrelated quotation-refresh lint diagnostics.
+- Slice 5 admission/missing-byte recovery and Slice 6 real-browser/deployed
+  evidence remain open and cannot be inferred from this local acceptance.

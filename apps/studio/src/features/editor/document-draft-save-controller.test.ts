@@ -156,6 +156,33 @@ const conflictFor = (
 })
 
 describe("DocumentDraftSaveController", () => {
+  it("returns the exact durable head only after the latest capture drains", async () => {
+    const initial = initialSnapshot()
+    const next = changed(initial, "Receipt")
+    const repository: DraftSaveRepository = {
+      save: vi.fn(async (snapshot) => saved(snapshot, 2)),
+    }
+    const controller = new DocumentDraftSaveController({
+      repository,
+      record: recordFor(initial),
+      timer: new ManualTimer(),
+    })
+    controller.capture(next)
+
+    await expect(controller.flushWithReceipt()).resolves.toEqual({
+      ok: true,
+      receipt: {
+        documentId: initial.document.id,
+        recordVersion: 2,
+        contentSnapshotId: "content-2",
+        draftSnapshotId: "draft-2",
+        savedAt: "2026-08-28T00:00:02.000Z",
+      },
+    })
+    expect(repository.save).toHaveBeenCalledTimes(1)
+    expect(controller.hasPendingCapture).toBe(false)
+  })
+
   it("orders writes so an older completion cannot replace a newer capture", async () => {
     const initial = initialSnapshot()
     const first = changed(initial, "First")
@@ -557,6 +584,22 @@ describe("DocumentDraftSaveController", () => {
     expect(controller.state).toMatchObject({
       status: "saved",
       recordVersion: 2,
+    })
+  })
+
+  it("never returns a durable receipt after the persistence session closes", async () => {
+    const initial = initialSnapshot()
+    const controller = new DocumentDraftSaveController({
+      repository: { save: vi.fn() },
+      record: recordFor(initial),
+      timer: new ManualTimer(),
+    })
+
+    controller.close()
+
+    await expect(controller.flushWithReceipt()).resolves.toMatchObject({
+      ok: false,
+      reason: "session_closed",
     })
   })
 })

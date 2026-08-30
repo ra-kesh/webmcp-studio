@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { assetReferenceKeysForSource, localAssetSource } from "@webmcp/document"
 import type { Document } from "@webmcp/document"
 import {
   AlertCircleIcon,
@@ -77,6 +78,17 @@ import type {
   LocalAssetStorageSummary,
   LocalAssetSummary,
 } from "./local-asset-store"
+import type { LocalAssetPromotionViewState } from "./use-document-editor"
+import {
+  readLocalAssetPromotionJournal,
+  subscribeToLocalAssetPromotionJournal,
+} from "./local-asset-promotion-journal"
+import type { LocalAssetPromotionJournal } from "./local-asset-promotion-journal"
+import {
+  hasExactManagedProjection,
+  isLiveLocalAssetPromotionVisible,
+  sameReferenceKeys,
+} from "./local-asset-relink-projection"
 import { MEDIA_UPLOAD_ACCEPT, validateMediaFile } from "./media-file-policy"
 import {
   archiveManagedMedia,
@@ -86,6 +98,7 @@ import {
   managedMediaErrorIsRetryable,
   managedMediaContentUrl,
   ManagedMediaError,
+  subscribeManagedMediaMutations,
   uploadManagedMedia,
 } from "./managed-media-repository"
 import type {
@@ -119,6 +132,11 @@ export type AssetLibraryDialogProps = {
     pageId: string | null
     fieldId: string | null
   }) => void
+  localAssetPromotions?: Readonly<
+    Partial<Record<string, LocalAssetPromotionViewState>>
+  >
+  onPromoteLocalAsset?: (assetId: string) => void
+  onCancelLocalAssetPromotion?: (assetId: string) => void
 }
 
 type RepositoryStatus = "idle" | "loading" | "ready" | "error"
@@ -152,6 +170,140 @@ const serverReferenceCount = (impact: ManagedMediaDeletionImpact | null) =>
 
 const recentLibraryStorageKey = "webmcp-studio:recent-library-assets:v1"
 const MAX_CONCURRENT_MANAGED_UPLOADS = 3
+const activePromotionPhases = new Set<LocalAssetPromotionViewState["phase"]>([
+  "preparing",
+  "queued",
+  "hashing",
+  "reconciling",
+  "uploading",
+  "relinking",
+  "saving",
+  "cancelling",
+])
+const locallyAuthoritativePromotionPhases = new Set<
+  LocalAssetPromotionViewState["phase"]
+>([...activePromotionPhases, "updating_recent", "complete"])
+
+export const chooseLocalAssetPromotionProjection = (
+  live: LocalAssetPromotionViewState | null,
+  persisted: LocalAssetPromotionViewState | null
+) =>
+  live && locallyAuthoritativePromotionPhases.has(live.phase)
+    ? live
+    : (persisted ?? live)
+
+export const projectLiveLocalAssetPromotion = (
+  promotion: LocalAssetPromotionViewState,
+  document: Document,
+  localAssetId: string
+): LocalAssetPromotionViewState | null => {
+  return isLiveLocalAssetPromotionVisible(document, {
+    ...promotion,
+    localAssetId,
+  })
+    ? promotion
+    : null
+}
+
+export const projectPersistedLocalAssetPromotion = (
+  journal: LocalAssetPromotionJournal,
+  document: Document,
+  localAssetId: string,
+  now = Date.now()
+): LocalAssetPromotionViewState | null => {
+  const complete = journal.state === "complete"
+  const localReferenceKeys = assetReferenceKeysForSource(
+    document,
+    localAssetSource(localAssetId)
+  )
+  const exactLocalSource = sameReferenceKeys(
+    localReferenceKeys,
+    journal.expectedReferenceKeys
+  )
+  const exactSourceTarget =
+    document.id === journal.sourceDocumentId &&
+    localReferenceKeys.length === 0 &&
+    journal.managedAssetId !== null &&
+    hasExactManagedProjection(
+      document,
+      journal.managedAssetId,
+      journal.expectedReferenceKeys
+    )
+  if (
+    journal.errorCode === "local_relink_conflict" &&
+    document.id === journal.sourceDocumentId &&
+    !exactLocalSource &&
+    !exactSourceTarget
+  ) {
+    return {
+      operationId: `journal-${journal.revision}`,
+      localAssetId,
+      sourceDocumentId: journal.sourceDocumentId,
+      expectedReferenceKeys: journal.expectedReferenceKeys,
+      managedAssetId: journal.managedAssetId,
+      relinkCommitId: null,
+      phase: "conflict",
+      loaded: null,
+      total: null,
+      message:
+        "Backed up, relink not applied. The managed image references no longer match this document.",
+      retryable: false,
+      undoable: false,
+    }
+  }
+  const activelyOwnedElsewhere =
+    journal.lease !== null && Date.parse(journal.lease.expiresAt) > now
+  if (activelyOwnedElsewhere && localReferenceKeys.length > 0) {
+    return {
+      operationId: `journal-${journal.revision}`,
+      localAssetId,
+      sourceDocumentId: journal.sourceDocumentId,
+      expectedReferenceKeys: journal.expectedReferenceKeys,
+      managedAssetId: journal.managedAssetId,
+      relinkCommitId: null,
+      phase: "reconciling",
+      loaded: null,
+      total: null,
+      message: "Another Studio tab is continuing this image.",
+      retryable: false,
+      undoable: false,
+    }
+  }
+  if (complete && !exactSourceTarget) return null
+  const backedUp = journal.state === "mapped" || journal.state === "relinking"
+  const needsRecent = journal.state === "marking_used"
+  const checkpointedRelink =
+    journal.state === "relinking" && journal.relinkResultKind !== null
+  if (backedUp && !checkpointedRelink && !exactLocalSource) return null
+  if ((checkpointedRelink || needsRecent) && !exactSourceTarget) return null
+  if (!complete && !backedUp && !needsRecent) return null
+  return {
+    operationId: `journal-${journal.revision}`,
+    localAssetId,
+    sourceDocumentId: journal.sourceDocumentId,
+    expectedReferenceKeys: journal.expectedReferenceKeys,
+    managedAssetId: journal.managedAssetId,
+    relinkCommitId: null,
+    phase: complete
+      ? "complete"
+      : activelyOwnedElsewhere
+        ? "reconciling"
+        : backedUp
+          ? "backed_up"
+          : "failed",
+    loaded: null,
+    total: null,
+    message: complete
+      ? null
+      : activelyOwnedElsewhere
+        ? "Another Studio tab is continuing this image."
+        : needsRecent
+          ? "The design is safely relinked. Retry to finish updating Recent."
+          : "Backed up, relink not applied",
+    retryable: !complete && !activelyOwnedElsewhere,
+    undoable: false,
+  }
+}
 
 export function AssetLibraryDialog({
   open,
@@ -163,6 +315,9 @@ export function AssetLibraryDialog({
   onSelect,
   onLocateMissingLocalAsset,
   onNavigateToReference,
+  localAssetPromotions = {},
+  onPromoteLocalAsset,
+  onCancelLocalAssetPromotion,
 }: AssetLibraryDialogProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const uploadCancelsRef = useRef(new Map<string, () => void>())
@@ -201,11 +356,75 @@ export function AssetLibraryDialog({
   const [recentLibraryUse, setRecentLibraryUse] = useState<
     Record<string, number>
   >({})
+  const [persistedLocalAssetPromotionJournals, setPersistedPromotionJournals] =
+    useState<Partial<Record<string, LocalAssetPromotionJournal>>>({})
 
   const normalizedQuery = query.trim()
   const normalizedQueryRef = useRef(normalizedQuery)
   normalizedQueryRef.current = normalizedQuery
   const hasActiveUploads = uploadQueue.some(isUploadActive)
+  const hasCriticalPromotion = Object.values(localAssetPromotions).some(
+    (promotion) => promotion?.phase === "saving"
+  )
+
+  useEffect(() => {
+    if (!open || !localAssets.length) return
+    let disposed = false
+    let generation = 0
+    let leaseExpiryTimer: number | null = null
+    const refresh = async () => {
+      const requestedGeneration = generation + 1
+      generation = requestedGeneration
+      const entries = await Promise.all(
+        localAssets.map(async (asset) => {
+          try {
+            const read = await readLocalAssetPromotionJournal(asset.id)
+            if (read.status !== "ready") return null
+            return {
+              journal: read.journal,
+              leaseExpiresAt: read.journal.lease?.expiresAt ?? null,
+            }
+          } catch {
+            return null
+          }
+        })
+      )
+      if (disposed || requestedGeneration !== generation) return
+      if (leaseExpiryTimer !== null) window.clearTimeout(leaseExpiryTimer)
+      const now = Date.now()
+      const nearestLeaseExpiry = entries
+        .map((entry) =>
+          entry?.leaseExpiresAt ? Date.parse(entry.leaseExpiresAt) : NaN
+        )
+        .filter((expiresAt) => Number.isFinite(expiresAt) && expiresAt > now)
+        .sort((left, right) => left - right)
+        .at(0)
+      if (nearestLeaseExpiry !== undefined) {
+        leaseExpiryTimer = window.setTimeout(
+          () => void refresh(),
+          Math.max(1, nearestLeaseExpiry - now + 1)
+        )
+      }
+      setPersistedPromotionJournals(
+        Object.fromEntries(
+          entries
+            .map((entry) => entry?.journal ?? null)
+            .filter((entry) => entry !== null)
+            .map((entry) => [entry.localAssetId, entry])
+        )
+      )
+    }
+    void refresh()
+    const unsubscribe = subscribeToLocalAssetPromotionJournal(() => {
+      void refresh()
+    })
+    return () => {
+      disposed = true
+      generation += 1
+      if (leaseExpiryTimer !== null) window.clearTimeout(leaseExpiryTimer)
+      unsubscribe()
+    }
+  }, [localAssets, open])
 
   const refreshLocalAssets = useCallback(async () => {
     setLocalStatus("loading")
@@ -316,6 +535,19 @@ export function AssetLibraryDialog({
       managedRequestRef.current?.abort()
     }
   }, [normalizedQuery, open, refreshManagedAssets])
+
+  useEffect(() => {
+    if (!open) return
+    let latestRevision = 0
+    const unsubscribe = subscribeManagedMediaMutations((mutation, revision) => {
+      if (mutation !== "used" || revision <= latestRevision) return
+      latestRevision = revision
+      void refreshManagedAssets(normalizedQueryRef.current)
+    })
+    return () => {
+      unsubscribe()
+    }
+  }, [open, refreshManagedAssets])
 
   const referencedLocalAssetIds = useMemo(
     () => missingLocalAssetIds(document, []),
@@ -1060,6 +1292,33 @@ export function AssetLibraryDialog({
 
   const renderLocalCard = (asset: LocalAssetSummary) => {
     const assetKey = `local:${asset.id}`
+    const livePromotion = localAssetPromotions[asset.id]
+    const projectedLivePromotion = livePromotion
+      ? projectLiveLocalAssetPromotion(livePromotion, document, asset.id)
+      : null
+    const persistedJournal = persistedLocalAssetPromotionJournals[asset.id]
+    const projectedPersistedPromotion = persistedJournal
+      ? projectPersistedLocalAssetPromotion(
+          persistedJournal,
+          document,
+          asset.id
+        )
+      : null
+    const projectedPromotion = chooseLocalAssetPromotionProjection(
+      projectedLivePromotion,
+      projectedPersistedPromotion
+    )
+    const promotionBlockedByOther = Object.entries(localAssetPromotions).some(
+      ([otherAssetId, otherPromotion]) => {
+        if (otherAssetId === asset.id || !otherPromotion) return false
+        const projected = projectLiveLocalAssetPromotion(
+          otherPromotion,
+          document,
+          otherAssetId
+        )
+        return projected ? activePromotionPhases.has(projected.phase) : false
+      }
+    )
     return (
       <LocalAssetCard
         key={assetKey}
@@ -1069,6 +1328,12 @@ export function AssetLibraryDialog({
         detail={`${formatAssetBytes(asset.size)} · ${asset.mediaType.replace("image/", "").toLocaleUpperCase()}`}
         disabled={selectingId !== null}
         mutationDisabled={selectingId !== null}
+        promotionBlockedByOther={promotionBlockedByOther}
+        promotion={projectedPromotion ?? undefined}
+        referenceCount={
+          assetReferenceKeysForSource(document, localAssetSource(asset.id))
+            .length
+        }
         previewFailed={previewFailures.has(assetKey)}
         onChoose={() => void chooseAsset({ kind: "local", asset }, assetKey)}
         onDelete={() => startLocalDeleteReview(asset)}
@@ -1078,6 +1343,14 @@ export function AssetLibraryDialog({
             : undefined
         }
         onPreviewFailure={markPreviewFailed}
+        onPromote={
+          onPromoteLocalAsset ? () => onPromoteLocalAsset(asset.id) : undefined
+        }
+        onCancelPromotion={
+          onCancelLocalAssetPromotion && projectedLivePromotion
+            ? () => onCancelLocalAssetPromotion(asset.id)
+            : undefined
+        }
       />
     )
   }
@@ -1111,9 +1384,11 @@ export function AssetLibraryDialog({
       setDialogNotice("Wait for the current image change to finish.")
       return false
     }
-    if (!nextOpen && hasActiveUploads) {
+    if (!nextOpen && (hasActiveUploads || hasCriticalPromotion)) {
       setDialogNotice(
-        "Uploads are still in progress. Cancel them before closing."
+        hasCriticalPromotion
+          ? "Wait for the image to finish saving everywhere before closing Media."
+          : "Uploads are still in progress. Cancel them before closing."
       )
       return false
     }
@@ -1156,7 +1431,9 @@ export function AssetLibraryDialog({
         <Button
           aria-label="Close media library"
           className="absolute top-[max(.65rem,env(safe-area-inset-top))] right-3 size-11 sm:top-2.5"
-          disabled={hasActiveUploads || interactionLocked}
+          disabled={
+            hasActiveUploads || hasCriticalPromotion || interactionLocked
+          }
           size="icon"
           variant="ghost"
           onClick={() => requestClose(false)}

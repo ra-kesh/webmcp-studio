@@ -11,6 +11,7 @@ import {
   LocalAssetPromotionJournalRevisionError,
   LocalAssetPromotionLeaseError,
   claimLocalAssetPromotionJournal,
+  checkpointReleasedLocalAssetPromotionConflict,
   compareAndSwapLocalAssetPromotionJournal,
   createOrResumeLocalAssetPromotionJournal,
   localAssetPromotionJournalSchema,
@@ -36,6 +37,7 @@ const deleteDatabase = () =>
 const creationInput = (localAssetId = "local-promotion-1") => ({
   localAssetId,
   idempotencyKey: "promotion-idempotency-1",
+  recentUseIdempotencyKey: "recent-use-idempotency-1",
   sourceDocumentId: "document-1",
   sourceContentSnapshotId: contentSnapshotId,
   sourceHistorySnapshotId: "history-snapshot-1",
@@ -493,6 +495,68 @@ describe("local asset promotion journal", () => {
     ).toBe(false)
   })
 
+  it("upgrades a Slice 3 journal with a distinct stable Recent key", async () => {
+    const {
+      now: _now,
+      recentUseIdempotencyKey: _recentUseIdempotencyKey,
+      ...legacyCreationInput
+    } = creationInput()
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(LOCAL_ASSET_DATABASE_NAME, 5)
+      request.onupgradeneeded = () => {
+        request.result.createObjectStore(
+          LOCAL_ASSET_PROMOTION_JOURNAL_STORE_NAME,
+          { keyPath: "localAssetId" }
+        )
+      }
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    const transaction = database.transaction(
+      LOCAL_ASSET_PROMOTION_JOURNAL_STORE_NAME,
+      "readwrite"
+    )
+    transaction.objectStore(LOCAL_ASSET_PROMOTION_JOURNAL_STORE_NAME).put({
+      schemaVersion: 1,
+      ...legacyCreationInput,
+      revision: 2,
+      contentSha256: managedContentSha256,
+      attempt: 1,
+      state: "mapped",
+      managedAssetId: "asset-1234567890",
+      managedContentSha256,
+      managedStatus: "archived",
+      managedAssetRevision: 2,
+      mappingRequestId: "request-map-legacy",
+      relinkResultContentSnapshotId: null,
+      relinkResultHistorySnapshotId: null,
+      relinkResultDraftSnapshotId: null,
+      relinkResultDraftRecordVersion: null,
+      relinkCommitId: null,
+      relinkUndoable: null,
+      errorCode: null,
+      errorRequestId: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      lease: null,
+    })
+    await transactionDone(transaction)
+    database.close()
+
+    const upgraded = await readLocalAssetPromotionJournal(
+      creationInput().localAssetId
+    )
+
+    expect(upgraded.status).toBe("ready")
+    if (upgraded.status !== "ready") return
+    expect(upgraded.journal.recentUseIdempotencyKey).toMatch(
+      /^legacy-recent-[0-9a-f]{16}$/
+    )
+    expect(upgraded.journal.recentUseIdempotencyKey).not.toBe(
+      upgraded.journal.idempotencyKey
+    )
+  })
+
   it("enforces hash, mapping, relink, and durable-draft facts at their exact lifecycle states", async () => {
     const queued =
       await createOrResumeLocalAssetPromotionJournal(creationInput())
@@ -552,6 +616,8 @@ describe("local asset promotion journal", () => {
     const relinkCommit = {
       relinkResultContentSnapshotId: `sha256-${"d".repeat(64)}`,
       relinkResultHistorySnapshotId: "history-result-1",
+      relinkResultOperationVersion: 8,
+      relinkResultKind: "committed" as const,
       relinkCommitId: "commit-1",
       relinkUndoable: false,
     }
@@ -582,8 +648,12 @@ describe("local asset promotion journal", () => {
         ...mapped,
         ...relinkCommit,
         state: "complete",
+        relinkResultDraftContentSnapshotId: `sha256-${"d".repeat(64)}`,
         relinkResultDraftSnapshotId: `sha256-${"e".repeat(64)}`,
         relinkResultDraftRecordVersion: 4,
+        recentUseUsedAt: "2026-08-30T00:00:02.000Z",
+        recentUseAssetRevision: 2,
+        recentUseRequestId: "request-used-1",
       }).success
     ).toBe(true)
   })
@@ -599,6 +669,133 @@ describe("local asset promotion journal", () => {
       createOrResumeLocalAssetPromotionJournal({
         ...creationInput(),
         sourceOperationVersion: 8,
+      })
+    ).rejects.toBeInstanceOf(LocalAssetPromotionJournalRevisionError)
+  })
+
+  it("reanchors only a released pre-receipt relink result and preserves mapping identities", async () => {
+    const created =
+      await createOrResumeLocalAssetPromotionJournal(creationInput())
+    const claimed = await claimLocalAssetPromotionJournal({
+      localAssetId: created.localAssetId,
+      expectedRevision: created.revision,
+      ownerId: "tab-a",
+      leaseToken: "lease-a",
+      leaseMilliseconds: 10_000,
+      now: timestamp,
+    })
+    const checkpointed = await compareAndSwapLocalAssetPromotionJournal({
+      localAssetId: claimed.localAssetId,
+      expectedRevision: claimed.revision,
+      ownerId: "tab-a",
+      leaseToken: "lease-a",
+      now: "2026-08-30T00:00:01.000Z",
+      patch: {
+        state: "relinking",
+        contentSha256: managedContentSha256,
+        managedAssetId: "asset-1234567890",
+        managedContentSha256,
+        managedStatus: "ready",
+        managedAssetRevision: 1,
+        mappingRequestId: "request-map-1",
+        relinkResultContentSnapshotId: `sha256-${"d".repeat(64)}`,
+        relinkResultHistorySnapshotId: "history-result-1",
+        relinkResultOperationVersion: 8,
+        relinkResultKind: "committed",
+        relinkCommitId: "commit-1",
+        relinkUndoable: true,
+      },
+    })
+    const released = await releaseLocalAssetPromotionJournal({
+      localAssetId: checkpointed.localAssetId,
+      expectedRevision: checkpointed.revision,
+      ownerId: "tab-a",
+      leaseToken: "lease-a",
+      now: "2026-08-30T00:00:02.000Z",
+    })
+
+    const recovered = await createOrResumeLocalAssetPromotionJournal({
+      ...creationInput(),
+      idempotencyKey: released.idempotencyKey,
+      recentUseIdempotencyKey: released.recentUseIdempotencyKey,
+      sourceContentSnapshotId: `sha256-${"f".repeat(64)}`,
+      sourceHistorySnapshotId: "history-reloaded",
+      sourceOperationVersion: 1,
+      sourceDraftRecordVersion: 5,
+      sourceDraftSnapshotId: `sha256-${"1".repeat(64)}`,
+      supersedeUnpersistedRelinkRevision: released.revision,
+      now: "2026-08-30T00:00:03.000Z",
+    })
+
+    expect(recovered).toMatchObject({
+      state: "mapped",
+      managedAssetId: released.managedAssetId,
+      idempotencyKey: released.idempotencyKey,
+      recentUseIdempotencyKey: released.recentUseIdempotencyKey,
+      relinkResultKind: null,
+      relinkCommitId: null,
+    })
+  })
+
+  it("checkpoints a released relink conflict without discarding its recovery receipt", async () => {
+    const created =
+      await createOrResumeLocalAssetPromotionJournal(creationInput())
+    const claimed = await claimLocalAssetPromotionJournal({
+      localAssetId: created.localAssetId,
+      expectedRevision: created.revision,
+      ownerId: "tab-a",
+      leaseToken: "lease-a",
+      leaseMilliseconds: 10_000,
+      now: timestamp,
+    })
+    const checkpointed = await compareAndSwapLocalAssetPromotionJournal({
+      localAssetId: claimed.localAssetId,
+      expectedRevision: claimed.revision,
+      ownerId: "tab-a",
+      leaseToken: "lease-a",
+      now: "2026-08-30T00:00:01.000Z",
+      patch: {
+        state: "relinking",
+        contentSha256: managedContentSha256,
+        managedAssetId: "asset-1234567890",
+        managedContentSha256,
+        managedStatus: "ready",
+        managedAssetRevision: 1,
+        mappingRequestId: "request-map-1",
+        relinkResultContentSnapshotId: `sha256-${"d".repeat(64)}`,
+        relinkResultHistorySnapshotId: "history-result-1",
+        relinkResultOperationVersion: 8,
+        relinkResultKind: "committed",
+        relinkCommitId: "commit-1",
+        relinkUndoable: true,
+      },
+    })
+    const released = await releaseLocalAssetPromotionJournal({
+      localAssetId: checkpointed.localAssetId,
+      expectedRevision: checkpointed.revision,
+      ownerId: "tab-a",
+      leaseToken: "lease-a",
+      now: "2026-08-30T00:00:02.000Z",
+    })
+
+    const conflict = await checkpointReleasedLocalAssetPromotionConflict({
+      localAssetId: released.localAssetId,
+      expectedRevision: released.revision,
+      now: "2026-08-30T00:00:03.000Z",
+    })
+
+    expect(conflict).toMatchObject({
+      state: "relinking",
+      errorCode: "local_relink_conflict",
+      relinkResultKind: "committed",
+      relinkCommitId: "commit-1",
+      lease: null,
+    })
+    await expect(
+      checkpointReleasedLocalAssetPromotionConflict({
+        localAssetId: released.localAssetId,
+        expectedRevision: released.revision,
+        now: "2026-08-30T00:00:04.000Z",
       })
     ).rejects.toBeInstanceOf(LocalAssetPromotionJournalRevisionError)
   })
@@ -630,10 +827,16 @@ describe("local asset promotion journal", () => {
         mappingRequestId: "request-complete-1",
         relinkResultContentSnapshotId: `sha256-${"d".repeat(64)}`,
         relinkResultHistorySnapshotId: "history-result-1",
+        relinkResultOperationVersion: 8,
+        relinkResultKind: "committed",
+        relinkResultDraftContentSnapshotId: `sha256-${"d".repeat(64)}`,
         relinkResultDraftSnapshotId: `sha256-${"e".repeat(64)}`,
         relinkResultDraftRecordVersion: 4,
         relinkCommitId: "commit-1",
         relinkUndoable: true,
+        recentUseUsedAt: "2026-08-30T00:00:01.000Z",
+        recentUseAssetRevision: 2,
+        recentUseRequestId: "request-used-1",
       },
     })
 
@@ -674,9 +877,21 @@ describe("local asset promotion journal", () => {
         now: "2026-08-30T00:00:02.500Z",
       })
     ).rejects.toBeInstanceOf(LocalAssetPromotionJournalRevisionError)
+    await expect(
+      createOrResumeLocalAssetPromotionJournal({
+        ...creationInput(),
+        idempotencyKey: released.idempotencyKey,
+        recentUseIdempotencyKey: "recent-use-idempotency-conflict",
+        sourceDocumentId: "document-conflict",
+        sourceLocalAssetRevision: released.sourceLocalAssetRevision + 1,
+        supersedeCompletedRevision: released.revision,
+        now: "2026-08-30T00:00:02.750Z",
+      })
+    ).rejects.toBeInstanceOf(LocalAssetPromotionJournalRevisionError)
     const next = await createOrResumeLocalAssetPromotionJournal({
       ...creationInput(),
       idempotencyKey: "promotion-idempotency-2",
+      recentUseIdempotencyKey: "recent-use-idempotency-2",
       sourceDocumentId: "document-2",
       supersedeCompletedRevision: released.revision,
       now: "2026-08-30T00:00:03.000Z",
@@ -690,11 +905,79 @@ describe("local asset promotion journal", () => {
         managedAssetId: "asset-1234567890",
         managedContentSha256,
         managedAssetRevision: 1,
+        recentUseIdempotencyKey: "recent-use-idempotency-2",
         lease: null,
       })
     )
     expect(next.relinkCommitId).toBeNull()
     expect(next.relinkResultDraftSnapshotId).toBeNull()
+  })
+
+  it("re-anchors only a released unrelinked mapping and preserves both operation keys", async () => {
+    const created =
+      await createOrResumeLocalAssetPromotionJournal(creationInput())
+    const claimed = await claimLocalAssetPromotionJournal({
+      localAssetId: created.localAssetId,
+      expectedRevision: created.revision,
+      ownerId: "tab-a",
+      leaseToken: "lease-a",
+      leaseMilliseconds: 10_000,
+      now: timestamp,
+    })
+    const mapped = await compareAndSwapLocalAssetPromotionJournal({
+      localAssetId: claimed.localAssetId,
+      expectedRevision: claimed.revision,
+      ownerId: "tab-a",
+      leaseToken: "lease-a",
+      now: "2026-08-30T00:00:01.000Z",
+      patch: {
+        state: "mapped",
+        contentSha256: managedContentSha256,
+        managedAssetId: "asset-1234567890",
+        managedContentSha256,
+        managedStatus: "archived",
+        managedAssetRevision: 2,
+        mappingRequestId: "request-mapped-1",
+      },
+    })
+    const released = await releaseLocalAssetPromotionJournal({
+      localAssetId: mapped.localAssetId,
+      expectedRevision: mapped.revision,
+      ownerId: "tab-a",
+      leaseToken: "lease-a",
+      now: "2026-08-30T00:00:02.000Z",
+    })
+    const nextInput = {
+      ...creationInput(),
+      sourceContentSnapshotId: `sha256-${"f".repeat(64)}`,
+      sourceHistorySnapshotId: "history-snapshot-2",
+      sourceOperationVersion: 8,
+      sourceDraftRecordVersion: 4,
+      sourceDraftSnapshotId: `sha256-${"1".repeat(64)}`,
+      supersedeUnrelinkedRevision: released.revision,
+      now: "2026-08-30T00:00:03.000Z",
+    }
+
+    const reanchored = await createOrResumeLocalAssetPromotionJournal(nextInput)
+
+    expect(reanchored).toMatchObject({
+      state: "mapped",
+      managedStatus: "archived",
+      idempotencyKey: creationInput().idempotencyKey,
+      recentUseIdempotencyKey: creationInput().recentUseIdempotencyKey,
+      sourceHistorySnapshotId: "history-snapshot-2",
+      sourceOperationVersion: 8,
+      lease: null,
+    })
+    await expect(
+      createOrResumeLocalAssetPromotionJournal({
+        ...nextInput,
+        sourceHistorySnapshotId: "history-snapshot-3",
+        recentUseIdempotencyKey: "different-recent-key",
+        supersedeUnrelinkedRevision: reanchored.revision,
+        now: "2026-08-30T00:00:04.000Z",
+      })
+    ).rejects.toBeInstanceOf(LocalAssetPromotionJournalRevisionError)
   })
 
   it("fails the checkpoint atomically when the journal put cannot be written", async () => {
