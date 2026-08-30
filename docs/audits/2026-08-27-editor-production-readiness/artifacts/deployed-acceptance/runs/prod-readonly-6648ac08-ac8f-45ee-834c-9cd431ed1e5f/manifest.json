@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "runId": "prod-readonly-6648ac08-ac8f-45ee-834c-9cd431ed1e5f",
+  "artifacts": [
+    {
+      "path": "baseline.json",
+      "bytes": 3031,
+      "sha256": "09a0a1e32abff68da822e644afc911fdc3bcf53afcac832a4869088b7320d04e"
+    }
+  ]
+}

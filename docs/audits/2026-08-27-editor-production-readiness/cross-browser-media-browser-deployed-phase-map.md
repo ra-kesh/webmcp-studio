@@ -325,6 +325,34 @@ redaction and atomic promotion. The clean-account baseline must run only after
 this implementation commit so its recorded commit and clean-worktree claim are
 true.
 
+### Slice 6B read-only execution — 2026-08-30
+
+Slice 6B passed without changing Cloudflare state. The clean runner commit
+`c076e6f140273f4ccb111c9a6061d97e2f2a593f` produced the immutable sanitized
+run:
+
+`artifacts/deployed-acceptance/runs/prod-readonly-6648ac08-ac8f-45ee-834c-9cd431ed1e5f`
+
+The run proves:
+
+- the configured account matches Wrangler's authenticated account while the
+  retained evidence contains neither account ID nor author email;
+- Access returned an unauthenticated `302`; only hashes of the redirect host
+  and configured application audience were retained;
+- the exact configured D1 name/UUID, both R2 bucket names, both current Worker
+  deployment/version identities and the render Workflow name/script/class all
+  match the remote inventory; and
+- the remote D1 migration ledger is an exact ordered local prefix and the
+  read-only query reports zero writes and `changed_db: false` before projection.
+
+The baseline correctly records `productionWriteReady: false`: production has
+0001 through 0011, while `0012_media_asset_local_promotions.sql` and
+`0013_media_asset_use_requests.sql` are pending locally. The runner did not
+apply or initialize a migration, deploy a Worker, alter Access, execute Browser
+Rendering, or read/write an R2 object. Slice 6C stays blocked until an explicit
+production migration/write authorization; the harness will not repair this
+suffix automatically.
+
 ## Slice 6C — authorized owner production exercise
 
 This gate requires explicit authorization for ordinary production test writes.
@@ -395,8 +423,9 @@ follow-ups pass.
 
 1. **Completed:** implement and pass Slice 6A local two-context, same-profile
    race and blocked-upgrade browser evidence.
-2. Build Slice 6B production runner/redaction tests and run its read-only
-   baseline.
+2. **Completed:** build the Slice 6B production runner/redaction tests and run
+   its read-only baseline; production writes are blocked on migrations 0012 and
+   0013 plus explicit authorization.
 3. Record the production-write, restart, second-identity and time-passage
    boundaries without executing them.
 4. Independently review and commit the completed local/read-only gate.

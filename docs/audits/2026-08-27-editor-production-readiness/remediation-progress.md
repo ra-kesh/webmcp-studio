@@ -2685,3 +2685,25 @@ Status: **runner implemented and locally tested; clean read-only capture is next
   removal of rejected staging data and deployment projection that discards the
   author email. The runner itself correctly refuses to execute while these
   implementation files are uncommitted.
+
+## 2026-08-30 — Cross-browser local media, Slice 6B read-only baseline
+
+Status: **completed without remote mutation; production write gate is blocked**
+
+- The clean runner commit produced immutable run
+  `prod-readonly-6648ac08-ac8f-45ee-834c-9cd431ed1e5f`. Its manifest binds the
+  baseline byte length and SHA-256 after a final recursive private-data scan.
+- The isolated Chrome profile lived outside the repository and was removed
+  after an unauthenticated Access navigation. No storage state, cookie, Access
+  redirect payload, account ID, author email or raw audience was retained.
+- Both Worker deployment/version identities, the exact D1 name/UUID, both R2
+  bucket names and the Workflow name/script/class match the remote inventory.
+  The unauthenticated origin returns `302` and the post-deploy preflight passes.
+- The direct D1 ledger query was read-only (`rows_written: 0`,
+  `changed_db: false`) before its safe projection. Remote migrations 0001–0011
+  are an exact prefix of the current 0001–0013 repository ledger.
+- Production writes are not ready: 0012 local-promotion mappings and 0013
+  managed-use receipts are pending. No migration, deployment, Access change,
+  Browser Rendering request, R2 operation, owner login or product fixture was
+  attempted. Applying the suffix and exercising Slice 6C require explicit
+  production authorization.

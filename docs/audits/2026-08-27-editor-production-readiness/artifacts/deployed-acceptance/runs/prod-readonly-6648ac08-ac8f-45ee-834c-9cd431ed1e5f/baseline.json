@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "kind": "cross_browser_media_production_baseline",
+  "mode": "read_only",
+  "runId": "prod-readonly-6648ac08-ac8f-45ee-834c-9cd431ed1e5f",
+  "capturedAt": "2026-08-30T07:21:00.770Z",
+  "productionOrigin": "https://webmcp-studio.iamrakeshkumar.workers.dev",
+  "repository": {
+    "commit": "c076e6f140273f4ccb111c9a6061d97e2f2a593f",
+    "clean": true
+  },
+  "authority": {
+    "writesAuthorized": false,
+    "writesAttempted": false,
+    "ownerLoginAttempted": false
+  },
+  "isolation": {
+    "temporaryProfileOutsideRepository": true,
+    "storageStateExported": false,
+    "browserContextOwnsRequests": true,
+    "futureFixturePrefix": "prod-readonly-6648ac08-ac8f-45ee-834c-9cd431ed1e5f"
+  },
+  "access": {
+    "unauthenticatedStatus": 302,
+    "redirectHostSha256": "f213c3c1afaa36e84750c0bcf45a643cce8bbd435f0e333e269c4d6fb028e9dd",
+    "audienceSha256": "98f84f20b67692930d3d0b2840d81c677d8b797ca56fe22fe904c59adf83fff2"
+  },
+  "cloudflare": {
+    "postDeployPreflight": "passed",
+    "wranglerVersion": "4.126.0",
+    "configuredAccountMatchesAuthenticatedAccount": true,
+    "d1": {
+      "name": "webmcp-studio",
+      "uuid": "ee2118ee-9730-4cc2-a804-592895603f42",
+      "migrations": {
+        "exactPrefix": true,
+        "exactMatch": false,
+        "applied": [
+          "0001_initial.sql",
+          "0002_published_version_identity.sql",
+          "0003_demo_workspace_isolation.sql",
+          "0004_branch_safe_publication_identity.sql",
+          "0005_render_output_identity.sql",
+          "0006_template_version_constraints.sql",
+          "0007_workspace_media_assets.sql",
+          "0008_durable_render_jobs.sql",
+          "0009_api_request_audit.sql",
+          "0010_api_request_audit_retention.sql",
+          "0011_api_request_audit_retention_timestamp.sql"
+        ],
+        "pending": [
+          "0012_media_asset_local_promotions.sql",
+          "0013_media_asset_use_requests.sql"
+        ]
+      }
+    },
+    "r2": {
+      "bucketNames": [
+        "webmcp-studio-assets",
+        "webmcp-studio-renders"
+      ],
+      "remoteInventoryMatched": true
+    },
+    "workers": {
+      "studio": {
+        "deploymentId": "47d3b71d-f0c3-4a31-ade5-23892e61725d",
+        "versionIds": [
+          "e6c32ac4-5ecb-45a3-b9b3-f23493651a08"
+        ],
+        "createdAt": "2026-08-29T21:45:41.736135Z"
+      },
+      "renderer": {
+        "deploymentId": "eaa0ca17-d13a-4f25-adbe-7dcdde2bf939",
+        "versionIds": [
+          "1abdd12a-8330-48de-910b-8f5c8ad7a810"
+        ],
+        "createdAt": "2026-08-29T21:45:08.477388Z"
+      }
+    },
+    "workflow": {
+      "name": "webmcp-studio-render-jobs",
+      "scriptName": "webmcp-studio",
+      "className": "RenderJobWorkflow",
+      "remoteInventoryMatched": true
+    }
+  },
+  "productionWriteReady": false,
+  "blockers": [
+    {
+      "code": "remote_migration_suffix_pending",
+      "pendingMigrations": [
+        "0012_media_asset_local_promotions.sql",
+        "0013_media_asset_use_requests.sql"
+      ]
+    }
+  ]
+}
