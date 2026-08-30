@@ -3385,3 +3385,19 @@ next**
   including Studio, typecheck.
 - Gate 3 next owns the actual Layers, Assets, Inspector, canvas and compact
   component workflows. Gate 2 closure is not a UI-completion claim.
+
+## 2026-08-30 — COMPONENT-01 Gate 3A Layers semantics
+
+Status: **implemented and locally accepted; Gate 3 remains active**
+
+- Re-read the Gate 3 contract, OpenPencil's actual component Layers/Design and
+  local Assets workflows, and Studio's virtualized Layers projection before
+  implementation.
+- Added indexed main-component and instance ownership to the shared Layers
+  model, including descendant source mappings and exact override/removal
+  properties.
+- Studio now distinguishes main components, instances and their children with
+  dedicated icons, component color, accessible role labels and override
+  markers without flattening groups or weakening virtualization.
+- Focused Layers tests pass 11/11; Editor and Studio typecheck. Gate 3 next
+  owns Assets component discovery/insertion and Inspector lifecycle controls.

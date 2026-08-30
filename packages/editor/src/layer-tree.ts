@@ -1,4 +1,5 @@
 import {
+  componentSourceSubtree,
   getGroupNodeIds,
   type Document,
   type GroupDefinition,
@@ -19,7 +20,20 @@ export type LayerTreeItem = {
   locked: boolean
   visibilityMixed: boolean
   lockMixed: boolean
+  component: LayerComponentMetadata | null
   children: LayerTreeItem[]
+}
+
+export type LayerComponentMetadata = {
+  role: "source" | "source-child" | "instance" | "instance-child"
+  componentId: string
+  componentName: string
+  instanceId: string | null
+  instanceName: string | null
+  sourceNodeId: string | null
+  sourceGroupId: string | null
+  overrideProperties: string[]
+  removedProperties: string[]
 }
 
 export type LayerTreeRow = {
@@ -79,6 +93,144 @@ export function buildLayerTreeModel(
   const groupById = new Map(groups.map((group) => [group.id, group]))
   const childGroups = new Map<string, GroupDefinition[]>()
   const directMembership = new Map<string, string>()
+  const componentById = new Map(
+    document.components.map((component) => [component.id, component])
+  )
+  const componentBySourceGroupId = new Map(
+    document.components.map((component) => [component.sourceGroupId, component])
+  )
+  const sourceComponentByGroupId = new Map<
+    string,
+    Document["components"][number]
+  >()
+  const sourceComponentByNodeId = new Map<
+    string,
+    Document["components"][number]
+  >()
+  for (const component of document.components) {
+    const source = componentSourceSubtree(document, component.sourceGroupId)
+    if (!source) continue
+    for (const groupId of source.groupIds) {
+      sourceComponentByGroupId.set(groupId, component)
+    }
+    for (const nodeId of source.nodeIds) {
+      sourceComponentByNodeId.set(nodeId, component)
+    }
+  }
+  const instanceByGroupId = new Map<
+    string,
+    {
+      instance: Document["componentInstances"][number]
+      sourceGroupId: string
+    }
+  >()
+  const instanceByNodeId = new Map<
+    string,
+    {
+      instance: Document["componentInstances"][number]
+      sourceNodeId: string
+    }
+  >()
+  for (const instance of document.componentInstances) {
+    for (const mapping of instance.groupMappings) {
+      instanceByGroupId.set(mapping.instanceGroupId, {
+        instance,
+        sourceGroupId: mapping.sourceGroupId,
+      })
+    }
+    for (const mapping of instance.nodeMappings) {
+      instanceByNodeId.set(mapping.instanceNodeId, {
+        instance,
+        sourceNodeId: mapping.sourceNodeId,
+      })
+    }
+  }
+
+  const instanceMetadata = (
+    instance: Document["componentInstances"][number],
+    role: LayerComponentMetadata["role"],
+    sourceNodeId: string | null,
+    sourceGroupId: string | null
+  ): LayerComponentMetadata | null => {
+    const component = componentById.get(instance.componentId)
+    if (!component) return null
+    return {
+      role,
+      componentId: component.id,
+      componentName: component.name,
+      instanceId: instance.id,
+      instanceName: instance.name,
+      sourceNodeId,
+      sourceGroupId,
+      overrideProperties: sourceNodeId
+        ? Object.keys(instance.overrides[sourceNodeId] ?? {}).sort()
+        : Object.values(instance.overrides).flatMap((patch) =>
+            Object.keys(patch)
+          ),
+      removedProperties: sourceNodeId
+        ? [...(instance.removedProperties?.[sourceNodeId] ?? [])].sort()
+        : Object.values(instance.removedProperties ?? {}).flat(),
+    }
+  }
+
+  const sourceMetadata = (
+    component: Document["components"][number],
+    role: LayerComponentMetadata["role"],
+    sourceNodeId: string | null,
+    sourceGroupId: string | null
+  ): LayerComponentMetadata => ({
+    role,
+    componentId: component.id,
+    componentName: component.name,
+    instanceId: null,
+    instanceName: null,
+    sourceNodeId,
+    sourceGroupId,
+    overrideProperties: [],
+    removedProperties: [],
+  })
+
+  const componentMetadataForNode = (
+    nodeId: string
+  ): LayerComponentMetadata | null => {
+    const instanceEntry = instanceByNodeId.get(nodeId)
+    if (instanceEntry) {
+      return instanceMetadata(
+        instanceEntry.instance,
+        "instance-child",
+        instanceEntry.sourceNodeId,
+        null
+      )
+    }
+    const component = sourceComponentByNodeId.get(nodeId)
+    return component
+      ? sourceMetadata(component, "source-child", nodeId, null)
+      : null
+  }
+
+  const componentMetadataForGroup = (
+    groupId: string
+  ): LayerComponentMetadata | null => {
+    const instanceEntry = instanceByGroupId.get(groupId)
+    if (instanceEntry) {
+      return instanceMetadata(
+        instanceEntry.instance,
+        instanceEntry.instance.rootGroupId === groupId
+          ? "instance"
+          : "instance-child",
+        null,
+        instanceEntry.sourceGroupId
+      )
+    }
+    const component = sourceComponentByGroupId.get(groupId)
+    if (!component) return null
+    return sourceMetadata(
+      component,
+      componentBySourceGroupId.has(groupId) ? "source" : "source-child",
+      null,
+      groupId
+    )
+  }
 
   for (const group of groups) {
     if (group.parentGroupId && groupById.has(group.parentGroupId)) {
@@ -109,6 +261,7 @@ export function buildLayerTreeModel(
       locked: node.locked,
       visibilityMixed: false,
       lockMixed: false,
+      component: componentMetadataForNode(node.id),
       children: [],
     }
     byKey.set(item.key, item)
@@ -161,6 +314,7 @@ export function buildLayerTreeModel(
       locked: descendants.length > 0 && lockedCount === descendants.length,
       visibilityMixed: visibleCount > 0 && visibleCount < descendants.length,
       lockMixed: lockedCount > 0 && lockedCount < descendants.length,
+      component: componentMetadataForGroup(group.id),
       children,
     }
     byKey.set(item.key, item)

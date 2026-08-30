@@ -304,3 +304,25 @@ Status: **implemented and locally accepted on 2026-08-30; Gate 2 is closed**
 Gate 2 closure means the canonical lifecycle/history/clone boundary is ready
 for product controls. It does not claim that Layers, Assets or Inspector expose
 components yet; those are Gate 3.
+
+## Gate 3A result — Layers component semantics
+
+Status: **implemented and locally accepted on 2026-08-30; Gate 3 remains
+active**
+
+- Revisited the Gate 3 contract and OpenPencil's actual Layer/Design/Assets
+  component surfaces before editing. The implementation follows its semantic
+  distinction between main components and instances without copying its code
+  or flattening Studio's existing group tree.
+- The shared Layers projection now identifies a main-component root, an
+  instance root, their descendants, the owning component/instance, source
+  node/group mapping, and exact value/removal overrides using indexed lookup.
+- Studio renders dedicated main-component and instance icons, component color,
+  accessible role descriptions and an override marker while preserving the
+  existing virtualized tree, selection, hierarchy, rename, visibility and lock
+  behavior.
+- Focused evidence: the Layers suite passes 11 tests including root/child and
+  override ownership, and both Editor and Studio typecheck.
+
+Gate 3A is projection only. Assets insertion, Inspector variant/reset/detach,
+source navigation, canvas behavior and compact acceptance remain Gate 3 work.

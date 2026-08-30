@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest"
 import {
   applyCommand,
+  assertValidDocument,
   getGroupNodeIds,
   northstarSeed,
+  resolveComponentInstanceNodes,
+  type ComponentDefinition,
+  type ComponentInstance,
   validateDocument,
   type Document,
   type DocumentCommand,
@@ -101,7 +105,97 @@ function groupedDocument() {
   )
 }
 
+function componentLayerDocument() {
+  const document = groupedDocument()
+  const component: ComponentDefinition = {
+    id: "component-cover-copy",
+    name: "Cover copy",
+    description: "Reusable cover heading",
+    sourceGroupId: "cover-copy",
+    defaultVariantId: "component-cover-copy-default",
+    variants: [
+      {
+        id: "component-cover-copy-default",
+        name: "Default",
+        overrides: {},
+      },
+    ],
+  }
+  const instance: ComponentInstance = {
+    id: "instance-cover-copy",
+    name: "Cover copy instance",
+    componentId: component.id,
+    variantId: component.defaultVariantId,
+    rootGroupId: "instance-cover-copy-root",
+    transform: { x: 60, y: 80, scale: 1, rotation: 0 },
+    nodeMappings: ["cover-eyebrow", "cover-title"].map((sourceNodeId) => ({
+      sourceNodeId,
+      instanceNodeId: `instance-${sourceNodeId}`,
+    })),
+    groupMappings: [
+      {
+        sourceGroupId: component.sourceGroupId,
+        instanceGroupId: "instance-cover-copy-root",
+      },
+    ],
+    overrides: {
+      "cover-title": { text: "Instance title" },
+    },
+  }
+  document.components = [component]
+  document.componentInstances = [instance]
+  document.groups.push({
+    id: instance.rootGroupId,
+    pageId: "story",
+    name: instance.name,
+    nodeIds: instance.nodeMappings.map((mapping) => mapping.instanceNodeId),
+  })
+  const nodes = resolveComponentInstanceNodes(document, instance)
+  document.nodes.push(...nodes)
+  document.pages
+    .find((page) => page.id === "story")
+    ?.nodeIds.push(...nodes.map((node) => node.id))
+  return assertValidDocument(document)
+}
+
 describe("layer tree model", () => {
+  it("projects main components, instances, and child override ownership", () => {
+    const document = componentLayerDocument()
+    const sourceModel = buildLayerTreeModel(document, "cover")
+    const instanceModel = buildLayerTreeModel(document, "story")
+
+    expect(
+      sourceModel.byKey.get(layerKey("group", "cover-copy"))?.component
+    ).toMatchObject({
+      role: "source",
+      componentId: "component-cover-copy",
+      instanceId: null,
+    })
+    expect(
+      sourceModel.byKey.get(layerKey("node", "cover-title"))?.component
+    ).toMatchObject({
+      role: "source-child",
+      sourceNodeId: "cover-title",
+    })
+    expect(
+      instanceModel.byKey.get(layerKey("group", "instance-cover-copy-root"))
+        ?.component
+    ).toMatchObject({
+      role: "instance",
+      componentId: "component-cover-copy",
+      instanceId: "instance-cover-copy",
+      overrideProperties: ["text"],
+    })
+    expect(
+      instanceModel.byKey.get(layerKey("node", "instance-cover-title"))
+        ?.component
+    ).toMatchObject({
+      role: "instance-child",
+      sourceNodeId: "cover-title",
+      overrideProperties: ["text"],
+    })
+  })
+
   it("projects nested groups once in canonical front-to-back order", () => {
     const document = groupedDocument()
     const model = buildLayerTreeModel(document, "cover")

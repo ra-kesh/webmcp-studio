@@ -11,6 +11,8 @@ import {
 import {
   ChevronRight,
   Circle,
+  Component as ComponentIcon,
+  Diamond,
   Eye,
   EyeOff,
   Folder,
@@ -248,7 +250,27 @@ function LayerRow({
 }) {
   const [rowElement, setRowElement] = useState<HTMLDivElement | null>(null)
   const [dragHandle, setDragHandle] = useState<HTMLButtonElement | null>(null)
-  const Icon = nodeIcon[row.item.nodeType]
+  const componentRole = row.item.component?.role
+  const Icon =
+    componentRole === "source"
+      ? ComponentIcon
+      : componentRole === "instance"
+        ? Diamond
+        : nodeIcon[row.item.nodeType]
+  const overrideCount = new Set([
+    ...(row.item.component?.overrideProperties ?? []),
+    ...(row.item.component?.removedProperties ?? []),
+  ]).size
+  const componentDescription =
+    componentRole === "source"
+      ? "main component"
+      : componentRole === "instance"
+        ? "component instance"
+        : componentRole === "source-child"
+          ? "main component layer"
+          : componentRole === "instance-child"
+            ? "component instance layer"
+            : null
   const isRename = rename?.key === row.item.key
   const isDropTarget = dropState?.targetKey === row.item.key
 
@@ -268,7 +290,11 @@ function LayerRow({
       }}
       id={`layer-tree-item-${row.item.key.replaceAll(":", "-")}`}
       role="treeitem"
-      aria-label={row.item.name}
+      aria-label={
+        componentDescription
+          ? `${row.item.name}, ${componentDescription}`
+          : row.item.name
+      }
       aria-expanded={row.item.children.length ? expanded : undefined}
       aria-level={row.depth}
       aria-posinset={row.positionInSet}
@@ -277,6 +303,9 @@ function LayerRow({
       aria-keyshortcuts="F2 Delete H L Shift+F10 Alt+ArrowUp Alt+ArrowDown Alt+ArrowLeft Alt+ArrowRight"
       data-layer-key={row.item.key}
       data-layer-kind={row.item.kind}
+      data-component-role={componentRole}
+      data-component-id={row.item.component?.componentId}
+      data-component-overridden={overrideCount ? "true" : undefined}
       data-selected={selectedState === "all" ? "true" : undefined}
       data-selection-mixed={selectedState === "partial" ? "true" : undefined}
       data-active={active ? "true" : undefined}
@@ -345,7 +374,9 @@ function LayerRow({
       <Icon
         className={cn(
           "mr-1 size-3.5 shrink-0 text-muted-foreground",
-          selectedState === "all" && "text-studio-accent"
+          selectedState === "all" && "text-studio-accent",
+          componentRole && "text-studio-accent",
+          componentRole === "source" && "fill-studio-accent/15"
         )}
       />
 
@@ -384,6 +415,14 @@ function LayerRow({
           {row.item.name}
         </span>
       )}
+
+      {overrideCount ? (
+        <span
+          className="mr-1 size-1.5 shrink-0 rounded-full bg-studio-accent"
+          title={`${overrideCount} component override${overrideCount === 1 ? "" : "s"}`}
+          aria-label={`${overrideCount} component override${overrideCount === 1 ? "" : "s"}`}
+        />
+      ) : null}
 
       {!isRename ? (
         <div
