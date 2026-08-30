@@ -22,8 +22,10 @@ import {
   BringToFront,
   Check,
   ClipboardCopy,
+  Component as ComponentIcon,
   CopyPlus,
   Crop,
+  Crosshair,
   Database,
   Eye,
   EyeOff,
@@ -175,6 +177,10 @@ import {
 import { operationDetails } from "./review-operation-details"
 import { projectMissingImageRecoveryActions } from "./missing-image-recovery"
 import {
+  projectComponentSelection,
+  type ComponentSelectionContext,
+} from "./component-selection-model"
+import {
   sharedTextSelectionValue,
   textColorChoices,
   textFormattingTogglePatch,
@@ -220,6 +226,22 @@ const ignoreBindVariable = (
   _variableId: string,
   _target: VariableBindingTarget
 ) => false
+const ignoreUpdateComponent = (
+  _componentId: string,
+  _patch: {
+    name?: string
+    description?: string
+    defaultVariantId?: string
+  }
+) => false
+const ignoreComponentVariant = (_instanceId: string, _variantId: string) =>
+  false
+const ignoreComponentLayerOverrides = (
+  _instanceId: string,
+  _sourceNodeId: string
+) => false
+const ignoreComponentInstance = (_instanceId: string) => false
+const ignoreComponentSource = (_componentId: string) => undefined
 const reviewTargetKindLabel: Record<ReviewAffectedTarget["kind"], string> = {
   node: "Layer",
   group: "Group",
@@ -267,6 +289,197 @@ function InspectorSection({
       </div>
       <div className="flex min-w-0 flex-col gap-3">{children}</div>
     </section>
+  )
+}
+
+function ComponentInspectorSection({
+  context,
+  reviewPending,
+  onUpdateComponent,
+  onSwitchVariant,
+  onResetLayerOverrides,
+  onResetAllOverrides,
+  onDetach,
+  onFocusSource,
+}: {
+  context: ComponentSelectionContext
+  reviewPending: boolean
+  onUpdateComponent: (
+    componentId: string,
+    patch: {
+      name?: string
+      description?: string
+      defaultVariantId?: string
+    }
+  ) => boolean
+  onSwitchVariant: (instanceId: string, variantId: string) => boolean
+  onResetLayerOverrides: (instanceId: string, sourceNodeId: string) => boolean
+  onResetAllOverrides: (instanceId: string) => boolean
+  onDetach: (instanceId: string) => boolean
+  onFocusSource: (componentId: string) => void
+}) {
+  const instance = context.kind === "instance" ? context.instance : null
+  const selectedVariantId =
+    instance?.variantId ?? context.component.defaultVariantId
+  const totalOverrideCount = context.totalOverrideProperties.length
+  const layerOverrideCount = context.selectedOverrideProperties.length
+  return (
+    <InspectorSection
+      title={
+        context.kind === "instance" ? "Component instance" : "Main component"
+      }
+      data-component-inspector-kind={context.kind}
+      className="bg-studio-accent/[0.025]"
+    >
+      <div className="flex min-w-0 items-start gap-2">
+        <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-md bg-studio-accent/10 text-studio-accent">
+          <ComponentIcon className="size-3.5" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[11px] font-semibold">
+            {context.component.name}
+          </p>
+          <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground">
+            {context.kind === "instance"
+              ? `${context.instance.name} · ${totalOverrideCount} override${totalOverrideCount === 1 ? "" : "s"}`
+              : `${context.instanceCount} linked instance${context.instanceCount === 1 ? "" : "s"}`}
+          </p>
+        </div>
+        {context.kind === "instance" && totalOverrideCount ? (
+          <Badge variant="secondary" className="h-5 px-1.5 text-[9px]">
+            {totalOverrideCount}
+          </Badge>
+        ) : null}
+      </div>
+
+      {context.kind === "source" ? (
+        <Field className="gap-1.5">
+          <FieldLabel>Component name</FieldLabel>
+          <CommitInput
+            value={context.component.name}
+            disabled={reviewPending}
+            aria-label="Component name"
+            className="h-8 text-xs"
+            onCommit={(value) => {
+              const name = value.trim()
+              if (name && name !== context.component.name) {
+                onUpdateComponent(context.component.id, { name })
+              }
+            }}
+          />
+          <FieldDescription>
+            Names the reusable component. Layer names remain separate.
+          </FieldDescription>
+        </Field>
+      ) : null}
+
+      <Field className="gap-1.5">
+        <FieldLabel>
+          {context.kind === "instance" ? "Variant" : "Default variant"}
+        </FieldLabel>
+        <Select
+          value={selectedVariantId}
+          disabled={reviewPending}
+          onValueChange={(variantId) => {
+            if (context.kind === "instance") {
+              onSwitchVariant(context.instance.id, variantId)
+            } else {
+              onUpdateComponent(context.component.id, {
+                defaultVariantId: variantId,
+              })
+            }
+          }}
+        >
+          <SelectTrigger className="h-8 text-xs" aria-label="Component variant">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {context.component.variants.map((variant) => (
+                <SelectItem key={variant.id} value={variant.id}>
+                  {variant.name}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </Field>
+
+      {instance ? (
+        <>
+          {context.selectedSourceNodeId ? (
+            <div className="flex items-center justify-between gap-2 rounded-[4px] border border-border/70 bg-background px-2 py-1.5">
+              <div className="min-w-0">
+                <p className="text-[10px] font-medium">Selected layer</p>
+                <p className="truncate text-[9px] text-muted-foreground">
+                  {layerOverrideCount
+                    ? context.selectedOverrideProperties.join(", ")
+                    : "Uses main component values"}
+                </p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-7 shrink-0 px-2 text-[10px]"
+                disabled={!layerOverrideCount || reviewPending}
+                onClick={() =>
+                  onResetLayerOverrides(
+                    instance.id,
+                    context.selectedSourceNodeId!
+                  )
+                }
+              >
+                <RefreshCw /> Reset
+              </Button>
+            </div>
+          ) : null}
+          <div className="grid grid-cols-2 gap-1.5">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8 justify-start px-2 text-[10px]"
+              disabled={reviewPending}
+              onClick={() => onFocusSource(context.component.id)}
+            >
+              <Crosshair /> Main component
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8 justify-start px-2 text-[10px]"
+              disabled={!totalOverrideCount || reviewPending}
+              onClick={() => onResetAllOverrides(instance.id)}
+            >
+              <RefreshCw /> Reset all
+            </Button>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-8 justify-start px-2 text-[10px] text-muted-foreground"
+            disabled={reviewPending}
+            onClick={() => onDetach(instance.id)}
+          >
+            <Unlink /> Detach instance
+          </Button>
+        </>
+      ) : (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-8 justify-start px-2 text-[10px]"
+          disabled={reviewPending}
+          onClick={() => onFocusSource(context.component.id)}
+        >
+          <Crosshair /> Focus main component
+        </Button>
+      )}
+    </InspectorSection>
   )
 }
 
@@ -3715,6 +3928,7 @@ export function InspectorSidebar({
   document,
   reviewNavigationDocument = document,
   selectedNodes: selectedNodesProp,
+  selectedGroupId = null,
   textEditingState = null,
   imageCropPreviewStore = null,
   pendingChangeSet,
@@ -3775,6 +3989,12 @@ export function InspectorSidebar({
   onDeleteVariable = ignoreVariableMutation,
   onBindVariable = ignoreBindVariable,
   onUnbindVariable = ignoreVariableMutation,
+  onUpdateComponent = ignoreUpdateComponent,
+  onSwitchComponentVariant = ignoreComponentVariant,
+  onResetComponentLayerOverrides = ignoreComponentLayerOverrides,
+  onResetAllComponentOverrides = ignoreComponentInstance,
+  onDetachComponentInstance = ignoreComponentInstance,
+  onFocusComponentSource = ignoreComponentSource,
   capabilityContext,
   focusFieldId = null,
   className,
@@ -3782,6 +4002,7 @@ export function InspectorSidebar({
   document: Document
   reviewNavigationDocument?: Document
   selectedNodes: SceneNode[]
+  selectedGroupId?: string | null
   textEditingState?: CanvasTextEditingState | null
   imageCropPreviewStore?: ImageCropPreviewStore | null
   pendingChangeSet: ChangeSet | null
@@ -3867,6 +4088,22 @@ export function InspectorSidebar({
     target: VariableBindingTarget
   ) => boolean
   onUnbindVariable?: (bindingId: string) => boolean
+  onUpdateComponent?: (
+    componentId: string,
+    patch: {
+      name?: string
+      description?: string
+      defaultVariantId?: string
+    }
+  ) => boolean
+  onSwitchComponentVariant?: (instanceId: string, variantId: string) => boolean
+  onResetComponentLayerOverrides?: (
+    instanceId: string,
+    sourceNodeId: string
+  ) => boolean
+  onResetAllComponentOverrides?: (instanceId: string) => boolean
+  onDetachComponentInstance?: (instanceId: string) => boolean
+  onFocusComponentSource?: (componentId: string) => void
   capabilityContext?: InspectorCapabilityContext
   focusFieldId?: string | null
   className?: string
@@ -3879,6 +4116,10 @@ export function InspectorSidebar({
   const selectedNodes = useMemo(
     () => projectImageCropInspectorSelection(selectedNodesProp, cropSession),
     [cropSession, selectedNodesProp]
+  )
+  const componentSelection = useMemo(
+    () => projectComponentSelection(document, selectedNodes, selectedGroupId),
+    [document, selectedGroupId, selectedNodes]
   )
   const controlIdPrefix = `inspector-${useId()}`
   const selectedNode = selectedNodes.length === 1 ? selectedNodes[0] : undefined
@@ -3986,6 +4227,18 @@ export function InspectorSidebar({
         </EditorPanelTabsList>
         <TabsContent value="design" className="min-h-0">
           <ScrollArea className="h-full">
+            {componentSelection ? (
+              <ComponentInspectorSection
+                context={componentSelection}
+                reviewPending={Boolean(pendingChangeSet)}
+                onUpdateComponent={onUpdateComponent}
+                onSwitchVariant={onSwitchComponentVariant}
+                onResetLayerOverrides={onResetComponentLayerOverrides}
+                onResetAllOverrides={onResetAllComponentOverrides}
+                onDetach={onDetachComponentInstance}
+                onFocusSource={onFocusComponentSource}
+              />
+            ) : null}
             {selectedNode ? (
               <NodeInspector
                 document={document}

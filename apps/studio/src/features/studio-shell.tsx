@@ -4657,6 +4657,7 @@ export function StudioShell({
                   document={editor.document}
                   reviewNavigationDocument={editor.previewDocument}
                   selectedNodes={editor.selectedNodes}
+                  selectedGroupId={editor.selectedGroupId}
                   textEditingState={textEditingState}
                   imageCropPreviewStore={editor.imageCropPreviewStore}
                   capabilityContext={inspectorCapabilityContext}
@@ -4749,6 +4750,16 @@ export function StudioShell({
                   onDeleteVariable={editor.deleteVariable}
                   onBindVariable={editor.bindVariable}
                   onUnbindVariable={editor.unbindVariable}
+                  onUpdateComponent={editor.updateComponent}
+                  onSwitchComponentVariant={editor.switchComponentVariant}
+                  onResetComponentLayerOverrides={
+                    editor.resetComponentLayerOverrides
+                  }
+                  onResetAllComponentOverrides={
+                    editor.resetAllComponentOverrides
+                  }
+                  onDetachComponentInstance={editor.detachComponentInstance}
+                  onFocusComponentSource={focusComponentSource}
                 />
               </div>
             </>
@@ -4906,6 +4917,7 @@ export function StudioShell({
                 document={editor.document}
                 reviewNavigationDocument={editor.previewDocument}
                 selectedNodes={editor.selectedNodes}
+                selectedGroupId={editor.selectedGroupId}
                 textEditingState={textEditingState}
                 imageCropPreviewStore={editor.imageCropPreviewStore}
                 capabilityContext={inspectorCapabilityContext}
@@ -5010,6 +5022,14 @@ export function StudioShell({
                 onDeleteVariable={editor.deleteVariable}
                 onBindVariable={editor.bindVariable}
                 onUnbindVariable={editor.unbindVariable}
+                onUpdateComponent={editor.updateComponent}
+                onSwitchComponentVariant={editor.switchComponentVariant}
+                onResetComponentLayerOverrides={
+                  editor.resetComponentLayerOverrides
+                }
+                onResetAllComponentOverrides={editor.resetAllComponentOverrides}
+                onDetachComponentInstance={editor.detachComponentInstance}
+                onFocusComponentSource={focusComponentSource}
               />
             )}
           </SheetContent>

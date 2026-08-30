@@ -346,3 +346,31 @@ active**
   node/group identities, selected after creation and fully Undo/Redo-able.
 - Focused projection tests pass, and Studio typechecks. Gate 3C now owns the
   component-aware Inspector and its variant/reset/detach/source controls.
+
+## Gate 3C result — component-aware Inspector
+
+Status: **implemented and locally accepted on 2026-08-30; Gate 3 remains
+active**
+
+- Revisited OpenPencil's component-first Inspector ordering before editing.
+  Component identity and lifecycle controls now precede ordinary geometry and
+  style controls instead of being mixed into layer naming.
+- Selecting a main component exposes its independent component name, linked
+  instance count and default variant. Selecting an instance or one of its
+  mapped children exposes the active variant, aggregate overrides, exact
+  selected-layer override properties, property/all reset, source navigation
+  and detach.
+- The projection resolves root-group selection as well as mapped child-node
+  selection, so Studio does not depend on a single selected Fabric node to
+  identify an instance.
+- The same controls are wired through the shared Inspector used by desktop and
+  compact layouts and invoke canonical component commands/history.
+- Focused projection tests cover source usage, root-instance aggregate
+  overrides and exact child overrides. Studio typechecks.
+- Clean live-browser acceptance on port 3001 selected a real instance from the
+  Layers tree, verified Variant/Main component/Reset all/Detach, navigated to
+  its source, and verified source name/default variant/linked usage. No runtime
+  errors were recorded.
+
+Gate 3D/3E still own canvas direct-manipulation semantics and compact real-use
+acceptance. Gate 3 is not closed yet.

@@ -9525,6 +9525,21 @@ export function useDocumentEditor({
     [commit]
   )
 
+  const updateComponent = useCallback(
+    (
+      componentId: string,
+      patch: {
+        name?: string
+        description?: string
+        defaultVariantId?: string
+      }
+    ) =>
+      commit([{ type: "update_component", componentId, patch }], {
+        label: "Update component",
+      }),
+    [commit]
+  )
+
   const resetComponentLayerOverrides = useCallback(
     (instanceId: string, sourceNodeId: string) =>
       commit([{ type: "reset_component_override", instanceId, sourceNodeId }], {
@@ -10807,6 +10822,7 @@ export function useDocumentEditor({
     createComponentFromSelection,
     createComponentInstance,
     switchComponentVariant,
+    updateComponent,
     resetComponentLayerOverrides,
     resetAllComponentOverrides,
     detachComponentInstance,

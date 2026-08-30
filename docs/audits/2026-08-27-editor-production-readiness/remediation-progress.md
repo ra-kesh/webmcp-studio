@@ -3423,3 +3423,22 @@ Status: **implemented and locally accepted; Gate 3 remains active**
   document or browser storage was cleared. The same session then completed
   group -> component -> Assets preview -> viewport-centred instance insertion,
   and Layers exposed both main and instance trees.
+
+## 2026-08-30 — COMPONENT-01 Gate 3C component Inspector
+
+Status: **implemented and locally accepted; Gate 3 remains active**
+
+- Re-read the component phase contract and OpenPencil's Inspector placement
+  before implementation. Component controls now appear before ordinary layer
+  geometry and remain distinct from the layer name.
+- Main-component selection exposes component name, default variant and linked
+  usage. Instance selection exposes active variant, aggregate and selected
+  child overrides, reset actions, source navigation and detach.
+- Component selection projection understands source/instance root groups and
+  mapped descendants, and both desktop and compact Inspector mounts invoke the
+  canonical lifecycle commands.
+- Focused projection tests and Studio typecheck pass. A clean browser session
+  exercised instance selection, Inspector controls and main-source navigation;
+  the browser recorded no runtime errors.
+- Gate 3 next owns component-aware canvas behavior and compact real-use
+  acceptance. This entry does not close Gate 3.
