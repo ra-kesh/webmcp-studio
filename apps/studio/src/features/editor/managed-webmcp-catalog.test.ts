@@ -15,6 +15,9 @@ vi.mock("./managed-media-repository", () => ({
 const builtIns: StudioAsset[] = [
   {
     id: "olive-botanical",
+    version: 1,
+    contentSha256:
+      "85cc8f05bda0255e74a2057f4d27c948eafaa4156bee4bab83f4e725bb056f24",
     name: "Olive botanical",
     description: "Soft botanical composition",
     tags: ["olive", "botanical"],

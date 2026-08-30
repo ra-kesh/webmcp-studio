@@ -2,7 +2,7 @@
 
 Date: 2026-08-31
 
-Status: phase contract ready; implementation has not started
+Status: Gate 1 closed; Gate 2 content and provenance is active
 
 ## Purpose
 
@@ -62,17 +62,17 @@ copy their source.
 The current paths are real and tested. They are also too small for the intended
 product.
 
-| Area | What works now | Missing product depth |
-| --- | --- | --- |
-| Design templates | Five active catalog items: two document starters and three quotation styles. The repository validates definitions, sorts deterministically, materializes fresh IDs and keeps create separate from apply. | Only three categories exist. There is no paging, recent use, favorites, collections, ownership filter or broad format coverage. |
-| Template previews | Start and editor cards render the canonical first page with `Artboard`. Loading, failure, no-results and compatibility states exist. | Every list item carries a complete preview document and every card mounts live rendering. That will not scale to a large catalog. |
-| Template safety | General apply shows impact and uses one canonical replacement transaction. Quotation style apply preserves source-backed content and manual structure. | New discovery work must keep these semantics. Catalog selection cannot become direct document replacement. |
-| Curated media | Six original Studio SVG assets have name, description, tags, dimensions and a license label. Local search covers that metadata. | The set is narrow, bundled as data URIs and has no durable source manifest, categories, favorites or collections. |
-| Workspace media | D1/R2 upload, recent use, name search, pagination, exact ownership, archive, recovery and reference-safe rendering exist. | Server search is name-only. Public metadata has no description, tags, provenance, license or library category. |
-| Media interface | Recent, Uploads and Library are distinct. The dialog has upload, progress, retry, error, empty, no-results and compact states. | There are no custom collections, durable favorites or a persistent editor-side media browser. Curated recent use is browser-local only. |
-| Components | The document-local Assets panel searches components, groups them by source page and inserts through canonical commands. | It is not a cross-document component library. The left tab is named Assets even though it contains only components. |
-| Start and recent work | Blank, Import, Sample, Templates and repository-backed Recent/Trash are separate choices. | Template discovery is still a small flat grid. There is no recent-template or favorite-template path. |
-| Ownership | Every server media operation is constrained to the current workspace. | Cloudflare Access currently maps one identity to one personal workspace. There is no workspace membership or role model, so a visible Team claim would be false. |
+| Area                  | What works now                                                                                                                                                                                           | Missing product depth                                                                                                                                            |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Design templates      | Five active catalog items: two document starters and three quotation styles. The repository validates definitions, sorts deterministically, materializes fresh IDs and keeps create separate from apply. | Only three categories exist. There is no paging, recent use, favorites, collections, ownership filter or broad format coverage.                                  |
+| Template previews     | Start and editor cards render the canonical first page with `Artboard`. Loading, failure, no-results and compatibility states exist.                                                                     | Every list item carries a complete preview document and every card mounts live rendering. That will not scale to a large catalog.                                |
+| Template safety       | General apply shows impact and uses one canonical replacement transaction. Quotation style apply preserves source-backed content and manual structure.                                                   | New discovery work must keep these semantics. Catalog selection cannot become direct document replacement.                                                       |
+| Curated media         | Six original Studio SVG assets have name, description, tags, dimensions and a license label. Local search covers that metadata.                                                                          | The set is narrow, bundled as data URIs and has no durable source manifest, categories, favorites or collections.                                                |
+| Workspace media       | D1/R2 upload, recent use, name search, pagination, exact ownership, archive, recovery and reference-safe rendering exist.                                                                                | Server search is name-only. Public metadata has no description, tags, provenance, license or library category.                                                   |
+| Media interface       | Recent, Uploads and Library are distinct. The dialog has upload, progress, retry, error, empty, no-results and compact states.                                                                           | There are no custom collections, durable favorites or a persistent editor-side media browser. Curated recent use is browser-local only.                          |
+| Components            | The document-local Assets panel searches components, groups them by source page and inserts through canonical commands.                                                                                  | It is not a cross-document component library. The left tab is named Assets even though it contains only components.                                              |
+| Start and recent work | Blank, Import, Sample, Templates and repository-backed Recent/Trash are separate choices.                                                                                                                | Template discovery is still a small flat grid. There is no recent-template or favorite-template path.                                                            |
+| Ownership             | Every server media operation is constrained to the current workspace.                                                                                                                                    | Cloudflare Access currently maps one identity to one personal workspace. There is no workspace membership or role model, so a visible Team claim would be false. |
 
 Two boundaries must remain separate:
 
@@ -208,6 +208,21 @@ will not infer membership from a Cloudflare Access team domain.
 - retain current template identity, source context and media identity;
 - prove parsing, immutability, ordering, filters, cursors and malformed-data
   rejection.
+
+Result: **closed and independently accepted on 2026-08-31.** The shared
+document package now owns strict compact template/media summary, detail, query,
+page and cursor contracts plus an immutable searchable index. Real projections
+cover every current built-in template, curated Studio asset, authoritative
+managed-media summary and browser-local asset without exposing complete
+documents, data URIs, Blob URLs, R2 keys or private bytes. Provenance URLs are
+HTTP(S)-only; quotation styles cannot claim availability without a quotation
+source; curated asset versions and SHA-256 checksums are source-owned and
+verified against exact bytes; managed selection requires authoritative
+refetch; local selection retains its exact revision and rejects archived,
+missing-byte or incomplete records. Locale-independent search and ordering,
+cursor/query isolation, immutable snapshots and the 500-item query budget are
+covered. Independent re-review found no P0/P1 blocker; 18 focused tests and
+both affected package typechecks pass.
 
 ### Gate 2 - content and provenance
 

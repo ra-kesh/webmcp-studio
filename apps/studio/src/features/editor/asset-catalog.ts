@@ -3,6 +3,8 @@ import type { Document, ValidationIssue } from "@webmcp/document"
 
 export type StudioAsset = {
   id: string
+  version: number
+  contentSha256: string
   name: string
   description: string
   tags: string[]
@@ -30,6 +32,9 @@ export const studioAssets: StudioAsset[] = [
   asset(
     {
       id: "olive-botanical",
+      version: 1,
+      contentSha256:
+        "85cc8f05bda0255e74a2057f4d27c948eafaa4156bee4bab83f4e725bb056f24",
       name: "Olive botanical",
       description: "Soft botanical composition on warm ivory",
       tags: ["botanical", "olive", "wedding", "editorial", "ivory"],
@@ -41,6 +46,9 @@ export const studioAssets: StudioAsset[] = [
   asset(
     {
       id: "sandstone-arches",
+      version: 1,
+      contentSha256:
+        "9d439ee5bbcef006feb158ec818d9f3c69cf4206e8d2d166c29deb9c7c439571",
       name: "Sandstone arches",
       description: "Architectural arches with restrained earth tones",
       tags: ["architecture", "arches", "sandstone", "travel", "minimal"],
@@ -52,6 +60,9 @@ export const studioAssets: StudioAsset[] = [
   asset(
     {
       id: "linen-paper",
+      version: 1,
+      contentSha256:
+        "af55dfd6f6ed63652ebf6107bb66ec21de4aa0e00b5b52001ac9c017454a594c",
       name: "Linen paper",
       description: "Subtle woven paper texture for quiet backgrounds",
       tags: ["paper", "linen", "texture", "neutral", "background"],
@@ -63,6 +74,9 @@ export const studioAssets: StudioAsset[] = [
   asset(
     {
       id: "dusk-blocks",
+      version: 1,
+      contentSha256:
+        "f06daf3c63c4bc03ec13680269d20c068d51f21f8ee838720cb19197cc0c803d",
       name: "Dusk blocks",
       description: "Deep plum and clay geometric editorial study",
       tags: ["abstract", "plum", "clay", "geometric", "modern"],
@@ -74,6 +88,9 @@ export const studioAssets: StudioAsset[] = [
   asset(
     {
       id: "floral-linework",
+      version: 1,
+      contentSha256:
+        "c172e192873d1d354685e49c9fb4bef9bf3c4668026255bf76b053ea8d90988a",
       name: "Floral linework",
       description: "Fine ink flowers on a muted blush field",
       tags: ["floral", "linework", "blush", "invitation", "delicate"],
@@ -85,6 +102,9 @@ export const studioAssets: StudioAsset[] = [
   asset(
     {
       id: "warm-grain",
+      version: 1,
+      contentSha256:
+        "b85dca42ce5c01c6b5d419c127afd5420b313b0e91785eb12ee2bc9984ed3db4",
       name: "Warm grain",
       description: "Soft terracotta gradient with an organic grain",
       tags: ["gradient", "terracotta", "warm", "grain", "background"],

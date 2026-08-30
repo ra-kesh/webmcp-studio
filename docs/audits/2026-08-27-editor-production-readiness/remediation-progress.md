@@ -3558,3 +3558,24 @@ Status: **completed and independently accepted; LIBRARY-02 is active**
 - Fresh retained captures pass for resources (`2026-08-30T20-24-21.290Z-eced26b5-0ce1-4445-95fd-c0223d05e89d`), components (`2026-08-30T20-24-01.428Z-ffdf6a4f-3f2d-43a0-bc6b-4dea01935749`) and the complete component journey (`2026-08-30T20-24-34.290Z-13d3a12d-6e8a-4df5-9c8c-59d1f4855f95`).
 - Independent final review reports no remaining P0/P1 finding and explicitly approves both phase closures. Integrated evidence passes Document 314/314, Editor 327/327, Render View 16/16, Renderer 70/70 and focused Studio 71/71.
 - TEXT-02 and COMPONENT-01 are closed. The next active gate is LIBRARY-02 compact catalog contracts and real template/media projections.
+
+## 2026-08-31 — LIBRARY-02 Gate 1 catalog domain and compatibility
+
+Status: **closed and independently accepted; Gate 2 is active**
+
+- Added strict compact catalog summary, detail, query, page, cursor, ownership,
+  permission, provenance, compatibility and preference projections without
+  carrying canonical document bodies or media bytes in list records.
+- Added an immutable deterministic catalog index with composable discovery
+  filters, bound opaque cursors and a measured 500-item query budget.
+- Projected all five current built-in templates and all six curated Studio
+  assets, plus managed and local media, while retaining exact template source
+  context and media selection identity.
+- Closed independent-review findings by restricting provenance links to
+  HTTP(S), enforcing source-required quotation styles, moving curated version
+  and SHA-256 identity into the asset source, verifying every current asset's
+  exact bytes and removing locale-sensitive normalization.
+- Focused catalog evidence passes 18/18, Document and Studio typechecks pass,
+  and independent re-review reports no open P0/P1 blocker. Gate 2 now owns the
+  validated authoring manifest, structural template breadth, media taxonomy,
+  complete provenance and synthetic seed-content boundary.

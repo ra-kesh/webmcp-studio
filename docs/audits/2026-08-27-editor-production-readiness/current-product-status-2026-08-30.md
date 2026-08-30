@@ -43,9 +43,10 @@ artifacts.
    the formerly freezing color picker. Broader recipe consolidation and the
    compact/dark/coarse-pointer visual matrix remain open; this is improved,
    not full visual parity.
-2. **LIBRARY-02:** the template/media system works, but catalog breadth,
-   categories, collections, favorites/team ownership and discovery quality are
-   still far below Canva.
+2. **LIBRARY-02:** the compact catalog and exact compatibility/ownership
+   contracts are independently accepted. Catalog breadth, raster previews,
+   discovery UI, collections, favorites and integrated Assets navigation remain
+   active and still sit well below Canva's product depth.
 3. **ASSET-02 depth:** placement, crop and frame masks are real; general masks
    and a production background-removal workflow are not built.
 4. **Environment proof:** deployed migrations 0012/0013 and the remaining
@@ -55,8 +56,9 @@ artifacts.
 
 ## No-bounce execution order
 
-1. Complete LIBRARY-02 compact catalog projection, discovery and ownership
-   gates without putting full preview documents or media bytes in list records.
+1. Continue LIBRARY-02 from its accepted compact catalog into manifest-backed
+   content/provenance, raster previews, discovery, preferences and Assets
+   integration without putting full documents or media bytes in list records.
 2. Run one bounded OpenPencil comparison and visual-sophistication pass without
    reopening already accepted command semantics.
 3. Build remaining ASSET-02 mask/background-removal depth.
