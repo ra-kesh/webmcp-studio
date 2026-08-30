@@ -11,7 +11,7 @@ function EditorPanelHeader({
     <div
       data-slot="editor-panel-header"
       className={cn(
-        "flex h-(--studio-contextbar-height) shrink-0 items-center border-b bg-background px-3",
+        "flex h-(--studio-contextbar-height) shrink-0 items-center border-b border-border/80 bg-background px-2.5",
         className
       )}
       {...props}
@@ -28,7 +28,7 @@ function EditorPanelTabsList({
       <TabsList
         variant="line"
         className={cn(
-          "!h-full w-full justify-start rounded-none p-0 px-3 [&_[data-slot=tabs-trigger]]:!h-full [&_[data-slot=tabs-trigger]]:after:bottom-0",
+          "!h-full w-full justify-start gap-0.5 rounded-none p-0 px-2 [&_[data-slot=tabs-trigger]]:!h-full [&_[data-slot=tabs-trigger]]:after:bottom-0",
           className
         )}
         {...props}
@@ -37,4 +37,20 @@ function EditorPanelTabsList({
   )
 }
 
-export { EditorPanelHeader, EditorPanelTabsList }
+function EditorPanelSectionHeader({
+  className,
+  ...props
+}: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="editor-panel-section-header"
+      className={cn(
+        "flex min-h-8 shrink-0 items-center gap-2 border-b border-border/70 px-2.5 text-[11px] font-medium",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+export { EditorPanelHeader, EditorPanelSectionHeader, EditorPanelTabsList }

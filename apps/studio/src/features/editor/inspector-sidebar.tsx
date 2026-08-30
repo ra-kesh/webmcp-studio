@@ -358,7 +358,7 @@ function NodeInspector({
         data-inspector-property="visible"
         tabIndex={-1}
         className={cn(
-          "flex scroll-mt-2 flex-col gap-3 p-4 transition-colors outline-none",
+          "flex scroll-mt-2 flex-col gap-3 px-3 py-3.5 transition-colors outline-none",
           focusedProperty === "visible" &&
             "bg-accent/70 ring-2 ring-ring ring-inset"
         )}
@@ -418,7 +418,7 @@ function NodeInspector({
       </section>
 
       <Separator />
-      <section className="flex flex-col gap-3 p-4">
+      <section className="flex flex-col gap-3 px-3 py-3.5">
         <FieldLabel>Align to page</FieldLabel>
         <AlignmentGrid
           onAlign={onAlignToPage}
@@ -427,7 +427,7 @@ function NodeInspector({
       </section>
 
       <Separator />
-      <section className="flex flex-col gap-3 p-4">
+      <section className="flex flex-col gap-3 px-3 py-3.5">
         <FieldLabel>Position &amp; size</FieldLabel>
         <div className="grid grid-cols-2 gap-2">
           <InspectorNumberField
@@ -466,7 +466,7 @@ function NodeInspector({
       </section>
 
       <Separator />
-      <section className="flex flex-col gap-3 p-4">
+      <section className="flex flex-col gap-3 px-3 py-3.5">
         <CommitPercentSlider
           label="Opacity"
           value={node.opacity * 100}
@@ -482,7 +482,7 @@ function NodeInspector({
             data-inspector-property="text"
             tabIndex={-1}
             className={cn(
-              "flex scroll-mt-2 flex-col gap-3 p-4 transition-colors outline-none",
+              "flex scroll-mt-2 flex-col gap-3 px-3 py-3.5 transition-colors outline-none",
               focusedProperty === "text" &&
                 "bg-accent/70 ring-2 ring-ring ring-inset"
             )}
@@ -732,7 +732,7 @@ function NodeInspector({
             data-inspector-property="fill"
             tabIndex={-1}
             className={cn(
-              "flex scroll-mt-2 flex-col gap-3 p-4 transition-colors outline-none",
+              "flex scroll-mt-2 flex-col gap-3 px-3 py-3.5 transition-colors outline-none",
               focusedProperty === "fill" &&
                 "bg-accent/70 ring-2 ring-ring ring-inset"
             )}
@@ -775,7 +775,7 @@ function NodeInspector({
             data-inspector-property="fill"
             tabIndex={-1}
             className={cn(
-              "flex scroll-mt-2 flex-col gap-3 p-4 transition-colors outline-none",
+              "flex scroll-mt-2 flex-col gap-3 px-3 py-3.5 transition-colors outline-none",
               focusedProperty === "fill" &&
                 "bg-accent/70 ring-2 ring-ring ring-inset"
             )}
@@ -806,7 +806,7 @@ function NodeInspector({
       {inspector.capabilities.stroke && node.type === "line" ? (
         <>
           <Separator />
-          <section className="flex flex-col gap-3 p-4">
+          <section className="flex flex-col gap-3 px-3 py-3.5">
             <InspectorColorField
               label="Stroke"
               value={node.stroke}
@@ -831,7 +831,7 @@ function NodeInspector({
             data-inspector-property="src"
             tabIndex={-1}
             className={cn(
-              "flex scroll-mt-2 flex-col gap-3 p-4 transition-colors outline-none",
+              "flex scroll-mt-2 flex-col gap-3 px-3 py-3.5 transition-colors outline-none",
               focusedProperty === "src" &&
                 "bg-accent/70 ring-2 ring-ring ring-inset"
             )}
@@ -1252,7 +1252,7 @@ function MultiSelectionInspector({
     inspector.values.visible.kind === "value" && inspector.values.visible.value
   return (
     <div className="flex flex-col">
-      <section className="flex flex-col gap-3 p-4">
+      <section className="flex flex-col gap-3 px-3 py-3.5">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-xs font-medium">{nodes.length} layers</h2>
@@ -1314,7 +1314,7 @@ function MultiSelectionInspector({
       </section>
 
       <Separator />
-      <section className="flex flex-col gap-3 p-4">
+      <section className="flex flex-col gap-3 px-3 py-3.5">
         <FieldLabel>Position &amp; size</FieldLabel>
         <div className="grid grid-cols-2 gap-2">
           <InspectorNumberField
@@ -1378,7 +1378,7 @@ function MultiSelectionInspector({
       </section>
 
       <Separator />
-      <section className="flex flex-col gap-3 p-4">
+      <section className="flex flex-col gap-3 px-3 py-3.5">
         <FieldLabel>Align</FieldLabel>
         <AlignmentGrid onAlign={onAlign} disabled={movableCount < 2} />
         <div className="grid grid-cols-2 gap-2">
@@ -1406,7 +1406,7 @@ function MultiSelectionInspector({
       </section>
 
       <Separator />
-      <section className="flex flex-col gap-3 p-4">
+      <section className="flex flex-col gap-3 px-3 py-3.5">
         <FieldLabel>Layer order</FieldLabel>
         <div className="grid grid-cols-2 gap-2">
           <Button
@@ -2451,7 +2451,7 @@ function FieldsPanel({
 
       <Separator />
 
-      <section className="flex flex-col gap-3 p-4">
+      <section className="flex flex-col gap-3 px-3 py-3.5">
         <div>
           <h2 className="text-xs font-medium">Selected layer bindings</h2>
           <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">

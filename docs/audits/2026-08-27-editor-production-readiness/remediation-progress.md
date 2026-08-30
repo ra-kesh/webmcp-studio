@@ -2707,3 +2707,27 @@ Status: **completed without remote mutation; production write gate is blocked**
   Browser Rendering request, R2 operation, owner login or product fixture was
   attempted. Applying the suffix and exercising Slice 6C require explicit
   production authorization.
+
+## 2026-08-30 — EDITOR-POLISH-01 Gate 1 editor chrome
+
+Status: **completed locally; EDITOR-POLISH-01 remains active**
+
+- Revisited the original visual audit, continuation ledger, mounted Studio
+  shell and the matching OpenPencil control, toolbar, canvas-header and list
+  recipes before implementation. The exact scope and baseline are retained in
+  `editor-polish-01-phase-entry.md`.
+- A real `1440 x 900` port-3001 inspection established the pre-change geometry:
+  48 px top toolbar, 44 px panel bars, 43 px panel tabs, 30 px tree rows, 28 px
+  toolbar controls, 32 px fields and 10 px all-caps inspector labels.
+- Added a semantic editor scale and applied it coherently across the shell,
+  panel tabs, toolbar buttons, virtualized Layers tree, layer search, selection,
+  drag/drop and inspector property anatomy. Compact/coarse targets remain 44 px.
+- Mounted acceptance confirmed exact 40 px alignment across the document,
+  canvas and inspector bars; connected tab indicators; 28 px hierarchical
+  rows; visible canvas selection; corresponding inspector projection; and no
+  horizontal shell overflow.
+- Studio typecheck, 35 focused tests, scoped Studio/UI ESLint and
+  `git diff --check` pass.
+- Gate 2 owns left-panel template/page composition. The complete polish phase
+  still owns deeper inspector grouping, filmstrip/HUD/overlays,
+  menus/dialogs/states, compact sheets and the final full-width visual matrix.

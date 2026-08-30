@@ -69,9 +69,9 @@ import {
   layerContextSelectionNodeIds,
 } from "./layer-context-menu"
 
-const DESKTOP_ROW_HEIGHT = 30
+const DESKTOP_ROW_HEIGHT = 28
 const COMPACT_ROW_HEIGHT = 44
-const INDENT = 16
+const INDENT = 14
 
 const nodeIcon = {
   text: Type,
@@ -283,14 +283,14 @@ function LayerRow({
       data-drop-intent={isDropTarget ? dropState.intent : undefined}
       tabIndex={-1}
       className={cn(
-        "group/layer relative flex w-full cursor-default items-center overflow-hidden rounded-[5px] pr-1 text-[11px] outline-none select-none",
-        compact ? "h-11" : "h-[30px]",
-        "hover:bg-muted/70 focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-inset data-[active=true]:ring-1 data-[active=true]:ring-ring/60 data-[active=true]:ring-inset",
-        "data-[selected=true]:bg-[#e5f3ff] data-[selected=true]:text-foreground dark:data-[selected=true]:bg-[#0d99ff]/20",
+        "group/layer relative flex w-full cursor-default items-center overflow-hidden rounded-[4px] pr-1 text-[11px] outline-none select-none",
+        compact ? "h-(--studio-compact-target)" : "h-(--studio-row-height)",
+        "hover:bg-muted/65 focus-visible:ring-2 focus-visible:ring-studio-accent/55 focus-visible:ring-inset data-[active=true]:ring-1 data-[active=true]:ring-studio-accent/45 data-[active=true]:ring-inset",
+        "data-[selected=true]:bg-studio-accent/11 data-[selected=true]:text-foreground dark:data-[selected=true]:bg-studio-accent/18",
         "data-[selection-mixed=true]:bg-muted/60",
         "data-[dragging=true]:opacity-30 data-[hidden=true]:opacity-50",
-        "data-[drop-intent=inside]:bg-[#0d99ff]/12 data-[drop-intent=inside]:ring-1 data-[drop-intent=inside]:ring-[#0d99ff]",
-        "after:pointer-events-none after:absolute after:right-1 after:left-[var(--drop-left)] after:z-10 after:hidden after:h-0.5 after:rounded-full after:bg-[#0d99ff] data-[drop-intent=above]:after:top-0 data-[drop-intent=above]:after:block data-[drop-intent=below]:after:bottom-0 data-[drop-intent=below]:after:block"
+        "data-[drop-intent=inside]:bg-studio-accent/12 data-[drop-intent=inside]:ring-1 data-[drop-intent=inside]:ring-studio-accent",
+        "after:pointer-events-none after:absolute after:right-1 after:left-[var(--drop-left)] after:z-10 after:hidden after:h-0.5 after:rounded-full after:bg-studio-accent data-[drop-intent=above]:after:top-0 data-[drop-intent=above]:after:block data-[drop-intent=below]:after:bottom-0 data-[drop-intent=below]:after:block"
       )}
       style={
         {
@@ -342,7 +342,7 @@ function LayerRow({
       <Icon
         className={cn(
           "mr-1 size-3.5 shrink-0 text-muted-foreground",
-          selectedState === "all" && "text-[#0d99ff]"
+          selectedState === "all" && "text-studio-accent"
         )}
       />
 
@@ -1105,7 +1105,7 @@ export function LayerTree({
 
   return (
     <section className="flex min-h-0 flex-1 flex-col" aria-label="Layers">
-      <div className="border-b p-2">
+      <div className="border-b border-border/70 p-2">
         <div className="relative">
           <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -1117,7 +1117,9 @@ export function LayerTree({
             placeholder="Search layers…"
             className={cn(
               "rounded-md pr-8 pl-7 text-xs",
-              compact ? "h-11" : "h-8"
+              compact
+                ? "h-(--studio-compact-target)"
+                : "h-(--studio-control-sm)"
             )}
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => event.stopPropagation()}
@@ -1138,7 +1140,7 @@ export function LayerTree({
             </Button>
           ) : null}
         </div>
-        <div className="mt-1.5 flex items-center justify-between px-0.5 text-[10px] text-muted-foreground">
+        <div className="mt-1.5 flex items-center justify-between px-0.5 text-[11px] leading-4 text-muted-foreground">
           <span role="status" aria-live="polite" aria-atomic="true">
             {query
               ? `${matchCount} ${matchCount === 1 ? "result" : "results"}`

@@ -16,7 +16,7 @@ export function InspectorSectionLabel({
   children: React.ReactNode
 }) {
   return (
-    <span className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+    <span className="text-[11px] leading-4 font-medium text-muted-foreground">
       {children}
     </span>
   )

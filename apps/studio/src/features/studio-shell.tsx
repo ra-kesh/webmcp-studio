@@ -365,7 +365,13 @@ function IconButton({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Button aria-label={label} size="icon-sm" variant="ghost" {...props}>
+        <Button
+          aria-label={label}
+          size="icon-sm"
+          variant="ghost"
+          {...props}
+          className={cn("rounded-md", props.className)}
+        >
           {children}
         </Button>
       </TooltipTrigger>
@@ -3138,7 +3144,7 @@ export function StudioShell({
         <p className="sr-only" role="status" aria-live="polite" aria-atomic>
           {shellLayoutError ?? ""}
         </p>
-        <header className="flex h-(--studio-topbar-height) min-w-0 shrink-0 items-center gap-1 border-b px-2 min-[1280px]:gap-3 min-[1280px]:px-3">
+        <header className="flex h-(--studio-topbar-height) min-w-0 shrink-0 items-center gap-1 border-b border-border/80 px-2 min-[1280px]:gap-3 min-[1280px]:px-3">
           <button
             aria-label="Go to Studio home"
             className="flex min-w-0 flex-1 items-center gap-2 rounded-md text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/40 min-[1280px]:w-56 min-[1280px]:flex-none min-[1280px]:gap-2.5"
@@ -3156,7 +3162,7 @@ export function StudioShell({
               <span className="truncate text-sm font-medium">
                 {editor.document.name}
               </span>
-              <span className="mt-1 truncate text-[10px] text-muted-foreground">
+              <span className="mt-1 truncate text-[11px] leading-none text-muted-foreground">
                 Template · Revision {editor.document.revision}
               </span>
             </div>

@@ -43,6 +43,7 @@
   --color-foreground: var(--foreground);
   --color-background: var(--background);
   --color-workspace: var(--workspace);
+  --color-studio-accent: var(--studio-accent);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -56,7 +57,13 @@
 
 :root {
   --studio-topbar-height: 3rem;
-  --studio-contextbar-height: 2.75rem;
+  --studio-contextbar-height: 2.5rem;
+  --studio-control-xs: 1.5rem;
+  --studio-control-sm: 1.75rem;
+  --studio-control-md: 2rem;
+  --studio-row-height: 1.75rem;
+  --studio-compact-target: 2.75rem;
+  --studio-accent: oklch(0.65 0.19 250);
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -93,6 +100,7 @@
 }
 
 .dark {
+  --studio-accent: oklch(0.72 0.16 248);
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
