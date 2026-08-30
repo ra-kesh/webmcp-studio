@@ -558,21 +558,23 @@ const waitForLocalAssetOperation = <T>(
   if (!signal) return operation
   signal.throwIfAborted()
   return new Promise<T>((resolve, reject) => {
+    let aborted = false
     const cleanUp = () => signal.removeEventListener("abort", abort)
     const abort = () => {
-      cleanUp()
-      reject(signal.reason)
+      aborted = true
     }
     signal.addEventListener("abort", abort, { once: true })
     void operation.then(
       (value) => {
         cleanUp()
-        if (signal.aborted) disposeLateResult?.(value)
-        else resolve(value)
+        if (aborted || signal.aborted) {
+          disposeLateResult?.(value)
+          reject(signal.reason)
+        } else resolve(value)
       },
       (error: unknown) => {
         cleanUp()
-        if (!signal.aborted) reject(error)
+        reject(aborted || signal.aborted ? signal.reason : error)
       }
     )
   })
@@ -601,10 +603,7 @@ const openDatabaseForAbortableOperation = async (signal?: AbortSignal) => {
 
   return new Promise<IDBDatabase>((resolve, reject) => {
     const cleanUp = () => signal.removeEventListener("abort", abort)
-    const abort = () => {
-      cleanUp()
-      reject(signal.reason)
-    }
+    const abort = () => {}
     signal.addEventListener("abort", abort, { once: true })
     void openDatabase().then(
       (database) => {
@@ -612,6 +611,7 @@ const openDatabaseForAbortableOperation = async (signal?: AbortSignal) => {
         if (signal.aborted) {
           database.close()
           releaseReservation()
+          reject(signal.reason)
           return
         }
         releaseReservation()
@@ -620,7 +620,7 @@ const openDatabaseForAbortableOperation = async (signal?: AbortSignal) => {
       (error: unknown) => {
         cleanUp()
         releaseReservation()
-        if (!signal.aborted) reject(error)
+        reject(signal.aborted ? signal.reason : error)
       }
     )
   })

@@ -451,42 +451,132 @@ export const subscribeToLocalAssetPromotionJournal = (
   return () => channel.close()
 }
 
-const readJournalValue = async (localAssetId: string) => {
-  const database = await openLocalAssetDatabase()
-  return new Promise<unknown>((resolve, reject) => {
-    const transaction = database.transaction(
-      LOCAL_ASSET_PROMOTION_JOURNAL_STORE_NAME,
-      "readonly"
-    )
-    const request = transaction
-      .objectStore(LOCAL_ASSET_PROMOTION_JOURNAL_STORE_NAME)
-      .get(localAssetId)
-    let value: unknown
-    request.onsuccess = () => {
-      value = request.result
+const waitForJournalOperation = <T>(
+  operation: Promise<T>,
+  signal?: AbortSignal,
+  disposeLateResult?: (value: T) => void
+) => {
+  if (!signal) return operation
+  signal.throwIfAborted()
+  return new Promise<T>((resolve, reject) => {
+    const settle = (value: T) => {
+      signal.removeEventListener("abort", abort)
+      if (signal.aborted) {
+        disposeLateResult?.(value)
+        reject(signal.reason)
+      } else resolve(value)
     }
-    transaction.oncomplete = () => {
-      database.close()
-      resolve(value)
+    const fail = (error: unknown) => {
+      signal.removeEventListener("abort", abort)
+      reject(signal.aborted ? signal.reason : error)
     }
-    transaction.onerror = () => {
-      database.close()
-      reject(transaction.error ?? new Error("Promotion journal read failed"))
-    }
-    transaction.onabort = () => {
-      database.close()
-      reject(
-        transaction.error ?? new Error("Promotion journal read was aborted")
-      )
-    }
+    const abort = () => {}
+    signal.addEventListener("abort", abort, { once: true })
+    void operation.then(settle, fail)
   })
 }
 
+const openJournalDatabase = async (signal?: AbortSignal) => {
+  if (!signal) return openLocalAssetDatabase()
+  signal.throwIfAborted()
+  return waitForJournalOperation(openLocalAssetDatabase(), signal, (database) =>
+    database.close()
+  )
+}
+
+let journalOperationTail: Promise<void> = Promise.resolve()
+
+const serializeJournalOperation = async <T>(
+  operation: () => Promise<T>,
+  signal?: AbortSignal
+) => {
+  const predecessor = journalOperationTail
+  let releaseReservation: () => void = () => {}
+  const reservation = new Promise<void>((resolve) => {
+    releaseReservation = resolve
+  })
+  journalOperationTail = predecessor.then(() => reservation)
+  try {
+    await waitForJournalOperation(predecessor, signal)
+    signal?.throwIfAborted()
+    return await operation()
+  } finally {
+    releaseReservation()
+  }
+}
+
+const readJournalValue = async (localAssetId: string, signal?: AbortSignal) =>
+  serializeJournalOperation(async () => {
+    const database = await openJournalDatabase(signal)
+    return new Promise<unknown>((resolve, reject) => {
+      let transaction: IDBTransaction | null = null
+      let request: IDBRequest<unknown>
+      try {
+        transaction = database.transaction(
+          LOCAL_ASSET_PROMOTION_JOURNAL_STORE_NAME,
+          "readonly"
+        )
+        request = transaction
+          .objectStore(LOCAL_ASSET_PROMOTION_JOURNAL_STORE_NAME)
+          .get(localAssetId)
+      } catch (error) {
+        if (!transaction) {
+          database.close()
+          reject(error)
+          return
+        }
+        transaction.onerror = () => {
+          // Wait for abort acknowledgement before releasing the operation.
+        }
+        transaction.onabort = () => {
+          database.close()
+          reject(error)
+        }
+        try {
+          transaction.abort()
+        } catch {
+          database.close()
+          reject(error)
+        }
+        return
+      }
+      const cleanUp = () => signal?.removeEventListener("abort", abort)
+      const abort = () => abortTransaction(transaction)
+      let value: unknown
+      request.onsuccess = () => {
+        value = request.result
+      }
+      transaction.oncomplete = () => {
+        cleanUp()
+        database.close()
+        if (signal?.aborted) reject(signal.reason)
+        else resolve(value)
+      }
+      transaction.onerror = () => {
+        // Wait for abort acknowledgement before releasing the serialized
+        // operation and allowing a retry to open another transaction.
+      }
+      transaction.onabort = () => {
+        cleanUp()
+        database.close()
+        reject(
+          signal?.aborted
+            ? signal.reason
+            : (transaction.error ??
+                new Error("Promotion journal read was aborted"))
+        )
+      }
+      signal?.addEventListener("abort", abort, { once: true })
+      if (signal?.aborted) abort()
+    })
+  }, signal)
+
 export async function readLocalAssetPromotionJournal(
-  localAssetId: string
+  localAssetId: string,
+  signal?: AbortSignal
 ): Promise<LocalAssetPromotionJournalReadResult> {
   const validLocalAssetId = localAssetIdSchema.parse(localAssetId)
-  const value = await readJournalValue(validLocalAssetId)
+  const value = await readJournalValue(validLocalAssetId, signal)
   if (value === undefined) return { status: "missing" }
   const parsed = localAssetPromotionJournalSchema.safeParse(value)
   return parsed.success
@@ -506,73 +596,114 @@ const mutateJournal = async (
   localAssetId: string,
   mutation: (
     current: LocalAssetPromotionJournal | null
-  ) => LocalAssetPromotionJournal
+  ) => LocalAssetPromotionJournal,
+  signal?: AbortSignal
 ) => {
   const validLocalAssetId = localAssetIdSchema.parse(localAssetId)
-  const database = await openLocalAssetDatabase()
-  return new Promise<LocalAssetPromotionJournal>((resolve, reject) => {
-    let result: LocalAssetPromotionJournal | null = null
-    let changed = false
-    let operationError: unknown = null
-    const transaction = database.transaction(
-      LOCAL_ASSET_PROMOTION_JOURNAL_STORE_NAME,
-      "readwrite"
-    )
-    const store = transaction.objectStore(
-      LOCAL_ASSET_PROMOTION_JOURNAL_STORE_NAME
-    )
-    const request = store.get(validLocalAssetId)
-    request.onsuccess = () => {
+  return serializeJournalOperation(async () => {
+    const database = await openJournalDatabase(signal)
+    return new Promise<LocalAssetPromotionJournal>((resolve, reject) => {
+      let result: LocalAssetPromotionJournal | null = null
+      let changed = false
+      let operationError: unknown = null
+      let transaction: IDBTransaction | null = null
+      let request: IDBRequest<unknown>
       try {
-        const currentValue: unknown = request.result
-        let current: LocalAssetPromotionJournal | null = null
-        if (currentValue !== undefined) {
-          const parsed =
-            localAssetPromotionJournalSchema.safeParse(currentValue)
-          if (!parsed.success) {
-            throw new LocalAssetPromotionJournalCorruptError()
-          }
-          current = parsed.data
-        }
-        result = localAssetPromotionJournalSchema.parse(mutation(current))
-        changed = result !== current
-        if (changed) store.put(result)
-      } catch (error) {
-        operationError = error
-        abortTransaction(transaction)
-      }
-    }
-    transaction.oncomplete = () => {
-      database.close()
-      if (!result) {
-        reject(new LocalAssetPromotionCheckpointError())
-        return
-      }
-      if (changed) broadcastJournalChange(result)
-      resolve(result)
-    }
-    transaction.onerror = () => {
-      // Wait for abort acknowledgement so another owner cannot overlap the
-      // IndexedDB transaction that just failed.
-    }
-    transaction.onabort = () => {
-      database.close()
-      if (
-        operationError instanceof LocalAssetPromotionJournalCorruptError ||
-        operationError instanceof LocalAssetPromotionJournalRevisionError ||
-        operationError instanceof LocalAssetPromotionBusyError ||
-        operationError instanceof LocalAssetPromotionLeaseError
-      ) {
-        reject(operationError)
-        return
-      }
-      reject(
-        new LocalAssetPromotionCheckpointError(
-          operationError ?? transaction.error
+        transaction = database.transaction(
+          LOCAL_ASSET_PROMOTION_JOURNAL_STORE_NAME,
+          "readwrite"
         )
-      )
-    }
-  })
+        request = transaction
+          .objectStore(LOCAL_ASSET_PROMOTION_JOURNAL_STORE_NAME)
+          .get(validLocalAssetId)
+      } catch (error) {
+        const failure = new LocalAssetPromotionCheckpointError(error)
+        if (!transaction) {
+          database.close()
+          reject(failure)
+          return
+        }
+        transaction.onerror = () => {
+          // Wait for abort acknowledgement before releasing the operation.
+        }
+        transaction.onabort = () => {
+          database.close()
+          reject(failure)
+        }
+        try {
+          transaction.abort()
+        } catch {
+          database.close()
+          reject(failure)
+        }
+        return
+      }
+      const cleanUp = () => signal?.removeEventListener("abort", abort)
+      const abort = () => abortTransaction(transaction)
+      request.onsuccess = () => {
+        try {
+          const currentValue: unknown = request.result
+          let current: LocalAssetPromotionJournal | null = null
+          if (currentValue !== undefined) {
+            const parsed =
+              localAssetPromotionJournalSchema.safeParse(currentValue)
+            if (!parsed.success) {
+              throw new LocalAssetPromotionJournalCorruptError()
+            }
+            current = parsed.data
+          }
+          result = localAssetPromotionJournalSchema.parse(mutation(current))
+          changed = result !== current
+          if (changed) {
+            transaction
+              .objectStore(LOCAL_ASSET_PROMOTION_JOURNAL_STORE_NAME)
+              .put(result)
+          }
+        } catch (error) {
+          operationError = error
+          abortTransaction(transaction)
+        }
+      }
+      transaction.oncomplete = () => {
+        cleanUp()
+        database.close()
+        if (!result) {
+          reject(new LocalAssetPromotionCheckpointError())
+          return
+        }
+        if (changed) broadcastJournalChange(result)
+        // A committed mutation wins the cancellation race. Returning the exact
+        // checkpoint lets the owner settle or release a claimed lease.
+        resolve(result)
+      }
+      transaction.onerror = () => {
+        // Wait for abort acknowledgement so another owner cannot overlap the
+        // IndexedDB transaction that just failed.
+      }
+      transaction.onabort = () => {
+        cleanUp()
+        database.close()
+        if (
+          operationError instanceof LocalAssetPromotionJournalCorruptError ||
+          operationError instanceof LocalAssetPromotionJournalRevisionError ||
+          operationError instanceof LocalAssetPromotionBusyError ||
+          operationError instanceof LocalAssetPromotionLeaseError
+        ) {
+          reject(operationError)
+          return
+        }
+        reject(
+          signal?.aborted
+            ? signal.reason
+            : new LocalAssetPromotionCheckpointError(
+                operationError ?? transaction.error
+              )
+        )
+      }
+      signal?.addEventListener("abort", abort, { once: true })
+      if (signal?.aborted) abort()
+    })
+  }, signal)
 }
 
 const sameStringArray = (left: readonly string[], right: readonly string[]) =>
@@ -594,92 +725,97 @@ const matchesCreationAnchor = (
   sameStringArray(journal.expectedReferenceKeys, input.expectedReferenceKeys)
 
 export const createOrResumeLocalAssetPromotionJournal = async (
-  input: CreateLocalAssetPromotionJournalInput
+  input: CreateLocalAssetPromotionJournalInput,
+  signal?: AbortSignal
 ) => {
   const now = input.now ?? new Date().toISOString()
   parseTimestamp(now)
   const idempotencyKey = mediaIdempotencyKeySchema.parse(input.idempotencyKey)
-  return mutateJournal(input.localAssetId, (current) => {
-    if (current) {
-      if (!matchesCreationAnchor(current, input)) {
-        if (
-          current.state !== "complete" ||
-          input.supersedeCompletedRevision !== current.revision
-        ) {
-          throw new LocalAssetPromotionJournalRevisionError()
+  return mutateJournal(
+    input.localAssetId,
+    (current) => {
+      if (current) {
+        if (!matchesCreationAnchor(current, input)) {
+          if (
+            current.state !== "complete" ||
+            input.supersedeCompletedRevision !== current.revision
+          ) {
+            throw new LocalAssetPromotionJournalRevisionError()
+          }
+          if (
+            current.lease &&
+            parseTimestamp(current.lease.expiresAt) > parseTimestamp(now)
+          ) {
+            throw new LocalAssetPromotionBusyError()
+          }
+          if (parseTimestamp(now) < parseTimestamp(current.updatedAt)) {
+            throw new LocalAssetPromotionJournalRevisionError()
+          }
+          return {
+            ...current,
+            revision: current.revision + 1,
+            idempotencyKey,
+            attempt: 0,
+            state: "mapped",
+            sourceDocumentId: input.sourceDocumentId,
+            sourceContentSnapshotId: input.sourceContentSnapshotId,
+            sourceHistorySnapshotId: input.sourceHistorySnapshotId,
+            sourceOperationVersion: input.sourceOperationVersion,
+            sourceDraftRecordVersion: input.sourceDraftRecordVersion,
+            sourceDraftSnapshotId: input.sourceDraftSnapshotId,
+            sourceLocalAssetRevision: input.sourceLocalAssetRevision,
+            expectedReferenceKeys: [...input.expectedReferenceKeys],
+            relinkResultContentSnapshotId: null,
+            relinkResultHistorySnapshotId: null,
+            relinkResultDraftSnapshotId: null,
+            relinkResultDraftRecordVersion: null,
+            relinkCommitId: null,
+            relinkUndoable: null,
+            errorCode: null,
+            errorRequestId: null,
+            createdAt: now,
+            updatedAt: now,
+            lease: null,
+          }
         }
-        if (
-          current.lease &&
-          parseTimestamp(current.lease.expiresAt) > parseTimestamp(now)
-        ) {
-          throw new LocalAssetPromotionBusyError()
-        }
-        if (parseTimestamp(now) < parseTimestamp(current.updatedAt)) {
-          throw new LocalAssetPromotionJournalRevisionError()
-        }
-        return {
-          ...current,
-          revision: current.revision + 1,
-          idempotencyKey,
-          attempt: 0,
-          state: "mapped",
-          sourceDocumentId: input.sourceDocumentId,
-          sourceContentSnapshotId: input.sourceContentSnapshotId,
-          sourceHistorySnapshotId: input.sourceHistorySnapshotId,
-          sourceOperationVersion: input.sourceOperationVersion,
-          sourceDraftRecordVersion: input.sourceDraftRecordVersion,
-          sourceDraftSnapshotId: input.sourceDraftSnapshotId,
-          sourceLocalAssetRevision: input.sourceLocalAssetRevision,
-          expectedReferenceKeys: [...input.expectedReferenceKeys],
-          relinkResultContentSnapshotId: null,
-          relinkResultHistorySnapshotId: null,
-          relinkResultDraftSnapshotId: null,
-          relinkResultDraftRecordVersion: null,
-          relinkCommitId: null,
-          relinkUndoable: null,
-          errorCode: null,
-          errorRequestId: null,
-          createdAt: now,
-          updatedAt: now,
-          lease: null,
-        }
+        return current
       }
-      return current
-    }
-    return {
-      schemaVersion: 1,
-      localAssetId: input.localAssetId,
-      revision: 1,
-      contentSha256: null,
-      idempotencyKey,
-      attempt: 0,
-      state: "queued",
-      managedAssetId: null,
-      managedContentSha256: null,
-      managedStatus: null,
-      managedAssetRevision: null,
-      sourceDocumentId: input.sourceDocumentId,
-      sourceContentSnapshotId: input.sourceContentSnapshotId,
-      sourceHistorySnapshotId: input.sourceHistorySnapshotId,
-      sourceOperationVersion: input.sourceOperationVersion,
-      sourceDraftRecordVersion: input.sourceDraftRecordVersion,
-      sourceDraftSnapshotId: input.sourceDraftSnapshotId,
-      sourceLocalAssetRevision: input.sourceLocalAssetRevision,
-      expectedReferenceKeys: [...input.expectedReferenceKeys],
-      mappingRequestId: null,
-      relinkResultContentSnapshotId: null,
-      relinkResultHistorySnapshotId: null,
-      relinkResultDraftSnapshotId: null,
-      relinkResultDraftRecordVersion: null,
-      relinkCommitId: null,
-      relinkUndoable: null,
-      errorCode: null,
-      errorRequestId: null,
-      createdAt: now,
-      updatedAt: now,
-      lease: null,
-    }
-  })
+      return {
+        schemaVersion: 1,
+        localAssetId: input.localAssetId,
+        revision: 1,
+        contentSha256: null,
+        idempotencyKey,
+        attempt: 0,
+        state: "queued",
+        managedAssetId: null,
+        managedContentSha256: null,
+        managedStatus: null,
+        managedAssetRevision: null,
+        sourceDocumentId: input.sourceDocumentId,
+        sourceContentSnapshotId: input.sourceContentSnapshotId,
+        sourceHistorySnapshotId: input.sourceHistorySnapshotId,
+        sourceOperationVersion: input.sourceOperationVersion,
+        sourceDraftRecordVersion: input.sourceDraftRecordVersion,
+        sourceDraftSnapshotId: input.sourceDraftSnapshotId,
+        sourceLocalAssetRevision: input.sourceLocalAssetRevision,
+        expectedReferenceKeys: [...input.expectedReferenceKeys],
+        mappingRequestId: null,
+        relinkResultContentSnapshotId: null,
+        relinkResultHistorySnapshotId: null,
+        relinkResultDraftSnapshotId: null,
+        relinkResultDraftRecordVersion: null,
+        relinkCommitId: null,
+        relinkUndoable: null,
+        errorCode: null,
+        errorRequestId: null,
+        createdAt: now,
+        updatedAt: now,
+        lease: null,
+      }
+    },
+    signal
+  )
 }
 
 const assertExpectedRevision = (
@@ -716,45 +852,52 @@ const assertLiveLease = (
   }
 }
 
-export const claimLocalAssetPromotionJournal = async (input: {
-  localAssetId: string
-  expectedRevision: number
-  ownerId: string
-  now?: string
-  leaseMilliseconds: number
-  leaseToken?: string
-}) => {
+export const claimLocalAssetPromotionJournal = async (
+  input: {
+    localAssetId: string
+    expectedRevision: number
+    ownerId: string
+    now?: string
+    leaseMilliseconds: number
+    leaseToken?: string
+  },
+  signal?: AbortSignal
+) => {
   assertLeaseDuration(input.leaseMilliseconds)
   const now = input.now ?? new Date().toISOString()
   const nowMilliseconds = parseTimestamp(now)
-  return mutateJournal(input.localAssetId, (current) => {
-    if (!current) throw new LocalAssetPromotionJournalRevisionError()
-    assertExpectedRevision(current, input.expectedRevision)
-    assertMonotonicMutationTime(current, now)
-    if (current.state === "complete") {
-      throw new LocalAssetPromotionJournalRevisionError()
-    }
-    if (
-      current.lease &&
-      parseTimestamp(current.lease.expiresAt) > nowMilliseconds
-    ) {
-      throw new LocalAssetPromotionBusyError()
-    }
-    return {
-      ...current,
-      revision: current.revision + 1,
-      updatedAt: now,
-      lease: {
-        ownerId: boundedIdentitySchema.parse(input.ownerId),
-        token: boundedIdentitySchema.parse(
-          input.leaseToken ?? crypto.randomUUID()
-        ),
-        expiresAt: new Date(
-          nowMilliseconds + input.leaseMilliseconds
-        ).toISOString(),
-      },
-    }
-  })
+  return mutateJournal(
+    input.localAssetId,
+    (current) => {
+      if (!current) throw new LocalAssetPromotionJournalRevisionError()
+      assertExpectedRevision(current, input.expectedRevision)
+      assertMonotonicMutationTime(current, now)
+      if (current.state === "complete") {
+        throw new LocalAssetPromotionJournalRevisionError()
+      }
+      if (
+        current.lease &&
+        parseTimestamp(current.lease.expiresAt) > nowMilliseconds
+      ) {
+        throw new LocalAssetPromotionBusyError()
+      }
+      return {
+        ...current,
+        revision: current.revision + 1,
+        updatedAt: now,
+        lease: {
+          ownerId: boundedIdentitySchema.parse(input.ownerId),
+          token: boundedIdentitySchema.parse(
+            input.leaseToken ?? crypto.randomUUID()
+          ),
+          expiresAt: new Date(
+            nowMilliseconds + input.leaseMilliseconds
+          ).toISOString(),
+        },
+      }
+    },
+    signal
+  )
 }
 
 export const renewLocalAssetPromotionJournalLease = async (input: {

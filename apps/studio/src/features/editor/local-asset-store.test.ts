@@ -268,14 +268,24 @@ describe("local asset store", () => {
 
     controller.abort(reason)
 
-    await expect(firstRead).rejects.toBe(reason)
+    let firstSettled = false
+    void firstRead.then(
+      () => {
+        firstSettled = true
+      },
+      () => {
+        firstSettled = true
+      }
+    )
     const retry = getLocalAssetRecord("missing")
     await Promise.resolve()
     await Promise.resolve()
+    expect(firstSettled).toBe(false)
     expect(openCount).toBe(2)
 
     pendingRequest.onsuccess?.(new Event("success"))
 
+    await expect(firstRead).rejects.toBe(reason)
     await expect(retry).resolves.toBeNull()
     expect(lateDatabase.close).toHaveBeenCalledOnce()
     expect(lateDatabase.transaction).not.toHaveBeenCalled()

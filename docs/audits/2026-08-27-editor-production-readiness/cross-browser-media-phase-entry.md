@@ -762,3 +762,40 @@ still enforce directional transitions, hash and reconcile before networking,
 own progress/cancellation/timeouts, and resume mapped or unknown outcomes
 without duplicate upload. The two manual IndexedDB probes and malformed-handle
 cleanup remain retained hardening obligations for that work.
+
+## Slice 3B exit evidence, 2026-08-30
+
+The promotion HTTP client and single-owner workflow are implemented and
+independently accepted with no remaining P0/P1. Together with Slice 3A, this
+closes the local owner portion of Slice 3. The accepted boundary includes:
+
+- a checkpointed, directional state machine that hashes exact browser-local
+  bytes in bounded chunks, verifies the local revision again, and reconciles
+  the durable alias before the first upload and every ambiguous retry;
+- a stable route-and-alias-bound idempotency key, exact promotion identity
+  checks, real XHR progress and bounded lookup/upload timeouts;
+- finite lease heartbeat, exact CAS ownership, stale/late-owner suppression,
+  attempted-operation reconciliation, and mapped/relinking resume without
+  duplicate upload;
+- status-unknown handling for abort, timeout, lost connection, malformed 2xx
+  and missing request identity whenever the server may have committed;
+- acknowledged cancellation across journal open/read/create/claim, local-store
+  migration/open/transaction, Blob hashing and XHR, including commit-wins lease
+  release and abort-wins rollback; and
+- best-effort progress observation that cannot break durable ownership or stop
+  cancellation from reaching the active operation.
+
+Independent review initially rejected the green implementation and drove
+repairs for pre-aborted XHR, response-body cancellation, exact alias response
+checks, late reconciliation for attempted failed/cancelled operations, ambiguous
+2xx classification, progress reset, late lease-owner publication, checkpoint
+error normalization, journal/local-store acknowledgement, commit-after-abort
+lease leaks, observer exceptions, canonical cancel edges, SHA padding vectors
+and malformed transaction cleanup. Final evidence is 97 focused
+client/owner/journal/local-store tests, Studio typecheck, scoped ESLint and
+`git diff --check` under Node 24.19.0.
+
+Slice 4 still owns active-document revalidation, atomic relink, one critical
+draft flush, result receipt and UI integration. No mounted document or UI was
+mutated in this slice. Global journal serialization throughput remains a P2
+measurement for later batch-promotion work.

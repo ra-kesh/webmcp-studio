@@ -66,6 +66,68 @@ const transactionDone = (transaction: IDBTransaction) =>
       reject(transaction.error ?? new Error("IndexedDB transaction aborted"))
   })
 
+const deferred = <T>() => {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
+
+const controlNextJournalTransactionAbort = () => {
+  const entered = deferred<void>()
+  const abortRequested = deferred<void>()
+  const originalObjectStore = IDBTransaction.prototype.objectStore
+  const originalAbort = IDBTransaction.prototype.abort
+  let transaction: IDBTransaction | null = null
+  let journalObjectStoreCalls = 0
+  vi.spyOn(IDBTransaction.prototype, "objectStore").mockImplementation(
+    function (this: IDBTransaction, name: string) {
+      const store = originalObjectStore.call(this, name)
+      if (name === LOCAL_ASSET_PROMOTION_JOURNAL_STORE_NAME) {
+        journalObjectStoreCalls += 1
+        transaction ??= this
+        entered.resolve()
+      }
+      return store
+    }
+  )
+  vi.spyOn(IDBTransaction.prototype, "abort").mockImplementation(function (
+    this: IDBTransaction
+  ) {
+    transaction = this
+    abortRequested.resolve()
+  })
+  return {
+    entered: entered.promise,
+    abortRequested: abortRequested.promise,
+    journalObjectStoreCalls: () => journalObjectStoreCalls,
+    acknowledge: () => {
+      if (!transaction)
+        throw new Error("Expected an active journal transaction")
+      originalAbort.call(transaction)
+    },
+  }
+}
+
+const allowNextJournalTransactionToCommitAfterAbort = () => {
+  const entered = deferred<void>()
+  const originalObjectStore = IDBTransaction.prototype.objectStore
+  vi.spyOn(IDBTransaction.prototype, "objectStore").mockImplementation(
+    function (this: IDBTransaction, name: string) {
+      const store = originalObjectStore.call(this, name)
+      if (name === LOCAL_ASSET_PROMOTION_JOURNAL_STORE_NAME) entered.resolve()
+      return store
+    }
+  )
+  vi.spyOn(IDBTransaction.prototype, "abort").mockImplementation(() => {
+    // Simulate the browser reporting that commit already won this race.
+  })
+  return entered.promise
+}
+
 const putRawJournal = async (value: unknown, localAssetId: string) => {
   const database = await openDatabase()
   const transaction = database.transaction(
@@ -76,7 +138,7 @@ const putRawJournal = async (value: unknown, localAssetId: string) => {
     .objectStore(LOCAL_ASSET_PROMOTION_JOURNAL_STORE_NAME)
     .put(
       value && typeof value === "object"
-        ? { ...(value as object), localAssetId }
+        ? { ...value, localAssetId }
         : { localAssetId, value }
     )
   await transactionDone(transaction)
@@ -94,11 +156,216 @@ if (!originalPutDescriptor) {
 
 afterEach(async () => {
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
   Object.defineProperty(IDBObjectStore.prototype, "put", originalPutDescriptor)
   await deleteDatabase()
 })
 
 describe("local asset promotion journal", () => {
+  it("waits for read abort acknowledgement and serializes the immediate retry", async () => {
+    await createOrResumeLocalAssetPromotionJournal(creationInput())
+    const controlled = controlNextJournalTransactionAbort()
+    const controller = new AbortController()
+    const reason = new DOMException("Cancelled", "AbortError")
+    const first = readLocalAssetPromotionJournal(
+      creationInput().localAssetId,
+      controller.signal
+    )
+    await controlled.entered
+
+    controller.abort(reason)
+    await controlled.abortRequested
+    const retry = readLocalAssetPromotionJournal(creationInput().localAssetId)
+    let firstSettled = false
+    void first.then(
+      () => {
+        firstSettled = true
+      },
+      () => {
+        firstSettled = true
+      }
+    )
+    await Promise.resolve()
+    expect(firstSettled).toBe(false)
+    expect(controlled.journalObjectStoreCalls()).toBe(1)
+
+    controlled.acknowledge()
+    await expect(first).rejects.toBe(reason)
+    await expect(retry).resolves.toMatchObject({ status: "ready" })
+  })
+
+  it("rolls back a cancelled create before allowing a serialized retry", async () => {
+    await readLocalAssetPromotionJournal("local-initialize-create")
+    const controlled = controlNextJournalTransactionAbort()
+    const controller = new AbortController()
+    const reason = new DOMException("Cancelled", "AbortError")
+    const input = creationInput("local-cancelled-create")
+    const first = createOrResumeLocalAssetPromotionJournal(
+      input,
+      controller.signal
+    )
+    await controlled.entered
+
+    controller.abort(reason)
+    await controlled.abortRequested
+    const retryRead = readLocalAssetPromotionJournal(input.localAssetId)
+    await Promise.resolve()
+    expect(controlled.journalObjectStoreCalls()).toBe(1)
+
+    controlled.acknowledge()
+    await expect(first).rejects.toBe(reason)
+    await expect(retryRead).resolves.toEqual({ status: "missing" })
+    await expect(
+      createOrResumeLocalAssetPromotionJournal(input)
+    ).resolves.toMatchObject({ state: "queued", lease: null })
+  })
+
+  it("rolls back a cancelled claim and leaves no busy lease for retry", async () => {
+    const queued = await createOrResumeLocalAssetPromotionJournal(
+      creationInput("local-cancelled-claim")
+    )
+    const controlled = controlNextJournalTransactionAbort()
+    const controller = new AbortController()
+    const reason = new DOMException("Cancelled", "AbortError")
+    const claim = claimLocalAssetPromotionJournal(
+      {
+        localAssetId: queued.localAssetId,
+        expectedRevision: queued.revision,
+        ownerId: "owner-cancelled",
+        leaseToken: "lease-cancelled",
+        leaseMilliseconds: 90_000,
+        now: "2026-08-30T00:00:01.000Z",
+      },
+      controller.signal
+    )
+    await controlled.entered
+
+    controller.abort(reason)
+    await controlled.abortRequested
+    const retryRead = readLocalAssetPromotionJournal(queued.localAssetId)
+    await Promise.resolve()
+    expect(controlled.journalObjectStoreCalls()).toBe(1)
+
+    controlled.acknowledge()
+    await expect(claim).rejects.toBe(reason)
+    const afterAbort = await retryRead
+    expect(afterAbort).toMatchObject({
+      status: "ready",
+      journal: { revision: queued.revision, lease: null },
+    })
+    await expect(
+      claimLocalAssetPromotionJournal({
+        localAssetId: queued.localAssetId,
+        expectedRevision: queued.revision,
+        ownerId: "owner-retry",
+        leaseToken: "lease-retry",
+        leaseMilliseconds: 90_000,
+        now: "2026-08-30T00:00:02.000Z",
+      })
+    ).resolves.toMatchObject({ lease: { ownerId: "owner-retry" } })
+  })
+
+  it("returns a committed create checkpoint after cancellation without creating a lease", async () => {
+    await readLocalAssetPromotionJournal("local-initialize-commit")
+    const entered = allowNextJournalTransactionToCommitAfterAbort()
+    const controller = new AbortController()
+    const input = creationInput("local-create-commit-wins")
+    const create = createOrResumeLocalAssetPromotionJournal(
+      input,
+      controller.signal
+    )
+    await entered
+
+    controller.abort(new DOMException("Cancelled", "AbortError"))
+
+    await expect(create).resolves.toMatchObject({
+      localAssetId: input.localAssetId,
+      state: "queued",
+      lease: null,
+    })
+    await expect(
+      readLocalAssetPromotionJournal(input.localAssetId)
+    ).resolves.toMatchObject({
+      status: "ready",
+      journal: { state: "queued", lease: null },
+    })
+  })
+
+  it("returns a committed claim so its exact lease can be released after cancellation", async () => {
+    const queued = await createOrResumeLocalAssetPromotionJournal(
+      creationInput("local-claim-commit-wins")
+    )
+    const entered = allowNextJournalTransactionToCommitAfterAbort()
+    const controller = new AbortController()
+    const claim = claimLocalAssetPromotionJournal(
+      {
+        localAssetId: queued.localAssetId,
+        expectedRevision: queued.revision,
+        ownerId: "owner-commit-wins",
+        leaseToken: "lease-commit-wins",
+        leaseMilliseconds: 90_000,
+        now: "2026-08-30T00:00:01.000Z",
+      },
+      controller.signal
+    )
+    await entered
+
+    controller.abort(new DOMException("Cancelled", "AbortError"))
+    const claimed = await claim
+    expect(claimed).toMatchObject({
+      lease: {
+        ownerId: "owner-commit-wins",
+        token: "lease-commit-wins",
+      },
+    })
+    await releaseLocalAssetPromotionJournal({
+      localAssetId: claimed.localAssetId,
+      expectedRevision: claimed.revision,
+      ownerId: "owner-commit-wins",
+      leaseToken: "lease-commit-wins",
+      now: "2026-08-30T00:00:02.000Z",
+    })
+    await expect(
+      readLocalAssetPromotionJournal(claimed.localAssetId)
+    ).resolves.toMatchObject({
+      status: "ready",
+      journal: { lease: null },
+    })
+  })
+
+  it.each(["read", "create"] as const)(
+    "closes a malformed database handle when journal %s setup throws synchronously",
+    async (operation) => {
+      await readLocalAssetPromotionJournal(`local-initialize-${operation}`)
+      const close = vi.spyOn(IDBDatabase.prototype, "close")
+      const abort = vi.spyOn(IDBTransaction.prototype, "abort")
+      vi.spyOn(IDBTransaction.prototype, "objectStore").mockImplementation(
+        () => {
+          throw new Error("malformed journal handle")
+        }
+      )
+
+      const result =
+        operation === "read"
+          ? readLocalAssetPromotionJournal("local-malformed-read")
+          : createOrResumeLocalAssetPromotionJournal(
+              creationInput("local-malformed-create")
+            )
+      if (operation === "read") {
+        await expect(result).rejects.toThrow("malformed journal handle")
+      } else {
+        await expect(result).rejects.toMatchObject({
+          code: "local_promotion_checkpoint_failed",
+          cause: expect.objectContaining({
+            message: "malformed journal handle",
+          }),
+        })
+      }
+      expect(abort).toHaveBeenCalledTimes(1)
+      expect(close).toHaveBeenCalled()
+    }
+  )
+
   it("upgrades the asset database from v4 to v5 without changing metadata or Blob bytes", async () => {
     const blob = new Blob(["preserve-these-exact-bytes"], {
       type: "image/png",

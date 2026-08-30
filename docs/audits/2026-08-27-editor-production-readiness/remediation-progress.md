@@ -2536,3 +2536,24 @@ Status: **implemented and independently accepted; full Slice 3 and row 10 remain
 - The network owner/controller, active-document relink, admission recovery and
   two-browser/deployed evidence remain open and cannot be inferred from this
   foundation.
+
+## 2026-08-30 — Cross-browser local media, Slice 3B promotion owner
+
+Status: **implemented and independently accepted; Slice 4 and row 10 remain active**
+
+- Added the private promotion lookup/upload client and one finite-lease owner
+  for exact local reads, bounded SHA-256, reconcile-before-upload, stable
+  idempotency, progress, timeout, cancellation and unknown-outcome recovery.
+- The owner resumes attempted, unknown, mapped and relinking checkpoints
+  without blind duplicate upload, refuses late lease publication, and carries
+  only stable request/error identity into the durable journal.
+- Extended journal and local-store operations with acknowledged cancellation
+  and commit-wins/abort-wins behavior so no task can return while an owned
+  transaction is still capable of publishing or retaining a hidden lease.
+- Independent review rejected and drove repairs across transport, identity,
+  state progression, late reconciliation, lease loss, observer isolation,
+  journal/store cancellation and SHA boundary cases before acceptance.
+- Final independent evidence: 97 focused tests, Studio typecheck, scoped
+  ESLint, and `git diff --check`, with no remaining P0/P1.
+- Active document relink, critical draft flush, UI, admission migration and
+  two-browser/deployed evidence remain explicitly outside this commit.
