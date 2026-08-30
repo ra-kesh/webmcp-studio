@@ -2,7 +2,7 @@
 
 Date: 2026-08-30
 
-Status: active; Gates 1-6 accepted locally
+Status: completed locally; Gates 1-7 accepted
 
 ## Purpose
 
@@ -431,3 +431,40 @@ Focused evidence:
 - 11 focused panel-state, catalog, inspector, and crop-preview tests pass;
 - scoped Studio and UI ESLint passes;
 - `git diff --check` passes.
+
+## Gate 7 result — retained visual matrix and real-use acceptance
+
+Sources revisited before acceptance:
+
+- the phase contract and final visual/use gate in this document;
+- `visual-and-interaction-audit.md` and the retained OpenPencil visual target;
+- OpenPencil toolbar, layer-tree, panel-section, and workspace composition;
+- Studio's actual start, edit, page, review, publish, render-history, artifact,
+  and undo paths.
+
+Implemented and repaired during acceptance:
+
+- modernized the clean editor journey to use the real start surface, text
+  preset menu, asset library, and durable render-job contract;
+- accepted nullable `completedAt` and `error` fields from queued render
+  responses instead of misclassifying a valid server job as transport-unknown;
+- made local-to-server render record replacement deterministic and
+  deduplicating, so a queued job remains visible when it completes;
+- made artifact HTTP downloads derive the same human output/page name used by
+  the editor instead of exposing a random persisted identifier.
+
+Acceptance evidence:
+
+- the retained 320-1920 px action matrix remains green from Gate 6;
+- the real Playwright journey passes in 30.9 seconds on port 3001: open the
+  sample, add text and an image, add page seven, propose and accept a field
+  change, publish immutable version 1, submit a durable render, observe the
+  completed job in the UI, inspect all seven PDF pages and expected content,
+  download `quotation.pdf`, and undo the accepted field change;
+- the durable-render mounted lifecycle suite passes 4/4, including queued
+  responses with nullable server fields and local/server identity races;
+- Studio typecheck, scoped Studio ESLint, and `git diff --check` pass.
+
+`EDITOR-POLISH-01` is therefore complete locally. Further sophistication is
+owned by the named depth phases rather than another unbounded polish loop:
+`TEXT-02`, `COMPONENT-01`, `LIBRARY-02`, and remaining `ASSET-02` depth.

@@ -77,9 +77,10 @@ const renderApiResponseSchema = z.object({
   attempt: z.number().optional(),
   maxAttempts: z.number().optional(),
   retryable: z.boolean().optional(),
-  completedAt: z.string().optional(),
+  completedAt: z.string().nullable().optional(),
   error: z
     .object({ code: z.string().optional(), message: z.string().optional() })
+    .nullable()
     .optional(),
   artifacts: z.array(renderArtifactResponseSchema).optional(),
 })
@@ -151,7 +152,7 @@ async function pollRender(
   onProgress: (payload: RenderApiResponse) => void
 ) {
   let delay = 500
-  while (true) {
+  for (;;) {
     signal?.throwIfAborted()
     const response = await fetch(statusUrl, { signal })
     const payload = renderApiResponseSchema.parse(await response.json())
@@ -186,6 +187,22 @@ const artifactFilename = (
 
 const revokeObjectUrl = (url: string) => {
   if (url.startsWith("blob:")) URL.revokeObjectURL(url)
+}
+
+const replaceRenderRecord = (
+  records: RenderRecord[],
+  localId: string,
+  serverId: string,
+  replacement: RenderRecord
+) => {
+  const replacementIndex = records.findIndex(
+    (record) => record.id === localId || record.id === serverId
+  )
+  if (replacementIndex === -1) return [replacement, ...records]
+  return records.flatMap((record, index) => {
+    if (record.id !== localId && record.id !== serverId) return [record]
+    return index === replacementIndex ? [replacement] : []
+  })
 }
 
 const waitForRenderResponse = <T>(
@@ -470,11 +487,7 @@ export function useRenderHistory(version?: TemplateVersion) {
               maxAttempts: payload.maxAttempts,
             }
             setRecords((current) =>
-              current.flatMap((candidate) => {
-                if (candidate.id === localId) return [accepted]
-                if (candidate.id === serverId) return []
-                return [candidate]
-              })
+              replaceRenderRecord(current, localId, serverId, accepted)
             )
             payload = await pollRender(
               statusUrl,
@@ -512,11 +525,7 @@ export function useRenderHistory(version?: TemplateVersion) {
                   : payload.error?.message || "Rendering failed.",
             }
             setRecords((current) =>
-              current.map((candidate) =>
-                candidate.id === serverId || candidate.id === localId
-                  ? terminal
-                  : candidate
-              )
+              replaceRenderRecord(current, localId, serverId, terminal)
             )
             return terminal
           }
@@ -546,11 +555,7 @@ export function useRenderHistory(version?: TemplateVersion) {
             artifacts,
           }
           setRecords((current) =>
-            current.flatMap((candidate) => {
-              if (candidate.id === localId) return [completed]
-              if (candidate.id === serverId) return []
-              return [candidate]
-            })
+            replaceRenderRecord(current, localId, serverId, completed)
           )
           return completed
         } catch (error) {
@@ -571,11 +576,7 @@ export function useRenderHistory(version?: TemplateVersion) {
                 : "Rendering failed.",
           }
           setRecords((current) =>
-            current.flatMap((candidate) => {
-              if (candidate.id === localId) return [failed]
-              if (candidate.id === serverId) return []
-              return [candidate]
-            })
+            replaceRenderRecord(current, localId, serverId, failed)
           )
           return failed
         }
@@ -666,7 +667,7 @@ export function useRenderHistory(version?: TemplateVersion) {
             attempt: terminal.attempt,
             maxAttempts: terminal.maxAttempts,
             retryable: terminal.retryable,
-            completedAt: terminal.completedAt,
+            completedAt: terminal.completedAt ?? record.completedAt,
             error:
               terminal.status === "failed"
                 ? terminal.error?.message || "Rendering failed."

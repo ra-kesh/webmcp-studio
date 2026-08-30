@@ -59,6 +59,94 @@ describe("render history lifecycle", () => {
     vi.restoreAllMocks()
   })
 
+  it("tracks a durable queued render when nullable server fields are present", async () => {
+    const captured: { current: Controller | null } = { current: null }
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockImplementation((input, init) => {
+        if (!init?.method && String(input).includes("/v1/studio/renders/")) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ data: [] }), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            })
+          )
+        }
+        if (init?.method === "POST") {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                id: "render-durable-queued",
+                status: "queued",
+                completedAt: null,
+                error: null,
+                statusUrl: "/v1/renders/render-durable-queued",
+                artifacts: [],
+              }),
+              {
+                status: 202,
+                headers: { "Content-Type": "application/json" },
+              }
+            )
+          )
+        }
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              id: "render-durable-queued",
+              status: "completed",
+              completedAt: "2026-08-30T00:00:01.000Z",
+              error: null,
+              artifacts: [],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          )
+        )
+      })
+    vi.stubGlobal("fetch", fetchMock)
+
+    await act(async () => {
+      root.render(
+        <MountedRenderHistory
+          capture={(value) => {
+            captured.current = value
+          }}
+        />
+      )
+      await Promise.resolve()
+    })
+    if (!captured.current) throw new Error("Expected render history controller")
+
+    let completed: Awaited<ReturnType<Controller["runRender"]>> | undefined
+    await act(async () => {
+      completed = await captured.current!.runRender(
+        createTemplateVersion(northstarSeed, {
+          id: "render-lifecycle-version",
+          templateId: "render-lifecycle-template",
+          version: 1,
+          sourceSnapshotId: `sha256-${"a".repeat(64)}`,
+          publishedAt: "2026-08-30T00:00:00.000Z",
+        }),
+        {},
+        [{ outputId: northstarSeed.outputs[0].id, format: "pdf" }],
+        { idempotencyKey: "webmcp-render-durable-queued" }
+      )
+    })
+
+    expect(completed?.status).toBe("completed")
+    expect(completed?.id).toBe("render-durable-queued")
+    expect(
+      captured.current.records.some(
+        (record) => record.id === "render-durable-queued"
+      )
+    ).toBe(true)
+    expect(
+      captured.current.records.some((record) =>
+        record.id.startsWith("local-render-")
+      )
+    ).toBe(false)
+  })
+
   it("retries an unknown render with the same server identity", async () => {
     const captured: { current: Controller | null } = { current: null }
     const requests: RequestInit[] = []

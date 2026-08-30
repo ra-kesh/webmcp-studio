@@ -42,7 +42,14 @@ type DesignInspection = {
 
 type RenderResponse = {
   id: string
-  status: "completed"
+  status:
+    | "queued"
+    | "rendering"
+    | "retrying"
+    | "completed"
+    | "failed"
+    | "cancelling"
+    | "cancelled"
   artifacts: Array<{
     id: string
     outputId: string
@@ -138,7 +145,15 @@ test.beforeEach(async ({ page }) => {
   }, storageKeys)
   await page.reload()
 
-  await expect(page.locator("canvas.upper-canvas")).toBeVisible()
+  await expect(
+    page.getByRole("heading", { name: "Studio documents" })
+  ).toBeVisible()
+  await page.getByRole("button", { name: "Open sample", exact: true }).click()
+  await expect(page).toHaveURL(/\/documents\/[^/]+$/)
+
+  await expect(page.locator("canvas.upper-canvas")).toBeVisible({
+    timeout: 30_000,
+  })
   await expect
     .poll(() =>
       page.evaluate(() => window.__studioTestTools?.has("inspect_design"))
@@ -157,6 +172,7 @@ test("clean edit-to-artifact challenge journey produces an inspectable seven-pag
   expect(initial.outputs[0]?.pageIds).toHaveLength(6)
 
   await page.getByRole("button", { name: "Add text" }).click()
+  await page.getByRole("menuitem", { name: /^Body/ }).click()
   const afterEdit = await inspectDesign(page)
   expect(afterEdit.document.revision).toBe(initial.document.revision + 1)
   expect(afterEdit.activePageNodes).toHaveLength(
@@ -164,14 +180,16 @@ test("clean edit-to-artifact challenge journey produces an inspectable seven-pag
   )
   expect(afterEdit.activePageNodes).toEqual(
     expect.arrayContaining([
-      expect.objectContaining({ type: "text", name: "Text" }),
+      expect.objectContaining({ type: "text", name: "Body" }),
     ])
   )
 
   await page.getByRole("button", { name: "Insert shape" }).click()
   await page.getByRole("menuitem", { name: "Asset library…" }).click()
-  const assetDialog = page.getByRole("dialog", { name: "Asset library" })
-  await assetDialog.getByText("Olive botanical", { exact: true }).click()
+  const assetDialog = page.getByRole("dialog", { name: "Add image" })
+  await assetDialog
+    .getByRole("button", { name: "Insert Olive botanical" })
+    .click()
   await expect(assetDialog).toBeHidden()
 
   const afterImage = await inspectDesign(page)
@@ -272,15 +290,36 @@ test("clean edit-to-artifact challenge journey produces an inspectable seven-pag
   )
   await apiDialog.getByRole("button", { name: "Run 1 output" }).click()
   const renderResponse = await renderResponsePromise
-  expect(renderResponse.status()).toBe(201)
-  const render = (await renderResponse.json()) as RenderResponse
+  expect(renderResponse.status()).toBe(202)
+  const acceptedRender = (await renderResponse.json()) as RenderResponse
+  expect(acceptedRender.status).toBe("queued")
+
+  await expect
+    .poll(
+      async () => {
+        const response = await page.request.get(
+          `/v1/renders/${acceptedRender.id}`
+        )
+        expect(response.ok()).toBe(true)
+        return ((await response.json()) as RenderResponse).status
+      },
+      { timeout: 60_000 }
+    )
+    .toBe("completed")
+  const completedRenderResponse = await page.request.get(
+    `/v1/renders/${acceptedRender.id}`
+  )
+  expect(completedRenderResponse.ok()).toBe(true)
+  const render = (await completedRenderResponse.json()) as RenderResponse
   expect(render.status).toBe("completed")
   expect(render.artifacts).toHaveLength(1)
   const artifact = render.artifacts[0]
   expect(artifact).toMatchObject({ format: "pdf", pageId: null })
   expect(artifact.bytes).toBeGreaterThan(0)
 
-  await expect(apiDialog.getByText("completed", { exact: true })).toBeVisible()
+  await expect(apiDialog.getByText("completed", { exact: true })).toBeVisible({
+    timeout: 30_000,
+  })
   const artifactLink = apiDialog.getByRole("link", {
     name: /quotation\.pdf/i,
   })
@@ -304,10 +343,10 @@ test("clean edit-to-artifact challenge journey produces an inspectable seven-pag
     page.waitForEvent("download"),
     artifactLink.click(),
   ])
-  expect(download.suggestedFilename()).toBe("quotation-output.pdf")
-  const downloadedPath = testInfo.outputPath("quotation-output.pdf")
+  expect(download.suggestedFilename()).toBe("quotation.pdf")
+  const downloadedPath = testInfo.outputPath("quotation.pdf")
   await download.saveAs(downloadedPath)
-  await testInfo.attach("quotation-output.pdf", {
+  await testInfo.attach("quotation.pdf", {
     path: downloadedPath,
     contentType: "application/pdf",
   })

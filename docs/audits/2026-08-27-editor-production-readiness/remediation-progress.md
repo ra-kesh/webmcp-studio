@@ -2876,3 +2876,27 @@ Status: **completed locally; final visual/use acceptance remains active**
   end-to-end journeys, and `git diff --check` pass.
 - The remaining EDITOR-POLISH-01 work is the retained visual matrix and a real
   create/edit/navigate/review/export use pass.
+
+## 2026-08-30 — EDITOR-POLISH-01 Gate 7 final visual/use acceptance
+
+Status: **completed locally; EDITOR-POLISH-01 is closed**
+
+- Revisited the phase entry, original visual audit, retained OpenPencil target,
+  and the real start-to-artifact product path before acceptance.
+- Restored the clean journey to the current product contract: start surface,
+  text presets, asset insertion, page creation, WebMCP review, immutable
+  publication, durable rendering, artifact inspection/download, and undo.
+- Acceptance found and repaired two product defects instead of masking them in
+  the test: nullable queued-job fields were rejected by the client schema, and
+  queued local/server record replacement removed the completed history row.
+- Artifact downloads now use the published output/page name, so the visible
+  `quotation.pdf` link and browser download agree.
+- The real seven-page PDF journey passes on port 3001 in 30.9 seconds. The PDF
+  has seven pages, contains the API-supplied title and studio identity, matches
+  the recorded byte count, downloads as `quotation.pdf`, and the editor remains
+  usable through the final undo.
+- Durable-render lifecycle tests pass 4/4; Studio typecheck, scoped ESLint, and
+  `git diff --check` pass. The retained responsive matrix from Gate 6 remains
+  the width/compact acceptance evidence.
+- The next product-depth phase is `TEXT-02`; component, library, and advanced
+  asset depth remain explicitly sequenced after it.
