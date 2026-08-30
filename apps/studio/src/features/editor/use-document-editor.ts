@@ -687,7 +687,7 @@ type MountedLocalAssetPromotionReservation = Readonly<{
 
 function createNeutralBootstrapDocument(): Document {
   return documentSchema.parse({
-    schemaVersion: 3,
+    schemaVersion: 4,
     id: "private-bootstrap-document",
     name: "Untitled document",
     revision: 0,
@@ -715,6 +715,8 @@ function createNeutralBootstrapDocument(): Document {
     ],
     nodes: [],
     groups: [],
+    components: [],
+    componentInstances: [],
     typographyStyles: [],
     paintStyles: [],
     variables: [],
@@ -10096,7 +10098,7 @@ export function useDocumentEditor({
       const outputId = `output-${crypto.randomUUID()}`
       const pageId = `page-${crypto.randomUUID()}`
       const document = documentSchema.parse({
-        schemaVersion: 3,
+        schemaVersion: 4,
         id: `document-${crypto.randomUUID()}`,
         name: options.name,
         revision: 0,
@@ -10124,6 +10126,8 @@ export function useDocumentEditor({
         ],
         nodes: [],
         groups: [],
+        components: [],
+        componentInstances: [],
         typographyStyles: [],
         paintStyles: [],
         variables: [],

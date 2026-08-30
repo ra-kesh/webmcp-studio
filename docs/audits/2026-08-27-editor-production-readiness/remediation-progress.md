@@ -3417,3 +3417,9 @@ Status: **implemented and locally accepted; Gate 3 remains active**
   selected-result behavior.
 - The focused component Assets projection test passes and Studio typechecks.
   Gate 3 next owns the component-aware Inspector lifecycle.
+- Live browser acceptance caught two private/blank bootstrap constructors still
+  emitting schema version 3 after the canonical version-4 component resources
+  landed. Both now emit version 4 with empty component arrays. No persisted
+  document or browser storage was cleared. The same session then completed
+  group -> component -> Assets preview -> viewport-centred instance insertion,
+  and Layers exposed both main and instance trees.
