@@ -1087,6 +1087,31 @@ const parseBody = (value: unknown): StoredDraftBody | null => {
   }
 }
 
+const requiresStoredDocumentSchemaRewrite = (
+  rawBody: unknown,
+  body: StoredDraftBody
+) => {
+  if (!isRecord(rawBody) || !isRecord(rawBody.document)) return false
+  const storedDocument = rawBody.document
+  if (
+    storedDocument.schemaVersion !== body.document.schemaVersion ||
+    !Array.isArray(storedDocument.typographyStyles) ||
+    !Array.isArray(storedDocument.paintStyles) ||
+    !Array.isArray(storedDocument.variables)
+  ) {
+    return true
+  }
+  if (!Array.isArray(storedDocument.nodes)) return false
+  return storedDocument.nodes.some(
+    (node) =>
+      isRecord(node) &&
+      node.type === "text" &&
+      (!Array.isArray(node.runs) ||
+        !Array.isArray(node.paragraphs) ||
+        !Array.isArray(node.links))
+  )
+}
+
 const quarantineFailureFor = (
   documentId: string,
   body: unknown,
@@ -4906,6 +4931,197 @@ export class DocumentDraftRepository {
     return this.#get(documentId, 0)
   }
 
+  async #rewriteMigratedDocument({
+    documentId,
+    observedBody,
+    observedSummary,
+    body,
+    summary,
+  }: Readonly<{
+    documentId: string
+    observedBody: unknown
+    observedSummary: unknown
+    body: StoredDraftBody
+    summary: DocumentDraftSummary
+  }>): Promise<"rewritten" | "superseded"> {
+    const prepared = await prepareDraftAdmission(
+      snapshotForEnvelope(envelopeForBody(body))
+    )
+    if (!prepared.ok) return "superseded"
+
+    let database: IDBDatabase | null = null
+    try {
+      database = await this.#open()
+      const transaction = database.transaction(
+        [BODY_STORE, METADATA_STORE, PREVIEW_STORE],
+        "readwrite"
+      )
+      const done = transactionDone(transaction)
+      const bodies = transaction.objectStore(BODY_STORE)
+      const metadata = transaction.objectStore(METADATA_STORE)
+      const [currentBody, currentSummary] = await Promise.all([
+        requestResult(bodies.get(documentId)),
+        requestResult(metadata.get(documentId)),
+      ])
+      if (
+        !storedValueEqual(currentBody, observedBody) ||
+        !storedValueEqual(currentSummary, observedSummary)
+      ) {
+        await done
+        return "superseded"
+      }
+
+      const migratedAt = this.#now()
+      const recordVersion = summary.recordVersion + 1
+      const nextBody: StoredDraftBody = {
+        schemaVersion: 1,
+        documentId,
+        recordVersion,
+        contentSnapshotId: prepared.contentSnapshotId,
+        draftSnapshotId: prepared.draftSnapshotId,
+        encodedByteLength: prepared.encodedByteLength,
+        document: prepared.envelope.document,
+        sourceContext: prepared.envelope.sourceContext,
+        reviewJournal: prepared.envelope.reviewJournal,
+        ...(prepared.envelope.quotationRefresh
+          ? { quotationRefresh: prepared.envelope.quotationRefresh }
+          : {}),
+      }
+      const nextSummary = summaryFor({
+        envelope: prepared.envelope,
+        recordVersion,
+        contentSnapshotId: prepared.contentSnapshotId,
+        draftSnapshotId: prepared.draftSnapshotId,
+        encodedByteLength: prepared.encodedByteLength,
+        createdAt: summary.createdAt,
+        savedAt: migratedAt,
+        lastOpenedAt: summary.lastOpenedAt,
+        activityAt: migratedAt,
+        deletedAt: summary.deletedAt,
+        origin: summary.origin,
+        lastPublished: summary.lastPublished,
+      })
+      bodies.put(nextBody)
+      metadata.put(nextSummary)
+      transaction.objectStore(PREVIEW_STORE).delete(documentId)
+      await done
+      this.#publish({
+        type: "saved",
+        reason: "content_saved",
+        documentId,
+        recordVersion,
+        contentSnapshotId: prepared.contentSnapshotId,
+        draftSnapshotId: prepared.draftSnapshotId,
+        sessionId: this.#sessionId,
+      })
+      return "rewritten"
+    } finally {
+      database?.close()
+    }
+  }
+
+  async #restoreMigratableSchemaQuarantine(documentId: string) {
+    const quarantines = await this.listQuarantine(documentId)
+    if (!quarantines.ok) return false
+    for (const quarantine of quarantines.value) {
+      if (!quarantine.activeRowsRemoved) continue
+      const body = parseBody(quarantine.body)
+      const summary = parseSummary(quarantine.metadata)
+      if (
+        !body ||
+        !summary ||
+        !pairMatches(body, summary) ||
+        !requiresStoredDocumentSchemaRewrite(quarantine.body, body)
+      ) {
+        continue
+      }
+      const prepared = await prepareDraftAdmission(
+        snapshotForEnvelope(envelopeForBody(body))
+      )
+      if (!prepared.ok) continue
+
+      let database: IDBDatabase | null = null
+      try {
+        database = await this.#open()
+        const transaction = database.transaction(
+          [BODY_STORE, METADATA_STORE, PREVIEW_STORE, QUARANTINE_STORE],
+          "readwrite"
+        )
+        const done = transactionDone(transaction)
+        const bodies = transaction.objectStore(BODY_STORE)
+        const metadata = transaction.objectStore(METADATA_STORE)
+        const [currentBody, currentSummary, currentQuarantine] =
+          await Promise.all([
+            requestResult(bodies.get(documentId)),
+            requestResult(metadata.get(documentId)),
+            requestResult(
+              transaction
+                .objectStore(QUARANTINE_STORE)
+                .get(quarantine.quarantineId)
+            ),
+          ])
+        if (
+          currentBody !== undefined ||
+          currentSummary !== undefined ||
+          !storedValueEqual(currentQuarantine, quarantine)
+        ) {
+          await done
+          continue
+        }
+        const migratedAt = this.#now()
+        const recordVersion = summary.recordVersion + 1
+        const nextBody: StoredDraftBody = {
+          schemaVersion: 1,
+          documentId,
+          recordVersion,
+          contentSnapshotId: prepared.contentSnapshotId,
+          draftSnapshotId: prepared.draftSnapshotId,
+          encodedByteLength: prepared.encodedByteLength,
+          document: prepared.envelope.document,
+          sourceContext: prepared.envelope.sourceContext,
+          reviewJournal: prepared.envelope.reviewJournal,
+          ...(prepared.envelope.quotationRefresh
+            ? { quotationRefresh: prepared.envelope.quotationRefresh }
+            : {}),
+        }
+        const nextSummary = summaryFor({
+          envelope: prepared.envelope,
+          recordVersion,
+          contentSnapshotId: prepared.contentSnapshotId,
+          draftSnapshotId: prepared.draftSnapshotId,
+          encodedByteLength: prepared.encodedByteLength,
+          createdAt: summary.createdAt,
+          savedAt: migratedAt,
+          lastOpenedAt: summary.lastOpenedAt,
+          activityAt: migratedAt,
+          deletedAt: summary.deletedAt,
+          origin: summary.origin,
+          lastPublished: summary.lastPublished,
+        })
+        bodies.put(nextBody)
+        metadata.put(nextSummary)
+        transaction.objectStore(PREVIEW_STORE).delete(documentId)
+        transaction
+          .objectStore(QUARANTINE_STORE)
+          .delete(quarantine.quarantineId)
+        await done
+        this.#publish({
+          type: "saved",
+          reason: "content_saved",
+          documentId,
+          recordVersion,
+          contentSnapshotId: prepared.contentSnapshotId,
+          draftSnapshotId: prepared.draftSnapshotId,
+          sessionId: this.#sessionId,
+        })
+        return true
+      } finally {
+        database?.close()
+      }
+    }
+    return false
+  }
+
   async #get(
     documentId: string,
     retryCount: number
@@ -4921,6 +5137,12 @@ export class DocumentDraftRepository {
       ])
       await done
       if (rawBody === undefined && rawSummary === undefined) {
+        if (
+          retryCount < 2 &&
+          (await this.#restoreMigratableSchemaQuarantine(documentId))
+        ) {
+          return this.#get(documentId, retryCount + 1)
+        }
         return { ok: true, status: "missing" }
       }
       const body = parseBody(rawBody)
@@ -4944,6 +5166,18 @@ export class DocumentDraftRepository {
             message:
               "The stored document metadata and body failed validation and were quarantined.",
           },
+        }
+      }
+      if (requiresStoredDocumentSchemaRewrite(rawBody, body)) {
+        const rewrite = await this.#rewriteMigratedDocument({
+          documentId,
+          observedBody: rawBody,
+          observedSummary: rawSummary,
+          body,
+          summary,
+        })
+        if (rewrite === "rewritten" || retryCount < 2) {
+          return this.#get(documentId, retryCount + 1)
         }
       }
       const verified = await prepareDraftAdmission(

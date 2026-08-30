@@ -191,5 +191,22 @@ Evidence:
   rejection, v2 migration, immutable v2 publication and dangling styles;
 - Prettier and `git diff --check` pass.
 
+Gate 1B rollout follow-up:
+
+- Studio's neutral bootstrap and blank-document constructors now emit schema
+  version 3, so the editor can mount before a routed persisted document is
+  installed;
+- a recognized version-1/version-2 durable draft is decoded first, then its
+  body, summary, snapshot IDs, encoded length and preview invalidation are
+  rewritten atomically instead of treating the expected identity change as
+  corruption;
+- a draft already quarantined by this exact rollout mismatch is restored from
+  its retained bytes, migrated and returned to the active stores. Unrelated
+  invalid quarantine records remain blocked;
+- focused repository coverage proves both the direct durable migration and
+  already-quarantined recovery paths. The affected live routed document was
+  reopened on port 3001 and `inspect_design` confirmed its six-page document,
+  canonical groups and explicit rich-text ranges.
+
 Gate 1 remains active. Gate 1C now owns mixed-style layout and exact
 Fabric/React/Renderer/PDF projection.

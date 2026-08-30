@@ -2956,3 +2956,10 @@ Status: **accepted; Gate 1C mixed-style projection is active**
 - Document tests pass 240/240 and every workspace package typechecks. Focused
   coverage includes v2 migration, immutable publication, direct and bound text
   replacement, range normalization and missing shared styles.
+- Rollout follow-up closed two Studio integration defects: strict v3 bootstrap
+  construction no longer crashes before a routed draft mounts, and the durable
+  repository now atomically rewrites migrated body/summary/hash identity rather
+  than quarantining an expected v2→v3 change. It also restores records already
+  quarantined by this exact mismatch while leaving unrelated corruption
+  untouched. The affected six-page quotation reopened successfully in the live
+  port-3001 editor and exposed its canonical group tree through `inspect_design`.

@@ -311,6 +311,57 @@ const putStoreValues = async (
   }
 }
 
+const deleteStoreValue = async (
+  databaseName: string,
+  storeName: string,
+  key: IDBValidKey
+) => {
+  const database = await openDatabase(databaseName)
+  try {
+    const transaction = database.transaction(storeName, "readwrite")
+    const done = transactionDone(transaction)
+    transaction.objectStore(storeName).delete(key)
+    await done
+  } finally {
+    database.close()
+  }
+}
+
+const legacyRichTextPair = async (
+  record: DocumentDraftRecord,
+  snapshotValue: CurrentDraftSnapshot
+) => {
+  const document = structuredClone(snapshotValue.document) as any
+  document.schemaVersion = 2
+  delete document.typographyStyles
+  delete document.paintStyles
+  delete document.variables
+  for (const node of document.nodes) {
+    if (node.type !== "text") continue
+    delete node.runs
+    delete node.paragraphs
+    delete node.links
+  }
+  return {
+    body: {
+      schemaVersion: 1,
+      documentId: document.id,
+      recordVersion: record.summary.recordVersion,
+      contentSnapshotId: record.summary.contentSnapshotId,
+      draftSnapshotId: record.summary.draftSnapshotId,
+      encodedByteLength: record.summary.encodedByteLength,
+      document,
+      sourceContext: snapshotValue.sourceContext,
+    },
+    metadata: {
+      ...record.summary,
+      contentSnapshotId: record.summary.contentSnapshotId,
+      draftSnapshotId: record.summary.draftSnapshotId,
+      encodedByteLength: record.summary.encodedByteLength,
+    },
+  }
+}
+
 const pngBlob = (bytes = [137, 80, 78, 71]) =>
   new Blob([new Uint8Array(bytes)], { type: "image/png" })
 
@@ -395,6 +446,82 @@ afterEach(async () => {
 })
 
 describe("DocumentDraftRepository", () => {
+  it("atomically upgrades a stored schema-v2 document instead of quarantining it", async () => {
+    const initial = snapshot()
+    const { databaseName, repository } = createRepository([
+      "2026-08-28T12:00:00.000Z",
+      "2026-08-28T12:01:00.000Z",
+    ])
+    const created = await repository.create(initial)
+    if (!created.ok) throw new Error("Expected a created draft")
+    const legacy = await legacyRichTextPair(created.record, initial)
+    await putStoreValue(databaseName, "draft-body", legacy.body)
+    await putStoreValue(databaseName, "draft-meta", legacy.metadata)
+
+    const opened = unwrapFound(await repository.get(initial.document.id))
+
+    expect(opened.summary.recordVersion).toBe(2)
+    expect(opened.envelope.document).toMatchObject({
+      schemaVersion: 3,
+      typographyStyles: [],
+      paintStyles: [],
+      variables: [],
+    })
+    expect(
+      opened.envelope.document.nodes
+        .filter((node) => node.type === "text")
+        .every(
+          (node) =>
+            Array.isArray(node.runs) &&
+            Array.isArray(node.paragraphs) &&
+            Array.isArray(node.links)
+        )
+    ).toBe(true)
+    expect(await repository.listQuarantine(initial.document.id)).toEqual({
+      ok: true,
+      value: [],
+    })
+  })
+
+  it("restores a schema-v2 document already quarantined by the v3 rollout", async () => {
+    const initial = snapshot()
+    const { databaseName, repository } = createRepository([
+      "2026-08-28T12:00:00.000Z",
+      "2026-08-28T12:01:00.000Z",
+    ])
+    const created = await repository.create(initial)
+    if (!created.ok) throw new Error("Expected a created draft")
+    const legacy = await legacyRichTextPair(created.record, initial)
+    const quarantineId = "quarantine-schema-v2-rollout"
+    await putStoreValue(databaseName, "draft-quarantine", {
+      schemaVersion: 1,
+      quarantineId,
+      documentId: initial.document.id,
+      detectedAt: "2026-08-28T12:00:30.000Z",
+      failure: {
+        store: "paired-record",
+        key: initial.document.id,
+        code: "integrity_mismatch",
+        message:
+          "The draft body does not match its stored content snapshot hash.",
+      },
+      body: legacy.body,
+      metadata: legacy.metadata,
+      activeRowsRemoved: true,
+    })
+    await deleteStoreValue(databaseName, "draft-body", initial.document.id)
+    await deleteStoreValue(databaseName, "draft-meta", initial.document.id)
+
+    const opened = unwrapFound(await repository.get(initial.document.id))
+
+    expect(opened.summary.recordVersion).toBe(2)
+    expect(opened.envelope.document.schemaVersion).toBe(3)
+    expect(await repository.getQuarantine(quarantineId)).toEqual({
+      ok: false,
+      reason: "missing",
+    })
+  })
+
   it("creates the exact v2 stores and an atomic metadata/body pair", async () => {
     const initial = snapshot()
     const prepared = await prepareDraftAdmission(initial)

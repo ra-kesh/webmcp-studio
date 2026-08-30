@@ -184,7 +184,7 @@ describe("current browser draft repository", () => {
       status: "current",
       source: "envelope",
       migrated: true,
-      envelope: { document: { schemaVersion: 2 }, sourceContext: null },
+      envelope: { document: { schemaVersion: 3 }, sourceContext: null },
     })
     expect(storage.writes.map(({ key }) => key)).toEqual([
       CURRENT_DRAFT_STORAGE_KEY,
