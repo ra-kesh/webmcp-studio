@@ -96,6 +96,8 @@ export type TemplateApplicationImpact = {
   outputs: { before: number; after: number }
   nodes: { before: number; after: number }
   groups: { before: number; after: number }
+  components: { before: number; after: number }
+  componentInstances: { before: number; after: number }
   fields: { before: number; after: number }
   bindings: { before: number; after: number }
   imageAssets: { before: number; after: number }
@@ -186,12 +188,47 @@ export function cloneTemplateDocument(
         createId("binding", binding.id),
       ])
     ),
+    variableBinding: new Map(
+      source.variableBindings.map((binding) => [
+        binding.id,
+        createId("variable_binding", binding.id),
+      ])
+    ),
+    component: new Map(
+      source.components.map((component) => [
+        component.id,
+        createId("component", component.id),
+      ])
+    ),
+    componentVariant: new Map(
+      source.components.flatMap((component) =>
+        component.variants.map((variant) => [
+          variant.id,
+          createId("component_variant", variant.id),
+        ])
+      )
+    ),
+    componentInstance: new Map(
+      source.componentInstances.map((instance) => [
+        instance.id,
+        createId("component_instance", instance.id),
+      ])
+    ),
   }
   const requiredId = (map: Map<string, string>, id: string, kind: string) => {
     const next = map.get(id)
     if (!next) throw new Error(`Template ${kind} reference is missing: ${id}`)
     return next
   }
+  const remapSourceNodeRecord = <Value>(
+    record: Readonly<Record<string, Value>>
+  ) =>
+    Object.fromEntries(
+      Object.entries(record).map(([nodeId, value]) => [
+        requiredId(ids.node, nodeId, "component source layer"),
+        structuredClone(value),
+      ])
+    )
 
   return assertValidDocument(
     documentSchema.parse({
@@ -231,6 +268,87 @@ export function cloneTemplateDocument(
           requiredId(ids.node, nodeId, "node")
         ),
       })),
+      components: source.components.map((component) => ({
+        ...structuredClone(component),
+        id: requiredId(ids.component, component.id, "component"),
+        sourceGroupId: requiredId(
+          ids.group,
+          component.sourceGroupId,
+          "component source group"
+        ),
+        defaultVariantId: requiredId(
+          ids.componentVariant,
+          component.defaultVariantId,
+          "component default variant"
+        ),
+        variants: component.variants.map((variant) => ({
+          ...structuredClone(variant),
+          id: requiredId(ids.componentVariant, variant.id, "component variant"),
+          overrides: remapSourceNodeRecord(variant.overrides),
+          ...(variant.removedProperties
+            ? {
+                removedProperties: remapSourceNodeRecord(
+                  variant.removedProperties
+                ),
+              }
+            : {}),
+        })),
+      })),
+      componentInstances: source.componentInstances.map((instance) => ({
+        ...structuredClone(instance),
+        id: requiredId(
+          ids.componentInstance,
+          instance.id,
+          "component instance"
+        ),
+        componentId: requiredId(
+          ids.component,
+          instance.componentId,
+          "component instance source"
+        ),
+        variantId: requiredId(
+          ids.componentVariant,
+          instance.variantId,
+          "component instance variant"
+        ),
+        rootGroupId: requiredId(
+          ids.group,
+          instance.rootGroupId,
+          "component instance root"
+        ),
+        nodeMappings: instance.nodeMappings.map((mapping) => ({
+          sourceNodeId: requiredId(
+            ids.node,
+            mapping.sourceNodeId,
+            "component source layer"
+          ),
+          instanceNodeId: requiredId(
+            ids.node,
+            mapping.instanceNodeId,
+            "component instance layer"
+          ),
+        })),
+        groupMappings: instance.groupMappings.map((mapping) => ({
+          sourceGroupId: requiredId(
+            ids.group,
+            mapping.sourceGroupId,
+            "component source group"
+          ),
+          instanceGroupId: requiredId(
+            ids.group,
+            mapping.instanceGroupId,
+            "component instance group"
+          ),
+        })),
+        overrides: remapSourceNodeRecord(instance.overrides),
+        ...(instance.removedProperties
+          ? {
+              removedProperties: remapSourceNodeRecord(
+                instance.removedProperties
+              ),
+            }
+          : {}),
+      })),
       fields: source.fields.map((field) => ({
         ...field,
         id: requiredId(ids.field, field.id, "field"),
@@ -246,6 +364,21 @@ export function cloneTemplateDocument(
         id: requiredId(ids.binding, binding.id, "binding"),
         fieldId: requiredId(ids.field, binding.fieldId, "field"),
         nodeId: requiredId(ids.node, binding.nodeId, "node"),
+      })),
+      variableBindings: source.variableBindings.map((binding) => ({
+        ...structuredClone(binding),
+        id: requiredId(ids.variableBinding, binding.id, "variable binding"),
+        target:
+          binding.target.kind === "node" || binding.target.kind === "text_range"
+            ? {
+                ...structuredClone(binding.target),
+                nodeId: requiredId(
+                  ids.node,
+                  binding.target.nodeId,
+                  "variable binding layer"
+                ),
+              }
+            : structuredClone(binding.target),
       })),
     })
   )
@@ -272,6 +405,14 @@ export function templateApplicationImpact(
     outputs: { before: current.outputs.length, after: next.outputs.length },
     nodes: { before: current.nodes.length, after: next.nodes.length },
     groups: { before: current.groups.length, after: next.groups.length },
+    components: {
+      before: current.components.length,
+      after: next.components.length,
+    },
+    componentInstances: {
+      before: current.componentInstances.length,
+      after: next.componentInstances.length,
+    },
     fields: { before: current.fields.length, after: next.fields.length },
     bindings: { before: current.bindings.length, after: next.bindings.length },
     imageAssets: {

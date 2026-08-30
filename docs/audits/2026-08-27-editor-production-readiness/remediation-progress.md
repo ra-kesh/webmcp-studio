@@ -3479,3 +3479,18 @@ Status: **accepted; Gate 3 complete**
   structurally mutated.
 - COMPONENT-01 Gate 3 is complete. Gate 4 begins with template portability,
   then Review and WebMCP/API command parity.
+
+## 2026-08-30 — COMPONENT-01 Gate 4A template portability
+
+Status: **implemented and locally accepted; Gate 4 remains active**
+
+- Audited fresh template materialization against the canonical component graph
+  before editing and found that component resources retained old template
+  identities after pages, groups and layers were re-keyed.
+- Fresh starters now clone components, variants, instances, mappings, root
+  groups and override ownership as one coherent graph. Node-targeted variable
+  bindings follow the cloned layers as well.
+- Template replacement impact explicitly includes main-component and instance
+  counts so destructive replacement does not hide reusable-resource loss.
+- Focused document and Studio projection tests pass. Gate 4 next owns Review
+  affected-object navigation, followed by WebMCP/API parity.

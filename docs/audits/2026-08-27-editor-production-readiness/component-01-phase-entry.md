@@ -425,3 +425,26 @@ Status: **accepted on 2026-08-30; Gate 3 complete**
 
 Gate 3 is closed. Gate 4 now owns template portability, Review and WebMCP/API
 parity.
+
+## Gate 4A result — portable template component resources
+
+Status: **implemented and locally accepted on 2026-08-30; Gate 4 remains
+active**
+
+- Revisited the template materialization boundary before implementation. Fresh
+  document starters previously re-keyed pages, groups and layers while leaving
+  component definitions and instances attached to their canonical template
+  identities.
+- Fresh template materialization now re-keys component definitions, variants
+  and instances together with source/instance groups and layers. Variant
+  patches, instance overrides, removed-property ownership, node/group mappings,
+  root groups and active/default variants all point at the cloned graph.
+- Node-targeted variable bindings are also re-keyed at this boundary instead of
+  retaining template-layer identities.
+- Template replacement review now reports component and instance count changes
+  alongside pages, objects, groups, fields, bindings and assets.
+- Focused document and Studio projection tests pass, including validation of a
+  real component-bearing fresh template clone.
+
+Gate 4B/4C still own Review affected-object navigation and WebMCP/API command
+parity.

@@ -2,14 +2,88 @@ import { describe, expect, it } from "vitest"
 import {
   builtInDesignTemplateDefinitions,
   builtInDesignTemplateRepository,
+  cloneTemplateDocument,
   DesignTemplateRepository,
   designTemplateDefinitionSchema,
+  materializeComponentInstances,
   northstarQuotationPayload,
   QUOTATION_COMPOSER_VERSION,
   quotationSourceFingerprint,
   templateApplicationImpact,
   validateDocument,
 } from "../src"
+import type { Document } from "../src"
+
+function componentTemplateDocument(): Document {
+  const document = structuredClone(
+    builtInDesignTemplateRepository.materialize("editorial-one-pager", 1, {
+      identity: "canonical",
+    })
+  )
+  const page = document.pages[0]!
+  const sourceNode = document.nodes.find((node) => node.id === page.nodeIds[0])!
+  const instanceNodeId = "template-component-instance-node"
+  const sourceGroupId = "template-component-source"
+  const instanceGroupId = "template-component-instance-root"
+  const componentId = "template-component"
+  const variantId = "template-component-default"
+
+  document.nodes.push({
+    ...structuredClone(sourceNode),
+    id: instanceNodeId,
+    x: sourceNode.x + 120,
+  })
+  page.nodeIds.push(instanceNodeId)
+  document.groups.push(
+    {
+      id: sourceGroupId,
+      pageId: page.id,
+      name: "Template component",
+      nodeIds: [sourceNode.id],
+    },
+    {
+      id: instanceGroupId,
+      pageId: page.id,
+      name: "Template component 1",
+      nodeIds: [instanceNodeId],
+    }
+  )
+  document.components = [
+    {
+      id: componentId,
+      name: "Template component",
+      description: "Reusable template content",
+      sourceGroupId,
+      defaultVariantId: variantId,
+      variants: [
+        {
+          id: variantId,
+          name: "Default",
+          overrides: { [sourceNode.id]: { opacity: 0.9 } },
+        },
+      ],
+    },
+  ]
+  document.componentInstances = [
+    {
+      id: "template-component-instance",
+      name: "Template component 1",
+      componentId,
+      variantId,
+      rootGroupId: instanceGroupId,
+      transform: {
+        x: sourceNode.x + 120,
+        y: sourceNode.y,
+        scale: 1,
+        rotation: 0,
+      },
+      nodeMappings: [{ sourceNodeId: sourceNode.id, instanceNodeId }],
+      groupMappings: [{ sourceGroupId, instanceGroupId }],
+      overrides: { [sourceNode.id]: { opacity: 0.75 } },
+    },
+  ]
+  return materializeComponentInstances(document)
+}
 
 describe("design template repository", () => {
   it("lists immutable, renderer-backed catalog items in deterministic order", () => {
@@ -84,6 +158,44 @@ describe("design template repository", () => {
     expect(next.outputs[0]?.pageIds).toEqual([next.pages[0]?.id])
     expect(next.bindings[0]?.fieldId).toBe(next.fields[0]?.id)
     expect(next.bindings[0]?.nodeId).toBe(next.nodes[2]?.id)
+    expect(
+      validateDocument(next).filter((issue) => issue.severity === "error")
+    ).toEqual([])
+  })
+
+  it("ports component resources and override ownership into fresh template identities", () => {
+    let sequence = 0
+    const source = componentTemplateDocument()
+    const next = cloneTemplateDocument(source, {
+      now: "2026-08-30T15:30:00.000Z",
+      createId: (kind) => `${kind}-portable-${++sequence}`,
+    })
+    const sourceComponent = source.components[0]!
+    const component = next.components[0]!
+    const sourceInstance = source.componentInstances[0]!
+    const instance = next.componentInstances[0]!
+
+    expect(component.id).not.toBe(sourceComponent.id)
+    expect(component.sourceGroupId).not.toBe(sourceComponent.sourceGroupId)
+    expect(component.defaultVariantId).not.toBe(
+      sourceComponent.defaultVariantId
+    )
+    expect(instance.id).not.toBe(sourceInstance.id)
+    expect(instance.componentId).toBe(component.id)
+    expect(instance.variantId).toBe(component.defaultVariantId)
+    expect(instance.rootGroupId).not.toBe(sourceInstance.rootGroupId)
+    expect(instance.nodeMappings[0]?.sourceNodeId).not.toBe(
+      sourceInstance.nodeMappings[0]?.sourceNodeId
+    )
+    expect(instance.nodeMappings[0]?.instanceNodeId).not.toBe(
+      sourceInstance.nodeMappings[0]?.instanceNodeId
+    )
+    expect(Object.keys(component.variants[0]!.overrides)).toEqual([
+      instance.nodeMappings[0]!.sourceNodeId,
+    ])
+    expect(Object.keys(instance.overrides)).toEqual([
+      instance.nodeMappings[0]!.sourceNodeId,
+    ])
     expect(
       validateDocument(next).filter((issue) => issue.severity === "error")
     ).toEqual([])
@@ -202,6 +314,8 @@ describe("template application impact", () => {
     ).toMatchObject({
       pages: { before: 6, after: 1 },
       outputs: { before: 1, after: 1 },
+      components: { before: 0, after: 0 },
+      componentInstances: { before: 0, after: 0 },
       disconnectsQuotationSource: true,
       rebuildsFromQuotationSource: false,
     })

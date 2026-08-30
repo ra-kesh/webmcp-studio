@@ -27,6 +27,8 @@ export type TemplateImpactRow = {
     | "outputs"
     | "nodes"
     | "groups"
+    | "components"
+    | "component-instances"
     | "fields"
     | "bindings"
     | "image-assets"
@@ -172,6 +174,19 @@ export function templateImpactRows(
       label: "Groups",
       value: beforeAfter(impact.groups),
       warning: impact.groups.before !== impact.groups.after,
+    },
+    {
+      id: "components",
+      label: "Components",
+      value: beforeAfter(impact.components),
+      warning: impact.components.before !== impact.components.after,
+    },
+    {
+      id: "component-instances",
+      label: "Instances",
+      value: beforeAfter(impact.componentInstances),
+      warning:
+        impact.componentInstances.before !== impact.componentInstances.after,
     },
     {
       id: "fields",
