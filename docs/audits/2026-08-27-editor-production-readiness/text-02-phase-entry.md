@@ -310,3 +310,32 @@ Acceptance evidence:
 Gate 2 remains active. Selection-aware inspector state, semantic paragraph/list
 keyboard behavior, rich internal clipboard/plain-text paste and compact
 keyboard/screen-reader/focus acceptance remain open.
+
+## Gate 2D result — truthful selection inspector
+
+Implemented:
+
+- the Design inspector now receives the same live character-selection model as
+  the canvas toolbar instead of reading only whole-layer defaults;
+- caret/selection identity, grapheme-aware selected-character count,
+  shared/mixed font, color, size, weight, line-height, tracking, decoration and
+  link state are exposed without inventing a value;
+- focus-safe inspector controls apply size, weight, emphasis, decoration, color
+  and link actions to the active range while retaining Fabric textarea focus;
+- whole-layer typography is explicitly separated under `Layer defaults`, so a
+  selected range and the layer's fallback values no longer look like two
+  conflicting controls.
+
+Acceptance evidence:
+
+- 7/7 focused inspector and formatting-model tests pass, including mixed font
+  sizes, linked text and the selection/default boundary;
+- Studio typecheck, Prettier and `git diff --check` pass;
+- at the live desktop breakpoint, selecting all 13 characters updated both the
+  canvas bar and Design inspector, clicking Bold kept the hidden textarea
+  focused with offsets 0–13, and both surfaces changed to weight 700;
+- the temporary layer was removed and the browser viewport override reset.
+
+Gate 2 remains active. Semantic paragraph/list keyboard behavior, rich internal
+clipboard/plain-text paste and compact keyboard/screen-reader/focus acceptance
+remain open.

@@ -70,9 +70,10 @@ import type {
   ImageFrameMask,
   ImagePlacement,
   SceneNode,
+  TextRunStylePatch,
 } from "@webmcp/document"
 import type { Alignment } from "@webmcp/editor/geometry"
-import type { NodeGeometryPatch } from "@webmcp/editor"
+import type { CanvasTextEditingState, NodeGeometryPatch } from "@webmcp/editor"
 import type {
   EditorImageCommandId,
   EditorImageFrameCommandId,
@@ -162,12 +163,18 @@ import {
 } from "./field-definition-change-model"
 import { operationDetails } from "./review-operation-details"
 import { projectMissingImageRecoveryActions } from "./missing-image-recovery"
+import {
+  sharedTextSelectionValue,
+  textColorChoices,
+  textFormattingTogglePatch,
+} from "./text-formatting-model"
 
 const DEMO_AGENT_BRIEF =
   "Inspect and validate the open design. Adapt it for Mira & Dev, 14 February 2027 in Udaipur, using The Moonlit Weekend package at ₹4,25,000, valid until 30 November 2026. Search the approved asset library for warm sandstone architecture. Then create one coordinated human-reviewed proposal that updates those shared fields and inserts the best asset on the Cover at x 620, y 120, width 540, height 900 with cover fit. Do not apply or publish anything. Summarize the affected outputs and wait for my review."
 
 const EMPTY_REVIEW_JOURNAL = createEmptyReviewJournal()
 const ignoreReviewTarget = () => undefined
+const ignoreTextStylePatch = (_patch: TextRunStylePatch) => undefined
 const reviewTargetKindLabel: Record<ReviewAffectedTarget["kind"], string> = {
   node: "Layer",
   group: "Group",
@@ -275,8 +282,283 @@ function AlignmentGrid({
   )
 }
 
+function TextSelectionMetric({
+  label,
+  value,
+  mixed = false,
+  className,
+}: {
+  label: string
+  value: string
+  mixed?: boolean
+  className?: string
+}) {
+  return (
+    <div className={cn("min-w-0", className)}>
+      <p className="text-[9px] font-medium tracking-wide text-muted-foreground uppercase">
+        {label}
+      </p>
+      <p
+        className="mt-0.5 truncate text-[11px] font-medium"
+        data-mixed={mixed || undefined}
+      >
+        {value}
+      </p>
+    </div>
+  )
+}
+
+function TextSelectionInspector({
+  state,
+  disabled,
+  onApply,
+  onEditLink,
+}: {
+  state: CanvasTextEditingState
+  disabled: boolean
+  onApply: (patch: TextRunStylePatch) => void
+  onEditLink: () => void
+}) {
+  const fontFamily = sharedTextSelectionValue(state.style.fontFamily)
+  const fontSize = sharedTextSelectionValue(state.style.fontSize)
+  const fontWeight = sharedTextSelectionValue(state.style.fontWeight)
+  const italic = sharedTextSelectionValue(state.style.italic)
+  const decoration = sharedTextSelectionValue(state.style.decoration)
+  const color = sharedTextSelectionValue(state.style.color)
+  const lineHeight = sharedTextSelectionValue(state.style.lineHeight)
+  const letterSpacing = sharedTextSelectionValue(state.style.letterSpacing)
+  const start = Math.min(state.selection.anchor, state.selection.focus)
+  const end = Math.max(state.selection.anchor, state.selection.focus)
+  const collapsed = start === end
+  const characterCount = Array.from(state.text.slice(start, end)).length
+  const valueLabel = (value: number | null) =>
+    value === null ? "Mixed" : String(Math.round(value * 100) / 100)
+  const linkLabel =
+    state.link.kind === "value"
+      ? "Linked"
+      : state.link.kind === "mixed"
+        ? "Mixed links"
+        : "No link"
+  const keepCanvasFocus = (event: React.MouseEvent<HTMLDivElement>) => {
+    event.preventDefault()
+  }
+
+  return (
+    <div
+      className="rounded-lg border bg-muted/25 p-2.5"
+      data-text-selection-inspector="true"
+      onMouseDown={keepCanvasFocus}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold">Text selection</p>
+          <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground">
+            {collapsed
+              ? "Formatting for text typed at this insertion point."
+              : `${characterCount} character${characterCount === 1 ? "" : "s"} selected.`}
+          </p>
+        </div>
+        <Badge variant="secondary" className="shrink-0 font-normal">
+          {collapsed ? "Caret" : "Selection"}
+        </Badge>
+      </div>
+
+      <div className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-2 border-t pt-2.5">
+        <TextSelectionMetric
+          label="Font"
+          value={fontFamily ?? "Mixed"}
+          mixed={fontFamily === null}
+        />
+        <TextSelectionMetric
+          label="Color"
+          value={color ?? "Mixed"}
+          mixed={color === null}
+        />
+        <TextSelectionMetric
+          label="Line height"
+          value={valueLabel(lineHeight)}
+          mixed={lineHeight === null}
+        />
+        <TextSelectionMetric
+          label="Tracking"
+          value={valueLabel(letterSpacing)}
+          mixed={letterSpacing === null}
+        />
+      </div>
+
+      <div className="mt-2.5 flex flex-wrap items-center gap-1 border-t pt-2.5">
+        <div
+          aria-label="Selected text font size"
+          className="flex h-8 items-center rounded-md border bg-background"
+          role="group"
+        >
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            aria-label="Decrease selected text font size"
+            className="size-8 rounded-md text-xs"
+            disabled={disabled}
+            onClick={() =>
+              onApply({ fontSize: Math.max(1, (fontSize ?? 16) - 1) })
+            }
+          >
+            −
+          </Button>
+          <span
+            aria-label={fontSize === null ? "Mixed font sizes" : undefined}
+            className="w-8 text-center text-[10px] font-medium tabular-nums"
+          >
+            {fontSize === null ? "—" : Math.round(fontSize)}
+          </span>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            aria-label="Increase selected text font size"
+            className="size-8 rounded-md text-xs"
+            disabled={disabled}
+            onClick={() => onApply({ fontSize: (fontSize ?? 16) + 1 })}
+          >
+            +
+          </Button>
+        </div>
+        {[
+          [
+            "Bold selected text",
+            "B",
+            fontWeight !== null && fontWeight >= 700,
+            fontWeight === null,
+            "bold",
+          ],
+          [
+            "Italicize selected text",
+            "I",
+            italic === true,
+            italic === null,
+            "italic",
+          ],
+          [
+            "Underline selected text",
+            "U",
+            decoration === "underline",
+            decoration === null,
+            "underline",
+          ],
+          [
+            "Strike selected text",
+            "S",
+            decoration === "line_through",
+            decoration === null,
+            "strikethrough",
+          ],
+        ].map(([label, glyph, active, mixed, command]) => (
+          <Button
+            key={command as string}
+            type="button"
+            size="icon"
+            variant="outline"
+            aria-label={label as string}
+            aria-pressed={active as boolean}
+            className="size-8 rounded-md text-[11px] aria-pressed:bg-foreground aria-pressed:text-background data-[mixed=true]:bg-muted"
+            data-mixed={mixed ? "true" : "false"}
+            disabled={disabled}
+            onClick={() =>
+              onApply(
+                textFormattingTogglePatch(
+                  state,
+                  command as "bold" | "italic" | "underline" | "strikethrough"
+                )
+              )
+            }
+          >
+            <span
+              className={cn(
+                command === "bold" && "font-bold",
+                command === "italic" && "italic",
+                command === "underline" && "underline",
+                command === "strikethrough" && "line-through"
+              )}
+            >
+              {glyph as string}
+            </span>
+          </Button>
+        ))}
+        <Button
+          type="button"
+          size="icon"
+          variant="outline"
+          aria-label={
+            state.link.kind === "value"
+              ? "Edit link for selected text"
+              : state.link.kind === "mixed"
+                ? "Replace links for selected text"
+                : "Add link to selected text"
+          }
+          aria-pressed={state.link.kind === "value"}
+          className="size-8 rounded-md aria-pressed:bg-foreground aria-pressed:text-background data-[mixed=true]:bg-muted"
+          data-mixed={state.link.kind === "mixed" ? "true" : "false"}
+          disabled={disabled || (collapsed && state.link.kind === "none")}
+          title={linkLabel}
+          onClick={onEditLink}
+        >
+          <Link2 />
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          aria-label={
+            fontWeight === null
+              ? "Mixed selected text font weights"
+              : `Selected text font weight ${fontWeight}`
+          }
+          className="h-8 min-w-11 rounded-md px-2 text-[10px] tabular-nums"
+          disabled={disabled}
+          onClick={() => {
+            const weights = [400, 500, 600, 700, 800]
+            const currentIndex = weights.indexOf(fontWeight ?? 400)
+            onApply({
+              fontWeight: weights[(currentIndex + 1) % weights.length],
+            })
+          }}
+        >
+          {fontWeight === null ? "Mix" : fontWeight}
+        </Button>
+      </div>
+
+      <div
+        aria-label="Selected text color"
+        className="mt-2 flex items-center gap-1"
+        role="group"
+      >
+        {textColorChoices.map((choice) => (
+          <button
+            key={choice}
+            type="button"
+            aria-label={`Set selected text color ${choice}`}
+            aria-pressed={color === choice}
+            className="relative grid size-7 place-items-center rounded-md hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            disabled={disabled}
+            onClick={() => onApply({ color: choice })}
+          >
+            <span
+              className="size-3.5 rounded-full border border-black/15 shadow-xs"
+              style={{ backgroundColor: choice }}
+            />
+            {color === choice ? (
+              <span className="absolute right-0.5 bottom-0.5 size-1.5 rounded-full bg-primary ring-1 ring-background" />
+            ) : null}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function NodeInspector({
   node,
+  textEditingState,
   focusedProperty,
   onUpdate,
   onAlignToPage,
@@ -289,8 +571,11 @@ function NodeInspector({
   onRemoveImageLayer,
   onReviewDocumentImage = () => undefined,
   capabilityContext,
+  onApplyTextEditingStyle = ignoreTextStylePatch,
+  onEditTextLink = ignoreReviewTarget,
 }: {
   node: SceneNode
+  textEditingState?: CanvasTextEditingState | null
   focusedProperty?: BindableProperty
   onUpdate: (patch: Partial<SceneNode>) => void
   onAlignToPage: (alignment: Alignment) => void
@@ -306,6 +591,8 @@ function NodeInspector({
   onRemoveImageLayer: () => void
   onReviewDocumentImage?: (localAssetId: string) => void
   capabilityContext?: InspectorCapabilityContext
+  onApplyTextEditingStyle?: (patch: TextRunStylePatch) => void
+  onEditTextLink?: () => void
 }) {
   const inspector = useMemo(
     () => createInspectorSelectionModel([node], capabilityContext),
@@ -502,6 +789,14 @@ function NodeInspector({
                 "bg-accent/70 ring-2 ring-ring ring-inset"
             )}
           >
+            {textEditingState?.nodeId === node.id ? (
+              <TextSelectionInspector
+                state={textEditingState}
+                disabled={node.locked}
+                onApply={onApplyTextEditingStyle}
+                onEditLink={onEditTextLink}
+              />
+            ) : null}
             <label className="flex flex-col gap-1.5">
               <FieldLabel>Content</FieldLabel>
               <span className="text-[10px] text-muted-foreground">
@@ -603,6 +898,16 @@ function NodeInspector({
               </div>
             ) : null}
             <label className="space-y-1.5">
+              {textEditingState?.nodeId === node.id ? (
+                <span className="mb-2 block border-t pt-3">
+                  <span className="block text-[10px] font-semibold">
+                    Layer defaults
+                  </span>
+                  <span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">
+                    Used where this layer has no character-level override.
+                  </span>
+                </span>
+              ) : null}
               <FieldLabel>Font family</FieldLabel>
               <Select
                 value={node.fontFamily}
@@ -3041,6 +3346,7 @@ export function InspectorSidebar({
   document,
   reviewNavigationDocument = document,
   selectedNodes: selectedNodesProp,
+  textEditingState = null,
   imageCropPreviewStore = null,
   pendingChangeSet,
   lastResolvedChangeSet,
@@ -3080,6 +3386,8 @@ export function InspectorSidebar({
   onRetryImageSource,
   onRemoveImageLayer,
   onReviewDocumentImage = () => undefined,
+  onApplyTextEditingStyle = ignoreTextStylePatch,
+  onEditTextLink = ignoreReviewTarget,
   capabilityContext,
   focusFieldId = null,
   className,
@@ -3087,6 +3395,7 @@ export function InspectorSidebar({
   document: Document
   reviewNavigationDocument?: Document
   selectedNodes: SceneNode[]
+  textEditingState?: CanvasTextEditingState | null
   imageCropPreviewStore?: ImageCropPreviewStore | null
   pendingChangeSet: ChangeSet | null
   lastResolvedChangeSet: ChangeSet | null
@@ -3139,6 +3448,8 @@ export function InspectorSidebar({
   onRetryImageSource: (nodeId: string) => void
   onRemoveImageLayer: () => void
   onReviewDocumentImage?: (localAssetId: string) => void
+  onApplyTextEditingStyle?: (patch: TextRunStylePatch) => void
+  onEditTextLink?: () => void
   capabilityContext?: InspectorCapabilityContext
   focusFieldId?: string | null
   className?: string
@@ -3254,6 +3565,7 @@ export function InspectorSidebar({
             {selectedNode ? (
               <NodeInspector
                 node={selectedNode}
+                textEditingState={textEditingState}
                 focusedProperty={
                   focusedBinding?.nodeId === selectedNode.id
                     ? focusedBinding.property
@@ -3270,6 +3582,8 @@ export function InspectorSidebar({
                 onRemoveImageLayer={onRemoveImageLayer}
                 onReviewDocumentImage={onReviewDocumentImage}
                 capabilityContext={capabilityContext}
+                onApplyTextEditingStyle={onApplyTextEditingStyle}
+                onEditTextLink={onEditTextLink}
               />
             ) : selectedNodes.length > 1 ? (
               <MultiSelectionInspector

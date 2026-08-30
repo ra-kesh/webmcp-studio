@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { CanvasTextEditingState } from "@webmcp/editor"
-import { textFormattingTogglePatch } from "./text-formatting-toolbar"
+import { textFormattingTogglePatch } from "./text-formatting-model"
 
 const state = (overrides: Partial<CanvasTextEditingState["style"]> = {}) =>
   ({

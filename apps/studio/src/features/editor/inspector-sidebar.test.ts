@@ -8,6 +8,9 @@ import { InspectorSidebar, reviewTargetExists } from "./inspector-sidebar"
 const image = renderConformanceDocument.nodes.find(
   (node) => node.type === "image"
 )!
+const textNode = renderConformanceDocument.nodes.find(
+  (node) => node.type === "text"
+)!
 
 describe("InspectorSidebar image replacement capability", () => {
   it("disables Replace and explains the host-projected source binding", () => {
@@ -195,6 +198,81 @@ describe("InspectorSidebar image replacement capability", () => {
     expect(markup).not.toContain("Retry image source")
     expect(markup).not.toContain("Locate replacement image")
     expect(markup).not.toContain("Remove image layer")
+  })
+})
+
+describe("InspectorSidebar text selection state", () => {
+  it("separates live character formatting from layer defaults", () => {
+    const markup = renderToStaticMarkup(
+      createElement(InspectorSidebar, {
+        document: renderConformanceDocument,
+        selectedNodes: [textNode],
+        textEditingState: {
+          nodeId: textNode.id,
+          text: textNode.type === "text" ? textNode.text : "",
+          selection: { anchor: 0, focus: 5 },
+          link: {
+            kind: "value",
+            target: "https://example.com",
+            newTab: true,
+          },
+          style: {
+            color: { kind: "value", value: "#111827" },
+            fontFamily: { kind: "value", value: "Geist Variable" },
+            fontSize: { kind: "mixed" },
+            fontWeight: { kind: "value", value: 700 },
+            italic: { kind: "value", value: false },
+            decoration: { kind: "value", value: "underline" },
+            lineHeight: { kind: "value", value: 1.2 },
+            letterSpacing: { kind: "value", value: 0 },
+          },
+        },
+        pendingChangeSet: null,
+        lastResolvedChangeSet: null,
+        changeSetConflict: null,
+        changeSetError: null,
+        isApplyingChangeSet: false,
+        webMcpStatus: "ready",
+        webMcpError: null,
+        onUpdateNode: vi.fn(),
+        onUpdateSelection: vi.fn(),
+        onUpdateField: vi.fn(),
+        onCreateField: vi.fn(),
+        onUpdateFieldDefinition: vi.fn(),
+        onRemoveField: vi.fn(),
+        onBindField: vi.fn(),
+        onUnbindField: vi.fn(),
+        onFocusNode: vi.fn(),
+        onDecideChangeOperation: vi.fn(),
+        onDecideAllChangeOperations: vi.fn(),
+        onApplyChangeSet: vi.fn(),
+        onDiscardChangeSet: vi.fn(),
+        onAlignSelection: vi.fn(),
+        onAlignSelectionToPage: vi.fn(),
+        onDistributeSelection: vi.fn(),
+        onSetSelectionLocked: vi.fn(),
+        onSetSelectionVisible: vi.fn(),
+        onReorderSelection: vi.fn(),
+        onDuplicateSelection: vi.fn(),
+        onDeleteSelection: vi.fn(),
+        onUpdateImageFrameGeometry: vi.fn(),
+        onSetImagePlacement: vi.fn(),
+        onSetImageFrameMask: vi.fn(),
+        onRunImageCommand: vi.fn(),
+        isImageCommandEnabled: () => true,
+        onRetryImageSource: vi.fn(),
+        onRemoveImageLayer: vi.fn(),
+        onApplyTextEditingStyle: vi.fn(),
+        onEditTextLink: vi.fn(),
+      })
+    )
+
+    expect(markup).toContain('data-text-selection-inspector="true"')
+    expect(markup).toContain("5 characters selected")
+    expect(markup).toContain('aria-label="Mixed font sizes"')
+    expect(markup).toContain('aria-label="Edit link for selected text"')
+    expect(markup).toContain("Geist Variable")
+    expect(markup).toContain("Layer defaults")
   })
 })
 

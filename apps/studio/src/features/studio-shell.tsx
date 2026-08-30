@@ -48,6 +48,7 @@ import {
   applyTextLinkToRange,
   type DesignTemplateCatalogItem,
   type SceneNode,
+  type TextRunStylePatch,
   type TextSelection,
   type TextSelectionLinkState,
 } from "@webmcp/document"
@@ -1167,6 +1168,13 @@ export function StudioShell({
       returnToTextEditing(node.id, session.selection)
     },
     [editor, returnToTextEditing, textLinkEditor]
+  )
+
+  const applyActiveTextEditingStyle = useCallback(
+    (patch: TextRunStylePatch) => {
+      artboardRef.current?.applyTextEditingStyle(patch)
+    },
+    []
   )
 
   const prepareDocumentRouteExit = useCallback(async () => {
@@ -4232,7 +4240,7 @@ export function StudioShell({
                   state={textEditingState}
                   className="max-w-full shadow-sm"
                   onApply={(patch) => {
-                    artboardRef.current?.applyTextEditingStyle(patch)
+                    applyActiveTextEditingStyle(patch)
                   }}
                   onEditLink={openTextLinkEditor}
                 />
@@ -4452,7 +4460,7 @@ export function StudioShell({
                       state={textEditingState}
                       className="pointer-events-auto"
                       onApply={(patch) => {
-                        artboardRef.current?.applyTextEditingStyle(patch)
+                        applyActiveTextEditingStyle(patch)
                       }}
                       onEditLink={openTextLinkEditor}
                     />
@@ -4562,6 +4570,7 @@ export function StudioShell({
                   document={editor.document}
                   reviewNavigationDocument={editor.previewDocument}
                   selectedNodes={editor.selectedNodes}
+                  textEditingState={textEditingState}
                   imageCropPreviewStore={editor.imageCropPreviewStore}
                   capabilityContext={inspectorCapabilityContext}
                   focusFieldId={mediaReviewFieldId}
@@ -4612,6 +4621,8 @@ export function StudioShell({
                       initialCollection: "uploads",
                     })
                   }
+                  onApplyTextEditingStyle={applyActiveTextEditingStyle}
+                  onEditTextLink={openTextLinkEditor}
                 />
               </div>
             </>
@@ -4763,6 +4774,7 @@ export function StudioShell({
                 document={editor.document}
                 reviewNavigationDocument={editor.previewDocument}
                 selectedNodes={editor.selectedNodes}
+                textEditingState={textEditingState}
                 imageCropPreviewStore={editor.imageCropPreviewStore}
                 capabilityContext={inspectorCapabilityContext}
                 focusFieldId={mediaReviewFieldId}
@@ -4825,6 +4837,8 @@ export function StudioShell({
                     initialCollection: "uploads",
                   })
                 }
+                onApplyTextEditingStyle={applyActiveTextEditingStyle}
+                onEditTextLink={openTextLinkEditor}
               />
             )}
           </SheetContent>

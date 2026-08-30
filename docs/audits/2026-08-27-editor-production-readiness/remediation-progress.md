@@ -3043,3 +3043,27 @@ Status: **accepted as a bounded slice; Gate 2 remains active**
 - Gate 2 still owns selection-aware inspector state, semantic paragraph/list
   keyboard behavior, rich/plain clipboard handling and compact accessibility
   acceptance.
+
+## 2026-08-30 — TEXT-02 Gate 2D selection-aware inspector
+
+Status: **accepted as a bounded slice; Gate 2 remains active**
+
+- Revisited the TEXT-02 audit plus OpenPencil's typography selection state and
+  Loora's compact properties-panel separation before implementation. No
+  reference code was imported.
+- The Design inspector now consumes the exact Fabric character-selection model
+  used by the floating toolbar. It reports caret versus range, selected
+  character count and every shared/mixed character property without falling
+  back to misleading whole-layer values.
+- Added focus-safe range controls for size, weight, emphasis, decoration,
+  colors and links. Whole-layer typography remains available but is explicitly
+  labeled `Layer defaults` with its fallback semantics.
+- The shared formatting rules and color choices moved into a small pure model
+  module, avoiding drift between the two UI surfaces and unnecessary shell
+  subscriptions.
+- 7/7 focused tests and Studio typecheck pass. Live desktop acceptance selected
+  13 characters, retained Fabric textarea focus and offsets while Bold was
+  clicked in the inspector, and showed weight 700 in both surfaces. The
+  temporary layer was removed and the temporary viewport override was reset.
+- Gate 2 still owns semantic paragraph/list keyboard behavior, rich/plain
+  clipboard handling and compact accessibility acceptance.
