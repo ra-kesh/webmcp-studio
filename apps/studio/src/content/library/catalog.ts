@@ -39,13 +39,17 @@ const projectedMedia = studioMediaManifest.map((media, mediaIndex) => {
 
 const projectedItems = [...projectedTemplates, ...projectedMedia]
 
+export const studioLibraryCatalogSummaries = deepFreeze(
+  projectedItems.map(({ summary }) => summary)
+)
+
 export const STUDIO_LIBRARY_CATALOG_REVISION = revisionFor(
   projectedItems.map(({ summary }) => summary)
 )
 
 export const studioLibraryCatalogIndex = new LibraryCatalogIndex(
   STUDIO_LIBRARY_CATALOG_REVISION,
-  projectedItems.map(({ summary }) => summary)
+  studioLibraryCatalogSummaries
 )
 
 const detailByIdentity = new Map<string, StudioLibraryCatalogDetail>(
