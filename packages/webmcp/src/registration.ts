@@ -1,5 +1,8 @@
 import {
   analyzeFieldDeletion,
+  componentInstanceMetadataPatchSchema,
+  componentOverridePropertySchema,
+  componentTransformSchema,
   formatFieldValueForText,
   imageFrameMaskSchema,
   imagePlacementSchema,
@@ -40,11 +43,14 @@ import {
 import {
   createAssetInsertionChangeSet,
   createCanvasEditChangeSet,
+  createComponentChangeSet,
   createDesignStyleChangeSet,
   createDesignVariableChangeSet,
   createFieldUpdateChangeSet,
   createOutputVariantChangeSet,
   type CanvasEditProposalInput,
+  type ComponentProposalChange,
+  type ComponentProposalInput,
   type DesignStyleProposalChange,
   type DesignStyleProposalInput,
   type DesignVariableProposalChange,
@@ -57,6 +63,7 @@ import {
   DESIGN_QUERY_MAX_LIMIT,
   DesignQueryError,
   readDesignNode,
+  readDesignComponents,
   readDesignStyles,
   readDesignVariables,
   readDesignTree,
@@ -1129,6 +1136,187 @@ function parseDesignVariableProposalInput(
     baseSnapshotId: value.baseSnapshotId as string,
     reason: typeof value.reason === "string" ? value.reason : undefined,
     changes: changes as DesignVariableProposalChange[],
+  }
+}
+
+function requiredComponentString(value: unknown, path: string): string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(`${path} is required.`)
+  }
+  return value
+}
+
+function parseComponentProposalInput(
+  input: unknown,
+  document: Document
+): ComponentProposalInput {
+  const value = parseProposalIdentity(input)
+  if (!Array.isArray(value.changes) || value.changes.length === 0) {
+    throw new Error("changes must be a non-empty array.")
+  }
+  if (value.changes.length > 24) {
+    throw new Error("changes can contain no more than 24 operations.")
+  }
+  const changes = value.changes.map((candidate, index) => {
+    if (
+      !candidate ||
+      typeof candidate !== "object" ||
+      Array.isArray(candidate)
+    ) {
+      throw new Error(`changes[${index}] must be an object.`)
+    }
+    const change = candidate as Record<string, unknown>
+    const path = `changes[${index}]`
+    if (change.action === "create_instance") {
+      const parsedTransform = componentTransformSchema.safeParse(
+        change.transform
+      )
+      if (!parsedTransform.success) {
+        throw new Error(
+          `${path}.transform is invalid: ${parsedTransform.error.issues[0]?.message ?? "invalid transform"}`
+        )
+      }
+      return {
+        action: "create_instance",
+        componentId: requiredComponentString(
+          change.componentId,
+          `${path}.componentId`
+        ),
+        pageId: requiredComponentString(change.pageId, `${path}.pageId`),
+        ...(typeof change.parentGroupId === "string" && change.parentGroupId
+          ? { parentGroupId: change.parentGroupId }
+          : {}),
+        ...(typeof change.name === "string" && change.name.trim()
+          ? { name: change.name }
+          : {}),
+        ...(typeof change.variantId === "string" && change.variantId
+          ? { variantId: change.variantId }
+          : {}),
+        transform: parsedTransform.data,
+      } satisfies ComponentProposalChange
+    }
+    if (change.action === "switch_variant") {
+      return {
+        action: "switch_variant",
+        instanceId: requiredComponentString(
+          change.instanceId,
+          `${path}.instanceId`
+        ),
+        variantId: requiredComponentString(
+          change.variantId,
+          `${path}.variantId`
+        ),
+      } satisfies ComponentProposalChange
+    }
+    if (change.action === "update_instance") {
+      const parsed = componentInstanceMetadataPatchSchema.safeParse(
+        change.patch
+      )
+      if (!parsed.success) {
+        throw new Error(
+          `${path}.patch is invalid: ${parsed.error.issues[0]?.message ?? "invalid instance patch"}`
+        )
+      }
+      return {
+        action: "update_instance",
+        instanceId: requiredComponentString(
+          change.instanceId,
+          `${path}.instanceId`
+        ),
+        patch: parsed.data,
+      } satisfies ComponentProposalChange
+    }
+    if (change.action === "set_override") {
+      const instanceId = requiredComponentString(
+        change.instanceId,
+        `${path}.instanceId`
+      )
+      const sourceNodeId = requiredComponentString(
+        change.sourceNodeId,
+        `${path}.sourceNodeId`
+      )
+      const instance = document.componentInstances.find(
+        (candidate) => candidate.id === instanceId
+      )
+      if (
+        !instance?.nodeMappings.some(
+          (mapping) => mapping.sourceNodeId === sourceNodeId
+        )
+      ) {
+        throw new Error(
+          `${sourceNodeId} is not part of instance ${instanceId}.`
+        )
+      }
+      const sourceNode = document.nodes.find((node) => node.id === sourceNodeId)
+      if (!sourceNode) throw new Error(`Unknown source layer: ${sourceNodeId}`)
+      return {
+        action: "set_override",
+        instanceId,
+        sourceNodeId,
+        patch: parseTypedCanvasPatch(sourceNode.type, change.patch, index),
+      } satisfies ComponentProposalChange
+    }
+    if (change.action === "reset_override") {
+      let properties:
+        | NonNullable<
+            Extract<
+              ComponentProposalChange,
+              { action: "reset_override" }
+            >["properties"]
+          >
+        | undefined
+      const parsedProperties = change.properties
+      if (parsedProperties !== undefined) {
+        if (!Array.isArray(parsedProperties) || parsedProperties.length === 0) {
+          throw new Error(`${path}.properties must be a non-empty array.`)
+        }
+        const values = parsedProperties.map((property) => {
+          const parsed = componentOverridePropertySchema.safeParse(property)
+          if (!parsed.success) {
+            throw new Error(`${path}.properties contains an invalid property.`)
+          }
+          return parsed.data
+        })
+        if (new Set(values).size !== values.length) {
+          throw new Error(`${path}.properties must not contain duplicates.`)
+        }
+        properties = values
+      }
+      return {
+        action: "reset_override",
+        instanceId: requiredComponentString(
+          change.instanceId,
+          `${path}.instanceId`
+        ),
+        sourceNodeId: requiredComponentString(
+          change.sourceNodeId,
+          `${path}.sourceNodeId`
+        ),
+        ...(properties ? { properties } : {}),
+      } satisfies ComponentProposalChange
+    }
+    if (
+      change.action === "reset_all_overrides" ||
+      change.action === "detach_instance"
+    ) {
+      return {
+        action: change.action,
+        instanceId: requiredComponentString(
+          change.instanceId,
+          `${path}.instanceId`
+        ),
+      } satisfies ComponentProposalChange
+    }
+    throw new Error(
+      `${path}.action must be create_instance, switch_variant, update_instance, set_override, reset_override, reset_all_overrides, or detach_instance.`
+    )
+  })
+  return {
+    documentId: value.documentId as string,
+    baseRevision: value.baseRevision as number,
+    baseSnapshotId: value.baseSnapshotId as string,
+    reason: typeof value.reason === "string" ? value.reason : undefined,
+    changes,
   }
 }
 
@@ -2268,6 +2456,133 @@ const designVariableChangeInputSchema = {
   ],
 } as const
 
+const componentTransformInputSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    x: { type: "number" },
+    y: { type: "number" },
+    scale: { type: "number", exclusiveMinimum: 0, maximum: 64 },
+    rotation: { type: "number", minimum: -360, maximum: 360 },
+  },
+  required: ["x", "y", "scale", "rotation"],
+} as const
+
+const componentOverridePatchInputSchema = {
+  type: "object",
+  additionalProperties: false,
+  minProperties: 1,
+  properties: {
+    ...commonCanvasPatchInputProperties,
+    text: { type: "string" },
+    color: { type: "string" },
+    fontFamily: { type: "string", minLength: 1 },
+    fontSize: { type: "number", exclusiveMinimum: 0 },
+    fontWeight: { type: "integer", minimum: 100, maximum: 900 },
+    lineHeight: { type: "number", minimum: 0.5, maximum: 3 },
+    letterSpacing: { type: "number", minimum: -20, maximum: 200 },
+    align: { type: "string", enum: ["left", "center", "right"] },
+    sizingMode: {
+      type: "string",
+      enum: ["auto_width", "auto_height", "fixed"],
+    },
+    fill: { type: "string" },
+    radius: { type: "number", minimum: 0 },
+    stroke: { type: "string" },
+    strokeWidth: { type: "number", minimum: 0 },
+    placement: imagePlacementInputSchema,
+    frameMask: imageFrameMaskInputSchema,
+    alt: { type: "string" },
+    decorative: { type: "boolean" },
+  },
+} as const
+
+const componentChangeInputSchema = {
+  oneOf: [
+    {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        action: { const: "create_instance" },
+        componentId: { type: "string", minLength: 1 },
+        pageId: { type: "string", minLength: 1 },
+        parentGroupId: { type: "string", minLength: 1 },
+        name: { type: "string", minLength: 1, maxLength: 120 },
+        variantId: { type: "string", minLength: 1 },
+        transform: componentTransformInputSchema,
+      },
+      required: ["action", "componentId", "pageId", "transform"],
+    },
+    {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        action: { const: "switch_variant" },
+        instanceId: { type: "string", minLength: 1 },
+        variantId: { type: "string", minLength: 1 },
+      },
+      required: ["action", "instanceId", "variantId"],
+    },
+    {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        action: { const: "update_instance" },
+        instanceId: { type: "string", minLength: 1 },
+        patch: {
+          type: "object",
+          additionalProperties: false,
+          minProperties: 1,
+          properties: {
+            name: { type: "string", minLength: 1, maxLength: 120 },
+            transform: componentTransformInputSchema,
+          },
+        },
+      },
+      required: ["action", "instanceId", "patch"],
+    },
+    {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        action: { const: "set_override" },
+        instanceId: { type: "string", minLength: 1 },
+        sourceNodeId: { type: "string", minLength: 1 },
+        patch: componentOverridePatchInputSchema,
+      },
+      required: ["action", "instanceId", "sourceNodeId", "patch"],
+    },
+    {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        action: { const: "reset_override" },
+        instanceId: { type: "string", minLength: 1 },
+        sourceNodeId: { type: "string", minLength: 1 },
+        properties: {
+          type: "array",
+          minItems: 1,
+          uniqueItems: true,
+          items: {
+            type: "string",
+            enum: [...componentOverridePropertySchema.options],
+          },
+        },
+      },
+      required: ["action", "instanceId", "sourceNodeId"],
+    },
+    ...(["reset_all_overrides", "detach_instance"] as const).map((action) => ({
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        action: { const: action },
+        instanceId: { type: "string", minLength: 1 },
+      },
+      required: ["action", "instanceId"],
+    })),
+  ],
+} as const
+
 function parseOutputProposalInput(input: unknown): OutputVariantProposalInput {
   const value = parseProposalIdentity(input)
   if (typeof value.sourcePageId !== "string" || !value.sourcePageId) {
@@ -3335,6 +3650,38 @@ export function studioWebMcpTools(
       },
     },
     {
+      name: "read_design_components",
+      title: "Read reusable components",
+      description:
+        "Read document-owned components, variants, instances, source mappings, public override-property names, and supported component actions. Private layer values and image source URLs are never returned.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          componentId: { type: "string", minLength: 1 },
+        },
+      },
+      annotations: { readOnlyHint: true, untrustedContentHint: true },
+      execute: (input) => {
+        try {
+          const value = queryObject(input)
+          assertQueryKeys(value, ["componentId"])
+          const current = services.getSnapshot()
+          const result = readDesignComponents(
+            current.document,
+            designQueryIdentity(current),
+            optionalQueryString(value.componentId, "componentId")
+          )
+          return textResult(
+            `Read ${result.components.length} reusable component${result.components.length === 1 ? "" : "s"} and ${result.instances.length} instance${result.instances.length === 1 ? "" : "s"}.`,
+            result
+          )
+        } catch (error) {
+          return errorResult(error)
+        }
+      },
+    },
+    {
       name: "search_design_nodes",
       title: "Search design layers",
       description:
@@ -3884,6 +4231,55 @@ export function studioWebMcpTools(
           )
           return textResult(
             `Previewing ${changeSet.operations.length} variable change${changeSet.operations.length === 1 ? "" : "s"}. Nothing has been applied; ask the user to review the Review panel.`,
+            publicChangeSet(changeSet, current.document, current.assets)
+          )
+        } catch (error) {
+          return errorResult(error)
+        }
+      },
+    },
+    {
+      name: "propose_component_changes",
+      title: "Propose component changes",
+      description:
+        "Create a non-destructive reviewed proposal to insert component instances, switch variants, update instance metadata, set or reset controlled layer overrides, or detach instances. Call read_design_components first and use exact component, instance, page, and source-layer IDs.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          documentId: { type: "string", minLength: 1 },
+          baseRevision: { type: "integer", minimum: 0 },
+          baseSnapshotId: { type: "string", minLength: 1 },
+          reason: { type: "string" },
+          changes: {
+            type: "array",
+            minItems: 1,
+            maxItems: 24,
+            items: componentChangeInputSchema,
+          },
+        },
+        required: ["documentId", "baseRevision", "baseSnapshotId", "changes"],
+      },
+      annotations: { untrustedContentHint: true },
+      execute: (input) => {
+        try {
+          const current = services.getSnapshot()
+          assertCurrentProposalSnapshot(input, current)
+          const proposal = parseComponentProposalInput(input, current.document)
+          const changeSet = createComponentChangeSet(
+            current.document,
+            proposal,
+            services
+          )
+          services.proposeChangeSet(
+            changeSet,
+            webMcpProposalProvenance(
+              "propose_component_changes",
+              proposal.reason ?? null
+            )
+          )
+          return textResult(
+            `Previewing ${changeSet.operations.length} component change${changeSet.operations.length === 1 ? "" : "s"}. Nothing has been applied; ask the user to review the Review panel.`,
             publicChangeSet(changeSet, current.document, current.assets)
           )
         } catch (error) {

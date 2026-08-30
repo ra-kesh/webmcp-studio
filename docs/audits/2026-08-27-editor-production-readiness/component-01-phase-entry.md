@@ -2,7 +2,7 @@
 
 Date: 2026-08-30
 
-Status: active; Gates 1 and 2 locally accepted, Gate 3 next
+Status: active; Gates 1–4 locally accepted, Gate 5 next
 
 ## Purpose
 
@@ -468,5 +468,29 @@ active**
   the full group selection instead of choosing an arbitrary first child.
 - Focused Review journal/operation tests pass and Studio typechecks.
 
-Gate 4C WebMCP/API capability, query and execution parity remains before Gate 4
-closes.
+## Gate 4C result — WebMCP/API component parity
+
+Status: **implemented and locally accepted on 2026-08-30; Gate 4 complete**
+
+- Revisited Loora's shared human/agent transaction boundary and Studio's
+  existing style/variable WebMCP tools before implementation.
+- `read_design_components` exposes component definitions, variants, instances,
+  source/instance mappings, override-property names and exact supported actions
+  without returning private override values or image source URLs.
+- `propose_component_changes` supports reviewed instance creation, variant
+  switching, metadata/transform changes, source-layer-controlled overrides,
+  selective/all reset and detach against an exact document snapshot.
+- Component creation maps the complete canonical source subtree to fresh node,
+  group and instance identities. Override input is checked against the mapped
+  source layer and the existing type-safe canvas patch contract.
+- Agent operations compile to the same canonical component commands used by
+  the editor and remain non-destructive until accepted in Review. Public
+  proposal responses retain command type and impact while private patch values
+  stay inside the reviewed proposal.
+- The Review tool inventory now derives from the canonical WebMCP catalog
+  instead of a stale handwritten subset.
+- Focused query, proposal and registration coverage passes 59/59; WebMCP and
+  Studio typechecks pass under Node 22.
+
+Gate 4 is closed. Gate 5 now owns component renderer/PDF conformance, scale,
+persistence, the complete user journey and independent closure.

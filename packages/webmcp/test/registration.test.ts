@@ -17,6 +17,7 @@ import {
   type StudioWebMcpRenderSelection,
   type WebMcpTool,
 } from "../src"
+import { componentDocumentFixture } from "./component-fixture"
 
 const assets = [
   {
@@ -351,7 +352,7 @@ describe("WebMCP registration", () => {
       state.controller.signal
     )
 
-    expect(count).toBe(19)
+    expect(count).toBe(21)
     expect([...state.registered.keys()]).toEqual([
       "inspect_design",
       "read_design_tree",
@@ -360,6 +361,7 @@ describe("WebMCP registration", () => {
       "read_design_node",
       "read_design_styles",
       "read_design_variables",
+      "read_design_components",
       "search_design_nodes",
       "search_assets",
       "validate_design",
@@ -368,6 +370,7 @@ describe("WebMCP registration", () => {
       "propose_canvas_edits",
       "propose_design_style_changes",
       "propose_design_variable_changes",
+      "propose_component_changes",
       "propose_output_variant",
       "publish_template",
       "inspect_render_history",
@@ -699,6 +702,87 @@ describe("WebMCP registration", () => {
         (node) => node.id === "cover-panel"
       )
     ).toMatchObject({ fill: "#B45309" })
+  })
+
+  it("discovers and proposes reviewed component-instance operations", async () => {
+    const document = componentDocumentFixture()
+    const state = setup(document)
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const components = await state.registered
+      .get("read_design_components")
+      ?.execute({ componentId: "component-hero" })
+    expect(components?.structuredContent).toMatchObject({
+      components: [
+        {
+          id: "component-hero",
+          instanceIds: ["instance-hero"],
+          capabilities: { createInstance: true },
+        },
+      ],
+      instances: [
+        {
+          id: "instance-hero",
+          capabilities: {
+            switchVariant: true,
+            setOverride: true,
+            detach: true,
+          },
+        },
+      ],
+    })
+
+    const result = await state.registered
+      .get("propose_component_changes")
+      ?.execute({
+        documentId: document.id,
+        baseRevision: document.revision,
+        baseSnapshotId: "snapshot-seed",
+        reason: "Personalize the hero instance",
+        changes: [
+          {
+            action: "set_override",
+            instanceId: "instance-hero",
+            sourceNodeId: "cover-eyebrow",
+            patch: { text: "Celebration story" },
+          },
+        ],
+      })
+
+    expect(result?.isError).toBeUndefined()
+    expect(result?.structuredContent).toMatchObject({
+      operations: [
+        {
+          command: {
+            type: "update_component_instance",
+          },
+        },
+      ],
+    })
+    expect(state.proposedProvenance()).toMatchObject({
+      toolName: "propose_component_changes",
+      reason: "Personalize the hero instance",
+    })
+    expect(state.proposed()?.operations[0]?.command).toMatchObject({
+      type: "update_component_instance",
+      instanceId: "instance-hero",
+      sourceNodeId: "cover-eyebrow",
+      patch: { text: "Celebration story" },
+    })
+    expect(
+      previewChangeSet(document, state.proposed()!).nodes.find(
+        (node) => node.id === "instance-cover-eyebrow"
+      )
+    ).toMatchObject({ text: "Celebration story" })
   })
 
   it("reports an interrupted publication with stable unknown-status identity", async () => {

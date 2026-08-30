@@ -3510,3 +3510,20 @@ Status: **implemented and locally accepted; Gate 4 remains active**
   document.
 - Focused Review tests and Studio typecheck pass. Gate 4C WebMCP/API parity is
   next.
+
+## 2026-08-30 — COMPONENT-01 Gate 4C WebMCP/API parity
+
+Status: **implemented and locally accepted; Gate 4 is closed and Gate 5 is
+next**
+
+- Added privacy-safe component/variant/instance discovery with exact mappings,
+  override-property names and supported actions.
+- Added reviewed, snapshot-bound component instance creation, variant,
+  metadata, controlled override, reset and detach proposals.
+- Reused the canonical component command engine for both human and agent paths;
+  public proposal results stay redacted while Review retains the executable
+  operation.
+- Derived the Review tool surface from the canonical catalog so registered
+  capability display cannot drift.
+- Focused WebMCP query/change-set/registration tests pass 59/59; WebMCP and
+  Studio typechecks pass.

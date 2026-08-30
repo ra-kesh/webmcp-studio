@@ -3,10 +3,12 @@ import { northstarSeed, type SceneNode } from "@webmcp/document"
 import {
   DesignQueryError,
   publicDesignNode,
+  readDesignComponents,
   readDesignNode,
   readDesignTree,
   searchDesignNodes,
 } from "../src"
+import { componentDocumentFixture } from "./component-fixture"
 
 const identity = {
   documentId: northstarSeed.id,
@@ -95,5 +97,50 @@ describe("design queries", () => {
       assetId: "asset-abcdefghij",
     })
     expect(publicDesignNode(image)).not.toHaveProperty("src")
+  })
+
+  it("reads component relationships and capabilities without private override values", () => {
+    const document = componentDocumentFixture()
+    const result = readDesignComponents(document, identity, "component-hero")
+
+    expect(result.components).toEqual([
+      expect.objectContaining({
+        id: "component-hero",
+        sourcePageId: "cover",
+        instanceIds: ["instance-hero"],
+        capabilities: { createInstance: true },
+      }),
+    ])
+    expect(result.components[0]?.variants[1]).toMatchObject({
+      id: "variant-compact",
+      overriddenLayers: [
+        {
+          sourceNodeId: "cover-eyebrow",
+          properties: expect.arrayContaining(["fontSize", "height"]),
+          removedProperties: [],
+        },
+      ],
+    })
+    expect(result.instances[0]).toMatchObject({
+      id: "instance-hero",
+      pageId: "story",
+      overrides: [
+        {
+          sourceNodeId: "cover-eyebrow",
+          properties: ["text"],
+          removedProperties: [],
+        },
+      ],
+      capabilities: {
+        switchVariant: true,
+        setOverride: true,
+        resetOverrides: true,
+        detach: true,
+      },
+    })
+    expect(JSON.stringify(result)).not.toContain("Private instance value")
+    expect(() =>
+      readDesignComponents(document, identity, "missing-component")
+    ).toThrow(DesignQueryError)
   })
 })

@@ -4,11 +4,16 @@ import type { Document, SceneNode } from "@webmcp/document"
 import {
   canvasPatchValuesEqual,
   createCanvasEditChangeSet,
+  createComponentChangeSet,
   createDesignStyleChangeSet,
   createDesignVariableChangeSet,
   createFieldUpdateChangeSet,
   createOutputVariantChangeSet,
 } from "../src"
+import {
+  componentDocumentFixture,
+  componentSourceDocumentFixture,
+} from "./component-fixture"
 
 const identity = () => {
   let sequence = 0
@@ -399,6 +404,93 @@ describe("design variable proposals", () => {
         fill: "#335C4A",
       }
     )
+  })
+})
+
+describe("component proposals", () => {
+  it("creates a complete materialized instance through the canonical command", () => {
+    const document = componentSourceDocumentFixture()
+    const proposal = createComponentChangeSet(
+      document,
+      {
+        documentId: document.id,
+        baseRevision: document.revision,
+        baseSnapshotId: "snapshot-component-source",
+        changes: [
+          {
+            action: "create_instance",
+            componentId: "component-hero",
+            pageId: "story",
+            name: "API hero",
+            variantId: "variant-compact",
+            transform: { x: 120, y: 240, scale: 0.75, rotation: 0 },
+          },
+        ],
+      },
+      identity()
+    )
+
+    expect(proposal.operations[0]?.command).toMatchObject({
+      type: "create_component_instance",
+      actor: "agent",
+      pageId: "story",
+      instance: {
+        name: "API hero",
+        componentId: "component-hero",
+        variantId: "variant-compact",
+        nodeMappings: [
+          { sourceNodeId: "cover-panel" },
+          { sourceNodeId: "cover-eyebrow" },
+        ],
+      },
+    })
+    const preview = previewChangeSet(document, proposal)
+    expect(preview.componentInstances).toHaveLength(1)
+    expect(preview.componentInstances[0]?.nodeMappings).toHaveLength(2)
+    expect(
+      preview.nodes.find(
+        (node) =>
+          node.id ===
+          preview.componentInstances[0]?.nodeMappings.find(
+            (mapping) => mapping.sourceNodeId === "cover-eyebrow"
+          )?.instanceNodeId
+      )
+    ).toMatchObject({ fontSize: 18 })
+  })
+
+  it("routes controlled overrides through reviewed canonical instance commands", () => {
+    const document = componentDocumentFixture()
+    const proposal = createComponentChangeSet(
+      document,
+      {
+        documentId: document.id,
+        baseRevision: document.revision,
+        baseSnapshotId: "snapshot-component-instance",
+        reason: "Personalize the reusable hero",
+        changes: [
+          {
+            action: "set_override",
+            instanceId: "instance-hero",
+            sourceNodeId: "cover-eyebrow",
+            patch: { text: "Reception story", color: "#224433" },
+          },
+        ],
+      },
+      identity()
+    )
+
+    expect(proposal.title).toBe("Personalize the reusable hero")
+    expect(proposal.operations[0]?.command).toMatchObject({
+      type: "update_component_instance",
+      actor: "agent",
+      instanceId: "instance-hero",
+      sourceNodeId: "cover-eyebrow",
+      patch: { text: "Reception story", color: "#224433" },
+    })
+    const preview = previewChangeSet(document, proposal)
+    expect(
+      preview.nodes.find((node) => node.id === "instance-cover-eyebrow")
+    ).toMatchObject({ text: "Reception story", color: "#224433" })
   })
 })
 

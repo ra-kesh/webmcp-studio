@@ -3518,23 +3518,7 @@ function ReviewPanel({
   onDiscard: () => void
   onFocusTarget: (target: ReviewAffectedTarget) => void
 }) {
-  const registeredToolNames = new Set([
-    "inspect_design",
-    "get_capabilities",
-    "execute_product_command",
-    "read_design_tree",
-    "read_design_node",
-    "search_design_nodes",
-    "search_assets",
-    "validate_design",
-    "propose_asset_insertion",
-    "propose_field_updates",
-    "propose_canvas_edits",
-    "propose_output_variant",
-    "publish_template",
-    "inspect_render_history",
-    "render_template",
-  ])
+  const registeredToolNames = new Set(toolCatalog.map((tool) => tool.name))
   const [briefCopied, setBriefCopied] = useState(false)
   const acceptedCount =
     pendingChangeSet?.operations.filter(

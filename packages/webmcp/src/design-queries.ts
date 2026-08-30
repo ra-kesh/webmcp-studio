@@ -79,6 +79,90 @@ export function readDesignVariables(
   }
 }
 
+export function readDesignComponents(
+  document: Document,
+  identity: DesignQueryIdentity,
+  componentId?: string
+) {
+  const components = document.components.filter(
+    (component) => !componentId || component.id === componentId
+  )
+  if (componentId && components.length === 0) {
+    throw new DesignQueryError(
+      "invalid_query",
+      `Component ${componentId} does not exist in this document.`
+    )
+  }
+  const groupById = new Map(document.groups.map((group) => [group.id, group]))
+  const componentIds = new Set(components.map((component) => component.id))
+  const instances = document.componentInstances.filter((instance) =>
+    componentIds.has(instance.componentId)
+  )
+  return {
+    identity,
+    components: components.map((component) => {
+      const sourceGroup = groupById.get(component.sourceGroupId)
+      const linked = instances.filter(
+        (instance) => instance.componentId === component.id
+      )
+      return {
+        id: component.id,
+        name: component.name,
+        description: component.description,
+        sourceGroupId: component.sourceGroupId,
+        sourcePageId: sourceGroup?.pageId ?? null,
+        defaultVariantId: component.defaultVariantId,
+        variants: component.variants.map((variant) => ({
+          id: variant.id,
+          name: variant.name,
+          overriddenLayers: Object.entries(variant.overrides).map(
+            ([sourceNodeId, patch]) => ({
+              sourceNodeId,
+              properties: Object.keys(patch),
+              removedProperties:
+                variant.removedProperties?.[sourceNodeId] ?? [],
+            })
+          ),
+        })),
+        instanceIds: linked.map((instance) => instance.id),
+        capabilities: { createInstance: true },
+      }
+    }),
+    instances: instances.map((instance) => {
+      const rootGroup = groupById.get(instance.rootGroupId)
+      const overrideSourceNodeIds = new Set([
+        ...Object.keys(instance.overrides),
+        ...Object.keys(instance.removedProperties ?? {}),
+      ])
+      return {
+        id: instance.id,
+        name: instance.name,
+        componentId: instance.componentId,
+        variantId: instance.variantId,
+        rootGroupId: instance.rootGroupId,
+        pageId: rootGroup?.pageId ?? null,
+        transform: instance.transform,
+        nodeMappings: instance.nodeMappings,
+        groupMappings: instance.groupMappings,
+        overrides: [...overrideSourceNodeIds].map((sourceNodeId) => ({
+          sourceNodeId,
+          properties: Object.keys(instance.overrides[sourceNodeId] ?? {}),
+          removedProperties: instance.removedProperties?.[sourceNodeId] ?? [],
+        })),
+        capabilities: {
+          switchVariant:
+            (components.find(
+              (component) => component.id === instance.componentId
+            )?.variants.length ?? 0) > 1,
+          setOverride: true,
+          resetOverrides: overrideSourceNodeIds.size > 0,
+          detach: true,
+        },
+      }
+    }),
+  }
+}
+
 export class DesignQueryError extends Error {
   constructor(
     readonly code:

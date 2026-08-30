@@ -5,11 +5,14 @@ import {
   getChangeSetConflict,
   normalizeFieldValueForStorage,
   previewChangeSet,
+  componentSourceSubtree,
   type ChangeSet,
+  type ComponentTransform,
   type DesignStyleTarget,
   type DesignVariable,
   type DesignVariablePatch,
   type Document,
+  type DocumentCommand,
   type ImageFrameMask,
   type ImagePlacement,
   type PaintStyle,
@@ -147,6 +150,54 @@ export type DesignVariableProposalInput = {
   baseSnapshotId: string
   reason?: string
   changes: DesignVariableProposalChange[]
+}
+
+type CommandOf<Type extends DocumentCommand["type"]> = Extract<
+  DocumentCommand,
+  { type: Type }
+>
+
+export type ComponentProposalChange =
+  | {
+      action: "create_instance"
+      componentId: string
+      pageId: string
+      parentGroupId?: string
+      name?: string
+      variantId?: string
+      transform: ComponentTransform
+    }
+  | {
+      action: "switch_variant"
+      instanceId: string
+      variantId: string
+    }
+  | {
+      action: "update_instance"
+      instanceId: string
+      patch: CommandOf<"update_component_instance_metadata">["patch"]
+    }
+  | {
+      action: "set_override"
+      instanceId: string
+      sourceNodeId: string
+      patch: CommandOf<"update_component_instance">["patch"]
+    }
+  | {
+      action: "reset_override"
+      instanceId: string
+      sourceNodeId: string
+      properties?: CommandOf<"reset_component_override">["properties"]
+    }
+  | { action: "reset_all_overrides"; instanceId: string }
+  | { action: "detach_instance"; instanceId: string }
+
+export type ComponentProposalInput = {
+  documentId: string
+  baseRevision: number
+  baseSnapshotId: string
+  reason?: string
+  changes: ComponentProposalChange[]
 }
 
 export function canvasPatchValuesEqual(
@@ -804,6 +855,180 @@ export function createDesignVariableChangeSet(
     baseRevision: input.baseRevision,
     baseSnapshotId: input.baseSnapshotId,
     title: input.reason?.trim() || "Update design variables",
+    createdAt: identity.now(),
+    createdBy: "agent",
+    status: "pending",
+    operations,
+  })
+}
+
+export function createComponentChangeSet(
+  document: Document,
+  input: ComponentProposalInput,
+  identity: ChangeSetIdentityFactory
+): ChangeSet {
+  if (!input.changes.length) {
+    throw new Error("Choose at least one component change.")
+  }
+  const operations: ChangeSet["operations"] = input.changes.map((change) => {
+    const at = identity.now()
+    let command: DocumentCommand
+    let summary: string
+
+    if (change.action === "create_instance") {
+      const component = document.components.find(
+        (candidate) => candidate.id === change.componentId
+      )
+      const page = document.pages.find(
+        (candidate) => candidate.id === change.pageId
+      )
+      if (!component)
+        throw new Error(`Unknown component: ${change.componentId}`)
+      if (!page) throw new Error(`Unknown page: ${change.pageId}`)
+      const source = componentSourceSubtree(document, component.sourceGroupId)
+      if (!source?.nodeIds.length) {
+        throw new Error(`Component ${component.name} has no source layers.`)
+      }
+      const variantId = change.variantId ?? component.defaultVariantId
+      if (!component.variants.some((variant) => variant.id === variantId)) {
+        throw new Error(`Unknown component variant: ${variantId}`)
+      }
+      const groupMappings = source.groupIds.map((sourceGroupId) => ({
+        sourceGroupId,
+        instanceGroupId: `component-instance-group-${identity.id()}`,
+      }))
+      const nodeMappings = source.nodeIds.map((sourceNodeId) => ({
+        sourceNodeId,
+        instanceNodeId: `component-instance-node-${identity.id()}`,
+      }))
+      const rootGroupId = groupMappings.find(
+        (mapping) => mapping.sourceGroupId === component.sourceGroupId
+      )?.instanceGroupId
+      if (!rootGroupId) {
+        throw new Error(`Component ${component.name} has no root mapping.`)
+      }
+      const instanceNumber =
+        document.componentInstances.filter(
+          (instance) => instance.componentId === component.id
+        ).length + 1
+      command = {
+        id: `command-${identity.id()}`,
+        type: "create_component_instance",
+        actor: "agent",
+        at,
+        pageId: page.id,
+        ...(change.parentGroupId
+          ? { parentGroupId: change.parentGroupId }
+          : {}),
+        instance: {
+          id: `component-instance-${identity.id()}`,
+          name: change.name?.trim() || `${component.name} ${instanceNumber}`,
+          componentId: component.id,
+          variantId,
+          rootGroupId,
+          transform: change.transform,
+          nodeMappings,
+          groupMappings,
+          overrides: {},
+        },
+      }
+      summary = `Insert ${component.name} instance on ${page.name}`
+    } else if (change.action === "switch_variant") {
+      const instance = document.componentInstances.find(
+        (candidate) => candidate.id === change.instanceId
+      )
+      if (instance?.variantId === change.variantId) {
+        throw new Error(`${instance.name} already uses that variant.`)
+      }
+      command = {
+        id: `command-${identity.id()}`,
+        type: "switch_component_variant",
+        actor: "agent",
+        at,
+        instanceId: change.instanceId,
+        variantId: change.variantId,
+      }
+      summary = `Switch ${instance?.name ?? change.instanceId} variant`
+    } else if (change.action === "update_instance") {
+      const instance = document.componentInstances.find(
+        (candidate) => candidate.id === change.instanceId
+      )
+      command = {
+        id: `command-${identity.id()}`,
+        type: "update_component_instance_metadata",
+        actor: "agent",
+        at,
+        instanceId: change.instanceId,
+        patch: change.patch,
+      }
+      summary = `Update ${instance?.name ?? change.instanceId}`
+    } else if (change.action === "set_override") {
+      const instance = document.componentInstances.find(
+        (candidate) => candidate.id === change.instanceId
+      )
+      command = {
+        id: `command-${identity.id()}`,
+        type: "update_component_instance",
+        actor: "agent",
+        at,
+        instanceId: change.instanceId,
+        sourceNodeId: change.sourceNodeId,
+        patch: change.patch,
+      }
+      summary = `Override ${instance?.name ?? change.instanceId}: ${Object.keys(change.patch).join(", ")}`
+    } else if (change.action === "reset_override") {
+      const instance = document.componentInstances.find(
+        (candidate) => candidate.id === change.instanceId
+      )
+      command = {
+        id: `command-${identity.id()}`,
+        type: "reset_component_override",
+        actor: "agent",
+        at,
+        instanceId: change.instanceId,
+        sourceNodeId: change.sourceNodeId,
+        ...(change.properties ? { properties: change.properties } : {}),
+      }
+      summary = `Reset ${instance?.name ?? change.instanceId} layer overrides`
+    } else if (change.action === "reset_all_overrides") {
+      const instance = document.componentInstances.find(
+        (candidate) => candidate.id === change.instanceId
+      )
+      command = {
+        id: `command-${identity.id()}`,
+        type: "reset_all_component_overrides",
+        actor: "agent",
+        at,
+        instanceId: change.instanceId,
+      }
+      summary = `Reset all ${instance?.name ?? change.instanceId} overrides`
+    } else {
+      const instance = document.componentInstances.find(
+        (candidate) => candidate.id === change.instanceId
+      )
+      command = {
+        id: `command-${identity.id()}`,
+        type: "detach_component_instance",
+        actor: "agent",
+        at,
+        instanceId: change.instanceId,
+      }
+      summary = `Detach ${instance?.name ?? change.instanceId}`
+    }
+
+    return {
+      id: `operation-${identity.id()}`,
+      status: "pending" as const,
+      summary,
+      command,
+    }
+  })
+  return checkedChangeSet(document, {
+    id: `change-set-${identity.id()}`,
+    documentId: input.documentId,
+    baseRevision: input.baseRevision,
+    baseSnapshotId: input.baseSnapshotId,
+    title: input.reason?.trim() || "Update reusable components",
     createdAt: identity.now(),
     createdBy: "agent",
     status: "pending",

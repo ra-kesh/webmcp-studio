@@ -11,6 +11,7 @@ export const toolNames = [
   "read_design_node",
   "read_design_styles",
   "read_design_variables",
+  "read_design_components",
   "search_design_nodes",
   "search_assets",
   "validate_design",
@@ -19,6 +20,7 @@ export const toolNames = [
   "propose_canvas_edits",
   "propose_design_style_changes",
   "propose_design_variable_changes",
+  "propose_component_changes",
   "propose_output_variant",
   "publish_template",
   "inspect_render_history",
@@ -92,6 +94,14 @@ export const toolCatalog: readonly ToolDescriptor[] = [
     routes: ["editor", "review", "template"],
   },
   {
+    name: "read_design_components",
+    description:
+      "Read reusable components, variants, instances, mappings, overrides, and exact automation capabilities.",
+    mutates: false,
+    requiresHumanReview: false,
+    routes: ["editor", "review", "template"],
+  },
+  {
     name: "search_design_nodes",
     description: "Search layer names and text across the document.",
     mutates: false,
@@ -147,6 +157,14 @@ export const toolCatalog: readonly ToolDescriptor[] = [
     name: "propose_design_variable_changes",
     description:
       "Create reviewed variable lifecycle and binding operations against an exact document snapshot.",
+    mutates: false,
+    requiresHumanReview: true,
+    routes: ["editor", "review", "template"],
+  },
+  {
+    name: "propose_component_changes",
+    description:
+      "Create reviewed component instances and control variants, transforms, overrides, reset, and detach operations.",
     mutates: false,
     requiresHumanReview: true,
     routes: ["editor", "review", "template"],
