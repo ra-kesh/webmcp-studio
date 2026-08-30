@@ -213,7 +213,7 @@ The accepted core run proves:
 
 Selected immutable evidence:
 
-`artifacts/cross-browser-media/local/2026-08-30T06:18:24.895Z-7db7c095-4194-4f07-9897-5df7d0e4d72d`
+`artifacts/cross-browser-media/local/2026-08-30T06:30:25.795Z-9055761b-29f0-4da3-b9f6-26904873b555`
 
 The evidence writer retains only redacted route shapes, safe request IDs,
 assertion names, runtime/viewport identity, relative artifact paths, byte
@@ -222,10 +222,20 @@ discarded before acceptance because its network manifest retained a raw local
 alias in a route path; dynamic local, managed, render and artifact path
 identities are now redacted before writing.
 
+The selected version-2 run supersedes the earlier desktop-only core run. It
+also retains a 390 by 844 review screenshot and proves keyboard traversal to
+**Review document images**, eight exact named impact rows (three field slots,
+three layers including two bound projections, the page and the output), Escape
+focus return to the actual opener, keyboard activation of **Keep recovered
+images**, one polite recovery status, empty compact-context local storage and
+no document or dialog horizontal overflow. This gate found and repaired one
+real shell defect: the recovery banner opened the Media dialog without
+recording its focus-return element.
+
 This is not the Slice 6A exit yet. Native browser race/recovery cases,
-390-pixel keyboard/focus/accessibility evidence, the existing MEDIA-01 browser
-regression and the focused Slice 1 through Slice 5 matrix still need to pass
-before 6A can be marked complete.
+the remaining busy-state announcement/focus cases, the existing MEDIA-01
+browser regression and the focused Slice 1 through Slice 5 matrix still need
+to pass before 6A can be marked complete.
 
 ## Slice 6B — production runner and read-only baseline
 

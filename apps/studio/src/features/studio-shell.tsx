@@ -3759,13 +3759,14 @@ export function StudioShell({
               size="sm"
               type="button"
               variant="outline"
-              onClick={() =>
+              onClick={(event) => {
+                mediaPickerFocusReturnRef.current = event.currentTarget
                 setMediaPicker({
                   mode: "insert",
                   targetName: "document images",
                   initialCollection: "uploads",
                 })
-              }
+              }}
             >
               Review document images
             </Button>

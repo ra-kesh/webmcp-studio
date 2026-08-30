@@ -566,7 +566,8 @@ async function writeLocalEvidence(input: {
   runId: string
   browserVersion: string
   viewport: { width: number; height: number }
-  screenshots: { contextA: Buffer; contextB: Buffer }
+  compactViewport: { width: number; height: number }
+  screenshots: { contextA: Buffer; contextB: Buffer; compact: Buffer }
   exports: { png: Buffer; pdf: Buffer }
   safeNetwork: SafeNetworkRecord[]
 }) {
@@ -586,15 +587,17 @@ async function writeLocalEvidence(input: {
   const files = [
     ["context-a.png", input.screenshots.contextA],
     ["context-b.png", input.screenshots.contextB],
+    ["compact-recovery.png", input.screenshots.compact],
     ["foreground-page.png", input.exports.png],
     ["foreground-document.pdf", input.exports.pdf],
   ] as const
   const report = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     runId: runDirectory,
     environment: "local",
     browser: { name: "chromium", version: input.browserVersion },
     viewport: input.viewport,
+    compactViewport: input.compactViewport,
     assertions: [
       "separate native IndexedDB contexts",
       "single visible promotion and managed-use receipt",
@@ -604,6 +607,8 @@ async function writeLocalEvidence(input: {
       "foreground PNG and five-page PDF",
       "immutable publication",
       "idempotent durable render and WebMCP history recovery",
+      "390-pixel keyboard review, focus return, and recovery decision",
+      "390-pixel document and dialog horizontal-overflow containment",
     ],
     network: input.safeNetwork,
   }
@@ -626,10 +631,11 @@ async function writeLocalEvidence(input: {
     sha256: digest(assertionBytes),
   })
   const manifest = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     runId: runDirectory,
     browser: report.browser,
     viewport: report.viewport,
+    compactViewport: report.compactViewport,
     requestIds: [
       ...new Set(input.safeNetwork.flatMap((item) => item.requestId ?? [])),
     ],
@@ -651,6 +657,18 @@ async function openUploads(page: Page) {
   const dialog = page.getByRole("dialog", { name: "Add image" })
   await expect(dialog).toBeVisible()
   return dialog
+}
+
+async function tabTo(page: Page, target: ReturnType<Page["getByRole"]>) {
+  for (let index = 0; index < 80; index += 1) {
+    if (
+      await target.evaluate((element) => element === document.activeElement)
+    ) {
+      return
+    }
+    await page.keyboard.press("Tab")
+  }
+  throw new Error("Keyboard focus did not reach the expected recovery action")
 }
 
 function sourceOccurrences(document: StudioDocument, source: string) {
@@ -676,16 +694,27 @@ test("a second isolated browser admits one promoted device image without its loc
     baseURL,
     viewport: { width: 1440, height: 900 },
   })
+  const compactContext = await browser.newContext({
+    baseURL,
+    viewport: { width: 390, height: 844 },
+  })
   try {
     const pageA = await contextA.newPage()
     const pageB = await contextB.newPage()
+    const compactPage = await compactContext.newPage()
     const safeNetworkA: SafeNetworkRecord[] = []
     const safeNetworkB: SafeNetworkRecord[] = []
+    const safeNetworkCompact: SafeNetworkRecord[] = []
     const requestsA = observeMediaRequests(pageA, safeNetworkA)
     const requestsB = observeMediaRequests(pageB, safeNetworkB)
+    const compactRequests = observeMediaRequests(
+      compactPage,
+      safeNetworkCompact
+    )
 
     await openOriginPage(pageA)
     await shareLocalWorkspaceSession(contextA, contextB)
+    await shareLocalWorkspaceSession(contextA, compactContext)
     expect(await seedNativeLocalAsset(pageA, localAssetId, fileName)).toEqual([
       1, 1, 0, 0,
     ])
@@ -746,6 +775,79 @@ test("a second isolated browser admits one promoted device image without its loc
     expect(managedAssetId).toBeTruthy()
     const managedSource = `asset:managed/${managedAssetId}`
     expect(sourceOccurrences(promotedDraft.document!, managedSource)).toBe(6)
+
+    await openOriginPage(compactPage)
+    expect(await inspectLocalAssetRepository(compactPage)).toEqual([0, 0, 0, 0])
+    await installDocumentBootstrap(compactContext, fixture)
+    await bootDocument(compactPage, documentId)
+    await expect
+      .poll(async () => {
+        const state = await readDraftState(compactPage, documentId)
+        return state.document
+          ? sourceOccurrences(state.document, managedSource)
+          : 0
+      })
+      .toBe(6)
+    const compactRecoveryStatus = compactPage
+      .getByRole("status")
+      .filter({ hasText: /Recovered 1 Studio image/ })
+    await expect(compactRecoveryStatus).toHaveCount(1)
+    await expect
+      .poll(() =>
+        compactPage.evaluate(
+          () => document.documentElement.scrollWidth <= window.innerWidth
+        )
+      )
+      .toBe(true)
+    const compactReviewButton = compactPage.getByRole("button", {
+      name: "Review document images",
+    })
+    await tabTo(compactPage, compactReviewButton)
+    await expect(compactReviewButton).toBeFocused()
+    await compactPage.keyboard.press("Enter")
+    const compactReviewDialog = compactPage.getByRole("dialog", {
+      name: "Add image",
+    })
+    await expect(compactReviewDialog).toBeVisible()
+    await expect(compactReviewDialog.getByText("Document media")).toBeVisible()
+    const compactAffectedUses = compactReviewDialog.locator(
+      '[aria-label="Affected document uses"] button'
+    )
+    await expect(compactAffectedUses).toHaveCount(8)
+    for (const name of [
+      /Current proof image Current field value/,
+      /Default proof image Current field value/,
+      /Default proof image Default field value/,
+      /Current-bound device image Bound layer on Cover/,
+      /Default-bound device image Bound layer on Cover/,
+      /Direct device image Cover/,
+      /Cover Affected page/,
+      /Five-page proposal Affected output/,
+    ]) {
+      await expect(
+        compactReviewDialog.getByRole("button", { name })
+      ).toHaveCount(1)
+    }
+    expect(
+      await compactReviewDialog.evaluate(
+        (element) => element.scrollWidth <= element.clientWidth
+      )
+    ).toBe(true)
+    const compactRecoveryScreenshot = await compactPage.screenshot({
+      fullPage: true,
+    })
+    await compactPage.keyboard.press("Escape")
+    await expect(compactReviewDialog).toBeHidden()
+    await expect(compactReviewButton).toBeFocused()
+    const compactKeepButton = compactPage.getByRole("button", {
+      name: "Keep recovered images",
+    })
+    await tabTo(compactPage, compactKeepButton)
+    await compactPage.keyboard.press("Enter")
+    await expect(compactKeepButton).toHaveCount(0)
+    expect(await inspectLocalAssetRepository(compactPage)).toEqual([0, 0, 0, 0])
+    expect(compactRequests.promotionUploads).toBe(0)
+    expect(compactRequests.managedUseWrites).toBe(1)
 
     await pageA.getByRole("button", { name: "Undo" }).click()
     await expect
@@ -967,18 +1069,24 @@ test("a second isolated browser admits one promoted device image without its loc
         runId,
         browserVersion: browser.version(),
         viewport: { width: 1440, height: 900 },
+        compactViewport: { width: 390, height: 844 },
         screenshots: {
           contextA: contextAScreenshot,
           contextB: contextBScreenshot,
+          compact: compactRecoveryScreenshot,
         },
         exports: {
           png: await readFile(pngPath),
           pdf: await readFile(pdfPath),
         },
-        safeNetwork: [...safeNetworkA, ...safeNetworkB],
+        safeNetwork: [...safeNetworkA, ...safeNetworkB, ...safeNetworkCompact],
       })
     }
   } finally {
-    await Promise.allSettled([contextA.close(), contextB.close()])
+    await Promise.allSettled([
+      contextA.close(),
+      contextB.close(),
+      compactContext.close(),
+    ])
   }
 })
