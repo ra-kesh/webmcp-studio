@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest"
-import { MediaAssetRepository } from "./media-asset-repository"
+import {
+  ManagedMediaLibraryCatalogRepository,
+  MediaAssetRepository,
+} from "./media-asset-repository"
 import { validateMediaUpload } from "./media-assets"
 
 type Row = Record<string, unknown>
@@ -56,6 +59,33 @@ class FakeD1Statement {
     if (marker === "media:catalog-revision") {
       const revision = this.state.catalogRevisions.get(workspaceId)
       return revision === undefined ? [] : [{ revision }]
+    }
+    if (marker === "media:library-catalog-revision") {
+      const revision = this.state.catalogRevisions.get(workspaceId)
+      return revision === undefined ? [] : [{ revision }]
+    }
+    if (marker === "media:library-catalog-snapshot") {
+      const limit = Number(second)
+      return this.state.assets
+        .filter(
+          (asset) =>
+            asset.workspace_id === workspaceId && asset.status === "ready"
+        )
+        .sort((left, right) => String(left.id).localeCompare(String(right.id)))
+        .slice(0, limit)
+        .map((asset) => this.state.catalogRow(asset))
+    }
+    if (marker === "media:library-catalog-exact") {
+      const catalogVersion = Number(this.values[2])
+      const asset = this.state.assets.find(
+        (candidate) =>
+          candidate.workspace_id === workspaceId &&
+          candidate.id === second &&
+          candidate.status === "ready"
+      )
+      if (!asset) return []
+      const row = this.state.catalogRow(asset)
+      return Number(row.catalog_version) === catalogVersion ? [row] : []
     }
     if (marker === "media:hash-get") {
       return this.state.assets.filter(
@@ -599,7 +629,7 @@ class FakeD1 {
       for (const statement of statements) {
         const fakeStatement = statement as unknown as FakeD1Statement
         results.push(
-          /\/\* media:(?:catalog-get|list|storage|catalog-revision) \*\//.test(
+          /\/\* media:(?:catalog-get|list|storage|catalog-revision|library-catalog-snapshot|library-catalog-revision) \*\//.test(
             fakeStatement.query
           )
             ? await fakeStatement.all<T>()
@@ -943,6 +973,97 @@ describe("MediaAssetRepository", () => {
     await expect(
       repository.lookupCatalogEntry("workspace-a", first.asset.id)
     ).resolves.toMatchObject({ metadata: { tags: [], catalogVersion: 1 } })
+  })
+
+  it("reads a bounded ready-only library snapshot and exact version under workspace authority", async () => {
+    const { db, repository } = repositoryFixture()
+    const catalog = new ManagedMediaLibraryCatalogRepository(
+      db as unknown as D1Database
+    )
+    const first = await repository.upload(
+      "workspace-a",
+      await validatedUpload("workspace-a.png"),
+      null
+    )
+    const foreign = await repository.upload(
+      "workspace-b",
+      await validatedUpload("workspace-b.png"),
+      null
+    )
+
+    await expect(catalog.readSnapshot("workspace-a")).resolves.toMatchObject({
+      catalogRevision: 1,
+      entries: [
+        {
+          asset: { id: first.asset.id, status: "ready" },
+          metadata: { catalogVersion: 1 },
+        },
+      ],
+    })
+    await expect(
+      catalog.getExact("workspace-a", first.asset.id, 1)
+    ).resolves.toMatchObject({ asset: { id: first.asset.id } })
+    await expect(
+      catalog.getExact("workspace-a", first.asset.id, 2)
+    ).resolves.toBeNull()
+    await expect(
+      catalog.getExact("workspace-a", foreign.asset.id, 1)
+    ).resolves.toBeNull()
+    await expect(
+      catalog.getExact("workspace-a", "missing-curated-id", 1)
+    ).resolves.toBeNull()
+
+    const impact = await repository.deletionImpact(
+      "workspace-a",
+      first.asset.id
+    )
+    await repository.archive(
+      "workspace-a",
+      first.asset.id,
+      impact.revision,
+      impact.token
+    )
+    await expect(catalog.readSnapshot("workspace-a")).resolves.toMatchObject({
+      catalogRevision: 2,
+      entries: [],
+    })
+    await expect(
+      catalog.getExact("workspace-a", first.asset.id, 2)
+    ).resolves.toBeNull()
+  })
+
+  it("fails closed instead of silently truncating an oversized composed library", async () => {
+    const { db } = repositoryFixture()
+    const createdAt = "2026-08-28T00:00:00.000Z"
+    for (let index = 0; index <= 1_000; index += 1) {
+      const id = `asset-${String(index).padStart(32, "0")}`
+      db.assets.push({
+        id,
+        workspace_id: "workspace-a",
+        name: `Asset ${index}`,
+        media_type: "image/png",
+        bytes: png1x1.byteLength,
+        width: 1,
+        height: 1,
+        content_hash: "a".repeat(64),
+        r2_key: `private/${index}`,
+        status: "ready",
+        revision: 1,
+        created_at: createdAt,
+        updated_at: createdAt,
+        last_used_at: createdAt,
+      })
+      db.catalogMetadata.push(
+        db.defaultCatalogMetadata("workspace-a", id, createdAt)
+      )
+    }
+    const catalog = new ManagedMediaLibraryCatalogRepository(
+      db as unknown as D1Database
+    )
+
+    await expect(catalog.readSnapshot("workspace-a")).rejects.toMatchObject({
+      code: "managed_media_library_catalog_capacity_exceeded",
+    })
   })
 
   it("normalizes metadata, searches every catalog field, and rejects stale catalog writes", async () => {

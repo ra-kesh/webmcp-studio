@@ -4,10 +4,12 @@ import {
   getStudioLibraryCatalogDetail,
   studioLibraryCatalogSummaries,
 } from "../content/library/catalog"
-import {
-  LibraryCatalogService,
-  type LibraryPreferenceProjectionSnapshot,
+import { LibraryCatalogService } from "./library-catalog-service"
+import type {
+  LibraryPreferenceProjectionSnapshot,
+  ManagedMediaLibraryCatalogReader,
 } from "./library-catalog-service"
+import type { ManagedMediaCatalogEntry } from "./media-asset-repository"
 
 const usedAt = "2026-08-31T10:00:00.000Z"
 
@@ -23,6 +25,60 @@ const preference = (
   revision: 1,
   updatedAt: usedAt,
   ...input,
+})
+
+const managedEntry = (
+  input: Partial<ManagedMediaCatalogEntry["metadata"]> = {}
+): ManagedMediaCatalogEntry => ({
+  asset: {
+    id: "asset-ManagedPortrait01",
+    name: "Client portrait",
+    mediaType: "image/jpeg",
+    bytes: 240_000,
+    width: 1_200,
+    height: 1_500,
+    createdAt: "2026-08-30T08:00:00.000Z",
+    updatedAt: "2026-08-30T09:00:00.000Z",
+    lastUsedAt: "2026-08-30T10:00:00.000Z",
+    status: "ready",
+  },
+  metadata: {
+    description: "Customer-provided workspace upload",
+    tags: ["client", "portrait"],
+    categoryId: "workspace-upload",
+    useCaseIds: ["proposal"],
+    provenance: {
+      sourceName: "Workspace upload",
+      sourceUrl: null,
+      license: {
+        id: "customer-provided",
+        name: "Customer-provided; rights not verified",
+        url: null,
+      },
+      attribution: { required: false, text: null },
+    },
+    catalogVersion: 3,
+    createdAt: "2026-08-30T08:00:00.000Z",
+    updatedAt: "2026-08-31T11:00:00.000Z",
+    ...input,
+  },
+})
+
+const managedReader = (
+  entry: ManagedMediaCatalogEntry | null,
+  catalogRevision = 4
+): ManagedMediaLibraryCatalogReader => ({
+  readRevision: async () => catalogRevision,
+  readSnapshot: async () => ({
+    entries: entry ? [entry] : [],
+    catalogRevision,
+  }),
+  getExact: async (_workspaceId, assetId, version) =>
+    entry &&
+    entry.asset.id === assetId &&
+    entry.metadata.catalogVersion === version
+      ? entry
+      : null,
 })
 
 describe("LibraryCatalogService", () => {
@@ -50,7 +106,7 @@ describe("LibraryCatalogService", () => {
     )
 
     expect(result.workspaceRevision).toBe(7)
-    expect(result.page.catalogRevision).toMatch(/:w7$/)
+    expect(result.page.catalogRevision).toMatch(/:w7:m0$/)
     expect(exact?.preferences).toEqual({
       favorite: true,
       lastUsedAt: usedAt,
@@ -68,7 +124,7 @@ describe("LibraryCatalogService", () => {
       itemKinds: ["template"],
       limit: 50,
     })
-    expect(replaced.page.catalogRevision).toMatch(/:w8$/)
+    expect(replaced.page.catalogRevision).toMatch(/:w8:m0$/)
   })
 
   it("invalidates an old cursor when the workspace preference epoch changes", async () => {
@@ -95,6 +151,145 @@ describe("LibraryCatalogService", () => {
     ).rejects.toMatchObject({
       reason: "catalog_revision_mismatch",
     })
+  })
+
+  it("composes ready managed summaries and invalidates cursors on the bounded media epoch", async () => {
+    const entry = managedEntry()
+    let revision = 4
+    const managed: ManagedMediaLibraryCatalogReader = {
+      readRevision: async () => revision,
+      readSnapshot: async () => ({
+        entries: [entry],
+        catalogRevision: revision,
+      }),
+      getExact: managedReader(entry).getExact,
+    }
+    const service = new LibraryCatalogService(
+      {
+        readProjection: async () => ({
+          workspaceRevision: 6,
+          preferences: [
+            preference(entry.asset.id, entry.metadata.catalogVersion, {
+              identity: {
+                itemKind: "media",
+                id: entry.asset.id,
+                version: entry.metadata.catalogVersion,
+              },
+            }),
+          ],
+        }),
+      },
+      { managedMedia: managed }
+    )
+    const first = await service.list("workspace-a", "principal-a", {
+      generation: "managed-cursor",
+      itemKinds: ["media"],
+      ownerKinds: ["workspace"],
+      search: "client proposal",
+      limit: 1,
+    })
+
+    expect(first.page.catalogRevision).toMatch(/:w6:m4$/)
+    expect(first.page.items).toEqual([
+      expect.objectContaining({
+        id: entry.asset.id,
+        version: entry.metadata.catalogVersion,
+        mediaSource: "managed",
+        selectable: true,
+        owner: { kind: "workspace" },
+        preferences: {
+          favorite: true,
+          lastUsedAt: usedAt,
+          collectionIds: ["collection-client-work"],
+        },
+      }),
+    ])
+    expect(JSON.stringify(first)).not.toContain("r2Key")
+
+    const cursorPage = await service.list("workspace-a", "principal-a", {
+      generation: "managed-cursor",
+      itemKinds: ["media"],
+      limit: 1,
+    })
+    expect(cursorPage.page.nextCursor).not.toBeNull()
+    revision = 5
+    await expect(
+      service.list("workspace-a", "principal-a", {
+        generation: "managed-cursor",
+        itemKinds: ["media"],
+        limit: 1,
+        cursor: cursorPage.page.nextCursor,
+      })
+    ).rejects.toMatchObject({ reason: "catalog_revision_mismatch" })
+  })
+
+  it("refetches exact managed catalog identity and rejects stale or archived details", async () => {
+    const entry = managedEntry()
+    let current: ManagedMediaCatalogEntry | null = entry
+    const managed: ManagedMediaLibraryCatalogReader = {
+      readRevision: async () => 4,
+      readSnapshot: async () => ({
+        entries: current ? [current] : [],
+        catalogRevision: 4,
+      }),
+      getExact: async (workspaceId, assetId, version) =>
+        workspaceId === "workspace-a" &&
+        current?.asset.id === assetId &&
+        current.metadata.catalogVersion === version
+          ? current
+          : null,
+    }
+    const service = new LibraryCatalogService(
+      {
+        readProjection: async () => ({
+          workspaceRevision: 9,
+          preferences: [],
+        }),
+      },
+      { managedMedia: managed }
+    )
+
+    const detail = await service.getDetail(
+      "workspace-a",
+      "principal-a",
+      "media",
+      entry.asset.id,
+      entry.metadata.catalogVersion
+    )
+    expect(detail?.detail).toMatchObject({
+      summary: {
+        id: entry.asset.id,
+        version: entry.metadata.catalogVersion,
+        mediaSource: "managed",
+        selectable: true,
+      },
+      selectionIdentity: {
+        source: "managed",
+        assetId: entry.asset.id,
+        refetch: "required",
+      },
+    })
+    expect(JSON.stringify(detail)).not.toContain("r2Key")
+    expect(
+      await service.getDetail(
+        "workspace-a",
+        "principal-a",
+        "media",
+        entry.asset.id,
+        entry.metadata.catalogVersion + 1
+      )
+    ).toBeNull()
+
+    current = null
+    expect(
+      await service.getDetail(
+        "workspace-a",
+        "principal-a",
+        "media",
+        entry.asset.id,
+        entry.metadata.catalogVersion
+      )
+    ).toBeNull()
   })
 
   it("projects exact detail without exposing source bodies or changing authority", async () => {

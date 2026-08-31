@@ -3,6 +3,7 @@ import {
   LibraryCatalogCursorError,
   libraryCollectionDetailSchema,
   libraryPreferenceStateSchema,
+  projectPublicMediaDetail,
 } from "@webmcp/document"
 import {
   getStudioLibraryCatalogDetail,
@@ -193,6 +194,76 @@ describe("library HTTP contract", () => {
     expect(response.headers.get("cache-control")).toBe("private, no-store")
     expect(response.headers.get("x-content-type-options")).toBe("nosniff")
     expect(response.headers.get("x-principal-response")).toBe("yes")
+  })
+
+  it("serves exact managed detail without exposing private storage identity", async () => {
+    const asset = {
+      id: "asset-ManagedPortrait01",
+      name: "Client portrait",
+      mediaType: "image/jpeg" as const,
+      bytes: 240_000,
+      width: 1_200,
+      height: 1_500,
+      createdAt: "2026-08-30T08:00:00.000Z",
+      updatedAt: "2026-08-30T09:00:00.000Z",
+      lastUsedAt: "2026-08-30T10:00:00.000Z",
+      status: "ready" as const,
+    }
+    const detail = projectPublicMediaDetail(asset, {
+      catalogVersion: 3,
+      description: "Customer-provided workspace upload",
+      categoryId: "workspace-upload",
+      useCaseIds: ["proposal"],
+      formatFamily: "image",
+      tags: ["portrait"],
+      provenance: {
+        sourceName: "Workspace upload",
+        sourceUrl: null,
+        license: {
+          id: "customer-provided",
+          name: "Customer-provided; rights not verified",
+          url: null,
+        },
+        attribution: { required: false, text: null },
+        contentSha256: null,
+      },
+    })
+    catalog.getDetail.mockResolvedValue({ workspaceRevision: 8, detail })
+
+    const response = await handlers.getItemDetail(
+      new Request(
+        `https://studio.test/v1/studio/library/items/media/${asset.id}/versions/3`
+      ),
+      "media",
+      asset.id,
+      3
+    )
+
+    expect(catalog.getDetail).toHaveBeenCalledWith(
+      "workspace-a",
+      "principal-a",
+      "media",
+      asset.id,
+      3
+    )
+    expect(response.status).toBe(200)
+    const body = await response.text()
+    expect(JSON.parse(body)).toMatchObject({
+      detail: {
+        summary: {
+          id: asset.id,
+          version: 3,
+          mediaSource: "managed",
+          selectable: true,
+        },
+        selectionIdentity: {
+          source: "managed",
+          assetId: asset.id,
+          refetch: "required",
+        },
+      },
+    })
+    expect(body).not.toContain("r2Key")
   })
 
   it("preserves the shared all-item default when itemKind is omitted", async () => {

@@ -20,17 +20,21 @@ import {
   libraryReorderCollectionMembersRequestSchema,
   librarySetFavoriteRequestSchema,
   mediaIdempotencyKeySchema,
-  type LibraryCatalogQueryInput,
-  type LibraryItemIdentity,
+} from "@webmcp/document"
+import type {
+  LibraryCatalogQueryInput,
+  LibraryItemIdentity,
 } from "@webmcp/document"
 import { JsonBodyError } from "@webmcp/worker-boundary"
 import type { StudioPrincipal } from "./studio-principal"
 import { apiErrorResponse, apiIssuesFrom } from "./api-boundary"
-import {
-  LibraryCatalogService,
-  type LibraryCatalogServiceDetailResult,
-  type LibraryCatalogServiceListResult,
+import { LibraryCatalogService } from "./library-catalog-service"
+import type {
+  LibraryCatalogServiceDetailResult,
+  LibraryCatalogServiceListResult,
+  ManagedMediaLibraryCatalogReader,
 } from "./library-catalog-service"
+import { ManagedMediaLibraryCatalogRepository } from "./media-asset-repository"
 import {
   LibraryPreferenceError,
   LibraryPreferenceRepository,
@@ -64,6 +68,7 @@ export type LibraryHttpDependencies = Readonly<{
   requirePrincipal: PrincipalResolver
   repository?: LibraryRepositoryPort
   catalog?: LibraryCatalogPort
+  managedMedia?: ManagedMediaLibraryCatalogReader
 }>
 
 class LibraryHttpError extends Error {
@@ -188,7 +193,11 @@ export const parseLibraryListRequest = (
   return parseClientInput(libraryCatalogQuerySchema, input)
 }
 
-const itemIdentity = (itemKind: string, id: string, version: string | number) => {
+const itemIdentity = (
+  itemKind: string,
+  id: string,
+  version: string | number
+) => {
   const parsedVersion =
     typeof version === "number"
       ? version
@@ -407,7 +416,13 @@ export function createLibraryHttpHandlers(
           "add_to_collection"
         ),
     })
-  catalog = dependencies.catalog ?? new LibraryCatalogService(repository)
+  catalog =
+    dependencies.catalog ??
+    new LibraryCatalogService(repository, {
+      managedMedia:
+        dependencies.managedMedia ??
+        new ManagedMediaLibraryCatalogRepository(dependencies.db),
+    })
 
   const readCatalogList = async (
     principal: StudioPrincipal,

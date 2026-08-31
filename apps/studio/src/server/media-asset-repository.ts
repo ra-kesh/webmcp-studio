@@ -120,6 +120,24 @@ export type ManagedMediaCatalogListResult = {
   catalogRevision: number
 }
 
+export type ManagedMediaLibraryCatalogSnapshot = {
+  entries: ManagedMediaCatalogEntry[]
+  catalogRevision: number
+}
+
+export const MAX_MANAGED_LIBRARY_CATALOG_ITEMS = 1_000
+
+export class ManagedMediaLibraryCatalogCapacityError extends Error {
+  readonly code = "managed_media_library_catalog_capacity_exceeded"
+
+  constructor() {
+    super(
+      `A workspace library can project at most ${MAX_MANAGED_LIBRARY_CATALOG_ITEMS} managed media items`
+    )
+    this.name = "ManagedMediaLibraryCatalogCapacityError"
+  }
+}
+
 export type MediaAssetUploadResult = {
   asset: PublicMediaAsset
   created: boolean
@@ -375,6 +393,92 @@ const impactToken = async (
       })
     )
   )
+
+/**
+ * D1-only authority used by the shared library catalog. It deliberately has
+ * no R2 binding: discovery and exact metadata admission must never load or
+ * expose private media bytes.
+ */
+export class ManagedMediaLibraryCatalogRepository {
+  constructor(private readonly db: D1Database) {}
+
+  async readRevision(workspaceId: string): Promise<number> {
+    const state = await this.db
+      .prepare(
+        `/* media:library-catalog-revision */ SELECT revision
+         FROM media_asset_catalog_state WHERE workspace_id = ?1`
+      )
+      .bind(workspaceId)
+      .first<{ revision: number }>()
+    return Number(state?.revision ?? 0)
+  }
+
+  async readSnapshot(
+    workspaceId: string
+  ): Promise<ManagedMediaLibraryCatalogSnapshot> {
+    const [entriesResult, revisionResult] = await this.db.batch([
+      this.db
+        .prepare(
+          `/* media:library-catalog-snapshot */ SELECT ${mediaAssetCatalogColumns}
+           FROM media_assets assets
+           JOIN media_asset_catalog_metadata metadata
+             ON metadata.workspace_id = assets.workspace_id
+            AND metadata.asset_id = assets.id
+           WHERE assets.workspace_id = ?1 AND assets.status = 'ready'
+           ORDER BY assets.id
+           LIMIT ?2`
+        )
+        .bind(workspaceId, MAX_MANAGED_LIBRARY_CATALOG_ITEMS + 1),
+      this.db
+        .prepare(
+          `/* media:library-catalog-revision */ SELECT revision
+           FROM media_asset_catalog_state WHERE workspace_id = ?1`
+        )
+        .bind(workspaceId),
+    ])
+    const rows = entriesResult.results as MediaAssetCatalogRow[]
+    if (rows.length > MAX_MANAGED_LIBRARY_CATALOG_ITEMS) {
+      throw new ManagedMediaLibraryCatalogCapacityError()
+    }
+    const state = revisionResult.results[0] as { revision: number } | undefined
+    return {
+      entries: rows.map(catalogEntry),
+      catalogRevision: Number(state?.revision ?? 0),
+    }
+  }
+
+  async getExact(
+    workspaceId: string,
+    assetId: string,
+    catalogVersion: number
+  ): Promise<ManagedMediaCatalogEntry | null> {
+    try {
+      assertMediaAssetId(assetId)
+    } catch (error) {
+      if (
+        error instanceof MediaAssetError &&
+        error.code === "invalid_asset_id"
+      ) {
+        return null
+      }
+      throw error
+    }
+    if (!Number.isSafeInteger(catalogVersion) || catalogVersion < 1) return null
+    const row = await this.db
+      .prepare(
+        `/* media:library-catalog-exact */ SELECT ${mediaAssetCatalogColumns}
+         FROM media_assets assets
+         JOIN media_asset_catalog_metadata metadata
+           ON metadata.workspace_id = assets.workspace_id
+          AND metadata.asset_id = assets.id
+         WHERE assets.workspace_id = ?1 AND assets.id = ?2
+           AND assets.status = 'ready' AND metadata.catalog_version = ?3`
+      )
+      .bind(workspaceId, assetId, catalogVersion)
+      .first<MediaAssetCatalogRow>()
+    return row ? catalogEntry(row) : null
+  }
+}
 
 export class MediaAssetRepository {
   constructor(

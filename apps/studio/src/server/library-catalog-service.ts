@@ -2,6 +2,8 @@ import {
   LibraryCatalogIndex,
   libraryCatalogItemDetailSchema,
   libraryCatalogQuerySchema,
+  projectPublicMediaDetail,
+  projectPublicMediaSummary,
 } from "@webmcp/document"
 import type {
   LibraryCatalogItemDetail,
@@ -16,6 +18,10 @@ import {
   getStudioLibraryCatalogDetail,
   studioLibraryCatalogSummaries,
 } from "../content/library/catalog"
+import type {
+  ManagedMediaCatalogEntry,
+  ManagedMediaLibraryCatalogSnapshot,
+} from "./media-asset-repository"
 
 export type LibraryPreferenceProjectionSnapshot = Readonly<{
   workspaceRevision: number
@@ -39,6 +45,18 @@ export type LibraryCatalogServiceDetailResult = Readonly<{
   detail: LibraryCatalogItemDetail
 }>
 
+export type ManagedMediaLibraryCatalogReader = Readonly<{
+  readRevision: (workspaceId: string) => Promise<number>
+  readSnapshot: (
+    workspaceId: string
+  ) => Promise<ManagedMediaLibraryCatalogSnapshot>
+  getExact: (
+    workspaceId: string,
+    assetId: string,
+    catalogVersion: number
+  ) => Promise<ManagedMediaCatalogEntry | null>
+}>
+
 type LibraryCatalogServiceOptions = Readonly<{
   baseCatalogRevision?: string
   baseSummaries?: readonly LibraryCatalogItemSummary[]
@@ -47,6 +65,7 @@ type LibraryCatalogServiceOptions = Readonly<{
     id: string,
     version: number
   ) => LibraryCatalogItemDetail | null
+  managedMedia?: ManagedMediaLibraryCatalogReader
 }>
 
 const identityKey = (identity: {
@@ -69,6 +88,38 @@ const compactProjection = (
       }
     : { favorite: false, lastUsedAt: null, collectionIds: [] }
 
+const emptyManagedSnapshot: ManagedMediaLibraryCatalogSnapshot = {
+  entries: [],
+  catalogRevision: 0,
+}
+
+const managedProjectionMetadata = (
+  entry: ManagedMediaCatalogEntry,
+  preferences: LibraryMediaPreferenceProjection
+) => ({
+  catalogVersion: entry.metadata.catalogVersion,
+  description: entry.metadata.description,
+  categoryId: entry.metadata.categoryId,
+  useCaseIds: entry.metadata.useCaseIds,
+  formatFamily: "image",
+  tags: entry.metadata.tags,
+  provenance: {
+    ...entry.metadata.provenance,
+    contentSha256: null,
+  },
+  preferences,
+})
+
+type LibraryMediaPreferenceProjection = ReturnType<typeof compactProjection>
+
+const managedAssetForProjection = (entry: ManagedMediaCatalogEntry) => ({
+  ...entry.asset,
+  updatedAt:
+    entry.metadata.updatedAt > entry.asset.updatedAt
+      ? entry.metadata.updatedAt
+      : entry.asset.updatedAt,
+})
+
 export class LibraryCatalogService {
   readonly #preferences: LibraryPreferenceProjectionReader
   readonly #baseCatalogRevision: string
@@ -76,6 +127,7 @@ export class LibraryCatalogService {
   readonly #resolveBaseDetail: NonNullable<
     LibraryCatalogServiceOptions["resolveBaseDetail"]
   >
+  readonly #managedMedia: ManagedMediaLibraryCatalogReader | null
 
   constructor(
     preferences: LibraryPreferenceProjectionReader,
@@ -91,6 +143,7 @@ export class LibraryCatalogService {
         itemKind === "template"
           ? getStudioLibraryCatalogDetail("template", id, version)
           : getStudioLibraryCatalogDetail("media", id, version))
+    this.#managedMedia = options.managedMedia ?? null
   }
 
   async list(
@@ -99,11 +152,21 @@ export class LibraryCatalogService {
     input: LibraryCatalogQueryInput
   ): Promise<LibraryCatalogServiceListResult> {
     const query = libraryCatalogQuerySchema.parse(input)
-    const projection = await this.#preferences.readProjection(
-      workspaceId,
-      principalId
-    )
-    const index = this.#projectedIndex(projection)
+    const managedRead = query.itemKinds.includes("media")
+      ? (this.#managedMedia?.readSnapshot(workspaceId) ?? emptyManagedSnapshot)
+      : this.#managedMedia
+        ? this.#managedMedia
+            .readRevision(workspaceId)
+            .then((catalogRevision) => ({
+              entries: [],
+              catalogRevision,
+            }))
+        : emptyManagedSnapshot
+    const [projection, managed] = await Promise.all([
+      this.#preferences.readProjection(workspaceId, principalId),
+      managedRead,
+    ])
+    const index = this.#projectedIndex(projection, managed)
     return {
       workspaceRevision: projection.workspaceRevision,
       page: index.list(query),
@@ -117,7 +180,20 @@ export class LibraryCatalogService {
     id: string,
     version: number
   ): Promise<LibraryCatalogServiceDetailResult | null> {
-    const base = this.#resolveBaseDetail(itemKind, id, version)
+    let base = this.#resolveBaseDetail(itemKind, id, version)
+    if (!base && itemKind === "media" && this.#managedMedia) {
+      const entry = await this.#managedMedia.getExact(workspaceId, id, version)
+      if (entry) {
+        base = projectPublicMediaDetail(
+          managedAssetForProjection(entry),
+          managedProjectionMetadata(entry, {
+            favorite: false,
+            lastUsedAt: null,
+            collectionIds: [],
+          })
+        )
+      }
+    }
     if (!base) return null
     const projection = await this.#preferences.readProjection(
       workspaceId,
@@ -137,17 +213,44 @@ export class LibraryCatalogService {
     return { workspaceRevision: projection.workspaceRevision, detail }
   }
 
-  #projectedIndex(projection: LibraryPreferenceProjectionSnapshot) {
+  #projectedIndex(
+    projection: LibraryPreferenceProjectionSnapshot,
+    managed: ManagedMediaLibraryCatalogSnapshot
+  ) {
     const byIdentity = this.#preferenceMap(projection.preferences)
-    const summaries = this.#baseSummaries.map((summary) => ({
-      ...summary,
-      preferences: compactProjection(
-        byIdentity.get(identityKey(summary)),
-        summary.permissions
-      ),
-    }))
+    const managedSummaries = managed.entries.map((entry) => {
+      const preference = byIdentity.get(
+        identityKey({
+          itemKind: "media",
+          id: entry.asset.id,
+          version: entry.metadata.catalogVersion,
+        })
+      )
+      return projectPublicMediaSummary(
+        managedAssetForProjection(entry),
+        managedProjectionMetadata(
+          entry,
+          compactProjection(preference, {
+            canView: true,
+            canUse: true,
+            canFavorite: true,
+            canAddToCollection: true,
+          })
+        )
+      )
+    })
+    const summaries = [
+      ...this.#baseSummaries.map((summary) => ({
+        ...summary,
+        preferences: compactProjection(
+          byIdentity.get(identityKey(summary)),
+          summary.permissions
+        ),
+      })),
+      ...managedSummaries,
+    ]
     return new LibraryCatalogIndex(
-      `${this.#baseCatalogRevision}:w${projection.workspaceRevision}`,
+      `${this.#baseCatalogRevision}:w${projection.workspaceRevision}:m${managed.catalogRevision}`,
       summaries
     )
   }
