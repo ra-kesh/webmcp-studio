@@ -4,7 +4,7 @@ Date: 2026-08-31
 
 Status: active orchestration ledger
 
-Baseline: `main` at `226118e`
+Baseline: `main` at `aa3a020`
 
 This file records the remaining product work and its task ownership. It is the
 first document to read after a context compaction. A workstream is not merged
@@ -33,7 +33,7 @@ states above.
 | 4 | ASSET-02 background removal B1-B4 | `01a058d6-fb14-7472-9cfa-15b9ca7d694d` | B0 durable repository and provenance contract is merged. No provider call or user workflow exists. | Accept B1 API/dispatch, B2 immutable output asset, B3 editor workflow and B4 WebMCP/evidence without unauthorized provider or cloud writes. | B1 implemented at `cd530e7`; B2-B4, independent review and merge remain open |
 | 5 | Full editor sophistication | `01a058d7-0b96-7bd0-8ee9-4cb5d3625209` | The bounded EDITOR-POLISH-01 Gates 1-7 are merged; full OpenPencil-level refinement remains a later product pass. | Produce and accept concrete visual/interaction gates with retained before/after evidence without changing accepted command semantics. | visual Gate A implemented at `4c1cdaa`; later gates, independent review and merge remain open |
 | 6 | GEN-01 WebMCP generation | `01a058d7-17fa-76f3-84de-371e57716b6c` | Assessment and four-gate plan are merged; implementation has not started. | A supplied external `SKILL.md` can create a reviewed, editable blank or exact-template document through bounded Studio WebMCP contracts. | discovery contract implemented at `fb48fc1` and bounded blank-document compiler at `a580413`; approval, review, WebMCP execution and merge remain open |
-| 7 | Production evidence reconciliation | `01a058d7-0278-7d40-b1f6-53ee2f75b05e` | Local hardening is substantial; deployment and healthy-host evidence are mixed with stale migration counts in older ledgers. | Produce current read-only/local truth, exact authorization checklist and safe ledger/verifier corrections without remote writes. | implemented at `c571484`; independent acceptance and merge remain open |
+| 7 | Production evidence reconciliation | `01a058d7-0278-7d40-b1f6-53ee2f75b05e` | Local hardening is substantial; deployment and healthy-host evidence are mixed with stale migration counts in older ledgers. | Produce current read-only/local truth, exact authorization checklist and safe ledger/verifier corrections without remote writes. | review HOLD after `2391a77`: three P1 evidence overclaims are being corrected; nothing is merged |
 
 ## Integration rules
 
