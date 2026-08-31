@@ -103,6 +103,7 @@ type RenderResourceErrorCode =
   | "image_resource_inline_invalid"
   | "image_resource_inline_dimensions_exceeded"
   | "managed_font_failed"
+  | "luminance_conversion_failed"
   | "resource_readiness_failed"
   | "resource_readiness_timeout"
 
@@ -203,6 +204,7 @@ export async function waitForRenderResources(
     state.code === "image_decode_failed" ||
     state.code === "image_dimension_mismatch" ||
     state.code === "managed_font_failed" ||
+    state.code === "luminance_conversion_failed" ||
     state.code === "resource_readiness_failed"
       ? state.code
       : "resource_readiness_failed"

@@ -76,6 +76,8 @@ export async function markRenderResourcesReady(input: {
   fontRequirements?: readonly RenderFontRequirement[]
   images: RenderImage[]
   projectImagePaint: ImagePaintProjector
+  luminanceSourceNodeIds?: readonly string[]
+  verifyLuminanceConversion?: () => Promise<boolean>
 }): Promise<void> {
   const fail = (code: string, nodeId?: string) => {
     input.root.removeAttribute("data-render-ready")
@@ -194,6 +196,19 @@ export async function markRenderResourcesReady(input: {
       }
     }
 
+    const luminanceSourceNodeIds = input.luminanceSourceNodeIds ?? []
+    if (luminanceSourceNodeIds.length) {
+      try {
+        if (!(await input.verifyLuminanceConversion?.())) {
+          fail("luminance_conversion_failed", luminanceSourceNodeIds[0])
+          return
+        }
+      } catch {
+        fail("luminance_conversion_failed", luminanceSourceNodeIds[0])
+        return
+      }
+    }
+
     input.root.removeAttribute("data-render-error")
     input.root.removeAttribute("data-render-error-node")
     input.root.setAttribute("data-render-ready", "true")
@@ -202,9 +217,83 @@ export async function markRenderResourcesReady(input: {
   }
 }
 
+export async function verifyBrowserLuminanceConversion(): Promise<boolean> {
+  type BrowserImage = {
+    src: string
+    decode(): Promise<unknown>
+  }
+  type BrowserCanvasContext = {
+    drawImage(image: BrowserImage, x: number, y: number): void
+    getImageData(
+      x: number,
+      y: number,
+      width: number,
+      height: number,
+      settings?: { colorSpace: "srgb" }
+    ): { data: Uint8ClampedArray }
+  }
+  const browser = globalThis as unknown as {
+    Image: new () => BrowserImage
+    document: {
+      createElement(name: "canvas"): {
+        width: number
+        height: number
+        getContext(
+          type: "2d",
+          settings: { colorSpace: "srgb"; willReadFrequently: true }
+        ): BrowserCanvasContext | null
+      }
+    }
+  }
+  const colors = [
+    ["black", 1],
+    ["white", 1],
+    ["rgb(128,128,128)", 1],
+    ["red", 1],
+    ["lime", 1],
+    ["blue", 1],
+    ["red", 0],
+    ["red", 0.4],
+  ] as const
+  const expected = [0, 255, 128, 54, 182, 18, 0, 22, 68]
+  const filter = (id: string) =>
+    `<filter id="${id}" color-interpolation-filters="sRGB"><feColorMatrix in="SourceGraphic" type="luminanceToAlpha" result="y"/><feComposite in="y" in2="SourceGraphic" operator="in"/></filter>`
+  const filters = colors.map((_, index) => filter(`f${index}`)).join("")
+  const outputs = colors
+    .map(
+      ([color, opacity], index) =>
+        `<rect x="${index}" width="1" height="1" fill="${color}" opacity="${opacity}" filter="url(#f${index})"/>`
+    )
+    .join("")
+  const svgNamespace = "http:" + "//www.w3.org/2000/svg"
+  const svg = `<svg xmlns="${svgNamespace}" width="9" height="1"><defs>${filters}${filter("overlap-red")}${filter("overlap-green")}</defs>${outputs}<rect x="8" width="1" height="1" fill="red" opacity=".5" filter="url(#overlap-red)"/><rect x="8" width="1" height="1" fill="lime" opacity=".25" filter="url(#overlap-green)"/></svg>`
+  const image = new browser.Image()
+  image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
+  try {
+    await image.decode()
+    const canvas = browser.document.createElement("canvas")
+    canvas.width = 9
+    canvas.height = 1
+    const context = canvas.getContext("2d", {
+      colorSpace: "srgb",
+      willReadFrequently: true,
+    })
+    if (!context) return false
+    context.drawImage(image, 0, 0)
+    const pixels = context.getImageData(0, 0, 9, 1, {
+      colorSpace: "srgb",
+    }).data
+    return expected.every(
+      (alpha, index) => Math.abs((pixels[index * 4 + 3] ?? -255) - alpha) <= 3
+    )
+  } catch {
+    return false
+  }
+}
+
 const geistFontDataUrl = `data:font/woff2;base64,${GEIST_LATIN_WOFF2_BASE64}`
 const geistFontFace = `@font-face{font-family:"${MANAGED_FONT_FAMILY}";font-style:normal;font-display:block;font-weight:100 900;src:url("${geistFontDataUrl}") format("woff2")}`
-const resourceReadyScript = `<script>(${markRenderResourcesReady.toString()})({root:document.documentElement,fonts:document.fonts,fontRequirements:Array.from(document.querySelectorAll("[data-mask-font-families]"),element=>({nodeId:element.getAttribute("data-mask-font-source-node")||"",fontFamilies:JSON.parse(element.getAttribute("data-mask-font-families")||"[]")})),images:Array.from(document.querySelectorAll("img[data-node-id]")),projectImagePaint:${serializeImagePaintProjector()}})</script>`
+const resourceReadyScript = `<script>(${markRenderResourcesReady.toString()})({root:document.documentElement,fonts:document.fonts,fontRequirements:Array.from(document.querySelectorAll("[data-mask-font-families]"),element=>({nodeId:element.getAttribute("data-mask-font-source-node")||"",fontFamilies:JSON.parse(element.getAttribute("data-mask-font-families")||"[]")})),images:Array.from(document.querySelectorAll("img[data-node-id]")),projectImagePaint:${serializeImagePaintProjector()},luminanceSourceNodeIds:Array.from(document.querySelectorAll("[data-luminance-source-isolation]"),element=>element.getAttribute("data-luminance-source-isolation")||"").filter(Boolean),verifyLuminanceConversion:${verifyBrowserLuminanceConversion.toString()}})</script>`
 
 const escapeHtml = (value: string): string =>
   value
@@ -435,31 +524,56 @@ export function renderPagePaintPlanEntryToHtml(
     return `<div data-mask-group-id="${groupId}" data-mask-enabled="${entry.maskEnabled ? "true" : "false"}" data-mask-composite="false" style="${compositeStyle.join(";")}"><div data-mask-content="${groupId}" style="${contentStyle.join(";")}">${content}</div></div>`
   }
 
-  if (entry.maskType !== "vector" && entry.maskType !== "alpha") {
+  if (
+    entry.maskType !== "vector" &&
+    entry.maskType !== "alpha" &&
+    entry.maskType !== "luminance"
+  ) {
     throw new Error(`Unsupported mask paint type: ${entry.maskType}`)
   }
 
   const maskId = maskIdentifier(entry.groupId)
   const visibleSourceIds = new Set(entry.visibleSourceNodeIds)
-  const sources = entry.sourceNodeIds
+  const visibleSources = entry.sourceNodeIds
     .filter((sourceNodeId) => visibleSourceIds.has(sourceNodeId))
-    .map((sourceNodeId) => {
+    .map((sourceNodeId, index) => {
       const source = nodesById.get(sourceNodeId)
       if (!source) throw new Error(`Unknown mask source: ${sourceNodeId}`)
-      return entry.maskType === "vector"
-        ? renderVectorMaskSource(source, bounds)
-        : renderAlphaMaskSource(
-            source,
-            bounds,
-            entry.sources.find((candidate) => candidate.nodeId === sourceNodeId)
-          )
+      const markup =
+        entry.maskType === "vector"
+          ? renderVectorMaskSource(source, bounds)
+          : renderAlphaMaskSource(
+              source,
+              bounds,
+              entry.sources.find(
+                (candidate) => candidate.nodeId === sourceNodeId
+              )
+            )
+      const filterId = `${maskId}-luminance-${index}`
+      return { sourceNodeId, markup, filterId }
     })
+  const luminanceFilters =
+    entry.maskType === "luminance"
+      ? visibleSources
+          .map(
+            ({ sourceNodeId, filterId }) =>
+              `<filter id="${filterId}" data-luminance-source-id="${escapeHtml(sourceNodeId)}" x="0" y="0" width="${bounds.width}" height="${bounds.height}" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feColorMatrix in="SourceGraphic" type="luminanceToAlpha" result="${filterId}-luminance"/><feComposite in="${filterId}-luminance" in2="SourceGraphic" operator="in" result="${filterId}-luminance-alpha"/></filter>`
+          )
+          .join("")
+      : ""
+  const sources = visibleSources
+    .map(({ sourceNodeId, markup, filterId }) =>
+      entry.maskType === "luminance"
+        ? `<g data-luminance-source-isolation="${escapeHtml(sourceNodeId)}" filter="url(#${filterId})">${markup}</g>`
+        : markup
+    )
+    .join("")
   compositeStyle.push(
     `mask:url(#${maskId})`,
     `-webkit-mask:url(#${maskId})`,
     "mask-mode:alpha"
   )
-  return `<div data-mask-group-id="${groupId}" data-mask-enabled="true" data-mask-composite="true" style="${compositeStyle.join(";")}"><svg aria-hidden="true" width="0" height="0" style="position:absolute"><defs><mask id="${maskId}" x="0" y="0" width="${bounds.width}" height="${bounds.height}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" mask-type="alpha">${sources.join("")}</mask></defs></svg><div data-mask-content="${groupId}" style="${contentStyle.join(";")}">${content}</div></div>`
+  return `<div data-mask-group-id="${groupId}" data-mask-enabled="true" data-mask-composite="true" style="${compositeStyle.join(";")}"><svg aria-hidden="true" width="0" height="0" style="position:absolute"><defs>${luminanceFilters}<mask id="${maskId}" x="0" y="0" width="${bounds.width}" height="${bounds.height}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" mask-type="alpha">${sources}</mask></defs></svg><div data-mask-content="${groupId}" style="${contentStyle.join(";")}">${content}</div></div>`
 }
 
 function pageNodesMarkup(document: Document, pageId: string): string {

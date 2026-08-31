@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { chromium } from "playwright"
 import {
   applyCommand,
   componentRenderConformanceCases,
@@ -32,6 +33,7 @@ import {
   multiVectorMaskRenderConformanceDocument,
   multiVectorMaskRenderConformanceOneHiddenDocument,
 } from "@webmcp/document/internal/mask-render-conformance"
+import { projectPagePaintPlan } from "@webmcp/document/internal/page-paint-plan"
 import {
   markRenderResourcesReady,
   renderDocumentThumbnailToHtml,
@@ -39,6 +41,7 @@ import {
   renderNodeToHtml,
   renderOutputToHtml,
   renderPagePaintPlanEntryToHtml,
+  verifyBrowserLuminanceConversion,
 } from "../src/html"
 
 function renderResourceFixture(options?: {
@@ -58,6 +61,8 @@ function renderResourceFixture(options?: {
   imagePlacement?: ImagePlacement
   imageRejects?: boolean
   projectionRejects?: boolean
+  luminanceSourceNodeIds?: readonly string[]
+  luminanceConversionReady?: boolean
 }) {
   const attributes = new Map<string, string>()
   const root = {
@@ -149,6 +154,9 @@ function renderResourceFixture(options?: {
             throw new Error("invalid projection")
           }
         : projectImagePaint,
+      luminanceSourceNodeIds: options?.luminanceSourceNodeIds,
+      verifyLuminanceConversion: async () =>
+        options?.luminanceConversionReady ?? true,
     },
   }
 }
@@ -228,6 +236,85 @@ describe("renderer HTML", () => {
       expect(html.match(/<img data-node-id=/g)).toHaveLength(2)
       expect(html).toContain("data-mask-font-families=")
     }
+  })
+
+  it("isolates every luminance source and applies explicit sRGB Y*A conversion before union", () => {
+    const document = multiVectorMaskRenderConformanceDocument
+    const vectorEntry = projectPagePaintPlan(
+      document,
+      document.pages[0]!.id
+    ).entries.find((entry) => entry.kind === "mask_group")!
+    if (vectorEntry.kind !== "mask_group") throw new Error("Missing mask entry")
+    const entry = { ...vectorEntry, maskType: "luminance" as const }
+    const html = renderPagePaintPlanEntryToHtml(
+      entry,
+      new Map(document.nodes.map((node) => [node.id, node]))
+    )
+
+    expect(html.match(/data-luminance-source-id=/g)).toHaveLength(2)
+    expect(html.match(/type="luminanceToAlpha"/g)).toHaveLength(2)
+    expect(html.match(/color-interpolation-filters="sRGB"/g)).toHaveLength(2)
+    expect(html.match(/in2="SourceGraphic" operator="in"/g)).toHaveLength(2)
+    const offsets = entry.sourceNodeIds.map((sourceId) =>
+      html.indexOf(`data-luminance-source-isolation="${sourceId}"`)
+    )
+    expect(offsets.every((offset) => offset >= 0)).toBe(true)
+    expect(offsets).toEqual([...offsets].sort((left, right) => left - right))
+    expect(html).toContain('mask-type="alpha"')
+    expect(html).not.toContain('mask-type="luminance"')
+  })
+
+  it("keeps hidden luminance sources out and all-hidden luminance allocation-free", () => {
+    const oneHidden = multiVectorMaskRenderConformanceOneHiddenDocument
+    const oneHiddenEntry = projectPagePaintPlan(
+      oneHidden,
+      oneHidden.pages[0]!.id
+    ).entries.find((entry) => entry.kind === "mask_group")!
+    if (oneHiddenEntry.kind !== "mask_group") {
+      throw new Error("Missing mask entry")
+    }
+    const oneHiddenHtml = renderPagePaintPlanEntryToHtml(
+      { ...oneHiddenEntry, maskType: "luminance" },
+      new Map(oneHidden.nodes.map((node) => [node.id, node]))
+    )
+    expect(oneHiddenHtml.match(/type="luminanceToAlpha"/g)).toHaveLength(1)
+    expect(oneHiddenHtml.match(/data-mask-source-id=/g)).toHaveLength(1)
+
+    const allHidden = multiVectorMaskRenderConformanceAllHiddenDocument
+    const allHiddenEntry = projectPagePaintPlan(
+      allHidden,
+      allHidden.pages[0]!.id
+    ).entries.find((entry) => entry.kind === "mask_group")!
+    if (allHiddenEntry.kind !== "mask_group") {
+      throw new Error("Missing mask entry")
+    }
+    const allHiddenHtml = renderPagePaintPlanEntryToHtml(
+      { ...allHiddenEntry, maskType: "luminance" },
+      new Map(allHidden.nodes.map((node) => [node.id, node]))
+    )
+    expect(allHiddenHtml).toContain('data-mask-composite="false"')
+    expect(allHiddenHtml).not.toContain("luminanceToAlpha")
+    expect(allHiddenHtml).not.toContain("data-mask-source-id")
+  })
+
+  it("preserves image and text readiness metadata inside independent luminance sources", () => {
+    const document = multiAlphaMaskRenderConformanceDocument
+    const alphaEntry = projectPagePaintPlan(
+      document,
+      document.pages[0]!.id
+    ).entries.find((entry) => entry.kind === "mask_group")!
+    if (alphaEntry.kind !== "mask_group") throw new Error("Missing mask entry")
+    const entry = { ...alphaEntry, maskType: "luminance" as const }
+    const html = renderPagePaintPlanEntryToHtml(
+      entry,
+      new Map(document.nodes.map((node) => [node.id, node]))
+    )
+
+    expect(html.match(/type="luminanceToAlpha"/g)).toHaveLength(3)
+    expect(html.match(/data-luminance-source-isolation=/g)).toHaveLength(3)
+    expect(html.match(/<img data-node-id=/g)).toHaveLength(2)
+    expect(html).toContain("data-mask-font-source-node=")
+    expect(html).toContain("data-mask-font-families=")
   })
 
   it("keeps negative, rotated, frame-masked image content inside the production mask composite", () => {
@@ -527,6 +614,32 @@ describe("renderer HTML", () => {
     )
     expect(fixture.attributes.has("data-render-ready")).toBe(false)
   })
+
+  it("attributes a failed luminance conversion before declaring output ready", async () => {
+    const fixture = renderResourceFixture({
+      luminanceSourceNodeIds: ["luminance-source-a", "luminance-source-b"],
+      luminanceConversionReady: false,
+    })
+    await markRenderResourcesReady(fixture.input)
+
+    expect(fixture.attributes.get("data-render-error")).toBe(
+      "luminance_conversion_failed"
+    )
+    expect(fixture.attributes.get("data-render-error-node")).toBe(
+      "luminance-source-a"
+    )
+    expect(fixture.attributes.has("data-render-ready")).toBe(false)
+  })
+
+  it("proves the production SVG filter coefficients, alpha, and overlap in Chrome pixels", async () => {
+    const browser = await chromium.launch({ channel: "chrome", headless: true })
+    try {
+      const page = await browser.newPage()
+      expect(await page.evaluate(verifyBrowserLuminanceConversion)).toBe(true)
+    } finally {
+      await browser.close()
+    }
+  }, 20_000)
 
   it("loads every base and run font required by an alpha text source", async () => {
     const fixture = renderResourceFixture({

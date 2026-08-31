@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useId,
   useMemo,
@@ -110,6 +111,15 @@ export function renderVectorMaskSourceAttributes(
   }
 }
 
+type MaskPaintPlanEntry = Extract<PagePaintPlanEntry, { kind: "mask_group" }>
+type VectorMaskPaintEntry = Omit<MaskPaintPlanEntry, "maskType"> &
+  Readonly<{ maskType: "vector" }>
+type AlphaMaskPaintEntry = Omit<MaskPaintPlanEntry, "maskType"> &
+  Readonly<{ maskType: "alpha" }>
+type LuminanceMaskPaintEntry = Omit<MaskPaintPlanEntry, "maskType"> &
+  Readonly<{ maskType: "luminance" }>
+type CoverageMaskPaintEntry = AlphaMaskPaintEntry | LuminanceMaskPaintEntry
+
 export function shouldCompositeMaskGroup(entry: PagePaintPlanEntry) {
   return (
     entry.kind === "mask_group" && entry.maskEnabled && entry.compositeRequired
@@ -121,11 +131,29 @@ export function renderViewDevicePixelRatio() {
   return supportedMaskPaintPixelRatio(ratio)
 }
 
-type MaskPaintPlanEntry = Extract<PagePaintPlanEntry, { kind: "mask_group" }>
-type VectorMaskPaintEntry = Omit<MaskPaintPlanEntry, "maskType"> &
-  Readonly<{ maskType: "vector" }>
-type AlphaMaskPaintEntry = Omit<MaskPaintPlanEntry, "maskType"> &
-  Readonly<{ maskType: "alpha" }>
+const clampUnit = (value: number) => Math.min(1, Math.max(0, value))
+
+/** Numeric oracle for the frozen M4B gamma-encoded sRGB contract. */
+export function srgbLuminanceMaskAlpha(
+  red: number,
+  green: number,
+  blue: number,
+  alpha: number
+) {
+  const luminance =
+    0.2126 * clampUnit(red) +
+    0.7152 * clampUnit(green) +
+    0.0722 * clampUnit(blue)
+  return clampUnit(luminance * clampUnit(alpha))
+}
+
+/** Source-over coverage oracle used after independent luminance conversion. */
+export function unionMaskAlphas(alphas: readonly number[]) {
+  return clampUnit(
+    1 -
+      alphas.reduce((remaining, alpha) => remaining * (1 - clampUnit(alpha)), 1)
+  )
+}
 
 export type MaskGroupRenderModel = Readonly<{
   entry: VectorMaskPaintEntry
@@ -135,7 +163,7 @@ export type MaskGroupRenderModel = Readonly<{
 }>
 
 export type AlphaMaskGroupRenderModel = Readonly<{
-  entry: AlphaMaskPaintEntry
+  entry: CoverageMaskPaintEntry
   source: Extract<
     SceneNode,
     { type: "rect" | "ellipse" | "icon" | "image" | "text" }
@@ -155,6 +183,8 @@ export type AlphaImageMaskCommitState = Readonly<{
   requiredResourceIdentities: readonly string[]
   readyResourceIdentities: readonly string[]
   status: "loading" | "ready" | "error"
+  errorCode?: "luminance_conversion_failed"
+  errorNodeId?: string
 }>
 
 export type AlphaImageMaskCommitEvent =
@@ -168,6 +198,8 @@ export type AlphaImageMaskCommitEvent =
       type: "ready" | "failed"
       identity: string
       resourceIdentity?: string
+      errorCode?: "luminance_conversion_failed"
+      errorNodeId?: string
     }>
 
 export function createAlphaImageMaskCommitState(
@@ -217,7 +249,14 @@ export function reduceAlphaImageMaskCommitState(
     }
   }
   if (event.identity !== state.requestedIdentity) return state
-  if (event.type === "failed") return { ...state, status: "error" }
+  if (event.type === "failed") {
+    return {
+      ...state,
+      status: "error",
+      errorCode: event.errorCode,
+      errorNodeId: event.errorNodeId,
+    }
+  }
   const resourceIdentity = event.resourceIdentity ?? event.identity
   if (!state.requiredResourceIdentities.includes(resourceIdentity)) return state
   const readyResourceIdentities = state.readyResourceIdentities.includes(
@@ -238,11 +277,73 @@ export function reduceAlphaImageMaskCommitState(
     committedModel: state.requestedModel,
     readyResourceIdentities,
     status: "ready",
+    errorCode: undefined,
+    errorNodeId: undefined,
+  }
+}
+
+const LUMINANCE_PROBE_EXPECTED_ALPHA = [
+  0, 255, 128, 54, 182, 18, 0, 22, 68,
+] as const
+
+export function luminanceConversionProbePixelsPass(
+  pixels: Uint8ClampedArray,
+  tolerance = 3
+) {
+  return LUMINANCE_PROBE_EXPECTED_ALPHA.every(
+    (expected, index) =>
+      Math.abs((pixels[index * 4 + 3] ?? Number.NaN) - expected) <= tolerance
+  )
+}
+
+export async function verifyBrowserLuminanceConversion(): Promise<boolean> {
+  if (typeof document === "undefined" || typeof Image === "undefined") {
+    return false
+  }
+  const colors = [
+    ["black", 1],
+    ["white", 1],
+    ["rgb(128,128,128)", 1],
+    ["red", 1],
+    ["lime", 1],
+    ["blue", 1],
+    ["red", 0],
+    ["red", 0.4],
+  ] as const
+  const filter = (id: string) =>
+    `<filter id="${id}" color-interpolation-filters="sRGB"><feColorMatrix in="SourceGraphic" type="luminanceToAlpha" result="y"/><feComposite in="y" in2="SourceGraphic" operator="in"/></filter>`
+  const filters = colors.map((_, index) => filter(`f${index}`)).join("")
+  const outputs = colors
+    .map(
+      ([color, opacity], index) =>
+        `<rect x="${index}" width="1" height="1" fill="${color}" opacity="${opacity}" filter="url(#f${index})"/>`
+    )
+    .join("")
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="9" height="1"><defs>${filters}${filter("overlap-red")}${filter("overlap-green")}</defs>${outputs}<rect x="8" width="1" height="1" fill="red" opacity=".5" filter="url(#overlap-red)"/><rect x="8" width="1" height="1" fill="lime" opacity=".25" filter="url(#overlap-green)"/></svg>`
+  const image = new Image()
+  image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
+  try {
+    await image.decode()
+    const canvas = document.createElement("canvas")
+    canvas.width = 9
+    canvas.height = 1
+    const context = canvas.getContext("2d", {
+      colorSpace: "srgb",
+      willReadFrequently: true,
+    })
+    if (!context) return false
+    context.clearRect(0, 0, 9, 1)
+    context.drawImage(image, 0, 0)
+    return luminanceConversionProbePixelsPass(
+      context.getImageData(0, 0, 9, 1, { colorSpace: "srgb" }).data
+    )
+  } catch {
+    return false
   }
 }
 
 function maskGroupContent(
-  entry: Extract<PagePaintPlanEntry, { kind: "mask_group" }>,
+  entry: MaskPaintPlanEntry | LuminanceMaskPaintEntry,
   nodesById: ReadonlyMap<string, SceneNode>
 ) {
   return entry.content.map((contentEntry) => {
@@ -314,6 +415,38 @@ export function alphaMaskGroupRenderModel(
   }
   return {
     entry: entry as AlphaMaskPaintEntry,
+    source,
+    sources: canonicalSources.filter((candidate) =>
+      entry.visibleSourceNodeIds.includes(candidate.id)
+    ),
+    content: maskGroupContent(entry, nodesById),
+  }
+}
+
+export function luminanceMaskGroupRenderModel(
+  entry: PagePaintPlanEntry,
+  nodesById: ReadonlyMap<string, SceneNode>
+): AlphaMaskGroupRenderModel {
+  if (entry.kind !== "mask_group" || entry.maskType !== "luminance") {
+    throw new Error(
+      "React luminance rendering requires a luminance mask group entry"
+    )
+  }
+  const canonicalSources = entry.sourceNodeIds.map((sourceId) => {
+    const source = nodesById.get(sourceId)
+    if (!isAdmittedAlphaMaskSource(source)) {
+      throw new Error(
+        "React luminance mask rendering requires rectangle, ellipse, icon, image, or text sources"
+      )
+    }
+    return source
+  })
+  const source = canonicalSources[0]
+  if (!source) {
+    throw new Error("React luminance mask rendering requires a source")
+  }
+  return {
+    entry: entry as LuminanceMaskPaintEntry,
     source,
     sources: canonicalSources.filter((candidate) =>
       entry.visibleSourceNodeIds.includes(candidate.id)
@@ -430,15 +563,18 @@ type MaskGroupPaintEntryProps = Readonly<{
 export function MaskGroupPaintEntry(props: MaskGroupPaintEntryProps) {
   const model = useMemo(
     () =>
-      props.entry.kind === "mask_group" && props.entry.maskType === "alpha"
-        ? alphaMaskGroupRenderModel(props.entry, props.nodesById)
+      props.entry.kind === "mask_group" && props.entry.maskType !== "vector"
+        ? props.entry.maskType === "luminance"
+          ? luminanceMaskGroupRenderModel(props.entry, props.nodesById)
+          : alphaMaskGroupRenderModel(props.entry, props.nodesById)
         : maskGroupRenderModel(props.entry, props.nodesById),
     [props.entry, props.nodesById]
   )
   if (
-    model.entry.maskType === "alpha" &&
+    model.entry.maskType !== "vector" &&
     model.entry.compositeRequired &&
-    model.sources.some((source) => source.type === "image")
+    (model.entry.maskType === "luminance" ||
+      model.sources.some((source) => source.type === "image"))
   ) {
     return (
       <AtomicAlphaImageMaskPaintEntry
@@ -469,14 +605,34 @@ function AtomicAlphaImageMaskPaintEntry({
       imageResourceRevisions?.[source.id]
     )
   )
-  const identity = JSON.stringify(resourceIdentities)
+  const identity = JSON.stringify({
+    entry: model.entry,
+    sources: model.sources,
+    content: model.content,
+    imageResourceRevisions,
+  })
+  const conversionIdentity = `luminance:${identity}`
+  const requiredResourceIdentities =
+    model.entry.maskType === "luminance"
+      ? [...resourceIdentities, conversionIdentity]
+      : resourceIdentities
   const [commit, dispatchCommit] = useReducer(
     reduceAlphaImageMaskCommitState,
     undefined,
-    () => createAlphaImageMaskCommitState(identity, model, resourceIdentities)
+    () =>
+      createAlphaImageMaskCommitState(
+        identity,
+        model,
+        requiredResourceIdentities
+      )
   )
   useEffect(() => {
-    dispatchCommit({ type: "request", identity, model, resourceIdentities })
+    dispatchCommit({
+      type: "request",
+      identity,
+      model,
+      resourceIdentities: requiredResourceIdentities,
+    })
   }, [identity, model])
 
   const handleProbeStateChange = (
@@ -495,6 +651,17 @@ function AtomicAlphaImageMaskPaintEntry({
     }
   }
   const needsProbe = commit.committedIdentity !== identity
+  const handleConversionResult = useCallback(
+    (ready: boolean, sourceNodeId: string) =>
+      dispatchCommit({
+        type: ready ? "ready" : "failed",
+        identity,
+        resourceIdentity: conversionIdentity,
+        errorCode: ready ? undefined : "luminance_conversion_failed",
+        errorNodeId: ready ? undefined : sourceNodeId,
+      }),
+    [conversionIdentity, identity]
+  )
 
   return (
     <>
@@ -517,10 +684,15 @@ function AtomicAlphaImageMaskPaintEntry({
               ),
             ])
           }
+          resourceErrorCode={commit.errorCode}
+          resourceErrorNodeId={commit.errorNodeId}
+          resourceState={commit.status}
         />
       ) : (
         <div
           data-mask-group-id={model.entry.groupId}
+          data-mask-resource-error={commit.errorCode}
+          data-mask-resource-error-node={commit.errorNodeId}
           data-mask-resource-state={commit.status}
           style={renderMaskGroupWrapperStyle(model.entry.bounds)}
         />
@@ -559,7 +731,91 @@ function AtomicAlphaImageMaskPaintEntry({
             )
           })
         : null}
+      {needsProbe &&
+      model.entry.maskType === "luminance" &&
+      !commit.readyResourceIdentities.includes(conversionIdentity) ? (
+        <LuminanceConversionProbe
+          identity={identity}
+          sourceNodeId={model.sources[0]!.id}
+          onResult={handleConversionResult}
+        />
+      ) : null}
     </>
+  )
+}
+
+function LuminanceConversionProbe({
+  identity,
+  sourceNodeId,
+  onResult,
+}: {
+  identity: string
+  sourceNodeId: string
+  onResult: (ready: boolean, sourceNodeId: string) => void
+}) {
+  useEffect(() => {
+    let current = true
+    void verifyBrowserLuminanceConversion().then((ready) => {
+      if (current) onResult(ready, sourceNodeId)
+    })
+    return () => {
+      current = false
+    }
+  }, [identity, onResult, sourceNodeId])
+  return (
+    <span
+      aria-hidden
+      data-luminance-conversion-probe={sourceNodeId}
+      style={{ display: "none" }}
+    />
+  )
+}
+
+function RenderCoverageMaskSource({
+  source,
+  bounds,
+  imageSemantics,
+  imageResourceRevisions,
+  imageResourceTokens,
+  showImageRecoveryActions,
+  onImageResourceStateChange,
+}: {
+  source: AlphaMaskGroupRenderModel["source"]
+  bounds: PagePaintBounds
+  imageSemantics: "content" | "thumbnail"
+  imageResourceRevisions?: Readonly<Record<string, string | number>>
+  imageResourceTokens?: Readonly<Record<string, string>>
+  showImageRecoveryActions: boolean
+  onImageResourceStateChange?: (state: ImageResourceStateChange) => void
+}) {
+  return (
+    <foreignObject
+      data-mask-source-id={source.id}
+      height={bounds.height}
+      width={bounds.width}
+      x={0}
+      y={0}
+    >
+      <div
+        style={{
+          position: "absolute",
+          left: -bounds.x,
+          top: -bounds.y,
+          width: bounds.width,
+          height: bounds.height,
+        }}
+      >
+        <RenderNode
+          imageSemantics={imageSemantics}
+          node={source}
+          imageResourceRevision={imageResourceRevisions?.[source.id]}
+          imageResourceToken={imageResourceTokens?.[source.id]}
+          showImageRecoveryActions={showImageRecoveryActions}
+          suppressImageFailureFeedback
+          onImageResourceStateChange={onImageResourceStateChange}
+        />
+      </div>
+    </foreignObject>
   )
 }
 
@@ -570,11 +826,24 @@ function ResolvedMaskGroupPaintEntry({
   imageResourceTokens,
   showImageRecoveryActions = true,
   onImageResourceStateChange,
+  resourceErrorCode,
+  resourceErrorNodeId,
+  resourceState,
 }: MaskGroupPaintEntryProps & {
   model: MaskGroupRenderModel | AlphaMaskGroupRenderModel
+  resourceErrorCode?: "luminance_conversion_failed"
+  resourceErrorNodeId?: string
+  resourceState?: "loading" | "ready" | "error"
 }) {
   const { content, entry: maskEntry, sources } = model
   const maskId = `studio-mask-${useId().replaceAll(":", "")}`
+  const luminanceFilterIds =
+    maskEntry.maskType === "luminance"
+      ? sources.map(
+          (source, index) =>
+            `${maskId}-luminance-${index}-${source.id.replaceAll(/[^A-Za-z0-9_-]/g, "-")}`
+        )
+      : []
   const wrapperStyle = renderMaskGroupWrapperStyle(maskEntry.bounds)
   const contentProps = {
     content,
@@ -587,7 +856,13 @@ function ResolvedMaskGroupPaintEntry({
 
   if (!shouldCompositeMaskGroup(maskEntry)) {
     return (
-      <div data-mask-group-id={maskEntry.groupId} style={wrapperStyle}>
+      <div
+        data-mask-group-id={maskEntry.groupId}
+        data-mask-resource-error={resourceErrorCode}
+        data-mask-resource-error-node={resourceErrorNodeId}
+        data-mask-resource-state={resourceState}
+        style={wrapperStyle}
+      >
         <div
           style={{
             position: "absolute",
@@ -606,11 +881,39 @@ function ResolvedMaskGroupPaintEntry({
   return (
     <svg
       data-mask-group-id={maskEntry.groupId}
+      data-mask-resource-error={resourceErrorCode}
+      data-mask-resource-error-node={resourceErrorNodeId}
+      data-mask-resource-state={resourceState}
       role="presentation"
       style={wrapperStyle}
       viewBox={`0 0 ${maskEntry.bounds.width} ${maskEntry.bounds.height}`}
     >
       <defs>
+        {luminanceFilterIds.map((filterId, index) => (
+          <filter
+            key={filterId}
+            id={filterId}
+            x={0}
+            y={0}
+            width={maskEntry.bounds.width}
+            height={maskEntry.bounds.height}
+            filterUnits="userSpaceOnUse"
+            colorInterpolationFilters="sRGB"
+            data-luminance-source-id={sources[index]!.id}
+          >
+            <feColorMatrix
+              in="SourceGraphic"
+              type="luminanceToAlpha"
+              result={`${filterId}-luminance`}
+            />
+            <feComposite
+              in={`${filterId}-luminance`}
+              in2="SourceGraphic"
+              operator="in"
+              result={`${filterId}-luminance-alpha`}
+            />
+          </filter>
+        ))}
         <mask
           height={maskEntry.bounds.height}
           id={maskId}
@@ -628,38 +931,30 @@ function ResolvedMaskGroupPaintEntry({
                   source={source as MaskGroupRenderModel["source"]}
                 />
               ))
-            : sources.map((source) => (
-                <foreignObject
-                  key={source.id}
-                  data-mask-source-id={source.id}
-                  height={maskEntry.bounds.height}
-                  width={maskEntry.bounds.width}
-                  x={0}
-                  y={0}
-                >
-                  <div
-                    style={{
-                      position: "absolute",
-                      left: -maskEntry.bounds.x,
-                      top: -maskEntry.bounds.y,
-                      width: maskEntry.bounds.width,
-                      height: maskEntry.bounds.height,
-                    }}
+            : sources.map((source, index) => {
+                const rendered = (
+                  <RenderCoverageMaskSource
+                    bounds={maskEntry.bounds}
+                    imageSemantics={imageSemantics}
+                    imageResourceRevisions={imageResourceRevisions}
+                    imageResourceTokens={imageResourceTokens}
+                    onImageResourceStateChange={onImageResourceStateChange}
+                    showImageRecoveryActions={showImageRecoveryActions}
+                    source={source}
+                  />
+                )
+                return maskEntry.maskType === "luminance" ? (
+                  <g
+                    key={source.id}
+                    data-luminance-source-isolation={source.id}
+                    filter={`url(#${luminanceFilterIds[index]})`}
                   >
-                    <RenderNode
-                      imageSemantics={imageSemantics}
-                      node={source}
-                      imageResourceRevision={
-                        imageResourceRevisions?.[source.id]
-                      }
-                      imageResourceToken={imageResourceTokens?.[source.id]}
-                      showImageRecoveryActions={showImageRecoveryActions}
-                      suppressImageFailureFeedback
-                      onImageResourceStateChange={onImageResourceStateChange}
-                    />
-                  </div>
-                </foreignObject>
-              ))}
+                    {rendered}
+                  </g>
+                ) : (
+                  <g key={source.id}>{rendered}</g>
+                )
+              })}
         </mask>
       </defs>
       <g mask={`url(#${maskId})`}>

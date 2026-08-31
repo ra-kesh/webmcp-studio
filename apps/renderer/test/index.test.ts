@@ -1060,6 +1060,47 @@ describe("renderer Worker", () => {
     expect(close).toHaveBeenCalledOnce()
   })
 
+  it("forwards an attributed luminance conversion failure before capture", async () => {
+    const { default: worker } = await import("../src/index")
+    const browserPage = successfulBrowserPage([])
+    browserPage.evaluate.mockResolvedValue({
+      ready: false,
+      code: "luminance_conversion_failed",
+      nodeId: "luminance-source-a",
+    })
+    const close = vi.fn(async () => undefined)
+    vi.mocked(launch).mockResolvedValue({
+      newPage: vi.fn(async () => browserPage),
+      close,
+    } as never)
+    const put = vi.fn()
+
+    const response = await worker.fetch(
+      new Request("https://renderer.internal/render", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          renderId: "luminance-conversion-failure",
+          outputId: "proposal",
+          pageId: "cover",
+          document: northstarSeed,
+          expectedImageResources: [],
+        }),
+      }) as never,
+      { BROWSER: {}, RENDERS: { put } } as unknown as Env
+    )
+
+    expect(response.status).toBe(422)
+    expect(await response.json()).toMatchObject({
+      error: "render_resource_failed",
+      code: "luminance_conversion_failed",
+      nodeId: "luminance-source-a",
+    })
+    expect(browserPage.screenshot).not.toHaveBeenCalled()
+    expect(put).not.toHaveBeenCalled()
+    expect(close).toHaveBeenCalledOnce()
+  })
+
   it("returns an exact ephemeral thumbnail without writing or reading R2", async () => {
     const { default: worker } = await import("../src/index")
     const bytes = pngHeader(124, 175)

@@ -28,6 +28,7 @@ import {
   createAlphaImageMaskCommitState,
   createImageResourceLoadState,
   alphaMaskGroupRenderModel,
+  luminanceMaskGroupRenderModel,
   decodedImageNaturalSizeForSource,
   imageResourceIdentity,
   imageResourceStateChangeForFailure,
@@ -47,6 +48,9 @@ import {
   renderTextSegmentStyle,
   renderVectorMaskSourceAttributes,
   shouldCompositeMaskGroup,
+  luminanceConversionProbePixelsPass,
+  srgbLuminanceMaskAlpha,
+  unionMaskAlphas,
 } from "../src"
 
 describe("React render-view conformance", () => {
@@ -289,6 +293,46 @@ describe("React render-view conformance", () => {
     })
   })
 
+  it("keeps the last valid luminance composite and attributes conversion failure", () => {
+    const baseEntry = maskRenderConformancePlan.entries[1]!
+    if (baseEntry.kind !== "mask_group") throw new Error("Missing mask entry")
+    const model = luminanceMaskGroupRenderModel(
+      { ...baseEntry, maskType: "luminance" },
+      new Map(maskRenderConformanceNodes.map((node) => [node.id, node]))
+    )
+    const ready = reduceAlphaImageMaskCommitState(
+      createAlphaImageMaskCommitState("candidate-a", model),
+      { type: "ready", identity: "candidate-a" }
+    )
+    const replacing = reduceAlphaImageMaskCommitState(ready, {
+      type: "request",
+      identity: "candidate-b",
+      model,
+      resourceIdentities: ["conversion-b"],
+    })
+    const failed = reduceAlphaImageMaskCommitState(replacing, {
+      type: "failed",
+      identity: "candidate-b",
+      resourceIdentity: "conversion-b",
+      errorCode: "luminance_conversion_failed",
+      errorNodeId: model.sources[0]!.id,
+    })
+
+    expect(failed).toMatchObject({
+      status: "error",
+      committedIdentity: "candidate-a",
+      committedModel: model,
+      errorCode: "luminance_conversion_failed",
+      errorNodeId: model.sources[0]!.id,
+    })
+    expect(
+      reduceAlphaImageMaskCommitState(failed, {
+        type: "ready",
+        identity: "candidate-a",
+      })
+    ).toBe(failed)
+  })
+
   it("preserves canonical multi-source union order and hidden fallthrough", () => {
     const visibleDocument = multiVectorMaskRenderConformanceDocument
     const visibleEntry = projectPagePaintPlan(
@@ -330,6 +374,92 @@ describe("React render-view conformance", () => {
     expect(markup).toContain('data-node-id="mask-conformance-content"')
     expect(markup).not.toContain("data-mask-source-id")
     expect(markup).not.toContain("data-alpha-mask-resource-probe")
+  })
+
+  it("uses the frozen sRGB Y*A coefficients before source-over union", () => {
+    expect(srgbLuminanceMaskAlpha(0, 0, 0, 1)).toBe(0)
+    expect(srgbLuminanceMaskAlpha(1, 1, 1, 1)).toBe(1)
+    expect(srgbLuminanceMaskAlpha(0.5, 0.5, 0.5, 1)).toBeCloseTo(0.5, 10)
+    expect(srgbLuminanceMaskAlpha(1, 0, 0, 1)).toBeCloseTo(0.2126, 10)
+    expect(srgbLuminanceMaskAlpha(0, 1, 0, 1)).toBeCloseTo(0.7152, 10)
+    expect(srgbLuminanceMaskAlpha(0, 0, 1, 1)).toBeCloseTo(0.0722, 10)
+    expect(srgbLuminanceMaskAlpha(1, 1, 1, 0)).toBe(0)
+    expect(srgbLuminanceMaskAlpha(1, 0, 0, 0.4)).toBeCloseTo(0.2126 * 0.4, 10)
+    expect(unionMaskAlphas([0.25, 0.5])).toBeCloseTo(0.625, 10)
+    const pixels = new Uint8ClampedArray(9 * 4)
+    ;[0, 255, 128, 54, 182, 18, 0, 22, 68].forEach((alpha, index) => {
+      pixels[index * 4 + 3] = alpha
+    })
+    expect(luminanceConversionProbePixelsPass(pixels)).toBe(true)
+    pixels[3] = 8
+    expect(luminanceConversionProbePixelsPass(pixels)).toBe(false)
+  })
+
+  it("isolates and converts each visible luminance source before union", () => {
+    const document = multiVectorMaskRenderConformanceDocument
+    const vectorEntry = projectPagePaintPlan(
+      document,
+      document.pages[0]!.id
+    ).entries.find((entry) => entry.kind === "mask_group")!
+    if (vectorEntry.kind !== "mask_group") throw new Error("Missing mask entry")
+    const entry = { ...vectorEntry, maskType: "luminance" as const }
+    const nodesById = new Map(document.nodes.map((node) => [node.id, node]))
+    const model = luminanceMaskGroupRenderModel(entry, nodesById)
+    expect(model.sources.map((source) => source.id)).toEqual(
+      entry.sourceNodeIds
+    )
+
+    const markup = renderToStaticMarkup(
+      createElement(MaskGroupPaintEntry, { entry, nodesById })
+    )
+    expect(markup).toContain('data-mask-resource-state="loading"')
+    expect(markup).toContain("data-luminance-conversion-probe")
+    expect(markup).not.toContain("data-luminance-source-isolation")
+  })
+
+  it("falls through an all-hidden luminance relation without filters or sources", () => {
+    const document = multiVectorMaskRenderConformanceAllHiddenDocument
+    const vectorEntry = projectPagePaintPlan(
+      document,
+      document.pages[0]!.id
+    ).entries.find((entry) => entry.kind === "mask_group")!
+    if (vectorEntry.kind !== "mask_group") throw new Error("Missing mask entry")
+    const entry = { ...vectorEntry, maskType: "luminance" as const }
+    const markup = renderToStaticMarkup(
+      createElement(MaskGroupPaintEntry, {
+        entry,
+        nodesById: new Map(document.nodes.map((node) => [node.id, node])),
+      })
+    )
+    expect(markup).toContain('data-node-id="mask-conformance-content"')
+    expect(markup).not.toContain("luminanceToAlpha")
+    expect(markup).not.toContain("data-mask-source-id")
+    expect(markup).not.toContain("data-alpha-mask-resource-probe")
+  })
+
+  it("keeps luminance image sources behind the existing atomic readiness barrier", () => {
+    const document = multiAlphaMaskRenderConformanceDocument
+    const alphaEntry = projectPagePaintPlan(
+      document,
+      document.pages[0]!.id
+    ).entries.find((entry) => entry.kind === "mask_group")!
+    if (alphaEntry.kind !== "mask_group") throw new Error("Missing mask entry")
+    const entry = { ...alphaEntry, maskType: "luminance" as const }
+    const nodesById = new Map(document.nodes.map((node) => [node.id, node]))
+    const model = luminanceMaskGroupRenderModel(entry, nodesById)
+    expect(model.sources.map((source) => source.type)).toEqual([
+      "image",
+      "image",
+      "text",
+    ])
+
+    const markup = renderToStaticMarkup(
+      createElement(MaskGroupPaintEntry, { entry, nodesById })
+    )
+    expect(markup).toContain('data-mask-resource-state="loading"')
+    expect(markup.match(/data-alpha-mask-resource-probe=/g)).toHaveLength(2)
+    expect(markup).not.toContain("luminanceToAlpha")
+    expect(markup).not.toContain("data-luminance-source-isolation")
   })
 
   it("commits a multi-image/text alpha union only after every image is ready", () => {
