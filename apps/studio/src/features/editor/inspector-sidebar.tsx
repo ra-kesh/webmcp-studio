@@ -76,6 +76,7 @@ import type {
   FieldDefinition,
   FieldBindingImpact,
   FieldValue,
+  GeneratedDocumentPlan,
   ImageFrameMask,
   ImagePlacement,
   PaintStyle,
@@ -87,6 +88,7 @@ import type {
   TypographyStylePatch,
   VariableBindingTarget,
 } from "@webmcp/document"
+import { Artboard } from "@webmcp/render-view"
 import type { Alignment } from "@webmcp/editor/geometry"
 import type { CanvasTextEditingState, NodeGeometryPatch } from "@webmcp/editor"
 import type {
@@ -3796,6 +3798,9 @@ function FieldsPanel({
 function ReviewPanel({
   document,
   navigationDocument,
+  pendingGeneratedDocument,
+  generatedDocumentError,
+  isCreatingGeneratedDocument,
   pendingChangeSet,
   lastResolvedChangeSet,
   reviewJournal,
@@ -3808,10 +3813,15 @@ function ReviewPanel({
   onDecideAll,
   onApply,
   onDiscard,
+  onCreateGeneratedDocument,
+  onDiscardGeneratedDocument,
   onFocusTarget,
 }: {
   document: Document
   navigationDocument: Document
+  pendingGeneratedDocument: GeneratedDocumentPlan | null
+  generatedDocumentError: string | null
+  isCreatingGeneratedDocument: boolean
   pendingChangeSet: ChangeSet | null
   lastResolvedChangeSet: ChangeSet | null
   reviewJournal: ReviewJournal
@@ -3827,6 +3837,8 @@ function ReviewPanel({
   onDecideAll: (status: "accepted" | "rejected") => void
   onApply: () => void
   onDiscard: () => void
+  onCreateGeneratedDocument: () => void | Promise<boolean>
+  onDiscardGeneratedDocument: () => void
   onFocusTarget: (target: ReviewAffectedTarget) => void
 }) {
   const registeredToolNames = new Set(toolCatalog.map((tool) => tool.name))
@@ -3859,7 +3871,138 @@ function ReviewPanel({
             </p>
           </div>
         </div>
-        {pendingChangeSet ? (
+        {pendingGeneratedDocument ? (
+          <>
+            <div className="min-w-0 rounded-lg border bg-muted/30 p-2.5">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-xs leading-relaxed font-medium break-words">
+                    {pendingGeneratedDocument.candidate.name}
+                  </p>
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    {pendingGeneratedDocument.summary.pages.length} page
+                    {pendingGeneratedDocument.summary.pages.length === 1
+                      ? ""
+                      : "s"}{" "}
+                    · {pendingGeneratedDocument.candidate.nodes.length} editable
+                    layers
+                  </p>
+                  <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+                    {pendingGeneratedDocument.provenance.skill.title} ·{" "}
+                    {pendingGeneratedDocument.start.kind === "template"
+                      ? `Template ${pendingGeneratedDocument.start.template.id} v${pendingGeneratedDocument.start.template.version}`
+                      : `Blank preset ${pendingGeneratedDocument.start.presetId}`}
+                  </p>
+                </div>
+                <Badge variant="secondary">Candidate</Badge>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              {pendingGeneratedDocument.summary.pages.map((page) => {
+                const scale = Math.min(116 / page.width, 92 / page.height)
+                return (
+                  <div
+                    key={page.id}
+                    className="min-w-0 overflow-hidden rounded-md border bg-muted/35 p-1.5"
+                  >
+                    <div className="grid h-24 place-items-center overflow-hidden">
+                      <div
+                        className="overflow-hidden border bg-background shadow-xs"
+                        style={{
+                          width: page.width * scale,
+                          height: page.height * scale,
+                        }}
+                      >
+                        <Artboard
+                          document={pendingGeneratedDocument.candidate}
+                          imageSemantics="thumbnail"
+                          pageId={page.id}
+                          scale={scale}
+                          showImageRecoveryActions={false}
+                        />
+                      </div>
+                    </div>
+                    <p className="mt-1 truncate text-[9px] font-medium">
+                      {page.name}
+                    </p>
+                    <p className="text-[9px] text-muted-foreground tabular-nums">
+                      {page.width} × {page.height}
+                    </p>
+                  </div>
+                )
+              })}
+            </div>
+
+            <div className="grid gap-2 rounded-lg border bg-muted/20 p-2.5 text-[10px]">
+              <p>
+                <span className="text-muted-foreground">Structure:</span>{" "}
+                {pendingGeneratedDocument.summary.structuralChanges.join(" · ")}
+              </p>
+              <p>
+                <span className="text-muted-foreground">Fields:</span>{" "}
+                {pendingGeneratedDocument.summary.fields.length
+                  ? pendingGeneratedDocument.summary.fields.join(", ")
+                  : "None"}
+              </p>
+              <p>
+                <span className="text-muted-foreground">Assets:</span>{" "}
+                {pendingGeneratedDocument.summary.assets.length
+                  ? pendingGeneratedDocument.summary.assets.join(", ")
+                  : "None"}
+              </p>
+              <p>
+                <span className="text-muted-foreground">Design guides:</span>{" "}
+                {pendingGeneratedDocument.provenance.designGuides.length
+                  ? pendingGeneratedDocument.provenance.designGuides
+                      .map((guide) => guide.title)
+                      .join(", ")
+                  : "None declared"}
+              </p>
+              <p>
+                <span className="text-muted-foreground">Validation:</span>{" "}
+                {pendingGeneratedDocument.validation.length
+                  ? `${pendingGeneratedDocument.validation.length} issue(s)`
+                  : "Passed"}
+              </p>
+            </div>
+
+            {generatedDocumentError ? (
+              <div
+                role="alert"
+                className="rounded-lg border border-destructive/30 bg-destructive/5 p-2.5 text-[11px] leading-relaxed text-destructive"
+              >
+                {generatedDocumentError}
+              </div>
+            ) : null}
+
+            <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-1.5">
+              <Button
+                disabled={isCreatingGeneratedDocument}
+                size="sm"
+                variant="outline"
+                onClick={onDiscardGeneratedDocument}
+              >
+                Discard
+              </Button>
+              <Button
+                className="flex-1"
+                disabled={isCreatingGeneratedDocument}
+                size="sm"
+                onClick={() => void onCreateGeneratedDocument()}
+              >
+                {isCreatingGeneratedDocument ? (
+                  <>
+                    <LoaderCircleIcon className="animate-spin" />
+                    Creating…
+                  </>
+                ) : (
+                  "Create editable document"
+                )}
+              </Button>
+            </div>
+          </>
+        ) : pendingChangeSet ? (
           <>
             <div className="min-w-0 rounded-lg border bg-muted/30 p-2.5">
               <div className="flex items-start justify-between gap-2">
@@ -4234,6 +4377,9 @@ export function InspectorSidebar({
   selectedGroupId = null,
   textEditingState = null,
   imageCropPreviewStore = null,
+  pendingGeneratedDocument = null,
+  generatedDocumentError = null,
+  isCreatingGeneratedDocument = false,
   pendingChangeSet,
   lastResolvedChangeSet,
   reviewJournal = EMPTY_REVIEW_JOURNAL,
@@ -4258,6 +4404,8 @@ export function InspectorSidebar({
   onDecideAllChangeOperations,
   onApplyChangeSet,
   onDiscardChangeSet,
+  onCreateGeneratedDocument = async () => false,
+  onDiscardGeneratedDocument = () => undefined,
   onFocusReviewTarget = ignoreReviewTarget,
   onAlignSelection,
   onAlignSelectionToPage,
@@ -4311,6 +4459,9 @@ export function InspectorSidebar({
   selectedGroupId?: string | null
   textEditingState?: CanvasTextEditingState | null
   imageCropPreviewStore?: ImageCropPreviewStore | null
+  pendingGeneratedDocument?: GeneratedDocumentPlan | null
+  generatedDocumentError?: string | null
+  isCreatingGeneratedDocument?: boolean
   pendingChangeSet: ChangeSet | null
   lastResolvedChangeSet: ChangeSet | null
   reviewJournal?: ReviewJournal
@@ -4345,6 +4496,8 @@ export function InspectorSidebar({
   onDecideAllChangeOperations: (status: "accepted" | "rejected") => void
   onApplyChangeSet: () => void
   onDiscardChangeSet: () => void
+  onCreateGeneratedDocument?: () => void | Promise<boolean>
+  onDiscardGeneratedDocument?: () => void
   onFocusReviewTarget?: (target: ReviewAffectedTarget) => void
   onAlignSelection: (alignment: Alignment) => void
   onAlignSelectionToPage: (alignment: Alignment) => void
@@ -4455,20 +4608,23 @@ export function InspectorSidebar({
   )
   const controlIdPrefix = `inspector-${useId()}`
   const selectedNode = selectedNodes.length === 1 ? selectedNodes[0] : undefined
-  const [activeTab, setActiveTab] = useState("design")
+  const [activeTab, setActiveTab] = useState(
+    pendingChangeSet || pendingGeneratedDocument ? "review" : "design"
+  )
   const [focusedBinding, setFocusedBinding] = useState<{
     nodeId: string
     property: BindableProperty
   } | null>(null)
   const inspectorRootRef = useRef<HTMLElement>(null)
   const previousSelectedNodeIdRef = useRef(selectedNode?.id)
+  const reviewPending = Boolean(pendingChangeSet || pendingGeneratedDocument)
 
   useEffect(() => {
-    if (pendingChangeSet) setActiveTab("review")
-  }, [pendingChangeSet])
+    if (pendingChangeSet || pendingGeneratedDocument) setActiveTab("review")
+  }, [pendingChangeSet, pendingGeneratedDocument])
 
   useEffect(() => {
-    if (!focusFieldId || pendingChangeSet) return
+    if (!focusFieldId || pendingChangeSet || pendingGeneratedDocument) return
     setActiveTab("fields")
     const frame = requestAnimationFrame(() => {
       const target = inspectorRootRef.current?.querySelector<HTMLElement>(
@@ -4478,7 +4634,7 @@ export function InspectorSidebar({
       target?.focus({ preventScroll: true })
     })
     return () => cancelAnimationFrame(frame)
-  }, [focusFieldId, pendingChangeSet])
+  }, [focusFieldId, pendingChangeSet, pendingGeneratedDocument])
 
   useEffect(() => {
     if (
@@ -4537,21 +4693,21 @@ export function InspectorSidebar({
         <EditorPanelTabsList aria-label="Inspector panels">
           <TabsTrigger
             value="design"
-            disabled={Boolean(pendingChangeSet)}
+            disabled={reviewPending}
             className="flex-none px-2.5 text-xs"
           >
             Design
           </TabsTrigger>
           <TabsTrigger
             value="variables"
-            disabled={Boolean(pendingChangeSet)}
+            disabled={reviewPending}
             className="flex-none px-2.5 text-xs"
           >
             Variables
           </TabsTrigger>
           <TabsTrigger
             value="fields"
-            disabled={Boolean(pendingChangeSet)}
+            disabled={reviewPending}
             className="flex-none px-2.5 text-xs"
           >
             Fields
@@ -4565,7 +4721,7 @@ export function InspectorSidebar({
             {componentSelection ? (
               <ComponentInspectorSection
                 context={componentSelection}
-                reviewPending={Boolean(pendingChangeSet)}
+                reviewPending={reviewPending}
                 onUpdateComponent={onUpdateComponent}
                 onSwitchVariant={onSwitchComponentVariant}
                 onResetLayerOverrides={onResetComponentLayerOverrides}
@@ -4695,6 +4851,9 @@ export function InspectorSidebar({
             <ReviewPanel
               document={document}
               navigationDocument={reviewNavigationDocument}
+              pendingGeneratedDocument={pendingGeneratedDocument}
+              generatedDocumentError={generatedDocumentError}
+              isCreatingGeneratedDocument={isCreatingGeneratedDocument}
               pendingChangeSet={pendingChangeSet}
               lastResolvedChangeSet={lastResolvedChangeSet}
               reviewJournal={reviewJournal}
@@ -4707,6 +4866,8 @@ export function InspectorSidebar({
               onDecideAll={onDecideAllChangeOperations}
               onApply={onApplyChangeSet}
               onDiscard={onDiscardChangeSet}
+              onCreateGeneratedDocument={onCreateGeneratedDocument}
+              onDiscardGeneratedDocument={onDiscardGeneratedDocument}
               onFocusTarget={onFocusReviewTarget}
             />
           </ScrollArea>

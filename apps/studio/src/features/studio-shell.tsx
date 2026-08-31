@@ -1611,7 +1611,12 @@ export function StudioShell({
   )
 
   const prepareDocumentRouteExit = useCallback(async () => {
-    if (editor.imageCropSession || editor.pendingChangeSet) return false
+    if (
+      editor.imageCropSession ||
+      editor.pendingChangeSet ||
+      editor.pendingGeneratedDocument
+    )
+      return false
     if (!commitActiveTextEditing()) return false
     return editor.flushActiveDraft()
   }, [
@@ -1619,6 +1624,7 @@ export function StudioShell({
     editor.flushActiveDraft,
     editor.imageCropSession,
     editor.pendingChangeSet,
+    editor.pendingGeneratedDocument,
   ])
   const projectBlockedDocumentRouteExit = useCallback(
     (error: unknown | null) => {
@@ -1636,11 +1642,13 @@ export function StudioShell({
       textEditingNodeId !== null ||
       editor.imageCropSession !== null ||
       editor.pendingChangeSet !== null ||
+      editor.pendingGeneratedDocument !== null ||
       editor.localSaveState.status !== "saved",
     [
       editor.imageCropSession,
       editor.localSaveState.status,
       editor.pendingChangeSet,
+      editor.pendingGeneratedDocument,
       textEditingNodeId,
     ]
   )
@@ -2103,7 +2111,10 @@ export function StudioShell({
   }, [editor.selectedNodes, focusBounds])
 
   const inspectorCapabilityContext = {
-    documentEditable: !editor.pendingChangeSet && !pendingQuotationRefresh,
+    documentEditable:
+      !editor.pendingChangeSet &&
+      !editor.pendingGeneratedDocument &&
+      !pendingQuotationRefresh,
     activeImageCropNodeId: editor.imageCropSession?.target.nodeId ?? null,
     imageSourceStateByNodeId,
     imageReplacementConstraintByNodeId: imageReplacementConstraintsByNodeId(
@@ -2198,7 +2209,10 @@ export function StudioShell({
   const imageCommandCapabilities = deriveEditorImageCommandCapabilities({
     selectedNodes: editor.selectedNodes,
     inspectorCapabilities: imageSelectionCapabilities,
-    documentEditable: !editor.pendingChangeSet && !pendingQuotationRefresh,
+    documentEditable:
+      !editor.pendingChangeSet &&
+      !editor.pendingGeneratedDocument &&
+      !pendingQuotationRefresh,
     imageCropActive: Boolean(editor.imageCropSession),
     imageCropDraftChanged: editor.imageCropSession
       ? imageCropSessionHasChanges(editor.imageCropSession)
@@ -2213,7 +2227,10 @@ export function StudioShell({
     pageId: activePage.id,
     selectedNodeIds: editor.selection?.nodeIds ?? [],
     selectedGroupId: editor.selectedGroupId,
-    documentEditable: !editor.pendingChangeSet && !pendingQuotationRefresh,
+    documentEditable:
+      !editor.pendingChangeSet &&
+      !editor.pendingGeneratedDocument &&
+      !pendingQuotationRefresh,
   })
   const editorMaskCommandCapabilities = {
     canCreate: maskCommandCapabilities.create.enabled,
@@ -2231,7 +2248,11 @@ export function StudioShell({
     sourcesDisabledReason: maskCommandCapabilities.setSources.disabledReason,
   }
   const commandContext: EditorCommandContext = {
-    reviewPending: Boolean(editor.pendingChangeSet || pendingQuotationRefresh),
+    reviewPending: Boolean(
+      editor.pendingChangeSet ||
+      editor.pendingGeneratedDocument ||
+      pendingQuotationRefresh
+    ),
     hasSelection: Boolean(editor.selection?.nodeIds.length),
     selectedNodeCount: editor.selectedNodes.length,
     hasSelectedGroup: Boolean(editor.selectedGroupId),
@@ -2318,6 +2339,7 @@ export function StudioShell({
           : null
       },
       proposeChangeSet: editor.proposeChangeSet,
+      proposeDocumentGeneration: editor.proposeDocumentGeneration,
       runProductCommand: (invocation) => {
         const runner = productCommandRunnerRef.current
         return runner
@@ -3075,6 +3097,7 @@ export function StudioShell({
     assetMediaBrowserVisibility.desktop || assetMediaBrowserVisibility.compact
   const inlineMediaActionsEnabled =
     !editor.pendingChangeSet &&
+    !editor.pendingGeneratedDocument &&
     !pendingQuotationRefresh &&
     !inlineMediaActionState?.pendingIdentity
 
@@ -3238,12 +3261,16 @@ export function StudioShell({
           ? "error"
           : "idle"
       : "idle"
-  const reviewLocked = Boolean(editor.pendingChangeSet)
+  const reviewLocked = Boolean(
+    editor.pendingChangeSet || editor.pendingGeneratedDocument
+  )
   const quotationRefreshLocked = Boolean(pendingQuotationRefresh)
   const documentDecisionLocked = reviewLocked || quotationRefreshLocked
   const documentDecisionReason = quotationRefreshLocked
     ? "Accept or reject the pending Stuwiz refresh first."
-    : "Resolve or discard the review preview first."
+    : editor.pendingGeneratedDocument
+      ? "Create or discard the generated document first."
+      : "Resolve or discard the review preview first."
   const cropLocked = Boolean(editor.imageCropSession)
   const outputBusy =
     criticalAction !== null ||
@@ -5271,6 +5298,11 @@ export function StudioShell({
                   capabilityContext={inspectorCapabilityContext}
                   focusFieldId={mediaReviewFieldId}
                   pendingChangeSet={editor.pendingChangeSet}
+                  pendingGeneratedDocument={editor.pendingGeneratedDocument}
+                  generatedDocumentError={editor.generatedDocumentError}
+                  isCreatingGeneratedDocument={
+                    editor.isCreatingGeneratedDocument
+                  }
                   lastResolvedChangeSet={editor.lastResolvedChangeSet}
                   reviewJournal={editor.reviewJournal}
                   changeSetConflict={editor.changeSetConflict}
@@ -5298,6 +5330,8 @@ export function StudioShell({
                   onDecideAllChangeOperations={editor.decideAllOperations}
                   onApplyChangeSet={editor.applyChangeSet}
                   onDiscardChangeSet={editor.discardChangeSet}
+                  onCreateGeneratedDocument={editor.createGeneratedDocument}
+                  onDiscardGeneratedDocument={editor.discardGeneratedDocument}
                   onFocusReviewTarget={focusReviewTarget}
                   onAlignSelection={editor.alignSelection}
                   onAlignSelectionToPage={editor.alignSelectionToPage}
@@ -5529,6 +5563,9 @@ export function StudioShell({
                 capabilityContext={inspectorCapabilityContext}
                 focusFieldId={mediaReviewFieldId}
                 pendingChangeSet={editor.pendingChangeSet}
+                pendingGeneratedDocument={editor.pendingGeneratedDocument}
+                generatedDocumentError={editor.generatedDocumentError}
+                isCreatingGeneratedDocument={editor.isCreatingGeneratedDocument}
                 lastResolvedChangeSet={editor.lastResolvedChangeSet}
                 reviewJournal={editor.reviewJournal}
                 changeSetConflict={editor.changeSetConflict}
@@ -5556,6 +5593,8 @@ export function StudioShell({
                 onDecideAllChangeOperations={editor.decideAllOperations}
                 onApplyChangeSet={editor.applyChangeSet}
                 onDiscardChangeSet={editor.discardChangeSet}
+                onCreateGeneratedDocument={editor.createGeneratedDocument}
+                onDiscardGeneratedDocument={editor.discardGeneratedDocument}
                 onFocusReviewTarget={focusReviewTarget}
                 onAlignSelection={editor.alignSelection}
                 onAlignSelectionToPage={editor.alignSelectionToPage}

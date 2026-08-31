@@ -589,3 +589,89 @@ describe("Review target navigation", () => {
     ).toBe(false)
   })
 })
+
+describe("Generated document Review", () => {
+  it("renders candidate page thumbnails and keeps creation explicit", () => {
+    const candidate = structuredClone(renderConformanceDocument)
+    candidate.id = "generated-review-preview"
+    candidate.name = "Generated campaign"
+    const markup = renderToStaticMarkup(
+      createElement(InspectorSidebar, {
+        document: renderConformanceDocument,
+        selectedNodes: [],
+        pendingGeneratedDocument: {
+          requestId: "request-review-preview",
+          idempotencyKey: "key-review-preview",
+          requestHash: "hash-review-preview",
+          createdAt: "2026-08-31T08:00:00.000Z",
+          start: {
+            kind: "blank",
+            presetId: "portrait",
+            designPlanVersion: 1,
+          },
+          candidate,
+          summary: {
+            pages: candidate.pages.map(({ id, name, width, height }) => ({
+              id,
+              name,
+              width,
+              height,
+            })),
+            nodesByType: {},
+            fields: candidate.fields.map((field) => field.key),
+            assets: [],
+            structuralChanges: ["Created editable layers"],
+          },
+          provenance: {
+            skill: { kind: "repository", title: "studio-document" },
+            designGuides: [],
+            references: [],
+          },
+          validation: [],
+          warnings: [],
+        },
+        pendingChangeSet: null,
+        lastResolvedChangeSet: null,
+        changeSetConflict: null,
+        changeSetError: null,
+        isApplyingChangeSet: false,
+        webMcpStatus: "ready",
+        webMcpError: null,
+        capabilityContext: { documentEditable: false },
+        onUpdateNode: vi.fn(),
+        onUpdateSelection: vi.fn(),
+        onUpdateField: vi.fn(),
+        onCreateField: vi.fn(),
+        onUpdateFieldDefinition: vi.fn(),
+        onRemoveField: vi.fn(),
+        onBindField: vi.fn(),
+        onUnbindField: vi.fn(),
+        onFocusNode: vi.fn(),
+        onDecideChangeOperation: vi.fn(),
+        onDecideAllChangeOperations: vi.fn(),
+        onApplyChangeSet: vi.fn(),
+        onDiscardChangeSet: vi.fn(),
+        onAlignSelection: vi.fn(),
+        onAlignSelectionToPage: vi.fn(),
+        onDistributeSelection: vi.fn(),
+        onSetSelectionLocked: vi.fn(),
+        onSetSelectionVisible: vi.fn(),
+        onReorderSelection: vi.fn(),
+        onDuplicateSelection: vi.fn(),
+        onDeleteSelection: vi.fn(),
+        onUpdateImageFrameGeometry: vi.fn(),
+        onSetImagePlacement: vi.fn(),
+        onSetImageFrameMask: vi.fn(),
+        onRunImageCommand: vi.fn(),
+        isImageCommandEnabled: () => false,
+        onRetryImageSource: vi.fn(),
+        onRemoveImageLayer: vi.fn(),
+      })
+    )
+
+    expect(markup).toContain("Generated campaign")
+    expect(markup).toContain('data-page-id="')
+    expect(markup).toContain("Create editable document")
+    expect(markup).toContain("studio-document")
+  })
+})

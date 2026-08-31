@@ -1,5 +1,7 @@
 import {
   analyzeFieldDeletion,
+  builtInDesignTemplateRepository,
+  compileDocumentGenerationRequest,
   componentInstanceMetadataPatchSchema,
   componentOverridePropertySchema,
   componentTransformSchema,
@@ -18,11 +20,14 @@ import {
   designStyleTargetSchema,
   designVariablePatchSchema,
   designVariableSchema,
+  documentGenerationRequestSchema,
+  generatedDocumentSnapshotId,
   variableBindingTargetSchema,
   validateAssetFieldPublicationIdentities,
   validateRenderPolicy,
   validateDocument,
   type ChangeSet,
+  type GeneratedDocumentPlan,
   type Document,
   type TemplateModifications,
   type TemplateVersion,
@@ -241,6 +246,10 @@ export type StudioWebMcpServices = {
     changeSet: ChangeSet,
     provenance: StudioWebMcpProposalProvenance
   ): ChangeSet
+  proposeDocumentGeneration?(
+    plan: GeneratedDocumentPlan,
+    provenance: StudioWebMcpProposalProvenance
+  ): GeneratedDocumentPlan
   runProductCommand?(
     invocation: import("@webmcp/editor/product-commands").ProductCommandInvocation
   ): ProductCommandRunResult
@@ -3059,6 +3068,14 @@ export function studioWebMcpTools(
       state: "pending" | "settled"
     }
   >()
+  const generationReceipts = new Map<
+    string,
+    {
+      requestHash: string
+      result: Promise<WebMcpToolResult>
+      state: "pending" | "settled"
+    }
+  >()
 
   const executeProductCommandRequest = async (
     input: ExecuteProductCommandInput,
@@ -3357,6 +3374,192 @@ export function studioWebMcpTools(
     return result
   }
 
+  const publicGeneratedDocumentPlan = async (plan: GeneratedDocumentPlan) => ({
+    requestId: plan.requestId,
+    replacementForRequestId: plan.replacementForRequestId,
+    idempotencyKey: plan.idempotencyKey,
+    requestHash: plan.requestHash,
+    createdAt: plan.createdAt,
+    start: plan.start,
+    candidate: {
+      id: plan.candidate.id,
+      name: plan.candidate.name,
+      snapshotId: await generatedDocumentSnapshotId(plan),
+    },
+    summary: plan.summary,
+    provenance: plan.provenance,
+    validation: plan.validation,
+    warnings: plan.warnings,
+    review: {
+      status: "pending",
+      action: "Create editable document",
+      currentDocumentMutated: false,
+    },
+  })
+
+  const executeDocumentGenerationRequest = async (
+    input: unknown,
+    signal?: AbortSignal
+  ): Promise<WebMcpToolResult> => {
+    try {
+      signal?.throwIfAborted()
+      const parsed = documentGenerationRequestSchema.parse(input)
+      if (!services.proposeDocumentGeneration) {
+        throw new DesignQueryError(
+          "review_unavailable",
+          "Document creation Review is unavailable on this Studio route."
+        )
+      }
+      const requestedAssetIds = new Set<string>(
+        parsed.references.flatMap((reference) =>
+          reference.kind === "asset" ? [reference.assetId] : []
+        )
+      )
+      if (parsed.start.kind === "blank") {
+        for (const node of parsed.start.plan.nodes) {
+          if (node.type === "image") requestedAssetIds.add(node.assetId)
+        }
+        for (const field of parsed.start.plan.fields) {
+          if (
+            field.type === "asset" &&
+            typeof field.defaultValue === "string" &&
+            field.defaultValue
+          ) {
+            requestedAssetIds.add(field.defaultValue)
+          }
+        }
+      } else {
+        const start = parsed.start
+        for (const substitution of start.assetSubstitutions ?? []) {
+          requestedAssetIds.add(substitution.assetId)
+        }
+        for (const command of start.commands ?? []) {
+          if (command.type === "insert_image") {
+            requestedAssetIds.add(command.assetId)
+          }
+        }
+        const template = builtInDesignTemplateRepository
+          .list()
+          .find(
+            (candidate) =>
+              candidate.id === start.template.id &&
+              candidate.version === start.template.version
+          )
+        for (const [key, value] of Object.entries(start.fieldValues ?? {})) {
+          const field = template?.previewDocument.fields.find(
+            (candidate) => candidate.key === key
+          )
+          if (field?.type === "asset" && typeof value === "string" && value) {
+            requestedAssetIds.add(value)
+          }
+        }
+      }
+      const approvedAssets = new Map<
+        string,
+        {
+          id: string
+          src: string
+          selectable: boolean
+        }
+      >()
+      for (const assetId of requestedAssetIds) {
+        signal?.throwIfAborted()
+        const asset = await services.resolveAsset(assetId, signal)
+        if (!asset || !asset.selectable) {
+          throw new Error(
+            `Unknown or unavailable approved asset: ${assetId}. Use search_assets first.`
+          )
+        }
+        approvedAssets.set(asset.id, {
+          id: asset.id,
+          src: asset.src,
+          selectable: asset.selectable,
+        })
+      }
+      const plan = compileDocumentGenerationRequest(parsed, {
+        now: services.now(),
+        approvedAssets,
+      })
+      signal?.throwIfAborted()
+      const proposed = services.proposeDocumentGeneration(
+        plan,
+        webMcpProposalProvenance(
+          "propose_document_generation",
+          parsed.prompt,
+          parsed.requestId
+        )
+      )
+      return textResult(
+        `Prepared ${proposed.candidate.name} as an isolated candidate. Nothing has been persisted; ask the user to choose Create editable document in Review.`,
+        { ...(await publicGeneratedDocumentPlan(proposed)), replayed: false }
+      )
+    } catch (error) {
+      return errorResult(error)
+    }
+  }
+
+  const runIdempotentDocumentGeneration = async (
+    input: unknown,
+    signal?: AbortSignal
+  ) => {
+    const parsed = documentGenerationRequestSchema.parse(input)
+    const requestHash = await commandRequestDigest(parsed)
+    const existing = generationReceipts.get(parsed.idempotencyKey)
+    if (existing) {
+      if (existing.requestHash !== requestHash) {
+        return errorResult(
+          new DesignQueryError(
+            "idempotency_key_reused",
+            "That idempotency key was already used for a different document-generation request."
+          )
+        )
+      }
+      const replayed = await existing.result
+      return {
+        ...replayed,
+        ...(replayed.structuredContent &&
+        typeof replayed.structuredContent === "object" &&
+        !Array.isArray(replayed.structuredContent)
+          ? {
+              structuredContent: {
+                ...(replayed.structuredContent as Record<string, unknown>),
+                replayed: true,
+              },
+            }
+          : {}),
+      }
+    }
+    if (generationReceipts.size >= 32) {
+      const settledKey = [...generationReceipts].find(
+        ([, receipt]) => receipt.state === "settled"
+      )?.[0]
+      if (!settledKey) {
+        return errorResult(
+          new DesignQueryError(
+            "request_in_progress",
+            "Too many document-generation requests are still in progress."
+          )
+        )
+      }
+      generationReceipts.delete(settledKey)
+    }
+    let resolveResult!: (result: WebMcpToolResult) => void
+    const result = new Promise<WebMcpToolResult>((resolve) => {
+      resolveResult = resolve
+    })
+    const receipt = {
+      requestHash,
+      result,
+      state: "pending" as "pending" | "settled",
+    }
+    generationReceipts.set(parsed.idempotencyKey, receipt)
+    void executeDocumentGenerationRequest(parsed, signal).then((value) => {
+      receipt.state = "settled"
+      resolveResult(value)
+    })
+    return result
+  }
+
   const tools: WebMcpTool[] = [
     {
       name: "search_templates",
@@ -3494,6 +3697,53 @@ export function studioWebMcpTools(
           "Read Studio Design Plan version 1.",
           readDesignPlanSchema()
         ),
+    },
+    {
+      name: "propose_document_generation",
+      title: "Propose document generation",
+      description:
+        "Compile one bounded blank Design Plan or exact template adaptation into an isolated canonical candidate, validate approved assets and provenance, and open a separate human Review. This never mutates or persists the current document.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: true,
+        required: [
+          "requestId",
+          "idempotencyKey",
+          "prompt",
+          "skill",
+          "start",
+          "references",
+        ],
+        properties: {
+          requestId: { type: "string", minLength: 1, maxLength: 200 },
+          idempotencyKey: { type: "string", minLength: 1, maxLength: 128 },
+          prompt: { type: "string", minLength: 1, maxLength: 16_000 },
+          skill: { type: "object" },
+          start: { type: "object" },
+          designGuides: { type: "array", maxItems: 4 },
+          references: { type: "array", maxItems: 4 },
+          requestedName: { type: "string", minLength: 1, maxLength: 80 },
+          replacementForRequestId: {
+            type: "string",
+            minLength: 1,
+            maxLength: 200,
+          },
+        },
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+        untrustedContentHint: true,
+      },
+      execute: async (input, execution) => {
+        try {
+          return await runIdempotentDocumentGeneration(input, execution?.signal)
+        } catch (error) {
+          return errorResult(error)
+        }
+      },
     },
     {
       name: "inspect_design",

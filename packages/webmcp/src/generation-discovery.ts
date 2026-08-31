@@ -123,7 +123,14 @@ export function readGenerationTemplate(id: string, version: number) {
           (candidate) => candidate.id === pageId
         )
         return page
-          ? [{ name: page.name, width: page.width, height: page.height }]
+          ? [
+              {
+                id: page.id,
+                name: page.name,
+                width: page.width,
+                height: page.height,
+              },
+            ]
           : []
       }),
     })),

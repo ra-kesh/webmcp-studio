@@ -42,6 +42,7 @@ import type {
   DesignVariablePatch,
   FieldBinding,
   FieldDefinition,
+  GeneratedDocumentPlan,
   ImageFrameMask,
   PaintStyle,
   PaintStylePatch,
@@ -1063,6 +1064,16 @@ export function useDocumentEditor({
   const [pendingChangeSet, setPendingChangeSet] = useState<ChangeSet | null>(
     null
   )
+  const [pendingGeneratedDocument, setPendingGeneratedDocument] =
+    useState<GeneratedDocumentPlan | null>(null)
+  const pendingGeneratedDocumentRef = useRef<GeneratedDocumentPlan | null>(null)
+  const replacedGenerationRequestIdsRef = useRef(new Set<string>())
+  const generationApprovalInFlightRef = useRef(false)
+  const [generatedDocumentError, setGeneratedDocumentError] = useState<
+    string | null
+  >(null)
+  const [isCreatingGeneratedDocument, setIsCreatingGeneratedDocument] =
+    useState(false)
   const [reviewJournal, setReviewJournal] = useState<ReviewJournal>(() =>
     createEmptyReviewJournal()
   )
@@ -3131,6 +3142,12 @@ export function useDocumentEditor({
       )
       return false
     }
+    if (pendingGeneratedDocumentRef.current) {
+      setGeneratedDocumentError(
+        "Create or discard the generated document before going home."
+      )
+      return false
+    }
     const transition = claimSessionTransition("home")
     if (!transition) return false
     try {
@@ -3831,7 +3848,8 @@ export function useDocumentEditor({
     (
       allowActiveImageCrop = false,
       allowSeparateDocumentTransition = false,
-      allowMediaAdmissionDecision = false
+      allowMediaAdmissionDecision = false,
+      allowGeneratedDocumentDecision = false
     ) => {
       if (
         separateDocumentTransitionRef.current &&
@@ -3909,6 +3927,15 @@ export function useDocumentEditor({
       if (quotationRefreshJournalRef.current.pending) {
         setDocumentError(
           "Accept or reject the pending quotation refresh before editing the document."
+        )
+        return false
+      }
+      if (
+        pendingGeneratedDocumentRef.current &&
+        !allowGeneratedDocumentDecision
+      ) {
+        setGeneratedDocumentError(
+          "Create or discard the generated document before editing the current document."
         )
         return false
       }
@@ -10374,6 +10401,103 @@ export function useDocumentEditor({
     [activeQuotationTemplateId, allowMutation, persistAndInstallSession]
   )
 
+  const proposeDocumentGeneration = useCallback(
+    (plan: GeneratedDocumentPlan) => {
+      const current = pendingGeneratedDocumentRef.current
+      if (current?.requestHash === plan.requestHash) return current
+      if (pendingChangeSetRef.current) {
+        throw new Error(
+          "Resolve or discard the current change-set preview before reviewing a generated document."
+        )
+      }
+      if (current) {
+        if (plan.replacementForRequestId !== current.requestId) {
+          throw new Error(
+            "A generated document is already waiting in Review. Discard it or submit one explicit replacement."
+          )
+        }
+        if (replacedGenerationRequestIdsRef.current.has(current.requestId)) {
+          throw new Error(
+            "This generated document has already been replaced once. Review or discard the replacement."
+          )
+        }
+        replacedGenerationRequestIdsRef.current.add(current.requestId)
+      }
+      pendingGeneratedDocumentRef.current = plan
+      setPendingGeneratedDocument(plan)
+      setGeneratedDocumentError(null)
+      return plan
+    },
+    []
+  )
+
+  const discardGeneratedDocument = useCallback(() => {
+    if (generationApprovalInFlightRef.current) return false
+    pendingGeneratedDocumentRef.current = null
+    setPendingGeneratedDocument(null)
+    setGeneratedDocumentError(null)
+    return true
+  }, [])
+
+  const createGeneratedDocument = useCallback(async () => {
+    const plan = pendingGeneratedDocumentRef.current
+    if (!plan || generationApprovalInFlightRef.current) return false
+    if (!repositoryReadyRef.current || persistenceBlockedRef.current) {
+      setGeneratedDocumentError(
+        "Durable browser storage is unavailable. Studio kept the generated candidate in Review and did not create a session-only document."
+      )
+      return false
+    }
+    if (!allowMutation(false, true, false, true)) return false
+    generationApprovalInFlightRef.current = true
+    setIsCreatingGeneratedDocument(true)
+    setGeneratedDocumentError(null)
+    try {
+      const designTemplate =
+        plan.start.kind === "template"
+          ? { id: plan.start.template.id, version: plan.start.template.version }
+          : null
+      const sourceContext: TemplateSourceContext = {
+        quotationSource: null,
+        quotationTemplateId: activeQuotationTemplateId,
+        designTemplate,
+      }
+      const origin: DraftOrigin = designTemplate
+        ? {
+            kind: "template",
+            templateId: designTemplate.id,
+            templateVersion: designTemplate.version,
+          }
+        : { kind: "blank" }
+      const installed = await persistAndInstallSession(
+        {
+          schemaVersion: 1,
+          document: plan.candidate,
+          sourceContext,
+        },
+        origin,
+        () =>
+          pendingGeneratedDocumentRef.current?.requestHash === plan.requestHash
+      )
+      if (!installed) {
+        setGeneratedDocumentError(
+          "Studio could not create the generated document. The candidate remains in Review."
+        )
+        return false
+      }
+      if (
+        pendingGeneratedDocumentRef.current?.requestHash === plan.requestHash
+      ) {
+        pendingGeneratedDocumentRef.current = null
+        setPendingGeneratedDocument(null)
+      }
+      return true
+    } finally {
+      generationApprovalInFlightRef.current = false
+      setIsCreatingGeneratedDocument(false)
+    }
+  }, [activeQuotationTemplateId, allowMutation, persistAndInstallSession])
+
   const restoreDemoDocument = useCallback(async () => {
     if (!allowMutation(false, true)) return false
     const requestGeneration = sessionGenerationRef.current
@@ -10921,6 +11045,9 @@ export function useDocumentEditor({
     draftRecovery,
     draftRecoveryNotice,
     pendingChangeSet,
+    pendingGeneratedDocument,
+    generatedDocumentError,
+    isCreatingGeneratedDocument,
     lastResolvedChangeSet,
     reviewJournal,
     quotationRefreshJournal,
@@ -10977,6 +11104,9 @@ export function useDocumentEditor({
     bindField,
     unbindField,
     proposeChangeSet,
+    proposeDocumentGeneration,
+    discardGeneratedDocument,
+    createGeneratedDocument,
     decideOperation,
     decideAllOperations,
     applyChangeSet,

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import type {
   ChangeSet,
+  GeneratedDocumentPlan,
   TemplateModifications,
   TemplateVersion,
 } from "@webmcp/document"
@@ -68,6 +69,10 @@ type StudioWebMcpServices = Omit<
     changeSet: ChangeSet,
     provenance: StudioWebMcpProposalProvenance
   ) => ChangeSet
+  proposeDocumentGeneration?: (
+    plan: GeneratedDocumentPlan,
+    provenance: StudioWebMcpProposalProvenance
+  ) => GeneratedDocumentPlan
   publishTemplate: (
     expected: {
       documentId: string
@@ -100,6 +105,7 @@ export function projectStudioWebMcpSnapshot(
     getProductCommandContext,
     runProductCommand: _runProductCommand,
     proposeChangeSet: _proposeChangeSet,
+    proposeDocumentGeneration: _proposeDocumentGeneration,
     publishTemplate: _publishTemplate,
     renderTemplate: _renderTemplate,
     ...current
@@ -229,6 +235,18 @@ export function useStudioWebMcp(
                   provenance
                 )
               },
+              ...(servicesRef.current.proposeDocumentGeneration
+                ? {
+                    proposeDocumentGeneration: (plan, provenance) => {
+                      controller.signal.throwIfAborted()
+                      assertMutationEnabled(servicesRef.current)
+                      return servicesRef.current.proposeDocumentGeneration!(
+                        plan,
+                        provenance
+                      )
+                    },
+                  }
+                : {}),
               runProductCommand: (invocation) => {
                 controller.signal.throwIfAborted()
                 const reason = mutationDisabledReason(servicesRef.current)

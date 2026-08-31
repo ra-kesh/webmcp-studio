@@ -6,6 +6,7 @@ import {
   previewChangeSet,
   type ChangeSet,
   type Document,
+  type GeneratedDocumentPlan,
   type TemplateModifications,
 } from "@webmcp/document"
 import { productCommandIds } from "@webmcp/editor/product-commands"
@@ -197,6 +198,7 @@ function setup(
   const registered = new Map<string, WebMcpTool>()
   let proposed: ChangeSet | null = null
   let proposedProvenance: StudioWebMcpProposalProvenance | null = null
+  let proposedGeneration: GeneratedDocumentPlan | null = null
   const controller = new AbortController()
   const publishedVersion = createTemplateVersion(publishedDocument, {
     id: "version-1",
@@ -292,6 +294,14 @@ function setup(
       proposedProvenance = provenance
       return changeSet
     },
+    proposeDocumentGeneration: (
+      plan: GeneratedDocumentPlan,
+      provenance: StudioWebMcpProposalProvenance
+    ) => {
+      proposedGeneration = plan
+      proposedProvenance = provenance
+      return plan
+    },
     runProductCommand: vi.fn(() => ({ status: "accepted" as const })),
     publishTemplate: vi.fn(() => publishedVersion),
     renderTemplate: async (
@@ -334,6 +344,7 @@ function setup(
     services,
     proposed: () => proposed,
     proposedProvenance: () => proposedProvenance,
+    proposedGeneration: () => proposedGeneration,
     renderedWith: () => renderedWith,
   }
 }
@@ -352,13 +363,14 @@ describe("WebMCP registration", () => {
       state.controller.signal
     )
 
-    expect(count).toBe(26)
+    expect(count).toBe(27)
     expect([...state.registered.keys()]).toEqual([
       "search_templates",
       "read_template",
       "read_generation_capabilities",
       "read_blank_document_presets",
       "read_design_plan_schema",
+      "propose_document_generation",
       "inspect_design",
       "read_design_tree",
       "get_capabilities",
@@ -533,6 +545,94 @@ describe("WebMCP registration", () => {
       })
     expect(staleBranch?.isError).toBe(true)
     expect(staleBranch?.content[0]?.text).toContain("branch changed")
+  })
+
+  it("compiles one idempotent isolated document candidate for Review", async () => {
+    const state = setup()
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+    const request = {
+      requestId: "generation-request-1",
+      idempotencyKey: "generation-request-1",
+      prompt: "Create a blank portrait proposal.",
+      skill: {
+        kind: "repository",
+        title: "Proposal skill",
+        canonicalUrl: "https://github.com/example/proposal/blob/main/SKILL.md",
+        contentHash: "a".repeat(64),
+      },
+      start: {
+        kind: "blank",
+        presetId: "portrait",
+        plan: {
+          version: 1,
+          documentName: "Generated proposal",
+          outputs: [
+            {
+              localId: "proposal",
+              name: "Proposal",
+              kind: "proposal",
+              pageLocalIds: ["cover"],
+              exportFormats: ["png", "pdf"],
+            },
+          ],
+          pages: [
+            {
+              localId: "cover",
+              outputLocalId: "proposal",
+              name: "Cover",
+              width: 1240,
+              height: 1754,
+              background: "#ffffff",
+              nodeLocalIds: [],
+            },
+          ],
+          nodes: [],
+        },
+      },
+      references: [],
+    }
+    const tool = state.registered.get("propose_document_generation")!
+    const first = await tool.execute(request)
+    const replay = await tool.execute(request)
+
+    expect(first.isError).not.toBe(true)
+    expect(state.proposedGeneration()).toMatchObject({
+      requestId: "generation-request-1",
+      candidate: { name: "Generated proposal" },
+    })
+    expect(state.proposedProvenance()).toMatchObject({
+      toolName: "propose_document_generation",
+      requestId: "generation-request-1",
+    })
+    expect(first.structuredContent).toMatchObject({
+      candidate: {
+        id: expect.any(String),
+        name: "Generated proposal",
+        snapshotId: expect.stringMatching(/^sha256-[a-f0-9]{64}$/),
+      },
+      review: { status: "pending", currentDocumentMutated: false },
+      replayed: false,
+    })
+    expect(first.structuredContent).not.toHaveProperty("candidate.nodes")
+    expect(replay.structuredContent).toMatchObject({ replayed: true })
+
+    const conflict = await tool.execute({
+      ...request,
+      prompt: "Create a different proposal with the same key.",
+    })
+    expect(conflict).toMatchObject({
+      isError: true,
+      structuredContent: { code: "idempotency_key_reused" },
+    })
   })
 
   it("discovers and proposes reviewed reusable-style operations", async () => {

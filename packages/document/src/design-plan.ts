@@ -610,11 +610,6 @@ export function compileStudioDesignPlan(
   const paintPlans = new Map(
     plan.paintStyles.map((style) => [style.localId, style])
   )
-  const variablePlans = new Map(
-    plan.variables.map((variable) => [variable.localId, variable])
-  )
-  const fieldPlans = new Map(plan.fields.map((field) => [field.localId, field]))
-
   for (const page of plan.pages) {
     requireReference(outputPlans, page.outputLocalId, "pages.outputLocalId")
     assertUniqueReferences(

@@ -2,6 +2,8 @@
 
 import "fake-indexeddb/auto"
 import { webcrypto } from "node:crypto"
+import { builtInDesignTemplateRepository } from "@webmcp/document"
+import type { GeneratedDocumentPlan } from "@webmcp/document"
 import { act, useLayoutEffect } from "react"
 import { createRoot } from "react-dom/client"
 import type { Root } from "react-dom/client"
@@ -508,6 +510,90 @@ describe("useDocumentEditor start session", () => {
     expect(new Set(listed.page.items.map((item) => item.documentId))).toEqual(
       new Set(documentIds)
     )
+  })
+
+  it("persists a generated candidate only once after explicit Review approval", async () => {
+    const repository = createRepository("generated-review")
+    const create = vi.spyOn(repository, "create")
+    const captured = await mount({
+      createRepository: () => repository,
+      migrate: async () => emptyMigration,
+    })
+    await waitForPersistenceStatus(captured, "ready")
+    const materialized = builtInDesignTemplateRepository.materialize(
+      "editorial-one-pager",
+      1,
+      {
+        identity: "canonical",
+        now: "2026-08-31T08:00:00.000Z",
+      }
+    )
+    const candidate = {
+      ...materialized,
+      id: "generated-review-document",
+      name: "Generated editorial brief",
+    }
+    const plan: GeneratedDocumentPlan = {
+      requestId: "generated-review-request",
+      idempotencyKey: "generated-review-key",
+      requestHash: "generated-review-hash",
+      createdAt: "2026-08-31T08:00:00.000Z",
+      start: {
+        kind: "template",
+        template: {
+          id: "editorial-one-pager",
+          version: 1,
+          snapshotId: "template-snapshot",
+        },
+      },
+      candidate,
+      summary: {
+        pages: candidate.pages.map(({ id, name, width, height }) => ({
+          id,
+          name,
+          width,
+          height,
+        })),
+        nodesByType: {},
+        fields: candidate.fields.map((field) => field.key),
+        assets: [],
+        structuralChanges: ["Materialized editorial-one-pager v1"],
+      },
+      provenance: {
+        skill: { kind: "repository", title: "studio-document" },
+        designGuides: [],
+        references: [],
+      },
+      validation: [],
+      warnings: [],
+    }
+
+    await act(async () => {
+      expect(captured.current?.editor.proposeDocumentGeneration(plan)).toBe(
+        plan
+      )
+    })
+    expect(captured.current?.editor.document.id).toBe(
+      "private-bootstrap-document"
+    )
+    expect(create).not.toHaveBeenCalled()
+
+    await act(async () => {
+      expect(captured.current?.editor.discardGeneratedDocument()).toBe(true)
+    })
+    expect(create).not.toHaveBeenCalled()
+
+    await act(async () => {
+      captured.current?.editor.proposeDocumentGeneration(plan)
+      const first = captured.current?.editor.createGeneratedDocument()
+      const replay = captured.current?.editor.createGeneratedDocument()
+      expect(await replay).toBe(false)
+      expect(await first).toBe(true)
+    })
+
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(captured.current?.editor.document.id).toBe(candidate.id)
+    expect(captured.current?.editor.pendingGeneratedDocument).toBeNull()
   })
 
   it.each(["retry", "reset"] as const)(
