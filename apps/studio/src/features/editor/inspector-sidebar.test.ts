@@ -225,10 +225,7 @@ describe("InspectorSidebar mask controls", () => {
     expect(markup).toContain('aria-label="Vector mask"')
     expect(markup).toContain('data-state="on"')
     expect(markup).toContain('aria-label="Alpha mask"')
-    expect(markup).toContain('aria-label="Luminance mask unavailable"')
-    expect(markup).toContain(
-      "Luminance masks are not available yet because color-space output is not deterministic across every renderer."
-    )
+    expect(markup).toContain('aria-label="Luminance mask"')
     expect(markup).toContain('aria-label="Mask source layers"')
     expect(markup).toContain("Source layers")
     expect(markup).toContain("2/4")

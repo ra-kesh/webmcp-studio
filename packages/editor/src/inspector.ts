@@ -56,8 +56,6 @@ const MASK_REVIEW_REASON = "Resolve the pending review before editing masks."
 const MASK_LOCKED_REASON = "Unlock the selected layers before editing masks."
 const MASK_COMPONENT_REASON =
   "Mask structure cannot be changed inside a component or instance. Detach the instance or use layers outside the component."
-const MASK_LUMINANCE_REASON =
-  "Luminance masks are not available yet because color-space output is not deterministic across every renderer."
 
 const maskCapability = (
   enabled: boolean,
@@ -106,10 +104,10 @@ function maskComponentOwnership(document: Document) {
 function maskSourceAdmissionReason(
   document: Document,
   node: SceneNode | undefined,
-  maskType: "vector" | "alpha"
+  maskType: "vector" | "alpha" | "luminance"
 ): string | null {
   if (
-    maskType === "alpha" &&
+    maskType !== "vector" &&
     node &&
     (vectorMaskSource(node) || node.type === "image" || node.type === "text")
   ) {
@@ -285,7 +283,9 @@ export function deriveInspectorMaskCapabilities({
         maskSourceAdmissionReason(
           document,
           node,
-          maskGroup?.mask.type === "alpha" ? "alpha" : "vector"
+          maskGroup?.mask.type === "vector"
+            ? "vector"
+            : (maskGroup?.mask.type ?? "vector")
         ) === null
     )
     .map((node) => node.id)
@@ -336,7 +336,9 @@ export function deriveInspectorMaskCapabilities({
       sourceReason = maskSourceAdmissionReason(
         document,
         requestedSource,
-        maskGroup?.mask.type === "alpha" ? "alpha" : "vector"
+        maskGroup?.mask.type === "vector"
+          ? "vector"
+          : (maskGroup?.mask.type ?? "vector")
       )
       if (sourceReason) break
     }
@@ -351,7 +353,9 @@ export function deriveInspectorMaskCapabilities({
     sourceReason = "Those layers are already the mask sources in that order."
   }
 
-  const currentSourcesAdmittedFor = (maskType: "vector" | "alpha") =>
+  const currentSourcesAdmittedFor = (
+    maskType: "vector" | "alpha" | "luminance"
+  ) =>
     Boolean(
       maskGroup?.mask.sourceNodeIds.every(
         (sourceNodeId) =>
@@ -391,8 +395,13 @@ export function deriveInspectorMaskCapabilities({
           : "Every current source must provide alpha coverage.")
     ),
     setLuminance: maskCapability(
-      false,
-      groupMutationReason ?? MASK_LUMINANCE_REASON
+      groupMutationReason === null &&
+        maskGroup?.mask.type !== "luminance" &&
+        currentSourcesAdmittedFor("luminance"),
+      groupMutationReason ??
+        (maskGroup?.mask.type === "luminance"
+          ? "This mask already uses Luminance."
+          : "Every current source must provide luminance coverage.")
     ),
     setSources: maskCapability(
       groupMutationReason === null &&

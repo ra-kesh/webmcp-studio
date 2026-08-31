@@ -719,7 +719,7 @@ describe("mask command capabilities", () => {
     )
   })
 
-  it("admits alpha for a capable source while luminance stays gated", () => {
+  it("admits alpha and luminance for a capable source", () => {
     const document = structuredClone(northstarSeed)
     document.groups = [
       {
@@ -746,7 +746,52 @@ describe("mask command capabilities", () => {
       enabled: true,
       disabledReason: null,
     })
-    expect(capabilities.setLuminance.disabledReason).toContain("color-space")
+    expect(capabilities.setLuminance).toEqual({
+      enabled: true,
+      disabledReason: null,
+    })
+  })
+
+  it("gives a stable luminance reason when a current source has no coverage", () => {
+    const document = structuredClone(northstarSeed)
+    const panel = document.nodes.find((node) => node.id === "cover-panel")!
+    document.nodes.push({
+      id: "cover-line-source",
+      type: "line",
+      name: "Line source",
+      x: panel.x,
+      y: panel.y,
+      width: panel.width,
+      height: 0,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+      stroke: "#000000",
+      strokeWidth: 2,
+    })
+    document.pages[0]!.nodeIds.splice(1, 0, "cover-line-source")
+    document.groups = [
+      {
+        id: "cover-mask",
+        pageId: "cover",
+        name: "Cover mask",
+        role: "mask",
+        nodeIds: ["cover-line-source", "cover-title"],
+        mask: { type: "vector", sourceNodeIds: ["cover-line-source"] },
+      },
+    ]
+    const capabilities = deriveInspectorMaskCapabilities({
+      document,
+      pageId: "cover",
+      selectedNodeIds: ["cover-line-source", "cover-title"],
+      selectedGroupId: "cover-mask",
+    })
+
+    expect(capabilities.setLuminance).toEqual({
+      enabled: false,
+      disabledReason: "Every current source must provide luminance coverage.",
+    })
   })
 
   it("validates and compares the complete ordered multi-source list", () => {

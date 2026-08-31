@@ -412,22 +412,19 @@ describe("strict document validation", () => {
     )
   })
 
-  it("reports unsupported mode, nesting, and composite admission as stable mask issues", () => {
-    const unsupported = clone()
-    unsupported.groups.push({
-      id: "unsupported-mask",
+  it("admits luminance while retaining nesting and composite admission issues", () => {
+    const luminance = clone()
+    luminance.groups.push({
+      id: "luminance-mask",
       role: "mask",
       pageId: "cover",
-      name: "Unsupported mask",
+      name: "Luminance mask",
       nodeIds: ["cover-panel", "cover-eyebrow"],
       mask: { type: "luminance", sourceNodeIds: ["cover-panel"] },
     })
-    expect(errorsFor(unsupported)).toEqual(
+    expect(errorsFor(luminance)).not.toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
-          id: "group:unsupported-mask:mask:type:luminance",
-          code: "invalid_group",
-        }),
+        expect.objectContaining({ id: expect.stringContaining("mask:type") }),
       ])
     )
 

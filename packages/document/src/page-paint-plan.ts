@@ -1,6 +1,6 @@
 import type { Document, Page, SceneNode } from "./schema"
 
-export type MaskPaintType = "vector" | "alpha"
+export type MaskPaintType = "vector" | "alpha" | "luminance"
 export type MaskSourceCombination = "source_over_union"
 
 export type MaskPaintSource =
@@ -193,25 +193,6 @@ export const assertCompositeAdmission = (
   }
 }
 
-type CanonicalMaskGroup = Readonly<{
-  role: "mask"
-  id: string
-  pageId: string
-  nodeIds: readonly string[]
-  parentGroupId?: string
-  mask: Readonly<{
-    type: MaskPaintType
-    sourceNodeIds: readonly string[]
-  }>
-}>
-
-const isCanonicalMaskGroup = (
-  group: Document["groups"][number]
-): group is Document["groups"][number] & CanonicalMaskGroup =>
-  (group as { role?: unknown; mask?: { type?: unknown } }).role === "mask" &&
-  ((group as { mask?: { type?: unknown } }).mask?.type === "vector" ||
-    (group as { mask?: { type?: unknown } }).mask?.type === "alpha")
-
 export const isAdmittedVectorMaskSource = (
   node: SceneNode | undefined
 ): node is Extract<SceneNode, { type: "rect" | "ellipse" | "icon" }> =>
@@ -276,13 +257,6 @@ const canonicalMaskRelationsForPage = (
       throw new PagePaintPlanError(
         "MASK_GROUP_NESTING_UNSUPPORTED",
         `Mask group ${group.id} exceeds the initial nesting admission`,
-        { groupId: group.id }
-      )
-    }
-    if (!isCanonicalMaskGroup(group)) {
-      throw new PagePaintPlanError(
-        "MASK_GROUP_UNSUPPORTED_TYPE",
-        `Mask group ${group.id} uses a type outside the initial vector contract`,
         { groupId: group.id }
       )
     }
@@ -410,10 +384,14 @@ export function projectPagePaintPlanFromRelations(
         { groupId: relation.groupId }
       )
     }
-    if (relation.maskType !== "vector" && relation.maskType !== "alpha") {
+    if (
+      relation.maskType !== "vector" &&
+      relation.maskType !== "alpha" &&
+      relation.maskType !== "luminance"
+    ) {
       throw new PagePaintPlanError(
         "MASK_GROUP_UNSUPPORTED_TYPE",
-        `Mask group ${relation.groupId} uses a mask type that is not admitted before the luminance gate`,
+        `Mask group ${relation.groupId} uses an unsupported mask type`,
         { groupId: relation.groupId }
       )
     }

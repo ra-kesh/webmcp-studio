@@ -445,7 +445,7 @@ function MaskInspectorSection({
               </ToggleGroupItem>
               <ToggleGroupItem
                 value="luminance"
-                aria-label="Luminance mask unavailable"
+                aria-label="Luminance mask"
                 disabled={!capabilities.setLuminance.enabled}
                 title={capabilities.setLuminance.disabledReason ?? undefined}
                 onClick={() => runGroupCommand("mask.type.luminance")}

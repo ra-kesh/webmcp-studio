@@ -1219,10 +1219,14 @@ const assertMaskTypeAdmission = (
   command: MaskProductCommand,
   maskType: "vector" | "alpha" | "luminance"
 ): MaskPaintType => {
-  if (maskType !== "vector" && maskType !== "alpha") {
+  if (
+    maskType !== "vector" &&
+    maskType !== "alpha" &&
+    maskType !== "luminance"
+  ) {
     throw new MaskCommandError(
       "MASK_COMMAND_UNSUPPORTED_TYPE",
-      `Mask type ${maskType} is not admitted before the luminance gate`,
+      `Mask type ${maskType} is not supported`,
       maskCommandContext(command)
     )
   }
@@ -1304,7 +1308,7 @@ const assertMaskSourceAdmission = (
       "MASK_COMMAND_UNSUPPORTED_SOURCE",
       maskType === "vector"
         ? `Mask source ${sourceNodeId} must be an unstroked rectangle, ellipse, or icon`
-        : `Mask source ${sourceNodeId} must be a rectangle, ellipse, icon, image, or text layer for alpha`,
+        : `Mask source ${sourceNodeId} must be a rectangle, ellipse, icon, image, or text layer for ${maskType}`,
       maskCommandContext(command, [sourceNodeId])
     )
   }

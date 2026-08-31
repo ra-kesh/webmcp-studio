@@ -172,6 +172,35 @@ describe("document history", () => {
     )
   })
 
+  it("changes vector to luminance as one exact undoable history step", () => {
+    const before = {
+      ...structuredClone(maskRenderConformanceDocument),
+      revision: 11,
+    }
+    const initial = createDocumentHistory(before, "luminance-before")
+    const changed = commitCommandsWithResult(initial, [
+      {
+        id: "history-set-luminance-mask",
+        type: "set_mask_type",
+        actor: "human",
+        at: "2026-08-31T15:16:00.000Z",
+        expectedRevision: before.revision,
+        pageId: "mask-conformance-page",
+        groupId: "mask-conformance-group",
+        maskType: "luminance",
+      },
+    ])!
+    expect(changed.history.past).toHaveLength(1)
+    expect(changed.history.document.groups[0]).toMatchObject({
+      role: "mask",
+      mask: { type: "luminance" },
+    })
+    expect(undoDocument(changed.history).document).toEqual(before)
+    expect(redoDocument(undoDocument(changed.history)).document).toEqual(
+      changed.history.document
+    )
+  })
+
   it("reorders multiple mask sources as one exact step and skips the full-list no-op", () => {
     const before = structuredClone(maskRenderConformanceDocument)
     const source = before.nodes.find(

@@ -97,7 +97,7 @@ describe("shared page paint plan mask oracle", () => {
     })
   })
 
-  it("rejects unsupported canonical mask modes instead of painting them flat", () => {
+  it("projects canonical luminance masks through the shared paint plan", () => {
     const document = {
       pages: [page],
       nodes,
@@ -106,19 +106,25 @@ describe("shared page paint plan mask oracle", () => {
           id: relation.groupId,
           role: "mask",
           pageId: page.id,
-          name: "Unsupported luminance mask",
+          name: "Luminance mask",
           nodeIds: relation.nodeIds,
           mask: { type: "luminance", sourceNodeIds: relation.sourceNodeIds },
         },
       ],
     } as unknown as Document
 
-    expect(() => projectPagePaintPlan(document, page.id)).toThrowError(
-      expect.objectContaining({ code: "MASK_GROUP_UNSUPPORTED_TYPE" })
-    )
+    expect(projectPagePaintPlan(document, page.id).entries[1]).toMatchObject({
+      kind: "mask_group",
+      maskType: "luminance",
+      sourceNodeIds: ["source"],
+      visibleSourceNodeIds: ["source"],
+      sourceCombination: "source_over_union",
+      maskEnabled: true,
+      compositeRequired: true,
+    })
   })
 
-  it("projects alpha source resource requirements without renderer-private state", () => {
+  it("projects alpha and luminance image readiness without renderer-private state", () => {
     const imageSource = {
       id: "alpha-image",
       type: "image" as const,
@@ -150,29 +156,35 @@ describe("shared page paint plan mask oracle", () => {
       ...page,
       nodeIds: [imageSource.id, "content"],
     }
-    const plan = projectPagePaintPlan(
-      alphaPage,
-      [imageSource, nodes[2]!],
-      [
-        {
-          ...relation,
-          maskType: "alpha",
-          nodeIds: alphaPage.nodeIds,
-          sourceNodeIds: [imageSource.id],
-        },
-      ]
-    )
-    expect(plan.entries[0]).toMatchObject({
-      kind: "mask_group",
-      maskType: "alpha",
-      sources: [
-        { nodeId: imageSource.id, kind: "image", assetId: imageSource.assetId },
-      ],
-    })
-    expect(JSON.stringify(plan)).not.toContain(imageSource.src)
+    for (const maskType of ["alpha", "luminance"] as const) {
+      const plan = projectPagePaintPlan(
+        alphaPage,
+        [imageSource, nodes[2]!],
+        [
+          {
+            ...relation,
+            maskType,
+            nodeIds: alphaPage.nodeIds,
+            sourceNodeIds: [imageSource.id],
+          },
+        ]
+      )
+      expect(plan.entries[0]).toMatchObject({
+        kind: "mask_group",
+        maskType,
+        sources: [
+          {
+            nodeId: imageSource.id,
+            kind: "image",
+            assetId: imageSource.assetId,
+          },
+        ],
+      })
+      expect(JSON.stringify(plan)).not.toContain(imageSource.src)
+    }
   })
 
-  it("projects every base and rich-run font family required by an alpha text source", () => {
+  it("projects every font required by alpha and luminance text sources", () => {
     const seedText = structuredClone(
       northstarSeed.nodes.find((node) => node.type === "text")!
     )
@@ -184,28 +196,31 @@ describe("shared page paint plan mask oracle", () => {
       { start: 1, end: 2, style: { fontFamily: "Geist Variable" } },
     ]
     const alphaPage = { ...page, nodeIds: [seedText.id, "content"] }
-    const plan = projectPagePaintPlan(
-      alphaPage,
-      [seedText, nodes[2]!],
-      [
-        {
-          ...relation,
-          maskType: "alpha",
-          nodeIds: alphaPage.nodeIds,
-          sourceNodeIds: [seedText.id],
-        },
-      ]
-    )
-    expect(plan.entries[0]).toMatchObject({
-      kind: "mask_group",
-      sources: [
-        {
-          nodeId: seedText.id,
-          kind: "text",
-          fontFamilies: ["Geist Variable", "Inter"],
-        },
-      ],
-    })
+    for (const maskType of ["alpha", "luminance"] as const) {
+      const plan = projectPagePaintPlan(
+        alphaPage,
+        [seedText, nodes[2]!],
+        [
+          {
+            ...relation,
+            maskType,
+            nodeIds: alphaPage.nodeIds,
+            sourceNodeIds: [seedText.id],
+          },
+        ]
+      )
+      expect(plan.entries[0]).toMatchObject({
+        kind: "mask_group",
+        maskType,
+        sources: [
+          {
+            nodeId: seedText.id,
+            kind: "text",
+            fontFamilies: ["Geist Variable", "Inter"],
+          },
+        ],
+      })
+    }
   })
 
   it("rejects a canonical source hidden inside a child group", () => {
@@ -437,6 +452,43 @@ describe("shared page paint plan mask oracle", () => {
     })
   })
 
+  it("preserves luminance source order and makes hidden sources contribute zero", () => {
+    const luminanceRelation = {
+      ...relation,
+      maskType: "luminance" as const,
+      nodeIds: ["below", "source", "content"],
+      sourceNodeIds: ["source", "below"],
+    }
+    expect(
+      projectPagePaintPlan(page, nodes, [luminanceRelation]).entries[0]
+    ).toMatchObject({
+      maskType: "luminance",
+      sourceNodeIds: ["source", "below"],
+      visibleSourceNodeIds: ["source", "below"],
+      sources: [
+        { nodeId: "source", kind: "vector" },
+        { nodeId: "below", kind: "vector" },
+      ],
+      sourceCombination: "source_over_union",
+      maskEnabled: true,
+      compositeRequired: true,
+    })
+
+    const allHidden = nodes.map((node) =>
+      node.id === "source" || node.id === "below"
+        ? { ...node, visible: false }
+        : node
+    )
+    expect(
+      projectPagePaintPlan(page, allHidden, [luminanceRelation]).entries[0]
+    ).toMatchObject({
+      sourceNodeIds: ["source", "below"],
+      visibleSourceNodeIds: [],
+      maskEnabled: false,
+      compositeRequired: false,
+    })
+  })
+
   it("rejects a fifth source before allocating a composite", () => {
     const sourceNodes = Array.from({ length: 5 }, (_, index) =>
       rect(`source-${index}`)
@@ -510,15 +562,7 @@ describe("shared page paint plan mask oracle", () => {
     ).toThrowError(expect.objectContaining({ code: "MASK_GROUP_DUPLICATE_ID" }))
   })
 
-  it("admits rotated rectangle, ellipse, and icon sources and rejects non-vector or stroked sources", () => {
-    expect(() =>
-      projectPagePaintPlan(page, nodes, [
-        { ...relation, maskType: "luminance" as "vector" },
-      ])
-    ).toThrowError(
-      expect.objectContaining({ code: "MASK_GROUP_UNSUPPORTED_TYPE" })
-    )
-
+  it("admits rotated rectangle, ellipse, and icon sources and rejects non-vector or stroked vector sources", () => {
     const ellipseSourceNodes = nodes.map((node) =>
       node.id === "source"
         ? ({

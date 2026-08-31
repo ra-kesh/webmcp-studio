@@ -202,9 +202,8 @@ describe("product command runtime", () => {
       canSetAlpha: false,
       alphaDisabledReason:
         "Alpha masks are not available yet because image and text readiness is not deterministic across every renderer.",
-      canSetLuminance: false,
-      luminanceDisabledReason:
-        "Luminance masks are not available yet because color-space output is not deterministic across every renderer.",
+      canSetLuminance: true,
+      luminanceDisabledReason: null,
       canSetSources: true,
       sourcesDisabledReason: null,
     }
@@ -225,10 +224,7 @@ describe("product command runtime", () => {
         enabled: false,
         disabledReason: maskEditor.alphaDisabledReason,
       },
-      setLuminance: {
-        enabled: false,
-        disabledReason: maskEditor.luminanceDisabledReason,
-      },
+      setLuminance: { enabled: true, disabledReason: null },
       setSources: { enabled: true, disabledReason: null },
     }
     const runtimeContext = context({
@@ -334,6 +330,22 @@ describe("product command runtime", () => {
         runtimeContext
       ).disabledReason
     ).toBe(maskEditor.alphaDisabledReason)
+    expect(
+      resolveProductCommand(
+        {
+          commandId: "mask.type.luminance",
+          target: {
+            kind: "group",
+            documentId: "document-1",
+            snapshotId: "snapshot-1",
+            displayName: "Mask",
+            pageId: "page-1",
+            groupId: "group-1",
+          },
+        },
+        runtimeContext
+      )
+    ).toMatchObject({ enabled: true, disabledReason: null })
   })
 
   it("owns checked state, dynamic labels, and supplied disabled reasons", () => {

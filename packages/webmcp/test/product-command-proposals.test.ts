@@ -307,6 +307,28 @@ describe("canonical product command proposals", () => {
       "Set 2 ordered mask sources for Cover mask"
     )
 
+    const luminanceProposal = createProductCommandProposal(
+      document,
+      resolveProductCommand(
+        { commandId: "mask.type.luminance", target },
+        runtime
+      ),
+      identity()
+    )
+    expect(luminanceProposal.changeSet.operations).toHaveLength(1)
+    expect(luminanceProposal.changeSet.operations[0]?.command).toMatchObject({
+      type: "set_mask_type",
+      groupId: "cover-mask",
+      maskType: "luminance",
+    })
+    expect(
+      previewChangeSet(
+        document,
+        luminanceProposal.changeSet,
+        "snapshot-proposal"
+      ).groups.find((group) => group.id === "cover-mask")
+    ).toMatchObject({ mask: { type: "luminance" } })
+
     const releaseProposal = createProductCommandProposal(
       document,
       resolveProductCommand({ commandId: "mask.release", target }, runtime),

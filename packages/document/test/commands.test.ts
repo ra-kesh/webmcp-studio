@@ -264,19 +264,22 @@ describe("canonical document commands", () => {
   )
 
   it.each(["image", "text"] as const)(
-    "creates an alpha mask from a %s source atomically",
+    "creates alpha and luminance masks from a %s source atomically",
     (type) => {
       const document = createMaskCommandFixture()
       replaceCreateFixtureSource(document, type)
-      const created = applyCommand(document, {
-        ...createMaskCommand(),
-        maskType: "alpha",
-      })
-      expect(created.groups[0]).toMatchObject({
-        role: "mask",
-        mask: { type: "alpha", sourceNodeIds: ["mask-conformance-below"] },
-      })
-      expect(created.revision).toBe(document.revision + 1)
+      for (const maskType of ["alpha", "luminance"] as const) {
+        const created = applyCommand(document, {
+          ...createMaskCommand(),
+          id: `create-${maskType}-${type}-mask`,
+          maskType,
+        })
+        expect(created.groups[0]).toMatchObject({
+          role: "mask",
+          mask: { type: maskType, sourceNodeIds: ["mask-conformance-below"] },
+        })
+        expect(created.revision).toBe(document.revision + 1)
+      }
     }
   )
 
@@ -313,6 +316,38 @@ describe("canonical document commands", () => {
     })
     expect(noOp).toEqual(changed)
     expect(noOp.revision).toBe(changed.revision)
+  })
+
+  it("changes a vector group to luminance once and keeps the luminance no-op identical", () => {
+    const created = applyCommand(
+      createMaskCommandFixture(),
+      createMaskCommand()
+    )
+    const changed = applyCommand(created, {
+      id: "set-luminance-mask-type",
+      type: "set_mask_type",
+      actor: "human",
+      at: "2026-08-31T14:00:32.000Z",
+      expectedRevision: created.revision,
+      pageId: "mask-conformance-page",
+      groupId: "created-mask",
+      maskType: "luminance",
+    })
+    expect(changed.groups[0]).toMatchObject({
+      role: "mask",
+      mask: { type: "luminance" },
+    })
+    const noOp = applyCommand(changed, {
+      id: "luminance-mask-type-no-op",
+      type: "set_mask_type",
+      actor: "human",
+      at: "2026-08-31T14:00:33.000Z",
+      expectedRevision: changed.revision,
+      pageId: "mask-conformance-page",
+      groupId: "created-mask",
+      maskType: "luminance",
+    })
+    expect(noOp).toEqual(changed)
   })
 
   it("creates and reorders up to four explicit mask sources atomically", () => {
@@ -545,15 +580,6 @@ describe("canonical document commands", () => {
           ] as [string, string, string, string, string],
         }),
       code: "MASK_COMMAND_SOURCE_COUNT",
-    },
-    {
-      label: "unsupported mode",
-      change: (document: ReturnType<typeof createMaskCommandFixture>) =>
-        applyCommand(document, {
-          ...createMaskCommand(),
-          maskType: "luminance" as const,
-        }),
-      code: "MASK_COMMAND_UNSUPPORTED_TYPE",
     },
     {
       label: "mixed parents",
