@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "capturedAt": "2026-08-31T18:24:41.970Z",
+  "capturedAt": "2026-08-31T18:51:03.759Z",
   "runtime": {
     "browser": "chromium",
     "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
@@ -20,18 +20,36 @@
   },
   "measurements": {
     "searchToVisibleMs": [
-      40.07970800000476,
-      40.360249999997905,
-      41.378875000002154,
-      44.359208999994735,
-      50.3670839999977,
-      57.756625000001804,
-      70.36208400000032
+      36.718457999995735,
+      36.72504199999821,
+      37.31212499999674,
+      37.51904099999956,
+      38.38891599999624,
+      40.344333000000915,
+      60.80666600000404
     ],
-    "searchToVisibleP95Ms": 70.36208400000032,
-    "mountedMediaCardsFor1000Items": 20,
-    "localCatalog500ItemMedianMs": 4.925,
-    "warmWorker50ItemMedianMs": 13.017
+    "searchToVisibleP95Ms": 60.80666600000404,
+    "mountedMediaCardsFor1000Items": 5,
+    "localCatalog500ItemDurationsMs": [
+      4.958792000001267,
+      3.1630000000004657,
+      2.8950000000004366,
+      3.264500000001135,
+      2.7712499999979627,
+      2.770709000000352,
+      3.954291000001831
+    ],
+    "localCatalog500ItemMedianMs": 3.1630000000004657,
+    "warmWorker50ItemDurationsMs": [
+      31.818999999999505,
+      30.096667000001617,
+      31.93354199999885,
+      41.07025000000067,
+      27.0346669999999,
+      27.534374999999272,
+      28.774207999998907
+    ],
+    "warmWorker50ItemMedianMs": 30.096667000001617
   },
   "budgets": {
     "searchToVisibleP95Ms": 250,

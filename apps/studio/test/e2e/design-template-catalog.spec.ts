@@ -2,9 +2,11 @@ import { mkdir, rename, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import {
+  LibraryCatalogIndex,
   libraryCatalogQueryIdentity,
   libraryCatalogQuerySchema,
 } from "@webmcp/document"
+import type { LibraryCatalogItemSummary } from "@webmcp/document"
 import { expect, test } from "@playwright/test"
 import type { Page } from "@playwright/test"
 
@@ -78,6 +80,166 @@ async function openSampleEditor(page: Page) {
   await expect(
     page.getByRole("heading", { name: "Templates", exact: true })
   ).toBeVisible({ timeout: 30_000 })
+}
+
+function median(values: readonly number[]) {
+  const ordered = [...values].sort((left, right) => left - right)
+  return ordered[Math.floor(ordered.length / 2)]!
+}
+
+function measureLocalCatalog500ItemMedian(
+  seed: Extract<LibraryCatalogItemSummary, { itemKind: "template" }>
+) {
+  const items: LibraryCatalogItemSummary[] = Array.from(
+    { length: 500 },
+    (_, index) => {
+      const ordinal = String(index + 1).padStart(3, "0")
+      const id = `gate8-scale-template-${ordinal}`
+      return {
+        ...seed,
+        id,
+        name: `Gate 8 scale template ${ordinal}`,
+        categoryId: index % 2 ? "documents" : "proposals",
+        useCaseIds: index % 3 ? ["brief"] : ["proposal"],
+        curatedRank: index,
+        preview: {
+          ...seed.preview,
+          kind: "live_fallback",
+          itemId: id,
+          pageId: `${id}-page`,
+          resourcePath: null,
+          mediaType: null,
+          contentSha256: null,
+          rendererRevision: null,
+        },
+      }
+    }
+  )
+  const catalog = new LibraryCatalogIndex("catalog-gate8-scale-r1", items)
+  catalog.list({ generation: "warmup", search: "gate 8 scale", limit: 50 })
+
+  const durations = Array.from({ length: 7 }, (_, iteration) => {
+    const startedAt = performance.now()
+    const result = catalog.list({
+      generation: `measure-${iteration}`,
+      search: "gate 8 scale template",
+      categoryIds: ["documents"],
+      order: "newest",
+      limit: 50,
+    })
+    expect(result.total).toBe(250)
+    return performance.now() - startedAt
+  })
+  return { durations, medianMs: median(durations) }
+}
+
+async function measureWarmWorker50ItemMedian(page: Page) {
+  const endpoint = (generation: string) => {
+    const url = new URL("/v1/studio/library/items", page.url())
+    url.searchParams.set("generation", generation)
+    url.searchParams.set("limit", "50")
+    return url.href
+  }
+  const warmup = await page.request.get(endpoint("gate8-worker-warmup"))
+  expect(warmup.status()).toBe(200)
+  const warmupBody = (await warmup.json()) as {
+    page: { items: LibraryCatalogItemSummary[] }
+  }
+  const templateSeed = warmupBody.page.items.find(
+    (item) => item.itemKind === "template"
+  )
+  if (!templateSeed) throw new Error("The Worker catalog has no template fixture")
+
+  const durations: number[] = []
+  for (let iteration = 0; iteration < 7; iteration += 1) {
+    const startedAt = performance.now()
+    const response = await page.request.get(
+      endpoint(`gate8-worker-measure-${iteration}`)
+    )
+    expect(response.status()).toBe(200)
+    const body = (await response.json()) as { page: { items: unknown[] } }
+    expect(body.page.items).toHaveLength(50)
+    durations.push(performance.now() - startedAt)
+  }
+  return { durations, medianMs: median(durations), templateSeed }
+}
+
+async function seedGate8LocalScaleMetadata(page: Page, count: number) {
+  await page.evaluate(async (itemCount) => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("webmcp-studio-assets", 6)
+      request.onupgradeneeded = () => {
+        const db = request.result
+        if (!db.objectStoreNames.contains("asset-metadata")) {
+          const metadata = db.createObjectStore("asset-metadata", {
+            keyPath: "id",
+          })
+          metadata.createIndex("createdAt", "createdAt")
+          metadata.createIndex("lastUsedAt", "lastUsedAt")
+        }
+        if (!db.objectStoreNames.contains("asset-blobs")) {
+          db.createObjectStore("asset-blobs")
+        }
+        if (!db.objectStoreNames.contains("asset-quarantine")) {
+          db.createObjectStore("asset-quarantine", { keyPath: "id" })
+        }
+        if (!db.objectStoreNames.contains("asset-promotion-journal")) {
+          db.createObjectStore("asset-promotion-journal", {
+            keyPath: "localAssetId",
+          })
+        }
+      }
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () =>
+        reject(request.error ?? new Error("Asset database did not open"))
+    })
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction("asset-metadata", "readwrite")
+      const metadata = transaction.objectStore("asset-metadata")
+      for (let index = 0; index < itemCount; index += 1) {
+        const ordinal = String(index + 1).padStart(4, "0")
+        const timestamp = new Date(
+          Date.parse("2026-09-01T00:00:00.000Z") + index * 1_000
+        ).toISOString()
+        metadata.put({
+          schemaVersion: 4,
+          id: `gate8-local-scale-${ordinal}`,
+          name: `Gate 8 local scale ${ordinal}.png`,
+          mediaType: "image/png",
+          size: 68,
+          width: 1,
+          height: 1,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          lastUsedAt: timestamp,
+          archivedAt: null,
+          integrity: "ready",
+          revision: 1,
+        })
+      }
+      transaction.oncomplete = () => resolve()
+      transaction.onerror = () =>
+        reject(transaction.error ?? new Error("Asset metadata write failed"))
+      transaction.onabort = () =>
+        reject(transaction.error ?? new Error("Asset metadata write aborted"))
+    })
+    database.close()
+  }, count)
+}
+
+async function waitForDecodedImage(page: Page, accessibleName: string) {
+  const image = page.getByRole("img", { name: accessibleName })
+  await expect(image).toBeVisible()
+  await expect
+    .poll(() =>
+      image.evaluate(
+        (node) =>
+          node instanceof HTMLImageElement &&
+          node.complete &&
+          node.naturalWidth > 0
+      )
+    )
+    .toBe(true)
 }
 
 test.beforeEach(async ({ page }) => {
@@ -298,6 +460,10 @@ test("keeps search-to-visible below the Gate 8 browser p95 budget with 1,000 sum
   let cachedBody: CatalogResponse | undefined
   let cachedHeaders: Record<string, string> | undefined
   const requestStartedAt = new Map<string, number>()
+  const worker = await measureWarmWorker50ItemMedian(page)
+  expect(worker.medianMs).toBeLessThan(200)
+  const localCatalog = measureLocalCatalog500ItemMedian(worker.templateSeed)
+  expect(localCatalog.medianMs).toBeLessThan(50)
 
   await page.route("**/v1/studio/library/items?*", async (route) => {
     const routedUrl = new URL(route.request().url())
@@ -410,6 +576,25 @@ test("keeps search-to-visible below the Gate 8 browser p95 budget with 1,000 sum
   const p95 = durations[Math.ceil(durations.length * 0.95) - 1]!
   expect(p95).toBeLessThan(250)
 
+  await page.unroute("**/v1/studio/library/items?*")
+  await seedGate8LocalScaleMetadata(page, 1_000)
+  await page.getByRole("tab", { name: "Assets", exact: true }).click()
+  const assetsWorkspace = page.getByRole("region", { name: "Assets workspace" })
+  await assetsWorkspace
+    .getByRole("tab", { name: "Uploads", exact: true })
+    .click()
+  await expect(
+    assetsWorkspace.locator('[data-media-card^="media:local:"]').first()
+  ).toBeVisible()
+  await expect(
+    assetsWorkspace.locator('[aria-setsize="1000"]').first()
+  ).toBeVisible()
+  const mountedMediaCards = await assetsWorkspace
+    .locator("[data-media-card]")
+    .count()
+  expect(mountedMediaCards).toBeGreaterThan(0)
+  expect(mountedMediaCards).toBeLessThanOrEqual(32)
+
   const evidence = {
     version: 1,
     capturedAt: new Date().toISOString(),
@@ -430,9 +615,11 @@ test("keeps search-to-visible below the Gate 8 browser p95 budget with 1,000 sum
     measurements: {
       searchToVisibleMs: durations,
       searchToVisibleP95Ms: p95,
-      mountedMediaCardsFor1000Items: 20,
-      localCatalog500ItemMedianMs: 4.925,
-      warmWorker50ItemMedianMs: 13.017,
+      mountedMediaCardsFor1000Items: mountedMediaCards,
+      localCatalog500ItemDurationsMs: localCatalog.durations,
+      localCatalog500ItemMedianMs: localCatalog.medianMs,
+      warmWorker50ItemDurationsMs: worker.durations,
+      warmWorker50ItemMedianMs: worker.medianMs,
     },
     budgets: {
       searchToVisibleP95Ms: 250,
@@ -472,9 +659,8 @@ test("captures accepted desktop and compact template and asset workspaces", asyn
   await expect(
     assetsWorkspace.getByRole("button", { name: /^Insert / }).first()
   ).toBeVisible()
-  await expect(
-    assetsWorkspace.getByRole("img", { name: "Olive botanical" })
-  ).toBeVisible()
+  await waitForDecodedImage(page, "Olive botanical")
+  await waitForDecodedImage(page, "Sandstone arches")
   await page.screenshot({
     path: resolve(gate8ArtifactDirectory, "desktop-assets.png"),
     animations: "disabled",
