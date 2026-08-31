@@ -722,7 +722,7 @@ function TextPresetMenuItems({
       <Type className="mt-0.5 size-4 shrink-0" />
       <span className="min-w-0 flex-1">
         <span className="block text-xs font-medium">{preset.name}</span>
-        <span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">
+        <span className="mt-0.5 block text-[11px] leading-4 text-muted-foreground">
           {preset.description}
         </span>
       </span>
@@ -761,7 +761,7 @@ function IconButton({
       <TooltipContent className="flex items-center gap-2">
         <span>{label}</span>
         {shortcut ? (
-          <kbd className="font-mono text-[9px] text-muted-foreground">
+          <kbd className="font-mono text-[11px] text-muted-foreground">
             {shortcut}
           </kbd>
         ) : null}
@@ -4851,7 +4851,7 @@ export function StudioShell({
                 <span className="truncate text-xs font-medium">
                   {activePage.name}
                 </span>
-                <span className="text-[10px] text-muted-foreground">
+                <span className="text-[11px] text-muted-foreground">
                   {activePage.width} × {activePage.height}
                 </span>
               </div>

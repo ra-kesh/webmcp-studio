@@ -53,6 +53,71 @@ function EditorPanelSectionHeader({
   )
 }
 
+function EditorPanelNotice({
+  icon,
+  title,
+  description,
+  tone = "neutral",
+  children,
+  className,
+  ...props
+}: React.ComponentProps<"section"> & {
+  icon?: React.ReactNode
+  title?: React.ReactNode
+  description: React.ReactNode
+  tone?: "neutral" | "warning" | "error"
+}) {
+  return (
+    <section
+      data-slot="editor-panel-notice"
+      data-tone={tone}
+      className={cn(
+        "flex min-w-0 items-start gap-2 rounded-md border border-border/75 bg-muted/35 px-2.5 py-2 text-[11px] leading-4 text-muted-foreground",
+        tone === "warning" &&
+          "border-amber-500/25 bg-amber-500/8 text-foreground",
+        tone === "error" &&
+          "border-destructive/30 bg-destructive/6 text-destructive",
+        className
+      )}
+      {...props}
+    >
+      {icon ? (
+        <span
+          aria-hidden
+          className="mt-px grid size-5 shrink-0 place-items-center rounded-sm bg-background/80 text-current [&_svg]:size-3.5"
+          data-slot="editor-panel-notice-icon"
+        >
+          {icon}
+        </span>
+      ) : null}
+      <div className="min-w-0 flex-1">
+        {title ? (
+          <p
+            className="font-medium text-foreground"
+            data-slot="editor-panel-notice-title"
+          >
+            {title}
+          </p>
+        ) : null}
+        <div
+          className={cn(title && "mt-0.5")}
+          data-slot="editor-panel-notice-description"
+        >
+          {description}
+        </div>
+        {children ? (
+          <div
+            className="mt-2 flex flex-wrap items-center gap-1.5"
+            data-slot="editor-panel-notice-actions"
+          >
+            {children}
+          </div>
+        ) : null}
+      </div>
+    </section>
+  )
+}
+
 function EditorPanelState({
   icon,
   title,
@@ -113,6 +178,7 @@ function EditorPanelState({
 
 export {
   EditorPanelHeader,
+  EditorPanelNotice,
   EditorPanelSectionHeader,
   EditorPanelState,
   EditorPanelTabsList,

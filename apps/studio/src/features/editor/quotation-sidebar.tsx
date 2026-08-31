@@ -14,7 +14,10 @@ import {
   AlertDialogTitle,
 } from "@webmcp/ui/components/alert-dialog"
 import { Button } from "@webmcp/ui/components/button"
-import { EditorPanelTabsList } from "@webmcp/ui/components/editor-chrome"
+import {
+  EditorPanelNotice,
+  EditorPanelTabsList,
+} from "@webmcp/ui/components/editor-chrome"
 import { Tabs, TabsContent, TabsTrigger } from "@webmcp/ui/components/tabs"
 import { cn } from "@webmcp/ui/lib/utils"
 import { FileWarning, FolderTree, Link2 } from "lucide-react"
@@ -248,26 +251,14 @@ export function QuotationSidebar({
         >
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
             {layerOrganizationUpgradeAvailable ? (
-              <section
+              <EditorPanelNotice
                 aria-label="Quotation layer organization update"
-                className="m-2.5 mb-0 rounded-lg border bg-muted/35 p-2.5"
+                className="m-2.5 mb-0"
+                icon={<FolderTree />}
+                title="Organize quotation layers"
+                description="Restore semantic folders without changing copy, layout, or styling."
               >
-                <div className="flex items-start gap-2">
-                  <span className="grid size-7 shrink-0 place-items-center rounded-md border bg-background text-foreground">
-                    <FolderTree className="size-3.5" />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <h3 className="text-[11px] leading-4 font-medium">
-                      Organize quotation layers
-                    </h3>
-                    <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground">
-                      Restore semantic folders without changing copy, layout, or
-                      styling.
-                    </p>
-                  </div>
-                </div>
                 <Button
-                  className="mt-2 w-full"
                   disabled={reviewPending}
                   size="sm"
                   variant="outline"
@@ -277,11 +268,11 @@ export function QuotationSidebar({
                   Organize layers
                 </Button>
                 {reviewPending ? (
-                  <p className="mt-1.5 text-[10px] leading-4 text-muted-foreground">
+                  <p className="basis-full text-muted-foreground">
                     Finish or discard the pending review first.
                   </p>
                 ) : null}
-              </section>
+              </EditorPanelNotice>
             ) : null}
             <LibraryTemplateBrowser
               actionError={templateActionError}

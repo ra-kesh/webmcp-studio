@@ -1,0 +1,64 @@
+{
+  "url": "http://localhost:3102/documents/document-ad0198e7-5e19-451c-8938-928f47cbe29a",
+  "metrics": {
+    "fontSizes": {
+      "10px": 7,
+      "11px": 7,
+      "12px": 18,
+      "12.8px": 1,
+      "14px": 10,
+      "15px": 10,
+      "16px": 53,
+      "17px": 71,
+      "18px": 7,
+      "20px": 9,
+      "23px": 8,
+      "24px": 1,
+      "25px": 1,
+      "38px": 16,
+      "76px": 2
+    },
+    "viewport": {
+      "clientWidth": 1440,
+      "scrollWidth": 1440
+    },
+    "topbar": {
+      "x": 0,
+      "y": 0,
+      "width": 1440,
+      "height": 48
+    },
+    "documentPanel": {
+      "x": 0,
+      "y": 48,
+      "width": 208,
+      "height": 852
+    },
+    "propertiesPanel": {
+      "x": 1160,
+      "y": 48,
+      "width": 280,
+      "height": 852
+    },
+    "canvas": {
+      "x": 220,
+      "y": 88,
+      "width": 928,
+      "height": 716
+    },
+    "filmstrip": {
+      "x": 220,
+      "y": 804,
+      "width": 928,
+      "height": 96
+    }
+  },
+  "errors": [
+    "error: Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "error: Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "error: Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "error: Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "error: Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+    "error: Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+  ]
+}

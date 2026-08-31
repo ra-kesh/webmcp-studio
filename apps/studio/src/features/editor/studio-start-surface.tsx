@@ -362,7 +362,7 @@ export function StudioStartSurface({
             <span className="block text-sm font-semibold tracking-tight">
               Studio
             </span>
-            <span className="block text-[10px] text-muted-foreground">
+            <span className="block text-[11px] text-muted-foreground">
               Documents and images
             </span>
           </span>

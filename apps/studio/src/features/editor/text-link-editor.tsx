@@ -104,7 +104,7 @@ export function TextLinkEditor({
           <X className="size-3.5" />
         </Button>
       </div>
-      <label className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+      <label className="text-[11px] font-medium text-muted-foreground">
         Destination
         <Input
           ref={inputRef}

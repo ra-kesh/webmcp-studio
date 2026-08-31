@@ -191,7 +191,7 @@ export function CommitPercentSlider({
           />
           <span
             aria-hidden="true"
-            className="pointer-events-none absolute inset-y-0 right-2 flex items-center font-mono text-[10px] text-muted-foreground"
+            className="pointer-events-none absolute inset-y-0 right-2 flex items-center font-mono text-[11px] text-muted-foreground"
           >
             %
           </span>
@@ -352,12 +352,12 @@ export function InspectorNumberField({
           }}
         />
         {suffix ? (
-          <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center font-mono text-[10px] text-muted-foreground">
+          <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center font-mono text-[11px] text-muted-foreground">
             {suffix}
           </span>
         ) : null}
       </div>
-      <FieldError id={`${id}-error`} className="text-[10px] leading-4">
+      <FieldError id={`${id}-error`} className="text-[11px] leading-4">
         {error}
       </FieldError>
     </Field>
@@ -561,7 +561,7 @@ export function InspectorColorField({
           }}
         />
       </div>
-      <FieldError id={`${id}-error`} className="text-[10px] leading-4">
+      <FieldError id={`${id}-error`} className="text-[11px] leading-4">
         {error}
       </FieldError>
     </Field>

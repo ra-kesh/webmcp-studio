@@ -836,7 +836,7 @@ export function DesignVariablesPanel({
                   ) : null}
                 </div>
                 {usage.totalBindingCount > 0 ? (
-                  <p className="mt-1.5 text-[10px] leading-4 text-muted-foreground">
+                  <p className="mt-1.5 text-[11px] leading-4 text-muted-foreground">
                     Unbind every use before deleting this variable.
                   </p>
                 ) : null}

@@ -327,7 +327,7 @@ const PageFilmstripItem = memo(function PageFilmstripItem({
         </span>
         <span
           className={cn(
-            "w-full truncate text-[10px] leading-3 text-muted-foreground group-data-[active=true]:font-semibold group-data-[active=true]:text-studio-accent",
+            "w-full truncate text-[11px] leading-3 text-muted-foreground group-data-[active=true]:font-semibold group-data-[active=true]:text-studio-accent",
             compactDensity && "hidden min-[1280px]:block"
           )}
         >
@@ -395,7 +395,7 @@ const PageFilmstripItem = memo(function PageFilmstripItem({
                 Delete page
               </DropdownMenuItem>
               {onlyPage ? (
-                <p className="px-2 py-1.5 text-[10px] leading-4 text-muted-foreground">
+                <p className="px-2 py-1.5 text-[11px] leading-4 text-muted-foreground">
                   Every output must keep at least one page.
                 </p>
               ) : null}
@@ -1146,7 +1146,7 @@ export const PageFilmstrip = memo(function PageFilmstrip({
             <Button
               aria-label={`Add page to ${output.name}`}
               className={cn(
-                "mt-0.5 shrink-0 flex-col border-dashed text-[10px] font-normal text-muted-foreground",
+                "mt-0.5 shrink-0 flex-col border-dashed text-[11px] font-normal text-muted-foreground",
                 "rounded-md hover:border-studio-accent/60 hover:bg-studio-accent/5 hover:text-foreground focus-visible:ring-studio-accent/35",
                 density === "compact"
                   ? "h-[68px] w-14 gap-1 min-[1280px]:h-[84px] min-[1280px]:w-[60px] min-[1280px]:gap-2"

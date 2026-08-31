@@ -295,7 +295,7 @@ export function PageOutputPanel({
                           Delete output
                         </DropdownMenuItem>
                         {document.outputs.length === 1 ? (
-                          <p className="px-2 py-1.5 text-[10px] leading-4 text-muted-foreground">
+                          <p className="px-2 py-1.5 text-[11px] leading-4 text-muted-foreground">
                             A document must keep at least one output.
                           </p>
                         ) : null}
@@ -379,7 +379,7 @@ export function PageOutputPanel({
                             <span className="block truncate text-xs font-medium">
                               {pageIndex + 1}. {page.name}
                             </span>
-                            <span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground tabular-nums">
+                            <span className="mt-0.5 block text-[11px] leading-4 text-muted-foreground tabular-nums">
                               {page.width} × {page.height}
                             </span>
                           </span>
@@ -490,7 +490,7 @@ export function PageOutputPanel({
                                   Delete page
                                 </DropdownMenuItem>
                                 {pages.length === 1 ? (
-                                  <p className="px-2 py-1.5 text-[10px] leading-4 text-muted-foreground">
+                                  <p className="px-2 py-1.5 text-[11px] leading-4 text-muted-foreground">
                                     Every output must keep at least one page.
                                   </p>
                                 ) : null}

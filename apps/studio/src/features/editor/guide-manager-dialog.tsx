@@ -124,7 +124,7 @@ function ExistingGuideRow({
         <Field data-invalid={Boolean(error)}>
           <div className="flex items-baseline justify-between gap-3">
             <FieldLabel htmlFor={inputId}>{axisLabel} guide</FieldLabel>
-            <span className="font-mono text-[10px] text-muted-foreground">
+            <span className="font-mono text-[11px] text-muted-foreground">
               0–{formatCoordinate(limit)} px
             </span>
           </div>
@@ -329,7 +329,7 @@ export function GuideManagerDialog({
               <h3 id="page-guides-heading" className="text-xs font-medium">
                 Guides on this page
               </h3>
-              <span className="font-mono text-[10px] text-muted-foreground">
+              <span className="font-mono text-[11px] text-muted-foreground">
                 {guides.length} / {PAGE_GUIDE_LIMIT}
               </span>
             </div>

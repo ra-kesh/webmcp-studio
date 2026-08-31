@@ -123,7 +123,7 @@ export function DocumentPreview({
               showImageRecoveryActions={false}
             />
           </div>
-          <span className="absolute right-2 bottom-2 rounded-sm bg-background/90 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground shadow-xs">
+          <span className="absolute right-2 bottom-2 rounded-sm bg-background/90 px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground shadow-xs">
             Local preview
           </span>
         </>
@@ -164,14 +164,14 @@ export function DocumentPreview({
         >
           <FileText className="size-4 text-muted-foreground" />
           {grid ? (
-            <span className="text-[10px] text-muted-foreground tabular-nums">
+            <span className="text-[11px] text-muted-foreground tabular-nums">
               {identity.pageWidth} × {identity.pageHeight}
             </span>
           ) : null}
         </div>
       )}
       {state.status === "ready" && !state.cached ? (
-        <span className="absolute right-2 bottom-2 rounded-sm bg-background/90 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground shadow-xs">
+        <span className="absolute right-2 bottom-2 rounded-sm bg-background/90 px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground shadow-xs">
           Preview not cached
         </span>
       ) : null}

@@ -437,7 +437,7 @@ function LayerRow({
       {row.item.mask?.role === "group" ? (
         <Badge
           variant="secondary"
-          className="mr-1 h-5 shrink-0 px-1.5 text-[9px] font-medium"
+          className="mr-1 h-5 shrink-0 px-1.5 text-[11px] font-medium"
           aria-label={`${row.item.mask.type} mask`}
         >
           Mask
@@ -445,7 +445,7 @@ function LayerRow({
       ) : row.item.mask?.role === "source" ? (
         <Badge
           variant="outline"
-          className="mr-1 h-5 shrink-0 px-1.5 text-[9px] font-medium"
+          className="mr-1 h-5 shrink-0 px-1.5 text-[11px] font-medium"
           aria-label={`Mask source for ${row.item.mask.groupName}`}
         >
           Mask source

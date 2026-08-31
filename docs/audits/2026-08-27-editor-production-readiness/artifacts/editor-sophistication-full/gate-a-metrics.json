@@ -1,0 +1,16 @@
+{
+  "metric": {
+    "small": [],
+    "scrollWidth": 1440,
+    "clientWidth": 1440,
+    "panel": {
+      "width": 336,
+      "scrollWidth": 336
+    }
+  },
+  "dark": {
+    "workspace": "oklch(0.19 0.006 90)",
+    "background": "oklch(0.145 0 0)"
+  },
+  "errors": []
+}

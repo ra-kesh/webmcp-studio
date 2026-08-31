@@ -132,6 +132,7 @@ import {
   DialogTrigger,
 } from "@webmcp/ui/components/dialog"
 import {
+  EditorPanelNotice,
   EditorPanelState,
   EditorPanelTabsList,
 } from "@webmcp/ui/components/editor-chrome"
@@ -411,7 +412,7 @@ function MaskInspectorSection({
           </Button>
           {!capabilities.create.enabled &&
           capabilities.create.disabledReason ? (
-            <p className="text-[10px] leading-4 text-muted-foreground">
+            <p className="text-[11px] leading-4 text-muted-foreground">
               {capabilities.create.disabledReason}
             </p>
           ) : null}
@@ -463,7 +464,7 @@ function MaskInspectorSection({
           <Field className="gap-1.5">
             <div className="flex items-center justify-between gap-2">
               <FieldLabel>Source layers</FieldLabel>
-              <span className="text-[10px] text-muted-foreground tabular-nums">
+              <span className="text-[11px] text-muted-foreground tabular-nums">
                 {capabilities.sourceNodeIds.length}/4
               </span>
             </div>
@@ -499,7 +500,7 @@ function MaskInspectorSection({
                       <Check className="size-3.5" />
                     </Button>
                     <span
-                      className="flex size-4 shrink-0 items-center justify-center rounded-sm bg-muted text-[9px] font-medium text-muted-foreground tabular-nums"
+                      className="flex size-4 shrink-0 items-center justify-center rounded-sm bg-muted text-[11px] font-medium text-muted-foreground tabular-nums"
                       aria-label={`Mask source ${sourceIndex + 1} of ${capabilities.sourceNodeIds.length}`}
                     >
                       {sourceIndex + 1}
@@ -551,7 +552,7 @@ function MaskInspectorSection({
             </div>
             {availableSourceOptions.length ? (
               <div className="flex flex-col gap-1">
-                <span className="text-[10px] font-medium text-muted-foreground">
+                <span className="text-[11px] font-medium text-muted-foreground">
                   Available to add
                 </span>
                 <div className="overflow-hidden rounded-[5px] border border-border/80">
@@ -658,14 +659,14 @@ function ComponentInspectorSection({
           <p className="truncate text-[11px] font-semibold">
             {context.component.name}
           </p>
-          <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground">
+          <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
             {context.kind === "instance"
               ? `${context.instance.name} · ${totalOverrideCount} override${totalOverrideCount === 1 ? "" : "s"}`
               : `${context.instanceCount} linked instance${context.instanceCount === 1 ? "" : "s"}`}
           </p>
         </div>
         {context.kind === "instance" && totalOverrideCount ? (
-          <Badge variant="secondary" className="h-5 px-1.5 text-[9px]">
+          <Badge variant="secondary" className="h-5 px-1.5 text-[11px]">
             {totalOverrideCount}
           </Badge>
         ) : null}
@@ -729,8 +730,8 @@ function ComponentInspectorSection({
           {context.selectedSourceNodeId ? (
             <div className="flex items-center justify-between gap-2 rounded-[4px] border border-border/70 bg-background px-2 py-1.5">
               <div className="min-w-0">
-                <p className="text-[10px] font-medium">Selected layer</p>
-                <p className="truncate text-[9px] text-muted-foreground">
+                <p className="text-[11px] font-medium">Selected layer</p>
+                <p className="truncate text-[11px] text-muted-foreground">
                   {layerOverrideCount
                     ? context.selectedOverrideProperties.join(", ")
                     : "Uses main component values"}
@@ -740,7 +741,7 @@ function ComponentInspectorSection({
                 type="button"
                 size="sm"
                 variant="ghost"
-                className="h-7 shrink-0 px-2 text-[10px]"
+                className="h-7 shrink-0 px-2 text-[11px]"
                 disabled={!layerOverrideCount || reviewPending}
                 onClick={() =>
                   onResetLayerOverrides(
@@ -758,7 +759,7 @@ function ComponentInspectorSection({
               type="button"
               size="sm"
               variant="outline"
-              className="h-8 justify-start px-2 text-[10px]"
+              className="h-8 justify-start px-2 text-[11px]"
               disabled={reviewPending}
               onClick={() => onFocusSource(context.component.id)}
             >
@@ -768,7 +769,7 @@ function ComponentInspectorSection({
               type="button"
               size="sm"
               variant="outline"
-              className="h-8 justify-start px-2 text-[10px]"
+              className="h-8 justify-start px-2 text-[11px]"
               disabled={!totalOverrideCount || reviewPending}
               onClick={() => onResetAllOverrides(instance.id)}
             >
@@ -779,7 +780,7 @@ function ComponentInspectorSection({
             type="button"
             size="sm"
             variant="ghost"
-            className="h-8 justify-start px-2 text-[10px] text-muted-foreground"
+            className="h-8 justify-start px-2 text-[11px] text-muted-foreground"
             disabled={reviewPending}
             onClick={() => onDetach(instance.id)}
           >
@@ -791,7 +792,7 @@ function ComponentInspectorSection({
           type="button"
           size="sm"
           variant="outline"
-          className="h-8 justify-start px-2 text-[10px]"
+          className="h-8 justify-start px-2 text-[11px]"
           disabled={reviewPending}
           onClick={() => onFocusSource(context.component.id)}
         >
@@ -872,9 +873,7 @@ function TextSelectionMetric({
 }) {
   return (
     <div className={cn("min-w-0", className)}>
-      <p className="text-[9px] font-medium tracking-wide text-muted-foreground uppercase">
-        {label}
-      </p>
+      <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
       <p
         className="mt-0.5 truncate text-[11px] font-medium"
         data-mixed={mixed || undefined}
@@ -929,7 +928,7 @@ function TextSelectionInspector({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[11px] font-semibold">Text selection</p>
-          <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground">
+          <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
             {collapsed
               ? "Formatting for text typed at this insertion point."
               : `${characterCount} character${characterCount === 1 ? "" : "s"} selected.`}
@@ -984,7 +983,7 @@ function TextSelectionInspector({
           </Button>
           <span
             aria-label={fontSize === null ? "Mixed font sizes" : undefined}
-            className="w-8 text-center text-[10px] font-medium tabular-nums"
+            className="w-8 text-center text-[11px] font-medium tabular-nums"
           >
             {fontSize === null ? "—" : Math.round(fontSize)}
           </span>
@@ -1565,13 +1564,11 @@ function NodeInspector({
           is edited under Typography.
         </p>
         {node.locked ? (
-          <p
-            className="rounded-lg border bg-muted/40 px-2.5 py-2 text-[10px] leading-4 text-muted-foreground"
+          <EditorPanelNotice
+            icon={<Lock />}
+            description="This layer is locked. Visibility and unlock remain available; its content and properties cannot be changed."
             role="status"
-          >
-            This layer is locked. Visibility and unlock remain available; its
-            content and properties cannot be changed.
-          </p>
+          />
         ) : null}
       </section>
 
@@ -1652,7 +1649,7 @@ function NodeInspector({
             ) : null}
             <label className="flex flex-col gap-1.5">
               <FieldLabel>Content</FieldLabel>
-              <span className="text-[10px] text-muted-foreground">
+              <span className="text-[11px] text-muted-foreground">
                 Text shown on the canvas.
               </span>
               <CommitTextarea
@@ -1665,7 +1662,7 @@ function NodeInspector({
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <FieldLabel>Text box</FieldLabel>
-                  <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
+                  <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
                     {node.sizingMode === "auto_width"
                       ? "Width and height follow the content."
                       : node.sizingMode === "auto_height"
@@ -1692,21 +1689,21 @@ function NodeInspector({
               >
                 <ToggleGroupItem
                   aria-label="Auto width"
-                  className="min-h-11 px-2 text-[10px] min-[1280px]:min-h-0"
+                  className="min-h-11 px-2 text-[11px] min-[1280px]:min-h-0"
                   value="auto_width"
                 >
                   Auto width
                 </ToggleGroupItem>
                 <ToggleGroupItem
                   aria-label="Auto height"
-                  className="min-h-11 px-2 text-[10px] min-[1280px]:min-h-0"
+                  className="min-h-11 px-2 text-[11px] min-[1280px]:min-h-0"
                   value="auto_height"
                 >
                   Auto height
                 </ToggleGroupItem>
                 <ToggleGroupItem
                   aria-label="Fixed text box"
-                  className="min-h-11 px-2 text-[10px] min-[1280px]:min-h-0"
+                  className="min-h-11 px-2 text-[11px] min-[1280px]:min-h-0"
                   value="fixed"
                 >
                   Fixed
@@ -1730,13 +1727,13 @@ function NodeInspector({
                           ? "Text is clipped horizontally"
                           : "Text is clipped vertically"}
                     </p>
-                    <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
+                    <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
                       {textLayout.overflowX
                         ? "The fixed box is too narrow for its content. Let the box follow the text dimensions."
                         : "The fixed box is too short for its content. Let the height grow so every line remains visible."}
                     </p>
                     <Button
-                      className="mt-2 min-h-11 px-2 text-[10px] min-[1280px]:min-h-7"
+                      className="mt-2 min-h-11 px-2 text-[11px] min-[1280px]:min-h-7"
                       size="sm"
                       variant="outline"
                       disabled={node.locked}
@@ -1753,10 +1750,10 @@ function NodeInspector({
             <label className="space-y-1.5">
               {liveTextEditingState ? (
                 <span className="mb-2 block border-t pt-3">
-                  <span className="block text-[10px] font-semibold">
+                  <span className="block text-[11px] font-semibold">
                     Layer defaults
                   </span>
-                  <span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">
+                  <span className="mt-0.5 block text-[11px] leading-4 text-muted-foreground">
                     Used where this layer has no character-level override.
                   </span>
                 </span>
@@ -1865,7 +1862,7 @@ function NodeInspector({
                 ))}
               </div>
               <div className="flex items-center justify-between gap-3">
-                <span className="text-[10px] leading-4 text-muted-foreground">
+                <span className="text-[11px] leading-4 text-muted-foreground">
                   {liveTextEditingState
                     ? "Applies to the selected paragraph. Use Tab to indent."
                     : "Applies semantic list structure to every paragraph."}
@@ -2276,7 +2273,7 @@ function NodeInspector({
                 <p className="text-xs font-medium">
                   {imageSourceDisplay.label}
                 </p>
-                <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground">
+                <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
                   {imageSourceDisplay.publishRequiresResolution
                     ? "Choose or promote a Studio image before publishing."
                     : "Available to the editor and renderer."}
@@ -2498,22 +2495,20 @@ function MultiSelectionInspector({
           </div>
         </div>
         {inspector.allLocked ? (
-          <p
-            className="rounded-lg border bg-muted/40 px-2.5 py-2 text-[10px] leading-4 text-muted-foreground"
+          <EditorPanelNotice
+            icon={<Lock />}
+            description="Unlock the selection to edit its properties or arrangement."
             role="status"
-          >
-            Unlock the selection to edit its properties or arrangement.
-          </p>
+          />
         ) : inspector.someLocked ? (
-          <p
-            className="rounded-lg border border-amber-500/25 bg-amber-500/8 px-2.5 py-2 text-[10px] leading-4 text-muted-foreground"
+          <EditorPanelNotice
+            icon={<AlertTriangle />}
+            tone="warning"
+            description={`${inspector.lockedCount} locked layer${
+              inspector.lockedCount === 1 ? "" : "s"
+            } will be skipped by property changes. Unlock the complete selection before changing its layer order.`}
             role="status"
-          >
-            {inspector.lockedCount} locked layer
-            {inspector.lockedCount === 1 ? "" : "s"} will be skipped by property
-            changes. Unlock the complete selection before changing its layer
-            order.
-          </p>
+          />
         ) : null}
       </section>
 
@@ -2567,15 +2562,15 @@ function MultiSelectionInspector({
           />
         </div>
         {hasManagedWidth || hasManagedHeight ? (
-          <p
-            className="rounded-lg border bg-muted/40 px-2.5 py-2 text-[10px] leading-4 text-muted-foreground"
+          <EditorPanelNotice
+            icon={<Settings2 />}
+            description={`Auto-sizing text manages its ${
+              hasManagedWidth ? "width" : ""
+            }${hasManagedWidth && hasManagedHeight ? " and " : ""}${
+              hasManagedHeight ? "height" : ""
+            }. Change that text box to Fixed before resizing the complete selection on those axes.`}
             role="status"
-          >
-            Auto-sizing text manages its {hasManagedWidth ? "width" : ""}
-            {hasManagedWidth && hasManagedHeight ? " and " : ""}
-            {hasManagedHeight ? "height" : ""}. Change that text box to Fixed
-            before resizing the complete selection on those axes.
-          </p>
+          />
         ) : null}
       </InspectorSection>
 
@@ -3397,7 +3392,7 @@ function FieldDeletionDialog({
                 <span className="min-w-0 flex-1 truncate text-[11px] font-medium">
                   {binding.nodeName ?? binding.nodeId}
                 </span>
-                <span className="shrink-0 text-[10px] text-muted-foreground">
+                <span className="shrink-0 text-[11px] text-muted-foreground">
                   {binding.pageName ?? "Missing page"} ·{" "}
                   {bindingPropertyLabels[binding.property]}
                 </span>
@@ -3535,7 +3530,7 @@ function FieldsPanel({
                           <Badge variant="secondary">Required</Badge>
                         ) : null}
                       </div>
-                      <p className="mt-0.5 truncate font-mono text-[9px] text-muted-foreground">
+                      <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">
                         {field.key} · {field.type}
                       </p>
                     </div>
@@ -3582,7 +3577,7 @@ function FieldsPanel({
                           : undefined
                       }
                     />
-                    <p className="text-[9px] text-muted-foreground">
+                    <p className="text-[11px] text-muted-foreground">
                       {bindings.length} layer{bindings.length === 1 ? "" : "s"}
                       {impact.outputCount
                         ? ` across ${impact.outputCount} output${impact.outputCount === 1 ? "" : "s"}`
@@ -3610,10 +3605,10 @@ function FieldsPanel({
                             >
                               <Link2 className="size-3 shrink-0 text-muted-foreground group-hover:text-foreground" />
                               <span className="min-w-0 flex-1">
-                                <span className="block truncate text-[10px] font-medium">
+                                <span className="block truncate text-[11px] font-medium">
                                   {node.name}
                                 </span>
-                                <span className="block truncate text-[9px] text-muted-foreground">
+                                <span className="block truncate text-[11px] text-muted-foreground">
                                   {page.name} ·{" "}
                                   {bindingPropertyLabels[binding.property]}
                                 </span>
@@ -3684,7 +3679,7 @@ function FieldsPanel({
                         <p className="truncate text-[11px] font-medium">
                           {field?.label ?? "Missing field"}
                         </p>
-                        <p className="text-[9px] text-muted-foreground">
+                        <p className="text-[11px] text-muted-foreground">
                           {bindingPropertyLabels[binding.property]}
                         </p>
                       </button>
@@ -3872,12 +3867,12 @@ function ReviewPanel({
                   <p className="text-xs leading-relaxed font-medium break-words">
                     {pendingChangeSet.title}
                   </p>
-                  <p className="mt-1 text-[10px] text-muted-foreground">
+                  <p className="mt-1 text-[11px] text-muted-foreground">
                     Revision {pendingChangeSet.baseRevision} · {decidedCount} of{" "}
                     {pendingChangeSet.operations.length} reviewed
                   </p>
                   {pendingReview ? (
-                    <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+                    <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
                       {pendingReview.provenance.actorLabel}
                       {pendingReview.provenance.toolName
                         ? ` · ${pendingReview.provenance.toolName}`
@@ -3892,7 +3887,7 @@ function ReviewPanel({
 
             {pendingReview?.provenance.reason ? (
               <div className="rounded-lg border bg-muted/20 p-2.5">
-                <p className="text-[9px] font-medium tracking-wide text-muted-foreground uppercase">
+                <p className="text-[11px] font-medium text-muted-foreground">
                   Reason
                 </p>
                 <p className="mt-1 text-[11px] leading-relaxed break-words">
@@ -3903,7 +3898,7 @@ function ReviewPanel({
 
             {pendingReview?.affected.length ? (
               <div className="flex min-w-0 flex-col gap-1.5">
-                <p className="text-[9px] font-medium tracking-wide text-muted-foreground uppercase">
+                <p className="text-[11px] font-medium text-muted-foreground">
                   Affected objects
                 </p>
                 <div className="flex flex-wrap gap-1.5">
@@ -3914,7 +3909,7 @@ function ReviewPanel({
                         key={`${target.kind}:${target.id}`}
                         size="sm"
                         variant="outline"
-                        className="h-7 max-w-full px-2 text-[10px]"
+                        className="h-7 max-w-full px-2 text-[11px]"
                         disabled={!exists}
                         title={
                           exists
@@ -3993,10 +3988,10 @@ function ReviewPanel({
                             </Badge>
                           ) : null}
                         </div>
-                        <p className="mt-1 text-[10px] leading-relaxed break-words text-muted-foreground">
+                        <p className="mt-1 text-[11px] leading-relaxed break-words text-muted-foreground">
                           {operation.summary}
                         </p>
-                        <p className="mt-1 text-[9px] text-muted-foreground">
+                        <p className="mt-1 text-[11px] text-muted-foreground">
                           {details.context}
                         </p>
                       </div>
@@ -4035,7 +4030,7 @@ function ReviewPanel({
                         </Button>
                       </div>
                     </div>
-                    <div className="mt-2 grid min-w-0 gap-1 overflow-hidden rounded-md bg-muted/70 p-2 font-mono text-[9px] leading-relaxed">
+                    <div className="mt-2 grid min-w-0 gap-1 overflow-hidden rounded-md bg-muted/70 p-2 font-mono text-[11px] leading-relaxed">
                       <p className="break-words line-through opacity-60">
                         − {details.before}
                       </p>
@@ -4105,7 +4100,7 @@ function ReviewPanel({
         {reviewJournal.resolved.length ? (
           <div className="flex min-w-0 flex-col gap-2 border-t pt-3">
             <div className="flex items-center justify-between gap-2">
-              <h3 className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+              <h3 className="text-[11px] font-medium text-muted-foreground">
                 Review history
               </h3>
               <Badge variant="outline">{reviewJournal.resolved.length}</Badge>
@@ -4120,7 +4115,7 @@ function ReviewPanel({
                     <p className="text-[11px] font-medium break-words">
                       {entry.changeSet.title}
                     </p>
-                    <p className="mt-1 text-[9px] leading-relaxed text-muted-foreground">
+                    <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
                       {entry.provenance.actorLabel}
                       {entry.provenance.toolName
                         ? ` · ${entry.provenance.toolName}`
@@ -4138,7 +4133,7 @@ function ReviewPanel({
                     {entry.resolution.status}
                   </Badge>
                 </div>
-                <p className="mt-2 text-[9px] text-muted-foreground">
+                <p className="mt-2 text-[11px] text-muted-foreground">
                   Result revision {entry.resolution.resultRevision} ·{" "}
                   {entry.resolution.acceptedOperationIds.length} applied ·{" "}
                   {entry.resolution.rejectedOperationIds.length} rejected
@@ -4152,7 +4147,7 @@ function ReviewPanel({
                           key={`${target.kind}:${target.id}`}
                           size="sm"
                           variant="ghost"
-                          className="h-6 max-w-full px-1.5 text-[9px]"
+                          className="h-6 max-w-full px-1.5 text-[11px]"
                           disabled={!exists}
                           onClick={() => onFocusTarget(target)}
                         >
@@ -4201,7 +4196,7 @@ function ReviewPanel({
               <Badge
                 key={tool.name}
                 variant="outline"
-                className="max-w-full font-mono text-[9px] break-all"
+                className="max-w-full font-mono text-[11px] break-all"
               >
                 {tool.name}
               </Badge>

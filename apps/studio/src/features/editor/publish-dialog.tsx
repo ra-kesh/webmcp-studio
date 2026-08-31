@@ -169,19 +169,19 @@ export function PublishDialog({
         <div className="rounded-lg border">
           <div className="grid grid-cols-3 gap-3 p-3">
             <div>
-              <p className="text-[10px] text-muted-foreground">Source</p>
+              <p className="text-[11px] text-muted-foreground">Source</p>
               <p className="mt-1 text-xs font-medium">
                 Revision {document.revision}
               </p>
             </div>
             <div>
-              <p className="text-[10px] text-muted-foreground">Outputs</p>
+              <p className="text-[11px] text-muted-foreground">Outputs</p>
               <p className="mt-1 text-xs font-medium">
                 {document.outputs.length}
               </p>
             </div>
             <div>
-              <p className="text-[10px] text-muted-foreground">Parameters</p>
+              <p className="text-[11px] text-muted-foreground">Parameters</p>
               <p className="mt-1 text-xs font-medium">
                 {document.fields.length}
               </p>
@@ -190,7 +190,7 @@ export function PublishDialog({
           <Separator />
           <div className="flex items-center gap-2 p-3">
             <Code2 className="size-3.5 text-muted-foreground" />
-            <p className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted-foreground">
+            <p className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">
               {currentVersion?.templateId ??
                 latestVersion?.templateId ??
                 templateId}

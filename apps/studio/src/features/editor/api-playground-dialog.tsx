@@ -98,7 +98,7 @@ function ParameterInput({
         <FieldLabel htmlFor={`parameter-${parameter.id}`}>
           {parameter.label}
         </FieldLabel>
-        <span className="font-mono text-[9px] text-muted-foreground">
+        <span className="font-mono text-[11px] text-muted-foreground">
           {parameter.key}
         </span>
       </div>
@@ -363,7 +363,7 @@ export function ApiPlaygroundDialog({
                                   <FieldTitle className="truncate text-xs">
                                     {output.name}
                                   </FieldTitle>
-                                  <p className="text-[9px] text-muted-foreground">
+                                  <p className="text-[11px] text-muted-foreground">
                                     {output.pages.length} page
                                     {output.pages.length === 1 ? "" : "s"}
                                   </p>
@@ -408,7 +408,7 @@ export function ApiPlaygroundDialog({
                 <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
                   <div>
                     <p className="text-xs font-medium">Request body</p>
-                    <p className="mt-0.5 font-mono text-[9px] text-muted-foreground">
+                    <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">
                       POST /v1/studio/render
                     </p>
                   </div>
@@ -432,7 +432,7 @@ export function ApiPlaygroundDialog({
                   </Button>
                 </div>
                 <ScrollArea className="min-h-0 flex-1">
-                  <pre className="p-4 font-mono text-[10px] leading-relaxed whitespace-pre-wrap text-muted-foreground">
+                  <pre className="p-4 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-muted-foreground">
                     {requestJson}
                   </pre>
                 </ScrollArea>
@@ -499,7 +499,7 @@ export function ApiPlaygroundDialog({
                           </div>
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">
-                              <p className="font-mono text-[10px] font-medium">
+                              <p className="font-mono text-[11px] font-medium">
                                 {record.id}
                               </p>
                               <Badge
@@ -512,7 +512,7 @@ export function ApiPlaygroundDialog({
                                 {record.status}
                               </Badge>
                             </div>
-                            <p className="mt-1 text-[10px] text-muted-foreground">
+                            <p className="mt-1 text-[11px] text-muted-foreground">
                               {record.templateId} · v{record.version} ·{" "}
                               {record.selections.length} requested output
                               {record.selections.length === 1 ? "" : "s"}
@@ -565,7 +565,7 @@ export function ApiPlaygroundDialog({
                               "cancelling",
                             ].includes(record.status) ? (
                               <div className="mt-2 flex items-center justify-between gap-3">
-                                <p className="text-[10px] text-muted-foreground">
+                                <p className="text-[11px] text-muted-foreground">
                                   {record.attempt
                                     ? `Attempt ${record.attempt}${record.maxAttempts ? ` of ${record.maxAttempts}` : ""}`
                                     : "Waiting for a render worker"}
@@ -599,7 +599,7 @@ export function ApiPlaygroundDialog({
                                 <span className="min-w-0 flex-1 truncate text-[11px] font-medium">
                                   {artifact.filename}
                                 </span>
-                                <span className="shrink-0 text-[9px] text-muted-foreground">
+                                <span className="shrink-0 text-[11px] text-muted-foreground">
                                   {formatBytes(artifact.bytes)}
                                 </span>
                               </a>

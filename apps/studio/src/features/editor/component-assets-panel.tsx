@@ -240,7 +240,7 @@ export function ComponentAssetsPanel({
           <div className="space-y-4 p-2">
             {groups.map(([pageName, assets]) => (
               <section key={pageName}>
-                <h2 className="mb-1.5 px-0.5 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+                <h2 className="mb-1.5 px-0.5 text-[11px] font-medium text-muted-foreground">
                   {pageName}
                 </h2>
                 <div className="grid grid-cols-2 gap-2">
@@ -261,7 +261,7 @@ export function ComponentAssetsPanel({
                         <span className="mt-1.5 block truncate text-[11px] font-medium">
                           {asset.component.name}
                         </span>
-                        <span className="block truncate text-[9px] text-muted-foreground">
+                        <span className="block truncate text-[11px] text-muted-foreground">
                           {asset.component.variants.length} variant
                           {asset.component.variants.length === 1
                             ? ""
@@ -270,7 +270,7 @@ export function ComponentAssetsPanel({
                         </span>
                       </button>
                       <div className="mt-1 flex items-center justify-between border-t border-border/60 pt-1">
-                        <span className="inline-flex items-center gap-1 text-[9px] font-medium text-studio-accent">
+                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-studio-accent">
                           <ComponentIcon className="size-3" /> Component
                         </span>
                         <Tooltip>

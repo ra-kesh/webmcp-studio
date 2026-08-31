@@ -1363,7 +1363,7 @@ function NodeOutline({
       }}
     >
       {selected ? (
-        <span className="absolute -top-6 left-[-2px] max-w-56 truncate rounded-[3px] bg-[#0d99ff] px-1.5 py-0.5 font-sans text-[10px] leading-4 font-medium text-white shadow-sm">
+        <span className="absolute -top-6 left-[-2px] max-w-56 truncate rounded-[3px] bg-[#0d99ff] px-1.5 py-0.5 font-sans text-[11px] leading-4 font-medium text-white shadow-sm">
           {cropping
             ? "Drag image to reposition"
             : (singleNode?.name ?? `${nodes.length} layers`)}

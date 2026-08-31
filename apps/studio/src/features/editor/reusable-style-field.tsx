@@ -108,7 +108,7 @@ export function ReusableStyleField({
     <div className="space-y-2" data-reusable-style-field={label}>
       <div className="flex items-end gap-1.5">
         <label className="min-w-0 flex-1 space-y-1.5">
-          <span className="text-[10px] font-medium text-muted-foreground">
+          <span className="text-[11px] font-medium text-muted-foreground">
             {label}
           </span>
           <Select
@@ -209,7 +209,7 @@ export function ReusableStyleField({
 
       {activeStyle ? (
         <div className="flex min-w-0 items-center justify-between gap-2 rounded-md bg-muted/45 px-2 py-1.5">
-          <span className="min-w-0 truncate text-[10px] text-muted-foreground">
+          <span className="min-w-0 truncate text-[11px] text-muted-foreground">
             {usageLabel}
           </span>
           {usageNodes.length ? (
@@ -219,7 +219,7 @@ export function ReusableStyleField({
                   type="button"
                   size="sm"
                   variant="ghost"
-                  className="h-7 shrink-0 px-1.5 text-[10px]"
+                  className="h-7 shrink-0 px-1.5 text-[11px]"
                 >
                   <Eye />
                   Show
@@ -241,7 +241,7 @@ export function ReusableStyleField({
           ) : null}
         </div>
       ) : missingStyleId ? (
-        <div className="rounded-md border border-amber-500/35 bg-amber-500/8 px-2 py-1.5 text-[10px] leading-4 text-muted-foreground">
+        <div className="rounded-md border border-amber-500/35 bg-amber-500/8 px-2 py-1.5 text-[11px] leading-4 text-muted-foreground">
           This attachment is missing. Detach it before applying another style.
         </div>
       ) : null}
