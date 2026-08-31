@@ -16,7 +16,7 @@ type PrincipalResolver = (
 ) => Promise<StudioPrincipal | Response>
 
 export type MediaDerivationDispatcher = Readonly<{
-  dispatch(input: { workspaceId: string; jobId: string }): Promise<void>
+  dispatch: (input: { workspaceId: string; jobId: string }) => Promise<void>
 }>
 
 export type MediaDerivationHttpDependencies = Readonly<{
@@ -33,7 +33,7 @@ export type MediaDerivationHttpDependencies = Readonly<{
   dispatcher: MediaDerivationDispatcher
   repository?: Pick<
     MediaDerivationRepository,
-    "create" | "get" | "retry" | "requestCancellation"
+    "create" | "get" | "latestForSource" | "retry" | "requestCancellation"
   >
   admitCreate: (
     principal: StudioPrincipal,
@@ -157,6 +157,18 @@ export function createMediaDerivationHttpHandlers(
           status: result.created ? 202 : 200,
           headers: noStore,
         })
+      }),
+
+    latest: (request: Request, sourceAssetId: string) =>
+      withPrincipal(dependencies, request, async (principal) => {
+        const job = await repository.latestForSource(
+          principal.workspaceId,
+          sourceAssetId
+        )
+        return Response.json(
+          { job: job ? publicMediaDerivationJob(job) : null },
+          { headers: noStore }
+        )
       }),
 
     get: (request: Request, jobId: string) =>

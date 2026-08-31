@@ -373,6 +373,7 @@ type PublicationOperation = {
 type RendererReplacementPayload = Readonly<{
   anchor: AssetMutationAnchor
   asset: ReusableImageAsset
+  historyLabel: string
 }>
 
 export type PerformLibraryMediaActionOptions = Readonly<{
@@ -380,6 +381,7 @@ export type PerformLibraryMediaActionOptions = Readonly<{
   recordUsed?: LibraryPreferenceCommands["recordUsed"]
   refreshLocal?: () => Promise<unknown>
   onUsageWarning?: (warning: LibraryMediaUsageWarning) => void
+  historyLabel?: string
 }>
 
 export type PerformLibraryMediaActionOutcome =
@@ -4155,7 +4157,7 @@ export function useDocumentEditor({
           if (node?.type !== "image") return false
           return commit(
             [reusableImageReplacementCommand(node, replacement.payload.asset)],
-            { label: "Replace image" }
+            { label: replacement.payload.historyLabel }
           )
         },
         onPendingChange: setPendingImageReplacement,
@@ -5600,7 +5602,11 @@ export function useDocumentEditor({
               width: prepared.asset.width,
               height: prepared.asset.height,
             },
-            payload: { anchor: anchor.assetAnchor, asset: prepared.asset },
+            payload: {
+              anchor: anchor.assetAnchor,
+              asset: prepared.asset,
+              historyLabel: options.historyLabel ?? "Replace image",
+            },
             ...(mutableAdmission ? { finalAdmission: mutableAdmission } : {}),
           })
         } else {

@@ -168,7 +168,12 @@ import { QuotationSidebar } from "./editor/quotation-sidebar"
 import type { DocumentPanelTab } from "./editor/quotation-sidebar"
 import type { AssetWorkspaceView } from "./editor/asset-workspace-panel"
 import { AssetLibraryDialog } from "./editor/asset-library-dialog"
+import {
+  getManagedMedia,
+  managedMediaSource,
+} from "./editor/managed-media-repository"
 import type { ManagedMediaAsset } from "./editor/managed-media-repository"
+import { useBackgroundRemoval } from "./editor/use-background-removal"
 import { ApiPlaygroundDialog } from "./editor/api-playground-dialog"
 import { studioAssets } from "./editor/asset-catalog"
 import { NewDocumentDialog } from "./editor/new-document-dialog"
@@ -3130,6 +3135,44 @@ export function StudioShell({
     []
   )
 
+  const applyBackgroundRemovalOutput = useCallback(
+    async (nodeId: string, outputAssetId: string) => {
+      const asset = await getManagedMedia(outputAssetId)
+      if (!asset || asset.status !== "ready" || !asset.selectable) return false
+      const resolved = await resolveManagedMediaCatalogUpload(
+        { ...asset, status: "ready" },
+        { signal: new AbortController().signal }
+      )
+      if (resolved.status !== "ready") return false
+      const outcome = await editor.performLibraryMediaAction(
+        {
+          correlationId: `background-removal-apply-${crypto.randomUUID()}`,
+          detail: resolved.detail,
+          target: { type: "replace", pageId: activePage.id, nodeId },
+        },
+        { historyLabel: "Remove background" }
+      )
+      return outcome === "committed"
+    },
+    [activePage.id, editor.performLibraryMediaAction]
+  )
+  const selectedBackgroundRemovalImage =
+    editor.selectedNodes.length === 1 &&
+    editor.selectedNodes[0]?.type === "image"
+      ? editor.selectedNodes[0]
+      : null
+  const backgroundRemoval = useBackgroundRemoval({
+    nodeId: selectedBackgroundRemovalImage?.id ?? null,
+    sourceAssetId: selectedBackgroundRemovalImage?.assetId ?? null,
+    sourceIsManaged: Boolean(
+      selectedBackgroundRemovalImage &&
+      selectedBackgroundRemovalImage.src ===
+        managedMediaSource(selectedBackgroundRemovalImage.assetId)
+    ),
+    editable: inspectorCapabilityContext.documentEditable,
+    applyOutput: applyBackgroundRemovalOutput,
+  })
+
   const setManualZoom = (nextZoom: number) => zoomAtPoint(nextZoom)
 
   const updateNode = (nodeId: string, patch: Partial<SceneNode>) =>
@@ -5356,6 +5399,7 @@ export function StudioShell({
                       targetName: "document image",
                     })
                   }
+                  backgroundRemoval={backgroundRemoval}
                   onApplyTextEditingStyle={applyActiveTextEditingStyle}
                   onApplyTextEditingParagraphStyle={
                     applyActiveTextEditingParagraphStyle
@@ -5624,6 +5668,7 @@ export function StudioShell({
                 onRetryImageSource={(nodeId) =>
                   artboardRef.current?.retryImageSource(nodeId)
                 }
+                backgroundRemoval={backgroundRemoval}
                 onRemoveImageLayer={editor.deleteSelection}
                 onReviewDocumentImage={(localAssetId) =>
                   mediaPickerSession.openRecovery({

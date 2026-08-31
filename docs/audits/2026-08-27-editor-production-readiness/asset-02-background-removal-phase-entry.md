@@ -484,3 +484,44 @@ Focused local verification at this checkpoint:
 - Studio typecheck: passed
 - no provider call, deployment, secret write, paid operation, or remote
   Cloudflare resource operation was performed
+
+## B3 implementation result
+
+Slice B3 is implemented on the isolated background-removal branch. It is not
+independently accepted or merged.
+
+- The Image inspector exposes background removal only for one selected,
+  editable, workspace-managed image. Local-only, curated, source-changed,
+  multi-selection, and review-locked states do not start processing.
+- Start requires an explicit checkbox against the exact configured privacy
+  policy version. Before consent, the control discloses the configured
+  processor, retention, region, cost, and cooperative-cancellation limit.
+- The client sends only the managed asset ID, fixed operation, empty
+  parameters, and exact consent. It uses generated request and idempotency
+  identities and accepts only strict provider-neutral public responses.
+- Queued, running, cancelling, failed, cancelled, and succeeded states have
+  bounded progress and recovery UI. Cancellation and retry carry the expected
+  update timestamp so stale actions fail closed. Failures show only safe codes.
+- A workspace-scoped latest-job lookup restores active or terminal work after
+  reload without resending the source or inventing consent. Selection changes
+  and unmount abort polling; the durable result remains in Media.
+- Successful output has an explicit before/after comparison. Apply resolves the
+  output through the managed-media catalog and existing image replacement
+  coordinator. The canonical document changes only after Fabric and React
+  renderer acknowledgements and records exactly one `Remove background` undo
+  entry. A rejected binding, stale target, or renderer failure keeps the
+  original and leaves the result in Media.
+
+Focused local verification at this checkpoint:
+
+- derivation contract, HTTP, execution, output, client, control, and mounted
+  editor replacement tests: 34/34 passed
+- mounted replacement proof covers both renderer acknowledgements, one history
+  entry, and Undo restoring the original asset
+- Studio typecheck: passed
+- `git diff --check`: passed
+- no provider call, deployment, secret write, paid operation, or remote
+  Cloudflare resource operation was performed
+
+Live compact-keyboard and deployed-provider journeys remain B4 acceptance
+evidence; this local checkpoint does not claim independent acceptance.

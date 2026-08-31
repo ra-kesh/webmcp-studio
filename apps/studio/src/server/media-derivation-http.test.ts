@@ -47,6 +47,7 @@ const principal: StudioPrincipal = {
 const repository = {
   create: vi.fn(),
   get: vi.fn(),
+  latestForSource: vi.fn(),
   retry: vi.fn(),
   requestCancellation: vi.fn(),
 }
@@ -152,6 +153,24 @@ describe("media derivation HTTP", () => {
     )
     expect(repository.get).toHaveBeenCalledWith("workspace-a", jobId)
     expect(response.headers.get("cache-control")).toBe("private, no-store")
+  })
+
+  it("restores the latest source job without exposing provider state", async () => {
+    repository.latestForSource.mockResolvedValue(job("succeeded"))
+    const response = await handlers.latest(
+      new Request(
+        `https://studio.test/v1/studio/assets/${sourceAssetId}/derivations`
+      ),
+      sourceAssetId
+    )
+
+    expect(repository.latestForSource).toHaveBeenCalledWith(
+      "workspace-a",
+      sourceAssetId
+    )
+    expect(await response.json()).toEqual({
+      job: expect.not.objectContaining({ providerKey: expect.anything() }),
+    })
   })
 
   it("rejects stale cancellation and never calls the mutation", async () => {

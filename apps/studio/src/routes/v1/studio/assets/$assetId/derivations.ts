@@ -5,6 +5,10 @@ import { mediaDerivationRouteDependencies } from "../../../../../server/media-de
 export const Route = createFileRoute("/v1/studio/assets/$assetId/derivations")({
   server: {
     handlers: {
+      GET: ({ request, params, context }) =>
+        createMediaDerivationHttpHandlers(
+          mediaDerivationRouteDependencies(context.workerEnv)
+        ).latest(request, params.assetId),
       POST: ({ request, params, context }) =>
         createMediaDerivationHttpHandlers(
           mediaDerivationRouteDependencies(context.workerEnv)

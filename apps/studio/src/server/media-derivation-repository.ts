@@ -353,6 +353,23 @@ export class MediaDerivationRepository {
     return jobFromRow(await this.requiredJob(workspaceId, jobId))
   }
 
+  async latestForSource(
+    workspaceId: string,
+    sourceAssetId: string
+  ): Promise<MediaDerivationJob | null> {
+    const row = await this.db
+      .prepare(
+        `/* derivation:latest-for-source */ SELECT ${jobColumns}
+         FROM media_derivation_jobs
+         WHERE workspace_id = ?1 AND source_asset_id = ?2
+         ORDER BY created_at DESC, id DESC
+         LIMIT 1`
+      )
+      .bind(workspaceId, sourceAssetId)
+      .first<MediaDerivationJobRow>()
+    return row ? jobFromRow(row) : null
+  }
+
   async create(
     workspaceId: string,
     idempotencyKeyInput: string,

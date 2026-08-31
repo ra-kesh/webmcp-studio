@@ -96,6 +96,8 @@ import type {
   EditorImageFrameCommandId,
 } from "@webmcp/editor/commands"
 import type { ImageCropPreviewStore } from "@webmcp/editor/image-crop-preview-store"
+import { BackgroundRemovalControl } from "./background-removal-control"
+import type { BackgroundRemovalModel } from "./use-background-removal"
 import {
   createInspectorSelectionModel,
   deriveInspectorMaskCapabilities,
@@ -1155,6 +1157,7 @@ function NodeInspector({
   onRetryImageSource,
   onRemoveImageLayer,
   onReviewDocumentImage = () => undefined,
+  backgroundRemoval,
   capabilityContext,
   onApplyTextEditingStyle = ignoreTextStylePatch,
   onApplyTextEditingParagraphStyle = ignoreTextParagraphStylePatch,
@@ -1190,6 +1193,7 @@ function NodeInspector({
   onRetryImageSource: (nodeId: string) => void
   onRemoveImageLayer: () => void
   onReviewDocumentImage?: (localAssetId: string) => void
+  backgroundRemoval?: BackgroundRemovalModel
   capabilityContext?: InspectorCapabilityContext
   onApplyTextEditingStyle?: (patch: TextRunStylePatch) => void
   onApplyTextEditingParagraphStyle?: (patch: TextParagraphStylePatch) => void
@@ -2411,6 +2415,14 @@ function NodeInspector({
                 Replace image…
               </Button>
             </div>
+          ) : null}
+          {backgroundRemoval ? (
+            <BackgroundRemovalControl
+              model={backgroundRemoval}
+              sourceAssetId={
+                node.src.startsWith("asset:managed/") ? node.assetId : null
+              }
+            />
           ) : null}
         </InspectorSection>
       ) : null}
@@ -4423,6 +4435,7 @@ export function InspectorSidebar({
   onRetryImageSource,
   onRemoveImageLayer,
   onReviewDocumentImage = () => undefined,
+  backgroundRemoval,
   onApplyTextEditingStyle = ignoreTextStylePatch,
   onApplyTextEditingParagraphStyle = ignoreTextParagraphStylePatch,
   onEditTextLink = ignoreReviewTarget,
@@ -4518,6 +4531,7 @@ export function InspectorSidebar({
   onRetryImageSource: (nodeId: string) => void
   onRemoveImageLayer: () => void
   onReviewDocumentImage?: (localAssetId: string) => void
+  backgroundRemoval?: BackgroundRemovalModel
   onApplyTextEditingStyle?: (patch: TextRunStylePatch) => void
   onApplyTextEditingParagraphStyle?: (patch: TextParagraphStylePatch) => void
   onEditTextLink?: () => void
@@ -4760,6 +4774,7 @@ export function InspectorSidebar({
                 onRetryImageSource={onRetryImageSource}
                 onRemoveImageLayer={onRemoveImageLayer}
                 onReviewDocumentImage={onReviewDocumentImage}
+                backgroundRemoval={backgroundRemoval}
                 capabilityContext={capabilityContext}
                 onApplyTextEditingStyle={onApplyTextEditingStyle}
                 onApplyTextEditingParagraphStyle={

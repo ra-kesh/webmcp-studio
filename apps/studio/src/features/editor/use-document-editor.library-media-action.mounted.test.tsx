@@ -62,22 +62,24 @@ const localMetadata: LocalLibraryMediaMetadata = {
   },
 }
 
-const detail = () =>
-  projectCuratedMediaDetail(item, {
+const detail = (catalogItem: typeof item = item) =>
+  projectCuratedMediaDetail(catalogItem, {
     curatedRank: 0,
     preferences: { favorite: false, lastUsedAt: null, collectionIds: [] },
   })
 
-const content = (): VerifiedCuratedMediaContent => ({
+const content = (
+  catalogItem: typeof item = item
+): VerifiedCuratedMediaContent => ({
   identity: {
-    assetId: item.id,
-    version: item.version,
-    contentSha256: item.contentSha256,
+    assetId: catalogItem.id,
+    version: catalogItem.version,
+    contentSha256: catalogItem.contentSha256,
   },
-  item,
-  canonicalSource: item.resourcePath,
-  bytes: new Uint8Array(item.bytes),
-  src: `data:${item.mimeType};base64,verified-preview`,
+  item: catalogItem,
+  canonicalSource: catalogItem.resourcePath,
+  bytes: new Uint8Array(catalogItem.bytes),
+  src: `data:${catalogItem.mimeType};base64,verified-preview`,
 })
 
 const localSelection = (): ExactDeviceLocalMediaSelection => {
@@ -632,4 +634,111 @@ describe("useDocumentEditor exact library media action", () => {
     await expect(previewWarning.retry()).resolves.toBe(true)
     expect(events.filter((event) => event === "commit")).toHaveLength(1)
   })
+
+  it("commits a renderer-acknowledged background result as one named undo step", async () => {
+    const events: string[] = []
+    const captured = await mount(events)
+    const resultItem = studioMediaManifest[1]
+    let exactDetail = detail()
+    const getExactDetail = vi.fn(async () => exactDetail)
+    const resolveCurated = vi.fn(async (identity) =>
+      content(identity.assetId === resultItem.id ? resultItem : item)
+    )
+    const ports: LibraryMediaActionPreparationPorts = {
+      getExactDetail,
+      resolveCurated,
+      getManagedRecord: vi.fn(async () => null),
+      verifyManagedResource: vi.fn(async () => {
+        throw new Error("Managed media is outside this test")
+      }),
+      recheckLocal: vi.fn(async () => {
+        throw new Error("Local media is outside this test")
+      }),
+    }
+    captured.setPreparationPorts(ports)
+
+    await act(async () => {
+      await expect(
+        captured.editor!.performLibraryMediaAction({
+          correlationId: "background-removal-source",
+          detail: exactDetail,
+          target: {
+            type: "insert",
+            pageId: captured.editor!.activePageId,
+          },
+        })
+      ).resolves.toBe("committed")
+    })
+    const sourceNode = captured.editor!.document.nodes.find(
+      (node) => node.type === "image" && node.assetId === item.id
+    )!
+    exactDetail = detail(resultItem)
+    events.length = 0
+    let replacement!: Promise<"committed" | "no_op" | "rejected">
+    let earlyOutcome: "committed" | "no_op" | "rejected" | undefined
+
+    await act(async () => {
+      replacement = captured.editor!.performLibraryMediaAction(
+        {
+          correlationId: "background-removal-result",
+          detail: exactDetail,
+          target: {
+            type: "replace",
+            pageId: captured.editor!.activePageId,
+            nodeId: sourceNode.id,
+          },
+        },
+        { historyLabel: "Remove background" }
+      )
+      void replacement.then((outcome) => {
+        earlyOutcome = outcome
+      })
+    })
+    await act(async () => {
+      await vi.waitFor(() => expect(getExactDetail).toHaveBeenCalledTimes(2))
+      await vi.waitFor(() => expect(resolveCurated).toHaveBeenCalledTimes(2))
+      await vi.waitFor(
+        () =>
+          expect(
+            captured.editor!.pendingImageReplacement ?? earlyOutcome
+          ).toBeTruthy(),
+        { timeout: 5_000 }
+      )
+      expect(earlyOutcome).toBeUndefined()
+    })
+    await act(async () => {
+      const pending = captured.editor!.pendingImageReplacement!
+      const event = {
+        token: pending.token,
+        nodeId: pending.nodeId,
+        src: pending.previewSrc,
+        readiness: "ready" as const,
+        naturalSize: pending.naturalSize,
+      }
+      expect(
+        captured.editor!.reportImageReplacementRendererState({
+          ...event,
+          renderer: "fabric",
+        })
+      ).toBe("pending")
+      expect(
+        captured.editor!.reportImageReplacementRendererState({
+          ...event,
+          renderer: "react",
+        })
+      ).toBe("committed")
+      await expect(replacement).resolves.toBe("committed")
+    })
+
+    expect(events).toEqual(["commit"])
+    expect(captured.editor!.documentUndoEntry?.label).toBe("Remove background")
+    expect(
+      captured.editor!.document.nodes.find((node) => node.id === sourceNode.id)
+    ).toMatchObject({ assetId: resultItem.id })
+
+    await act(async () => captured.editor!.undo())
+    expect(
+      captured.editor!.document.nodes.find((node) => node.id === sourceNode.id)
+    ).toMatchObject({ assetId: item.id })
+  }, 10_000)
 })
