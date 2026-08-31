@@ -546,7 +546,7 @@ COMPONENT-01 is closed. Team/remote libraries and the broader catalog experience
 
 ## Gate 5 current-HEAD revalidation entry
 
-Status: **active on 2026-08-31; the accepted closure above remains intact**
+Status: **completed on 2026-08-31; current checked-in HEAD revalidated**
 
 - Started from checked-in commit `9faade81` in the isolated
   `codex/component-gate-5` worktree. The dirty main checkout is not part of
@@ -566,6 +566,38 @@ Status: **active on 2026-08-31; the accepted closure above remains intact**
 - General masks and schema-v5 work are excluded. No live server will run on
   port 3000.
 
-The next checkpoint will record exact focused results, any repair required by
-those results, an independent evidence review and the corrected continuation
-ledger state.
+## Gate 5 current-HEAD revalidation result
+
+- Fresh component run
+  `2026-08-31T10-10-15.177Z-62370e02-7cfc-46dc-8836-1c085963e47a`
+  and complete-journey run
+  `2026-08-31T10-10-58.646Z-9e91e255-6f73-4d53-b369-56e89ce35b72`
+  completed through an isolated local Studio on port 3015. Both reports retain
+  Chrome runtime identity, report-bound byte counts and SHA-256 hashes, exact
+  dimensions and zero browser page errors.
+- All three component comparisons pass. The largest changed-pixel ratio is
+  0.4864 percent and the largest RGBA RMSE is 4.0191, below the retained 1.5
+  percent and 6.0 limits.
+- All six complete-journey source and detached-instance comparisons pass. The
+  largest changed-pixel ratio is 0.4367 percent and the largest RGBA RMSE is
+  4.8532 under the same limits. The five-page proposal PDF keeps canonical
+  order and dimensions.
+- The focused matrix passes 93 Document tests, 120 Editor tests, 16 Render View
+  tests, 63 Renderer tests and 51 Studio tests. Document, Editor, Render View,
+  Renderer and Studio typechecks pass. The matrix includes migration, history,
+  component-aware semantic clone and clipboard behavior, template portability,
+  browser persistence, Inspector and Review projections, the canonical
+  create-to-publication journey, and the 1,000-instance propagation and
+  selection bounds.
+- Revalidation found one stale Studio Inspector fixture that applied `fill` to
+  a text node. The canonical text property is `color`; commit `d5d54ac` repairs
+  the fixture and its expected override names. No production path changed.
+- The report-bound pixel verifier is separate from the capture runner and
+  rejects missing, resized or hash-mismatched input before comparison. Its
+  fresh pass, plus the retained independent closure review in
+  `text-02-gate5-independent-review.md`, leaves no open Component Gate 5 P0 or
+  P1 finding.
+
+COMPONENT-01 remains closed. No mask or schema-v5 code was changed, no process
+used port 3000, and the continuation ledger now matches the accepted phase
+state.

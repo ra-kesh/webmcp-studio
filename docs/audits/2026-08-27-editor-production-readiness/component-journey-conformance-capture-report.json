@@ -1,11 +1,11 @@
 {
   "version": 2,
-  "runId": "2026-08-30T20-24-34.290Z-13d3a12d-6e8a-4df5-9c8c-59d1f4855f95",
-  "artifactRoot": "artifacts/runs/2026-08-30T20-24-34.290Z-13d3a12d-6e8a-4df5-9c8c-59d1f4855f95",
+  "runId": "2026-08-31T10-10-58.646Z-9e91e255-6f73-4d53-b369-56e89ce35b72",
+  "artifactRoot": "artifacts/runs/2026-08-31T10-10-58.646Z-9e91e255-6f73-4d53-b369-56e89ce35b72",
   "corpus": "component-journey",
   "documentId": "doc-northstar-aditi-kabir",
   "revision": 10,
-  "baseUrl": "http://localhost:3001",
+  "baseUrl": "http://127.0.0.1:3015",
   "deviceScaleFactor": 1,
   "browserCaptureRuntime": {
     "browserVersion": "152.0.7977.64",
@@ -259,8 +259,8 @@
     },
     {
       "path": "renderer-png/whatsapp-card.png",
-      "bytes": 61222,
-      "sha256": "2298cadee451b59bf5e2ae30195a4f0500558ff2b93379fa3253487f20d9986f",
+      "bytes": 61231,
+      "sha256": "d7e01de07086dac93512ff3d4aa6224d15282b5da2ee27cfc329bf3ecb5a2958",
       "width": 1080,
       "height": 1350
     },
@@ -274,7 +274,7 @@
     {
       "path": "renderer-pdf/proposal.pdf",
       "bytes": 209173,
-      "sha256": "9e1ba6bb81949c5b45a2237107fd59158745c294ab3a1f5b57fb099973d6b303"
+      "sha256": "f2f41889964acb6e4798f6a4714a08f655168c2754f825cb01f9942e8cfa1b6b"
     },
     {
       "path": "renderer-pdf/cover.png",

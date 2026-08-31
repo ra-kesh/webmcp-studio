@@ -3559,6 +3559,25 @@ Status: **completed and independently accepted; LIBRARY-02 is active**
 - Independent final review reports no remaining P0/P1 finding and explicitly approves both phase closures. Integrated evidence passes Document 314/314, Editor 327/327, Render View 16/16, Renderer 70/70 and focused Studio 71/71.
 - TEXT-02 and COMPONENT-01 are closed. The next active gate is LIBRARY-02 compact catalog contracts and real template/media projections.
 
+## COMPONENT-01 Gate 5 current-HEAD revalidation, 2026-08-31
+
+Status: **completed; accepted closure retained with fresh evidence**
+
+- Re-read the component gate, conformance contract, OpenPencil component and
+  materialized-instance paths, and Loora resolver, validation, transaction,
+  history and agent-operation paths before running current-HEAD evidence.
+- Fresh isolated-port component and complete-journey captures on port 3015
+  completed with zero browser page errors. Every Fabric, React, Renderer PNG
+  and rasterized-PDF comparison passes the retained raw limits. Reports bind
+  each artifact by byte count, SHA-256 and canonical dimensions.
+- The focused matrix passes 93 Document, 120 Editor, 16 Render View, 63
+  Renderer and 51 Studio tests plus all five affected package typechecks. Both
+  1,000-instance bounds pass.
+- Repaired one invalid Inspector test fixture that used shape `fill` on a text
+  node instead of canonical `color`. No production code changed.
+- The authoritative continuation ledger now records COMPONENT-01 as completed.
+  No mask/schema-v5 file changed and no process used port 3000.
+
 ## 2026-08-31 — LIBRARY-02 Gate 1 catalog domain and compatibility
 
 Status: **closed and independently accepted; Gate 2 is active**

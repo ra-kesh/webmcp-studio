@@ -1,11 +1,11 @@
 {
   "version": 2,
-  "runId": "2026-08-30T20-24-01.428Z-ffdf6a4f-3f2d-43a0-bc6b-4dea01935749",
-  "artifactRoot": "artifacts/runs/2026-08-30T20-24-01.428Z-ffdf6a4f-3f2d-43a0-bc6b-4dea01935749",
+  "runId": "2026-08-31T10-10-15.177Z-62370e02-7cfc-46dc-8836-1c085963e47a",
+  "artifactRoot": "artifacts/runs/2026-08-31T10-10-15.177Z-62370e02-7cfc-46dc-8836-1c085963e47a",
   "corpus": "components",
   "documentId": "component-render-conformance-v1",
   "revision": 2,
-  "baseUrl": "http://localhost:3001",
+  "baseUrl": "http://127.0.0.1:3015",
   "deviceScaleFactor": 1,
   "browserCaptureRuntime": {
     "browserVersion": "152.0.7977.64",
@@ -44,8 +44,8 @@
   "artifacts": [
     {
       "path": "render-view/component-render-page.png",
-      "bytes": 17865,
-      "sha256": "c1e221c1fb6a00c601fe84a153e1c6acdde7af1c600acff96425686593390802",
+      "bytes": 17835,
+      "sha256": "562470a6cdd1c84b1fe87d0403fdf756a986ebb46171cb3b51ab9c25fa8971b5",
       "width": 900,
       "height": 700
     },
@@ -66,7 +66,7 @@
     {
       "path": "renderer-pdf/component-render-output.pdf",
       "bytes": 5983,
-      "sha256": "0fb90780c895b6246be9c7cc52f5e02bcf97e7982efec7e55b424a75d93af31f"
+      "sha256": "2659ea12b71bb1c2ad513e2879dab34661748174ce7587796b3a8fabe8aaffc8"
     },
     {
       "path": "renderer-pdf/component-render-page.png",
