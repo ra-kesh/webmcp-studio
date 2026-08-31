@@ -8,6 +8,7 @@ import type {
   LibraryCatalogItemSummary,
   LibraryCatalogPage,
   LibraryCatalogQueryInput,
+  LibraryPermissionProjection,
   LibraryPreferenceState,
 } from "@webmcp/document"
 import {
@@ -54,12 +55,17 @@ const identityKey = (identity: {
   version: number
 }) => `${identity.itemKind}:${identity.id}@${identity.version}`
 
-const compactProjection = (preference: LibraryPreferenceState | undefined) =>
+const compactProjection = (
+  preference: LibraryPreferenceState | undefined,
+  permissions: LibraryPermissionProjection
+) =>
   preference
     ? {
-        favorite: preference.favorite,
+        favorite: permissions.canFavorite ? preference.favorite : false,
         lastUsedAt: preference.lastUsedAt,
-        collectionIds: [...preference.collectionIds],
+        collectionIds: permissions.canAddToCollection
+          ? [...preference.collectionIds]
+          : [],
       }
     : { favorite: false, lastUsedAt: null, collectionIds: [] }
 
@@ -123,7 +129,8 @@ export class LibraryCatalogService {
       summary: {
         ...base.summary,
         preferences: compactProjection(
-          byIdentity.get(identityKey(base.summary))
+          byIdentity.get(identityKey(base.summary)),
+          base.summary.permissions
         ),
       },
     })
@@ -134,7 +141,10 @@ export class LibraryCatalogService {
     const byIdentity = this.#preferenceMap(projection.preferences)
     const summaries = this.#baseSummaries.map((summary) => ({
       ...summary,
-      preferences: compactProjection(byIdentity.get(identityKey(summary))),
+      preferences: compactProjection(
+        byIdentity.get(identityKey(summary)),
+        summary.permissions
+      ),
     }))
     return new LibraryCatalogIndex(
       `${this.#baseCatalogRevision}:w${projection.workspaceRevision}`,

@@ -22,6 +22,7 @@ import { Route as V1StudioQuotationCompositionsRouteImport } from './routes/v1/s
 import { Route as V1StudioRenderRouteImport } from './routes/v1/studio/render'
 import { Route as V1StudioAssetsIndexRouteImport } from './routes/v1/studio/assets/index'
 import { Route as V1StudioAssetsAssetIdRouteImport } from './routes/v1/studio/assets/$assetId'
+import { Route as V1StudioLibraryPreferencesRouteImport } from './routes/v1/studio/library/preferences'
 import { Route as V1StudioRendersIndexRouteImport } from './routes/v1/studio/renders/index'
 import { Route as V1StudioSessionResetRouteImport } from './routes/v1/studio/session/reset'
 import { Route as V1StudioSessionTokenRouteImport } from './routes/v1/studio/session/token'
@@ -34,7 +35,15 @@ import { Route as V1StudioAssetsAssetIdUsedRouteImport } from './routes/v1/studi
 import { Route as V1StudioAssetsLocalPromotionsIndexRouteImport } from './routes/v1/studio/assets/local-promotions/index'
 import { Route as V1StudioAssetsLocalPromotionsLocalAssetIdRouteImport } from './routes/v1/studio/assets/local-promotions/$localAssetId'
 import { Route as V1StudioAssetsLocalPromotionsResolveRouteImport } from './routes/v1/studio/assets/local-promotions/resolve'
+import { Route as V1StudioLibraryCollectionsIndexRouteImport } from './routes/v1/studio/library/collections/index'
+import { Route as V1StudioLibraryCollectionsCollectionIdRouteImport } from './routes/v1/studio/library/collections/$collectionId'
+import { Route as V1StudioLibraryItemsIndexRouteImport } from './routes/v1/studio/library/items/index'
 import { Route as V1StudioDocumentsDocumentIdRevisionsSnapshotIdRouteImport } from './routes/v1/studio/documents/$documentId/revisions/$snapshotId'
+import { Route as V1StudioLibraryCollectionsCollectionIdOrderRouteImport } from './routes/v1/studio/library/collections/$collectionId/order'
+import { Route as V1StudioLibraryItemsItemKindItemIdVersionsVersionRouteImport } from './routes/v1/studio/library/items/$itemKind/$itemId/versions/$version'
+import { Route as V1StudioLibraryItemsItemKindItemIdVersionsVersionFavoriteRouteImport } from './routes/v1/studio/library/items/$itemKind/$itemId/versions/$version.favorite'
+import { Route as V1StudioLibraryItemsItemKindItemIdVersionsVersionUsedRouteImport } from './routes/v1/studio/library/items/$itemKind/$itemId/versions/$version.used'
+import { Route as V1StudioLibraryCollectionsCollectionIdItemsItemKindItemIdVersionsVersionRouteImport } from './routes/v1/studio/library/collections/$collectionId/items/$itemKind/$itemId/versions/$version'
 
 const StudioRouteRoute = StudioRouteRouteImport.update({
   id: '/_studio',
@@ -102,6 +111,12 @@ const V1StudioAssetsAssetIdRoute = V1StudioAssetsAssetIdRouteImport.update({
   path: '/v1/studio/assets/$assetId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const V1StudioLibraryPreferencesRoute =
+  V1StudioLibraryPreferencesRouteImport.update({
+    id: '/v1/studio/library/preferences',
+    path: '/v1/studio/library/preferences',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const V1StudioRendersIndexRoute = V1StudioRendersIndexRouteImport.update({
   id: '/v1/studio/renders/',
   path: '/v1/studio/renders/',
@@ -170,12 +185,64 @@ const V1StudioAssetsLocalPromotionsResolveRoute =
     path: '/v1/studio/assets/local-promotions/resolve',
     getParentRoute: () => rootRouteImport,
   } as any)
+const V1StudioLibraryCollectionsIndexRoute =
+  V1StudioLibraryCollectionsIndexRouteImport.update({
+    id: '/v1/studio/library/collections/',
+    path: '/v1/studio/library/collections/',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const V1StudioLibraryCollectionsCollectionIdRoute =
+  V1StudioLibraryCollectionsCollectionIdRouteImport.update({
+    id: '/v1/studio/library/collections/$collectionId',
+    path: '/v1/studio/library/collections/$collectionId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const V1StudioLibraryItemsIndexRoute =
+  V1StudioLibraryItemsIndexRouteImport.update({
+    id: '/v1/studio/library/items/',
+    path: '/v1/studio/library/items/',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute =
   V1StudioDocumentsDocumentIdRevisionsSnapshotIdRouteImport.update({
     id: '/v1/studio/documents/$documentId/revisions/$snapshotId',
     path: '/v1/studio/documents/$documentId/revisions/$snapshotId',
     getParentRoute: () => rootRouteImport,
   } as any)
+const V1StudioLibraryCollectionsCollectionIdOrderRoute =
+  V1StudioLibraryCollectionsCollectionIdOrderRouteImport.update({
+    id: '/order',
+    path: '/order',
+    getParentRoute: () => V1StudioLibraryCollectionsCollectionIdRoute,
+  } as any)
+const V1StudioLibraryItemsItemKindItemIdVersionsVersionRoute =
+  V1StudioLibraryItemsItemKindItemIdVersionsVersionRouteImport.update({
+    id: '/v1/studio/library/items/$itemKind/$itemId/versions/$version',
+    path: '/v1/studio/library/items/$itemKind/$itemId/versions/$version',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const V1StudioLibraryItemsItemKindItemIdVersionsVersionFavoriteRoute =
+  V1StudioLibraryItemsItemKindItemIdVersionsVersionFavoriteRouteImport.update({
+    id: '/favorite',
+    path: '/favorite',
+    getParentRoute: () =>
+      V1StudioLibraryItemsItemKindItemIdVersionsVersionRoute,
+  } as any)
+const V1StudioLibraryItemsItemKindItemIdVersionsVersionUsedRoute =
+  V1StudioLibraryItemsItemKindItemIdVersionsVersionUsedRouteImport.update({
+    id: '/used',
+    path: '/used',
+    getParentRoute: () =>
+      V1StudioLibraryItemsItemKindItemIdVersionsVersionRoute,
+  } as any)
+const V1StudioLibraryCollectionsCollectionIdItemsItemKindItemIdVersionsVersionRoute =
+  V1StudioLibraryCollectionsCollectionIdItemsItemKindItemIdVersionsVersionRouteImport.update(
+    {
+      id: '/items/$itemKind/$itemId/versions/$version',
+      path: '/items/$itemKind/$itemId/versions/$version',
+      getParentRoute: () => V1StudioLibraryCollectionsCollectionIdRoute,
+    } as any,
+  )
 
 export interface FileRoutesByFullPath {
   '/': typeof StudioIndexRoute
@@ -189,6 +256,7 @@ export interface FileRoutesByFullPath {
   '/v1/studio/quotation-compositions': typeof V1StudioQuotationCompositionsRoute
   '/v1/studio/render': typeof V1StudioRenderRoute
   '/v1/studio/assets/$assetId': typeof V1StudioAssetsAssetIdRouteWithChildren
+  '/v1/studio/library/preferences': typeof V1StudioLibraryPreferencesRoute
   '/v1/studio/session/reset': typeof V1StudioSessionResetRoute
   '/v1/studio/session/token': typeof V1StudioSessionTokenRoute
   '/v1/studio/templates/$templateId': typeof V1StudioTemplatesTemplateIdRoute
@@ -201,8 +269,16 @@ export interface FileRoutesByFullPath {
   '/v1/studio/assets/$assetId/used': typeof V1StudioAssetsAssetIdUsedRoute
   '/v1/studio/assets/local-promotions/$localAssetId': typeof V1StudioAssetsLocalPromotionsLocalAssetIdRoute
   '/v1/studio/assets/local-promotions/resolve': typeof V1StudioAssetsLocalPromotionsResolveRoute
+  '/v1/studio/library/collections/$collectionId': typeof V1StudioLibraryCollectionsCollectionIdRouteWithChildren
   '/v1/studio/assets/local-promotions/': typeof V1StudioAssetsLocalPromotionsIndexRoute
+  '/v1/studio/library/collections/': typeof V1StudioLibraryCollectionsIndexRoute
+  '/v1/studio/library/items/': typeof V1StudioLibraryItemsIndexRoute
   '/v1/studio/documents/$documentId/revisions/$snapshotId': typeof V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute
+  '/v1/studio/library/collections/$collectionId/order': typeof V1StudioLibraryCollectionsCollectionIdOrderRoute
+  '/v1/studio/library/items/$itemKind/$itemId/versions/$version': typeof V1StudioLibraryItemsItemKindItemIdVersionsVersionRouteWithChildren
+  '/v1/studio/library/items/$itemKind/$itemId/versions/$version/favorite': typeof V1StudioLibraryItemsItemKindItemIdVersionsVersionFavoriteRoute
+  '/v1/studio/library/items/$itemKind/$itemId/versions/$version/used': typeof V1StudioLibraryItemsItemKindItemIdVersionsVersionUsedRoute
+  '/v1/studio/library/collections/$collectionId/items/$itemKind/$itemId/versions/$version': typeof V1StudioLibraryCollectionsCollectionIdItemsItemKindItemIdVersionsVersionRoute
 }
 export interface FileRoutesByTo {
   '/render-conformance': typeof RenderConformanceRoute
@@ -216,6 +292,7 @@ export interface FileRoutesByTo {
   '/v1/studio/quotation-compositions': typeof V1StudioQuotationCompositionsRoute
   '/v1/studio/render': typeof V1StudioRenderRoute
   '/v1/studio/assets/$assetId': typeof V1StudioAssetsAssetIdRouteWithChildren
+  '/v1/studio/library/preferences': typeof V1StudioLibraryPreferencesRoute
   '/v1/studio/session/reset': typeof V1StudioSessionResetRoute
   '/v1/studio/session/token': typeof V1StudioSessionTokenRoute
   '/v1/studio/templates/$templateId': typeof V1StudioTemplatesTemplateIdRoute
@@ -228,8 +305,16 @@ export interface FileRoutesByTo {
   '/v1/studio/assets/$assetId/used': typeof V1StudioAssetsAssetIdUsedRoute
   '/v1/studio/assets/local-promotions/$localAssetId': typeof V1StudioAssetsLocalPromotionsLocalAssetIdRoute
   '/v1/studio/assets/local-promotions/resolve': typeof V1StudioAssetsLocalPromotionsResolveRoute
+  '/v1/studio/library/collections/$collectionId': typeof V1StudioLibraryCollectionsCollectionIdRouteWithChildren
   '/v1/studio/assets/local-promotions': typeof V1StudioAssetsLocalPromotionsIndexRoute
+  '/v1/studio/library/collections': typeof V1StudioLibraryCollectionsIndexRoute
+  '/v1/studio/library/items': typeof V1StudioLibraryItemsIndexRoute
   '/v1/studio/documents/$documentId/revisions/$snapshotId': typeof V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute
+  '/v1/studio/library/collections/$collectionId/order': typeof V1StudioLibraryCollectionsCollectionIdOrderRoute
+  '/v1/studio/library/items/$itemKind/$itemId/versions/$version': typeof V1StudioLibraryItemsItemKindItemIdVersionsVersionRouteWithChildren
+  '/v1/studio/library/items/$itemKind/$itemId/versions/$version/favorite': typeof V1StudioLibraryItemsItemKindItemIdVersionsVersionFavoriteRoute
+  '/v1/studio/library/items/$itemKind/$itemId/versions/$version/used': typeof V1StudioLibraryItemsItemKindItemIdVersionsVersionUsedRoute
+  '/v1/studio/library/collections/$collectionId/items/$itemKind/$itemId/versions/$version': typeof V1StudioLibraryCollectionsCollectionIdItemsItemKindItemIdVersionsVersionRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -245,6 +330,7 @@ export interface FileRoutesById {
   '/v1/studio/quotation-compositions': typeof V1StudioQuotationCompositionsRoute
   '/v1/studio/render': typeof V1StudioRenderRoute
   '/v1/studio/assets/$assetId': typeof V1StudioAssetsAssetIdRouteWithChildren
+  '/v1/studio/library/preferences': typeof V1StudioLibraryPreferencesRoute
   '/v1/studio/session/reset': typeof V1StudioSessionResetRoute
   '/v1/studio/session/token': typeof V1StudioSessionTokenRoute
   '/v1/studio/templates/$templateId': typeof V1StudioTemplatesTemplateIdRoute
@@ -257,8 +343,16 @@ export interface FileRoutesById {
   '/v1/studio/assets/$assetId/used': typeof V1StudioAssetsAssetIdUsedRoute
   '/v1/studio/assets/local-promotions/$localAssetId': typeof V1StudioAssetsLocalPromotionsLocalAssetIdRoute
   '/v1/studio/assets/local-promotions/resolve': typeof V1StudioAssetsLocalPromotionsResolveRoute
+  '/v1/studio/library/collections/$collectionId': typeof V1StudioLibraryCollectionsCollectionIdRouteWithChildren
   '/v1/studio/assets/local-promotions/': typeof V1StudioAssetsLocalPromotionsIndexRoute
+  '/v1/studio/library/collections/': typeof V1StudioLibraryCollectionsIndexRoute
+  '/v1/studio/library/items/': typeof V1StudioLibraryItemsIndexRoute
   '/v1/studio/documents/$documentId/revisions/$snapshotId': typeof V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute
+  '/v1/studio/library/collections/$collectionId/order': typeof V1StudioLibraryCollectionsCollectionIdOrderRoute
+  '/v1/studio/library/items/$itemKind/$itemId/versions/$version': typeof V1StudioLibraryItemsItemKindItemIdVersionsVersionRouteWithChildren
+  '/v1/studio/library/items/$itemKind/$itemId/versions/$version/favorite': typeof V1StudioLibraryItemsItemKindItemIdVersionsVersionFavoriteRoute
+  '/v1/studio/library/items/$itemKind/$itemId/versions/$version/used': typeof V1StudioLibraryItemsItemKindItemIdVersionsVersionUsedRoute
+  '/v1/studio/library/collections/$collectionId/items/$itemKind/$itemId/versions/$version': typeof V1StudioLibraryCollectionsCollectionIdItemsItemKindItemIdVersionsVersionRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -274,6 +368,7 @@ export interface FileRouteTypes {
     | '/v1/studio/quotation-compositions'
     | '/v1/studio/render'
     | '/v1/studio/assets/$assetId'
+    | '/v1/studio/library/preferences'
     | '/v1/studio/session/reset'
     | '/v1/studio/session/token'
     | '/v1/studio/templates/$templateId'
@@ -286,8 +381,16 @@ export interface FileRouteTypes {
     | '/v1/studio/assets/$assetId/used'
     | '/v1/studio/assets/local-promotions/$localAssetId'
     | '/v1/studio/assets/local-promotions/resolve'
+    | '/v1/studio/library/collections/$collectionId'
     | '/v1/studio/assets/local-promotions/'
+    | '/v1/studio/library/collections/'
+    | '/v1/studio/library/items/'
     | '/v1/studio/documents/$documentId/revisions/$snapshotId'
+    | '/v1/studio/library/collections/$collectionId/order'
+    | '/v1/studio/library/items/$itemKind/$itemId/versions/$version'
+    | '/v1/studio/library/items/$itemKind/$itemId/versions/$version/favorite'
+    | '/v1/studio/library/items/$itemKind/$itemId/versions/$version/used'
+    | '/v1/studio/library/collections/$collectionId/items/$itemKind/$itemId/versions/$version'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/render-conformance'
@@ -301,6 +404,7 @@ export interface FileRouteTypes {
     | '/v1/studio/quotation-compositions'
     | '/v1/studio/render'
     | '/v1/studio/assets/$assetId'
+    | '/v1/studio/library/preferences'
     | '/v1/studio/session/reset'
     | '/v1/studio/session/token'
     | '/v1/studio/templates/$templateId'
@@ -313,8 +417,16 @@ export interface FileRouteTypes {
     | '/v1/studio/assets/$assetId/used'
     | '/v1/studio/assets/local-promotions/$localAssetId'
     | '/v1/studio/assets/local-promotions/resolve'
+    | '/v1/studio/library/collections/$collectionId'
     | '/v1/studio/assets/local-promotions'
+    | '/v1/studio/library/collections'
+    | '/v1/studio/library/items'
     | '/v1/studio/documents/$documentId/revisions/$snapshotId'
+    | '/v1/studio/library/collections/$collectionId/order'
+    | '/v1/studio/library/items/$itemKind/$itemId/versions/$version'
+    | '/v1/studio/library/items/$itemKind/$itemId/versions/$version/favorite'
+    | '/v1/studio/library/items/$itemKind/$itemId/versions/$version/used'
+    | '/v1/studio/library/collections/$collectionId/items/$itemKind/$itemId/versions/$version'
   id:
     | '__root__'
     | '/_studio'
@@ -329,6 +441,7 @@ export interface FileRouteTypes {
     | '/v1/studio/quotation-compositions'
     | '/v1/studio/render'
     | '/v1/studio/assets/$assetId'
+    | '/v1/studio/library/preferences'
     | '/v1/studio/session/reset'
     | '/v1/studio/session/token'
     | '/v1/studio/templates/$templateId'
@@ -341,8 +454,16 @@ export interface FileRouteTypes {
     | '/v1/studio/assets/$assetId/used'
     | '/v1/studio/assets/local-promotions/$localAssetId'
     | '/v1/studio/assets/local-promotions/resolve'
+    | '/v1/studio/library/collections/$collectionId'
     | '/v1/studio/assets/local-promotions/'
+    | '/v1/studio/library/collections/'
+    | '/v1/studio/library/items/'
     | '/v1/studio/documents/$documentId/revisions/$snapshotId'
+    | '/v1/studio/library/collections/$collectionId/order'
+    | '/v1/studio/library/items/$itemKind/$itemId/versions/$version'
+    | '/v1/studio/library/items/$itemKind/$itemId/versions/$version/favorite'
+    | '/v1/studio/library/items/$itemKind/$itemId/versions/$version/used'
+    | '/v1/studio/library/collections/$collectionId/items/$itemKind/$itemId/versions/$version'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -356,6 +477,7 @@ export interface RootRouteChildren {
   V1StudioQuotationCompositionsRoute: typeof V1StudioQuotationCompositionsRoute
   V1StudioRenderRoute: typeof V1StudioRenderRoute
   V1StudioAssetsAssetIdRoute: typeof V1StudioAssetsAssetIdRouteWithChildren
+  V1StudioLibraryPreferencesRoute: typeof V1StudioLibraryPreferencesRoute
   V1StudioSessionResetRoute: typeof V1StudioSessionResetRoute
   V1StudioSessionTokenRoute: typeof V1StudioSessionTokenRoute
   V1StudioTemplatesTemplateIdRoute: typeof V1StudioTemplatesTemplateIdRoute
@@ -364,8 +486,12 @@ export interface RootRouteChildren {
   V1StudioTemplatesIndexRoute: typeof V1StudioTemplatesIndexRoute
   V1StudioAssetsLocalPromotionsLocalAssetIdRoute: typeof V1StudioAssetsLocalPromotionsLocalAssetIdRoute
   V1StudioAssetsLocalPromotionsResolveRoute: typeof V1StudioAssetsLocalPromotionsResolveRoute
+  V1StudioLibraryCollectionsCollectionIdRoute: typeof V1StudioLibraryCollectionsCollectionIdRouteWithChildren
   V1StudioAssetsLocalPromotionsIndexRoute: typeof V1StudioAssetsLocalPromotionsIndexRoute
+  V1StudioLibraryCollectionsIndexRoute: typeof V1StudioLibraryCollectionsIndexRoute
+  V1StudioLibraryItemsIndexRoute: typeof V1StudioLibraryItemsIndexRoute
   V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute: typeof V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute
+  V1StudioLibraryItemsItemKindItemIdVersionsVersionRoute: typeof V1StudioLibraryItemsItemKindItemIdVersionsVersionRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -461,6 +587,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof V1StudioAssetsAssetIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/v1/studio/library/preferences': {
+      id: '/v1/studio/library/preferences'
+      path: '/v1/studio/library/preferences'
+      fullPath: '/v1/studio/library/preferences'
+      preLoaderRoute: typeof V1StudioLibraryPreferencesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/v1/studio/renders/': {
       id: '/v1/studio/renders/'
       path: '/v1/studio/renders'
@@ -545,12 +678,68 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof V1StudioAssetsLocalPromotionsResolveRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/v1/studio/library/collections/': {
+      id: '/v1/studio/library/collections/'
+      path: '/v1/studio/library/collections'
+      fullPath: '/v1/studio/library/collections/'
+      preLoaderRoute: typeof V1StudioLibraryCollectionsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/v1/studio/library/collections/$collectionId': {
+      id: '/v1/studio/library/collections/$collectionId'
+      path: '/v1/studio/library/collections/$collectionId'
+      fullPath: '/v1/studio/library/collections/$collectionId'
+      preLoaderRoute: typeof V1StudioLibraryCollectionsCollectionIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/v1/studio/library/items/': {
+      id: '/v1/studio/library/items/'
+      path: '/v1/studio/library/items'
+      fullPath: '/v1/studio/library/items/'
+      preLoaderRoute: typeof V1StudioLibraryItemsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/v1/studio/documents/$documentId/revisions/$snapshotId': {
       id: '/v1/studio/documents/$documentId/revisions/$snapshotId'
       path: '/v1/studio/documents/$documentId/revisions/$snapshotId'
       fullPath: '/v1/studio/documents/$documentId/revisions/$snapshotId'
       preLoaderRoute: typeof V1StudioDocumentsDocumentIdRevisionsSnapshotIdRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/v1/studio/library/collections/$collectionId/order': {
+      id: '/v1/studio/library/collections/$collectionId/order'
+      path: '/order'
+      fullPath: '/v1/studio/library/collections/$collectionId/order'
+      preLoaderRoute: typeof V1StudioLibraryCollectionsCollectionIdOrderRouteImport
+      parentRoute: typeof V1StudioLibraryCollectionsCollectionIdRoute
+    }
+    '/v1/studio/library/items/$itemKind/$itemId/versions/$version': {
+      id: '/v1/studio/library/items/$itemKind/$itemId/versions/$version'
+      path: '/v1/studio/library/items/$itemKind/$itemId/versions/$version'
+      fullPath: '/v1/studio/library/items/$itemKind/$itemId/versions/$version'
+      preLoaderRoute: typeof V1StudioLibraryItemsItemKindItemIdVersionsVersionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/v1/studio/library/items/$itemKind/$itemId/versions/$version/favorite': {
+      id: '/v1/studio/library/items/$itemKind/$itemId/versions/$version/favorite'
+      path: '/favorite'
+      fullPath: '/v1/studio/library/items/$itemKind/$itemId/versions/$version/favorite'
+      preLoaderRoute: typeof V1StudioLibraryItemsItemKindItemIdVersionsVersionFavoriteRouteImport
+      parentRoute: typeof V1StudioLibraryItemsItemKindItemIdVersionsVersionRoute
+    }
+    '/v1/studio/library/items/$itemKind/$itemId/versions/$version/used': {
+      id: '/v1/studio/library/items/$itemKind/$itemId/versions/$version/used'
+      path: '/used'
+      fullPath: '/v1/studio/library/items/$itemKind/$itemId/versions/$version/used'
+      preLoaderRoute: typeof V1StudioLibraryItemsItemKindItemIdVersionsVersionUsedRouteImport
+      parentRoute: typeof V1StudioLibraryItemsItemKindItemIdVersionsVersionRoute
+    }
+    '/v1/studio/library/collections/$collectionId/items/$itemKind/$itemId/versions/$version': {
+      id: '/v1/studio/library/collections/$collectionId/items/$itemKind/$itemId/versions/$version'
+      path: '/items/$itemKind/$itemId/versions/$version'
+      fullPath: '/v1/studio/library/collections/$collectionId/items/$itemKind/$itemId/versions/$version'
+      preLoaderRoute: typeof V1StudioLibraryCollectionsCollectionIdItemsItemKindItemIdVersionsVersionRouteImport
+      parentRoute: typeof V1StudioLibraryCollectionsCollectionIdRoute
     }
   }
 }
@@ -598,6 +787,42 @@ const V1StudioAssetsAssetIdRouteWithChildren =
     V1StudioAssetsAssetIdRouteChildren,
   )
 
+interface V1StudioLibraryCollectionsCollectionIdRouteChildren {
+  V1StudioLibraryCollectionsCollectionIdOrderRoute: typeof V1StudioLibraryCollectionsCollectionIdOrderRoute
+  V1StudioLibraryCollectionsCollectionIdItemsItemKindItemIdVersionsVersionRoute: typeof V1StudioLibraryCollectionsCollectionIdItemsItemKindItemIdVersionsVersionRoute
+}
+
+const V1StudioLibraryCollectionsCollectionIdRouteChildren: V1StudioLibraryCollectionsCollectionIdRouteChildren =
+  {
+    V1StudioLibraryCollectionsCollectionIdOrderRoute:
+      V1StudioLibraryCollectionsCollectionIdOrderRoute,
+    V1StudioLibraryCollectionsCollectionIdItemsItemKindItemIdVersionsVersionRoute:
+      V1StudioLibraryCollectionsCollectionIdItemsItemKindItemIdVersionsVersionRoute,
+  }
+
+const V1StudioLibraryCollectionsCollectionIdRouteWithChildren =
+  V1StudioLibraryCollectionsCollectionIdRoute._addFileChildren(
+    V1StudioLibraryCollectionsCollectionIdRouteChildren,
+  )
+
+interface V1StudioLibraryItemsItemKindItemIdVersionsVersionRouteChildren {
+  V1StudioLibraryItemsItemKindItemIdVersionsVersionFavoriteRoute: typeof V1StudioLibraryItemsItemKindItemIdVersionsVersionFavoriteRoute
+  V1StudioLibraryItemsItemKindItemIdVersionsVersionUsedRoute: typeof V1StudioLibraryItemsItemKindItemIdVersionsVersionUsedRoute
+}
+
+const V1StudioLibraryItemsItemKindItemIdVersionsVersionRouteChildren: V1StudioLibraryItemsItemKindItemIdVersionsVersionRouteChildren =
+  {
+    V1StudioLibraryItemsItemKindItemIdVersionsVersionFavoriteRoute:
+      V1StudioLibraryItemsItemKindItemIdVersionsVersionFavoriteRoute,
+    V1StudioLibraryItemsItemKindItemIdVersionsVersionUsedRoute:
+      V1StudioLibraryItemsItemKindItemIdVersionsVersionUsedRoute,
+  }
+
+const V1StudioLibraryItemsItemKindItemIdVersionsVersionRouteWithChildren =
+  V1StudioLibraryItemsItemKindItemIdVersionsVersionRoute._addFileChildren(
+    V1StudioLibraryItemsItemKindItemIdVersionsVersionRouteChildren,
+  )
+
 const rootRouteChildren: RootRouteChildren = {
   StudioRouteRoute: StudioRouteRouteWithChildren,
   RenderConformanceRoute: RenderConformanceRoute,
@@ -609,6 +834,7 @@ const rootRouteChildren: RootRouteChildren = {
   V1StudioQuotationCompositionsRoute: V1StudioQuotationCompositionsRoute,
   V1StudioRenderRoute: V1StudioRenderRoute,
   V1StudioAssetsAssetIdRoute: V1StudioAssetsAssetIdRouteWithChildren,
+  V1StudioLibraryPreferencesRoute: V1StudioLibraryPreferencesRoute,
   V1StudioSessionResetRoute: V1StudioSessionResetRoute,
   V1StudioSessionTokenRoute: V1StudioSessionTokenRoute,
   V1StudioTemplatesTemplateIdRoute: V1StudioTemplatesTemplateIdRoute,
@@ -619,10 +845,16 @@ const rootRouteChildren: RootRouteChildren = {
     V1StudioAssetsLocalPromotionsLocalAssetIdRoute,
   V1StudioAssetsLocalPromotionsResolveRoute:
     V1StudioAssetsLocalPromotionsResolveRoute,
+  V1StudioLibraryCollectionsCollectionIdRoute:
+    V1StudioLibraryCollectionsCollectionIdRouteWithChildren,
   V1StudioAssetsLocalPromotionsIndexRoute:
     V1StudioAssetsLocalPromotionsIndexRoute,
+  V1StudioLibraryCollectionsIndexRoute: V1StudioLibraryCollectionsIndexRoute,
+  V1StudioLibraryItemsIndexRoute: V1StudioLibraryItemsIndexRoute,
   V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute:
     V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute,
+  V1StudioLibraryItemsItemKindItemIdVersionsVersionRoute:
+    V1StudioLibraryItemsItemKindItemIdVersionsVersionRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

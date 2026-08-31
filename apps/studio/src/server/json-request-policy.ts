@@ -1,6 +1,8 @@
 import { readJsonBody } from "@webmcp/worker-boundary"
 import type { ReadJsonBodyOptions } from "@webmcp/worker-boundary"
 
+export const LIBRARY_COLLECTION_REORDER_MAX_BYTES = 132_000
+
 export const studioJsonRequestPolicies = {
   "/v1/studio/export-png": {
     maxBytes: 8_000_000,
@@ -28,6 +30,31 @@ export const studioJsonRequestPolicies = {
   },
   "/v1/studio/assets/local-promotions/resolve": {
     maxBytes: 32_000,
+    requireContentLength: true,
+  },
+  "/v1/studio/library/items/:itemKind/:itemId/versions/:version/favorite": {
+    maxBytes: 1_024,
+    requireContentLength: true,
+  },
+  "/v1/studio/library/items/:itemKind/:itemId/versions/:version/used": {
+    maxBytes: 2_048,
+    requireContentLength: true,
+  },
+  "/v1/studio/library/collections": {
+    maxBytes: 4_096,
+    requireContentLength: true,
+  },
+  "/v1/studio/library/collections/:collectionId": {
+    maxBytes: 4_096,
+    requireContentLength: true,
+  },
+  "/v1/studio/library/collections/:collectionId/items/:itemKind/:itemId/versions/:version":
+    {
+      maxBytes: 1_024,
+      requireContentLength: true,
+    },
+  "/v1/studio/library/collections/:collectionId/order": {
+    maxBytes: LIBRARY_COLLECTION_REORDER_MAX_BYTES,
     requireContentLength: true,
   },
 } as const satisfies Record<string, ReadJsonBodyOptions>

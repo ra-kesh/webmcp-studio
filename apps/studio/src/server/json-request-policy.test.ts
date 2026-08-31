@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
+import { libraryReorderCollectionMembersRequestSchema } from "@webmcp/document"
 import type { JsonBodyError } from "@webmcp/worker-boundary"
 import {
+  LIBRARY_COLLECTION_REORDER_MAX_BYTES,
   readStudioJsonBody,
   studioJsonRequestPolicies,
 } from "./json-request-policy"
@@ -14,6 +16,12 @@ const routes = [
   "/v1/studio/templates/",
   "/v1/studio/quotation-compositions",
   "/v1/studio/assets/local-promotions/resolve",
+  "/v1/studio/library/items/:itemKind/:itemId/versions/:version/favorite",
+  "/v1/studio/library/items/:itemKind/:itemId/versions/:version/used",
+  "/v1/studio/library/collections",
+  "/v1/studio/library/collections/:collectionId",
+  "/v1/studio/library/collections/:collectionId/items/:itemKind/:itemId/versions/:version",
+  "/v1/studio/library/collections/:collectionId/order",
 ] as const satisfies readonly StudioJsonRoute[]
 
 const jsonRequest = (body: string, contentLength?: string) => {
@@ -60,6 +68,31 @@ describe("Studio JSON request policies", () => {
         maxBytes: 32_000,
         requireContentLength: true,
       },
+      "/v1/studio/library/items/:itemKind/:itemId/versions/:version/favorite": {
+        maxBytes: 1_024,
+        requireContentLength: true,
+      },
+      "/v1/studio/library/items/:itemKind/:itemId/versions/:version/used": {
+        maxBytes: 2_048,
+        requireContentLength: true,
+      },
+      "/v1/studio/library/collections": {
+        maxBytes: 4_096,
+        requireContentLength: true,
+      },
+      "/v1/studio/library/collections/:collectionId": {
+        maxBytes: 4_096,
+        requireContentLength: true,
+      },
+      "/v1/studio/library/collections/:collectionId/items/:itemKind/:itemId/versions/:version":
+        {
+          maxBytes: 1_024,
+          requireContentLength: true,
+        },
+      "/v1/studio/library/collections/:collectionId/order": {
+        maxBytes: LIBRARY_COLLECTION_REORDER_MAX_BYTES,
+        requireContentLength: true,
+      },
     })
   })
 
@@ -87,5 +120,29 @@ describe("Studio JSON request policies", () => {
       status: 413,
       maxBytes: policy.maxBytes,
     } satisfies Partial<JsonBodyError>)
+  })
+
+  it("admits the largest schema-valid 500-member reorder body", async () => {
+    const body = JSON.stringify({
+      schemaVersion: 1,
+      orderedIdentities: Array.from({ length: 500 }, (_, index) => ({
+        itemKind: "template",
+        id: `${"a".repeat(190)}${String(index).padStart(10, "0")}`,
+        version: Number.MAX_SAFE_INTEGER,
+      })),
+    })
+    const bytes = new TextEncoder().encode(body).byteLength
+    expect(
+      libraryReorderCollectionMembersRequestSchema.safeParse(JSON.parse(body))
+        .success
+    ).toBe(true)
+    expect(bytes).toBe(129_541)
+    expect(LIBRARY_COLLECTION_REORDER_MAX_BYTES).toBeGreaterThanOrEqual(bytes)
+    await expect(
+      readStudioJsonBody(
+        jsonRequest(body, String(bytes)),
+        "/v1/studio/library/collections/:collectionId/order"
+      )
+    ).resolves.toEqual(JSON.parse(body))
   })
 })

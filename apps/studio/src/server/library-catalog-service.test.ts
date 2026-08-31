@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest"
 import type { LibraryPreferenceState } from "@webmcp/document"
 import {
+  getStudioLibraryCatalogDetail,
+  studioLibraryCatalogSummaries,
+} from "../content/library/catalog"
+import {
   LibraryCatalogService,
   type LibraryPreferenceProjectionSnapshot,
 } from "./library-catalog-service"
@@ -123,5 +127,60 @@ describe("LibraryCatalogService", () => {
         1
       )
     ).toBeNull()
+  })
+
+  it("masks favorite and collection state after those permissions are revoked", async () => {
+    const baseSummary = structuredClone(
+      studioLibraryCatalogSummaries.find(
+        (summary) => summary.itemKind === "template"
+      )!
+    )
+    const baseDetail = structuredClone(
+      getStudioLibraryCatalogDetail(
+        "template",
+        baseSummary.id,
+        baseSummary.version
+      )!
+    )
+    baseSummary.permissions.canFavorite = false
+    baseSummary.permissions.canAddToCollection = false
+    baseDetail.summary.permissions.canFavorite = false
+    baseDetail.summary.permissions.canAddToCollection = false
+    const storedPreference = preference(baseSummary.id, baseSummary.version)
+    const service = new LibraryCatalogService(
+      {
+        readProjection: async () => ({
+          workspaceRevision: 12,
+          preferences: [storedPreference],
+        }),
+      },
+      {
+        baseCatalogRevision: "permission-revocation-test",
+        baseSummaries: [baseSummary],
+        resolveBaseDetail: () => baseDetail,
+      }
+    )
+
+    const list = await service.list("workspace-a", "principal-a", {
+      generation: "permission-revocation-test",
+    })
+    const detail = await service.getDetail(
+      "workspace-a",
+      "principal-a",
+      baseSummary.itemKind,
+      baseSummary.id,
+      baseSummary.version
+    )
+
+    expect(list.page.items[0]?.preferences).toEqual({
+      favorite: false,
+      lastUsedAt: usedAt,
+      collectionIds: [],
+    })
+    expect(detail?.detail.summary.preferences).toEqual({
+      favorite: false,
+      lastUsedAt: usedAt,
+      collectionIds: [],
+    })
   })
 })
