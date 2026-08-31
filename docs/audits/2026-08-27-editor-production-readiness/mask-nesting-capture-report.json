@@ -1,0 +1,398 @@
+{
+  "version": 2,
+  "runId": "2026-08-31T20-25-24.176Z-6139eae7-5e1e-47b0-aa9e-1ae60051282d",
+  "artifactRoot": "artifacts/runs/2026-08-31T20-25-24.176Z-6139eae7-5e1e-47b0-aa9e-1ae60051282d",
+  "corpus": "mask",
+  "captureScope": "browser-public",
+  "documentId": "mask-render-conformance-v1",
+  "revision": 1,
+  "baseUrl": "http://localhost:3001",
+  "deviceScaleFactor": 1,
+  "browserCaptureRuntime": {
+    "browserVersion": "152.0.7977.64",
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+    "platform": "MacIntel",
+    "hostOperatingSystem": "darwin",
+    "hostArchitecture": "arm64"
+  },
+  "browserCaptureEvidence": {
+    "exercised": true,
+    "skippedReason": null,
+    "pageErrorPolicy": "fail_before_surface_ready",
+    "pageErrors": [],
+    "surfaces": [
+      {
+        "pageId": "mask-conformance-page",
+        "surface": "render-view",
+        "state": "ready",
+        "maskState": "nested-vector-alpha"
+      },
+      {
+        "pageId": "mask-conformance-page",
+        "surface": "fabric",
+        "state": "ready",
+        "maskState": "nested-vector-alpha"
+      },
+      {
+        "pageId": "mask-conformance-page",
+        "surface": "render-view",
+        "state": "ready",
+        "maskState": "nested-luminance-vector-one-hidden"
+      },
+      {
+        "pageId": "mask-conformance-page",
+        "surface": "fabric",
+        "state": "ready",
+        "maskState": "nested-luminance-vector-one-hidden"
+      },
+      {
+        "pageId": "mask-conformance-page",
+        "surface": "render-view",
+        "state": "ready",
+        "maskState": "nested-alpha-luminance-all-hidden"
+      },
+      {
+        "pageId": "mask-conformance-page",
+        "surface": "fabric",
+        "state": "ready",
+        "maskState": "nested-alpha-luminance-all-hidden"
+      }
+    ]
+  },
+  "pageOrder": [
+    "mask-conformance-page"
+  ],
+  "outputs": [
+    {
+      "id": "mask-conformance-output",
+      "pageIds": [
+        "mask-conformance-page"
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "render-view/mask-conformance-page-nested-vector-alpha.png",
+      "bytes": 4719,
+      "sha256": "67e58dabc27d429bc9a9b196803470f253a46f34afb806e71520808cba7209c3",
+      "width": 480,
+      "height": 360
+    },
+    {
+      "path": "render-view/mask-conformance-page-nested-luminance-vector-one-hidden.png",
+      "bytes": 1434,
+      "sha256": "50ce30fa90ff8c58a7c13090a6823e1921b254cf9346ab4140587a0a673afc32",
+      "width": 480,
+      "height": 360
+    },
+    {
+      "path": "render-view/mask-conformance-page-nested-alpha-luminance-all-hidden.png",
+      "bytes": 8437,
+      "sha256": "738640aca02159f5ef3578f733afebf670ff344d38588b32246a071fcac65982",
+      "width": 480,
+      "height": 360
+    },
+    {
+      "path": "fabric/mask-conformance-page-nested-vector-alpha.png",
+      "bytes": 5343,
+      "sha256": "84cad89bf71d6f259a12166ae3b532f45d6231524a7515e01e9850154b84ecc4",
+      "width": 480,
+      "height": 360
+    },
+    {
+      "path": "fabric/mask-conformance-page-nested-luminance-vector-one-hidden.png",
+      "bytes": 1434,
+      "sha256": "50ce30fa90ff8c58a7c13090a6823e1921b254cf9346ab4140587a0a673afc32",
+      "width": 480,
+      "height": 360
+    },
+    {
+      "path": "fabric/mask-conformance-page-nested-alpha-luminance-all-hidden.png",
+      "bytes": 11982,
+      "sha256": "4dd1255e6d9483112130c745d0a17571a8d65cc045d8c8725d8206f49a2848eb",
+      "width": 480,
+      "height": 360
+    },
+    {
+      "path": "renderer-endpoint-smoke/canonical-mask-v5-nested-vector-alpha.png",
+      "bytes": 4965,
+      "sha256": "caf37e8304e4b3cc5ded6540f862f0bd26924831df8234f05f06027de6d8a611",
+      "width": 480,
+      "height": 360
+    },
+    {
+      "path": "renderer-endpoint-smoke/canonical-mask-v5-nested-vector-alpha.pdf",
+      "bytes": 20593,
+      "sha256": "906acca7d7d7c5f08eb467382696de7f43f57a7af05f81be44361aa0e29c409e"
+    },
+    {
+      "path": "renderer-endpoint-smoke/canonical-mask-v5-nested-vector-alpha-thumbnail.png",
+      "bytes": 2429,
+      "sha256": "b6d3c58bbd1990fa52ab5973aeb9600be9171b915e1ecfe8b1abd7baf0be24ef",
+      "width": 240,
+      "height": 180
+    },
+    {
+      "path": "renderer-endpoint-smoke/canonical-mask-v5-nested-vector-alpha-raster.png",
+      "bytes": 5439,
+      "sha256": "7a5dc4dcd27d9ff3fed758550e9f930d0c611104469773779fabde182d7363d4",
+      "width": 480,
+      "height": 360
+    },
+    {
+      "path": "renderer-endpoint-smoke/canonical-mask-v5-nested-luminance-vector-one-hidden.png",
+      "bytes": 1453,
+      "sha256": "acbf5bcefb70a0b21a698228338ff06726883441f10c45d28d07ad577fe3f25c",
+      "width": 480,
+      "height": 360
+    },
+    {
+      "path": "renderer-endpoint-smoke/canonical-mask-v5-nested-luminance-vector-one-hidden.pdf",
+      "bytes": 24698,
+      "sha256": "110114e4bd9e8e28bffe7e9dd27dc8283628b2065a84d440f71173da230877b9"
+    },
+    {
+      "path": "renderer-endpoint-smoke/canonical-mask-v5-nested-luminance-vector-one-hidden-thumbnail.png",
+      "bytes": 667,
+      "sha256": "5e98973638faf8f94a9f5fd60a14069fd90fb0844a64287b14fc2073a549c260",
+      "width": 240,
+      "height": 180
+    },
+    {
+      "path": "renderer-endpoint-smoke/canonical-mask-v5-nested-luminance-vector-one-hidden-raster.png",
+      "bytes": 1628,
+      "sha256": "c888e368066a8ca3eeb82e33d67ad49e5f3f9d58055581bd97806263ea1fa686",
+      "width": 480,
+      "height": 360
+    },
+    {
+      "path": "renderer-endpoint-smoke/canonical-mask-v5-nested-alpha-luminance-all-hidden.png",
+      "bytes": 8812,
+      "sha256": "764ae42589d47c33dedac6f246e057fdcf258fd319a55108980962e9f8897fd4",
+      "width": 480,
+      "height": 360
+    },
+    {
+      "path": "renderer-endpoint-smoke/canonical-mask-v5-nested-alpha-luminance-all-hidden.pdf",
+      "bytes": 21655,
+      "sha256": "a474eab1fb6df83d909f5a262254bc14f2e0024ea2b60c91c3cca4b4e97123d5"
+    },
+    {
+      "path": "renderer-endpoint-smoke/canonical-mask-v5-nested-alpha-luminance-all-hidden-thumbnail.png",
+      "bytes": 4356,
+      "sha256": "f89beb85a02a49ee29669aecd3d563a9ed1d64aa5d9c47ce09542ecf7da3b0d0",
+      "width": 240,
+      "height": 180
+    },
+    {
+      "path": "renderer-endpoint-smoke/canonical-mask-v5-nested-alpha-luminance-all-hidden-raster.png",
+      "bytes": 10608,
+      "sha256": "471624ce9afed3054ec222f33c427b49ea9595bafd05753d076364d0e64e0b9f",
+      "width": 480,
+      "height": 360
+    }
+  ],
+  "maskEvidence": {
+    "directHtml": {
+      "exercised": false,
+      "externalReport": "mask-nesting-direct-capture-report.json",
+      "states": [
+        "nested-vector-alpha",
+        "nested-luminance-vector-one-hidden",
+        "nested-alpha-luminance-all-hidden"
+      ],
+      "deviceScaleFactors": [
+        1,
+        2
+      ],
+      "pngPathPattern": "renderer-png/mask-{state}-{scale}x.png",
+      "pdfPathPattern": null,
+      "pdfRasterPathPattern": null
+    },
+    "pngPdfRasterComparisons": [],
+    "browserSurfaceComparisons": [
+      {
+        "baseline": "render-view/mask-conformance-page-nested-vector-alpha.png",
+        "candidate": "fabric/mask-conformance-page-nested-vector-alpha.png",
+        "comparedChannels": 691200,
+        "comparedPixels": 172800,
+        "changedChannels": 10557,
+        "pixelsAboveChannelDifference": 2481,
+        "maxChannelDifference": 35,
+        "meanAbsoluteDifference": 0.1263107638888889,
+        "threshold": {
+          "channelDifference": 8,
+          "maxPixelsAboveChannelDifference": 2800,
+          "maxMeanChannelDifference": 0.15,
+          "maxChannelDifference": 40
+        }
+      },
+      {
+        "baseline": "render-view/mask-conformance-page-nested-luminance-vector-one-hidden.png",
+        "candidate": "fabric/mask-conformance-page-nested-luminance-vector-one-hidden.png",
+        "comparedChannels": 691200,
+        "comparedPixels": 172800,
+        "changedChannels": 0,
+        "pixelsAboveChannelDifference": 0,
+        "maxChannelDifference": 0,
+        "meanAbsoluteDifference": 0,
+        "threshold": {
+          "channelDifference": 8,
+          "maxPixelsAboveChannelDifference": 765,
+          "maxMeanChannelDifference": 0.171,
+          "maxChannelDifference": 48
+        }
+      },
+      {
+        "baseline": "render-view/mask-conformance-page-nested-alpha-luminance-all-hidden.png",
+        "candidate": "fabric/mask-conformance-page-nested-alpha-luminance-all-hidden.png",
+        "comparedChannels": 691200,
+        "comparedPixels": 172800,
+        "changedChannels": 16600,
+        "pixelsAboveChannelDifference": 4287,
+        "maxChannelDifference": 89,
+        "meanAbsoluteDifference": 0.6299392361111111,
+        "threshold": {
+          "channelDifference": 8,
+          "maxPixelsAboveChannelDifference": 4800,
+          "maxMeanChannelDifference": 0.7,
+          "maxChannelDifference": 96
+        }
+      }
+    ],
+    "directHtmlBrowserRenderViewComparisons": [],
+    "oneToTwoXComparisons": [],
+    "coefficientPixelProbes": [],
+    "productionEndpointPngPdfRasterComparisons": [
+      {
+        "baseline": "renderer-endpoint-smoke/canonical-mask-v5-nested-vector-alpha.png",
+        "candidate": "renderer-endpoint-smoke/canonical-mask-v5-nested-vector-alpha-raster.png",
+        "comparedChannels": 691200,
+        "comparedPixels": 172800,
+        "changedChannels": 32658,
+        "pixelsAboveChannelDifference": 0,
+        "maxChannelDifference": 8,
+        "meanAbsoluteDifference": 0.05116174768518519,
+        "threshold": {
+          "channelDifference": 8,
+          "maxPixelsAboveChannelDifference": 800,
+          "maxMeanChannelDifference": 0.06,
+          "maxChannelDifference": 56
+        }
+      },
+      {
+        "baseline": "renderer-endpoint-smoke/canonical-mask-v5-nested-luminance-vector-one-hidden.png",
+        "candidate": "renderer-endpoint-smoke/canonical-mask-v5-nested-luminance-vector-one-hidden-raster.png",
+        "comparedChannels": 691200,
+        "comparedPixels": 172800,
+        "changedChannels": 1754,
+        "pixelsAboveChannelDifference": 1,
+        "maxChannelDifference": 10,
+        "meanAbsoluteDifference": 0.00689525462962963,
+        "threshold": {
+          "channelDifference": 8,
+          "maxPixelsAboveChannelDifference": 800,
+          "maxMeanChannelDifference": 0.06,
+          "maxChannelDifference": 56
+        }
+      },
+      {
+        "baseline": "renderer-endpoint-smoke/canonical-mask-v5-nested-alpha-luminance-all-hidden.png",
+        "candidate": "renderer-endpoint-smoke/canonical-mask-v5-nested-alpha-luminance-all-hidden-raster.png",
+        "comparedChannels": 691200,
+        "comparedPixels": 172800,
+        "changedChannels": 4584,
+        "pixelsAboveChannelDifference": 746,
+        "maxChannelDifference": 54,
+        "meanAbsoluteDifference": 0.04302806712962963,
+        "threshold": {
+          "channelDifference": 8,
+          "maxPixelsAboveChannelDifference": 800,
+          "maxMeanChannelDifference": 0.06,
+          "maxChannelDifference": 56
+        }
+      }
+    ],
+    "productionEndpointThumbnailComparisons": [
+      {
+        "baseline": "renderer-endpoint-smoke/canonical-mask-v5-nested-vector-alpha-thumbnail.png",
+        "candidate": "renderer-endpoint-smoke/canonical-mask-v5-nested-vector-alpha.png downsampled to CSS pixels",
+        "comparedChannels": 172800,
+        "comparedPixels": 43200,
+        "changedChannels": 13836,
+        "pixelsAboveChannelDifference": 244,
+        "maxChannelDifference": 28,
+        "meanAbsoluteDifference": 0.15741319444444443,
+        "threshold": {
+          "channelDifference": 8,
+          "maxPixelsAboveChannelDifference": 1100,
+          "maxMeanChannelDifference": 0.22,
+          "maxChannelDifference": 32
+        }
+      },
+      {
+        "baseline": "renderer-endpoint-smoke/canonical-mask-v5-nested-luminance-vector-one-hidden-thumbnail.png",
+        "candidate": "renderer-endpoint-smoke/canonical-mask-v5-nested-luminance-vector-one-hidden.png downsampled to CSS pixels",
+        "comparedChannels": 172800,
+        "comparedPixels": 43200,
+        "changedChannels": 7916,
+        "pixelsAboveChannelDifference": 188,
+        "maxChannelDifference": 23,
+        "meanAbsoluteDifference": 0.07465277777777778,
+        "threshold": {
+          "channelDifference": 8,
+          "maxPixelsAboveChannelDifference": 1100,
+          "maxMeanChannelDifference": 0.22,
+          "maxChannelDifference": 32
+        }
+      },
+      {
+        "baseline": "renderer-endpoint-smoke/canonical-mask-v5-nested-alpha-luminance-all-hidden-thumbnail.png",
+        "candidate": "renderer-endpoint-smoke/canonical-mask-v5-nested-alpha-luminance-all-hidden.png downsampled to CSS pixels",
+        "comparedChannels": 172800,
+        "comparedPixels": 43200,
+        "changedChannels": 13446,
+        "pixelsAboveChannelDifference": 517,
+        "maxChannelDifference": 30,
+        "meanAbsoluteDifference": 0.18913194444444445,
+        "threshold": {
+          "channelDifference": 8,
+          "maxPixelsAboveChannelDifference": 1100,
+          "maxMeanChannelDifference": 0.22,
+          "maxChannelDifference": 32
+        }
+      }
+    ],
+    "pdfCapture": {
+      "exercised": false,
+      "skippedReason": "Proved in mask-nesting-direct-capture-report.json; this browser/public run intentionally isolates host Browser Rendering lifecycles."
+    },
+    "productionEndpointSmoke": {
+      "exercised": true,
+      "states": [
+        {
+          "name": "nested-vector-alpha",
+          "png": "renderer-endpoint-smoke/canonical-mask-v5-nested-vector-alpha.png",
+          "thumbnail": "renderer-endpoint-smoke/canonical-mask-v5-nested-vector-alpha-thumbnail.png",
+          "pdf": "renderer-endpoint-smoke/canonical-mask-v5-nested-vector-alpha.pdf",
+          "pdfRaster": "renderer-endpoint-smoke/canonical-mask-v5-nested-vector-alpha-raster.png"
+        },
+        {
+          "name": "nested-luminance-vector-one-hidden",
+          "png": "renderer-endpoint-smoke/canonical-mask-v5-nested-luminance-vector-one-hidden.png",
+          "thumbnail": "renderer-endpoint-smoke/canonical-mask-v5-nested-luminance-vector-one-hidden-thumbnail.png",
+          "pdf": "renderer-endpoint-smoke/canonical-mask-v5-nested-luminance-vector-one-hidden.pdf",
+          "pdfRaster": "renderer-endpoint-smoke/canonical-mask-v5-nested-luminance-vector-one-hidden-raster.png"
+        },
+        {
+          "name": "nested-alpha-luminance-all-hidden",
+          "png": "renderer-endpoint-smoke/canonical-mask-v5-nested-alpha-luminance-all-hidden.png",
+          "thumbnail": "renderer-endpoint-smoke/canonical-mask-v5-nested-alpha-luminance-all-hidden-thumbnail.png",
+          "pdf": "renderer-endpoint-smoke/canonical-mask-v5-nested-alpha-luminance-all-hidden.pdf",
+          "pdfRaster": "renderer-endpoint-smoke/canonical-mask-v5-nested-alpha-luminance-all-hidden-raster.png"
+        }
+      ],
+      "scope": "Canonical schema-v5 vector, alpha, and coefficient-sensitive luminance mask documents rendered through the public Studio PNG, thumbnail, and PDF endpoints."
+    }
+  }
+}

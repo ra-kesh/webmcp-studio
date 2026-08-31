@@ -936,17 +936,9 @@ export async function waitForCanvasDocumentFonts(
       fontFaceSet.load(descriptor, sample)
     )
   )
-  const loadedFaces = signal
-    ? await waitForCanvasOperation(loading, signal)
-    : await loading
+  if (signal) await waitForCanvasOperation(loading, signal)
+  else await loading
   signal?.throwIfAborted()
-  for (const [index, faces] of loadedFaces.entries()) {
-    if (!faces.length) {
-      throw new Error(
-        `Canvas font unavailable: ${requests[index]?.descriptor ?? "unknown"}`
-      )
-    }
-  }
   for (const { descriptor, sample } of requests) {
     if (!fontFaceSet.check(descriptor, sample)) {
       throw new Error(`Canvas font unavailable: ${descriptor}`)

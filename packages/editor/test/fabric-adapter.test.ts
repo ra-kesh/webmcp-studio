@@ -323,6 +323,8 @@ describe("Fabric vector mask paint consumer", () => {
       Reflect.get(adapter, "objectByNodeId") as Map<string, FabricObject>
     ).get("child-content")!
     expect([...composites.keys()]).toEqual(["child-mask", "outer-mask"])
+    expect(child.needsItsOwnCache()).toBe(true)
+    expect(outer.needsItsOwnCache()).toBe(true)
     expect(child.group).toBe(outer)
     expect(childContent.group).toBe(child)
     expect(outer.getObjects().slice(0, 2)).toEqual([
@@ -669,12 +671,12 @@ describe("Fabric vector mask paint consumer", () => {
     expect(result.maskObject).toMatchObject({
       width: source.width,
       height: source.height,
-      angle: source.rotation,
       opacity: source.opacity,
       originX: "left",
       originY: "top",
       globalCompositeOperation: "destination-in",
     })
+    expect(result.maskObject.angle).toBeCloseTo(source.rotation, 10)
     expect(result.maskObject.left).toBeCloseTo(
       source.x - entry.bounds.x - entry.bounds.width / 2,
       10
@@ -763,10 +765,10 @@ describe("Fabric vector mask paint consumer", () => {
         source.type === "ellipse" ? Ellipse : Group
       )
       expect(result.maskObject).toMatchObject({
-        angle: source.rotation,
         opacity: source.opacity,
         globalCompositeOperation: "destination-in",
       })
+      expect(result.maskObject.angle).toBeCloseTo(source.rotation, 10)
     }
   })
 

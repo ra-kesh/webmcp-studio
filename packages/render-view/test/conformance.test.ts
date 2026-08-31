@@ -200,7 +200,7 @@ describe("React render-view conformance", () => {
     expect(markup.indexOf('data-node-id="child-content"')).toBeLessThan(
       markup.indexOf('data-node-id="outer-content"')
     )
-    expect(markup.match(/data-node-id="child-source"/g)).toHaveLength(1)
+    expect(markup).not.toContain('data-node-id="child-source"')
     expect(markup).toContain('data-mask-source-id="child-source"')
     expect(markup.match(/<mask /g)).toHaveLength(2)
   })

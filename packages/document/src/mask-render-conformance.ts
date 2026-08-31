@@ -498,3 +498,351 @@ export const luminanceAllHiddenRenderConformanceDocument = documentSchema.parse(
     ),
   }
 )
+
+const nestedRichText = (id: string, name: string): SceneNode => ({
+  id,
+  type: "text",
+  name,
+  x: 106,
+  y: 116,
+  width: 268,
+  height: 112,
+  rotation: -3,
+  opacity: 0.9,
+  visible: true,
+  locked: false,
+  text: "NESTED\nMASK",
+  runs: [
+    {
+      start: 0,
+      end: 6,
+      style: {
+        fontFamily: "Geist Variable",
+        fontSize: 48,
+        fontWeight: 800,
+        color: "#fef3c7",
+        letterSpacing: 1.5,
+      },
+    },
+    {
+      start: 7,
+      end: 11,
+      style: {
+        fontFamily: "Geist Variable",
+        fontSize: 38,
+        fontWeight: 700,
+        color: "#dbeafe",
+      },
+    },
+  ],
+  paragraphs: [
+    { start: 0, end: 6, style: { align: "center" } },
+    { start: 7, end: 11, style: { align: "right" } },
+  ],
+  links: [],
+  color: "#ffffff",
+  fontFamily: "Geist Variable",
+  fontSize: 42,
+  fontWeight: 700,
+  italic: false,
+  decoration: "none",
+  lineHeight: 1.05,
+  letterSpacing: 0,
+  align: "left",
+  sizingMode: "fixed",
+})
+
+const nestedImage = (id: string, name: string, x: number): SceneNode => ({
+  ...(alphaImageMaskRenderConformanceNodes[1] as Extract<
+    SceneNode,
+    { type: "image" }
+  >),
+  id,
+  name,
+  x,
+  y: 82,
+  width: 184,
+  height: 144,
+  placement: {
+    mode: "manual",
+    focalX: 0.64,
+    focalY: 0.38,
+    zoom: 1.35,
+    rotation: -17,
+    flipX: true,
+    flipY: false,
+  },
+  frameMask: { shape: "rounded_rectangle", radius: 0.22 },
+})
+
+const nestedMaskDocument = (
+  id: string,
+  name: string,
+  outerType: "vector" | "alpha" | "luminance",
+  outerSources: readonly SceneNode[],
+  childType: "vector" | "alpha" | "luminance",
+  childSources: readonly SceneNode[],
+  childContents: readonly SceneNode[]
+) => {
+  const below = rect(
+    `${id}-below`,
+    "Nested fixture background",
+    16,
+    16,
+    448,
+    328,
+    "#172554"
+  )
+  const outerContent = rect(
+    `${id}-outer-content`,
+    "Outer direct content",
+    48,
+    54,
+    368,
+    252,
+    "#7c3aed"
+  )
+  const above = rect(
+    `${id}-above`,
+    "Nested fixture foreground",
+    392,
+    292,
+    56,
+    40,
+    "#f97316"
+  )
+  const outerSourceNodeIds = outerSources.map((node) => node.id) as [
+    string,
+    ...string[],
+  ]
+  const childSourceNodeIds = childSources.map((node) => node.id) as [
+    string,
+    ...string[],
+  ]
+  const childNodeIds = [
+    ...childSourceNodeIds,
+    ...childContents.map((node) => node.id),
+  ]
+  const outerGroupId = `${id}-outer-mask`
+  return documentSchema.parse({
+    ...maskRenderConformanceDocument,
+    id,
+    name,
+    pages: [
+      {
+        ...maskRenderConformancePage,
+        name,
+        background: "#0f172a",
+        nodeIds: [
+          below.id,
+          ...outerSourceNodeIds,
+          ...childNodeIds,
+          outerContent.id,
+          above.id,
+        ],
+      },
+    ],
+    nodes: [
+      below,
+      ...outerSources,
+      ...childSources,
+      ...childContents,
+      outerContent,
+      above,
+    ],
+    groups: [
+      {
+        id: outerGroupId,
+        pageId: maskRenderConformancePage.id,
+        name: `${name} outer mask`,
+        nodeIds: [...outerSourceNodeIds, outerContent.id],
+        role: "mask",
+        mask: { type: outerType, sourceNodeIds: outerSourceNodeIds },
+      },
+      {
+        id: `${id}-child-mask`,
+        pageId: maskRenderConformancePage.id,
+        parentGroupId: outerGroupId,
+        name: `${name} child mask`,
+        nodeIds: childNodeIds,
+        role: "mask",
+        mask: { type: childType, sourceNodeIds: childSourceNodeIds },
+      },
+    ],
+  })
+}
+
+const nestedOuterVectorOne = {
+  ...rect(
+    "nested-vector-alpha-outer-source-one",
+    "Outer vector source one",
+    54,
+    48,
+    320,
+    250,
+    "#111827"
+  ),
+  rotation: 5,
+  opacity: 0.82,
+}
+const nestedOuterVectorTwo = {
+  ...rect(
+    "nested-vector-alpha-outer-source-two",
+    "Outer vector source two",
+    188,
+    36,
+    236,
+    278,
+    "#111827"
+  ),
+  rotation: -7,
+  opacity: 0.58,
+}
+
+export const nestedVectorAlphaRenderConformanceDocument = nestedMaskDocument(
+  "nested-vector-alpha-v1",
+  "Nested vector alpha crop and run font",
+  "vector",
+  [nestedOuterVectorOne, nestedOuterVectorTwo],
+  "alpha",
+  [
+    nestedImage(
+      "nested-vector-alpha-child-image",
+      "Child alpha cropped image",
+      132
+    ),
+  ],
+  [
+    nestedRichText(
+      "nested-vector-alpha-rich-text",
+      "Child rich run-font content"
+    ),
+  ]
+)
+
+const nestedLuminanceRed = {
+  ...rect(
+    "nested-luminance-vector-outer-red",
+    "Outer luminance red source",
+    52,
+    48,
+    250,
+    258,
+    "#ff0000"
+  ),
+  opacity: 0.72,
+}
+const nestedLuminanceGreenHidden = {
+  ...rect(
+    "nested-luminance-vector-outer-green",
+    "Hidden outer luminance green source",
+    178,
+    42,
+    248,
+    266,
+    "#00ff00"
+  ),
+  opacity: 0.48,
+  visible: false,
+}
+const nestedChildVectorOne = rect(
+  "nested-luminance-vector-child-one",
+  "Child vector source one",
+  94,
+  88,
+  210,
+  164,
+  "#111827"
+)
+const nestedChildVectorTwo = {
+  ...rect(
+    "nested-luminance-vector-child-two",
+    "Child vector source two",
+    214,
+    104,
+    154,
+    142,
+    "#111827"
+  ),
+  rotation: 11,
+  opacity: 0.64,
+}
+
+export const nestedLuminanceVectorOneHiddenRenderConformanceDocument =
+  nestedMaskDocument(
+    "nested-luminance-vector-one-hidden-v1",
+    "Nested luminance vector one hidden",
+    "luminance",
+    [nestedLuminanceRed, nestedLuminanceGreenHidden],
+    "vector",
+    [nestedChildVectorOne, nestedChildVectorTwo],
+    [
+      nestedImage(
+        "nested-luminance-vector-child-image",
+        "Child cropped image content",
+        146
+      ),
+      nestedRichText(
+        "nested-luminance-vector-rich-text",
+        "Child rich run-font content"
+      ),
+    ]
+  )
+
+const nestedOuterAlphaImage = nestedImage(
+  "nested-alpha-luminance-outer-image",
+  "Outer alpha cropped image source",
+  72
+)
+const nestedOuterAlphaText = {
+  ...(alphaTextMaskRenderConformanceNodes[1] as Extract<
+    SceneNode,
+    { type: "text" }
+  >),
+  id: "nested-alpha-luminance-outer-text",
+  name: "Outer alpha text source",
+  x: 174,
+  y: 118,
+  width: 244,
+  opacity: 0.58,
+}
+const nestedChildLuminanceBlack = {
+  ...rect(
+    "nested-alpha-luminance-child-black",
+    "Hidden child luminance black source",
+    88,
+    92,
+    176,
+    150,
+    "#000000"
+  ),
+  visible: false,
+}
+const nestedChildLuminanceWhite = {
+  ...rect(
+    "nested-alpha-luminance-child-white",
+    "Hidden child luminance white source",
+    216,
+    104,
+    166,
+    144,
+    "#ffffff"
+  ),
+  visible: false,
+}
+
+export const nestedAlphaLuminanceAllHiddenRenderConformanceDocument =
+  nestedMaskDocument(
+    "nested-alpha-luminance-all-hidden-v1",
+    "Nested alpha luminance all hidden",
+    "alpha",
+    [nestedOuterAlphaImage, nestedOuterAlphaText],
+    "luminance",
+    [nestedChildLuminanceBlack, nestedChildLuminanceWhite],
+    [
+      nestedRichText(
+        "nested-alpha-luminance-rich-text",
+        "All-hidden child promoted run-font content"
+      ),
+    ]
+  )

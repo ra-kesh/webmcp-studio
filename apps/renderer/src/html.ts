@@ -59,8 +59,22 @@ type RenderImage = {
   naturalHeight: number
   naturalWidth: number
   parentElement: { style: RenderStyle } | null
+  src?: string
   style: RenderStyle
 }
+
+type RenderCoverageImageTarget = Readonly<{
+  nodeId: string
+  target: { setAttribute(name: string, value: string): void }
+}>
+
+type RenderCoverageSource = Readonly<{
+  height: number
+  nodeId: string
+  target: { setAttribute(name: string, value: string): void }
+  template: { innerHTML: string }
+  width: number
+}>
 
 type RenderStyle = {
   setProperty(name: string, value: string): void
@@ -71,10 +85,13 @@ type ImagePaintProjector = (
 ) => RenderImagePaintProjection
 
 export async function markRenderResourcesReady(input: {
+  coverageImageTargets?: readonly RenderCoverageImageTarget[]
+  coverageSources?: readonly RenderCoverageSource[]
   root: RenderRoot
   fonts: RenderFontSet
   fontRequirements?: readonly RenderFontRequirement[]
   images: RenderImage[]
+  managedFontFaceCss?: string
   projectImagePaint: ImagePaintProjector
   luminanceSourceNodeIds?: readonly string[]
   verifyLuminanceConversion?: () => Promise<boolean>
@@ -190,8 +207,54 @@ export async function markRenderResourcesReady(input: {
               ? `inset(0 round ${clip.radius}px)`
               : "inset(0)"
         frameStyle.setProperty("clip-path", clipPath)
+        for (const coverageTarget of input.coverageImageTargets ?? []) {
+          if (coverageTarget.nodeId !== image.dataset.nodeId) continue
+          coverageTarget.target.setAttribute("href", image.src ?? "")
+          coverageTarget.target.setAttribute(
+            "width",
+            String(image.naturalWidth)
+          )
+          coverageTarget.target.setAttribute(
+            "height",
+            String(image.naturalHeight)
+          )
+          coverageTarget.target.setAttribute(
+            "transform",
+            `matrix(${a},${b},${c},${d},${e},${f})`
+          )
+        }
       } catch {
         fail("image_projection_failed", image.dataset.nodeId)
+        return
+      }
+    }
+
+    for (const source of input.coverageSources ?? []) {
+      try {
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${source.width}" height="${source.height}" viewBox="0 0 ${source.width} ${source.height}"><style>${input.managedFontFaceCss ?? ""}</style><foreignObject x="0" y="0" width="${source.width}" height="${source.height}">${source.template.innerHTML}</foreignObject></svg>`
+        const sourceUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
+        const browser = globalThis as unknown as {
+          Image: new () => {
+            complete: boolean
+            decode(): Promise<unknown>
+            naturalHeight: number
+            naturalWidth: number
+            src: string
+          }
+        }
+        const probe = new browser.Image()
+        probe.src = sourceUrl
+        await probe.decode()
+        if (
+          !probe.complete ||
+          probe.naturalWidth <= 0 ||
+          probe.naturalHeight <= 0
+        ) {
+          throw new Error("Coverage source did not decode")
+        }
+        source.target.setAttribute("href", sourceUrl)
+      } catch {
+        fail("resource_readiness_failed", source.nodeId)
         return
       }
     }
@@ -293,7 +356,7 @@ export async function verifyBrowserLuminanceConversion(): Promise<boolean> {
 
 const geistFontDataUrl = `data:font/woff2;base64,${GEIST_LATIN_WOFF2_BASE64}`
 const geistFontFace = `@font-face{font-family:"${MANAGED_FONT_FAMILY}";font-style:normal;font-display:block;font-weight:100 900;src:url("${geistFontDataUrl}") format("woff2")}`
-const resourceReadyScript = `<script>(${markRenderResourcesReady.toString()})({root:document.documentElement,fonts:document.fonts,fontRequirements:Array.from(document.querySelectorAll("[data-mask-font-families]"),element=>({nodeId:element.getAttribute("data-mask-font-source-node")||"",fontFamilies:JSON.parse(element.getAttribute("data-mask-font-families")||"[]")})),images:Array.from(document.querySelectorAll("img[data-node-id]")),projectImagePaint:${serializeImagePaintProjector()},luminanceSourceNodeIds:Array.from(document.querySelectorAll("[data-luminance-source-isolation]"),element=>element.getAttribute("data-luminance-source-isolation")||"").filter(Boolean),verifyLuminanceConversion:${verifyBrowserLuminanceConversion.toString()}})</script>`
+const resourceReadyScript = `<script>(${markRenderResourcesReady.toString()})({root:document.documentElement,fonts:document.fonts,fontRequirements:Array.from(document.querySelectorAll("[data-mask-font-families]"),element=>({nodeId:element.getAttribute("data-mask-font-source-node")||"",fontFamilies:JSON.parse(element.getAttribute("data-mask-font-families")||"[]")})),images:Array.from(document.querySelectorAll("img[data-node-id]")),coverageImageTargets:Array.from(document.querySelectorAll("[data-mask-coverage-template][data-mask-coverage-kind=image]"),template=>({nodeId:template.getAttribute("data-mask-coverage-node-id")||"",target:document.getElementById(template.getAttribute("data-mask-coverage-target-id")||"")})).filter(source=>source.target),coverageSources:Array.from(document.querySelectorAll("[data-mask-coverage-template]:not([data-mask-coverage-kind=image])"),template=>({nodeId:template.getAttribute("data-mask-coverage-node-id")||"",width:Number(template.getAttribute("data-mask-coverage-width")),height:Number(template.getAttribute("data-mask-coverage-height")),template,target:document.getElementById(template.getAttribute("data-mask-coverage-target-id")||"")})).filter(source=>source.target),managedFontFaceCss:${JSON.stringify(geistFontFace)},projectImagePaint:${serializeImagePaintProjector()},luminanceSourceNodeIds:Array.from(document.querySelectorAll("[data-luminance-source-isolation]"),element=>element.getAttribute("data-luminance-source-isolation")||"").filter(Boolean),verifyLuminanceConversion:${verifyBrowserLuminanceConversion.toString()}})</script>`
 
 const escapeHtml = (value: string): string =>
   value
@@ -472,11 +535,12 @@ const renderVectorMaskSource = (
   throw new Error(`Mask source ${node.id} did not project as vector geometry`)
 }
 
-const renderAlphaMaskSource = (
+const renderCoverageMaskSource = (
   node: SceneNode,
   bounds: PagePaintBounds,
-  source: MaskPaintSource | undefined
-): string => {
+  source: MaskPaintSource | undefined,
+  maskId: string
+): Readonly<{ markup: string; preload: string }> => {
   if (!isAdmittedAlphaMaskSource(node)) {
     throw new Error(
       `Alpha mask source ${node.id} must be a rectangle, ellipse, icon, image, or text layer`
@@ -490,7 +554,23 @@ const renderAlphaMaskSource = (
     node.type === "text" && source?.kind === "text"
       ? ` data-mask-font-source-node="${escapeHtml(node.id)}" data-mask-font-families="${escapeHtml(JSON.stringify(source.fontFamilies))}"`
       : ""
-  return `<foreignObject data-mask-source-id="${escapeHtml(node.id)}"${fontReadiness} x="0" y="0" width="${bounds.width}" height="${bounds.height}">${translatedSource}</foreignObject>`
+  const targetId = `${maskId}-${maskIdentifier(node.id)}-coverage`
+  const coverageKind = node.type === "image" ? "image" : "html"
+  const markup =
+    node.type === "image"
+      ? (() => {
+          const frameX = node.x - bounds.x
+          const frameY = node.y - bounds.y
+          const clipId = `${targetId}-clip`
+          const clip =
+            node.frameMask.shape === "ellipse"
+              ? `<ellipse cx="${node.width / 2}" cy="${node.height / 2}" rx="${node.width / 2}" ry="${node.height / 2}" />`
+              : `<rect x="0" y="0" width="${node.width}" height="${node.height}"${node.frameMask.shape === "rounded_rectangle" ? ` rx="${(node.frameMask.radius ?? 0) * Math.min(node.width, node.height)}" ry="${(node.frameMask.radius ?? 0) * Math.min(node.width, node.height)}"` : ""} />`
+          return `<g data-mask-source-id="${escapeHtml(node.id)}" opacity="${node.opacity}" transform="translate(${frameX} ${frameY}) rotate(${node.rotation} 0 0)" clip-path="url(#${clipId})"><defs><clipPath id="${clipId}" clipPathUnits="userSpaceOnUse">${clip}</clipPath></defs><image id="${targetId}" x="0" y="0" preserveAspectRatio="none" /></g>`
+        })()
+      : `<image id="${targetId}" data-mask-source-id="${escapeHtml(node.id)}" x="0" y="0" width="${bounds.width}" height="${bounds.height}" preserveAspectRatio="none" />`
+  const preload = `<div data-mask-coverage-template="true" data-mask-coverage-kind="${coverageKind}" data-mask-coverage-node-id="${escapeHtml(node.id)}" data-mask-coverage-target-id="${targetId}" data-mask-coverage-width="${bounds.width}" data-mask-coverage-height="${bounds.height}"${fontReadiness} aria-hidden="true" style="position:fixed;left:-100000px;top:0;width:${bounds.width}px;height:${bounds.height}px;overflow:hidden;visibility:hidden;pointer-events:none">${translatedSource}</div>`
+  return { markup, preload }
 }
 
 const renderLuminanceVectorMaskSource = (
@@ -585,20 +665,26 @@ export function renderPagePaintPlanEntryToHtml(
     .map((sourceNodeId, index) => {
       const source = nodesById.get(sourceNodeId)
       if (!source) throw new Error(`Unknown mask source: ${sourceNodeId}`)
-      const markup =
+      const rendered =
         entry.maskType === "vector"
-          ? renderVectorMaskSource(source, bounds)
+          ? { markup: renderVectorMaskSource(source, bounds), preload: "" }
           : entry.maskType === "luminance" && isAdmittedVectorMaskSource(source)
-            ? renderLuminanceVectorMaskSource(source, bounds)
-            : renderAlphaMaskSource(
-                source,
-                bounds,
-                entry.sources.find(
-                  (candidate) => candidate.nodeId === sourceNodeId
+            ? {
+                markup: renderLuminanceVectorMaskSource(source, bounds),
+                preload: "",
+              }
+            : entry.maskType === "alpha" && isAdmittedVectorMaskSource(source)
+              ? { markup: renderVectorMaskSource(source, bounds), preload: "" }
+              : renderCoverageMaskSource(
+                  source,
+                  bounds,
+                  entry.sources.find(
+                    (candidate) => candidate.nodeId === sourceNodeId
+                  ),
+                  maskId
                 )
-              )
       const filterId = `${maskId}-luminance-${index}`
-      return { sourceNodeId, markup, filterId }
+      return { sourceNodeId, ...rendered, filterId }
     })
   const luminanceFilters =
     entry.maskType === "luminance"
@@ -621,12 +707,13 @@ export function renderPagePaintPlanEntryToHtml(
         : markup
     )
     .join("")
+  const coveragePreloads = visibleSources.map(({ preload }) => preload).join("")
   compositeStyle.push(
     `mask:url(#${maskId})`,
     `-webkit-mask:url(#${maskId})`,
     "mask-mode:alpha"
   )
-  return `<div data-mask-group-id="${groupId}" data-mask-enabled="true" data-mask-composite="true" style="${compositeStyle.join(";")}"><svg aria-hidden="true" width="0" height="0" style="position:absolute"><defs>${luminanceFilters}<mask id="${maskId}" x="0" y="0" width="${bounds.width}" height="${bounds.height}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" mask-type="alpha">${sources}</mask></defs></svg><div data-mask-content="${groupId}" style="${contentStyle.join(";")}">${content}</div></div>`
+  return `<div data-mask-group-id="${groupId}" data-mask-enabled="true" data-mask-composite="true" style="${compositeStyle.join(";")}"><svg aria-hidden="true" width="0" height="0" style="position:absolute"><defs>${luminanceFilters}<mask id="${maskId}" x="0" y="0" width="${bounds.width}" height="${bounds.height}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" mask-type="alpha">${sources}</mask></defs></svg>${coveragePreloads}<div data-mask-content="${groupId}" style="${contentStyle.join(";")}">${content}</div></div>`
 }
 
 function pageNodesMarkup(document: Document, pageId: string): string {

@@ -124,6 +124,7 @@ function renderResourceFixture(options?: {
       },
       naturalWidth: options?.imageNaturalWidth ?? 1200,
       naturalHeight: options?.imageNaturalHeight ?? 800,
+      src: "data:image/png;base64,render-fixture",
       parentElement: {
         style: {
           setProperty: (name: string, value: string) =>
@@ -586,6 +587,13 @@ describe("renderer HTML", () => {
       ])
     )
     expect(imageHtml).toContain(`data-mask-source-id="${image.id}"`)
+    expect(imageHtml).toContain('data-mask-coverage-kind="image"')
+    expect(imageHtml).toMatch(
+      /<g[^>]+clip-path="url\(#[^"]+-coverage-clip\)"[^>]*>/
+    )
+    expect(imageHtml).toContain('clipPathUnits="userSpaceOnUse"')
+    expect(imageHtml).toMatch(/<image[^>]+preserveAspectRatio="none" \/>/)
+    expect(imageHtml).not.toMatch(/<image[^>]+clip-path=/)
     expect(imageHtml).toContain(`data-node-id="${image.id}"`)
     expect(imageHtml).toContain(`data-image-frame-id="${image.id}"`)
     expect(imageHtml).toContain("&quot;shape&quot;:&quot;ellipse&quot;")
@@ -613,6 +621,7 @@ describe("renderer HTML", () => {
       ])
     )
     expect(textHtml).toContain(`data-mask-source-id="${textSource.id}"`)
+    expect(textHtml).toContain('data-mask-coverage-kind="html"')
     expect(textHtml).toContain(`data-node-id="${textSource.id}"`)
     expect(textHtml).toContain(`data-mask-font-source-node="${textSource.id}"`)
     expect(textHtml).toContain(
@@ -667,7 +676,7 @@ describe("renderer HTML", () => {
         expect(html).toContain(`transform:rotate(${node.rotation}deg)`)
       }
     }
-    expect(html).toContain("fonts.load(query, probeText)")
+    expect(html).toContain("input.fonts.load(")
   })
 
   it("serializes the same resolved style and variable values used by the editor", () => {
@@ -1169,9 +1178,9 @@ describe("renderer HTML", () => {
     expect(html).toContain('@font-face{font-family:"Geist Variable"')
     const embeddedFont = html.match(/data:font\/woff2;base64,([A-Za-z0-9+/=]+)/)
     expect(embeddedFont?.[1]).toHaveLength(39_200)
-    expect(html).not.toMatch(/https?:\/\//)
-    expect(html).toContain("input.fonts.load(query, probeText)")
-    expect(html).toContain("input.fonts.check(query, probeText)")
+    expect(html).not.toMatch(/(?:src|href)=["']https?:\/\//)
+    expect(html).toContain("input.fonts.load(")
+    expect(html).toContain("input.fonts.check(")
     expect(html).toMatch(/face\.status\s*===\s*"loaded"/)
     expect(html).toMatch(/await\s+image\.decode\(\)/)
     expect(html).toContain("image.naturalWidth <= 0")

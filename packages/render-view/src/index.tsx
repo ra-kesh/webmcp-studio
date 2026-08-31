@@ -120,6 +120,23 @@ type LuminanceMaskPaintEntry = Omit<MaskPaintPlanEntry, "maskType"> &
   Readonly<{ maskType: "luminance" }>
 type CoverageMaskPaintEntry = AlphaMaskPaintEntry | LuminanceMaskPaintEntry
 
+const maskImageNaturalSizeCache = new Map<
+  string,
+  Readonly<{ width: number; height: number }>
+>()
+
+function retainMaskImageNaturalSize(
+  identity: string,
+  naturalSize: Readonly<{ width: number; height: number }>
+) {
+  maskImageNaturalSizeCache.delete(identity)
+  maskImageNaturalSizeCache.set(identity, naturalSize)
+  if (maskImageNaturalSizeCache.size > 256) {
+    const oldest = maskImageNaturalSizeCache.keys().next().value
+    if (oldest) maskImageNaturalSizeCache.delete(oldest)
+  }
+}
+
 export function shouldCompositeMaskGroup(entry: PagePaintPlanEntry) {
   return (
     entry.kind === "mask_group" && entry.maskEnabled && entry.compositeRequired
@@ -797,6 +814,9 @@ function AtomicMaskSubtreePaintEntry({
     resource: Extract<MaskSubtreeResource, { kind: "image" }>,
     state: ImageResourceStateChange
   ) => {
+    if (state.readiness === "ready" && state.naturalSize) {
+      retainMaskImageNaturalSize(resource.identity, state.naturalSize)
+    }
     dispatchCommit({
       type: state.readiness === "ready" ? "ready" : "failed",
       identity,
@@ -947,13 +967,12 @@ function FontReadinessProbe({
         fonts.load(descriptor, sample)
       )
     ).then(
-      (faces) => {
+      () => {
         if (!current) return
         onResult(
-          faces.every((loaded) => loaded.length > 0) &&
-            resource.requests.every(({ descriptor, sample }) =>
-              fonts.check(descriptor, sample)
-            ),
+          resource.requests.every(({ descriptor, sample }) =>
+            fonts.check(descriptor, sample)
+          ),
           resource
         )
       },
@@ -1004,49 +1023,227 @@ function LuminanceConversionProbe({
 function RenderCoverageMaskSource({
   source,
   bounds,
-  imageSemantics,
   imageResourceRevisions,
-  imageResourceTokens,
-  showImageRecoveryActions,
-  onImageResourceStateChange,
+  maskType,
 }: {
   source: AlphaMaskGroupRenderModel["source"]
   bounds: PagePaintBounds
-  imageSemantics: "content" | "thumbnail"
   imageResourceRevisions?: Readonly<Record<string, string | number>>
-  imageResourceTokens?: Readonly<Record<string, string>>
-  showImageRecoveryActions: boolean
-  onImageResourceStateChange?: (state: ImageResourceStateChange) => void
+  maskType: "alpha" | "luminance"
 }) {
-  return (
-    <foreignObject
-      data-mask-source-id={source.id}
-      height={bounds.height}
-      width={bounds.width}
-      x={0}
-      y={0}
-    >
-      <div
-        style={{
-          position: "absolute",
-          left: -bounds.x,
-          top: -bounds.y,
-          width: bounds.width,
-          height: bounds.height,
-        }}
-      >
-        <RenderNode
-          imageSemantics={imageSemantics}
-          node={source}
-          imageResourceRevision={imageResourceRevisions?.[source.id]}
-          imageResourceToken={imageResourceTokens?.[source.id]}
-          showImageRecoveryActions={showImageRecoveryActions}
-          suppressImageFailureFeedback
-          onImageResourceStateChange={onImageResourceStateChange}
+  const localId = useId().replaceAll(":", "")
+  if (isAdmittedVectorMaskSource(source)) {
+    if (maskType === "alpha") {
+      return <RenderVectorMaskSource bounds={bounds} source={source} />
+    }
+    const projection = projectNodeForRender(source)
+    const frameX = projection.frame.x - bounds.x
+    const frameY = projection.frame.y - bounds.y
+    const transform = `rotate(${projection.frame.rotation} ${frameX} ${frameY})`
+    if (projection.type === "rect") {
+      return (
+        <rect
+          data-mask-source-id={source.id}
+          fill={projection.content.fill}
+          fillOpacity={projection.frame.opacity}
+          height={projection.frame.height}
+          rx={projection.content.radius}
+          ry={projection.content.radius}
+          stroke={projection.content.stroke ?? undefined}
+          strokeOpacity={
+            projection.content.stroke ? projection.frame.opacity : undefined
+          }
+          strokeWidth={projection.content.strokeWidth}
+          transform={transform}
+          width={projection.frame.width}
+          x={frameX}
+          y={frameY}
         />
-      </div>
-    </foreignObject>
-  )
+      )
+    }
+    if (projection.type === "ellipse") {
+      return (
+        <ellipse
+          cx={frameX + projection.frame.width / 2}
+          cy={frameY + projection.frame.height / 2}
+          data-mask-source-id={source.id}
+          fill={projection.content.fill}
+          fillOpacity={projection.frame.opacity}
+          rx={projection.frame.width / 2}
+          ry={projection.frame.height / 2}
+          stroke={projection.content.stroke ?? undefined}
+          strokeOpacity={
+            projection.content.stroke ? projection.frame.opacity : undefined
+          }
+          strokeWidth={projection.content.strokeWidth}
+          transform={transform}
+        />
+      )
+    }
+    if (projection.type === "icon") {
+      return (
+        <svg
+          data-mask-source-id={source.id}
+          height={projection.frame.height}
+          opacity={projection.frame.opacity}
+          overflow="visible"
+          preserveAspectRatio="xMidYMid meet"
+          transform={transform}
+          viewBox={projection.content.viewBox}
+          width={projection.frame.width}
+          x={frameX}
+          y={frameY}
+        >
+          <path
+            d={projection.content.path}
+            fill={projection.content.fill}
+            stroke={projection.content.stroke ?? undefined}
+            strokeWidth={projection.content.strokeWidth}
+          />
+        </svg>
+      )
+    }
+  }
+
+  if (source.type === "image") {
+    const identity = `image:${imageResourceIdentity(
+      source.id,
+      source.src,
+      imageResourceRevisions?.[source.id]
+    )}`
+    const naturalSize = maskImageNaturalSizeCache.get(identity)
+    if (!naturalSize) return <g data-mask-source-id={source.id} />
+    const paint = projectImagePaint({
+      frame: source,
+      naturalSize,
+      placement: source.placement,
+      frameMask: source.frameMask,
+    })
+    const clipId = `studio-mask-image-${localId}`
+    const frameX = source.x - bounds.x
+    const frameY = source.y - bounds.y
+    return (
+      <g
+        clipPath={`url(#${clipId})`}
+        data-mask-source-id={source.id}
+        opacity={source.opacity}
+        transform={`translate(${frameX} ${frameY}) rotate(${source.rotation} 0 0)`}
+      >
+        <defs>
+          <clipPath id={clipId} clipPathUnits="userSpaceOnUse">
+            {paint.clip.shape === "ellipse" ? (
+              <ellipse
+                cx={paint.clip.centerX}
+                cy={paint.clip.centerY}
+                rx={paint.clip.radiusX}
+                ry={paint.clip.radiusY}
+              />
+            ) : (
+              <rect
+                height={source.height}
+                rx={
+                  paint.clip.shape === "rounded_rectangle"
+                    ? paint.clip.radius
+                    : 0
+                }
+                ry={
+                  paint.clip.shape === "rounded_rectangle"
+                    ? paint.clip.radius
+                    : 0
+                }
+                width={source.width}
+                x={0}
+                y={0}
+              />
+            )}
+          </clipPath>
+        </defs>
+        <image
+          height={naturalSize.height}
+          href={source.src}
+          preserveAspectRatio="none"
+          transform={`matrix(${paint.sourceToFrame.a} ${paint.sourceToFrame.b} ${paint.sourceToFrame.c} ${paint.sourceToFrame.d} ${paint.sourceToFrame.e} ${paint.sourceToFrame.f})`}
+          width={naturalSize.width}
+          x={0}
+          y={0}
+        />
+      </g>
+    )
+  }
+
+  if (source.type === "text") {
+    const projection = projectNodeForRender(source)
+    if (projection.type !== "text") return null
+    const clipId = `studio-mask-text-${localId}`
+    const frameX = source.x - bounds.x
+    const frameY = source.y - bounds.y
+    let lineTop = 0
+    return (
+      <g
+        clipPath={
+          projection.content.sizingMode === "fixed"
+            ? `url(#${clipId})`
+            : undefined
+        }
+        data-mask-source-id={source.id}
+        opacity={source.opacity}
+        transform={`translate(${frameX} ${frameY}) rotate(${source.rotation} 0 0)`}
+      >
+        <defs>
+          <clipPath id={clipId}>
+            <rect height={source.height} width={source.width} x={0} y={0} />
+          </clipPath>
+        </defs>
+        {projection.content.layout.lines.map((line, lineIndex) => {
+          const y = lineTop
+          lineTop += line.height
+          const x =
+            line.align === "center"
+              ? source.width / 2
+              : line.align === "right"
+                ? source.width
+                : 0
+          const textAnchor =
+            line.align === "center"
+              ? "middle"
+              : line.align === "right"
+                ? "end"
+                : "start"
+          return (
+            <text
+              dominantBaseline="text-before-edge"
+              key={`${line.sourceStart}:${line.sourceEnd}:${lineIndex}`}
+              textAnchor={textAnchor}
+              wordSpacing={line.justifySpacing || undefined}
+              x={x}
+              y={y}
+            >
+              {line.segments.map((segment, segmentIndex) => (
+                <tspan
+                  fill={segment.style.color}
+                  fontFamily={`${segment.style.fontFamily}, sans-serif`}
+                  fontSize={segment.style.fontSize}
+                  fontStyle={segment.style.italic ? "italic" : "normal"}
+                  fontWeight={segment.style.fontWeight}
+                  key={`${segment.sourceStart}:${segment.sourceEnd}:${segmentIndex}`}
+                  letterSpacing={segment.style.letterSpacing}
+                  textDecoration={
+                    segment.style.decoration === "line_through"
+                      ? "line-through"
+                      : segment.style.decoration
+                  }
+                >
+                  {segment.text}
+                </tspan>
+              ))}
+            </text>
+          )
+        })}
+      </g>
+    )
+  }
+
+  return null
 }
 
 function ResolvedMaskGroupPaintEntry({
@@ -1134,7 +1331,8 @@ function ResolvedMaskGroupPaintEntry({
           >
             <feColorMatrix
               in="SourceGraphic"
-              type="luminanceToAlpha"
+              type="matrix"
+              values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0.2126 0.7152 0.0722 0 0"
               result={`${filterId}-luminance`}
             />
             <feComposite
@@ -1166,11 +1364,8 @@ function ResolvedMaskGroupPaintEntry({
                 const rendered = (
                   <RenderCoverageMaskSource
                     bounds={maskEntry.bounds}
-                    imageSemantics={imageSemantics}
                     imageResourceRevisions={imageResourceRevisions}
-                    imageResourceTokens={imageResourceTokens}
-                    onImageResourceStateChange={onImageResourceStateChange}
-                    showImageRecoveryActions={showImageRecoveryActions}
+                    maskType={maskEntry.maskType}
                     source={source}
                   />
                 )

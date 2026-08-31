@@ -126,6 +126,20 @@ describe("FabricArtboard crop preview", () => {
     ).rejects.toThrow('Canvas font unavailable: 650 30px "Geist Variable"')
   })
 
+  it("accepts an installed system font when load resolves without web-font faces", async () => {
+    const load = vi.fn(() => Promise.resolve([]))
+    const check = vi.fn(() => true)
+
+    await waitForCanvasDocumentFonts(renderConformanceDocument, "square-page", {
+      check,
+      load,
+      ready: Promise.resolve({}) as Promise<FontFaceSet>,
+    })
+
+    expect(load).toHaveBeenCalled()
+    expect(check).toHaveBeenCalled()
+  })
+
   it("does not wait for unrelated global font readiness on a no-text page", async () => {
     const page = renderConformanceDocument.pages[0]
     const document = {

@@ -14,6 +14,7 @@ import {
   Point,
   Rect,
   Textbox,
+  util,
   type TextboxProps,
   type TextStyle,
   type ModifiedEvent,
@@ -1518,6 +1519,12 @@ export type FabricVectorMaskPaint =
 export type FabricAlphaMaskPaint = FabricVectorMaskPaint
 export type FabricLuminanceMaskPaint = FabricVectorMaskPaint
 
+class FabricMaskGroup extends Group {
+  override needsItsOwnCache() {
+    return true
+  }
+}
+
 function createFabricVectorMaskObject(
   source: Extract<SceneNode, { type: "rect" | "ellipse" | "icon" }>
 ) {
@@ -1557,7 +1564,12 @@ function createFabricMaskSourceUnion(
     applyFabricAlphaMaskPaint(source)
     return source
   }
-  const union = new Group([...sourceObjects], {
+  const pageTransforms = new Map(
+    sourceObjects.map(
+      (source) => [source, source.calcTransformMatrix()] as const
+    )
+  )
+  const union = new FabricMaskGroup([...sourceObjects], {
     left: bounds.x,
     top: bounds.y,
     width: bounds.width,
@@ -1569,6 +1581,7 @@ function createFabricMaskSourceUnion(
     selectable: false,
     evented: false,
   })
+  preserveFabricChildPageTransforms(union, pageTransforms)
   applyFabricAlphaMaskPaint(union)
   return union
 }
@@ -1633,19 +1646,46 @@ function disposeFabricObjectForest(objects: Iterable<FabricObject>) {
   }
 }
 
-function positionFabricMaskContentObject(
-  object: FabricObject,
-  bounds: PagePaintBounds
+function preserveFabricChildPageTransforms(
+  group: Group,
+  pageTransforms: ReadonlyMap<
+    FabricObject,
+    ReturnType<FabricObject["calcTransformMatrix"]>
+  >
 ) {
-  object.set({
-    left: (object.left ?? 0) - bounds.x - bounds.width / 2,
-    top: (object.top ?? 0) - bounds.y - bounds.height / 2,
-  })
-  object.setCoords()
-  return object
+  const inverseGroupTransform = util.invertTransform(
+    group.calcTransformMatrix()
+  )
+  for (const [child, pageTransform] of pageTransforms) {
+    util.applyTransformToObject(
+      child,
+      util.multiplyTransformMatrices(inverseGroupTransform, pageTransform)
+    )
+    child.setCoords()
+  }
+  group.set({ dirty: true })
+  group.setCoords()
 }
 
-const fabricMaskCompositePageBounds = new WeakMap<Group, PagePaintBounds>()
+function preserveFabricObjectPageTransformAfterSync(object: FabricObject) {
+  if (!object.group) return
+  util.applyTransformToObject(
+    object,
+    util.multiplyTransformMatrices(
+      util.invertTransform(object.group.calcTransformMatrix()),
+      object.calcOwnMatrix()
+    )
+  )
+  object.setCoords()
+}
+
+function markFabricObjectAncestorsDirty(object: FabricObject) {
+  let parent = object.group
+  while (parent) {
+    parent.set({ dirty: true })
+    parent = parent.group
+  }
+}
 
 function createFabricMaskComposite(
   entry: FabricMaskGroupEntry,
@@ -1653,7 +1693,10 @@ function createFabricMaskComposite(
   maskObject: FabricObject
 ) {
   const children = [...contentObjects, maskObject]
-  const object = new Group(children, {
+  const pageTransforms = new Map(
+    children.map((child) => [child, child.calcTransformMatrix()] as const)
+  )
+  const object = new FabricMaskGroup(children, {
     left: entry.bounds.x,
     top: entry.bounds.y,
     width: entry.bounds.width,
@@ -1668,25 +1711,8 @@ function createFabricMaskComposite(
     subTargetCheck: true,
     hasControls: false,
   })
-  object.set({ dirty: true })
-  object.setCoords()
-  fabricMaskCompositePageBounds.set(object, entry.bounds)
+  preserveFabricChildPageTransforms(object, pageTransforms)
   return object
-}
-
-function restoreFabricNestedCompositeBounds(composites: Iterable<Group>) {
-  for (const composite of composites) {
-    if (!(composite.group instanceof Group)) continue
-    const expected = fabricMaskCompositePageBounds.get(composite)
-    if (!expected) continue
-    const actual = composite.getBoundingRect()
-    composite.set({
-      left: (composite.left ?? 0) + expected.x - actual.left,
-      top: (composite.top ?? 0) + expected.y - actual.top,
-    })
-    composite.setCoords()
-    composite.group.set({ dirty: true })
-  }
 }
 
 export function createFabricVectorMaskPaint(
@@ -1745,7 +1771,6 @@ function createFabricVectorMaskPaintFromObjects(
   const sourceObjects = new Map<string, FabricObject>()
   for (const source of sources) {
     const object = createFabricVectorMaskObject(source)
-    positionFabricMaskContentObject(object, entry.bounds)
     sourceObjects.set(source.id, object)
   }
   const maskObject = createFabricMaskSourceUnion(
@@ -1755,10 +1780,7 @@ function createFabricVectorMaskPaintFromObjects(
   // Detached objects are page-positioned. Convert them to the fixed
   // composite's centre-local coordinates without changing their own affine
   // properties or canonical node geometry.
-  const objects = contentObjects.map((object) =>
-    positionFabricMaskContentObject(object, entry.bounds)
-  )
-  const object = createFabricMaskComposite(entry, objects, maskObject)
+  const object = createFabricMaskComposite(entry, contentObjects, maskObject)
   return { kind: "composite", object, maskObject, sourceObjects }
 }
 
@@ -1823,17 +1845,13 @@ function createFabricAlphaMaskPaintFromObjects(
     if (isMissingImagePlaceholder(sourceObject)) {
       throw new Error(`Fabric alpha mask source ${source.id} is unavailable`)
     }
-    positionFabricMaskContentObject(sourceObject, entry.bounds)
     sourceObjects.set(source.id, sourceObject)
   }
   const maskObject = createFabricMaskSourceUnion(
     [...sourceObjects.values()],
     entry.bounds
   )
-  const objects = contentObjects.map((object) =>
-    positionFabricMaskContentObject(object, entry.bounds)
-  )
-  const object = createFabricMaskComposite(entry, objects, maskObject)
+  const object = createFabricMaskComposite(entry, contentObjects, maskObject)
   return { kind: "composite", object, maskObject, sourceObjects }
 }
 
@@ -1904,14 +1922,8 @@ function createFabricLuminanceMaskPaintFromObjects(
     )
   }
 
-  const maskObject = positionFabricMaskContentObject(
-    preparedUnion.maskObject,
-    entry.bounds
-  )
-  const objects = contentObjects.map((object) =>
-    positionFabricMaskContentObject(object, entry.bounds)
-  )
-  const object = createFabricMaskComposite(entry, objects, maskObject)
+  const maskObject = preparedUnion.maskObject
+  const object = createFabricMaskComposite(entry, contentObjects, maskObject)
   return {
     kind: "composite",
     object,
@@ -3329,11 +3341,11 @@ export class FabricCanvasAdapter implements CanvasAdapter {
           if (maskEntry.visibleSourceNodeIds.length === 1) {
             applyFabricAlphaMaskPaint(maskObject)
           }
-          positionFabricMaskContentObject(maskObject, maskEntry.bounds)
+          preserveFabricObjectPageTransformAfterSync(maskObject)
         }
       } else {
         const maskEntry = this.maskEntryByContentNodeId.get(nodeId)
-        if (maskEntry) positionFabricMaskContentObject(object, maskEntry.bounds)
+        if (maskEntry) preserveFabricObjectPageTransformAfterSync(object)
       }
       this.nodeByNodeId.set(nodeId, node)
       if (node.type === "text") {
@@ -3691,12 +3703,6 @@ export class FabricCanvasAdapter implements CanvasAdapter {
         this.maskCompositeByGroupId.set(groupId, object)
       }
       canvas.add(...candidateRoots, ...candidateSelectionProxies)
-      // Fabric only finalizes nested Group ownership when the root enters the
-      // canvas. Restore every semantic child's admitted page bounds after that
-      // handoff so its parent sees the completed child in canonical geometry.
-      restoreFabricNestedCompositeBounds(
-        candidateMaskCompositeByGroupId.values()
-      )
       this.pageNodeOrder = [...page.nodeIds]
       this.paintPlanIdentity = pagePaintPlanIdentity(plan)
       const selectionObjects = previousSelection
@@ -3744,16 +3750,14 @@ export class FabricCanvasAdapter implements CanvasAdapter {
         if (sourceEntry.visibleSourceNodeIds.length === 1) {
           applyFabricAlphaMaskPaint(maskObject)
         }
-        positionFabricMaskContentObject(maskObject, sourceEntry.bounds)
-        this.maskCompositeByGroupId
-          .get(sourceEntry.groupId)
-          ?.set({ dirty: true })
+        preserveFabricObjectPageTransformAfterSync(maskObject)
+        markFabricObjectAncestorsDirty(maskObject)
       }
     }
     const maskEntry = this.maskEntryByContentNodeId.get(nodeId)
     if (maskEntry) {
-      positionFabricMaskContentObject(object, maskEntry.bounds)
-      this.maskCompositeByGroupId.get(maskEntry.groupId)?.set({ dirty: true })
+      preserveFabricObjectPageTransformAfterSync(object)
+      markFabricObjectAncestorsDirty(object)
     }
     canvas.requestRenderAll()
     return true
@@ -3778,16 +3782,14 @@ export class FabricCanvasAdapter implements CanvasAdapter {
         if (sourceEntry.visibleSourceNodeIds.length === 1) {
           applyFabricAlphaMaskPaint(maskObject)
         }
-        positionFabricMaskContentObject(maskObject, sourceEntry.bounds)
-        this.maskCompositeByGroupId
-          .get(sourceEntry.groupId)
-          ?.set({ dirty: true })
+        preserveFabricObjectPageTransformAfterSync(maskObject)
+        markFabricObjectAncestorsDirty(maskObject)
       }
     }
     const maskEntry = this.maskEntryByContentNodeId.get(nodeId)
     if (maskEntry) {
-      positionFabricMaskContentObject(object, maskEntry.bounds)
-      this.maskCompositeByGroupId.get(maskEntry.groupId)?.set({ dirty: true })
+      preserveFabricObjectPageTransformAfterSync(object)
+      markFabricObjectAncestorsDirty(object)
     }
     canvas.requestRenderAll()
     return true
