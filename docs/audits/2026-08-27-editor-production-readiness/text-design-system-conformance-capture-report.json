@@ -1,11 +1,23 @@
 {
   "version": 2,
-  "runId": "2026-08-30T20-24-21.290Z-eced26b5-0ce1-4445-95fd-c0223d05e89d",
-  "artifactRoot": "artifacts/runs/2026-08-30T20-24-21.290Z-eced26b5-0ce1-4445-95fd-c0223d05e89d",
+  "runId": "2026-08-31T17-39-43.722Z-a02fc16f-6764-456b-b246-76c2351b955a",
+  "artifactRoot": "artifacts/runs/2026-08-31T17-39-43.722Z-a02fc16f-6764-456b-b246-76c2351b955a",
   "corpus": "resources",
+  "captureScope": "full",
   "documentId": "render-conformance-golden-v3",
   "revision": 21,
-  "baseUrl": "http://localhost:3001",
+  "publication": {
+    "id": "text-design-system-conformance-v1",
+    "templateId": "text-design-system-conformance",
+    "version": 1,
+    "sourceRevision": 21,
+    "sourceSnapshotId": "sha256-6d6546b1546db382ed68e44235f471e40e6e01454e6f7b3322e6132d5736f178",
+    "publishedAt": "2026-08-30T16:00:00.000Z"
+  },
+  "publicationAttestation": {
+    "kind": "captured-from-publish-request"
+  },
+  "baseUrl": "http://localhost:4311",
   "deviceScaleFactor": 1,
   "browserCaptureRuntime": {
     "browserVersion": "152.0.7977.64",
@@ -15,59 +27,58 @@
     "hostArchitecture": "arm64"
   },
   "browserCaptureEvidence": {
+    "exercised": true,
+    "skippedReason": null,
     "pageErrorPolicy": "fail_before_surface_ready",
     "pageErrors": [],
     "surfaces": [
       {
         "pageId": "properties-page",
         "surface": "render-view",
-        "state": "ready"
+        "state": "ready",
+        "maskState": null
       },
       {
         "pageId": "properties-page",
         "surface": "fabric",
-        "state": "ready"
+        "state": "ready",
+        "maskState": null
       },
       {
         "pageId": "long-text-page",
         "surface": "render-view",
-        "state": "ready"
+        "state": "ready",
+        "maskState": null
       },
       {
         "pageId": "long-text-page",
         "surface": "fabric",
-        "state": "ready"
+        "state": "ready",
+        "maskState": null
       },
       {
         "pageId": "square-page",
         "surface": "render-view",
-        "state": "ready"
+        "state": "ready",
+        "maskState": null
       },
       {
         "pageId": "square-page",
         "surface": "fabric",
-        "state": "ready"
+        "state": "ready",
+        "maskState": null
       }
     ]
   },
-  "pageOrder": [
-    "properties-page",
-    "long-text-page",
-    "square-page"
-  ],
+  "pageOrder": ["properties-page", "long-text-page", "square-page"],
   "outputs": [
     {
       "id": "mixed-document",
-      "pageIds": [
-        "properties-page",
-        "long-text-page"
-      ]
+      "pageIds": ["properties-page", "long-text-page"]
     },
     {
       "id": "square-image",
-      "pageIds": [
-        "square-page"
-      ]
+      "pageIds": ["square-page"]
     }
   ],
   "artifacts": [
@@ -87,8 +98,8 @@
     },
     {
       "path": "render-view/square-page.png",
-      "bytes": 8672,
-      "sha256": "bea9346739179a4afb1ec4ccb3a0e8d97e964ce282e37f5ae8b0e97485973f74",
+      "bytes": 8594,
+      "sha256": "c346364a8a36047b5b9cc77a87941d01514224628e754739dd7aeb991896abda",
       "width": 512,
       "height": 512
     },
@@ -115,8 +126,8 @@
     },
     {
       "path": "renderer-png/properties-page.png",
-      "bytes": 41785,
-      "sha256": "cbe1f53d1c608413cb8b327e79cbe903d3df72af645db87745ddb81cfbf15d8d",
+      "bytes": 41783,
+      "sha256": "60820065ce582f1b9ed499d6d25a609144b561fd78ad33f575d29b69a6fcafe1",
       "width": 720,
       "height": 960
     },
@@ -129,15 +140,15 @@
     },
     {
       "path": "renderer-png/square-page.png",
-      "bytes": 8838,
-      "sha256": "1b9534d9d7b2e4619e698f4ed75f8ec80ba0d3d11057dc8415d0de1e2abbc360",
+      "bytes": 8884,
+      "sha256": "01ae25f7a8490a7e7d82bc10b54a3a6a63d73086b75ce8ea2333bb5b6bb278ef",
       "width": 512,
       "height": 512
     },
     {
       "path": "renderer-pdf/mixed-document.pdf",
       "bytes": 58199,
-      "sha256": "95d3424db679b290893f4458ed95bd1dd4814bd2f133c0e2bc704473892790b8"
+      "sha256": "e6034baaa5354c2f69a727811d9f633b781a354cd66537766a7484e89b1c7192"
     },
     {
       "path": "renderer-pdf/properties-page.png",

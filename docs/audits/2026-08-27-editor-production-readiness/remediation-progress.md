@@ -4013,3 +4013,29 @@ capture, independent acceptance, and merge remain open**
 - Focused document tests pass 18/18. Document and Studio typechecks pass under
   Node 22.23.2. This checkpoint does not claim a fresh schema-v5 capture,
   independent acceptance, commit, or merge.
+
+### Fresh schema-v5 retained evidence
+
+Status: **capture and artifact validation complete; independent review and
+merge remain open**
+
+- Checkpoint commit `876bd75` preceded the capture run. The isolated local D1
+  received only the repository's 17 checked-in migrations. No remote database,
+  production resource, port 3000, IndexedDB store, or main-checkout capture
+  directory changed.
+- Two failed attempts promoted no evidence. The first reached every browser
+  surface but found the empty local D1. The second timed out during cold route
+  admission. The warmed retry completed atomically on port 4311.
+- Retained run
+  `2026-08-31T17-39-43.722Z-a02fc16f-6764-456b-b246-76c2351b955a`
+  records six ready browser surfaces, zero page errors, real Renderer PNG and
+  PDF output, and rasterized PDF pages from the immutable schema-v5 published
+  document.
+- The report binds 12 exact hashes to publication
+  `text-design-system-conformance-v1`, source revision 21, and snapshot
+  `sha256-6d6546b1546db382ed68e44235f471e40e6e01454e6f7b3322e6132d5736f178`.
+  Hash-only validation passes 12/12, and all eight raw or geometry comparison
+  policies pass. Generated report paths are relative to the report file.
+- The evidence is captured and locally accepted. A separate reviewer must read
+  the integration and retained records before this branch may claim
+  independent acceptance. The branch is not merged.
