@@ -2,7 +2,7 @@
 
 Date: 2026-08-31
 
-Status: Steps 1-5C independently accepted; live browser and two-tab acceptance remain active
+Status: **accepted and closed on 2026-08-31; zero open P0/P1 findings**
 
 ## Decision
 
@@ -198,6 +198,42 @@ Status: **independently accepted and committed on 2026-08-31; zero open P0/P1 fi
   closed eight race, failure-state and accessibility findings and report zero
   remaining P0/P1.
 - Checkpoint: `e7bc243 feat: add durable library collections`.
+
+## Step 5D result — real D1 and two-tab browser acceptance
+
+Status: **independently accepted and committed on 2026-08-31; zero open P0/P1 findings**
+
+- Real local D1 exposed that the original trigger-guarded `INSERT … SELECT`
+  receipt could reject an exact claimed target even though direct SQLite
+  accepted it. Mutations now use a recoverable claim, authoritative read and
+  trigger-validated bound receipt. Exact stranded claims repair only their own
+  operation, hash, target and revision; delete uses a provisional receipt plus
+  idempotent finalization.
+- A second real-D1 defect showed that the existing-favorite path produced no
+  row because its `SELECT` was intentionally empty for positive revisions, so
+  `ON CONFLICT` could never run. Revision zero now uses insert-only semantics;
+  positive revisions use an exact guarded update that cannot create a missing
+  preference. The accepted live sequence changed Signal from favorite/revision
+  `1/1`, through Recent revision `2`, to unfavorite revision `3` while
+  preserving `lastUsedAt` exactly.
+- Real React Strict Mode exposed that the collection dialog disposed its member
+  controller during the mount cleanup replay. Disposal is now deferred and
+  generation-checked, and authoritative nonempty detail plus idle catalog
+  state renders loading rather than a false empty collection.
+- In the existing browser session, favorite survived reload and appeared in
+  Favorites; successful durable Create produced the exact Recent entry;
+  collection creation retained the exact Signal member after reload; and
+  rename, member removal, delete and favorite removal reconciled into a second
+  tab without reload or stale overwrite.
+- Preference failures retained Retry/Dismiss and did not prevent the later
+  successful Create. Retained cursor replacement, compact interaction,
+  action-specific failure and exact reorder remain covered by the independently
+  accepted mounted/controller suites.
+- The live server remained on port `3001` without restart. Port `3000`, remote
+  Cloudflare state and browser storage were not touched or cleared.
+- Checkpoints: `ee83523 fix: make library receipts recoverable in D1`,
+  `be7364d fix: keep collection detail alive in Strict Mode`, and `ee40322 fix:
+  update existing library favorites`.
 
 ## Evidence revisited
 
