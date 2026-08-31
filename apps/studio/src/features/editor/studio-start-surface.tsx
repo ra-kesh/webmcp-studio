@@ -377,7 +377,7 @@ export function StudioStartSurface({
             </p>
             <h1
               ref={headingRef}
-              className="mt-2 max-w-2xl text-3xl leading-[1.05] font-semibold tracking-[-0.035em] sm:text-4xl"
+              className="mt-2 max-w-2xl text-3xl leading-[1.05] font-semibold tracking-[-0.035em] outline-none sm:text-4xl"
               id="studio-start-heading"
               tabIndex={-1}
             >

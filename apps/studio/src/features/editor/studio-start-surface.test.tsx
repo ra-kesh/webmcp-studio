@@ -137,6 +137,7 @@ describe("StudioStartSurface", () => {
     const html = renderSurface()
 
     expect(html).toContain("What are you making?")
+    expect(html).toContain("tracking-[-0.035em] outline-none")
     expect(html).toContain("How Studio files work")
     expect(html).toContain("Document")
     expect(html).toContain("Outputs")

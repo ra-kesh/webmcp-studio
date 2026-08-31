@@ -12,6 +12,32 @@ This document reconciles the original audit with the implementation and browser
 acceptance recorded in `remediation-progress.md`. The original parity matrix is
 retained as historical evidence and must not be read as current product state.
 
+## 2026-09-01 reconciliation
+
+The table below remains the historical execution ledger, but four later gates
+supersede its old “active” wording:
+
+- EDITOR-POLISH-01's full OpenPencil-level sophistication pass is implemented,
+  independently reviewed, and merged. The current follow-up is limited to
+  newly observed polish and startup-weight defects; accepted shell, menu,
+  pointer, dark-mode, motion, and Inspector behavior is not being reopened.
+- LIBRARY-02 Gate 8 is independently accepted and merged. The current local
+  catalog exposes 21 document templates and the retained curated media set with
+  search, filters, collections, favorites/recent, provenance, preview, and
+  failure-state evidence.
+- ASSET-02 general vector, alpha, luminance, and two-level masks are accepted
+  and merged at `2793265`, with retained renderer evidence. Background removal
+  has a production service/repository boundary but remains disabled by default
+  behind `VITE_STUDIO_BACKGROUND_REMOVAL`; no paid provider is enabled.
+- GEN-01 skill-driven blank/template document generation through WebMCP and
+  human Review is accepted and merged. It consumes bounded Design Plans rather
+  than JSX, HTML, CSS, scripts, or private canonical document bodies.
+
+The next local product work is therefore the measured editor entry-chunk and
+startup-polish gate recorded in
+`editor-sophistication-followup-2026-09-01.md`. Deployed Cloudflare evidence
+remains a separate environment gate.
+
 ## What is already a real product foundation
 
 - Canonical multi-page documents, pages and outputs, hierarchical Layers,
