@@ -13,8 +13,10 @@ import {
   projectNodeForRender,
   renderConformanceDocument,
   textDesignSystemConformanceDocument,
+  type SceneNode,
 } from "@webmcp/document"
 import {
+  maskRenderConformanceDocument,
   maskRenderConformanceHiddenSourcePlan,
   maskRenderConformanceNodes,
   maskRenderConformancePlan,
@@ -53,6 +55,70 @@ import {
   unionMaskAlphas,
 } from "../src"
 
+function nestedMaskDocument(options: { hiddenChildSource?: boolean } = {}) {
+  const seed = maskRenderConformanceNodes.find(
+    (node): node is Extract<SceneNode, { type: "rect" }> => node.type === "rect"
+  )!
+  const rectangle = (
+    id: string,
+    values: Partial<Extract<SceneNode, { type: "rect" }>>
+  ): Extract<SceneNode, { type: "rect" }> => ({
+    ...seed,
+    id,
+    name: id,
+    ...values,
+  })
+  const page = {
+    ...maskRenderConformanceDocument.pages[0]!,
+    nodeIds: ["outer-source", "child-source", "child-content", "outer-content"],
+  }
+  return {
+    ...maskRenderConformanceDocument,
+    pages: [page],
+    nodes: [
+      rectangle("outer-source", { x: 0, y: 0, width: 20, height: 20 }),
+      rectangle("child-source", {
+        x: -100,
+        y: 0,
+        width: 20,
+        height: 20,
+        visible: !options.hiddenChildSource,
+      }),
+      rectangle("child-content", {
+        x: 120,
+        y: 10,
+        width: 20,
+        height: 20,
+      }),
+      rectangle("outer-content", {
+        x: 200,
+        y: 0,
+        width: 20,
+        height: 20,
+      }),
+    ],
+    groups: [
+      {
+        id: "outer-mask",
+        role: "mask" as const,
+        pageId: page.id,
+        name: "Outer mask",
+        nodeIds: ["outer-source", "outer-content"],
+        mask: { type: "vector" as const, sourceNodeIds: ["outer-source"] },
+      },
+      {
+        id: "child-mask",
+        role: "mask" as const,
+        pageId: page.id,
+        parentGroupId: "outer-mask",
+        name: "Child mask",
+        nodeIds: ["child-source", "child-content"],
+        mask: { type: "alpha" as const, sourceNodeIds: ["child-source"] },
+      },
+    ],
+  }
+}
+
 describe("React render-view conformance", () => {
   it("caps a 3x host at the shared 2x mask ratio", () => {
     vi.stubGlobal("devicePixelRatio", 3)
@@ -66,12 +132,21 @@ describe("React render-view conformance", () => {
     const entry = maskRenderConformancePlan.entries[1]!
     const model = maskGroupRenderModel(entry, nodesById)
 
-    expect(model.content.map((node) => node.id)).toEqual(
+    expect(
+      model.content.map((contentEntry) =>
+        contentEntry.kind === "node"
+          ? contentEntry.nodeId
+          : contentEntry.groupId
+      )
+    ).toEqual(
       entry.kind === "mask_group"
         ? entry.content.map((contentEntry) => contentEntry.nodeId)
         : []
     )
-    expect(model.content.map((node) => node.id)).not.toContain(model.source.id)
+    expect(model.content).not.toContainEqual({
+      kind: "node",
+      nodeId: model.source.id,
+    })
     expect(renderMaskGroupWrapperStyle(model.entry.bounds)).toEqual({
       position: "absolute",
       left: model.entry.bounds.x,
@@ -103,6 +178,181 @@ describe("React render-view conformance", () => {
       compositeRequired: false,
     })
     expect(shouldCompositeMaskGroup(entry)).toBe(false)
+  })
+
+  it("renders a nested mask subtree in canonical order and page-local coordinates", () => {
+    const document = nestedMaskDocument()
+    const plan = projectPagePaintPlan(document, document.pages[0]!.id)
+    const entry = plan.entries[0]!
+    const markup = renderToStaticMarkup(
+      createElement(MaskGroupPaintEntry, {
+        entry,
+        nodesById: new Map(document.nodes.map((node) => [node.id, node])),
+      })
+    )
+
+    expect(markup.match(/data-mask-group-id=/g)).toHaveLength(2)
+    expect(markup.indexOf('data-mask-group-id="outer-mask"')).toBeLessThan(
+      markup.indexOf('data-mask-group-id="child-mask"')
+    )
+    expect(markup).toContain("left:-100px;top:0;width:240px;height:30px")
+    expect(markup).toContain("left:100px;top:0;width:100%;height:100%")
+    expect(markup.indexOf('data-node-id="child-content"')).toBeLessThan(
+      markup.indexOf('data-node-id="outer-content"')
+    )
+    expect(markup.match(/data-node-id="child-source"/g)).toHaveLength(1)
+    expect(markup).toContain('data-mask-source-id="child-source"')
+    expect(markup.match(/<mask /g)).toHaveLength(2)
+  })
+
+  it("holds the outer subtree behind one descendant image readiness boundary", () => {
+    const document = nestedMaskDocument()
+    const plan = projectPagePaintPlan(document, document.pages[0]!.id)
+    const outer = plan.entries[0]!
+    if (outer.kind !== "mask_group") throw new Error("Missing outer mask")
+    const child = outer.content[0]!
+    if (child.kind !== "mask_group") throw new Error("Missing child mask")
+    const image = {
+      ...imageRenderParityNode(imageRenderParityCases[0]!, 1),
+      id: "child-source",
+      name: "Nested image source",
+    }
+    const entry = {
+      ...outer,
+      content: [
+        {
+          ...child,
+          maskType: "alpha" as const,
+          sources: [
+            {
+              nodeId: image.id,
+              kind: "image" as const,
+              assetId: image.assetId,
+            },
+          ],
+        },
+        ...outer.content.slice(1),
+      ],
+    }
+    const nodesById = new Map(
+      document.nodes.map((node) => [
+        node.id,
+        node.id === image.id ? image : node,
+      ])
+    )
+
+    const markup = renderToStaticMarkup(
+      createElement(MaskGroupPaintEntry, { entry, nodesById })
+    )
+
+    expect(markup).toContain('data-mask-group-id="outer-mask"')
+    expect(markup).toContain('data-mask-resource-state="loading"')
+    expect(markup).toContain('data-alpha-mask-resource-probe="child-source"')
+    expect(markup).not.toContain('data-mask-group-id="child-mask"')
+    expect(markup.match(/data-alpha-mask-resource-probe=/g)).toHaveLength(1)
+  })
+
+  it("aggregates descendant font and luminance readiness at the outer boundary", () => {
+    const document = nestedMaskDocument()
+    const plan = projectPagePaintPlan(document, document.pages[0]!.id)
+    const outer = plan.entries[0]!
+    if (outer.kind !== "mask_group") throw new Error("Missing outer mask")
+    const child = outer.content[0]!
+    if (child.kind !== "mask_group") throw new Error("Missing child mask")
+    const text = renderConformanceDocument.nodes.find(
+      (node): node is Extract<SceneNode, { type: "text" }> =>
+        node.type === "text"
+    )!
+    const textContent = {
+      ...text,
+      id: "child-content",
+      name: "Nested text content",
+      x: 120,
+      y: 10,
+      width: 20,
+      height: 20,
+    }
+    const textMarkup = renderToStaticMarkup(
+      createElement(MaskGroupPaintEntry, {
+        entry: outer,
+        nodesById: new Map(
+          document.nodes.map((node) => [
+            node.id,
+            node.id === textContent.id ? textContent : node,
+          ])
+        ),
+      })
+    )
+    expect(textMarkup).toContain('data-mask-resource-state="loading"')
+    expect(textMarkup).toContain(
+      'data-mask-font-resource-probe="child-content"'
+    )
+    expect(textMarkup).not.toContain('data-mask-group-id="child-mask"')
+
+    const luminanceEntry = {
+      ...outer,
+      content: [
+        { ...child, maskType: "luminance" as const },
+        ...outer.content.slice(1),
+      ],
+    }
+    const luminanceMarkup = renderToStaticMarkup(
+      createElement(MaskGroupPaintEntry, {
+        entry: luminanceEntry,
+        nodesById: new Map(document.nodes.map((node) => [node.id, node])),
+      })
+    )
+    expect(luminanceMarkup).toContain('data-mask-resource-state="loading"')
+    expect(luminanceMarkup).toContain(
+      'data-luminance-conversion-probe="child-source"'
+    )
+    expect(luminanceMarkup).not.toContain('data-mask-group-id="child-mask"')
+  })
+
+  it("keeps the committed outer model and attributes a failed descendant candidate", () => {
+    const document = nestedMaskDocument()
+    const outer = projectPagePaintPlan(document, document.pages[0]!.id)
+      .entries[0]!
+    const model = maskGroupRenderModel(
+      outer,
+      new Map(document.nodes.map((node) => [node.id, node]))
+    )
+    const committed = reduceAlphaImageMaskCommitState(
+      createAlphaImageMaskCommitState("outer-a", model, ["image-a"]),
+      {
+        type: "ready",
+        identity: "outer-a",
+        resourceIdentity: "image-a",
+      }
+    )
+    const replacing = reduceAlphaImageMaskCommitState(committed, {
+      type: "request",
+      identity: "outer-b",
+      model,
+      resourceIdentities: ["image-b", "font-b"],
+    })
+    const failed = reduceAlphaImageMaskCommitState(replacing, {
+      type: "failed",
+      identity: "outer-b",
+      resourceIdentity: "image-b",
+      errorCode: "image_load_failed",
+      errorNodeId: "child-source",
+    })
+
+    expect(failed).toMatchObject({
+      status: "error",
+      committedIdentity: "outer-a",
+      committedModel: model,
+      errorCode: "image_load_failed",
+      errorNodeId: "child-source",
+    })
+    expect(
+      reduceAlphaImageMaskCommitState(failed, {
+        type: "ready",
+        identity: "stale-outer",
+        resourceIdentity: "image-b",
+      })
+    ).toBe(failed)
   })
 
   it("mounts hidden alpha-image fallthrough without allocating its unavailable source", () => {

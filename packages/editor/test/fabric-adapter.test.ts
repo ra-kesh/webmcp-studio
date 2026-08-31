@@ -111,6 +111,70 @@ function createRetainedMaskContentObject(node: SceneNode) {
   return createFabricSyncObject(node)
 }
 
+function nestedMaskDocument(options: { hiddenChildSource?: boolean } = {}) {
+  const seed = maskRenderConformanceNodes.find(
+    (node): node is Extract<SceneNode, { type: "rect" }> => node.type === "rect"
+  )!
+  const rectangle = (
+    id: string,
+    values: Partial<Extract<SceneNode, { type: "rect" }>>
+  ): Extract<SceneNode, { type: "rect" }> => ({
+    ...seed,
+    id,
+    name: id,
+    ...values,
+  })
+  const page = {
+    ...maskRenderConformanceDocument.pages[0]!,
+    nodeIds: ["outer-source", "child-source", "child-content", "outer-content"],
+  }
+  return {
+    ...maskRenderConformanceDocument,
+    pages: [page],
+    nodes: [
+      rectangle("outer-source", { x: 0, y: 0, width: 20, height: 20 }),
+      rectangle("child-source", {
+        x: -100,
+        y: 0,
+        width: 20,
+        height: 20,
+        visible: !options.hiddenChildSource,
+      }),
+      rectangle("child-content", {
+        x: 120,
+        y: 10,
+        width: 20,
+        height: 20,
+      }),
+      rectangle("outer-content", {
+        x: 200,
+        y: 0,
+        width: 20,
+        height: 20,
+      }),
+    ],
+    groups: [
+      {
+        id: "outer-mask",
+        role: "mask" as const,
+        pageId: page.id,
+        name: "Outer mask",
+        nodeIds: ["outer-source", "outer-content"],
+        mask: { type: "vector" as const, sourceNodeIds: ["outer-source"] },
+      },
+      {
+        id: "child-mask",
+        role: "mask" as const,
+        pageId: page.id,
+        parentGroupId: "outer-mask",
+        name: "Child mask",
+        nodeIds: ["child-source", "child-content"],
+        mask: { type: "alpha" as const, sourceNodeIds: ["child-source"] },
+      },
+    ],
+  }
+}
+
 describe("Fabric vector mask paint consumer", () => {
   it("caps Fabric's real retina backing-store ratio at 2x", () => {
     const previous = config.devicePixelRatio
@@ -219,6 +283,218 @@ describe("Fabric vector mask paint consumer", () => {
       ).get("mask-conformance-source")
     ).toBe(maskPaintBefore)
     expect(maskPaintBefore.opacity).toBe(0.63)
+  })
+
+  it("builds nested composites bottom-up and keeps page geometry through both local coordinate spaces", async () => {
+    const objects: FabricObject[] = []
+    const fakeCanvas = {
+      backgroundColor: "",
+      add: vi.fn((...added: FabricObject[]) => objects.push(...added)),
+      clear: vi.fn(() => objects.splice(0)),
+      discardActiveObject: vi.fn(),
+      getActiveObjects: vi.fn(() => []),
+      getObjects: vi.fn(() => objects),
+      remove: vi.fn((...removed: FabricObject[]) => {
+        for (const object of removed) {
+          const index = objects.indexOf(object)
+          if (index >= 0) objects.splice(index, 1)
+        }
+      }),
+      requestRenderAll: vi.fn(),
+      setActiveObject: vi.fn(),
+      setDimensions: vi.fn(),
+    }
+    const adapter = new FabricCanvasAdapter({
+      onNodesChange: vi.fn(),
+      onSelectionChange: vi.fn(),
+    })
+    Reflect.set(adapter, "canvas", fakeCanvas)
+    const document = nestedMaskDocument()
+
+    await adapter.sync(document, document.pages[0]!.id)
+
+    const composites = Reflect.get(adapter, "maskCompositeByGroupId") as Map<
+      string,
+      Group
+    >
+    const outer = composites.get("outer-mask")!
+    const child = composites.get("child-mask")!
+    const childContent = (
+      Reflect.get(adapter, "objectByNodeId") as Map<string, FabricObject>
+    ).get("child-content")!
+    expect([...composites.keys()]).toEqual(["child-mask", "outer-mask"])
+    expect(child.group).toBe(outer)
+    expect(childContent.group).toBe(child)
+    expect(outer.getObjects().slice(0, 2)).toEqual([
+      child,
+      (Reflect.get(adapter, "objectByNodeId") as Map<string, FabricObject>).get(
+        "outer-content"
+      ),
+    ])
+    expect(child.getBoundingRect()).toMatchObject({
+      left: -100,
+      top: 0,
+      width: 240,
+      height: 30,
+    })
+    expect(childContent.getBoundingRect()).toMatchObject({
+      left: 120,
+      top: 10,
+      width: 20,
+      height: 20,
+    })
+    expect(objects[0]).toBe(outer)
+  })
+
+  it("flattens an all-hidden child mask into its nearest retained parent without allocating a child composite", async () => {
+    const objects: FabricObject[] = []
+    const fakeCanvas = {
+      backgroundColor: "",
+      add: vi.fn((...added: FabricObject[]) => objects.push(...added)),
+      clear: vi.fn(() => objects.splice(0)),
+      discardActiveObject: vi.fn(),
+      getActiveObjects: vi.fn(() => []),
+      getObjects: vi.fn(() => objects),
+      remove: vi.fn(),
+      requestRenderAll: vi.fn(),
+      setActiveObject: vi.fn(),
+      setDimensions: vi.fn(),
+    }
+    const adapter = new FabricCanvasAdapter({
+      onNodesChange: vi.fn(),
+      onSelectionChange: vi.fn(),
+    })
+    Reflect.set(adapter, "canvas", fakeCanvas)
+    const document = nestedMaskDocument({ hiddenChildSource: true })
+
+    await adapter.sync(document, document.pages[0]!.id)
+
+    const composites = Reflect.get(adapter, "maskCompositeByGroupId") as Map<
+      string,
+      Group
+    >
+    const outer = composites.get("outer-mask")!
+    const childContent = (
+      Reflect.get(adapter, "objectByNodeId") as Map<string, FabricObject>
+    ).get("child-content")!
+    expect(composites.has("child-mask")).toBe(false)
+    expect(childContent.group).toBe(outer)
+    expect(
+      (
+        Reflect.get(adapter, "maskEntryByContentNodeId") as Map<
+          string,
+          { groupId: string }
+        >
+      ).get("child-content")?.groupId
+    ).toBe("outer-mask")
+  })
+
+  it("keeps the last valid outer subtree when a descendant image source fails", async () => {
+    const objects: FabricObject[] = []
+    const fakeCanvas = {
+      backgroundColor: "",
+      add: vi.fn((...added: FabricObject[]) => objects.push(...added)),
+      clear: vi.fn(() => objects.splice(0)),
+      discardActiveObject: vi.fn(),
+      getActiveObjects: vi.fn(() => []),
+      getObjects: vi.fn(() => objects),
+      remove: vi.fn((...removed: FabricObject[]) => {
+        for (const object of removed) {
+          const index = objects.indexOf(object)
+          if (index >= 0) objects.splice(index, 1)
+        }
+      }),
+      requestRenderAll: vi.fn(),
+      setActiveObject: vi.fn(),
+      setDimensions: vi.fn(),
+    }
+    const adapter = new FabricCanvasAdapter({
+      onNodesChange: vi.fn(),
+      onSelectionChange: vi.fn(),
+    })
+    Reflect.set(adapter, "canvas", fakeCanvas)
+    const initial = nestedMaskDocument()
+    await adapter.sync(initial, initial.pages[0]!.id)
+    const lastValidObjects = [...objects]
+    const lastValidOuter = (
+      Reflect.get(adapter, "maskCompositeByGroupId") as Map<string, Group>
+    ).get("outer-mask")!
+    const disposeLastValid = vi.spyOn(lastValidOuter, "dispose")
+    fakeCanvas.remove.mockClear()
+
+    const imageSource = multiAlphaMaskRenderConformanceDocument.nodes.find(
+      (node): node is Extract<SceneNode, { type: "image" }> =>
+        node.type === "image"
+    )!
+    const replacement = {
+      ...initial,
+      nodes: initial.nodes.map((node) =>
+        node.id === "child-source"
+          ? { ...imageSource, id: node.id, name: node.name }
+          : node
+      ),
+    }
+    const decode = vi
+      .spyOn(FabricImage, "fromURL")
+      .mockRejectedValueOnce(new Error("descendant decode failed"))
+
+    await expect(
+      adapter.sync(replacement, replacement.pages[0]!.id)
+    ).rejects.toThrow("descendant decode failed")
+
+    expect(objects).toEqual(lastValidObjects)
+    expect(fakeCanvas.remove).not.toHaveBeenCalled()
+    expect(disposeLastValid).not.toHaveBeenCalled()
+    expect(
+      (
+        Reflect.get(adapter, "maskCompositeByGroupId") as Map<string, Group>
+      ).get("outer-mask")
+    ).toBe(lastValidOuter)
+    decode.mockRestore()
+  })
+
+  it("disposes every superseded nested retained object exactly once", async () => {
+    const objects: FabricObject[] = []
+    const fakeCanvas = {
+      backgroundColor: "",
+      add: vi.fn((...added: FabricObject[]) => objects.push(...added)),
+      clear: vi.fn(() => objects.splice(0)),
+      discardActiveObject: vi.fn(),
+      getActiveObjects: vi.fn(() => []),
+      getObjects: vi.fn(() => objects),
+      remove: vi.fn((...removed: FabricObject[]) => {
+        for (const object of removed) {
+          const index = objects.indexOf(object)
+          if (index >= 0) objects.splice(index, 1)
+        }
+      }),
+      requestRenderAll: vi.fn(),
+      setActiveObject: vi.fn(),
+      setDimensions: vi.fn(),
+    }
+    const adapter = new FabricCanvasAdapter({
+      onNodesChange: vi.fn(),
+      onSelectionChange: vi.fn(),
+    })
+    Reflect.set(adapter, "canvas", fakeCanvas)
+    const initial = nestedMaskDocument()
+    await adapter.sync(initial, initial.pages[0]!.id)
+
+    const retained = new Set<FabricObject>()
+    const collect = (object: FabricObject) => {
+      if (retained.has(object)) return
+      retained.add(object)
+      if (object instanceof Group) object.getObjects().forEach(collect)
+    }
+    objects.forEach(collect)
+    const disposals = [...retained].map((object) => vi.spyOn(object, "dispose"))
+    fakeCanvas.remove.mockClear()
+
+    const replacement = nestedMaskDocument({ hiddenChildSource: true })
+    await adapter.sync(replacement, replacement.pages[0]!.id)
+
+    expect(fakeCanvas.remove).toHaveBeenCalledOnce()
+    for (const dispose of disposals) expect(dispose).toHaveBeenCalledOnce()
   })
 
   it("installs a precomputed luminance mask without retaining stale source paint objects", async () => {

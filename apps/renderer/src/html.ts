@@ -344,6 +344,17 @@ function renderTextMarkup(
     .join("")
 }
 
+function renderTextFontFamilies(node: Extract<SceneNode, { type: "text" }>) {
+  return [
+    ...new Set([
+      node.fontFamily,
+      ...node.runs.flatMap((run) =>
+        run.style.fontFamily ? [run.style.fontFamily] : []
+      ),
+    ]),
+  ]
+}
+
 export function renderNodeToHtml(node: SceneNode): string {
   const projection = projectNodeForRender(node)
   const { frame } = projection
@@ -416,7 +427,8 @@ export function renderNodeToHtml(node: SceneNode): string {
     `overflow-wrap:${projection.content.overflowWrap}`,
     `overflow:${projection.content.sizingMode === "fixed" ? "hidden" : "visible"}`,
   ].join(";")
-  const textIdentity = `${identity} data-text-sizing-mode="${projection.content.sizingMode}" data-text-measurement="${projection.content.layout.measurement}" data-text-line-count="${projection.content.layout.lineCount}" data-text-overflow="${projection.content.layout.overflow ? "true" : "false"}" data-text-overflow-x="${projection.content.layout.overflowX ? "true" : "false"}" data-text-overflow-y="${projection.content.layout.overflowY ? "true" : "false"}"`
+  if (node.type !== "text") throw new Error(`Unknown text node: ${node.id}`)
+  const textIdentity = `${identity} data-text-sizing-mode="${projection.content.sizingMode}" data-text-measurement="${projection.content.layout.measurement}" data-text-line-count="${projection.content.layout.lineCount}" data-text-overflow="${projection.content.layout.overflow ? "true" : "false"}" data-text-overflow-x="${projection.content.layout.overflowX ? "true" : "false"}" data-text-overflow-y="${projection.content.layout.overflowY ? "true" : "false"}" data-mask-font-source-node="${escapeHtml(node.id)}" data-mask-font-families="${escapeHtml(JSON.stringify(renderTextFontFamilies(node)))}"`
   return `<div ${textIdentity} style="${textStyle}">${renderTextMarkup(projection)}</div>`
 }
 
@@ -471,13 +483,12 @@ const renderAlphaMaskSource = (
     )
   }
   const translatedSource = `<div xmlns="http://www.w3.org/1999/xhtml" style="position:absolute;left:${-bounds.x}px;top:${-bounds.y}px;width:${bounds.width}px;height:${bounds.height}px">${renderNodeToHtml(node)}</div>`
+  if (node.type === "text" && source?.kind !== "text") {
+    throw new Error(`Missing alpha text readiness for ${node.id}`)
+  }
   const fontReadiness =
-    node.type === "text"
-      ? source?.kind === "text"
-        ? ` data-mask-font-source-node="${escapeHtml(node.id)}" data-mask-font-families="${escapeHtml(JSON.stringify(source.fontFamilies))}"`
-        : (() => {
-            throw new Error(`Missing alpha text readiness for ${node.id}`)
-          })()
+    node.type === "text" && source?.kind === "text"
+      ? ` data-mask-font-source-node="${escapeHtml(node.id)}" data-mask-font-families="${escapeHtml(JSON.stringify(source.fontFamilies))}"`
       : ""
   return `<foreignObject data-mask-source-id="${escapeHtml(node.id)}"${fontReadiness} x="0" y="0" width="${bounds.width}" height="${bounds.height}">${translatedSource}</foreignObject>`
 }
