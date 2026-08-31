@@ -2,8 +2,7 @@
 
 Date: 2026-09-01
 
-Status: implementation checkpoint held; evidence corrections ready for
-independent re-review
+Status: independently accepted on the task branch; not merged
 
 Branch: `codex/library-02-gate8`
 
@@ -11,7 +10,9 @@ Base: `04602cd96728bdfdaaba7aba858260f653c3849e`
 
 Implementation checkpoint: `1f3cff5983af3fc80ea53b8ed8c3f87aadf541eb`
 
-Evidence correction checkpoint: this commit
+Accepted evidence checkpoint: `fa3b74a1085c5dc69aaaeb14f31c9882de9c86ca`
+
+Independent re-review: ACCEPT with no remaining P0 or P1 findings
 
 This checkpoint closes the final acceptance boundary only. Gates 1 through 6E
 and the Gate 7 Assets workspace were already merged before this work began.
@@ -129,11 +130,11 @@ the focused Gate 8 result.
 
 ## Integration state
 
-The implementation is committed on the task branch and is not merged. The
-first independent review placed Gate 8 on hold for the two evidence defects
-described above. The corrected checkpoint requires independent re-review before
-the branch can claim Gate 8 acceptance. Current main advanced after the branch
-base, including edits to the shared product and workstream ledgers. Integrators
-must preserve those later entries and apply the Gate 8 ledger reconciliation
-deliberately. A branch acceptance claim must not be reported as a main-branch
-merge.
+The implementation is committed and independently accepted on the task branch;
+it is not merged. The first independent review placed Gate 8 on hold for the
+two evidence defects described above. Re-review of `fa3b74a` confirmed both
+closed and returned ACCEPT with no remaining P0 or P1 finding. Current main
+advanced after the branch base, including edits to the shared product and
+workstream ledgers. Integrators must preserve those later entries and apply the
+Gate 8 ledger reconciliation deliberately. Branch acceptance must not be
+reported as a main-branch merge.
