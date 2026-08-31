@@ -3861,3 +3861,21 @@ open; luminance remains unadmitted**
 - This slice does not admit luminance by itself. Domain commands, Fabric,
   browser renderers, public endpoints, and retained pixels remain separate
   requirements.
+
+## 2026-08-31 — ASSET-02 Gate M4B Fabric raster core
+
+Status: **implemented and independently accepted; adapter integration remains
+open; luminance remains unadmitted**
+
+- Added a bounded Fabric helper that renders each prepared ordinary source,
+  reads explicit sRGB pixels, applies the shared `Y * A` conversion, and unions
+  converted sources in canonical order before one `destination-in` mask.
+- The retained union canvas uses the admitted pixel ratio and exact logical
+  bounds. Per-source readback canvases are released after conversion, and
+  conversion failures carry the source node ID.
+- Focused tests prove red, green, transparent blue, source opacity, two-source
+  overlap, a rendered 2x red/green destination-in result, and source-attributed
+  raster failure. All 4 tests and editor typecheck pass.
+- Independent review caught and closed a 2x backing-store crop and a missing
+  source attribution boundary. The helper is accepted; wiring it into the
+  live adapter remains a separate step.
