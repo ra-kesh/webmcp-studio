@@ -241,8 +241,11 @@ The sheet retains the card summary while exact detail loads and shows:
 
 Only schema-validated public provenance and license links may render. The DOM,
 accessible copy, and telemetry-facing attributes never contain an R2 key,
-filesystem or IndexedDB locator, browser object URL, content checksum, or
-arbitrary source URL.
+filesystem or IndexedDB locator, content checksum, or arbitrary source URL. A
+device-local preview may place its short-lived browser object URL only in the
+functional ready-state image `src`; that URL is forbidden from details,
+data/ARIA attributes, copy, telemetry, persistence, and every DOM attribute
+after the preview lease is released.
 
 An exact mismatch or detail failure retains the card and sheet, presents Retry,
 and emits no selection intent. The sheet primary action uses the same validated
@@ -408,7 +411,9 @@ and verify:
 7. At 1,000 local summaries, mounted cards and live object URLs remain bounded;
    scrolling, scope changes, search changes, and unmount revoke prior URLs.
 8. Broken curated, managed, and local previews retain geometry and actions, and
-   no private locator appears in DOM attributes, copy, or accessible names.
+   no private locator appears in DOM attributes, copy, or accessible names. The
+   only permitted local Blob URL is the live ready-state image `src`, and it is
+   absent after failure or lease release.
 
 This is D2 browser acceptance only. It does not claim insert, replace, field
 assignment, Undo, Recent recording, upload, recovery, archive, or promotion
@@ -445,7 +450,8 @@ D2 does not:
   navigation;
 - submit device-local IDs to durable favorites or collections;
 - merge local items into server totals or cursors;
-- expose R2, filesystem, IndexedDB, Blob URL, or arbitrary source locators;
+- expose R2, filesystem, IndexedDB, or arbitrary source locators, or expose a
+  local Blob URL anywhere except the live ready-state preview image `src`;
 - add mandatory drag interaction or incomplete arrow-key grid navigation;
 - broadly refactor the template browser or UI package; or
 - claim production, browser, Slice D, or Slice E completion.

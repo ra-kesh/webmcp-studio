@@ -1,5 +1,6 @@
 import type {
   LibraryCollectionSummary,
+  LibraryMediaSummary,
   LibraryPreferenceProjection,
   LibraryTemplateSummary,
 } from "@webmcp/document"
@@ -30,12 +31,23 @@ const sameProjection = (
     (collectionId, index) => collectionId === right.collectionIds[index]
   )
 
+const localPreference = (
+  preference: LibraryPreferenceProjection | null
+): LibraryPreferenceProjection => ({
+  favorite: false,
+  lastUsedAt: preference?.lastUsedAt ?? null,
+  collectionIds: [],
+})
+
+type PreferenceProjectableLibraryItem =
+  LibraryTemplateSummary | LibraryMediaSummary
+
 /**
  * Resolves the current principal's preference for one immutable catalog item.
  * Discovery remains untouched: optimistic state is projected only for render.
  */
 export type EffectiveLibraryPreferenceInput = Readonly<{
-  item: LibraryTemplateSummary
+  item: PreferenceProjectableLibraryItem
   preferenceState: Pick<
     LibraryPreferenceStateOwner,
     "snapshot" | "snapshotStatus"
@@ -48,6 +60,10 @@ export function effectiveLibraryPreference({
   preferenceState,
   discoveryWorkspaceRevision,
 }: EffectiveLibraryPreferenceInput): LibraryPreferenceProjection | null {
+  if (item.itemKind === "media" && item.mediaSource === "local") {
+    return localPreference(item.preferences)
+  }
+
   const snapshot = preferenceState.snapshot
   if (!snapshot) {
     return preferenceState.snapshotStatus === "ready"
@@ -86,6 +102,32 @@ export function projectLibraryTemplatePreferences({
   preferenceState,
   discoveryWorkspaceRevision,
 }: LibraryTemplatePreferenceProjectionInput): readonly LibraryTemplateSummary[] {
+  return items.map((item) => {
+    const preferences = effectiveLibraryPreference({
+      item,
+      preferenceState,
+      discoveryWorkspaceRevision,
+    })
+    return preferences && sameProjection(item.preferences, preferences)
+      ? item
+      : { ...item, preferences }
+  })
+}
+
+export type LibraryMediaPreferenceProjectionInput = Readonly<{
+  items: readonly LibraryMediaSummary[]
+  preferenceState: Pick<
+    LibraryPreferenceStateOwner,
+    "snapshot" | "snapshotStatus"
+  >
+  discoveryWorkspaceRevision: number
+}>
+
+export function projectLibraryMediaPreferences({
+  items,
+  preferenceState,
+  discoveryWorkspaceRevision,
+}: LibraryMediaPreferenceProjectionInput): readonly LibraryMediaSummary[] {
   return items.map((item) => {
     const preferences = effectiveLibraryPreference({
       item,
