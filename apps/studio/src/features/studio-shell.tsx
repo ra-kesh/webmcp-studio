@@ -3423,12 +3423,11 @@ export function StudioShell({
     if (invocation.commandId === "mask.create") {
       if (
         invocation.target?.kind !== "selection" ||
-        invocation.arguments?.kind !== "mask-create" ||
-        invocation.arguments.sourceNodeIds.length !== 1
+        invocation.arguments?.kind !== "mask-create"
       ) {
         return false
       }
-      return editor.createMaskGroup([invocation.arguments.sourceNodeIds[0]!])
+      return editor.createMaskGroup([invocation.arguments.sourceNodeIds[0]])
     }
     if (invocation.commandId === "mask.release") {
       return invocation.target?.kind === "group"
@@ -3448,13 +3447,12 @@ export function StudioShell({
     if (invocation.commandId === "mask.sources.set") {
       if (
         invocation.target?.kind !== "group" ||
-        invocation.arguments?.kind !== "mask-sources" ||
-        invocation.arguments.sourceNodeIds.length !== 1
+        invocation.arguments?.kind !== "mask-sources"
       ) {
         return false
       }
       return editor.setMaskSources(invocation.target.groupId, [
-        invocation.arguments.sourceNodeIds[0]!,
+        invocation.arguments.sourceNodeIds[0],
       ])
     }
     if (isEditorCommandId(invocation.commandId)) {
