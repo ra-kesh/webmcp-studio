@@ -1,7 +1,33 @@
 # LIBRARY-02 Gate 6E exact media actions preflight
 
 **Date:** 2026-08-31
-**Status:** Implementation preflight only. Gate 6E is not complete and this document makes no completion claim.
+**Status:** E0a and E0b accepted; E0c active. Gate 6E is not complete.
+
+## Accepted implementation checkpoints
+
+### E0a — receipt vocabulary
+
+Accepted on 2026-08-31 at commit `87357d7` after independent review found one
+P1 duplicate hand-maintained action union. The repository now imports the sole
+schema-derived `LibraryCompletedAction`, the P1 re-review returned zero open
+P0/P1 findings, and `assign_field` round-trips through schema, client,
+controller, HTTP, repository persistence, retry, and idempotent replay.
+
+Acceptance evidence: 82 focused Studio tests, 10 document schema tests, 22
+repository tests, document and Studio typechecks, and scoped diff checks passed.
+
+### E0b — pure exact preparation
+
+Accepted on 2026-08-31 at commit `bd0aaae` after independent review returned
+zero P0/P1 findings. One UI-free, mutation-free preparation boundary now
+admits exact curated, managed, and device-local selections through their own
+authoritative ports, checks source/ID/version/metadata/provenance/content,
+preserves canonical persisted sources, fences asynchronous work with an abort
+signal, and returns immutable prepared evidence without issuing a document
+command or usage receipt.
+
+Acceptance evidence: 19 focused preparation tests, Studio typecheck, scoped
+ESLint, formatting, and diff checks passed.
 
 ## Scope
 
