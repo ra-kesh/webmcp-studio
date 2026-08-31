@@ -495,7 +495,9 @@ and only then change this gate to accepted.
   renderer before admitting the already-schema-valid luminance value.
 - **M4C — nesting:** add a real bounded recursive paint plan, recursive memory
   accounting, typed structural creation/release, and component/template clone
-  evidence before raising the current nesting limit.
+  evidence before raising the current nesting limit. The frozen bounded scope,
+  blockers, and C0–C5 implementation gates are recorded in
+  [`asset-02-m4c-nesting-plan.md`](./asset-02-m4c-nesting-plan.md).
 
 Exit: nested and multi-source cases have strict limits, exact undo, deterministic cloning, and pixel conformance.
 
