@@ -5640,7 +5640,16 @@ export function studioWebMcpTools(
       },
     },
   ]
-  return tools.map((tool) => ownWebMcpToolExecution(tool, registrationSignal))
+  const enabledTools = services.mediaDerivations
+    ? tools
+    : tools.filter(
+        (tool) =>
+          tool.name !== "inspect_background_removal" &&
+          tool.name !== "manage_background_removal"
+      )
+  return enabledTools.map((tool) =>
+    ownWebMcpToolExecution(tool, registrationSignal)
+  )
 }
 
 export async function registerStudioWebMcpTools(

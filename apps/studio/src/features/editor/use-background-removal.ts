@@ -48,12 +48,14 @@ const wait = (milliseconds: number, signal: AbortSignal) =>
   })
 
 export function useBackgroundRemoval({
+  enabled = true,
   nodeId,
   sourceAssetId,
   sourceIsManaged,
   editable,
   applyOutput,
 }: {
+  enabled?: boolean
   nodeId: string | null
   sourceAssetId: string | null
   sourceIsManaged: boolean
@@ -72,15 +74,17 @@ export function useBackgroundRemoval({
   const generationRef = useRef(0)
 
   const available = Boolean(
-    nodeId && sourceAssetId && sourceIsManaged && editable
+    enabled && nodeId && sourceAssetId && sourceIsManaged && editable
   )
-  const unavailableReason = !editable
-    ? "Image changes are unavailable while this document is locked for review."
-    : !sourceIsManaged
-      ? "Save or promote this image to Studio before removing its background."
-      : !nodeId || !sourceAssetId
-        ? "Select one image to remove its background."
-        : null
+  const unavailableReason = !enabled
+    ? "Background removal is not enabled."
+    : !editable
+      ? "Image changes are unavailable while this document is locked for review."
+      : !sourceIsManaged
+        ? "Save or promote this image to Studio before removing its background."
+        : !nodeId || !sourceAssetId
+          ? "Select one image to remove its background."
+          : null
 
   const watch = useCallback(async (initial: BackgroundRemovalJob) => {
     const generation = generationRef.current

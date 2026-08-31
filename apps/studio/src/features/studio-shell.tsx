@@ -1041,6 +1041,8 @@ export function StudioShell({
   const useLiveThumbnailFallback =
     import.meta.env.DEV &&
     import.meta.env.VITE_STUDIO_RENDERER_THUMBNAILS !== "true"
+  const backgroundRemovalEnabled =
+    import.meta.env.VITE_STUDIO_BACKGROUND_REMOVAL === "true"
   const pageThumbnailRaster = useLiveThumbnailFallback
     ? undefined
     : rendererBackedPageThumbnailRaster
@@ -2346,57 +2348,61 @@ export function StudioShell({
       publishedVersion: publishedVersion ?? null,
       renderHistory: renderHistory.records,
       mutationDisabledReason: documentTransitionDisabledReason,
-      mediaDerivations: {
-        inspect: async (input, signal) => {
-          if (input.kind === "policy") {
-            return {
-              kind: input.kind,
-              policy: await getBackgroundRemovalPolicy(signal),
-            }
+      ...(backgroundRemovalEnabled
+        ? {
+            mediaDerivations: {
+              inspect: async (input, signal) => {
+                if (input.kind === "policy") {
+                  return {
+                    kind: input.kind,
+                    policy: await getBackgroundRemovalPolicy(signal),
+                  }
+                }
+                if (input.kind === "source") {
+                  const [policy, job] = await Promise.all([
+                    getBackgroundRemovalPolicy(signal),
+                    getLatestBackgroundRemoval(input.assetId, signal),
+                  ])
+                  return { kind: input.kind, policy, job }
+                }
+                if (input.kind === "job") {
+                  return {
+                    kind: input.kind,
+                    job: await getBackgroundRemovalJob(input.jobId, signal),
+                  }
+                }
+                return {
+                  kind: input.kind,
+                  provenance: await getBackgroundRemovalProvenance(
+                    input.assetId,
+                    signal
+                  ),
+                }
+              },
+              mutate: async (input, signal) => {
+                if (input.action === "start") {
+                  return createBackgroundRemovalWithConsent(
+                    input.assetId,
+                    input.consent.privacyPolicyVersion,
+                    signal
+                  )
+                }
+                const idempotencyKey = await backgroundRemovalMutationKey(
+                  input.action,
+                  input.jobId,
+                  input.expectedUpdatedAt
+                )
+                return mutateBackgroundRemoval(
+                  input.jobId,
+                  input.expectedUpdatedAt,
+                  input.action,
+                  signal,
+                  idempotencyKey
+                )
+              },
+            },
           }
-          if (input.kind === "source") {
-            const [policy, job] = await Promise.all([
-              getBackgroundRemovalPolicy(signal),
-              getLatestBackgroundRemoval(input.assetId, signal),
-            ])
-            return { kind: input.kind, policy, job }
-          }
-          if (input.kind === "job") {
-            return {
-              kind: input.kind,
-              job: await getBackgroundRemovalJob(input.jobId, signal),
-            }
-          }
-          return {
-            kind: input.kind,
-            provenance: await getBackgroundRemovalProvenance(
-              input.assetId,
-              signal
-            ),
-          }
-        },
-        mutate: async (input, signal) => {
-          if (input.action === "start") {
-            return createBackgroundRemovalWithConsent(
-              input.assetId,
-              input.consent.privacyPolicyVersion,
-              signal
-            )
-          }
-          const idempotencyKey = await backgroundRemovalMutationKey(
-            input.action,
-            input.jobId,
-            input.expectedUpdatedAt
-          )
-          return mutateBackgroundRemoval(
-            input.jobId,
-            input.expectedUpdatedAt,
-            input.action,
-            signal,
-            idempotencyKey
-          )
-        },
-      },
+        : {}),
       getProductCommandContext: () => {
         const context = productCommandContextRef.current
         return context
@@ -3222,6 +3228,7 @@ export function StudioShell({
       ? editor.selectedNodes[0]
       : null
   const backgroundRemoval = useBackgroundRemoval({
+    enabled: backgroundRemovalEnabled,
     nodeId: selectedBackgroundRemovalImage?.id ?? null,
     sourceAssetId: selectedBackgroundRemovalImage?.assetId ?? null,
     sourceIsManaged: Boolean(
@@ -5459,7 +5466,9 @@ export function StudioShell({
                       targetName: "document image",
                     })
                   }
-                  backgroundRemoval={backgroundRemoval}
+                  backgroundRemoval={
+                    backgroundRemovalEnabled ? backgroundRemoval : undefined
+                  }
                   onApplyTextEditingStyle={applyActiveTextEditingStyle}
                   onApplyTextEditingParagraphStyle={
                     applyActiveTextEditingParagraphStyle
@@ -5728,7 +5737,9 @@ export function StudioShell({
                 onRetryImageSource={(nodeId) =>
                   artboardRef.current?.retryImageSource(nodeId)
                 }
-                backgroundRemoval={backgroundRemoval}
+                backgroundRemoval={
+                  backgroundRemovalEnabled ? backgroundRemoval : undefined
+                }
                 onRemoveImageLayer={editor.deleteSelection}
                 onReviewDocumentImage={(localAssetId) =>
                   mediaPickerSession.openRecovery({
