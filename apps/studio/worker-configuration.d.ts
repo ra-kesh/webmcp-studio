@@ -12,6 +12,7 @@ interface __BaseEnv_Env {
 	RENDER_ADMISSION: DurableObjectNamespace<import("./src/server-entry").RenderAdmission>;
 	RENDERER: Fetcher /* webmcp-studio-renderer */;
 	RENDER_JOBS: Workflow<Parameters<import("./src/server-entry").RenderJobWorkflow['run']>[0]['payload']>;
+	MEDIA_DERIVATION_JOBS: Workflow<Parameters<import("./src/server-entry").MediaDerivationJobWorkflow['run']>[0]['payload']>;
 }
 declare namespace Cloudflare {
 	interface GlobalProps {

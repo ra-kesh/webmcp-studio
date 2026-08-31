@@ -170,7 +170,10 @@ export class MediaDerivationError extends Error {
     | "derivation_attempt_limit_reached"
     | "derivation_output_not_ready"
     | "derivation_output_conflict"
-  readonly status: 400 | 404 | 409
+    | "derivation_quota_exceeded"
+    | "derivation_dispatch_unavailable"
+    | "derivation_not_configured"
+  readonly status: 400 | 404 | 409 | 429 | 503
 
   constructor(
     code: MediaDerivationError["code"],

@@ -9,6 +9,7 @@ import { reconcileRenderJobs } from "./server/render-job-reconciler"
 
 export { RenderAdmission } from "./server/render-admission"
 export { RenderJobWorkflow } from "./server/render-job-workflow"
+export { MediaDerivationJobWorkflow } from "./server/media-derivation-workflow"
 
 export type StudioRequestContext = {
   workerEnv: Env

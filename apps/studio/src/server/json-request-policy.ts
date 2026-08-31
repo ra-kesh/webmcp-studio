@@ -32,6 +32,10 @@ export const studioJsonRequestPolicies = {
     maxBytes: 32_000,
     requireContentLength: true,
   },
+  "/v1/studio/media-derivations": {
+    maxBytes: 2_048,
+    requireContentLength: true,
+  },
   "/v1/studio/library/items/:itemKind/:itemId/versions/:version/favorite": {
     maxBytes: 1_024,
     requireContentLength: true,

@@ -1,0 +1,231 @@
+import { z } from "zod"
+import type { StudioPrincipal } from "./studio-principal"
+import { JsonBodyError, jsonBodyErrorResponse } from "@webmcp/worker-boundary"
+import { readStudioJsonBody } from "./json-request-policy"
+import { MediaDerivationRepository } from "./media-derivation-repository"
+import {
+  assertMediaDerivationIdempotencyKey,
+  mediaDerivationCreateInputSchema,
+  MediaDerivationError,
+  publicMediaDerivationJob,
+} from "./media-derivations"
+import type { MediaDerivationConfiguration } from "./media-derivations"
+
+type PrincipalResolver = (
+  request: Request
+) => Promise<StudioPrincipal | Response>
+
+export type MediaDerivationDispatcher = Readonly<{
+  dispatch(input: { workspaceId: string; jobId: string }): Promise<void>
+}>
+
+export type MediaDerivationHttpDependencies = Readonly<{
+  db: D1Database
+  requirePrincipal: PrincipalResolver
+  configuration: MediaDerivationConfiguration
+  disclosure: {
+    subprocessor: string
+    retention: string
+    region: string | null
+    cost: string
+    cancellationLimits: string
+  }
+  dispatcher: MediaDerivationDispatcher
+  repository?: Pick<
+    MediaDerivationRepository,
+    "create" | "get" | "retry" | "requestCancellation"
+  >
+  admitCreate: (
+    principal: StudioPrincipal,
+    sourceAssetId: string
+  ) => Promise<void>
+}>
+
+const consentSchema = z
+  .object({
+    accepted: z.literal(true),
+    privacyPolicyVersion: z.string().min(1).max(200),
+  })
+  .strict()
+
+const createSchema = mediaDerivationCreateInputSchema
+  .omit({ sourceAssetId: true })
+  .extend({ consent: consentSchema })
+  .strict()
+
+const mutationSchema = z
+  .object({ expectedUpdatedAt: z.iso.datetime() })
+  .strict()
+
+const noStore = { "Cache-Control": "private, no-store" }
+
+const errorResponse = (request: Request, error: MediaDerivationError) =>
+  Response.json(
+    {
+      error: {
+        code: error.code,
+        message: error.message,
+        requestId: request.headers.get("x-request-id") ?? crypto.randomUUID(),
+      },
+    },
+    { status: error.status, headers: noStore }
+  )
+
+const withPrincipal = async (
+  dependencies: MediaDerivationHttpDependencies,
+  request: Request,
+  operation: (principal: StudioPrincipal) => Promise<Response>
+) => {
+  const principal = await dependencies.requirePrincipal(request)
+  if (principal instanceof Response) return principal
+  try {
+    return principal.respond(await operation(principal))
+  } catch (error) {
+    if (error instanceof JsonBodyError) {
+      return principal.respond(jsonBodyErrorResponse(error))
+    }
+    if (error instanceof MediaDerivationError) {
+      return principal.respond(errorResponse(request, error))
+    }
+    throw error
+  }
+}
+
+export function createMediaDerivationHttpHandlers(
+  dependencies: MediaDerivationHttpDependencies
+) {
+  const repository =
+    dependencies.repository ?? new MediaDerivationRepository(dependencies.db)
+  const readJson = async (request: Request) =>
+    readStudioJsonBody(request, "/v1/studio/media-derivations")
+  const requireIdempotency = (request: Request) =>
+    assertMediaDerivationIdempotencyKey(
+      request.headers.get("idempotency-key") ?? ""
+    )
+
+  return {
+    policy: (request: Request) =>
+      withPrincipal(dependencies, request, async () =>
+        Response.json(
+          {
+            operation: "remove_background",
+            privacyPolicyVersion:
+              dependencies.configuration.privacyPolicyVersion,
+            ...dependencies.disclosure,
+          },
+          { headers: noStore }
+        )
+      ),
+
+    create: (request: Request, sourceAssetId: string) =>
+      withPrincipal(dependencies, request, async (principal) => {
+        const idempotencyKey = requireIdempotency(request)
+        const parsed = createSchema.safeParse(await readJson(request))
+        if (!parsed.success) {
+          throw new MediaDerivationError(
+            "invalid_derivation_request",
+            400,
+            "The media derivation request is malformed"
+          )
+        }
+        if (
+          parsed.data.consent.privacyPolicyVersion !==
+          dependencies.configuration.privacyPolicyVersion
+        ) {
+          throw new MediaDerivationError(
+            "invalid_derivation_request",
+            400,
+            "Consent must name the configured privacy policy version"
+          )
+        }
+        await dependencies.admitCreate(principal, sourceAssetId)
+        const result = await repository.create(
+          principal.workspaceId,
+          idempotencyKey,
+          {
+            sourceAssetId,
+            operation: parsed.data.operation,
+            parameters: parsed.data.parameters,
+          },
+          dependencies.configuration
+        )
+        await dependencies.dispatcher.dispatch({
+          workspaceId: principal.workspaceId,
+          jobId: result.job.id,
+        })
+        return Response.json(publicMediaDerivationJob(result.job), {
+          status: result.created ? 202 : 200,
+          headers: noStore,
+        })
+      }),
+
+    get: (request: Request, jobId: string) =>
+      withPrincipal(dependencies, request, async (principal) =>
+        Response.json(
+          publicMediaDerivationJob(
+            await repository.get(principal.workspaceId, jobId)
+          ),
+          { headers: noStore }
+        )
+      ),
+
+    cancel: (request: Request, jobId: string) =>
+      withPrincipal(dependencies, request, async (principal) => {
+        requireIdempotency(request)
+        const parsed = mutationSchema.safeParse(await readJson(request))
+        if (!parsed.success) {
+          throw new MediaDerivationError(
+            "invalid_derivation_request",
+            400,
+            "Cancellation requires the expected job update timestamp"
+          )
+        }
+        const current = await repository.get(principal.workspaceId, jobId)
+        if (current.updatedAt !== parsed.data.expectedUpdatedAt) {
+          throw new MediaDerivationError(
+            "derivation_state_conflict",
+            409,
+            "Media derivation changed before cancellation"
+          )
+        }
+        const job = await repository.requestCancellation(
+          principal.workspaceId,
+          jobId
+        )
+        return Response.json(publicMediaDerivationJob(job), {
+          status: 202,
+          headers: noStore,
+        })
+      }),
+
+    retry: (request: Request, jobId: string) =>
+      withPrincipal(dependencies, request, async (principal) => {
+        requireIdempotency(request)
+        const parsed = mutationSchema.safeParse(await readJson(request))
+        if (!parsed.success) {
+          throw new MediaDerivationError(
+            "invalid_derivation_request",
+            400,
+            "Retry requires the expected job update timestamp"
+          )
+        }
+        const current = await repository.get(principal.workspaceId, jobId)
+        if (current.updatedAt !== parsed.data.expectedUpdatedAt) {
+          throw new MediaDerivationError(
+            "derivation_state_conflict",
+            409,
+            "Media derivation changed before retry"
+          )
+        }
+        const job = await repository.retry(principal.workspaceId, jobId)
+        await dependencies.dispatcher.dispatch({
+          workspaceId: principal.workspaceId,
+          jobId: job.id,
+        })
+        return Response.json(publicMediaDerivationJob(job), {
+          status: 202,
+          headers: noStore,
+        })
+      }),
+  }
+}

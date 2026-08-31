@@ -1,7 +1,7 @@
 # ASSET-02 background removal phase entry
 
 Date: 2026-08-31
-Status: Slice B0 implemented and locally accepted; Slices B1 through B4 remain closed
+Status: Slices B0 and B1 implemented and locally verified; B1 awaits independent acceptance and Slices B2 through B4 remain closed
 Scope: provider-neutral image derivation jobs and non-destructive application
 
 ## Decision
@@ -408,3 +408,41 @@ No provider call, route, user-facing control, R2 write, document mutation, mask
 change, server, deployment, or Cloudflare resource write is part of this
 checkpoint. No product decision was required. Slices B1 through B4 require new
 acceptance and remain closed.
+
+## B1 implementation result
+
+Slice B1 is implemented on the isolated background-removal branch. It is not
+independently accepted or merged.
+
+- Authenticated create, inspect, cancel, retry, and policy-disclosure handlers
+  use the existing Studio principal boundary. All responses are private and
+  omit provider execution IDs, storage keys, URLs, source hashes, and internal
+  configuration.
+- Create requires one bounded idempotency key and consent for the exact
+  configured privacy-policy version. The public input cannot choose a provider,
+  supply a remote URL, or add operation parameters.
+- Dispatch uses a dedicated Workflow binding with the job ID as its durable
+  instance ID. A duplicate create reconciles the existing instance instead of
+  creating another execution owner.
+- The provider interface receives only workspace-verified source bytes and
+  frozen source identity. The deterministic adapter is available only through
+  explicit injection or the explicit `deterministic-local-fake` configuration;
+  no production provider or endpoint is configured.
+- Creation and attempt admission read limits from required environment
+  configuration. The checked-in production configuration contains no invented
+  quotas. Missing provider, disclosure, quota, or Workflow configuration fails
+  closed.
+- Cancellation checks state immediately before polling and immediately before
+  output settlement. A late success cannot cross the settlement callback after
+  cancellation. Provider errors become bounded safe codes; raw payloads and
+  exceptions are not public job data.
+- B1 deliberately leaves successful-byte settlement closed. The Workflow's
+  settlement callback fails closed until B2 installs the immutable output asset
+  transaction.
+
+Focused local verification at this checkpoint:
+
+- media-derivation contract, HTTP, and execution tests: 12/12 passed
+- Studio typecheck: passed
+- no provider call, deployment, secret write, paid operation, or remote
+  Cloudflare resource operation was performed

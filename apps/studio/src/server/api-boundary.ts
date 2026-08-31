@@ -174,6 +174,15 @@ const normalizedApiPath = (request: Request) => {
         `/v1/studio/assets/:assetId${suffix ? `/${suffix}` : ""}`
     )
     .replace(
+      /^\/v1\/studio\/assets\/[^/]+\/derivations$/,
+      "/v1/studio/assets/:assetId/derivations"
+    )
+    .replace(
+      /^\/v1\/studio\/media-derivations\/(?!policy$)[^/]+(?:\/(cancel|retry))?$/,
+      (_match, suffix: string | undefined) =>
+        `/v1/studio/media-derivations/:jobId${suffix ? `/${suffix}` : ""}`
+    )
+    .replace(
       /^\/v1\/studio\/templates\/[^/]+$/,
       "/v1/studio/templates/:templateId"
     )

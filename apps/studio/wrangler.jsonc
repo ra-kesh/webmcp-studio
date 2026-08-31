@@ -31,6 +31,11 @@
       "name": "webmcp-studio-render-jobs",
       "class_name": "RenderJobWorkflow",
     },
+    {
+      "binding": "MEDIA_DERIVATION_JOBS",
+      "name": "webmcp-studio-media-derivation-jobs",
+      "class_name": "MediaDerivationJobWorkflow",
+    },
   ],
   "vars": {
     "STUDIO_ACCESS_MODE": "cloudflare_access",
