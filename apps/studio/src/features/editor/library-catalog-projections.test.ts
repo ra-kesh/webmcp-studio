@@ -80,7 +80,7 @@ describe("library catalog source projections", () => {
       sourceItems.map((item) => item.id)
     )
     for (const [index, summary] of summaries.entries()) {
-      const source = sourceItems[index]!
+      const source = sourceItems[index]
       expect(summary).toMatchObject({
         version: source.version,
         templateKind: source.kind,
@@ -127,7 +127,7 @@ describe("library catalog source projections", () => {
       studioAssets.map((asset) => asset.id)
     )
     for (const [index, summary] of summaries.entries()) {
-      const source = studioAssets[index]!
+      const source = studioAssets[index]
       expect(summary).toMatchObject({
         name: source.name,
         version: source.version,
@@ -143,11 +143,11 @@ describe("library catalog source projections", () => {
       expect(JSON.stringify(summary)).not.toContain("data:image")
     }
 
-    const detail = projectCuratedMediaDetail(studioAssets[0]!, {})
+    const detail = projectCuratedMediaDetail(studioAssets[0], {})
     expect(detail.selectionIdentity).toEqual({
       source: "curated",
-      assetId: studioAssets[0]!.id,
-      version: studioAssets[0]!.version,
+      assetId: studioAssets[0].id,
+      version: studioAssets[0].version,
     })
   })
 
@@ -190,6 +190,7 @@ describe("library catalog source projections", () => {
     expect(detail.selectionIdentity).toEqual({
       source: "managed",
       assetId: asset.id,
+      catalogVersion: 4,
       refetch: "required",
     })
     expect(detail.selectionIdentity).not.toHaveProperty("revision")
@@ -296,7 +297,7 @@ describe("library catalog source projections", () => {
   })
 
   it("does not promote new use cases that are absent from source tags", () => {
-    const template = builtInDesignTemplateRepository.list()[0]!
+    const template = builtInDesignTemplateRepository.list()[0]
     expect(() =>
       projectDesignTemplateSummary(template, { useCaseIds: ["annual-report"] })
     ).toThrow(LibraryCatalogProjectionError)

@@ -330,11 +330,9 @@ describe("20-page image-heavy responsiveness contract", () => {
 
       const shellBeforePageSelection = renderAudit.shell
       await act(async () => mounted.current().selectPage(secondPage.id))
+      await flushReact()
       expect(renderAudit.shell).toBe(shellBeforePageSelection + 1)
-      expect([...artboardAudit.rendersByPage.entries()].sort()).toEqual([
-        [firstPage.id, 1],
-        [secondPage.id, 1],
-      ])
+      expect(totalArtboardRenders()).toBe(0)
 
       artboardAudit.rendersByPage.clear()
       const shellBeforeSecondSelection = renderAudit.shell

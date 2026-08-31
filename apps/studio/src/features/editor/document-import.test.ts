@@ -463,7 +463,7 @@ describe("document JSON import admission", () => {
 
     expect(result).toMatchObject({
       ok: true,
-      document: { schemaVersion: 2 },
+      document: { schemaVersion: 5 },
       migrations: expect.arrayContaining([
         expect.objectContaining({ code: "document_schema_upgraded" }),
       ]),

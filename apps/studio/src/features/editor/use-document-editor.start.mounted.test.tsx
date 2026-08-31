@@ -27,6 +27,7 @@ import {
 import type { StudioPersistenceTestWrapperProps } from "./studio-persistence-test-wrapper"
 import type { StudioPersistenceApi } from "../persistence/studio-persistence-provider"
 import { useDocumentEditor } from "./use-document-editor"
+import { getStudioLibraryCatalogDetail } from "../../content/library/catalog"
 
 type Editor = ReturnType<typeof useDocumentEditor>
 type MountedCapture = Readonly<{
@@ -99,7 +100,13 @@ function MountedEditor({
   capture: (value: MountedCapture) => void
 }) {
   const persistence = useStudioPersistence()
-  const editor = useDocumentEditor({ persistence })
+  const editor = useDocumentEditor({
+    persistence,
+    libraryTemplateDetailPort: async (kind, id, version, signal) => {
+      if (signal.aborted) throw signal.reason
+      return getStudioLibraryCatalogDetail(kind, id, version)
+    },
+  })
   useLayoutEffect(
     () => capture({ editor, persistence }),
     [capture, editor, persistence]
