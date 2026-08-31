@@ -647,3 +647,22 @@ independent re-review.
 - Executable SQLite and focused HTTP/client tests cover cancellation and retry
   replay, original-result stability, dispatched replay, and same-key different-
   input conflict.
+
+## Independent-review correction: bounded PNG decoding
+
+The P1 output-inflation finding is repaired locally and awaits independent
+re-review.
+
+- Compressed output is rejected before decode when it exceeds the existing
+  managed-media byte limit. IHDR width, height, and pixel area are checked
+  against the existing media limits before any IDAT stream is inflated.
+- PNG scanlines are decoded incrementally. The validator retains only the
+  previous row, current encoded scanline, and current decoded row; it no longer
+  materializes the entire inflated image.
+- The decoder counts produced bytes against the exact non-interlaced RGBA size
+  implied by IHDR. It cancels the stream immediately on excess output and
+  rejects truncated output, extra output, unsupported filters, and malformed
+  deflate data.
+- Focused tests prove oversized dimensions and a highly compressed expansion
+  payload fail as `invalid_provider_output` before any D1 query/write or R2
+  staging, while the valid transparent PNG path still succeeds.

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
+import { deflateSync } from "node:zlib"
 import {
   MediaDerivationOutputRepository,
   normalizeTransparentDerivationOutput,
@@ -20,6 +21,36 @@ const opaquePng = Uint8Array.from(
 const attemptId = "derivation-attempt-01234567-89ab-cdef-0123-456789abcdef"
 const outputAssetId = "asset-fedcba9876543210fedcba9876543210"
 const completedAt = "2026-08-31T13:00:00.000Z"
+
+const syntheticPng = (width: number, height: number, inflated: Uint8Array) => {
+  const chunk = (type: string, data: Uint8Array) => {
+    const bytes = new Uint8Array(12 + data.byteLength)
+    new DataView(bytes.buffer).setUint32(0, data.byteLength)
+    bytes.set(new TextEncoder().encode(type), 4)
+    bytes.set(data, 8)
+    return bytes
+  }
+  const header = new Uint8Array(13)
+  const view = new DataView(header.buffer)
+  view.setUint32(0, width)
+  view.setUint32(4, height)
+  header.set([8, 6, 0, 0, 0], 8)
+  const parts = [
+    Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10),
+    chunk("IHDR", header),
+    chunk("IDAT", Uint8Array.from(deflateSync(inflated))),
+    chunk("IEND", new Uint8Array()),
+  ]
+  const bytes = new Uint8Array(
+    parts.reduce((total, part) => total + part.byteLength, 0)
+  )
+  let offset = 0
+  for (const part of parts) {
+    bytes.set(part, offset)
+    offset += part.byteLength
+  }
+  return bytes
+}
 
 const job: MediaDerivationJob = {
   id: "derivation-01234567-89ab-cdef-0123-456789abcdef",
@@ -142,6 +173,24 @@ describe("derived background-removal output", () => {
         bytes: transparentPng,
       })
     ).rejects.toMatchObject({ code: "derivation_output_not_ready" })
+  })
+
+  it.each([
+    ["oversized dimensions", syntheticPng(16_385, 1, Uint8Array.of(0, 0))],
+    ["inflated expansion", syntheticPng(1, 1, new Uint8Array(1_000_000))],
+  ])("rejects %s before D1 or R2 side effects", async (_, bytes) => {
+    const { db, bucket, repository } = fixture()
+
+    await expect(
+      repository.settle({
+        job,
+        attemptId,
+        output: { mediaType: "image/png", bytes },
+      })
+    ).rejects.toMatchObject({ code: "invalid_provider_output" })
+    expect(db.statements).toHaveLength(0)
+    expect(bucket.put).not.toHaveBeenCalled()
+    expect(bucket.delete).not.toHaveBeenCalled()
   })
 
   it("stages immutable bytes and commits asset, job, attempt, and provenance together", async () => {

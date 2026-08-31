@@ -1,4 +1,10 @@
-import { createOpaqueMediaAssetId, validateMediaUpload } from "./media-assets"
+import {
+  createOpaqueMediaAssetId,
+  MAX_MEDIA_ASSET_BYTES,
+  MAX_MEDIA_ASSET_DIMENSION,
+  MAX_MEDIA_ASSET_PIXEL_AREA,
+  validateMediaUpload,
+} from "./media-assets"
 import type { ValidatedMediaUpload } from "./media-assets"
 import { MediaDerivationError } from "./media-derivations"
 import type {
@@ -50,55 +56,94 @@ const containsTransparentPixel = async (
   width: number,
   height: number
 ) => {
-  const decompress = (format: CompressionFormat, bytes: Uint8Array) =>
-    new Response(
-      new Blob([Uint8Array.from(bytes).buffer])
-        .stream()
-        .pipeThrough(new DecompressionStream(format))
-    ).arrayBuffer()
-  let decompressed: ArrayBuffer
+  const stride = width * 4
+  const expectedBytes = (stride + 1) * height
+  const scan = async (format: CompressionFormat, bytes: Uint8Array) => {
+    const reader = new Blob([Uint8Array.from(bytes).buffer])
+      .stream()
+      .pipeThrough(new DecompressionStream(format))
+      .getReader()
+    let previous = new Uint8Array(stride)
+    let scanline = new Uint8Array(stride + 1)
+    let scanlineOffset = 0
+    let produced = 0
+    let transparent = false
+    try {
+      while (true) {
+        const chunk = await reader.read()
+        if (chunk.done) break
+        let chunkOffset = 0
+        while (chunkOffset < chunk.value.byteLength) {
+          const remaining = scanline.byteLength - scanlineOffset
+          const available = chunk.value.byteLength - chunkOffset
+          const length = Math.min(remaining, available)
+          produced += length
+          if (produced > expectedBytes) {
+            throw new Error("png_inflated_size_exceeded")
+          }
+          scanline.set(
+            chunk.value.subarray(chunkOffset, chunkOffset + length),
+            scanlineOffset
+          )
+          scanlineOffset += length
+          chunkOffset += length
+          if (scanlineOffset !== scanline.byteLength) continue
+
+          const filter = scanline[0]
+          if (filter > 4) throw new Error("png_filter_invalid")
+          const row = new Uint8Array(stride)
+          for (let x = 0; x < stride; x += 1) {
+            const value = scanline[x + 1]
+            const left = x >= 4 ? row[x - 4] : 0
+            const above = previous[x]
+            const upperLeft = x >= 4 ? previous[x - 4] : 0
+            row[x] =
+              filter === 0
+                ? value
+                : filter === 1
+                  ? value + left
+                  : filter === 2
+                    ? value + above
+                    : filter === 3
+                      ? value + Math.floor((left + above) / 2)
+                      : value + paeth(left, above, upperLeft)
+          }
+          for (let alpha = 3; alpha < stride; alpha += 4) {
+            if (row[alpha] < 255) transparent = true
+          }
+          previous = row
+          scanline = new Uint8Array(stride + 1)
+          scanlineOffset = 0
+        }
+      }
+    } catch (error) {
+      await reader.cancel().catch(() => undefined)
+      throw error
+    } finally {
+      reader.releaseLock()
+    }
+    if (produced !== expectedBytes || scanlineOffset !== 0) {
+      throw new Error("png_inflated_size_mismatch")
+    }
+    return transparent
+  }
   try {
-    decompressed = await decompress("deflate", compressed)
-  } catch {
+    return await scan("deflate", compressed)
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.message === "png_inflated_size_exceeded" ||
+        error.message === "png_inflated_size_mismatch" ||
+        error.message === "png_filter_invalid")
+    ) {
+      throw error
+    }
     if (compressed.byteLength <= 6) throw new Error("png_deflate_truncated")
-    decompressed = await decompress(
+    return scan(
       "deflate-raw",
       compressed.subarray(2, compressed.byteLength - 4)
     )
   }
-  const source = new Uint8Array(decompressed)
-  const stride = width * 4
-  if (source.byteLength !== (stride + 1) * height) return false
-  let previous = new Uint8Array(stride)
-  let offset = 0
-  for (let y = 0; y < height; y += 1) {
-    const filter = source[offset]
-    offset += 1
-    if (filter > 4) return false
-    const row = new Uint8Array(stride)
-    for (let x = 0; x < stride; x += 1) {
-      const value = source[offset + x]
-      const left = x >= 4 ? row[x - 4] : 0
-      const above = previous[x]
-      const upperLeft = x >= 4 ? previous[x - 4] : 0
-      row[x] =
-        filter === 0
-          ? value
-          : filter === 1
-            ? value + left
-            : filter === 2
-              ? value + above
-              : filter === 3
-                ? value + Math.floor((left + above) / 2)
-                : value + paeth(left, above, upperLeft)
-    }
-    for (let alpha = 3; alpha < stride; alpha += 4) {
-      if (row[alpha] < 255) return true
-    }
-    previous = row
-    offset += stride
-  }
-  return false
 }
 
 export async function normalizeTransparentDerivationOutput(
@@ -108,6 +153,7 @@ export async function normalizeTransparentDerivationOutput(
   if (
     output.mediaType !== "image/png" ||
     output.bytes.byteLength < 57 ||
+    output.bytes.byteLength > MAX_MEDIA_ASSET_BYTES ||
     !equalBytes(output.bytes.subarray(0, 8), pngSignature)
   ) {
     throw new MediaDerivationError(
@@ -155,6 +201,11 @@ export async function normalizeTransparentDerivationOutput(
       width = uint32(data, 0)
       height = uint32(data, 4)
       if (
+        width < 1 ||
+        height < 1 ||
+        width > MAX_MEDIA_ASSET_DIMENSION ||
+        height > MAX_MEDIA_ASSET_DIMENSION ||
+        width * height > MAX_MEDIA_ASSET_PIXEL_AREA ||
         data[8] !== 8 ||
         data[9] !== 6 ||
         data[10] !== 0 ||
