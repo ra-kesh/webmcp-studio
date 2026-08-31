@@ -211,6 +211,19 @@ px inspection shows a 468 px card with readable title, dimensions, and separate
 horizontal overflow. The responsive boundary is covered in the focused suite,
 which now passes 21/21, and Studio typecheck remains green.
 
+Native mobile/touch emulation then exercised the actual 390 px and 320 px
+acceptance widths. At 390 px the editor preserves its compact two-row shell,
+centered fit-page canvas, horizontal page filmstrip and four-control zoom bar;
+the document drawer becomes a single-column template browser, the canonical
+Layers tree remains legible, and the selected rectangle Inspector exposes its
+full position, opacity, paint, fill and stroke controls without horizontal
+overflow. The start catalog uses 358 px cards with separate favorite and action
+targets. At 320 px the start heading wraps deliberately and the blank-document
+dialog remains inside a 288 px surface with an internal scroll region. Invalid
+dimensions move focus to the exact field and announce the inline error. Both
+mobile widths completed with no console error, warning, browser issue,
+duplicate ID or document-level horizontal overflow.
+
 ## Acceptance
 
 - the start heading still receives programmatic focus after returning home but
