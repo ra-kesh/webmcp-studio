@@ -4016,8 +4016,8 @@ capture, independent acceptance, and merge remain open**
 
 ### Fresh schema-v5 retained evidence
 
-Status: **capture and artifact validation complete; independent review and
-merge remain open**
+Status: **capture, artifact validation, and independent review complete; merge
+remains open**
 
 - Checkpoint commit `876bd75` preceded the capture run. The isolated local D1
   received only the repository's 17 checked-in migrations. No remote database,
@@ -4036,6 +4036,13 @@ merge remain open**
   `sha256-6d6546b1546db382ed68e44235f471e40e6e01454e6f7b3322e6132d5736f178`.
   Hash-only validation passes 12/12, and all eight raw or geometry comparison
   policies pass. Generated report paths are relative to the report file.
-- The evidence is captured and locally accepted. A separate reviewer must read
-  the integration and retained records before this branch may claim
-  independent acceptance. The branch is not merged.
+- Focused verification passes 18/18 document tests, the adverse Fabric paste
+  and Renderer serialization tests, and all 30 Render View conformance tests.
+  Document, Editor, Render View, Renderer, and Studio typechecks pass under
+  Node 22.23.2.
+- An independent read-only review of `876bd75` and `a6f0435` found no P0 or P1
+  defect or evidence gap. The reviewer independently timed ten exact 28,000
+  character runs at 30.37 to 34.45 ms, validated the base, component, and
+  component-journey manifests, and returned **ACCEPT**.
+- The integration is implemented, committed, and independently accepted. It is
+  not merged.

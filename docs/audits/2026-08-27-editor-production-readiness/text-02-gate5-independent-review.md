@@ -6,6 +6,31 @@
 
 ## Final closure re-review — 2026-08-31
 
+### Schema-v5 closure integration re-review
+
+- Reviewed commits
+  `876bd7571f754ed08bcfdabd018cc85c5c03629a` and
+  `a6f0435c0f63edcfcd13a8be2923f24b06c5525c` from base `6265561`.
+- No P0 or P1 finding remains. Independent verdict: **ACCEPT**.
+- The `a116d03` production layout fix is reused unchanged. `text-layout.ts` has
+  the same `a37bf123...` blob at `a116d03`, `6265561`, and `a6f0435`.
+- Ten independent warm runs of the exact 28,000-character, 1,000-run
+  regression completed in 30.37 to 34.45 ms. Every run retained source ends
+  `[25201, 28000]` and 1,001 segments.
+- The publication test derives the schema-v5 snapshot through the production
+  publish-request boundary. Browser capture checks its embedded route document
+  against that published document, then sends the same document to Renderer
+  PNG and PDF.
+- Retained run
+  `2026-08-31T17-39-43.722Z-a02fc16f-6764-456b-b246-76c2351b955a`
+  reports zero page errors and binds 12 validated artifact hashes and eight
+  passing comparison policies to snapshot
+  `sha256-6d6546b1546db382ed68e44235f471e40e6e01454e6f7b3322e6132d5736f178`.
+  Report paths are relative.
+- Base, component, and component-journey retained manifests also validate.
+  Schema, mask, component, and library core files are unchanged.
+- The branch is independently accepted. It is committed but not merged.
+
 - The adverse 7,000-character/1,000-run late-wrap path now uses bounded incremental layout and is exercised through canonical layout, Fabric paste/edit, React/Renderer projection and the retained 100-page browser workload.
 - The exact resource-bearing and component-bearing documents now cross immutable publication, Renderer HTML, real PNG and real PDF raster comparison. Fresh captures report zero page errors and pass their pixel/geometry policies:
   - resources: `2026-08-30T20-24-21.290Z-eced26b5-0ce1-4445-95fd-c0223d05e89d`;

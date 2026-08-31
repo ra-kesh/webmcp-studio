@@ -4,8 +4,8 @@ Date: 2026-08-30
 
 Status: Gate 5 implementation and its `a116d03` evidence were independently
 accepted. The schema-v5 publication-identity integration is implemented on an
-isolated branch, and fresh retained publication evidence passes. Follow-up
-review and merge remain open.
+isolated branch, fresh retained publication evidence passes, and follow-up
+review found no P0/P1 issue. The branch is accepted and not merged.
 
 ## Product outcome
 
