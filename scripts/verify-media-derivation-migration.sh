@@ -102,11 +102,14 @@ VALUES
    'image/png', 1, 1, '2026-08-31T00:03:00.000Z');
 SQL
 
+sqlite3 -bail "$upgrade_database" < "$repo_root/migrations/0018_media_derivation_canonical_outputs.sql"
+
 test "$(sqlite3 "$upgrade_database" 'SELECT state || ":" || output_asset_id FROM media_derivation_jobs')" = "succeeded:asset-0000000000000002"
 test "$(sqlite3 "$upgrade_database" 'SELECT state || ":" || attempt_number FROM media_derivation_attempts')" = "succeeded:1"
 test "$(sqlite3 "$upgrade_database" 'SELECT source_asset_id || ":" || output_asset_id FROM media_derivation_provenance')" = "asset-0000000000000001:asset-0000000000000002"
 test "$(sqlite3 "$upgrade_database" 'SELECT COUNT(*) FROM pragma_index_list("media_derivation_jobs") WHERE name IN ("idx_media_derivation_jobs_workspace_created", "idx_media_derivation_jobs_active")')" = "2"
 test "$(sqlite3 "$upgrade_database" 'SELECT COUNT(*) FROM sqlite_schema WHERE type = "trigger" AND name IN ("media_derivation_jobs_attempt_fence_guard", "media_derivation_provenance_immutable")')" = "2"
+test "$(sqlite3 "$upgrade_database" 'SELECT group_concat(name, ",") FROM pragma_table_info("media_derivation_provenance") WHERE pk > 0 ORDER BY pk')" = "workspace_id,derivation_job_id"
 test -z "$(sqlite3 "$upgrade_database" 'PRAGMA foreign_key_check')"
 
 if sqlite3 "$upgrade_database" "UPDATE media_derivation_provenance SET provider_model_version='mutated';" 2>/dev/null; then

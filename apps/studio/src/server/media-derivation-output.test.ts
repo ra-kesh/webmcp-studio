@@ -61,7 +61,11 @@ class FakeStatement {
   }
 
   async first<T>() {
-    return this.db.committed as T | null
+    return (
+      this.query.includes("FROM media_assets")
+        ? this.db.canonical
+        : this.db.committed
+    ) as T | null
   }
 }
 
@@ -69,7 +73,9 @@ class FakeD1 {
   readonly statements: FakeStatement[] = []
   changes = [1, 1, 1, 1]
   batchError: Error | null = null
+  batchErrorCanonical: Record<string, unknown> | null = null
   committed: Record<string, unknown> | null = null
+  canonical: Record<string, unknown> | null = null
 
   prepare(query: string) {
     const statement = new FakeStatement(query, this)
@@ -77,20 +83,30 @@ class FakeD1 {
     return statement as unknown as D1PreparedStatement
   }
 
-  async batch<T>() {
-    if (this.batchError) throw this.batchError
-    return this.changes.map((changes) => ({
+  async batch<T>(statements: D1PreparedStatement[]) {
+    if (this.batchError) {
+      const error = this.batchError
+      this.batchError = null
+      this.canonical = this.batchErrorCanonical
+      throw error
+    }
+    return statements.map((_, index) => ({
       success: true,
       results: [],
-      meta: { changes },
+      meta: { changes: this.changes[index] ?? 1 },
     })) as unknown as D1Result<T>[]
   }
 }
 
 const fixture = () => {
   const db = new FakeD1()
+  type FakeObject = {
+    body: ReadableStream<Uint8Array>
+    arrayBuffer: () => Promise<ArrayBuffer>
+  }
   const bucket = {
     put: vi.fn(async () => undefined),
+    get: vi.fn(async (): Promise<FakeObject | null> => null),
     delete: vi.fn(async () => undefined),
   }
   const repository = new MediaDerivationOutputRepository(
@@ -184,6 +200,7 @@ describe("derived background-removal output", () => {
     db.batchError = new Error("transport lost after commit")
     db.committed = {
       output_asset_id: outputAssetId,
+      output_r2_key: `media/workspaces/workspace-a/derivations/${job.id}/${attemptId}/${normalized.contentHash}.png`,
       output_content_hash: normalized.contentHash,
       output_media_type: "image/png",
       output_width: 1,
@@ -200,6 +217,109 @@ describe("derived background-removal output", () => {
     ).resolves.toMatchObject({
       job: { state: "succeeded", outputAssetId },
     })
+    expect(bucket.delete).not.toHaveBeenCalled()
+  })
+
+  it("reuses a verified same-hash workspace asset without overwriting it", async () => {
+    const { db, bucket, repository } = fixture()
+    const normalized = await normalizeTransparentDerivationOutput({
+      mediaType: "image/png",
+      bytes: transparentPng,
+    })
+    const canonicalId = "asset-canonical0123456789abcdef0123456"
+    db.canonical = {
+      id: canonicalId,
+      media_type: "image/png",
+      bytes: normalized.byteLength,
+      width: normalized.width,
+      height: normalized.height,
+      content_hash: normalized.contentHash,
+      r2_key: "media/workspaces/workspace-a/content/canonical/original",
+      status: "ready",
+    }
+    bucket.get.mockResolvedValue({
+      body: new Blob([transparentPng]).stream(),
+      arrayBuffer: () => Promise.resolve(transparentPng.buffer),
+    })
+
+    const settlement = await repository.settle({
+      job,
+      attemptId,
+      output: { mediaType: "image/png", bytes: transparentPng },
+    })
+
+    expect(settlement.job.outputAssetId).toBe(canonicalId)
+    expect(settlement.provenance.derivationJobId).toBe(job.id)
+    expect(bucket.put).not.toHaveBeenCalled()
+    expect(bucket.delete).not.toHaveBeenCalled()
+    expect(
+      db.statements.some(({ query }) =>
+        query.includes("INSERT INTO media_assets")
+      )
+    ).toBe(false)
+  })
+
+  it("reconciles a same-hash insert race and removes the losing staged object", async () => {
+    const { db, bucket, repository } = fixture()
+    const normalized = await normalizeTransparentDerivationOutput({
+      mediaType: "image/png",
+      bytes: transparentPng,
+    })
+    const canonicalId = "asset-racewinner0123456789abcdef012345"
+    db.batchError = new Error("unique workspace content hash")
+    db.batchErrorCanonical = {
+      id: canonicalId,
+      media_type: "image/png",
+      bytes: normalized.byteLength,
+      width: normalized.width,
+      height: normalized.height,
+      content_hash: normalized.contentHash,
+      r2_key: "media/workspaces/workspace-a/content/race-winner/original",
+      status: "ready",
+    }
+    bucket.get.mockResolvedValue({
+      body: new Blob([transparentPng]).stream(),
+      arrayBuffer: () => Promise.resolve(transparentPng.buffer),
+    })
+
+    await expect(
+      repository.settle({
+        job,
+        attemptId,
+        output: { mediaType: "image/png", bytes: transparentPng },
+      })
+    ).resolves.toMatchObject({
+      job: { state: "succeeded", outputAssetId: canonicalId },
+      provenance: { derivationJobId: job.id, outputAssetId: canonicalId },
+    })
+    expect(bucket.put).toHaveBeenCalledTimes(1)
+    expect(bucket.delete).toHaveBeenCalledTimes(1)
+  })
+
+  it("returns the committed canonical output on retry without restaging", async () => {
+    const { db, bucket, repository } = fixture()
+    const normalized = await normalizeTransparentDerivationOutput({
+      mediaType: "image/png",
+      bytes: transparentPng,
+    })
+    db.committed = {
+      output_asset_id: outputAssetId,
+      output_r2_key: "media/workspaces/workspace-a/content/canonical/original",
+      output_content_hash: normalized.contentHash,
+      output_media_type: "image/png",
+      output_width: 1,
+      output_height: 1,
+      completed_at: completedAt,
+    }
+
+    await expect(
+      repository.settle({
+        job,
+        attemptId,
+        output: { mediaType: "image/png", bytes: transparentPng },
+      })
+    ).resolves.toMatchObject({ job: { outputAssetId } })
+    expect(bucket.put).not.toHaveBeenCalled()
     expect(bucket.delete).not.toHaveBeenCalled()
   })
 })

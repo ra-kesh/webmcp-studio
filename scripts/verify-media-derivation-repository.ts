@@ -106,6 +106,15 @@ class MemoryR2Bucket {
     this.objects.set(key, Uint8Array.from(value))
   }
 
+  async get(key: string) {
+    const bytes = this.objects.get(key)
+    if (!bytes) return null
+    return {
+      body: new Blob([Uint8Array.from(bytes).buffer]).stream(),
+      arrayBuffer: async () => Uint8Array.from(bytes).buffer,
+    }
+  }
+
   async delete(key: string) {
     this.deleted.push(key)
     this.objects.delete(key)
@@ -556,19 +565,17 @@ try {
     { ...configuration, providerModelVersion: "competing-model" }
   )
   const competingClaim = await repository.claim("workspace-a", competing.job.id)
-  await expectCode(
-    repository.succeed(
-      "workspace-a",
-      competing.job.id,
-      competingClaim.attempt.id,
-      "asset-0000000000000002"
-    ),
-    "derivation_output_conflict"
+  const sharedOutput = await repository.succeed(
+    "workspace-a",
+    competing.job.id,
+    competingClaim.attempt.id,
+    "asset-0000000000000002"
   )
   const competingAfter = await repository.get("workspace-a", competing.job.id)
   assert(
-    competingAfter.state === "running",
-    "Failed provenance claim partially settled the job"
+    competingAfter.state === "succeeded" &&
+      sharedOutput.provenance.derivationJobId === competing.job.id,
+    "Shared canonical output did not preserve job-specific provenance"
   )
 
   const transparentPng = Uint8Array.from(
@@ -634,6 +641,65 @@ try {
     "Atomic output settlement did not retain one immutable R2 object"
   )
 
+  const canonicalBefore = database
+    .query("SELECT * FROM media_assets WHERE id = ?")
+    .get(outputSettlement.job.outputAssetId)
+  const canonicalReplayJob = await repository.create(
+    "workspace-a",
+    "canonical-output-replay",
+    { ...createInput, sourceAssetId: "asset-0000000000000006" },
+    { ...configuration, providerModelVersion: "canonical-output-model" }
+  )
+  const canonicalReplayClaim = await repository.claim(
+    "workspace-a",
+    canonicalReplayJob.job.id
+  )
+  const canonicalReplaySettlement = await outputRepository.settle({
+    job: canonicalReplayClaim.job,
+    attemptId: canonicalReplayClaim.attempt.id,
+    output: { mediaType: "image/png", bytes: transparentPng },
+  })
+  assert(
+    canonicalReplaySettlement.job.outputAssetId ===
+      outputSettlement.job.outputAssetId,
+    "Same-hash output did not resolve to the canonical workspace asset"
+  )
+  assert(
+    Number(
+      database
+        .query(
+          `SELECT COUNT(*) AS count FROM media_derivation_provenance
+           WHERE workspace_id = 'workspace-a' AND output_asset_id = ?`
+        )
+        .get(outputSettlement.job.outputAssetId)?.count
+    ) === 2,
+    "Distinct jobs did not retain independent immutable provenance"
+  )
+  assert(
+    JSON.stringify(canonicalBefore) ===
+      JSON.stringify(
+        database
+          .query("SELECT * FROM media_assets WHERE id = ?")
+          .get(outputSettlement.job.outputAssetId)
+      ),
+    "Canonical output reconciliation mutated the existing asset"
+  )
+  assert(
+    outputBucket.objects.size === 1 && outputBucket.deleted.length === 0,
+    "Canonical output reconciliation staged or deleted R2 objects"
+  )
+  const canonicalRetry = await outputRepository.settle({
+    job: canonicalReplayClaim.job,
+    attemptId: canonicalReplayClaim.attempt.id,
+    output: { mediaType: "image/png", bytes: transparentPng },
+  })
+  assert(
+    canonicalRetry.job.outputAssetId ===
+      canonicalReplaySettlement.job.outputAssetId &&
+      outputBucket.objects.size === 1,
+    "Canonical output settlement was not stable on retry"
+  )
+
   const lateOutputJob = await repository.create(
     "workspace-a",
     "late-output",
@@ -654,8 +720,11 @@ try {
     "storage_failure"
   )
   assert(
-    outputBucket.deleted.some((key) => key.includes(lateOutputJob.job.id)),
-    "A rejected late output was not removed from staged R2 storage"
+    outputBucket.objects.size === 1 &&
+      [...outputBucket.objects.keys()].every(
+        (key) => !key.includes(lateOutputJob.job.id)
+      ),
+    "A rejected late output left staged R2 storage"
   )
   assert(
     Number(

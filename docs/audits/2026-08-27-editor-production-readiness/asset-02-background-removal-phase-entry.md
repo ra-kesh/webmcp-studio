@@ -124,8 +124,11 @@ provenance row links:
 - privacy policy version
 - normalized output content hash, media type, dimensions, and creation time
 
-One output asset can have only one derivation provenance record. Source and
-output asset IDs must differ. Both must belong to the job's workspace.
+Each succeeded job has exactly one immutable derivation provenance record.
+Because workspace media identity is content-addressed, distinct jobs that
+normalize to identical bytes may point to the same canonical ready output
+asset. Source and output asset IDs must differ. Both must belong to the job's
+workspace.
 
 The existing catalog metadata may describe the result to a user, but it does
 not replace the derivation provenance record.
@@ -211,9 +214,11 @@ the durable execution system.
 ## Original preservation and non-destructive application
 
 The source `media_assets` row and its R2 object remain immutable. Background
-removal writes normalized output bytes under a new asset ID and immutable R2
-key, validates those bytes, inserts the new managed asset, inserts provenance,
-and only then settles the job as succeeded.
+removal validates normalized output bytes and resolves them to the workspace's
+content-addressed asset. If no asset exists, it writes a new immutable R2
+object and managed asset. If an exact ready asset already exists, it verifies
+the stored object byte-for-byte and reuses that asset without updating it.
+Job-specific provenance is inserted before the job settles as succeeded.
 
 The selected image node does not change while a job is queued, running, failed,
 or cancelled. Success produces a before-and-after choice. Applying it uses the
@@ -461,10 +466,11 @@ independently accepted or merged.
   least one transparent pixel. It rejects opaque pixels-only output, other
   media types, ancillary metadata, malformed chunks, unsupported filters, and
   decompression failures.
-- R2 receives one attempt-scoped immutable object before D1 settlement. One D1
-  batch inserts the new ready asset, settles the exact running attempt and job,
-  and inserts immutable provenance. The provenance insert guard aborts the
-  batch if a stale or cancelled attempt no longer owns settlement.
+- When no canonical content exists, R2 receives one attempt-scoped immutable
+  object before D1 settlement. One D1 batch inserts the new ready asset,
+  settles the exact running attempt and job, and inserts immutable provenance.
+  The provenance insert guard aborts the batch if a stale or cancelled attempt
+  no longer owns settlement.
 - A failed or incomplete batch triggers a committed-state read. Exact committed
   output survives a lost D1 response. Otherwise the staged object is deleted
   and no selectable asset remains.
@@ -575,3 +581,28 @@ D1/R2/Workflow/provider execution, provider retention and region verification,
 real billing/cancellation behavior, compact keyboard/browser journeys, deployed
 WebMCP registration, and production renderer evidence. Those require explicit
 deployment/provider authority and independent acceptance.
+
+## Independent-review correction: canonical derivation output
+
+The P1 same-hash settlement finding is repaired locally and awaits independent
+re-review.
+
+- `media_assets(workspace_id, content_hash)` remains the canonical workspace
+  identity. A derivation whose normalized bytes already exist points to that
+  ready asset; it does not insert an alias row or overwrite catalog metadata or
+  R2 bytes.
+- Reuse requires exact media type, byte length, dimensions, content hash, and a
+  byte-for-byte match against the existing private object. Archived, missing,
+  corrupt, or inconsistent canonical records fail closed.
+- Provenance is immutable and unique per derivation job, so distinct valid jobs
+  can retain their frozen source/provider/model/policy history while sharing
+  one canonical output asset. Asset-scoped public provenance reads choose the
+  earliest record deterministically.
+- An insert race re-reads the unique content winner, verifies it, settles the
+  losing job against that asset, and deletes the losing attempt's staged
+  object. A replay after a committed response loss returns the recorded output
+  without another R2 write.
+- Focused unit and executable SQLite coverage seeds an existing same-hash
+  workspace asset, proves a distinct running job succeeds with its own
+  provenance, proves the existing asset is unchanged, checks retry stability,
+  and exercises the unique-insert race cleanup path.

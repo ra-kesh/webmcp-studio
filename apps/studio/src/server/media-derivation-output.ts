@@ -216,11 +216,23 @@ const batchChanges = (result: D1Result<unknown> | undefined) =>
 
 type CommittedOutputRow = {
   output_asset_id: string
+  output_r2_key: string
   output_content_hash: string
   output_media_type: "image/png"
   output_width: number
   output_height: number
   completed_at: string
+}
+
+type CanonicalOutputRow = {
+  id: string
+  media_type: "image/png" | "image/jpeg" | "image/webp"
+  bytes: number
+  width: number
+  height: number
+  content_hash: string
+  r2_key: string
+  status: "ready" | "archived"
 }
 
 export class MediaDerivationOutputRepository {
@@ -248,18 +260,70 @@ export class MediaDerivationOutputRepository {
   private committed(job: MediaDerivationJob) {
     return this.db
       .prepare(
-        `SELECT jobs.output_asset_id, provenance.output_content_hash,
+        `SELECT jobs.output_asset_id, output.r2_key AS output_r2_key,
+                provenance.output_content_hash,
                 provenance.output_media_type, provenance.output_width,
                 provenance.output_height, jobs.completed_at
          FROM media_derivation_jobs jobs
          JOIN media_derivation_provenance provenance
            ON provenance.workspace_id = jobs.workspace_id
           AND provenance.derivation_job_id = jobs.id
+         JOIN media_assets output
+           ON output.workspace_id = jobs.workspace_id
+          AND output.id = jobs.output_asset_id
          WHERE jobs.workspace_id = ?1 AND jobs.id = ?2
            AND jobs.state = 'succeeded'`
       )
       .bind(job.workspaceId, job.id)
       .first<CommittedOutputRow>()
+  }
+
+  private canonical(workspaceId: string, contentHash: string) {
+    return this.db
+      .prepare(
+        `SELECT id, media_type, bytes, width, height, content_hash, r2_key,
+                status
+         FROM media_assets
+         WHERE workspace_id = ?1 AND content_hash = ?2`
+      )
+      .bind(workspaceId, contentHash)
+      .first<CanonicalOutputRow>()
+  }
+
+  private async requireSafeCanonical(
+    row: CanonicalOutputRow,
+    output: ValidatedMediaUpload
+  ) {
+    if (
+      row.status !== "ready" ||
+      row.media_type !== output.mediaType ||
+      Number(row.bytes) !== output.byteLength ||
+      Number(row.width) !== output.width ||
+      Number(row.height) !== output.height ||
+      row.content_hash !== output.contentHash
+    ) {
+      throw new MediaDerivationDispatchError(
+        "storage_failure",
+        true,
+        "The canonical derived asset is not safe to reuse"
+      )
+    }
+    const object = await this.bucket.get(row.r2_key).catch(() => null)
+    if (!object?.body) {
+      throw new MediaDerivationDispatchError(
+        "storage_failure",
+        true,
+        "The canonical derived asset is not available"
+      )
+    }
+    const bytes = new Uint8Array(await object.arrayBuffer())
+    if (!equalBytes(bytes, output.bytes)) {
+      throw new MediaDerivationDispatchError(
+        "storage_failure",
+        true,
+        "The canonical derived asset failed integrity verification"
+      )
+    }
   }
 
   private settlement(
@@ -296,6 +360,118 @@ export class MediaDerivationOutputRepository {
     return { job: settledJob, provenance }
   }
 
+  private settlementStatements(
+    input: {
+      job: MediaDerivationJob
+      attemptId: string
+    },
+    outputAssetId: string,
+    output: ValidatedMediaUpload,
+    completedAt: string
+  ) {
+    return [
+      this.db
+        .prepare(
+          `UPDATE media_derivation_jobs
+           SET state = 'succeeded', output_asset_id = ?4,
+               completed_at = ?5, updated_at = ?5,
+               retryable = 0, safe_failure_code = NULL
+           WHERE workspace_id = ?1 AND id = ?2 AND state = 'running'
+             AND active_attempt_id = ?3
+             AND cancellation_requested_at IS NULL
+             AND source_asset_id <> ?4
+             AND EXISTS (
+               SELECT 1 FROM media_assets
+               WHERE workspace_id = ?1 AND id = ?4 AND status = 'ready'
+                 AND media_type = ?6 AND bytes = ?7 AND width = ?8
+                 AND height = ?9 AND content_hash = ?10
+             )`
+        )
+        .bind(
+          input.job.workspaceId,
+          input.job.id,
+          input.attemptId,
+          outputAssetId,
+          completedAt,
+          output.mediaType,
+          output.byteLength,
+          output.width,
+          output.height,
+          output.contentHash
+        ),
+      this.db
+        .prepare(
+          `UPDATE media_derivation_attempts
+           SET state = 'succeeded', finished_at = ?4,
+               retryable = 0, safe_failure_code = NULL
+           WHERE workspace_id = ?1 AND job_id = ?2 AND id = ?3
+             AND state = 'running'
+             AND EXISTS (
+               SELECT 1 FROM media_derivation_jobs
+               WHERE workspace_id = ?1 AND id = ?2
+                 AND state = 'succeeded' AND active_attempt_id = ?3
+             )`
+        )
+        .bind(
+          input.job.workspaceId,
+          input.job.id,
+          input.attemptId,
+          completedAt
+        ),
+      this.db
+        .prepare(
+          `INSERT INTO media_derivation_provenance
+             (workspace_id, output_asset_id, source_asset_id,
+              source_content_hash, derivation_job_id, operation,
+              provider_key, provider_model_version, privacy_policy_version,
+              output_content_hash, output_media_type, output_width,
+              output_height, created_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
+                   'image/png', ?11, ?12, ?13)`
+        )
+        .bind(
+          input.job.workspaceId,
+          outputAssetId,
+          input.job.sourceAssetId,
+          input.job.sourceContentHash,
+          input.job.id,
+          input.job.operation,
+          input.job.providerKey,
+          input.job.providerModelVersion,
+          input.job.privacyPolicyVersion,
+          output.contentHash,
+          output.width,
+          output.height,
+          completedAt
+        ),
+    ]
+  }
+
+  private async commit(
+    input: {
+      job: MediaDerivationJob
+      attemptId: string
+    },
+    outputAssetId: string,
+    output: ValidatedMediaUpload,
+    completedAt: string,
+    insertAsset?: D1PreparedStatement
+  ) {
+    const statements = this.settlementStatements(
+      input,
+      outputAssetId,
+      output,
+      completedAt
+    )
+    const results = await this.db.batch(
+      insertAsset ? [insertAsset, ...statements] : statements
+    )
+    if (results.some((result) => batchChanges(result) !== 1)) {
+      throw new Error("media_derivation_output_transaction_incomplete")
+    }
+    return this.settlement(input.job, outputAssetId, output, completedAt)
+  }
+
   async settle(input: {
     job: MediaDerivationJob
     attemptId: string
@@ -320,8 +496,60 @@ export class MediaDerivationOutputRepository {
         "Derived output must not reuse the source bytes"
       )
     }
+    const previouslyCommitted = await this.committed(input.job).catch(
+      () => null
+    )
+    if (previouslyCommitted) {
+      if (
+        previouslyCommitted.output_content_hash !== normalized.contentHash ||
+        previouslyCommitted.output_media_type !== normalized.mediaType ||
+        Number(previouslyCommitted.output_width) !== normalized.width ||
+        Number(previouslyCommitted.output_height) !== normalized.height
+      ) {
+        throw new MediaDerivationDispatchError(
+          "invalid_provider_output",
+          false,
+          "A completed derivation cannot be retried with different output"
+        )
+      }
+      return this.settlement(
+        input.job,
+        previouslyCommitted.output_asset_id,
+        normalized,
+        previouslyCommitted.completed_at
+      )
+    }
+    const canonical = await this.canonical(
+      input.job.workspaceId,
+      normalized.contentHash
+    )
+    if (canonical) {
+      await this.requireSafeCanonical(canonical, normalized)
+      try {
+        return await this.commit(input, canonical.id, normalized, this.now())
+      } catch (error) {
+        const committed = await this.committed(input.job).catch(() => null)
+        if (
+          committed &&
+          committed.output_content_hash === normalized.contentHash
+        ) {
+          return this.settlement(
+            input.job,
+            committed.output_asset_id,
+            normalized,
+            committed.completed_at
+          )
+        }
+        if (error instanceof MediaDerivationError) throw error
+        throw new MediaDerivationDispatchError(
+          "storage_failure",
+          true,
+          "Derived output could not be committed"
+        )
+      }
+    }
     const outputAssetId = this.createAssetId()
-    const r2Key = `media/workspaces/${encodeURIComponent(input.job.workspaceId)}/derivations/${encodeURIComponent(input.job.id)}/${normalized.contentHash}.png`
+    const r2Key = `media/workspaces/${encodeURIComponent(input.job.workspaceId)}/derivations/${encodeURIComponent(input.job.id)}/${encodeURIComponent(input.attemptId)}/${normalized.contentHash}.png`
     try {
       await this.bucket.put(r2Key, normalized.bytes, {
         httpMetadata: { contentType: "image/png" },
@@ -336,119 +564,88 @@ export class MediaDerivationOutputRepository {
     }
     const completedAt = this.now()
     try {
-      const results = await this.db.batch([
-        this.db
-          .prepare(
-            `INSERT INTO media_assets
-               (id, workspace_id, name, media_type, bytes, width, height,
-                content_hash, r2_key, status, revision, created_at, updated_at,
-                last_used_at, archived_at)
-             SELECT ?1, ?2, ?3, 'image/png', ?4, ?5, ?6, ?7, ?8,
-                    'ready', 1, ?9, ?9, ?9, NULL
-             WHERE EXISTS (
-               SELECT 1 FROM media_derivation_jobs
-               WHERE workspace_id = ?2 AND id = ?10 AND state = 'running'
-                 AND active_attempt_id = ?11
-                 AND cancellation_requested_at IS NULL
-                 AND source_asset_id <> ?1
-             )`
-          )
-          .bind(
-            outputAssetId,
-            input.job.workspaceId,
-            normalized.name,
-            normalized.byteLength,
-            normalized.width,
-            normalized.height,
-            normalized.contentHash,
-            r2Key,
-            completedAt,
-            input.job.id,
-            input.attemptId
-          ),
-        this.db
-          .prepare(
-            `UPDATE media_derivation_jobs
-             SET state = 'succeeded', output_asset_id = ?4,
-                 completed_at = ?5, updated_at = ?5,
-                 retryable = 0, safe_failure_code = NULL
-             WHERE workspace_id = ?1 AND id = ?2 AND state = 'running'
-               AND active_attempt_id = ?3
+      const insertAsset = this.db
+        .prepare(
+          `INSERT INTO media_assets
+             (id, workspace_id, name, media_type, bytes, width, height,
+              content_hash, r2_key, status, revision, created_at, updated_at,
+              last_used_at, archived_at)
+           SELECT ?1, ?2, ?3, 'image/png', ?4, ?5, ?6, ?7, ?8,
+                  'ready', 1, ?9, ?9, ?9, NULL
+           WHERE EXISTS (
+             SELECT 1 FROM media_derivation_jobs
+             WHERE workspace_id = ?2 AND id = ?10 AND state = 'running'
+               AND active_attempt_id = ?11
                AND cancellation_requested_at IS NULL
-               AND EXISTS (
-                 SELECT 1 FROM media_assets
-                 WHERE workspace_id = ?1 AND id = ?4 AND status = 'ready'
-               )`
-          )
-          .bind(
-            input.job.workspaceId,
-            input.job.id,
-            input.attemptId,
-            outputAssetId,
-            completedAt
-          ),
-        this.db
-          .prepare(
-            `UPDATE media_derivation_attempts
-             SET state = 'succeeded', finished_at = ?4,
-                 retryable = 0, safe_failure_code = NULL
-             WHERE workspace_id = ?1 AND job_id = ?2 AND id = ?3
-               AND state = 'running'
-               AND EXISTS (
-                 SELECT 1 FROM media_derivation_jobs
-                 WHERE workspace_id = ?1 AND id = ?2
-                   AND state = 'succeeded' AND active_attempt_id = ?3
-               )`
-          )
-          .bind(
-            input.job.workspaceId,
-            input.job.id,
-            input.attemptId,
-            completedAt
-          ),
-        this.db
-          .prepare(
-            `INSERT INTO media_derivation_provenance
-               (workspace_id, output_asset_id, source_asset_id,
-                source_content_hash, derivation_job_id, operation,
-                provider_key, provider_model_version, privacy_policy_version,
-                output_content_hash, output_media_type, output_width,
-                output_height, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
-                     'image/png', ?11, ?12, ?13)`
-          )
-          .bind(
-            input.job.workspaceId,
-            outputAssetId,
-            input.job.sourceAssetId,
-            input.job.sourceContentHash,
-            input.job.id,
-            input.job.operation,
-            input.job.providerKey,
-            input.job.providerModelVersion,
-            input.job.privacyPolicyVersion,
-            normalized.contentHash,
-            normalized.width,
-            normalized.height,
-            completedAt
-          ),
-      ])
-      if (results.some((result) => batchChanges(result) !== 1)) {
-        throw new Error("media_derivation_output_transaction_incomplete")
-      }
-      return this.settlement(input.job, outputAssetId, normalized, completedAt)
+               AND source_asset_id <> ?1
+           )`
+        )
+        .bind(
+          outputAssetId,
+          input.job.workspaceId,
+          normalized.name,
+          normalized.byteLength,
+          normalized.width,
+          normalized.height,
+          normalized.contentHash,
+          r2Key,
+          completedAt,
+          input.job.id,
+          input.attemptId
+        )
+      return await this.commit(
+        input,
+        outputAssetId,
+        normalized,
+        completedAt,
+        insertAsset
+      )
     } catch (error) {
       const committed = await this.committed(input.job).catch(() => null)
       if (
         committed &&
         committed.output_content_hash === normalized.contentHash
       ) {
+        if (committed.output_r2_key !== r2Key) {
+          await this.bucket.delete(r2Key).catch(() => undefined)
+        }
         return this.settlement(
           input.job,
           committed.output_asset_id,
           normalized,
           committed.completed_at
         )
+      }
+      const raced = await this.canonical(
+        input.job.workspaceId,
+        normalized.contentHash
+      )
+      if (raced) {
+        try {
+          await this.requireSafeCanonical(raced, normalized)
+          const settlement = await this.commit(
+            input,
+            raced.id,
+            normalized,
+            this.now()
+          )
+          await this.bucket.delete(r2Key).catch(() => undefined)
+          return settlement
+        } catch {
+          const reconciled = await this.committed(input.job).catch(() => null)
+          await this.bucket.delete(r2Key).catch(() => undefined)
+          if (
+            reconciled &&
+            reconciled.output_content_hash === normalized.contentHash
+          ) {
+            return this.settlement(
+              input.job,
+              reconciled.output_asset_id,
+              normalized,
+              reconciled.completed_at
+            )
+          }
+        }
       }
       await this.bucket.delete(r2Key).catch(() => undefined)
       if (error instanceof MediaDerivationError) throw error

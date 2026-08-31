@@ -68,6 +68,10 @@
     {
       "name": "0017_media_derivation_jobs.sql",
       "sha256": "3e2a05b9c3150499c29bdfb44916b1a4c11046890bd6541eaf9d6f3430bd01f7"
+    },
+    {
+      "name": "0018_media_derivation_canonical_outputs.sql",
+      "sha256": "170681553c6fd0e98dca611b4d75e3ddbd721f408462e28b468ee5d81abceeab"
     }
   ]
 }

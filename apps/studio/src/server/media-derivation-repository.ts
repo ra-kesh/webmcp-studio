@@ -835,13 +835,6 @@ export class MediaDerivationRepository {
         "Success requires a distinct ready output asset in the same workspace"
       )
     }
-    if (await this.provenanceRow(workspaceId, output.id)) {
-      throw new MediaDerivationError(
-        "derivation_output_conflict",
-        409,
-        "The output asset already has immutable derivation provenance"
-      )
-    }
     const now = this.now()
     let results: D1Result<unknown>[]
     try {
@@ -871,8 +864,7 @@ export class MediaDerivationRepository {
                AND NOT EXISTS (
                  SELECT 1 FROM media_derivation_provenance provenance
                  WHERE provenance.workspace_id = ?1
-                   AND (provenance.output_asset_id = ?4
-                     OR provenance.derivation_job_id = ?2)
+                   AND provenance.derivation_job_id = ?2
                )`
           )
           .bind(workspaceId, current.id, attemptId, output.id, now),
@@ -924,12 +916,12 @@ export class MediaDerivationRepository {
           .bind(workspaceId, current.id, attemptId, output.id, now),
       ])
     } catch (error) {
-      const conflict = await this.provenanceRow(workspaceId, output.id)
+      const conflict = await this.provenanceForJobRow(workspaceId, current.id)
       if (!conflict) throw error
       throw new MediaDerivationError(
         "derivation_output_conflict",
         409,
-        "The output asset already has immutable derivation provenance"
+        "The derivation job already has immutable provenance"
       )
     }
     if (
@@ -956,7 +948,7 @@ export class MediaDerivationRepository {
     }
     const [job, provenance] = await Promise.all([
       this.requiredJob(workspaceId, current.id),
-      this.provenanceRow(workspaceId, output.id),
+      this.provenanceForJobRow(workspaceId, current.id),
     ])
     if (!provenance) throw new Error("media_derivation_provenance_unreadable")
     return {
@@ -970,9 +962,22 @@ export class MediaDerivationRepository {
       .prepare(
         `/* derivation:provenance-get */ SELECT ${provenanceColumns}
          FROM media_derivation_provenance
-         WHERE workspace_id = ?1 AND output_asset_id = ?2`
+         WHERE workspace_id = ?1 AND output_asset_id = ?2
+         ORDER BY created_at, derivation_job_id
+         LIMIT 1`
       )
       .bind(workspaceId, outputAssetId)
+      .first<MediaDerivationProvenanceRow>()
+  }
+
+  private async provenanceForJobRow(workspaceId: string, jobId: string) {
+    return this.db
+      .prepare(
+        `/* derivation:provenance-job-get */ SELECT ${provenanceColumns}
+         FROM media_derivation_provenance
+         WHERE workspace_id = ?1 AND derivation_job_id = ?2`
+      )
+      .bind(workspaceId, jobId)
       .first<MediaDerivationProvenanceRow>()
   }
 
