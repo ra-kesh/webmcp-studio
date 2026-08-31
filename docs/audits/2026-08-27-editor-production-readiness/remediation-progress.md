@@ -3690,6 +3690,9 @@ remains active**
 - Inspected OpenPencil's prompt loop, shared AI/editor tools, Design JSX
   compiler, sandboxed preview, reference-image analysis, visual verification,
   MCP registration, and separate GPT skill package at pinned commits.
+- Confirmed the same product split in Loora's checked-in MCP page and GitHub
+  design-guide skill: tools expose capability, while the external skill owns
+  design craft, tokens, structured creation, screenshot review, and refinement.
 - Confirmed the intended product is a reusable GPT artifact skill that creates
   an editable Studio document, not only instructions for operating the current
   editor.

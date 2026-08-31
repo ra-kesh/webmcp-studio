@@ -196,6 +196,40 @@ workflow over editor-owned capabilities. Studio should do the same, while
 making the artifact-generation contract first class rather than relying on a
 long sequence of loosely related low-level calls.
 
+## Loora confirms the external-skill boundary
+
+Loora's checked-in MCP page and design-guide skill express the user's intended
+workflow directly. The product page separates capability from craft: MCP tools
+tell an agent what it can do, while the GitHub skill tells it how to design.
+The skill then:
+
+1. checks that the required authoring tools are actually callable;
+2. forms a visual direction from a brief or reference;
+3. establishes tokens and reusable components before repeating sections;
+4. creates structured editable nodes rather than HTML, JSX, or CSS;
+5. inspects screenshots and the resulting tree; and
+6. refines verified weaknesses through bounded patches.
+
+Relevant reference code:
+
+- `loora/skills/loora-design-guide/SKILL.md`
+- `loora/skills/loora-design-guide/references/mcp-schema.md`
+- `loora/skills/loora-design-guide/references/canvas-authoring.md`
+- `loora/skills/loora-design-guide/references/design-craft.md`
+- `loora/apps/web/src/routes/mcp.index.tsx`
+- `loora/apps/web/public/design.md`
+
+Loora also shows why blank generation should preserve tokens as real references
+rather than flattening repeated colors, spacing, and type values into unrelated
+literals. Studio already has variables, variable bindings, typography styles,
+paint styles, components, and instances. The blank Design Plan should expose
+those existing semantics early enough for GPT to establish the system before
+creating pages and repeated elements.
+
+The Studio difference is transport and approval. The external GPT talks to the
+open web app through WebMCP rather than a separately configured MCP server, and
+new-document creation enters Studio's isolated Review before persistence.
+
 ## What Studio already supports
 
 Studio is not starting from zero. Most of the expensive foundations already
