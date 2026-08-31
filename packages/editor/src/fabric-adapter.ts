@@ -102,6 +102,11 @@ import {
   type CanvasTransformKind,
   type CanvasTransformSession,
 } from "./transform-session"
+import {
+  createFabricLuminanceMaskUnion,
+  disposeFabricLuminanceMaskUnion,
+  type FabricLuminanceMaskUnion,
+} from "./fabric-luminance-mask"
 
 // Figma-style blue stays legible on both paper and dark cinematic templates.
 const SELECTION_COLOR = "#0d99ff"
@@ -1511,6 +1516,7 @@ export type FabricVectorMaskPaint =
     }>
 
 export type FabricAlphaMaskPaint = FabricVectorMaskPaint
+export type FabricLuminanceMaskPaint = FabricVectorMaskPaint
 
 function createFabricVectorMaskObject(
   source: Extract<SceneNode, { type: "rect" | "ellipse" | "icon" }>
@@ -1765,6 +1771,86 @@ export function createFabricAlphaMaskPaint(
   })
   object.setCoords()
   return { kind: "composite", object, maskObject, sourceObjects }
+}
+
+/**
+ * Builds a luminance composite from a precomputed bounded sRGB raster union.
+ * The expensive/readback-sensitive conversion is deliberately supplied by the
+ * caller so the mounted adapter can complete it before replacing last-valid
+ * canvas pixels.
+ */
+export function createFabricLuminanceMaskPaint(
+  entry: Extract<PagePaintPlanEntry, { kind: "mask_group" }>,
+  nodesById: ReadonlyMap<string, SceneNode>,
+  createContentObject: (node: SceneNode) => FabricObject,
+  preparedUnion?: FabricLuminanceMaskUnion
+): FabricLuminanceMaskPaint {
+  if (entry.maskType !== "luminance") {
+    throw new Error(
+      "Fabric luminance paint requires a luminance mask group entry"
+    )
+  }
+  const contentNodes = entry.content.map((content) => {
+    if (content.kind !== "node") {
+      throw new Error("Fabric luminance masks do not support nested composites")
+    }
+    const node = nodesById.get(content.nodeId)
+    if (!node) {
+      throw new Error(`Fabric mask content ${content.nodeId} is missing`)
+    }
+    return node
+  })
+  const contentObjects = contentNodes.map(createContentObject)
+  if (!entry.compositeRequired) {
+    return { kind: "fallthrough", objects: contentObjects }
+  }
+
+  const sources = entry.sourceNodeIds.flatMap((sourceNodeId) => {
+    if (!entry.visibleSourceNodeIds.includes(sourceNodeId)) return []
+    const source = nodesById.get(sourceNodeId)
+    return isAdmittedAlphaMaskSource(source) ? [source] : []
+  })
+  if (sources.length !== entry.visibleSourceNodeIds.length) {
+    throw new Error(
+      "Fabric luminance masks require visible rectangle, ellipse, icon, image, or text sources"
+    )
+  }
+  assertFabricMaskBounds(entry.bounds)
+  if (!preparedUnion) {
+    throw new Error(
+      `Fabric luminance mask ${entry.groupId} has not completed conversion`
+    )
+  }
+
+  const maskObject = positionFabricMaskContentObject(
+    preparedUnion.maskObject,
+    entry.bounds
+  )
+  const objects = contentObjects.map((object) =>
+    positionFabricMaskContentObject(object, entry.bounds)
+  )
+  const object = new Group([...objects, maskObject], {
+    left: entry.bounds.x,
+    top: entry.bounds.y,
+    width: entry.bounds.width,
+    height: entry.bounds.height,
+    originX: "left",
+    originY: "top",
+    layoutManager: new LayoutManager(new FixedLayout()),
+    objectCaching: true,
+    selectable: false,
+    evented: true,
+    interactive: true,
+    subTargetCheck: true,
+    hasControls: false,
+  })
+  object.setCoords()
+  return {
+    kind: "composite",
+    object,
+    maskObject,
+    sourceObjects: preparedUnion.sourceObjects,
+  }
 }
 
 function assertFabricMaskBounds(bounds: PagePaintBounds) {
@@ -2923,14 +3009,16 @@ export class FabricCanvasAdapter implements CanvasAdapter {
         this.pageNodeOrder = []
       }
 
-      if (this.pageWidth !== page.width || this.pageHeight !== page.height) {
-        canvas.setDimensions({ width: page.width, height: page.height })
-        this.pageWidth = page.width
-        this.pageHeight = page.height
-      }
-      if (this.pageBackground !== page.background) {
-        canvas.backgroundColor = page.background
-        this.pageBackground = page.background
+      const applyPagePresentation = () => {
+        if (this.pageWidth !== page.width || this.pageHeight !== page.height) {
+          canvas.setDimensions({ width: page.width, height: page.height })
+          this.pageWidth = page.width
+          this.pageHeight = page.height
+        }
+        if (this.pageBackground !== page.background) {
+          canvas.backgroundColor = page.background
+          this.pageBackground = page.background
+        }
       }
 
       const nodesById = new Map(document.nodes.map((node) => [node.id, node]))
@@ -2949,6 +3037,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
         ) {
           this.syncCanonicalPaintPlanNodes(page, nodesById)
           signal?.throwIfAborted()
+          applyPagePresentation()
           canvas.requestRenderAll()
           return
         }
@@ -2961,9 +3050,12 @@ export class FabricCanvasAdapter implements CanvasAdapter {
           signal
         )
         signal?.throwIfAborted()
+        if (generation !== this.generation || !this.canvas) return
+        applyPagePresentation()
         canvas.requestRenderAll()
         return
       }
+      applyPagePresentation()
       if (this.paintPlanMode) {
         canvas.discardActiveObject()
         canvas.remove(...canvas.getObjects())
@@ -3122,6 +3214,15 @@ export class FabricCanvasAdapter implements CanvasAdapter {
       const object = this.objectByNodeId.get(nodeId)
       if (!previous || !next || !object) return false
       if (previous.type !== next.type) return false
+      if (
+        previous !== next &&
+        this.maskEntryBySourceNodeId.get(nodeId)?.maskType === "luminance"
+      ) {
+        // Luminance sources are rasterized into one bounded mask. Rebuild that
+        // raster atomically instead of mutating a detached source proxy and
+        // displaying stale mask pixels.
+        return false
+      }
       return !(
         previous.type === "image" &&
         next.type === "image" &&
@@ -3205,14 +3306,24 @@ export class FabricCanvasAdapter implements CanvasAdapter {
         : []
     })
     const preparedImages = prepareFabricImageObjects(images, signal)
+    const createObject = async (node: SceneNode) => {
+      const prepared =
+        node.type === "image" ? preparedImages.get(node.id) : undefined
+      return createFabricObjectForSync(
+        node,
+        (imageNode) =>
+          prepared ?? createImageObjectWithinDeadline(imageNode, signal),
+        signal
+      )
+    }
 
-    // Alpha-source decode is an admission barrier, not a recovery placeholder.
+    // Alpha/luminance source decode is an admission barrier, not a recovery placeholder.
     // Resolve it before replacing the mounted paint plan so a failed source
     // leaves the last valid editor pixels intact.
     for (const entry of plan.entries) {
       if (
         entry.kind !== "mask_group" ||
-        entry.maskType !== "alpha" ||
+        (entry.maskType !== "alpha" && entry.maskType !== "luminance") ||
         !entry.compositeRequired
       ) {
         continue
@@ -3226,155 +3337,240 @@ export class FabricCanvasAdapter implements CanvasAdapter {
         }
       }
     }
-    this.paintPlanMode = true
-    canvas.discardActiveObject()
-    canvas.remove(...canvas.getObjects())
-    this.objectByNodeId.clear()
-    this.textByNodeId.clear()
-    this.textSizingModeByNodeId.clear()
-    this.nodeByNodeId.clear()
-    this.maskEntryByContentNodeId.clear()
-    this.maskSourceNodeIds.clear()
-    this.maskEntryBySourceNodeId.clear()
-    this.maskPaintObjectBySourceNodeId.clear()
-    this.maskCompositeByGroupId.clear()
-    this.paintPlanIdentity = null
 
-    const createObject = async (node: SceneNode) => {
-      const prepared =
-        node.type === "image" ? preparedImages.get(node.id) : undefined
-      return createFabricObjectForSync(
-        node,
-        (imageNode) =>
-          prepared ?? createImageObjectWithinDeadline(imageNode, signal),
-        signal
-      )
-    }
-
-    for (const nodeId of page.nodeIds) {
-      const node = nodesById.get(nodeId)
-      if (!node) continue
-      this.nodeByNodeId.set(nodeId, node)
-      if (node.type === "text") {
-        this.textByNodeId.set(nodeId, node.text)
-        this.textSizingModeByNodeId.set(nodeId, node.sizingMode)
+    // Luminance conversion is another admission barrier. Prepare every bounded
+    // raster while the previous Fabric scene is still mounted. If readback or
+    // conversion fails, the caller receives the failure and last-valid pixels
+    // remain untouched.
+    const preparedLuminanceByGroupId = new Map<
+      string,
+      FabricLuminanceMaskUnion
+    >()
+    const disposePreparedLuminance = () => {
+      for (const union of preparedLuminanceByGroupId.values()) {
+        disposeFabricLuminanceMaskUnion(union)
       }
+      preparedLuminanceByGroupId.clear()
     }
+    try {
+      for (const entry of plan.entries) {
+        if (
+          entry.kind !== "mask_group" ||
+          entry.maskType !== "luminance" ||
+          !entry.compositeRequired
+        ) {
+          continue
+        }
+        const preparedSources: Array<readonly [string, FabricObject]> = []
+        try {
+          for (const sourceId of entry.visibleSourceNodeIds) {
+            const source = nodesById.get(sourceId)
+            if (!source || !isAdmittedAlphaMaskSource(source)) {
+              throw new Error(`Mask source ${sourceId} is unsupported`)
+            }
+            const sourceObject = await createObject(source)
+            preparedSources.push([source.id, sourceObject])
+            signal?.throwIfAborted()
+            if (generation !== this.generation || !this.canvas) {
+              for (const [, candidate] of preparedSources) candidate.dispose()
+              disposePreparedLuminance()
+              return
+            }
+            if (isMissingImagePlaceholder(sourceObject)) {
+              throw new Error(
+                `Fabric luminance mask source ${source.id} is unavailable`
+              )
+            }
+          }
+          preparedLuminanceByGroupId.set(
+            entry.groupId,
+            createFabricLuminanceMaskUnion(
+              entry.groupId,
+              preparedSources,
+              entry.bounds,
+              config.devicePixelRatio
+            )
+          )
+          // Ownership moved into the candidate union and its cleanup path.
+          preparedSources.length = 0
+          signal?.throwIfAborted()
+          if (generation !== this.generation || !this.canvas) {
+            disposePreparedLuminance()
+            return
+          }
+        } catch (error) {
+          for (const [, candidate] of preparedSources) candidate.dispose()
+          throw error
+        }
+      }
+    } catch (error) {
+      disposePreparedLuminance()
+      throw error
+    }
+    try {
+      this.paintPlanMode = true
+      canvas.discardActiveObject()
+      canvas.remove(...canvas.getObjects())
+      this.objectByNodeId.clear()
+      this.textByNodeId.clear()
+      this.textSizingModeByNodeId.clear()
+      this.nodeByNodeId.clear()
+      this.maskEntryByContentNodeId.clear()
+      this.maskSourceNodeIds.clear()
+      this.maskEntryBySourceNodeId.clear()
+      this.maskPaintObjectBySourceNodeId.clear()
+      this.maskCompositeByGroupId.clear()
+      this.paintPlanIdentity = null
 
-    for (const entry of plan.entries) {
-      signal?.throwIfAborted()
-      if (entry.kind === "node") {
-        const node = nodesById.get(entry.nodeId)
+      for (const nodeId of page.nodeIds) {
+        const node = nodesById.get(nodeId)
         if (!node) continue
-        const object = await createObject(node)
+        this.nodeByNodeId.set(nodeId, node)
+        if (node.type === "text") {
+          this.textByNodeId.set(nodeId, node.text)
+          this.textSizingModeByNodeId.set(nodeId, node.sizingMode)
+        }
+      }
+
+      for (const entry of plan.entries) {
+        signal?.throwIfAborted()
+        if (entry.kind === "node") {
+          const node = nodesById.get(entry.nodeId)
+          if (!node) continue
+          const object = await createObject(node)
+          signal?.throwIfAborted()
+          if (generation !== this.generation || !this.canvas) return
+          this.objectByNodeId.set(node.id, object)
+          this.nodeIdByObject.set(object, node.id)
+          canvas.add(object)
+          continue
+        }
+
+        const contentObjects = new Map<string, FabricObject>()
+        for (const contentEntry of entry.content) {
+          if (contentEntry.kind !== "node") {
+            throw new Error("Fabric vector masks do not support nested paint")
+          }
+          const node = nodesById.get(contentEntry.nodeId)
+          if (!node)
+            throw new Error(`Mask content ${contentEntry.nodeId} is missing`)
+          contentObjects.set(node.id, await createObject(node))
+        }
         signal?.throwIfAborted()
         if (generation !== this.generation || !this.canvas) return
-        this.objectByNodeId.set(node.id, object)
-        this.nodeIdByObject.set(object, node.id)
-        canvas.add(object)
-        continue
-      }
-
-      const contentObjects = new Map<string, FabricObject>()
-      for (const contentEntry of entry.content) {
-        if (contentEntry.kind !== "node") {
-          throw new Error("Fabric vector masks do not support nested paint")
+        const contentObject = (node: SceneNode) => {
+          const object = contentObjects.get(node.id)
+          if (!object)
+            throw new Error(`Mask content ${node.id} is not prepared`)
+          return object
         }
-        const node = nodesById.get(contentEntry.nodeId)
-        if (!node)
-          throw new Error(`Mask content ${contentEntry.nodeId} is missing`)
-        contentObjects.set(node.id, await createObject(node))
-      }
-      signal?.throwIfAborted()
-      if (generation !== this.generation || !this.canvas) return
-      const contentObject = (node: SceneNode) => {
-        const object = contentObjects.get(node.id)
-        if (!object) throw new Error(`Mask content ${node.id} is not prepared`)
-        return object
-      }
-      const preparedSources = new Map<string, FabricObject>()
-      if (entry.maskType === "alpha") {
-        for (const sourceNodeId of entry.visibleSourceNodeIds) {
-          const source = nodesById.get(sourceNodeId)
-          if (source) preparedSources.set(source.id, await createObject(source))
+        const preparedSources = new Map<string, FabricObject>()
+        if (entry.maskType === "alpha") {
+          for (const sourceNodeId of entry.visibleSourceNodeIds) {
+            const source = nodesById.get(sourceNodeId)
+            if (source)
+              preparedSources.set(source.id, await createObject(source))
+          }
         }
-      }
-      signal?.throwIfAborted()
-      if (generation !== this.generation || !this.canvas) return
-      const paint =
-        entry.maskType === "vector"
-          ? createFabricVectorMaskPaint(entry, nodesById, contentObject)
-          : createFabricAlphaMaskPaint(
-              entry,
-              nodesById,
-              contentObject,
-              (node) => {
-                const preparedSource = preparedSources.get(node.id)
-                if (!preparedSource) {
-                  throw new Error(`Mask source ${node.id} is not prepared`)
-                }
-                return preparedSource
-              }
-            )
-      if (paint.kind === "composite") {
-        this.maskCompositeByGroupId.set(entry.groupId, paint.object)
-        for (const [visibleSourceId, sourceObject] of paint.sourceObjects) {
-          this.maskPaintObjectBySourceNodeId.set(visibleSourceId, sourceObject)
-        }
-        canvas.add(paint.object)
-      } else canvas.add(...paint.objects)
-
-      for (const [nodeId, object] of contentObjects) {
-        this.objectByNodeId.set(nodeId, object)
-        this.nodeIdByObject.set(object, nodeId)
+        signal?.throwIfAborted()
+        if (generation !== this.generation || !this.canvas) return
+        const paint =
+          entry.maskType === "vector"
+            ? createFabricVectorMaskPaint(entry, nodesById, contentObject)
+            : entry.maskType === "alpha"
+              ? createFabricAlphaMaskPaint(
+                  entry,
+                  nodesById,
+                  contentObject,
+                  (node) => {
+                    const preparedSource = preparedSources.get(node.id)
+                    if (!preparedSource) {
+                      throw new Error(`Mask source ${node.id} is not prepared`)
+                    }
+                    return preparedSource
+                  }
+                )
+              : createFabricLuminanceMaskPaint(
+                  entry,
+                  nodesById,
+                  contentObject,
+                  preparedLuminanceByGroupId.get(entry.groupId)
+                )
         if (paint.kind === "composite") {
-          this.maskEntryByContentNodeId.set(nodeId, entry)
+          this.maskCompositeByGroupId.set(entry.groupId, paint.object)
+          if (entry.maskType !== "luminance") {
+            for (const [visibleSourceId, sourceObject] of paint.sourceObjects) {
+              this.maskPaintObjectBySourceNodeId.set(
+                visibleSourceId,
+                sourceObject
+              )
+            }
+          }
+          canvas.add(paint.object)
+          if (entry.maskType === "luminance") {
+            // The mounted group now owns the retained mask canvas. Detached
+            // ordinary source objects are no longer needed after rasterization.
+            preparedLuminanceByGroupId.delete(entry.groupId)
+            for (const sourceObject of paint.sourceObjects.values()) {
+              sourceObject.dispose()
+            }
+          }
+        } else canvas.add(...paint.objects)
+
+        for (const [nodeId, object] of contentObjects) {
+          this.objectByNodeId.set(nodeId, object)
+          this.nodeIdByObject.set(object, nodeId)
+          if (paint.kind === "composite") {
+            this.maskEntryByContentNodeId.set(nodeId, entry)
+          }
+        }
+
+        for (const sourceNodeId of entry.sourceNodeIds) {
+          const source = nodesById.get(sourceNodeId)
+          if (
+            !source ||
+            (entry.maskType === "vector"
+              ? !isAdmittedVectorMaskSource(source)
+              : !isAdmittedAlphaMaskSource(source))
+          ) {
+            throw new Error(`Mask source ${sourceNodeId} is unsupported`)
+          }
+          // The compositor owns its paint copy. This transparent, non-hit-testable
+          // object keeps the canonical source explicitly addressable from Layers
+          // and programmatic selection without painting it as an ordinary layer.
+          const selectionProxy =
+            source.type === "image"
+              ? new Rect({
+                  ...sharedOptions(source),
+                  fill: "transparent",
+                  stroke: undefined,
+                  strokeWidth: 0,
+                })
+              : createFabricSyncObject(source)
+          selectionProxy.set({ opacity: 0, evented: false })
+          selectionProxy.setCoords()
+          this.objectByNodeId.set(sourceNodeId, selectionProxy)
+          this.nodeIdByObject.set(selectionProxy, sourceNodeId)
+          this.maskSourceNodeIds.add(sourceNodeId)
+          this.maskEntryBySourceNodeId.set(sourceNodeId, entry)
+          canvas.add(selectionProxy)
         }
       }
 
-      for (const sourceNodeId of entry.sourceNodeIds) {
-        const source = nodesById.get(sourceNodeId)
-        if (
-          !source ||
-          (entry.maskType === "vector"
-            ? !isAdmittedVectorMaskSource(source)
-            : !isAdmittedAlphaMaskSource(source))
-        ) {
-          throw new Error(`Mask source ${sourceNodeId} is unsupported`)
-        }
-        // The compositor owns its paint copy. This transparent, non-hit-testable
-        // object keeps the canonical source explicitly addressable from Layers
-        // and programmatic selection without painting it as an ordinary layer.
-        const selectionProxy =
-          source.type === "image"
-            ? new Rect({
-                ...sharedOptions(source),
-                fill: "transparent",
-                stroke: undefined,
-                strokeWidth: 0,
-              })
-            : createFabricSyncObject(source)
-        selectionProxy.set({ opacity: 0, evented: false })
-        selectionProxy.setCoords()
-        this.objectByNodeId.set(sourceNodeId, selectionProxy)
-        this.nodeIdByObject.set(selectionProxy, sourceNodeId)
-        this.maskSourceNodeIds.add(sourceNodeId)
-        this.maskEntryBySourceNodeId.set(sourceNodeId, entry)
-        canvas.add(selectionProxy)
+      this.pageNodeOrder = [...page.nodeIds]
+      this.paintPlanIdentity = pagePaintPlanIdentity(plan)
+      const selectionObjects = previousSelection
+        .map((nodeId) => this.objectByNodeId.get(nodeId))
+        .filter((object): object is FabricObject => Boolean(object))
+      if (selectionObjects.length === 1 && selectionObjects[0]) {
+        canvas.setActiveObject(selectionObjects[0])
+      } else if (selectionObjects.length > 1) {
+        canvas.setActiveObject(this.createActiveSelection(selectionObjects))
       }
+      this.applyImageCropInteractionPolicy()
+    } finally {
+      disposePreparedLuminance()
     }
-
-    this.pageNodeOrder = [...page.nodeIds]
-    this.paintPlanIdentity = pagePaintPlanIdentity(plan)
-    const selectionObjects = previousSelection
-      .map((nodeId) => this.objectByNodeId.get(nodeId))
-      .filter((object): object is FabricObject => Boolean(object))
-    if (selectionObjects.length === 1 && selectionObjects[0]) {
-      canvas.setActiveObject(selectionObjects[0])
-    } else if (selectionObjects.length > 1) {
-      canvas.setActiveObject(this.createActiveSelection(selectionObjects))
-    }
-    this.applyImageCropInteractionPolicy()
   }
 
   setViewportZoom(zoom: number) {
@@ -3386,6 +3582,9 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     const object = this.objectByNodeId.get(nodeId)
     const node = this.nodeByNodeId.get(nodeId)
     if (!canvas || !object || !node || node.locked) return false
+    if (this.maskEntryBySourceNodeId.get(nodeId)?.maskType === "luminance") {
+      return false
+    }
     const previewNode = { ...node, ...patch } as SceneNode
     syncFabricObjectFromNode(object, previewNode)
     if (this.maskSourceNodeIds.has(nodeId)) {
@@ -3422,6 +3621,9 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     const object = this.objectByNodeId.get(nodeId)
     const node = this.nodeByNodeId.get(nodeId)
     if (!canvas || !object || !node) return false
+    if (this.maskEntryBySourceNodeId.get(nodeId)?.maskType === "luminance") {
+      return false
+    }
     syncFabricObjectFromNode(object, node)
     if (this.maskSourceNodeIds.has(nodeId)) {
       object.set({ opacity: 0, evented: false })

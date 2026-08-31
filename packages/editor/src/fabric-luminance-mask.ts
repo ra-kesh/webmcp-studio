@@ -16,6 +16,18 @@ export type FabricLuminanceMaskUnion = Readonly<{
   sourceObjects: ReadonlyMap<string, FabricObject>
 }>
 
+/** Releases a candidate union that never transferred into a mounted scene. */
+export const disposeFabricLuminanceMaskUnion = (
+  union: FabricLuminanceMaskUnion
+) => {
+  for (const sourceObject of union.sourceObjects.values()) {
+    sourceObject.dispose()
+  }
+  const element = union.maskObject.getElement()
+  union.maskObject.dispose()
+  getEnv().dispose(element)
+}
+
 const canvas2d = (canvas: HTMLCanvasElement) => {
   const context = canvas.getContext("2d", {
     colorSpace: "srgb",

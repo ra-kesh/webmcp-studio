@@ -221,6 +221,144 @@ describe("Fabric vector mask paint consumer", () => {
     expect(maskPaintBefore.opacity).toBe(0.63)
   })
 
+  it("installs a precomputed luminance mask without retaining stale source paint objects", async () => {
+    setEnv(getNodeFabricEnv())
+    const objects: FabricObject[] = []
+    const fakeCanvas = {
+      backgroundColor: "",
+      add: vi.fn((...added: FabricObject[]) => objects.push(...added)),
+      clear: vi.fn(() => objects.splice(0)),
+      discardActiveObject: vi.fn(),
+      getActiveObjects: vi.fn(() => []),
+      getObjects: vi.fn(() => objects),
+      remove: vi.fn((...removed: FabricObject[]) => {
+        for (const object of removed) {
+          const index = objects.indexOf(object)
+          if (index >= 0) objects.splice(index, 1)
+        }
+      }),
+      requestRenderAll: vi.fn(),
+      setActiveObject: vi.fn(),
+      setDimensions: vi.fn(),
+    }
+    const adapter = new FabricCanvasAdapter({
+      onNodesChange: vi.fn(),
+      onSelectionChange: vi.fn(),
+    })
+    Reflect.set(adapter, "canvas", fakeCanvas)
+    const luminanceDocument = {
+      ...maskRenderConformanceDocument,
+      nodes: maskRenderConformanceDocument.nodes.map((node) =>
+        node.id === "mask-conformance-source" && node.type === "rect"
+          ? { ...node, fill: "#ff0000" }
+          : node
+      ),
+      groups: maskRenderConformanceDocument.groups.map((group) => ({
+        ...group,
+        mask: {
+          type: "luminance" as const,
+          sourceNodeIds: group.nodeIds.slice(0, 1) as [string],
+        },
+      })),
+    }
+
+    await adapter.sync(luminanceDocument, "mask-conformance-page")
+
+    const composite = objects.find(
+      (object): object is Group =>
+        object instanceof Group &&
+        object.getObjects().some((child) => child instanceof FabricImage)
+    )
+    expect(composite).toBeTruthy()
+    expect(
+      (
+        Reflect.get(adapter, "maskPaintObjectBySourceNodeId") as Map<
+          string,
+          FabricObject
+        >
+      ).size
+    ).toBe(0)
+    expect(
+      adapter.previewNodePatch("mask-conformance-source", { opacity: 0.5 })
+    ).toBe(false)
+  })
+
+  it("keeps the last valid Fabric scene when luminance conversion fails", async () => {
+    setEnv(getNodeFabricEnv())
+    const objects: FabricObject[] = []
+    const fakeCanvas = {
+      backgroundColor: "",
+      add: vi.fn((...added: FabricObject[]) => objects.push(...added)),
+      clear: vi.fn(() => objects.splice(0)),
+      discardActiveObject: vi.fn(),
+      getActiveObjects: vi.fn(() => []),
+      getObjects: vi.fn(() => objects),
+      moveObjectTo: vi.fn(),
+      remove: vi.fn((...removed: FabricObject[]) => {
+        for (const object of removed) {
+          const index = objects.indexOf(object)
+          if (index >= 0) objects.splice(index, 1)
+        }
+      }),
+      requestRenderAll: vi.fn(),
+      setActiveObject: vi.fn(),
+      setDimensions: vi.fn(),
+    }
+    const adapter = new FabricCanvasAdapter({
+      onNodesChange: vi.fn(),
+      onSelectionChange: vi.fn(),
+    })
+    Reflect.set(adapter, "canvas", fakeCanvas)
+    const ordinaryDocument = {
+      ...maskRenderConformanceDocument,
+      groups: [],
+    }
+    await adapter.sync(ordinaryDocument, "mask-conformance-page")
+    const lastValidObjects = [...objects]
+    const lastValidBackground = fakeCanvas.backgroundColor
+    fakeCanvas.remove.mockClear()
+    fakeCanvas.setDimensions.mockClear()
+    const toCanvasElement = vi
+      .spyOn(FabricObject.prototype, "toCanvasElement")
+      .mockImplementation(() => {
+        throw new Error("readback failed")
+      })
+    const luminanceDocument = {
+      ...maskRenderConformanceDocument,
+      pages: maskRenderConformanceDocument.pages.map((page) => ({
+        ...page,
+        width: page.width + 40,
+        height: page.height + 20,
+        background: "#0f172a",
+      })),
+      groups: maskRenderConformanceDocument.groups.map((group) => ({
+        ...group,
+        mask: {
+          type: "luminance" as const,
+          sourceNodeIds: group.nodeIds.slice(0, 1) as [string],
+        },
+      })),
+    }
+
+    await expect(
+      adapter.sync(luminanceDocument, "mask-conformance-page")
+    ).rejects.toThrow(
+      "Fabric luminance mask source mask-conformance-source conversion failed"
+    )
+
+    expect(objects).toEqual(lastValidObjects)
+    expect(fakeCanvas.remove).not.toHaveBeenCalled()
+    expect(fakeCanvas.setDimensions).not.toHaveBeenCalled()
+    expect(fakeCanvas.backgroundColor).toBe(lastValidBackground)
+    expect(Reflect.get(adapter, "pageWidth")).toBe(
+      maskRenderConformanceDocument.pages[0]!.width
+    )
+    expect(Reflect.get(adapter, "pageHeight")).toBe(
+      maskRenderConformanceDocument.pages[0]!.height
+    )
+    toCanvasElement.mockRestore()
+  })
+
   it("uses an absolute top-left rotated source clip on a bounded composite", () => {
     const entry = maskGroupEntry(maskRenderConformancePlan)
     const nodesById = new Map(
