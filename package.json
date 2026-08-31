@@ -17,6 +17,7 @@
     "verify:media-derivation-migration": "./scripts/verify-media-derivation-migration.sh",
     "verify:media-derivation-repository": "bun scripts/verify-media-derivation-repository.ts",
     "verify:media-derivation": "bun run verify:media-derivation-migration && bun run verify:media-derivation-repository && bun run --filter @webmcp/studio test -- src/server/media-derivations.test.ts",
+    "verify:migration-lineage": "bun test scripts/cloudflare-migration-lineage.test.ts",
     "verify:cloudflare:static": "bun scripts/verify-cloudflare-deployment-preflight.ts --static",
     "verify:cloudflare:remote": "bun scripts/verify-cloudflare-deployment-preflight.ts --remote-ready",
     "verify:cloudflare:deployed": "bun scripts/verify-cloudflare-deployment-preflight.ts --post-deploy",

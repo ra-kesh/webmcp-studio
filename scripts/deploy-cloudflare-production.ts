@@ -1,17 +1,18 @@
 #!/usr/bin/env bun
 
-import { readdirSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { loadMigrationLineage } from "./cloudflare-migration-lineage"
 
 type DeploymentMode = "plan" | "apply"
 
 const repositoryRoot = dirname(dirname(fileURLToPath(import.meta.url)))
 const studioDirectory = join(repositoryRoot, "apps/studio")
 const rendererDirectory = join(repositoryRoot, "apps/renderer")
-const localMigrations = readdirSync(join(repositoryRoot, "migrations"))
-  .filter((name) => /^\d{4}_.+\.sql$/.test(name))
-  .sort()
+const plannedMigrationLineage = loadMigrationLineage(repositoryRoot)
+const localMigrations = plannedMigrationLineage.migrations.map(
+  (entry) => entry.name
+)
 const modeArgument = process.argv[2] ?? "--plan"
 const mode = modeArgument.slice(2) as DeploymentMode
 
@@ -141,12 +142,15 @@ if (mode === "plan") {
 }
 
 const applyPendingMigrations = inspectRemoteMigrationState()
+const applyMigrationLineage = loadMigrationLineage(repositoryRoot)
 if (
+  applyMigrationLineage.lineageSha256 !==
+    plannedMigrationLineage.lineageSha256 ||
   JSON.stringify(applyPendingMigrations) !==
-  JSON.stringify(plannedPendingMigrations)
+    JSON.stringify(plannedPendingMigrations)
 ) {
   throw new Error(
-    "Remote migration state changed after planning; refusing a stale deployment"
+    "Migration lineage or remote migration state changed after planning; refusing a stale deployment"
   )
 }
 

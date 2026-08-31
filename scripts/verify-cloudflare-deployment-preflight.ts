@@ -1,9 +1,10 @@
 #!/usr/bin/env bun
 
-import { readdirSync, readFileSync } from "node:fs"
+import { readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { parseConfigFileTextToJson } from "typescript"
+import { loadMigrationLineage } from "./cloudflare-migration-lineage"
 
 type WranglerConfig = {
   name?: string
@@ -149,19 +150,8 @@ requireValue(
   "ACCESS_POLICY_AUD must be a 64-hex Cloudflare Access application audience"
 )
 
-const migrations = readdirSync(join(repositoryRoot, "migrations"))
-  .filter((name) => /^\d{4}_.+\.sql$/.test(name))
-  .sort()
-const expectedOrdinals = Array.from({ length: migrations.length }, (_, index) =>
-  String(index + 1).padStart(4, "0")
-)
-requireValue(migrations.length > 0, "No D1 migrations were found")
-requireValue(
-  migrations.every((name, index) =>
-    name.startsWith(`${expectedOrdinals[index]}_`)
-  ),
-  "D1 migration ordinals are not contiguous from 0001"
-)
+const migrationLineage = loadMigrationLineage(repositoryRoot)
+const migrations = migrationLineage.migrations.map((entry) => entry.name)
 
 const runWrangler = (cwd: string, ...args: string[]) => {
   const result = Bun.spawnSync(["bunx", "wrangler", ...args], {
@@ -271,5 +261,5 @@ if (errors.length > 0) {
 }
 
 console.log(
-  `Cloudflare deployment preflight passed (${mode}); ${migrations.length} contiguous migrations found.`
+  `Cloudflare deployment preflight passed (${mode}); ${migrations.length} immutable contiguous migrations found (${migrationLineage.lineageSha256}).`
 )

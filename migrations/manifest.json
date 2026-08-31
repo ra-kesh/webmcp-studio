@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "migrations": [
+    {
+      "name": "0001_initial.sql",
+      "sha256": "dc9ca91a17c5ae5f21a346cd82e1ff6b1e48ab4c0acc15eb32694ef7be58b37c"
+    },
+    {
+      "name": "0002_published_version_identity.sql",
+      "sha256": "93208c4e4358b9f2a6d426306bb4cac6d6c1e73f2336353408bd83a2ec3ff7f6"
+    },
+    {
+      "name": "0003_demo_workspace_isolation.sql",
+      "sha256": "b59c8287751b4811ef8f3ef36f97c18699157331da12904fdd1c29b3a627ca20"
+    },
+    {
+      "name": "0004_branch_safe_publication_identity.sql",
+      "sha256": "6964c1bc2721bb267db662ec126c199cf72556a13ad17fd571dc3090b4486fb8"
+    },
+    {
+      "name": "0005_render_output_identity.sql",
+      "sha256": "f28d5a1be510f86e92bdddd3523cfbe44a223b002c6bad8cb9079b6048544b03"
+    },
+    {
+      "name": "0006_template_version_constraints.sql",
+      "sha256": "1e399f304397f16cade6e2ea8d70b2efc979ab0bee072419722d65bd05aea0e4"
+    },
+    {
+      "name": "0007_workspace_media_assets.sql",
+      "sha256": "8546cf6fb1247292101dafe28a3c7077c4e6dac0ebd3e07b25edb1f484404184"
+    },
+    {
+      "name": "0008_durable_render_jobs.sql",
+      "sha256": "7b18248a08a76d5fa6cc4f6e908fa9c8b9c65a59f18051088249f1f2c350008e"
+    },
+    {
+      "name": "0009_api_request_audit.sql",
+      "sha256": "fb7d586adcbe4e52b12923fd75128f1799a19c4847ca2d2c14a76c51cd12164e"
+    },
+    {
+      "name": "0010_api_request_audit_retention.sql",
+      "sha256": "9488617b541d5ac8e94a19d04fb15f0972b4d837b578cd9727a427f2d7e7dc79"
+    },
+    {
+      "name": "0011_api_request_audit_retention_timestamp.sql",
+      "sha256": "a8a1c38b46c03b5befa4fc3ef733eb29a4a58453b59d4260da8c9c49712e834c"
+    },
+    {
+      "name": "0012_media_asset_local_promotions.sql",
+      "sha256": "a6ad1f737d14fd64f6e6b1c38a99107ac5bf48392baa73f94d677ca9a51bc740"
+    },
+    {
+      "name": "0013_media_asset_use_requests.sql",
+      "sha256": "c12ce0179b84f85c2ce2ba1ae613f0c1b00a73558692829bbe36d675785b4e1d"
+    },
+    {
+      "name": "0014_library_preferences_collections.sql",
+      "sha256": "859375992143074e3a491ff8655fa577759526f65c60f0de00751b8bb680fa6b"
+    },
+    {
+      "name": "0015_media_asset_catalog_metadata.sql",
+      "sha256": "bac3238303e9b7c533646bcfd3946600683b056a4ec927111e7935b91fa43a43"
+    },
+    {
+      "name": "0016_library_media_source_identity.sql",
+      "sha256": "81d19cfbf733c8afee9433b15b3ef44988ea3d03cd3910a8c5d56bc7356b7871"
+    },
+    {
+      "name": "0017_media_derivation_jobs.sql",
+      "sha256": "3e2a05b9c3150499c29bdfb44916b1a4c11046890bd6541eaf9d6f3430bd01f7"
+    }
+  ]
+}
