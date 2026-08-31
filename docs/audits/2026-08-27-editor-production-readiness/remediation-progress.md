@@ -3843,3 +3843,21 @@ unadmitted**
   endpoints.
 - OpenPencil remains an implementation reference only: its current luma test
   proves filter invocation and cleanup, not numeric or cross-renderer parity.
+
+## 2026-08-31 — ASSET-02 Gate M4B numeric core
+
+Status: **implemented and independently accepted; renderer integration remains
+open; luminance remains unadmitted**
+
+- Added one shared byte-level conversion for non-premultiplied sRGB
+  `rgba-unorm8` input. It computes
+  `round((0.2126R + 0.7152G + 0.0722B) * A / 255)` and rewrites the input as a
+  black alpha mask.
+- Coefficient-sensitive tests cover black, white, red, green, blue,
+  half-opacity white, transparent saturated color, in-place mutation, and
+  malformed input.
+- The focused editor suite passes 9/9 tests and editor typecheck passes.
+  Independent review found no remaining numeric or input-contract defect.
+- This slice does not admit luminance by itself. Domain commands, Fabric,
+  browser renderers, public endpoints, and retained pixels remain separate
+  requirements.
