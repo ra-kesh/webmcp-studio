@@ -18,6 +18,7 @@ import type { LibraryDiscoveryDependencies } from "./discovery-controller"
 import {
   LibraryDiscoveryProvider,
   useLibraryDiscovery,
+  useLibraryDiscoveryCommands,
   useLibraryDiscoveryLease,
 } from "./library-discovery-provider"
 import type {
@@ -77,6 +78,12 @@ function DiscoveryProbe({
 function LeaseOnlyProbe({ onRender }: { onRender: () => void }) {
   onRender()
   useLibraryDiscoveryLease(true)
+  return null
+}
+
+function CommandsOnlyProbe({ onRender }: { onRender: () => void }) {
+  onRender()
+  useLibraryDiscoveryCommands()
   return null
 }
 
@@ -195,7 +202,25 @@ describe("LibraryDiscoveryProvider mounted lifecycle", () => {
       )
     )
     const rendersAfterMount = onRender.mock.calls.length
-    const controller = harness.controllers[0]!.controller
+    const controller = harness.controllers[0].controller
+
+    await act(async () => controller.setRawSearch("proposal"))
+    expect(onRender).toHaveBeenCalledTimes(rendersAfterMount)
+  })
+
+  it("does not rerender a commands-only consumer when discovery state changes", async () => {
+    const harness = controllerFactoryHarness()
+    const onRender = vi.fn()
+
+    await act(async () =>
+      root.render(
+        <LibraryDiscoveryProvider createController={harness.factory}>
+          <CommandsOnlyProbe onRender={onRender} />
+        </LibraryDiscoveryProvider>
+      )
+    )
+    const rendersAfterMount = onRender.mock.calls.length
+    const controller = harness.controllers[0].controller
 
     await act(async () => controller.setRawSearch("proposal"))
     expect(onRender).toHaveBeenCalledTimes(rendersAfterMount)

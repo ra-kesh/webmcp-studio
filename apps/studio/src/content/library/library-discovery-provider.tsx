@@ -9,12 +9,12 @@ import {
 } from "react"
 import type { PropsWithChildren } from "react"
 import type { LibraryCatalogItemDetail } from "@webmcp/document"
-import {
-  LibraryDiscoveryController,
-  type LibraryDiscoveryDependencies,
-  type LibraryDiscoveryEntryPoint,
-  type LibraryDiscoveryFilters,
-  type LibraryDiscoveryState,
+import { LibraryDiscoveryController } from "./discovery-controller"
+import type {
+  LibraryDiscoveryDependencies,
+  LibraryDiscoveryEntryPoint,
+  LibraryDiscoveryFilters,
+  LibraryDiscoveryState,
 } from "./discovery-controller"
 import { studioLibraryDiscoveryAdapter } from "./library-discovery-adapter"
 
@@ -201,6 +201,21 @@ export function useLibraryDiscovery(): LibraryDiscoveryApi {
     () => ({ state, commands: context.commands }),
     [context.commands, state]
   )
+}
+
+/**
+ * Read the stable discovery commands without subscribing to discovery state.
+ * Route-owned coordination uses this narrow hook so catalog updates do not
+ * rerender the coordinator or any editor owner.
+ */
+export function useLibraryDiscoveryCommands(): LibraryDiscoveryCommands {
+  const context = useContext(LibraryDiscoveryStableContext)
+  if (!context) {
+    throw new Error(
+      "useLibraryDiscoveryCommands must be used within LibraryDiscoveryProvider."
+    )
+  }
+  return context.commands
 }
 
 /**

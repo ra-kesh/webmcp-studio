@@ -9,6 +9,10 @@ const layoutSource = readFileSync(
   new URL("./_studio/route.tsx", import.meta.url),
   "utf8"
 )
+const libraryRuntimeSource = readFileSync(
+  new URL("../content/library/library-runtime-provider.tsx", import.meta.url),
+  "utf8"
+)
 const persistenceProviderSource = readFileSync(
   new URL(
     "../features/persistence/studio-persistence-provider.tsx",
@@ -30,16 +34,16 @@ describe("Studio persistence route layout", () => {
     expect(layoutSource).toContain("ssr: false")
     expect(layoutSource).toContain("<StudioPersistenceProvider>")
     expect(layoutSource).toContain("<LibraryPreviewProvider>")
-    expect(layoutSource).toContain("<LibraryDiscoveryProvider>")
+    expect(layoutSource).toContain("<LibraryRuntimeProvider>")
     expect(layoutSource).toContain("<DocumentPreviewProvider>")
     expect(layoutSource).toContain("<RecentDocumentsProvider>")
     expect(layoutSource).toContain("</RecentDocumentsProvider>")
     expect(layoutSource).toContain("</DocumentPreviewProvider>")
-    expect(layoutSource).toContain("</LibraryDiscoveryProvider>")
+    expect(layoutSource).toContain("</LibraryRuntimeProvider>")
     expect(layoutSource).toContain("</LibraryPreviewProvider>")
     expect(layoutSource).toContain("<Outlet />")
     expect(layoutSource).toMatch(
-      /<StudioPersistenceProvider>\s*<LibraryPreviewProvider>\s*<LibraryDiscoveryProvider>\s*<DocumentPreviewProvider>\s*<RecentDocumentsProvider>\s*<Outlet \/>\s*<\/RecentDocumentsProvider>\s*<\/DocumentPreviewProvider>\s*<\/LibraryDiscoveryProvider>\s*<\/LibraryPreviewProvider>\s*<\/StudioPersistenceProvider>/
+      /<StudioPersistenceProvider>\s*<LibraryPreviewProvider>\s*<LibraryRuntimeProvider>\s*<DocumentPreviewProvider>\s*<RecentDocumentsProvider>\s*<Outlet \/>\s*<\/RecentDocumentsProvider>\s*<\/DocumentPreviewProvider>\s*<\/LibraryRuntimeProvider>\s*<\/LibraryPreviewProvider>\s*<\/StudioPersistenceProvider>/
     )
 
     expect(generatedTree).toContain("id: '/_studio'")
@@ -50,9 +54,19 @@ describe("Studio persistence route layout", () => {
       "const ApiHealthRoute = ApiHealthRouteImport.update({\n  id: '/api/health',\n  path: '/api/health',\n  getParentRoute: () => rootRouteImport,"
     )
     expect(generatedTree).toContain(
+      "id: '/v1/studio/library/preferences',\n    path: '/v1/studio/library/preferences',\n    getParentRoute: () => rootRouteImport,"
+    )
+    expect(generatedTree).toContain(
       "StudioRouteRoute: typeof StudioRouteRouteWithChildren"
     )
     expect(generatedTree).toContain("fullPath: '/'")
+
+    expect(libraryRuntimeSource).toMatch(
+      /<LibraryPreferenceProvider\s+\{\.\.\.preferences\}\s+fetchRequest=\{bootstrapFetch\}>\s*<LibraryDiscoveryBootstrap discovery=\{discovery\}>/
+    )
+    expect(libraryRuntimeSource).toMatch(
+      /<LibraryDiscoveryProvider \{\.\.\.discovery\}>\s*<LibraryDiscoveryInvalidationBridge \/>/
+    )
   })
 
   it("keeps persistence context identity outside the Fast Refresh provider boundary", () => {
