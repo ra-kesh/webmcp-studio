@@ -1175,34 +1175,33 @@ export function LayerTree({
   return (
     <section className="flex min-h-0 flex-1 flex-col" aria-label="Layers">
       <div className="border-b border-border/70 p-2">
-        <div className="relative">
-          <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            type="search"
-            name="layer-search"
-            autoComplete="off"
-            aria-label="Search layers"
-            value={query}
-            placeholder="Search layers…"
-            className={cn(
-              "rounded-md pr-8 pl-7 text-xs",
-              compact
-                ? "h-(--studio-compact-target)"
-                : "h-(--studio-control-sm)"
-            )}
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={(event) => event.stopPropagation()}
-          />
+        <div className="flex min-w-0 items-center gap-1">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              type="search"
+              name="layer-search"
+              autoComplete="off"
+              aria-label="Search layers"
+              value={query}
+              placeholder="Search layers…"
+              className={cn(
+                "appearance-none rounded-md pr-2.5 pl-7 text-xs [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden",
+                compact
+                  ? "h-(--studio-compact-target)"
+                  : "h-(--studio-control-sm)"
+              )}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => event.stopPropagation()}
+            />
+          </div>
           {query ? (
             <Button
               type="button"
               size="icon-xs"
               variant="ghost"
               aria-label="Clear layer search"
-              className={cn(
-                "absolute top-1/2 right-0 -translate-y-1/2",
-                compact ? "size-11" : "size-6"
-              )}
+              className={cn("shrink-0", compact ? "size-11" : "size-7")}
               onClick={() => setQuery("")}
             >
               <X className="size-3" />

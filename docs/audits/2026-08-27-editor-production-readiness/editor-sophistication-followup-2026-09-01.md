@@ -84,6 +84,18 @@ zooming, and wheel cancellation is scoped away from the sidebar and dialogs.
 The camera transform now has an explicit `data-canvas-camera` identity so ruler
 and guide overlays cannot make the regression inspect the wrong element.
 
+## Layers search hit-target repair
+
+The full Layers browser gate found a genuine desktop and scale-path defect:
+the browser-native search cancel control and Studio's clear button occupied the
+same field, and the search input intercepted real clicks intended for the
+visible Studio action. The repair disables native search decoration and gives
+the search field and clear action distinct adjacent geometry; compact keeps a
+44 px clear target and desktop keeps a dense 28 px control. The live editor
+clears the query through the visible button, and the complete hierarchy,
+rename, atomic reorder, selection, aggregate lock/visibility, drag-reparent,
+compact and 1,000-layer browser matrix passes 10/10.
+
 ## Acceptance
 
 - the start heading still receives programmatic focus after returning home but
