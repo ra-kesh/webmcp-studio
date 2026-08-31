@@ -7,6 +7,7 @@ import {
   parseCurrencyValue,
 } from "@webmcp/document"
 import type { FieldDefinition, FieldType, FieldValue } from "@webmcp/document"
+import { Button } from "@webmcp/ui/components/button"
 import {
   Field,
   FieldDescription,
@@ -32,6 +33,7 @@ import {
   ToggleGroupItem,
 } from "@webmcp/ui/components/toggle-group"
 import { studioAssetIdForValue, studioAssets } from "./asset-catalog"
+import { assetValueDisplay } from "./field-review-display"
 
 export type ParsedFieldDraft =
   { ok: true; value: FieldValue } | { ok: false; message: string }
@@ -105,6 +107,7 @@ type TypedFieldValueControlCommonProps = {
   onDraftValidityChange?: (valid: boolean) => void
   assetCanBeEmpty?: boolean
   assetValueMode?: "source" | "id"
+  onChooseAsset?: (opener: HTMLButtonElement) => void
 }
 
 type TypedFieldValueControlProps = TypedFieldValueControlCommonProps &
@@ -154,7 +157,7 @@ export function TypedFieldValueControl(props: TypedFieldValueControlProps) {
     field.type === "asset" && assetValueMode === "source"
       ? value === ""
         ? !field.required
-        : Boolean(studioAssetIdForValue(value))
+        : assetValueDisplay(value).valid
       : null
   const definitionValid =
     assetIdValid ??
@@ -167,7 +170,7 @@ export function TypedFieldValueControl(props: TypedFieldValueControlProps) {
     (assetIdValid === false
       ? `${field.label} must match one approved asset ID`
       : assetSourceValid === false
-        ? `${field.label} must use an approved Studio asset before publishing`
+        ? `${field.label} must use a supported image value`
         : fieldValueValidationMessage(field, value)) ??
     (!assetSelectionValid
       ? "An asset used by image layers cannot be empty."
@@ -208,6 +211,76 @@ export function TypedFieldValueControl(props: TypedFieldValueControlProps) {
   }
 
   if (field.type === "asset") {
+    const sourceDisplay = assetValueDisplay(value)
+    if (assetValueMode === "source" && props.onChooseAsset) {
+      const clearReason = field.required
+        ? "This required field cannot be cleared."
+        : !assetCanBeEmpty
+          ? "Unbind the image layers before clearing this field."
+          : null
+      return (
+        <Field className="gap-1.5" data-invalid={!canonicalValid || undefined}>
+          <div
+            id={id}
+            role="group"
+            aria-label={ariaLabel}
+            aria-invalid={!canonicalValid || undefined}
+            aria-describedby={
+              !canonicalValid
+                ? `${id}-error`
+                : value !== "" && clearReason
+                  ? `${id}-clear-policy`
+                  : undefined
+            }
+            className="flex min-h-11 items-center gap-2 rounded-md border border-input bg-background px-3"
+          >
+            <span className="min-w-0 flex-1 truncate text-xs">
+              {sourceDisplay.label}
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 shrink-0"
+              aria-label={`Choose image for ${field.label}`}
+              onClick={(event) => props.onChooseAsset?.(event.currentTarget)}
+            >
+              Choose image
+            </Button>
+            {value !== "" ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-11 shrink-0"
+                aria-label={`Clear image from ${field.label}`}
+                aria-describedby={
+                  clearReason ? `${id}-clear-policy` : undefined
+                }
+                disabled={Boolean(clearReason)}
+                onClick={() => {
+                  validityCallbackRef.current?.(true)
+                  onCommit("")
+                }}
+              >
+                Clear
+              </Button>
+            ) : null}
+          </div>
+          {!canonicalValid ? (
+            <FieldError id={`${id}-error`}>{canonicalError}</FieldError>
+          ) : null}
+          {value !== "" && clearReason ? (
+            <FieldDescription id={`${id}-clear-policy`}>
+              {clearReason}
+            </FieldDescription>
+          ) : sourceDisplay.publishRequiresResolution &&
+            !studioAssetIdForValue(value) ? (
+            <FieldDescription>
+              Choose a Studio image before publishing this document.
+            </FieldDescription>
+          ) : null}
+        </Field>
+      )
+    }
     const selectedAsset = studioAssets.find((asset) =>
       assetValueMode === "id" ? asset.id === value : asset.src === value
     )
@@ -218,13 +291,7 @@ export function TypedFieldValueControl(props: TypedFieldValueControlProps) {
     const selectValue =
       value === "" ? "__none__" : (selectedAsset?.id ?? "__current__")
     const currentAssetLabel =
-      currentReference?.source === "managed_local"
-        ? "Uploaded Studio asset"
-        : currentReference?.source === "inline_render_safe"
-          ? "Embedded renderer-safe asset"
-          : assetValueMode === "id"
-            ? "Unknown asset ID"
-            : "External asset awaiting upload"
+      assetValueMode === "id" ? "Unknown asset ID" : sourceDisplay.label
     return (
       <Field className="gap-1.5" data-invalid={!canonicalValid || undefined}>
         <Select

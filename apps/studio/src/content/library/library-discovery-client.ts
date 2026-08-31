@@ -5,6 +5,8 @@ import {
   libraryCatalogQueryIdentity,
   libraryCatalogQuerySchema,
   libraryItemIdentitySchema,
+  libraryMediaDetailSchema,
+  mediaAssetIdSchema,
 } from "@webmcp/document"
 import type {
   LibraryCatalogItemDetail,
@@ -12,6 +14,7 @@ import type {
   LibraryCatalogQuery,
   LibraryCatalogQueryInput,
   LibraryItemIdentity,
+  LibraryMediaDetail,
 } from "@webmcp/document"
 
 const requestIdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/)
@@ -95,6 +98,10 @@ export type LibraryDiscoveryClient = Readonly<{
     identity: LibraryItemIdentity,
     signal: AbortSignal
   ) => Promise<LibraryCatalogItemDetail>
+  getCurrentManagedDetail: (
+    assetId: string,
+    signal: AbortSignal
+  ) => Promise<LibraryMediaDetail>
 }>
 
 const requestIdFromHeaders = (headers: Headers) => {
@@ -104,6 +111,13 @@ const requestIdFromHeaders = (headers: Headers) => {
 
 const workspaceEtag = (revision: number) =>
   `"library-workspace-revision-${revision}"`
+
+const currentManagedDetailEtag = (
+  workspaceRevision: number,
+  assetId: string,
+  catalogVersion: number
+) =>
+  `"library-managed-detail-${assetId}-version-${catalogVersion}-workspace-${workspaceRevision}"`
 
 const immutable = <TValue>(value: TValue): TValue => {
   if (value && typeof value === "object" && !Object.isFrozen(value)) {
@@ -204,6 +218,11 @@ const detailPath = (identityInput: LibraryItemIdentity) => {
     : path
 }
 
+const currentManagedDetailPath = (assetIdInput: string) =>
+  `/v1/studio/library/items/media/${encodeURIComponent(
+    mediaAssetIdSchema.parse(assetIdInput)
+  )}/versions/current?mediaSource=managed`
+
 export function createLibraryDiscoveryClient(
   fetchRequest: LibraryDiscoveryFetch = globalThis.fetch
 ): LibraryDiscoveryClient {
@@ -213,6 +232,7 @@ export function createLibraryDiscoveryClient(
     signal: AbortSignal
     unwrap: (value: TValue) => TResult
     revision: (value: TValue) => number
+    etag?: (value: TValue) => string
     validate?: (value: TValue) => string | null
   }): Promise<TResult> => {
     input.signal.throwIfAborted()
@@ -264,7 +284,7 @@ export function createLibraryDiscoveryClient(
     }
     if (
       response.headers.get("ETag") !==
-      workspaceEtag(input.revision(parsed.data))
+      (input.etag?.(parsed.data) ?? workspaceEtag(input.revision(parsed.data)))
     ) {
       throw invalidResponse(
         response.status,
@@ -311,6 +331,39 @@ export function createLibraryDiscoveryClient(
               detail.summary.mediaSource === identity.mediaSource))
             ? null
             : "Studio returned details for a different library item.",
+      })
+    },
+    getCurrentManagedDetail: async (assetIdInput, signal) => {
+      const assetId = mediaAssetIdSchema.parse(assetIdInput)
+      return request({
+        path: currentManagedDetailPath(assetId),
+        schema: libraryCatalogDetailResponseSchema,
+        signal,
+        unwrap: ({ detail }) => libraryMediaDetailSchema.parse(detail),
+        revision: ({ workspaceRevision }) => workspaceRevision,
+        etag: ({ workspaceRevision, detail }) =>
+          detail.summary.itemKind === "media" &&
+          detail.summary.mediaSource === "managed"
+            ? currentManagedDetailEtag(
+                workspaceRevision,
+                detail.summary.id,
+                detail.summary.version
+              )
+            : "",
+        validate: ({ detail }) => {
+          if (
+            detail.summary.itemKind !== "media" ||
+            !("selectionIdentity" in detail)
+          ) {
+            return "Studio returned current details for a different managed media item."
+          }
+          return detail.summary.mediaSource === "managed" &&
+            detail.summary.id === assetId &&
+            detail.selectionIdentity.source === "managed" &&
+            detail.selectionIdentity.assetId === assetId
+            ? null
+            : "Studio returned current details for a different managed media item."
+        },
       })
     },
   })

@@ -79,6 +79,8 @@ const managedReader = (
     entry.metadata.catalogVersion === version
       ? entry
       : null,
+  getCurrent: async (_workspaceId, assetId) =>
+    entry?.asset.id === assetId ? entry : null,
 })
 
 describe("LibraryCatalogService", () => {
@@ -239,6 +241,7 @@ describe("LibraryCatalogService", () => {
         catalogRevision: revision,
       }),
       getExact: managedReader(entry).getExact,
+      getCurrent: managedReader(entry).getCurrent,
     }
     const service = new LibraryCatalogService(
       {
@@ -315,6 +318,10 @@ describe("LibraryCatalogService", () => {
         current.metadata.catalogVersion === version
           ? current
           : null,
+      getCurrent: async (workspaceId, assetId) =>
+        workspaceId === "workspace-a" && current?.asset.id === assetId
+          ? current
+          : null,
     }
     const service = new LibraryCatalogService(
       {
@@ -365,6 +372,47 @@ describe("LibraryCatalogService", () => {
         mediaSource: "managed",
       })
     ).toBeNull()
+  })
+
+  it("resolves the current managed catalog version through exact source authority", async () => {
+    const current = managedEntry({ catalogVersion: 7 })
+    const curatedCollision = studioLibraryCatalogSummaries.find(
+      (item) => item.itemKind === "media"
+    )!
+    current.asset.id = curatedCollision.id
+    const service = new LibraryCatalogService(
+      {
+        readProjection: async () => ({
+          workspaceRevision: 12,
+          preferences: [],
+        }),
+      },
+      { managedMedia: managedReader(current) }
+    )
+
+    const result = await service.getCurrentManagedDetail(
+      "workspace-a",
+      "principal-a",
+      current.asset.id
+    )
+
+    expect(result).toMatchObject({
+      workspaceRevision: 12,
+      detail: {
+        summary: {
+          id: current.asset.id,
+          version: 7,
+          mediaSource: "managed",
+        },
+        selectionIdentity: {
+          source: "managed",
+          assetId: current.asset.id,
+          catalogVersion: 7,
+          refetch: "required",
+        },
+      },
+    })
+    expect(JSON.stringify(result)).not.toContain("r2Key")
   })
 
   it("projects exact detail without exposing source bodies or changing authority", async () => {

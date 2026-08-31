@@ -175,11 +175,10 @@ import {
   validateFieldBoundDrafts,
 } from "./field-definition-change-model"
 import { operationDetails } from "./review-operation-details"
+import { assetValueDisplay } from "./field-review-display"
 import { projectMissingImageRecoveryActions } from "./missing-image-recovery"
-import {
-  projectComponentSelection,
-  type ComponentSelectionContext,
-} from "./component-selection-model"
+import { projectComponentSelection } from "./component-selection-model"
+import type { ComponentSelectionContext } from "./component-selection-model"
 import {
   sharedTextSelectionValue,
   textColorChoices,
@@ -1174,6 +1173,8 @@ function NodeInspector({
     node.type === "image" && imageSourceState?.src === node.src
       ? imageSourceState.readiness
       : "unknown"
+  const imageSourceDisplay =
+    node.type === "image" ? assetValueDisplay(node.src) : null
   const localAssetId =
     node.type === "image" && node.src.startsWith("asset:local/")
       ? node.src.slice("asset:local/".length)
@@ -1952,35 +1953,24 @@ function NodeInspector({
               </label>
             ) : null}
           </div>
-          {node.src.startsWith("asset:local/") ||
-          node.assetId.startsWith("library-") ? (
+          {imageSourceDisplay ? (
             <div className="space-y-1.5">
               <FieldLabel>Source</FieldLabel>
               <div className="rounded-lg border bg-muted/40 px-2.5 py-2">
                 <p className="text-xs font-medium">
-                  {node.assetId.startsWith("library-")
-                    ? "Studio library asset"
-                    : "Uploaded image"}
+                  {imageSourceDisplay.label}
                 </p>
-                <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
-                  {node.assetId}
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-1.5">
-              <FieldLabel>Image URL</FieldLabel>
-              <div className="rounded-lg border bg-muted/40 px-2.5 py-2">
-                <p className="text-xs font-medium">External image</p>
-                <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
-                  {node.src}
+                <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground">
+                  {imageSourceDisplay.publishRequiresResolution
+                    ? "Choose or promote a Studio image before publishing."
+                    : "Available to the editor and renderer."}
                 </p>
               </div>
               <p className="text-[11px] text-muted-foreground">
                 Use Replace image to change this source safely.
               </p>
             </div>
-          )}
+          ) : null}
           {imageSourceReadiness !== "ready" ? (
             <div
               className="space-y-2 rounded-lg border bg-muted/40 p-2.5"
@@ -2998,12 +2988,14 @@ function FieldValueEditor({
   hasBindings,
   controlIdPrefix,
   onCommit,
+  onChooseAsset,
 }: {
   field: FieldDefinition
   value: FieldValue
   hasBindings: boolean
   controlIdPrefix: string
   onCommit: (value: FieldValue) => void
+  onChooseAsset?: (opener: HTMLButtonElement) => void
 }) {
   return (
     <TypedFieldValueControl
@@ -3013,6 +3005,7 @@ function FieldValueEditor({
       value={value}
       assetCanBeEmpty={!field.required && !hasBindings}
       onCommit={onCommit}
+      onChooseAsset={field.type === "asset" ? onChooseAsset : undefined}
     />
   )
 }
@@ -3118,6 +3111,7 @@ function FieldsPanel({
   onBindField,
   onUnbindField,
   onFocusBinding,
+  onChooseFieldAsset,
 }: {
   document: Document
   selectedNodes: SceneNode[]
@@ -3138,6 +3132,7 @@ function FieldsPanel({
   onFocusBinding: (
     binding: Pick<FieldBindingImpact, "nodeId" | "property">
   ) => void
+  onChooseFieldAsset?: (fieldId: string, opener: HTMLButtonElement) => void
 }) {
   const selectedNode = selectedNodes.length === 1 ? selectedNodes[0] : undefined
   const properties = selectedNode
@@ -3265,6 +3260,11 @@ function FieldsPanel({
                         document.fieldValues[field.id] ?? field.defaultValue
                       }
                       onCommit={(value) => onUpdateField(field.id, value)}
+                      onChooseAsset={
+                        onChooseFieldAsset
+                          ? (opener) => onChooseFieldAsset(field.id, opener)
+                          : undefined
+                      }
                     />
                     <p className="text-[9px] text-muted-foreground">
                       {bindings.length} layer{bindings.length === 1 ? "" : "s"}
@@ -3936,6 +3936,7 @@ export function InspectorSidebar({
   onCancelNodePreview = ignoreNodePreviewCancel,
   onUpdateSelection,
   onUpdateField,
+  onChooseFieldAsset,
   onCreateField,
   onUpdateFieldDefinition,
   onRemoveField,
@@ -4010,6 +4011,7 @@ export function InspectorSidebar({
   onCancelNodePreview?: (nodeId: string) => void
   onUpdateSelection: (patch: Partial<SceneNode>) => void
   onUpdateField: (fieldId: string, value: string | number | boolean) => void
+  onChooseFieldAsset?: (fieldId: string, opener: HTMLButtonElement) => void
   onCreateField: (field: Omit<FieldDefinition, "id">) => void
   onUpdateFieldDefinition: (
     fieldId: string,
@@ -4320,6 +4322,11 @@ export function InspectorSidebar({
               selectedNodes={selectedNodes}
               controlIdPrefix={controlIdPrefix}
               onUpdateField={onUpdateField}
+              onChooseFieldAsset={
+                capabilityContext?.documentEditable === false
+                  ? undefined
+                  : onChooseFieldAsset
+              }
               onCreateField={onCreateField}
               onUpdateFieldDefinition={onUpdateFieldDefinition}
               onRemoveField={onRemoveField}

@@ -14,7 +14,8 @@ import type {
 export type StudioLibraryDiscoveryAdapter = Pick<
   LibraryDiscoveryDependencies,
   "list" | "getDetail" | "getTaxonomy"
->
+> &
+  Pick<LibraryDiscoveryClient, "getCurrentManagedDetail">
 
 export type StudioLibraryDiscoveryAdapterOptions = Readonly<{
   client?: LibraryDiscoveryClient
@@ -116,6 +117,7 @@ export function createStudioLibraryDiscoveryAdapter(
   return Object.freeze({
     list: client.list,
     getDetail: client.getDetail,
+    getCurrentManagedDetail: client.getCurrentManagedDetail,
     getTaxonomy() {
       return studioLibraryTaxonomy
     },

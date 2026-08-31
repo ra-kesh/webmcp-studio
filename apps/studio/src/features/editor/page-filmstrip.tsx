@@ -554,6 +554,18 @@ export const PageFilmstrip = memo(function PageFilmstrip({
       }),
     [output?.pageIds, pagesById]
   )
+  const liveReplacementPageIds = useMemo(() => {
+    if (!imageResourceTokens) return new Set<string>()
+    const replacementNodeIds = new Set(Object.keys(imageResourceTokens))
+    if (replacementNodeIds.size === 0) return new Set<string>()
+    return new Set(
+      pages.flatMap((page) =>
+        page.nodeIds.some((nodeId) => replacementNodeIds.has(nodeId))
+          ? [page.id]
+          : []
+      )
+    )
+  }, [imageResourceTokens, pages])
   const thumbnailDocumentsByPageId = useMemo(
     () =>
       new Map(
@@ -1086,17 +1098,19 @@ export const PageFilmstrip = memo(function PageFilmstrip({
               rasterKey && rasterEntries.has(page.id)
                 ? (rasterCache?.peek(rasterKey) ?? null)
                 : null
-            const rasterState = !rasterCache
-              ? active || visiblePageIds.has(page.id)
-                ? "disabled"
-                : "deferred"
-              : !visiblePageIds.has(page.id) && !active
-                ? "deferred"
-                : rasterEntry
-                  ? "ready"
-                  : rasterErrors.has(page.id)
-                    ? "error"
-                    : "loading"
+            const rasterState = liveReplacementPageIds.has(page.id)
+              ? "disabled"
+              : !rasterCache
+                ? active || visiblePageIds.has(page.id)
+                  ? "disabled"
+                  : "deferred"
+                : !visiblePageIds.has(page.id) && !active
+                  ? "deferred"
+                  : rasterEntry
+                    ? "ready"
+                    : rasterErrors.has(page.id)
+                      ? "error"
+                      : "loading"
             return (
               <PageFilmstripItem
                 key={page.id}

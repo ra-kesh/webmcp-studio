@@ -44,6 +44,41 @@ const collection = libraryCollectionDetailSchema.parse({
   members: [],
 })
 
+const currentManagedDetail = () =>
+  projectPublicMediaDetail(
+    {
+      id: "asset-ManagedCurrent01",
+      name: "Current client portrait",
+      mediaType: "image/jpeg",
+      bytes: 240_000,
+      width: 1_200,
+      height: 1_500,
+      createdAt: "2026-08-30T08:00:00.000Z",
+      updatedAt: "2026-08-30T09:00:00.000Z",
+      lastUsedAt: "2026-08-30T10:00:00.000Z",
+      status: "ready",
+    },
+    {
+      catalogVersion: 7,
+      description: "Customer-provided workspace upload",
+      categoryId: "workspace-upload",
+      useCaseIds: ["proposal"],
+      formatFamily: "image",
+      tags: ["portrait"],
+      provenance: {
+        sourceName: "Workspace upload",
+        sourceUrl: null,
+        license: {
+          id: "customer-provided",
+          name: "Customer-provided; rights not verified",
+          url: null,
+        },
+        attribution: { required: false, text: null },
+        contentSha256: null,
+      },
+    }
+  )
+
 const principal: StudioPrincipal = {
   id: "principal-a",
   budgetKey: "workspace-a",
@@ -75,6 +110,7 @@ const repository = {
 const catalog = {
   list: vi.fn(),
   getDetail: vi.fn(),
+  getCurrentManagedDetail: vi.fn(),
 }
 
 const handlers = createLibraryHttpHandlers({
@@ -126,6 +162,7 @@ beforeEach(() => {
   })
   catalog.list.mockResolvedValue({ workspaceRevision: 8, page })
   catalog.getDetail.mockResolvedValue(null)
+  catalog.getCurrentManagedDetail.mockResolvedValue(null)
 })
 
 describe("library HTTP contract", () => {
@@ -309,6 +346,70 @@ describe("library HTTP contract", () => {
       },
     })
     expect(body).not.toContain("r2Key")
+  })
+
+  it("resolves an uploaded managed asset to its current exact catalog version without listing", async () => {
+    const detail = currentManagedDetail()
+    catalog.getCurrentManagedDetail.mockResolvedValue({
+      workspaceRevision: 8,
+      detail,
+    })
+
+    const response = await handlers.getItemDetail(
+      new Request(
+        `https://studio.test/v1/studio/library/items/media/${detail.summary.id}/versions/current?mediaSource=managed`
+      ),
+      "media",
+      detail.summary.id,
+      "current"
+    )
+
+    expect(catalog.getCurrentManagedDetail).toHaveBeenCalledWith(
+      "workspace-a",
+      "principal-a",
+      detail.summary.id
+    )
+    expect(catalog.list).not.toHaveBeenCalled()
+    expect(response.status).toBe(200)
+    expect(response.headers.get("etag")).toBe(
+      `"library-managed-detail-${detail.summary.id}-version-7-workspace-8"`
+    )
+    await expect(response.json()).resolves.toMatchObject({
+      schemaVersion: 1,
+      detail: {
+        summary: {
+          id: detail.summary.id,
+          version: 7,
+          mediaSource: "managed",
+        },
+        selectionIdentity: {
+          source: "managed",
+          assetId: detail.summary.id,
+          catalogVersion: 7,
+        },
+      },
+    })
+  })
+
+  it("rejects wrong-source or malformed current managed lookups before catalog access", async () => {
+    const assetId = currentManagedDetail().summary.id
+    const cases = [
+      `https://studio.test/v1/studio/library/items/media/${assetId}/versions/current?mediaSource=curated`,
+      `https://studio.test/v1/studio/library/items/media/${assetId}/versions/current`,
+      `https://studio.test/v1/studio/library/items/media/${assetId}/versions/current?mediaSource=managed&mediaSource=managed`,
+      "https://studio.test/v1/studio/library/items/media/not-an-asset/versions/current?mediaSource=managed",
+    ]
+
+    for (const url of cases) {
+      const response = await handlers.getItemDetail(
+        new Request(url),
+        "media",
+        new URL(url).pathname.split("/").at(-3)!,
+        "current"
+      )
+      expect(response.status).toBe(400)
+    }
+    expect(catalog.getCurrentManagedDetail).not.toHaveBeenCalled()
   })
 
   it("requires one canonical media source on item routes and rejects it for templates", async () => {

@@ -87,6 +87,15 @@ class FakeD1Statement {
       const row = this.state.catalogRow(asset)
       return Number(row.catalog_version) === catalogVersion ? [row] : []
     }
+    if (marker === "media:library-catalog-current") {
+      const asset = this.state.assets.find(
+        (candidate) =>
+          candidate.workspace_id === workspaceId &&
+          candidate.id === second &&
+          candidate.status === "ready"
+      )
+      return asset ? [this.state.catalogRow(asset)] : []
+    }
     if (marker === "media:hash-get") {
       return this.state.assets.filter(
         (asset) =>
@@ -1004,10 +1013,19 @@ describe("MediaAssetRepository", () => {
       catalog.getExact("workspace-a", first.asset.id, 1)
     ).resolves.toMatchObject({ asset: { id: first.asset.id } })
     await expect(
+      catalog.getCurrent("workspace-a", first.asset.id)
+    ).resolves.toMatchObject({
+      asset: { id: first.asset.id },
+      metadata: { catalogVersion: 1 },
+    })
+    await expect(
       catalog.getExact("workspace-a", first.asset.id, 2)
     ).resolves.toBeNull()
     await expect(
       catalog.getExact("workspace-a", foreign.asset.id, 1)
+    ).resolves.toBeNull()
+    await expect(
+      catalog.getCurrent("workspace-a", foreign.asset.id)
     ).resolves.toBeNull()
     await expect(
       catalog.getExact("workspace-a", "missing-curated-id", 1)
@@ -1029,6 +1047,9 @@ describe("MediaAssetRepository", () => {
     })
     await expect(
       catalog.getExact("workspace-a", first.asset.id, 2)
+    ).resolves.toBeNull()
+    await expect(
+      catalog.getCurrent("workspace-a", first.asset.id)
     ).resolves.toBeNull()
   })
 

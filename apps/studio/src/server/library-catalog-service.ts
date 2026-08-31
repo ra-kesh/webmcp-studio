@@ -57,6 +57,10 @@ export type ManagedMediaLibraryCatalogReader = Readonly<{
     assetId: string,
     catalogVersion: number
   ) => Promise<ManagedMediaCatalogEntry | null>
+  getCurrent: (
+    workspaceId: string,
+    assetId: string
+  ) => Promise<ManagedMediaCatalogEntry | null>
 }>
 
 type LibraryCatalogServiceOptions = Readonly<{
@@ -235,6 +239,22 @@ export class LibraryCatalogService {
       },
     })
     return { workspaceRevision: projection.workspaceRevision, detail }
+  }
+
+  async getCurrentManagedDetail(
+    workspaceId: string,
+    principalId: string,
+    assetId: string
+  ): Promise<LibraryCatalogServiceDetailResult | null> {
+    if (!this.#managedMedia) return null
+    const current = await this.#managedMedia.getCurrent(workspaceId, assetId)
+    if (!current) return null
+    return this.getDetail(workspaceId, principalId, {
+      itemKind: "media",
+      id: current.asset.id,
+      version: current.metadata.catalogVersion,
+      mediaSource: "managed",
+    })
   }
 
   #projectedIndex(

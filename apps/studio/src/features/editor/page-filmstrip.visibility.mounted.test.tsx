@@ -28,14 +28,17 @@ import { StudioPageThumbnailRasterError } from "./page-thumbnail-raster-producer
 
 vi.mock("@webmcp/render-view", () => ({
   Artboard: ({
+    imageResourceTokens,
     pageId,
     showImageRecoveryActions,
   }: {
+    imageResourceTokens?: Readonly<Record<string, string>>
     pageId: string
     showImageRecoveryActions?: boolean
   }) =>
     createElement("div", {
       "data-artboard-page-id": pageId,
+      "data-image-resource-token": Object.values(imageResourceTokens ?? {})[0],
       "data-recovery-actions": String(showImageRecoveryActions),
     }),
 }))
@@ -1603,6 +1606,88 @@ describe("PageFilmstrip thumbnail visibility", () => {
     }
 
     expect(revokeObjectUrl).toHaveBeenCalledTimes(5)
+  })
+
+  it("temporarily mounts the live React thumbnail for a pending replacement while other pages stay raster-backed", async () => {
+    const host = document.createElement("div")
+    document.body.appendChild(host)
+    const root = createRoot(host)
+    const producer = vi.fn(async (key: PageThumbnailRasterKey) =>
+      Promise.resolve(new Blob([key.pageId], { type: "image/png" }))
+    )
+    const firstPage = fixture.document.pages[0]
+    const replacementNodeId = firstPage.nodeIds.find(
+      (nodeId) =>
+        fixture.document.nodes.find((node) => node.id === nodeId)?.type ===
+        "image"
+    )
+    if (!replacementNodeId) {
+      throw new Error("Expected the performance fixture to contain an image")
+    }
+    const props = {
+      document: fixture.document,
+      activePageId: firstPage.id,
+      reviewPending: false,
+      onSelectPage: vi.fn(),
+      onAddPage: vi.fn(),
+      onDuplicatePage: vi.fn(),
+      onRemovePage: vi.fn(),
+      onReorderPage: vi.fn(),
+      raster: {
+        canonicalDocument: fixture.document,
+        documentSnapshotId: "snapshot-1",
+        rendererRevision: "renderer-1",
+        producer,
+      },
+    }
+
+    try {
+      await act(async () => root.render(createElement(PageFilmstrip, props)))
+      const observer = TestIntersectionObserver.instances.at(-1)
+      if (!observer) throw new Error("Expected the shared thumbnail observer")
+      await act(async () => {
+        observer.trigger([firstPage.id, fixture.document.pages[1].id], true)
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+
+      expect(renderedThumbnailIds(host)).toEqual([])
+      expect(
+        host.querySelectorAll('img[data-thumbnail-state="ready"]')
+      ).toHaveLength(2)
+
+      await act(async () =>
+        root.render(
+          createElement(PageFilmstrip, {
+            ...props,
+            imageResourceTokens: {
+              [replacementNodeId]: "replacement-generation-1",
+            },
+          })
+        )
+      )
+
+      expect(renderedThumbnailIds(host)).toEqual([firstPage.id])
+      expect(
+        host
+          .querySelector(`[data-artboard-page-id="${firstPage.id}"]`)
+          ?.getAttribute("data-image-resource-token")
+      ).toBe("replacement-generation-1")
+      expect(
+        host.querySelector(
+          `[data-page-thumbnail-id="${fixture.document.pages[1].id}"] img[data-thumbnail-state="ready"]`
+        )
+      ).not.toBeNull()
+
+      await act(async () => root.render(createElement(PageFilmstrip, props)))
+      expect(renderedThumbnailIds(host)).toEqual([])
+      expect(
+        host.querySelectorAll('img[data-thumbnail-state="ready"]')
+      ).toHaveLength(2)
+    } finally {
+      await act(async () => root.unmount())
+      host.remove()
+    }
   })
 
   it("reuses a cached raster when keyboard or pointer selection makes its page active", async () => {

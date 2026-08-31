@@ -19,6 +19,7 @@ import {
   libraryRenameCollectionRequestSchema,
   libraryReorderCollectionMembersRequestSchema,
   librarySetFavoriteRequestSchema,
+  mediaAssetIdSchema,
   mediaIdempotencyKeySchema,
 } from "@webmcp/document"
 import type {
@@ -61,7 +62,10 @@ type LibraryRepositoryPort = Pick<
   | "reorderCollectionMembers"
 >
 
-type LibraryCatalogPort = Pick<LibraryCatalogService, "list" | "getDetail">
+type LibraryCatalogPort = Pick<
+  LibraryCatalogService,
+  "list" | "getDetail" | "getCurrentManagedDetail"
+>
 
 export type LibraryHttpDependencies = Readonly<{
   db: D1Database
@@ -238,6 +242,30 @@ const itemIdentity = (
   })
 }
 
+const currentManagedAssetId = (
+  request: Request,
+  itemKind: string,
+  id: string,
+  version: string | number
+) => {
+  if (String(version) !== "current") {
+    throw new LibraryHttpError(
+      "invalid_library_request",
+      400,
+      "Current managed detail requires the current version locator"
+    )
+  }
+  const identity = itemIdentity(request, itemKind, id, 1)
+  if (identity.itemKind !== "media" || identity.mediaSource !== "managed") {
+    throw new LibraryHttpError(
+      "invalid_library_request",
+      400,
+      "Current detail is available only for managed media"
+    )
+  }
+  return parseClientInput(mediaAssetIdSchema, identity.id)
+}
+
 const collectionId = (input: string) =>
   parseClientInput(libraryCollectionIdSchema, input)
 
@@ -408,6 +436,9 @@ export const assertCatalogItemCapability = async (
 export function createLibraryHttpHandlers(
   dependencies: LibraryHttpDependencies
 ) {
+  // The repository capability callbacks close over the catalog, which is
+  // initialized immediately after the repository is constructed.
+  // eslint-disable-next-line prefer-const
   let catalog: LibraryCatalogPort
   const repository: LibraryRepositoryPort =
     dependencies.repository ??
@@ -498,10 +529,33 @@ export function createLibraryHttpHandlers(
       version: string | number
     ) =>
       withPrincipal(dependencies, request, (principal) =>
-        readCatalogDetail(
-          principal,
-          itemIdentity(request, itemKind, itemId, version)
-        )
+        String(version) === "current"
+          ? catalog
+              .getCurrentManagedDetail(
+                principal.workspaceId,
+                principal.id,
+                currentManagedAssetId(request, itemKind, itemId, version)
+              )
+              .then((result) => {
+                if (!result) {
+                  throw new LibraryHttpError(
+                    "library_item_not_found",
+                    404,
+                    "Managed media is not yet discoverable"
+                  )
+                }
+                return withEtag(
+                  libraryCatalogDetailResponseSchema.parse({
+                    schemaVersion: 1,
+                    ...result,
+                  }),
+                  `library-managed-detail-${result.detail.summary.id}-version-${result.detail.summary.version}-workspace-${result.workspaceRevision}`
+                )
+              })
+          : readCatalogDetail(
+              principal,
+              itemIdentity(request, itemKind, itemId, version)
+            )
       ),
 
     getPreferences: (request: Request) =>

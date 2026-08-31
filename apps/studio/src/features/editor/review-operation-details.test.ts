@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { applyCommand } from "@webmcp/document"
 import type { ChangeOperation } from "@webmcp/document"
 import { studioAssets } from "./asset-catalog"
+import { studioMediaManifest } from "../../content/library/media/manifest"
 import { quotationStarter } from "./quotation-starter"
 import { operationDetails } from "./review-operation-details"
 
@@ -45,6 +46,27 @@ function documentWithImage() {
 }
 
 describe("review operation details", () => {
+  const exactSources = [
+    {
+      label: "curated",
+      assetId: studioMediaManifest[0].id,
+      src: studioMediaManifest[0].resourcePath,
+      expected: `${studioMediaManifest[0].name} · Curated Studio asset`,
+    },
+    {
+      label: "managed",
+      assetId: "asset-review-managed-1",
+      src: "asset:managed/asset-review-managed-1",
+      expected: "Workspace-managed image (asset-review-managed-1)",
+    },
+    {
+      label: "local",
+      assetId: "local-review-image-1",
+      src: "asset:local/local-review-image-1",
+      expected: "Device-local image (local-review-image-1)",
+    },
+  ] as const
+
   it("omits private image sources and names the approved catalog asset", () => {
     const document = documentWithImage()
     const image = document.nodes.find((node) => node.type === "image")
@@ -69,7 +91,7 @@ describe("review operation details", () => {
 
     const details = operationDetails(document, operation)
 
-    expect(details.after).toBe(`assetId: ${asset.name} (${asset.id})`)
+    expect(details.after).toBe(`assetId: ${asset.name} · Legacy curated value`)
     expect(details.context).toBe("1 public layer property")
     expect(JSON.stringify(details)).not.toContain("data:image")
     expect(JSON.stringify(details)).not.toContain("src:")
@@ -99,4 +121,66 @@ describe("review operation details", () => {
     expect(details.after).toBe("No public property changes")
     expect(JSON.stringify(details)).not.toContain("data:image")
   })
+
+  it.each(exactSources)(
+    "describes an exact $label replacement without exposing its locator",
+    (source) => {
+      const document = documentWithImage()
+      const image = document.nodes.find((node) => node.type === "image")
+      if (!image) throw new Error("The image fixture is unavailable")
+      const operation: ChangeOperation = {
+        id: `replace-${source.label}-operation`,
+        status: "pending",
+        summary: "Replace the image",
+        command: {
+          id: `replace-${source.label}-command`,
+          type: "replace_image_source",
+          actor: "agent",
+          at: "2026-08-31T12:00:00.000Z",
+          nodeId: image.id,
+          assetId: source.assetId,
+          src: source.src,
+        },
+      }
+
+      const details = operationDetails(document, operation)
+
+      expect(details.context).toBe("Image source")
+      expect(details.after).toBe(source.expected)
+      expect(JSON.stringify(details)).not.toContain(source.src)
+    }
+  )
+
+  it.each(exactSources)(
+    "describes an exact $label image insertion without exposing its locator",
+    (source) => {
+      const document = documentWithImage()
+      const image = document.nodes.find((node) => node.type === "image")
+      if (!image) throw new Error("The image fixture is unavailable")
+      const operation: ChangeOperation = {
+        id: `insert-${source.label}-operation`,
+        status: "pending",
+        summary: "Insert the image",
+        command: {
+          id: `insert-${source.label}-command`,
+          type: "add_node",
+          actor: "agent",
+          at: "2026-08-31T12:00:00.000Z",
+          pageId: document.pages[0].id,
+          node: {
+            ...image,
+            id: `insert-${source.label}-image`,
+            assetId: source.assetId,
+            src: source.src,
+          },
+        },
+      }
+
+      const details = operationDetails(document, operation)
+
+      expect(details.context).toContain("image layer")
+      expect(details.after).toContain(source.expected)
+      expect(JSON.stringify(details)).not.toContain(source.src)
+    }
+  )
 })

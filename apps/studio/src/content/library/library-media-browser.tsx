@@ -1447,7 +1447,7 @@ function LibraryMediaBrowserContent({
         }}
       >
         <TabsList
-          className="h-12 w-full justify-start gap-0 overflow-x-auto p-0"
+          className="w-full justify-start gap-0 overflow-x-auto p-0 group-data-horizontal/tabs:h-12"
           variant="line"
         >
           {tabScopes.map((tab) => (
@@ -1463,13 +1463,14 @@ function LibraryMediaBrowserContent({
       </Tabs>
 
       <div className="flex shrink-0 items-center gap-2 border-b p-3">
-        <InputGroup className="h-11 min-w-0 flex-1">
+        <InputGroup className="h-12 min-w-0 flex-1">
           <InputGroupAddon>
             <Search aria-hidden="true" />
           </InputGroupAddon>
           <InputGroupInput
             ref={searchRef}
             aria-label="Search media"
+            className="h-full"
             placeholder="Search media…"
             type="search"
             value={state.rawSearch}
@@ -1500,7 +1501,7 @@ function LibraryMediaBrowserContent({
           <SheetTrigger asChild>
             <Button
               aria-label="Filter media"
-              className="size-11 shrink-0"
+              className="size-12 shrink-0"
               size="icon"
               type="button"
               variant="outline"

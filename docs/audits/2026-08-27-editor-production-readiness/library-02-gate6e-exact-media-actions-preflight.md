@@ -1,7 +1,7 @@
 # LIBRARY-02 Gate 6E exact media actions preflight
 
 **Date:** 2026-08-31
-**Status:** E0a, E0b, E0c and E0d accepted; E1 active. Gate 6E is not complete.
+**Status:** Gate 6E accepted on 2026-08-31; checkpoint commit pending.
 
 ## Accepted implementation checkpoints
 
@@ -86,6 +86,74 @@ ordinary search/results/scrolling, while upload queue, recovery, archive,
 promotion, quota/status and close guards remain separate management workflows.
 `TypedFieldValueControl` may open `assign_field` only in source mode; API ID and
 field-default editing retain their existing separate contracts.
+
+### E1 — accepted shared browser and exact media action cutover
+
+The editor cutover is accepted. One
+`LibraryMediaBrowser` now owns ordinary discovery, search, result rendering,
+exact-detail selection and scope state inside `AssetLibraryDialog`. Upload,
+managed recovery, archive, promotion, quota and close guards remain in a
+separate management Sheet. Recovery remains managed-only.
+
+The shell owns one exact media session for insert, replace and source-mode
+field assignment. It captures the external focus owner and exact target,
+cancels stale preparation, retains pending/error state outside the management
+Sheet and dispatches the strict browser intent to the single editor executor.
+An uploaded managed item cannot be used until a source-aware exact catalog
+detail is discoverable; cancellation aborts that reconciliation and retry keeps
+the same idempotency identity.
+
+The ordinary six source-specific editor mutations and their dead reusable-image
+helper path have been removed after the final caller audit. The compatibility
+`asset-catalog` remains intentionally: API-ID/default field editing, historical
+value labels, WebMCP compatibility, publication and render materialization
+still have real consumers. Removing those contracts is not part of the dialog
+cutover.
+
+Two independent code reviews found five P1 issues across focus restoration,
+source labels/review projection, management state across recovery/reopen,
+upload scope preservation and exact-action pending/error ownership. All five
+were remediated. Both final re-reviews report zero remaining P0/P1 findings.
+
+Current automated evidence passes 21 files / 241 tests, Studio typecheck,
+formatting, `git diff --check`, and the production client/SSR/renderer build.
+Every changed file except `use-document-editor.ts` passes scoped ESLint; that
+large hook retains its pre-existing strict `no-unnecessary-condition` debt and
+this slice adds no new linted code to it. A live port-3001 structural check
+confirmed one shared media region, a separate management dialog, and clean
+return to the same browser after management closes. The live Cloudflare-backed
+catalog currently returns the existing unverifiable-library failure, so no
+cloud-backed selection success is claimed from that check.
+
+The retained 18-journey Playwright contract now uses the shared-browser labels,
+strict source-aware detail/current routes, separate Gate 5 and managed-repository
+usage accounting, and the complete version-6 IndexedDB fixture. The migration
+exposed one production P0: renderer-backed filmstrip rasters were produced from
+the canonical document, while the tentative replacement existed only in the
+preview document. A cached raster therefore could not emit the React readiness
+acknowledgement required alongside Fabric. The affected page now temporarily
+mounts the live React thumbnail while its exact replacement token is active;
+other pages remain raster-backed, and commit or failure returns the page to the
+cache. A mounted 100-page filmstrip regression proves this bypass and its return
+path.
+
+The same browser gate caught a real compact-control defect: the search wrapper
+was touch-sized while the interactive input remained 32 pixels high. The aligned
+search/filter row now exposes a 48-pixel control surface. The large device-local
+inventory journey was updated to scroll the actual virtualized viewport rather
+than request an unmounted row, while retaining the all-object-URLs-revoked close
+assertion.
+
+Final acceptance evidence: all 18 retained Playwright journeys pass with
+renderer-backed thumbnails enabled; 18 focused Vitest files / 222 tests pass;
+Studio typecheck, production client/SSR/renderer build, formatting, diff checks,
+and scoped ESLint for every changed file except the pre-existing
+`use-document-editor.ts` strict-lint debt pass. Independent replacement and
+virtualization reviews confirmed the two architectural/test root causes; the
+rendered compact contract and final 18-journey run provide the closing browser
+evidence. The existing local D1 `item_source` migration mismatch was observed in
+server logs but did not participate in the fixture-backed Gate 6E actions and is
+not represented as closed by this checkpoint.
 
 ## Scope
 

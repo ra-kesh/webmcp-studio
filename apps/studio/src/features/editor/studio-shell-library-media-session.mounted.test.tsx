@@ -126,13 +126,50 @@ describe("Studio shell exact media picker session", () => {
     expect(latest.state).toMatchObject({
       kind: "action",
       selectedDetail: selected,
-      pendingIdentity: `curated:${selected.summary.id}@${selected.summary.version}`,
+      pendingIdentity: `media:curated:${selected.summary.id}@${selected.summary.version}`,
     })
 
     await act(async () => {
       gate.resolve("committed")
       await completion
     })
+    expect(latest.state).toBeNull()
+  })
+
+  it("owns the shared browser scope for the lifetime of an action session", async () => {
+    const perform = vi.fn<ExactLibraryMediaActionPerformer>(
+      async () => "rejected"
+    )
+    await mount(perform)
+
+    await act(async () => {
+      latest.openAction({
+        target: { type: "insert", pageId: "page-one" },
+        initialCollection: "library",
+      })
+    })
+    expect(latest.state).toMatchObject({
+      kind: "action",
+      scope: { kind: "library" },
+    })
+
+    await act(async () => {
+      latest.setScope({
+        kind: "collection",
+        collectionId: "collection-brand",
+        label: "Brand kit",
+      })
+    })
+    expect(latest.state).toMatchObject({
+      kind: "action",
+      scope: {
+        kind: "collection",
+        collectionId: "collection-brand",
+        label: "Brand kit",
+      },
+    })
+
+    await act(async () => latest.close(false))
     expect(latest.state).toBeNull()
   })
 

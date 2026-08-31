@@ -128,17 +128,10 @@ import {
 import type {
   LocalAssetAdmissionState,
   LocalAssetBlobRestoreExpectation,
-  LocalAssetSummary,
 } from "./local-asset-store"
-import {
-  decodeBrowserImageSource,
-  stageUsableLocalImageSource,
-} from "./local-image-source-stage"
+import { stageUsableLocalImageSource } from "./local-image-source-stage"
 import type { StagedLocalImageSource } from "./local-image-source-stage"
-import {
-  projectLocalAssetPreviewSources,
-  reusableAssetFromLocalRecord,
-} from "./local-asset-preview"
+import { projectLocalAssetPreviewSources } from "./local-asset-preview"
 import {
   assetMutationMessage,
   captureAddAssetAnchor,
@@ -156,7 +149,6 @@ import {
   projectComponentInstanceCanvasTransform,
 } from "./component-canvas-interaction"
 import { resolveStudioAssetContent } from "./asset-catalog"
-import type { StudioAsset } from "./asset-catalog"
 import type { LibraryPreferenceCommands } from "../../content/library/library-preference-provider"
 import {
   getManagedMedia,
@@ -194,7 +186,6 @@ import {
 import { verifyManagedBrowserImageResource } from "./managed-image-resource"
 import { validateMediaDimensions, validateMediaFile } from "./media-file-policy"
 import {
-  createReusableImageNode,
   reusableImageReplacementCommand,
   reusableImageReplacementPatch,
 } from "./media-selection-model"
@@ -5466,109 +5457,6 @@ export function useDocumentEditor({
     [allowMutation, commit, readAssetMutationState]
   )
 
-  const addReusableImageAsset = useCallback(
-    (asset: ReusableImageAsset) => {
-      if (!allowMutation()) return false
-      const page = historyRef.current.document.pages.find(
-        (candidate) => candidate.id === activePageId
-      )
-      if (!page) return false
-      const id = `image-${crypto.randomUUID()}`
-      const node = createReusableImageNode(page, asset, id)
-      if (commit([{ type: "add_node", pageId: page.id, node }])) {
-        setSelection({ pageId: page.id, nodeIds: [id] })
-        return true
-      }
-      return false
-    },
-    [activePageId, allowMutation, commit]
-  )
-
-  const replaceReusableImageAsset = useCallback(
-    (nodeId: string, asset: ReusableImageAsset) => {
-      if (!allowMutation()) return false
-      const bindingImpact = imageReplacementBindingImpact(
-        historyRef.current.document,
-        nodeId
-      )
-      if (bindingImpact) {
-        setAssetError(bindingImpact.message)
-        return false
-      }
-      const node = historyRef.current.document.nodes.find(
-        (candidate) => candidate.id === nodeId
-      )
-      if (!node || node.type !== "image") return false
-      setAssetError(null)
-      return commit([reusableImageReplacementCommand(node, asset)], {
-        label: "Replace image",
-      })
-    },
-    [allowMutation, commit]
-  )
-
-  const beginRendererAcknowledgedReplacement = useCallback(
-    (nodeId: string) => {
-      if (!allowMutation()) return null
-      const bindingImpact = imageReplacementBindingImpact(
-        historyRef.current.document,
-        nodeId
-      )
-      if (bindingImpact) {
-        setAssetError(bindingImpact.message)
-        return null
-      }
-      if (assetMutationActiveRef.current) {
-        setAssetError(
-          "Another image is still being prepared. Wait, then retry."
-        )
-        return null
-      }
-      const anchor = captureReplaceAssetAnchor(readAssetMutationState(), nodeId)
-      if (!anchor) {
-        setAssetError(
-          "That image layer is no longer available on the active page. Select it and retry."
-        )
-        return null
-      }
-      assetMutationActiveRef.current = true
-      setIsImportingAsset(true)
-      setAssetError(null)
-      return anchor
-    },
-    [allowMutation, readAssetMutationState]
-  )
-
-  const awaitRendererAcknowledgedReplacement = useCallback(
-    (
-      anchor: AssetMutationAnchor,
-      asset: ReusableImageAsset,
-      previewSrc = asset.src
-    ) => {
-      const abortReason = getAssetMutationAbortReason(
-        anchor,
-        readAssetMutationState()
-      )
-      if (abortReason) {
-        setAssetError(
-          assetMutationMessage("replace", {
-            status: "aborted",
-            reason: abortReason,
-          })
-        )
-        return Promise.resolve(false)
-      }
-      return imageReplacementCoordinator.start({
-        token: `image-replacement-${crypto.randomUUID()}`,
-        nodeId: anchor.nodeId ?? "",
-        previewSrc,
-        naturalSize: { width: asset.width, height: asset.height },
-        payload: { anchor, asset },
-      })
-    },
-    [imageReplacementCoordinator, readAssetMutationState]
-  )
-
   const performLibraryMediaAction = useCallback(
     async (
       request: LibraryMediaActionPreparationRequest,
@@ -5824,170 +5712,6 @@ export function useDocumentEditor({
     ]
   )
 
-  const addLibraryAsset = useCallback(
-    (asset: StudioAsset) =>
-      addReusableImageAsset({
-        assetId: `library-${asset.id}`,
-        name: asset.name,
-        description: asset.description,
-        src: asset.src,
-        width: asset.width,
-        height: asset.height,
-      }),
-    [addReusableImageAsset]
-  )
-
-  const replaceImageWithLibraryAsset = useCallback(
-    async (nodeId: string, asset: StudioAsset) => {
-      const anchor = beginRendererAcknowledgedReplacement(nodeId)
-      if (!anchor) return false
-      try {
-        const dimensions = await decodeBrowserImageSource(asset.src)
-        const dimensionError = validateMediaDimensions(dimensions)
-        if (dimensionError) throw new Error(dimensionError)
-        if (
-          dimensions.width !== asset.width ||
-          dimensions.height !== asset.height
-        ) {
-          throw new Error(
-            `The library image decoded as ${dimensions.width} × ${dimensions.height}, expected ${asset.width} × ${asset.height}.`
-          )
-        }
-        return await awaitRendererAcknowledgedReplacement(anchor, {
-          assetId: `library-${asset.id}`,
-          name: asset.name,
-          description: asset.description,
-          src: asset.src,
-          ...dimensions,
-        })
-      } catch (error) {
-        setAssetError(
-          error instanceof Error
-            ? `The library image could not be prepared: ${error.message} The original image was kept.`
-            : "The library image could not be prepared. The original image was kept."
-        )
-        return false
-      } finally {
-        assetMutationActiveRef.current = false
-        setIsImportingAsset(false)
-      }
-    },
-    [awaitRendererAcknowledgedReplacement, beginRendererAcknowledgedReplacement]
-  )
-
-  const addManagedMediaAsset = useCallback(
-    async (asset: ManagedMediaAsset) => {
-      if (!allowMutation()) return false
-      const anchor = captureAddAssetAnchor(readAssetMutationState())
-      if (!anchor) return false
-      try {
-        const current = await getManagedMedia(asset.id)
-        if (!current?.selectable) {
-          setAssetError(
-            "That workspace image is no longer available. Refresh the media library and choose another image."
-          )
-          return false
-        }
-        const resource = await verifyManagedBrowserImageResource(
-          current,
-          decodeValidatedImageDimensions
-        )
-        const abortReason = getAssetMutationAbortReason(
-          anchor,
-          readAssetMutationState()
-        )
-        if (abortReason) {
-          setAssetError(
-            assetMutationMessage("add", {
-              status: "aborted",
-              reason: abortReason,
-            })
-          )
-          return false
-        }
-        const committed = addReusableImageAsset({
-          assetId: current.id,
-          name: current.name.replace(/\.[^.]+$/, "") || "Image",
-          description: current.name,
-          src: resource.src,
-          width: resource.width,
-          height: resource.height,
-        })
-        if (committed) {
-          try {
-            await markManagedMediaUsed(current.id)
-          } catch {
-            setAssetError(
-              "The image was added, but Studio could not update its Recent position. The design change is safe."
-            )
-          }
-        }
-        return committed
-      } catch (error) {
-        setAssetError(
-          error instanceof Error
-            ? `The workspace image could not be decoded: ${error.message}`
-            : "The workspace image could not be decoded. Choose another image."
-        )
-        return false
-      }
-    },
-    [addReusableImageAsset, allowMutation, readAssetMutationState]
-  )
-
-  const replaceImageWithManagedMediaAsset = useCallback(
-    async (nodeId: string, asset: ManagedMediaAsset) => {
-      const anchor = beginRendererAcknowledgedReplacement(nodeId)
-      if (!anchor) return false
-      try {
-        const current = await getManagedMedia(asset.id)
-        if (!current?.selectable) {
-          setAssetError(
-            "That workspace image is no longer available. Refresh the media library and choose another image."
-          )
-          return false
-        }
-        const resource = await verifyManagedBrowserImageResource(
-          current,
-          decodeValidatedImageDimensions
-        )
-        const committed = await awaitRendererAcknowledgedReplacement(
-          anchor,
-          {
-            assetId: current.id,
-            name: current.name.replace(/\.[^.]+$/, "") || "Image",
-            description: current.name,
-            src: resource.src,
-            width: resource.width,
-            height: resource.height,
-          },
-          managedMediaContentUrl(current.id)
-        )
-        if (committed) {
-          try {
-            await markManagedMediaUsed(current.id)
-          } catch {
-            setAssetError(
-              "The image was replaced, but Studio could not update its Recent position. The design change is safe."
-            )
-          }
-        }
-        return committed
-      } catch (error) {
-        setAssetError(
-          error instanceof Error
-            ? `The replacement image could not be decoded: ${error.message}`
-            : "The replacement image could not be decoded. Choose another image."
-        )
-        return false
-      } finally {
-        assetMutationActiveRef.current = false
-        setIsImportingAsset(false)
-      }
-    },
-    [awaitRendererAcknowledgedReplacement, beginRendererAcknowledgedReplacement]
-  )
-
   const replaceImageFile = useCallback(
     async (nodeId: string, file: File) => {
       if (!allowMutation()) return
@@ -6074,159 +5798,6 @@ export function useDocumentEditor({
       }
     },
     [allowMutation, commit, readAssetMutationState]
-  )
-
-  const reuseLocalAsset = useCallback(
-    async (asset: LocalAssetSummary, replacementNodeId?: string) => {
-      if (!allowMutation()) return false
-      if (replacementNodeId) {
-        const bindingImpact = imageReplacementBindingImpact(
-          historyRef.current.document,
-          replacementNodeId
-        )
-        if (bindingImpact) {
-          setAssetError(bindingImpact.message)
-          return false
-        }
-      }
-      if (assetMutationActiveRef.current) {
-        setAssetError(
-          "Another image is still being prepared. Wait, then retry."
-        )
-        return false
-      }
-      const initialState = readAssetMutationState()
-      const anchor = replacementNodeId
-        ? captureReplaceAssetAnchor(initialState, replacementNodeId)
-        : captureAddAssetAnchor(initialState)
-      if (!anchor) {
-        setAssetError(
-          replacementNodeId
-            ? "That image layer is no longer available on the active page. Select it and retry."
-            : "The active page is unavailable. Choose a page and retry."
-        )
-        return false
-      }
-      assetMutationActiveRef.current = true
-      setIsImportingAsset(true)
-      setAssetError(null)
-      let stagedReplacementSource: StagedLocalImageSource | null = null
-      let previousPreviewSource: string | undefined
-      let replacementCommitted = false
-      try {
-        const record = await getLocalAssetRecord(asset.id)
-        if (!record) {
-          setAssetError(
-            `The file “${asset.name}” is missing on this device. Locate a replacement or remove its unused library entry.`
-          )
-          return false
-        }
-        const reusable = await reusableAssetFromLocalRecord(record)
-        const abortReason = getAssetMutationAbortReason(
-          anchor,
-          readAssetMutationState()
-        )
-        if (abortReason) {
-          setAssetError(
-            assetMutationMessage(replacementNodeId ? "replace" : "add", {
-              status: "aborted",
-              reason: abortReason,
-            })
-          )
-          return false
-        }
-        if (replacementNodeId) {
-          stagedReplacementSource = await stageUsableLocalImageSource(
-            record.blob,
-            { width: reusable.width, height: reusable.height }
-          )
-          const sourceAbortReason = getAssetMutationAbortReason(
-            anchor,
-            readAssetMutationState()
-          )
-          if (sourceAbortReason) {
-            stagedReplacementSource.release()
-            setAssetError(
-              assetMutationMessage("replace", {
-                status: "aborted",
-                reason: sourceAbortReason,
-              })
-            )
-            return false
-          }
-          previousPreviewSource = assetUrlsRef.current.get(record.id)
-          assetUrlsRef.current.set(record.id, stagedReplacementSource.src)
-        }
-        const committed = replacementNodeId
-          ? replaceReusableImageAsset(replacementNodeId, reusable)
-          : addReusableImageAsset(reusable)
-        if (!committed) return false
-        replacementCommitted = Boolean(stagedReplacementSource)
-        try {
-          if (stagedReplacementSource) {
-            if (previousPreviewSource) {
-              URL.revokeObjectURL(previousPreviewSource)
-            }
-            setAssetVersion((current) => current + 1)
-          } else if (!assetUrlsRef.current.has(record.id)) {
-            assetUrlsRef.current.set(
-              record.id,
-              URL.createObjectURL(record.blob)
-            )
-            setAssetVersion((current) => current + 1)
-          }
-        } catch {
-          setAssetError(
-            `The image was ${replacementNodeId ? "replaced" : "added"}, but its preview could not open. Reload Studio to restore it from local storage.`
-          )
-        }
-        try {
-          await markLocalAssetUsed(record.id)
-        } catch {
-          setAssetError(
-            `The image was ${replacementNodeId ? "replaced" : "added"}, but Studio could not update its Recent position. The design change is safe.`
-          )
-        }
-        return true
-      } catch (error) {
-        setAssetError(
-          error instanceof Error
-            ? `The saved image could not be used: ${error.message}`
-            : "The saved image could not be used. Retry after checking browser storage."
-        )
-        return false
-      } finally {
-        if (stagedReplacementSource && !replacementCommitted) {
-          if (previousPreviewSource) {
-            assetUrlsRef.current.set(asset.id, previousPreviewSource)
-          } else if (
-            assetUrlsRef.current.get(asset.id) === stagedReplacementSource.src
-          ) {
-            assetUrlsRef.current.delete(asset.id)
-          }
-          stagedReplacementSource.release()
-        }
-        assetMutationActiveRef.current = false
-        setIsImportingAsset(false)
-      }
-    },
-    [
-      addReusableImageAsset,
-      allowMutation,
-      readAssetMutationState,
-      replaceReusableImageAsset,
-    ]
-  )
-
-  const addLocalAsset = useCallback(
-    (asset: LocalAssetSummary) => reuseLocalAsset(asset),
-    [reuseLocalAsset]
-  )
-
-  const replaceImageWithLocalAsset = useCallback(
-    (nodeId: string, asset: LocalAssetSummary) =>
-      reuseLocalAsset(asset, nodeId),
-    [reuseLocalAsset]
   )
 
   const startLocalAssetPromotion = useCallback(
@@ -11335,12 +10906,7 @@ export function useDocumentEditor({
     addIcon,
     addImageFile,
     performLibraryMediaAction,
-    addLibraryAsset,
-    addLocalAsset,
-    addManagedMediaAsset,
     replaceImageFile,
-    replaceImageWithLibraryAsset,
-    replaceImageWithLocalAsset,
     startLocalAssetPromotion,
     cancelLocalAssetPromotion,
     useStudioCopyForLocalAsset,
@@ -11350,7 +10916,6 @@ export function useDocumentEditor({
     removeMissingLocalAsset,
     retryLocalMediaRecoverySave,
     cancelLocalMediaRecovery,
-    replaceImageWithManagedMediaAsset,
     reportImageReplacementRendererState,
     imageReplacementBlock,
     importDocumentFile,

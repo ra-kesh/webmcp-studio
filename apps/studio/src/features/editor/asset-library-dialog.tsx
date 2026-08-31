@@ -3,16 +3,16 @@ import {
   LOCAL_MEDIA_ADMISSION_ALIAS_LIMIT,
   assetReferenceKeysForSource,
   extractAssetReferences,
+  libraryMediaDetailSchema,
   localAssetSource,
 } from "@webmcp/document"
-import type { Document } from "@webmcp/document"
+import type { Document, LibraryMediaDetail } from "@webmcp/document"
 import {
   AlertCircleIcon,
   CloudIcon,
   HardDriveIcon,
   LoaderCircleIcon,
   RefreshCwIcon,
-  SearchIcon,
   Trash2Icon,
   UploadIcon,
   XIcon,
@@ -35,27 +35,24 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@webmcp/ui/components/dialog"
-import { Input } from "@webmcp/ui/components/input"
 import { ScrollArea } from "@webmcp/ui/components/scroll-area"
 import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@webmcp/ui/components/tabs"
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@webmcp/ui/components/sheet"
 import {
   AssetCard,
-  EmptyCollection,
   isUploadActive,
   LocalAssetCard,
-  LoadingGrid,
   MissingLocalAssetRecoveryCard,
   nextManagedUploadClaims,
   RepositoryNotice,
   UploadQueue,
 } from "./asset-library-components"
 import type {
-  AssetLibraryCollection,
   LocalMediaRecoveryMappingState,
   LocalMediaRecoveryDeviceState,
   LocalMediaRecoveryOperationState,
@@ -66,18 +63,17 @@ import {
   formatStoragePercentage,
   localMediaRecoveryImpact,
   localMediaRecoveryImpactForReferenceKeys,
-  matchesAssetSearch,
   missingLocalAssetIds,
-  parseRecentLibraryUse,
   readableMediaError,
-  recordRecentLibraryUse,
   sortLocalUploadsByCreatedAt,
   sortManagedMediaAssets,
-  wasMediaAssetUsed,
 } from "./asset-library-model"
 import type { LocalMediaRecoveryImpact } from "./asset-library-model"
-import { studioAssets } from "./asset-catalog"
-import type { StudioAsset } from "./asset-catalog"
+import { LibraryMediaBrowser } from "../../content/library/library-media-browser"
+import type {
+  LibraryMediaIntent,
+  LibraryMediaScope,
+} from "../../content/library/library-media-browser"
 import { formatAssetBytes } from "./local-asset-model"
 import {
   archiveLocalAsset,
@@ -118,32 +114,35 @@ import {
 } from "./managed-media-repository"
 import type {
   ManagedMediaAsset,
-  ManagedMediaCollection,
   ManagedMediaDeletionImpact,
   ManagedMediaList,
 } from "./managed-media-repository"
 
-export type AssetLibrarySelection =
-  | { kind: "library"; asset: StudioAsset }
-  | { kind: "local"; asset: LocalAssetSummary }
-  | { kind: "managed"; asset: ManagedMediaAsset }
-
-export type AssetLibrarySelectionResult =
+export type ManagedRecoverySelectionResult =
   boolean | { ok: boolean; message?: string }
 
 export type AssetLibraryDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
-  mode: "insert" | "replace" | "recover-local"
+  mode: "insert" | "replace" | "assign_field" | "recover-local"
   targetName?: string
   document: Document
   documentMediaAdmission?: DocumentRouteMediaAdmission | null
   localAssetRevision?: number
   recoveryMutationDisabledReason?: string | null
-  initialCollection?: AssetLibraryCollection
-  onSelect: (
-    selection: AssetLibrarySelection
-  ) => Promise<AssetLibrarySelectionResult> | AssetLibrarySelectionResult
+  mediaScope: LibraryMediaScope
+  pendingIdentity?: string | null
+  actionError?: string | null
+  actionsEnabled?: boolean
+  onMediaScopeChange: (scope: LibraryMediaScope) => void
+  onMediaSelect: (intent: LibraryMediaIntent) => void
+  resolveUploadedMediaDetail: (
+    asset: ManagedMediaAsset,
+    signal: AbortSignal
+  ) => Promise<LibraryMediaDetail | null>
+  onRecoveryManagedSelect?: (
+    asset: ManagedMediaAsset
+  ) => Promise<ManagedRecoverySelectionResult> | ManagedRecoverySelectionResult
   onLocateMissingLocalAsset?: (assetId: string, file: File) => void
   onKeepLocatedFileAsNewLocalAsset?: (assetId: string) => void
   onUseStudioCopyForLocalAsset?: (
@@ -311,7 +310,38 @@ const emptyManagedState = (): ManagedRepositoryState => ({
 const serverReferenceCount = (impact: ManagedMediaDeletionImpact | null) =>
   impact ? impact.currentReferences + impact.publishedReferences : 0
 
-const recentLibraryStorageKey = "webmcp-studio:recent-library-assets:v1"
+const exactUploadedMediaDetail = (
+  asset: ManagedMediaAsset,
+  input: LibraryMediaDetail | null
+) => {
+  if (!input) return null
+  const parsed = libraryMediaDetailSchema.safeParse(structuredClone(input))
+  if (!parsed.success) return null
+  const detail = parsed.data
+  return detail.summary.mediaSource === "managed" &&
+    detail.summary.id === asset.id &&
+    detail.summary.mimeType === asset.mediaType &&
+    detail.summary.bytes === asset.bytes &&
+    detail.summary.dimensions.width === asset.width &&
+    detail.summary.dimensions.height === asset.height &&
+    detail.selectionIdentity.source === "managed" &&
+    detail.selectionIdentity.assetId === asset.id
+    ? detail
+    : null
+}
+
+const mediaIntentFromDetail = (
+  detail: LibraryMediaDetail
+): LibraryMediaIntent =>
+  Object.freeze({
+    itemKind: "media",
+    id: detail.summary.id,
+    version: detail.summary.version,
+    mediaSource: detail.summary.mediaSource,
+    detail,
+    selectionIdentity: detail.selectionIdentity,
+  })
+
 const MAX_CONCURRENT_MANAGED_UPLOADS = 3
 const activePromotionPhases = new Set<LocalAssetPromotionViewState["phase"]>([
   "preparing",
@@ -457,8 +487,14 @@ export function AssetLibraryDialog({
   documentMediaAdmission = null,
   localAssetRevision = 0,
   recoveryMutationDisabledReason = null,
-  initialCollection = "recent",
-  onSelect,
+  mediaScope,
+  pendingIdentity = null,
+  actionError = null,
+  actionsEnabled = true,
+  onMediaScopeChange,
+  onMediaSelect,
+  resolveUploadedMediaDetail,
+  onRecoveryManagedSelect,
   onLocateMissingLocalAsset,
   onKeepLocatedFileAsNewLocalAsset,
   onUseStudioCopyForLocalAsset,
@@ -477,13 +513,9 @@ export function AssetLibraryDialog({
   const claimedUploadIdsRef = useRef(new Set<string>())
   const uploadAttemptByQueueIdRef = useRef(new Map<string, number>())
   const managedRequestRef = useRef<AbortController | null>(null)
-  const managedPaginationRequestRef = useRef<
-    Record<ManagedMediaCollection, AbortController | null>
-  >({ recent: null, uploads: null })
+  const managedPaginationRequestRef = useRef<AbortController | null>(null)
   const managedRequestGenerationRef = useRef(0)
-  const [collection, setCollection] =
-    useState<AssetLibraryCollection>(initialCollection)
-  const [query, setQuery] = useState("")
+  const [managementOpen, setManagementOpen] = useState(false)
   const [localAssets, setLocalAssets] = useState<LocalAssetSummary[]>([])
   const [healthyReferencedLocalAssetIds, setHealthyReferencedLocalAssetIds] =
     useState<string[]>([])
@@ -498,8 +530,6 @@ export function AssetLibraryDialog({
     useState<LocalAssetStorageSummary | null>(null)
   const [localStatus, setLocalStatus] = useState<RepositoryStatus>("idle")
   const [localError, setLocalError] = useState<string | null>(null)
-  const [managedRecent, setManagedRecent] =
-    useState<ManagedRepositoryState>(emptyManagedState)
   const [managedUploads, setManagedUploads] =
     useState<ManagedRepositoryState>(emptyManagedState)
   const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([])
@@ -511,8 +541,8 @@ export function AssetLibraryDialog({
   const [dialogNotice, setDialogNotice] = useState<string | null>(null)
   const [deleteReview, setDeleteReview] = useState<DeleteReview | null>(null)
   const [dragActive, setDragActive] = useState(false)
-  const [recentLibraryUse, setRecentLibraryUse] = useState<
-    Record<string, number>
+  const [resolvedUploadedMedia, setResolvedUploadedMedia] = useState<
+    Readonly<Partial<Record<string, LibraryMediaDetail>>>
   >({})
   const [persistedLocalAssetPromotionJournals, setPersistedPromotionJournals] =
     useState<Partial<Record<string, LocalAssetPromotionJournal>>>({})
@@ -524,9 +554,6 @@ export function AssetLibraryDialog({
     new Map<string, ReturnType<typeof localMediaRecoveryImpact>>()
   )
 
-  const normalizedQuery = query.trim()
-  const normalizedQueryRef = useRef(normalizedQuery)
-  normalizedQueryRef.current = normalizedQuery
   const hasActiveUploads = uploadQueue.some(isUploadActive)
   const hasCriticalPromotion = Object.values(localAssetPromotions).some(
     (promotion) => promotion?.phase === "saving"
@@ -537,6 +564,12 @@ export function AssetLibraryDialog({
       operation?.phase === "cancelling" ||
       operation?.phase === "saving"
   )
+  const exactActionPending =
+    mode !== "recover-local" && (pendingIdentity !== null || !actionsEnabled)
+
+  useEffect(() => {
+    if (!open || mode === "recover-local") setManagementOpen(false)
+  }, [mode, open])
 
   useEffect(() => {
     if (!open || !localAssets.length) return
@@ -620,53 +653,31 @@ export function AssetLibraryDialog({
     }
   }, [])
 
-  const refreshManagedAssets = useCallback(async (searchQuery: string) => {
+  const refreshManagedAssets = useCallback(async () => {
     managedRequestRef.current?.abort()
-    managedPaginationRequestRef.current.recent?.abort()
-    managedPaginationRequestRef.current.uploads?.abort()
+    managedPaginationRequestRef.current?.abort()
     const generation = managedRequestGenerationRef.current + 1
     managedRequestGenerationRef.current = generation
     const controller = new AbortController()
     managedRequestRef.current = controller
-    const markLoading = (current: ManagedRepositoryState) => ({
+    setManagedUploads((current) => ({
       ...current,
-      status: "loading" as const,
+      status: "loading",
       error: null,
-    })
-    setManagedRecent(markLoading)
-    setManagedUploads(markLoading)
-    const load = (kind: ManagedMediaCollection) =>
-      listManagedMedia({
-        collection: kind,
-        query: searchQuery,
-        signal: controller.signal,
-      })
-    const [recentResult, uploadsResult] = await Promise.allSettled([
-      load("recent"),
-      load("uploads"),
-    ])
+    }))
+    const uploadsResult = await listManagedMedia({
+      collection: "uploads",
+      query: "",
+      signal: controller.signal,
+    }).then(
+      (value) => ({ status: "fulfilled" as const, value }),
+      (reason: unknown) => ({ status: "rejected" as const, reason })
+    )
     if (
       controller.signal.aborted ||
       managedRequestGenerationRef.current !== generation
     ) {
       return
-    }
-    if (recentResult.status === "fulfilled") {
-      setManagedRecent({
-        ...recentResult.value,
-        assets: sortManagedMediaAssets(
-          recentResult.value.assets.filter(wasMediaAssetUsed),
-          "recent"
-        ),
-        status: "ready",
-        error: null,
-      })
-    } else {
-      setManagedRecent((current) => ({
-        ...current,
-        status: "error",
-        error: readableMediaError(recentResult.reason),
-      }))
     }
     if (uploadsResult.status === "fulfilled") {
       setManagedUploads({
@@ -686,26 +697,9 @@ export function AssetLibraryDialog({
 
   useEffect(() => {
     if (!open) return
-    setCollection(initialCollection)
-    setRecentLibraryUse(
-      parseRecentLibraryUse(
-        window.localStorage.getItem(recentLibraryStorageKey)
-      )
-    )
     void refreshLocalAssets()
-  }, [initialCollection, open, refreshLocalAssets])
-
-  useEffect(() => {
-    if (!open) return
-    const timeout = window.setTimeout(
-      () => void refreshManagedAssets(normalizedQuery),
-      normalizedQuery ? 180 : 0
-    )
-    return () => {
-      window.clearTimeout(timeout)
-      managedRequestRef.current?.abort()
-    }
-  }, [normalizedQuery, open, refreshManagedAssets])
+    void refreshManagedAssets()
+  }, [open, refreshLocalAssets, refreshManagedAssets])
 
   useEffect(() => {
     if (!open) return
@@ -713,7 +707,7 @@ export function AssetLibraryDialog({
     const unsubscribe = subscribeManagedMediaMutations((mutation, revision) => {
       if (mutation !== "used" || revision <= latestRevision) return
       latestRevision = revision
-      void refreshManagedAssets(normalizedQueryRef.current)
+      void refreshManagedAssets()
     })
     return () => {
       unsubscribe()
@@ -807,8 +801,7 @@ export function AssetLibraryDialog({
   useEffect(
     () => () => {
       managedRequestRef.current?.abort()
-      managedPaginationRequestRef.current.recent?.abort()
-      managedPaginationRequestRef.current.uploads?.abort()
+      managedPaginationRequestRef.current?.abort()
       for (const cancel of uploadCancelsRef.current.values()) cancel()
       uploadCancelsRef.current.clear()
       claimedUploadIdsRef.current.clear()
@@ -821,80 +814,38 @@ export function AssetLibraryDialog({
     setPreviewFailures((current) => new Set(current).add(assetKey))
   }, [])
 
-  const chooseAsset = useCallback(
-    async (selection: AssetLibrarySelection, selectionId: string) => {
+  const chooseRecoveryManagedAsset = useCallback(
+    async (asset: ManagedMediaAsset) => {
+      const selectionId = `managed:${asset.id}`
       setSelectingId(selectionId)
       setSelectionError(null)
       try {
-        const result = await onSelect(selection)
+        if (!onRecoveryManagedSelect) {
+          setSelectionError(
+            "Managed recovery is not available in this editor session."
+          )
+          return
+        }
+        const result = await onRecoveryManagedSelect(asset)
         const succeeded = typeof result === "boolean" ? result : result.ok
         if (!succeeded) {
           setSelectionError(
             typeof result === "object" && result.message
               ? result.message
-              : mode === "replace"
-                ? "That image could not be replaced. The design was not changed."
-                : "That image could not be added. The design was not changed."
+              : "That Studio image could not recover the missing media. The design was not changed."
           )
           return
         }
-        if (selection.kind === "library") {
-          setRecentLibraryUse((current) => {
-            const next = recordRecentLibraryUse(
-              current,
-              selection.asset.id,
-              Date.now()
-            )
-            window.localStorage.setItem(
-              recentLibraryStorageKey,
-              JSON.stringify(next)
-            )
-            return next
-          })
-        } else if (selection.kind === "managed") {
-          const used = {
-            ...selection.asset,
-            lastUsedAt: new Date().toISOString(),
-          }
-          setManagedRecent((current) => ({
-            ...current,
-            assets: sortManagedMediaAssets(
-              [used, ...current.assets.filter((item) => item.id !== used.id)],
-              "recent"
-            ),
-          }))
-        } else {
-          const usedAt = new Date().toISOString()
-          setLocalAssets((current) =>
-            current.map((asset) =>
-              asset.id === selection.asset.id
-                ? { ...asset, lastUsedAt: usedAt }
-                : asset
-            )
-          )
-        }
-        if (mode === "recover-local") {
-          setDialogNotice(
-            "Every reviewed use now points to the selected Studio image. The Media dialog stayed open so you can verify the result."
-          )
-          return
-        }
-        if (hasActiveUploads) {
-          setDialogNotice(
-            mode === "replace"
-              ? "Image replaced. Uploads are still in progress."
-              : "Image added. Uploads are still in progress."
-          )
-          return
-        }
-        onOpenChange(false)
+        setDialogNotice(
+          "Every reviewed use now points to the selected Studio image. The Media dialog stayed open so you can verify the result."
+        )
       } catch (error) {
         setSelectionError(readableMediaError(error))
       } finally {
         setSelectingId(null)
       }
     },
-    [hasActiveUploads, mode, onOpenChange, onSelect]
+    [onRecoveryManagedSelect]
   )
 
   const upsertManagedUpload = useCallback((asset: ManagedMediaAsset) => {
@@ -972,6 +923,7 @@ export function AssetLibraryDialog({
           )
         },
       })
+      let reconciliationController: AbortController | null = null
       uploadCancelsRef.current.set(queueId, request.cancel)
       setUploadQueue((current) =>
         current.map((item) =>
@@ -992,6 +944,40 @@ export function AssetLibraryDialog({
             item.id === queueId
               ? {
                   ...item,
+                  phase: "preparing",
+                  progress: null,
+                  asset,
+                  error: null,
+                  retryable: false,
+                }
+              : item
+          )
+        )
+        upsertManagedUpload(asset)
+        const detailController = new AbortController()
+        reconciliationController = detailController
+        uploadCancelsRef.current.set(queueId, () => detailController.abort())
+        void refreshManagedAssets()
+        if (!ownsAttempt()) return
+        const detail = exactUploadedMediaDetail(
+          asset,
+          await resolveUploadedMediaDetail(asset, detailController.signal)
+        )
+        detailController.signal.throwIfAborted()
+        if (!detail) {
+          throw new Error(
+            "The upload is saved, but its exact library version is not discoverable yet. Retry checks the same upload without creating a duplicate."
+          )
+        }
+        setResolvedUploadedMedia((current) => ({
+          ...current,
+          [asset.id]: detail,
+        }))
+        setUploadQueue((current) =>
+          current.map((item) =>
+            item.id === queueId
+              ? {
+                  ...item,
                   phase: "complete",
                   progress: 100,
                   asset,
@@ -1001,16 +987,17 @@ export function AssetLibraryDialog({
               : item
           )
         )
-        upsertManagedUpload(asset)
-        void refreshManagedAssets(normalizedQueryRef.current)
         setDialogNotice(`“${file.name}” is ready to use.`)
       } catch (error) {
         if (!ownsAttempt()) return
         const cancelled =
-          error instanceof ManagedMediaError &&
-          error.code === "media_upload_cancelled"
+          reconciliationController?.signal.aborted === true ||
+          (error instanceof ManagedMediaError &&
+            error.code === "media_upload_cancelled")
         const statusUnknown = managedMediaErrorHasUnknownCommitStatus(error)
-        const retryable = managedMediaErrorIsRetryable(error)
+        const retryable =
+          !(error instanceof ManagedMediaError) ||
+          managedMediaErrorIsRetryable(error)
         setUploadQueue((current) =>
           current.map((item) =>
             item.id === queueId
@@ -1039,17 +1026,17 @@ export function AssetLibraryDialog({
         }
       }
     },
-    [refreshManagedAssets, upsertManagedUpload]
+    [refreshManagedAssets, resolveUploadedMediaDetail, upsertManagedUpload]
   )
 
   const queueFiles = useCallback(
     (files: File[]) => {
       if (!files.length) return
-      if (selectingId) {
+      if (selectingId || exactActionPending) {
         setDialogNotice("Wait for the current image change to finish.")
         return
       }
-      setCollection("uploads")
+      setManagementOpen(true)
       setDialogNotice(null)
       const items = files.map<UploadQueueItem>((file) => ({
         id: crypto.randomUUID(),
@@ -1064,7 +1051,7 @@ export function AssetLibraryDialog({
       }))
       setUploadQueue((current) => [...items, ...current])
     },
-    [selectingId]
+    [exactActionPending, selectingId]
   )
 
   const retryUpload = useCallback(
@@ -1139,64 +1126,61 @@ export function AssetLibraryDialog({
     }
   }, [runUpload, uploadQueue])
 
-  const loadMoreManaged = useCallback(
-    async (kind: ManagedMediaCollection) => {
-      const current = kind === "recent" ? managedRecent : managedUploads
-      if (selectingId || !current.nextCursor || current.status === "loading") {
+  const loadMoreManaged = useCallback(async () => {
+    const current = managedUploads
+    if (selectingId || !current.nextCursor || current.status === "loading") {
+      return
+    }
+    managedPaginationRequestRef.current?.abort()
+    const controller = new AbortController()
+    managedPaginationRequestRef.current = controller
+    const generation = managedRequestGenerationRef.current
+    setManagedUploads((state) => ({
+      ...state,
+      status: "loading",
+      error: null,
+    }))
+    try {
+      const next = await listManagedMedia({
+        collection: "uploads",
+        query: "",
+        cursor: current.nextCursor,
+        signal: controller.signal,
+      })
+      if (
+        controller.signal.aborted ||
+        managedPaginationRequestRef.current !== controller ||
+        managedRequestGenerationRef.current !== generation
+      ) {
         return
       }
-      managedPaginationRequestRef.current[kind]?.abort()
-      const controller = new AbortController()
-      managedPaginationRequestRef.current[kind] = controller
-      const generation = managedRequestGenerationRef.current
-      const queryAtStart = normalizedQuery
-      const setState = kind === "recent" ? setManagedRecent : setManagedUploads
-      setState((state) => ({ ...state, status: "loading", error: null }))
-      try {
-        const next = await listManagedMedia({
-          collection: kind,
-          query: queryAtStart,
-          cursor: current.nextCursor,
-          signal: controller.signal,
-        })
-        if (
-          controller.signal.aborted ||
-          managedPaginationRequestRef.current[kind] !== controller ||
-          managedRequestGenerationRef.current !== generation
-        ) {
-          return
-        }
-        setState((state) => ({
-          ...next,
-          assets: sortManagedMediaAssets(
-            [
-              ...state.assets,
-              ...next.assets.filter(
-                (asset) =>
-                  (kind !== "recent" || wasMediaAssetUsed(asset)) &&
-                  !state.assets.some((item) => item.id === asset.id)
-              ),
-            ],
-            kind
-          ),
-          status: "ready",
-          error: null,
-        }))
-      } catch (error) {
-        if (controller.signal.aborted) return
-        setState((state) => ({
-          ...state,
-          status: "error",
-          error: readableMediaError(error),
-        }))
-      } finally {
-        if (managedPaginationRequestRef.current[kind] === controller) {
-          managedPaginationRequestRef.current[kind] = null
-        }
+      setManagedUploads((state) => ({
+        ...next,
+        assets: sortManagedMediaAssets(
+          [
+            ...state.assets,
+            ...next.assets.filter(
+              (asset) => !state.assets.some((item) => item.id === asset.id)
+            ),
+          ],
+          "uploads"
+        ),
+        status: "ready",
+        error: null,
+      }))
+    } catch (error) {
+      if (controller.signal.aborted) return
+      setManagedUploads((state) => ({
+        ...state,
+        status: "error",
+        error: readableMediaError(error),
+      }))
+    } finally {
+      if (managedPaginationRequestRef.current === controller) {
+        managedPaginationRequestRef.current = null
       }
-    },
-    [managedRecent, managedUploads, normalizedQuery, selectingId]
-  )
+    }
+  }, [managedUploads, selectingId])
 
   const startLocalDeleteReview = useCallback(
     (asset: LocalAssetSummary) => {
@@ -1305,9 +1289,8 @@ export function AssetLibraryDialog({
           ...current,
           assets: current.assets.filter((asset) => asset.id !== review.id),
         })
-        setManagedRecent(remove)
         setManagedUploads(remove)
-        await refreshManagedAssets(normalizedQuery)
+        await refreshManagedAssets()
       }
       setUploadQueue((current) =>
         current.filter((item) => item.asset?.id !== review.id)
@@ -1325,31 +1308,11 @@ export function AssetLibraryDialog({
     deleteReview,
     document,
     localAssets,
-    normalizedQuery,
     refreshLocalAssets,
     refreshManagedAssets,
     selectingId,
   ])
 
-  const visibleLibraryAssets = useMemo(
-    () =>
-      studioAssets.filter((asset) =>
-        matchesAssetSearch(
-          query,
-          asset.name,
-          asset.description,
-          asset.tags.join(" ")
-        )
-      ),
-    [query]
-  )
-  const visibleLocalAssets = useMemo(
-    () =>
-      localAssets.filter((asset) =>
-        matchesAssetSearch(query, asset.name, asset.mediaType)
-      ),
-    [localAssets, query]
-  )
   const allMissingAssetIds = useMemo(
     () =>
       localIntegrityReady
@@ -1357,13 +1320,7 @@ export function AssetLibraryDialog({
         : [],
     [document, healthyReferencedLocalAssetIds, localIntegrityReady]
   )
-  const missingAssetIds = useMemo(
-    () =>
-      allMissingAssetIds.filter((assetId) =>
-        matchesAssetSearch(query, assetId, "missing")
-      ),
-    [allMissingAssetIds, query]
-  )
+  const missingAssetIds = allMissingAssetIds
   const recoveryCardAssetIds = useMemo(
     () =>
       [
@@ -1474,47 +1431,6 @@ export function AssetLibraryDialog({
     referencedLocalAssetIds,
     referencedLocalAssetSignature,
   ])
-  const recentAssets = useMemo(() => {
-    const managed = managedRecent.assets.map((asset) => ({
-      kind: "managed" as const,
-      sortAt: Date.parse(asset.lastUsedAt || asset.updatedAt),
-      asset,
-    }))
-    const local =
-      mode === "recover-local"
-        ? []
-        : visibleLocalAssets.filter(wasMediaAssetUsed).map((asset) => ({
-            kind: "local" as const,
-            sortAt: Date.parse(asset.lastUsedAt),
-            asset,
-          }))
-    const library =
-      mode === "recover-local"
-        ? []
-        : visibleLibraryAssets
-            .filter((asset) => recentLibraryUse[asset.id])
-            .map((asset) => ({
-              kind: "library" as const,
-              sortAt: recentLibraryUse[asset.id] ?? 0,
-              asset,
-            }))
-    return [...managed, ...local, ...library].sort(
-      (left, right) => right.sortAt - left.sortAt
-    )
-  }, [
-    managedRecent.assets,
-    mode,
-    recentLibraryUse,
-    visibleLibraryAssets,
-    visibleLocalAssets,
-  ])
-  const collectionCounts = {
-    recent: recentAssets.length,
-    uploads:
-      managedUploads.assets.length +
-      (mode === "recover-local" ? 0 : visibleLocalAssets.length),
-    library: mode === "recover-local" ? 0 : visibleLibraryAssets.length,
-  }
   const deleteReferenceRows = useMemo(() => {
     if (!deleteReview) return []
     const rows: Array<{
@@ -1594,35 +1510,15 @@ export function AssetLibraryDialog({
     : null
   const atLocalQuota = localStoragePercent !== null && localStoragePercent >= 95
   const interactionLocked = selectingId !== null || hasActiveRecovery
+  const managementMutationLocked = interactionLocked || exactActionPending
   const actionPrefix =
     mode === "replace"
       ? `Replace ${targetName ? `“${targetName}”` : "selected image"} with`
       : mode === "recover-local"
         ? "Recover every use with"
-        : "Insert"
-
-  const renderLibraryCard = (asset: StudioAsset) => {
-    const assetKey = `library:${asset.id}`
-    return (
-      <AssetCard
-        key={assetKey}
-        actionLabel={`${actionPrefix} ${asset.name}`}
-        assetKey={assetKey}
-        busy={selectingId === assetKey}
-        detail={asset.description}
-        disabled={selectingId !== null}
-        height={asset.height}
-        name={asset.name}
-        previewFailed={previewFailures.has(assetKey)}
-        mutationDisabled={selectingId !== null}
-        sourceLabel="Studio original"
-        src={asset.src}
-        width={asset.width}
-        onChoose={() => void chooseAsset({ kind: "library", asset }, assetKey)}
-        onPreviewFailure={markPreviewFailed}
-      />
-    )
-  }
+        : mode === "assign_field"
+          ? `Assign ${targetName ? `“${targetName}”` : "image field"} to`
+          : "Insert"
 
   const renderLocalCard = (asset: LocalAssetSummary) => {
     const assetKey = `local:${asset.id}`
@@ -1656,12 +1552,12 @@ export function AssetLibraryDialog({
     return (
       <LocalAssetCard
         key={assetKey}
-        actionLabel={`${actionPrefix} ${asset.name}`}
+        actionLabel={`Manage device image ${asset.name}`}
         asset={asset}
         busy={selectingId === assetKey}
         detail={`${formatAssetBytes(asset.size)} · ${asset.mediaType.replace("image/", "").toLocaleUpperCase()}`}
-        disabled={selectingId !== null}
-        mutationDisabled={selectingId !== null}
+        disabled
+        mutationDisabled={managementMutationLocked}
         promotionBlockedByOther={promotionBlockedByOther}
         promotion={projectedPromotion ?? undefined}
         referenceCount={
@@ -1669,7 +1565,7 @@ export function AssetLibraryDialog({
             .length
         }
         previewFailed={previewFailures.has(assetKey)}
-        onChoose={() => void chooseAsset({ kind: "local", asset }, assetKey)}
+        onChoose={() => undefined}
         onDelete={() => startLocalDeleteReview(asset)}
         onLocateMissing={
           onLocateMissingLocalAsset
@@ -1691,22 +1587,27 @@ export function AssetLibraryDialog({
 
   const renderManagedCard = (asset: ManagedMediaAsset) => {
     const assetKey = `managed:${asset.id}`
+    const recoverySelectable = mode === "recover-local"
     return (
       <AssetCard
         key={assetKey}
-        actionLabel={`${actionPrefix} ${asset.name}`}
+        actionLabel={
+          recoverySelectable
+            ? `${actionPrefix} ${asset.name}`
+            : `Manage workspace image ${asset.name}`
+        }
         assetKey={assetKey}
         busy={selectingId === assetKey}
         detail={`${formatAssetBytes(asset.bytes)} · ${asset.width} × ${asset.height}`}
-        disabled={selectingId !== null}
+        disabled={!recoverySelectable || selectingId !== null}
         height={asset.height}
         name={asset.name}
         previewFailed={previewFailures.has(assetKey)}
-        mutationDisabled={selectingId !== null}
+        mutationDisabled={managementMutationLocked}
         sourceLabel="Workspace upload"
         src={managedMediaContentUrl(asset.id)}
         width={asset.width}
-        onChoose={() => void chooseAsset({ kind: "managed", asset }, assetKey)}
+        onChoose={() => void chooseRecoveryManagedAsset(asset)}
         onDelete={() => void startManagedDeleteReview(asset)}
         onPreviewFailure={markPreviewFailed}
       />
@@ -1729,14 +1630,15 @@ export function AssetLibraryDialog({
       )
       return false
     }
+    if (!nextOpen) setManagementOpen(false)
     onOpenChange(nextOpen)
     return true
   }
   const retryRepositories = () => {
-    void refreshManagedAssets(normalizedQuery)
+    void refreshManagedAssets()
     if (localStatus === "error") void refreshLocalAssets()
   }
-  const statusMessage = selectionError ?? dialogNotice ?? ""
+  const statusMessage = actionError ?? selectionError ?? dialogNotice ?? ""
   const navigateToReference = (reference: {
     nodeId: string | null
     pageId: string | null
@@ -1748,491 +1650,432 @@ export function AssetLibraryDialog({
     window.requestAnimationFrame(() => onNavigateToReference(reference))
   }
 
+  const renderRecoveryCard = (assetId: string) => {
+    const receiptAlias = documentMediaAdmission?.receipt?.aliases.find(
+      (item) => item.localAssetId === assetId
+    )
+    const liveImpact = receiptAlias
+      ? localMediaRecoveryImpactForReferenceKeys(
+          document,
+          assetId,
+          receiptAlias.expectedReferenceKeys
+        )
+      : localMediaRecoveryImpact(document, assetId)
+    if (liveImpact.referenceCount > 0) {
+      retainedRecoveryImpactsRef.current.set(assetId, liveImpact)
+    }
+    const impact =
+      liveImpact.referenceCount > 0
+        ? liveImpact
+        : (retainedRecoveryImpactsRef.current.get(assetId) ?? liveImpact)
+    const storedOperation = localMediaRecoveryOperations[assetId]
+    const displayedOperation = displayedLocalMediaRecoveryOperation(
+      storedOperation,
+      liveImpact.referenceCount
+    )
+    const removable =
+      impact.referenceCount > 0 &&
+      impact.lockedNodeIds.length === 0 &&
+      impact.requiredFieldIds.length === 0
+    const removeDisabledReason = removable
+      ? null
+      : impact.lockedNodeIds.length
+        ? "Unlock the affected layer before removing it."
+        : impact.requiredFieldIds.length
+          ? "A required field uses this image, so it cannot be cleared or removed."
+          : "Choose a replacement before clearing protected image uses."
+    return (
+      <MissingLocalAssetRecoveryCard
+        key={assetId}
+        disabled={
+          managementMutationLocked || Boolean(recoveryMutationDisabledReason)
+        }
+        actionDisabledReason={recoveryMutationDisabledReason}
+        admissionOutcome={
+          documentMediaAdmission?.unresolved.find(
+            (item) => item.localAssetId === assetId
+          )?.outcome
+        }
+        deviceState={
+          receiptAlias?.localState ??
+          localRecoveryDeviceStates[assetId] ??
+          "unavailable"
+        }
+        impact={impact}
+        localAssetId={assetId}
+        mappingState={
+          receiptAlias?.managedStatus ??
+          missingMappingStates[assetId] ??
+          "checking"
+        }
+        operation={displayedOperation}
+        reviewOnly={
+          Boolean(receiptAlias) ||
+          (displayedOperation?.completionKind === "relinked" &&
+            liveImpact.referenceCount === 0)
+        }
+        references={localMediaRecoveryReferenceRows(document, impact)}
+        onNavigateToReference={onNavigateToReference}
+        onClearReference={(referenceKey) =>
+          onRemoveMissingLocalAsset?.(assetId, referenceKey)
+        }
+        removeDisabledReason={
+          impact.referenceKeys.length ? null : removeDisabledReason
+        }
+        onChooseStudioImage={() => onChooseStudioImageForLocalAsset?.(assetId)}
+        onLocateFile={(file) => onLocateMissingLocalAsset?.(assetId, file)}
+        onKeepLocatedFile={
+          onKeepLocatedFileAsNewLocalAsset
+            ? () => onKeepLocatedFileAsNewLocalAsset(assetId)
+            : undefined
+        }
+        onRemove={
+          onRemoveMissingLocalAsset
+            ? () => onRemoveMissingLocalAsset(assetId)
+            : undefined
+        }
+        onRetryMapping={() =>
+          setMissingMappingGeneration((current) => current + 1)
+        }
+        onRetryRecovery={
+          onRetryLocalMediaRecovery
+            ? () => onRetryLocalMediaRecovery(assetId)
+            : undefined
+        }
+        onCancelRecovery={
+          onCancelLocalMediaRecovery
+            ? () => onCancelLocalMediaRecovery(assetId)
+            : undefined
+        }
+        onUseStudioCopy={
+          onUseStudioCopyForLocalAsset
+            ? () =>
+                onUseStudioCopyForLocalAsset(
+                  assetId,
+                  localMediaRecoveryOperations[assetId]?.phase ===
+                    "identity_conflict"
+                )
+            : undefined
+        }
+      />
+    )
+  }
+
+  const managementContent = (
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div
+        className={`flex shrink-0 flex-col gap-2 border-b px-3 py-3 transition-colors ${dragActive ? "bg-muted ring-2 ring-foreground/20 ring-inset" : ""}`}
+        onDragEnter={(event) => {
+          event.preventDefault()
+          if (!managementMutationLocked) setDragActive(true)
+        }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node)) {
+            setDragActive(false)
+          }
+        }}
+        onDragOver={(event) => {
+          event.preventDefault()
+          event.dataTransfer.dropEffect = "copy"
+        }}
+        onDrop={(event) => {
+          event.preventDefault()
+          setDragActive(false)
+          if (!managementMutationLocked) {
+            queueFiles(Array.from(event.dataTransfer.files))
+          }
+        }}
+      >
+        <input
+          ref={fileInputRef}
+          accept={MEDIA_UPLOAD_ACCEPT}
+          aria-hidden="true"
+          hidden
+          multiple
+          name="media-upload-files"
+          tabIndex={-1}
+          type="file"
+          onChange={(event) => {
+            queueFiles(Array.from(event.currentTarget.files ?? []))
+            event.currentTarget.value = ""
+          }}
+        />
+        <Button
+          className="h-11 w-full"
+          disabled={managementMutationLocked}
+          variant="outline"
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <UploadIcon data-icon="inline-start" />
+          Upload images
+        </Button>
+        <p className="text-xs leading-5 text-muted-foreground">
+          {dragActive
+            ? "Drop images to upload"
+            : "PNG, JPEG, or WebP · 25 MB max. Uploads become usable only after their exact library version is ready."}
+        </p>
+      </div>
+      <ScrollArea className="min-h-0 flex-1">
+        <UploadQueue
+          disabled={managementMutationLocked}
+          items={uploadQueue}
+          selectingId={selectingId}
+          onCancel={cancelUpload}
+          onDismiss={dismissUpload}
+          onRetry={retryUpload}
+          onUse={(item) => {
+            if (!item.asset) return
+            if (mode === "recover-local") {
+              void chooseRecoveryManagedAsset(item.asset)
+              return
+            }
+            const detail = resolvedUploadedMedia[item.asset.id]
+            if (!detail) {
+              setDialogNotice(
+                "Wait for the upload's exact library version before using it."
+              )
+              return
+            }
+            setManagementOpen(false)
+            onMediaSelect(mediaIntentFromDetail(detail))
+          }}
+        />
+        {managedUploads.status === "error" ? (
+          <RepositoryNotice
+            message={
+              managedUploads.error ?? "Workspace uploads could not load."
+            }
+            onRetry={retryRepositories}
+          />
+        ) : null}
+        {localStatus === "error" ? (
+          <RepositoryNotice
+            message={localError ?? "Local media could not load."}
+            title="Device media is unavailable"
+            onRetry={retryRepositories}
+          />
+        ) : null}
+        {atLocalQuota ? (
+          <div className="mx-4 mt-4 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/8 px-3 py-2.5 text-xs">
+            <AlertCircleIcon className="mt-0.5 size-4 shrink-0 text-amber-700" />
+            <p>
+              Device storage is nearly full. Local history files stay retained
+              for Undo, so free browser or device storage if a restore fails.
+            </p>
+          </div>
+        ) : null}
+        <div className="grid gap-5 p-4 pb-8">
+          {recoveryCardAssetIds.length ? (
+            <section
+              aria-labelledby="document-media-management"
+              className="grid gap-3"
+            >
+              <div className="flex items-start gap-2">
+                <AlertCircleIcon className="mt-0.5 size-4 shrink-0 text-amber-700" />
+                <div>
+                  <h3
+                    id="document-media-management"
+                    className="text-xs font-medium"
+                  >
+                    Document media
+                  </h3>
+                  <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+                    Review missing files and recovery operations independently
+                    from library search.
+                  </p>
+                </div>
+              </div>
+              {recoveryCardAssetIds.map(renderRecoveryCard)}
+            </section>
+          ) : null}
+          {managedUploads.assets.length ? (
+            <section
+              aria-labelledby="workspace-media-management"
+              className="grid gap-3"
+            >
+              <h3
+                id="workspace-media-management"
+                className="text-xs font-medium"
+              >
+                Workspace uploads
+              </h3>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {managedUploads.assets.map(renderManagedCard)}
+              </div>
+              {managedUploads.nextCursor ? (
+                <Button
+                  className="h-11"
+                  disabled={
+                    interactionLocked || managedUploads.status === "loading"
+                  }
+                  variant="outline"
+                  onClick={() => void loadMoreManaged()}
+                >
+                  {managedUploads.status === "loading" ? (
+                    <LoaderCircleIcon
+                      className="animate-spin"
+                      data-icon="inline-start"
+                    />
+                  ) : null}
+                  Load more uploads
+                </Button>
+              ) : null}
+            </section>
+          ) : null}
+          {mode !== "recover-local" && localAssets.length ? (
+            <section
+              aria-labelledby="device-media-management"
+              className="grid gap-3"
+            >
+              <h3 id="device-media-management" className="text-xs font-medium">
+                Device media management
+              </h3>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {localAssets.map(renderLocalCard)}
+              </div>
+            </section>
+          ) : null}
+        </div>
+      </ScrollArea>
+      <footer className="grid shrink-0 gap-2 border-t bg-muted/35 px-4 py-2.5 text-[11px] text-muted-foreground">
+        <div className="flex min-w-0 items-center gap-2">
+          <CloudIcon className="size-3.5 shrink-0" />
+          <span className="truncate">
+            Workspace:{" "}
+            {managedStorage
+              ? `${managedStorage.count} files · ${formatAssetBytes(managedStorage.bytes)}`
+              : "—"}
+          </span>
+        </div>
+        <div className="flex min-w-0 items-center gap-2">
+          <HardDriveIcon className="size-3.5 shrink-0" />
+          <span className="truncate">
+            This device:{" "}
+            {localStorage
+              ? `${localStorage.activeAssetCount} available · ${formatAssetBytes(localStorage.activeAssetBytes)}${localStorage.archivedAssetCount ? ` · ${localStorage.archivedAssetCount} retained for history (${formatAssetBytes(localStorage.archivedAssetBytes)})` : ""}`
+              : "—"}
+          </span>
+        </div>
+      </footer>
+    </div>
+  )
+
   return (
     <Dialog open={open} onOpenChange={requestClose}>
       <DialogContent
         aria-describedby="asset-library-description"
-        className="top-0 left-0 grid h-[100dvh] max-h-none max-w-none translate-x-0 translate-y-0 grid-rows-[auto_auto_auto_minmax(0,1fr)_auto] gap-0 overflow-hidden rounded-none p-0 sm:top-1/2 sm:left-1/2 sm:h-[min(800px,calc(100dvh-2rem))] sm:max-w-5xl sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl"
+        className="top-0 left-0 grid h-[100dvh] max-h-none max-w-none translate-x-0 translate-y-0 grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden rounded-none p-0 sm:top-1/2 sm:left-1/2 sm:h-[min(800px,calc(100dvh-2rem))] sm:max-w-5xl sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl"
         showCloseButton={false}
       >
-        <DialogHeader className="border-b px-4 pt-[max(1rem,env(safe-area-inset-top))] pr-16 pb-3 sm:px-5 sm:py-4 sm:pr-16">
-          <DialogTitle>
-            {mode === "replace"
-              ? "Replace image"
-              : mode === "recover-local"
-                ? "Choose Studio image"
-                : "Add image"}
-          </DialogTitle>
-          <DialogDescription id="asset-library-description" className="text-xs">
-            {mode === "replace"
-              ? `Choose a replacement${targetName ? ` for “${targetName}”` : ""}. Your crop and layer position stay intact.`
-              : mode === "recover-local"
-                ? "Choose a ready Studio upload for every reviewed use of the missing image. Local files and Studio originals are not applied from this view."
-                : "Choose from recent media, reusable uploads, or original Studio artwork."}
-          </DialogDescription>
-        </DialogHeader>
-        <Button
-          aria-label="Close media library"
-          className="absolute top-[max(.65rem,env(safe-area-inset-top))] right-3 size-11 sm:top-2.5"
-          disabled={
-            hasActiveUploads || hasCriticalPromotion || interactionLocked
-          }
-          size="icon"
-          variant="ghost"
-          onClick={() => requestClose(false)}
-        >
-          <XIcon />
-        </Button>
-
-        <div
-          className={`flex flex-col gap-2 border-b px-3 py-2.5 transition-colors sm:flex-row sm:items-center sm:px-4 ${dragActive ? "bg-muted ring-2 ring-foreground/20 ring-inset" : ""}`}
-          onDragEnter={(event) => {
-            event.preventDefault()
-            if (!interactionLocked) setDragActive(true)
-          }}
-          onDragLeave={(event) => {
-            if (!event.currentTarget.contains(event.relatedTarget as Node)) {
-              setDragActive(false)
-            }
-          }}
-          onDragOver={(event) => {
-            event.preventDefault()
-            event.dataTransfer.dropEffect = "copy"
-          }}
-          onDrop={(event) => {
-            event.preventDefault()
-            setDragActive(false)
-            if (!interactionLocked)
-              queueFiles(Array.from(event.dataTransfer.files))
-          }}
-        >
-          <div className="relative min-w-0 flex-1">
-            <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              aria-label="Search media"
-              autoComplete="off"
-              className="h-11 pl-9"
-              placeholder="Search by name, type, or keyword"
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.currentTarget.value)}
-            />
-          </div>
-          <input
-            ref={fileInputRef}
-            accept={MEDIA_UPLOAD_ACCEPT}
-            aria-hidden="true"
-            hidden
-            multiple
-            name="media-upload-files"
-            tabIndex={-1}
-            type="file"
-            onChange={(event) => {
-              queueFiles(Array.from(event.currentTarget.files ?? []))
-              event.currentTarget.value = ""
-            }}
-          />
-          <Button
-            className="h-11 shrink-0"
-            disabled={interactionLocked}
-            variant="outline"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <UploadIcon data-icon="inline-start" />
-            Upload images
-          </Button>
-          <span className="text-[11px] text-muted-foreground sm:max-w-44">
-            {dragActive
-              ? "Drop images to upload"
-              : "PNG, JPEG, or WebP · 25 MB max"}
-          </span>
-        </div>
-
-        <div
-          className={`border-b px-4 py-2 text-xs empty:hidden ${selectionError ? "bg-destructive/5 text-destructive" : "bg-muted/45 text-muted-foreground"}`}
-          role="status"
-        >
-          {statusMessage}
-        </div>
-
-        <Tabs
-          className="min-h-0 gap-0 overflow-hidden"
-          value={collection}
-          onValueChange={(value) =>
-            setCollection(value as AssetLibraryCollection)
-          }
-        >
-          <TabsList
-            aria-label="Media collections"
-            className="w-full justify-start gap-5 border-b px-4 py-0 group-data-horizontal/tabs:h-12"
-            variant="line"
-          >
-            <TabsTrigger className="h-full flex-none px-0" value="recent">
-              Recent <span aria-hidden="true">{collectionCounts.recent}</span>
-            </TabsTrigger>
-            <TabsTrigger className="h-full flex-none px-0" value="uploads">
-              Uploads <span aria-hidden="true">{collectionCounts.uploads}</span>
-            </TabsTrigger>
-            <TabsTrigger
-              className="h-full flex-none px-0"
-              disabled={mode === "recover-local"}
-              value="library"
-            >
-              Library <span aria-hidden="true">{collectionCounts.library}</span>
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent
-            aria-busy={managedRecent.status === "loading"}
-            className="flex min-h-0 flex-col overflow-hidden"
-            value="recent"
-          >
-            {managedRecent.status === "error" ? (
-              <RepositoryNotice
-                message={
-                  managedRecent.error ?? "Recent cloud media could not load."
+        <DialogHeader className="border-b px-3 pt-[max(.75rem,env(safe-area-inset-top))] pb-3 sm:px-5 sm:py-4">
+          <div className="flex min-w-0 items-start justify-between gap-3">
+            <div className="min-w-0">
+              <DialogTitle>
+                {mode === "replace"
+                  ? "Replace image"
+                  : mode === "assign_field"
+                    ? "Choose field image"
+                    : mode === "recover-local"
+                      ? "Choose Studio image"
+                      : "Add image"}
+              </DialogTitle>
+              <DialogDescription
+                id="asset-library-description"
+                className="mt-1 text-xs"
+              >
+                {mode === "replace"
+                  ? `Choose a replacement${targetName ? ` for “${targetName}”` : ""}. Your crop and layer position stay intact.`
+                  : mode === "assign_field"
+                    ? `Choose an image${targetName ? ` for “${targetName}”` : ""}. Every bound layer updates together.`
+                    : mode === "recover-local"
+                      ? "Choose a ready Studio upload for every reviewed use of the missing image. Device files and Studio originals are not selectable in recovery."
+                      : "Choose exact media from Recent, Uploads, Library, Favorites, or your collections."}
+              </DialogDescription>
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
+              {mode !== "recover-local" ? (
+                <Button
+                  className="h-11"
+                  disabled={
+                    hasCriticalPromotion ||
+                    hasActiveRecovery ||
+                    exactActionPending
+                  }
+                  type="button"
+                  variant="outline"
+                  onClick={() => setManagementOpen(true)}
+                >
+                  Manage
+                </Button>
+              ) : null}
+              <Button
+                aria-label="Close media library"
+                className="size-11"
+                disabled={
+                  hasActiveUploads || hasCriticalPromotion || interactionLocked
                 }
-                onRetry={retryRepositories}
-              />
-            ) : null}
-            {localStatus === "error" ? (
-              <RepositoryNotice
-                message={localError ?? "Local media could not load."}
-                title="Device media is unavailable"
-                onRetry={retryRepositories}
-              />
-            ) : null}
-            <ScrollArea className="min-h-0 flex-1">
-              <div className="p-4 pb-8">
-                {recentAssets.length ? (
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                    {recentAssets.map((item) =>
-                      item.kind === "managed"
-                        ? renderManagedCard(item.asset)
-                        : item.kind === "local"
-                          ? renderLocalCard(item.asset)
-                          : renderLibraryCard(item.asset)
-                    )}
-                  </div>
-                ) : managedRecent.status === "loading" ||
-                  localStatus === "loading" ? (
-                  <LoadingGrid />
-                ) : (
-                  <EmptyCollection
-                    collection="recent"
-                    query={normalizedQuery}
-                    searching={Boolean(normalizedQuery)}
-                    onClearSearch={() => setQuery("")}
-                    onUpload={() => fileInputRef.current?.click()}
-                  />
-                )}
-                {managedRecent.nextCursor ? (
-                  <div className="mt-4 flex justify-center">
-                    <Button
-                      className="h-11"
-                      disabled={
-                        interactionLocked || managedRecent.status === "loading"
-                      }
-                      variant="outline"
-                      onClick={() => void loadMoreManaged("recent")}
-                    >
-                      {managedRecent.status === "loading" ? (
-                        <LoaderCircleIcon
-                          className="animate-spin"
-                          data-icon="inline-start"
-                        />
-                      ) : null}
-                      Load more
-                    </Button>
-                  </div>
-                ) : null}
-              </div>
-            </ScrollArea>
-          </TabsContent>
-
-          <TabsContent
-            aria-busy={
-              managedUploads.status === "loading" || localStatus === "loading"
-            }
-            className="flex min-h-0 flex-col overflow-hidden"
-            value="uploads"
-          >
-            <ScrollArea className="min-h-0 flex-1">
-              <UploadQueue
-                disabled={interactionLocked}
-                items={uploadQueue}
-                selectingId={selectingId}
-                onCancel={cancelUpload}
-                onDismiss={dismissUpload}
-                onRetry={retryUpload}
-                onUse={(item) => {
-                  if (item.asset) {
-                    void chooseAsset(
-                      { kind: "managed", asset: item.asset },
-                      `managed:${item.asset.id}`
-                    )
-                  }
-                }}
-              />
-              {managedUploads.status === "error" ? (
-                <RepositoryNotice
-                  message={
-                    managedUploads.error ?? "Workspace uploads could not load."
-                  }
-                  onRetry={retryRepositories}
-                />
-              ) : null}
-              {localStatus === "error" ? (
-                <RepositoryNotice
-                  message={localError ?? "Local media could not load."}
-                  title="Device media is unavailable"
-                  onRetry={retryRepositories}
-                />
-              ) : null}
-              {atLocalQuota ? (
-                <div className="mx-4 mt-4 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/8 px-3 py-2.5 text-xs">
-                  <AlertCircleIcon className="mt-0.5 size-4 shrink-0 text-amber-700" />
-                  <p>
-                    Device storage is nearly full. Local history files stay
-                    retained for Undo, so free browser or device storage if a
-                    local restore fails.
-                  </p>
-                </div>
-              ) : null}
-              <div className="p-4 pb-8">
-                {recoveryCardAssetIds.length ? (
-                  <div className="mb-5 grid gap-3">
-                    <div className="flex items-start gap-2">
-                      <AlertCircleIcon className="mt-0.5 size-4 shrink-0 text-amber-700" />
-                      <div>
-                        <p className="text-xs font-medium">Document media</p>
-                        <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
-                          Review every place each missing file is used before
-                          choosing a recovery. Geometry, crop, and bindings stay
-                          unchanged unless the action says otherwise.
-                        </p>
-                      </div>
-                    </div>
-                    {recoveryCardAssetIds.map((assetId) => {
-                      const receiptAlias =
-                        documentMediaAdmission?.receipt?.aliases.find(
-                          (item) => item.localAssetId === assetId
-                        )
-                      const liveImpact = receiptAlias
-                        ? localMediaRecoveryImpactForReferenceKeys(
-                            document,
-                            assetId,
-                            receiptAlias.expectedReferenceKeys
-                          )
-                        : localMediaRecoveryImpact(document, assetId)
-                      if (liveImpact.referenceCount > 0) {
-                        retainedRecoveryImpactsRef.current.set(
-                          assetId,
-                          liveImpact
-                        )
-                      }
-                      const impact =
-                        liveImpact.referenceCount > 0
-                          ? liveImpact
-                          : (retainedRecoveryImpactsRef.current.get(assetId) ??
-                            liveImpact)
-                      const storedOperation =
-                        localMediaRecoveryOperations[assetId]
-                      const displayedOperation =
-                        displayedLocalMediaRecoveryOperation(
-                          storedOperation,
-                          liveImpact.referenceCount
-                        )
-                      const removable =
-                        impact.referenceCount > 0 &&
-                        impact.lockedNodeIds.length === 0 &&
-                        impact.requiredFieldIds.length === 0
-                      const removeDisabledReason = removable
-                        ? null
-                        : impact.lockedNodeIds.length
-                          ? "Unlock the affected layer before removing it."
-                          : impact.requiredFieldIds.length
-                            ? "A required field uses this image, so it cannot be cleared or removed."
-                            : "Choose a replacement before clearing protected image uses."
-                      return (
-                        <MissingLocalAssetRecoveryCard
-                          key={assetId}
-                          disabled={
-                            interactionLocked ||
-                            Boolean(recoveryMutationDisabledReason)
-                          }
-                          actionDisabledReason={recoveryMutationDisabledReason}
-                          admissionOutcome={
-                            documentMediaAdmission?.unresolved.find(
-                              (item) => item.localAssetId === assetId
-                            )?.outcome
-                          }
-                          deviceState={
-                            receiptAlias?.localState ??
-                            localRecoveryDeviceStates[assetId] ??
-                            "unavailable"
-                          }
-                          impact={impact}
-                          localAssetId={assetId}
-                          mappingState={
-                            receiptAlias?.managedStatus ??
-                            missingMappingStates[assetId] ??
-                            "checking"
-                          }
-                          operation={displayedOperation}
-                          reviewOnly={
-                            Boolean(receiptAlias) ||
-                            (displayedOperation?.completionKind ===
-                              "relinked" &&
-                              liveImpact.referenceCount === 0)
-                          }
-                          references={localMediaRecoveryReferenceRows(
-                            document,
-                            impact
-                          )}
-                          onNavigateToReference={onNavigateToReference}
-                          onClearReference={(referenceKey) =>
-                            onRemoveMissingLocalAsset?.(assetId, referenceKey)
-                          }
-                          removeDisabledReason={
-                            impact.referenceKeys.length
-                              ? null
-                              : removeDisabledReason
-                          }
-                          onChooseStudioImage={() =>
-                            onChooseStudioImageForLocalAsset?.(assetId)
-                          }
-                          onLocateFile={(file) =>
-                            onLocateMissingLocalAsset?.(assetId, file)
-                          }
-                          onKeepLocatedFile={
-                            onKeepLocatedFileAsNewLocalAsset
-                              ? () => onKeepLocatedFileAsNewLocalAsset(assetId)
-                              : undefined
-                          }
-                          onRemove={
-                            onRemoveMissingLocalAsset
-                              ? () => onRemoveMissingLocalAsset(assetId)
-                              : undefined
-                          }
-                          onRetryMapping={() =>
-                            setMissingMappingGeneration(
-                              (current) => current + 1
-                            )
-                          }
-                          onRetryRecovery={
-                            onRetryLocalMediaRecovery
-                              ? () => onRetryLocalMediaRecovery(assetId)
-                              : undefined
-                          }
-                          onCancelRecovery={
-                            onCancelLocalMediaRecovery
-                              ? () => onCancelLocalMediaRecovery(assetId)
-                              : undefined
-                          }
-                          onUseStudioCopy={
-                            onUseStudioCopyForLocalAsset
-                              ? () =>
-                                  onUseStudioCopyForLocalAsset(
-                                    assetId,
-                                    localMediaRecoveryOperations[assetId]
-                                      ?.phase === "identity_conflict"
-                                  )
-                              : undefined
-                          }
-                        />
-                      )
-                    })}
-                  </div>
-                ) : null}
-                {managedUploads.assets.length ||
-                (mode !== "recover-local" && visibleLocalAssets.length) ? (
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                    {managedUploads.assets.map(renderManagedCard)}
-                    {mode === "recover-local"
-                      ? null
-                      : visibleLocalAssets.map(renderLocalCard)}
-                  </div>
-                ) : managedUploads.status === "loading" ||
-                  localStatus === "loading" ? (
-                  <LoadingGrid />
-                ) : uploadQueue.length === 0 ? (
-                  <EmptyCollection
-                    collection="uploads"
-                    query={normalizedQuery}
-                    searching={Boolean(normalizedQuery)}
-                    onClearSearch={() => setQuery("")}
-                    onUpload={() => fileInputRef.current?.click()}
-                  />
-                ) : null}
-                {managedUploads.nextCursor ? (
-                  <div className="mt-4 flex justify-center">
-                    <Button
-                      className="h-11"
-                      disabled={
-                        interactionLocked || managedUploads.status === "loading"
-                      }
-                      variant="outline"
-                      onClick={() => void loadMoreManaged("uploads")}
-                    >
-                      {managedUploads.status === "loading" ? (
-                        <LoaderCircleIcon
-                          className="animate-spin"
-                          data-icon="inline-start"
-                        />
-                      ) : null}
-                      Load more
-                    </Button>
-                  </div>
-                ) : null}
-              </div>
-            </ScrollArea>
-          </TabsContent>
-
-          <TabsContent
-            className="flex min-h-0 flex-col overflow-hidden"
-            value="library"
-          >
-            <ScrollArea className="min-h-0 flex-1">
-              <div className="p-4 pb-8">
-                {mode !== "recover-local" && visibleLibraryAssets.length ? (
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                    {visibleLibraryAssets.map(renderLibraryCard)}
-                  </div>
-                ) : (
-                  <EmptyCollection
-                    collection="library"
-                    query={normalizedQuery}
-                    searching={Boolean(normalizedQuery)}
-                    onClearSearch={() => setQuery("")}
-                    onUpload={() => fileInputRef.current?.click()}
-                  />
-                )}
-              </div>
-            </ScrollArea>
-          </TabsContent>
-        </Tabs>
-
-        <footer className="grid gap-2 border-t bg-muted/35 px-4 py-2.5 text-[11px] text-muted-foreground sm:grid-cols-2 sm:items-center">
-          <div className="flex min-w-0 items-center gap-2">
-            <CloudIcon className="size-3.5 shrink-0" />
-            <span className="truncate">
-              Workspace:{" "}
-              {managedStorage
-                ? `${managedStorage.count} files · ${formatAssetBytes(managedStorage.bytes)}`
-                : "—"}
-            </span>
+                size="icon"
+                type="button"
+                variant="ghost"
+                onClick={() => requestClose(false)}
+              >
+                <XIcon />
+              </Button>
+            </div>
           </div>
-          <div className="flex min-w-0 items-center gap-2 sm:justify-end">
-            <HardDriveIcon className="size-3.5 shrink-0" />
-            <span className="truncate">
-              This device:{" "}
-              {localStorage
-                ? `${localStorage.activeAssetCount} available · ${formatAssetBytes(localStorage.activeAssetBytes)}${localStorage.archivedAssetCount ? ` · ${localStorage.archivedAssetCount} retained for history (${formatAssetBytes(localStorage.archivedAssetBytes)})` : ""}`
-                : "—"}
-            </span>
-          </div>
-        </footer>
+        </DialogHeader>
+
+        {mode === "recover-local" ? (
+          managementContent
+        ) : (
+          <LibraryMediaBrowser
+            action={mode}
+            actionError={actionError}
+            actionsEnabled={actionsEnabled && !interactionLocked}
+            density="compact"
+            pendingIdentity={pendingIdentity}
+            scope={mediaScope}
+            targetName={targetName}
+            visible={open}
+            onScopeChange={onMediaScopeChange}
+            onSelect={onMediaSelect}
+          />
+        )}
+
+        <Sheet
+          open={mode !== "recover-local" && managementOpen}
+          onOpenChange={setManagementOpen}
+        >
+          <SheetContent
+            aria-describedby="media-management-description"
+            className="flex w-full max-w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-lg"
+            side="right"
+          >
+            <SheetHeader className="shrink-0 border-b px-4 py-4 pr-14">
+              <SheetTitle>Manage media</SheetTitle>
+              <SheetDescription
+                id="media-management-description"
+                className="text-xs"
+              >
+                Upload, recover, archive, or promote media without changing the
+                active library search.
+              </SheetDescription>
+            </SheetHeader>
+            {statusMessage ? (
+              <div
+                className={`shrink-0 border-b px-4 py-2 text-xs ${
+                  selectionError
+                    ? "bg-destructive/5 text-destructive"
+                    : "bg-muted/45 text-muted-foreground"
+                }`}
+                role="status"
+              >
+                {statusMessage}
+              </div>
+            ) : null}
+            {managementContent}
+          </SheetContent>
+        </Sheet>
       </DialogContent>
 
       <AlertDialog
@@ -2379,7 +2222,7 @@ export function AssetLibraryDialog({
             {deleteReview?.status === "ready" ? (
               <Button
                 className="h-11"
-                disabled={interactionLocked}
+                disabled={managementMutationLocked}
                 variant="destructive"
                 onClick={() => void confirmDelete()}
               >

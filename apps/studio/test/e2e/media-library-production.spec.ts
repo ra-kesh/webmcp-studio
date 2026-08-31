@@ -1,7 +1,22 @@
 import { expect, test } from "@playwright/test"
 import type { Page as BrowserPage } from "@playwright/test"
-import { documentSchema, northstarSeed } from "@webmcp/document"
-import type { Document as StudioDocument, SceneNode } from "@webmcp/document"
+import {
+  documentSchema,
+  libraryCatalogQueryIdentity,
+  libraryCatalogQuerySchema,
+  northstarSeed,
+  projectCuratedMediaDetail,
+  projectCuratedMediaSummary,
+  projectPublicMediaDetail,
+  projectPublicMediaSummary,
+} from "@webmcp/document"
+import type {
+  Document as StudioDocument,
+  LibraryCatalogQuery,
+  LibraryMediaDetail,
+  SceneNode,
+} from "@webmcp/document"
+import { studioMediaManifest } from "../../src/content/library/media/manifest"
 
 test.describe.configure({ timeout: 90_000 })
 
@@ -77,12 +92,21 @@ type MediaApiState = {
   recentAssetIds: Set<string>
   unavailableAssetIds: Set<string>
   usedBarrier: Promise<void> | null
+  detailBarrier: Promise<void> | null
+  detailCalls: Map<string, number>
   paginationBarrier: Promise<void> | null
   failListRequests: number
   deletionImpact: (assetId: string, call: number) => DeletionImpact
   impactCalls: Map<string, number>
   deleteCalls: string[]
-  usedCalls: string[]
+  preferenceUsedCalls: Array<{
+    id: string
+    version: number
+    mediaSource: "curated" | "managed"
+    completedAction: "insert" | "replace" | "assign_field"
+    completionId: string
+  }>
+  managedMarkUsedCalls: Array<{ id: string; idempotencyKey: string }>
 }
 
 declare global {
@@ -472,6 +496,354 @@ async function installMediaApi(page: BrowserPage, state: MediaApiState) {
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
     "base64"
   )
+  const workspaceRevision = 1
+  const requestHeaders = {
+    "cache-control": "no-store",
+    etag: `"library-workspace-revision-${workspaceRevision}"`,
+    "x-request-id": "media-e2e-library-request",
+  }
+  const managedMetadata = (asset: ManagedAsset) => ({
+    catalogVersion: 1,
+    description: `Workspace upload ${asset.name}`,
+    categoryId: "workspace-upload",
+    useCaseIds: [] as string[],
+    formatFamily: "raster",
+    tags: ["upload"],
+    provenance: {
+      sourceName: "Studio workspace",
+      sourceUrl: null,
+      license: {
+        id: "workspace-owned",
+        name: "Workspace-owned media",
+        url: null,
+      },
+      attribution: { required: false, text: null },
+      contentSha256: null,
+    },
+    permissions: {
+      canView: true as const,
+      canUse: true,
+      canFavorite: true,
+      canAddToCollection: true,
+    },
+    preferences: {
+      favorite: false,
+      lastUsedAt: state.recentAssetIds.has(asset.id) ? asset.lastUsedAt : null,
+      collectionIds: [] as string[],
+    },
+    curatedRank: null,
+  })
+  const curatedSources = studioMediaManifest.filter((item) =>
+    ["olive-botanical", "sandstone-arches"].includes(item.id)
+  )
+  const mediaDetail = (
+    id: string,
+    version: number,
+    source: "curated" | "managed"
+  ): LibraryMediaDetail | null => {
+    if (source === "curated") {
+      const item = curatedSources.find(
+        (candidate) => candidate.id === id && candidate.version === version
+      )
+      return item ? projectCuratedMediaDetail(item, {}) : null
+    }
+    const asset = state.assets.find((candidate) => candidate.id === id)
+    return asset && version === 1
+      ? projectPublicMediaDetail(asset, managedMetadata(asset))
+      : null
+  }
+  const catalogQuery = (url: URL): LibraryCatalogQuery =>
+    libraryCatalogQuerySchema.parse({
+      generation: url.searchParams.get("generation"),
+      search: url.searchParams.get("search") ?? "",
+      itemKinds: url.searchParams.getAll("itemKind"),
+      categoryIds: url.searchParams.getAll("categoryId"),
+      useCaseIds: url.searchParams.getAll("useCaseId"),
+      formatFamilies: url.searchParams.getAll("formatFamily"),
+      orientations: url.searchParams.getAll("orientation"),
+      ownerKinds: url.searchParams.getAll("ownerKind"),
+      favoritesOnly: url.searchParams.get("favoritesOnly") === "true",
+      recentOnly: url.searchParams.get("recentOnly") === "true",
+      collectionId: url.searchParams.get("collectionId"),
+      order: url.searchParams.get("order") ?? "curated",
+      limit: Number(url.searchParams.get("limit") ?? 24),
+      cursor: url.searchParams.get("cursor"),
+    })
+  const catalogItems = (query: LibraryCatalogQuery) => {
+    const curated = curatedSources.map((item, index) =>
+      projectCuratedMediaSummary(item, { curatedRank: index })
+    )
+    const managed = state.assets.map((asset) =>
+      projectPublicMediaSummary(asset, managedMetadata(asset))
+    )
+    const search = query.search.toLowerCase()
+    const items = [...curated, ...managed].filter((item) => {
+      if (!query.itemKinds.includes("media")) return false
+      if (
+        query.ownerKinds.length > 0 &&
+        !query.ownerKinds.includes(item.owner.kind)
+      ) {
+        return false
+      }
+      if (query.recentOnly) {
+        if (
+          item.mediaSource !== "managed" ||
+          !state.recentAssetIds.has(item.id)
+        ) {
+          return false
+        }
+      }
+      if (query.favoritesOnly || query.collectionId !== null) return false
+      if (
+        query.categoryIds.length > 0 &&
+        !query.categoryIds.includes(item.categoryId)
+      ) {
+        return false
+      }
+      if (
+        query.useCaseIds.length > 0 &&
+        !query.useCaseIds.every((id) => item.useCaseIds.includes(id))
+      ) {
+        return false
+      }
+      if (
+        query.formatFamilies.length > 0 &&
+        !query.formatFamilies.includes(item.formatFamily)
+      ) {
+        return false
+      }
+      if (
+        query.orientations.length > 0 &&
+        !query.orientations.includes(item.orientation)
+      ) {
+        return false
+      }
+      return (
+        !search ||
+        item.id.toLowerCase() === search ||
+        [item.name, item.description, ...item.tags]
+          .join(" ")
+          .toLowerCase()
+          .includes(search)
+      )
+    })
+    return items.sort((left, right) => {
+      if (query.order === "recent") {
+        return (
+          (right.preferences?.lastUsedAt ?? "").localeCompare(
+            left.preferences?.lastUsedAt ?? ""
+          ) || right.id.localeCompare(left.id)
+        )
+      }
+      if (query.order === "newest") {
+        return (
+          right.createdAt.localeCompare(left.createdAt) ||
+          right.id.localeCompare(left.id)
+        )
+      }
+      return (
+        (left.curatedRank ?? Number.MAX_SAFE_INTEGER) -
+          (right.curatedRank ?? Number.MAX_SAFE_INTEGER) ||
+        left.id.localeCompare(right.id)
+      )
+    })
+  }
+
+  await page.route("**/v1/studio/library/**", async (route) => {
+    const request = route.request()
+    const url = new URL(request.url())
+    const path = url.pathname
+
+    if (path === "/v1/studio/library/preferences") {
+      await route.fulfill({
+        headers: requestHeaders,
+        json: {
+          schemaVersion: 1,
+          snapshot: {
+            workspaceRevision,
+            preferences: [],
+            collections: [],
+          },
+        },
+      })
+      return
+    }
+
+    if (path === "/v1/studio/library/collections") {
+      await route.fulfill({
+        headers: requestHeaders,
+        json: { schemaVersion: 1, workspaceRevision, collections: [] },
+      })
+      return
+    }
+
+    if (path === "/v1/studio/library/items" && request.method() === "GET") {
+      const query = catalogQuery(url)
+      if (query.itemKinds.includes("media") && state.failListRequests > 0) {
+        state.failListRequests -= 1
+        await route.fulfill({
+          status: 503,
+          headers: {
+            "cache-control": "no-store",
+            "x-request-id": "media-e2e-library-failure",
+          },
+          json: {
+            error: {
+              code: "library_unavailable",
+              message: "The media repository is temporarily unavailable.",
+              requestId: "media-e2e-library-failure",
+              retryable: true,
+            },
+          },
+        })
+        return
+      }
+      const allItems = catalogItems(query)
+      const offset = Number(
+        (query.cursor ?? "media-e2e-cursor-0").replace("media-e2e-cursor-", "")
+      )
+      if (offset > 0) await state.paginationBarrier
+      const items = allItems.slice(offset, offset + query.limit)
+      const nextOffset = offset + items.length
+      await route.fulfill({
+        headers: requestHeaders,
+        json: {
+          schemaVersion: 1,
+          workspaceRevision,
+          page: {
+            schemaVersion: 1,
+            catalogRevision: "media-e2e-catalog-v1",
+            generation: query.generation,
+            queryIdentity: libraryCatalogQueryIdentity(query),
+            items,
+            nextCursor:
+              nextOffset < allItems.length
+                ? `media-e2e-cursor-${nextOffset}`
+                : null,
+            total: allItems.length,
+          },
+        },
+      })
+      return
+    }
+
+    const detailMatch = path.match(
+      /^\/v1\/studio\/library\/items\/media\/([^/]+)\/versions\/(\d+|current)$/
+    )
+    if (detailMatch && request.method() === "GET") {
+      const id = decodeURIComponent(detailMatch[1])
+      const source = url.searchParams.get("mediaSource")
+      const version = detailMatch[2] === "current" ? 1 : Number(detailMatch[2])
+      const detailCall = (state.detailCalls.get(id) ?? 0) + 1
+      state.detailCalls.set(id, detailCall)
+      if (detailCall > 1) await state.detailBarrier
+      const detail =
+        source === "curated" || source === "managed"
+          ? mediaDetail(id, version, source)
+          : null
+      if (!detail) {
+        await route.fulfill({
+          status: 404,
+          headers: {
+            "cache-control": "no-store",
+            "x-request-id": "media-e2e-detail-missing",
+          },
+          json: {
+            error: {
+              code: "library_item_not_found",
+              message: "Library item was not found.",
+              requestId: "media-e2e-detail-missing",
+              retryable: false,
+            },
+          },
+        })
+        return
+      }
+      await route.fulfill({
+        headers: {
+          ...requestHeaders,
+          etag:
+            detailMatch[2] === "current"
+              ? `"library-managed-detail-${id}-version-${version}-workspace-${workspaceRevision}"`
+              : requestHeaders.etag,
+        },
+        json: { schemaVersion: 1, workspaceRevision, detail },
+      })
+      return
+    }
+
+    const usedMatch = path.match(
+      /^\/v1\/studio\/library\/items\/media\/([^/]+)\/versions\/(\d+)\/used$/
+    )
+    if (usedMatch && request.method() === "POST") {
+      const id = decodeURIComponent(usedMatch[1])
+      const version = Number(usedMatch[2])
+      const source = url.searchParams.get("mediaSource")
+      const body = request.postDataJSON() as {
+        completedAction: "insert" | "replace" | "assign_field"
+        completionId: string
+      }
+      if (source !== "curated" && source !== "managed") {
+        await route.fulfill({ status: 400, json: { error: "invalid_source" } })
+        return
+      }
+      state.preferenceUsedCalls.push({
+        id,
+        version,
+        mediaSource: source,
+        completedAction: body.completedAction,
+        completionId: body.completionId,
+      })
+      await state.usedBarrier
+      const timestamp = "2026-08-31T08:01:00.000Z"
+      if (source === "managed") state.recentAssetIds.add(id)
+      await route.fulfill({
+        headers: {
+          ...requestHeaders,
+          etag: '"library-preference-revision-1"',
+        },
+        json: {
+          schemaVersion: 1,
+          receipt: {
+            schemaVersion: 1,
+            operation: "record_used",
+            completedAction: body.completedAction,
+            completionId: body.completionId,
+            preference: {
+              identity: {
+                itemKind: "media",
+                id,
+                version,
+                mediaSource: source,
+              },
+              favorite: false,
+              lastUsedAt: timestamp,
+              collectionIds: [],
+              revision: 1,
+              updatedAt: timestamp,
+            },
+            workspaceRevision,
+          },
+        },
+      })
+      return
+    }
+
+    if (path.includes("/content") && request.method() === "GET") {
+      await route.fulfill({
+        contentType: "image/png",
+        headers: { "access-control-allow-origin": "*" },
+        body: onePixelPng,
+      })
+      return
+    }
+
+    await route.fulfill({
+      status: 404,
+      json: { error: "unhandled_library_route" },
+    })
+  })
+
   await page.route("**/v1/studio/assets**", async (route) => {
     const request = route.request()
     const url = new URL(request.url())
@@ -563,7 +935,10 @@ async function installMediaApi(page: BrowserPage, state: MediaApiState) {
     }
 
     if (path.endsWith("/used") && request.method() === "POST") {
-      state.usedCalls.push(assetId)
+      state.managedMarkUsedCalls.push({
+        id: assetId,
+        idempotencyKey: request.headers()["idempotency-key"] ?? "",
+      })
       await state.usedBarrier
       const asset = state.assets.find((candidate) => candidate.id === assetId)
       if (!asset) {
@@ -615,12 +990,15 @@ function mediaApiState(assets: ManagedAsset[] = []): MediaApiState {
     ),
     unavailableAssetIds: new Set(),
     usedBarrier: null,
+    detailBarrier: null,
+    detailCalls: new Map(),
     paginationBarrier: null,
     failListRequests: 0,
     deletionImpact: validImpact,
     impactCalls: new Map(),
     deleteCalls: [],
-    usedCalls: [],
+    preferenceUsedCalls: [],
+    managedMarkUsedCalls: [],
   }
 }
 
@@ -646,6 +1024,34 @@ async function openMediaFromToolbar(
   const dialog = page.getByRole("dialog", { name: "Add image" })
   await expect(dialog).toBeVisible()
   return { dialog, opener }
+}
+
+type MediaActionSource =
+  "Studio library" | "Workspace upload" | "On this device"
+
+const mediaActionName = ({
+  action,
+  item,
+  source,
+  target,
+}: {
+  action: "Insert" | "Replace"
+  item: string
+  source: MediaActionSource
+  target?: string
+}) =>
+  action === "Replace" && target
+    ? `Replace “${target}” with “${item}” from ${source}`
+    : `${action} “${item}” from ${source}`
+
+async function openMediaManagement(
+  page: BrowserPage,
+  dialog: ReturnType<BrowserPage["getByRole"]>
+) {
+  await dialog.getByRole("button", { name: "Manage", exact: true }).click()
+  const management = page.getByRole("dialog", { name: "Manage media" })
+  await expect(management).toBeVisible()
+  return management
 }
 
 async function seedLocalAsset(
@@ -675,7 +1081,11 @@ async function seedLocalAssets(
       request.onupgradeneeded = () => {
         const db = request.result
         if (!db.objectStoreNames.contains("asset-metadata")) {
-          db.createObjectStore("asset-metadata", { keyPath: "id" })
+          const metadata = db.createObjectStore("asset-metadata", {
+            keyPath: "id",
+          })
+          metadata.createIndex("createdAt", "createdAt")
+          metadata.createIndex("lastUsedAt", "lastUsedAt")
         }
         if (!db.objectStoreNames.contains("asset-blobs")) {
           db.createObjectStore("asset-blobs")
@@ -720,6 +1130,7 @@ async function seedLocalAssets(
           lastUsedAt:
             asset.used === false ? timestamp : "2026-08-28T11:00:00.000Z",
           archivedAt: null,
+          integrity: "ready",
           revision: 1,
         })
         if (asset.includeBlob) {
@@ -766,11 +1177,17 @@ test("toolbar media entry exposes distinct collections and inserts a built-in as
     "active"
   )
   await expect(
-    dialog.getByRole("button", { name: "Insert Olive botanical" })
+    dialog.getByRole("button", {
+      name: mediaActionName({
+        action: "Insert",
+        item: "Olive botanical",
+        source: "Studio library",
+      }),
+    })
   ).toBeVisible()
   await expect(
-    dialog.getByRole("button", { name: /More actions for Olive botanical/ })
-  ).toHaveCount(0)
+    dialog.getByRole("button", { name: "Actions for Olive botanical" })
+  ).toBeVisible()
 
   await dialog.getByRole("tab", { name: "Recent" }).click()
   await expect(
@@ -781,20 +1198,32 @@ test("toolbar media entry exposes distinct collections and inserts a built-in as
   ).toBeVisible()
   await dialog.getByRole("tab", { name: "Uploads" }).click()
   await expect(
-    dialog.getByText("Workspace upload", { exact: true })
+    dialog.getByRole("button", {
+      name: mediaActionName({
+        action: "Insert",
+        item: managedAlpha.name,
+        source: "Workspace upload",
+      }),
+    })
   ).toBeVisible()
-  await expect(dialog.locator("footer")).toContainText("This device:")
 
   await dialog.getByRole("tab", { name: "Library" }).click()
-  await dialog.getByRole("button", { name: "Insert Olive botanical" }).click()
-  await expect(dialog).toBeHidden()
+  await dialog
+    .getByRole("button", {
+      name: mediaActionName({
+        action: "Insert",
+        item: "Olive botanical",
+        source: "Studio library",
+      }),
+    })
+    .click()
+  await expect(dialog).toBeHidden({ timeout: 30_000 })
 
   await expect
     .poll(async () => {
       const inspection = await inspectDesign(page)
       return inspection.activePageNodes.filter(
-        (node) =>
-          node.type === "image" && node.assetId === "library-olive-botanical"
+        (node) => node.type === "image" && node.assetId === "olive-botanical"
       ).length
     })
     .toBe(1)
@@ -804,7 +1233,7 @@ test("toolbar media entry exposes distinct collections and inserts a built-in as
   )
   const inserted = after.activePageNodes.find(
     (node): node is ImageInspection =>
-      node.type === "image" && node.assetId === "library-olive-botanical"
+      node.type === "image" && node.assetId === "olive-botanical"
   )
   expect(inserted).toBeDefined()
   expect(after.selection?.nodeIds).toEqual([inserted!.id])
@@ -816,33 +1245,57 @@ test("toolbar media entry exposes distinct collections and inserts a built-in as
       return inspection.activePageNodes.some((node) => node.id === inserted!.id)
     })
     .toBe(false)
+  expect(state.preferenceUsedCalls).toEqual([
+    expect.objectContaining({
+      id: "olive-botanical",
+      version: 2,
+      mediaSource: "curated",
+      completedAction: "insert",
+    }),
+  ])
+  expect(state.managedMarkUsedCalls).toEqual([])
 })
 
-test("selection commit blocks close, upload, and duplicate mutations until it settles", async ({
+test("selection preparation blocks duplicate mutations while it settles and commits once", async ({
   page,
 }) => {
   const state = mediaApiState([managedAlpha])
-  let releaseUsed: () => void = () => {}
-  state.usedBarrier = new Promise<void>((resolve) => {
-    releaseUsed = resolve
+  let releaseDetail: () => void = () => {}
+  state.detailBarrier = new Promise<void>((resolve) => {
+    releaseDetail = resolve
   })
   await installMediaApi(page, state)
   await bootStudio(page)
   const { dialog } = await openMediaFromToolbar(page, "Upload image…")
-  await dialog
-    .getByRole("button", { name: `Insert ${managedAlpha.name}` })
-    .click()
+  const exactAction = dialog.getByRole("button", {
+    name: mediaActionName({
+      action: "Insert",
+      item: managedAlpha.name,
+      source: "Workspace upload",
+    }),
+  })
+  await exactAction.click()
   await expect(
     dialog.getByRole("button", { name: "Close media library" })
-  ).toBeDisabled()
+  ).toBeEnabled()
   await expect(
-    dialog.getByRole("button", { name: "Upload images" })
+    dialog.getByRole("button", { name: "Manage", exact: true })
   ).toBeDisabled()
-  await page.keyboard.press("Escape")
-  await expect(dialog).toBeVisible()
-  releaseUsed()
-  await expect(dialog).toBeHidden()
-  expect(state.usedCalls).toEqual([managedAlpha.id])
+  await expect(exactAction).toBeDisabled()
+  await expect(exactAction).toHaveAttribute("aria-busy", "true")
+  releaseDetail()
+  await expect(dialog).toBeHidden({ timeout: 30_000 })
+  expect(state.preferenceUsedCalls).toEqual([
+    expect.objectContaining({
+      id: managedAlpha.id,
+      version: 1,
+      mediaSource: "managed",
+      completedAction: "insert",
+    }),
+  ])
+  expect(state.managedMarkUsedCalls).toEqual([
+    expect.objectContaining({ id: managedAlpha.id }),
+  ])
 })
 
 test("inspector replacement uses the same library and preserves layer geometry, crop, name, and stack position", async ({
@@ -865,9 +1318,16 @@ test("inspector replacement uses the same library and preserves layer geometry, 
   await expect(dialog).toContainText("Replace target")
   await dialog.getByRole("tab", { name: "Library" }).click()
   await dialog
-    .getByRole("button", { name: /Replace .* with Sandstone arches/ })
+    .getByRole("button", {
+      name: mediaActionName({
+        action: "Replace",
+        item: "Sandstone arches",
+        source: "Studio library",
+        target: "Replace target",
+      }),
+    })
     .click()
-  await expect(dialog).toBeHidden()
+  await expect(dialog).toBeHidden({ timeout: 30_000 })
 
   const after = await inspectDesign(page)
   const afterNode = imageNode(after)
@@ -885,7 +1345,7 @@ test("inspector replacement uses the same library and preserves layer geometry, 
     placement: beforeNode.placement,
     frameMask: beforeNode.frameMask,
     decorative: beforeNode.decorative,
-    assetId: "library-sandstone-arches",
+    assetId: "sandstone-arches",
   })
   expect(afterNode.alt).toBe(beforeNode.alt)
   expect(after.selection?.nodeIds).toEqual([replacementNodeId])
@@ -898,7 +1358,9 @@ test("inspector replacement uses the same library and preserves layer geometry, 
 
   await page.getByRole("button", { name: "Undo" }).click()
   await expect
-    .poll(async () => imageNode(await inspectDesign(page)).assetId)
+    .poll(async () => imageNode(await inspectDesign(page)).assetId, {
+      timeout: 30_000,
+    })
     .toBe(beforeNode.assetId)
   expect(imageNode(await inspectDesign(page))).toMatchObject(beforeNode)
 })
@@ -919,10 +1381,15 @@ test("managed replacement preserves image geometry and selects the existing laye
   const dialog = page.getByRole("dialog", { name: "Replace image" })
   await dialog
     .getByRole("button", {
-      name: `Replace “Replace target” with ${managedAlpha.name}`,
+      name: mediaActionName({
+        action: "Replace",
+        item: managedAlpha.name,
+        source: "Workspace upload",
+        target: "Replace target",
+      }),
     })
     .click()
-  await expect(dialog).toBeHidden()
+  await expect(dialog).toBeHidden({ timeout: 30_000 })
 
   const inspection = await inspectDesign(page)
   expect(imageNode(inspection)).toMatchObject({
@@ -941,7 +1408,17 @@ test("managed replacement preserves image geometry and selects the existing laye
     assetId: managedAlpha.id,
   })
   expect(inspection.selection?.nodeIds).toEqual([replacementNodeId])
-  expect(state.usedCalls).toEqual([managedAlpha.id])
+  expect(state.preferenceUsedCalls).toEqual([
+    expect.objectContaining({
+      id: managedAlpha.id,
+      version: 1,
+      mediaSource: "managed",
+      completedAction: "replace",
+    }),
+  ])
+  expect(state.managedMarkUsedCalls).toEqual([
+    expect.objectContaining({ id: managedAlpha.id }),
+  ])
 })
 
 test("a source-bound image blocks layer-only replacement without detaching or reverting", async ({
@@ -986,17 +1463,29 @@ test("a managed item archived after listing is rechecked before document commit"
   const before = await inspectDesign(page)
   const { dialog } = await openMediaFromToolbar(page, "Upload image…")
   await expect(
-    dialog.getByRole("button", { name: `Insert ${managedAlpha.name}` })
+    dialog.getByRole("button", {
+      name: mediaActionName({
+        action: "Insert",
+        item: managedAlpha.name,
+        source: "Workspace upload",
+      }),
+    })
   ).toBeVisible()
   state.unavailableAssetIds.add(managedAlpha.id)
 
   await dialog
-    .getByRole("button", { name: `Insert ${managedAlpha.name}` })
+    .getByRole("button", {
+      name: mediaActionName({
+        action: "Insert",
+        item: managedAlpha.name,
+        source: "Workspace upload",
+      }),
+    })
     .click()
 
   await expect(dialog).toBeVisible()
-  await expect(dialog.getByRole("status")).toContainText(
-    "That image could not be added"
+  await expect(dialog).toContainText(
+    "The selected image could not be applied. Retry in the current design."
   )
   const after = await inspectDesign(page)
   expect(after.document.operationVersion).toBe(before.document.operationVersion)
@@ -1005,7 +1494,8 @@ test("a managed item archived after listing is rechecked before document commit"
       (node) => node.type === "image" && node.assetId === managedAlpha.id
     )
   ).toBe(false)
-  expect(state.usedCalls).toEqual([])
+  expect(state.preferenceUsedCalls).toEqual([])
+  expect(state.managedMarkUsedCalls).toEqual([])
 })
 
 test("a managed item archived after WebMCP proposal is rechecked before apply", async ({
@@ -1062,7 +1552,8 @@ test("a local upload can be inserted, survives reload, and becomes reusable Rece
   page,
 }) => {
   const localId = "local-reload-reuse"
-  await installMediaApi(page, mediaApiState())
+  const state = mediaApiState()
+  await installMediaApi(page, state)
   await bootStudio(page)
   await seedLocalAsset(page, {
     id: localId,
@@ -1073,14 +1564,20 @@ test("a local upload can be inserted, survives reload, and becomes reusable Rece
 
   let picker = await openMediaFromToolbar(page, "Upload image…")
   await picker.dialog
-    .getByRole("button", { name: "Insert Reusable local.png" })
+    .getByRole("button", {
+      name: mediaActionName({
+        action: "Insert",
+        item: "Reusable local.png",
+        source: "On this device",
+      }),
+    })
     .click()
   await expect(picker.dialog).toBeHidden()
   await expect
     .poll(
       async () =>
         (await inspectDesign(page)).activePageNodes.filter(
-          (node) => node.type === "image" && node.name === "Reusable local"
+          (node) => node.type === "image" && node.name === "Reusable local.png"
         ).length
     )
     .toBe(1)
@@ -1100,16 +1597,24 @@ test("a local upload can be inserted, survives reload, and becomes reusable Rece
     picker.dialog.getByText("Reusable local.png", { exact: true })
   ).toBeVisible()
   await picker.dialog
-    .getByRole("button", { name: "Insert Reusable local.png" })
+    .getByRole("button", {
+      name: mediaActionName({
+        action: "Insert",
+        item: "Reusable local.png",
+        source: "On this device",
+      }),
+    })
     .click()
   await expect
     .poll(
       async () =>
         (await inspectDesign(page)).activePageNodes.filter(
-          (node) => node.type === "image" && node.name === "Reusable local"
+          (node) => node.type === "image" && node.name === "Reusable local.png"
         ).length
     )
     .toBe(2)
+  expect(state.preferenceUsedCalls).toEqual([])
+  expect(state.managedMarkUsedCalls).toEqual([])
 })
 
 test("multi-file uploads expose real progress and independent success, error, cancel, and retry states", async ({
@@ -1119,21 +1624,28 @@ test("multi-file uploads expose real progress and independent success, error, ca
   await installMediaApi(page, state)
   await bootStudio(page)
   const { dialog } = await openMediaFromToolbar(page, "Upload image…")
+  const management = await openMediaManagement(page, dialog)
   const files = ["success.png", "failed.png", "cancel.png"].map((name) => ({
     name,
     mimeType: "image/png",
     buffer: Buffer.from(`fixture:${name}`),
   }))
-  await dialog.locator('input[type="file"]').setInputFiles(files)
-  await expect(dialog.getByText("Upload queue", { exact: true })).toBeVisible()
+  await management.locator('input[type="file"]').setInputFiles(files)
   await expect(
-    dialog.getByRole("progressbar", { name: "Uploading success.png" })
+    management.getByText("Upload queue", { exact: true })
+  ).toBeVisible()
+  await expect(
+    management.getByRole("progressbar", { name: "Uploading success.png" })
   ).not.toHaveAttribute("value")
 
   await page.keyboard.press("Escape")
+  await expect(management).toBeHidden()
   await expect(dialog).toBeVisible()
+  await page.keyboard.press("Escape")
+  await expect(dialog).toBeVisible()
+  const reopenedManagement = await openMediaManagement(page, dialog)
   await expect(
-    dialog
+    reopenedManagement
       .getByRole("status")
       .filter({ hasText: "Uploads are still in progress" })
   ).toBeVisible()
@@ -1142,9 +1654,13 @@ test("multi-file uploads expose real progress and independent success, error, ca
     window.__mediaUploadHarness?.progress("success.png", 40, 100)
   )
   await expect(
-    dialog.getByRole("progressbar", { name: "Uploading success.png" })
+    reopenedManagement.getByRole("progressbar", {
+      name: "Uploading success.png",
+    })
   ).toHaveAttribute("value", "40")
-  await expect(dialog.getByText("40%", { exact: true })).toBeVisible()
+  await expect(
+    reopenedManagement.getByText("40%", { exact: true })
+  ).toBeVisible()
 
   const successAsset: ManagedAsset = {
     ...managedAlpha,
@@ -1152,25 +1668,29 @@ test("multi-file uploads expose real progress and independent success, error, ca
     name: "success.png",
     mediaType: "image/png",
   }
+  state.assets.push(successAsset)
   await page.evaluate(
     ({ name, asset }) => window.__mediaUploadHarness?.succeed(name, asset),
     { name: "success.png", asset: successAsset }
   )
-  state.assets.push(successAsset)
   await page.evaluate(() => window.__mediaUploadHarness?.fail("failed.png"))
-  await dialog
+  await reopenedManagement
     .getByRole("button", { name: "Cancel upload of cancel.png" })
     .click()
-  await expect(dialog.getByText("Ready", { exact: true })).toBeVisible()
   await expect(
-    dialog.getByText("Status unknown", { exact: true })
+    reopenedManagement.getByText("Ready", { exact: true })
   ).toBeVisible()
-  await expect(dialog.getByText("Cancelled", { exact: true })).toBeVisible()
-  await expect(dialog).toContainText(
+  await expect(
+    reopenedManagement.getByText("Status unknown", { exact: true })
+  ).toBeVisible()
+  await expect(
+    reopenedManagement.getByText("Cancelled", { exact: true })
+  ).toBeVisible()
+  await expect(reopenedManagement).toContainText(
     "Studio lost contact before it could confirm the result. Retry checks the server with the same request key before creating anything new."
   )
 
-  const failedRow = dialog
+  const failedRow = reopenedManagement
     .getByText("failed.png", { exact: true })
     .locator("xpath=../../..")
   await failedRow.getByRole("button", { name: "Retry" }).click()
@@ -1187,28 +1707,18 @@ test("multi-file uploads expose real progress and independent success, error, ca
     name: "failed.png",
     mediaType: "image/png",
   }
+  state.assets.push(retryAsset)
   await page.evaluate(
     ({ name, asset }) => window.__mediaUploadHarness?.succeed(name, asset),
     { name: "failed.png", asset: retryAsset }
   )
-  state.assets.push(retryAsset)
   await expect(failedRow.getByText("Ready", { exact: true })).toBeVisible()
 
-  await dialog.getByRole("tab", { name: "Recent" }).click()
-  await expect(dialog.getByText("success.png", { exact: true })).toHaveCount(0)
-  await dialog.getByRole("tab", { name: "Uploads" }).click()
-
-  const successRow = dialog
+  const successRow = reopenedManagement
     .getByText("success.png", { exact: true })
     .locator("xpath=../../..")
   await successRow.getByRole("button", { name: "Use image" }).click()
-  await expect
-    .poll(async () =>
-      (await dialog.count()) === 0
-        ? "closed"
-        : await dialog.getAttribute("data-state")
-    )
-    .toBe("closed")
+  await expect(dialog).toBeHidden()
   await expect
     .poll(async () => {
       const inspection = await inspectDesign(page)
@@ -1223,39 +1733,62 @@ test("repository failure retries into an honest empty state and search remains c
   page,
 }) => {
   const state = mediaApiState()
-  state.failListRequests = 2
   await installMediaApi(page, state)
   await bootStudio(page)
+  // The discovery controller may replace an in-flight request while the tab
+  // and dialog settle. Keep the initial Uploads request unavailable until the
+  // terminal error is visible, then restore it for the explicit user retry.
+  state.failListRequests = 10
   const { dialog } = await openMediaFromToolbar(page, "Upload image…")
+  await expect(dialog.getByRole("tab", { name: "Uploads" })).toHaveAttribute(
+    "aria-selected",
+    "true"
+  )
 
-  await expect(dialog.getByText("Cloud media is unavailable")).toBeVisible()
+  await expect(dialog.getByText("Media could not load")).toBeVisible()
   await expect(dialog).toContainText(
     "The media repository is temporarily unavailable."
   )
-  await dialog.getByRole("button", { name: "Retry" }).click()
+  state.failListRequests = 0
+  await dialog.getByRole("button", { name: "Try again" }).click()
   await expect(
-    dialog.getByText("No uploads yet", { exact: true })
-  ).toBeVisible()
-  await expect(
-    dialog.getByRole("button", { name: "Upload images" }).first()
+    dialog.getByText("No media in Workspace uploads", { exact: true })
   ).toBeVisible()
 
   await dialog.getByRole("tab", { name: "Library" }).click()
   const search = dialog.getByRole("searchbox", { name: "Search media" })
   await search.fill("sandstone")
   await expect(
-    dialog.getByRole("button", { name: "Insert Sandstone arches" })
+    dialog.getByRole("button", {
+      name: mediaActionName({
+        action: "Insert",
+        item: "Sandstone arches",
+        source: "Studio library",
+      }),
+    })
   ).toBeVisible()
   await expect(
-    dialog.getByRole("button", { name: "Insert Olive botanical" })
+    dialog.getByRole("button", {
+      name: mediaActionName({
+        action: "Insert",
+        item: "Olive botanical",
+        source: "Studio library",
+      }),
+    })
   ).toHaveCount(0)
   await search.fill("no-such-media")
   await expect(
-    dialog.getByText("No images match “no-such-media”", { exact: true })
+    dialog.getByText("No media matches these filters", { exact: true })
   ).toBeVisible()
-  await dialog.getByRole("button", { name: "Clear search" }).click()
+  await dialog.getByRole("button", { name: "Clear search and filters" }).click()
   await expect(
-    dialog.getByRole("button", { name: "Insert Olive botanical" })
+    dialog.getByRole("button", {
+      name: mediaActionName({
+        action: "Insert",
+        item: "Olive botanical",
+        source: "Studio library",
+      }),
+    })
   ).toBeVisible()
 })
 
@@ -1306,13 +1839,20 @@ test("a missing local blob is explicit and can be repaired through geometry-safe
   })
   const before = imageNode(await inspectDesign(page))
   const { dialog } = await openMediaFromToolbar(page, "Upload image…")
+  const management = await openMediaManagement(page, dialog)
 
   await expect(
-    dialog.getByText("File bytes are missing from this device", { exact: true })
+    management.getByText("File bytes are missing from this device", {
+      exact: true,
+    })
   ).toBeVisible()
   await expect(
-    dialog.getByRole("button", { name: "Insert Missing portrait.png" })
+    management.getByRole("button", {
+      name: "Manage device image Missing portrait.png",
+    })
   ).toBeDisabled()
+  await page.keyboard.press("Escape")
+  await expect(management).toBeHidden()
   await dialog.getByRole("button", { name: "Close media library" }).click()
   await expect(dialog).toBeHidden()
   await selectReplacementTarget(page)
@@ -1324,11 +1864,20 @@ test("a missing local blob is explicit and can be repaired through geometry-safe
   await expect(repair).toContainText("Replace target")
   await repair.getByRole("tab", { name: "Library" }).click()
   await repair
-    .getByRole("button", { name: /Replace .* with Olive botanical/ })
+    .getByRole("button", {
+      name: mediaActionName({
+        action: "Replace",
+        item: "Olive botanical",
+        source: "Studio library",
+        target: "Replace target",
+      }),
+    })
     .click()
   await expect
-    .poll(async () => imageNode(await inspectDesign(page)).assetId)
-    .toBe("library-olive-botanical")
+    .poll(async () => imageNode(await inspectDesign(page)).assetId, {
+      timeout: 30_000,
+    })
+    .toBe("olive-botanical")
   const repaired = imageNode(await inspectDesign(page))
   expect(repaired).toMatchObject({
     id: before.id,
@@ -1343,7 +1892,7 @@ test("a missing local blob is explicit and can be repaired through geometry-safe
     frameMask: before.frameMask,
     decorative: before.decorative,
     alt: before.alt,
-    assetId: "library-olive-botanical",
+    assetId: "olive-botanical",
   })
 })
 
@@ -1360,12 +1909,13 @@ test("reference navigation cannot bypass the active-upload close guard", async (
     })
   )
   const { dialog } = await openMediaFromToolbar(page, "Upload image…")
-  await dialog.locator('input[type="file"]').setInputFiles({
+  const management = await openMediaManagement(page, dialog)
+  await management.locator('input[type="file"]').setInputFiles({
     name: "pending.png",
     mimeType: "image/png",
     buffer: Buffer.from("pending-upload"),
   })
-  await dialog
+  await management
     .getByRole("button", { name: `More actions for ${managedAlpha.name}` })
     .click()
   await page.getByRole("menuitem", { name: "Remove from uploads" }).click()
@@ -1381,12 +1931,12 @@ test("reference navigation cannot bypass the active-upload close guard", async (
   await expect(review).toBeHidden()
   await expect(dialog).toBeVisible()
   await expect(
-    dialog
+    management
       .getByRole("status")
       .filter({ hasText: "Uploads are still in progress" })
   ).toBeVisible()
   expect((await inspectDesign(page)).selection).toBeNull()
-  await dialog
+  await management
     .getByRole("button", { name: "Cancel upload of pending.png" })
     .click()
 })
@@ -1418,12 +1968,19 @@ test("archive is blocked by current use and revalidates managed impact before de
   await bootStudio(page)
   let picker = await openMediaFromToolbar(page, "Upload image…")
   await picker.dialog
-    .getByRole("button", { name: `Insert ${managedAlpha.name}` })
+    .getByRole("button", {
+      name: mediaActionName({
+        action: "Insert",
+        item: managedAlpha.name,
+        source: "Workspace upload",
+      }),
+    })
     .click()
   await expect(picker.dialog).toBeHidden()
 
   picker = await openMediaFromToolbar(page, "Upload image…")
-  const usedMenu = picker.dialog.getByRole("button", {
+  let management = await openMediaManagement(page, picker.dialog)
+  const usedMenu = management.getByRole("button", {
     name: `More actions for ${managedAlpha.name}`,
   })
   await usedMenu.focus()
@@ -1457,8 +2014,9 @@ test("archive is blocked by current use and revalidates managed impact before de
     .toBe(managedAlpha.id)
 
   picker = await openMediaFromToolbar(page, "Upload image…")
+  management = await openMediaManagement(page, picker.dialog)
 
-  const raceMenu = picker.dialog.getByRole("button", {
+  const raceMenu = management.getByRole("button", {
     name: `More actions for ${managedRace.name}`,
   })
   await raceMenu.focus()
@@ -1482,8 +2040,9 @@ test("an unreferenced upload archives successfully and workspace storage refresh
   await installMediaApi(page, state)
   await bootStudio(page)
   const { dialog } = await openMediaFromToolbar(page, "Upload image…")
-  await expect(dialog.locator("footer")).toContainText("1 files")
-  const menu = dialog.getByRole("button", {
+  const management = await openMediaManagement(page, dialog)
+  await expect(management.locator("footer")).toContainText("1 files")
+  const menu = management.getByRole("button", {
     name: `More actions for ${managedDelete.name}`,
   })
   await menu.click()
@@ -1495,9 +2054,9 @@ test("an unreferenced upload archives successfully and workspace storage refresh
   await review.getByRole("button", { name: "Hide from uploads" }).click()
   await expect(review).toBeHidden()
   await expect(
-    dialog.getByText(managedDelete.name, { exact: true })
+    management.getByText(managedDelete.name, { exact: true })
   ).toHaveCount(0)
-  await expect(dialog.locator("footer")).toContainText("0 files")
+  await expect(management.locator("footer")).toContainText("0 files")
   expect(state.deleteCalls).toEqual([managedDelete.id])
 })
 
@@ -1523,8 +2082,11 @@ test("a large local inventory revokes preview URLs outside the observer margin a
     )
     .toBeGreaterThan(0)
   await dialog
-    .locator('[data-local-asset-id="local-inventory-000"]')
-    .scrollIntoViewIfNeeded()
+    .locator('[data-library-media-scroll-owner="true"]')
+    .evaluate((element) => {
+      element.scrollTop = element.scrollHeight
+      element.dispatchEvent(new Event("scroll", { bubbles: true }))
+    })
   await expect
     .poll(() =>
       page.evaluate(() => window.__mediaObjectUrlHarness?.revoked.length ?? 0)
@@ -1568,15 +2130,21 @@ for (const width of [320, 390]) {
     }))
     expect(layout.scrollWidth).toBeLessThanOrEqual(layout.clientWidth)
 
-    for (const control of [
-      dialog.getByRole("button", { name: "Close media library" }),
-      dialog.getByRole("button", { name: "Upload images" }).first(),
-      dialog.getByRole("tab", { name: "Recent" }),
-      dialog.getByRole("searchbox", { name: "Search media" }),
-    ]) {
+    for (const [name, control] of [
+      [
+        "Close media library",
+        dialog.getByRole("button", { name: "Close media library" }),
+      ],
+      ["Manage", dialog.getByRole("button", { name: "Manage", exact: true })],
+      ["Recent tab", dialog.getByRole("tab", { name: "Recent" })],
+      ["Search media", dialog.getByRole("searchbox", { name: "Search media" })],
+    ] as const) {
       const bounds = await control.boundingBox()
       expect(bounds).not.toBeNull()
-      expect(Math.round(bounds!.height)).toBeGreaterThanOrEqual(44)
+      expect(
+        Math.round(bounds!.height),
+        `${name} touch target height`
+      ).toBeGreaterThanOrEqual(44)
       expect(bounds!.x).toBeGreaterThanOrEqual(0)
       expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width)
     }

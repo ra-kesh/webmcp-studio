@@ -1,6 +1,9 @@
 import type { ChangeOperation, Document } from "@webmcp/document"
 import { studioAssets } from "./asset-catalog"
-import { displayFieldChangeValue } from "./field-review-display"
+import {
+  assetValueDisplay,
+  displayFieldChangeValue,
+} from "./field-review-display"
 
 export type ReviewOperationDetails = {
   label: string
@@ -17,20 +20,31 @@ const displayChangeValue = (value: unknown) => {
   return JSON.stringify(value)
 }
 
-function displayAssetId(value: unknown): string {
+function displayAssetId(value: unknown, source?: unknown): string {
   if (typeof value !== "string" || !value) return "No asset"
+  if (typeof source === "string") return assetValueDisplay(source).label
   const catalogId = value.startsWith("library-")
     ? value.slice("library-".length)
     : value
   const catalogAsset = studioAssets.find((asset) => asset.id === catalogId)
-  if (catalogAsset) return `${catalogAsset.name} (${catalogAsset.id})`
+  if (catalogAsset) {
+    return value.startsWith("library-")
+      ? `${catalogAsset.name} · Legacy curated value`
+      : `${catalogAsset.name} · Curated Studio asset`
+  }
   return value.startsWith("asset-")
-    ? `Uploaded Studio asset (${value})`
-    : `Asset ${value}`
+    ? `Workspace-managed image (${value})`
+    : "Legacy asset value"
 }
 
-function displayNodeProperty(key: string, value: unknown): string {
-  return key === "assetId" ? displayAssetId(value) : displayChangeValue(value)
+function displayNodeProperty(
+  key: string,
+  value: unknown,
+  source?: unknown
+): string {
+  return key === "assetId"
+    ? displayAssetId(value, source)
+    : displayChangeValue(value)
 }
 
 export function operationDetails(
@@ -71,6 +85,8 @@ export function operationDetails(
       (candidate) => candidate.id === command.nodeId
     )
     const keys = Object.keys(command.patch).filter((key) => key !== "src")
+    const beforeSource = node?.type === "image" ? node.src : undefined
+    const afterSource = "src" in command.patch ? command.patch.src : undefined
     const noReviewableProperties = "No public property changes"
     return {
       label: node?.name ?? command.nodeId,
@@ -79,16 +95,30 @@ export function operationDetails(
         keys
           .map(
             (key) =>
-              `${key}: ${displayNodeProperty(key, node?.[key as keyof typeof node])}`
+              `${key}: ${displayNodeProperty(key, node?.[key as keyof typeof node], beforeSource)}`
           )
           .join(" · ") || noReviewableProperties,
       after:
         keys
           .map(
             (key) =>
-              `${key}: ${displayNodeProperty(key, command.patch[key as keyof typeof command.patch])}`
+              `${key}: ${displayNodeProperty(key, command.patch[key as keyof typeof command.patch], afterSource)}`
           )
           .join(" · ") || noReviewableProperties,
+    }
+  }
+  if (command.type === "replace_image_source") {
+    const node = document.nodes.find(
+      (candidate) => candidate.id === command.nodeId
+    )
+    return {
+      label: node?.name ?? command.nodeId,
+      context: "Image source",
+      before:
+        node?.type === "image"
+          ? displayAssetId(node.assetId, node.src)
+          : "Current image",
+      after: displayAssetId(command.assetId, command.src),
     }
   }
   if (command.type === "add_output_variant") {
@@ -100,11 +130,15 @@ export function operationDetails(
     }
   }
   if (command.type === "add_node") {
+    const after =
+      command.node.type === "image"
+        ? `${displayAssetId(command.node.assetId, command.node.src)} · Add to ${command.pageId} at ${command.node.x}, ${command.node.y}`
+        : `Add to ${command.pageId} at ${command.node.x}, ${command.node.y}`
     return {
       label: command.node.name,
-      context: `${command.node.width} × ${command.node.height} image layer`,
+      context: `${command.node.width} × ${command.node.height} ${command.node.type.replaceAll("_", " ")} layer`,
       before: "Layer does not exist",
-      after: `Add to ${command.pageId} at ${command.node.x}, ${command.node.y}`,
+      after,
     }
   }
   return {

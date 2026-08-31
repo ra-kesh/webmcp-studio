@@ -2,6 +2,7 @@ import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { renderConformanceDocument } from "@webmcp/document"
 import { describe, expect, it, vi } from "vitest"
+import { studioMediaManifest } from "../../content/library/media/manifest"
 
 import { InspectorSidebar, reviewTargetExists } from "./inspector-sidebar"
 
@@ -14,6 +15,55 @@ const textNode = renderConformanceDocument.nodes.find(
 const rectangleNode = renderConformanceDocument.nodes.find(
   (node) => node.type === "rect"
 )!
+
+const renderImageSourceInspector = (selectedImage: typeof image) =>
+  renderToStaticMarkup(
+    createElement(InspectorSidebar, {
+      document: {
+        ...renderConformanceDocument,
+        nodes: renderConformanceDocument.nodes.map((node) =>
+          node.id === selectedImage.id ? selectedImage : node
+        ),
+      },
+      selectedNodes: [selectedImage],
+      pendingChangeSet: null,
+      lastResolvedChangeSet: null,
+      changeSetConflict: null,
+      changeSetError: null,
+      isApplyingChangeSet: false,
+      webMcpStatus: "ready",
+      webMcpError: null,
+      capabilityContext: { documentEditable: true },
+      onUpdateNode: vi.fn(),
+      onUpdateSelection: vi.fn(),
+      onUpdateField: vi.fn(),
+      onCreateField: vi.fn(),
+      onUpdateFieldDefinition: vi.fn(),
+      onRemoveField: vi.fn(),
+      onBindField: vi.fn(),
+      onUnbindField: vi.fn(),
+      onFocusNode: vi.fn(),
+      onDecideChangeOperation: vi.fn(),
+      onDecideAllChangeOperations: vi.fn(),
+      onApplyChangeSet: vi.fn(),
+      onDiscardChangeSet: vi.fn(),
+      onAlignSelection: vi.fn(),
+      onAlignSelectionToPage: vi.fn(),
+      onDistributeSelection: vi.fn(),
+      onSetSelectionLocked: vi.fn(),
+      onSetSelectionVisible: vi.fn(),
+      onReorderSelection: vi.fn(),
+      onDuplicateSelection: vi.fn(),
+      onDeleteSelection: vi.fn(),
+      onUpdateImageFrameGeometry: vi.fn(),
+      onSetImagePlacement: vi.fn(),
+      onSetImageFrameMask: vi.fn(),
+      onRunImageCommand: vi.fn(),
+      isImageCommandEnabled: () => true,
+      onRetryImageSource: vi.fn(),
+      onRemoveImageLayer: vi.fn(),
+    })
+  )
 
 describe("InspectorSidebar basic property controls", () => {
   it("keeps Fill editable for an unlocked rectangle", () => {
@@ -69,6 +119,38 @@ describe("InspectorSidebar basic property controls", () => {
 })
 
 describe("InspectorSidebar image replacement capability", () => {
+  it.each([
+    {
+      label: "canonical curated",
+      assetId: studioMediaManifest[0].id,
+      src: studioMediaManifest[0].resourcePath,
+      expected: `${studioMediaManifest[0].name} · Curated Studio asset`,
+    },
+    {
+      label: "workspace managed",
+      assetId: "asset-managed-source-1",
+      src: "asset:managed/asset-managed-source-1",
+      expected: "Workspace-managed image (asset-managed-source-1)",
+    },
+    {
+      label: "device local",
+      assetId: "local-source-1",
+      src: "asset:local/local-source-1",
+      expected: "Device-local image (local-source-1)",
+    },
+  ])("labels $label image sources without exposing the locator", (source) => {
+    const selectedImage = {
+      ...image,
+      assetId: source.assetId,
+      src: source.src,
+    }
+    const markup = renderImageSourceInspector(selectedImage)
+
+    expect(markup).toContain(source.expected)
+    expect(markup).not.toContain(source.src)
+    expect(markup).not.toContain("External image")
+  })
+
   it("disables Replace and explains the host-projected source binding", () => {
     const reason =
       "“Cover image” gets its image from the “Client portrait” shared asset field. Change the field value in Fields or unbind Source."
@@ -265,7 +347,7 @@ describe("InspectorSidebar text selection state", () => {
         selectedNodes: [textNode],
         textEditingState: {
           nodeId: textNode.id,
-          text: textNode.type === "text" ? textNode.text : "",
+          text: textNode.text,
           selection: { anchor: 0, focus: 5 },
           typographyStyle: { kind: "value", value: null },
           paintStyle: { kind: "value", value: null },

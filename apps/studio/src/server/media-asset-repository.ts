@@ -478,6 +478,36 @@ export class ManagedMediaLibraryCatalogRepository {
       .first<MediaAssetCatalogRow>()
     return row ? catalogEntry(row) : null
   }
+
+  async getCurrent(
+    workspaceId: string,
+    assetId: string
+  ): Promise<ManagedMediaCatalogEntry | null> {
+    try {
+      assertMediaAssetId(assetId)
+    } catch (error) {
+      if (
+        error instanceof MediaAssetError &&
+        error.code === "invalid_asset_id"
+      ) {
+        return null
+      }
+      throw error
+    }
+    const row = await this.db
+      .prepare(
+        `/* media:library-catalog-current */ SELECT ${mediaAssetCatalogColumns}
+         FROM media_assets assets
+         JOIN media_asset_catalog_metadata metadata
+           ON metadata.workspace_id = assets.workspace_id
+          AND metadata.asset_id = assets.id
+         WHERE assets.workspace_id = ?1 AND assets.id = ?2
+           AND assets.status = 'ready'`
+      )
+      .bind(workspaceId, assetId)
+      .first<MediaAssetCatalogRow>()
+    return row ? catalogEntry(row) : null
+  }
 }
 
 export class MediaAssetRepository {

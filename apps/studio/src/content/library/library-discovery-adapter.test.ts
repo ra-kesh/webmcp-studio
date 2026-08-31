@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
-import { libraryCatalogQueryIdentity } from "@webmcp/document"
+import {
+  libraryCatalogQueryIdentity,
+  projectPublicMediaDetail,
+} from "@webmcp/document"
 import type {
   LibraryCatalogItemSummary,
   LibraryCatalogQueryInput,
@@ -176,6 +179,96 @@ describe("Studio library discovery adapter", () => {
         new AbortController().signal
       )
     ).rejects.toMatchObject({ code: "library_invalid_response" })
+  })
+
+  it("resolves a current managed upload to an exact source-aware catalog detail", async () => {
+    const assetId = "asset-ManagedHandshake01"
+    const detail = projectPublicMediaDetail(
+      {
+        id: assetId,
+        name: "Uploaded portrait",
+        mediaType: "image/jpeg",
+        bytes: 240_000,
+        width: 1_200,
+        height: 1_500,
+        createdAt: "2026-08-31T08:00:00.000Z",
+        updatedAt: "2026-08-31T08:00:00.000Z",
+        lastUsedAt: "2026-08-31T08:00:00.000Z",
+        status: "ready",
+      },
+      {
+        catalogVersion: 7,
+        description: "Customer-provided workspace upload",
+        categoryId: "workspace-upload",
+        useCaseIds: [],
+        formatFamily: "image",
+        tags: [],
+        provenance: {
+          sourceName: "Workspace upload",
+          sourceUrl: null,
+          license: {
+            id: "customer-provided",
+            name: "Customer-provided; rights not verified",
+            url: null,
+          },
+          attribution: { required: false, text: null },
+          contentSha256: null,
+        },
+      }
+    )
+    const fetchRequest = vi.fn<LibraryDiscoveryFetch>(async () =>
+      jsonResponse(
+        { schemaVersion: 1, workspaceRevision: 7, detail },
+        {
+          etag: `"library-managed-detail-${assetId}-version-7-workspace-7"`,
+        }
+      )
+    )
+    const adapter = createStudioLibraryDiscoveryAdapter({ fetchRequest })
+    const signal = new AbortController().signal
+
+    await expect(
+      adapter.getCurrentManagedDetail(assetId, signal)
+    ).resolves.toMatchObject({
+      summary: { id: assetId, version: 7, mediaSource: "managed" },
+      selectionIdentity: {
+        source: "managed",
+        assetId,
+        catalogVersion: 7,
+      },
+    })
+    expect(fetchRequest).toHaveBeenCalledWith(
+      `/v1/studio/library/items/media/${assetId}/versions/current?mediaSource=managed`,
+      expect.objectContaining({
+        method: "GET",
+        cache: "no-store",
+        signal,
+      })
+    )
+
+    const wrongSource = structuredClone(detail)
+    wrongSource.summary.mediaSource = "curated"
+    wrongSource.summary.owner = { kind: "studio" }
+    wrongSource.selectionIdentity = {
+      source: "curated",
+      assetId,
+      version: 7,
+    }
+    const collisionAdapter = createStudioLibraryDiscoveryAdapter({
+      fetchRequest: async () =>
+        jsonResponse({
+          schemaVersion: 1,
+          workspaceRevision: 7,
+          detail: wrongSource,
+        }),
+    })
+    await expect(
+      collisionAdapter.getCurrentManagedDetail(assetId, signal)
+    ).rejects.toMatchObject({
+      code: "library_invalid_response",
+      message:
+        "Studio returned current details for a different managed media item.",
+    })
   })
 
   it("fails closed on invalid envelopes, request identities, and workspace ETags", async () => {

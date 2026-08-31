@@ -164,7 +164,7 @@ import type { PageThumbnailDocumentSnapshot } from "./editor/page-thumbnail-rast
 import { QuotationSidebar } from "./editor/quotation-sidebar"
 import type { DocumentPanelTab } from "./editor/quotation-sidebar"
 import { AssetLibraryDialog } from "./editor/asset-library-dialog"
-import type { AssetLibrarySelection } from "./editor/asset-library-dialog"
+import type { ManagedMediaAsset } from "./editor/managed-media-repository"
 import { ApiPlaygroundDialog } from "./editor/api-playground-dialog"
 import { studioAssets } from "./editor/asset-catalog"
 import { NewDocumentDialog } from "./editor/new-document-dialog"
@@ -221,6 +221,12 @@ import type {
 import type { LibraryMediaUsageWarning } from "./editor/library-media-action-executor"
 import { createLibraryTemplateDocument } from "./editor/library-template-create-command"
 import { useLibraryPreferenceCommands } from "../content/library/library-preference-provider"
+import { resolveManagedMediaCatalogUpload } from "../content/library/managed-media-catalog-handshake"
+import { libraryMediaUiIdentity } from "../content/library/library-media-discovery"
+import type {
+  LibraryMediaIntent,
+  LibraryMediaScope,
+} from "../content/library/library-media-browser"
 import type { ReviewAffectedTarget } from "./editor/review-journal"
 import type { DocumentDraftRecord } from "./editor/document-draft-repository"
 import type { DocumentRouteMediaAdmission } from "./editor/document-route-admission"
@@ -298,12 +304,17 @@ const HEART_ICON_PATH =
 
 type MediaPickerCollection = "recent" | "uploads" | "library"
 
+const mediaScopeFromCollection = (
+  collection: MediaPickerCollection
+): LibraryMediaScope => ({ kind: collection })
+
 export type MediaPickerActionState = Readonly<{
   kind: "action"
   sessionId: string
   target: LibraryMediaActionTarget
   targetName?: string
   initialCollection: MediaPickerCollection
+  scope: LibraryMediaScope
   selectedDetail: LibraryMediaDetail | null
   pendingIdentity: string | null
   actionError: string | null
@@ -315,6 +326,7 @@ export type MediaPickerRecoveryState = Readonly<{
   targetLocalAssetId: string
   targetName?: string
   initialCollection: "uploads"
+  scope: Extract<LibraryMediaScope, { kind: "uploads" }>
 }>
 
 export type MediaPickerState = MediaPickerActionState | MediaPickerRecoveryState
@@ -424,6 +436,7 @@ export function useLibraryMediaPickerSession({
         target,
         targetName,
         initialCollection,
+        scope: mediaScopeFromCollection(initialCollection),
         selectedDetail: null,
         pendingIdentity: null,
         actionError: null,
@@ -452,6 +465,7 @@ export function useLibraryMediaPickerSession({
         targetLocalAssetId: localAssetId,
         targetName,
         initialCollection: "uploads",
+        scope: { kind: "uploads" },
       }
       installState(next)
       return next.sessionId
@@ -497,7 +511,7 @@ export function useLibraryMediaPickerSession({
       installState({
         ...opened,
         selectedDetail,
-        pendingIdentity: `${detail.summary.mediaSource}:${detail.summary.id}@${detail.summary.version}`,
+        pendingIdentity: libraryMediaUiIdentity(detail.summary),
         actionError: null,
       })
       let outcome: PerformLibraryMediaActionOutcome
@@ -598,6 +612,15 @@ export function useLibraryMediaPickerSession({
     )
   }, [])
 
+  const setScope = useCallback(
+    (scope: LibraryMediaScope) => {
+      const current = stateRef.current
+      if (!current || current.kind !== "action") return
+      installState({ ...current, scope })
+    },
+    [installState]
+  )
+
   useEffect(() => {
     if (documentIdRef.current === documentId) return
     documentIdRef.current = documentId
@@ -622,6 +645,7 @@ export function useLibraryMediaPickerSession({
     openAction,
     openRecovery,
     close,
+    setScope,
     executeExactSelection,
     retryUsageNotice,
     dismissUsageNotice,
@@ -2128,6 +2152,21 @@ export function StudioShell({
     [activePage.id, editor.document.nodes, mediaPickerSession.openAction]
   )
 
+  const openFieldMediaPicker = useCallback(
+    (fieldId: string, opener: HTMLButtonElement) => {
+      const field = editor.document.fields.find(
+        (candidate) => candidate.id === fieldId
+      )
+      mediaPickerSession.openAction({
+        target: { type: "assign_field", fieldId },
+        targetName: field?.label ?? "Image field",
+        initialCollection: "recent",
+        focusReturnTarget: opener,
+      })
+    },
+    [editor.document.fields, mediaPickerSession.openAction]
+  )
+
   const imageCommandCapabilities = deriveEditorImageCommandCapabilities({
     selectedNodes: editor.selectedNodes,
     inspectorCapabilities: imageSelectionCapabilities,
@@ -2916,45 +2955,32 @@ export function StudioShell({
     }
   }
 
-  const selectMediaAsset = async (selection: AssetLibrarySelection) => {
-    if (!mediaPicker) return false
-    if (mediaPicker.kind === "recover-local") {
-      const localAssetId = mediaPicker.targetLocalAssetId
-      if (selection.kind !== "managed") {
-        return {
-          ok: false,
-          message:
-            "Choose a ready Studio upload for alias-wide recovery. Use Locate file for a device file.",
-        }
-      }
+  const selectExactMedia = useCallback(
+    (intent: LibraryMediaIntent) => {
+      void mediaPickerSession.executeExactSelection(intent.detail)
+    },
+    [mediaPickerSession.executeExactSelection]
+  )
+
+  const selectManagedRecoveryMedia = useCallback(
+    (asset: ManagedMediaAsset) => {
+      const current = mediaPickerSession.state
+      if (!current || current.kind !== "recover-local") return false
       return editor.chooseManagedImageForLocalAsset(
-        localAssetId,
-        selection.asset
+        current.targetLocalAssetId,
+        asset
       )
-    }
-    if (mediaPicker.target.type === "replace") {
-      const nodeId = mediaPicker.target.nodeId
-      const replacementBlock = editor.imageReplacementBlock(nodeId)
-      if (replacementBlock) {
-        return { ok: false, message: replacementBlock }
-      }
-      if (selection.kind === "library") {
-        return editor.replaceImageWithLibraryAsset(nodeId, selection.asset)
-      }
-      if (selection.kind === "local") {
-        return editor.replaceImageWithLocalAsset(nodeId, selection.asset)
-      }
-      return editor.replaceImageWithManagedMediaAsset(nodeId, selection.asset)
-    }
-    if (mediaPicker.target.type !== "insert") return false
-    if (selection.kind === "library") {
-      return editor.addLibraryAsset(selection.asset)
-    }
-    if (selection.kind === "local") {
-      return editor.addLocalAsset(selection.asset)
-    }
-    return editor.addManagedMediaAsset(selection.asset)
-  }
+    },
+    [editor.chooseManagedImageForLocalAsset, mediaPickerSession.state]
+  )
+
+  const resolveUploadedMediaDetail = useCallback(
+    async (asset: ManagedMediaAsset, signal: AbortSignal) => {
+      const result = await resolveManagedMediaCatalogUpload(asset, { signal })
+      return result.status === "ready" ? result.detail : null
+    },
+    []
+  )
 
   const setManualZoom = (nextZoom: number) => zoomAtPoint(nextZoom)
 
@@ -5086,6 +5112,7 @@ export function StudioShell({
                   }
                   onUpdateSelection={editor.updateSelectionNodes}
                   onUpdateField={editor.updateField}
+                  onChooseFieldAsset={openFieldMediaPicker}
                   onCreateField={editor.createField}
                   onUpdateFieldDefinition={editor.updateFieldDefinition}
                   onRemoveField={editor.removeField}
@@ -5330,6 +5357,7 @@ export function StudioShell({
                 }
                 onUpdateSelection={editor.updateSelectionNodes}
                 onUpdateField={editor.updateField}
+                onChooseFieldAsset={openFieldMediaPicker}
                 onCreateField={editor.createField}
                 onUpdateFieldDefinition={editor.updateFieldDefinition}
                 onRemoveField={editor.removeField}
@@ -5482,7 +5510,9 @@ export function StudioShell({
               ? "recover-local"
               : mediaPicker?.target.type === "replace"
                 ? "replace"
-                : "insert"
+                : mediaPicker?.target.type === "assign_field"
+                  ? "assign_field"
+                  : "insert"
           }
           targetName={mediaPicker?.targetName}
           document={editor.document}
@@ -5499,8 +5529,20 @@ export function StudioShell({
           }
           localAssetPromotions={editor.localAssetPromotions}
           localMediaRecoveryOperations={editor.localMediaRecoveryOperations}
-          initialCollection={mediaPicker?.initialCollection}
-          onSelect={selectMediaAsset}
+          mediaScope={mediaPicker?.scope ?? { kind: "recent" }}
+          pendingIdentity={
+            mediaPicker?.kind === "action" ? mediaPicker.pendingIdentity : null
+          }
+          actionError={
+            mediaPicker?.kind === "action" ? mediaPicker.actionError : null
+          }
+          actionsEnabled={
+            mediaPicker?.kind === "action" && !mediaPicker.pendingIdentity
+          }
+          onMediaScopeChange={mediaPickerSession.setScope}
+          onMediaSelect={selectExactMedia}
+          resolveUploadedMediaDetail={resolveUploadedMediaDetail}
+          onRecoveryManagedSelect={selectManagedRecoveryMedia}
           onPromoteLocalAsset={(assetId) => {
             void editor.startLocalAssetPromotion(assetId)
           }}
