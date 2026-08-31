@@ -48,6 +48,13 @@ export type ProductCommandMenuRuntime = Readonly<{
   shortcut: (commandId: ProductCommandInvocation["commandId"]) => string | null
 }>
 
+export const productCommandMenuDensity = {
+  desktopItem: "min-h-7 py-1 text-xs leading-4",
+  compactItem:
+    "min-h-11 py-2 text-xs leading-4 min-[1280px]:min-h-7 min-[1280px]:py-1 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:py-2",
+  shortcut: "font-mono text-[11px] tracking-normal",
+} as const
+
 function CommandLabel({
   command,
   descriptionId,
@@ -99,23 +106,33 @@ function MenuCommandItem({
     if (command.checked !== undefined) {
       return (
         <MenubarCheckboxItem
+          className={productCommandMenuDensity.desktopItem}
           checked={
             command.checked === "mixed" ? "indeterminate" : command.checked
           }
           {...common}
         >
           <CommandLabel command={command} descriptionId={descriptionId} />
-          {shortcut ? <MenubarShortcut>{shortcut}</MenubarShortcut> : null}
+          {shortcut ? (
+            <MenubarShortcut className={productCommandMenuDensity.shortcut}>
+              {shortcut}
+            </MenubarShortcut>
+          ) : null}
         </MenubarCheckboxItem>
       )
     }
     return (
       <MenubarItem
+        className={productCommandMenuDensity.desktopItem}
         variant={command.definition.destructive ? "destructive" : "default"}
         {...common}
       >
         <CommandLabel command={command} descriptionId={descriptionId} />
-        {shortcut ? <MenubarShortcut>{shortcut}</MenubarShortcut> : null}
+        {shortcut ? (
+          <MenubarShortcut className={productCommandMenuDensity.shortcut}>
+            {shortcut}
+          </MenubarShortcut>
+        ) : null}
       </MenubarItem>
     )
   }
@@ -123,6 +140,7 @@ function MenuCommandItem({
   if (command.checked !== undefined) {
     return (
       <ContextMenuCheckboxItem
+        className={productCommandMenuDensity.desktopItem}
         checked={
           command.checked === "mixed" ? "indeterminate" : command.checked
         }
@@ -130,18 +148,25 @@ function MenuCommandItem({
       >
         <CommandLabel command={command} descriptionId={descriptionId} />
         {shortcut ? (
-          <ContextMenuShortcut>{shortcut}</ContextMenuShortcut>
+          <ContextMenuShortcut className={productCommandMenuDensity.shortcut}>
+            {shortcut}
+          </ContextMenuShortcut>
         ) : null}
       </ContextMenuCheckboxItem>
     )
   }
   return (
     <ContextMenuItem
+      className={productCommandMenuDensity.desktopItem}
       variant={command.definition.destructive ? "destructive" : "default"}
       {...common}
     >
       <CommandLabel command={command} descriptionId={descriptionId} />
-      {shortcut ? <ContextMenuShortcut>{shortcut}</ContextMenuShortcut> : null}
+      {shortcut ? (
+        <ContextMenuShortcut className={productCommandMenuDensity.shortcut}>
+          {shortcut}
+        </ContextMenuShortcut>
+      ) : null}
     </ContextMenuItem>
   )
 }
@@ -166,12 +191,15 @@ function DropdownProductCommandItem({
     <>
       <CommandLabel command={command} descriptionId={descriptionId} />
       {shortcut ? (
-        <DropdownMenuShortcut>{shortcut}</DropdownMenuShortcut>
+        <DropdownMenuShortcut className={productCommandMenuDensity.shortcut}>
+          {shortcut}
+        </DropdownMenuShortcut>
       ) : null}
     </>
   )
   return command.checked !== undefined ? (
     <DropdownMenuCheckboxItem
+      className={productCommandMenuDensity.compactItem}
       checked={command.checked === "mixed" ? "indeterminate" : command.checked}
       {...common}
     >
@@ -179,6 +207,7 @@ function DropdownProductCommandItem({
     </DropdownMenuCheckboxItem>
   ) : (
     <DropdownMenuItem
+      className={productCommandMenuDensity.compactItem}
       variant={command.definition.destructive ? "destructive" : "default"}
       {...common}
     >
@@ -225,7 +254,9 @@ function renderMenuItems(
     if (kind === "menubar") {
       return (
         <MenubarSub key={`${key}-${item.id}`}>
-          <MenubarSubTrigger>{item.label}</MenubarSubTrigger>
+          <MenubarSubTrigger className={productCommandMenuDensity.desktopItem}>
+            {item.label}
+          </MenubarSubTrigger>
           <MenubarSubContent className="min-w-56">
             {renderMenuItems(item.items, runtime, kind, `${key}-${item.id}`)}
           </MenubarSubContent>
@@ -234,7 +265,11 @@ function renderMenuItems(
     }
     return (
       <ContextMenuSub key={`${key}-${item.id}`}>
-        <ContextMenuSubTrigger>{item.label}</ContextMenuSubTrigger>
+        <ContextMenuSubTrigger
+          className={productCommandMenuDensity.desktopItem}
+        >
+          {item.label}
+        </ContextMenuSubTrigger>
         <ContextMenuSubContent className="min-w-56">
           {renderMenuItems(item.items, runtime, kind, `${key}-${item.id}`)}
         </ContextMenuSubContent>
@@ -266,7 +301,11 @@ function renderDropdownItems(
     if (item.type === "submenu") {
       return (
         <DropdownMenuSub key={`${key}-${item.id}`}>
-          <DropdownMenuSubTrigger>{item.label}</DropdownMenuSubTrigger>
+          <DropdownMenuSubTrigger
+            className={productCommandMenuDensity.compactItem}
+          >
+            {item.label}
+          </DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="min-w-56">
             {renderDropdownItems(item.items, runtime, `${key}-${item.id}`)}
           </DropdownMenuSubContent>
@@ -345,7 +384,7 @@ export function ProductCommandDropdownGroups({
 }) {
   return menus.map((menu) => (
     <DropdownMenuSub key={menu.id}>
-      <DropdownMenuSubTrigger className="min-h-11 min-[1280px]:min-h-0">
+      <DropdownMenuSubTrigger className={productCommandMenuDensity.compactItem}>
         {menu.label}
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent className="min-w-64">

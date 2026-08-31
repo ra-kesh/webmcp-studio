@@ -11,7 +11,7 @@ function EditorPanelHeader({
     <div
       data-slot="editor-panel-header"
       className={cn(
-        "flex h-(--studio-contextbar-height) shrink-0 items-center border-b border-border/80 bg-background px-2.5",
+        "flex h-(--studio-contextbar-height) shrink-0 items-center border-b border-border/80 bg-editor-panel px-2.5",
         className
       )}
       {...props}
@@ -45,7 +45,7 @@ function EditorPanelSectionHeader({
     <div
       data-slot="editor-panel-section-header"
       className={cn(
-        "flex min-h-8 shrink-0 items-center gap-2 border-b border-border/70 px-2.5 text-[11px] font-medium",
+        "flex min-h-8 shrink-0 items-center gap-2 border-b border-border/70 bg-editor-panel-muted/65 px-2.5 text-[11px] font-medium",
         className
       )}
       {...props}

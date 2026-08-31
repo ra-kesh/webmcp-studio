@@ -122,3 +122,60 @@ Evidence:
 - retained captures: `gate-a-inspector-1440x900.png` and
   `gate-a-dark-1440x900.png`;
 - retained measurements: `gate-a-metrics.json`.
+
+Gate A commit: `4c1cdaacc98175a31f9ef1ea9aae59b9bf0350c0`
+
+## Gate B result
+
+Status: implemented and locally accepted; independent review remains open
+
+Implemented:
+
+- exposed the existing editor panel, muted-panel, hover and floating colors as
+  semantic utilities, then applied them to the top bar, both side panels,
+  shared panel headers, the page filmstrip and docked/floating canvas controls;
+- kept the quotation artboard on its document-owned colors while making the
+  editor surround and floating controls resolve through theme-aware tokens;
+- added one product-command density contract at the menu composition boundary:
+  28 px desktop rows, 44 px compact and coarse-pointer rows, 12 px labels and
+  11 px mono shortcuts with normal tracking;
+- applied the density contract to command items, checkbox items and submenu
+  triggers across the desktop menubar, canvas context menu and responsive More
+  menu without changing command IDs, enablement, disabled reasons or dispatch;
+- retained existing 44 px compact zoom controls and responsive panel sheets.
+
+Mounted acceptance on isolated port 3102 confirmed:
+
+- desktop geometry remains a 48 px top bar, 40 px canvas context bar, 96 px
+  filmstrip and 36 px zoom toolbar with no document overflow;
+- the 390 x 820 compact editor keeps both sidebars out of flow, preserves its
+  40 px context bar, 88 px filmstrip and 48 px zoom toolbar, and has no document
+  overflow;
+- desktop More-menu and nested command rows resolve to 28 px with 12 px labels;
+  compact rows resolve to 44 px, while descriptive text presets retain their
+  deliberate 56 px two-line anatomy;
+- at a 1440 px viewport with `(pointer: coarse)` true, product-menu rows remain
+  44 px rather than collapsing to desktop density;
+- shortcuts resolve to Geist Mono at 11 px with normal letter spacing;
+- forced dark mode resolves workspace, panel and floating colors to the named
+  dark tokens, keeps the artboard light and redraws ruler chrome after layout;
+- with reduced motion enabled, mounted control transition and animation
+  durations resolve to `0.00001s`.
+
+Evidence:
+
+- UI typecheck passes;
+- Studio typecheck passes;
+- 19 focused product-menu, visual-contract, shared panel, Inspector and
+  quotation tests pass across six matched files;
+- `git diff --check` passes;
+- retained captures: `gate-b-desktop-1440x900.png`,
+  `gate-b-more-menu-1440x900.png`, `gate-b-compact-390x820.png`,
+  `gate-b-compact-menu-390x820.png`,
+  `gate-b-coarse-pointer-1440x900.png` and
+  `gate-b-dark-reduced-motion-1440x900.png`;
+- retained measurements: `gate-b-metrics.json`.
+
+The isolated D1 library-schema limitation from the baseline remains visible in
+the Templates panel. This gate did not modify or accept Library behavior, and
+no browser storage was cleared.

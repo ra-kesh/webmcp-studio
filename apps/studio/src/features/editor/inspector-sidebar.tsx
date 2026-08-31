@@ -4521,7 +4521,10 @@ export function InspectorSidebar({
   return (
     <aside
       ref={inspectorRootRef}
-      className={cn("flex min-h-0 flex-col border-l bg-background", className)}
+      className={cn(
+        "flex min-h-0 flex-col border-l bg-editor-panel",
+        className
+      )}
     >
       <Tabs
         value={activeTab}

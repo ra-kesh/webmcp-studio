@@ -1074,7 +1074,7 @@ export const PageFilmstrip = memo(function PageFilmstrip({
     <div
       aria-label={`${output?.name ?? "Current output"} pages`}
       className={cn(
-        "flex shrink-0 border-t bg-background/98",
+        "flex shrink-0 border-t bg-editor-panel",
         density === "compact"
           ? "h-[88px] min-[1280px]:h-24"
           : "h-[88px] min-[1280px]:h-[120px]",

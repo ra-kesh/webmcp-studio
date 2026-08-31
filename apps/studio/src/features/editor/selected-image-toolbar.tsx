@@ -121,7 +121,7 @@ export function SelectedImageToolbar({
       <div
         aria-label={`Image actions for ${image.name}`}
         className={cn(
-          "flex h-12 max-w-[calc(100%-1rem)] items-center gap-0.5 rounded-xl border bg-background/96 p-0.5 shadow-md ring-1 ring-black/3 backdrop-blur-md min-[1280px]:h-9 min-[1280px]:rounded-lg min-[1280px]:p-1",
+          "flex h-12 max-w-[calc(100%-1rem)] items-center gap-0.5 rounded-xl border bg-editor-floating p-0.5 shadow-md ring-1 ring-black/3 backdrop-blur-md min-[1280px]:h-9 min-[1280px]:rounded-lg min-[1280px]:p-1",
           className
         )}
         data-selected-image-toolbar="true"

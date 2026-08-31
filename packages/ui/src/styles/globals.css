@@ -44,6 +44,10 @@
   --color-background: var(--background);
   --color-workspace: var(--workspace);
   --color-studio-accent: var(--studio-accent);
+  --color-editor-panel: var(--studio-panel);
+  --color-editor-panel-muted: var(--studio-panel-muted);
+  --color-editor-panel-hover: var(--studio-panel-hover);
+  --color-editor-floating: var(--studio-floating);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);

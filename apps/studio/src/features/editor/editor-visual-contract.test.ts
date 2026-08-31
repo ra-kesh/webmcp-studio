@@ -44,6 +44,16 @@ describe("editor visual contracts", () => {
     expect(styles).toMatch(
       /\.dark\s*\{[\s\S]*--workspace:\s*oklch\(0\.19 0\.006 90\)/
     )
+    for (const token of [
+      "editor-panel",
+      "editor-panel-muted",
+      "editor-panel-hover",
+      "editor-floating",
+    ]) {
+      expect(styles).toContain(
+        `--color-${token}: var(--studio-${token.replace("editor-", "")})`
+      )
+    }
   })
 
   it("does not animate unbounded properties on shared pressable controls", async () => {

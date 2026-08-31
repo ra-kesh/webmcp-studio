@@ -3985,7 +3985,7 @@ export function StudioShell({
         <p className="sr-only" role="status" aria-live="polite" aria-atomic>
           {shellLayoutError ?? ""}
         </p>
-        <header className="flex h-(--studio-topbar-height) min-w-0 shrink-0 items-center gap-1 border-b border-border/80 px-2 min-[1280px]:gap-3 min-[1280px]:px-3">
+        <header className="flex h-(--studio-topbar-height) min-w-0 shrink-0 items-center gap-1 border-b border-border/80 bg-editor-panel px-2 min-[1280px]:gap-3 min-[1280px]:px-3">
           <button
             aria-label="Go to Studio home"
             className="flex min-w-0 flex-1 items-center gap-2 rounded-md text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/40 min-[1280px]:w-56 min-[1280px]:flex-none min-[1280px]:gap-2.5"
@@ -4812,7 +4812,7 @@ export function StudioShell({
           ) : null}
 
           <section className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-workspace min-[1280px]:min-w-[520px]">
-            <EditorPanelHeader className="bg-background/92 backdrop-blur-sm">
+            <EditorPanelHeader className="bg-editor-panel/92 backdrop-blur-sm">
               <IconButton
                 label="Open document panel"
                 className="mr-1 size-11 min-[1280px]:hidden"
@@ -4910,7 +4910,7 @@ export function StudioShell({
             {!editor.imageCropSession &&
             selectedImage &&
             selectedImageToolbarPlacement?.mode === "docked" ? (
-              <div className="relative z-30 flex shrink-0 justify-center border-b bg-background/92 p-1 backdrop-blur-sm">
+              <div className="relative z-30 flex shrink-0 justify-center border-b bg-editor-panel/92 p-1 backdrop-blur-sm">
                 <SelectedImageToolbar
                   image={selectedImage}
                   className="max-w-full shadow-sm"
@@ -4922,7 +4922,7 @@ export function StudioShell({
             {!editor.imageCropSession &&
             textEditingState &&
             textFormattingToolbarPlacement?.mode === "docked" ? (
-              <div className="relative z-30 flex shrink-0 justify-center border-b bg-background/92 p-1 backdrop-blur-sm">
+              <div className="relative z-30 flex shrink-0 justify-center border-b bg-editor-panel/92 p-1 backdrop-blur-sm">
                 <TextFormattingToolbar
                   state={textEditingState}
                   className="max-w-full shadow-sm"

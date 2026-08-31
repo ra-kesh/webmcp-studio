@@ -222,7 +222,10 @@ export function QuotationSidebar({
 
   return (
     <aside
-      className={cn("flex min-h-0 flex-col border-r bg-background", className)}
+      className={cn(
+        "flex min-h-0 flex-col border-r bg-editor-panel",
+        className
+      )}
     >
       <Tabs
         value={activePanel}

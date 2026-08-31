@@ -1,0 +1,369 @@
+{
+  "desktop": {
+    "canvasHeader": {
+      "height": 40,
+      "width": 264,
+      "x": 0,
+      "y": 48
+    },
+    "colors": {
+      "floating": "oklch(1 0 0 / 96%)",
+      "panel": "oklch(0.992 0.002 90)",
+      "workspace": "oklch(0.955 0.006 90)"
+    },
+    "documentOverflow": {
+      "x": false,
+      "y": false
+    },
+    "documentPanel": {
+      "height": 852,
+      "width": 264,
+      "x": 0,
+      "y": 48
+    },
+    "filmstrip": {
+      "height": 96,
+      "width": 816,
+      "x": 276,
+      "y": 804
+    },
+    "topbar": {
+      "height": 48,
+      "width": 1440,
+      "x": 0,
+      "y": 0
+    },
+    "viewport": {
+      "height": 900,
+      "width": 1440
+    },
+    "visibleTextBelow11": [],
+    "zoomControls": {
+      "height": 36,
+      "width": 185,
+      "x": 591.5,
+      "y": 756
+    }
+  },
+  "desktopMenu": {
+    "content": {
+      "fontSize": "16px",
+      "width": 288
+    },
+    "items": [
+      {
+        "fontSize": "12px",
+        "height": 28,
+        "label": "File"
+      },
+      {
+        "fontSize": "12px",
+        "height": 28,
+        "label": "Edit"
+      },
+      {
+        "fontSize": "12px",
+        "height": 28,
+        "label": "View"
+      },
+      {
+        "fontSize": "12px",
+        "height": 28,
+        "label": "Object"
+      },
+      {
+        "fontSize": "12px",
+        "height": 28,
+        "label": "Text"
+      },
+      {
+        "fontSize": "12px",
+        "height": 28,
+        "label": "Arrange"
+      },
+      {
+        "fontSize": "12px",
+        "height": 28,
+        "label": "Help"
+      }
+    ],
+    "shortcuts": []
+  },
+  "nestedDesktopMenu": [
+    {
+      "fontSize": "12px",
+      "height": 28,
+      "label": "File"
+    },
+    {
+      "fontSize": "12px",
+      "height": 28,
+      "label": "Studio home"
+    },
+    {
+      "fontSize": "12px",
+      "height": 28,
+      "label": "New document…"
+    },
+    {
+      "fontSize": "12px",
+      "height": 28,
+      "label": "Import document JSON…"
+    },
+    {
+      "fontSize": "12px",
+      "height": 28,
+      "label": "Import quotation source…"
+    },
+    {
+      "fontSize": "12px",
+      "height": 28,
+      "label": "Export document JSON"
+    },
+    {
+      "fontSize": "12px",
+      "height": 28,
+      "label": "Export current page as PNG"
+    },
+    {
+      "fontSize": "12px",
+      "height": 28,
+      "label": "6-page PDF"
+    },
+    {
+      "fontSize": "12px",
+      "height": 28,
+      "label": "Publish"
+    },
+    {
+      "fontSize": "12px",
+      "height": 28,
+      "label": "Open API Playground"
+    },
+    {
+      "fontSize": "12px",
+      "height": 28,
+      "label": "Edit"
+    },
+    {
+      "fontSize": "12px",
+      "height": 28,
+      "label": "View"
+    },
+    {
+      "fontSize": "12px",
+      "height": 28,
+      "label": "Object"
+    },
+    {
+      "fontSize": "12px",
+      "height": 28,
+      "label": "Text"
+    },
+    {
+      "fontSize": "12px",
+      "height": 28,
+      "label": "Arrange"
+    },
+    {
+      "fontSize": "12px",
+      "height": 28,
+      "label": "Help"
+    }
+  ],
+  "shortcuts": [
+    {
+      "fontFamily": "\"Geist Mono Variable\", monospace",
+      "fontSize": "11px",
+      "letterSpacing": "normal",
+      "text": "⌘Z"
+    },
+    {
+      "fontFamily": "\"Geist Mono Variable\", monospace",
+      "fontSize": "11px",
+      "letterSpacing": "normal",
+      "text": "⌘⇧Z"
+    },
+    {
+      "fontFamily": "\"Geist Mono Variable\", monospace",
+      "fontSize": "11px",
+      "letterSpacing": "normal",
+      "text": "⌘C"
+    },
+    {
+      "fontFamily": "\"Geist Mono Variable\", monospace",
+      "fontSize": "11px",
+      "letterSpacing": "normal",
+      "text": "⌘V"
+    },
+    {
+      "fontFamily": "\"Geist Mono Variable\", monospace",
+      "fontSize": "11px",
+      "letterSpacing": "normal",
+      "text": "⌘D"
+    },
+    {
+      "fontFamily": "\"Geist Mono Variable\", monospace",
+      "fontSize": "11px",
+      "letterSpacing": "normal",
+      "text": "Backspace"
+    },
+    {
+      "fontFamily": "\"Geist Mono Variable\", monospace",
+      "fontSize": "11px",
+      "letterSpacing": "normal",
+      "text": "⌘A"
+    }
+  ],
+  "compact": {
+    "canvasHeader": {
+      "height": 40,
+      "width": 390,
+      "x": 0,
+      "y": 48
+    },
+    "documentOverflow": {
+      "x": false,
+      "y": false
+    },
+    "filmstrip": {
+      "height": 88,
+      "width": 390,
+      "x": 0,
+      "y": 732
+    },
+    "topbar": {
+      "height": 48,
+      "width": 390,
+      "x": 0,
+      "y": 0
+    },
+    "viewport": {
+      "height": 820,
+      "width": 390
+    },
+    "visibleSidebars": 0,
+    "zoomControls": {
+      "height": 48,
+      "width": 211,
+      "x": 89.5,
+      "y": 672
+    }
+  },
+  "compactMenu": [
+    {
+      "fontSize": "14px",
+      "height": 56,
+      "label": "HeadingA strong title that wraps as it grows."
+    },
+    {
+      "fontSize": "14px",
+      "height": 56,
+      "label": "SubheadingSupporting copy with clear hierarchy."
+    },
+    {
+      "fontSize": "14px",
+      "height": 56,
+      "label": "BodyReadable paragraph copy for documents.T"
+    },
+    {
+      "fontSize": "14px",
+      "height": 56,
+      "label": "CaptionCompact labels, notes, and metadata."
+    },
+    {
+      "fontSize": "12px",
+      "height": 44,
+      "label": "File"
+    },
+    {
+      "fontSize": "12px",
+      "height": 44,
+      "label": "Edit"
+    },
+    {
+      "fontSize": "12px",
+      "height": 44,
+      "label": "View"
+    },
+    {
+      "fontSize": "12px",
+      "height": 44,
+      "label": "Object"
+    },
+    {
+      "fontSize": "12px",
+      "height": 44,
+      "label": "Arrange"
+    },
+    {
+      "fontSize": "12px",
+      "height": 44,
+      "label": "Help"
+    }
+  ],
+  "coarsePointerMenu": {
+    "media": {
+      "coarse": true,
+      "fine": false,
+      "hover": false
+    },
+    "rows": [
+      {
+        "fontSize": "12px",
+        "height": 44,
+        "label": "File"
+      },
+      {
+        "fontSize": "12px",
+        "height": 44,
+        "label": "Edit"
+      },
+      {
+        "fontSize": "12px",
+        "height": 44,
+        "label": "View"
+      },
+      {
+        "fontSize": "12px",
+        "height": 44,
+        "label": "Object"
+      },
+      {
+        "fontSize": "12px",
+        "height": 44,
+        "label": "Text"
+      },
+      {
+        "fontSize": "12px",
+        "height": 44,
+        "label": "Arrange"
+      },
+      {
+        "fontSize": "12px",
+        "height": 44,
+        "label": "Help"
+      }
+    ]
+  },
+  "darkReducedMotion": {
+    "colors": {
+      "floating": "oklch(0.16 0.004 90 / 96%)",
+      "panel": "oklch(0.165 0.004 90)",
+      "workspace": "oklch(0.19 0.006 90)"
+    },
+    "controlMotion": {
+      "animationDuration": "1e-05s",
+      "transitionDuration": "1e-05s"
+    },
+    "documentOverflow": {
+      "x": false,
+      "y": false
+    },
+    "media": {
+      "coarse": false,
+      "dark": true,
+      "reducedMotion": true
+    }
+  }
+}
