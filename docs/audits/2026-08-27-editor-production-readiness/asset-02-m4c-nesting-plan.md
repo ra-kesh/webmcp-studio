@@ -1,8 +1,8 @@
 # ASSET-02 M4C bounded mask nesting plan
 
 Date: 31 August 2026  
-Status: C0/C1 document plan accepted; C2–C5 remain open and no renderer or
-product-surface nesting acceptance is claimed
+Status: C0/C1 accepted; C2 implementation committed and locally reviewed;
+independent C2 acceptance and C3–C5 remain open
 
 This checkpoint freezes the smallest mask-nesting slice that can be implemented
 and verified honestly across the document model, editor, every renderer, and
@@ -187,6 +187,40 @@ renderers, Inspector, Studio, or WebMCP nesting-capable; those remain C2–C4.
 
 Exit: structure survives every canonical copy and mutation path.
 
+Checkpoint `fe5cc475eb7704a7665a2958d96f3a556be2f9d2` closes the C2
+implementation on branch `codex/asset02-general-masks`, based on main
+`6265561ab4c9aa70c7489c2a90b3dcac6c1179d3`. It adds the optional canonical
+parent identity to `create_mask_group`, atomically removes a nested child's
+direct nodes from its parent, restores them in page order on child release, and
+keeps a child mask when its top-level parent is released. Parent-source capture,
+noncontiguous selection, a third mask level, locks, bindings, component-owned
+structure, stale revisions, and replay conflicts still fail before mutation.
+Nested type and ordered-source changes use the existing command and receipt
+boundary; semantic no-ops retain document identity.
+
+The same checkpoint fixes document-template cloning so both `parentGroupId` and
+every mask source ID map to fresh template identities. Focused tests prove
+complete and incomplete semantic fragments, component materialization and
+refresh, variant application, component structural protection, deterministic
+template cloning, and exact nested create/release undo and redo.
+
+Verification for the committed implementation:
+
+- focused command, semantic-clone, component, template, and history files:
+  123/123 tests passed;
+- complete document suite: 416/416 tests passed;
+- complete editor suite: 371/371 tests passed;
+- document and editor typechecks passed;
+- changed files passed Prettier and `git diff --check`; and
+- in-thread code review found no remaining C2 correctness issue.
+
+This is not an independent acceptance. C2 remains marked implemented, reviewed
+locally, committed, not merged, and independently unaccepted until a separate
+reviewer verifies the commit. C3 renderer support has not started in this
+branch. Fabric, React, and deterministic HTML still reject or lack nested
+consumption; Inspector, Studio, and WebMCP still need C4 argument and capability
+wiring; no retained or public output evidence is claimed.
+
 ### C3 — Fabric, React, and deterministic HTML
 
 - render bottom-up with correct local coordinates and composite ownership;
@@ -216,6 +250,16 @@ Exit: every human and agent surface reaches one canonical command boundary.
 
 Exit: nested pixels, resources, errors, and budgets conform across every output.
 Only then may M4C acceptance change.
+
+## Exact gate ledger
+
+| Gate  | Implementation                                                                                    | Review and evidence                                                                                     | Accepted                 | Merged |
+| ----- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------ | ------ |
+| C0/C1 | `5381410` document implementation; recorded on main at `6265561ab4c9aa70c7489c2a90b3dcac6c1179d3` | Existing independent document-plan acceptance                                                           | Yes, document scope only | Yes    |
+| C2    | `fe5cc475eb7704a7665a2958d96f3a556be2f9d2`                                                        | 123 focused, 416 document, and 371 editor tests; local code review complete; independent review pending | No                       | No     |
+| C3    | Not started                                                                                       | No renderer nesting evidence                                                                            | No                       | No     |
+| C4    | Not started                                                                                       | No product-surface nesting evidence                                                                     | No                       | No     |
+| C5    | Not started                                                                                       | No retained or public nesting evidence                                                                  | No                       | No     |
 
 ## Required focused tests
 
