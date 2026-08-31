@@ -3922,3 +3922,37 @@ acceptance item**
 - Remaining M4B evidence is deliberately narrow: retained cross-output
   comparison for Fabric versus React, PNG versus PDF raster, thumbnail, and
   public PNG/PDF artifacts. M4C nesting remains a separate gate.
+
+## 2026-08-31 — ASSET-02 Gate M4B retained direct-PNG checkpoint
+
+Status: **deterministic HTML PNG evidence accepted and checkpointed; full M4B
+cross-output acceptance remains open**
+
+- Added six retained luminance fixtures covering coefficient primaries and
+  secondaries, source opacity, overlapping sources, image/text sources,
+  one-hidden, and all-hidden fallthrough.
+- The first real Chrome run exposed a production defect: filtered
+  `foreignObject` geometry rendered a white luminance source as black. The
+  deterministic renderer now emits admitted vector luminance sources as native
+  colored SVG geometry, converts each source independently with the explicit
+  sRGB matrix, restores source alpha, and then unions sources in canonical
+  order.
+- Retained run
+  `2026-08-31T16-26-51.017Z-88b8694a-3c2e-448b-839f-ecf1fc1de5c0`
+  contains all 12 direct PNG artifacts at 1x and 2x. Exact probes pass for
+  black, white, grey, red, green, blue, transparent red, 40 percent red,
+  red/green overlap, one-hidden, and all-hidden fallthrough. Existing 1x/2x
+  thresholds were not loosened.
+- The report is intentionally separate at
+  `mask-luminance-direct-capture-report.json`. It records browser-route, PDF,
+  thumbnail, and public endpoint surfaces as unexercised because the host
+  runtime remains unhealthy; it does not overwrite or impersonate the full
+  mask report.
+- Focused renderer, real-Chrome coefficient, and fixture tests pass; renderer,
+  Studio, and document typechecks pass. Independent review held an inaccurate
+  PDF timeout claim; the claim and ineffective wrapper were removed before the
+  reviewer returned **COMMIT**.
+- Checkpoint: `37de6a9`. Remaining M4B acceptance evidence is React versus
+  Fabric, React versus deterministic HTML, PNG versus PDF raster, thumbnail,
+  and public PNG/PDF parity after the host runtime is cleared. This retained
+  checkpoint does not block M4C implementation.

@@ -655,6 +655,16 @@ boundary landed together. Full M4B gate acceptance is still withheld until the
 retained cross-output corpus proves PNG/PDF and public artifact parity. M4C
 nesting remains separate.
 
+The retained direct-PNG checkpoint in `37de6a9` proves the deterministic HTML
+path at 1x and 2x with exact coefficient, opacity, overlap, hidden-source, and
+fallthrough pixels. That run also found and corrected Chrome's black output for
+filtered `foreignObject` vector geometry by rendering admitted vector sources
+as native colored SVG before explicit per-source conversion. The separate
+`mask-luminance-direct-capture-report.json` honestly marks React, Fabric, PDF,
+thumbnail, and public endpoint evidence unexercised while the host runtime is
+unhealthy. Those surfaces remain required for full M4B acceptance; they do not
+block the separately frozen M4C implementation sequence.
+
 ### Gate M5: API, WebMCP, and product polish
 
 - add public inspection and proposal tools
