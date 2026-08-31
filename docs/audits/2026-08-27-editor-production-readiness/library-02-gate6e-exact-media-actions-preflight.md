@@ -1,7 +1,7 @@
 # LIBRARY-02 Gate 6E exact media actions preflight
 
 **Date:** 2026-08-31
-**Status:** E0a, E0b and E0c accepted; E0d active. Gate 6E is not complete.
+**Status:** E0a, E0b, E0c and E0d accepted; E1 active. Gate 6E is not complete.
 
 ## Accepted implementation checkpoints
 
@@ -46,15 +46,34 @@ surface as retryable warnings without repeating or rolling back the edit.
 Acceptance evidence: 44/44 focused action, mounted-hook and replacement tests,
 Studio typecheck, scoped lint/diff checks and independent code re-review passed.
 
-### E0d — active entry conditions
+### E0d — target, runtime and shell wiring
 
-The pre-implementation reread of this audit plus OpenPencil and Loora found five
-P1 wiring seams that are now part of E0d acceptance: browser intents must retain
-the strict selected detail; exact detail lookup must include media source; the
-production media discovery provider must be mounted; legacy picker records may
-not be fabricated into current catalog identities; and post-commit retry
-warnings need a shell-owned lifetime beyond dialog close. E0d must close these
-before the ordinary dialog path is cut over.
+Accepted on 2026-08-31 at commit `a0266eb`. The browser emits immutable strict
+detail, exact server lookup is source-aware, production mounts the isolated
+media provider, and `useDocumentEditor` owns the production preparation
+adapter. A shell-owned picker session captures the target and external focus
+owner, cancels stale asynchronous work, routes exact selection to the one
+executor, and preserves post-commit warning retries outside dialog lifetime.
+The legacy selection union remains isolated for E1 instead of being fabricated
+into current catalog identities.
+
+The first independent review found a focus-restoration P1 during an in-dialog
+transition to recovery plus a test-only typecheck gate. The focus owner now
+survives openerless internal transitions while explicit external openers always
+replace it; focus epochs reject stale scheduled restoration. Typed mutable test
+captures replaced the invalid closure narrowing. The final re-review returned
+zero remaining P0/P1.
+
+Acceptance evidence: 78/78 integrated affected tests, Studio typecheck, scoped
+lint/diff checks and two independent code reviews passed.
+
+### E1 — active entry conditions
+
+The E0d pre-implementation reread of this audit plus OpenPencil and Loora found
+five wiring seams: retained strict detail, source-aware exact lookup, production
+media-provider ownership, separation from legacy picker records and shell-owned
+warning lifetime. Commit `a0266eb` closed those seams before ordinary dialog
+cutover.
 
 The E1 line-by-line cutover reconnaissance also recorded six preservation
 requirements before dialog replacement: mount/export the production media

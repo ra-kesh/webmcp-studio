@@ -2,7 +2,7 @@
 
 Date: 2026-08-31
 
-Status: Slices A, B, C and D accepted; Slice E0a/E0b/E0c accepted and E0d
+Status: Slices A, B, C and D accepted; Slice E0a/E0b/E0c/E0d accepted and E1
 active
 
 ## Accepted checkpoints
@@ -156,6 +156,22 @@ session transitions, suppresses semantic no-ops and records source-specific
 usage only after commit. Post-commit receipt failures remain retryable warnings
 and never roll back the document edit. E0d target/runtime/shell wiring is now
 active; Slice E is not complete.
+
+E0d was accepted at commit `a0266eb`. Browser intents now retain a cloned,
+schema-validated and recursively frozen exact detail; curated and managed
+same-ID/version selections resolve through source-aware exact lookup. The
+route-owned runtime mounts independent template and media discovery providers
+after preference bootstrap, with media-only criteria from first activation.
+The editor owns production preparation ports, while one shell session captures
+the insert, replace or field target, aborts stale work, fences focus restoration
+and retains post-commit retry notices beyond dialog close without repeating the
+document edit. Legacy dialog records remain separate until E1.
+
+Independent review found one production focus-restoration P1 and one integrated
+test/typecheck gate. Both were remediated; the final re-review returned zero
+remaining P0/P1 findings. Root verification passed 78/78 affected mounted and
+controller tests, full Studio typecheck and scoped diff validation. E1 shared
+browser/dialog/field cutover is now active; Slice E is not complete.
 
 ## Scope and entry condition
 
