@@ -114,6 +114,36 @@ bootstrap, and exact preference projection plus Favorites/Recent/failure UI in
 the single shared browser. Collection management and post-create Recent remain
 the following checkpoints.
 
+## Step 5A result — route runtime, server discovery and shared preferences
+
+Status: **independently accepted and committed on 2026-08-31; Collections and post-create Recent remain active**
+
+- The `/_studio` route now owns one preference-first library runtime. A visible
+  loading status and bounded first-request deadline prevent a stalled bootstrap
+  from blanking Studio, while discovery cannot race localhost demo-session
+  creation. Preference failure settles before discovery starts and never blocks
+  later template use.
+- Library list and exact-detail discovery now use strict same-origin HTTP.
+  Successful and failed responses require correlated request identities;
+  canonical query identity and workspace revision are verified; forged cursor
+  errors cannot trigger recovery.
+- An invalidated append cursor retains visible results and begins one fresh
+  same-query replacement. Replacement and append responses cannot regress or
+  mix workspace epochs.
+- The shared template browser projects exact-version Favorites and Recent from
+  the preference owner without mutating discovery pages. Permission revocation
+  is masked at both server and browser boundaries, and whichever confirmed
+  workspace source is newer remains authoritative.
+- Optimistic failure rollback, focus retention, reconciled 412 Retry,
+  nonblocking errors, request IDs, Retry/Dismiss, 44 px controls and truthful
+  Favorites/Recent empty states are covered through the real controller.
+- Final independent reviews report zero P0/P1 for the runtime, discovery and
+  shared browser slices. Focused integrated evidence passes 77 tests across
+  Document and Studio, with both typechecks passing.
+- Checkpoints: `e337697 feat: mount route-owned library runtime`, `4501f85 feat:
+  move library discovery to server authority`, and `68a7f7f feat: integrate
+  shared library preferences`.
+
 ## Evidence revisited
 
 The map is based on the current code, not the earlier phase outline alone.
