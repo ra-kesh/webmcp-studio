@@ -3956,3 +3956,33 @@ cross-output acceptance remains open**
   Fabric, React versus deterministic HTML, PNG versus PDF raster, thumbnail,
   and public PNG/PDF parity after the host runtime is cleared. This retained
   checkpoint does not block M4C implementation.
+
+## 2026-08-31 — ASSET-02 Gate M4C C0/C1 recursive document plan
+
+Status: **document plan and admission independently accepted; commands,
+renderers, product surfaces, and retained evidence remain C2–C5**
+
+- Raised the bounded mask chain from one composite to exactly one direct child
+  mask. A child is emitted as one completed content entry of its parent;
+  sources remain direct nodes and a group is never a source.
+- Added separate allocation and output bounds. Parent allocation includes its
+  own visible sources, direct content, and child output bounds without treating
+  the child's source-only extent as visible parent content.
+- Recursive admission counts leaf content and charges every active child and
+  parent composite once at the requested pixel ratio against the unchanged
+  per-composite and per-page limits. All-hidden relations allocate nothing and
+  contribute their unmasked content locally.
+- Projection rejects cycles, a third mask level, duplicate sources, invalid or
+  indirect sources, mask/organize ownership overlap, noncontiguous subtrees,
+  ambiguous mask ownership, and budget excess before renderer allocation.
+- Focused projection and validation evidence passes 54/54; document typecheck,
+  formatting, and diff checks pass. A broad-suite performance assertion missed
+  once under concurrent CPU load and passed alone at 511 ms against its 750 ms
+  ceiling.
+- Independent review held duplicate-source projection and organize/mask direct
+  ownership because validation already rejected both. Both projector gaps were
+  fixed with stable attribution and regressions before the reviewer returned
+  **COMMIT**.
+- Checkpoint: `5381410`. Nested create/release/history/copy paths are C2;
+  Fabric/React/HTML are C3; Inspector/Studio/WebMCP are C4; retained and public
+  output evidence is C5. This checkpoint claims none of those later surfaces.

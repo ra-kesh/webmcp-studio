@@ -1,7 +1,8 @@
 # ASSET-02 M4C bounded mask nesting plan
 
 Date: 31 August 2026  
-Status: phase-entry contract; no M4C implementation or acceptance claimed
+Status: C0/C1 document plan accepted; C2–C5 remain open and no renderer or
+product-surface nesting acceptance is claimed
 
 This checkpoint freezes the smallest mask-nesting slice that can be implemented
 and verified honestly across the document model, editor, every renderer, and
@@ -167,6 +168,15 @@ into the document plan.
 
 Exit: invalid documents fail before allocation and valid plans deterministically
 encode nested order and bounds.
+
+Checkpoint `5381410` closes this document-only exit. The canonical plan now
+admits one direct child level, emits completed child entries in page order,
+separates allocation from visible output bounds, counts masked leaf content,
+and charges every active child and parent composite exactly once. It rejects
+cycles, third-level nesting, duplicate sources, mask/organize ownership
+overlap, noncontiguous subtrees, invalid direct sources, and unchanged page
+budget excess before allocation. This checkpoint does not make commands,
+renderers, Inspector, Studio, or WebMCP nesting-capable; those remain C2–C4.
 
 ### C2 — commands, history, clone, components, and templates
 
