@@ -58,6 +58,14 @@ The active document route remained intact and no dialog was left mounted.
 Focused shell and command tests passed 35/35; Studio typecheck, production
 client/SSR/renderer builds, formatting, and diff checks passed.
 
+The complete five-journey responsive-shell browser gate also passes on the
+committed product. Its first run exposed two historical accessible-name
+assertions left behind by accepted UI changes: Gate 8 renamed the compact
+template action to **Create from template**, and the visible density toggle is
+named **Use comfortable page strip**. Captures proved both controls remained
+present and usable; the regression now asserts their current product labels.
+The two repaired cases passed 2/2, followed by the complete gate at 5/5.
+
 ## Acceptance
 
 - the start heading still receives programmatic focus after returning home but

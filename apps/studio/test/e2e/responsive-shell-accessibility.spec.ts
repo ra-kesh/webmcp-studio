@@ -183,7 +183,7 @@ test("compact panels trap focus, isolate the editor, close with Escape, and rest
   expect(documentPanelBounds!.height).toBeLessThan(820)
 
   const createFromTemplate = documentPanel.getByRole("button", {
-    name: "Create new",
+    name: "Create from template",
   })
   await createFromTemplate.scrollIntoViewIfNeeded()
   await expect(createFromTemplate).toBeVisible()
@@ -294,7 +294,7 @@ test("desktop workspace panels resize, collapse, restore, and persist without st
   const filmstrip = page.locator('[data-page-filmstrip="gallery"]')
   await expect(filmstrip).toHaveAttribute("data-density", "compact")
   await page
-    .getByRole("button", { name: "Comfortable page strip density" })
+    .getByRole("button", { name: "Use comfortable page strip" })
     .click()
   await expect(filmstrip).toHaveAttribute("data-density", "comfortable")
 
