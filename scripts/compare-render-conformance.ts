@@ -6,8 +6,8 @@ import { dirname, isAbsolute, relative, resolve, sep } from "node:path"
 import {
   buildComponentPublicationJourney,
   componentRenderConformanceDocument,
+  publishTextDesignSystemConformanceVersion,
   renderConformanceDocument,
-  textDesignSystemConformanceDocument,
 } from "@webmcp/document"
 import sharp from "sharp"
 import {
@@ -54,11 +54,32 @@ type CaptureArtifact = {
   sha256: string
 }
 
+type PublicationEvidence = {
+  id: string
+  templateId: string
+  version: number
+  sourceRevision: number
+  sourceSnapshotId: string
+  publishedAt: string
+}
+
+type PublicationAttestation =
+  | { kind: "captured-from-publish-request" }
+  | {
+      kind: "content-addressed-retained-capture"
+      attestedAt: string
+      basis: string
+    }
+
 type CaptureReport = {
   version: 1 | 2
   corpus?: "golden" | "resources" | "components" | "component-journey"
   runId?: string
   artifactRoot?: string
+  documentId?: string
+  revision?: number
+  publication?: PublicationEvidence | null
+  publicationAttestation?: PublicationAttestation | null
   baseUrl: string
   deviceScaleFactor: number
   browserCaptureRuntime?: {
@@ -89,14 +110,20 @@ const captureReportPath = resolveSafeRelative(
 const captureReport = validateCaptureReport(
   await Bun.file(captureReportPath).json()
 )
-const comparisonDocument =
+const textDesignSystemConformanceVersion =
   captureReport.corpus === "resources"
-    ? textDesignSystemConformanceDocument
-    : captureReport.corpus === "components"
-      ? componentRenderConformanceDocument
-      : captureReport.corpus === "component-journey"
-        ? buildComponentPublicationJourney().published.document
-        : renderConformanceDocument
+    ? await publishTextDesignSystemConformanceVersion()
+    : null
+if (textDesignSystemConformanceVersion) {
+  verifyPublicationEvidence(captureReport, textDesignSystemConformanceVersion)
+}
+const comparisonDocument = textDesignSystemConformanceVersion
+  ? textDesignSystemConformanceVersion.document
+  : captureReport.corpus === "components"
+    ? componentRenderConformanceDocument
+    : captureReport.corpus === "component-journey"
+      ? buildComponentPublicationJourney().published.document
+      : renderConformanceDocument
 const captureArtifactRoot =
   captureReport.version === 2
     ? resolveSafeRelative(
@@ -119,6 +146,11 @@ if (process.argv.includes("--validate-only")) {
 
 const results = []
 let failed = false
+const reportPath = manifest.report
+  ? resolveSafeRelative(manifestDirectory, manifest.report, "comparison report")
+  : resolve(manifestDirectory, "render-conformance-report.json")
+const reportRelativePath = (path: string) =>
+  relative(dirname(reportPath), path).split(sep).join("/")
 
 for (const comparison of manifest.comparisons) {
   const baselinePath = resolveReportedCapture(
@@ -219,9 +251,9 @@ for (const comparison of manifest.comparisons) {
 
   results.push({
     name: comparison.name,
-    baseline: baselinePath,
-    candidate: candidatePath,
-    diff: diffPath,
+    baseline: reportRelativePath(baselinePath),
+    candidate: reportRelativePath(candidatePath),
+    diff: reportRelativePath(diffPath),
     width: baseline.width,
     height: baseline.height,
     differentPixels,
@@ -245,9 +277,6 @@ for (const comparison of manifest.comparisons) {
   })
 }
 
-const reportPath = manifest.report
-  ? resolveSafeRelative(manifestDirectory, manifest.report, "comparison report")
-  : resolve(manifestDirectory, "render-conformance-report.json")
 await Bun.write(reportPath, `${JSON.stringify({ results }, null, 2)}\n`)
 console.log(JSON.stringify({ reportPath, results }, null, 2))
 if (failed) process.exit(1)
@@ -580,6 +609,63 @@ function validateCaptureReport(value: unknown): CaptureReport {
     return item as CaptureArtifact
   })
   return { ...candidate, artifacts } as CaptureReport
+}
+
+function verifyPublicationEvidence(
+  report: CaptureReport,
+  expected: Awaited<
+    ReturnType<typeof publishTextDesignSystemConformanceVersion>
+  >
+) {
+  if (!report.publication || typeof report.publication !== "object") {
+    throw new Error(
+      "Resource conformance capture must identify its immutable publication"
+    )
+  }
+  const attestation = report.publicationAttestation
+  if (!attestation || typeof attestation !== "object") {
+    throw new Error(
+      "Resource conformance capture must identify how publication identity was attested"
+    )
+  }
+  if (
+    attestation.kind !== "captured-from-publish-request" &&
+    !(
+      attestation.kind === "content-addressed-retained-capture" &&
+      typeof attestation.attestedAt === "string" &&
+      attestation.attestedAt.length > 0 &&
+      typeof attestation.basis === "string" &&
+      attestation.basis.length > 0
+    )
+  ) {
+    throw new Error("Resource conformance publication attestation is invalid")
+  }
+  const actual = report.publication as Partial<PublicationEvidence>
+  const expectedEvidence: PublicationEvidence = {
+    id: expected.id,
+    templateId: expected.templateId,
+    version: expected.version,
+    sourceRevision: expected.sourceRevision,
+    sourceSnapshotId: expected.sourceSnapshotId,
+    publishedAt: expected.publishedAt,
+  }
+  for (const key of Object.keys(expectedEvidence) as Array<
+    keyof PublicationEvidence
+  >) {
+    if (actual[key] !== expectedEvidence[key]) {
+      throw new Error(
+        `Resource conformance publication ${key} ${String(actual[key])} differs from ${String(expectedEvidence[key])}`
+      )
+    }
+  }
+  if (
+    report.documentId !== expected.document.id ||
+    report.revision !== expected.document.revision
+  ) {
+    throw new Error(
+      "Resource conformance capture document identity differs from its publication"
+    )
+  }
 }
 
 async function verifyCaptureArtifacts(

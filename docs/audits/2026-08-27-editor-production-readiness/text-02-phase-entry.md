@@ -2,8 +2,10 @@
 
 Date: 2026-08-30
 
-Status: active; architecture and Gates 1–4 accepted, Gate 5 implementation and
-live acceptance complete, independent review pending
+Status: Gate 5 implementation and its `a116d03` evidence were independently
+accepted. The schema-v5 publication-identity integration is implemented on an
+isolated branch; fresh retained capture, follow-up review, and merge remain
+open.
 
 ## Product outcome
 

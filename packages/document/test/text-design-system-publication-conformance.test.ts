@@ -1,24 +1,35 @@
 import { describe, expect, it } from "vitest"
 import {
-  createTemplateVersion,
+  createTextDesignSystemConformanceVersion,
+  deriveDocumentSnapshotId,
   documentSchema,
+  publishTextDesignSystemConformanceVersion,
   projectNodeForRender,
   textDesignSystemConformanceDocument,
+  textDesignSystemConformanceSourceSnapshotId,
 } from "../src"
 
 describe("text design-system publication conformance", () => {
-  it("publishes the exact changed resources, bindings, and resolved render values", () => {
+  it("publishes the exact changed resources, bindings, and resolved render values", async () => {
     const source = structuredClone(textDesignSystemConformanceDocument)
-    const published = createTemplateVersion(source, {
-      id: "text-design-system-conformance-v1",
-      templateId: "text-design-system-conformance",
-      version: 1,
-      sourceSnapshotId: `sha256-${"b".repeat(64)}`,
-      publishedAt: "2026-08-30T16:00:00.000Z",
-    })
+    const published = await publishTextDesignSystemConformanceVersion()
+    const synchronousFixture = createTextDesignSystemConformanceVersion()
     const document = documentSchema.parse(
       JSON.parse(JSON.stringify(published.document))
     )
+
+    expect(published).toMatchObject({
+      id: "text-design-system-conformance-v1",
+      templateId: "text-design-system-conformance",
+      version: 1,
+      sourceSnapshotId: textDesignSystemConformanceSourceSnapshotId,
+      sourceRevision: textDesignSystemConformanceDocument.revision,
+      publishedAt: "2026-08-30T16:00:00.000Z",
+    })
+    expect(
+      await deriveDocumentSnapshotId(textDesignSystemConformanceDocument)
+    ).toBe(textDesignSystemConformanceSourceSnapshotId)
+    expect(published).toEqual(synchronousFixture)
 
     expect(document.typographyStyles).toEqual(
       textDesignSystemConformanceDocument.typographyStyles
@@ -36,9 +47,7 @@ describe("text design-system publication conformance", () => {
     const panel = document.nodes.find(
       (node) => node.id === "rect-stroke-radius"
     )!
-    const label = document.nodes.find(
-      (node) => node.id === "auto-width-label"
-    )!
+    const label = document.nodes.find((node) => node.id === "auto-width-label")!
     const body = document.nodes.find((node) => node.id === "long-text-only")!
     const mixedText = document.nodes.find(
       (node) => node.id === "text-typography"

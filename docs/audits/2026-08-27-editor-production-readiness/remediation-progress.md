@@ -3986,3 +3986,30 @@ renderers, product surfaces, and retained evidence remain C2–C5**
 - Checkpoint: `5381410`. Nested create/release/history/copy paths are C2;
   Fabric/React/HTML are C3; Inspector/Studio/WebMCP are C4; retained and public
   output evidence is C5. This checkpoint claims none of those later surfaces.
+
+## 2026-08-31: TEXT-02 schema-v5 integration checkpoint
+
+Status: **implementation complete on an isolated branch; fresh retained
+capture, independent acceptance, and merge remain open**
+
+- Started from authoritative baseline `6265561` in
+  `codex/rich-text-p1-integration`. The main checkout and its untracked capture
+  directories were not modified.
+- Confirmed that `a116d03` already supplied the production fix. Canonical text
+  layout keeps an incremental unrounded line width, measures each token and
+  fallback glyph once, and only rounds the comparison value. No production
+  layout code from `dbb71f4` needed to be ported.
+- Added the exact 28,000-character, 1,000-run unbroken-token regression. It
+  requires the late boundary at 25,201 characters, 1,001 projected segments, a
+  projection below 600 KB, and a warm runtime below 250 ms.
+- Moved the resource conformance fixture, browser route, capture script, and
+  comparison verifier to the immutable version produced by
+  `createTemplateVersionFromPublishRequest`. The production-derived schema-v5
+  identity is
+  `sha256-6d6546b1546db382ed68e44235f471e40e6e01454e6f7b3322e6132d5736f178`.
+  The old branch's pre-schema-v5 `6cc45e...` identity is deliberately rejected.
+- Comparison output paths are relative to the report, so a validated report is
+  portable between the main checkout and isolated worktrees.
+- Focused document tests pass 18/18. Document and Studio typechecks pass under
+  Node 22.23.2. This checkpoint does not claim a fresh schema-v5 capture,
+  independent acceptance, commit, or merge.

@@ -2,8 +2,8 @@ import { createFileRoute } from "@tanstack/react-router"
 import {
   buildComponentPublicationJourney,
   componentRenderConformanceDocument,
+  createTextDesignSystemConformanceVersion,
   renderConformanceDocument,
-  textDesignSystemConformanceDocument,
   type Document,
 } from "@webmcp/document"
 import {
@@ -31,6 +31,8 @@ import { waitForRenderViewDocumentFonts } from "../features/editor/render-confor
 
 const componentJourneyDocument =
   buildComponentPublicationJourney().published.document
+const textDesignSystemConformanceDocument =
+  createTextDesignSystemConformanceVersion().document
 
 type MaskConformanceState =
   | "visible"

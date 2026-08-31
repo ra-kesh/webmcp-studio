@@ -20,8 +20,8 @@ import {
   componentRenderConformanceDocument,
   createTemplateVersion,
   documentSchema,
+  publishTextDesignSystemConformanceVersion,
   renderConformanceDocument,
-  textDesignSystemConformanceDocument,
   type Document,
 } from "@webmcp/document"
 import {
@@ -63,17 +63,15 @@ const conformanceCorpus =
   process.env.CONFORMANCE_CORPUS === "mask"
     ? process.env.CONFORMANCE_CORPUS
     : "golden"
+const textDesignSystemConformanceVersion =
+  conformanceCorpus === "resources"
+    ? await publishTextDesignSystemConformanceVersion()
+    : null
 const captureDocument =
   conformanceCorpus === "mask"
     ? maskRenderConformanceDocument
-    : conformanceCorpus === "resources"
-      ? createTemplateVersion(textDesignSystemConformanceDocument, {
-          id: "text-design-system-conformance-v1",
-          templateId: "text-design-system-conformance",
-          version: 1,
-          sourceSnapshotId: `sha256-${"b".repeat(64)}`,
-          publishedAt: "2026-08-30T16:00:00.000Z",
-        }).document
+    : textDesignSystemConformanceVersion
+      ? textDesignSystemConformanceVersion.document
       : conformanceCorpus === "components"
         ? createTemplateVersion(componentRenderConformanceDocument, {
             id: "component-render-conformance-v1",
@@ -896,6 +894,19 @@ async function buildCaptureReport() {
     captureScope: directOnly ? "direct-only" : "full",
     documentId: captureDocument.id,
     revision: captureDocument.revision,
+    publication: textDesignSystemConformanceVersion
+      ? {
+          id: textDesignSystemConformanceVersion.id,
+          templateId: textDesignSystemConformanceVersion.templateId,
+          version: textDesignSystemConformanceVersion.version,
+          sourceRevision: textDesignSystemConformanceVersion.sourceRevision,
+          sourceSnapshotId: textDesignSystemConformanceVersion.sourceSnapshotId,
+          publishedAt: textDesignSystemConformanceVersion.publishedAt,
+        }
+      : null,
+    publicationAttestation: textDesignSystemConformanceVersion
+      ? { kind: "captured-from-publish-request" as const }
+      : null,
     baseUrl,
     deviceScaleFactor: 1,
     browserCaptureRuntime,

@@ -4,9 +4,14 @@ import {
   type ImageFrameMask,
   type ImagePlacement,
   type SceneNode,
+  type TemplatePublishRequest,
 } from "./schema"
 import { applyCommand } from "./commands"
 import { materializeComponentInstances } from "./components"
+import {
+  createTemplateVersion,
+  createTemplateVersionFromPublishRequest,
+} from "./publishing"
 
 export const renderConformanceImageSource = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="240" viewBox="0 0 400 240"><path fill="#ef4444" d="M0 0h200v120H0z"/><path fill="#22c55e" d="M200 0h200v120H200z"/><path fill="#3b82f6" d="M0 120h200v120H0z"/><path fill="#facc15" d="M200 120h200v120H200z"/></svg>'
@@ -1124,3 +1129,38 @@ export const textDesignSystemConformanceDocument: Document = [
   (document, command) => applyCommand(document, command),
   renderConformanceDocument
 )
+
+export const textDesignSystemConformanceSourceSnapshotId =
+  "sha256-6d6546b1546db382ed68e44235f471e40e6e01454e6f7b3322e6132d5736f178" as const
+
+/**
+ * Builds a fresh immutable publication snapshot for every conformance
+ * consumer. The fixed canonical source hash makes a fixture or schema change
+ * rotate the retained publication instead of silently reusing stale evidence.
+ */
+export function createTextDesignSystemConformanceVersion() {
+  return createTemplateVersion(textDesignSystemConformanceDocument, {
+    id: "text-design-system-conformance-v1",
+    templateId: "text-design-system-conformance",
+    version: 1,
+    sourceSnapshotId: textDesignSystemConformanceSourceSnapshotId,
+    publishedAt: "2026-08-30T16:00:00.000Z",
+  })
+}
+
+export function createTextDesignSystemConformancePublishRequest(): TemplatePublishRequest {
+  return {
+    id: "text-design-system-conformance-v1",
+    templateId: "text-design-system-conformance",
+    version: 1,
+    publishedAt: "2026-08-30T16:00:00.000Z",
+    document: structuredClone(textDesignSystemConformanceDocument),
+  }
+}
+
+/** Uses the same hash-deriving publication boundary as a production request. */
+export function publishTextDesignSystemConformanceVersion() {
+  return createTemplateVersionFromPublishRequest(
+    createTextDesignSystemConformancePublishRequest()
+  )
+}

@@ -109,6 +109,37 @@ describe("canonical text layout", () => {
     expect(elapsed).toBeLessThan(250)
   })
 
+  it("keeps the original 28,000-character late-wrap failure class bounded", () => {
+    const node = adverseRichTextNode()
+    const charactersPerRun = 28
+    const wrapAfter = 25_201
+    const expanded = {
+      ...node,
+      text: "A".repeat(28_000),
+      width: wrapAfter * 12.8,
+      runs: Array.from({ length: 1_000 }, (_, index) => ({
+        start: index * charactersPerRun,
+        end: (index + 1) * charactersPerRun,
+        style: { color: index % 2 === 0 ? "#111111" : "#333333" },
+      })),
+    }
+
+    projectTextLayout(expanded)
+    const startedAt = performance.now()
+    const projection = projectTextLayout(expanded)
+    const elapsed = performance.now() - startedAt
+
+    expect(projection.lines.map((line) => line.sourceEnd)).toEqual([
+      wrapAfter,
+      28_000,
+    ])
+    expect(
+      projection.lines.reduce((count, line) => count + line.segments.length, 0)
+    ).toBe(1_001)
+    expect(JSON.stringify(projection).length).toBeLessThan(600_000)
+    expect(elapsed).toBeLessThan(250)
+  })
+
   it("migrates pre-sizing-mode documents to fixed without changing geometry", () => {
     const legacy = structuredClone(northstarSeed) as unknown as {
       nodes: Array<Record<string, unknown>>
