@@ -27,7 +27,10 @@ import {
   useStudioPersistence,
 } from "./studio-persistence-test-wrapper"
 import type { StudioPersistenceApi } from "../persistence/studio-persistence-provider"
-import type { LibraryMediaActionPreparationPorts } from "./library-media-action-preparation"
+import type {
+  ExactServerLibraryMediaIdentity,
+  LibraryMediaActionPreparationPorts,
+} from "./library-media-action-preparation"
 import type { LocalAssetRecord } from "./local-asset-store"
 import { useDocumentEditor } from "./use-document-editor"
 
@@ -109,17 +112,41 @@ function deferred<T>() {
   return { promise, resolve }
 }
 
+function mutablePreparationPorts() {
+  let current: LibraryMediaActionPreparationPorts | null = null
+  const required = () => {
+    if (!current) throw new Error("Install exact media preparation ports.")
+    return current
+  }
+  return {
+    ports: {
+      getExactDetail: (...args) => required().getExactDetail(...args),
+      resolveCurated: (...args) => required().resolveCurated(...args),
+      getManagedRecord: (...args) => required().getManagedRecord(...args),
+      verifyManagedResource: (...args) =>
+        required().verifyManagedResource(...args),
+      recheckLocal: (...args) => required().recheckLocal(...args),
+    } satisfies LibraryMediaActionPreparationPorts,
+    install: (next: LibraryMediaActionPreparationPorts) => {
+      current = next
+    },
+  }
+}
+
 function MountedEditor({
   capture,
   events,
+  preparationPorts,
 }: {
   capture: (editor: Editor, persistence: StudioPersistenceApi) => void
   events: string[]
+  preparationPorts: LibraryMediaActionPreparationPorts
 }) {
   const persistence = useStudioPersistence()
   const editor = useDocumentEditor({
     persistence,
     onHistoryCommit: () => events.push("commit"),
+    libraryMediaPreparationPorts: preparationPorts,
   })
   useLayoutEffect(
     () => capture(editor, persistence),
@@ -153,10 +180,16 @@ describe("useDocumentEditor exact library media action", () => {
   })
 
   async function mount(events: string[] = []) {
+    const preparation = mutablePreparationPorts()
     const captured: {
       editor: Editor | null
       persistence: StudioPersistenceApi | null
-    } = { editor: null, persistence: null }
+      setPreparationPorts: (next: LibraryMediaActionPreparationPorts) => void
+    } = {
+      editor: null,
+      persistence: null,
+      setPreparationPorts: preparation.install,
+    }
     await act(async () => {
       root.render(
         <StudioPersistenceTestWrapper
@@ -170,6 +203,7 @@ describe("useDocumentEditor exact library media action", () => {
         >
           <MountedEditor
             events={events}
+            preparationPorts={preparation.ports}
             capture={(editor, persistence) => {
               captured.editor = editor
               captured.persistence = persistence
@@ -197,7 +231,10 @@ describe("useDocumentEditor exact library media action", () => {
     const exactDetail = detail()
     const detailGate = deferred<typeof exactDetail>()
     const getExactDetail = vi.fn(
-      async (_assetId: string, _version: number, signal: AbortSignal) => {
+      async (
+        _identity: ExactServerLibraryMediaIdentity,
+        signal: AbortSignal
+      ) => {
         return new Promise<typeof exactDetail>((resolve, reject) => {
           const abort = () =>
             reject(new DOMException("The operation was aborted", "AbortError"))
@@ -220,6 +257,7 @@ describe("useDocumentEditor exact library media action", () => {
         throw new Error("Local media is outside this test")
       }),
     }
+    captured.setPreparationPorts(ports)
     const pageId = captured.editor!.activePageId
     const beforeNodeIds = captured.editor!.document.pages[0].nodeIds
     const recordUsed = vi.fn(async () => true)
@@ -233,7 +271,6 @@ describe("useDocumentEditor exact library media action", () => {
           detail: exactDetail,
           target: { type: "insert", pageId },
         },
-        ports,
         { signal: controller.signal, recordUsed }
       )
       await vi.waitFor(() => expect(getExactDetail).toHaveBeenCalledOnce())
@@ -246,7 +283,6 @@ describe("useDocumentEditor exact library media action", () => {
           detail: exactDetail,
           target: { type: "insert", pageId },
         },
-        ports,
         { recordUsed }
       )
     ).resolves.toBe("rejected")
@@ -280,6 +316,7 @@ describe("useDocumentEditor exact library media action", () => {
         throw new Error("Local media is outside this test")
       }),
     }
+    captured.setPreparationPorts(ports)
     const targetPageId = captured.editor!.activePageId
     const initialNodeCount = captured.editor!.document.nodes.length
     const recordUsed = vi.fn(async () => true)
@@ -292,7 +329,6 @@ describe("useDocumentEditor exact library media action", () => {
           detail: exactDetail,
           target: { type: "insert", pageId: targetPageId },
         },
-        ports,
         { recordUsed }
       )
       await vi.waitFor(() => expect(getExactDetail).toHaveBeenCalledOnce())
@@ -325,6 +361,7 @@ describe("useDocumentEditor exact library media action", () => {
         throw new Error("Local media is outside this test")
       }),
     }
+    captured.setPreparationPorts(ports)
     const recordUsed = vi.fn(async () => {
       events.push("usage")
       return true
@@ -339,7 +376,6 @@ describe("useDocumentEditor exact library media action", () => {
             detail: exactDetail,
             target: { type: "insert", pageId },
           },
-          ports,
           { recordUsed }
         )
       ).resolves.toBe("committed")
@@ -358,7 +394,7 @@ describe("useDocumentEditor exact library media action", () => {
     const captured = await mount()
     const exactDetail = detail()
     const getExactDetail = vi.fn(
-      async (_assetId: string, _version: number, signal: AbortSignal) =>
+      async (_identity: ExactServerLibraryMediaIdentity, signal: AbortSignal) =>
         new Promise<typeof exactDetail>((_resolve, reject) => {
           signal.addEventListener(
             "abort",
@@ -381,18 +417,16 @@ describe("useDocumentEditor exact library media action", () => {
         throw new Error("Local media is outside this test")
       }),
     }
+    captured.setPreparationPorts(pendingPorts)
     const oldPageId = captured.editor!.activePageId
     let oldAction!: Promise<"committed" | "no_op" | "rejected">
 
     await act(async () => {
-      oldAction = captured.editor!.performLibraryMediaAction(
-        {
-          correlationId: "old-document-preparation",
-          detail: exactDetail,
-          target: { type: "insert", pageId: oldPageId },
-        },
-        pendingPorts
-      )
+      oldAction = captured.editor!.performLibraryMediaAction({
+        correlationId: "old-document-preparation",
+        detail: exactDetail,
+        target: { type: "insert", pageId: oldPageId },
+      })
       await vi.waitFor(() => expect(getExactDetail).toHaveBeenCalledOnce())
       await captured.editor!.createBlankDocument({
         name: "Replacement document",
@@ -406,6 +440,7 @@ describe("useDocumentEditor exact library media action", () => {
       ...pendingPorts,
       getExactDetail: vi.fn(async () => exactDetail),
     }
+    captured.setPreparationPorts(nextPorts)
     await act(async () => {
       await expect(
         captured.editor!.performLibraryMediaAction(
@@ -417,7 +452,6 @@ describe("useDocumentEditor exact library media action", () => {
               pageId: captured.editor!.activePageId,
             },
           },
-          nextPorts,
           { recordUsed: vi.fn(async () => true) }
         )
       ).resolves.toBe("committed")
@@ -441,6 +475,7 @@ describe("useDocumentEditor exact library media action", () => {
         throw new Error("Local media is outside this test")
       }),
     }
+    captured.setPreparationPorts(ports)
     const firstReceipt = deferred<boolean>()
     const recordUsed = vi
       .fn()
@@ -458,7 +493,6 @@ describe("useDocumentEditor exact library media action", () => {
             pageId: captured.editor!.activePageId,
           },
         },
-        ports,
         { recordUsed }
       )
       await vi.waitFor(() => expect(recordUsed).toHaveBeenCalledOnce())
@@ -475,7 +509,6 @@ describe("useDocumentEditor exact library media action", () => {
               pageId: captured.editor!.activePageId,
             },
           },
-          ports,
           { recordUsed }
         )
       ).resolves.toBe("committed")
@@ -513,6 +546,7 @@ describe("useDocumentEditor exact library media action", () => {
         throw new Error("Local media is outside this test")
       }),
     }
+    captured.setPreparationPorts(ports)
     const recordUsed = vi.fn(async () => true)
     const request = {
       correlationId: "field-assignment-first",
@@ -521,7 +555,7 @@ describe("useDocumentEditor exact library media action", () => {
     }
     await act(async () => {
       await expect(
-        captured.editor!.performLibraryMediaAction(request, ports, {
+        captured.editor!.performLibraryMediaAction(request, {
           recordUsed,
         })
       ).resolves.toBe("committed")
@@ -533,7 +567,6 @@ describe("useDocumentEditor exact library media action", () => {
       await expect(
         captured.editor!.performLibraryMediaAction(
           { ...request, correlationId: "field-assignment-no-op" },
-          ports,
           { recordUsed }
         )
       ).resolves.toBe("no_op")
@@ -555,6 +588,7 @@ describe("useDocumentEditor exact library media action", () => {
       }),
       recheckLocal: vi.fn(async () => localSelection()),
     }
+    captured.setPreparationPorts(ports)
     const previewFailure = vi
       .spyOn(URL, "createObjectURL")
       .mockImplementation(() => {
@@ -576,7 +610,6 @@ describe("useDocumentEditor exact library media action", () => {
               pageId: captured.editor!.activePageId,
             },
           },
-          ports,
           { onUsageWarning: (warning) => warnings.push(warning) }
         )
       ).resolves.toBe("committed")
@@ -585,8 +618,7 @@ describe("useDocumentEditor exact library media action", () => {
     expect(events.filter((event) => event === "commit")).toHaveLength(1)
     expect(
       captured.editor!.document.nodes.some(
-        (node) =>
-          node.type === "image" && node.assetId === selection.record.id
+        (node) => node.type === "image" && node.assetId === selection.record.id
       )
     ).toBe(true)
     expect(warnings.map((warning) => warning.key)).toEqual(

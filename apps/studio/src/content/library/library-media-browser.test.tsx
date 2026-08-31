@@ -377,8 +377,16 @@ describe("LibraryMediaBrowser", () => {
         itemKind: "media",
         id: first.summary.id,
         mediaSource: "curated",
+        detail: expect.objectContaining({
+          summary: expect.objectContaining({ id: first.summary.id }),
+        }),
       })
     )
+    const intent = onSelect.mock.calls[0][0]
+    expect(intent.selectionIdentity).toBe(intent.detail.selectionIdentity)
+    expect(Object.isFrozen(intent)).toBe(true)
+    expect(Object.isFrozen(intent.detail)).toBe(true)
+    expect(Object.isFrozen(intent.detail.summary)).toBe(true)
 
     await act(async () => root.unmount())
     root = createRoot(host)
@@ -397,6 +405,68 @@ describe("LibraryMediaBrowser", () => {
       expect(host.textContent).toContain("Retry exact version")
     )
     expect(mismatchSelect).not.toHaveBeenCalled()
+  })
+
+  it("selects same-ID/version curated and managed results through distinct exact authorities", async () => {
+    const id = "asset-sourcecollision01"
+    const curated = curatedMediaFixture(id, "Curated collision")
+    const managed = managedMediaFixture(id, "Managed collision")
+    const onSelect = vi.fn()
+    const harness = createMediaBrowserHarness({
+      server: [curated, managed],
+      local: [],
+    })
+    await mount(harness, { scope: { kind: "recent" }, onSelect })
+    await vi.waitFor(() =>
+      expect(host.querySelectorAll("[data-media-card]")).toHaveLength(2)
+    )
+
+    const curatedPrimary = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="Insert “Curated collision” from Studio library"]'
+    )!
+    const managedPrimary = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="Insert “Managed collision” from Workspace upload"]'
+    )!
+    await act(async () => curatedPrimary.click())
+    await vi.waitFor(() => expect(onSelect).toHaveBeenCalledTimes(1))
+    await act(async () => managedPrimary.click())
+    await vi.waitFor(() => expect(onSelect).toHaveBeenCalledTimes(2))
+
+    expect(harness.detailRequests).toEqual([
+      {
+        itemKind: "media",
+        id,
+        version: 1,
+        mediaSource: "curated",
+      },
+      {
+        itemKind: "media",
+        id,
+        version: 1,
+        mediaSource: "managed",
+      },
+    ])
+    const [curatedIntent, managedIntent] = onSelect.mock.calls.map(
+      ([intent]) => intent
+    )
+    expect(curatedIntent).toMatchObject({
+      id,
+      version: 1,
+      mediaSource: "curated",
+      detail: { summary: { id, version: 1, mediaSource: "curated" } },
+    })
+    expect(managedIntent).toMatchObject({
+      id,
+      version: 1,
+      mediaSource: "managed",
+      detail: { summary: { id, version: 1, mediaSource: "managed" } },
+    })
+    expect(curatedIntent.selectionIdentity).toBe(
+      curatedIntent.detail.selectionIdentity
+    )
+    expect(managedIntent.selectionIdentity).toBe(
+      managedIntent.detail.selectionIdentity
+    )
   })
 
   it("renders exact ready details and rechecks exact authority at Sheet action time", async () => {
@@ -497,6 +567,7 @@ describe("LibraryMediaBrowser", () => {
   it("shows an exact failure with request ID and truthful Retry", async () => {
     const fixture = curatedMediaFixture()
     const requestId = "request-media-detail-503"
+    const onSelect = vi.fn()
     const harness = createMediaBrowserHarness({
       server: [fixture],
       local: [],
@@ -508,7 +579,7 @@ describe("LibraryMediaBrowser", () => {
         retryable: true,
       }),
     })
-    await mount(harness)
+    await mount(harness, { onSelect })
     const primary = host.querySelector<HTMLButtonElement>(
       `button[aria-label^="Insert “${fixture.summary.name}”"]`
     )!
@@ -528,6 +599,7 @@ describe("LibraryMediaBrowser", () => {
     )!
     await act(async () => retryDetails.click())
     await vi.waitFor(() => expect(harness.detailRequests).toHaveLength(4))
+    expect(onSelect).not.toHaveBeenCalled()
   })
 
   it("keeps compact filter and detail Sheets bounded with 44px targets", async () => {

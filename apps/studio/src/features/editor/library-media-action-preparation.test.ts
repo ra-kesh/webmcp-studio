@@ -196,8 +196,12 @@ describe("exact library media action preparation", () => {
     })
     expect(prepared.asset.src).not.toMatch(/^data:/)
     expect(dependencies.getExactDetail).toHaveBeenCalledWith(
-      curatedItem.id,
-      curatedItem.version,
+      {
+        itemKind: "media",
+        id: curatedItem.id,
+        version: curatedItem.version,
+        mediaSource: "curated",
+      },
       expect.any(AbortSignal)
     )
     expect(dependencies.getManagedRecord).not.toHaveBeenCalled()
@@ -233,6 +237,15 @@ describe("exact library media action preparation", () => {
     })
     expect(dependencies.getExactDetail).toHaveBeenCalledBefore(
       dependencies.getManagedRecord as ReturnType<typeof vi.fn>
+    )
+    expect(dependencies.getExactDetail).toHaveBeenCalledWith(
+      {
+        itemKind: "media",
+        id: managedAsset.id,
+        version: managedMetadata.catalogVersion,
+        mediaSource: "managed",
+      },
+      expect.any(AbortSignal)
     )
     expect(dependencies.getManagedRecord).toHaveBeenCalledBefore(
       dependencies.verifyManagedResource as ReturnType<typeof vi.fn>
@@ -316,6 +329,52 @@ describe("exact library media action preparation", () => {
       )
     ).rejects.toMatchObject({ code: "preparation_exact_detail_mismatch" })
     expect(dependencies.resolveCurated).not.toHaveBeenCalled()
+    expect(dependencies.getExactDetail).toHaveBeenCalledWith(
+      {
+        itemKind: "media",
+        id: requested.summary.id,
+        version: requested.summary.version,
+        mediaSource: "curated",
+      },
+      expect.any(AbortSignal)
+    )
+  })
+
+  it("does not admit a curated collision for an exact managed identity", async () => {
+    const requested = managedDetail()
+    const curatedCollision = curatedDetail()
+    curatedCollision.summary.id = requested.summary.id
+    curatedCollision.summary.version = requested.summary.version
+    curatedCollision.selectionIdentity.assetId = requested.summary.id
+    if (curatedCollision.selectionIdentity.source !== "curated") {
+      throw new Error("Curated fixture lost its source identity")
+    }
+    curatedCollision.selectionIdentity.version = requested.summary.version
+    curatedCollision.summary.preview = {
+      ...curatedCollision.summary.preview,
+      itemId: requested.summary.id,
+      itemVersion: requested.summary.version,
+    }
+    const dependencies = ports(curatedCollision)
+
+    await expect(
+      prepareExactLibraryMediaAction(
+        request(requested),
+        dependencies,
+        controller().signal
+      )
+    ).rejects.toMatchObject({ code: "preparation_exact_detail_mismatch" })
+    expect(dependencies.getExactDetail).toHaveBeenCalledWith(
+      {
+        itemKind: "media",
+        id: requested.summary.id,
+        version: requested.summary.version,
+        mediaSource: "managed",
+      },
+      expect.any(AbortSignal)
+    )
+    expect(dependencies.getManagedRecord).not.toHaveBeenCalled()
+    expect(dependencies.verifyManagedResource).not.toHaveBeenCalled()
   })
 
   it.each([

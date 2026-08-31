@@ -26,6 +26,7 @@ import type {
 } from "./device-local-media-discovery-adapter"
 import { LibraryDiscoveryController } from "./discovery-controller"
 import type { LibraryDiscoveryDependencies } from "./discovery-controller"
+import { libraryMediaUiIdentity } from "./library-media-discovery"
 import { LibraryMediaDiscoveryProvider } from "./library-media-discovery-provider"
 import { LibraryPreferenceProvider } from "./library-preference-provider"
 import {
@@ -214,10 +215,7 @@ export function createMediaBrowserHarness({
     mediaSource?: LibraryMediaSummary["mediaSource"]
   }> = []
   const detailByIdentity = new Map(
-    server.map(({ detail }) => [
-      `${detail.summary.id}@${detail.summary.version}`,
-      detail,
-    ])
+    server.map(({ detail }) => [libraryMediaUiIdentity(detail.summary), detail])
   )
   const dependencies: LibraryDiscoveryDependencies = {
     list: vi.fn(async (query, signal) => {
@@ -241,7 +239,12 @@ export function createMediaBrowserHarness({
       signal.throwIfAborted()
       detailRequests.push(identity)
       if (detailFailure) throw detailFailure
-      const detail = detailByIdentity.get(`${identity.id}@${identity.version}`)
+      const detail =
+        identity.itemKind === "media"
+          ? detailByIdentity.get(
+              `media:${identity.mediaSource}:${identity.id}@${identity.version}`
+            )
+          : undefined
       if (!detail) throw new Error("Exact server media detail is unavailable")
       return detail
     }),

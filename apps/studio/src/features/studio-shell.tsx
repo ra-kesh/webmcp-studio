@@ -45,14 +45,14 @@ import {
   Undo2,
   Ungroup,
 } from "lucide-react"
-import {
-  applyTextLinkToRange,
-  getGroupNodeIds,
-  type SceneNode,
-  type TextParagraphStylePatch,
-  type TextRunStylePatch,
-  type TextSelection,
-  type TextSelectionLinkState,
+import { applyTextLinkToRange, getGroupNodeIds } from "@webmcp/document"
+import type {
+  LibraryMediaDetail,
+  SceneNode,
+  TextParagraphStylePatch,
+  TextRunStylePatch,
+  TextSelection,
+  TextSelectionLinkState,
 } from "@webmcp/document"
 import type { CanvasTextEditingState, NodeGeometryPatch } from "@webmcp/editor"
 import type { ImageResourceStateChange } from "@webmcp/render-view"
@@ -195,10 +195,8 @@ import type {
 import { ImageCropToolbar } from "./editor/image-crop-toolbar"
 import { SelectedImageToolbar } from "./editor/selected-image-toolbar"
 import { TextFormattingToolbar } from "./editor/text-formatting-toolbar"
-import {
-  TextLinkEditor,
-  type TextLinkEditorResult,
-} from "./editor/text-link-editor"
+import { TextLinkEditor } from "./editor/text-link-editor"
+import type { TextLinkEditorResult } from "./editor/text-link-editor"
 import {
   applySelectedImageToolbarCameraProjection,
   resolveSelectedImageToolbarPlacement,
@@ -212,6 +210,15 @@ import {
   DOCUMENT_TRANSITION_DISABLED_REASON,
   useDocumentEditor,
 } from "./editor/use-document-editor"
+import type {
+  PerformLibraryMediaActionOptions,
+  PerformLibraryMediaActionOutcome,
+} from "./editor/use-document-editor"
+import type {
+  LibraryMediaActionPreparationRequest,
+  LibraryMediaActionTarget,
+} from "./editor/library-media-action-preparation"
+import type { LibraryMediaUsageWarning } from "./editor/library-media-action-executor"
 import { createLibraryTemplateDocument } from "./editor/library-template-create-command"
 import { useLibraryPreferenceCommands } from "../content/library/library-preference-provider"
 import type { ReviewAffectedTarget } from "./editor/review-journal"
@@ -289,12 +296,336 @@ export function documentMediaAdmissionActionModel(
 const HEART_ICON_PATH =
   "M12 21.35 10.55 20.03C5.4 15.36 2 12.27 2 8.5 2 5.41 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.08C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.41 22 8.5c0 3.77-3.4 6.86-8.55 11.54Z"
 
-type MediaPickerState = {
-  mode: "insert" | "replace" | "recover-local"
-  targetNodeId?: string
-  targetLocalAssetId?: string
+type MediaPickerCollection = "recent" | "uploads" | "library"
+
+export type MediaPickerActionState = Readonly<{
+  kind: "action"
+  sessionId: string
+  target: LibraryMediaActionTarget
   targetName?: string
-  initialCollection: "recent" | "uploads" | "library"
+  initialCollection: MediaPickerCollection
+  selectedDetail: LibraryMediaDetail | null
+  pendingIdentity: string | null
+  actionError: string | null
+}>
+
+export type MediaPickerRecoveryState = Readonly<{
+  kind: "recover-local"
+  sessionId: string
+  targetLocalAssetId: string
+  targetName?: string
+  initialCollection: "uploads"
+}>
+
+export type MediaPickerState = MediaPickerActionState | MediaPickerRecoveryState
+
+export type MediaPickerUsageNotice = Readonly<{
+  id: string
+  correlationId: string
+  key: LibraryMediaUsageWarning["key"]
+  message: string
+  retry: LibraryMediaUsageWarning["retry"]
+  status: "ready" | "retrying" | "failed"
+}>
+
+export type ExactLibraryMediaActionPerformer = (
+  request: LibraryMediaActionPreparationRequest,
+  options?: PerformLibraryMediaActionOptions
+) => Promise<PerformLibraryMediaActionOutcome>
+
+type OpenMediaPickerAction = Readonly<{
+  target: LibraryMediaActionTarget
+  initialCollection?: MediaPickerCollection
+  targetName?: string
+  focusReturnTarget?: HTMLElement | null
+}>
+
+export function useLibraryMediaPickerSession({
+  documentId,
+  performLibraryMediaAction,
+  recordUsed,
+  requestFrame = (callback) => window.requestAnimationFrame(callback),
+}: Readonly<{
+  documentId: string
+  performLibraryMediaAction: ExactLibraryMediaActionPerformer
+  recordUsed?: PerformLibraryMediaActionOptions["recordUsed"]
+  requestFrame?: (callback: FrameRequestCallback) => number
+}>) {
+  const [state, setState] = useState<MediaPickerState | null>(null)
+  const stateRef = useRef<MediaPickerState | null>(null)
+  const [usageNotices, setUsageNotices] = useState<
+    readonly MediaPickerUsageNotice[]
+  >([])
+  const focusReturnRef = useRef<HTMLElement | null>(null)
+  const focusEpochRef = useRef(0)
+  const activeActionRef = useRef<{
+    sessionId: string
+    correlationId: string
+    controller: AbortController
+  } | null>(null)
+  const documentIdRef = useRef(documentId)
+
+  const installState = useCallback((next: MediaPickerState | null) => {
+    stateRef.current = next
+    setState(next)
+  }, [])
+
+  const abortActiveAction = useCallback(() => {
+    activeActionRef.current?.controller.abort()
+    activeActionRef.current = null
+  }, [])
+
+  const close = useCallback(
+    (restoreFocus = true) => {
+      abortActiveAction()
+      const focusTarget = focusReturnRef.current
+      focusReturnRef.current = null
+      installState(null)
+      const focusEpoch = ++focusEpochRef.current
+      if (!restoreFocus) return
+      requestFrame(() => {
+        if (
+          focusEpoch === focusEpochRef.current &&
+          stateRef.current === null &&
+          focusTarget?.isConnected
+        ) {
+          focusTarget.focus()
+        }
+      })
+    },
+    [abortActiveAction, installState, requestFrame]
+  )
+
+  const captureFocusTarget = useCallback((target?: HTMLElement | null) => {
+    ++focusEpochRef.current
+    if (target !== undefined) {
+      focusReturnRef.current = target
+      return
+    }
+    if (stateRef.current !== null) return
+    focusReturnRef.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null
+  }, [])
+
+  const openAction = useCallback(
+    ({
+      target,
+      initialCollection = "recent",
+      targetName,
+      focusReturnTarget,
+    }: OpenMediaPickerAction) => {
+      abortActiveAction()
+      captureFocusTarget(focusReturnTarget)
+      const next: MediaPickerActionState = {
+        kind: "action",
+        sessionId: `media-picker-${crypto.randomUUID()}`,
+        target,
+        targetName,
+        initialCollection,
+        selectedDetail: null,
+        pendingIdentity: null,
+        actionError: null,
+      }
+      installState(next)
+      return next.sessionId
+    },
+    [abortActiveAction, captureFocusTarget, installState]
+  )
+
+  const openRecovery = useCallback(
+    ({
+      localAssetId,
+      targetName,
+      focusReturnTarget,
+    }: Readonly<{
+      localAssetId: string
+      targetName?: string
+      focusReturnTarget?: HTMLElement | null
+    }>) => {
+      abortActiveAction()
+      captureFocusTarget(focusReturnTarget)
+      const next: MediaPickerRecoveryState = {
+        kind: "recover-local",
+        sessionId: `media-picker-${crypto.randomUUID()}`,
+        targetLocalAssetId: localAssetId,
+        targetName,
+        initialCollection: "uploads",
+      }
+      installState(next)
+      return next.sessionId
+    },
+    [abortActiveAction, captureFocusTarget, installState]
+  )
+
+  const captureWarning = useCallback(
+    (correlationId: string, warning: LibraryMediaUsageWarning) => {
+      const id = `${correlationId}:${warning.key}`
+      setUsageNotices((current) => {
+        const next: MediaPickerUsageNotice = {
+          id,
+          correlationId,
+          key: warning.key,
+          message: warning.message,
+          retry: warning.retry,
+          status: "ready",
+        }
+        const found = current.some((notice) => notice.id === id)
+        return found
+          ? current.map((notice) => (notice.id === id ? next : notice))
+          : [...current, next]
+      })
+    },
+    []
+  )
+
+  const executeExactSelection = useCallback(
+    async (detail: LibraryMediaDetail) => {
+      const opened = stateRef.current
+      if (!opened || opened.kind !== "action") return "rejected" as const
+      abortActiveAction()
+      const correlationId = `library-media-${crypto.randomUUID()}`
+      const controller = new AbortController()
+      const active = {
+        sessionId: opened.sessionId,
+        correlationId,
+        controller,
+      }
+      activeActionRef.current = active
+      const selectedDetail = structuredClone(detail)
+      installState({
+        ...opened,
+        selectedDetail,
+        pendingIdentity: `${detail.summary.mediaSource}:${detail.summary.id}@${detail.summary.version}`,
+        actionError: null,
+      })
+      let outcome: PerformLibraryMediaActionOutcome
+      try {
+        outcome = await performLibraryMediaAction(
+          {
+            correlationId,
+            detail: selectedDetail,
+            target: opened.target,
+          },
+          {
+            signal: controller.signal,
+            recordUsed,
+            onUsageWarning: (warning) => captureWarning(correlationId, warning),
+          }
+        )
+      } catch (error) {
+        outcome = "rejected"
+        if (activeActionRef.current === active) {
+          installState({
+            ...opened,
+            selectedDetail,
+            pendingIdentity: null,
+            actionError:
+              error instanceof Error
+                ? error.message
+                : "The selected image could not be applied.",
+          })
+        }
+      }
+      if (activeActionRef.current !== active) return outcome
+      activeActionRef.current = null
+      const current = stateRef.current
+      if (
+        !current ||
+        current.kind !== "action" ||
+        current.sessionId !== opened.sessionId
+      ) {
+        return outcome
+      }
+      if (outcome === "rejected") {
+        installState({
+          ...current,
+          pendingIdentity: null,
+          actionError:
+            current.actionError ??
+            "The selected image could not be applied. Retry in the current design.",
+        })
+      } else {
+        close(true)
+      }
+      return outcome
+    },
+    [
+      abortActiveAction,
+      captureWarning,
+      close,
+      installState,
+      performLibraryMediaAction,
+      recordUsed,
+    ]
+  )
+
+  const retryUsageNotice = useCallback(
+    async (noticeId: string) => {
+      const notice = usageNotices.find((candidate) => candidate.id === noticeId)
+      if (!notice || notice.status === "retrying") return false
+      setUsageNotices((current) =>
+        current.map((candidate) =>
+          candidate.id === noticeId
+            ? { ...candidate, status: "retrying" }
+            : candidate
+        )
+      )
+      let succeeded = false
+      try {
+        succeeded = await notice.retry()
+      } catch {
+        succeeded = false
+      }
+      setUsageNotices((current) =>
+        succeeded
+          ? current.filter((candidate) => candidate.id !== noticeId)
+          : current.map((candidate) =>
+              candidate.id === noticeId
+                ? { ...candidate, status: "failed" }
+                : candidate
+            )
+      )
+      return succeeded
+    },
+    [usageNotices]
+  )
+
+  const dismissUsageNotice = useCallback((noticeId: string) => {
+    setUsageNotices((current) =>
+      current.filter((notice) => notice.id !== noticeId)
+    )
+  }, [])
+
+  useEffect(() => {
+    if (documentIdRef.current === documentId) return
+    documentIdRef.current = documentId
+    abortActiveAction()
+    focusReturnRef.current = null
+    ++focusEpochRef.current
+    installState(null)
+  }, [abortActiveAction, documentId, installState])
+
+  useEffect(
+    () => () => {
+      abortActiveAction()
+      focusReturnRef.current = null
+      ++focusEpochRef.current
+    },
+    [abortActiveAction]
+  )
+
+  return {
+    state,
+    usageNotices,
+    openAction,
+    openRecovery,
+    close,
+    executeExactSelection,
+    retryUsageNotice,
+    dismissUsageNotice,
+  } as const
 }
 
 const editorImageCommandIdSet = new Set<string>(editorImageCommandIds)
@@ -683,7 +1014,13 @@ export function StudioShell({
     useState<RenameLayerTarget | null>(null)
   const [structureCommandDialog, setStructureCommandDialog] =
     useState<StructureCommandDialogState | null>(null)
-  const [mediaPicker, setMediaPicker] = useState<MediaPickerState | null>(null)
+  const mediaPickerSession = useLibraryMediaPickerSession({
+    documentId: editor.document.id,
+    performLibraryMediaAction: editor.performLibraryMediaAction,
+    recordUsed: libraryPreferenceCommands.recordUsed,
+  })
+  const mediaPicker = mediaPickerSession.state
+  const mediaUsageNotices = mediaPickerSession.usageNotices
   const [mediaReviewFieldId, setMediaReviewFieldId] = useState<string | null>(
     null
   )
@@ -830,7 +1167,6 @@ export function StudioShell({
   const compactPanelHeadingRef = useRef<HTMLHeadingElement | null>(null)
   const insertShapeTriggerRef = useRef<HTMLButtonElement | null>(null)
   const studioMoreActionsTriggerRef = useRef<HTMLButtonElement | null>(null)
-  const mediaPickerFocusReturnRef = useRef<HTMLElement | null>(null)
   const cropFocusSessionRef = useRef<ImageCropFocusSession | null>(null)
   const cropWasActiveRef = useRef(false)
   const pendingTextMenuEditingNodeIdRef = useRef<string | null>(null)
@@ -1183,7 +1519,7 @@ export function StudioShell({
   const closeTextLinkEditor = useCallback(() => {
     const nodeId = textLinkEditor?.nodeId
     setTextLinkEditor(null)
-    if (nodeId) returnToTextEditing(nodeId, textLinkEditor?.selection)
+    if (nodeId) returnToTextEditing(nodeId, textLinkEditor.selection)
   }, [returnToTextEditing, textLinkEditor?.nodeId, textLinkEditor?.selection])
 
   const applyTextLinkEditor = useCallback(
@@ -1772,26 +2108,24 @@ export function StudioShell({
 
   const openMediaPicker = useCallback(
     (
-      initialCollection: MediaPickerState["initialCollection"] = "recent",
+      initialCollection: MediaPickerCollection = "recent",
       targetNodeId?: string,
-      focusReturnTarget?: HTMLElement | null
+      focusReturnTarget?: HTMLElement | null,
+      targetName?: string
     ) => {
-      mediaPickerFocusReturnRef.current =
-        focusReturnTarget ??
-        (document.activeElement instanceof HTMLElement
-          ? document.activeElement
-          : null)
       const target = targetNodeId
         ? editor.document.nodes.find((node) => node.id === targetNodeId)
         : null
-      setMediaPicker({
-        mode: targetNodeId ? "replace" : "insert",
-        targetNodeId,
-        targetName: target?.name,
+      mediaPickerSession.openAction({
+        target: targetNodeId
+          ? { type: "replace", pageId: activePage.id, nodeId: targetNodeId }
+          : { type: "insert", pageId: activePage.id },
+        targetName: target?.name ?? targetName,
         initialCollection,
+        focusReturnTarget,
       })
     },
-    [editor.document.nodes]
+    [activePage.id, editor.document.nodes, mediaPickerSession.openAction]
   )
 
   const imageCommandCapabilities = deriveEditorImageCommandCapabilities({
@@ -2195,6 +2529,11 @@ export function StudioShell({
         setCommandPaletteOpen(true)
         return
       }
+      if (event.key === "Escape" && mediaPicker) {
+        event.preventDefault()
+        mediaPickerSession.close(true)
+        return
+      }
       if (
         commandPaletteOpen ||
         guideManagerOpen ||
@@ -2305,6 +2644,8 @@ export function StudioShell({
     editor,
     guideManagerOpen,
     guideWorkspace,
+    mediaPicker,
+    mediaPickerSession.close,
     renameLayerTarget,
     removeWorkspaceGuide,
     runEditorCommand,
@@ -2577,9 +2918,8 @@ export function StudioShell({
 
   const selectMediaAsset = async (selection: AssetLibrarySelection) => {
     if (!mediaPicker) return false
-    if (mediaPicker.mode === "recover-local") {
+    if (mediaPicker.kind === "recover-local") {
       const localAssetId = mediaPicker.targetLocalAssetId
-      if (!localAssetId) return false
       if (selection.kind !== "managed") {
         return {
           ok: false,
@@ -2592,9 +2932,8 @@ export function StudioShell({
         selection.asset
       )
     }
-    if (mediaPicker.mode === "replace") {
-      const nodeId = mediaPicker.targetNodeId
-      if (!nodeId) return false
+    if (mediaPicker.target.type === "replace") {
+      const nodeId = mediaPicker.target.nodeId
       const replacementBlock = editor.imageReplacementBlock(nodeId)
       if (replacementBlock) {
         return { ok: false, message: replacementBlock }
@@ -2607,6 +2946,7 @@ export function StudioShell({
       }
       return editor.replaceImageWithManagedMediaAsset(nodeId, selection.asset)
     }
+    if (mediaPicker.target.type !== "insert") return false
     if (selection.kind === "library") {
       return editor.addLibraryAsset(selection.asset)
     }
@@ -4097,12 +4437,12 @@ export function StudioShell({
               type="button"
               variant="outline"
               onClick={(event) => {
-                mediaPickerFocusReturnRef.current = event.currentTarget
-                setMediaPicker({
-                  mode: "insert",
-                  targetName: "document images",
-                  initialCollection: "uploads",
-                })
+                openMediaPicker(
+                  "uploads",
+                  undefined,
+                  event.currentTarget,
+                  "document images"
+                )
               }}
             >
               Review document images
@@ -4775,11 +5115,9 @@ export function StudioShell({
                   }
                   onRemoveImageLayer={editor.deleteSelection}
                   onReviewDocumentImage={(localAssetId) =>
-                    setMediaPicker({
-                      mode: "recover-local",
-                      targetLocalAssetId: localAssetId,
+                    mediaPickerSession.openRecovery({
+                      localAssetId,
                       targetName: "document image",
-                      initialCollection: "uploads",
                     })
                   }
                   onApplyTextEditingStyle={applyActiveTextEditingStyle}
@@ -5033,11 +5371,9 @@ export function StudioShell({
                 }
                 onRemoveImageLayer={editor.deleteSelection}
                 onReviewDocumentImage={(localAssetId) =>
-                  setMediaPicker({
-                    mode: "recover-local",
-                    targetLocalAssetId: localAssetId,
+                  mediaPickerSession.openRecovery({
+                    localAssetId,
                     targetName: "document image",
-                    initialCollection: "uploads",
                   })
                 }
                 onApplyTextEditingStyle={applyActiveTextEditingStyle}
@@ -5087,19 +5423,67 @@ export function StudioShell({
             )}
           </SheetContent>
         </div>
+        {mediaUsageNotices.length ? (
+          <div
+            aria-label="Media action notices"
+            className="fixed right-4 bottom-4 z-60 flex w-[min(26rem,calc(100vw-2rem))] flex-col gap-2"
+          >
+            {mediaUsageNotices.map((notice) => (
+              <section
+                key={notice.id}
+                className="rounded-lg border border-amber-500/35 bg-background p-3 shadow-xl"
+                data-media-usage-notice={notice.id}
+                role="status"
+              >
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-700" />
+                  <p className="min-w-0 flex-1 text-xs leading-5">
+                    {notice.message}
+                  </p>
+                </div>
+                <div className="mt-2 flex justify-end gap-2">
+                  <Button
+                    size="sm"
+                    type="button"
+                    variant="ghost"
+                    onClick={() =>
+                      mediaPickerSession.dismissUsageNotice(notice.id)
+                    }
+                  >
+                    Dismiss
+                  </Button>
+                  <Button
+                    disabled={notice.status === "retrying"}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                    onClick={() =>
+                      void mediaPickerSession.retryUsageNotice(notice.id)
+                    }
+                  >
+                    {notice.status === "retrying"
+                      ? "Retrying…"
+                      : notice.status === "failed"
+                        ? "Retry again"
+                        : "Retry"}
+                  </Button>
+                </div>
+              </section>
+            ))}
+          </div>
+        ) : null}
         <AssetLibraryDialog
           open={mediaPicker !== null}
           onOpenChange={(open) => {
-            if (!open) {
-              const focusReturnTarget = mediaPickerFocusReturnRef.current
-              setMediaPicker(null)
-              window.requestAnimationFrame(() => {
-                if (focusReturnTarget?.isConnected) focusReturnTarget.focus()
-                mediaPickerFocusReturnRef.current = null
-              })
-            }
+            if (!open) mediaPickerSession.close(true)
           }}
-          mode={mediaPicker?.mode ?? "insert"}
+          mode={
+            mediaPicker?.kind === "recover-local"
+              ? "recover-local"
+              : mediaPicker?.target.type === "replace"
+                ? "replace"
+                : "insert"
+          }
           targetName={mediaPicker?.targetName}
           document={editor.document}
           documentMediaAdmission={editor.documentMediaAdmission}
@@ -5143,12 +5527,10 @@ export function StudioShell({
             void editor.removeMissingLocalAsset(assetId, referenceKey)
           }}
           onChooseStudioImageForLocalAsset={(assetId) => {
-            setMediaPicker((current) => ({
-              mode: "recover-local",
-              targetLocalAssetId: assetId,
-              targetName: current?.targetName ?? "missing image",
-              initialCollection: "uploads",
-            }))
+            mediaPickerSession.openRecovery({
+              localAssetId: assetId,
+              targetName: mediaPicker?.targetName ?? "missing image",
+            })
           }}
           onNavigateToReference={({ nodeId, pageId, fieldId }) => {
             if (fieldId) {

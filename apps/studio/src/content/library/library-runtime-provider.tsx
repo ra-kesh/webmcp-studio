@@ -5,6 +5,8 @@ import {
   useLibraryDiscoveryCommands,
 } from "./library-discovery-provider"
 import type { LibraryDiscoveryProviderProps } from "./library-discovery-provider"
+import { LibraryMediaDiscoveryProvider } from "./library-media-discovery-provider"
+import type { LibraryMediaDiscoveryProviderProps } from "./library-media-discovery-provider"
 import {
   LibraryPreferenceProvider,
   useLibraryDiscoveryInvalidation,
@@ -79,6 +81,7 @@ const createBoundedBootstrapFetch = (
 export type LibraryRuntimeProviderProps = PropsWithChildren<{
   bootstrapTimeoutMs?: number
   discovery?: ProviderPropsWithoutChildren<LibraryDiscoveryProviderProps>
+  mediaDiscovery?: ProviderPropsWithoutChildren<LibraryMediaDiscoveryProviderProps>
   preferences?: ProviderPropsWithoutChildren<LibraryPreferenceProviderProps>
 }>
 
@@ -91,6 +94,7 @@ export function LibraryRuntimeProvider({
   bootstrapTimeoutMs = LIBRARY_PREFERENCE_BOOTSTRAP_TIMEOUT_MS,
   children,
   discovery,
+  mediaDiscovery,
   preferences,
 }: LibraryRuntimeProviderProps) {
   const [bootstrapFetch] = useState(() =>
@@ -102,7 +106,10 @@ export function LibraryRuntimeProvider({
 
   return (
     <LibraryPreferenceProvider {...preferences} fetchRequest={bootstrapFetch}>
-      <LibraryDiscoveryBootstrap discovery={discovery}>
+      <LibraryDiscoveryBootstrap
+        discovery={discovery}
+        mediaDiscovery={mediaDiscovery}
+      >
         {children}
       </LibraryDiscoveryBootstrap>
     </LibraryPreferenceProvider>
@@ -112,8 +119,10 @@ export function LibraryRuntimeProvider({
 function LibraryDiscoveryBootstrap({
   children,
   discovery,
+  mediaDiscovery,
 }: PropsWithChildren<{
   discovery?: ProviderPropsWithoutChildren<LibraryDiscoveryProviderProps>
+  mediaDiscovery?: ProviderPropsWithoutChildren<LibraryMediaDiscoveryProviderProps>
 }>) {
   const { state } = useLibraryPreferences()
   const bootstrapSettledRef = useRef(false)
@@ -145,7 +154,9 @@ function LibraryDiscoveryBootstrap({
   return (
     <LibraryDiscoveryProvider {...discovery}>
       <LibraryDiscoveryInvalidationBridge />
-      {children}
+      <LibraryMediaDiscoveryProvider {...mediaDiscovery}>
+        {children}
+      </LibraryMediaDiscoveryProvider>
     </LibraryDiscoveryProvider>
   )
 }

@@ -5,6 +5,7 @@ import {
   managedAssetSource,
 } from "@webmcp/document"
 import type {
+  LibraryItemIdentity,
   LibraryMediaDetail,
   LibraryProvenance,
   MediaAssetLookup,
@@ -31,10 +32,15 @@ export type LibraryMediaActionPreparationRequest = Readonly<{
   target: LibraryMediaActionTarget
 }>
 
+export type ExactServerLibraryMediaIdentity = Readonly<
+  Extract<LibraryItemIdentity, { itemKind: "media" }> & {
+    mediaSource: "curated" | "managed"
+  }
+>
+
 export type LibraryMediaActionPreparationPorts = Readonly<{
   getExactDetail: (
-    assetId: string,
-    version: number,
+    identity: ExactServerLibraryMediaIdentity,
     signal: AbortSignal
   ) => Promise<LibraryMediaDetail>
   resolveCurated: (
@@ -257,7 +263,15 @@ const prepareCurated = async (
   }
   const exact = assertExactDetail(
     requested,
-    await ports.getExactDetail(identity.assetId, identity.version, signal)
+    await ports.getExactDetail(
+      {
+        itemKind: "media",
+        id: identity.assetId,
+        version: identity.version,
+        mediaSource: "curated",
+      },
+      signal
+    )
   )
   signal.throwIfAborted()
   assertUsable(exact, target)
@@ -335,7 +349,15 @@ const prepareManaged = async (
   const version = requested.summary.version
   const exact = assertExactDetail(
     requested,
-    await ports.getExactDetail(identity.assetId, version, signal)
+    await ports.getExactDetail(
+      {
+        itemKind: "media",
+        id: identity.assetId,
+        version,
+        mediaSource: "managed",
+      },
+      signal
+    )
   )
   signal.throwIfAborted()
   assertUsable(exact, target)

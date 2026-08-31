@@ -17,6 +17,7 @@ import {
   useState,
 } from "react"
 import type { KeyboardEvent, ReactNode } from "react"
+import { libraryMediaDetailSchema } from "@webmcp/document"
 import type {
   LibraryItemIdentity,
   LibraryMediaDetail,
@@ -86,6 +87,7 @@ export type LibraryMediaIntent = Readonly<{
   id: string
   version: number
   mediaSource: "curated" | "managed" | "local"
+  detail: LibraryMediaDetail
   selectionIdentity: LibraryMediaDetail["selectionIdentity"]
 }>
 
@@ -176,20 +178,44 @@ const formatBytes = (bytes: number) => {
 const exactDetailMatches = (
   detail: LibraryMediaDetail,
   item: LibraryMediaSummary
-) =>
-  detail.summary.id === item.id &&
-  detail.summary.version === item.version &&
-  detail.summary.mediaSource === item.mediaSource &&
-  detail.selectionIdentity.source === item.mediaSource &&
-  detail.selectionIdentity.assetId === item.id
+) => {
+  const selectionVersion =
+    detail.selectionIdentity.source === "curated"
+      ? detail.selectionIdentity.version
+      : detail.selectionIdentity.source === "managed"
+        ? detail.selectionIdentity.catalogVersion
+        : detail.selectionIdentity.revision
+  return (
+    detail.summary.id === item.id &&
+    detail.summary.version === item.version &&
+    detail.summary.mediaSource === item.mediaSource &&
+    detail.selectionIdentity.source === item.mediaSource &&
+    detail.selectionIdentity.assetId === item.id &&
+    selectionVersion === item.version
+  )
+}
 
-const intentFrom = (detail: LibraryMediaDetail): LibraryMediaIntent => ({
-  itemKind: "media",
-  id: detail.summary.id,
-  version: detail.summary.version,
-  mediaSource: detail.summary.mediaSource,
-  selectionIdentity: detail.selectionIdentity,
-})
+const immutable = <TValue,>(value: TValue): TValue => {
+  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.freeze(value)
+    for (const child of Object.values(value)) immutable(child)
+  }
+  return value
+}
+
+const intentFrom = (detailInput: LibraryMediaDetail): LibraryMediaIntent => {
+  const detail = immutable(
+    libraryMediaDetailSchema.parse(structuredClone(detailInput))
+  )
+  return Object.freeze({
+    itemKind: "media",
+    id: detail.summary.id,
+    version: detail.summary.version,
+    mediaSource: detail.summary.mediaSource,
+    detail,
+    selectionIdentity: detail.selectionIdentity,
+  })
+}
 
 const actionVerb = (action: LibraryMediaBrowserProps["action"]) =>
   action === "insert" ? "Insert" : action === "replace" ? "Replace" : "Assign"

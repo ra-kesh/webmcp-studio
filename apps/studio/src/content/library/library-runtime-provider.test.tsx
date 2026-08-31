@@ -14,9 +14,18 @@ import {
 } from "vitest"
 import type { LibraryPreferenceSnapshot } from "@webmcp/document"
 import { studioLibraryCatalogIndex } from "./catalog"
+import type { DeviceLocalMediaDiscoveryAdapter } from "./device-local-media-discovery-adapter"
 import { LibraryDiscoveryController } from "./discovery-controller"
-import { useLibraryDiscoveryLease } from "./library-discovery-provider"
+import {
+  useLibraryDiscovery,
+  useLibraryDiscoveryLease,
+} from "./library-discovery-provider"
 import type { LibraryDiscoveryControllerFactory } from "./library-discovery-provider"
+import {
+  useLibraryMediaDiscovery,
+  useLibraryMediaDiscoveryLease,
+} from "./library-media-discovery-provider"
+import type { LibraryMediaDiscoveryControllerFactory } from "./library-media-discovery-provider"
 import type { LibraryPreferenceClient } from "./library-preference-client"
 import { LibraryPreferenceController } from "./library-preference-controller"
 import type { LibraryPreferenceControllerFactory } from "./library-preference-provider"
@@ -64,10 +73,46 @@ const discoveryList = () =>
     page: studioLibraryCatalogIndex.list(query),
   }))
 
+const localAdapter: DeviceLocalMediaDiscoveryAdapter = {
+  list: vi.fn(async () => ({
+    items: [],
+    status: {
+      schemaVersion: 1 as const,
+      databaseVersion: 6,
+      migrationState: "current" as const,
+      legacyRecordCount: 0,
+      legacyMetadataRecordCount: 0,
+      metadataRecordCount: 0,
+      examinedMetadataCount: 0,
+      unindexedMetadataCount: 0,
+      projectedItemCount: 0,
+      archivedRecordCount: 0,
+      unavailableRecordCount: 0,
+      truncated: false,
+      issues: [],
+    },
+  })),
+  getDetail: vi.fn(),
+  recheckSelection: vi.fn(),
+}
+
 function DiscoveryLeaseProbe({ onMount }: { onMount: () => void }) {
   useLibraryDiscoveryLease(true)
   onMount()
   return null
+}
+
+function ProductionDiscoveryOwnersProbe() {
+  const template = useLibraryDiscovery()
+  const media = useLibraryMediaDiscovery()
+  useLibraryDiscoveryLease(true)
+  useLibraryMediaDiscoveryLease(true)
+  return (
+    <output
+      data-media-kinds={media.state.filters.itemKinds.join(",")}
+      data-template-kinds={template.state.filters.itemKinds.join(",")}
+    />
+  )
 }
 
 describe("LibraryRuntimeProvider", () => {
@@ -286,5 +331,93 @@ describe("LibraryRuntimeProvider", () => {
       await preferenceController?.refresh()
     })
     expect(discoveryRefresh).toHaveBeenCalledTimes(1)
+  })
+
+  it("mounts isolated template and media owners without a transient mixed media query", async () => {
+    const readSnapshot = vi.fn().mockResolvedValue(snapshotResponse(1))
+    const templateList = discoveryList()
+    const mediaList = discoveryList()
+    const capturedControllers: {
+      template: LibraryDiscoveryController | null
+      media: LibraryDiscoveryController | null
+    } = { template: null, media: null }
+    const requireCapturedControllers = () => {
+      const { template, media } = capturedControllers
+      if (!template || !media) {
+        throw new Error("Both production discovery owners must be mounted.")
+      }
+      return { template, media }
+    }
+    const templateFactory: LibraryDiscoveryControllerFactory = (
+      dependencies
+    ) => {
+      const controller = new LibraryDiscoveryController({
+        ...dependencies,
+        list: templateList,
+      })
+      controller.setFilters({ itemKinds: ["template"] })
+      capturedControllers.template = controller
+      return controller
+    }
+    const mediaFactory: LibraryMediaDiscoveryControllerFactory = (
+      dependencies
+    ) => {
+      const controller = new LibraryDiscoveryController({
+        ...dependencies,
+        list: mediaList,
+      })
+      capturedControllers.media = controller
+      return controller
+    }
+
+    await act(async () =>
+      root.render(
+        <LibraryRuntimeProvider
+          preferences={{
+            createController: (dependencies) =>
+              new LibraryPreferenceController({
+                ...dependencies,
+                client: preferenceClient(readSnapshot),
+              }),
+            sessionId: "session-runtime-media",
+          }}
+          discovery={{ createController: templateFactory }}
+          mediaDiscovery={{
+            createController: mediaFactory,
+            localAdapter,
+          }}
+        >
+          <ProductionDiscoveryOwnersProbe />
+        </LibraryRuntimeProvider>
+      )
+    )
+
+    await vi.waitFor(() => {
+      expect(templateList.mock.calls.length).toBeGreaterThan(0)
+      expect(mediaList.mock.calls.length).toBeGreaterThan(0)
+    })
+    expect(host.querySelector("output")).toMatchObject({
+      dataset: {
+        mediaKinds: "media",
+        templateKinds: "template",
+      },
+    })
+    const { template, media } = requireCapturedControllers()
+    expect(template).not.toBe(media)
+    expect(
+      mediaList.mock.calls.every(
+        ([query]) =>
+          query.itemKinds.length === 1 && query.itemKinds[0] === "media"
+      )
+    ).toBe(true)
+
+    await act(async () => {
+      template.setRawSearch("template-search")
+      media.setRawSearch("media-search")
+    })
+    expect(template.getSnapshot().rawSearch).toBe("template-search")
+    expect(media.getSnapshot().rawSearch).toBe("media-search")
+    expect(template.getSnapshot().filters.itemKinds).toEqual(["template"])
+    expect(media.getSnapshot().filters.itemKinds).toEqual(["media"])
   })
 })

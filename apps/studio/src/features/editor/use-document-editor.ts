@@ -22,6 +22,7 @@ import {
   quotationSourceFingerprint,
   QUOTATION_COMPOSER_VERSION,
   inferQuotationTemplateId,
+  libraryMediaDetailSchema,
   libraryTemplateDetailSchema,
   previewChangeSet,
   quotationCompositionRequestV1Schema,
@@ -104,6 +105,7 @@ import type {
   TemplateMutation,
 } from "../../content/library/library-template-actions"
 import { studioLibraryDiscoveryAdapter } from "../../content/library/library-discovery-adapter"
+import { deviceLocalMediaDiscoveryAdapter } from "../../content/library/device-local-media-discovery-adapter"
 import type {
   DocumentHistoryCommit,
   DocumentHistory,
@@ -153,6 +155,7 @@ import {
   projectCanvasComponentSelection,
   projectComponentInstanceCanvasTransform,
 } from "./component-canvas-interaction"
+import { resolveStudioAssetContent } from "./asset-catalog"
 import type { StudioAsset } from "./asset-catalog"
 import type { LibraryPreferenceCommands } from "../../content/library/library-preference-provider"
 import {
@@ -388,9 +391,7 @@ export type PerformLibraryMediaActionOptions = Readonly<{
 }>
 
 export type PerformLibraryMediaActionOutcome =
-  | "committed"
-  | "no_op"
-  | "rejected"
+  "committed" | "no_op" | "rejected"
 
 type ActivePersistenceSession = Readonly<{
   generation: number
@@ -907,6 +908,38 @@ const serverLibraryTemplateDetailPort: TemplateActionPorts["getDetail"] =
       : null
   }
 
+const serverLibraryMediaPreparationPorts: LibraryMediaActionPreparationPorts =
+  Object.freeze({
+    async getExactDetail(identity, signal) {
+      const detail = await studioLibraryDiscoveryAdapter.getDetail(
+        identity,
+        signal
+      )
+      return libraryMediaDetailSchema.parse(detail)
+    },
+    resolveCurated: (identity, signal) =>
+      resolveStudioAssetContent(
+        identity.assetId,
+        identity.version,
+        (resourcePath, requestSignal) =>
+          globalThis.fetch(resourcePath, { signal: requestSignal }),
+        signal
+      ),
+    getManagedRecord: (assetId, signal) => getManagedMedia(assetId, signal),
+    verifyManagedResource: (record, signal) =>
+      verifyManagedBrowserImageResource(
+        record,
+        decodeValidatedImageDimensions,
+        (input, init) =>
+          globalThis.fetch(input, {
+            ...init,
+            signal,
+          })
+      ),
+    recheckLocal: (identity, signal) =>
+      deviceLocalMediaDiscoveryAdapter.recheckSelection(identity, signal),
+  })
+
 function reconcileSelection(
   selection: Selection | null,
   document: Document
@@ -933,6 +966,7 @@ export function useDocumentEditor({
   historyOptions,
   persistence,
   libraryTemplateDetailPort = serverLibraryTemplateDetailPort,
+  libraryMediaPreparationPorts = serverLibraryMediaPreparationPorts,
 }: {
   initialRecord?: DocumentDraftRecord | null
   initialRecordWarning?: string | null
@@ -942,6 +976,7 @@ export function useDocumentEditor({
   historyOptions?: DocumentHistoryOptions
   persistence: StudioPersistenceApi
   libraryTemplateDetailPort?: TemplateActionPorts["getDetail"]
+  libraryMediaPreparationPorts?: LibraryMediaActionPreparationPorts
 }) {
   const persistenceRef = useRef(persistence)
   persistenceRef.current = persistence
@@ -5537,7 +5572,6 @@ export function useDocumentEditor({
   const performLibraryMediaAction = useCallback(
     async (
       request: LibraryMediaActionPreparationRequest,
-      preparationPorts: LibraryMediaActionPreparationPorts,
       options: PerformLibraryMediaActionOptions = {}
     ): Promise<PerformLibraryMediaActionOutcome> => {
       if (!allowMutation()) return "rejected" as const
@@ -5590,7 +5624,7 @@ export function useDocumentEditor({
         controller.signal.throwIfAborted()
         const prepared = await prepareExactLibraryMediaAction(
           request,
-          preparationPorts,
+          libraryMediaPreparationPorts,
           controller.signal
         )
         controller.signal.throwIfAborted()
@@ -5628,7 +5662,7 @@ export function useDocumentEditor({
               : async (signal: AbortSignal) => {
                   const admitted = await prepareExactLibraryMediaAction(
                     request,
-                    preparationPorts,
+                    libraryMediaPreparationPorts,
                     signal
                   )
                   signal.throwIfAborted()
@@ -5781,7 +5815,13 @@ export function useDocumentEditor({
         releaseMutationLifetime()
       }
     },
-    [allowMutation, commit, imageReplacementCoordinator, readAssetMutationState]
+    [
+      allowMutation,
+      commit,
+      imageReplacementCoordinator,
+      libraryMediaPreparationPorts,
+      readAssetMutationState,
+    ]
   )
 
   const addLibraryAsset = useCallback(

@@ -62,10 +62,13 @@ describe("Studio persistence route layout", () => {
     expect(generatedTree).toContain("fullPath: '/'")
 
     expect(libraryRuntimeSource).toMatch(
-      /<LibraryPreferenceProvider\s+\{\.\.\.preferences\}\s+fetchRequest=\{bootstrapFetch\}>\s*<LibraryDiscoveryBootstrap discovery=\{discovery\}>/
+      /<LibraryPreferenceProvider\s+\{\.\.\.preferences\}\s+fetchRequest=\{bootstrapFetch\}>\s*<LibraryDiscoveryBootstrap\s+discovery=\{discovery\}\s+mediaDiscovery=\{mediaDiscovery\}\s*>/
     )
     expect(libraryRuntimeSource).toMatch(
-      /<LibraryDiscoveryProvider \{\.\.\.discovery\}>\s*<LibraryDiscoveryInvalidationBridge \/>/
+      /<LibraryDiscoveryProvider \{\.\.\.discovery\}>\s*<LibraryDiscoveryInvalidationBridge \/>\s*<LibraryMediaDiscoveryProvider \{\.\.\.mediaDiscovery\}>/
+    )
+    expect(layoutSource.match(/<LibraryRuntimeProvider>/g) ?? []).toHaveLength(
+      1
     )
   })
 
