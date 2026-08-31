@@ -179,6 +179,16 @@ reload, unlocked Inspector selection, and both overlays now produce no console
 errors, warnings, or browser issues. Studio typecheck and the focused
 workspace-publication isolation regression pass.
 
+The remaining primary shell surfaces were also opened live: Export, document
+file actions, the application menu, Variables, Fields and Review. Their menus,
+empty states and panel geometry remain bounded at the default layout, and the
+document panel's keyboard resize path was exercised at its 208 px minimum.
+This found one Review dead end: when the current browser cannot expose WebMCP,
+the panel disabled **Copy demo brief**, even though copying the brief for a
+supported browser is precisely the useful next action. The empty-state copy
+now explains that handoff and remains available; the clipboard action was
+confirmed live and the Inspector sidebar suite passes 11/11.
+
 ## Acceptance
 
 - the start heading still receives programmatic focus after returning home but

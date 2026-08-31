@@ -4233,12 +4233,15 @@ function ReviewPanel({
           <EditorPanelState
             icon={<Sparkles />}
             title="No changes waiting"
-            description="Ask a browser agent to inspect the design and propose field or canvas updates."
+            description={
+              webMcpStatus === "ready"
+                ? "Ask a browser agent to inspect the design and propose field or canvas updates."
+                : "Copy the brief, then use it with this route in a WebMCP-capable browser."
+            }
           >
             <Button
               size="sm"
               variant="outline"
-              disabled={webMcpStatus !== "ready"}
               onClick={() => {
                 void navigator.clipboard.writeText(DEMO_AGENT_BRIEF)
                 setBriefCopied(true)
