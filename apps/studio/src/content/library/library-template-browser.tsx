@@ -1,5 +1,6 @@
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual"
 import {
+  AlertCircle,
   ChevronRight,
   Ellipsis,
   FileStack,
@@ -61,6 +62,15 @@ import {
   useLibraryDiscoveryLease,
 } from "./library-discovery-provider"
 import { LibraryPreview } from "./library-preview"
+import {
+  projectLibraryCollectionOptions,
+  projectLibraryTemplatePreferences,
+} from "./library-preference-projection"
+import { useLibraryPreferences } from "./library-preference-provider"
+import type {
+  LibraryPreferenceFailure,
+  LibraryPreferenceStateOwner,
+} from "./library-preference-controller"
 
 export const LIBRARY_TEMPLATE_VIRTUALIZATION_THRESHOLD = 48
 
@@ -370,6 +380,7 @@ function TemplateCard({
   onSelect,
   onInspect,
   onToggleFavorite,
+  favoritePending,
   onFocus,
   cardRef,
   semanticPosition,
@@ -382,6 +393,7 @@ function TemplateCard({
   onSelect: () => void
   onInspect: () => void
   onToggleFavorite?: (favorite: boolean) => void
+  favoritePending: boolean
   onFocus: () => void
   cardRef?: RefCallback<HTMLButtonElement>
   semanticPosition?: Readonly<{ position: number; size: number }>
@@ -432,20 +444,36 @@ function TemplateCard({
             </span>
           </button>
           <button
-            aria-label={`${favorite ? "Remove" : "Add"} ${item.name} ${favorite ? "from" : "to"} favorites`}
+            aria-label={
+              favoritePending
+                ? `Saving favorite for ${item.name}`
+                : `${favorite ? "Remove" : "Add"} ${item.name} ${favorite ? "from" : "to"} favorites`
+            }
             aria-pressed={favorite}
+            aria-busy={favoritePending || undefined}
             className="grid size-11 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors outline-none hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/45 disabled:cursor-not-allowed disabled:opacity-40"
-            disabled={!item.permissions.canFavorite || !onToggleFavorite}
+            disabled={
+              favoritePending ||
+              !item.permissions.canFavorite ||
+              !onToggleFavorite
+            }
             type="button"
             onClick={() => onToggleFavorite?.(!favorite)}
           >
-            <Heart
-              aria-hidden="true"
-              className={cn(
-                "size-4",
-                favorite && "fill-current text-foreground"
-              )}
-            />
+            {favoritePending ? (
+              <LoaderCircle
+                aria-hidden="true"
+                className="size-4 animate-spin motion-reduce:animate-none"
+              />
+            ) : (
+              <Heart
+                aria-hidden="true"
+                className={cn(
+                  "size-4",
+                  favorite && "fill-current text-foreground"
+                )}
+              />
+            )}
           </button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -506,7 +534,10 @@ function TemplateDetails({
       ? readyDetail
       : null
   const authoritativeItem: LibraryTemplateSummary = exactDetail?.summary ?? item
-  const intent = exactIdentity(authoritativeItem)
+  const effectiveAuthoritativeItem: LibraryTemplateSummary = exactDetail
+    ? { ...authoritativeItem, preferences: item.preferences }
+    : authoritativeItem
+  const intent = exactIdentity(effectiveAuthoritativeItem)
   const createCompatibility = exactDetail
     ? compatibilityFor(authoritativeItem, hasQuotationSource, "create")
     : { available: false, reason: null }
@@ -542,19 +573,19 @@ function TemplateDetails({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[11px] font-medium text-muted-foreground">
-            {ownerLabel(authoritativeItem)} · version{" "}
-            {authoritativeItem.version}
+            {ownerLabel(effectiveAuthoritativeItem)} · version{" "}
+            {effectiveAuthoritativeItem.version}
           </p>
           <h3 className="mt-1 text-base font-semibold tracking-[-0.02em]">
-            {authoritativeItem.name}
+            {effectiveAuthoritativeItem.name}
           </h3>
         </div>
-        {authoritativeItem.preferences?.favorite ? (
+        {effectiveAuthoritativeItem.preferences?.favorite ? (
           <Heart aria-label="Favorite" className="size-4 fill-current" />
         ) : null}
       </div>
       <p className="mt-2 text-xs leading-5 text-muted-foreground">
-        {authoritativeItem.description}
+        {effectiveAuthoritativeItem.description}
       </p>
       {!exactDetail && !exactDetailFailure ? (
         <p className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
@@ -583,25 +614,25 @@ function TemplateDetails({
         <div>
           <dt className="text-muted-foreground">Format</dt>
           <dd className="mt-0.5 font-medium">
-            {authoritativeItem.formatFamily}
+            {effectiveAuthoritativeItem.formatFamily}
           </dd>
         </div>
         <div>
           <dt className="text-muted-foreground">Pages</dt>
           <dd className="mt-0.5 font-medium tabular-nums">
-            {authoritativeItem.pageCount}
+            {effectiveAuthoritativeItem.pageCount}
           </dd>
         </div>
         <div>
           <dt className="text-muted-foreground">Size</dt>
           <dd className="mt-0.5 font-medium tabular-nums">
-            {dimensionLabel(authoritativeItem)}
+            {dimensionLabel(effectiveAuthoritativeItem)}
           </dd>
         </div>
         <div>
           <dt className="text-muted-foreground">Orientation</dt>
           <dd className="mt-0.5 font-medium capitalize">
-            {authoritativeItem.orientation}
+            {effectiveAuthoritativeItem.orientation}
           </dd>
         </div>
       </dl>
@@ -711,6 +742,69 @@ function useContainerColumns(variant: "start" | "editor") {
   return { hostRef, columns }
 }
 
+function PreferenceFailureNotice({
+  failure,
+  onRetry,
+  onDismiss,
+}: {
+  failure: LibraryPreferenceFailure
+  onRetry: () => void
+  onDismiss: () => void
+}) {
+  return (
+    <div
+      className="grid gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs"
+      data-library-preference-failure={failure.key}
+    >
+      <div className="flex min-w-0 items-start gap-2">
+        <AlertCircle
+          aria-hidden="true"
+          className="mt-0.5 size-4 shrink-0 text-destructive"
+        />
+        <div className="min-w-0">
+          <p className="font-medium text-foreground">{failure.message}</p>
+          {failure.requestId ? (
+            <p className="mt-1 text-[11px] break-all text-muted-foreground">
+              Request ID: {failure.requestId}
+            </p>
+          ) : null}
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-2 pl-6">
+        {failure.retryable ? (
+          <Button
+            className="min-h-11"
+            size="sm"
+            type="button"
+            variant="outline"
+            onClick={onRetry}
+          >
+            <RefreshCw aria-hidden="true" />
+            Retry
+          </Button>
+        ) : null}
+        <Button
+          className="min-h-11"
+          size="sm"
+          type="button"
+          variant="ghost"
+          onClick={onDismiss}
+        >
+          Dismiss
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+const favoriteKey = (item: LibraryTemplateSummary) =>
+  `favorite:${identityKey(item)}`
+
+const snapshotFailureIdentity = (failure: LibraryPreferenceFailure | null) =>
+  failure
+    ? `${failure.key}:${failure.requestId ?? "no-request"}:${failure.message}`
+    : null
+
 type CollectionProps = Readonly<{
   items: readonly LibraryTemplateSummary[]
   variant: "start" | "editor"
@@ -721,6 +815,7 @@ type CollectionProps = Readonly<{
   hasQuotationSource: boolean
   onSelect: (item: LibraryTemplateSummary) => void
   onToggleFavorite?: LibraryTemplateBrowserProps["onToggleFavorite"]
+  preferenceState: LibraryPreferenceStateOwner
   onCardFocus: (identity: string, index: number) => void
   onCollectionFocusLeave: () => void
   onFocusIntentHandled: () => void
@@ -736,6 +831,7 @@ function TemplateCollection({
   hasQuotationSource,
   onSelect,
   onToggleFavorite,
+  preferenceState,
   onCardFocus,
   onCollectionFocusLeave,
   onFocusIntentHandled,
@@ -823,6 +919,7 @@ function TemplateCollection({
         item={item}
         key={key}
         selected={selectedKey === key}
+        favoritePending={preferenceState.pending.has(favoriteKey(item))}
         semanticPosition={{ position: index + 1, size: items.length }}
         onInspect={() => onSelect(item)}
         onFocus={() => onCardFocus(key, index)}
@@ -930,13 +1027,18 @@ function LibraryTemplateBrowserContent({
   activeTemplate = null,
   pendingAction = null,
   actionError = null,
-  collectionOptions = [],
+  collectionOptions,
   onCreate,
   onApply,
   onToggleFavorite,
 }: LibraryTemplateBrowserProps) {
   const { state, commands } = useLibraryDiscovery()
+  const { state: preferenceState, commands: preferenceCommands } =
+    useLibraryPreferences()
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
+  const [dismissedSnapshotFailure, setDismissedSnapshotFailure] = useState<
+    string | null
+  >(null)
   const [focusedCard, setFocusedCard] = useState<{
     identity: string
     index: number
@@ -958,7 +1060,23 @@ function LibraryTemplateBrowserContent({
   }, [commands, state.filters.itemKinds, visible])
 
   const page = state.confirmedPage ?? state.retainedPage
-  const items = useMemo(() => page?.items.filter(isTemplate) ?? [], [page])
+  const discoveredItems = useMemo(
+    () => page?.items.filter(isTemplate) ?? [],
+    [page]
+  )
+  const items = useMemo(
+    () =>
+      projectLibraryTemplatePreferences({
+        items: discoveredItems,
+        preferenceState,
+        discoveryWorkspaceRevision: page?.workspaceRevision ?? 0,
+      }),
+    [discoveredItems, page?.workspaceRevision, preferenceState]
+  )
+  const effectiveCollectionOptions = useMemo(
+    () => collectionOptions ?? projectLibraryCollectionOptions(preferenceState),
+    [collectionOptions, preferenceState]
+  )
   const selectedItem = useMemo(
     () =>
       items.find((item) => identityKey(item) === selectedKey) ??
@@ -1002,6 +1120,24 @@ function LibraryTemplateBrowserContent({
     },
     [commands]
   )
+
+  const toggleFavorite = useCallback(
+    (intent: LibraryTemplateIntent, favorite: boolean) => {
+      if (onToggleFavorite) {
+        onToggleFavorite(intent, favorite)
+        return
+      }
+      const item = items.find(
+        (candidate) =>
+          candidate.id === intent.id && candidate.version === intent.version
+      )
+      if (!item) return
+      void preferenceCommands.setFavorite(intent, item.name, favorite)
+    },
+    [items, onToggleFavorite, preferenceCommands]
+  )
+  const effectiveToggleFavorite =
+    onToggleFavorite || preferenceState.snapshot ? toggleFavorite : undefined
 
   const updateFilters = useCallback(
     (patch: Partial<LibraryDiscoveryFilters>) => {
@@ -1090,7 +1226,7 @@ function LibraryTemplateBrowserContent({
   }
   const filterControls = (
     <BrowserFilters
-      collectionOptions={collectionOptions}
+      collectionOptions={effectiveCollectionOptions}
       state={state}
       onChange={updateFilters}
       onOrderChange={updateOrder}
@@ -1103,11 +1239,22 @@ function LibraryTemplateBrowserContent({
     selectedItem.version === state.detail.version
       ? state.detail.failure.message
       : null
+  const snapshotFailureKey = snapshotFailureIdentity(
+    preferenceState.snapshotFailure
+  )
+  const visibleSnapshotFailure =
+    preferenceState.snapshotFailure &&
+    snapshotFailureKey !== dismissedSnapshotFailure
+      ? preferenceState.snapshotFailure
+      : null
+  const preferenceFailures = Array.from(preferenceState.failures.values())
   const liveErrors = [
     actionError,
     selectedDetailFailure,
     state.appendFailure?.message,
     state.replacementFailure?.message,
+    visibleSnapshotFailure?.message,
+    ...preferenceFailures.map(({ message }) => message),
   ].filter((message): message is string => Boolean(message))
   const controllerMessage =
     state.announcement?.message ??
@@ -1119,6 +1266,37 @@ function LibraryTemplateBrowserContent({
   const liveMessage = Array.from(
     new Set([...liveErrors, controllerMessage].filter(Boolean))
   ).join(" ")
+  const hasNarrowingCriteria =
+    state.rawSearch.trim().length > 0 ||
+    state.filters.categoryIds.length > 0 ||
+    state.filters.useCaseIds.length > 0 ||
+    state.filters.formatFamilies.length > 0 ||
+    state.filters.orientations.length > 0 ||
+    state.filters.ownerKinds.length > 0 ||
+    state.filters.collectionId !== null
+  const emptyCopy =
+    !hasNarrowingCriteria && state.entryPoint === "favorites"
+      ? {
+          title: "No favorite templates yet",
+          description:
+            "Use the heart on a template to keep it easy to find here.",
+        }
+      : !hasNarrowingCriteria && state.entryPoint === "recent"
+        ? {
+            title: "No recently used templates",
+            description:
+              "Templates appear here after you create a document from them.",
+          }
+        : hasActiveCriteria
+          ? {
+              title: "No matching templates",
+              description: "Try a different search or return to all templates.",
+            }
+          : {
+              title: "No templates available",
+              description:
+                "Studio's template catalog is empty. You can still create a blank document or import existing work.",
+            }
 
   return (
     <section
@@ -1238,7 +1416,7 @@ function LibraryTemplateBrowserContent({
                 <div className="px-4">
                   <BrowserFilters
                     compact
-                    collectionOptions={collectionOptions}
+                    collectionOptions={effectiveCollectionOptions}
                     state={state}
                     onChange={updateFilters}
                     onOrderChange={updateOrder}
@@ -1265,6 +1443,35 @@ function LibraryTemplateBrowserContent({
       <p aria-atomic="true" aria-live="polite" className="sr-only">
         {liveMessage}
       </p>
+
+      {visibleSnapshotFailure || preferenceFailures.length > 0 ? (
+        <div
+          className={cn(
+            "grid gap-2",
+            variant === "editor" ? "shrink-0 border-b p-3" : "mb-4"
+          )}
+          data-library-preference-errors="true"
+        >
+          {visibleSnapshotFailure ? (
+            <PreferenceFailureNotice
+              failure={visibleSnapshotFailure}
+              onDismiss={() => setDismissedSnapshotFailure(snapshotFailureKey)}
+              onRetry={() => {
+                setDismissedSnapshotFailure(null)
+                void preferenceCommands.refresh()
+              }}
+            />
+          ) : null}
+          {preferenceFailures.map((failure) => (
+            <PreferenceFailureNotice
+              failure={failure}
+              key={failure.key}
+              onDismiss={() => preferenceCommands.dismissFailure(failure.key)}
+              onRetry={() => void preferenceCommands.retry(failure.key)}
+            />
+          ))}
+        </div>
+      ) : null}
 
       <div
         className={cn(
@@ -1349,15 +1556,9 @@ function LibraryTemplateBrowserContent({
                 aria-hidden="true"
                 className="mx-auto size-5 text-muted-foreground"
               />
-              <h3 className="mt-3 text-sm font-semibold">
-                {hasActiveCriteria
-                  ? "No matching templates"
-                  : "No templates available"}
-              </h3>
+              <h3 className="mt-3 text-sm font-semibold">{emptyCopy.title}</h3>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                {hasActiveCriteria
-                  ? "Try a different search or return to all templates."
-                  : "Studio's template catalog is empty. You can still create a blank document or import existing work."}
+                {emptyCopy.description}
               </p>
               {hasActiveCriteria ? (
                 <Button
@@ -1386,6 +1587,7 @@ function LibraryTemplateBrowserContent({
                 forceFocusIdentity={Boolean(explicitFocusIdentity)}
                 hasQuotationSource={hasQuotationSource}
                 items={items}
+                preferenceState={preferenceState}
                 selectedKey={effectiveSelectedKey}
                 variant={variant}
                 onCardFocus={(identity, index) => {
@@ -1398,7 +1600,7 @@ function LibraryTemplateBrowserContent({
                   if (intent) commands.clearFocusIntent(intent.id)
                 }}
                 onSelect={selectItem}
-                onToggleFavorite={onToggleFavorite}
+                onToggleFavorite={effectiveToggleFavorite}
               />
               <div className="mt-3 grid gap-2">
                 {state.appendFailure ? (

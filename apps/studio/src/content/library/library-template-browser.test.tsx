@@ -4,6 +4,11 @@ import { act } from "react"
 import { createRoot } from "react-dom/client"
 import type { Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import type {
+  LibraryItemIdentity,
+  LibraryPreferenceMutationReceipt,
+  LibraryPreferenceSnapshot,
+} from "@webmcp/document"
 import { getStudioLibraryCatalogDetail } from "./catalog"
 import { LibraryTemplateBrowser } from "./library-template-browser"
 import {
@@ -11,8 +16,18 @@ import {
   confirmedPage,
   DiscoveryTestRoot,
   discoveryState,
+  preferenceSnapshot,
+  preferenceState,
   staticController,
+  staticPreferenceController,
 } from "./library-template-browser.test-support"
+import type { LibraryPreferenceFailure } from "./library-preference-controller"
+import { LibraryPreferenceController } from "./library-preference-controller"
+import { LibraryPreferenceHttpError } from "./library-preference-client"
+import type {
+  LibraryPreferenceClient,
+  LibraryPreferenceClientResult,
+} from "./library-preference-client"
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
@@ -27,6 +42,94 @@ class DeferredIntersectionObserver implements IntersectionObserver {
     return []
   }
   unobserve() {}
+}
+
+const deferred = <TValue,>() => {
+  let resolve!: (value: TValue) => void
+  let reject!: (error: unknown) => void
+  const promise = new Promise<TValue>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
+
+const preferenceResult = <TValue,>(
+  value: TValue
+): LibraryPreferenceClientResult<TValue> => ({
+  value,
+  requestId: "request-library-browser-1",
+  etag: null,
+})
+
+const snapshotFor = (
+  identity: LibraryItemIdentity,
+  workspaceRevision: number,
+  revision = 0,
+  favorite = false
+): LibraryPreferenceSnapshot => ({
+  workspaceRevision,
+  preferences:
+    revision === 0
+      ? []
+      : [
+          {
+            identity,
+            favorite,
+            lastUsedAt: null,
+            collectionIds: [],
+            revision,
+            updatedAt: "2026-08-31T10:00:00.000Z",
+          },
+        ],
+  collections: [],
+})
+
+const favoriteReceiptFor = (
+  identity: LibraryItemIdentity,
+  workspaceRevision: number,
+  revision: number,
+  favorite: boolean
+): LibraryPreferenceMutationReceipt => ({
+  schemaVersion: 1,
+  operation: "set_favorite",
+  workspaceRevision,
+  preference: {
+    identity,
+    favorite,
+    lastUsedAt: null,
+    collectionIds: [],
+    revision,
+    updatedAt: "2026-08-31T10:01:00.000Z",
+  },
+})
+
+const realPreferenceController = (
+  overrides: Partial<LibraryPreferenceClient>,
+  keys = ["mutation-browser-1", "mutation-browser-2"]
+) => {
+  const client: LibraryPreferenceClient = {
+    readSnapshot: vi.fn(),
+    listCollections: vi.fn(),
+    getCollection: vi.fn(),
+    setFavorite: vi.fn(),
+    recordUsed: vi.fn(),
+    createCollection: vi.fn(),
+    renameCollection: vi.fn(),
+    deleteCollection: vi.fn(),
+    addCollectionMember: vi.fn(),
+    removeCollectionMember: vi.fn(),
+    reorderCollectionMembers: vi.fn(),
+    ...overrides,
+  }
+  let keyIndex = 0
+  const controller = new LibraryPreferenceController({
+    client,
+    sessionId: "session-browser-preferences",
+    createIdempotencyKey: () =>
+      keys[keyIndex++] ?? `mutation-browser-${keyIndex}`,
+  })
+  return { client, controller }
 }
 
 describe("LibraryTemplateBrowser", () => {
@@ -497,7 +600,7 @@ describe("LibraryTemplateBrowser", () => {
     await act(async () => {
       emptyController.updateState(filteredState)
     })
-    expect(host.textContent).toContain("No matching templates")
+    expect(host.textContent).toContain("No favorite templates yet")
     const showAll = Array.from(host.querySelectorAll("button")).find(
       (button) => button.textContent?.trim() === "Show all templates"
     )
@@ -595,6 +698,7 @@ describe("LibraryTemplateBrowser", () => {
 
   it("preserves focus on card actions while the collection updates", async () => {
     const controller = staticController(discoveryState())
+    const onToggleFavorite = vi.fn()
     await act(async () => {
       root.render(
         <DiscoveryTestRoot controller={controller}>
@@ -602,21 +706,26 @@ describe("LibraryTemplateBrowser", () => {
             hasQuotationSource
             variant="start"
             onCreate={vi.fn()}
-            onToggleFavorite={vi.fn()}
+            onToggleFavorite={onToggleFavorite}
           />
         </DiscoveryTestRoot>
       )
     })
 
-    const item = catalogTemplates[0]!
+    const item = catalogTemplates[0]
     const favorite = host.querySelector<HTMLButtonElement>(
       `button[aria-label="Add ${item.name} to favorites"]`
     )!
     await act(async () => {
       favorite.focus()
+      favorite.click()
       controller.updateState(discoveryState())
     })
     expect(document.activeElement).toBe(favorite)
+    expect(onToggleFavorite).toHaveBeenCalledWith(
+      { itemKind: "template", id: item.id, version: item.version },
+      true
+    )
 
     const actions = host.querySelector<HTMLButtonElement>(
       `button[aria-label="Actions for ${item.name}"]`
@@ -626,5 +735,471 @@ describe("LibraryTemplateBrowser", () => {
       controller.updateState(discoveryState())
     })
     expect(document.activeElement).toBe(actions)
+  })
+
+  it("drives optimistic favorite rollback through the shared controller while preserving focused pending control", async () => {
+    const item = catalogTemplates[0]
+    const identity: LibraryItemIdentity = {
+      itemKind: "template",
+      id: item.id,
+      version: item.version,
+    }
+    const mutation =
+      deferred<
+        LibraryPreferenceClientResult<LibraryPreferenceMutationReceipt>
+      >()
+    const setFavorite = vi.fn(() => mutation.promise)
+    const { controller: preferences } = realPreferenceController({
+      readSnapshot: vi.fn(async () =>
+        preferenceResult(snapshotFor(identity, 1))
+      ),
+      setFavorite,
+    })
+
+    await act(async () => {
+      root.render(
+        <DiscoveryTestRoot
+          controller={staticController(discoveryState())}
+          preferenceController={preferences}
+        >
+          <LibraryTemplateBrowser
+            hasQuotationSource
+            variant="editor"
+            onApply={vi.fn()}
+            onCreate={vi.fn()}
+          />
+        </DiscoveryTestRoot>
+      )
+    })
+
+    const heart = host.querySelector<HTMLButtonElement>(
+      `button[aria-label="Add ${item.name} to favorites"]`
+    )!
+    await vi.waitFor(() => expect(heart.disabled).toBe(false))
+    await act(async () => {
+      heart.focus()
+      heart.click()
+    })
+
+    expect(setFavorite).toHaveBeenCalledTimes(1)
+    const saving = host.querySelector<HTMLButtonElement>(
+      `button[aria-label="Saving favorite for ${item.name}"]`
+    )!
+    expect(saving.getAttribute("aria-pressed")).toBe("true")
+    expect(saving.disabled).toBe(true)
+    expect(document.activeElement).toBe(saving)
+    const create = Array.from(host.querySelectorAll("button")).find(
+      (button) => button.textContent.trim() === "Create from template"
+    )
+    const apply = Array.from(host.querySelectorAll("button")).find(
+      (button) => button.textContent.trim() === "Apply to this document"
+    )
+    expect(create?.disabled).toBe(false)
+    expect(apply?.disabled).toBe(false)
+
+    await act(async () => {
+      mutation.reject(
+        new LibraryPreferenceHttpError({
+          code: "library_network_error",
+          status: 0,
+          message: "offline",
+          requestId: "request-rollback-1",
+          retryable: true,
+          commitStatus: "unknown",
+        })
+      )
+      await Promise.resolve()
+    })
+    await vi.waitFor(() =>
+      expect(
+        host
+          .querySelector(`button[aria-label="Add ${item.name} to favorites"]`)
+          ?.getAttribute("aria-pressed")
+      ).toBe("false")
+    )
+    expect(document.activeElement?.getAttribute("aria-label")).toBe(
+      `Add ${item.name} to favorites`
+    )
+    expect(host.textContent).toContain(`Couldn't add ${item.name} to Favorites`)
+    expect(host.textContent).toContain("Request ID: request-rollback-1")
+  })
+
+  it("rolls back a failed heart and exposes transport and reconciled retry failures without blocking document actions", async () => {
+    const item = catalogTemplates[0]
+    const favoriteKey = `favorite:template:${item.id}@${item.version}`
+    const favoriteFailure: LibraryPreferenceFailure = {
+      key: favoriteKey,
+      action: "set_favorite",
+      message: `Couldn't add ${item.name} to Favorites`,
+      code: "library_request_failed",
+      status: 0,
+      requestId: "request-transport-1",
+      retryable: true,
+      retryMode: "same_key",
+      commitStatus: "unknown",
+    }
+    const conflictFailure: LibraryPreferenceFailure = {
+      key: "collection:collection-proposals:rename",
+      action: "rename_collection",
+      message: "Couldn't rename Proposals",
+      code: "library_collection_revision_mismatch",
+      status: 412,
+      requestId: "request-conflict-1",
+      retryable: true,
+      retryMode: "new_key",
+      commitStatus: "known",
+    }
+    const preferences = staticPreferenceController(
+      preferenceState({
+        failures: new Map([
+          [favoriteFailure.key, favoriteFailure],
+          [conflictFailure.key, conflictFailure],
+        ]),
+      })
+    )
+
+    await act(async () => {
+      root.render(
+        <DiscoveryTestRoot
+          controller={staticController(discoveryState())}
+          preferenceController={preferences}
+        >
+          <LibraryTemplateBrowser
+            hasQuotationSource
+            variant="editor"
+            onApply={vi.fn()}
+            onCreate={vi.fn()}
+          />
+        </DiscoveryTestRoot>
+      )
+    })
+
+    expect(
+      host
+        .querySelector(`button[aria-label="Add ${item.name} to favorites"]`)
+        ?.getAttribute("aria-pressed")
+    ).toBe("false")
+    expect(host.textContent).toContain(favoriteFailure.message)
+    expect(host.textContent).toContain("Request ID: request-transport-1")
+    expect(host.textContent).toContain(conflictFailure.message)
+    expect(host.textContent).toContain("Request ID: request-conflict-1")
+    expect(
+      host.querySelectorAll("[data-library-preference-failure] button")
+    ).toHaveLength(4)
+    expect(host.querySelector("button button")).toBeNull()
+
+    const transportNotice = host.querySelector<HTMLElement>(
+      `[data-library-preference-failure="${favoriteKey}"]`
+    )!
+    const retry = Array.from(transportNotice.querySelectorAll("button")).find(
+      (button) => button.textContent.trim() === "Retry"
+    )!
+    const dismiss = Array.from(transportNotice.querySelectorAll("button")).find(
+      (button) => button.textContent.trim() === "Dismiss"
+    )!
+    await act(async () => retry.click())
+    await act(async () => dismiss.click())
+    expect(preferences.retry).toHaveBeenCalledWith(favoriteKey)
+    expect(preferences.dismissFailure).toHaveBeenCalledWith(favoriteKey)
+
+    const create = Array.from(host.querySelectorAll("button")).find(
+      (button) => button.textContent.trim() === "Create from template"
+    )
+    const apply = Array.from(host.querySelectorAll("button")).find(
+      (button) => button.textContent.trim() === "Apply to this document"
+    )
+    expect(create?.disabled).toBe(false)
+    expect(apply?.disabled).toBe(false)
+  })
+
+  it("invokes a reconciled 412 retry from the UI with the newer revision and a new key", async () => {
+    const item = catalogTemplates[0]
+    const identity: LibraryItemIdentity = {
+      itemKind: "template",
+      id: item.id,
+      version: item.version,
+    }
+    const readSnapshot = vi
+      .fn()
+      .mockResolvedValueOnce(preferenceResult(snapshotFor(identity, 1)))
+      .mockResolvedValueOnce(preferenceResult(snapshotFor(identity, 5, 2)))
+    const setFavorite = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new LibraryPreferenceHttpError({
+          code: "library_preference_revision_mismatch",
+          status: 412,
+          message: "changed",
+          requestId: "request-reconciled-1",
+          retryable: false,
+          commitStatus: "known",
+        })
+      )
+      .mockResolvedValueOnce(
+        preferenceResult(favoriteReceiptFor(identity, 6, 3, true))
+      )
+    const { controller: preferences } = realPreferenceController({
+      readSnapshot,
+      setFavorite,
+    })
+    await act(async () => {
+      root.render(
+        <DiscoveryTestRoot
+          controller={staticController(discoveryState())}
+          preferenceController={preferences}
+        >
+          <LibraryTemplateBrowser
+            hasQuotationSource
+            variant="start"
+            onCreate={vi.fn()}
+          />
+        </DiscoveryTestRoot>
+      )
+    })
+
+    const heart = host.querySelector<HTMLButtonElement>(
+      `button[aria-label="Add ${item.name} to favorites"]`
+    )!
+    await vi.waitFor(() => expect(heart.disabled).toBe(false))
+    await act(async () => heart.click())
+
+    const failureKey = `favorite:template:${item.id}@${item.version}`
+    await vi.waitFor(() =>
+      expect(
+        host.querySelector(`[data-library-preference-failure="${failureKey}"]`)
+      ).not.toBeNull()
+    )
+    const failure = host.querySelector<HTMLElement>(
+      `[data-library-preference-failure="${failureKey}"]`
+    )!
+    expect(failure.textContent).toContain("Request ID: request-reconciled-1")
+    const retry = Array.from(failure.querySelectorAll("button")).find(
+      (button) => button.textContent.trim() === "Retry"
+    )!
+    await act(async () => retry.click())
+    await vi.waitFor(() => expect(setFavorite).toHaveBeenCalledTimes(2))
+
+    expect(setFavorite.mock.calls[0]?.[1]).toMatchObject({
+      expectedRevision: 0,
+      idempotencyKey: "mutation-browser-1",
+    })
+    expect(setFavorite.mock.calls[1]?.[1]).toMatchObject({
+      expectedRevision: 2,
+      idempotencyKey: "mutation-browser-2",
+    })
+    await vi.waitFor(() =>
+      expect(
+        host
+          .querySelector(
+            `button[aria-label="Remove ${item.name} from favorites"]`
+          )
+          ?.getAttribute("aria-pressed")
+      ).toBe("true")
+    )
+  })
+
+  it("keeps a snapshot outage nonblocking with request context, Retry, and Dismiss", async () => {
+    const snapshotFailure: LibraryPreferenceFailure = {
+      key: "snapshot",
+      action: "refresh",
+      message: "Studio couldn't refresh library preferences.",
+      code: "library_request_failed",
+      status: 503,
+      requestId: "request-snapshot-1",
+      retryable: true,
+      retryMode: "refresh",
+      commitStatus: "known",
+    }
+    const preferences = staticPreferenceController(
+      preferenceState({
+        snapshotStatus: "failed",
+        snapshotFailure,
+      })
+    )
+    await act(async () => {
+      root.render(
+        <DiscoveryTestRoot
+          controller={staticController(discoveryState())}
+          preferenceController={preferences}
+        >
+          <LibraryTemplateBrowser
+            hasQuotationSource
+            variant="start"
+            onCreate={vi.fn()}
+          />
+        </DiscoveryTestRoot>
+      )
+    })
+
+    const notice = host.querySelector<HTMLElement>(
+      '[data-library-preference-failure="snapshot"]'
+    )!
+    expect(notice.textContent).toContain(snapshotFailure.message)
+    expect(notice.textContent).toContain("Request ID: request-snapshot-1")
+    const retry = Array.from(notice.querySelectorAll("button")).find(
+      (button) => button.textContent.trim() === "Retry"
+    )!
+    await act(async () => retry.click())
+    expect(preferences.refreshAfterCurrent).toHaveBeenCalledTimes(1)
+
+    const dismiss = Array.from(notice.querySelectorAll("button")).find(
+      (button) => button.textContent.trim() === "Dismiss"
+    )!
+    await act(async () => dismiss.click())
+    expect(
+      host.querySelector('[data-library-preference-failure="snapshot"]')
+    ).toBeNull()
+    const create = Array.from(host.querySelectorAll("button")).find(
+      (button) => button.textContent.trim() === "Create from template"
+    )
+    expect(create?.disabled).toBe(false)
+  })
+
+  it("derives collection filters and truthful Favorites and Recent empty states from shared authority", async () => {
+    const preferences = staticPreferenceController(
+      preferenceState({
+        snapshot: preferenceSnapshot({
+          collections: [
+            {
+              id: "collection-proposals",
+              name: "Proposals",
+              scope: "workspace",
+              revision: 1,
+              itemCount: 0,
+              createdAt: "2026-08-31T09:00:00.000Z",
+              updatedAt: "2026-08-31T09:00:00.000Z",
+            },
+          ],
+        }),
+      })
+    )
+    const controller = staticController(
+      discoveryState({
+        entryPoint: "favorites",
+        appliedQuery: {
+          ...discoveryState().appliedQuery,
+          entryPoint: "favorites",
+          favoritesOnly: true,
+        },
+        confirmedPage: confirmedPage([]),
+      })
+    )
+    await act(async () => {
+      root.render(
+        <DiscoveryTestRoot
+          controller={controller}
+          preferenceController={preferences}
+        >
+          <LibraryTemplateBrowser
+            hasQuotationSource
+            variant="start"
+            onCreate={vi.fn()}
+          />
+        </DiscoveryTestRoot>
+      )
+    })
+
+    expect(host.textContent).toContain("No favorite templates yet")
+    const collection = host.querySelector(
+      'select[aria-label="Filter templates by collection"]'
+    ) as unknown as HTMLSelectElement
+    expect(Array.from(collection.options, ({ text }) => text)).toContain(
+      "Proposals"
+    )
+
+    await act(async () => {
+      controller.updateState(
+        discoveryState({
+          entryPoint: "recent",
+          order: "recent",
+          appliedQuery: {
+            ...discoveryState().appliedQuery,
+            entryPoint: "recent",
+            order: "recent",
+            recentOnly: true,
+          },
+          confirmedPage: confirmedPage([]),
+        })
+      )
+    })
+    expect(host.textContent).toContain("No recently used templates")
+  })
+
+  it("does not repaint a newer discovery page from an older retained preference snapshot", async () => {
+    const item = catalogTemplates[0]
+    const identity: LibraryItemIdentity = {
+      itemKind: "template",
+      id: item.id,
+      version: item.version,
+    }
+    const discoveryItem = {
+      ...item,
+      preferences: {
+        favorite: false,
+        lastUsedAt: null,
+        collectionIds: [],
+      },
+    }
+    const preference = {
+      identity,
+      favorite: true,
+      lastUsedAt: null,
+      collectionIds: [],
+      revision: 1,
+      updatedAt: "2026-08-31T10:00:00.000Z",
+    }
+    const preferences = staticPreferenceController(
+      preferenceState({
+        snapshotStatus: "failed",
+        snapshot: preferenceSnapshot({
+          workspaceRevision: 4,
+          preferences: [preference],
+        }),
+      })
+    )
+    await act(async () => {
+      root.render(
+        <DiscoveryTestRoot
+          controller={staticController(
+            discoveryState({
+              confirmedPage: confirmedPage([discoveryItem], {
+                workspaceRevision: 5,
+              }),
+            })
+          )}
+          preferenceController={preferences}
+        >
+          <LibraryTemplateBrowser
+            hasQuotationSource
+            variant="start"
+            onCreate={vi.fn()}
+          />
+        </DiscoveryTestRoot>
+      )
+    })
+
+    expect(
+      host
+        .querySelector(`button[aria-label="Add ${item.name} to favorites"]`)
+        ?.getAttribute("aria-pressed")
+    ).toBe("false")
+
+    await act(async () => {
+      preferences.updateState(
+        preferenceState({
+          snapshot: preferenceSnapshot({
+            workspaceRevision: 5,
+            preferences: [preference],
+          }),
+        })
+      )
+    })
+    expect(
+      host
+        .querySelector(
+          `button[aria-label="Remove ${item.name} from favorites"]`
+        )
+        ?.getAttribute("aria-pressed")
+    ).toBe("true")
   })
 })

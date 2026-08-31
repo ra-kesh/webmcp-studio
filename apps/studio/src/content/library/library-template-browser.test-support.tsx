@@ -1,6 +1,9 @@
 import type { ReactNode } from "react"
 import type { Root } from "react-dom/client"
-import type { LibraryTemplateSummary } from "@webmcp/document"
+import type {
+  LibraryPreferenceSnapshot,
+  LibraryTemplateSummary,
+} from "@webmcp/document"
 import { vi } from "vitest"
 import type {
   LibraryDiscoveryConfirmedPage,
@@ -11,10 +14,11 @@ import {
   studioLibraryCatalogIndex,
 } from "./catalog"
 import { studioLibraryDiscoveryAdapter } from "./library-discovery-adapter"
-import {
-  LibraryDiscoveryProvider,
-  type LibraryDiscoveryControllerPort,
-} from "./library-discovery-provider"
+import { LibraryDiscoveryProvider } from "./library-discovery-provider"
+import type { LibraryDiscoveryControllerPort } from "./library-discovery-provider"
+import type { LibraryPreferenceStateOwner } from "./library-preference-controller"
+import { LibraryPreferenceProvider } from "./library-preference-provider"
+import type { LibraryPreferenceControllerPort } from "./library-preference-provider"
 
 export const catalogTemplates = studioLibraryCatalogIndex
   .list({
@@ -42,6 +46,7 @@ export const confirmedPage = (
   items: readonly LibraryTemplateSummary[],
   overrides: Partial<LibraryDiscoveryConfirmedPage> = {}
 ): LibraryDiscoveryConfirmedPage => ({
+  workspaceRevision: 1,
   catalogRevision: "browser-test-catalog",
   generation: "browser-test-generation",
   queryIdentity: "libq_0123456789abcdef",
@@ -56,9 +61,11 @@ export const discoveryState = (
   overrides: Partial<LibraryDiscoveryState> = {}
 ): LibraryDiscoveryState => {
   const first = catalogTemplates[0]
-  const firstDetail = first
-    ? getStudioLibraryCatalogDetail("template", first.id, first.version)
-    : null
+  const firstDetail = getStudioLibraryCatalogDetail(
+    "template",
+    first.id,
+    first.version
+  )
   return {
     active: true,
     disposed: false,
@@ -94,7 +101,6 @@ export const discoveryState = (
 
 export const cloneTemplates = (count: number) => {
   const source = catalogTemplates[0]
-  if (!source) throw new Error("The browser tests require a template fixture.")
   return Array.from({ length: count }, (_, index): LibraryTemplateSummary => {
     const id = `browser-template-${String(index + 1).padStart(3, "0")}`
     return {
@@ -152,17 +158,86 @@ export const staticController = (state: LibraryDiscoveryState) => {
   })
 }
 
+export const preferenceSnapshot = (
+  overrides: Partial<LibraryPreferenceSnapshot> = {}
+): LibraryPreferenceSnapshot => ({
+  workspaceRevision: 1,
+  preferences: [],
+  collections: [],
+  ...overrides,
+})
+
+export const preferenceState = (
+  overrides: Partial<LibraryPreferenceStateOwner> = {}
+): LibraryPreferenceStateOwner => ({
+  active: true,
+  disposed: false,
+  snapshotStatus: "ready",
+  snapshot: preferenceSnapshot(),
+  snapshotFailure: null,
+  pending: new Map(),
+  failures: new Map(),
+  collectionDetails: new Map(),
+  discoveryInvalidationRevision: 1,
+  ...overrides,
+})
+
+export const staticPreferenceController = (
+  state: LibraryPreferenceStateOwner = preferenceState()
+) => {
+  let currentState = state
+  const listeners = new Set<() => void>()
+  const controller = {
+    getSnapshot: () => currentState,
+    subscribe: vi.fn((listener: () => void) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    }),
+    subscribeDiscoveryInvalidation: vi.fn(() => () => undefined),
+    activate: vi.fn<() => void>(),
+    deactivate: vi.fn<() => void>(),
+    dispose: vi.fn<() => void>(),
+    refresh: vi.fn(async () => undefined),
+    refreshAfterCurrent: vi.fn(async () => undefined),
+    loadCollection: vi.fn(async () => null),
+    retryCollectionDetail: vi.fn(async () => null),
+    setFavorite: vi.fn(async () => true),
+    recordUsed: vi.fn(async () => true),
+    createCollection: vi.fn(async () => true),
+    renameCollection: vi.fn(async () => true),
+    deleteCollection: vi.fn(async () => true),
+    addCollectionMember: vi.fn(async () => true),
+    removeCollectionMember: vi.fn(async () => true),
+    reorderCollectionMembers: vi.fn(async () => true),
+    retry: vi.fn(async () => true),
+    dismissFailure: vi.fn<(key: string) => void>(),
+  } satisfies LibraryPreferenceControllerPort
+  return Object.assign(controller, {
+    updateState: (nextState: LibraryPreferenceStateOwner) => {
+      currentState = nextState
+      for (const listener of listeners) listener()
+    },
+  })
+}
+
 export function DiscoveryTestRoot({
   controller,
+  preferenceController = staticPreferenceController(),
   children,
 }: {
   controller: ReturnType<typeof staticController>
+  preferenceController?: LibraryPreferenceControllerPort
   children: ReactNode
 }) {
   return (
-    <LibraryDiscoveryProvider createController={() => controller}>
-      {children}
-    </LibraryDiscoveryProvider>
+    <LibraryPreferenceProvider
+      createController={() => preferenceController}
+      scheduleFinalization={(callback) => callback()}
+    >
+      <LibraryDiscoveryProvider createController={() => controller}>
+        {children}
+      </LibraryDiscoveryProvider>
+    </LibraryPreferenceProvider>
   )
 }
 
