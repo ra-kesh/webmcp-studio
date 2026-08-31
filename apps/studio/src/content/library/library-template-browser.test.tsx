@@ -564,6 +564,17 @@ describe("LibraryTemplateBrowser", () => {
     })
 
     expect(
+      [...host.querySelectorAll("select")].every(
+        (select) => Boolean(select.id) && Boolean(select.name)
+      )
+    ).toBe(true)
+    expect(
+      [...host.querySelectorAll("label")].every((label) =>
+        label.htmlFor ? document.getElementById(label.htmlFor) !== null : true
+      )
+    ).toBe(true)
+
+    expect(
       host.querySelector('select[aria-label="Filter templates by use case"]')
     ).not.toBeNull()
     expect(

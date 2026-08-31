@@ -189,6 +189,18 @@ supported browser is precisely the useful next action. The empty-state copy
 now explains that handoff and remains available; the clipboard action was
 confirmed live and the Inspector sidebar suite passes 11/11.
 
+The full start surface was then exercised in both Recent and Trash, in list
+view, through document actions, the rename dialog, the blank-document dialog,
+template details, and the device-file import trigger. Its wide layout,
+collection states, dialogs, and action geometry remain bounded and visually
+coherent. That pass exposed seven native template filter controls whose visible
+labels and accessible names were correct but whose HTML identities were not:
+the controls had neither `id` nor `name`. Every filter now has a unique
+React-stable identifier, an explicit label association, and a durable form
+name. A cache-free reload reports no missing field identities, duplicate IDs,
+console errors, warnings, or browser issues. The focused template-browser
+suite passes 20/20 and Studio typecheck passes.
+
 ## Acceptance
 
 - the start heading still receives programmatic focus after returning home but

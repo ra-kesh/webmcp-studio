@@ -16,6 +16,7 @@ import {
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -214,6 +215,16 @@ function BrowserFilters({
   onOrderChange: (order: LibraryDiscoveryState["order"]) => void
   compact?: boolean
 }) {
+  const fieldId = useId()
+  const ids = {
+    category: `${fieldId}-category`,
+    useCase: `${fieldId}-use-case`,
+    format: `${fieldId}-format`,
+    owner: `${fieldId}-owner`,
+    collection: `${fieldId}-collection`,
+    sort: `${fieldId}-sort`,
+    orientation: `${fieldId}-orientation`,
+  }
   const fieldClass = cn(
     "min-h-11 rounded-lg border border-input bg-background px-2.5 text-sm transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/40",
     compact ? "w-full" : "min-w-40"
@@ -226,11 +237,16 @@ function BrowserFilters({
       )}
     >
       <legend className="sr-only">Filter templates</legend>
-      <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+      <label
+        className="grid gap-1 text-xs font-medium text-muted-foreground"
+        htmlFor={ids.category}
+      >
         Category
         <select
           aria-label="Filter templates by category"
           className={fieldClass}
+          id={ids.category}
+          name="templateCategory"
           value={state.filters.categoryIds[0] ?? "all"}
           onChange={(event) =>
             onChange({
@@ -247,11 +263,16 @@ function BrowserFilters({
           ))}
         </select>
       </label>
-      <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+      <label
+        className="grid gap-1 text-xs font-medium text-muted-foreground"
+        htmlFor={ids.useCase}
+      >
         Use case
         <select
           aria-label="Filter templates by use case"
           className={fieldClass}
+          id={ids.useCase}
+          name="templateUseCase"
           value={state.filters.useCaseIds[0] ?? "all"}
           onChange={(event) =>
             onChange({
@@ -268,11 +289,16 @@ function BrowserFilters({
           ))}
         </select>
       </label>
-      <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+      <label
+        className="grid gap-1 text-xs font-medium text-muted-foreground"
+        htmlFor={ids.format}
+      >
         Format
         <select
           aria-label="Filter templates by format"
           className={fieldClass}
+          id={ids.format}
+          name="templateFormat"
           value={state.filters.formatFamilies[0] ?? "all"}
           onChange={(event) =>
             onChange({
@@ -289,11 +315,16 @@ function BrowserFilters({
           ))}
         </select>
       </label>
-      <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+      <label
+        className="grid gap-1 text-xs font-medium text-muted-foreground"
+        htmlFor={ids.owner}
+      >
         Owner
         <select
           aria-label="Filter templates by owner"
           className={fieldClass}
+          id={ids.owner}
+          name="templateOwner"
           value={state.filters.ownerKinds[0] ?? "all"}
           onChange={(event) =>
             onChange({
@@ -315,11 +346,16 @@ function BrowserFilters({
           ))}
         </select>
       </label>
-      <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+      <label
+        className="grid gap-1 text-xs font-medium text-muted-foreground"
+        htmlFor={ids.collection}
+      >
         Collection
         <select
           aria-label="Filter templates by collection"
           className={fieldClass}
+          id={ids.collection}
+          name="templateCollection"
           value={state.filters.collectionId ?? "all"}
           onChange={(event) =>
             onChange({
@@ -336,11 +372,16 @@ function BrowserFilters({
           ))}
         </select>
       </label>
-      <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+      <label
+        className="grid gap-1 text-xs font-medium text-muted-foreground"
+        htmlFor={ids.sort}
+      >
         Sort
         <select
           aria-label="Sort templates"
           className={fieldClass}
+          id={ids.sort}
+          name="templateSort"
           value={state.order}
           onChange={(event) =>
             onOrderChange(event.target.value as LibraryDiscoveryState["order"])
@@ -351,11 +392,16 @@ function BrowserFilters({
           <option value="newest">Newest first</option>
         </select>
       </label>
-      <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+      <label
+        className="grid gap-1 text-xs font-medium text-muted-foreground"
+        htmlFor={ids.orientation}
+      >
         Orientation
         <select
           aria-label="Filter templates by orientation"
           className={fieldClass}
+          id={ids.orientation}
+          name="templateOrientation"
           value={state.filters.orientations[0] ?? "all"}
           onChange={(event) =>
             onChange({
