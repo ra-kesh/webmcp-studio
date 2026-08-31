@@ -507,6 +507,31 @@ describe("strict document validation", () => {
     )
   })
 
+  it("admits exactly one direct mask child with direct sources", () => {
+    const document = clone()
+    document.groups = [
+      {
+        id: "outer-mask",
+        role: "mask",
+        pageId: "cover",
+        name: "Outer mask",
+        nodeIds: ["cover-panel", "cover-studio"],
+        mask: { type: "vector", sourceNodeIds: ["cover-panel"] },
+      },
+      {
+        id: "child-mask",
+        role: "mask",
+        pageId: "cover",
+        parentGroupId: "outer-mask",
+        name: "Child mask",
+        nodeIds: ["cover-eyebrow", "cover-title", "cover-date"],
+        mask: { type: "alpha", sourceNodeIds: ["cover-eyebrow"] },
+      },
+    ]
+
+    expect(errorsFor(document)).toEqual([])
+  })
+
   it("admits four unique sources and reports a fifth with a stable limit issue", () => {
     const document = clone()
     document.groups = []

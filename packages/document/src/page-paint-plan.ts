@@ -39,6 +39,7 @@ export type PagePaintPlanEntry =
       sourceCombination: MaskSourceCombination
       content: readonly PagePaintPlanEntry[]
       bounds: PagePaintBounds
+      outputBounds: PagePaintBounds
       maskEnabled: boolean
       compositeRequired: boolean
     }>
@@ -52,7 +53,7 @@ export const initialMaskPaintAdmission = Object.freeze({
   maxPixelRatio: 2,
   maxSources: 4,
   maxMaskedDescendants: 512,
-  maxNestingDepth: 1,
+  maxNestingDepth: 2,
   maxCompositeDimension: 8192,
   maxCompositePixelArea: 16_777_216,
   // Gate M2 admits at most four full-area composites per page. The separate
@@ -76,6 +77,7 @@ export type PagePaintPlanErrorCode =
   | "MASK_GROUP_UNSUPPORTED_TYPE"
   | "MASK_GROUP_UNSUPPORTED_SOURCE"
   | "MASK_GROUP_EMPTY_SOURCES"
+  | "MASK_GROUP_DUPLICATE_SOURCE"
   | "MASK_GROUP_SOURCE_LIMIT"
   | "MASK_GROUP_NODE_MISSING"
   | "MASK_GROUP_SOURCE_NOT_MEMBER"
@@ -164,12 +166,18 @@ export const projectMaskCompositeGeometry = (
       rotatedFrameBounds(nodesById.get(nodeId)!)
     )
   )
+  const outputBounds = unionBounds(
+    visibleContentNodeIds.map((nodeId) =>
+      rotatedFrameBounds(nodesById.get(nodeId)!)
+    )
+  )
   return {
     visibleSourceNodeIds,
     visibleContentNodeIds,
     maskEnabled,
     compositeRequired,
     bounds,
+    outputBounds,
   } as const
 }
 
@@ -274,6 +282,351 @@ const canonicalMaskRelationsForPage = (
   return relations
 }
 
+type NestedProjection = Readonly<{
+  entry: Extract<PagePaintPlanEntry, { kind: "mask_group" }>
+  subtreeNodeIds: readonly string[]
+  firstIndex: number
+  leafContentCount: number
+  hasVisibleOutput: boolean
+}>
+
+const projectNestedCanonicalPagePaintPlan = (
+  document: Document,
+  page: Page,
+  pixelRatio: number
+): PagePaintPlan => {
+  if (!Number.isFinite(pixelRatio) || pixelRatio <= 0) {
+    throw new PagePaintPlanError(
+      "MASK_GROUP_INVALID_PIXEL_RATIO",
+      "Mask paint pixel ratio must be finite and greater than zero"
+    )
+  }
+  if (pixelRatio > initialMaskPaintAdmission.maxPixelRatio) {
+    throw new PagePaintPlanError(
+      "MASK_GROUP_PIXEL_RATIO_LIMIT",
+      `Mask paint pixel ratio ${pixelRatio} exceeds the maximum of ${initialMaskPaintAdmission.maxPixelRatio}`
+    )
+  }
+  const nodesById = new Map(document.nodes.map((node) => [node.id, node]))
+  const pageIndex = new Map(
+    page.nodeIds.map((nodeId, index) => [nodeId, index])
+  )
+  const allGroupsById = new Map(
+    document.groups.map((group) => [group.id, group])
+  )
+  const maskGroups = document.groups.filter(
+    (group): group is Extract<Document["groups"][number], { role: "mask" }> =>
+      group.role === "mask" && group.pageId === page.id
+  )
+  const maskGroupsById = new Map(maskGroups.map((group) => [group.id, group]))
+  const childrenByParent = new Map<string, typeof maskGroups>()
+  const directOwnerByNodeId = new Map<
+    string,
+    { groupId: string; role: Document["groups"][number]["role"] }
+  >()
+
+  for (const group of document.groups) {
+    if (group.pageId !== page.id) continue
+    for (const nodeId of group.nodeIds) {
+      const existingOwner = directOwnerByNodeId.get(nodeId)
+      if (
+        existingOwner &&
+        existingOwner.groupId !== group.id &&
+        (existingOwner.role === "mask" || group.role === "mask")
+      ) {
+        throw new PagePaintPlanError(
+          "MASK_GROUP_OVERLAP",
+          `Node ${nodeId} has ambiguous direct ownership between groups ${existingOwner.groupId} and ${group.id}`,
+          {
+            groupId: group.role === "mask" ? group.id : existingOwner.groupId,
+            nodeId,
+          }
+        )
+      }
+      directOwnerByNodeId.set(nodeId, { groupId: group.id, role: group.role })
+    }
+  }
+
+  for (const group of maskGroups) {
+    if (group.parentGroupId) {
+      const parent = allGroupsById.get(group.parentGroupId)
+      if (!parent || parent.role !== "mask" || parent.pageId !== page.id) {
+        throw new PagePaintPlanError(
+          "MASK_GROUP_NESTING_UNSUPPORTED",
+          `Mask group ${group.id} must be a direct child of a mask on its page`,
+          { groupId: group.id }
+        )
+      }
+      const children = childrenByParent.get(parent.id)
+      if (children) children.push(group)
+      else childrenByParent.set(parent.id, [group])
+    }
+  }
+  for (const group of document.groups) {
+    if (
+      group.role === "organize" &&
+      group.parentGroupId &&
+      maskGroupsById.has(group.parentGroupId)
+    ) {
+      throw new PagePaintPlanError(
+        "MASK_GROUP_NESTING_UNSUPPORTED",
+        `Mask group ${group.parentGroupId} cannot contain organize group ${group.id}`,
+        { groupId: group.parentGroupId }
+      )
+    }
+  }
+
+  const resolving = new Set<string>()
+  const resolved = new Map<string, NestedProjection>()
+  const projectGroup = (groupId: string, depth: number): NestedProjection => {
+    const cached = resolved.get(groupId)
+    if (cached) return cached
+    const group = maskGroupsById.get(groupId)
+    if (!group) {
+      throw new PagePaintPlanError(
+        "MASK_GROUP_NESTING_UNSUPPORTED",
+        `Mask group ${groupId} is missing from its page`,
+        { groupId }
+      )
+    }
+    if (
+      resolving.has(groupId) ||
+      depth > initialMaskPaintAdmission.maxNestingDepth
+    ) {
+      throw new PagePaintPlanError(
+        "MASK_GROUP_NESTING_UNSUPPORTED",
+        `Mask group ${groupId} exceeds the bounded nesting depth`,
+        { groupId }
+      )
+    }
+    resolving.add(groupId)
+
+    if (group.mask.sourceNodeIds.length === 0) {
+      throw new PagePaintPlanError(
+        "MASK_GROUP_EMPTY_SOURCES",
+        `Mask group ${group.id} has no source`,
+        { groupId: group.id }
+      )
+    }
+    if (
+      new Set(group.mask.sourceNodeIds).size !== group.mask.sourceNodeIds.length
+    ) {
+      throw new PagePaintPlanError(
+        "MASK_GROUP_DUPLICATE_SOURCE",
+        `Mask group ${group.id} contains a duplicate source`,
+        {
+          groupId: group.id,
+          nodeId: group.mask.sourceNodeIds.find(
+            (sourceNodeId, index) =>
+              group.mask.sourceNodeIds.indexOf(sourceNodeId) !== index
+          ),
+        }
+      )
+    }
+    if (
+      group.mask.sourceNodeIds.length > initialMaskPaintAdmission.maxSources
+    ) {
+      throw new PagePaintPlanError(
+        "MASK_GROUP_SOURCE_LIMIT",
+        `Mask group ${group.id} exceeds the source limit`,
+        { groupId: group.id }
+      )
+    }
+    const sourceIds = new Set(group.mask.sourceNodeIds)
+    const directNodes = group.nodeIds.map((nodeId) => {
+      const node = nodesById.get(nodeId)
+      if (!node || !pageIndex.has(nodeId)) {
+        throw new PagePaintPlanError(
+          "MASK_GROUP_NODE_MISSING",
+          `Mask group ${group.id} references missing page node ${nodeId}`,
+          { groupId: group.id, nodeId }
+        )
+      }
+      return node
+    })
+    for (const sourceNodeId of group.mask.sourceNodeIds) {
+      if (!group.nodeIds.includes(sourceNodeId)) {
+        throw new PagePaintPlanError(
+          "MASK_GROUP_SOURCE_NOT_MEMBER",
+          `Mask source ${sourceNodeId} is not a direct group member`,
+          { groupId: group.id, nodeId: sourceNodeId }
+        )
+      }
+      if (!isAdmittedMaskSource(group.mask.type, nodesById.get(sourceNodeId))) {
+        throw new PagePaintPlanError(
+          "MASK_GROUP_UNSUPPORTED_SOURCE",
+          `Mask source ${sourceNodeId} is not admitted for ${group.mask.type}`,
+          { groupId: group.id, nodeId: sourceNodeId }
+        )
+      }
+    }
+
+    const children = (childrenByParent.get(group.id) ?? []).map((child) =>
+      projectGroup(child.id, depth + 1)
+    )
+    const directContentNodes = directNodes.filter(
+      (node) => !sourceIds.has(node.id)
+    )
+    if (directContentNodes.length === 0 && children.length === 0) {
+      throw new PagePaintPlanError(
+        "MASK_GROUP_NO_CONTENT",
+        `Mask group ${group.id} has no content`,
+        { groupId: group.id }
+      )
+    }
+    const leafContentCount =
+      directContentNodes.length +
+      children.reduce((count, child) => count + child.leafContentCount, 0)
+    if (leafContentCount > initialMaskPaintAdmission.maxMaskedDescendants) {
+      throw new PagePaintPlanError(
+        "MASK_GROUP_CONTENT_LIMIT",
+        `Mask group ${group.id} exceeds the masked-content limit`,
+        { groupId: group.id }
+      )
+    }
+
+    const subtreeNodeIds = [
+      ...group.nodeIds,
+      ...children.flatMap((child) => child.subtreeNodeIds),
+    ].sort((left, right) => pageIndex.get(left)! - pageIndex.get(right)!)
+    const indexes = subtreeNodeIds.map((nodeId) => pageIndex.get(nodeId)!)
+    const firstIndex = Math.min(...indexes)
+    const lastIndex = Math.max(...indexes)
+    if (lastIndex - firstIndex + 1 !== indexes.length) {
+      throw new PagePaintPlanError(
+        "MASK_GROUP_NONCONTIGUOUS",
+        `Mask group ${group.id} is not contiguous in page paint order`,
+        { groupId: group.id }
+      )
+    }
+
+    const content = [
+      ...directContentNodes.map((node) => ({
+        index: pageIndex.get(node.id)!,
+        entry: { kind: "node", nodeId: node.id } as const,
+      })),
+      ...children.map((child) => ({
+        index: child.firstIndex,
+        entry: child.entry,
+      })),
+    ]
+      .sort((left, right) => left.index - right.index)
+      .map((item) => item.entry)
+    const visibleDirectContent = directContentNodes.filter(
+      (node) => node.visible
+    )
+    const outputBounds = unionBounds([
+      ...visibleDirectContent.map(rotatedFrameBounds),
+      ...children
+        .filter((child) => child.hasVisibleOutput)
+        .map((child) => child.entry.outputBounds),
+    ])
+    const hasVisibleOutput =
+      visibleDirectContent.length > 0 ||
+      children.some((child) => child.hasVisibleOutput)
+    const visibleSourceNodeIds = group.mask.sourceNodeIds.filter(
+      (nodeId) => nodesById.get(nodeId)?.visible
+    )
+    const maskEnabled = visibleSourceNodeIds.length > 0
+    const compositeRequired = maskEnabled && hasVisibleOutput
+    const bounds = compositeRequired
+      ? unionBounds([
+          ...visibleSourceNodeIds.map((nodeId) =>
+            rotatedFrameBounds(nodesById.get(nodeId)!)
+          ),
+          outputBounds,
+        ])
+      : outputBounds
+    const result: NestedProjection = {
+      entry: {
+        kind: "mask_group",
+        groupId: group.id,
+        maskType: group.mask.type,
+        sourceNodeIds: [...group.mask.sourceNodeIds],
+        visibleSourceNodeIds,
+        sources: group.mask.sourceNodeIds.map((sourceNodeId) =>
+          maskPaintSource(nodesById.get(sourceNodeId)!)
+        ),
+        sourceCombination: "source_over_union",
+        content,
+        bounds,
+        outputBounds,
+        maskEnabled,
+        compositeRequired,
+      },
+      subtreeNodeIds,
+      firstIndex,
+      leafContentCount,
+      hasVisibleOutput,
+    }
+    resolving.delete(groupId)
+    resolved.set(groupId, result)
+    return result
+  }
+
+  const roots = maskGroups
+    .filter((group) => !group.parentGroupId)
+    .map((group) => projectGroup(group.id, 1))
+  if (resolved.size !== maskGroups.length) {
+    const unresolved = maskGroups.find((group) => !resolved.has(group.id))!
+    projectGroup(unresolved.id, 1)
+  }
+
+  let activeCompositeCount = 0
+  let admittedDevicePixelArea = 0
+  const admit = (entry: PagePaintPlanEntry) => {
+    if (entry.kind !== "mask_group") return
+    for (const child of entry.content) admit(child)
+    if (!entry.compositeRequired) return
+    assertCompositeAdmission(entry.groupId, entry.bounds, pixelRatio)
+    activeCompositeCount += 1
+    admittedDevicePixelArea +=
+      Math.ceil(entry.bounds.width * pixelRatio) *
+      Math.ceil(entry.bounds.height * pixelRatio)
+    if (
+      activeCompositeCount >
+      initialMaskPaintAdmission.maxActiveCompositesPerPage
+    ) {
+      throw new PagePaintPlanError(
+        "MASK_PAGE_COMPOSITE_COUNT_LIMIT",
+        `Page ${page.id} exceeds the active composite count limit`
+      )
+    }
+    if (
+      admittedDevicePixelArea >
+      initialMaskPaintAdmission.maxPageCompositePixelArea
+    ) {
+      throw new PagePaintPlanError(
+        "MASK_PAGE_COMPOSITE_AREA_LIMIT",
+        `Page ${page.id} exceeds the admitted composite area limit`
+      )
+    }
+  }
+  for (const root of roots) admit(root.entry)
+
+  const rootByNodeId = new Map<string, NestedProjection>()
+  for (const root of roots) {
+    for (const nodeId of root.subtreeNodeIds) {
+      const existing = rootByNodeId.get(nodeId)
+      if (existing) {
+        throw new PagePaintPlanError(
+          "MASK_GROUP_OVERLAP",
+          `Node ${nodeId} belongs to multiple top-level mask subtrees`,
+          { groupId: root.entry.groupId, nodeId }
+        )
+      }
+      rootByNodeId.set(nodeId, root)
+    }
+  }
+  const entries: PagePaintPlanEntry[] = []
+  for (const nodeId of page.nodeIds) {
+    const root = rootByNodeId.get(nodeId)
+    if (!root) entries.push({ kind: "node", nodeId })
+    else if (root.firstIndex === pageIndex.get(nodeId)) entries.push(root.entry)
+  }
+  return { pageId: page.id, entries }
+}
+
 /**
  * Projects a canonical document page. Organize groups intentionally contribute
  * no relation, preserving the legacy flat paint traversal. The relation overload
@@ -309,12 +662,27 @@ export function projectPagePaintPlan(
     const projectionOptions = (
       Array.isArray(relationsOrOptions) ? {} : relationsOrOptions
     ) as { pixelRatio?: number }
-    return projectPagePaintPlanFromRelations(
-      page,
-      documentOrPage.nodes,
-      canonicalMaskRelationsForPage(documentOrPage, page),
-      projectionOptions
+    const hasNestedMask = documentOrPage.groups.some(
+      (group) =>
+        group.role === "mask" &&
+        group.pageId === page.id &&
+        (Boolean(group.parentGroupId) ||
+          documentOrPage.groups.some(
+            (candidate) => candidate.parentGroupId === group.id
+          ))
     )
+    return hasNestedMask
+      ? projectNestedCanonicalPagePaintPlan(
+          documentOrPage,
+          page,
+          projectionOptions.pixelRatio ?? 1
+        )
+      : projectPagePaintPlanFromRelations(
+          page,
+          documentOrPage.nodes,
+          canonicalMaskRelationsForPage(documentOrPage, page),
+          projectionOptions
+        )
   }
   if (typeof pageIdOrNodes === "string") {
     throw new Error("Relation paint-plan projection requires page nodes")
@@ -546,6 +914,7 @@ export function projectPagePaintPlanFromRelations(
         nodeId: contentNodeId,
       })),
       bounds: geometry.bounds,
+      outputBounds: geometry.outputBounds,
       maskEnabled: geometry.maskEnabled,
       compositeRequired: geometry.compositeRequired,
     })

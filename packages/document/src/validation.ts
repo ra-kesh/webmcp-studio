@@ -125,6 +125,29 @@ export function validateDocument(document: Document): ValidationIssue[] {
     descendantNodeIdsByGroup.set(groupId, nodeIds)
     return nodeIds
   }
+  const maskedLeafContentCount = (
+    groupId: string,
+    resolving = new Set<string>()
+  ): number => {
+    if (resolving.has(groupId)) {
+      return initialMaskPaintAdmission.maxMaskedDescendants + 1
+    }
+    const group = groups.get(groupId)
+    if (!group || group.role !== "mask") return 0
+    const nextResolving = new Set(resolving).add(groupId)
+    const sources = new Set(group.mask.sourceNodeIds)
+    return (
+      group.nodeIds.filter((nodeId) => !sources.has(nodeId)).length +
+      (childGroupsByParent.get(groupId) ?? []).reduce(
+        (count, child) =>
+          count +
+          (child.role === "mask"
+            ? maskedLeafContentCount(child.id, nextResolving)
+            : 0),
+        0
+      )
+    )
+  }
 
   const reportDuplicateIds = (
     collection: string,
@@ -599,31 +622,50 @@ export function validateDocument(document: Document): ValidationIssue[] {
           `${group.name} mask exceeds the source admission limit`
         )
       }
-      const contentCount = group.nodeIds.filter(
+      const childGroups = childGroupsByParent.get(group.id) ?? []
+      const maskChildren = childGroups.filter((child) => child.role === "mask")
+      const directContentCount = group.nodeIds.filter(
         (nodeId) => !sourceIds.has(nodeId)
       ).length
-      if (contentCount === 0) {
+      if (directContentCount === 0 && maskChildren.length === 0) {
         maskIssue(
           "content",
           `${group.name} mask must contain a non-source layer`
         )
       }
-      if (contentCount > initialMaskPaintAdmission.maxMaskedDescendants) {
+      if (
+        maskedLeafContentCount(group.id) >
+        initialMaskPaintAdmission.maxMaskedDescendants
+      ) {
         maskIssue(
           "content-limit",
           `${group.name} mask exceeds the masked-content admission limit`
         )
       }
-      if (group.parentGroupId || childGroupsByParent.has(group.id)) {
+      const parent = group.parentGroupId
+        ? groups.get(group.parentGroupId)
+        : undefined
+      const grandparent = parent?.parentGroupId
+        ? groups.get(parent.parentGroupId)
+        : undefined
+      if (
+        (group.parentGroupId && parent?.role !== "mask") ||
+        childGroups.some((child) => child.role !== "mask") ||
+        grandparent
+      ) {
         maskIssue(
           "nesting",
-          `${group.name} mask exceeds the initial nesting admission`
+          `${group.name} mask exceeds the bounded direct mask nesting admission`
         )
       }
       const groupNodes = group.nodeIds
         .map((nodeId) => nodes.get(nodeId))
         .filter((node): node is NonNullable<typeof node> => Boolean(node))
-      if (groupNodes.length === group.nodeIds.length) {
+      if (
+        !group.parentGroupId &&
+        childGroups.length === 0 &&
+        groupNodes.length === group.nodeIds.length
+      ) {
         const geometry = projectMaskCompositeGeometry(
           groupNodes,
           group.mask.sourceNodeIds
@@ -717,6 +759,15 @@ export function validateDocument(document: Document): ValidationIssue[] {
               ? `Page ${page.name} exceeds the Gate M2 active mask composite count limit`
               : `Page ${page.name} exceeds the Gate M2 summed 2x mask composite area limit`,
           pageId: page.id,
+        })
+      } else if (error instanceof PagePaintPlanError) {
+        issues.push({
+          id: `page:${page.id}:mask-plan:${error.groupId ?? error.code}`,
+          severity: "error",
+          code: "invalid_group",
+          message: error.message,
+          pageId: page.id,
+          nodeId: error.nodeId,
         })
       }
     }

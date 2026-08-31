@@ -223,6 +223,354 @@ describe("shared page paint plan mask oracle", () => {
     }
   })
 
+  it("projects one nested mask level bottom-up with separate output bounds", () => {
+    const nestedPage = {
+      ...page,
+      nodeIds: [
+        "outer-source",
+        "child-source",
+        "child-content",
+        "outer-content",
+      ],
+    }
+    const nestedNodes = [
+      rect("outer-source", { x: 0, y: 0, width: 20, height: 20 }),
+      rect("child-source", { x: -100, y: 0, width: 20, height: 20 }),
+      rect("child-content", { x: 120, y: 10, width: 20, height: 20 }),
+      rect("outer-content", { x: 200, y: 0, width: 20, height: 20 }),
+    ]
+    const document = {
+      pages: [nestedPage],
+      nodes: nestedNodes,
+      groups: [
+        {
+          id: "outer-mask",
+          role: "mask",
+          pageId: nestedPage.id,
+          name: "Outer mask",
+          nodeIds: ["outer-source", "outer-content"],
+          mask: { type: "vector", sourceNodeIds: ["outer-source"] },
+        },
+        {
+          id: "child-mask",
+          role: "mask",
+          pageId: nestedPage.id,
+          parentGroupId: "outer-mask",
+          name: "Child mask",
+          nodeIds: ["child-source", "child-content"],
+          mask: { type: "alpha", sourceNodeIds: ["child-source"] },
+        },
+      ],
+    } as unknown as Document
+
+    expect(projectPagePaintPlan(document, nestedPage.id)).toEqual({
+      pageId: nestedPage.id,
+      entries: [
+        {
+          kind: "mask_group",
+          groupId: "outer-mask",
+          maskType: "vector",
+          sourceNodeIds: ["outer-source"],
+          visibleSourceNodeIds: ["outer-source"],
+          sources: [{ nodeId: "outer-source", kind: "vector" }],
+          sourceCombination: "source_over_union",
+          content: [
+            {
+              kind: "mask_group",
+              groupId: "child-mask",
+              maskType: "alpha",
+              sourceNodeIds: ["child-source"],
+              visibleSourceNodeIds: ["child-source"],
+              sources: [{ nodeId: "child-source", kind: "vector" }],
+              sourceCombination: "source_over_union",
+              content: [{ kind: "node", nodeId: "child-content" }],
+              bounds: { x: -100, y: 0, width: 240, height: 30 },
+              outputBounds: { x: 120, y: 10, width: 20, height: 20 },
+              maskEnabled: true,
+              compositeRequired: true,
+            },
+            { kind: "node", nodeId: "outer-content" },
+          ],
+          bounds: { x: 0, y: 0, width: 220, height: 30 },
+          outputBounds: { x: 120, y: 0, width: 100, height: 30 },
+          maskEnabled: true,
+          compositeRequired: true,
+        },
+      ],
+    })
+  })
+
+  it("retains nested output when the child or parent source is hidden", () => {
+    const nestedPage = {
+      ...page,
+      nodeIds: ["outer-source", "child-source", "child-content"],
+    }
+    const nestedNodes = [
+      rect("outer-source", { visible: false }),
+      rect("child-source", { visible: false }),
+      rect("child-content", { x: 40, y: 50, width: 20, height: 30 }),
+    ]
+    const document = {
+      pages: [nestedPage],
+      nodes: nestedNodes,
+      groups: [
+        {
+          id: "outer-mask",
+          role: "mask",
+          pageId: nestedPage.id,
+          name: "Outer mask",
+          nodeIds: ["outer-source"],
+          mask: { type: "vector", sourceNodeIds: ["outer-source"] },
+        },
+        {
+          id: "child-mask",
+          role: "mask",
+          pageId: nestedPage.id,
+          parentGroupId: "outer-mask",
+          name: "Child mask",
+          nodeIds: ["child-source", "child-content"],
+          mask: { type: "luminance", sourceNodeIds: ["child-source"] },
+        },
+      ],
+    } as unknown as Document
+    const outer = projectPagePaintPlan(document, nestedPage.id).entries[0]
+    expect(outer).toMatchObject({
+      kind: "mask_group",
+      visibleSourceNodeIds: [],
+      maskEnabled: false,
+      compositeRequired: false,
+      bounds: { x: 40, y: 50, width: 20, height: 30 },
+      outputBounds: { x: 40, y: 50, width: 20, height: 30 },
+      content: [
+        {
+          kind: "mask_group",
+          maskType: "luminance",
+          visibleSourceNodeIds: [],
+          maskEnabled: false,
+          compositeRequired: false,
+          outputBounds: { x: 40, y: 50, width: 20, height: 30 },
+        },
+      ],
+    })
+  })
+
+  it("rejects a third mask depth before allocating", () => {
+    const nestedPage = {
+      ...page,
+      nodeIds: ["outer-source", "child-source", "grand-source", "content"],
+    }
+    const document = {
+      pages: [nestedPage],
+      nodes: [
+        rect("outer-source"),
+        rect("child-source"),
+        rect("grand-source"),
+        rect("content"),
+      ],
+      groups: [
+        {
+          id: "outer-mask",
+          role: "mask",
+          pageId: nestedPage.id,
+          name: "Outer",
+          nodeIds: ["outer-source"],
+          mask: { type: "vector", sourceNodeIds: ["outer-source"] },
+        },
+        {
+          id: "child-mask",
+          role: "mask",
+          parentGroupId: "outer-mask",
+          pageId: nestedPage.id,
+          name: "Child",
+          nodeIds: ["child-source"],
+          mask: { type: "vector", sourceNodeIds: ["child-source"] },
+        },
+        {
+          id: "grand-mask",
+          role: "mask",
+          parentGroupId: "child-mask",
+          pageId: nestedPage.id,
+          name: "Grandchild",
+          nodeIds: ["grand-source", "content"],
+          mask: { type: "vector", sourceNodeIds: ["grand-source"] },
+        },
+      ],
+    } as unknown as Document
+
+    expect(() => projectPagePaintPlan(document, nestedPage.id)).toThrowError(
+      expect.objectContaining({ code: "MASK_GROUP_NESTING_UNSUPPORTED" })
+    )
+  })
+
+  it("rejects a cyclic mask hierarchy before recursive projection", () => {
+    const document = {
+      pages: [page],
+      nodes,
+      groups: [
+        {
+          id: "cycle-a",
+          role: "mask",
+          parentGroupId: "cycle-b",
+          pageId: page.id,
+          name: "Cycle A",
+          nodeIds: ["source", "content"],
+          mask: { type: "vector", sourceNodeIds: ["source"] },
+        },
+        {
+          id: "cycle-b",
+          role: "mask",
+          parentGroupId: "cycle-a",
+          pageId: page.id,
+          name: "Cycle B",
+          nodeIds: ["below", "above"],
+          mask: { type: "vector", sourceNodeIds: ["below"] },
+        },
+      ],
+    } as unknown as Document
+
+    expect(() => projectPagePaintPlan(document, page.id)).toThrowError(
+      expect.objectContaining({ code: "MASK_GROUP_NESTING_UNSUPPORTED" })
+    )
+  })
+
+  it("rejects duplicate nested source IDs before projection", () => {
+    const nestedPage = {
+      ...page,
+      nodeIds: ["outer-source", "child-source", "child-content"],
+    }
+    const document = {
+      pages: [nestedPage],
+      nodes: [
+        rect("outer-source"),
+        rect("child-source"),
+        rect("child-content"),
+      ],
+      groups: [
+        {
+          id: "outer-mask",
+          role: "mask",
+          pageId: page.id,
+          name: "Outer",
+          nodeIds: ["outer-source"],
+          mask: { type: "vector", sourceNodeIds: ["outer-source"] },
+        },
+        {
+          id: "child-mask",
+          role: "mask",
+          parentGroupId: "outer-mask",
+          pageId: page.id,
+          name: "Child",
+          nodeIds: ["child-source", "child-content"],
+          mask: {
+            type: "vector",
+            sourceNodeIds: ["child-source", "child-source"],
+          },
+        },
+      ],
+    } as unknown as Document
+
+    expect(() => projectPagePaintPlan(document, page.id)).toThrowError(
+      expect.objectContaining({
+        code: "MASK_GROUP_DUPLICATE_SOURCE",
+        groupId: "child-mask",
+        nodeId: "child-source",
+      })
+    )
+  })
+
+  it("rejects organize ownership that overlaps a nested mask", () => {
+    const nestedPage = {
+      ...page,
+      nodeIds: ["outer-source", "child-source", "child-content"],
+    }
+    const document = {
+      pages: [nestedPage],
+      nodes: [
+        rect("outer-source"),
+        rect("child-source"),
+        rect("child-content"),
+      ],
+      groups: [
+        {
+          id: "outer-mask",
+          role: "mask",
+          pageId: page.id,
+          name: "Outer",
+          nodeIds: ["outer-source"],
+          mask: { type: "vector", sourceNodeIds: ["outer-source"] },
+        },
+        {
+          id: "child-mask",
+          role: "mask",
+          parentGroupId: "outer-mask",
+          pageId: page.id,
+          name: "Child",
+          nodeIds: ["child-source", "child-content"],
+          mask: { type: "vector", sourceNodeIds: ["child-source"] },
+        },
+        {
+          id: "ambiguous-organize",
+          role: "organize",
+          pageId: page.id,
+          name: "Ambiguous organize",
+          nodeIds: ["child-content"],
+        },
+      ],
+    } as unknown as Document
+
+    expect(() => projectPagePaintPlan(document, page.id)).toThrowError(
+      expect.objectContaining({
+        code: "MASK_GROUP_OVERLAP",
+        groupId: "child-mask",
+        nodeId: "child-content",
+      })
+    )
+  })
+
+  it("charges child and parent composites separately to the page area budget", () => {
+    const childCount = 4
+    const pageNodes = [rect("outer-source", { width: 2_000, height: 2_000 })]
+    const groups: Document["groups"] = [
+      {
+        id: "budget-outer",
+        role: "mask",
+        pageId: page.id,
+        name: "Budget outer",
+        nodeIds: ["outer-source"],
+        mask: { type: "vector", sourceNodeIds: ["outer-source"] },
+      },
+    ]
+    for (let index = 0; index < childCount; index += 1) {
+      const sourceId = `budget-source-${index}`
+      const contentId = `budget-content-${index}`
+      pageNodes.push(
+        rect(sourceId, { width: 2_000, height: 2_000 }),
+        rect(contentId, { width: 2_000, height: 2_000 })
+      )
+      groups.push({
+        id: `budget-child-${index}`,
+        role: "mask",
+        parentGroupId: "budget-outer",
+        pageId: page.id,
+        name: `Budget child ${index}`,
+        nodeIds: [sourceId, contentId],
+        mask: { type: "vector", sourceNodeIds: [sourceId] },
+      })
+    }
+    const budgetPage = { ...page, nodeIds: pageNodes.map((node) => node.id) }
+    const document = {
+      pages: [budgetPage],
+      nodes: pageNodes,
+      groups,
+    } as unknown as Document
+
+    expect(() =>
+      projectPagePaintPlan(document, page.id, { pixelRatio: 2 })
+    ).toThrowError(
+      expect.objectContaining({ code: "MASK_PAGE_COMPOSITE_AREA_LIMIT" })
+    )
+  })
+
   it("rejects a canonical source hidden inside a child group", () => {
     const document = {
       pages: [page],
@@ -346,6 +694,7 @@ describe("shared page paint plan mask oracle", () => {
           sourceCombination: "source_over_union",
           content: [{ kind: "node", nodeId: "content" }],
           bounds: { x: 100, y: 90, width: 200, height: 180 },
+          outputBounds: { x: 140, y: 90, width: 160, height: 180 },
           maskEnabled: true,
           compositeRequired: true,
         },
