@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises"
 import { describe, expect, it, vi } from "vitest"
 import { studioMediaManifest, studioMediaManifestItemSchema } from "./manifest"
 import {
+  createCuratedMediaResourceFetcher,
   curatedMediaContentPath,
   legacyCuratedMediaCompatibilityItems,
   resolveCuratedMediaContent,
@@ -42,6 +43,30 @@ const exactResponse = async (
 }
 
 describe("curated media exact content", () => {
+  it("uses the static-assets binding origin for requestless Worker contexts", async () => {
+    const fetch = vi.fn(
+      async (_request: Request) => new Response(null, { status: 204 })
+    )
+    const fetchResource = createCuratedMediaResourceFetcher({
+      fetch,
+    } as unknown as Fetcher)
+    const controller = new AbortController()
+
+    await fetchResource("/library/media/example.svg", controller.signal)
+
+    const request = fetch.mock.calls[0]?.[0]
+    expect(request).toBeInstanceOf(Request)
+    const expectedOrigin =
+      globalThis.location?.origin && globalThis.location.origin !== "null"
+        ? globalThis.location.origin
+        : "https://assets.local"
+    expect(new URL(request!.url)).toEqual(
+      new URL("/library/media/example.svg", expectedOrigin)
+    )
+    controller.abort()
+    expect(request!.signal.aborted).toBe(true)
+  })
+
   it("exhaustively resolves all 37 manifest identities from only their approved first-party files", async () => {
     for (const item of studioMediaManifest) {
       const fetchResource = vi.fn((resourcePath: string) =>

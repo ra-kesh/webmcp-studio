@@ -111,6 +111,13 @@ export type CuratedMediaResourceFetcher = (
   signal?: AbortSignal
 ) => Promise<Response>
 
+const requestlessWorkerOrigin = () => {
+  const workerOrigin = globalThis.location?.origin
+  return workerOrigin && workerOrigin !== "null"
+    ? workerOrigin
+    : "https://assets.local"
+}
+
 export class CuratedMediaContentError extends Error {
   readonly code = "curated_media_content_invalid"
 
@@ -348,7 +355,7 @@ export async function resolveCuratedMediaContent(
 
 export function createCuratedMediaResourceFetcher(
   assets: Fetcher,
-  requestUrl = "https://curated-media.internal"
+  requestUrl = requestlessWorkerOrigin()
 ) {
   return (resourcePath: string, signal?: AbortSignal) =>
     assets.fetch(

@@ -3,6 +3,7 @@ import {
   RenderImageResourceAdmissionError,
   assertRenderImageResourceAdmission,
   northstarSeed,
+  renderImageResourceExpectationSchema,
   type Document,
   type RenderImageResourceExpectation,
 } from "../src"
@@ -63,6 +64,15 @@ const expectation = async (): Promise<RenderImageResourceExpectation> => {
 }
 
 describe("render image resource admission", () => {
+  it("accepts immutable curated catalog identities in the renderer contract", async () => {
+    expect(
+      renderImageResourceExpectationSchema.parse({
+        ...(await expectation()),
+        assetId: "olive-botanical",
+      }).assetId
+    ).toBe("olive-botanical")
+  })
+
   it("admits an exact node, asset identity, and inline source digest", async () => {
     await expect(
       assertRenderImageResourceAdmission(documentWithManagedImage(), [

@@ -1,17 +1,29 @@
 import type { Document } from "./schema"
+import { z } from "zod"
 import {
   inspectInlineRasterSource,
   RasterInspectionError,
 } from "./raster-inspection"
 
-export type RenderImageResourceExpectation = {
-  nodeId: string
-  assetId: string
-  width: number
-  height: number
-  contentHash: string
-  revision: number
-}
+/**
+ * Private renderer contract for an exact image resource. Asset identities are
+ * deliberately broader than uploaded-media IDs because immutable first-party
+ * catalog assets retain their catalog identity through materialization.
+ */
+export const renderImageResourceExpectationSchema = z
+  .object({
+    nodeId: z.string().min(1),
+    assetId: z.string().min(1).max(200),
+    width: z.number().int().positive(),
+    height: z.number().int().positive(),
+    contentHash: z.string().regex(/^[a-f0-9]{64}$/),
+    revision: z.number().int().positive(),
+  })
+  .strict()
+
+export type RenderImageResourceExpectation = z.infer<
+  typeof renderImageResourceExpectationSchema
+>
 
 export type RenderImageResourceAdmissionErrorCode =
   | "image_resource_duplicate"

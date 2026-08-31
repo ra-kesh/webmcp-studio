@@ -92,7 +92,8 @@ export const Route = createFileRoute("/v1/studio/export-png")({
             workerEnv.ASSETS
           )
           const fetchCuratedResource = createCuratedMediaResourceFetcher(
-            workerEnv.CURATED_MEDIA
+            workerEnv.CURATED_MEDIA,
+            request.url
           )
           const materialized = await materializeManagedDocumentAssets(
             parsed.data.document,

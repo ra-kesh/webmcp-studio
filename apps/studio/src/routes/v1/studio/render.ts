@@ -121,12 +121,16 @@ async function renderJobResponse(env: Env, job: ExistingJobRow) {
   )
 }
 
-async function ensureWorkflow(env: Env, job: ExistingJobRow) {
+async function ensureWorkflow(
+  env: Env,
+  job: ExistingJobRow,
+  curatedMediaRequestUrl?: string
+) {
   if (job.workflow_instance_id) return
   try {
     const instance = await env.RENDER_JOBS.create({
       id: job.id,
-      params: { renderId: job.id },
+      params: { renderId: job.id, curatedMediaRequestUrl },
       retention: {
         successRetention: "14 days",
         errorRetention: "14 days",
@@ -331,7 +335,8 @@ export const Route = createFileRoute("/v1/studio/render")({
             workerEnv,
             session.workspaceId,
             parsed.data,
-            request.signal
+            request.signal,
+            request.url
           )
         } catch (error) {
           return respond(preparationErrorResponse(error))
@@ -388,7 +393,9 @@ export const Route = createFileRoute("/v1/studio/render")({
               )
             )
           }
-          await ensureWorkflow(workerEnv, raced).catch(() => undefined)
+          await ensureWorkflow(workerEnv, raced, request.url).catch(
+            () => undefined
+          )
           return respond(await renderJobResponse(workerEnv, raced))
         }
 
@@ -398,7 +405,9 @@ export const Route = createFileRoute("/v1/studio/render")({
           idempotencyKey
         )
         if (!queued) throw new Error("Queued render job was not persisted")
-        await ensureWorkflow(workerEnv, queued).catch(() => undefined)
+        await ensureWorkflow(workerEnv, queued, request.url).catch(
+          () => undefined
+        )
         const dispatched =
           (await selectExistingJob(
             workerEnv,

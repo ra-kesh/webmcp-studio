@@ -10,9 +10,9 @@ import {
   assertRenderableDocument,
   DocumentValidationError,
   documentSchema,
-  mediaAssetIdSchema,
   pageThumbnailLimits,
   PageThumbnailSizeError,
+  renderImageResourceExpectationSchema,
   RenderImageResourceAdmissionError,
 } from "@webmcp/document"
 import { z } from "zod"
@@ -28,16 +28,7 @@ import {
   renderOutputToHtml,
 } from "./html"
 
-const expectedImageResourceSchema = z
-  .object({
-    nodeId: z.string().min(1),
-    assetId: mediaAssetIdSchema,
-    width: z.number().int().positive(),
-    height: z.number().int().positive(),
-    contentHash: z.string().regex(/^[a-f0-9]{64}$/),
-    revision: z.number().int().positive(),
-  })
-  .strict()
+const expectedImageResourceSchema = renderImageResourceExpectationSchema
 
 const expectedImageResourcesSchema = z
   .array(expectedImageResourceSchema)

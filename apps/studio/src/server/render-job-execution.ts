@@ -97,7 +97,8 @@ export async function prepareRenderJob(
   env: Env,
   workspaceId: string,
   request: RenderJobRequest,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  curatedMediaRequestUrl?: string
 ): Promise<PreparedRenderJob> {
   signal?.throwIfAborted()
   const version = await getTemplateVersion(
@@ -110,7 +111,8 @@ export async function prepareRenderJob(
   if (!version) throw new Error("template_not_found")
   const mediaAssets = new MediaAssetRepository(env.DB, env.ASSETS)
   const fetchCuratedResource = createCuratedMediaResourceFetcher(
-    env.CURATED_MEDIA
+    env.CURATED_MEDIA,
+    curatedMediaRequestUrl
   )
   const resolveCuratedAsset = (
     assetId: string,
@@ -484,6 +486,7 @@ export type RenderAttemptPlan = {
   reservationId: string
   storageRenderId: string
   deadlineAt: string
+  curatedMediaRequestUrl?: string
   selections: RenderArtifactSelection[]
 }
 
@@ -574,7 +577,8 @@ async function refreshAttemptHeartbeat(env: Env, plan: RenderAttemptPlan) {
 export async function beginRenderJobAttempt(
   env: Env,
   renderId: string,
-  workflowInstanceId: string
+  workflowInstanceId: string,
+  curatedMediaRequestUrl?: string
 ): Promise<RenderAttemptResult> {
   const initial = await loadJob(env, renderId)
   if (!initial) return { status: "failed", message: "render_not_found" }
@@ -677,7 +681,13 @@ export async function beginRenderJobAttempt(
   try {
     const parsed = renderRequestSchema.parse(JSON.parse(initial.request_json))
     const prepared = await withRenderDeadline(deadlineAt, (signal) =>
-      prepareRenderJob(env, initial.workspace_id, parsed, signal)
+      prepareRenderJob(
+        env,
+        initial.workspace_id,
+        parsed,
+        signal,
+        curatedMediaRequestUrl
+      )
     )
     await reserveRenderCapacityForBudget(
       env,
@@ -717,6 +727,7 @@ export async function beginRenderJobAttempt(
         reservationId,
         storageRenderId,
         deadlineAt,
+        curatedMediaRequestUrl,
         selections,
       },
     }
@@ -730,6 +741,7 @@ export async function beginRenderJobAttempt(
         reservationId,
         storageRenderId,
         deadlineAt,
+        curatedMediaRequestUrl,
         selections: [],
       },
       [],
@@ -762,7 +774,13 @@ export async function renderJobArtifact(
   }
   const parsed = renderRequestSchema.parse(JSON.parse(current.request_json))
   const prepared = await withRenderDeadline(plan.deadlineAt, (signal) =>
-    prepareRenderJob(env, current.workspace_id, parsed, signal)
+    prepareRenderJob(
+      env,
+      current.workspace_id,
+      parsed,
+      signal,
+      plan.curatedMediaRequestUrl
+    )
   )
   return withRenderDeadline(plan.deadlineAt, (signal) =>
     invokeRenderer(
@@ -807,7 +825,13 @@ export async function completeRenderJobAttempt(
   }
   const parsed = renderRequestSchema.parse(JSON.parse(current.request_json))
   const prepared = await withRenderDeadline(plan.deadlineAt, (signal) =>
-    prepareRenderJob(env, current.workspace_id, parsed, signal)
+    prepareRenderJob(
+      env,
+      current.workspace_id,
+      parsed,
+      signal,
+      plan.curatedMediaRequestUrl
+    )
   )
   await refreshAttemptHeartbeat(env, plan)
   const lease = await reserveRenderCapacityForBudget(

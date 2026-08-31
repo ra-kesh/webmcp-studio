@@ -117,6 +117,36 @@ Its compact geometry assertion now waits for the existing 100 ms dialog-open
 animation to settle before measuring the full-viewport surface, eliminating a
 timing-only 390 px false failure without weakening the geometry requirement.
 
+## Curated-image publish and render closure
+
+The complete edit-to-artifact journey then found two independent contract gaps
+that focused editor and media tests could not exercise. First, request-owned
+render preparation could resolve first-party files through the Cloudflare
+static-assets binding, but the durable Workflow repeated preparation without
+the caller's request origin. That is valid in production, where an assets
+binding routes by pathname, but the Cloudflare Vite binding is a development
+service backed by the active Vite origin. The accepted request origin now
+travels as execution context in the Workflow payload and attempt plan, so every
+durable preparation step resolves the same approved first-party path. The
+document and persisted public render request remain origin-free.
+
+Second, Studio correctly preserved curated identities such as
+`olive-botanical` in the renderer admission manifest, while the private
+renderer schema incorrectly restricted every image expectation to the
+workspace-upload `asset-...` namespace. The image-resource expectation schema
+now lives in the shared document package and accepts the bounded identity space
+already supported by image nodes and checksum admission. The renderer imports
+that schema instead of maintaining a narrower duplicate. Exact node identity,
+inline bytes, SHA-256 digest, natural dimensions, and revision checks remain
+mandatory.
+
+The repaired path was first proved directly through the local Cloudflare
+Workflow: a published seven-page template with a curated image completed and
+stored a 315,688-byte PDF artifact. The complete browser journey then passed
+1/1 in 25.2 seconds, covering start surface, template selection, editing,
+curated-image insertion, publish, durable Workflow execution, artifact
+download, PDF signature, seven-page inspection, and rendered text.
+
 ## Acceptance
 
 - the start heading still receives programmatic focus after returning home but
@@ -125,5 +155,7 @@ timing-only 390 px false failure without weakening the geometry requirement.
   warning;
 - focused start-surface and route-layout tests pass;
 - Studio typecheck, formatting, and diff checks pass;
+- curated first-party images survive publish, durable Workflow preparation,
+  private-renderer admission, and inspectable PDF output;
 - the editor entry chunk is measurably smaller without changing command,
   document, Inspector, renderer, or WebMCP semantics.

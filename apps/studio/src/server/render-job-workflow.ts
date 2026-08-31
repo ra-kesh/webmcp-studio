@@ -11,6 +11,7 @@ import type { RenderArtifact } from "./render-job-execution"
 
 export type RenderJobWorkflowPayload = {
   renderId: string
+  curatedMediaRequestUrl?: string
 }
 
 export class RenderJobWorkflow extends WorkflowEntrypoint<
@@ -31,7 +32,8 @@ export class RenderJobWorkflow extends WorkflowEntrypoint<
         beginRenderJobAttempt(
           this.env,
           event.payload.renderId,
-          event.instanceId
+          event.instanceId,
+          event.payload.curatedMediaRequestUrl
         ),
       {
         rollback: async ({ output }) => {

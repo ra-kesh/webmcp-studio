@@ -78,7 +78,8 @@ export type PageThumbnailHandlerDependencies = {
     env: Env,
     principal: StudioPrincipal,
     document: Document,
-    signal: AbortSignal
+    signal: AbortSignal,
+    curatedMediaRequestUrl: string
   ) => Promise<PreparedThumbnailDocument>
   reserveCapacity: typeof reserveThumbnailCapacity
   invokeRenderer: (env: Env, request: Request) => Promise<Response>
@@ -87,11 +88,18 @@ export type PageThumbnailHandlerDependencies = {
 
 const productionDependencies: PageThumbnailHandlerDependencies = {
   resolvePrincipal: resolveStudioPrincipal,
-  prepareDocument: async (env, principal, document, signal) => {
+  prepareDocument: async (
+    env,
+    principal,
+    document,
+    signal,
+    curatedMediaRequestUrl
+  ) => {
     signal.throwIfAborted()
     const mediaAssets = new MediaAssetRepository(env.DB, env.ASSETS)
     const fetchCuratedResource = createCuratedMediaResourceFetcher(
-      env.CURATED_MEDIA
+      env.CURATED_MEDIA,
+      curatedMediaRequestUrl
     )
     const materialized = await materializeManagedDocumentAssets(
       document,
@@ -315,7 +323,8 @@ export function createPageThumbnailRequestHandler(
         env,
         principal,
         thumbnailDocument,
-        request.signal
+        request.signal,
+        request.url
       )
     } catch (error) {
       const failure = resourceFailureResponse(error)

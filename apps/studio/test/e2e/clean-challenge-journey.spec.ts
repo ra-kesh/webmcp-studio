@@ -188,7 +188,9 @@ test("clean edit-to-artifact challenge journey produces an inspectable seven-pag
   await page.getByRole("menuitem", { name: "Asset library…" }).click()
   const assetDialog = page.getByRole("dialog", { name: "Add image" })
   await assetDialog
-    .getByRole("button", { name: "Insert Olive botanical" })
+    .getByRole("button", {
+      name: "Insert “Olive botanical” from Studio library",
+    })
     .click()
   await expect(assetDialog).toBeHidden()
 
