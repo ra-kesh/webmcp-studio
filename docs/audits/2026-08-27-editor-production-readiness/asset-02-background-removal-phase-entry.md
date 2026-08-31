@@ -1,7 +1,7 @@
 # ASSET-02 background removal phase entry
 
 Date: 2026-08-31
-Status: design accepted for Slice B0; implementation not yet accepted
+Status: Slice B0 implemented and locally accepted; Slices B1 through B4 remain closed
 Scope: provider-neutral image derivation jobs and non-destructive application
 
 ## Decision
@@ -80,12 +80,7 @@ type MediaDerivationJob = {
   providerModelVersion: string
   privacyPolicyVersion: string
   state:
-    | "queued"
-    | "running"
-    | "cancelling"
-    | "succeeded"
-    | "failed"
-    | "cancelled"
+    "queued" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled"
   outputAssetId: string | null
   attemptCount: number
   maxAttempts: number
@@ -263,12 +258,12 @@ provider output, storage failure, stale attempt, and cancellation.
 
 The intended HTTP resources are:
 
-| Method | Resource | Behavior |
-| --- | --- | --- |
-| `POST` | `/v1/studio/assets/:assetId/derivations` | Create or return an idempotent job for an admitted operation. |
-| `GET` | `/v1/studio/media-derivations/:jobId` | Read safe workspace-owned job state and output asset identity. |
+| Method | Resource                                     | Behavior                                                        |
+| ------ | -------------------------------------------- | --------------------------------------------------------------- |
+| `POST` | `/v1/studio/assets/:assetId/derivations`     | Create or return an idempotent job for an admitted operation.   |
+| `GET`  | `/v1/studio/media-derivations/:jobId`        | Read safe workspace-owned job state and output asset identity.  |
 | `POST` | `/v1/studio/media-derivations/:jobId/cancel` | Request cooperative cancellation with an expected job revision. |
-| `POST` | `/v1/studio/media-derivations/:jobId/retry` | Requeue one retryable failed job with an expected job revision. |
+| `POST` | `/v1/studio/media-derivations/:jobId/retry`  | Requeue one retryable failed job with an expected job revision. |
 
 Public create input names the operation and source asset. It does not choose a
 provider. Every mutation requires an idempotency key, request ID, workspace
@@ -380,3 +375,36 @@ The design above is the implementation contract for the first slice. The slice
 may add only new derivation files, migration verification, and package scripts.
 It must not change mask schema, mask commands, mask renderers, image replacement
 semantics, route behavior, provider configuration, or deployed resources.
+
+## B0 acceptance result
+
+Slice B0 is locally complete at implementation checkpoint `73e62df`.
+
+- Migration `0017_media_derivation_jobs.sql` adds workspace-scoped job,
+  idempotency-request, attempt, and immutable output-provenance records. D1
+  constraints and triggers enforce source and output identity, attempt fences,
+  legal state changes, retry budgets, terminal settlement, and provenance
+  consistency.
+- The provider-neutral repository implements create, read, claim, failure,
+  retry, cancellation, cancellation settlement, success, and provenance reads.
+  Every operation is workspace scoped. D1 batches fence attempt settlement and
+  preserve atomicity where a transition spans records.
+- The strict create contract admits only the source asset, operation, and empty
+  parameters. Provider key, model version, privacy policy version, and attempt
+  budget are injected configuration snapshots. Public projection removes those
+  internal values, hashes, workspace identity, and active-attempt identity.
+- Fingerprints cover workspace, source identity and frozen content hash,
+  operation, canonical parameters, provider, model, and policy. Same-key replay,
+  conflicting replay, compatible work under another key, archived-source replay,
+  and write-failure behavior have focused repository evidence.
+- Fresh and upgrade migration verification covers constraints, foreign keys,
+  legal transitions, attempt claims and counters, workspace ownership, distinct
+  source/output identity, immutable provenance, and workspace cleanup.
+- Focused verification passes the combined migration and repository checks plus
+  3 Vitest contract tests. Studio typecheck, scoped lint, Prettier check, and
+  `git diff --check` also pass.
+
+No provider call, route, user-facing control, R2 write, document mutation, mask
+change, server, deployment, or Cloudflare resource write is part of this
+checkpoint. No product decision was required. Slices B1 through B4 require new
+acceptance and remain closed.

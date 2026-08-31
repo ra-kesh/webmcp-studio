@@ -3792,3 +3792,29 @@ multi-source pixels remain blocked; Gate M4A not yet accepted**
   group-order-versus-source-order regression was added.
 - M4A remains unaccepted only for retained pixels. M4B luminance and M4C nesting
   remain unadmitted.
+
+## 2026-08-31 - ASSET-02 background-removal Slice B0 durable contract
+
+Status: **implemented and locally accepted; Slices B1 through B4 remain closed**
+
+- Added the canonical D1 derivation job, idempotency request, attempt, and
+  immutable output-provenance model with workspace ownership, frozen source
+  identity, legal transitions, exact attempt fences, retry budgets, terminal
+  settlement, and source/output consistency enforced in the database.
+- Added a provider-neutral repository for create/read/claim/fail/retry/cancel/
+  settle-cancel/succeed and provenance reads. Same-key replay, compatible
+  fingerprints, stale attempts, cancellation, and three-record success
+  settlement use workspace-scoped D1 operations and atomic batches.
+- Added a strict public create contract and safe public projection. Callers
+  cannot select a provider or supply a URL. Provider, model, privacy policy,
+  source hash, and canonical parameters remain frozen internal identity.
+- Independent review tightened database enforcement so attempt counts and
+  active-attempt fences can change only during the accepted claim and retry
+  transitions. It found no remaining B0 blocker.
+- The combined fresh/upgrade migration, repository, and contract suite passes,
+  including 3 focused Vitest tests. Studio typecheck, scoped lint, Prettier, and
+  `git diff --check` pass.
+- Checkpoint `73e62df` contains only the seven accepted implementation and
+  verification files. No provider call, API route, UI, R2 output, document or
+  mask change, server, deployment, retained artifact, or Cloudflare write was
+  added.
