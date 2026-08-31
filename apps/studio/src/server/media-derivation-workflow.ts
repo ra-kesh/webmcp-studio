@@ -19,6 +19,7 @@ type WorkflowMediaDerivationEnv = Env & {
   MEDIA_DERIVATION_MAX_POLLS?: string
   MEDIA_DERIVATION_MAX_SOURCE_BYTES?: string
   MEDIA_DERIVATION_MAX_SOURCE_PIXELS?: string
+  MEDIA_DERIVATION_MAX_DERIVATIVE_BYTES?: string
 }
 
 const fakeTransparentPng = Uint8Array.from(
@@ -100,7 +101,13 @@ export class MediaDerivationJobWorkflow extends WorkflowEntrypoint<
             settleOutput: (input) =>
               new MediaDerivationOutputRepository(
                 this.env.DB,
-                this.env.ASSETS
+                this.env.ASSETS,
+                {
+                  maxWorkspaceDerivativeBytes: positiveInteger(
+                    this.env.MEDIA_DERIVATION_MAX_DERIVATIVE_BYTES,
+                    0
+                  ),
+                }
               ).settle(input),
             timeoutMs: positiveInteger(
               this.env.MEDIA_DERIVATION_ATTEMPT_TIMEOUT_MS,

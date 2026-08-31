@@ -70,6 +70,7 @@ class BunD1Statement {
 
 class BunD1Database {
   batchFailure: Error | null = null
+  private batchTail: Promise<void> = Promise.resolve()
 
   constructor(private readonly database: Database) {}
 
@@ -78,22 +79,32 @@ class BunD1Database {
   }
 
   async batch(statements: unknown[]) {
-    if (this.batchFailure) {
-      const failure = this.batchFailure
-      this.batchFailure = null
-      throw failure
-    }
-    this.database.exec("BEGIN IMMEDIATE")
+    const previous = this.batchTail
+    let release = () => undefined
+    this.batchTail = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    await previous
     try {
-      const results = []
-      for (const statement of statements as BunD1Statement[]) {
-        results.push(await statement.executeForBatch())
+      if (this.batchFailure) {
+        const failure = this.batchFailure
+        this.batchFailure = null
+        throw failure
       }
-      this.database.exec("COMMIT")
-      return results
-    } catch (error) {
-      this.database.exec("ROLLBACK")
-      throw error
+      this.database.exec("BEGIN IMMEDIATE")
+      const results = []
+      try {
+        for (const statement of statements as BunD1Statement[]) {
+          results.push(await statement.executeForBatch())
+        }
+        this.database.exec("COMMIT")
+        return results
+      } catch (error) {
+        this.database.exec("ROLLBACK")
+        throw error
+      }
+    } finally {
+      release()
     }
   }
 }
@@ -230,6 +241,47 @@ try {
     privacyPolicyVersion: "privacy-2026-08",
     maxAttempts: 3,
   }
+  const constrainedAdmission = {
+    maxActiveJobs: 1,
+    maxSourceBytes: 1_000_000,
+    maxSourcePixels: 1_000_000,
+    maxJobsPerHour: 10,
+    maxDerivativeBytes: 10_000_000,
+  }
+  const concurrentCreates = await Promise.allSettled([
+    repository.create(
+      "workspace-b",
+      "concurrent-create-a",
+      {
+        ...createInput,
+        sourceAssetId: "asset-0000000000000005",
+      },
+      { ...configuration, providerModelVersion: "concurrent-a" },
+      constrainedAdmission
+    ),
+    repository.create(
+      "workspace-b",
+      "concurrent-create-b",
+      {
+        ...createInput,
+        sourceAssetId: "asset-0000000000000005",
+      },
+      { ...configuration, providerModelVersion: "concurrent-b" },
+      constrainedAdmission
+    ),
+  ])
+  assert(
+    concurrentCreates.filter(({ status }) => status === "fulfilled").length ===
+      1 &&
+      concurrentCreates.filter(
+        (result) =>
+          result.status === "rejected" &&
+          result.reason instanceof Error &&
+          "code" in result.reason &&
+          result.reason.code === "derivation_quota_exceeded"
+      ).length === 1,
+    "Concurrent create admission did not reserve exactly one active slot"
+  )
 
   const created = await repository.create(
     "workspace-a",
@@ -286,7 +338,9 @@ try {
   assert(
     Number(
       database
-        .query("SELECT COUNT(*) AS count FROM media_derivation_jobs")
+        .query(
+          "SELECT COUNT(*) AS count FROM media_derivation_jobs WHERE workspace_id = 'workspace-a'"
+        )
         .get()?.count
     ) === 1,
     "Idempotency created more than one job"
@@ -638,6 +692,12 @@ try {
       "base64"
     )
   )
+  const opaquePng = Uint8Array.from(
+    Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQI12NgYGD4DwABBAEApOCsMQAAAABJRU5ErkJggg==",
+      "base64"
+    )
+  )
   const outputBucket = new MemoryR2Bucket()
   let outputSequence = 0
   const outputRepository = new MediaDerivationOutputRepository(
@@ -647,6 +707,7 @@ try {
       createAssetId: () =>
         `asset-derived-${String(++outputSequence).padStart(17, "0")}`,
       now: () => "2026-08-31T01:00:00.000Z",
+      maxWorkspaceDerivativeBytes: 70 + transparentPng.byteLength,
       normalizeOutput: (output, name) =>
         validateMediaUpload(
           Object.assign(
@@ -752,6 +813,36 @@ try {
       canonicalReplaySettlement.job.outputAssetId &&
       outputBucket.objects.size === 1,
     "Canonical output settlement was not stable on retry"
+  )
+
+  const quotaOutputJob = await repository.create(
+    "workspace-a",
+    "quota-output",
+    { ...createInput, sourceAssetId: "asset-0000000000000006" },
+    { ...configuration, providerModelVersion: "quota-output-model" }
+  )
+  const quotaOutputClaim = await repository.claim(
+    "workspace-a",
+    quotaOutputJob.job.id
+  )
+  const assetCountBeforeQuota = Number(
+    database.query("SELECT COUNT(*) AS count FROM media_assets").get()?.count
+  )
+  await expectCode(
+    outputRepository.settle({
+      job: quotaOutputClaim.job,
+      attemptId: quotaOutputClaim.attempt.id,
+      output: { mediaType: "image/png", bytes: opaquePng },
+    }),
+    "derivation_quota_exceeded"
+  )
+  assert(
+    Number(
+      database.query("SELECT COUNT(*) AS count FROM media_assets").get()?.count
+    ) === assetCountBeforeQuota &&
+      outputBucket.objects.size === 1 &&
+      outputBucket.deleted.some((key) => key.includes(quotaOutputJob.job.id)),
+    "Rejected derivative quota output left a selectable asset or staged object"
   )
 
   const lateOutputJob = await repository.create(

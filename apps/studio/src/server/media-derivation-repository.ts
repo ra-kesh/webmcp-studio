@@ -13,6 +13,7 @@ import {
 } from "./media-derivations"
 import type {
   MediaDerivationAttempt,
+  MediaDerivationAdmissionLimits,
   MediaDerivationConfiguration,
   MediaDerivationCreateInput,
   MediaDerivationJob,
@@ -482,7 +483,8 @@ export class MediaDerivationRepository {
     workspaceId: string,
     idempotencyKeyInput: string,
     createInput: MediaDerivationCreateInput,
-    configurationInput: MediaDerivationConfiguration
+    configurationInput: MediaDerivationConfiguration,
+    admission?: MediaDerivationAdmissionLimits
   ): Promise<CreateMediaDerivationResult> {
     const input = parseMediaDerivationCreateInput(createInput)
     const configuration = parseMediaDerivationConfiguration(configurationInput)
@@ -531,6 +533,9 @@ export class MediaDerivationRepository {
       identity.requestFingerprint
     )
     const now = this.now()
+    const windowStart = admission
+      ? new Date(new Date(now).getTime() - 60 * 60 * 1_000).toISOString()
+      : null
     if (compatible) {
       await this.attachRequest(
         workspaceId,
@@ -566,7 +571,37 @@ export class MediaDerivationRepository {
                     ?8, ?9, ?10, 'queued', 0, ?11, 0, ?12, ?12
              FROM media_assets
              WHERE workspace_id = ?2 AND id = ?3 AND status = 'ready'
-               AND content_hash = ?13`
+               AND content_hash = ?13
+               AND (
+                 ?14 IS NULL OR (
+                   bytes <= ?14 AND width * height <= ?15
+                 )
+               )
+               AND (
+                 ?16 IS NULL OR (
+                   SELECT COUNT(*) FROM media_derivation_jobs
+                   WHERE workspace_id = ?2
+                     AND state IN ('queued', 'running', 'cancelling')
+                 ) < ?16
+               )
+               AND (
+                 ?18 IS NULL OR (
+                   SELECT COUNT(*) FROM media_derivation_jobs
+                   WHERE workspace_id = ?2 AND created_at >= ?17
+                 ) < ?18
+               )
+               AND (
+                 ?19 IS NULL OR (
+                   SELECT COALESCE(SUM(assets.bytes), 0)
+                   FROM media_assets assets
+                   WHERE assets.workspace_id = ?2
+                     AND EXISTS (
+                       SELECT 1 FROM media_derivation_provenance provenance
+                       WHERE provenance.workspace_id = assets.workspace_id
+                         AND provenance.output_asset_id = assets.id
+                     )
+                 ) < ?19
+               )`
           )
           .bind(
             jobId,
@@ -581,7 +616,13 @@ export class MediaDerivationRepository {
             identity.requestFingerprint,
             configuration.maxAttempts,
             now,
-            source.content_hash
+            source.content_hash,
+            admission?.maxSourceBytes ?? null,
+            admission?.maxSourcePixels ?? null,
+            admission?.maxActiveJobs ?? null,
+            windowStart,
+            admission?.maxJobsPerHour ?? null,
+            admission?.maxDerivativeBytes ?? null
           ),
         this.db
           .prepare(
@@ -635,6 +676,18 @@ export class MediaDerivationRepository {
       return { job: jobFromRow(raced), created: false }
     }
     if (writeError) throw writeError
+    const latestSource = await this.sourceAsset(workspaceId, source.id)
+    if (
+      admission &&
+      latestSource?.status === "ready" &&
+      latestSource.content_hash === source.content_hash
+    ) {
+      throw new MediaDerivationError(
+        "derivation_quota_exceeded",
+        429,
+        "The workspace has reached a background-removal quota"
+      )
+    }
     throw new MediaDerivationError(
       "source_asset_not_ready",
       409,

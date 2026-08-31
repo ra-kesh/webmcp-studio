@@ -56,6 +56,14 @@ export type MediaDerivationConfiguration = z.infer<
   typeof mediaDerivationConfigurationSchema
 >
 
+export type MediaDerivationAdmissionLimits = Readonly<{
+  maxActiveJobs: number
+  maxSourceBytes: number
+  maxSourcePixels: number
+  maxJobsPerHour: number
+  maxDerivativeBytes: number
+}>
+
 export type MediaDerivationJobState =
   "queued" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled"
 

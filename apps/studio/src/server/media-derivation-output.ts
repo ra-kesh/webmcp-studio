@@ -297,6 +297,7 @@ export class MediaDerivationOutputRepository {
         output: MediaDerivationOutput,
         name: string
       ) => Promise<ValidatedMediaUpload>
+      maxWorkspaceDerivativeBytes?: number
     } = {}
   ) {}
 
@@ -377,6 +378,46 @@ export class MediaDerivationOutputRepository {
     }
   }
 
+  private async derivativeQuotaAllows(
+    workspaceId: string,
+    outputAssetId: string,
+    outputBytes: number
+  ) {
+    const maximum = this.options.maxWorkspaceDerivativeBytes
+    if (maximum === undefined) return true
+    const row = await this.db
+      .prepare(
+        `SELECT
+           (
+             SELECT COALESCE(SUM(assets.bytes), 0)
+             FROM media_assets assets
+             WHERE assets.workspace_id = ?1
+               AND EXISTS (
+                 SELECT 1 FROM media_derivation_provenance provenance
+                 WHERE provenance.workspace_id = assets.workspace_id
+                   AND provenance.output_asset_id = assets.id
+               )
+           ) AS stored_bytes,
+           EXISTS (
+             SELECT 1 FROM media_derivation_provenance
+             WHERE workspace_id = ?1 AND output_asset_id = ?2
+           ) AS already_counted`
+      )
+      .bind(workspaceId, outputAssetId)
+      .first<{ stored_bytes: number; already_counted: number }>()
+    const stored = Number(row?.stored_bytes ?? 0)
+    const additional = Number(row?.already_counted ?? 0) === 1 ? 0 : outputBytes
+    return stored + additional <= maximum
+  }
+
+  private quotaExceeded() {
+    return new MediaDerivationDispatchError(
+      "derivation_quota_exceeded",
+      false,
+      "The derived output exceeds the workspace storage quota"
+    )
+  }
+
   private settlement(
     job: MediaDerivationJob,
     outputAssetId: string,
@@ -436,6 +477,22 @@ export class MediaDerivationOutputRepository {
                WHERE workspace_id = ?1 AND id = ?4 AND status = 'ready'
                  AND media_type = ?6 AND bytes = ?7 AND width = ?8
                  AND height = ?9 AND content_hash = ?10
+             )
+             AND (
+               ?11 IS NULL OR (
+                 SELECT COALESCE(SUM(assets.bytes), 0)
+                 FROM media_assets assets
+                 WHERE assets.workspace_id = ?1
+                   AND EXISTS (
+                     SELECT 1 FROM media_derivation_provenance provenance
+                     WHERE provenance.workspace_id = assets.workspace_id
+                       AND provenance.output_asset_id = assets.id
+                   )
+               ) + CASE WHEN EXISTS (
+                 SELECT 1 FROM media_derivation_provenance provenance
+                 WHERE provenance.workspace_id = ?1
+                   AND provenance.output_asset_id = ?4
+               ) THEN 0 ELSE ?7 END <= ?11
              )`
         )
         .bind(
@@ -448,7 +505,8 @@ export class MediaDerivationOutputRepository {
           output.byteLength,
           output.width,
           output.height,
-          output.contentHash
+          output.contentHash,
+          this.options.maxWorkspaceDerivativeBytes ?? null
         ),
       this.db
         .prepare(
@@ -591,6 +649,15 @@ export class MediaDerivationOutputRepository {
             committed.completed_at
           )
         }
+        if (
+          !(await this.derivativeQuotaAllows(
+            input.job.workspaceId,
+            canonical.id,
+            normalized.byteLength
+          ))
+        ) {
+          throw this.quotaExceeded()
+        }
         if (error instanceof MediaDerivationError) throw error
         throw new MediaDerivationDispatchError(
           "storage_failure",
@@ -672,6 +739,16 @@ export class MediaDerivationOutputRepository {
         normalized.contentHash
       )
       if (raced) {
+        if (
+          !(await this.derivativeQuotaAllows(
+            input.job.workspaceId,
+            raced.id,
+            normalized.byteLength
+          ))
+        ) {
+          await this.bucket.delete(r2Key).catch(() => undefined)
+          throw this.quotaExceeded()
+        }
         try {
           await this.requireSafeCanonical(raced, normalized)
           const settlement = await this.commit(
@@ -697,6 +774,16 @@ export class MediaDerivationOutputRepository {
             )
           }
         }
+      }
+      if (
+        !(await this.derivativeQuotaAllows(
+          input.job.workspaceId,
+          outputAssetId,
+          normalized.byteLength
+        ))
+      ) {
+        await this.bucket.delete(r2Key).catch(() => undefined)
+        throw this.quotaExceeded()
       }
       await this.bucket.delete(r2Key).catch(() => undefined)
       if (error instanceof MediaDerivationError) throw error

@@ -54,7 +54,13 @@ const repository = {
   markRetryDispatched: vi.fn(),
 }
 const dispatch = vi.fn(async () => undefined)
-const admitCreate = vi.fn(async () => undefined)
+const admission = {
+  maxActiveJobs: 2,
+  maxSourceBytes: 1_000_000,
+  maxSourcePixels: 1_000_000,
+  maxJobsPerHour: 10,
+  maxDerivativeBytes: 10_000_000,
+}
 
 const handlers = createMediaDerivationHttpHandlers({
   db: {} as D1Database,
@@ -74,7 +80,7 @@ const handlers = createMediaDerivationHttpHandlers({
   },
   dispatcher: { dispatch },
   repository,
-  admitCreate,
+  admission,
 })
 
 const jsonRequest = (url: string, body: unknown, key = "request-key") =>
@@ -112,12 +118,12 @@ describe("media derivation HTTP", () => {
     )
 
     expect(response.status).toBe(202)
-    expect(admitCreate).toHaveBeenCalledWith(principal, sourceAssetId)
     expect(repository.create).toHaveBeenCalledWith(
       "workspace-a",
       "request-key",
       { sourceAssetId, operation: "remove_background", parameters: {} },
-      expect.objectContaining({ privacyPolicyVersion: "privacy-v1" })
+      expect.objectContaining({ privacyPolicyVersion: "privacy-v1" }),
+      admission
     )
     expect(dispatch).toHaveBeenCalledWith({
       workspaceId: "workspace-a",

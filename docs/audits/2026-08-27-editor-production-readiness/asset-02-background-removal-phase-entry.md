@@ -666,3 +666,28 @@ re-review.
 - Focused tests prove oversized dimensions and a highly compressed expansion
   payload fail as `invalid_provider_output` before any D1 query/write or R2
   staging, while the valid transparent PNG path still succeeds.
+
+## Independent-review correction: transactional quotas
+
+The P1 quota race and derivative-size findings are repaired locally and await
+independent re-review.
+
+- Source byte/pixel limits, active-job capacity, the rolling job window, and
+  current unique derivative bytes are predicates on the D1 job insert itself.
+  Job creation and its idempotency request remain one batch, so the inserted
+  queued job is the capacity reservation.
+- D1's serialized write transaction re-evaluates those predicates for each
+  contender. Focused concurrent repository coverage starts one workspace at
+  active-limit minus one and proves exactly one of two distinct creates obtains
+  the final paid-job slot; the other receives `derivation_quota_exceeded` and
+  is never dispatched.
+- Output settlement counts each canonical derived asset once and includes the
+  incoming normalized byte length when the asset is not already counted. The
+  exact running-attempt job update carries the ceiling predicate inside the
+  same asset/job/attempt/provenance batch.
+- A losing or over-ceiling settlement cannot retain its inserted asset because
+  the D1 batch rolls back. Its attempt-scoped R2 object is deleted, and the
+  non-retryable safe code is `derivation_quota_exceeded`. Same-hash reuse adds
+  zero bytes only when that canonical asset is already counted by provenance.
+- Executable SQLite coverage proves an incoming output that crosses the ceiling
+  leaves neither a selectable asset nor an orphaned staged object.

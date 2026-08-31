@@ -10,7 +10,10 @@ import {
   publicMediaDerivationJob,
   publicMediaDerivationProvenance,
 } from "./media-derivations"
-import type { MediaDerivationConfiguration } from "./media-derivations"
+import type {
+  MediaDerivationAdmissionLimits,
+  MediaDerivationConfiguration,
+} from "./media-derivations"
 
 type PrincipalResolver = (
   request: Request
@@ -42,10 +45,7 @@ export type MediaDerivationHttpDependencies = Readonly<{
     | "requestCancellationWithReceipt"
     | "markRetryDispatched"
   >
-  admitCreate: (
-    principal: StudioPrincipal,
-    sourceAssetId: string
-  ) => Promise<void>
+  admission: MediaDerivationAdmissionLimits
 }>
 
 export type MediaDerivationReadHttpDependencies = Readonly<{
@@ -198,7 +198,6 @@ export function createMediaDerivationHttpHandlers(
             "Consent must name the configured privacy policy version"
           )
         }
-        await dependencies.admitCreate(principal, sourceAssetId)
         const result = await repository.create(
           principal.workspaceId,
           idempotencyKey,
@@ -207,7 +206,8 @@ export function createMediaDerivationHttpHandlers(
             operation: parsed.data.operation,
             parameters: parsed.data.parameters,
           },
-          dependencies.configuration
+          dependencies.configuration,
+          dependencies.admission
         )
         await dependencies.dispatcher.dispatch({
           workspaceId: principal.workspaceId,
