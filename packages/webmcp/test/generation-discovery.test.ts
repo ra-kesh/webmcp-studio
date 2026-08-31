@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest"
+import { renderConformanceDocument } from "@webmcp/document"
 import {
+  projectGenerationEditableNodes,
   readBlankDocumentPresets,
   readDesignPlanSchema,
   readGenerationCapabilities,
@@ -17,6 +19,12 @@ describe("generation discovery", () => {
       review: {
         isolatedCandidate: true,
         currentDocumentMutationBeforeApproval: false,
+      },
+      templateChanges: {
+        targetDiscovery: "read_template.editableNodes",
+        nodeOperations: ["set_text", "set_visibility", "asset_substitution"],
+        pageOperations: ["insert_image"],
+        privateTemplateBodyRequired: false,
       },
       limits: {
         maxRequestBytes: 524_288,
@@ -54,5 +62,61 @@ describe("generation discovery", () => {
     expect(detail).not.toHaveProperty("previewDocument")
     expect(JSON.stringify(detail)).not.toContain("data:image")
     expect(JSON.stringify(detail)).not.toContain("asset:managed/")
+
+    const editorial = readGenerationTemplate("editorial-one-pager", 1)
+    expect(editorial.editableNodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "editorial-title",
+          pageId: "editorial-one-pager-page",
+          name: "Document title",
+          type: "text",
+          allowedChanges: ["set_visibility"],
+          fieldBindings: [{ property: "text", fieldKey: "document_title" }],
+        }),
+        expect.objectContaining({
+          id: "editorial-footer",
+          pageId: "editorial-one-pager-page",
+          name: "Footer",
+          type: "text",
+          allowedChanges: ["set_visibility", "set_text"],
+          fieldBindings: [],
+        }),
+      ])
+    )
+    for (const node of editorial.editableNodes) {
+      expect(Object.keys(node).sort()).toEqual(
+        [
+          "allowedChanges",
+          "fieldBindings",
+          "id",
+          "name",
+          "pageId",
+          "type",
+        ].sort()
+      )
+      expect(node).not.toHaveProperty("text")
+      expect(node).not.toHaveProperty("src")
+      expect(node).not.toHaveProperty("assetId")
+      expect(node).not.toHaveProperty("x")
+      expect(node).not.toHaveProperty("fill")
+    }
+  })
+
+  it("projects image substitution targets without exposing image sources", () => {
+    const nodes = projectGenerationEditableNodes(renderConformanceDocument)
+    const image = nodes.find((node) => node.type === "image")
+
+    expect(image).toMatchObject({
+      type: "image",
+      allowedChanges: expect.arrayContaining([
+        "set_visibility",
+        "asset_substitution",
+      ]),
+    })
+    expect(image).not.toHaveProperty("src")
+    expect(image).not.toHaveProperty("assetId")
+    expect(image).not.toHaveProperty("placement")
+    expect(image).not.toHaveProperty("alt")
   })
 })

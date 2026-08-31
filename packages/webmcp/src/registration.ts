@@ -3627,7 +3627,7 @@ export function studioWebMcpTools(
       name: "read_template",
       title: "Read generation template",
       description:
-        "Read one exact template version's compact manifest, fields, outputs, source requirements, and preview identity without returning its canonical document body.",
+        "Read one exact template version's compact manifest, fields, outputs, editable node targets, source requirements, and preview identity without returning its canonical document body.",
       inputSchema: {
         type: "object",
         additionalProperties: false,

@@ -144,6 +144,13 @@ export const studioGenerationCapabilities = Object.freeze({
   availableFonts: [...managedRendererFonts],
   approvedAssetRule:
     "Image layers and asset fields accept only asset IDs returned by Studio. URLs are provenance only.",
+  templateChanges: {
+    targetDiscovery: "read_template.editableNodes",
+    fieldValues: "Use field keys returned by read_template.fields.",
+    nodeOperations: ["set_text", "set_visibility", "asset_substitution"],
+    pageOperations: ["insert_image"],
+    privateTemplateBodyRequired: false,
+  },
   executableInput: {
     jsx: false,
     html: false,

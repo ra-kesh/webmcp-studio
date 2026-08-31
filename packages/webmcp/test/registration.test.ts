@@ -731,9 +731,73 @@ describe("WebMCP registration", () => {
       query: "olive botanical",
       limit: 8,
     })
+    const searchContent = search.structuredContent as {
+      templates: Array<{ id: string; version: number }>
+    }
+    const detailContent = detail.structuredContent as {
+      id: string
+      version: number
+      fields: Array<{ key: string; label: string }>
+      outputs: Array<{ pages: Array<{ id: string }> }>
+      editableNodes: Array<{
+        id: string
+        name: string
+        allowedChanges: string[]
+      }>
+    }
+    const discoveredTemplate = searchContent.templates.find(
+      (candidate) => candidate.id === detailContent.id
+    )!
+    const templateIdentity = {
+      id: discoveredTemplate.id,
+      version: discoveredTemplate.version,
+    }
+    const pageId = detailContent.outputs[0]!.pages[0]!.id
+    const copyTarget = detailContent.editableNodes.find(
+      (node) =>
+        node.name === "Summary copy" && node.allowedChanges.includes("set_text")
+    )!
+    const visibilityTarget = detailContent.editableNodes.find(
+      (node) =>
+        node.name === "Footer" && node.allowedChanges.includes("set_visibility")
+    )!
+    const titleFieldKey = detailContent.fields.find(
+      (field) => field.label === "Document title"
+    )!.key
+    const subtitleFieldKey = detailContent.fields.find(
+      (field) => field.label === "Document subtitle"
+    )!.key
+    const discoveredTemplateRequest = {
+      ...templateExternalSkillRequest,
+      start: {
+        ...templateExternalSkillRequest.start,
+        template: templateIdentity,
+        fieldValues: {
+          [titleFieldKey]: "Mira & Dev in Udaipur",
+          [subtitleFieldKey]:
+            "A two-day destination wedding shaped around place",
+        },
+        commands: [
+          {
+            ...templateExternalSkillRequest.start.commands[0]!,
+            pageId,
+          },
+          {
+            type: "set_text",
+            nodeId: copyTarget.id,
+            text: "Two days of place-led gatherings, considered hospitality, and clear production decisions.",
+          },
+          {
+            type: "set_visibility",
+            nodeId: visibilityTarget.id,
+            visible: false,
+          },
+        ],
+      },
+    }
     const templateTool = template.registered.get("propose_document_generation")!
-    const first = await templateTool.execute(templateExternalSkillRequest)
-    const replay = await templateTool.execute(templateExternalSkillRequest)
+    const first = await templateTool.execute(discoveredTemplateRequest)
+    const replay = await templateTool.execute(discoveredTemplateRequest)
 
     expect(search.structuredContent).toMatchObject({
       templates: expect.arrayContaining([
@@ -748,8 +812,20 @@ describe("WebMCP registration", () => {
           pages: [expect.objectContaining({ id: "editorial-one-pager-page" })],
         }),
       ],
+      editableNodes: expect.arrayContaining([
+        expect.objectContaining({
+          id: "editorial-card-copy",
+          allowedChanges: expect.arrayContaining(["set_text"]),
+        }),
+        expect.objectContaining({
+          id: "editorial-footer",
+          allowedChanges: expect.arrayContaining(["set_visibility"]),
+        }),
+      ]),
     })
-    expect(first.isError).not.toBe(true)
+    if (first.isError) {
+      throw new Error(first.content[0]?.text ?? "Template generation failed")
+    }
     expect(replay.structuredContent).toMatchObject({ replayed: true })
     const templateCandidate = template.proposedGeneration()!.candidate
     expect(templateCandidate.name).toBe(
@@ -763,6 +839,14 @@ describe("WebMCP registration", () => {
         (node) => node.name === "Udaipur botanical study"
       )
     ).toMatchObject({ type: "image", assetId: "olive-botanical" })
+    expect(
+      templateCandidate.nodes.find((node) => node.name === "Summary copy")
+    ).toMatchObject({
+      text: "Two days of place-led gatherings, considered hospitality, and clear production decisions.",
+    })
+    expect(
+      templateCandidate.nodes.find((node) => node.name === "Footer")
+    ).toMatchObject({ visible: false })
   })
 
   it("discovers and proposes reviewed reusable-style operations", async () => {

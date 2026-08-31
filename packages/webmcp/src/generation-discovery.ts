@@ -5,6 +5,7 @@ import {
   studioBlankDocumentPresets,
   studioDesignPlanVocabulary,
   studioGenerationCapabilities,
+  type Document,
   type DesignTemplateCatalogItem,
 } from "@webmcp/document"
 
@@ -36,6 +37,54 @@ const publicSummary = (template: DesignTemplateCatalogItem) => {
     preview: summary.preview,
     contentSha256: summary.provenance.contentSha256,
   }
+}
+
+export function projectGenerationEditableNodes(document: Document) {
+  const fieldById = new Map(document.fields.map((field) => [field.id, field]))
+  const nodeBindings = new Map<
+    string,
+    Array<{ property: string; fieldKey: string }>
+  >()
+  for (const binding of document.bindings) {
+    const field = fieldById.get(binding.fieldId)
+    if (!field) continue
+    const current = nodeBindings.get(binding.nodeId) ?? []
+    current.push({ property: binding.property, fieldKey: field.key })
+    nodeBindings.set(binding.nodeId, current)
+  }
+  const pageByNodeId = new Map(
+    document.pages.flatMap((page) =>
+      page.nodeIds.map((nodeId) => [nodeId, page.id] as const)
+    )
+  )
+  return document.nodes.map((node) => {
+    const pageId = pageByNodeId.get(node.id)
+    if (!pageId) {
+      throw new Error(`Template node ${node.id} has no public page identity.`)
+    }
+    const fieldBindings = (nodeBindings.get(node.id) ?? []).sort(
+      (left, right) => left.property.localeCompare(right.property)
+    )
+    const boundProperties = new Set(
+      fieldBindings.map((binding) => binding.property)
+    )
+    return {
+      id: node.id,
+      pageId,
+      name: node.name,
+      type: node.type,
+      allowedChanges: [
+        ...(!boundProperties.has("visible") ? ["set_visibility" as const] : []),
+        ...(node.type === "text" && !boundProperties.has("text")
+          ? ["set_text" as const]
+          : []),
+        ...(node.type === "image" && !boundProperties.has("src")
+          ? ["asset_substitution" as const]
+          : []),
+      ],
+      fieldBindings,
+    }
+  })
 }
 
 export function searchGenerationTemplates(query: GenerationTemplateQuery) {
@@ -114,6 +163,7 @@ export function readGenerationTemplate(id: string, version: number) {
       agentDescription: field.agentDescription,
       validation: field.validation,
     })),
+    editableNodes: projectGenerationEditableNodes(template.previewDocument),
     outputs: template.previewDocument.outputs.map((output) => ({
       name: output.name,
       kind: output.kind,

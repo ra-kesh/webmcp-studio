@@ -777,6 +777,26 @@ not a product fallback.
 - The 512 KiB and graph ceilings are frozen conservative limits, not yet
   informed by production request telemetry.
 
+### Independent-review correction, 1 September 2026
+
+Independent review held GEN-01 because exact template discovery exposed page
+and field identities but not the node identities required by `set_text`,
+`set_visibility`, or approved image substitution. `read_template` now returns a
+bounded `editableNodes` manifest with only stable node and page IDs, layer name
+and type, applicable operation names, and field ownership by public field key.
+It omits template text, geometry, paint values, asset IDs, media sources, and
+the canonical document body. The live capability response points clients to
+this manifest. Registered-tool acceptance constructs its template identity,
+field keys, page target, text target, and visibility target from public
+discovery before proposing the candidate. A projection test retains the same
+source-free contract for image-substitution targets.
+
+The Node 22 failure in the existing durable blank/template/import/sample
+journey reproduces on current `main`; review classified it as a pre-existing
+failure rather than a GEN-01 regression. GEN-01 does not change that journey.
+The independent-review hold remains open until this public-contract correction
+is re-reviewed.
+
 ## Final assessment
 
 OpenPencil confirms that GPT can create sophisticated editable designs when it

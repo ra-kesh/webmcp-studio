@@ -21,6 +21,12 @@ template detail. Template changes are limited to field values, approved image
 substitutions, text, visibility, and approved image insertion admitted by the
 live schema.
 
+`read_template.editableNodes` is the only source of template node targets. Use
+an operation only when it appears in that node's `allowedChanges`. A
+`fieldBindings` entry means the named field key owns that property, so change
+the field value instead. The node manifest intentionally omits text content,
+geometry, colors, asset IDs, and media sources.
+
 See [examples/template-request.json](../examples/template-request.json).
 
 ## Provenance and replacement
