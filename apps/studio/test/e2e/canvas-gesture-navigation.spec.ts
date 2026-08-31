@@ -1,14 +1,21 @@
 import { expect, test } from "@playwright/test"
+import type { Page } from "@playwright/test"
+
+async function openSampleEditor(page: Page) {
+  await page.goto("/")
+  await page.getByRole("button", { name: "Open sample", exact: true }).click()
+  await expect(page).toHaveURL(/\/documents\/[^/]+$/)
+}
 
 test("Control-wheel zoom stays inside the canvas viewport", async ({
   page,
 }) => {
-  await page.goto("/")
+  await openSampleEditor(page)
   const viewport = page.getByLabel("Canvas viewport")
-  const zoomDisplay = page.getByRole("button", { name: /Reset zoom to 100%/ })
+  const zoomDisplay = page.getByRole("button", { name: /Canvas zoom:/ })
   await expect(viewport).toBeVisible()
   await expect(page.locator("canvas.upper-canvas")).toBeVisible()
-  await page.getByRole("button", { name: "Fit canvas" }).click()
+  await page.getByRole("button", { name: "Fit page" }).click()
 
   const bounds = await viewport.boundingBox()
   if (!bounds) throw new Error("Canvas viewport bounds are unavailable")
@@ -42,19 +49,20 @@ test("Control-wheel zoom stays inside the canvas viewport", async ({
 test("ordinary wheel input pans without changing canvas zoom", async ({
   page,
 }) => {
-  await page.goto("/")
+  await openSampleEditor(page)
   const viewport = page.getByLabel("Canvas viewport")
-  const zoomDisplay = page.getByRole("button", { name: /Reset zoom to 100%/ })
+  const zoomDisplay = page.getByRole("button", { name: /Canvas zoom:/ })
   await expect(viewport).toBeVisible()
   await expect(page.locator("canvas.upper-canvas")).toBeVisible()
-  await page.getByRole("button", { name: "Fit canvas" }).click()
+  await page.getByRole("button", { name: "Fit page" }).click()
 
   const bounds = await viewport.boundingBox()
   if (!bounds) throw new Error("Canvas viewport bounds are unavailable")
   const zoomBefore = await zoomDisplay.textContent()
-  const transformBefore = await viewport
-    .locator(":scope > div")
-    .evaluate((element) => getComputedStyle(element).transform)
+  const camera = viewport.locator('[data-canvas-camera="true"]')
+  const transformBefore = await camera.evaluate(
+    (element) => getComputedStyle(element).transform
+  )
 
   await page.mouse.move(
     bounds.x + bounds.width / 2,
@@ -65,9 +73,7 @@ test("ordinary wheel input pans without changing canvas zoom", async ({
   await expect(zoomDisplay).toHaveText(zoomBefore ?? "")
   await expect
     .poll(() =>
-      viewport
-        .locator(":scope > div")
-        .evaluate((element) => getComputedStyle(element).transform)
+      camera.evaluate((element) => getComputedStyle(element).transform)
     )
     .not.toBe(transformBefore)
 })
@@ -75,13 +81,14 @@ test("ordinary wheel input pans without changing canvas zoom", async ({
 test("modifier-wheel cancellation is scoped to the canvas viewport", async ({
   page,
 }) => {
-  await page.goto("/")
+  await openSampleEditor(page)
   const viewport = page.getByLabel("Canvas viewport")
   const templatesTab = page.getByRole("tab", { name: "Templates" })
-  const zoomDisplay = page.getByRole("button", { name: /Reset zoom to 100%/ })
+  const zoomDisplay = page.getByRole("button", { name: /Canvas zoom:/ })
   await expect(viewport).toBeVisible()
   await expect(templatesTab).toBeVisible()
   await expect(page.locator("canvas.upper-canvas")).toBeVisible()
+  const zoomBeforeCanvasEvents = await zoomDisplay.textContent()
 
   const canvasCancellation = await viewport.evaluate((element) =>
     [
@@ -104,6 +111,7 @@ test("modifier-wheel cancellation is scoped to the canvas viewport", async ({
   )
   expect(canvasCancellation).toEqual([true, true])
 
+  await expect(zoomDisplay).not.toHaveText(zoomBeforeCanvasEvents ?? "")
   const zoomAfterCanvasEvents = await zoomDisplay.textContent()
   const sidebarCancellation = await templatesTab.evaluate((element) =>
     [
@@ -151,7 +159,7 @@ test("modifier-wheel cancellation is scoped to the canvas viewport", async ({
     })
   )
   expect(dialogCancellation).toEqual([false, false])
-  await expect(
-    page.locator('button[aria-label^="Reset zoom to 100%"]')
-  ).toHaveText(zoomAfterCanvasEvents ?? "")
+  await expect(page.locator('button[aria-label^="Canvas zoom:"]')).toHaveText(
+    zoomAfterCanvasEvents ?? ""
+  )
 })

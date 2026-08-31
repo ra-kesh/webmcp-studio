@@ -5182,6 +5182,7 @@ export function StudioShell({
                     }
                   }}
                   className="absolute top-0 left-0 will-change-transform"
+                  data-canvas-camera="true"
                   onMouseDown={(event) => {
                     if (event.target === event.currentTarget) {
                       editor.setSelection(null)

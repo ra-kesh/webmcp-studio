@@ -1,10 +1,6 @@
 import { expect, test } from "@playwright/test"
 import type { Page } from "@playwright/test"
 
-const documentStorageKey = "webmcp-studio:northstar-document:v2"
-const quotationSourceStorageKey = "webmcp-studio:quotation-source:v1"
-const quotationTemplateStorageKey = "webmcp-studio:quotation-template:v1"
-
 type TestWebMcpResult = {
   structuredContent?: unknown
   isError?: boolean
@@ -24,6 +20,7 @@ type Inspection = {
     width: number
     opacity: number
     locked: boolean
+    fill?: string
   }>
 }
 
@@ -51,92 +48,100 @@ async function inspect(page: Page) {
 }
 
 async function seedInspectorFixture(page: Page) {
+  const serialized = await page.evaluate(async () => {
+    const match = location.pathname.match(/^\/documents\/([^/]+)$/)
+    const documentId = match?.[1] ? decodeURIComponent(match[1]) : null
+    if (!documentId) throw new Error("The editor is not on a document route")
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("webmcp-studio-documents")
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () =>
+        reject(request.error ?? new Error("Document database did not open"))
+    })
+    const stored = await new Promise<
+      | {
+          document?: {
+            id: string
+            name: string
+            revision: number
+            updatedAt: string
+            pages: Array<{ nodeIds: string[] }>
+            nodes: Array<Record<string, unknown>>
+          }
+        }
+      | undefined
+    >((resolve, reject) => {
+      const request = database
+        .transaction("draft-body")
+        .objectStore("draft-body")
+        .get(documentId)
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () =>
+        reject(request.error ?? new Error("Document draft did not load"))
+    }).finally(() => database.close())
+    if (!stored?.document) {
+      throw new Error("The canonical editor document was not persisted")
+    }
+    const document = structuredClone(stored.document) as {
+      id: string
+      name: string
+      revision: number
+      updatedAt: string
+      pages: Array<{ nodeIds: string[] }>
+      nodes: Array<Record<string, unknown>>
+    }
+    const firstPage = document.pages[0]
+    if (!firstPage) throw new Error("The fixture document has no page")
+    const rect = (
+      id: string,
+      name: string,
+      x: number,
+      width: number,
+      opacity: number,
+      locked: boolean
+    ) => ({
+      id,
+      name,
+      type: "rect",
+      x,
+      y: 96,
+      width,
+      height: 80,
+      rotation: 0,
+      opacity,
+      visible: true,
+      locked,
+      fill: "#D7E4D8",
+      radius: 8,
+      stroke: "#1E2622",
+      strokeWidth: 1,
+    })
+    const nodes = [
+      rect("inspector-alpha", "Inspector alpha", 80, 120, 1, false),
+      rect("inspector-beta", "Inspector beta", 240, 160, 0.5, true),
+    ]
+    document.name = "Inspector production fixture"
+    document.updatedAt = "2026-08-27T18:00:00.000Z"
+    document.nodes.push(...nodes)
+    firstPage.nodeIds.push(...nodes.map((node) => node.id))
+    return JSON.stringify(document)
+  })
+
+  await page
+    .locator('input[type="file"][accept=".json,application/json"]')
+    .first()
+    .setInputFiles({
+      name: "inspector-production-fixture.studio.json",
+      mimeType: "application/json",
+      buffer: Buffer.from(serialized),
+    })
   await expect
-    .poll(() =>
-      page.evaluate(
-        (storageKey) => Boolean(localStorage.getItem(storageKey)),
-        documentStorageKey
+    .poll(async () =>
+      (await inspect(page)).activePageNodes.some(
+        (node) => node.id === "inspector-alpha"
       )
     )
     .toBe(true)
-
-  const serialized = await page.evaluate(
-    ({ storageKey, sourceStorageKey, templateStorageKey }) => {
-      const stored = localStorage.getItem(storageKey)
-      if (!stored) throw new Error("The editor document was not persisted")
-      const document = JSON.parse(stored) as {
-        id: string
-        name: string
-        revision: number
-        updatedAt: string
-        pages: Array<{ nodeIds: string[] }>
-        nodes: Array<Record<string, unknown>>
-      }
-      const firstPage = document.pages[0]
-      const rect = (
-        id: string,
-        name: string,
-        x: number,
-        width: number,
-        opacity: number,
-        locked: boolean
-      ) => ({
-        id,
-        name,
-        type: "rect",
-        x,
-        y: 96,
-        width,
-        height: 80,
-        rotation: 0,
-        opacity,
-        visible: true,
-        locked,
-        fill: "#D7E4D8",
-        radius: 8,
-        stroke: "#1E2622",
-        strokeWidth: 1,
-      })
-      const nodes = [
-        rect("inspector-alpha", "Inspector alpha", 80, 120, 1, false),
-        rect("inspector-beta", "Inspector beta", 240, 160, 0.5, true),
-      ]
-      document.id = "inspector-e2e-document"
-      document.name = "Inspector production fixture"
-      document.revision = 0
-      document.updatedAt = "2026-08-27T18:00:00.000Z"
-      document.nodes.push(...nodes)
-      firstPage.nodeIds.push(...nodes.map((node) => node.id))
-      const next = JSON.stringify(document)
-      localStorage.setItem(storageKey, next)
-      localStorage.removeItem(sourceStorageKey)
-      localStorage.removeItem(templateStorageKey)
-      sessionStorage.clear()
-      return next
-    },
-    {
-      storageKey: documentStorageKey,
-      sourceStorageKey: quotationSourceStorageKey,
-      templateStorageKey: quotationTemplateStorageKey,
-    }
-  )
-
-  await page.addInitScript(
-    ({ storageKey, sourceStorageKey, templateStorageKey, documentValue }) => {
-      localStorage.setItem(storageKey, documentValue)
-      localStorage.removeItem(sourceStorageKey)
-      localStorage.removeItem(templateStorageKey)
-      sessionStorage.clear()
-    },
-    {
-      storageKey: documentStorageKey,
-      sourceStorageKey: quotationSourceStorageKey,
-      templateStorageKey: quotationTemplateStorageKey,
-      documentValue: serialized,
-    }
-  )
-  await page.reload()
-  await waitForEditor(page)
 }
 
 async function openLayers(page: Page) {
@@ -161,6 +166,8 @@ test.beforeEach(async ({ page }) => {
     }
   })
   await page.goto("/")
+  await page.getByRole("button", { name: "Open sample", exact: true }).click()
+  await expect(page).toHaveURL(/\/documents\/[^/]+$/)
   await waitForEditor(page)
   await seedInspectorFixture(page)
 })
@@ -295,4 +302,68 @@ test("compact properties uses the same validation and locked-state contract", as
   await width.press("Enter")
   await expect(width).toHaveAttribute("aria-invalid", "true")
   await expect(properties.getByText("Width must be at least 1.")).toBeVisible()
+})
+
+test("continuous fill picking previews promptly and commits one undoable change", async ({
+  page,
+}) => {
+  const pageErrors: string[] = []
+  page.on("pageerror", (error) => pageErrors.push(error.message))
+
+  const tree = await openLayers(page)
+  await tree
+    .getByRole("treeitem", { name: "Inspector alpha", exact: true })
+    .click()
+  const picker = page.getByLabel("Fill color picker", { exact: true })
+  await expect(picker).toBeVisible()
+
+  const before = await inspect(page)
+  const beforeNode = before.activePageNodes.find(
+    (node) => node.id === "inspector-alpha"
+  )!
+  const finalColor = "#7C3AED"
+  const dispatchDuration = await picker.evaluate(
+    (input, colors) => {
+      const colorInput = input as HTMLInputElement
+      const startedAt = performance.now()
+      for (const color of colors) {
+        colorInput.value = color
+        colorInput.dispatchEvent(new Event("input", { bubbles: true }))
+      }
+      return performance.now() - startedAt
+    },
+    ["#2563EB", "#0891B2", "#059669", "#65A30D", "#D97706", finalColor]
+  )
+
+  expect(dispatchDuration).toBeLessThan(1_000)
+  await page.evaluate(
+    () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+  )
+  expect((await inspect(page)).document.revision).toBe(before.document.revision)
+
+  await picker.evaluate((input) =>
+    input.dispatchEvent(new Event("change", { bubbles: true }))
+  )
+  await expect
+    .poll(async () => (await inspect(page)).document.revision)
+    .toBe(before.document.revision + 1)
+  await expect
+    .poll(
+      async () =>
+        (await inspect(page)).activePageNodes.find(
+          (node) => node.id === "inspector-alpha"
+        )?.fill
+    )
+    .toBe(finalColor)
+
+  await page.getByRole("button", { name: "Undo", exact: true }).click()
+  await expect
+    .poll(
+      async () =>
+        (await inspect(page)).activePageNodes.find(
+          (node) => node.id === "inspector-alpha"
+        )?.fill
+    )
+    .toBe(beforeNode.fill)
+  expect(pageErrors).toEqual([])
 })

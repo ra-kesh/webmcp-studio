@@ -66,6 +66,24 @@ named **Use comfortable page strip**. Captures proved both controls remained
 present and usable; the regression now asserts their current product labels.
 The two repaired cases passed 2/2, followed by the complete gate at 5/5.
 
+## Core interaction recertification
+
+The Inspector and canvas-gesture Playwright gates still booted the pre-library
+application at `/` and, for Inspector, wrote the retired localStorage draft.
+They could therefore time out on the healthy Start surface without exercising
+the product. Both now open the routed sample document. Inspector derives its
+fixture from the canonical IndexedDB draft and imports it through Studio's
+validated JSON boundary instead of mutating obsolete storage.
+
+The current Inspector gate passes 4/4. Its added native color-picker journey
+dispatches six continuous inputs, proves preview creates no document revision,
+commits exactly one revision on change, restores the original fill through
+Undo, and records no page error. The canvas gesture gate passes 3/3: modifier
+wheel zoom changes only Studio's canvas zoom, ordinary wheel input pans without
+zooming, and wheel cancellation is scoped away from the sidebar and dialogs.
+The camera transform now has an explicit `data-canvas-camera` identity so ruler
+and guide overlays cannot make the regression inspect the wrong element.
+
 ## Acceptance
 
 - the start heading still receives programmatic focus after returning home but
