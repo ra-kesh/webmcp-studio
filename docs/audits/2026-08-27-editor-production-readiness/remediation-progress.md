@@ -3681,3 +3681,27 @@ Status: **closed and independently accepted; Gate 5 is active**
   review: template action failures stay contextual, while unrelated route,
   critical-action and document failures retain the global alert. Gate 5 now
   owns durable favorites, recent use and collections.
+
+## 2026-08-31 — GEN-01 skill-generated artifact assessment
+
+Status: **assessment complete; implementation not started; current mask work
+remains active**
+
+- Inspected OpenPencil's prompt loop, shared AI/editor tools, Design JSX
+  compiler, sandboxed preview, reference-image analysis, visual verification,
+  MCP registration, and separate GPT skill package at pinned commits.
+- Confirmed the intended product is a reusable GPT artifact skill that creates
+  an editable Studio document, not only instructions for operating the current
+  editor.
+- Mapped the pattern onto Studio's existing versioned templates, canonical
+  document and command model, approved assets, Review journal, deterministic
+  renderers, and WebMCP boundary.
+- Defined `GEN-01` as one bounded **Generate from template** workflow: exact
+  template discovery, isolated candidate materialization, separate-document
+  Review, atomic creation, and a packaged Studio document skill.
+- Deliberately excluded arbitrary JSX and live model mutation from the first
+  slice. A later structured design language may compile to canonical commands
+  only after the whole plan passes limits and validation.
+- The full evidence, missing capabilities, request/plan contract, adoption
+  rules, and four implementation gates are recorded in
+  `skill-driven-template-generation-assessment.md`.

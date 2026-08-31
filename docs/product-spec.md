@@ -40,6 +40,29 @@ All outputs bind to shared fields such as names, event date, package, price, val
 
 The key proof is continuity. The human, agent, API, editor, and renderer all operate on the same document model.
 
+## Skill-generated documents (`GEN-01`)
+
+Studio will support a reusable GPT artifact skill that turns a brief,
+references, and an exact existing template into a new editable document. The
+skill owns the authoring workflow and design decisions. Studio owns template
+resolution, canonical node creation, validation, Review, persistence, and
+rendering.
+
+The first slice starts from active Studio templates. A skill may populate typed
+fields, substitute approved assets, and submit a bounded set of typed
+post-template commands. Studio materializes those inputs as an isolated
+candidate and shows template identity, reference provenance, page previews,
+validation, and a compact change summary. One human approval creates a fresh
+document session atomically. Rejection leaves the current document unchanged.
+
+The first slice does not require arbitrary JSX, HTML import, a second AI-only
+document format, or a general in-app chat. A later structured design language
+may compile to Studio commands if template-based generation proves too narrow.
+The canonical saved artifact remains a normal Studio `Document` throughout.
+
+The detailed OpenPencil assessment and phased contract are recorded in
+`docs/audits/2026-08-27-editor-production-readiness/skill-driven-template-generation-assessment.md`.
+
 ## Three-minute challenge demo
 
 ### 0:00 to 0:20, credible opening state
