@@ -201,6 +201,16 @@ name. A cache-free reload reports no missing field identities, duplicate IDs,
 console errors, warnings, or browser issues. The focused template-browser
 suite passes 20/20 and Studio typecheck passes.
 
+The compact start catalog also had no true mobile layout: its container logic
+never returned fewer than two columns, producing 228 px cards even at the
+smallest Chrome test viewport and leaving substantially less at the specified
+390/320 px gates. The start catalog now uses one column below a 560 px content
+width, then deliberately steps through two, three, and four columns. Live 500
+px inspection shows a 468 px card with readable title, dimensions, and separate
+44 px favorite/action targets; at 640 px it returns to two 290 px cards without
+horizontal overflow. The responsive boundary is covered in the focused suite,
+which now passes 21/21, and Studio typecheck remains green.
+
 ## Acceptance
 
 - the start heading still receives programmatic focus after returning home but

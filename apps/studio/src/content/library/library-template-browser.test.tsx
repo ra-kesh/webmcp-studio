@@ -10,7 +10,10 @@ import type {
   LibraryPreferenceSnapshot,
 } from "@webmcp/document"
 import { getStudioLibraryCatalogDetail } from "./catalog"
-import { LibraryTemplateBrowser } from "./library-template-browser"
+import {
+  libraryTemplateColumnCountFor,
+  LibraryTemplateBrowser,
+} from "./library-template-browser"
 import {
   catalogTemplates,
   confirmedPage,
@@ -133,6 +136,16 @@ const realPreferenceController = (
 }
 
 describe("LibraryTemplateBrowser", () => {
+  it("uses a readable single-column start catalog on narrow containers", () => {
+    expect(libraryTemplateColumnCountFor(0, "start")).toBe(1)
+    expect(libraryTemplateColumnCountFor(559, "start")).toBe(1)
+    expect(libraryTemplateColumnCountFor(560, "start")).toBe(2)
+    expect(libraryTemplateColumnCountFor(760, "start")).toBe(3)
+    expect(libraryTemplateColumnCountFor(1080, "start")).toBe(4)
+    expect(libraryTemplateColumnCountFor(419, "editor")).toBe(1)
+    expect(libraryTemplateColumnCountFor(420, "editor")).toBe(2)
+  })
+
   let host: HTMLDivElement
   let root: Root
 

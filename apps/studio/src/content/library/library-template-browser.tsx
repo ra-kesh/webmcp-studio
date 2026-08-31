@@ -823,22 +823,28 @@ function TemplateSkeleton({ compact }: { compact: boolean }) {
   )
 }
 
-function columnCountFor(width: number, variant: "start" | "editor") {
+export function libraryTemplateColumnCountFor(
+  width: number,
+  variant: "start" | "editor"
+) {
   if (variant === "editor") return width >= 420 ? 2 : 1
   if (width >= 1080) return 4
   if (width >= 760) return 3
-  return 2
+  if (width >= 560) return 2
+  return 1
 }
 
 function useContainerColumns(variant: "start" | "editor") {
   const hostRef = useRef<HTMLDivElement | null>(null)
-  const [columns, setColumns] = useState(() => columnCountFor(0, variant))
+  const [columns, setColumns] = useState(() =>
+    libraryTemplateColumnCountFor(0, variant)
+  )
   useLayoutEffect(() => {
     const host = hostRef.current
     if (!host) return
     const update = (width: number) =>
       setColumns((current) => {
-        const next = columnCountFor(width, variant)
+        const next = libraryTemplateColumnCountFor(width, variant)
         return next === current ? current : next
       })
     update(host.getBoundingClientRect().width)
