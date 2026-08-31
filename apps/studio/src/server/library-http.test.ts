@@ -14,6 +14,7 @@ import {
   createLibraryHttpHandlers,
   parseLibraryListRequest,
 } from "./library-http"
+import { LibraryCatalogService } from "./library-catalog-service"
 import { LibraryPreferenceError } from "./library-preference-repository"
 import type { StudioPrincipal } from "./studio-principal"
 
@@ -166,6 +167,42 @@ beforeEach(() => {
 })
 
 describe("library HTTP contract", () => {
+  it("keeps the warm local Worker list path within the Gate 8 budget", async () => {
+    const realCatalog = new LibraryCatalogService({
+      readProjection: async () => ({
+        workspaceRevision: 8,
+        preferences: [],
+      }),
+    })
+    const performanceHandlers = createLibraryHttpHandlers({
+      db: {} as D1Database,
+      requirePrincipal: async () => principal,
+      repository,
+      catalog: realCatalog,
+    })
+
+    const requestFor = (generation: string) =>
+      new Request(
+        `https://studio.test/v1/studio/library/items?generation=${generation}&limit=50`
+      )
+    await performanceHandlers.listItems(requestFor("warmup"))
+
+    const durations = []
+    for (let iteration = 0; iteration < 7; iteration += 1) {
+      const startedAt = performance.now()
+      const response = await performanceHandlers.listItems(
+        requestFor(`measure-${iteration}`)
+      )
+      expect(response.status).toBe(200)
+      const body = (await response.json()) as { page: { items: unknown[] } }
+      expect(body.page.items).toHaveLength(50)
+      durations.push(performance.now() - startedAt)
+    }
+    durations.sort((left, right) => left - right)
+
+    expect(durations[Math.floor(durations.length / 2)]).toBeLessThan(200)
+  })
+
   it("round-trips assign-field Recent through the HTTP boundary", async () => {
     const receipt = {
       schemaVersion: 1 as const,

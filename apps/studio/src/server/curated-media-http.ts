@@ -21,7 +21,7 @@ export async function handleCuratedMediaContentRequest(
   try {
     const content = await resolveCuratedMediaContent(
       { assetId, version },
-      createCuratedMediaResourceFetcher(env.CURATED_MEDIA),
+      createCuratedMediaResourceFetcher(env.CURATED_MEDIA, request.url),
       request.signal
     )
     const etag = `"sha256-${content.identity.contentSha256}"`

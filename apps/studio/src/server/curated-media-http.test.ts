@@ -11,6 +11,7 @@ const publicFile = new URL(`../../public${item.resourcePath}`, import.meta.url)
 const environment = async () => {
   const bytes = new Uint8Array(await readFile(publicFile))
   const fetch = vi.fn(async (request: Request) => {
+    expect(new URL(request.url).origin).toBe("https://studio.test")
     expect(new URL(request.url).pathname).toBe(item.resourcePath)
     return new Response(bytes.slice().buffer, {
       headers: {
@@ -31,6 +32,7 @@ const environmentFor = async (
     )
   )
   const fetch = vi.fn(async (request: Request) => {
+    expect(new URL(request.url).origin).toBe("https://studio.test")
     expect(new URL(request.url).pathname).toBe(target.resourcePath)
     return new Response(bytes.slice().buffer, {
       headers: {

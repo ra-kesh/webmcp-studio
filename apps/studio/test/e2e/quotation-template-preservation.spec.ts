@@ -112,10 +112,17 @@ test("quotation themes preserve user content and structure in one undo step", as
   const before = beforeDraft.document
 
   await page.getByRole("tab", { name: "Templates" }).click()
-  const midnightCard = page.getByRole("button", { name: /Midnight Film/ })
+  const midnightCard = page.getByRole("button", {
+    name: "Select Midnight Film",
+    exact: true,
+  })
   await midnightCard.click()
-  await page.getByRole("button", { name: "Apply to this design" }).click()
-  await expect(midnightCard.getByLabel("Currently applied")).toBeVisible()
+  await page.getByRole("button", { name: "Apply to this document" }).click()
+  const confirmation = page.getByRole("alertdialog", {
+    name: "Apply Midnight Film to this design?",
+  })
+  await expect(confirmation).toBeVisible()
+  await confirmation.getByRole("button", { name: "Apply template" }).click()
 
   await expect
     .poll(
@@ -126,6 +133,9 @@ test("quotation themes preserve user content and structure in one undo step", as
   if (!afterDraft) throw new Error("The themed quotation was not persisted")
   const after = afterDraft.document
 
+  expect(afterDraft.sourceContext).toMatchObject({
+    designTemplate: { id: "quotation-midnight-film", version: 3 },
+  })
   expect(omitVisuals(after)).toEqual(omitVisuals(before))
   expect(after.revision).toBe(before.revision + 1)
   expect(after.pages[0]?.background).not.toBe(before.pages[0]?.background)
@@ -137,11 +147,6 @@ test("quotation themes preserve user content and structure in one undo step", as
   ).toBe(true)
 
   await page.getByRole("button", { name: "Undo" }).click()
-  await expect(
-    page
-      .getByRole("button", { name: /Editorial Olive/ })
-      .getByLabel("Currently applied")
-  ).toBeVisible()
   await expect
     .poll(
       async () => (await readStoredDraft(page, documentId))?.document.revision

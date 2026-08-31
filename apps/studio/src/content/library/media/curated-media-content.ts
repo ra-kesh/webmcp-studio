@@ -346,10 +346,13 @@ export async function resolveCuratedMediaContent(
   }
 }
 
-export function createCuratedMediaResourceFetcher(assets: Fetcher) {
+export function createCuratedMediaResourceFetcher(
+  assets: Fetcher,
+  requestUrl = "https://curated-media.internal"
+) {
   return (resourcePath: string, signal?: AbortSignal) =>
     assets.fetch(
-      new Request(new URL(resourcePath, "https://curated-media.internal"), {
+      new Request(new URL(resourcePath, requestUrl), {
         signal,
       })
     )

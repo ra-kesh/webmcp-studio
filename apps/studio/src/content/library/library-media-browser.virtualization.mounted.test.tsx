@@ -271,6 +271,18 @@ describe("LibraryMediaCollection measurement and virtualization", () => {
     expect(host.querySelector('[aria-setsize="49"]')).not.toBeNull()
   })
 
+  it("keeps a 1,000-item media catalog within the mounted-card budget", async () => {
+    await mount(group("Studio library", 1_000))
+
+    const mountedCards = host.querySelectorAll("[data-media-card]").length
+    expect(
+      host.querySelector("[data-library-media-virtual-content]")
+    ).not.toBeNull()
+    expect(host.querySelector('[aria-setsize="1000"]')).not.toBeNull()
+    expect(mountedCards).toBeGreaterThan(0)
+    expect(mountedCards).toBeLessThanOrEqual(32)
+  })
+
   it.each([
     [320, 1],
     [360, 2],

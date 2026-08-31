@@ -21,7 +21,7 @@ import {
   useRef,
   useState,
 } from "react"
-import type { CSSProperties, RefCallback } from "react"
+import type { CSSProperties, ReactNode, RefCallback } from "react"
 import type {
   LibraryCatalogItemDetail,
   LibraryCatalogItemSummary,
@@ -837,6 +837,7 @@ type CollectionProps = Readonly<{
   onCardFocus: (identity: string, index: number) => void
   onCollectionFocusLeave: () => void
   onFocusIntentHandled: () => void
+  renderSelectedDetails?: (item: LibraryTemplateSummary) => ReactNode
 }>
 
 function TemplateCollection({
@@ -857,6 +858,7 @@ function TemplateCollection({
   onCardFocus,
   onCollectionFocusLeave,
   onFocusIntentHandled,
+  renderSelectedDetails,
 }: CollectionProps) {
   const compact = variant === "editor"
   const { hostRef, columns } = useContainerColumns(variant)
@@ -929,43 +931,47 @@ function TemplateCollection({
 
   const renderItem = (item: LibraryTemplateSummary, index: number) => {
     const key = identityKey(item)
+    const selected = selectedKey === key
     return (
-      <TemplateCard
-        active={
-          activeTemplate?.id === item.id &&
-          activeTemplate.version === item.version
-        }
-        cardRef={registerCard(key)}
-        compact={compact}
-        hasQuotationSource={hasQuotationSource}
-        item={item}
-        key={key}
-        selected={selectedKey === key}
-        collectionOptions={collectionOptions}
-        collectionMutationPending={(collectionId) =>
-          preferenceState.pending.has(
-            `collection:${collectionId}:add:${key}`
-          ) ||
-          preferenceState.pending.has(
-            `collection:${collectionId}:remove:${key}`
-          )
-        }
-        favoritePending={preferenceState.pending.has(favoriteKey(item))}
-        semanticPosition={{ position: index + 1, size: items.length }}
-        onInspect={() => onSelect(item)}
-        onManageCollections={onManageCollections}
-        onNewCollection={onNewCollection}
-        onFocus={() => onCardFocus(key, index)}
-        onSelect={() => onSelect(item)}
-        onToggleFavorite={
-          onToggleFavorite
-            ? (favorite) => onToggleFavorite(exactIdentity(item), favorite)
-            : undefined
-        }
-        onToggleCollection={(collectionId, member) =>
-          onToggleCollection(item, collectionId, member)
-        }
-      />
+      <>
+        <TemplateCard
+          active={
+            activeTemplate?.id === item.id &&
+            activeTemplate.version === item.version
+          }
+          cardRef={registerCard(key)}
+          compact={compact}
+          hasQuotationSource={hasQuotationSource}
+          item={item}
+          key={key}
+          selected={selected}
+          collectionOptions={collectionOptions}
+          collectionMutationPending={(collectionId) =>
+            preferenceState.pending.has(
+              `collection:${collectionId}:add:${key}`
+            ) ||
+            preferenceState.pending.has(
+              `collection:${collectionId}:remove:${key}`
+            )
+          }
+          favoritePending={preferenceState.pending.has(favoriteKey(item))}
+          semanticPosition={{ position: index + 1, size: items.length }}
+          onInspect={() => onSelect(item)}
+          onManageCollections={onManageCollections}
+          onNewCollection={onNewCollection}
+          onFocus={() => onCardFocus(key, index)}
+          onSelect={() => onSelect(item)}
+          onToggleFavorite={
+            onToggleFavorite
+              ? (favorite) => onToggleFavorite(exactIdentity(item), favorite)
+              : undefined
+          }
+          onToggleCollection={(collectionId, member) =>
+            onToggleCollection(item, collectionId, member)
+          }
+        />
+        {selected ? renderSelectedDetails?.(item) : null}
+      </>
     )
   }
 
@@ -1744,6 +1750,24 @@ function LibraryTemplateBrowserContent({
                   const intent = state.focusIntent
                   if (intent) commands.clearFocusIntent(intent.id)
                 }}
+                renderSelectedDetails={
+                  variant === "editor"
+                    ? (item) => (
+                        <TemplateDetails
+                          actionError={actionError}
+                          actionsEnabled={actionsEnabled}
+                          detailState={state.detail}
+                          hasQuotationSource={hasQuotationSource}
+                          item={item}
+                          pendingAction={pendingAction}
+                          variant={variant}
+                          onApply={onApply}
+                          onCreate={onCreate}
+                          onRetryDetail={() => void commands.retryDetail()}
+                        />
+                      )
+                    : undefined
+                }
                 onSelect={selectItem}
                 onToggleFavorite={effectiveToggleFavorite}
                 onToggleCollection={toggleCollection}
@@ -1793,7 +1817,7 @@ function LibraryTemplateBrowserContent({
                 )}
               </div>
             </div>
-            {selectedItem ? (
+            {selectedItem && variant === "start" ? (
               <TemplateDetails
                 actionError={actionError}
                 actionsEnabled={actionsEnabled}

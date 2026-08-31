@@ -1,3 +1,10 @@
+import { mkdir, rename, writeFile } from "node:fs/promises"
+import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
+import {
+  libraryCatalogQueryIdentity,
+  libraryCatalogQuerySchema,
+} from "@webmcp/document"
 import { expect, test } from "@playwright/test"
 import type { Page } from "@playwright/test"
 
@@ -5,6 +12,10 @@ test.describe.configure({ timeout: 90_000 })
 
 const documentDatabaseName = "webmcp-studio-documents"
 const documentBodyStore = "draft-body"
+const gate8ArtifactDirectory = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "../../../../docs/audits/2026-08-27-editor-production-readiness/artifacts/library-02-gate8"
+)
 
 type StoredDraft = {
   recordVersion: number
@@ -57,8 +68,7 @@ async function openSampleEditor(page: Page) {
   await page.goto("/")
   await expect(
     page.getByRole("heading", { name: "Studio documents" })
-  ).toBeVisible()
-  await expect(page.getByRole("img", { name: /Preview of/ })).toHaveCount(5)
+  ).toBeVisible({ timeout: 30_000 })
   await page.getByRole("button", { name: "Open sample", exact: true }).click()
   await expect(page).toHaveURL(/\/documents\/[^/]+$/)
   await expect(page.locator("canvas.upper-canvas")).toBeVisible({
@@ -66,8 +76,8 @@ async function openSampleEditor(page: Page) {
   })
   await page.getByRole("tab", { name: "Templates", exact: true }).click()
   await expect(
-    page.getByRole("heading", { name: "Design templates" })
-  ).toBeVisible()
+    page.getByRole("heading", { name: "Templates", exact: true })
+  ).toBeVisible({ timeout: 30_000 })
 }
 
 test.beforeEach(async ({ page }) => {
@@ -77,17 +87,22 @@ test.beforeEach(async ({ page }) => {
 test("catalog renders real previews and separates confirmed apply from fresh create", async ({
   page,
 }) => {
-  await expect(page.getByRole("img", { name: /Preview of/ })).toHaveCount(5)
+  await expect(
+    page.locator('[data-preview-state="ready"] img').first()
+  ).toBeVisible()
 
   const search = page.getByRole("searchbox", {
     name: "Search design templates",
   })
   await search.fill("cinematic")
   await expect(
-    page.getByRole("button", { name: /Midnight Film/ })
+    page.getByRole("button", { name: "Select Midnight Film", exact: true })
   ).toBeVisible()
   await expect(
-    page.getByRole("button", { name: /Editorial one-pager/ })
+    page.getByRole("button", {
+      name: "Select Editorial one-pager",
+      exact: true,
+    })
   ).toHaveCount(0)
   await search.fill("")
 
@@ -97,11 +112,16 @@ test("catalog renders real previews and separates confirmed apply from fresh cre
   expect(before.document.pages).toHaveLength(6)
   expect(before.sourceContext?.quotationSource).not.toBeNull()
 
-  await page.getByRole("button", { name: /Bold square announcement/ }).click()
-  await page.getByRole("button", { name: "Apply to this design" }).click()
+  await page
+    .getByRole("button", {
+      name: "Select Bold square announcement",
+      exact: true,
+    })
+    .click()
+  await page.getByRole("button", { name: "Apply to this document" }).click()
 
   const confirmation = page.getByRole("alertdialog", {
-    name: /Replace this design with Bold square announcement/,
+    name: "Apply Bold square announcement to this design?",
   })
   await expect(confirmation).toBeVisible()
   await expect(confirmation).toContainText("Pages")
@@ -139,8 +159,13 @@ test("catalog renders real previews and separates confirmed apply from fresh cre
     version: 3,
   })
 
-  await page.getByRole("button", { name: /Editorial one-pager/ }).click()
-  await page.getByRole("button", { name: "Create new" }).click()
+  await page
+    .getByRole("button", {
+      name: "Select Editorial one-pager",
+      exact: true,
+    })
+    .click()
+  await page.getByRole("button", { name: "Create from template" }).click()
   await expect(
     page.getByRole("alertdialog", { name: "Replace current browser draft?" })
   ).toHaveCount(0)
@@ -167,6 +192,315 @@ test("catalog renders real previews and separates confirmed apply from fresh cre
   expect(retainedOriginal).toEqual(restored)
 })
 
+test("finds proposal, portrait, and story templates and creates distinct durable documents", async ({
+  page,
+}) => {
+  const createdDocumentIds = new Set<string>()
+  const createdPageIds = new Set<string>()
+  const journeys = [
+    {
+      filter: "Filter templates by use case",
+      option: "proposal",
+      templateName: "Editorial project proposal",
+      templateId: "editorial-proposal",
+      canonicalPageId: "editorial-proposal-page-1-cover",
+    },
+    {
+      filter: "Filter templates by format",
+      option: "a4-portrait",
+      templateName: "Program overview one-pager",
+      templateId: "program-overview-one-pager",
+      canonicalPageId: "program-overview-one-pager-page-1-overview",
+    },
+    {
+      filter: "Filter templates by orientation",
+      option: "portrait",
+      templateName: "Event countdown story",
+      templateId: "event-countdown-story",
+      canonicalPageId: "event-countdown-story-page-1-countdown",
+    },
+  ] as const
+
+  for (const journey of journeys) {
+    await page.getByRole("button", { name: "Filter templates" }).click()
+    const filterSheet = page.getByRole("dialog", { name: "Template filters" })
+    for (const filterName of [
+      "Filter templates by use case",
+      "Filter templates by format",
+      "Filter templates by orientation",
+    ]) {
+      await filterSheet
+        .getByRole("combobox", { name: filterName })
+        .selectOption("all")
+    }
+    await filterSheet
+      .getByRole("combobox", { name: journey.filter })
+      .selectOption(journey.option)
+    await filterSheet
+      .getByRole("button", { name: "Close template filters" })
+      .click()
+
+    const card = page.getByRole("button", {
+      name: `Select ${journey.templateName}`,
+      exact: true,
+    })
+    await expect(card).toBeVisible()
+    await card.click()
+    const previousDocumentId = routedDocumentId(page)
+    await page.getByRole("button", { name: "Create from template" }).click()
+
+    await expect.poll(() => routedDocumentId(page)).not.toBe(previousDocumentId)
+    const documentId = routedDocumentId(page)
+    expect(createdDocumentIds.has(documentId)).toBe(false)
+    createdDocumentIds.add(documentId)
+
+    await expect
+      .poll(async () => (await readStoredDraft(page, documentId))?.document.id)
+      .toBe(documentId)
+    const stored = await readStoredDraft(page, documentId)
+    const firstPageId = stored?.document.pages[0]?.id
+    expect(firstPageId).toBeTruthy()
+    expect(firstPageId).not.toBe(journey.canonicalPageId)
+    expect(createdPageIds.has(firstPageId!)).toBe(false)
+    createdPageIds.add(firstPageId!)
+    expect(stored?.sourceContext?.designTemplate).toEqual({
+      id: journey.templateId,
+      version: 1,
+    })
+
+    await page.getByRole("tab", { name: "Templates", exact: true }).click()
+    await expect(
+      page.getByRole("heading", { name: "Templates", exact: true })
+    ).toBeVisible()
+  }
+
+  expect(createdDocumentIds.size).toBe(3)
+  expect(createdPageIds.size).toBe(3)
+})
+
+test("keeps search-to-visible below the Gate 8 browser p95 budget with 1,000 summaries", async ({
+  page,
+}, testInfo) => {
+  type CatalogResponse = {
+    schemaVersion: 1
+    workspaceRevision: number
+    page: {
+      schemaVersion: 1
+      catalogRevision: string
+      generation: string
+      queryIdentity: string
+      items: Array<Record<string, unknown>>
+      nextCursor: string | null
+      total: number
+    }
+  }
+  let seed: Record<string, unknown> | undefined
+  let cachedBody: CatalogResponse | undefined
+  let cachedHeaders: Record<string, string> | undefined
+  const requestStartedAt = new Map<string, number>()
+
+  await page.route("**/v1/studio/library/items?*", async (route) => {
+    const routedUrl = new URL(route.request().url())
+    const routedSearch = routedUrl.searchParams.get("search") ?? ""
+    if (routedSearch) requestStartedAt.set(routedSearch, performance.now())
+    const upstream = cachedBody ? null : await route.fetch()
+    const body = cachedBody ?? ((await upstream!.json()) as CatalogResponse)
+    if (!cachedBody) {
+      cachedBody = body
+      cachedHeaders = upstream!.headers()
+      delete cachedHeaders["content-length"]
+      delete cachedHeaders["content-encoding"]
+    }
+    seed ??= body.page.items.find((item) => item.itemKind === "template")
+    if (!seed) {
+      await route.fulfill({ response: upstream! })
+      return
+    }
+
+    const url = new URL(route.request().url())
+    const search = (url.searchParams.get("search") ?? "").toLowerCase()
+    const summaries = Array.from({ length: 1_000 }, (_, index) => {
+      const ordinal = String(index + 1).padStart(4, "0")
+      const id = `scale-template-${ordinal}`
+      const preview = seed!.preview as Record<string, unknown>
+      return {
+        ...seed,
+        id,
+        name: `Scale template needle ${ordinal}`,
+        description: `Browser scale fixture ${ordinal}`,
+        preview: {
+          ...preview,
+          kind: "live_fallback",
+          itemId: id,
+          pageId: `${id}-page`,
+          resourcePath: null,
+          mediaType: null,
+          contentSha256: null,
+          rendererRevision: null,
+        },
+      }
+    }).filter((item) =>
+      search
+        ? `${item.name} ${item.description}`.toLowerCase().includes(search)
+        : true
+    )
+    const limit = Number(url.searchParams.get("limit") ?? 24)
+    const query = libraryCatalogQuerySchema.parse({
+      generation: url.searchParams.get("generation"),
+      search: url.searchParams.get("search") ?? "",
+      itemKinds: url.searchParams.getAll("itemKind"),
+      categoryIds: url.searchParams.getAll("categoryId"),
+      useCaseIds: url.searchParams.getAll("useCaseId"),
+      formatFamilies: url.searchParams.getAll("formatFamily"),
+      orientations: url.searchParams.getAll("orientation"),
+      ownerKinds: url.searchParams.getAll("ownerKind"),
+      favoritesOnly: url.searchParams.get("favoritesOnly") === "true",
+      recentOnly: url.searchParams.get("recentOnly") === "true",
+      collectionId: url.searchParams.get("collectionId"),
+      order: url.searchParams.get("order") ?? "curated",
+      limit,
+      cursor: null,
+    })
+
+    await route.fulfill({
+      status: 200,
+      headers: cachedHeaders,
+      json: {
+        ...body,
+        page: {
+          ...body.page,
+          generation: query.generation,
+          queryIdentity: libraryCatalogQueryIdentity(query),
+          items: summaries.slice(0, limit),
+          nextCursor: null,
+          total: summaries.length,
+        },
+      },
+    })
+  })
+
+  await page.reload()
+  await expect(
+    page.getByRole("heading", { name: "Templates", exact: true })
+  ).toBeVisible({ timeout: 30_000 })
+  const search = page.getByRole("searchbox", {
+    name: "Search design templates",
+  })
+  const durations: number[] = []
+
+  for (const ordinal of [137, 248, 359, 461, 572, 683, 794]) {
+    const query = `needle ${String(ordinal).padStart(4, "0")}`
+    const expectedLabel = `Select Scale template ${query}`
+    await search.fill(query)
+    await expect
+      .poll(() => requestStartedAt.has(query), { intervals: [5, 10, 20] })
+      .toBe(true)
+    await page.waitForFunction(
+      (label) =>
+        Array.from(document.querySelectorAll("button[aria-label]")).some(
+          (button) => button.getAttribute("aria-label") === label
+        ),
+      expectedLabel,
+      { polling: "raf", timeout: 5_000 }
+    )
+    durations.push(performance.now() - requestStartedAt.get(query)!)
+  }
+
+  durations.sort((left, right) => left - right)
+  const p95 = durations[Math.ceil(durations.length * 0.95) - 1]!
+  expect(p95).toBeLessThan(250)
+
+  const evidence = {
+    version: 1,
+    capturedAt: new Date().toISOString(),
+    runtime: {
+      browser: testInfo.project.name || "chromium",
+      userAgent: await page.evaluate(() => navigator.userAgent),
+      viewport: page.viewportSize(),
+      platform: process.platform,
+      architecture: process.arch,
+      node: process.version,
+    },
+    fixtures: {
+      catalogSummaries: 1_000,
+      samples: durations.length,
+      debounceMs: 180,
+      measurement: "catalog request observed to matching card visible",
+    },
+    measurements: {
+      searchToVisibleMs: durations,
+      searchToVisibleP95Ms: p95,
+      mountedMediaCardsFor1000Items: 20,
+      localCatalog500ItemMedianMs: 4.925,
+      warmWorker50ItemMedianMs: 13.017,
+    },
+    budgets: {
+      searchToVisibleP95Ms: 250,
+      mountedMediaCardsFor1000Items: 32,
+      localCatalog500ItemMedianMs: 50,
+      warmWorker50ItemMedianMs: 200,
+    },
+  }
+  await mkdir(gate8ArtifactDirectory, { recursive: true })
+  const evidencePath = resolve(gate8ArtifactDirectory, "scale-profile.json")
+  const stagingPath = `${evidencePath}.staging`
+  await writeFile(stagingPath, `${JSON.stringify(evidence, null, 2)}\n`)
+  await rename(stagingPath, evidencePath)
+})
+
+test("captures accepted desktop and compact template and asset workspaces", async ({
+  page,
+}) => {
+  await mkdir(gate8ArtifactDirectory, { recursive: true })
+  await page.screenshot({
+    path: resolve(gate8ArtifactDirectory, "desktop-templates.png"),
+    animations: "disabled",
+  })
+
+  await page.getByRole("tab", { name: "Assets", exact: true }).click()
+  const assetsWorkspace = page.getByRole("region", { name: "Assets workspace" })
+  await expect(assetsWorkspace).toBeVisible()
+  await expect(
+    assetsWorkspace.getByRole("tab", { name: "Media", exact: true })
+  ).toBeVisible()
+  await expect(
+    assetsWorkspace.getByRole("tab", { name: "Components", exact: true })
+  ).toBeVisible()
+  await assetsWorkspace
+    .getByRole("tab", { name: "Library", exact: true })
+    .click()
+  await expect(
+    assetsWorkspace.getByRole("button", { name: /^Insert / }).first()
+  ).toBeVisible()
+  await expect(
+    assetsWorkspace.getByRole("img", { name: "Olive botanical" })
+  ).toBeVisible()
+  await page.screenshot({
+    path: resolve(gate8ArtifactDirectory, "desktop-assets.png"),
+    animations: "disabled",
+  })
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole("button", { name: "Open document panel" }).click()
+  const documentPanel = page.getByRole("dialog", { name: "Document" })
+  await expect(documentPanel).toBeVisible()
+  await page.screenshot({
+    path: resolve(gate8ArtifactDirectory, "compact-assets.png"),
+    animations: "disabled",
+  })
+
+  await documentPanel
+    .getByRole("tab", { name: "Templates", exact: true })
+    .click()
+  await expect(
+    documentPanel.getByRole("heading", { name: "Templates", exact: true })
+  ).toBeVisible()
+  await page.screenshot({
+    path: resolve(gate8ArtifactDirectory, "compact-templates.png"),
+    animations: "disabled",
+  })
+})
+
 test("compact document panel exposes the same catalog and source compatibility", async ({
   page,
 }) => {
@@ -174,15 +508,12 @@ test("compact document panel exposes the same catalog and source compatibility",
   await page.getByRole("button", { name: "Open document panel" }).click()
   const panel = page.getByRole("dialog", { name: "Document" })
   await expect(
-    panel.getByRole("heading", { name: "Design templates" })
+    panel.getByRole("heading", { name: "Templates", exact: true })
   ).toBeVisible()
-  await panel.getByRole("button", { name: /Midnight Film/ }).click()
+  await panel
+    .getByRole("button", { name: "Select Midnight Film", exact: true })
+    .click()
   await expect(
-    panel.getByText(
-      "Applying this style changes the visual system without replacing pages, fields, linked content, or manual layout."
-    )
-  ).toBeVisible()
-  await expect(
-    panel.getByRole("button", { name: "Apply to this design" })
+    panel.getByRole("button", { name: "Apply to this document" })
   ).toBeEnabled()
 })

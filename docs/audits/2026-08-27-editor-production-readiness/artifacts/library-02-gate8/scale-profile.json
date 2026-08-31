@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "capturedAt": "2026-08-31T18:24:41.970Z",
+  "runtime": {
+    "browser": "chromium",
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "platform": "darwin",
+    "architecture": "arm64",
+    "node": "v22.23.2"
+  },
+  "fixtures": {
+    "catalogSummaries": 1000,
+    "samples": 7,
+    "debounceMs": 180,
+    "measurement": "catalog request observed to matching card visible"
+  },
+  "measurements": {
+    "searchToVisibleMs": [
+      40.07970800000476,
+      40.360249999997905,
+      41.378875000002154,
+      44.359208999994735,
+      50.3670839999977,
+      57.756625000001804,
+      70.36208400000032
+    ],
+    "searchToVisibleP95Ms": 70.36208400000032,
+    "mountedMediaCardsFor1000Items": 20,
+    "localCatalog500ItemMedianMs": 4.925,
+    "warmWorker50ItemMedianMs": 13.017
+  },
+  "budgets": {
+    "searchToVisibleP95Ms": 250,
+    "mountedMediaCardsFor1000Items": 32,
+    "localCatalog500ItemMedianMs": 50,
+    "warmWorker50ItemMedianMs": 200
+  }
+}

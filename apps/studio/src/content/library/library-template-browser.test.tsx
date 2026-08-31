@@ -255,6 +255,33 @@ describe("LibraryTemplateBrowser", () => {
     expect(controller.selectItem).not.toHaveBeenCalled()
   })
 
+  it("keeps editor actions next to the selected card instead of after the catalog", async () => {
+    const controller = staticController(discoveryState())
+    const selected = catalogTemplates[0]!
+
+    await act(async () => {
+      root.render(
+        <DiscoveryTestRoot controller={controller}>
+          <LibraryTemplateBrowser
+            hasQuotationSource
+            variant="editor"
+            onApply={vi.fn()}
+            onCreate={vi.fn()}
+          />
+        </DiscoveryTestRoot>
+      )
+    })
+
+    const card = host.querySelector(
+      `article[data-template-card="template:${selected.id}@${selected.version}"]`
+    )
+    const listItem = card?.closest("li")
+    expect(listItem).not.toBeNull()
+    expect(listItem?.querySelector("[data-template-details]")).not.toBeNull()
+    expect(listItem?.textContent).toContain("Create from template")
+    expect(listItem?.textContent).toContain("Apply to this document")
+  })
+
   it("keeps every library destination visible in the compact editor header", async () => {
     const controller = staticController(discoveryState())
 
