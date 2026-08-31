@@ -378,6 +378,10 @@ Every product operation in this flow is WebMCP-accessible. The visible Review
 UI and direct editor remain available to the human, but they do not hide a
 private generation action that GPT cannot perform.
 
+GPT chat owns retrieval of the GitHub skill and its linked files. Studio should
+not fetch or execute arbitrary repository content. It receives the structured
+plan plus bounded source metadata needed for Review and provenance.
+
 ### Gate A: publish a self-describing WebMCP contract
 
 Add read-only WebMCP tools:
