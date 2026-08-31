@@ -278,7 +278,7 @@ export function deriveInspectorMaskCapabilities({
         return node ? [node] : []
       })
     : []
-  const eligibleSourceNodeIds = groupNodes
+  const eligibleSourceNodeIds = (maskGroup ? groupNodes : nodes)
     .filter(
       (node) =>
         !node.locked &&
@@ -306,30 +306,62 @@ export function deriveInspectorMaskCapabilities({
     groupMutationReason = MASK_LOCKED_REASON
   else if (inComponentInstance) groupMutationReason = MASK_COMPONENT_REASON
 
-  const requestedSources = [...new Set(candidateSourceNodeIds)]
+  const requestedSources = [...candidateSourceNodeIds]
+  const uniqueRequestedSources = [...new Set(requestedSources)]
   let sourceReason = groupMutationReason
-  if (!sourceReason && requestedSources.length !== 1)
-    sourceReason = "Choose one layer in this mask group as its source."
-  const requestedSource = nodeById.get(requestedSources[0] ?? "")
+  if (!sourceReason && requestedSources.length === 0)
+    sourceReason = "Choose at least one layer in this mask group as a source."
+  else if (
+    !sourceReason &&
+    requestedSources.length > initialMaskPaintAdmission.maxSources
+  )
+    sourceReason = `A mask can use at most ${initialMaskPaintAdmission.maxSources} source layers.`
+  else if (
+    !sourceReason &&
+    uniqueRequestedSources.length !== requestedSources.length
+  )
+    sourceReason = "Choose each mask source only once."
+  else if (
+    !sourceReason &&
+    requestedSources.length >= (maskGroup?.nodeIds.length ?? 0)
+  )
+    sourceReason = "Keep at least one layer as masked content."
+  if (!sourceReason) {
+    for (const sourceNodeId of requestedSources) {
+      const requestedSource = nodeById.get(sourceNodeId)
+      if (!requestedSource || !maskGroup?.nodeIds.includes(sourceNodeId)) {
+        sourceReason = "Choose direct layers in this mask group as sources."
+        break
+      }
+      sourceReason = maskSourceAdmissionReason(
+        document,
+        requestedSource,
+        maskGroup?.mask.type === "alpha" ? "alpha" : "vector"
+      )
+      if (sourceReason) break
+    }
+  }
   if (
     !sourceReason &&
-    (!requestedSource || !maskGroup?.nodeIds.includes(requestedSource.id))
-  ) {
-    sourceReason = "Choose a direct layer in this mask group as its source."
-  }
-  if (!sourceReason)
-    sourceReason = maskSourceAdmissionReason(
-      document,
-      requestedSource,
-      maskGroup?.mask.type === "alpha" ? "alpha" : "vector"
+    maskGroup?.mask.sourceNodeIds.length === requestedSources.length &&
+    maskGroup.mask.sourceNodeIds.every(
+      (sourceNodeId, index) => sourceNodeId === requestedSources[index]
     )
-  if (
-    !sourceReason &&
-    maskGroup?.mask.sourceNodeIds.length === 1 &&
-    maskGroup.mask.sourceNodeIds[0] === requestedSources[0]
   ) {
-    sourceReason = "That layer is already the mask source."
+    sourceReason = "Those layers are already the mask sources in that order."
   }
+
+  const currentSourcesAdmittedFor = (maskType: "vector" | "alpha") =>
+    Boolean(
+      maskGroup?.mask.sourceNodeIds.every(
+        (sourceNodeId) =>
+          maskSourceAdmissionReason(
+            document,
+            nodeById.get(sourceNodeId),
+            maskType
+          ) === null
+      )
+    )
 
   return {
     groupId: maskGroup?.id ?? null,
@@ -343,28 +375,20 @@ export function deriveInspectorMaskCapabilities({
     setVector: maskCapability(
       groupMutationReason === null &&
         maskGroup?.mask.type !== "vector" &&
-        maskSourceAdmissionReason(
-          document,
-          nodeById.get(maskGroup?.mask.sourceNodeIds[0] ?? ""),
-          "vector"
-        ) === null,
+        currentSourcesAdmittedFor("vector"),
       groupMutationReason ??
         (maskGroup?.mask.type === "vector"
           ? "This mask already uses Vector."
-          : "The current source is not an unstroked vector layer.")
+          : "Every current source must be an unstroked vector layer.")
     ),
     setAlpha: maskCapability(
       groupMutationReason === null &&
         maskGroup?.mask.type !== "alpha" &&
-        maskSourceAdmissionReason(
-          document,
-          nodeById.get(maskGroup?.mask.sourceNodeIds[0] ?? ""),
-          "alpha"
-        ) === null,
+        currentSourcesAdmittedFor("alpha"),
       groupMutationReason ??
         (maskGroup?.mask.type === "alpha"
           ? "This mask already uses Alpha."
-          : "The current source cannot provide alpha coverage.")
+          : "Every current source must provide alpha coverage.")
     ),
     setLuminance: maskCapability(
       false,

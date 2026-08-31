@@ -33,6 +33,8 @@ import {
   productCommandExecutionPolicy,
   productCommandIds,
   projectProductCommandCapabilities,
+  resolveProductCommand,
+  type ProductCommandArguments,
   type ProductCommandCategory,
   type ProductCommandId,
   type ProductCommandRuntimeContext,
@@ -1495,6 +1497,7 @@ type CapabilityTargetSelector =
 
 type CapabilityQuery = Readonly<{
   commandIds?: readonly ProductCommandId[]
+  arguments?: ProductCommandArguments
   category?: ProductCommandCategory
   scope?: ProductCommandScope
   enabled?: boolean
@@ -1541,6 +1544,7 @@ function parseCapabilityQuery(input: unknown): CapabilityQuery {
   const value = queryObject(input)
   assertQueryKeys(value, [
     "commandIds",
+    "arguments",
     "category",
     "scope",
     "enabled",
@@ -1572,6 +1576,19 @@ function parseCapabilityQuery(input: unknown): CapabilityQuery {
         "commandIds must not contain duplicates."
       )
     }
+  }
+  let argumentsForCommand: ProductCommandArguments | undefined
+  if (value.arguments !== undefined) {
+    if (commandIds?.length !== 1) {
+      throw new DesignQueryError(
+        "invalid_query",
+        "arguments require exactly one commandId."
+      )
+    }
+    argumentsForCommand = parseProductCommandArguments(
+      commandIds[0]!,
+      value.arguments
+    )
   }
   const category = value.category
   if (
@@ -1638,11 +1655,108 @@ function parseCapabilityQuery(input: unknown): CapabilityQuery {
   }
   return {
     commandIds,
+    arguments: argumentsForCommand,
     category: category as ProductCommandCategory | undefined,
     scope: scope as ProductCommandScope | undefined,
     enabled: value.enabled as boolean | undefined,
     target,
   }
+}
+
+function parseProductCommandArguments(
+  commandId: ProductCommandId,
+  input: unknown
+): ProductCommandArguments {
+  const value = queryObject(input)
+  const contract = productCommandArgumentContract(commandId)
+  if (contract.kind === "none") {
+    assertQueryKeys(value, ["kind"])
+    if (value.kind !== "none") {
+      throw new DesignQueryError(
+        "invalid_query",
+        `${commandId} does not accept typed arguments.`
+      )
+    }
+    return { kind: "none" }
+  }
+  if (contract.kind === "mask-create" || contract.kind === "mask-sources") {
+    assertQueryKeys(value, ["kind", "sourceNodeIds"])
+    if (value.kind !== contract.kind || !Array.isArray(value.sourceNodeIds)) {
+      throw new DesignQueryError(
+        "invalid_query",
+        `arguments must use kind ${contract.kind} with sourceNodeIds.`
+      )
+    }
+    const ids = value.sourceNodeIds
+    const field = contract.fields.sourceNodeIds
+    if (
+      ids.length < field.minItems ||
+      ids.length > field.maxItems ||
+      ids.some((id) => typeof id !== "string" || id.length === 0) ||
+      new Set(ids).size !== ids.length
+    ) {
+      throw new DesignQueryError(
+        "invalid_query",
+        `sourceNodeIds must contain ${field.minItems} to ${field.maxItems} unique non-empty IDs.`
+      )
+    }
+    return {
+      kind: contract.kind,
+      sourceNodeIds: ids as [string, ...string[]],
+    }
+  }
+  if (contract.kind === "alignment") {
+    assertQueryKeys(value, ["kind", "alignment", "relativeTo"])
+    if (
+      value.kind !== "alignment" ||
+      typeof value.alignment !== "string" ||
+      !contract.variants.includes(
+        value.alignment as (typeof contract.variants)[number]
+      ) ||
+      (value.relativeTo !== "selection" && value.relativeTo !== "page")
+    ) {
+      throw new DesignQueryError(
+        "invalid_query",
+        "Invalid alignment arguments."
+      )
+    }
+    return {
+      kind: "alignment",
+      alignment: value.alignment as (typeof contract.variants)[number],
+      relativeTo: value.relativeTo,
+    }
+  }
+  if (contract.kind === "distribution") {
+    assertQueryKeys(value, ["kind", "distribution"])
+    if (
+      value.kind !== "distribution" ||
+      typeof value.distribution !== "string" ||
+      !contract.variants.includes(
+        value.distribution as (typeof contract.variants)[number]
+      )
+    ) {
+      throw new DesignQueryError(
+        "invalid_query",
+        "Invalid distribution arguments."
+      )
+    }
+    return {
+      kind: "distribution",
+      distribution: value.distribution as (typeof contract.variants)[number],
+    }
+  }
+  assertQueryKeys(value, ["kind", "presetId"])
+  if (
+    value.kind !== "text-preset" ||
+    typeof value.presetId !== "string" ||
+    value.presetId.length === 0
+  ) {
+    throw new DesignQueryError(
+      "invalid_query",
+      "Invalid text preset arguments."
+    )
+  }
+  return { kind: "text-preset", presetId: value.presetId }
 }
 
 function parseExecuteProductCommandInput(
@@ -1864,6 +1978,28 @@ function productCommandContextForTarget(
 const capabilityInvocationId = (commandId: ProductCommandId, args: unknown) =>
   args === undefined ? commandId : `${commandId}:${JSON.stringify(args)}`
 
+function refinedCapabilityQueryFromId(
+  capabilityId: string,
+  target: CapabilityTargetSelector
+): CapabilityQuery | null {
+  const separator = capabilityId.indexOf(":")
+  if (separator < 1) return null
+  const commandId = capabilityId.slice(0, separator)
+  if (!productCommandIdSet.has(commandId)) return null
+  try {
+    return {
+      commandIds: [commandId as ProductCommandId],
+      arguments: parseProductCommandArguments(
+        commandId as ProductCommandId,
+        JSON.parse(capabilityId.slice(separator + 1))
+      ),
+      target,
+    }
+  } catch {
+    return null
+  }
+}
+
 function selectResolvedProductCommands(
   snapshot: StudioWebMcpSnapshot,
   query: CapabilityQuery
@@ -1875,7 +2011,27 @@ function selectResolvedProductCommands(
     scope === "global" ||
     scope === "document" ||
     scope === query.target.kind
-  return projectProductCommandCapabilities(context).filter(
+  const projected = projectProductCommandCapabilities(context)
+  const refinementBase =
+    query.arguments && query.commandIds?.length === 1
+      ? projected.find(
+          (candidate) => candidate.definition.id === query.commandIds![0]
+        )
+      : undefined
+  const refined = refinementBase
+    ? [
+        resolveProductCommand(
+          {
+            ...refinementBase.invocation,
+            arguments: query.arguments,
+          },
+          context
+        ),
+      ]
+    : query.arguments
+      ? []
+      : projected
+  return refined.filter(
     ({ definition, enabled }) =>
       targetScopeAllowed(definition.scope) &&
       (!commandIdFilter || commandIdFilter.has(definition.id)) &&
@@ -2933,13 +3089,27 @@ export function studioWebMcpTools(
           "The document, operation, active page, or selection changed. Inspect capabilities again."
         )
       }
-      const resolved = selectResolvedProductCommands(current, {
-        target: input.target,
-      }).find(
-        ({ definition, invocation }) =>
-          capabilityInvocationId(definition.id, invocation.arguments) ===
-          input.capabilityId
-      )
+      const matchesCapabilityId = ({
+        definition,
+        invocation,
+      }: ResolvedProductCommand) =>
+        capabilityInvocationId(definition.id, invocation.arguments) ===
+        input.capabilityId
+      const resolved =
+        selectResolvedProductCommands(current, {
+          target: input.target,
+        }).find(matchesCapabilityId) ??
+        (() => {
+          const refinedQuery = refinedCapabilityQueryFromId(
+            input.capabilityId,
+            input.target
+          )
+          return refinedQuery
+            ? selectResolvedProductCommands(current, refinedQuery).find(
+                matchesCapabilityId
+              )
+            : undefined
+        })()
       if (!resolved) {
         throw new DesignQueryError(
           "capability_not_found",
@@ -3354,6 +3524,71 @@ export function studioWebMcpTools(
             maxItems: productCommandIds.length,
             uniqueItems: true,
             items: { type: "string", enum: [...productCommandIds] },
+          },
+          arguments: {
+            description:
+              "Typed command arguments. Requires exactly one commandId and is validated against that command's canonical argument contract.",
+            oneOf: [
+              {
+                type: "object",
+                additionalProperties: false,
+                required: ["kind"],
+                properties: { kind: { const: "none" } },
+              },
+              ...(["mask-create", "mask-sources"] as const).map((kind) => ({
+                type: "object",
+                additionalProperties: false,
+                required: ["kind", "sourceNodeIds"],
+                properties: {
+                  kind: { const: kind },
+                  sourceNodeIds: {
+                    type: "array",
+                    minItems: 1,
+                    maxItems: 4,
+                    uniqueItems: true,
+                    items: { type: "string", minLength: 1 },
+                  },
+                },
+              })),
+              {
+                type: "object",
+                additionalProperties: false,
+                required: ["kind", "alignment", "relativeTo"],
+                properties: {
+                  kind: { const: "alignment" },
+                  alignment: {
+                    type: "string",
+                    enum: [
+                      "left",
+                      "horizontal-center",
+                      "right",
+                      "top",
+                      "vertical-center",
+                      "bottom",
+                    ],
+                  },
+                  relativeTo: { enum: ["selection", "page"] },
+                },
+              },
+              {
+                type: "object",
+                additionalProperties: false,
+                required: ["kind", "distribution"],
+                properties: {
+                  kind: { const: "distribution" },
+                  distribution: { enum: ["horizontal", "vertical"] },
+                },
+              },
+              {
+                type: "object",
+                additionalProperties: false,
+                required: ["kind", "presetId"],
+                properties: {
+                  kind: { const: "text-preset" },
+                  presetId: { type: "string", minLength: 1 },
+                },
+              },
+            ],
           },
           category: {
             type: "string",

@@ -132,7 +132,7 @@ const commandLabel = (commands: DocumentCommand[]) => {
     case "set_mask_type":
       return "Change mask type"
     case "set_mask_sources":
-      return "Change mask source"
+      return "Change mask sources"
     case "relink_asset_references":
       return "Make image available everywhere"
     case "remove_node":

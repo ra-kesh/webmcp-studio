@@ -537,9 +537,43 @@ Verification completed at this checkpoint:
 - all changed files passed Prettier checking and `git diff --check`
 - final independent review verdict: **COMMIT**, with no remaining P0/P1 finding
 
-Gate M4A is not yet marked accepted. The Studio UI, public API, WebMCP proposal
-surface, one-step editor history journey, and retained multi-source pixel corpus
-remain open. M4B luminance and M4C nesting remain explicitly unadmitted.
+#### M4A product-integration checkpoint — 31 August 2026
+
+The Studio inspector, editor history, product-command boundary, and WebMCP
+proposal path now preserve the complete ordered one-to-four-source relation.
+The inspector separates selected sources from available layers, renders selected
+sources in canonical order with visible ordinals, and emits one full
+`mask.sources.set` command for add, remove, and reorder actions. Studio no longer
+truncates source arrays. One history entry owns the complete change, with exact
+undo, redo, and ordered no-op evidence.
+
+`get_capabilities` accepts a typed argument refinement only when exactly one
+command ID is requested. It validates the canonical argument contract and mints
+an order-sensitive capability ID. `execute_product_command` remains
+capability-ID-only and reconstructs and revalidates the exact invocation against
+the live document context. Mask create and source changes compile to one
+canonical proposal operation; the public render API schema is unchanged.
+
+The retained capture route and harness now include multi-vector,
+one-hidden-source, all-hidden-source, and multi-alpha fixtures across Fabric,
+React, direct HTML, PNG, PDF, thumbnail, and public endpoint surfaces. They are
+wired but not promoted as retained evidence while the local Cloudflare Browser
+Rendering runtime remains blocked.
+
+Verification completed at this checkpoint:
+
+- 145/145 combined focused editor, Studio, and WebMCP tests passed
+- editor, WebMCP, and Studio typechecks passed
+- the existing four public multi-source PNG/PDF endpoint tests passed in their
+  Cloudflare test harness
+- formatting and `git diff --check` passed
+- independent review first held the slice because visible rows used group paint
+  order instead of canonical source order; the corrected ordered UI and its
+  regression received a final **COMMIT** verdict with no remaining P0/P1 finding
+
+Gate M4A is not yet marked accepted only because the retained multi-source pixel
+corpus cannot run until the host Browser Rendering processes are cleared. M4B
+luminance and M4C nesting remain explicitly unadmitted.
 
 ### Gate M5: API, WebMCP, and product polish
 

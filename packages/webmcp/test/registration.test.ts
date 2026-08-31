@@ -898,6 +898,186 @@ describe("WebMCP registration", () => {
     })
   })
 
+  it("mints and executes ordered multi-source mask capabilities", async () => {
+    const document = structuredClone(northstarSeed)
+    const page = document.pages.find((candidate) => candidate.id === "cover")!
+    const panel = document.nodes.find((node) => node.id === "cover-panel")!
+    document.nodes.push({
+      ...panel,
+      id: "cover-mask-alternate",
+      name: "Alternate mask",
+      x: panel.x + 24,
+    })
+    page.nodeIds.splice(
+      page.nodeIds.indexOf("cover-panel") + 1,
+      0,
+      "cover-mask-alternate"
+    )
+    document.groups.push({
+      id: "cover-mask",
+      role: "mask",
+      pageId: page.id,
+      name: "Cover mask",
+      nodeIds: ["cover-panel", "cover-mask-alternate", "cover-eyebrow"],
+      mask: { type: "vector", sourceNodeIds: ["cover-panel"] },
+    })
+    const base = productCommandContext(document)
+    const selectedNodeIds = [
+      "cover-panel",
+      "cover-mask-alternate",
+      "cover-eyebrow",
+    ]
+    const context: ProductCommandRuntimeContext = {
+      ...base,
+      selection: {
+        pageId: page.id,
+        nodeIds: selectedNodeIds,
+        nodeTypes: ["rect", "rect", "text"],
+        groupId: "cover-mask",
+        anyLocked: false,
+        allLocked: false,
+        allVisible: true,
+        allHidden: false,
+      },
+      editor: {
+        ...base.editor,
+        hasSelection: true,
+        selectedNodeCount: selectedNodeIds.length,
+        hasSelectedGroup: true,
+        mask: {
+          canCreate: false,
+          createDisabledReason: "Already grouped.",
+          canRelease: true,
+          releaseDisabledReason: null,
+          canSetVector: false,
+          vectorDisabledReason: "This mask already uses Vector.",
+          canSetAlpha: true,
+          alphaDisabledReason: null,
+          canSetLuminance: false,
+          luminanceDisabledReason: "Unavailable.",
+          canSetSources: true,
+          sourcesDisabledReason: null,
+        },
+      },
+      mask: {
+        groupId: "cover-mask",
+        type: "vector",
+        sourceNodeIds: ["cover-panel"],
+        eligibleSourceNodeIds: ["cover-panel", "cover-mask-alternate"],
+        createSourceNodeIds: ["cover-panel"],
+        reassignmentSourceNodeIds: [],
+        create: { enabled: false, disabledReason: "Already grouped." },
+        release: { enabled: true, disabledReason: null },
+        setVector: {
+          enabled: false,
+          disabledReason: "This mask already uses Vector.",
+        },
+        setAlpha: { enabled: true, disabledReason: null },
+        setLuminance: { enabled: false, disabledReason: "Unavailable." },
+        setSources: { enabled: true, disabledReason: null },
+      },
+    }
+    const state = setup(document, document, assets, [], context)
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+    const getCapabilities = state.registered.get("get_capabilities")!
+    const argumentsForward = {
+      kind: "mask-sources",
+      sourceNodeIds: ["cover-mask-alternate", "cover-panel"],
+    }
+    const forward = await getCapabilities.execute({
+      commandIds: ["mask.sources.set"],
+      arguments: argumentsForward,
+    })
+    const reverse = await getCapabilities.execute({
+      commandIds: ["mask.sources.set"],
+      arguments: {
+        kind: "mask-sources",
+        sourceNodeIds: ["cover-panel", "cover-mask-alternate"],
+      },
+    })
+    const forwardCapability = (
+      forward.structuredContent as {
+        capabilities: Array<{ id: string; arguments: unknown }>
+      }
+    ).capabilities[0]!
+    const reverseCapability = (
+      reverse.structuredContent as { capabilities: Array<{ id: string }> }
+    ).capabilities[0]!
+    expect(forwardCapability.arguments).toEqual(argumentsForward)
+    expect(forwardCapability.id).not.toBe(reverseCapability.id)
+
+    for (const invalidArguments of [
+      {
+        kind: "mask-sources",
+        sourceNodeIds: ["cover-panel", "cover-panel"],
+      },
+      {
+        kind: "mask-sources",
+        sourceNodeIds: ["a", "b", "c", "d", "e"],
+      },
+    ]) {
+      const invalid = await getCapabilities.execute({
+        commandIds: ["mask.sources.set"],
+        arguments: invalidArguments,
+      })
+      expect(invalid).toMatchObject({
+        isError: true,
+        structuredContent: { code: "invalid_query" },
+      })
+    }
+
+    const expected = {
+      documentId: document.id,
+      revision: document.revision,
+      snapshotId: "snapshot-seed",
+      operationVersion: 0,
+      activePageId: page.id,
+      selection: {
+        pageId: page.id,
+        nodeIds: selectedNodeIds,
+        groupId: "cover-mask",
+      },
+    }
+    const proposed = await state.registered
+      .get("execute_product_command")!
+      .execute({
+        capabilityId: forwardCapability.id,
+        mode: "proposal",
+        expected,
+        idempotencyKey: "multi-mask-sources",
+      })
+    expect(proposed?.structuredContent).toMatchObject({
+      status: "review_pending",
+    })
+    expect(state.proposed()?.operations[0]?.command).toMatchObject({
+      type: "set_mask_sources",
+      groupId: "cover-mask",
+      sourceNodeIds: ["cover-mask-alternate", "cover-panel"],
+    })
+
+    const stale = await state.registered
+      .get("execute_product_command")!
+      .execute({
+        capabilityId: reverseCapability.id,
+        mode: "dry_run",
+        expected: { ...expected, revision: document.revision + 1 },
+        idempotencyKey: "multi-mask-stale",
+      })
+    expect(stale).toMatchObject({
+      isError: true,
+      structuredContent: { code: "stale_context" },
+    })
+  })
+
   it("projects Select all availability from the explicitly targeted page", async () => {
     const populatedPage = northstarSeed.pages[0]!
     const emptyPage = {
@@ -1040,10 +1220,16 @@ describe("WebMCP registration", () => {
       expected,
       idempotencyKey: "duplicate-proposal",
     } as const
-    const [first, replay] = await Promise.all([
+    const concurrentResults = await Promise.all([
       execute.execute(request),
       execute.execute(request),
     ])
+    const first = concurrentResults.find(
+      (result) => result?.structuredContent?.replayed === false
+    )
+    const replay = concurrentResults.find(
+      (result) => result?.structuredContent?.replayed === true
+    )
     expect(first?.structuredContent).toMatchObject({
       status: "review_pending",
       result: null,

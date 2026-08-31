@@ -122,21 +122,34 @@ describe("InspectorSidebar basic property controls", () => {
 
 describe("InspectorSidebar mask controls", () => {
   it("shows Vector selected and gives exact reasons for deferred mask types", () => {
-    const group = maskRenderConformanceDocument.groups[0]!
-    const page = maskRenderConformanceDocument.pages[0]!
+    const document = structuredClone(maskRenderConformanceDocument)
+    const group = document.groups[0]!
+    if (group.role !== "mask") throw new Error("Mask fixture is missing")
+    const firstSource = document.nodes.find(
+      (node) => node.id === group.mask.sourceNodeIds[0]
+    )!
+    const secondSource = {
+      ...structuredClone(firstSource),
+      id: "mask-source-b",
+      name: "Source B",
+    }
+    firstSource.name = "Source A"
+    document.nodes.push(secondSource)
+    group.nodeIds.splice(1, 0, secondSource.id)
+    group.mask.sourceNodeIds = [secondSource.id, firstSource.id]
+    const page = document.pages[0]!
+    page.nodeIds.splice(1, 0, secondSource.id)
     const selectedNodes = group.nodeIds.flatMap((nodeId) => {
-      const node = maskRenderConformanceDocument.nodes.find(
-        (candidate) => candidate.id === nodeId
-      )
+      const node = document.nodes.find((candidate) => candidate.id === nodeId)
       return node ? [node] : []
     })
     const productCommandContext = {
-      documentId: maskRenderConformanceDocument.id,
+      documentId: document.id,
       snapshotId: "snapshot-mask",
       activePageId: page.id,
-      activeOutputId: maskRenderConformanceDocument.outputs[0]!.id,
+      activeOutputId: document.outputs[0]!.id,
       pageIds: [page.id],
-      outputIds: [maskRenderConformanceDocument.outputs[0]!.id],
+      outputIds: [document.outputs[0]!.id],
       nodeIds: page.nodeIds,
       groupIds: [group.id],
       selection: {
@@ -165,7 +178,7 @@ describe("InspectorSidebar mask controls", () => {
     } satisfies ProductCommandRuntimeContext
     const markup = renderToStaticMarkup(
       createElement(InspectorSidebar, {
-        document: maskRenderConformanceDocument,
+        document,
         selectedNodes,
         selectedGroupId: group.id,
         pendingChangeSet: null,
@@ -211,15 +224,28 @@ describe("InspectorSidebar mask controls", () => {
     expect(markup).toContain('data-mask-inspector="true"')
     expect(markup).toContain('aria-label="Vector mask"')
     expect(markup).toContain('data-state="on"')
-    expect(markup).toContain('aria-label="Alpha mask unavailable"')
-    expect(markup).toContain(
-      "Alpha masks are not available yet because image and text readiness is not deterministic across every renderer."
-    )
+    expect(markup).toContain('aria-label="Alpha mask"')
     expect(markup).toContain('aria-label="Luminance mask unavailable"')
     expect(markup).toContain(
       "Luminance masks are not available yet because color-space output is not deterministic across every renderer."
     )
-    expect(markup).toContain('aria-label="Mask source layer"')
+    expect(markup).toContain('aria-label="Mask source layers"')
+    expect(markup).toContain("Source layers")
+    expect(markup).toContain("2/4")
+    const sourceBIndex = markup.indexOf("Source B")
+    const sourceAIndex = markup.indexOf("Source A")
+    expect(sourceBIndex).toBeGreaterThan(-1)
+    expect(sourceAIndex).toBeGreaterThan(sourceBIndex)
+    expect(markup).toContain('aria-label="Mask source 1 of 2"')
+    expect(markup).toContain('aria-label="Mask source 2 of 2"')
+    expect(markup).toContain(
+      'aria-label="Remove source 1, Source B, from mask sources"'
+    )
+    expect(markup).toContain(
+      'aria-label="Remove source 2, Source A, from mask sources"'
+    )
+    expect(markup).toContain("Available to add")
+    expect(markup).toContain('aria-label="Add Masked content as mask source"')
     expect(markup).toContain("Release mask")
   })
 })

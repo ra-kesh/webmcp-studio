@@ -3765,3 +3765,30 @@ integration and retained pixels remain open; Gate M4A not yet accepted**
 - M4A remains unaccepted until the Studio UI, API/WebMCP proposal path,
   one-history-step editor journey, and retained multi-source pixel corpus are
   complete. M4B luminance and M4C nesting remain unadmitted.
+
+## 2026-08-31 — ASSET-02 Gate M4A product integration
+
+Status: **product integration complete and independently accepted; retained
+multi-source pixels remain blocked; Gate M4A not yet accepted**
+
+- Added ordered one-to-four-source support to inspector capabilities, Studio
+  dispatch, product-command contracts, editor history, and WebMCP proposals
+  without introducing an agent-only mutation path.
+- Replaced the singleton inspector control with canonical ordered source rows,
+  visible ordinals, add/remove/reorder controls, and a separate available-layer
+  list. Every interaction emits one complete atomic command.
+- Added typed `get_capabilities` argument refinement for one exact command while
+  keeping execution capability-ID-only, live-context revalidated, and
+  order-sensitive.
+- Extended the retained harness with multi-vector, partially hidden, all-hidden,
+  and multi-alpha states across browser, direct renderer, and public endpoint
+  surfaces. The harness is ready but cannot produce retained evidence until the
+  stuck local Browser Rendering runtime is cleared.
+- Root verification passes 145/145 combined focused tests, editor/WebMCP/Studio
+  typechecks, the existing four public multi-source endpoint tests, formatting,
+  and diff checks.
+- Independent review held a misleading paint-order UI, then gave **COMMIT**
+  after selected rows were rendered in canonical source order and a deliberate
+  group-order-versus-source-order regression was added.
+- M4A remains unaccepted only for retained pixels. M4B luminance and M4C nesting
+  remain unadmitted.

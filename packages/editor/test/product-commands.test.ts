@@ -273,7 +273,51 @@ describe("product command runtime", () => {
         },
         runtimeContext
       ).disabledReason
-    ).toBe("That layer is already the mask source.")
+    ).toBe("Those layers are already the mask sources in that order.")
+    expect(
+      resolveProductCommand(
+        {
+          commandId: "mask.sources.set",
+          target: {
+            kind: "group",
+            documentId: "document-1",
+            snapshotId: "snapshot-1",
+            displayName: "Mask",
+            pageId: "page-1",
+            groupId: "group-1",
+          },
+          arguments: {
+            kind: "mask-sources",
+            sourceNodeIds: ["node-2", "node-1"],
+          },
+        },
+        runtimeContext
+      ).enabled
+    ).toBe(true)
+    expect(
+      validateProductCommandInvocation(
+        {
+          commandId: "mask.sources.set",
+          target: {
+            kind: "group",
+            documentId: "document-1",
+            snapshotId: "snapshot-1",
+            displayName: "Mask",
+            pageId: "page-1",
+            groupId: "group-1",
+          },
+          arguments: {
+            kind: "mask-sources",
+            sourceNodeIds: ["node-1", "node-1"],
+          },
+        },
+        runtimeContext
+      )
+    ).toEqual({
+      ok: false,
+      status: "invalid",
+      reason: "Choose from one through four unique mask source layers.",
+    })
     expect(
       resolveProductCommand(
         {

@@ -748,6 +748,64 @@ describe("mask command capabilities", () => {
     })
     expect(capabilities.setLuminance.disabledReason).toContain("color-space")
   })
+
+  it("validates and compares the complete ordered multi-source list", () => {
+    const document = structuredClone(northstarSeed)
+    const panel = document.nodes.find((node) => node.id === "cover-panel")!
+    document.nodes.push({
+      ...structuredClone(panel),
+      id: "cover-mask-second-source",
+      name: "Second source",
+    })
+    document.pages[0]!.nodeIds.splice(1, 0, "cover-mask-second-source")
+    document.groups = [
+      {
+        id: "cover-mask",
+        pageId: "cover",
+        name: "Cover mask",
+        role: "mask",
+        nodeIds: ["cover-panel", "cover-mask-second-source", "cover-title"],
+        mask: {
+          type: "vector",
+          sourceNodeIds: ["cover-panel", "cover-mask-second-source"],
+        },
+      },
+    ]
+
+    const unchanged = deriveInspectorMaskCapabilities({
+      document,
+      pageId: "cover",
+      selectedNodeIds: document.groups[0]!.nodeIds,
+      selectedGroupId: "cover-mask",
+      candidateSourceNodeIds: ["cover-panel", "cover-mask-second-source"],
+    })
+    expect(unchanged.setSources.disabledReason).toBe(
+      "Those layers are already the mask sources in that order."
+    )
+
+    const reordered = deriveInspectorMaskCapabilities({
+      document,
+      pageId: "cover",
+      selectedNodeIds: document.groups[0]!.nodeIds,
+      selectedGroupId: "cover-mask",
+      candidateSourceNodeIds: ["cover-mask-second-source", "cover-panel"],
+    })
+    expect(reordered.setSources).toEqual({
+      enabled: true,
+      disabledReason: null,
+    })
+
+    const allSources = deriveInspectorMaskCapabilities({
+      document,
+      pageId: "cover",
+      selectedNodeIds: document.groups[0]!.nodeIds,
+      selectedGroupId: "cover-mask",
+      candidateSourceNodeIds: document.groups[0]!.nodeIds,
+    })
+    expect(allSources.setSources.disabledReason).toBe(
+      "Keep at least one layer as masked content."
+    )
+  })
 })
 
 describe("inspector number parsing", () => {

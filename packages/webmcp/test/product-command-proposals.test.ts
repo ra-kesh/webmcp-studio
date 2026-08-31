@@ -169,11 +169,21 @@ describe("canonical product command proposals", () => {
     ).toThrowError(ProductCommandProposalError)
   })
 
-  it("creates one atomic mask proposal from explicit selected source identity", () => {
-    const nodeIds = ["cover-panel", "cover-eyebrow"]
-    const runtime = context(northstarSeed, nodeIds)
+  it("creates one atomic mask proposal from ordered selected source identities", () => {
+    const document = structuredClone(northstarSeed)
+    const page = document.pages.find((candidate) => candidate.id === "cover")!
+    const panel = document.nodes.find((node) => node.id === "cover-panel")!
+    document.nodes.push({
+      ...panel,
+      id: "cover-mask-alternate",
+      name: "Alternate mask",
+      x: panel.x + 20,
+    })
+    page.nodeIds.splice(1, 0, "cover-mask-alternate")
+    const nodeIds = ["cover-panel", "cover-mask-alternate", "cover-eyebrow"]
+    const runtime = context(document, nodeIds)
     const mask = deriveInspectorMaskCapabilities({
-      document: northstarSeed,
+      document,
       pageId: "cover",
       selectedNodeIds: nodeIds,
     })
@@ -182,20 +192,23 @@ describe("canonical product command proposals", () => {
         commandId: "mask.create",
         target: {
           kind: "selection",
-          documentId: northstarSeed.id,
+          documentId: document.id,
           snapshotId: runtime.snapshotId,
           displayName: "Selected layers",
           pageId: "cover",
           nodeIds,
           groupId: null,
         },
-        arguments: { kind: "mask-create", sourceNodeIds: ["cover-panel"] },
+        arguments: {
+          kind: "mask-create",
+          sourceNodeIds: ["cover-mask-alternate", "cover-panel"],
+        },
       },
       { ...runtime, mask }
     )
 
     const proposal = createProductCommandProposal(
-      northstarSeed,
+      document,
       resolvedMask,
       identity()
     )
@@ -203,24 +216,26 @@ describe("canonical product command proposals", () => {
     expect(proposal.changeSet.operations).toHaveLength(1)
     expect(proposal.changeSet.operations[0]?.command).toMatchObject({
       type: "create_mask_group",
-      expectedRevision: northstarSeed.revision,
+      expectedRevision: document.revision,
       pageId: "cover",
       nodeIds,
-      sourceNodeIds: ["cover-panel"],
+      sourceNodeIds: ["cover-mask-alternate", "cover-panel"],
       maskType: "vector",
     })
     expect(
-      previewChangeSet(
-        northstarSeed,
-        proposal.changeSet,
-        "snapshot-proposal"
-      ).groups
+      previewChangeSet(document, proposal.changeSet, "snapshot-proposal").groups
     ).toContainEqual(
       expect.objectContaining({
         role: "mask",
         nodeIds,
-        mask: { type: "vector", sourceNodeIds: ["cover-panel"] },
+        mask: {
+          type: "vector",
+          sourceNodeIds: ["cover-mask-alternate", "cover-panel"],
+        },
       })
+    )
+    expect(proposal.changeSet.operations[0]?.summary).toBe(
+      "Create a vector mask from 2 ordered sources across 3 layers"
     )
   })
 
@@ -252,7 +267,7 @@ describe("canonical product command proposals", () => {
       pageId: page.id,
       selectedNodeIds: nodeIds,
       selectedGroupId: "cover-mask",
-      candidateSourceNodeIds: ["cover-mask-alternate"],
+      candidateSourceNodeIds: ["cover-mask-alternate", "cover-panel"],
     })
     const runtime = {
       ...base,
@@ -275,7 +290,7 @@ describe("canonical product command proposals", () => {
           target,
           arguments: {
             kind: "mask-sources",
-            sourceNodeIds: ["cover-mask-alternate"],
+            sourceNodeIds: ["cover-mask-alternate", "cover-panel"],
           },
         },
         runtime
@@ -286,15 +301,15 @@ describe("canonical product command proposals", () => {
     expect(sourceProposal.changeSet.operations[0]?.command).toMatchObject({
       type: "set_mask_sources",
       groupId: "cover-mask",
-      sourceNodeIds: ["cover-mask-alternate"],
+      sourceNodeIds: ["cover-mask-alternate", "cover-panel"],
     })
+    expect(sourceProposal.changeSet.operations[0]?.summary).toBe(
+      "Set 2 ordered mask sources for Cover mask"
+    )
 
     const releaseProposal = createProductCommandProposal(
       document,
-      resolveProductCommand(
-        { commandId: "mask.release", target },
-        runtime
-      ),
+      resolveProductCommand({ commandId: "mask.release", target }, runtime),
       identity()
     )
     expect(releaseProposal.changeSet.operations).toHaveLength(1)
@@ -310,8 +325,8 @@ describe("canonical product command proposals", () => {
     expect(
       releasedDocument.groups.find((group) => group.id === "cover-mask")
     ).toBeUndefined()
-    expect(releasedDocument.nodes.some((node) => node.id === "cover-panel")).toBe(
-      true
-    )
+    expect(
+      releasedDocument.nodes.some((node) => node.id === "cover-panel")
+    ).toBe(true)
   })
 })

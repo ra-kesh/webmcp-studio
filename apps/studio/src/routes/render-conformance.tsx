@@ -13,6 +13,10 @@ import {
   maskRenderConformanceDocument,
   maskRenderConformanceHiddenSourceNodes,
   maskRenderConformancePage,
+  multiAlphaMaskRenderConformanceDocument,
+  multiVectorMaskRenderConformanceAllHiddenDocument,
+  multiVectorMaskRenderConformanceDocument,
+  multiVectorMaskRenderConformanceOneHiddenDocument,
 } from "@webmcp/document/internal/mask-render-conformance"
 import { Artboard } from "@webmcp/render-view"
 import { useEffect, useRef, useState } from "react"
@@ -28,6 +32,10 @@ type MaskConformanceState =
   | "alpha-image"
   | "alpha-image-hidden"
   | "alpha-text"
+  | "multi-vector"
+  | "multi-vector-one-hidden"
+  | "multi-vector-all-hidden"
+  | "multi-alpha"
 
 export const Route = createFileRoute("/render-conformance")({
   ssr: false,
@@ -40,6 +48,10 @@ export const Route = createFileRoute("/render-conformance")({
         "alpha-image",
         "alpha-image-hidden",
         "alpha-text",
+        "multi-vector",
+        "multi-vector-one-hidden",
+        "multi-vector-all-hidden",
+        "multi-alpha",
       ] as const
     ).includes(search.maskState as MaskConformanceState)
       ? (search.maskState as MaskConformanceState)
@@ -120,11 +132,19 @@ function MaskRenderConformanceHarness({
           ? alphaImageMaskRenderConformanceDocument
           : maskState === "alpha-image-hidden"
             ? alphaImageMaskRenderConformanceHiddenSourceDocument
-            : alphaTextMaskRenderConformanceDocument
+            : maskState === "alpha-text"
+              ? alphaTextMaskRenderConformanceDocument
+              : maskState === "multi-vector"
+                ? multiVectorMaskRenderConformanceDocument
+                : maskState === "multi-vector-one-hidden"
+                  ? multiVectorMaskRenderConformanceOneHiddenDocument
+                  : maskState === "multi-vector-all-hidden"
+                    ? multiVectorMaskRenderConformanceAllHiddenDocument
+                    : multiAlphaMaskRenderConformanceDocument
 
   return (
     <main
-      data-render-conformance-harness="mask-m3-production"
+      data-render-conformance-harness="mask-m4a-production"
       style={{
         display: "grid",
         gridTemplateColumns: "auto auto",

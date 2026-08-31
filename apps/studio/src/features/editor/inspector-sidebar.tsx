@@ -21,6 +21,8 @@ import {
   AlertTriangle,
   BringToFront,
   Check,
+  ChevronDown,
+  ChevronUp,
   ClipboardCopy,
   Component as ComponentIcon,
   CopyPlus,
@@ -319,18 +321,26 @@ function MaskInspectorSection({
   const group = capabilities.groupId
     ? document.groups.find((candidate) => candidate.id === capabilities.groupId)
     : undefined
-  const sourceOptions =
+  const groupNodeOptions =
     group?.role === "mask"
       ? group.nodeIds.flatMap((nodeId) => {
           const node = document.nodes.find(
             (candidate) => candidate.id === nodeId
           )
-          if (!node || !capabilities.eligibleSourceNodeIds.includes(node.id)) {
-            return []
-          }
+          if (!node) return []
           return [node]
         })
       : []
+  const nodeById = new Map(groupNodeOptions.map((node) => [node.id, node]))
+  const selectedSourceOptions = capabilities.sourceNodeIds.flatMap(
+    (sourceNodeId) => {
+      const node = nodeById.get(sourceNodeId)
+      return node ? [node] : []
+    }
+  )
+  const availableSourceOptions = groupNodeOptions.filter(
+    (node) => !capabilities.sourceNodeIds.includes(node.id)
+  )
   const identity = commandContext
     ? {
         documentId: commandContext.documentId,
@@ -371,6 +381,18 @@ function MaskInspectorSection({
       | "mask.type.luminance"
   ) => {
     if (groupTarget) commandRuntime?.run({ commandId, target: groupTarget })
+  }
+  const setOrderedSources = (sourceNodeIds: string[]) => {
+    if (!groupTarget || sourceNodeIds.length < 1 || sourceNodeIds.length > 4)
+      return
+    commandRuntime?.run({
+      commandId: "mask.sources.set",
+      target: groupTarget,
+      arguments: {
+        kind: "mask-sources",
+        sourceNodeIds: sourceNodeIds as [string, ...string[]],
+      },
+    })
   }
 
   if (!group && (commandContext?.selection?.nodeIds.length ?? 0) < 2)
@@ -414,7 +436,7 @@ function MaskInspectorSection({
               </ToggleGroupItem>
               <ToggleGroupItem
                 value="alpha"
-                aria-label="Alpha mask unavailable"
+                aria-label="Alpha mask"
                 disabled={!capabilities.setAlpha.enabled}
                 title={capabilities.setAlpha.disabledReason ?? undefined}
                 onClick={() => runGroupCommand("mask.type.alpha")}
@@ -432,46 +454,148 @@ function MaskInspectorSection({
               </ToggleGroupItem>
             </ToggleGroup>
             <FieldDescription>
-              {capabilities.setAlpha.disabledReason}{" "}
+              {capabilities.setAlpha.disabledReason
+                ? `${capabilities.setAlpha.disabledReason} `
+                : null}
               {capabilities.setLuminance.disabledReason}
             </FieldDescription>
           </Field>
           <Field className="gap-1.5">
-            <FieldLabel>Source layer</FieldLabel>
-            <Select
-              value={capabilities.sourceNodeIds[0]}
-              disabled={!groupTarget || sourceOptions.length < 2}
-              onValueChange={(sourceNodeId) => {
-                if (!groupTarget) return
-                commandRuntime?.run({
-                  commandId: "mask.sources.set",
-                  target: groupTarget,
-                  arguments: {
-                    kind: "mask-sources",
-                    sourceNodeIds: [sourceNodeId],
-                  },
-                })
-              }}
+            <div className="flex items-center justify-between gap-2">
+              <FieldLabel>Source layers</FieldLabel>
+              <span className="text-[10px] text-muted-foreground tabular-nums">
+                {capabilities.sourceNodeIds.length}/4
+              </span>
+            </div>
+            <div
+              className="overflow-hidden rounded-[5px] border border-border/80"
+              aria-label="Mask source layers"
             >
-              <SelectTrigger aria-label="Mask source layer">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {sourceOptions.map((node) => (
-                    <SelectItem key={node.id} value={node.id}>
+              {selectedSourceOptions.map((node) => {
+                const sourceIndex = capabilities.sourceNodeIds.indexOf(node.id)
+                return (
+                  <div
+                    key={node.id}
+                    className="flex h-8 min-w-0 items-center gap-1 border-b border-border/70 px-1.5 last:border-b-0"
+                  >
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      className="shrink-0"
+                      aria-label={`Remove source ${sourceIndex + 1}, ${node.name}, from mask sources`}
+                      aria-pressed="true"
+                      disabled={
+                        !groupTarget || capabilities.sourceNodeIds.length === 1
+                      }
+                      onClick={() => {
+                        setOrderedSources(
+                          capabilities.sourceNodeIds.filter(
+                            (sourceNodeId) => sourceNodeId !== node.id
+                          )
+                        )
+                      }}
+                    >
+                      <Check className="size-3.5" />
+                    </Button>
+                    <span
+                      className="flex size-4 shrink-0 items-center justify-center rounded-sm bg-muted text-[9px] font-medium text-muted-foreground tabular-nums"
+                      aria-label={`Mask source ${sourceIndex + 1} of ${capabilities.sourceNodeIds.length}`}
+                    >
+                      {sourceIndex + 1}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-[11px]">
                       {node.name}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-            {sourceOptions.length < 2 ? (
-              <FieldDescription>
-                Add another unstroked rectangle, ellipse, or icon to change the
-                source.
-              </FieldDescription>
+                    </span>
+                    <div className="flex shrink-0 items-center">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-label={`Move ${node.name} earlier in mask sources`}
+                        disabled={sourceIndex === 0}
+                        onClick={() => {
+                          const next = [...capabilities.sourceNodeIds]
+                          ;[next[sourceIndex - 1], next[sourceIndex]] = [
+                            next[sourceIndex]!,
+                            next[sourceIndex - 1]!,
+                          ]
+                          setOrderedSources(next)
+                        }}
+                      >
+                        <ChevronUp className="size-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-label={`Move ${node.name} later in mask sources`}
+                        disabled={
+                          sourceIndex === capabilities.sourceNodeIds.length - 1
+                        }
+                        onClick={() => {
+                          const next = [...capabilities.sourceNodeIds]
+                          ;[next[sourceIndex], next[sourceIndex + 1]] = [
+                            next[sourceIndex + 1]!,
+                            next[sourceIndex]!,
+                          ]
+                          setOrderedSources(next)
+                        }}
+                      >
+                        <ChevronDown className="size-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            {availableSourceOptions.length ? (
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] font-medium text-muted-foreground">
+                  Available to add
+                </span>
+                <div className="overflow-hidden rounded-[5px] border border-border/80">
+                  {availableSourceOptions.map((node) => {
+                    const eligible =
+                      capabilities.eligibleSourceNodeIds.includes(node.id)
+                    const cannotAdd =
+                      capabilities.sourceNodeIds.length >= 4 ||
+                      capabilities.sourceNodeIds.length + 1 >=
+                        (group?.nodeIds.length ?? 0)
+                    return (
+                      <div
+                        key={node.id}
+                        className="flex h-8 min-w-0 items-center gap-1.5 border-b border-border/70 px-1.5 last:border-b-0"
+                      >
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-xs"
+                          className="shrink-0"
+                          aria-label={`Add ${node.name} as mask source`}
+                          disabled={!groupTarget || !eligible || cannotAdd}
+                          onClick={() =>
+                            setOrderedSources([
+                              ...capabilities.sourceNodeIds,
+                              node.id,
+                            ])
+                          }
+                        >
+                          <Plus className="size-3.5" />
+                        </Button>
+                        <span className="min-w-0 flex-1 truncate text-[11px]">
+                          {node.name}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
             ) : null}
+            <FieldDescription>
+              Sources combine in this order. Keep at least one layer as masked
+              content.
+            </FieldDescription>
           </Field>
           <Button
             variant="outline"

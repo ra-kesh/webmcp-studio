@@ -67,13 +67,19 @@ describe("design queries", () => {
 
   it("exposes safe mask roles and identities without renderer-private state", () => {
     const document = structuredClone(northstarSeed)
+    document.nodes = document.nodes.map((node) =>
+      node.id === "cover-date" ? { ...node, visible: false } : node
+    )
     document.groups.push({
       id: "cover-mask",
       role: "mask",
       pageId: "cover",
       name: "Cover mask",
-      nodeIds: ["cover-panel", "cover-eyebrow"],
-      mask: { type: "vector", sourceNodeIds: ["cover-panel"] },
+      nodeIds: ["cover-panel", "cover-date", "cover-eyebrow"],
+      mask: {
+        type: "vector",
+        sourceNodeIds: ["cover-date", "cover-panel"],
+      },
     })
 
     const tree = readDesignTree(document, identity, {
@@ -87,7 +93,7 @@ describe("design queries", () => {
         role: "group",
         groupId: "cover-mask",
         type: "vector",
-        sourceNodeIds: ["cover-panel"],
+        sourceNodeIds: ["cover-date", "cover-panel"],
       },
     })
     expect(tree.items.find((item) => item.id === "cover-panel")).toMatchObject({
@@ -102,7 +108,7 @@ describe("design queries", () => {
       groupName: "Cover mask",
       type: "vector",
       role: "source",
-      sourceNodeIds: ["cover-panel"],
+      sourceNodeIds: ["cover-date", "cover-panel"],
       contentNodeIds: ["cover-eyebrow"],
       visibleSourceNodeIds: ["cover-panel"],
       locked: false,

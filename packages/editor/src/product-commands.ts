@@ -151,11 +151,11 @@ export type ProductCommandArguments =
   | Readonly<{ kind: "distribution"; distribution: Distribution }>
   | Readonly<{
       kind: "mask-create"
-      sourceNodeIds: readonly [string]
+      sourceNodeIds: readonly [string, ...string[]]
     }>
   | Readonly<{
       kind: "mask-sources"
-      sourceNodeIds: readonly [string]
+      sourceNodeIds: readonly [string, ...string[]]
     }>
 
 export type ProductCommandArgumentContract =
@@ -177,13 +177,13 @@ export type ProductCommandArgumentContract =
   | Readonly<{
       kind: "mask-create"
       fields: Readonly<{
-        sourceNodeIds: Readonly<{ type: "string[]"; minItems: 1; maxItems: 1 }>
+        sourceNodeIds: Readonly<{ type: "string[]"; minItems: 1; maxItems: 4 }>
       }>
     }>
   | Readonly<{
       kind: "mask-sources"
       fields: Readonly<{
-        sourceNodeIds: Readonly<{ type: "string[]"; minItems: 1; maxItems: 1 }>
+        sourceNodeIds: Readonly<{ type: "string[]"; minItems: 1; maxItems: 4 }>
       }>
     }>
 
@@ -224,7 +224,7 @@ export function productCommandArgumentContract(
     return {
       kind: "mask-create",
       fields: {
-        sourceNodeIds: { type: "string[]", minItems: 1, maxItems: 1 },
+        sourceNodeIds: { type: "string[]", minItems: 1, maxItems: 4 },
       },
     }
   }
@@ -232,7 +232,7 @@ export function productCommandArgumentContract(
     return {
       kind: "mask-sources",
       fields: {
-        sourceNodeIds: { type: "string[]", minItems: 1, maxItems: 1 },
+        sourceNodeIds: { type: "string[]", minItems: 1, maxItems: 4 },
       },
     }
   }
@@ -961,22 +961,28 @@ function validateInvocationArguments(
   }
   if (invocation.commandId === "mask.create") {
     return invocation.arguments?.kind === "mask-create" &&
-      invocation.arguments.sourceNodeIds.length === 1
+      invocation.arguments.sourceNodeIds.length >= 1 &&
+      invocation.arguments.sourceNodeIds.length <= 4 &&
+      new Set(invocation.arguments.sourceNodeIds).size ===
+        invocation.arguments.sourceNodeIds.length
       ? { ok: true }
       : {
           ok: false,
           status: "invalid",
-          reason: "Choose exactly one layer as the mask source.",
+          reason: "Choose from one through four unique mask source layers.",
         }
   }
   if (invocation.commandId === "mask.sources.set") {
     return invocation.arguments?.kind === "mask-sources" &&
-      invocation.arguments.sourceNodeIds.length === 1
+      invocation.arguments.sourceNodeIds.length >= 1 &&
+      invocation.arguments.sourceNodeIds.length <= 4 &&
+      new Set(invocation.arguments.sourceNodeIds).size ===
+        invocation.arguments.sourceNodeIds.length
       ? { ok: true }
       : {
           ok: false,
           status: "invalid",
-          reason: "Choose exactly one layer as the mask source.",
+          reason: "Choose from one through four unique mask source layers.",
         }
   }
   if (
@@ -1151,11 +1157,31 @@ function invocationEnabled(
     invocation.commandId === "mask.sources.set" &&
     invocation.arguments?.kind === "mask-sources"
   ) {
-    const sourceNodeId = invocation.arguments.sourceNodeIds[0]
+    const sourceNodeIds = invocation.arguments.sourceNodeIds
     return Boolean(
-      sourceNodeId &&
-      context.mask?.eligibleSourceNodeIds.includes(sourceNodeId) &&
-      !context.mask.sourceNodeIds.includes(sourceNodeId)
+      context.mask &&
+      sourceNodeIds.every((sourceNodeId) =>
+        context.mask!.eligibleSourceNodeIds.includes(sourceNodeId)
+      ) &&
+      !(
+        context.mask.sourceNodeIds.length === sourceNodeIds.length &&
+        context.mask.sourceNodeIds.every(
+          (sourceNodeId, index) => sourceNodeId === sourceNodeIds[index]
+        )
+      )
+    )
+  }
+  if (
+    invocation.commandId === "mask.create" &&
+    invocation.arguments?.kind === "mask-create"
+  ) {
+    const sourceNodeIds = invocation.arguments.sourceNodeIds
+    return Boolean(
+      context.mask &&
+      sourceNodeIds.length < (context.selection?.nodeIds.length ?? 0) &&
+      sourceNodeIds.every((sourceNodeId) =>
+        context.mask!.eligibleSourceNodeIds.includes(sourceNodeId)
+      )
     )
   }
   if (
@@ -1183,16 +1209,38 @@ function invocationDisabledReason(
   context: ProductCommandRuntimeContext
 ) {
   if (
+    invocation.commandId === "mask.create" &&
+    invocation.arguments?.kind === "mask-create"
+  ) {
+    const sourceNodeIds = invocation.arguments.sourceNodeIds
+    if (sourceNodeIds.length >= (context.selection?.nodeIds.length ?? 0))
+      return "Keep at least one selected layer as masked content."
+    if (
+      sourceNodeIds.some(
+        (sourceNodeId) =>
+          !context.mask?.eligibleSourceNodeIds.includes(sourceNodeId)
+      )
+    )
+      return "Choose eligible source layers from the current selection."
+  }
+  if (
     invocation.commandId === "mask.sources.set" &&
     invocation.arguments?.kind === "mask-sources"
   ) {
-    const sourceNodeId = invocation.arguments.sourceNodeIds[0]
-    if (sourceNodeId && context.mask?.sourceNodeIds.includes(sourceNodeId)) {
-      return "That layer is already the mask source."
+    const sourceNodeIds = invocation.arguments.sourceNodeIds
+    if (
+      context.mask?.sourceNodeIds.length === sourceNodeIds.length &&
+      context.mask.sourceNodeIds.every(
+        (sourceNodeId, index) => sourceNodeId === sourceNodeIds[index]
+      )
+    ) {
+      return "Those layers are already the mask sources in that order."
     }
     if (
-      sourceNodeId &&
-      !context.mask?.eligibleSourceNodeIds.includes(sourceNodeId)
+      sourceNodeIds.some(
+        (sourceNodeId) =>
+          !context.mask?.eligibleSourceNodeIds.includes(sourceNodeId)
+      )
     ) {
       return "Choose an unstroked, unbound rectangle, ellipse, or icon in this mask group."
     }

@@ -3427,7 +3427,7 @@ export function StudioShell({
       ) {
         return false
       }
-      return editor.createMaskGroup([invocation.arguments.sourceNodeIds[0]])
+      return editor.createMaskGroup(invocation.arguments.sourceNodeIds)
     }
     if (invocation.commandId === "mask.release") {
       return invocation.target?.kind === "group"
@@ -3451,9 +3451,10 @@ export function StudioShell({
       ) {
         return false
       }
-      return editor.setMaskSources(invocation.target.groupId, [
-        invocation.arguments.sourceNodeIds[0],
-      ])
+      return editor.setMaskSources(
+        invocation.target.groupId,
+        invocation.arguments.sourceNodeIds
+      )
     }
     if (isEditorCommandId(invocation.commandId)) {
       return runEditorCommand(invocation.commandId)

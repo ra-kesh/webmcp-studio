@@ -264,23 +264,29 @@ export function createProductCommandProposal(
       if (invocation.arguments?.kind !== "mask-create") {
         throw new ProductCommandProposalError(
           "invalid_target",
-          "Choose exactly one selected layer as the mask source."
+          "Choose from one through four selected layers as mask sources."
         )
       }
-      const sourceNodeId = invocation.arguments.sourceNodeIds[0]
-      if (!sourceNodeId || invocation.arguments.sourceNodeIds.length !== 1) {
+      const sourceNodeIds = [...invocation.arguments.sourceNodeIds] as [
+        string,
+        ...string[],
+      ]
+      if (
+        sourceNodeIds.length < 1 ||
+        sourceNodeIds.length > 4 ||
+        new Set(sourceNodeIds).size !== sourceNodeIds.length
+      ) {
         throw new ProductCommandProposalError(
           "invalid_target",
-          "Choose exactly one selected layer as the mask source."
+          "Choose from one through four unique selected layers as mask sources."
         )
       }
-      const sourceNodeIds: [string] = [sourceNodeId]
       if (
         !sourceNodeIds.every((nodeId) => selection.nodeIds.includes(nodeId))
       ) {
         throw new ProductCommandProposalError(
           "invalid_target",
-          "The mask source must be one of the selected layers."
+          "Every mask source must be one of the selected layers."
         )
       }
       operations.push({
@@ -294,7 +300,7 @@ export function createProductCommandProposal(
           sourceNodeIds,
           maskType: "vector",
         },
-        summary: `Create a vector mask from ${selection.nodeIds.length} layers`,
+        summary: `Create a vector mask from ${sourceNodeIds.length} ordered source${sourceNodeIds.length === 1 ? "" : "s"} across ${selection.nodeIds.length} layers`,
       })
       break
     }
@@ -348,18 +354,22 @@ export function createProductCommandProposal(
       if (invocation.arguments?.kind !== "mask-sources") {
         throw new ProductCommandProposalError(
           "invalid_target",
-          "Choose exactly one layer in the mask group as its source."
+          "Choose from one through four layers in the mask group as its sources."
         )
       }
+      const sourceNodeIds = [...invocation.arguments.sourceNodeIds] as [
+        string,
+        ...string[],
+      ]
       operations.push({
         command: {
           type: "set_mask_sources",
           expectedRevision: document.revision,
           pageId: page.id,
           groupId: targetGroup.id,
-          sourceNodeIds: [...invocation.arguments.sourceNodeIds],
+          sourceNodeIds,
         },
-        summary: `Change the source for ${targetGroup.name}`,
+        summary: `Set ${sourceNodeIds.length} ordered mask source${sourceNodeIds.length === 1 ? "" : "s"} for ${targetGroup.name}`,
       })
       break
     case "arrange.front":

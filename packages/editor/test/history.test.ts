@@ -171,6 +171,65 @@ describe("document history", () => {
       changed.history.document
     )
   })
+
+  it("reorders multiple mask sources as one exact step and skips the full-list no-op", () => {
+    const before = structuredClone(maskRenderConformanceDocument)
+    const source = before.nodes.find(
+      (node) => node.id === "mask-conformance-source"
+    )!
+    before.nodes.push({
+      ...structuredClone(source),
+      id: "mask-conformance-source-two",
+      name: "Second mask source",
+    })
+    before.pages[0]!.nodeIds.splice(1, 0, "mask-conformance-source-two")
+    const group = before.groups[0]!
+    if (group.role !== "mask") throw new Error("Mask fixture is missing")
+    group.nodeIds.splice(1, 0, "mask-conformance-source-two")
+    group.mask.sourceNodeIds = [
+      "mask-conformance-source",
+      "mask-conformance-source-two",
+    ]
+    const initial = createDocumentHistory(before, "multi-source-before")
+    const changed = commitCommandsWithResult(initial, [
+      {
+        id: "history-reorder-mask-sources",
+        type: "set_mask_sources",
+        actor: "human",
+        at: "2026-08-31T15:20:00.000Z",
+        expectedRevision: before.revision,
+        pageId: before.pages[0]!.id,
+        groupId: group.id,
+        sourceNodeIds: [
+          "mask-conformance-source-two",
+          "mask-conformance-source",
+        ],
+      },
+    ])!
+    expect(changed.commit.label).toBe("Change mask sources")
+    expect(changed.history.past).toHaveLength(1)
+    expect(undoDocument(changed.history).document).toEqual(before)
+    expect(redoDocument(undoDocument(changed.history)).document).toEqual(
+      changed.history.document
+    )
+    expect(
+      commitCommandsWithResult(changed.history, [
+        {
+          id: "history-reorder-mask-sources-no-op",
+          type: "set_mask_sources",
+          actor: "human",
+          at: "2026-08-31T15:21:00.000Z",
+          expectedRevision: changed.history.document.revision,
+          pageId: before.pages[0]!.id,
+          groupId: group.id,
+          sourceNodeIds: [
+            "mask-conformance-source-two",
+            "mask-conformance-source",
+          ],
+        },
+      ])
+    ).toBeNull()
+  })
   it("admits canonical documents through full schema validation once", () => {
     const invalid = structuredClone(northstarSeed)
     invalid.nodes[0]!.x = Number.NaN

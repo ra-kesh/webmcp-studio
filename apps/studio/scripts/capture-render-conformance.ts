@@ -31,6 +31,10 @@ import {
   maskRenderConformanceHiddenSourceNodes,
   maskRenderConformanceDocument,
   maskRenderConformancePage,
+  multiAlphaMaskRenderConformanceDocument,
+  multiVectorMaskRenderConformanceAllHiddenDocument,
+  multiVectorMaskRenderConformanceDocument,
+  multiVectorMaskRenderConformanceOneHiddenDocument,
 } from "@webmcp/document/internal/mask-render-conformance"
 import { projectPagePaintPlan } from "@webmcp/document/internal/page-paint-plan"
 import sharp from "sharp"
@@ -120,6 +124,22 @@ const maskCaptureStates = [
   {
     name: "alpha-text",
     document: alphaTextMaskRenderConformanceDocument,
+  },
+  {
+    name: "multi-vector",
+    document: multiVectorMaskRenderConformanceDocument,
+  },
+  {
+    name: "multi-vector-one-hidden",
+    document: multiVectorMaskRenderConformanceOneHiddenDocument,
+  },
+  {
+    name: "multi-vector-all-hidden",
+    document: multiVectorMaskRenderConformanceAllHiddenDocument,
+  },
+  {
+    name: "multi-alpha",
+    document: multiAlphaMaskRenderConformanceDocument,
   },
 ] as const
 const visibleMaskBrowserSurfaceThreshold = Object.freeze({
@@ -896,7 +916,7 @@ async function buildCaptureReport() {
                 pdfRaster: `renderer-endpoint-smoke/canonical-mask-v5-${name}-raster.png`,
               })),
               scope:
-                "Canonical schema-v5 vector and alpha mask documents rendered through the public Studio PNG and PDF endpoints.",
+                "Canonical schema-v5 single- and multi-source vector and alpha mask documents rendered through the public Studio PNG and PDF endpoints.",
             },
           },
         }

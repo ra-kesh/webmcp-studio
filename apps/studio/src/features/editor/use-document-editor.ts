@@ -9362,7 +9362,7 @@ export function useDocumentEditor({
   }, [activePageId, commit, selection])
 
   const createMaskGroup = useCallback(
-    (sourceNodeIds: readonly [string]) => {
+    (sourceNodeIds: readonly [string, ...string[]]) => {
       const document = historyRef.current.document
       const nodeIds =
         selection?.pageId === activePageId ? selection.nodeIds : []
@@ -9377,7 +9377,7 @@ export function useDocumentEditor({
             groupId,
             name: "Mask",
             nodeIds,
-            sourceNodeIds: [...sourceNodeIds] as [string],
+            sourceNodeIds: [...sourceNodeIds] as [string, ...string[]],
             maskType: "vector",
           },
         ],
@@ -9427,7 +9427,7 @@ export function useDocumentEditor({
   )
 
   const setMaskSources = useCallback(
-    (groupId: string, sourceNodeIds: readonly [string]) => {
+    (groupId: string, sourceNodeIds: readonly [string, ...string[]]) => {
       const document = historyRef.current.document
       return commit(
         [
@@ -9436,10 +9436,10 @@ export function useDocumentEditor({
             expectedRevision: document.revision,
             pageId: activePageId,
             groupId,
-            sourceNodeIds: [...sourceNodeIds] as [string],
+            sourceNodeIds: [...sourceNodeIds] as [string, ...string[]],
           },
         ],
-        { label: "Change mask source" }
+        { label: "Change mask sources" }
       )
     },
     [activePageId, commit]
