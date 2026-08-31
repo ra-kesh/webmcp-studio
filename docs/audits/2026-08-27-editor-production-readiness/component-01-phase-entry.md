@@ -543,3 +543,29 @@ Status: **completed and independently accepted on 2026-08-31**
 - The final independent review found no remaining P0/P1 issue and explicitly approved COMPONENT-01 Gate 5 closure. Integrated evidence passed Document 314/314, Editor 327/327, Render View 16/16, Renderer 70/70 and focused Studio 71/71.
 
 COMPONENT-01 is closed. Team/remote libraries and the broader catalog experience remain owned by LIBRARY-02 rather than being hidden inside this phase.
+
+## Gate 5 current-HEAD revalidation entry
+
+Status: **active on 2026-08-31; the accepted closure above remains intact**
+
+- Started from checked-in commit `9faade81` in the isolated
+  `codex/component-gate-5` worktree. The dirty main checkout is not part of
+  this review.
+- Re-read this gate, the retained production-readiness and conformance audits,
+  OpenPencil's component creation, materialized instance, synchronization and
+  detach paths, and Loora's component resolver, validation, transaction,
+  history and agent-operation boundaries.
+- Confirmed that commit `a116d03` already supplied the Gate 5 implementation
+  and accepted closure. The authoritative continuation ledger did not receive
+  the matching COMPONENT-01 update and still describes Gates 1 through 4 as
+  current.
+- This revalidation will check the retained component and complete-journey
+  pixel reports, the create-to-publication journey, renderer projections,
+  browser persistence, history, clone/template behavior and both 1,000-instance
+  bounds against the current checked-in code.
+- General masks and schema-v5 work are excluded. No live server will run on
+  port 3000.
+
+The next checkpoint will record exact focused results, any repair required by
+those results, an independent evidence review and the corrected continuation
+ledger state.
