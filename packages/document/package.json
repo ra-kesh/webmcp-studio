@@ -18,6 +18,8 @@
   },
   "exports": {
     ".": "./src/index.ts",
-    "./internal/history": "./src/internal-history.ts"
+    "./internal/history": "./src/internal-history.ts",
+    "./internal/page-paint-plan": "./src/page-paint-plan.ts",
+    "./internal/mask-render-conformance": "./src/mask-render-conformance.ts"
   }
 }

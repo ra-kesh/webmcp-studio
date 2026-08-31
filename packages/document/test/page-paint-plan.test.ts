@@ -4,6 +4,10 @@ import {
   projectPagePaintPlan,
   type MaskPaintRelation,
 } from "../src/page-paint-plan"
+import {
+  maskRenderConformanceHiddenSourcePlan,
+  maskRenderConformancePlan,
+} from "../src/mask-render-conformance"
 import type { Page, SceneNode } from "../src/schema"
 
 const page: Page = {
@@ -53,6 +57,27 @@ const relation: MaskPaintRelation = {
 }
 
 describe("shared page paint plan mask oracle", () => {
+  it("retains one shared scene for every renderer consumer", () => {
+    expect(maskRenderConformancePlan.entries).toMatchObject([
+      { kind: "node", nodeId: "mask-conformance-below" },
+      {
+        kind: "mask_group",
+        groupId: "mask-conformance-group",
+        sourceNodeIds: ["mask-conformance-source"],
+        content: [{ kind: "node", nodeId: "mask-conformance-content" }],
+        maskEnabled: true,
+        compositeRequired: true,
+      },
+      { kind: "node", nodeId: "mask-conformance-above" },
+    ])
+    expect(maskRenderConformanceHiddenSourcePlan.entries[1]).toMatchObject({
+      kind: "mask_group",
+      visibleSourceNodeIds: [],
+      maskEnabled: false,
+      compositeRequired: false,
+    })
+  })
+
   it("retains page order, removes the source from ordinary paint, and bounds the composite", () => {
     expect(projectPagePaintPlan(page, nodes, [relation])).toEqual({
       pageId: page.id,
