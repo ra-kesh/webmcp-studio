@@ -2,7 +2,7 @@
 
 Date: 2026-08-31
 
-Status: Steps 1-4 independently accepted; browser authority and preference UI integration are active
+Status: Steps 1-5C independently accepted; live browser and two-tab acceptance remain active
 
 ## Decision
 
@@ -123,7 +123,7 @@ pending migrations, and a read-only schema query confirms
 
 ## Step 5A result — route runtime, server discovery and shared preferences
 
-Status: **independently accepted and committed on 2026-08-31; Collections remains active**
+Status: **independently accepted and committed on 2026-08-31**
 
 - The `/_studio` route now owns one preference-first library runtime. A visible
   loading status and bounded first-request deadline prevent a stalled bootstrap
@@ -173,6 +173,31 @@ Status: **independently accepted and committed on 2026-08-31; zero open P0/P1 fi
   completion and idempotency key.
 - Final independent re-review reports zero P0/P1 findings.
 - Checkpoint: `035cd5b feat: record durable template creation in recent`.
+
+## Step 5C result — durable Collections interface
+
+Status: **independently accepted and committed on 2026-08-31; zero open P0/P1 findings**
+
+- The shared library browser now filters authoritative collections and exposes
+  card-sibling add, remove, create and manage actions. Collection detail is
+  lazy, member names come from bounded server catalog paging, and the browser
+  never issues one detail request per member.
+- Create, rename, delete, remove and exact full-order reorder use the existing
+  expected-revision and idempotency owner. Card-originated creation binds the
+  exact item to the exact validated create receipt, including same-key retry;
+  it never infers a collection from its name or a later snapshot.
+- Cold and retained detail/catalog failures preserve truthful state and expose
+  request ID, Retry and Dismiss. Dismissal cannot fabricate an empty
+  collection. Stale retained rows remain read-only until exact detail and
+  catalog revisions agree.
+- Dirty rename input survives authoritative refresh and reports remote-name
+  conflict. Collection selectors retain native button semantics; membership
+  uses checked menu-item semantics; unavailable actions are permission-gated;
+  interactive controls retain the 44 px target contract.
+- The final combined focused run passes 62/62. Multiple independent reviews
+  closed eight race, failure-state and accessibility findings and report zero
+  remaining P0/P1.
+- Checkpoint: `e7bc243 feat: add durable library collections`.
 
 ## Evidence revisited
 
