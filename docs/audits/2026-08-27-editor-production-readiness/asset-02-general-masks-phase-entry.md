@@ -502,14 +502,16 @@ and only then change this gate to accepted.
 M4C C2 structural implementation is committed at
 `fe5cc475eb7704a7665a2958d96f3a556be2f9d2`; C3 renderer implementation is
 committed at `1245f4fb616ee5a816d39f356b27d8663cfbee9a`; C4 product-surface
-implementation is committed at `41becdac5f9538ade2f8d871e2cd5879486ab91e`.
+implementation is committed at `41becdac5f9538ade2f8d871e2cd5879486ab91e`;
+C5 retained-output implementation is committed at `b91732b`; and the M5
+test-only regression cleanup is committed at `86e568f`.
 Commands, history, semantic clone, components, templates, Fabric, React,
 deterministic HTML, the renderer admission boundary, Studio, review, product
 commands, and WebMCP now preserve or consume the admitted two-level relation.
-All three checkpoints are locally reviewed and verified but not independently
-accepted or merged. C5 retained/public evidence and overall M4C acceptance
-remain open. The exact status and test ledger live in the bounded nesting plan
-linked above.
+All implementation checkpoints are locally reviewed and verified but not
+independently accepted or merged. C5 retained/public evidence now exists;
+independent C2–C5 acceptance and overall M4C acceptance remain open. The exact
+status and test ledger live in the bounded nesting plan linked above.
 
 #### M4C C4 product-surface checkpoint — 1 September 2026
 
@@ -525,8 +527,31 @@ The C4 gate passed 376 editor tests, 67 WebMCP tests, 24 focused Studio tests,
 one Chrome keyboard/Layers/history E2E on port 3001, all three relevant
 typechecks, formatting, diff checking, and local code review. The repository-wide
 Studio run passed 1,748 of 1,765 tests; its 17 non-C4 failures remain recorded in
-the bounded plan for M5 cleanup rather than being represented as product-surface
-evidence. C4 remains independently unaccepted and unmerged.
+the bounded plan as the historical C4 result rather than being represented as
+product-surface evidence. C4 remains independently unaccepted and unmerged.
+
+#### M4C C5 retained-output and M5 cleanup checkpoint — 1 September 2026
+
+C5 adds three coefficient-sensitive nested fixtures covering vector, alpha,
+luminance, image crop, rich text/run fonts, multiple sources, one-hidden, and
+all-hidden behavior. Two retained runs compare Fabric with React, direct 1x
+with downsampled 2x, PNG with PDF raster, thumbnails with downsampled PNG, and
+the public PNG, thumbnail, and PDF endpoints. Every comparison is within the
+frozen threshold; the exact paths and metrics are recorded in
+[`mask-nesting-capture-report.json`](./mask-nesting-capture-report.json) and
+[`mask-nesting-direct-capture-report.json`](./mask-nesting-direct-capture-report.json).
+Focused negative contracts continue to prove resource failure, stale
+candidates, last-valid subtree preservation, depth rejection, and recursive
+paint-budget rejection.
+
+Final verification passed 417/417 document, 376/376 editor, 34/34 React,
+101/101 renderer, 67/67 WebMCP, and 1,766/1,766 Studio tests. All six relevant
+typechecks, scoped Studio lint, Prettier, and `git diff --check` also passed. The
+M5 cleanup only refreshed stale test fixtures and expectations; it made no
+production behavior change. C5 is implemented, retained, and locally reviewed,
+but its required independent code and output review has not occurred. C2–C5
+therefore remain independently unaccepted and unmerged, and M4C acceptance does
+not change.
 
 Exit: nested and multi-source cases have strict limits, exact undo, deterministic cloning, and pixel conformance.
 

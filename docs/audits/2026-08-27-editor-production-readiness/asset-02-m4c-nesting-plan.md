@@ -1,8 +1,8 @@
 # ASSET-02 M4C bounded mask nesting plan
 
 Date: 31 August 2026  
-Status: C0/C1 accepted; C2 implementation committed and locally reviewed;
-independent C2 acceptance and C3–C5 remain open
+Status: C0/C1 accepted; C2–C5 implementations committed and locally reviewed;
+M5 regression cleanup complete; independent C2–C5 acceptance remains open
 
 This checkpoint freezes the smallest mask-nesting slice that can be implemented
 and verified honestly across the document model, editor, every renderer, and
@@ -286,13 +286,56 @@ Only then may M4C acceptance change.
 
 ## Exact gate ledger
 
-| Gate  | Implementation                                                                                    | Review and evidence                                                                                                                        | Accepted                 | Merged |
-| ----- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------ | ------ |
-| C0/C1 | `5381410` document implementation; recorded on main at `6265561ab4c9aa70c7489c2a90b3dcac6c1179d3` | Existing independent document-plan acceptance                                                                                              | Yes, document scope only | Yes    |
-| C2    | `fe5cc475eb7704a7665a2958d96f3a556be2f9d2`                                                        | 123 focused, 416 document, and 371 editor tests; local code review complete; independent review pending                                    | No                       | No     |
-| C3    | `1245f4fb616ee5a816d39f356b27d8663cfbee9a`                                                        | 375 editor, 34 React, 101 renderer, and 54 document tests; local code review complete; independent review pending                          | No                       | No     |
-| C4    | `41becdac5f9538ade2f8d871e2cd5879486ab91e`                                                        | 376 editor, 67 WebMCP, 24 focused Studio, and 1 keyboard E2E tests; three typechecks and local review complete; independent review pending | No                       | No     |
-| C5    | Not started                                                                                       | No retained or public nesting evidence                                                                                                     | No                       | No     |
+| Gate  | Implementation                                                                                    | Review and evidence                                                                                                                                                                              | Accepted                 | Merged |
+| ----- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------ | ------ |
+| C0/C1 | `5381410` document implementation; recorded on main at `6265561ab4c9aa70c7489c2a90b3dcac6c1179d3` | Existing independent document-plan acceptance                                                                                                                                                    | Yes, document scope only | Yes    |
+| C2    | `fe5cc475eb7704a7665a2958d96f3a556be2f9d2`                                                        | 123 focused, 416 document, and 371 editor tests; local code review complete; independent review pending                                                                                          | No                       | No     |
+| C3    | `1245f4fb616ee5a816d39f356b27d8663cfbee9a`                                                        | 375 editor, 34 React, 101 renderer, and 54 document tests; local code review complete; independent review pending                                                                                | No                       | No     |
+| C4    | `41becdac5f9538ade2f8d871e2cd5879486ab91e`                                                        | 376 editor, 67 WebMCP, 24 focused Studio, and 1 keyboard E2E tests; three typechecks and local review complete; independent review pending                                                       | No                       | No     |
+| C5    | `b91732b`                                                                                         | Two retained runs cover renderer, scale, export, thumbnail, and public parity within frozen thresholds; full suites are green after `86e568f`; local review complete; independent review pending | No                       | No     |
+
+#### C5 retained/public checkpoint — 1 September 2026
+
+The frozen positive corpus now covers three exact nested states:
+
+- vector over alpha with image crop, rich text/run fonts, and multiple sources;
+- luminance over vector with one hidden source;
+- alpha over luminance with every source hidden.
+
+The retained browser/public run is
+`2026-08-31T20-25-24.176Z-6139eae7-5e1e-47b0-aa9e-1ae60051282d`; the retained
+direct run is
+`2026-08-31T20-26-01.968Z-87b8b6b5-181e-4677-ab90-2e30f246f439`. They are
+split because the direct renderer and the local Browser Rendering lifecycle
+have different stability boundaries; together they cover Fabric versus React,
+direct 1x versus downsampled 2x, direct and public PNG versus PDF raster,
+thumbnail versus downsampled public PNG, and all public PNG, thumbnail, and PDF
+endpoints. The exact images, thresholds, and measurements are recorded in
+`mask-nesting-capture-report.json` and
+`mask-nesting-direct-capture-report.json` beside this plan.
+
+Every comparison is within its frozen threshold. Fabric versus React produced
+2,481, 0, and 4,287 pixels over delta 8 for the three states, with maximum
+deltas of 35, 0, and 89. Public PNG versus public PDF raster produced 0, 1, and
+746 pixels over delta 8; public thumbnails versus downsampled public PNG
+produced 244, 188, and 517. Direct PNG versus direct PDF raster produced 0,
+504, and 743; direct 1x versus downsampled 2x produced 479, 380, and 1,029.
+Visual inspection confirmed the three direct PNGs preserve the intended nested
+mask semantics.
+
+Failure, stale-resource, last-valid-subtree, depth, and recursive paint-budget
+behavior remains covered by the focused document, Fabric, React, and renderer
+contracts rather than being represented as a successful pixel fixture. Final
+verification passed 417/417 document, 376/376 editor, 34/34 React, 101/101
+renderer, 67/67 WebMCP, and 1,766/1,766 Studio tests, plus all six relevant
+typechecks, scoped Studio lint, Prettier, and `git diff --check`. The M5 test-only
+cleanup at `86e568f` aligned stale schema, catalog, template, mounted-hook, and
+thumbnail expectations with the current product contracts; it did not change
+production behavior.
+
+C5 is implemented, locally reviewed, and retained, but the required independent
+code and output review has not occurred. C2–C5 therefore remain independently
+unaccepted and unmerged, and overall M4C acceptance does not change.
 
 #### C4 product-surface checkpoint — 1 September 2026
 
@@ -311,12 +354,13 @@ also passed. Prettier and `git diff --check` passed, and local review corrected
 outer-mask mutation admission to include locked or component-owned child
 descendants.
 
-An exploratory full Studio run passed 1,748 of 1,765 tests. Its 17 failures are
+An exploratory full Studio run passed 1,748 of 1,765 tests. Its 17 failures were
 outside the C4 mask path: stale schema/template/catalog expectations, an
 unmigrated curated-asset timeout, and existing mounted audit-hook/time-sensitive
-fixtures. They are not counted as C4 evidence and remain explicit M5 cleanup;
-the focused Studio surface tests and the nested keyboard E2E are green. C4 is
-implemented and locally verified, but is not independently accepted or merged.
+fixtures. They were assigned to M5 cleanup and are retained here as the
+historical C4 result; the focused Studio surface tests and the nested keyboard
+E2E were green. C4 is implemented and locally verified, but is not
+independently accepted or merged.
 
 ## Required focused tests
 
