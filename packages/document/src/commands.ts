@@ -206,6 +206,9 @@ export type MaskCommandErrorCode =
   | "MASK_COMMAND_LOCKED"
   | "MASK_COMMAND_NESTING_UNSUPPORTED"
   | "MASK_COMMAND_MIXED_PARENTS"
+  | "MASK_COMMAND_PARENT_MISMATCH"
+  | "MASK_COMMAND_PARENT_SOURCE"
+  | "MASK_COMMAND_NONCONTIGUOUS"
   | "MASK_COMMAND_COMPONENT_STRUCTURE"
   | "MASK_COMMAND_SOURCE_BOUND"
 
@@ -1182,16 +1185,6 @@ const maskCommandGroup = (
     throw new MaskCommandError(
       "MASK_COMMAND_NOT_MASK_GROUP",
       `Group ${group.id} is not a mask group`,
-      maskCommandContext(command, group.nodeIds)
-    )
-  }
-  if (
-    group.parentGroupId ||
-    document.groups.some((candidate) => candidate.parentGroupId === group.id)
-  ) {
-    throw new MaskCommandError(
-      "MASK_COMMAND_NESTING_UNSUPPORTED",
-      `Gate M2 does not admit nested mask group ${group.id}`,
       maskCommandContext(command, group.nodeIds)
     )
   }
@@ -2439,7 +2432,36 @@ function applyParsedCommand(
           maskCommandContext(command, wrongPageNodeIds)
         )
       }
-      assertMaskComponentStructure(document, command, [], command.nodeIds)
+      const requestedParent = command.parentGroupId
+        ? document.groups.find((group) => group.id === command.parentGroupId)
+        : undefined
+      if (
+        command.parentGroupId &&
+        (!requestedParent ||
+          requestedParent.pageId !== page.id ||
+          requestedParent.role !== "mask")
+      ) {
+        throw new MaskCommandError(
+          "MASK_COMMAND_PARENT_MISMATCH",
+          `Mask parent ${command.parentGroupId} is not a mask on page ${page.id}`,
+          maskCommandContext(command, command.nodeIds)
+        )
+      }
+      const maskParent =
+        requestedParent?.role === "mask" ? requestedParent : undefined
+      if (maskParent?.parentGroupId) {
+        throw new MaskCommandError(
+          "MASK_COMMAND_NESTING_UNSUPPORTED",
+          `Mask group ${maskParent.id} is already at the maximum nesting depth`,
+          maskCommandContext(command, command.nodeIds)
+        )
+      }
+      assertMaskComponentStructure(
+        document,
+        command,
+        maskParent ? [maskParent.id] : [],
+        command.nodeIds
+      )
       const directParents = command.nodeIds.map(
         (nodeId) =>
           document.groups.find((group) => group.nodeIds.includes(nodeId))?.id
@@ -2447,14 +2469,29 @@ function applyParsedCommand(
       if (new Set(directParents).size > 1) {
         throw new MaskCommandError(
           "MASK_COMMAND_MIXED_PARENTS",
-          `Mask members must share one top-level parent`,
+          `Mask members must share one direct parent`,
           maskCommandContext(command, command.nodeIds)
         )
       }
-      if (directParents[0]) {
+      const directParentId = directParents[0]
+      if (directParentId !== command.parentGroupId) {
         throw new MaskCommandError(
-          "MASK_COMMAND_NESTING_UNSUPPORTED",
-          `Gate M2 does not admit a mask inside group ${directParents[0]}`,
+          "MASK_COMMAND_PARENT_MISMATCH",
+          command.parentGroupId
+            ? `Every nested mask member must be a direct member of ${command.parentGroupId}`
+            : `Top-level mask members cannot already belong to ${directParentId}`,
+          maskCommandContext(command, command.nodeIds)
+        )
+      }
+      if (
+        maskParent &&
+        command.nodeIds.some((nodeId) =>
+          maskParent.mask.sourceNodeIds.includes(nodeId)
+        )
+      ) {
+        throw new MaskCommandError(
+          "MASK_COMMAND_PARENT_SOURCE",
+          `A source of parent mask ${maskParent.id} cannot move into its child mask`,
           maskCommandContext(command, command.nodeIds)
         )
       }
@@ -2470,23 +2507,55 @@ function applyParsedCommand(
       const canonicalNodeIds = page.nodeIds.filter((nodeId) =>
         uniqueNodeIds.has(nodeId)
       )
+      if (maskParent) {
+        const indexes = canonicalNodeIds.map((nodeId) =>
+          page.nodeIds.indexOf(nodeId)
+        )
+        if (
+          indexes.some(
+            (index, position) =>
+              position > 0 && index !== indexes[position - 1]! + 1
+          )
+        ) {
+          throw new MaskCommandError(
+            "MASK_COMMAND_NONCONTIGUOUS",
+            `Nested mask members must occupy one contiguous page-order block`,
+            maskCommandContext(command, canonicalNodeIds)
+          )
+        }
+      }
       next = {
         ...document,
-        pages: document.pages.map((candidate) =>
-          candidate.id === page.id
-            ? {
-                ...candidate,
-                nodeIds: compactNodeBlock(candidate.nodeIds, canonicalNodeIds),
-              }
-            : candidate
-        ),
+        pages: maskParent
+          ? document.pages
+          : document.pages.map((candidate) =>
+              candidate.id === page.id
+                ? {
+                    ...candidate,
+                    nodeIds: compactNodeBlock(
+                      candidate.nodeIds,
+                      canonicalNodeIds
+                    ),
+                  }
+                : candidate
+            ),
         groups: [
-          ...document.groups,
+          ...document.groups.map((group) =>
+            group.id === maskParent?.id && group.role === "mask"
+              ? {
+                  ...group,
+                  nodeIds: group.nodeIds.filter(
+                    (nodeId) => !uniqueNodeIds.has(nodeId)
+                  ),
+                }
+              : group
+          ),
           {
             id: command.groupId,
             pageId: command.pageId,
             name: command.name,
             nodeIds: canonicalNodeIds,
+            ...(maskParent ? { parentGroupId: maskParent.id } : {}),
             role: "mask",
             mask: {
               type: admittedMaskType,
@@ -2498,15 +2567,51 @@ function applyParsedCommand(
       break
     }
     case "release_mask_group": {
-      maskCommandPage(document, command)
+      const page = maskCommandPage(document, command)
       const group = maskCommandGroup(document, command)
-      assertMaskNodesUnlocked(document, command, group.nodeIds)
-      assertMaskComponentStructure(document, command, [group.id], group.nodeIds)
+      const parent = group.parentGroupId
+        ? document.groups.find(
+            (candidate) => candidate.id === group.parentGroupId
+          )
+        : undefined
+      const children = document.groups.filter(
+        (candidate) => candidate.parentGroupId === group.id
+      )
+      const affectedNodeIds = groupNodeIds(document.groups, group.id)
+      assertMaskNodesUnlocked(document, command, affectedNodeIds)
+      assertMaskComponentStructure(
+        document,
+        command,
+        [
+          group.id,
+          ...children.map((child) => child.id),
+          ...(parent ? [parent.id] : []),
+        ],
+        affectedNodeIds
+      )
+      const restoredParentNodeIdSet = parent
+        ? new Set([...parent.nodeIds, ...group.nodeIds])
+        : undefined
+      const restoredParentNodeIds = restoredParentNodeIdSet
+        ? page.nodeIds.filter((nodeId) => restoredParentNodeIdSet.has(nodeId))
+        : undefined
       next = {
         ...document,
-        groups: document.groups.filter(
-          (candidate) => candidate.id !== group.id
-        ),
+        groups: document.groups
+          .filter((candidate) => candidate.id !== group.id)
+          .map((candidate) => {
+            if (candidate.id === parent?.id && restoredParentNodeIds) {
+              return { ...candidate, nodeIds: restoredParentNodeIds }
+            }
+            if (candidate.parentGroupId === group.id) {
+              if (group.parentGroupId) {
+                return { ...candidate, parentGroupId: group.parentGroupId }
+              }
+              const { parentGroupId: _parentGroupId, ...rootGroup } = candidate
+              return rootGroup
+            }
+            return candidate
+          }),
       }
       break
     }

@@ -161,7 +161,7 @@ export function BackgroundRemovalControl({
                 src={managedMediaContentUrl(sourceAssetId)}
                 alt="Original selected image"
               />
-              <figcaption className="text-center text-[10px] text-muted-foreground">
+              <figcaption className="text-center text-[11px] text-muted-foreground">
                 Before
               </figcaption>
             </figure>
@@ -171,7 +171,7 @@ export function BackgroundRemovalControl({
                 src={managedMediaContentUrl(outputAssetId)}
                 alt="Processed image with background removed"
               />
-              <figcaption className="text-center text-[10px] text-muted-foreground">
+              <figcaption className="text-center text-[11px] text-muted-foreground">
                 After
               </figcaption>
             </figure>
@@ -193,12 +193,12 @@ export function BackgroundRemovalControl({
                 ? "Applying…"
                 : "Apply to image"}
           </Button>
-          <p className="text-[10px] leading-4 text-muted-foreground">
+          <p className="text-[11px] leading-4 text-muted-foreground">
             The result is already saved in Media. Apply waits for both live
             renderers, then creates one Undo step.
           </p>
           {model.provenance ? (
-            <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 rounded-md border bg-background p-2 text-[10px] leading-4">
+            <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 rounded-md border bg-background p-2 text-[11px] leading-4">
               <dt className="text-muted-foreground">Derived from</dt>
               <dd className="break-all">{model.provenance.sourceAssetId}</dd>
               <dt className="text-muted-foreground">Job</dt>

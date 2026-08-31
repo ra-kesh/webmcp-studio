@@ -30,6 +30,32 @@ const createMaskCommand = () => ({
   maskType: "vector" as const,
 })
 
+const createNestedMaskFixture = () =>
+  applyCommand(createMaskCommandFixture(), {
+    ...createMaskCommand(),
+    id: "create-outer-mask-transaction",
+    groupId: "outer-mask",
+    name: "Outer mask",
+    nodeIds: [
+      "mask-conformance-below",
+      "mask-conformance-source",
+      "mask-conformance-content",
+      "mask-conformance-above",
+    ],
+    sourceNodeIds: ["mask-conformance-below"],
+  })
+
+const createNestedMaskCommand = (expectedRevision: number) => ({
+  ...createMaskCommand(),
+  id: "create-child-mask-transaction",
+  expectedRevision,
+  groupId: "child-mask",
+  parentGroupId: "outer-mask",
+  name: "Child mask",
+  nodeIds: ["mask-conformance-source", "mask-conformance-content"],
+  sourceNodeIds: ["mask-conformance-source"] as [string],
+})
+
 const replaceCreateFixtureSource = (
   document: Document,
   type: "ellipse" | "icon" | "line" | "image" | "text" | "stroked_rect"
@@ -186,6 +212,164 @@ describe("canonical document commands", () => {
         groupId: command.groupId,
       })
     )
+  })
+
+  it("creates and dissolves one nested mask as atomic replay-protected transactions", () => {
+    const outer = createNestedMaskFixture()
+    const command = createNestedMaskCommand(outer.revision)
+    const nested = applyCommand(outer, command)
+
+    expect(nested.pages).toEqual(outer.pages)
+    expect(nested.groups).toEqual([
+      {
+        id: "outer-mask",
+        pageId: "mask-conformance-page",
+        name: "Outer mask",
+        nodeIds: ["mask-conformance-below", "mask-conformance-above"],
+        role: "mask",
+        mask: {
+          type: "vector",
+          sourceNodeIds: ["mask-conformance-below"],
+        },
+      },
+      {
+        id: "child-mask",
+        pageId: "mask-conformance-page",
+        parentGroupId: "outer-mask",
+        name: "Child mask",
+        nodeIds: ["mask-conformance-source", "mask-conformance-content"],
+        role: "mask",
+        mask: {
+          type: "vector",
+          sourceNodeIds: ["mask-conformance-source"],
+        },
+      },
+    ])
+    expect(nested.revision).toBe(outer.revision + 1)
+    expect(applyCommand(nested, command)).toEqual(nested)
+
+    const changedType = applyCommand(nested, {
+      id: "set-child-alpha",
+      type: "set_mask_type",
+      actor: "human",
+      at: "2026-08-31T14:00:10.000Z",
+      expectedRevision: nested.revision,
+      pageId: "mask-conformance-page",
+      groupId: "child-mask",
+      maskType: "alpha",
+    })
+    expect(
+      applyCommand(changedType, {
+        id: "set-child-alpha-no-op",
+        type: "set_mask_type",
+        actor: "human",
+        at: "2026-08-31T14:00:10.500Z",
+        expectedRevision: changedType.revision,
+        pageId: "mask-conformance-page",
+        groupId: "child-mask",
+        maskType: "alpha",
+      })
+    ).toEqual(changedType)
+    const changedSource = applyCommand(changedType, {
+      id: "set-child-source",
+      type: "set_mask_sources",
+      actor: "human",
+      at: "2026-08-31T14:00:11.000Z",
+      expectedRevision: changedType.revision,
+      pageId: "mask-conformance-page",
+      groupId: "child-mask",
+      sourceNodeIds: ["mask-conformance-content"],
+    })
+    expect(changedSource.groups[1]).toMatchObject({
+      parentGroupId: "outer-mask",
+      mask: {
+        type: "alpha",
+        sourceNodeIds: ["mask-conformance-content"],
+      },
+    })
+
+    const released = applyCommand(changedSource, {
+      id: "release-child-mask",
+      type: "release_mask_group",
+      actor: "human",
+      at: "2026-08-31T14:00:12.000Z",
+      expectedRevision: changedSource.revision,
+      pageId: "mask-conformance-page",
+      groupId: "child-mask",
+    })
+    expect(released.groups).toEqual([
+      expect.objectContaining({
+        id: "outer-mask",
+        nodeIds: [
+          "mask-conformance-below",
+          "mask-conformance-source",
+          "mask-conformance-content",
+          "mask-conformance-above",
+        ],
+      }),
+    ])
+    expect(released.pages).toEqual(changedSource.pages)
+  })
+
+  it("releases a top-level parent without discarding its child mask", () => {
+    const outer = createNestedMaskFixture()
+    const nested = applyCommand(outer, createNestedMaskCommand(outer.revision))
+    const released = applyCommand(nested, {
+      id: "release-parent-mask",
+      type: "release_mask_group",
+      actor: "human",
+      at: "2026-08-31T14:00:13.000Z",
+      expectedRevision: nested.revision,
+      pageId: "mask-conformance-page",
+      groupId: "outer-mask",
+    })
+    expect(released.groups).toEqual([
+      expect.objectContaining({
+        id: "child-mask",
+        nodeIds: ["mask-conformance-source", "mask-conformance-content"],
+      }),
+    ])
+    expect(released.groups[0]).not.toHaveProperty("parentGroupId")
+    expect(released.pages).toEqual(nested.pages)
+  })
+
+  it("rejects invalid nested-mask ownership, order, and depth without mutation", () => {
+    const outer = createNestedMaskFixture()
+    const before = structuredClone(outer)
+
+    expect(() =>
+      applyCommand(outer, {
+        ...createNestedMaskCommand(outer.revision),
+        id: "move-parent-source-into-child",
+        nodeIds: ["mask-conformance-below", "mask-conformance-source"],
+        sourceNodeIds: ["mask-conformance-source"],
+      })
+    ).toThrowError(
+      expect.objectContaining({ code: "MASK_COMMAND_PARENT_SOURCE" })
+    )
+    expect(() =>
+      applyCommand(outer, {
+        ...createNestedMaskCommand(outer.revision),
+        id: "create-noncontiguous-child",
+        nodeIds: ["mask-conformance-source", "mask-conformance-above"],
+        sourceNodeIds: ["mask-conformance-source"],
+      })
+    ).toThrowError(
+      expect.objectContaining({ code: "MASK_COMMAND_NONCONTIGUOUS" })
+    )
+
+    const nested = applyCommand(outer, createNestedMaskCommand(outer.revision))
+    expect(() =>
+      applyCommand(nested, {
+        ...createNestedMaskCommand(nested.revision),
+        id: "create-third-mask-level",
+        groupId: "grandchild-mask",
+        parentGroupId: "child-mask",
+      })
+    ).toThrowError(
+      expect.objectContaining({ code: "MASK_COMMAND_NESTING_UNSUPPORTED" })
+    )
+    expect(outer).toEqual(before)
   })
 
   it("rejects a create command that fits at 1x but exceeds canonical 2x admission", () => {

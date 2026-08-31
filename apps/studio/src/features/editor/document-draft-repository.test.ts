@@ -462,7 +462,7 @@ describe("DocumentDraftRepository", () => {
 
     expect(opened.summary.recordVersion).toBe(2)
     expect(opened.envelope.document).toMatchObject({
-      schemaVersion: 3,
+      schemaVersion: 5,
       typographyStyles: [],
       paintStyles: [],
       variables: [],
@@ -516,7 +516,7 @@ describe("DocumentDraftRepository", () => {
     const opened = unwrapFound(await repository.get(initial.document.id))
 
     expect(opened.summary.recordVersion).toBe(2)
-    expect(opened.envelope.document.schemaVersion).toBe(3)
+    expect(opened.envelope.document.schemaVersion).toBe(5)
     expect(await repository.getQuarantine(quarantineId)).toEqual({
       ok: false,
       reason: "missing",

@@ -2634,7 +2634,10 @@ export function StudioShell({
         case "mask.create": {
           const sourceNodeId = maskCommandCapabilities.createSourceNodeIds[0]
           if (!sourceNodeId) return false
-          return editor.createMaskGroup([sourceNodeId])
+          return editor.createMaskGroup(
+            [sourceNodeId],
+            maskCommandCapabilities.createParentGroupId
+          )
         }
         case "mask.release":
           return maskCommandCapabilities.groupId
@@ -3564,7 +3567,10 @@ export function StudioShell({
       ) {
         return false
       }
-      return editor.createMaskGroup(invocation.arguments.sourceNodeIds)
+      return editor.createMaskGroup(
+        invocation.arguments.sourceNodeIds,
+        invocation.arguments.parentGroupId
+      )
     }
     if (invocation.commandId === "mask.release") {
       return invocation.target?.kind === "group"

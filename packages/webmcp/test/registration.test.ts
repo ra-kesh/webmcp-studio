@@ -1427,6 +1427,7 @@ describe("WebMCP registration", () => {
       },
       mask: {
         groupId: "cover-mask",
+        createParentGroupId: "cover-mask",
         type: "vector",
         sourceNodeIds: ["cover-panel"],
         eligibleSourceNodeIds: ["cover-panel", "cover-mask-alternate"],
@@ -1480,6 +1481,48 @@ describe("WebMCP registration", () => {
     ).capabilities[0]!
     expect(forwardCapability.arguments).toEqual(argumentsForward)
     expect(forwardCapability.id).not.toBe(reverseCapability.id)
+
+    const nestedCreateArguments = {
+      kind: "mask-create",
+      sourceNodeIds: ["cover-mask-alternate"],
+      parentGroupId: "cover-mask",
+    }
+    const nestedCreate = await getCapabilities.execute({
+      commandIds: ["mask.create"],
+      arguments: nestedCreateArguments,
+    })
+    const topLevelCreate = await getCapabilities.execute({
+      commandIds: ["mask.create"],
+      arguments: {
+        ...nestedCreateArguments,
+        parentGroupId: null,
+      },
+    })
+    const nestedCreateCapability = (
+      nestedCreate.structuredContent as {
+        capabilities: Array<{ id: string; arguments: unknown }>
+      }
+    ).capabilities[0]!
+    const topLevelCreateCapability = (
+      topLevelCreate.structuredContent as {
+        capabilities: Array<{ id: string }>
+      }
+    ).capabilities[0]!
+    expect(nestedCreateCapability.arguments).toEqual(nestedCreateArguments)
+    expect(nestedCreateCapability.id).not.toBe(topLevelCreateCapability.id)
+
+    expect(
+      await getCapabilities.execute({
+        commandIds: ["mask.create"],
+        arguments: {
+          kind: "mask-create",
+          sourceNodeIds: ["cover-mask-alternate"],
+        },
+      })
+    ).toMatchObject({
+      isError: true,
+      structuredContent: { code: "invalid_query" },
+    })
 
     for (const invalidArguments of [
       {

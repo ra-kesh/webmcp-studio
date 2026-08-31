@@ -13,7 +13,8 @@ import {
 import { createRequire } from "node:module"
 import { basename, dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { chromium, type Page as PlaywrightPage } from "@playwright/test"
+import { chromium } from "@playwright/test"
+import type { Page as PlaywrightPage } from "@playwright/test"
 import { DOMMatrix, ImageData, Path2D, createCanvas } from "@napi-rs/canvas"
 import {
   buildComponentPublicationJourney,
@@ -41,8 +42,17 @@ import {
   multiVectorMaskRenderConformanceAllHiddenDocument,
   multiVectorMaskRenderConformanceDocument,
   multiVectorMaskRenderConformanceOneHiddenDocument,
+  nestedAlphaLuminanceAllHiddenRenderConformanceDocument,
+  nestedCompositeAreaLimitRenderConformanceDocument,
+  nestedImageFailureRenderConformanceDocument,
+  nestedLuminanceVectorOneHiddenRenderConformanceDocument,
+  nestedOverDepthRenderConformanceDocument,
+  nestedVectorAlphaRenderConformanceDocument,
 } from "@webmcp/document/internal/mask-render-conformance"
-import { projectPagePaintPlan } from "@webmcp/document/internal/page-paint-plan"
+import {
+  PagePaintPlanError,
+  projectPagePaintPlan,
+} from "@webmcp/document/internal/page-paint-plan"
 import sharp from "sharp"
 import { renderDocumentToHtml } from "../../renderer/src/html"
 
@@ -88,14 +98,15 @@ const baseUrl = (
 ).replace(/\/$/, "")
 const directOnly = process.env.CONFORMANCE_DIRECT_ONLY === "true"
 const directPngOnly = process.env.CONFORMANCE_DIRECT_FORMATS === "png"
+const skipDirect = process.env.CONFORMANCE_SKIP_DIRECT === "true"
 if (directOnly && conformanceCorpus !== "mask") {
   throw new Error(
     "CONFORMANCE_DIRECT_ONLY is supported only for the mask corpus"
   )
 }
-if (directPngOnly && !directOnly) {
+if (directOnly && skipDirect) {
   throw new Error(
-    "CONFORMANCE_DIRECT_FORMATS=png requires CONFORMANCE_DIRECT_ONLY=true"
+    "CONFORMANCE_DIRECT_ONLY and CONFORMANCE_SKIP_DIRECT cannot be combined"
   )
 }
 const pageIds = captureDocument.pages.map((page) => page.id)
@@ -181,12 +192,26 @@ const allMaskCaptureStates = [
     name: "luminance-all-hidden",
     document: luminanceAllHiddenRenderConformanceDocument,
   },
+  {
+    name: "nested-vector-alpha",
+    document: nestedVectorAlphaRenderConformanceDocument,
+  },
+  {
+    name: "nested-luminance-vector-one-hidden",
+    document: nestedLuminanceVectorOneHiddenRenderConformanceDocument,
+  },
+  {
+    name: "nested-alpha-luminance-all-hidden",
+    document: nestedAlphaLuminanceAllHiddenRenderConformanceDocument,
+  },
 ] as const
 type MaskCaptureState = (typeof allMaskCaptureStates)[number]
 const maskCaptureStates: readonly MaskCaptureState[] =
   process.env.CONFORMANCE_MASK_PHASE === "luminance"
     ? allMaskCaptureStates.filter(({ name }) => name.startsWith("luminance-"))
-    : allMaskCaptureStates
+    : process.env.CONFORMANCE_MASK_PHASE === "nesting"
+      ? allMaskCaptureStates.filter(({ name }) => name.startsWith("nested-"))
+      : allMaskCaptureStates
 const visibleMaskBrowserSurfaceThreshold = Object.freeze({
   channelDifference: 8,
   maxPixelsAboveChannelDifference: 51,
@@ -198,6 +223,18 @@ const hiddenMaskBrowserSurfaceThreshold = Object.freeze({
   maxPixelsAboveChannelDifference: 765,
   maxMeanChannelDifference: 0.171,
   maxChannelDifference: 48,
+})
+const nestedVectorAlphaBrowserSurfaceThreshold = Object.freeze({
+  channelDifference: 8,
+  maxPixelsAboveChannelDifference: 2_800,
+  maxMeanChannelDifference: 0.15,
+  maxChannelDifference: 40,
+})
+const nestedAlphaImageTextBrowserSurfaceThreshold = Object.freeze({
+  channelDifference: 8,
+  maxPixelsAboveChannelDifference: 4_800,
+  maxMeanChannelDifference: 0.7,
+  maxChannelDifference: 96,
 })
 const directMaskPdfRasterThreshold = Object.freeze({
   channelDifference: 8,
@@ -211,6 +248,36 @@ const directMaskTwoXThreshold = Object.freeze({
   maxMeanChannelDifference: 0.08,
   maxChannelDifference: 32,
 })
+const nestedMaskPdfRasterThreshold = Object.freeze({
+  channelDifference: 8,
+  maxPixelsAboveChannelDifference: 800,
+  maxMeanChannelDifference: 0.06,
+  maxChannelDifference: 56,
+})
+const nestedMaskTwoXThreshold = Object.freeze({
+  channelDifference: 8,
+  maxPixelsAboveChannelDifference: 1_100,
+  maxMeanChannelDifference: 0.1,
+  maxChannelDifference: 32,
+})
+const nestedMaskThumbnailThreshold = Object.freeze({
+  channelDifference: 8,
+  maxPixelsAboveChannelDifference: 1_100,
+  maxMeanChannelDifference: 0.22,
+  maxChannelDifference: 32,
+})
+
+function maskBrowserSurfaceThreshold(name: string) {
+  if (name === "nested-vector-alpha") {
+    return nestedVectorAlphaBrowserSurfaceThreshold
+  }
+  if (name === "nested-alpha-luminance-all-hidden") {
+    return nestedAlphaImageTextBrowserSurfaceThreshold
+  }
+  return name.includes("hidden")
+    ? hiddenMaskBrowserSurfaceThreshold
+    : visibleMaskBrowserSurfaceThreshold
+}
 const browserCaptureSurfaces = ["render-view", "fabric"] as const
 type BrowserCaptureSurface = (typeof browserCaptureSurfaces)[number]
 type BrowserCaptureScope = Readonly<{
@@ -255,8 +322,12 @@ const reportPath = join(
         ? "component-journey-conformance-capture-report.json"
         : conformanceCorpus === "mask"
           ? directOnly
-            ? "mask-luminance-direct-capture-report.json"
-            : "mask-conformance-capture-report.json"
+            ? process.env.CONFORMANCE_MASK_PHASE === "nesting"
+              ? "mask-nesting-direct-capture-report.json"
+              : "mask-luminance-direct-capture-report.json"
+            : process.env.CONFORMANCE_MASK_PHASE === "nesting"
+              ? "mask-nesting-capture-report.json"
+              : "mask-conformance-capture-report.json"
           : "render-conformance-capture-report.json"
 )
 const temporaryReportPath = join(
@@ -536,6 +607,10 @@ async function captureRendererArtifacts() {
 }
 
 async function captureMaskRendererArtifacts() {
+  if (skipDirect) {
+    await captureMaskEndpointSmoke()
+    return
+  }
   const pdfsToRasterize: Array<
     Readonly<{
       state: (typeof maskCaptureStates)[number]["name"]
@@ -603,70 +678,70 @@ async function captureMaskRendererArtifacts() {
     await pngBrowser.close()
   }
 
-  if (directPngOnly) return
-
-  // Chrome can stall while creating a new high-DPI context after page.pdf().
-  // Keep PDF generation in a fresh browser lifecycle so raster screenshots and
-  // print capture cannot interfere with one another.
-  console.info("Launching direct mask PDF capture")
-  const pdfBrowser = await chromium.launch({
-    channel: "chrome",
-    headless: true,
-  })
-  try {
-    for (const state of maskCaptureStates) {
-      projectPagePaintPlan(state.document, maskRenderConformancePage.id, {
-        pixelRatio: 1,
-      })
-      const html = renderDocumentToHtml(
-        state.document,
-        maskRenderConformancePage.id
-      )
-      const context = await pdfBrowser.newContext({
-        deviceScaleFactor: 1,
-        viewport: {
-          width: maskRenderConformancePage.width,
-          height: maskRenderConformancePage.height,
-        },
-      })
-      const browserPage = await context.newPage()
-      browserPage.setDefaultTimeout(30_000)
-      try {
-        console.info(`Starting direct mask ${state.name} PDF`)
-        await browserPage.setContent(html, { waitUntil: "load" })
-        await waitForDirectMaskPaint(browserPage)
-        const pdf = await browserPage.pdf({
-          width: `${maskRenderConformancePage.width}px`,
-          height: `${maskRenderConformancePage.height}px`,
-          printBackground: true,
-          preferCSSPageSize: true,
+  if (!directPngOnly) {
+    // Chrome can stall while creating a new high-DPI context after page.pdf().
+    // Keep PDF generation in a fresh browser lifecycle so raster screenshots and
+    // print capture cannot interfere with one another.
+    console.info("Launching direct mask PDF capture")
+    const pdfBrowser = await chromium.launch({
+      channel: "chrome",
+      headless: true,
+    })
+    try {
+      for (const state of maskCaptureStates) {
+        projectPagePaintPlan(state.document, maskRenderConformancePage.id, {
+          pixelRatio: 1,
         })
-        await writeFile(
-          join(stagingRoot, "renderer-pdf", `mask-${state.name}.pdf`),
-          pdf
+        const html = renderDocumentToHtml(
+          state.document,
+          maskRenderConformancePage.id
         )
-        pdfsToRasterize.push({
-          state: state.name,
-          bytes: Uint8Array.from(pdf),
+        const context = await pdfBrowser.newContext({
+          deviceScaleFactor: 1,
+          viewport: {
+            width: maskRenderConformancePage.width,
+            height: maskRenderConformancePage.height,
+          },
         })
-        console.info(`Captured direct mask ${state.name} PDF`)
-      } finally {
-        await browserPage.close()
-        await context.close()
-        console.info(`Closed direct mask ${state.name} PDF context`)
+        const browserPage = await context.newPage()
+        browserPage.setDefaultTimeout(30_000)
+        try {
+          console.info(`Starting direct mask ${state.name} PDF`)
+          await browserPage.setContent(html, { waitUntil: "load" })
+          await waitForDirectMaskPaint(browserPage)
+          const pdf = await browserPage.pdf({
+            width: `${maskRenderConformancePage.width}px`,
+            height: `${maskRenderConformancePage.height}px`,
+            printBackground: true,
+            preferCSSPageSize: true,
+          })
+          await writeFile(
+            join(stagingRoot, "renderer-pdf", `mask-${state.name}.pdf`),
+            pdf
+          )
+          pdfsToRasterize.push({
+            state: state.name,
+            bytes: Uint8Array.from(pdf),
+          })
+          console.info(`Captured direct mask ${state.name} PDF`)
+        } finally {
+          await browserPage.close()
+          await context.close()
+          console.info(`Closed direct mask ${state.name} PDF context`)
+        }
       }
+    } finally {
+      await pdfBrowser.close()
     }
-  } finally {
-    await pdfBrowser.close()
-  }
-  for (const pdf of pdfsToRasterize) {
-    await rasterizePdf(
-      pdf.bytes,
-      [maskRenderConformancePage.id],
-      "renderer-pdf",
-      [`mask-${pdf.state}`]
-    )
-    console.info(`Rasterized direct mask ${pdf.state} PDF`)
+    for (const pdf of pdfsToRasterize) {
+      await rasterizePdf(
+        pdf.bytes,
+        [maskRenderConformancePage.id],
+        "renderer-pdf",
+        [`mask-${pdf.state}`]
+      )
+      console.info(`Rasterized direct mask ${pdf.state} PDF`)
+    }
   }
   if (!directOnly) await captureMaskEndpointSmoke()
 }
@@ -685,8 +760,10 @@ async function waitForDirectMaskPaint(browserPage: PlaywrightPage) {
   assert.equal(error, null, `Direct mask resource readiness failed: ${error}`)
   await browserPage.evaluate(
     () =>
-      new Promise<void>((resolve) =>
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      new Promise<void>((completeFrame) =>
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => completeFrame())
+        )
       )
   )
 }
@@ -886,12 +963,21 @@ async function buildCaptureReport() {
     }
     artifacts.push(entry)
   }
+  const nestingNegativeEvidence =
+    conformanceCorpus === "mask" &&
+    process.env.CONFORMANCE_MASK_PHASE === "nesting"
+      ? await assertNestedMaskNegativeEvidence()
+      : null
   return {
     version: 2,
     runId: captureRunId,
     artifactRoot: `artifacts/runs/${captureRunId}`,
     corpus: conformanceCorpus,
-    captureScope: directOnly ? "direct-only" : "full",
+    captureScope: directOnly
+      ? "direct-only"
+      : skipDirect
+        ? "browser-public"
+        : "full",
     documentId: captureDocument.id,
     revision: captureDocument.revision,
     publication: textDesignSystemConformanceVersion
@@ -928,25 +1014,34 @@ async function buildCaptureReport() {
     ...(conformanceCorpus === "mask"
       ? {
           maskEvidence: {
+            nestingNegativeEvidence,
             directHtml: {
+              exercised: !skipDirect,
+              externalReport: skipDirect
+                ? "mask-nesting-direct-capture-report.json"
+                : null,
               states: maskCaptureStates.map(({ name }) => name),
               deviceScaleFactors: [1, 2],
               pngPathPattern: "renderer-png/mask-{state}-{scale}x.png",
-              pdfPathPattern: directPngOnly
-                ? null
-                : "renderer-pdf/mask-{state}.pdf",
-              pdfRasterPathPattern: directPngOnly
-                ? null
-                : "renderer-pdf/mask-{state}.png",
+              pdfPathPattern:
+                directPngOnly || skipDirect
+                  ? null
+                  : "renderer-pdf/mask-{state}.pdf",
+              pdfRasterPathPattern:
+                directPngOnly || skipDirect
+                  ? null
+                  : "renderer-pdf/mask-{state}.png",
             },
             pngPdfRasterComparisons: await Promise.all(
-              directPngOnly
+              directPngOnly || skipDirect
                 ? []
                 : maskCaptureStates.map(({ name }) =>
                     comparePngArtifacts(
                       `renderer-png/mask-${name}-1x.png`,
                       `renderer-pdf/mask-${name}.png`,
-                      directMaskPdfRasterThreshold
+                      name.startsWith("nested-")
+                        ? nestedMaskPdfRasterThreshold
+                        : directMaskPdfRasterThreshold
                     )
                   )
             ),
@@ -957,38 +1052,69 @@ async function buildCaptureReport() {
                     comparePngArtifacts(
                       `render-view/${maskRenderConformancePage.id}-${name}.png`,
                       `fabric/${maskRenderConformancePage.id}-${name}.png`,
-                      name.includes("hidden")
-                        ? hiddenMaskBrowserSurfaceThreshold
-                        : visibleMaskBrowserSurfaceThreshold
+                      maskBrowserSurfaceThreshold(name)
                     )
                   )
             ),
             directHtmlBrowserRenderViewComparisons: await Promise.all(
-              directOnly
+              directOnly || skipDirect
                 ? []
                 : maskCaptureStates.map(({ name }) =>
                     comparePngArtifacts(
                       `renderer-png/mask-${name}-1x.png`,
                       `render-view/${maskRenderConformancePage.id}-${name}.png`,
-                      visibleMaskBrowserSurfaceThreshold
+                      maskBrowserSurfaceThreshold(name)
                     )
                   )
             ),
             oneToTwoXComparisons: await Promise.all(
-              maskCaptureStates.map(({ name }) =>
-                comparePngArtifactsAtCssScale(
-                  `renderer-png/mask-${name}-1x.png`,
-                  `renderer-png/mask-${name}-2x.png`,
-                  directMaskTwoXThreshold
-                )
-              )
+              skipDirect
+                ? []
+                : maskCaptureStates.map(({ name }) =>
+                    comparePngArtifactsAtCssScale(
+                      `renderer-png/mask-${name}-1x.png`,
+                      `renderer-png/mask-${name}-2x.png`,
+                      name.startsWith("nested-")
+                        ? nestedMaskTwoXThreshold
+                        : directMaskTwoXThreshold
+                    )
+                  )
             ),
             coefficientPixelProbes: await assertLuminanceCoefficientArtifacts(),
+            productionEndpointPngPdfRasterComparisons: await Promise.all(
+              directOnly
+                ? []
+                : maskCaptureStates.map(({ name }) =>
+                    comparePngArtifacts(
+                      `renderer-endpoint-smoke/canonical-mask-v5-${name}.png`,
+                      `renderer-endpoint-smoke/canonical-mask-v5-${name}-raster.png`,
+                      name.startsWith("nested-")
+                        ? nestedMaskPdfRasterThreshold
+                        : directMaskPdfRasterThreshold
+                    )
+                  )
+            ),
+            productionEndpointThumbnailComparisons: await Promise.all(
+              directOnly
+                ? []
+                : maskCaptureStates.map(({ name }) =>
+                    comparePngArtifactsAtCssScale(
+                      `renderer-endpoint-smoke/canonical-mask-v5-${name}-thumbnail.png`,
+                      `renderer-endpoint-smoke/canonical-mask-v5-${name}.png`,
+                      name.startsWith("nested-")
+                        ? nestedMaskThumbnailThreshold
+                        : directMaskTwoXThreshold
+                    )
+                  )
+            ),
             pdfCapture: {
-              exercised: !directPngOnly,
-              skippedReason: directPngOnly
-                ? "Host-runtime blocked: Playwright page.pdf() stalled before the first artifact. PNG evidence was retained; PDF capture is deferred until the host runtime is healthy."
-                : null,
+              exercised: !directPngOnly && !skipDirect,
+              skippedReason:
+                directPngOnly || skipDirect
+                  ? skipDirect
+                    ? "Proved in mask-nesting-direct-capture-report.json; this browser/public run intentionally isolates host Browser Rendering lifecycles."
+                    : "Host-runtime blocked: Playwright page.pdf() stalled before the first artifact. PNG evidence was retained; PDF capture is deferred until the host runtime is healthy."
+                  : null,
             },
             productionEndpointSmoke: {
               exercised: !directOnly,
@@ -1008,6 +1134,255 @@ async function buildCaptureReport() {
           },
         }
       : {}),
+  }
+}
+
+function documentEvidence(document: Document) {
+  const bytes = JSON.stringify(document)
+  return {
+    documentId: document.id,
+    revision: document.revision,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+  }
+}
+
+function assertPaintPlanRejection(
+  fixture: string,
+  document: Document,
+  expectedCode:
+    "MASK_GROUP_NESTING_UNSUPPORTED" | "MASK_PAGE_COMPOSITE_AREA_LIMIT"
+) {
+  try {
+    projectPagePaintPlan(document, document.pages[0].id, { pixelRatio: 2 })
+  } catch (error) {
+    assert.ok(error instanceof PagePaintPlanError, `${fixture} error type`)
+    assert.equal(error.code, expectedCode, `${fixture} stable error code`)
+    return {
+      fixture,
+      ...documentEvidence(document),
+      pixelRatio: 2,
+      rejected: true,
+      code: error.code,
+      message: error.message,
+      beforeAllocation: true,
+    }
+  }
+  throw new Error(`${fixture} unexpectedly passed paint-plan admission`)
+}
+
+async function assertDirectNestedMaskResourceFailure() {
+  const fixtureDocument = nestedImageFailureRenderConformanceDocument
+  const nodeId = "nested-vector-alpha-child-image"
+  const browser = await chromium.launch({ channel: "chrome", headless: true })
+  const context = await browser.newContext({
+    deviceScaleFactor: 1,
+    viewport: {
+      width: maskRenderConformancePage.width,
+      height: maskRenderConformancePage.height,
+    },
+  })
+  const browserPage = await context.newPage()
+  browserPage.setDefaultTimeout(30_000)
+  try {
+    await browserPage.setContent(
+      renderDocumentToHtml(fixtureDocument, maskRenderConformancePage.id),
+      { waitUntil: "load" }
+    )
+    await browserPage.waitForFunction(
+      () =>
+        document.documentElement.hasAttribute("data-render-ready") ||
+        document.documentElement.hasAttribute("data-render-error"),
+      undefined,
+      { timeout: 30_000 }
+    )
+    const state = await browserPage.evaluate(() => ({
+      ready: document.documentElement.getAttribute("data-render-ready"),
+      code: document.documentElement.getAttribute("data-render-error"),
+      nodeId: document.documentElement.getAttribute("data-render-error-node"),
+    }))
+    assert.equal(state.ready, null)
+    assert.equal(state.code, "image_decode_failed")
+    assert.equal(state.nodeId, nodeId)
+    return {
+      fixture: "nested-descendant-image-decode",
+      ...documentEvidence(fixtureDocument),
+      rejected: true,
+      code: state.code,
+      nodeId: state.nodeId,
+      beforeCapture: true,
+    }
+  } finally {
+    await browserPage.close()
+    await context.close()
+    await browser.close()
+  }
+}
+
+type NegativeEndpointSurface = "png" | "thumbnail" | "pdf"
+
+function negativeEndpointRequest(
+  surface: NegativeEndpointSurface,
+  document: Document
+) {
+  const pageId = document.pages[0].id
+  const output = document.outputs.find((candidate) =>
+    candidate.pageIds.includes(pageId)
+  )
+  assert.ok(output, `${document.id} has no output for ${pageId}`)
+  const outputId = output.id
+  if (surface === "png") {
+    return {
+      path: "/v1/studio/export-png",
+      body: { document, pageId },
+    }
+  }
+  if (surface === "thumbnail") {
+    return {
+      path: "/v1/studio/page-thumbnail",
+      body: { document, pageId, size: { width: 240, height: 180 } },
+    }
+  }
+  return {
+    path: "/v1/studio/export-pdf",
+    body: { document, outputId },
+  }
+}
+
+function decodeJsonObject(bytes: Uint8Array) {
+  const value = JSON.parse(new TextDecoder().decode(bytes)) as unknown
+  assert.ok(value && typeof value === "object" && !Array.isArray(value))
+  return value as Record<string, unknown>
+}
+
+async function assertPublicNestedMaskNegativeEvidence() {
+  const fixtures = [
+    {
+      fixture: "nested-descendant-image-decode",
+      document: nestedImageFailureRenderConformanceDocument,
+      expectedCode: "render_resource_admission_failed",
+      expectedDetailCode: "image_resource_inline_invalid",
+      expectedIssueCode: null,
+      expectedNodeId: "nested-vector-alpha-child-image",
+    },
+    {
+      fixture: "nested-third-level-rejection",
+      document: nestedOverDepthRenderConformanceDocument,
+      expectedCode: "document_validation_failed",
+      expectedDetailCode: null,
+      expectedIssueCode: "invalid_group",
+      expectedNodeId: null,
+    },
+    {
+      fixture: "nested-summed-2x-area-rejection",
+      document: nestedCompositeAreaLimitRenderConformanceDocument,
+      expectedCode: "document_validation_failed",
+      expectedDetailCode: null,
+      expectedIssueCode: "render_limit_exceeded",
+      expectedNodeId: null,
+    },
+  ] as const
+  const evidence = []
+  for (const fixture of fixtures) {
+    for (const surface of ["png", "thumbnail", "pdf"] as const) {
+      const request = negativeEndpointRequest(surface, fixture.document)
+      const { response, body } = await fetchRendererArtifact(
+        `${baseUrl}${request.path}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(request.body),
+        },
+        `${fixture.fixture} ${surface} negative evidence`
+      )
+      const payload = decodeJsonObject(body)
+      const errorDetail = payload.error
+      assert.ok(
+        errorDetail &&
+          typeof errorDetail === "object" &&
+          !Array.isArray(errorDetail),
+        `${fixture.fixture} ${surface} omitted its public error detail`
+      )
+      const publicError = errorDetail as Record<string, unknown>
+      assert.equal(response.status, 422)
+      assert.equal(publicError.code, fixture.expectedCode)
+      if (fixture.expectedDetailCode) {
+        assert.equal(publicError.detailCode, fixture.expectedDetailCode)
+      }
+      if (fixture.expectedNodeId) {
+        assert.equal(publicError.nodeId, fixture.expectedNodeId)
+      }
+      if (fixture.expectedIssueCode) {
+        assert.ok(Array.isArray(publicError.issues))
+        assert.ok(
+          publicError.issues.some(
+            (issue) =>
+              issue &&
+              typeof issue === "object" &&
+              "code" in issue &&
+              issue.code === fixture.expectedIssueCode
+          ),
+          `${fixture.fixture} ${surface} omitted ${fixture.expectedIssueCode}`
+        )
+      }
+      evidence.push({
+        fixture: fixture.fixture,
+        ...documentEvidence(fixture.document),
+        surface,
+        path: request.path,
+        status: response.status,
+        code: publicError.code,
+        detailCode: publicError.detailCode ?? null,
+        nodeId: publicError.nodeId ?? null,
+        retryable: publicError.retryable,
+        issueCodes: Array.isArray(publicError.issues)
+          ? publicError.issues.flatMap((issue) =>
+              issue &&
+              typeof issue === "object" &&
+              "code" in issue &&
+              typeof issue.code === "string"
+                ? [issue.code]
+                : []
+            )
+          : [],
+      })
+    }
+  }
+  return evidence
+}
+
+async function assertNestedMaskNegativeEvidence() {
+  return {
+    paintPlanAdmission: [
+      assertPaintPlanRejection(
+        "nested-third-level-rejection",
+        nestedOverDepthRenderConformanceDocument,
+        "MASK_GROUP_NESTING_UNSUPPORTED"
+      ),
+      assertPaintPlanRejection(
+        "nested-summed-2x-area-rejection",
+        nestedCompositeAreaLimitRenderConformanceDocument,
+        "MASK_PAGE_COMPOSITE_AREA_LIMIT"
+      ),
+    ],
+    directHtmlResourceFailure: skipDirect
+      ? {
+          exercised: false,
+          externalReport: "mask-nesting-direct-capture-report.json",
+        }
+      : {
+          exercised: true,
+          evidence: await assertDirectNestedMaskResourceFailure(),
+        },
+    publicEndpointFailures: directOnly
+      ? {
+          exercised: false,
+          externalReport: "mask-nesting-capture-report.json",
+          states: [],
+        }
+      : {
+          exercised: true,
+          states: await assertPublicNestedMaskNegativeEvidence(),
+        },
   }
 }
 
@@ -1096,9 +1471,9 @@ async function assertLuminanceCoefficientArtifacts() {
         const y = Math.floor(sample.y * artifact.scale)
         const offset = (y * image.info.width + x) * image.info.channels
         const actual = [
-          image.data[offset]!,
-          image.data[offset + 1]!,
-          image.data[offset + 2]!,
+          image.data[offset],
+          image.data[offset + 1],
+          image.data[offset + 2],
         ]
         for (const channel of actual) {
           assert.ok(
@@ -1144,15 +1519,17 @@ function retainedArtifactSpecs(): RetainedArtifactSpec[] {
               pageId,
             }))
           )),
-      ...maskCaptureStates.flatMap(({ name }) =>
-        [1, 2].map((scale) => ({
-          directory: "renderer-png" as const,
-          name: `mask-${name}-${scale}x.png`,
-          pageId,
-          scale,
-        }))
-      ),
-      ...(directPngOnly
+      ...(skipDirect
+        ? []
+        : maskCaptureStates.flatMap(({ name }) =>
+            [1, 2].map((scale) => ({
+              directory: "renderer-png" as const,
+              name: `mask-${name}-${scale}x.png`,
+              pageId,
+              scale,
+            }))
+          )),
+      ...(directPngOnly || skipDirect
         ? []
         : maskCaptureStates.flatMap(({ name }) => [
             {
@@ -1289,7 +1666,7 @@ function compareDecodedPngs(
     let pixelMaxDifference = 0
     for (let channel = 0; channel < 4; channel += 1) {
       const difference = Math.abs(
-        left.data[index + channel]! - right.data[index + channel]!
+        left.data[index + channel] - right.data[index + channel]
       )
       if (difference > 0) changedChannels += 1
       totalAbsoluteDifference += difference
@@ -1310,6 +1687,9 @@ function compareDecodedPngs(
     maxChannelDifference,
     meanAbsoluteDifference: totalAbsoluteDifference / left.data.length,
     threshold,
+  }
+  if (leftPath.includes("nested-")) {
+    console.info(`Nested mask comparison ${JSON.stringify(comparison)}`)
   }
   assert.ok(
     comparison.pixelsAboveChannelDifference <=

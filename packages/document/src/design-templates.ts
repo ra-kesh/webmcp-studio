@@ -280,17 +280,30 @@ export function cloneTemplateDocument(
         ...node,
         id: requiredId(ids.node, node.id, "node"),
       })),
-      groups: source.groups.map((group) => ({
-        ...group,
-        id: requiredId(ids.group, group.id, "group"),
-        pageId: requiredId(ids.page, group.pageId, "page"),
-        parentGroupId: group.parentGroupId
-          ? requiredId(ids.group, group.parentGroupId, "group")
-          : undefined,
-        nodeIds: group.nodeIds.map((nodeId) =>
-          requiredId(ids.node, nodeId, "node")
-        ),
-      })),
+      groups: source.groups.map((group) => {
+        const remapped = {
+          ...group,
+          id: requiredId(ids.group, group.id, "group"),
+          pageId: requiredId(ids.page, group.pageId, "page"),
+          parentGroupId: group.parentGroupId
+            ? requiredId(ids.group, group.parentGroupId, "group")
+            : undefined,
+          nodeIds: group.nodeIds.map((nodeId) =>
+            requiredId(ids.node, nodeId, "node")
+          ),
+        }
+        return group.role === "mask"
+          ? {
+              ...remapped,
+              mask: {
+                ...group.mask,
+                sourceNodeIds: group.mask.sourceNodeIds.map((nodeId) =>
+                  requiredId(ids.node, nodeId, "mask source node")
+                ) as [string, ...string[]],
+              },
+            }
+          : remapped
+      }),
       components: source.components.map((component) => ({
         ...structuredClone(component),
         id: requiredId(ids.component, component.id, "component"),

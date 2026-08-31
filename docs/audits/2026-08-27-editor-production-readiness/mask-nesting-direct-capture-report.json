@@ -1,0 +1,286 @@
+{
+  "version": 2,
+  "runId": "2026-08-31T21-06-59.232Z-5a17539e-d461-46b8-b7e8-1cc16975fd52",
+  "artifactRoot": "artifacts/runs/2026-08-31T21-06-59.232Z-5a17539e-d461-46b8-b7e8-1cc16975fd52",
+  "corpus": "mask",
+  "captureScope": "direct-only",
+  "documentId": "mask-render-conformance-v1",
+  "revision": 1,
+  "baseUrl": "http://localhost:3001",
+  "deviceScaleFactor": 1,
+  "browserCaptureRuntime": null,
+  "browserCaptureEvidence": {
+    "exercised": false,
+    "skippedReason": "Host-blocked: the browser route requires the local app server; no server was started.",
+    "pageErrorPolicy": "fail_before_surface_ready",
+    "pageErrors": [],
+    "surfaces": []
+  },
+  "pageOrder": [
+    "mask-conformance-page"
+  ],
+  "outputs": [
+    {
+      "id": "mask-conformance-output",
+      "pageIds": [
+        "mask-conformance-page"
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "renderer-png/mask-nested-vector-alpha-1x.png",
+      "bytes": 4871,
+      "sha256": "9cdf5cbc2c096bcabc666979ea2faded0d45846a7e2bcaeba5a3d6f4e6f1f6ef",
+      "width": 480,
+      "height": 360
+    },
+    {
+      "path": "renderer-png/mask-nested-vector-alpha-2x.png",
+      "bytes": 10150,
+      "sha256": "8ea529ad714a26f235060cb9c5c41b1073a662cac522321c4975d84e59ad10e2",
+      "width": 960,
+      "height": 720
+    },
+    {
+      "path": "renderer-png/mask-nested-luminance-vector-one-hidden-1x.png",
+      "bytes": 1434,
+      "sha256": "50ce30fa90ff8c58a7c13090a6823e1921b254cf9346ab4140587a0a673afc32",
+      "width": 480,
+      "height": 360
+    },
+    {
+      "path": "renderer-png/mask-nested-luminance-vector-one-hidden-2x.png",
+      "bytes": 3684,
+      "sha256": "c0d31bdb90efd308f575bfd53c209ba6a5aaf234c0d3a89d04fe79b3e05fad6f",
+      "width": 960,
+      "height": 720
+    },
+    {
+      "path": "renderer-png/mask-nested-alpha-luminance-all-hidden-1x.png",
+      "bytes": 8467,
+      "sha256": "1678546a278576879845550baaa519b6766c859fb971586865e3692e01751794",
+      "width": 480,
+      "height": 360
+    },
+    {
+      "path": "renderer-png/mask-nested-alpha-luminance-all-hidden-2x.png",
+      "bytes": 18545,
+      "sha256": "df8916c985b3d0c303eb89b8560f967439e7c04bb1f3f5ab2895af4a2bc71954",
+      "width": 960,
+      "height": 720
+    },
+    {
+      "path": "renderer-pdf/mask-nested-vector-alpha.pdf",
+      "bytes": 18534,
+      "sha256": "1eeef7044a45fb66e9d211e7c8897d8a6b922636c001d077cc1738b5bac097cc"
+    },
+    {
+      "path": "renderer-pdf/mask-nested-vector-alpha.png",
+      "bytes": 5439,
+      "sha256": "7a5dc4dcd27d9ff3fed758550e9f930d0c611104469773779fabde182d7363d4",
+      "width": 480,
+      "height": 360
+    },
+    {
+      "path": "renderer-pdf/mask-nested-luminance-vector-one-hidden.pdf",
+      "bytes": 22565,
+      "sha256": "e78e4201c38d01539f6a4b9ddca22f94cb7fe15f6bc640e1c3d41c43756a6efc"
+    },
+    {
+      "path": "renderer-pdf/mask-nested-luminance-vector-one-hidden.png",
+      "bytes": 1617,
+      "sha256": "85b7a48f25772515a1590ea9e71fd738da83b68da6f52c8babd88e67379a0f9c",
+      "width": 480,
+      "height": 360
+    },
+    {
+      "path": "renderer-pdf/mask-nested-alpha-luminance-all-hidden.pdf",
+      "bytes": 19569,
+      "sha256": "1a821c76d96aaa862dede700c7dd0e94d3af19c1e28c1f3d15579e430ff6d6b0"
+    },
+    {
+      "path": "renderer-pdf/mask-nested-alpha-luminance-all-hidden.png",
+      "bytes": 10611,
+      "sha256": "4d97d2c2751b4322511c00152ed2172adb59d7f4950f4aadee6d002b63c10a5d",
+      "width": 480,
+      "height": 360
+    }
+  ],
+  "maskEvidence": {
+    "nestingNegativeEvidence": {
+      "paintPlanAdmission": [
+        {
+          "fixture": "nested-third-level-rejection",
+          "documentId": "nested-over-depth-v1",
+          "revision": 1,
+          "sha256": "f57dd78f88728a77f66aea2d9bceaf47047930f25c7692241d75d102a9522130",
+          "pixelRatio": 2,
+          "rejected": true,
+          "code": "MASK_GROUP_NESTING_UNSUPPORTED",
+          "message": "Mask group nested-over-depth-grandchild-mask exceeds the bounded nesting depth",
+          "beforeAllocation": true
+        },
+        {
+          "fixture": "nested-summed-2x-area-rejection",
+          "documentId": "nested-composite-area-limit-v1",
+          "revision": 1,
+          "sha256": "64a5a286ade982f87e2e163c8db308c6ec6de56c878f6713edf9d4f6bcd29cdf",
+          "pixelRatio": 2,
+          "rejected": true,
+          "code": "MASK_PAGE_COMPOSITE_AREA_LIMIT",
+          "message": "Page mask-conformance-page exceeds the admitted composite area limit",
+          "beforeAllocation": true
+        }
+      ],
+      "directHtmlResourceFailure": {
+        "exercised": true,
+        "evidence": {
+          "fixture": "nested-descendant-image-decode",
+          "documentId": "nested-image-failure-v1",
+          "revision": 1,
+          "sha256": "685a57def36ec2896f6460d2d0c484b5e4a1caacdf8a92715df5335b59212760",
+          "rejected": true,
+          "code": "image_decode_failed",
+          "nodeId": "nested-vector-alpha-child-image",
+          "beforeCapture": true
+        }
+      },
+      "publicEndpointFailures": {
+        "exercised": false,
+        "externalReport": "mask-nesting-capture-report.json",
+        "states": []
+      }
+    },
+    "directHtml": {
+      "exercised": true,
+      "externalReport": null,
+      "states": [
+        "nested-vector-alpha",
+        "nested-luminance-vector-one-hidden",
+        "nested-alpha-luminance-all-hidden"
+      ],
+      "deviceScaleFactors": [
+        1,
+        2
+      ],
+      "pngPathPattern": "renderer-png/mask-{state}-{scale}x.png",
+      "pdfPathPattern": "renderer-pdf/mask-{state}.pdf",
+      "pdfRasterPathPattern": "renderer-pdf/mask-{state}.png"
+    },
+    "pngPdfRasterComparisons": [
+      {
+        "baseline": "renderer-png/mask-nested-vector-alpha-1x.png",
+        "candidate": "renderer-pdf/mask-nested-vector-alpha.png",
+        "comparedChannels": 691200,
+        "comparedPixels": 172800,
+        "changedChannels": 32613,
+        "pixelsAboveChannelDifference": 0,
+        "maxChannelDifference": 8,
+        "meanAbsoluteDifference": 0.05100839120370371,
+        "threshold": {
+          "channelDifference": 8,
+          "maxPixelsAboveChannelDifference": 800,
+          "maxMeanChannelDifference": 0.06,
+          "maxChannelDifference": 56
+        }
+      },
+      {
+        "baseline": "renderer-png/mask-nested-luminance-vector-one-hidden-1x.png",
+        "candidate": "renderer-pdf/mask-nested-luminance-vector-one-hidden.png",
+        "comparedChannels": 691200,
+        "comparedPixels": 172800,
+        "changedChannels": 1512,
+        "pixelsAboveChannelDifference": 504,
+        "maxChannelDifference": 12,
+        "meanAbsoluteDifference": 0.01421875,
+        "threshold": {
+          "channelDifference": 8,
+          "maxPixelsAboveChannelDifference": 800,
+          "maxMeanChannelDifference": 0.06,
+          "maxChannelDifference": 56
+        }
+      },
+      {
+        "baseline": "renderer-png/mask-nested-alpha-luminance-all-hidden-1x.png",
+        "candidate": "renderer-pdf/mask-nested-alpha-luminance-all-hidden.png",
+        "comparedChannels": 691200,
+        "comparedPixels": 172800,
+        "changedChannels": 4590,
+        "pixelsAboveChannelDifference": 743,
+        "maxChannelDifference": 54,
+        "meanAbsoluteDifference": 0.04303819444444444,
+        "threshold": {
+          "channelDifference": 8,
+          "maxPixelsAboveChannelDifference": 800,
+          "maxMeanChannelDifference": 0.06,
+          "maxChannelDifference": 56
+        }
+      }
+    ],
+    "browserSurfaceComparisons": [],
+    "directHtmlBrowserRenderViewComparisons": [],
+    "oneToTwoXComparisons": [
+      {
+        "baseline": "renderer-png/mask-nested-vector-alpha-1x.png",
+        "candidate": "renderer-png/mask-nested-vector-alpha-2x.png downsampled to CSS pixels",
+        "comparedChannels": 691200,
+        "comparedPixels": 172800,
+        "changedChannels": 26490,
+        "pixelsAboveChannelDifference": 479,
+        "maxChannelDifference": 25,
+        "meanAbsoluteDifference": 0.07590422453703703,
+        "threshold": {
+          "channelDifference": 8,
+          "maxPixelsAboveChannelDifference": 1100,
+          "maxMeanChannelDifference": 0.1,
+          "maxChannelDifference": 32
+        }
+      },
+      {
+        "baseline": "renderer-png/mask-nested-luminance-vector-one-hidden-1x.png",
+        "candidate": "renderer-png/mask-nested-luminance-vector-one-hidden-2x.png downsampled to CSS pixels",
+        "comparedChannels": 691200,
+        "comparedPixels": 172800,
+        "changedChannels": 15924,
+        "pixelsAboveChannelDifference": 380,
+        "maxChannelDifference": 23,
+        "meanAbsoluteDifference": 0.037494212962962965,
+        "threshold": {
+          "channelDifference": 8,
+          "maxPixelsAboveChannelDifference": 1100,
+          "maxMeanChannelDifference": 0.1,
+          "maxChannelDifference": 32
+        }
+      },
+      {
+        "baseline": "renderer-png/mask-nested-alpha-luminance-all-hidden-1x.png",
+        "candidate": "renderer-png/mask-nested-alpha-luminance-all-hidden-2x.png downsampled to CSS pixels",
+        "comparedChannels": 691200,
+        "comparedPixels": 172800,
+        "changedChannels": 27703,
+        "pixelsAboveChannelDifference": 1029,
+        "maxChannelDifference": 27,
+        "meanAbsoluteDifference": 0.09668402777777778,
+        "threshold": {
+          "channelDifference": 8,
+          "maxPixelsAboveChannelDifference": 1100,
+          "maxMeanChannelDifference": 0.1,
+          "maxChannelDifference": 32
+        }
+      }
+    ],
+    "coefficientPixelProbes": [],
+    "productionEndpointPngPdfRasterComparisons": [],
+    "productionEndpointThumbnailComparisons": [],
+    "pdfCapture": {
+      "exercised": true,
+      "skippedReason": null
+    },
+    "productionEndpointSmoke": {
+      "exercised": false,
+      "states": [],
+      "scope": "Host-blocked: browser-route and public endpoint capture require the local app server; direct deterministic HTML PNG evidence ran without a server."
+    }
+  }
+}

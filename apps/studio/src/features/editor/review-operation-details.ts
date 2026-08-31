@@ -70,18 +70,23 @@ export function operationDetails(
     )
     return {
       label: command.name,
-      context: `${command.maskType} mask · ${command.sourceNodeIds.length} source · ${contentIds.length} content layer${contentIds.length === 1 ? "" : "s"}`,
+      context: `${command.maskType} mask · ${command.sourceNodeIds.length} source${command.sourceNodeIds.length === 1 ? "" : "s"} · ${contentIds.length} content layer${contentIds.length === 1 ? "" : "s"}${command.parentGroupId ? ` · inside ${groupFor(command.parentGroupId)?.name ?? command.parentGroupId}` : " · top level"}`,
       before: `Separate layers: ${nodeNames(command.nodeIds).join(" · ")}`,
-      after: `Mask source: ${nodeNames(command.sourceNodeIds).join(" · ")}`,
+      after: `Mask source: ${nodeNames(command.sourceNodeIds).join(" · ")}${command.parentGroupId ? ` · Parent: ${groupFor(command.parentGroupId)?.name ?? command.parentGroupId}` : ""}`,
     }
   }
   if (command.type === "release_mask_group") {
     const group = groupFor(command.groupId)
+    const parent = group?.parentGroupId
+      ? groupFor(group.parentGroupId)
+      : undefined
     return {
       label: group?.name ?? command.groupId,
-      context: "Release mask",
+      context: parent ? `Release nested mask · ${parent.name}` : "Release mask",
       before: `Mask source: ${maskSourceNames(command.groupId).join(" · ") || "Unknown layer"}`,
-      after: "Mask group removed; layers remain on the page",
+      after: parent
+        ? `Mask group removed; layers return to ${parent.name}`
+        : "Mask group removed; layers remain on the page",
     }
   }
   if (command.type === "set_mask_type") {

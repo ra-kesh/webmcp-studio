@@ -152,6 +152,7 @@ export type ProductCommandArguments =
   | Readonly<{
       kind: "mask-create"
       sourceNodeIds: readonly [string, ...string[]]
+      parentGroupId: string | null
     }>
   | Readonly<{
       kind: "mask-sources"
@@ -178,6 +179,7 @@ export type ProductCommandArgumentContract =
       kind: "mask-create"
       fields: Readonly<{
         sourceNodeIds: Readonly<{ type: "string[]"; minItems: 1; maxItems: 4 }>
+        parentGroupId: Readonly<{ type: "string|null" }>
       }>
     }>
   | Readonly<{
@@ -225,6 +227,7 @@ export function productCommandArgumentContract(
       kind: "mask-create",
       fields: {
         sourceNodeIds: { type: "string[]", minItems: 1, maxItems: 4 },
+        parentGroupId: { type: "string|null" },
       },
     }
   }
@@ -961,6 +964,9 @@ function validateInvocationArguments(
   }
   if (invocation.commandId === "mask.create") {
     return invocation.arguments?.kind === "mask-create" &&
+      (invocation.arguments.parentGroupId === null ||
+        (typeof invocation.arguments.parentGroupId === "string" &&
+          invocation.arguments.parentGroupId.length > 0)) &&
       invocation.arguments.sourceNodeIds.length >= 1 &&
       invocation.arguments.sourceNodeIds.length <= 4 &&
       new Set(invocation.arguments.sourceNodeIds).size ===
@@ -1178,6 +1184,7 @@ function invocationEnabled(
     const sourceNodeIds = invocation.arguments.sourceNodeIds
     return Boolean(
       context.mask &&
+      invocation.arguments.parentGroupId === context.mask.createParentGroupId &&
       sourceNodeIds.length < (context.selection?.nodeIds.length ?? 0) &&
       sourceNodeIds.every((sourceNodeId) =>
         context.mask!.eligibleSourceNodeIds.includes(sourceNodeId)
@@ -1213,6 +1220,10 @@ function invocationDisabledReason(
     invocation.arguments?.kind === "mask-create"
   ) {
     const sourceNodeIds = invocation.arguments.sourceNodeIds
+    if (
+      invocation.arguments.parentGroupId !== context.mask?.createParentGroupId
+    )
+      return "The selected layers no longer share that exact mask parent."
     if (sourceNodeIds.length >= (context.selection?.nodeIds.length ?? 0))
       return "Keep at least one selected layer as masked content."
     if (
@@ -1504,6 +1515,7 @@ function itemFor(
       ? {
           kind: "mask-create" as const,
           sourceNodeIds: [context.mask.createSourceNodeIds[0]!] as const,
+          parentGroupId: context.mask.createParentGroupId,
         }
       : id === "mask.sources.set" &&
           context.mask?.reassignmentSourceNodeIds.length === 1

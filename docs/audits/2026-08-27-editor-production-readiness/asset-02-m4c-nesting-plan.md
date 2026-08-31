@@ -1,8 +1,8 @@
 # ASSET-02 M4C bounded mask nesting plan
 
 Date: 31 August 2026  
-Status: C0/C1 document plan accepted; C2–C5 remain open and no renderer or
-product-surface nesting acceptance is claimed
+Status: C0/C1 accepted; C2–C5 implementations committed and locally reviewed;
+M5 regression cleanup complete; independent C2–C5 acceptance remains open
 
 This checkpoint freezes the smallest mask-nesting slice that can be implemented
 and verified honestly across the document model, editor, every renderer, and
@@ -187,6 +187,39 @@ renderers, Inspector, Studio, or WebMCP nesting-capable; those remain C2–C4.
 
 Exit: structure survives every canonical copy and mutation path.
 
+Checkpoint `fe5cc475eb7704a7665a2958d96f3a556be2f9d2` closes the C2
+implementation on branch `codex/asset02-general-masks`, based on main
+`6265561ab4c9aa70c7489c2a90b3dcac6c1179d3`. It adds the optional canonical
+parent identity to `create_mask_group`, atomically removes a nested child's
+direct nodes from its parent, restores them in page order on child release, and
+keeps a child mask when its top-level parent is released. Parent-source capture,
+noncontiguous selection, a third mask level, locks, bindings, component-owned
+structure, stale revisions, and replay conflicts still fail before mutation.
+Nested type and ordered-source changes use the existing command and receipt
+boundary; semantic no-ops retain document identity.
+
+The same checkpoint fixes document-template cloning so both `parentGroupId` and
+every mask source ID map to fresh template identities. Focused tests prove
+complete and incomplete semantic fragments, component materialization and
+refresh, variant application, component structural protection, deterministic
+template cloning, and exact nested create/release undo and redo.
+
+Verification for the committed implementation:
+
+- focused command, semantic-clone, component, template, and history files:
+  123/123 tests passed;
+- complete document suite: 416/416 tests passed;
+- complete editor suite: 371/371 tests passed;
+- document and editor typechecks passed;
+- changed files passed Prettier and `git diff --check`; and
+- in-thread code review found no remaining C2 correctness issue.
+
+This is not an independent acceptance. C2 remains marked implemented, reviewed
+locally, committed, not merged, and independently unaccepted until a separate
+reviewer verifies the commit. At this checkpoint C3 renderer support had not
+started. Inspector, Studio, and WebMCP still need C4 argument and capability
+wiring; no retained or public output evidence is claimed.
+
 ### C3 — Fabric, React, and deterministic HTML
 
 - render bottom-up with correct local coordinates and composite ownership;
@@ -196,6 +229,40 @@ Exit: structure survives every canonical copy and mutation path.
 
 Exit: the three renderers agree on structure, bounds, ordering, readiness, and
 failure attribution.
+
+Checkpoint `1245f4fb616ee5a816d39f356b27d8663cfbee9a` closes the C3
+implementation on branch `codex/asset02-general-masks`. Fabric now constructs a
+complete candidate tree bottom-up, hands each completed child composite to its
+parent in canonical page geometry, preflights every image and luminance resource
+in the mask subtree before replacing mounted pixels, preserves the prior scene
+on descendant failure or stale work, flattens all-hidden child relations, and
+disposes each superseded retained object once through Fabric's recursive group
+ownership.
+
+React now consumes recursive paint-plan entries and holds the complete outer
+subtree behind one image, font, and luminance readiness transaction. A failed or
+stale descendant retains the committed outer model and reports the exact node
+and failure class. Deterministic HTML retains recursive canonical ordering,
+unique group-derived mask and filter IDs, correct nested translation, and one
+document-wide readiness scan that now includes fonts used by ordinary nested
+text content. The renderer Worker admits a valid nested tree and rejects a
+third mask level before browser allocation or capture.
+
+Verification for the committed implementation:
+
+- complete editor suite: 375/375 tests passed;
+- complete React render-view suite: 34/34 tests passed;
+- complete renderer suite: 101/101 tests passed;
+- focused document projection and validation suites: 54/54 tests passed;
+- document, editor, render-view, and renderer typechecks passed;
+- changed files passed Prettier and `git diff --check`; and
+- in-thread code review found and corrected Fabric's nested group recentering
+  and recursive-disposal ownership before the checkpoint was committed.
+
+This is not an independent acceptance. C3 is implemented, locally reviewed,
+committed, not merged, and independently unaccepted. C4 product surfaces and C5
+retained/public output evidence remain open; no pixel or public-output
+acceptance is claimed by this checkpoint.
 
 ### C4 — inspector, Studio, history surfaces, and WebMCP
 
@@ -216,6 +283,94 @@ Exit: every human and agent surface reaches one canonical command boundary.
 
 Exit: nested pixels, resources, errors, and budgets conform across every output.
 Only then may M4C acceptance change.
+
+## Exact gate ledger
+
+| Gate  | Implementation                                                                                    | Review and evidence                                                                                                                                                                                           | Accepted                 | Merged |
+| ----- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ | ------ |
+| C0/C1 | `5381410` document implementation; recorded on main at `6265561ab4c9aa70c7489c2a90b3dcac6c1179d3` | Existing independent document-plan acceptance                                                                                                                                                                 | Yes, document scope only | Yes    |
+| C2    | `fe5cc475eb7704a7665a2958d96f3a556be2f9d2`                                                        | 123 focused, 416 document, and 371 editor tests; local code review complete; independent review pending                                                                                                       | No                       | No     |
+| C3    | `1245f4fb616ee5a816d39f356b27d8663cfbee9a`                                                        | 375 editor, 34 React, 101 renderer, and 54 document tests; local code review complete; independent review pending                                                                                             | No                       | No     |
+| C4    | `41becdac5f9538ade2f8d871e2cd5879486ab91e`                                                        | 376 editor, 67 WebMCP, 24 focused Studio, and 1 keyboard E2E tests; three typechecks and local review complete; independent review pending                                                                    | No                       | No     |
+| C5    | `b91732b`; negative-evidence addendum `7a70487`; thumbnail boundary fix `69585f7`                 | Two retained runs cover renderer, scale, export, thumbnail, public parity, resource failure, depth, and area limits; full suites are green after `86e568f`; local review complete; independent review pending | No                       | No     |
+
+#### C5 retained/public checkpoint — 1 September 2026
+
+The frozen positive corpus now covers three exact nested states:
+
+- vector over alpha with image crop, rich text/run fonts, and multiple sources;
+- luminance over vector with one hidden source;
+- alpha over luminance with every source hidden.
+
+The retained browser/public run is
+`2026-08-31T21-12-17.709Z-2478ac38-c866-4d67-a3c5-ac224f75788a`; the retained
+direct run is
+`2026-08-31T21-06-59.232Z-5a17539e-d461-46b8-b7e8-1cc16975fd52`. They are
+split because the direct renderer and the local Browser Rendering lifecycle
+have different stability boundaries; together they cover Fabric versus React,
+direct 1x versus downsampled 2x, direct and public PNG versus PDF raster,
+thumbnail versus downsampled public PNG, and all public PNG, thumbnail, and PDF
+endpoints. The exact images, thresholds, and measurements are recorded in
+`mask-nesting-capture-report.json` and
+`mask-nesting-direct-capture-report.json` beside this plan.
+
+Every comparison is within its frozen threshold. Fabric versus React produced
+2,481, 0, and 4,287 pixels over delta 8 for the three states, with maximum
+deltas of 35, 0, and 89. Public PNG versus public PDF raster produced 0, 1, and
+746 pixels over delta 8; public thumbnails versus downsampled public PNG
+produced 244, 188, and 517. Direct PNG versus direct PDF raster produced 0,
+504, and 743; direct 1x versus downsampled 2x produced 479, 380, and 1,029.
+Visual inspection confirmed the three direct PNGs preserve the intended nested
+mask semantics.
+
+The same reports now retain three hashed negative fixtures. Direct HTML records
+the exact nested descendant `image_decode_failed` identity before capture, and
+the paint-plan boundary records third-level nesting and summed 2x composite
+area rejection before allocation. Every public PNG, thumbnail, and PDF endpoint
+returns 422 for all three fixtures: corrupt inline image admission reports
+`render_resource_admission_failed` / `image_resource_inline_invalid`, depth
+reports `document_validation_failed` / `invalid_group`, and area reports
+`document_validation_failed` / `render_limit_exceeded`. This matrix exposed and
+closed a thumbnail-only 500 at `69585f7`; semantic thumbnail input now fails
+before preparation, capacity reservation, or renderer invocation.
+Stale-resource and last-valid-subtree behavior remains covered by the focused
+Fabric and React contracts.
+
+Final verification passed 420/420 document, 376/376 editor, 34/34 React,
+101/101 renderer, 67/67 WebMCP, and 1,767/1,767 Studio tests, plus all six relevant
+typechecks, scoped Studio lint, Prettier, and `git diff --check`. The M5 test-only
+cleanup at `86e568f` aligned stale schema, catalog, template, mounted-hook, and
+thumbnail expectations with the current product contracts; it did not change
+production behavior.
+
+C5 is implemented, locally reviewed, and retained, but the required independent
+code and output review has not occurred. C2–C5 therefore remain independently
+unaccepted and unmerged, and overall M4C acceptance does not change.
+
+#### C4 product-surface checkpoint — 1 September 2026
+
+The inspector now admits only a direct child of one exact mask parent and
+mirrors the canonical parent-source, contiguity, depth, lock, component, and
+paint-budget rules before dispatch. Nested release, type, and source operations
+remain available when their complete subtree is valid. The required nullable
+`parentGroupId` travels through the product-command contract, inspector,
+shortcut, Studio editor hook, review details, WebMCP parser, capability ID, and
+single-operation proposal without inference or source truncation.
+
+Focused verification passed 96 editor tests, 54 WebMCP tests, 24 Studio tests,
+and one real Chrome keyboard/Layers/history test on port 3001. Full editor
+(376/376) and WebMCP (67/67) suites and editor, WebMCP, and Studio typechecks
+also passed. Prettier and `git diff --check` passed, and local review corrected
+outer-mask mutation admission to include locked or component-owned child
+descendants.
+
+An exploratory full Studio run passed 1,748 of 1,765 tests. Its 17 failures were
+outside the C4 mask path: stale schema/template/catalog expectations, an
+unmigrated curated-asset timeout, and existing mounted audit-hook/time-sensitive
+fixtures. They were assigned to M5 cleanup and are retained here as the
+historical C4 result; the focused Studio surface tests and the nested keyboard
+E2E were green. C4 is implemented and locally verified, but is not
+independently accepted or merged.
 
 ## Required focused tests
 

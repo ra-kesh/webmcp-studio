@@ -16,6 +16,7 @@ const routes = [
   "/v1/studio/templates/",
   "/v1/studio/quotation-compositions",
   "/v1/studio/assets/local-promotions/resolve",
+  "/v1/studio/media-derivations",
   "/v1/studio/library/items/:itemKind/:itemId/versions/:version/favorite",
   "/v1/studio/library/items/:itemKind/:itemId/versions/:version/used",
   "/v1/studio/library/collections",
@@ -66,6 +67,10 @@ describe("Studio JSON request policies", () => {
       },
       "/v1/studio/assets/local-promotions/resolve": {
         maxBytes: 32_000,
+        requireContentLength: true,
+      },
+      "/v1/studio/media-derivations": {
+        maxBytes: 2_048,
         requireContentLength: true,
       },
       "/v1/studio/library/items/:itemKind/:itemId/versions/:version/favorite": {

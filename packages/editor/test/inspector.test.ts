@@ -503,6 +503,104 @@ describe("mask command capabilities", () => {
     )
   })
 
+  it("admits one exact child mask and keeps nested mutation surfaces enabled", () => {
+    const document = structuredClone(northstarSeed)
+    const page = document.pages.find((candidate) => candidate.id === "cover")!
+    const panel = document.nodes.find((node) => node.id === "cover-panel")!
+    const childSource = {
+      ...structuredClone(panel),
+      id: "nested-child-source",
+      name: "Nested child source",
+    }
+    const childContent = {
+      ...structuredClone(panel),
+      id: "nested-child-content",
+      name: "Nested child content",
+    }
+    document.nodes.push(childSource, childContent)
+    page.nodeIds = [
+      "cover-panel",
+      childSource.id,
+      childContent.id,
+      ...page.nodeIds.filter((nodeId) => nodeId !== "cover-panel"),
+    ]
+    document.groups = [
+      {
+        id: "outer-mask",
+        pageId: page.id,
+        name: "Outer mask",
+        role: "mask",
+        nodeIds: ["cover-panel", childSource.id, childContent.id],
+        mask: { type: "vector", sourceNodeIds: ["cover-panel"] },
+      },
+    ]
+
+    const capabilities = deriveInspectorMaskCapabilities({
+      document,
+      pageId: page.id,
+      selectedNodeIds: [childContent.id, childSource.id],
+    })
+
+    expect(capabilities.create).toEqual({ enabled: true, disabledReason: null })
+    expect(capabilities.createParentGroupId).toBe("outer-mask")
+    expect(capabilities.createSourceNodeIds).toEqual([childSource.id])
+    expect(
+      deriveInspectorMaskCapabilities({
+        document,
+        pageId: page.id,
+        selectedNodeIds: ["cover-panel", childSource.id],
+      }).create.disabledReason
+    ).toBe("A parent mask source cannot move into its child mask.")
+
+    const nested = applyCommand(document, {
+      id: "inspector-nested-create",
+      type: "create_mask_group",
+      actor: "human",
+      at: "2026-08-31T17:05:00.000Z",
+      expectedRevision: document.revision,
+      pageId: page.id,
+      groupId: "child-mask",
+      parentGroupId: capabilities.createParentGroupId!,
+      name: "Child mask",
+      nodeIds: [childContent.id, childSource.id],
+      sourceNodeIds: [childSource.id],
+      maskType: "vector",
+    })
+    const childCapabilities = deriveInspectorMaskCapabilities({
+      document: nested,
+      pageId: page.id,
+      selectedNodeIds: [childSource.id, childContent.id],
+      selectedGroupId: "child-mask",
+      candidateSourceNodeIds: [childContent.id],
+    })
+
+    expect(childCapabilities.release.enabled).toBe(true)
+    expect(childCapabilities.setAlpha.enabled).toBe(true)
+    expect(childCapabilities.setSources.enabled).toBe(true)
+    expect(
+      deriveInspectorMaskCapabilities({
+        document: nested,
+        pageId: page.id,
+        selectedNodeIds: [childSource.id, childContent.id],
+      }).create.disabledReason
+    ).toBe("A mask can contain only one nested mask level.")
+
+    const lockedNested = structuredClone(nested)
+    lockedNested.nodes.find((node) => node.id === childContent.id)!.locked =
+      true
+    expect(
+      deriveInspectorMaskCapabilities({
+        document: lockedNested,
+        pageId: page.id,
+        selectedNodeIds: ["cover-panel", childSource.id, childContent.id],
+        selectedGroupId: "outer-mask",
+      }).release
+    ).toEqual({
+      enabled: false,
+      disabledReason: "Unlock the selected layers before editing masks.",
+    })
+  })
+
   it("gives the exact active composite count reason after front-edge compaction", () => {
     const document = structuredClone(northstarSeed)
     document.groups = []
@@ -582,7 +680,7 @@ describe("mask command capabilities", () => {
     )
   })
 
-  it("rejects stroked, bound, nested, and component-owned source structure truthfully", () => {
+  it("rejects stroked, bound, organize-parent, and component-owned source structure truthfully", () => {
     const stroked = structuredClone(northstarSeed)
     stroked.groups = []
     const panel = stroked.nodes.find((node) => node.id === "cover-panel")
@@ -628,7 +726,7 @@ describe("mask command capabilities", () => {
         pageId: "cover",
         selectedNodeIds: ["cover-panel", "cover-title"],
       }).create.disabledReason
-    ).toBe("Nested mask groups are not available in this version.")
+    ).toBe("Nested masks can only be created inside a mask group.")
   })
 
   it("rejects mixed parents and both kinds of component ownership", () => {

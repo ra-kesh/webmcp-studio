@@ -366,7 +366,11 @@ function MaskInspectorSection({
         nodeIds: selection.nodeIds,
         groupId: selection.groupId ?? null,
       },
-      arguments: { kind: "mask-create", sourceNodeIds: [sourceNodeId] },
+      arguments: {
+        kind: "mask-create",
+        sourceNodeIds: [sourceNodeId],
+        parentGroupId: capabilities.createParentGroupId,
+      },
     })
   }
   const groupTarget =
@@ -3891,7 +3895,7 @@ function ReviewPanel({
                   <p className="text-xs leading-relaxed font-medium break-words">
                     {pendingGeneratedDocument.candidate.name}
                   </p>
-                  <p className="mt-1 text-[10px] text-muted-foreground">
+                  <p className="mt-1 text-[11px] text-muted-foreground">
                     {pendingGeneratedDocument.summary.pages.length} page
                     {pendingGeneratedDocument.summary.pages.length === 1
                       ? ""
@@ -3899,7 +3903,7 @@ function ReviewPanel({
                     · {pendingGeneratedDocument.candidate.nodes.length} editable
                     layers
                   </p>
-                  <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+                  <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
                     {pendingGeneratedDocument.provenance.skill.title} ·{" "}
                     {pendingGeneratedDocument.start.kind === "template"
                       ? `Template ${pendingGeneratedDocument.start.template.id} v${pendingGeneratedDocument.start.template.version}`
@@ -3935,10 +3939,10 @@ function ReviewPanel({
                         />
                       </div>
                     </div>
-                    <p className="mt-1 truncate text-[9px] font-medium">
+                    <p className="mt-1 truncate text-[11px] font-medium">
                       {page.name}
                     </p>
-                    <p className="text-[9px] text-muted-foreground tabular-nums">
+                    <p className="text-[11px] text-muted-foreground tabular-nums">
                       {page.width} × {page.height}
                     </p>
                   </div>
@@ -3946,7 +3950,7 @@ function ReviewPanel({
               })}
             </div>
 
-            <div className="grid gap-2 rounded-lg border bg-muted/20 p-2.5 text-[10px]">
+            <div className="grid gap-2 rounded-lg border bg-muted/20 p-2.5 text-[11px]">
               <p>
                 <span className="text-muted-foreground">Structure:</span>{" "}
                 {pendingGeneratedDocument.summary.structuralChanges.join(" · ")}

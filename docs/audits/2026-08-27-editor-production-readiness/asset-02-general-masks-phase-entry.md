@@ -499,6 +499,66 @@ and only then change this gate to accepted.
   blockers, and C0–C5 implementation gates are recorded in
   [`asset-02-m4c-nesting-plan.md`](./asset-02-m4c-nesting-plan.md).
 
+M4C C2 structural implementation is committed at
+`fe5cc475eb7704a7665a2958d96f3a556be2f9d2`; C3 renderer implementation is
+committed at `1245f4fb616ee5a816d39f356b27d8663cfbee9a`; C4 product-surface
+implementation is committed at `41becdac5f9538ade2f8d871e2cd5879486ab91e`;
+C5 retained-output implementation is committed at `b91732b`, its negative
+evidence addendum at `7a70487`, and the thumbnail-boundary correction it exposed
+at `69585f7`; the M5 test-only regression cleanup is committed at `86e568f`.
+Commands, history, semantic clone, components, templates, Fabric, React,
+deterministic HTML, the renderer admission boundary, Studio, review, product
+commands, and WebMCP now preserve or consume the admitted two-level relation.
+All implementation checkpoints are locally reviewed and verified but not
+independently accepted or merged. C5 retained/public evidence now exists;
+independent C2–C5 acceptance and overall M4C acceptance remain open. The exact
+status and test ledger live in the bounded nesting plan linked above.
+
+#### M4C C4 product-surface checkpoint — 1 September 2026
+
+Nested creation carries one required nullable parent identity from the
+inspector and Layers selection through keyboard dispatch, the Studio editor
+hook, the typed product invocation, WebMCP capability minting, and one canonical
+`create_mask_group` proposal. Capability IDs remain bound to document,
+snapshot, ordered selection, ordered sources, and the exact parent mask. Review
+details distinguish top-level creation from creation inside a named parent and
+truthfully describe nested release back into that parent.
+
+The C4 gate passed 376 editor tests, 67 WebMCP tests, 24 focused Studio tests,
+one Chrome keyboard/Layers/history E2E on port 3001, all three relevant
+typechecks, formatting, diff checking, and local code review. The repository-wide
+Studio run passed 1,748 of 1,765 tests; its 17 non-C4 failures remain recorded in
+the bounded plan as the historical C4 result rather than being represented as
+product-surface evidence. C4 remains independently unaccepted and unmerged.
+
+#### M4C C5 retained-output and M5 cleanup checkpoint — 1 September 2026
+
+C5 adds three coefficient-sensitive nested fixtures covering vector, alpha,
+luminance, image crop, rich text/run fonts, multiple sources, one-hidden, and
+all-hidden behavior. Two retained runs compare Fabric with React, direct 1x
+with downsampled 2x, PNG with PDF raster, thumbnails with downsampled PNG, and
+the public PNG, thumbnail, and PDF endpoints. Every comparison is within the
+frozen threshold; the exact paths and metrics are recorded in
+[`mask-nesting-capture-report.json`](./mask-nesting-capture-report.json) and
+[`mask-nesting-direct-capture-report.json`](./mask-nesting-direct-capture-report.json).
+Those reports also retain hashed descendant-image-failure, third-level-depth,
+and summed-2x-area fixtures. Direct HTML proves the node-specific decode error
+before capture; the paint planner proves both limits before allocation; and all
+nine public PNG, thumbnail, and PDF negative requests return 422 with stable
+resource-admission or document-validation identities. The negative run exposed
+a thumbnail-only 500, fixed at `69585f7`; the complete negative-evidence
+addendum is committed at `7a70487`. Focused contracts continue to prove stale
+candidates and last-valid subtree preservation.
+
+Final verification passed 420/420 document, 376/376 editor, 34/34 React,
+101/101 renderer, 67/67 WebMCP, and 1,767/1,767 Studio tests. All six relevant
+typechecks, scoped Studio lint, Prettier, and `git diff --check` also passed. The
+M5 cleanup only refreshed stale test fixtures and expectations; it made no
+production behavior change. C5 is implemented, retained, and locally reviewed,
+but its required independent code and output review has not occurred. C2–C5
+therefore remain independently unaccepted and unmerged, and M4C acceptance does
+not change.
+
 Exit: nested and multi-source cases have strict limits, exact undo, deterministic cloning, and pixel conformance.
 
 #### M4A domain checkpoint — 31 August 2026

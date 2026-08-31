@@ -14,6 +14,7 @@ import {
   Point,
   Rect,
   Textbox,
+  util,
   type TextboxProps,
   type TextStyle,
   type ModifiedEvent,
@@ -1518,6 +1519,12 @@ export type FabricVectorMaskPaint =
 export type FabricAlphaMaskPaint = FabricVectorMaskPaint
 export type FabricLuminanceMaskPaint = FabricVectorMaskPaint
 
+class FabricMaskGroup extends Group {
+  override needsItsOwnCache() {
+    return true
+  }
+}
+
 function createFabricVectorMaskObject(
   source: Extract<SceneNode, { type: "rect" | "ellipse" | "icon" }>
 ) {
@@ -1557,7 +1564,12 @@ function createFabricMaskSourceUnion(
     applyFabricAlphaMaskPaint(source)
     return source
   }
-  const union = new Group([...sourceObjects], {
+  const pageTransforms = new Map(
+    sourceObjects.map(
+      (source) => [source, source.calcTransformMatrix()] as const
+    )
+  )
+  const union = new FabricMaskGroup([...sourceObjects], {
     left: bounds.x,
     top: bounds.y,
     width: bounds.width,
@@ -1569,6 +1581,7 @@ function createFabricMaskSourceUnion(
     selectable: false,
     evented: false,
   })
+  preserveFabricChildPageTransforms(union, pageTransforms)
   applyFabricAlphaMaskPaint(union)
   return union
 }
@@ -1592,36 +1605,113 @@ function applyFabricAlphaMaskSourcePaint(object: FabricObject) {
 }
 
 function pagePaintPlanIdentity(plan: PagePaintPlan) {
-  return JSON.stringify(
-    plan.entries.map((entry) =>
-      entry.kind === "node"
-        ? ["node", entry.nodeId]
-        : [
-            "mask",
-            entry.groupId,
-            entry.maskType,
-            entry.sourceNodeIds,
-            entry.visibleSourceNodeIds,
-            entry.content.map((content) =>
-              content.kind === "node" ? content.nodeId : content.groupId
-            ),
-            entry.bounds,
-            entry.maskEnabled,
-            entry.compositeRequired,
-          ]
-    )
-  )
+  const entryIdentity = (entry: PagePaintPlanEntry): unknown =>
+    entry.kind === "node"
+      ? ["node", entry.nodeId]
+      : [
+          "mask",
+          entry.groupId,
+          entry.maskType,
+          entry.sourceNodeIds,
+          entry.visibleSourceNodeIds,
+          entry.content.map(entryIdentity),
+          entry.bounds,
+          entry.outputBounds,
+          entry.maskEnabled,
+          entry.compositeRequired,
+        ]
+  return JSON.stringify(plan.entries.map(entryIdentity))
 }
 
-function positionFabricMaskContentObject(
-  object: FabricObject,
-  bounds: PagePaintBounds
+type FabricMaskGroupEntry = Extract<PagePaintPlanEntry, { kind: "mask_group" }>
+
+function visitFabricMaskEntries(
+  entries: readonly PagePaintPlanEntry[],
+  visit: (entry: FabricMaskGroupEntry) => void
 ) {
-  object.set({
-    left: (object.left ?? 0) - bounds.x - bounds.width / 2,
-    top: (object.top ?? 0) - bounds.y - bounds.height / 2,
-  })
+  for (const entry of entries) {
+    if (entry.kind !== "mask_group") continue
+    visitFabricMaskEntries(entry.content, visit)
+    visit(entry)
+  }
+}
+
+function disposeFabricObjectForest(objects: Iterable<FabricObject>) {
+  const owned = new Set(objects)
+  for (const object of owned) {
+    // Fabric Group.dispose() recursively owns its children. Dispose only roots
+    // in this candidate forest so every retained object receives one cleanup.
+    if (object.group && owned.has(object.group)) continue
+    object.dispose()
+  }
+}
+
+function preserveFabricChildPageTransforms(
+  group: Group,
+  pageTransforms: ReadonlyMap<
+    FabricObject,
+    ReturnType<FabricObject["calcTransformMatrix"]>
+  >
+) {
+  const inverseGroupTransform = util.invertTransform(
+    group.calcTransformMatrix()
+  )
+  for (const [child, pageTransform] of pageTransforms) {
+    util.applyTransformToObject(
+      child,
+      util.multiplyTransformMatrices(inverseGroupTransform, pageTransform)
+    )
+    child.setCoords()
+  }
+  group.set({ dirty: true })
+  group.setCoords()
+}
+
+function preserveFabricObjectPageTransformAfterSync(object: FabricObject) {
+  if (!object.group) return
+  util.applyTransformToObject(
+    object,
+    util.multiplyTransformMatrices(
+      util.invertTransform(object.group.calcTransformMatrix()),
+      object.calcOwnMatrix()
+    )
+  )
   object.setCoords()
+}
+
+function markFabricObjectAncestorsDirty(object: FabricObject) {
+  let parent = object.group
+  while (parent) {
+    parent.set({ dirty: true })
+    parent = parent.group
+  }
+}
+
+function createFabricMaskComposite(
+  entry: FabricMaskGroupEntry,
+  contentObjects: readonly FabricObject[],
+  maskObject: FabricObject
+) {
+  const children = [...contentObjects, maskObject]
+  const pageTransforms = new Map(
+    children.map((child) => [child, child.calcTransformMatrix()] as const)
+  )
+  const object = new FabricMaskGroup(children, {
+    left: entry.bounds.x,
+    top: entry.bounds.y,
+    width: entry.bounds.width,
+    height: entry.bounds.height,
+    originX: "left",
+    originY: "top",
+    layoutManager: new LayoutManager(new FixedLayout()),
+    objectCaching: true,
+    selectable: false,
+    evented: true,
+    interactive: true,
+    subTargetCheck: true,
+    hasControls: false,
+  })
+  preserveFabricChildPageTransforms(object, pageTransforms)
   return object
 }
 
@@ -1644,7 +1734,21 @@ export function createFabricVectorMaskPaint(
     }
     return node
   })
-  const contentObjects = contentNodes.map(createContentObject)
+  return createFabricVectorMaskPaintFromObjects(
+    entry,
+    nodesById,
+    contentNodes.map(createContentObject)
+  )
+}
+
+function createFabricVectorMaskPaintFromObjects(
+  entry: FabricMaskGroupEntry,
+  nodesById: ReadonlyMap<string, SceneNode>,
+  contentObjects: readonly FabricObject[]
+): FabricVectorMaskPaint {
+  if (entry.maskType !== "vector") {
+    throw new Error("Fabric only supports admitted vector mask paint entries")
+  }
 
   // A hidden source explicitly falls through to normal content paint. Do not
   // allocate a Group (and therefore no bounded offscreen cache) in this case.
@@ -1667,7 +1771,6 @@ export function createFabricVectorMaskPaint(
   const sourceObjects = new Map<string, FabricObject>()
   for (const source of sources) {
     const object = createFabricVectorMaskObject(source)
-    positionFabricMaskContentObject(object, entry.bounds)
     sourceObjects.set(source.id, object)
   }
   const maskObject = createFabricMaskSourceUnion(
@@ -1677,25 +1780,7 @@ export function createFabricVectorMaskPaint(
   // Detached objects are page-positioned. Convert them to the fixed
   // composite's centre-local coordinates without changing their own affine
   // properties or canonical node geometry.
-  const objects = contentObjects.map((object) =>
-    positionFabricMaskContentObject(object, entry.bounds)
-  )
-  const object = new Group([...objects, maskObject], {
-    left: entry.bounds.x,
-    top: entry.bounds.y,
-    width: entry.bounds.width,
-    height: entry.bounds.height,
-    originX: "left",
-    originY: "top",
-    layoutManager: new LayoutManager(new FixedLayout()),
-    objectCaching: true,
-    selectable: false,
-    evented: true,
-    interactive: true,
-    subTargetCheck: true,
-    hasControls: false,
-  })
-  object.setCoords()
+  const object = createFabricMaskComposite(entry, contentObjects, maskObject)
   return { kind: "composite", object, maskObject, sourceObjects }
 }
 
@@ -1722,7 +1807,23 @@ export function createFabricAlphaMaskPaint(
       throw new Error(`Fabric mask content ${content.nodeId} is missing`)
     return node
   })
-  const contentObjects = contentNodes.map(createContentObject)
+  return createFabricAlphaMaskPaintFromObjects(
+    entry,
+    nodesById,
+    contentNodes.map(createContentObject),
+    createSourceObject
+  )
+}
+
+function createFabricAlphaMaskPaintFromObjects(
+  entry: FabricMaskGroupEntry,
+  nodesById: ReadonlyMap<string, SceneNode>,
+  contentObjects: readonly FabricObject[],
+  createSourceObject: (node: SceneNode) => FabricObject
+): FabricAlphaMaskPaint {
+  if (entry.maskType !== "alpha") {
+    throw new Error("Fabric alpha paint requires an alpha mask group entry")
+  }
   if (!entry.compositeRequired) {
     return { kind: "fallthrough", objects: contentObjects }
   }
@@ -1744,32 +1845,13 @@ export function createFabricAlphaMaskPaint(
     if (isMissingImagePlaceholder(sourceObject)) {
       throw new Error(`Fabric alpha mask source ${source.id} is unavailable`)
     }
-    positionFabricMaskContentObject(sourceObject, entry.bounds)
     sourceObjects.set(source.id, sourceObject)
   }
   const maskObject = createFabricMaskSourceUnion(
     [...sourceObjects.values()],
     entry.bounds
   )
-  const objects = contentObjects.map((object) =>
-    positionFabricMaskContentObject(object, entry.bounds)
-  )
-  const object = new Group([...objects, maskObject], {
-    left: entry.bounds.x,
-    top: entry.bounds.y,
-    width: entry.bounds.width,
-    height: entry.bounds.height,
-    originX: "left",
-    originY: "top",
-    layoutManager: new LayoutManager(new FixedLayout()),
-    objectCaching: true,
-    selectable: false,
-    evented: true,
-    interactive: true,
-    subTargetCheck: true,
-    hasControls: false,
-  })
-  object.setCoords()
+  const object = createFabricMaskComposite(entry, contentObjects, maskObject)
   return { kind: "composite", object, maskObject, sourceObjects }
 }
 
@@ -1800,7 +1882,25 @@ export function createFabricLuminanceMaskPaint(
     }
     return node
   })
-  const contentObjects = contentNodes.map(createContentObject)
+  return createFabricLuminanceMaskPaintFromObjects(
+    entry,
+    nodesById,
+    contentNodes.map(createContentObject),
+    preparedUnion
+  )
+}
+
+function createFabricLuminanceMaskPaintFromObjects(
+  entry: FabricMaskGroupEntry,
+  nodesById: ReadonlyMap<string, SceneNode>,
+  contentObjects: readonly FabricObject[],
+  preparedUnion?: FabricLuminanceMaskUnion
+): FabricLuminanceMaskPaint {
+  if (entry.maskType !== "luminance") {
+    throw new Error(
+      "Fabric luminance paint requires a luminance mask group entry"
+    )
+  }
   if (!entry.compositeRequired) {
     return { kind: "fallthrough", objects: contentObjects }
   }
@@ -1822,29 +1922,8 @@ export function createFabricLuminanceMaskPaint(
     )
   }
 
-  const maskObject = positionFabricMaskContentObject(
-    preparedUnion.maskObject,
-    entry.bounds
-  )
-  const objects = contentObjects.map((object) =>
-    positionFabricMaskContentObject(object, entry.bounds)
-  )
-  const object = new Group([...objects, maskObject], {
-    left: entry.bounds.x,
-    top: entry.bounds.y,
-    width: entry.bounds.width,
-    height: entry.bounds.height,
-    originX: "left",
-    originY: "top",
-    layoutManager: new LayoutManager(new FixedLayout()),
-    objectCaching: true,
-    selectable: false,
-    evented: true,
-    interactive: true,
-    subTargetCheck: true,
-    hasControls: false,
-  })
-  object.setCoords()
+  const maskObject = preparedUnion.maskObject
+  const object = createFabricMaskComposite(entry, contentObjects, maskObject)
   return {
     kind: "composite",
     object,
@@ -3262,11 +3341,11 @@ export class FabricCanvasAdapter implements CanvasAdapter {
           if (maskEntry.visibleSourceNodeIds.length === 1) {
             applyFabricAlphaMaskPaint(maskObject)
           }
-          positionFabricMaskContentObject(maskObject, maskEntry.bounds)
+          preserveFabricObjectPageTransformAfterSync(maskObject)
         }
       } else {
         const maskEntry = this.maskEntryByContentNodeId.get(nodeId)
-        if (maskEntry) positionFabricMaskContentObject(object, maskEntry.bounds)
+        if (maskEntry) preserveFabricObjectPageTransformAfterSync(object)
       }
       this.nodeByNodeId.set(nodeId, node)
       if (node.type === "text") {
@@ -3290,13 +3369,13 @@ export class FabricCanvasAdapter implements CanvasAdapter {
   ) {
     const canvas = this.canvas
     if (!canvas) return
+    const maskEntries: FabricMaskGroupEntry[] = []
+    visitFabricMaskEntries(plan.entries, (entry) => maskEntries.push(entry))
     const inactiveMaskSourceIds = new Set(
-      plan.entries.flatMap((entry) =>
-        entry.kind === "mask_group"
-          ? entry.sourceNodeIds.filter(
-              (sourceId) => !entry.visibleSourceNodeIds.includes(sourceId)
-            )
-          : []
+      maskEntries.flatMap((entry) =>
+        entry.sourceNodeIds.filter(
+          (sourceId) => !entry.visibleSourceNodeIds.includes(sourceId)
+        )
       )
     )
     const images = page.nodeIds.flatMap((nodeId) => {
@@ -3305,60 +3384,101 @@ export class FabricCanvasAdapter implements CanvasAdapter {
         ? [node]
         : []
     })
+    const candidateObjects = new Set<FabricObject>()
     const preparedImages = prepareFabricImageObjects(images, signal)
+    for (const [nodeId, prepared] of preparedImages) {
+      preparedImages.set(
+        nodeId,
+        prepared.then((object) => {
+          candidateObjects.add(object)
+          return object
+        })
+      )
+    }
     const createObject = async (node: SceneNode) => {
       const prepared =
         node.type === "image" ? preparedImages.get(node.id) : undefined
-      return createFabricObjectForSync(
+      const object = await createFabricObjectForSync(
         node,
         (imageNode) =>
           prepared ?? createImageObjectWithinDeadline(imageNode, signal),
         signal
       )
+      candidateObjects.add(object)
+      return object
     }
 
-    // Alpha/luminance source decode is an admission barrier, not a recovery placeholder.
-    // Resolve it before replacing the mounted paint plan so a failed source
-    // leaves the last valid editor pixels intact.
-    for (const entry of plan.entries) {
-      if (
-        entry.kind !== "mask_group" ||
-        (entry.maskType !== "alpha" && entry.maskType !== "luminance") ||
-        !entry.compositeRequired
-      ) {
-        continue
-      }
-      for (const sourceId of entry.visibleSourceNodeIds) {
-        const source = nodesById.get(sourceId)
-        if (source?.type === "image") {
-          await preparedImages.get(source.id)
-          signal?.throwIfAborted()
-          if (generation !== this.generation || !this.canvas) return
-        }
-      }
-    }
+    const candidateObjectByNodeId = new Map<string, FabricObject>()
+    const candidateMaskEntryByContentNodeId = new Map<
+      string,
+      FabricMaskGroupEntry
+    >()
+    const candidateMaskSourceNodeIds = new Set<string>()
+    const candidateMaskEntryBySourceNodeId = new Map<
+      string,
+      FabricMaskGroupEntry
+    >()
+    const candidateMaskPaintObjectBySourceNodeId = new Map<
+      string,
+      FabricObject
+    >()
+    const candidateMaskCompositeByGroupId = new Map<string, Group>()
+    const candidateSelectionProxies: FabricObject[] = []
+    let installed = false
 
-    // Luminance conversion is another admission barrier. Prepare every bounded
-    // raster while the previous Fabric scene is still mounted. If readback or
-    // conversion fails, the caller receives the failure and last-valid pixels
-    // remain untouched.
+    const disposeCandidates = () => {
+      disposeFabricObjectForest(candidateObjects)
+      candidateObjects.clear()
+    }
+    const isStale = () =>
+      generation !== this.generation || this.canvas !== canvas
+
     const preparedLuminanceByGroupId = new Map<
       string,
       FabricLuminanceMaskUnion
     >()
+    const disposePreparedUnion = (union: FabricLuminanceMaskUnion) => {
+      for (const sourceObject of union.sourceObjects.values()) {
+        candidateObjects.delete(sourceObject)
+      }
+      candidateObjects.delete(union.maskObject)
+      disposeFabricLuminanceMaskUnion(union)
+    }
     const disposePreparedLuminance = () => {
       for (const union of preparedLuminanceByGroupId.values()) {
-        disposeFabricLuminanceMaskUnion(union)
+        disposePreparedUnion(union)
       }
       preparedLuminanceByGroupId.clear()
     }
+
     try {
-      for (const entry of plan.entries) {
-        if (
-          entry.kind !== "mask_group" ||
-          entry.maskType !== "luminance" ||
-          !entry.compositeRequired
-        ) {
+      // Alpha/luminance source decode is an admission barrier, not a recovery
+      // placeholder. Resolve the complete subtree before replacing the mounted
+      // paint plan so one failed descendant leaves all last-valid pixels intact.
+      const maskResourceNodeIds = new Set<string>()
+      for (const entry of maskEntries) {
+        for (const sourceId of entry.visibleSourceNodeIds) {
+          maskResourceNodeIds.add(sourceId)
+        }
+        for (const contentEntry of entry.content) {
+          if (contentEntry.kind === "node") {
+            maskResourceNodeIds.add(contentEntry.nodeId)
+          }
+        }
+      }
+      for (const nodeId of maskResourceNodeIds) {
+        const node = nodesById.get(nodeId)
+        if (node?.type === "image") {
+          await preparedImages.get(node.id)
+          signal?.throwIfAborted()
+          if (isStale()) return
+        }
+      }
+
+      // Luminance conversion is another admission barrier. Prepare every
+      // bounded raster bottom-up while the previous Fabric scene is mounted.
+      for (const entry of maskEntries) {
+        if (entry.maskType !== "luminance" || !entry.compositeRequired) {
           continue
         }
         const preparedSources: Array<readonly [string, FabricObject]> = []
@@ -3371,117 +3491,87 @@ export class FabricCanvasAdapter implements CanvasAdapter {
             const sourceObject = await createObject(source)
             preparedSources.push([source.id, sourceObject])
             signal?.throwIfAborted()
-            if (generation !== this.generation || !this.canvas) {
-              for (const [, candidate] of preparedSources) candidate.dispose()
-              disposePreparedLuminance()
-              return
-            }
+            if (isStale()) return
             if (isMissingImagePlaceholder(sourceObject)) {
               throw new Error(
                 `Fabric luminance mask source ${source.id} is unavailable`
               )
             }
           }
-          preparedLuminanceByGroupId.set(
+          const union = createFabricLuminanceMaskUnion(
             entry.groupId,
-            createFabricLuminanceMaskUnion(
-              entry.groupId,
-              preparedSources,
-              entry.bounds,
-              config.devicePixelRatio
-            )
+            preparedSources,
+            entry.bounds,
+            config.devicePixelRatio
           )
+          candidateObjects.add(union.maskObject)
+          preparedLuminanceByGroupId.set(entry.groupId, union)
           // Ownership moved into the candidate union and its cleanup path.
           preparedSources.length = 0
           signal?.throwIfAborted()
-          if (generation !== this.generation || !this.canvas) {
-            disposePreparedLuminance()
-            return
-          }
+          if (isStale()) return
         } catch (error) {
-          for (const [, candidate] of preparedSources) candidate.dispose()
+          for (const [, candidate] of preparedSources) {
+            candidateObjects.delete(candidate)
+            candidate.dispose()
+          }
           throw error
         }
       }
-    } catch (error) {
-      disposePreparedLuminance()
-      throw error
-    }
-    try {
-      this.paintPlanMode = true
-      canvas.discardActiveObject()
-      canvas.remove(...canvas.getObjects())
-      this.objectByNodeId.clear()
-      this.textByNodeId.clear()
-      this.textSizingModeByNodeId.clear()
-      this.nodeByNodeId.clear()
-      this.maskEntryByContentNodeId.clear()
-      this.maskSourceNodeIds.clear()
-      this.maskEntryBySourceNodeId.clear()
-      this.maskPaintObjectBySourceNodeId.clear()
-      this.maskCompositeByGroupId.clear()
-      this.paintPlanIdentity = null
 
-      for (const nodeId of page.nodeIds) {
-        const node = nodesById.get(nodeId)
-        if (!node) continue
-        this.nodeByNodeId.set(nodeId, node)
-        if (node.type === "text") {
-          this.textByNodeId.set(nodeId, node.text)
-          this.textSizingModeByNodeId.set(nodeId, node.sizingMode)
-        }
-      }
-
-      for (const entry of plan.entries) {
+      type BuiltFabricPaint = Readonly<{
+        objects: readonly FabricObject[]
+        unownedContentObjects: ReadonlyMap<string, FabricObject>
+      }>
+      const buildEntry = async (
+        entry: PagePaintPlanEntry
+      ): Promise<BuiltFabricPaint> => {
         signal?.throwIfAborted()
         if (entry.kind === "node") {
           const node = nodesById.get(entry.nodeId)
-          if (!node) continue
+          if (!node) throw new Error(`Paint node ${entry.nodeId} is missing`)
           const object = await createObject(node)
-          signal?.throwIfAborted()
-          if (generation !== this.generation || !this.canvas) return
-          this.objectByNodeId.set(node.id, object)
-          this.nodeIdByObject.set(object, node.id)
-          canvas.add(object)
-          continue
+          candidateObjectByNodeId.set(node.id, object)
+          return {
+            objects: [object],
+            unownedContentObjects: new Map([[node.id, object]]),
+          }
         }
 
-        const contentObjects = new Map<string, FabricObject>()
+        const contentObjects: FabricObject[] = []
+        const unownedContentObjects = new Map<string, FabricObject>()
         for (const contentEntry of entry.content) {
-          if (contentEntry.kind !== "node") {
-            throw new Error("Fabric vector masks do not support nested paint")
+          const built = await buildEntry(contentEntry)
+          contentObjects.push(...built.objects)
+          for (const [nodeId, object] of built.unownedContentObjects) {
+            unownedContentObjects.set(nodeId, object)
           }
-          const node = nodesById.get(contentEntry.nodeId)
-          if (!node)
-            throw new Error(`Mask content ${contentEntry.nodeId} is missing`)
-          contentObjects.set(node.id, await createObject(node))
         }
         signal?.throwIfAborted()
-        if (generation !== this.generation || !this.canvas) return
-        const contentObject = (node: SceneNode) => {
-          const object = contentObjects.get(node.id)
-          if (!object)
-            throw new Error(`Mask content ${node.id} is not prepared`)
-          return object
-        }
+        if (isStale()) return { objects: [], unownedContentObjects: new Map() }
         const preparedSources = new Map<string, FabricObject>()
         if (entry.maskType === "alpha") {
           for (const sourceNodeId of entry.visibleSourceNodeIds) {
             const source = nodesById.get(sourceNodeId)
-            if (source)
-              preparedSources.set(source.id, await createObject(source))
+            if (!source)
+              throw new Error(`Mask source ${sourceNodeId} is missing`)
+            preparedSources.set(source.id, await createObject(source))
           }
         }
         signal?.throwIfAborted()
-        if (generation !== this.generation || !this.canvas) return
+        if (isStale()) return { objects: [], unownedContentObjects: new Map() }
         const paint =
           entry.maskType === "vector"
-            ? createFabricVectorMaskPaint(entry, nodesById, contentObject)
+            ? createFabricVectorMaskPaintFromObjects(
+                entry,
+                nodesById,
+                contentObjects
+              )
             : entry.maskType === "alpha"
-              ? createFabricAlphaMaskPaint(
+              ? createFabricAlphaMaskPaintFromObjects(
                   entry,
                   nodesById,
-                  contentObject,
+                  contentObjects,
                   (node) => {
                     const preparedSource = preparedSources.get(node.id)
                     if (!preparedSource) {
@@ -3490,38 +3580,36 @@ export class FabricCanvasAdapter implements CanvasAdapter {
                     return preparedSource
                   }
                 )
-              : createFabricLuminanceMaskPaint(
+              : createFabricLuminanceMaskPaintFromObjects(
                   entry,
                   nodesById,
-                  contentObject,
+                  contentObjects,
                   preparedLuminanceByGroupId.get(entry.groupId)
                 )
         if (paint.kind === "composite") {
-          this.maskCompositeByGroupId.set(entry.groupId, paint.object)
+          candidateObjects.add(paint.object)
+          candidateObjects.add(paint.maskObject)
+          for (const sourceObject of paint.sourceObjects.values()) {
+            candidateObjects.add(sourceObject)
+          }
+          candidateMaskCompositeByGroupId.set(entry.groupId, paint.object)
           if (entry.maskType !== "luminance") {
             for (const [visibleSourceId, sourceObject] of paint.sourceObjects) {
-              this.maskPaintObjectBySourceNodeId.set(
+              candidateMaskPaintObjectBySourceNodeId.set(
                 visibleSourceId,
                 sourceObject
               )
             }
           }
-          canvas.add(paint.object)
           if (entry.maskType === "luminance") {
-            // The mounted group now owns the retained mask canvas. Detached
-            // ordinary source objects are no longer needed after rasterization.
             preparedLuminanceByGroupId.delete(entry.groupId)
             for (const sourceObject of paint.sourceObjects.values()) {
+              candidateObjects.delete(sourceObject)
               sourceObject.dispose()
             }
           }
-        } else canvas.add(...paint.objects)
-
-        for (const [nodeId, object] of contentObjects) {
-          this.objectByNodeId.set(nodeId, object)
-          this.nodeIdByObject.set(object, nodeId)
-          if (paint.kind === "composite") {
-            this.maskEntryByContentNodeId.set(nodeId, entry)
+          for (const nodeId of unownedContentObjects.keys()) {
+            candidateMaskEntryByContentNodeId.set(nodeId, entry)
           }
         }
 
@@ -3549,14 +3637,72 @@ export class FabricCanvasAdapter implements CanvasAdapter {
               : createFabricSyncObject(source)
           selectionProxy.set({ opacity: 0, evented: false })
           selectionProxy.setCoords()
-          this.objectByNodeId.set(sourceNodeId, selectionProxy)
-          this.nodeIdByObject.set(selectionProxy, sourceNodeId)
-          this.maskSourceNodeIds.add(sourceNodeId)
-          this.maskEntryBySourceNodeId.set(sourceNodeId, entry)
-          canvas.add(selectionProxy)
+          candidateObjects.add(selectionProxy)
+          candidateObjectByNodeId.set(sourceNodeId, selectionProxy)
+          candidateMaskSourceNodeIds.add(sourceNodeId)
+          candidateMaskEntryBySourceNodeId.set(sourceNodeId, entry)
+          candidateSelectionProxies.push(selectionProxy)
         }
+
+        return paint.kind === "composite"
+          ? { objects: [paint.object], unownedContentObjects: new Map() }
+          : { objects: paint.objects, unownedContentObjects }
       }
 
+      const candidateRoots: FabricObject[] = []
+      for (const entry of plan.entries) {
+        const built = await buildEntry(entry)
+        candidateRoots.push(...built.objects)
+      }
+      signal?.throwIfAborted()
+      if (isStale()) return
+
+      const previousObjects = [...canvas.getObjects()]
+      canvas.discardActiveObject()
+      canvas.remove(...previousObjects)
+      disposeFabricObjectForest(previousObjects)
+
+      this.paintPlanMode = true
+      this.paintPlanIdentity = null
+      this.objectByNodeId.clear()
+      this.textByNodeId.clear()
+      this.textSizingModeByNodeId.clear()
+      this.nodeByNodeId.clear()
+      this.maskEntryByContentNodeId.clear()
+      this.maskSourceNodeIds.clear()
+      this.maskEntryBySourceNodeId.clear()
+      this.maskPaintObjectBySourceNodeId.clear()
+      this.maskCompositeByGroupId.clear()
+
+      for (const nodeId of page.nodeIds) {
+        const node = nodesById.get(nodeId)
+        if (!node) continue
+        this.nodeByNodeId.set(nodeId, node)
+        if (node.type === "text") {
+          this.textByNodeId.set(nodeId, node.text)
+          this.textSizingModeByNodeId.set(nodeId, node.sizingMode)
+        }
+      }
+      for (const [nodeId, object] of candidateObjectByNodeId) {
+        this.objectByNodeId.set(nodeId, object)
+        this.nodeIdByObject.set(object, nodeId)
+      }
+      for (const [nodeId, entry] of candidateMaskEntryByContentNodeId) {
+        this.maskEntryByContentNodeId.set(nodeId, entry)
+      }
+      for (const sourceNodeId of candidateMaskSourceNodeIds) {
+        this.maskSourceNodeIds.add(sourceNodeId)
+      }
+      for (const [nodeId, entry] of candidateMaskEntryBySourceNodeId) {
+        this.maskEntryBySourceNodeId.set(nodeId, entry)
+      }
+      for (const [nodeId, object] of candidateMaskPaintObjectBySourceNodeId) {
+        this.maskPaintObjectBySourceNodeId.set(nodeId, object)
+      }
+      for (const [groupId, object] of candidateMaskCompositeByGroupId) {
+        this.maskCompositeByGroupId.set(groupId, object)
+      }
+      canvas.add(...candidateRoots, ...candidateSelectionProxies)
       this.pageNodeOrder = [...page.nodeIds]
       this.paintPlanIdentity = pagePaintPlanIdentity(plan)
       const selectionObjects = previousSelection
@@ -3568,8 +3714,11 @@ export class FabricCanvasAdapter implements CanvasAdapter {
         canvas.setActiveObject(this.createActiveSelection(selectionObjects))
       }
       this.applyImageCropInteractionPolicy()
+      installed = true
     } finally {
+      await Promise.allSettled(preparedImages.values())
       disposePreparedLuminance()
+      if (!installed) disposeCandidates()
     }
   }
 
@@ -3601,16 +3750,14 @@ export class FabricCanvasAdapter implements CanvasAdapter {
         if (sourceEntry.visibleSourceNodeIds.length === 1) {
           applyFabricAlphaMaskPaint(maskObject)
         }
-        positionFabricMaskContentObject(maskObject, sourceEntry.bounds)
-        this.maskCompositeByGroupId
-          .get(sourceEntry.groupId)
-          ?.set({ dirty: true })
+        preserveFabricObjectPageTransformAfterSync(maskObject)
+        markFabricObjectAncestorsDirty(maskObject)
       }
     }
     const maskEntry = this.maskEntryByContentNodeId.get(nodeId)
     if (maskEntry) {
-      positionFabricMaskContentObject(object, maskEntry.bounds)
-      this.maskCompositeByGroupId.get(maskEntry.groupId)?.set({ dirty: true })
+      preserveFabricObjectPageTransformAfterSync(object)
+      markFabricObjectAncestorsDirty(object)
     }
     canvas.requestRenderAll()
     return true
@@ -3635,16 +3782,14 @@ export class FabricCanvasAdapter implements CanvasAdapter {
         if (sourceEntry.visibleSourceNodeIds.length === 1) {
           applyFabricAlphaMaskPaint(maskObject)
         }
-        positionFabricMaskContentObject(maskObject, sourceEntry.bounds)
-        this.maskCompositeByGroupId
-          .get(sourceEntry.groupId)
-          ?.set({ dirty: true })
+        preserveFabricObjectPageTransformAfterSync(maskObject)
+        markFabricObjectAncestorsDirty(maskObject)
       }
     }
     const maskEntry = this.maskEntryByContentNodeId.get(nodeId)
     if (maskEntry) {
-      positionFabricMaskContentObject(object, maskEntry.bounds)
-      this.maskCompositeByGroupId.get(maskEntry.groupId)?.set({ dirty: true })
+      preserveFabricObjectPageTransformAfterSync(object)
+      markFabricObjectAncestorsDirty(object)
     }
     canvas.requestRenderAll()
     return true

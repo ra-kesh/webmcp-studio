@@ -22,6 +22,12 @@ import {
   WEBMCP_REGISTRATION_TIMEOUT_MS,
 } from "./use-studio-webmcp"
 
+const defaultToolNames = toolNames.filter(
+  (name) =>
+    name !== "inspect_background_removal" &&
+    name !== "manage_background_removal"
+)
+
 const services = {
   document: northstarSeed,
   snapshotId: "webmcp-lifecycle-snapshot",
@@ -117,8 +123,8 @@ describe("useStudioWebMcp lifecycle", () => {
       await Promise.resolve()
     })
     expect(status).toBe("ready")
-    expect(registeredToolCount).toBe(toolNames.length)
-    expect(signals).toHaveLength(toolNames.length)
+    expect(registeredToolCount).toBe(defaultToolNames.length)
+    expect(signals).toHaveLength(defaultToolNames.length)
     expect(signals.every((signal) => !signal.aborted)).toBe(true)
 
     await act(async () => render(false))
@@ -164,7 +170,7 @@ describe("useStudioWebMcp lifecycle", () => {
       error: "Registration refused",
       registeredToolCount: 0,
     })
-    expect(signals).toHaveLength(toolNames.length)
+    expect(signals).toHaveLength(defaultToolNames.length)
     expect(signals.every((signal) => signal.aborted)).toBe(true)
   })
 
@@ -196,7 +202,7 @@ describe("useStudioWebMcp lifecycle", () => {
       await Promise.resolve()
       await Promise.resolve()
     })
-    expect(registeredTools.size).toBe(toolNames.length)
+    expect(registeredTools.size).toBe(defaultToolNames.length)
 
     await act(async () => render(reason))
 
@@ -370,7 +376,7 @@ describe("useStudioWebMcp lifecycle", () => {
       await Promise.resolve()
       await Promise.resolve()
     })
-    expect(firstTools.size).toBe(toolNames.length)
+    expect(firstTools.size).toBe(defaultToolNames.length)
     const staleTool = firstTools.get("inspect_design")
 
     Object.defineProperty(document, "modelContext", {
@@ -385,7 +391,7 @@ describe("useStudioWebMcp lifecycle", () => {
     )
 
     expect(firstSignals.every((signal) => signal.aborted)).toBe(true)
-    expect(secondTools.size).toBe(toolNames.length)
+    expect(secondTools.size).toBe(defaultToolNames.length)
     await expect(staleTool?.execute({})).resolves.toMatchObject({
       isError: true,
       structuredContent: { code: "execution_cancelled" },

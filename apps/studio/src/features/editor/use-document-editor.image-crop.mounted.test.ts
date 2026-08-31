@@ -35,20 +35,21 @@ vi.mock("@webmcp/editor/history", async (importOriginal) => {
   const actual = await importOriginal<typeof EditorHistoryModule>()
   return {
     ...actual,
-    commitCommands: (
-      ...args: Parameters<typeof actual.commitCommands>
-    ): ReturnType<typeof actual.commitCommands> => {
+    commitCommandsWithResult: (
+      ...args: Parameters<typeof actual.commitCommandsWithResult>
+    ): ReturnType<typeof actual.commitCommandsWithResult> => {
       const [history, commands, options] = args
-      const next = actual.commitCommands(...args)
+      const result = actual.commitCommandsWithResult(...args)
+      if (!result) return result
       historyAudit.commits.push({
         label: options?.label,
         beforeSnapshotId: history.snapshotId,
-        afterSnapshotId: next.snapshotId,
+        afterSnapshotId: result.history.snapshotId,
         beforeDocument: history.document,
-        afterDocument: next.document,
+        afterDocument: result.history.document,
         commandTypes: commands.map((command) => command.type),
       })
-      return next
+      return result
     },
   }
 })

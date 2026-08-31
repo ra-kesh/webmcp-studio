@@ -9395,7 +9395,10 @@ export function useDocumentEditor({
   }, [activePageId, commit, selection])
 
   const createMaskGroup = useCallback(
-    (sourceNodeIds: readonly [string, ...string[]]) => {
+    (
+      sourceNodeIds: readonly [string, ...string[]],
+      parentGroupId: string | null
+    ) => {
       const document = historyRef.current.document
       const nodeIds =
         selection?.pageId === activePageId ? selection.nodeIds : []
@@ -9412,6 +9415,7 @@ export function useDocumentEditor({
             nodeIds,
             sourceNodeIds: [...sourceNodeIds] as [string, ...string[]],
             maskType: "vector",
+            ...(parentGroupId ? { parentGroupId } : {}),
           },
         ],
         { label: "Create mask" }

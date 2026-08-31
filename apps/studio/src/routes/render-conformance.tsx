@@ -23,6 +23,9 @@ import {
   multiVectorMaskRenderConformanceAllHiddenDocument,
   multiVectorMaskRenderConformanceDocument,
   multiVectorMaskRenderConformanceOneHiddenDocument,
+  nestedAlphaLuminanceAllHiddenRenderConformanceDocument,
+  nestedLuminanceVectorOneHiddenRenderConformanceDocument,
+  nestedVectorAlphaRenderConformanceDocument,
 } from "@webmcp/document/internal/mask-render-conformance"
 import { Artboard } from "@webmcp/render-view"
 import { useEffect, useRef, useState } from "react"
@@ -50,6 +53,9 @@ type MaskConformanceState =
   | "luminance-image-text"
   | "luminance-one-hidden"
   | "luminance-all-hidden"
+  | "nested-vector-alpha"
+  | "nested-luminance-vector-one-hidden"
+  | "nested-alpha-luminance-all-hidden"
 
 export const Route = createFileRoute("/render-conformance")({
   ssr: false,
@@ -72,6 +78,9 @@ export const Route = createFileRoute("/render-conformance")({
         "luminance-image-text",
         "luminance-one-hidden",
         "luminance-all-hidden",
+        "nested-vector-alpha",
+        "nested-luminance-vector-one-hidden",
+        "nested-alpha-luminance-all-hidden",
       ] as const
     ).includes(search.maskState as MaskConformanceState)
       ? (search.maskState as MaskConformanceState)
@@ -138,45 +147,41 @@ const hiddenSourceMaskConformanceDocument: Document = {
   nodes: maskRenderConformanceHiddenSourceNodes,
 }
 
+const maskConformanceDocuments: Readonly<
+  Record<MaskConformanceState, Document>
+> = {
+  visible: maskRenderConformanceDocument,
+  "hidden-source": hiddenSourceMaskConformanceDocument,
+  "alpha-image": alphaImageMaskRenderConformanceDocument,
+  "alpha-image-hidden": alphaImageMaskRenderConformanceHiddenSourceDocument,
+  "alpha-text": alphaTextMaskRenderConformanceDocument,
+  "multi-vector": multiVectorMaskRenderConformanceDocument,
+  "multi-vector-one-hidden": multiVectorMaskRenderConformanceOneHiddenDocument,
+  "multi-vector-all-hidden": multiVectorMaskRenderConformanceAllHiddenDocument,
+  "multi-alpha": multiAlphaMaskRenderConformanceDocument,
+  "luminance-primary": luminancePrimaryCoefficientRenderConformanceDocument,
+  "luminance-secondary": luminanceSecondaryCoefficientRenderConformanceDocument,
+  "luminance-overlap": luminanceOverlapRenderConformanceDocument,
+  "luminance-image-text": luminanceImageTextRenderConformanceDocument,
+  "luminance-one-hidden": luminanceOneHiddenRenderConformanceDocument,
+  "luminance-all-hidden": luminanceAllHiddenRenderConformanceDocument,
+  "nested-vector-alpha": nestedVectorAlphaRenderConformanceDocument,
+  "nested-luminance-vector-one-hidden":
+    nestedLuminanceVectorOneHiddenRenderConformanceDocument,
+  "nested-alpha-luminance-all-hidden":
+    nestedAlphaLuminanceAllHiddenRenderConformanceDocument,
+}
+
 function MaskRenderConformanceHarness({
   maskState,
 }: {
   maskState: MaskConformanceState
 }) {
-  const document =
-    maskState === "visible"
-      ? maskRenderConformanceDocument
-      : maskState === "hidden-source"
-        ? hiddenSourceMaskConformanceDocument
-        : maskState === "alpha-image"
-          ? alphaImageMaskRenderConformanceDocument
-          : maskState === "alpha-image-hidden"
-            ? alphaImageMaskRenderConformanceHiddenSourceDocument
-            : maskState === "alpha-text"
-              ? alphaTextMaskRenderConformanceDocument
-              : maskState === "multi-vector"
-                ? multiVectorMaskRenderConformanceDocument
-                : maskState === "multi-vector-one-hidden"
-                  ? multiVectorMaskRenderConformanceOneHiddenDocument
-                  : maskState === "multi-vector-all-hidden"
-                    ? multiVectorMaskRenderConformanceAllHiddenDocument
-                    : maskState === "multi-alpha"
-                      ? multiAlphaMaskRenderConformanceDocument
-                      : maskState === "luminance-primary"
-                        ? luminancePrimaryCoefficientRenderConformanceDocument
-                        : maskState === "luminance-secondary"
-                          ? luminanceSecondaryCoefficientRenderConformanceDocument
-                          : maskState === "luminance-overlap"
-                            ? luminanceOverlapRenderConformanceDocument
-                            : maskState === "luminance-image-text"
-                              ? luminanceImageTextRenderConformanceDocument
-                              : maskState === "luminance-one-hidden"
-                                ? luminanceOneHiddenRenderConformanceDocument
-                                : luminanceAllHiddenRenderConformanceDocument
+  const document = maskConformanceDocuments[maskState]
 
   return (
     <main
-      data-render-conformance-harness="mask-m4b-production"
+      data-render-conformance-harness="mask-m4c-production"
       style={{
         display: "grid",
         gridTemplateColumns: "auto auto",

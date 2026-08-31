@@ -115,6 +115,8 @@ describe("local draft recovery boundary", () => {
     const target = source.fields[0]
     const legacy = {
       ...source,
+      schemaVersion: 1,
+      groups: source.groups.map(({ role: _role, ...group }) => group),
       fields: source.fields.map((field) => {
         const {
           agentDescription: _description,

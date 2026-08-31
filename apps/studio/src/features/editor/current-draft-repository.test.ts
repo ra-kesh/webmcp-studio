@@ -313,7 +313,10 @@ describe("current browser draft repository", () => {
   test("migrates a nested legacy document and rewrites only the atomic key", () => {
     const legacyDocument = {
       ...structuredClone(quotationDocument),
-      schemaVersion: 1,
+      schemaVersion: 4,
+      groups: quotationDocument.groups.map(({ role: _role, ...group }) =>
+        structuredClone(group)
+      ),
     }
     const storage = new MemoryStorage({
       [CURRENT_DRAFT_STORAGE_KEY]: JSON.stringify({
@@ -329,7 +332,7 @@ describe("current browser draft repository", () => {
       status: "current",
       source: "envelope",
       migrated: true,
-      envelope: { document: { schemaVersion: 4 }, sourceContext: null },
+      envelope: { document: { schemaVersion: 5 }, sourceContext: null },
     })
     expect(storage.writes.map(({ key }) => key)).toEqual([
       CURRENT_DRAFT_STORAGE_KEY,

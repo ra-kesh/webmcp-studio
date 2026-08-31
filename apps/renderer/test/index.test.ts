@@ -3,7 +3,9 @@ import {
   buildComponentPublicationJourney,
   componentRenderConformanceCases,
   componentRenderConformanceDocument,
+  documentSchema,
   northstarSeed,
+  type SceneNode,
 } from "@webmcp/document"
 import { launch } from "@cloudflare/playwright"
 import {
@@ -51,6 +53,99 @@ function pngHeader(width: number, height: number) {
   view.setUint32(16, width)
   view.setUint32(20, height)
   return bytes
+}
+
+function nestedMaskDocument() {
+  const rectangle = (
+    id: string,
+    values: Partial<Extract<SceneNode, { type: "rect" }>>
+  ) => ({
+    ...(maskRenderConformanceDocument.nodes.find(
+      (node): node is Extract<SceneNode, { type: "rect" }> =>
+        node.type === "rect"
+    ) as Extract<SceneNode, { type: "rect" }>),
+    id,
+    name: id,
+    ...values,
+  })
+  const page = maskRenderConformanceDocument.pages[0]!
+  return documentSchema.parse({
+    ...maskRenderConformanceDocument,
+    pages: [
+      {
+        ...page,
+        nodeIds: [
+          "outer-source",
+          "child-source",
+          "child-content",
+          "outer-content",
+        ],
+      },
+    ],
+    nodes: [
+      rectangle("outer-source", { x: 0, y: 0, width: 80, height: 80 }),
+      rectangle("child-source", { x: 20, y: 20, width: 60, height: 60 }),
+      rectangle("child-content", { x: 30, y: 30, width: 40, height: 40 }),
+      rectangle("outer-content", { x: 10, y: 10, width: 70, height: 70 }),
+    ],
+    groups: [
+      {
+        id: "outer-mask",
+        role: "mask",
+        pageId: page.id,
+        name: "Outer mask",
+        nodeIds: ["outer-source", "outer-content"],
+        mask: { type: "vector", sourceNodeIds: ["outer-source"] },
+      },
+      {
+        id: "child-mask",
+        role: "mask",
+        pageId: page.id,
+        parentGroupId: "outer-mask",
+        name: "Child mask",
+        nodeIds: ["child-source", "child-content"],
+        mask: { type: "alpha", sourceNodeIds: ["child-source"] },
+      },
+    ],
+  })
+}
+
+function overDepthNestedMaskDocument() {
+  const document = nestedMaskDocument()
+  const seed = document.nodes.find(
+    (node): node is Extract<SceneNode, { type: "rect" }> => node.type === "rect"
+  )!
+  return documentSchema.parse({
+    ...document,
+    pages: document.pages.map((page) => ({
+      ...page,
+      nodeIds: [
+        "outer-source",
+        "child-source",
+        "grandchild-source",
+        "grandchild-content",
+        "child-content",
+        "outer-content",
+      ],
+    })),
+    nodes: [
+      ...document.nodes,
+      { ...seed, id: "grandchild-source", name: "Grandchild source" },
+      { ...seed, id: "grandchild-content", name: "Grandchild content" },
+    ],
+    groups: [
+      ...document.groups,
+      {
+        id: "grandchild-mask",
+        role: "mask",
+        pageId: document.pages[0]!.id,
+        parentGroupId: "child-mask",
+        name: "Grandchild mask",
+        nodeIds: ["grandchild-source", "grandchild-content"],
+        mask: { type: "vector", sourceNodeIds: ["grandchild-source"] },
+      },
+    ],
+  })
 }
 
 async function managedImageFixture() {
@@ -109,6 +204,72 @@ async function managedImageFixture() {
 describe("renderer Worker", () => {
   beforeEach(() => {
     vi.mocked(launch).mockReset()
+  })
+
+  it("admits and captures one canonical nested mask tree", async () => {
+    const { default: worker } = await import("../src/index")
+    const document = nestedMaskDocument()
+    const browserPage = successfulBrowserPage([37, 80, 68, 70])
+    vi.mocked(launch).mockResolvedValue({
+      newPage: vi.fn(async () => browserPage),
+      close: vi.fn(async () => undefined),
+    } as never)
+
+    const response = await worker.fetch(
+      new Request("https://renderer.internal/render", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Render-Persistence": "ephemeral",
+        },
+        body: JSON.stringify({
+          renderId: "nested-mask-render",
+          outputId: "mask-conformance-output",
+          pageId: "mask-conformance-page",
+          document,
+          expectedImageResources: [],
+        }),
+      }) as never,
+      { BROWSER: {}, RENDERS: {} } as unknown as Env
+    )
+
+    expect(response.status).toBe(200)
+    const html = browserPage.setContent.mock.calls[0]?.[0]
+    expect(html.match(/data-mask-group-id=/g)).toHaveLength(2)
+    expect(html.indexOf('data-mask-group-id="outer-mask"')).toBeLessThan(
+      html.indexOf('data-mask-group-id="child-mask"')
+    )
+    expect(browserPage.screenshot).toHaveBeenCalledOnce()
+  })
+
+  it("rejects an over-depth nested mask before browser allocation or capture", async () => {
+    const { default: worker } = await import("../src/index")
+    const response = await worker.fetch(
+      new Request("https://renderer.internal/render", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          renderId: "nested-mask-over-depth",
+          outputId: "mask-conformance-output",
+          pageId: "mask-conformance-page",
+          document: overDepthNestedMaskDocument(),
+          expectedImageResources: [],
+        }),
+      }) as never,
+      { BROWSER: {}, RENDERS: {} } as unknown as Env
+    )
+
+    expect(response.status).toBe(422)
+    expect(await response.json()).toMatchObject({
+      error: "document_validation_failed",
+      issues: expect.arrayContaining([
+        expect.objectContaining({
+          code: "invalid_group",
+          pageId: "mask-conformance-page",
+        }),
+      ]),
+    })
+    expect(launch).not.toHaveBeenCalled()
   })
 
   it.each([

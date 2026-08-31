@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 
-import { useState } from "react"
-import { act } from "react"
-import { createRoot, type Root } from "react-dom/client"
+import { act, useState } from "react"
+import { createRoot } from "react-dom/client"
+import type { Root } from "react-dom/client"
 import {
   builtInDesignTemplateRepository,
   northstarQuotationPayload,
@@ -16,7 +16,7 @@ const hash = (digit: string) => `sha256-${digit.repeat(64)}`
 const pendingRefresh = (): PendingQuotationRefresh => {
   const document = builtInDesignTemplateRepository.materialize(
     "quotation-editorial-olive",
-    2,
+    3,
     { identity: "canonical", quotation: northstarQuotationPayload }
   )
   const incomingSource = structuredClone(northstarQuotationPayload)
@@ -47,8 +47,8 @@ const pendingRefresh = (): PendingQuotationRefresh => {
     },
     incomingSource,
     candidateDocument: { ...document, revision: document.revision + 1 },
-    composerVersion: 2,
-    template: { id: "quotation-editorial-olive", version: 2 },
+    composerVersion: 3,
+    template: { id: "quotation-editorial-olive", version: 3 },
     appearanceTemplateId: "editorial-olive",
     proposalId: hash("5"),
     impact: {
@@ -138,11 +138,11 @@ describe("QuotationRefreshDialog", () => {
       document.body.querySelector('[role="alert"]')?.textContent
     ).toContain("could not be saved")
     const acceptButton = [...document.body.querySelectorAll("button")].find(
-      (button) => button.textContent?.includes("Accept update")
+      (button) => button.textContent.includes("Accept update")
     )
     expect(acceptButton?.disabled).toBe(true)
     const keepStudio = [...document.body.querySelectorAll("button")].find(
-      (button) => button.textContent?.includes("Keep Studio")
+      (button) => button.textContent.includes("Keep Studio")
     )
     await act(async () => keepStudio?.click())
     expect(choose).toHaveBeenCalledWith(

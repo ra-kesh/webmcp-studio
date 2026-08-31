@@ -1785,7 +1785,12 @@ function parseProductCommandArguments(
     return { kind: "none" }
   }
   if (contract.kind === "mask-create" || contract.kind === "mask-sources") {
-    assertQueryKeys(value, ["kind", "sourceNodeIds"])
+    assertQueryKeys(
+      value,
+      contract.kind === "mask-create"
+        ? ["kind", "sourceNodeIds", "parentGroupId"]
+        : ["kind", "sourceNodeIds"]
+    )
     if (value.kind !== contract.kind || !Array.isArray(value.sourceNodeIds)) {
       throw new DesignQueryError(
         "invalid_query",
@@ -1805,8 +1810,25 @@ function parseProductCommandArguments(
         `sourceNodeIds must contain ${field.minItems} to ${field.maxItems} unique non-empty IDs.`
       )
     }
+    if (contract.kind === "mask-create") {
+      if (
+        value.parentGroupId !== null &&
+        (typeof value.parentGroupId !== "string" ||
+          value.parentGroupId.length === 0)
+      ) {
+        throw new DesignQueryError(
+          "invalid_query",
+          "parentGroupId must be the exact non-empty parent mask ID, or null for a top-level mask."
+        )
+      }
+      return {
+        kind: "mask-create",
+        sourceNodeIds: ids as [string, ...string[]],
+        parentGroupId: value.parentGroupId,
+      }
+    }
     return {
-      kind: contract.kind,
+      kind: "mask-sources",
       sourceNodeIds: ids as [string, ...string[]],
     }
   }
@@ -4199,12 +4221,30 @@ export function studioWebMcpTools(
                 required: ["kind"],
                 properties: { kind: { const: "none" } },
               },
-              ...(["mask-create", "mask-sources"] as const).map((kind) => ({
+              {
+                type: "object",
+                additionalProperties: false,
+                required: ["kind", "sourceNodeIds", "parentGroupId"],
+                properties: {
+                  kind: { const: "mask-create" },
+                  sourceNodeIds: {
+                    type: "array",
+                    minItems: 1,
+                    maxItems: 4,
+                    uniqueItems: true,
+                    items: { type: "string", minLength: 1 },
+                  },
+                  parentGroupId: {
+                    anyOf: [{ type: "string", minLength: 1 }, { type: "null" }],
+                  },
+                },
+              },
+              {
                 type: "object",
                 additionalProperties: false,
                 required: ["kind", "sourceNodeIds"],
                 properties: {
-                  kind: { const: kind },
+                  kind: { const: "mask-sources" },
                   sourceNodeIds: {
                     type: "array",
                     minItems: 1,
@@ -4213,7 +4253,7 @@ export function studioWebMcpTools(
                     items: { type: "string", minLength: 1 },
                   },
                 },
-              })),
+              },
               {
                 type: "object",
                 additionalProperties: false,

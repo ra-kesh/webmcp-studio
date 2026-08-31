@@ -1,4 +1,5 @@
 import {
+  applyCommand,
   assetReferenceKeysForSource,
   applyQuotationTemplate,
   captureSemanticFragment,
@@ -75,6 +76,85 @@ describe("document history", () => {
     ])!
     expect(released.history.past).toHaveLength(2)
     expect(released.commit.label).toBe("Release mask")
+    expect(undoDocument(released.history).document).toEqual(
+      created.history.document
+    )
+    expect(redoDocument(undoDocument(released.history)).document).toEqual(
+      released.history.document
+    )
+  })
+
+  it("restores exact parent membership across nested mask create and dissolve history", () => {
+    const base = {
+      ...structuredClone(maskRenderConformanceDocument),
+      revision: 20,
+      groups: [],
+    }
+    const outer = applyCommand(base, {
+      id: "history-create-outer-mask",
+      type: "create_mask_group",
+      actor: "human",
+      at: "2026-08-31T15:02:00.000Z",
+      expectedRevision: base.revision,
+      pageId: "mask-conformance-page",
+      groupId: "history-outer-mask",
+      name: "History outer mask",
+      nodeIds: [...base.pages[0]!.nodeIds],
+      sourceNodeIds: ["mask-conformance-below"],
+      maskType: "vector",
+    })
+    const initial = createDocumentHistory(outer, "nested-mask-before")
+    const created = commitCommandsWithResult(initial, [
+      {
+        id: "history-create-child-mask",
+        type: "create_mask_group",
+        actor: "human",
+        at: "2026-08-31T15:03:00.000Z",
+        expectedRevision: outer.revision,
+        pageId: "mask-conformance-page",
+        groupId: "history-child-mask",
+        parentGroupId: "history-outer-mask",
+        name: "History child mask",
+        nodeIds: ["mask-conformance-source", "mask-conformance-content"],
+        sourceNodeIds: ["mask-conformance-source"],
+        maskType: "vector",
+      },
+    ])!
+    expect(created.history.past).toHaveLength(1)
+    expect(created.history.document.groups).toEqual([
+      expect.objectContaining({
+        id: "history-outer-mask",
+        nodeIds: ["mask-conformance-below", "mask-conformance-above"],
+      }),
+      expect.objectContaining({
+        id: "history-child-mask",
+        parentGroupId: "history-outer-mask",
+        nodeIds: ["mask-conformance-source", "mask-conformance-content"],
+      }),
+    ])
+    expect(undoDocument(created.history).document).toEqual(outer)
+    expect(redoDocument(undoDocument(created.history)).document).toEqual(
+      created.history.document
+    )
+
+    const released = commitCommandsWithResult(created.history, [
+      {
+        id: "history-release-child-mask",
+        type: "release_mask_group",
+        actor: "human",
+        at: "2026-08-31T15:04:00.000Z",
+        expectedRevision: created.history.document.revision,
+        pageId: "mask-conformance-page",
+        groupId: "history-child-mask",
+      },
+    ])!
+    expect(released.history.past).toHaveLength(2)
+    expect(released.history.document.groups).toEqual([
+      expect.objectContaining({
+        id: "history-outer-mask",
+        nodeIds: outer.pages[0]!.nodeIds,
+      }),
+    ])
     expect(undoDocument(released.history).document).toEqual(
       created.history.document
     )

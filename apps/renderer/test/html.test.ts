@@ -16,6 +16,7 @@ import {
   renderConformanceDocument,
   textDesignSystemConformanceDocument,
   serializeImagePaintProjector,
+  type Document,
   type ImageFrameMask,
   type ImagePaintProjectionInput,
   type ImagePlacement,
@@ -123,6 +124,7 @@ function renderResourceFixture(options?: {
       },
       naturalWidth: options?.imageNaturalWidth ?? 1200,
       naturalHeight: options?.imageNaturalHeight ?? 800,
+      src: "data:image/png;base64,render-fixture",
       parentElement: {
         style: {
           setProperty: (name: string, value: string) =>
@@ -161,6 +163,74 @@ function renderResourceFixture(options?: {
   }
 }
 
+function nestedMaskDocument(
+  options: { childType?: "alpha" | "luminance" } = {}
+) {
+  const seed = maskRenderConformanceNodes.find(
+    (node): node is Extract<SceneNode, { type: "rect" }> => node.type === "rect"
+  )!
+  const rectangle = (
+    id: string,
+    values: Partial<Extract<SceneNode, { type: "rect" }>>
+  ): Extract<SceneNode, { type: "rect" }> => ({
+    ...seed,
+    id,
+    name: id,
+    ...values,
+  })
+  const page = {
+    ...maskRenderConformanceDocument.pages[0]!,
+    nodeIds: ["outer-source", "child-source", "child-content", "outer-content"],
+  }
+  return {
+    ...maskRenderConformanceDocument,
+    pages: [page],
+    nodes: [
+      rectangle("outer-source", { x: 0, y: 0, width: 20, height: 20 }),
+      rectangle("child-source", {
+        x: -100,
+        y: 0,
+        width: 20,
+        height: 20,
+      }),
+      rectangle("child-content", {
+        x: 120,
+        y: 10,
+        width: 20,
+        height: 20,
+      }),
+      rectangle("outer-content", {
+        x: 200,
+        y: 0,
+        width: 20,
+        height: 20,
+      }),
+    ],
+    groups: [
+      {
+        id: "outer-mask",
+        role: "mask" as const,
+        pageId: page.id,
+        name: "Outer mask",
+        nodeIds: ["outer-source", "outer-content"],
+        mask: { type: "vector" as const, sourceNodeIds: ["outer-source"] },
+      },
+      {
+        id: "child-mask",
+        role: "mask" as const,
+        pageId: page.id,
+        parentGroupId: "outer-mask",
+        name: "Child mask",
+        nodeIds: ["child-source", "child-content"],
+        mask: {
+          type: options.childType ?? ("alpha" as const),
+          sourceNodeIds: ["child-source"],
+        },
+      },
+    ],
+  } as unknown as Document
+}
+
 describe("renderer HTML", () => {
   it("uses the canonical paint plan in document, thumbnail, and output HTML", () => {
     const pageId = "mask-conformance-page"
@@ -183,6 +253,70 @@ describe("renderer HTML", () => {
       expect(html).not.toContain('data-node-id="mask-conformance-source"')
       expect(html).toContain('data-node-id="mask-conformance-content"')
     }
+  })
+
+  it("serializes nested composites with canonical order, local translation, and unique IDs", () => {
+    const document = nestedMaskDocument({ childType: "luminance" })
+    const html = renderDocumentToHtml(document, document.pages[0]!.id)
+    const maskIds = [...html.matchAll(/<mask id="([^"]+)"/g)].map(
+      (match) => match[1]
+    )
+
+    expect(maskIds).toHaveLength(2)
+    expect(new Set(maskIds).size).toBe(2)
+    expect(html.indexOf('data-mask-group-id="outer-mask"')).toBeLessThan(
+      html.indexOf('data-mask-group-id="child-mask"')
+    )
+    expect(html).toContain(
+      "left:-100px;top:0px;width:240px;height:30px;overflow:hidden"
+    )
+    expect(html).toContain("transform:translate(100px,0px)")
+    expect(html.indexOf('data-node-id="child-content"')).toBeLessThan(
+      html.indexOf('data-node-id="outer-content"')
+    )
+    expect(html.match(/data-luminance-source-isolation=/g)).toHaveLength(1)
+    expect(html).toContain('data-luminance-source-id="child-source"')
+  })
+
+  it("includes descendant content fonts in the shared readiness scan", () => {
+    const base = nestedMaskDocument()
+    const text = renderConformanceDocument.nodes.find(
+      (node): node is Extract<SceneNode, { type: "text" }> =>
+        node.type === "text"
+    )!
+    const document: Document = {
+      ...base,
+      nodes: base.nodes.map((node) =>
+        node.id === "child-content"
+          ? {
+              ...text,
+              id: node.id,
+              name: node.name,
+              x: node.x,
+              y: node.y,
+              width: node.width,
+              height: node.height,
+              runs: [
+                {
+                  start: 0,
+                  end: Math.min(1, text.text.length),
+                  style: { fontFamily: "Inter" },
+                },
+              ],
+            }
+          : node
+      ),
+    }
+
+    const html = renderDocumentToHtml(document, document.pages[0]!.id)
+
+    expect(html).toContain('data-mask-font-source-node="child-content"')
+    expect(html).toContain(
+      'data-mask-font-families="[&quot;Geist Variable&quot;,&quot;Inter&quot;]"'
+    )
+    expect(html).toContain(
+      'document.querySelectorAll("[data-mask-font-families]")'
+    )
   })
 
   it("serializes source-over union sources in canonical order and excludes hidden sources", () => {
@@ -453,6 +587,13 @@ describe("renderer HTML", () => {
       ])
     )
     expect(imageHtml).toContain(`data-mask-source-id="${image.id}"`)
+    expect(imageHtml).toContain('data-mask-coverage-kind="image"')
+    expect(imageHtml).toMatch(
+      /<g[^>]+clip-path="url\(#[^"]+-coverage-clip\)"[^>]*>/
+    )
+    expect(imageHtml).toContain('clipPathUnits="userSpaceOnUse"')
+    expect(imageHtml).toMatch(/<image[^>]+preserveAspectRatio="none" \/>/)
+    expect(imageHtml).not.toMatch(/<image[^>]+clip-path=/)
     expect(imageHtml).toContain(`data-node-id="${image.id}"`)
     expect(imageHtml).toContain(`data-image-frame-id="${image.id}"`)
     expect(imageHtml).toContain("&quot;shape&quot;:&quot;ellipse&quot;")
@@ -480,6 +621,7 @@ describe("renderer HTML", () => {
       ])
     )
     expect(textHtml).toContain(`data-mask-source-id="${textSource.id}"`)
+    expect(textHtml).toContain('data-mask-coverage-kind="html"')
     expect(textHtml).toContain(`data-node-id="${textSource.id}"`)
     expect(textHtml).toContain(`data-mask-font-source-node="${textSource.id}"`)
     expect(textHtml).toContain(
@@ -534,7 +676,7 @@ describe("renderer HTML", () => {
         expect(html).toContain(`transform:rotate(${node.rotation}deg)`)
       }
     }
-    expect(html).toContain("fonts.load(query, probeText)")
+    expect(html).toContain("input.fonts.load(")
   })
 
   it("serializes the same resolved style and variable values used by the editor", () => {
@@ -1036,9 +1178,9 @@ describe("renderer HTML", () => {
     expect(html).toContain('@font-face{font-family:"Geist Variable"')
     const embeddedFont = html.match(/data:font\/woff2;base64,([A-Za-z0-9+/=]+)/)
     expect(embeddedFont?.[1]).toHaveLength(39_200)
-    expect(html).not.toMatch(/https?:\/\//)
-    expect(html).toContain("input.fonts.load(query, probeText)")
-    expect(html).toContain("input.fonts.check(query, probeText)")
+    expect(html).not.toMatch(/(?:src|href)=["']https?:\/\//)
+    expect(html).toContain("input.fonts.load(")
+    expect(html).toContain("input.fonts.check(")
     expect(html).toMatch(/face\.status\s*===\s*"loaded"/)
     expect(html).toMatch(/await\s+image\.decode\(\)/)
     expect(html).toContain("image.naturalWidth <= 0")

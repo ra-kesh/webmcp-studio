@@ -6,6 +6,7 @@ import {
   northstarSeed,
 } from "@webmcp/document"
 import type { Document } from "@webmcp/document"
+import { nestedOverDepthRenderConformanceDocument } from "@webmcp/document/internal/mask-render-conformance"
 import { createImageHeavyPerformanceFixture } from "../features/editor/image-heavy-performance-fixture.test-contract"
 import { createPageThumbnailRequestHandler } from "./page-thumbnail-http"
 import type { PageThumbnailHandlerDependencies } from "./page-thumbnail-http"
@@ -183,16 +184,43 @@ describe("page thumbnail Studio boundary", () => {
     )
 
     expect(response.status).toBe(400)
-    const payload = (await response.json()) as {
+    const payload: {
       error: string
       issues: Array<{ path: Array<string | number> }>
-    }
+    } = await response.json()
     expect(payload.error).toBe("invalid_thumbnail_request")
     expect(payload.issues).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ path: ["document", "id"] }),
       ])
     )
+    expect(fixture.prepareDocument).not.toHaveBeenCalled()
+    expect(fixture.reserveCapacity).not.toHaveBeenCalled()
+  })
+
+  it("reports a semantic document rejection before thumbnail preparation", async () => {
+    const fixture = dependencies()
+    const handler = createPageThumbnailRequestHandler(fixture.value)
+    const pageId = nestedOverDepthRenderConformanceDocument.pages[0].id
+
+    const response = await handler(
+      jsonRequest(
+        thumbnailRequest({
+          pageId,
+          size: { width: 240, height: 180 },
+          document: nestedOverDepthRenderConformanceDocument,
+        })
+      ),
+      {} as Env
+    )
+
+    expect(response.status).toBe(422)
+    expect(await response.json()).toMatchObject({
+      error: "document_validation_failed",
+      issues: expect.arrayContaining([
+        expect.objectContaining({ code: "invalid_group", pageId }),
+      ]),
+    })
     expect(fixture.prepareDocument).not.toHaveBeenCalled()
     expect(fixture.reserveCapacity).not.toHaveBeenCalled()
   })
