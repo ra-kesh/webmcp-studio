@@ -42,26 +42,28 @@ The key proof is continuity. The human, agent, API, editor, and renderer all ope
 
 ## Skill-generated documents (`GEN-01`)
 
-Studio will support a reusable GPT artifact skill that turns a brief,
-references, and an exact existing template into a new editable document. The
-skill owns the authoring workflow and design decisions. Studio owns template
-resolution, canonical node creation, validation, Review, persistence, and
-rendering.
+Studio will expose a WebMCP-first artifact-generation contract. The user gives
+GPT chat a GitHub `SKILL.md`, a brief, and optional references. That skill may
+link a `design.md`, examples, and images. GPT performs the reasoning and uses
+Studio WebMCP to create a new editable document. Studio does not require an
+in-app model or a private generation path.
 
-The first slice starts from active Studio templates. A skill may populate typed
-fields, substitute approved assets, and submit a bounded set of typed
-post-template commands. Studio materializes those inputs as an isolated
-candidate and shows template identity, reference provenance, page previews,
-validation, and a compact change summary. One human approval creates a fresh
-document session atomically. Rejection leaves the current document unchanged.
+The first slice supports two starts. Template mode adapts an exact active
+Studio template. Blank mode uses a versioned, bounded Studio Design Plan to
+create pages and editable nodes according to the skill's design guidance.
+Studio validates and compiles either request as an isolated candidate, remaps
+request-local identities, resolves approved assets, renders previews, and shows
+skill, design-guide, and reference provenance in a separate-document Review.
+One human approval creates a fresh document session atomically. Rejection
+leaves the current document unchanged.
 
-The first slice does not require arbitrary JSX, HTML import, a second AI-only
-document format, or a general in-app chat. A later structured design language
-may compile to Studio commands if template-based generation proves too narrow.
-The canonical saved artifact remains a normal Studio `Document` throughout.
+Raw executable JSX, HTML, and CSS are not public payloads. A later JSX helper
+may compile to the same JSON Design Plan, but the canonical saved artifact
+remains a normal Studio `Document`. Every generation, inspection, correction,
+and Review handoff operation needed by GPT must be available through WebMCP.
 
 The detailed OpenPencil assessment and phased contract are recorded in
-`docs/audits/2026-08-27-editor-production-readiness/skill-driven-template-generation-assessment.md`.
+`docs/audits/2026-08-27-editor-production-readiness/skill-driven-document-generation-assessment.md`.
 
 ## Three-minute challenge demo
 

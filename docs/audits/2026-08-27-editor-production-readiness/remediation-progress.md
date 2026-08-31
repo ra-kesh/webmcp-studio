@@ -3682,7 +3682,7 @@ Status: **closed and independently accepted; Gate 5 is active**
   critical-action and document failures retain the global alert. Gate 5 now
   owns durable favorites, recent use and collections.
 
-## 2026-08-31 — GEN-01 skill-generated artifact assessment
+## 2026-08-31 — GEN-01 skill-generated document assessment
 
 Status: **assessment complete; implementation not started; current mask work
 remains active**
@@ -3696,12 +3696,15 @@ remains active**
 - Mapped the pattern onto Studio's existing versioned templates, canonical
   document and command model, approved assets, Review journal, deterministic
   renderers, and WebMCP boundary.
-- Defined `GEN-01` as one bounded **Generate from template** workflow: exact
-  template discovery, isolated candidate materialization, separate-document
-  Review, atomic creation, and a packaged Studio document skill.
-- Deliberately excluded arbitrary JSX and live model mutation from the first
-  slice. A later structured design language may compile to canonical commands
-  only after the whole plan passes limits and validation.
+- Defined `GEN-01` as a WebMCP-first artifact workflow driven by GPT chat and a
+  user-supplied GitHub `SKILL.md`. Studio does not run a private model or depend
+  on an in-app chat.
+- Added both exact-template and blank-document starts. Blank generation uses a
+  bounded JSON Studio Design Plan derived by GPT from the skill's linked
+  `design.md` and references, then compiled atomically to canonical nodes.
+- Kept raw JSX, HTML, CSS and live model mutation outside the product boundary.
+  An optional future JSX helper may compile to the same Design Plan before
+  Studio sees it.
 - The full evidence, missing capabilities, request/plan contract, adoption
   rules, and four implementation gates are recorded in
-  `skill-driven-template-generation-assessment.md`.
+  `skill-driven-document-generation-assessment.md`.
