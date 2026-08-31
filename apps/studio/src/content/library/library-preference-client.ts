@@ -152,7 +152,15 @@ export type LibraryPreferenceClient = Readonly<{
 
 const identityPath = (identityInput: LibraryItemIdentity) => {
   const identity = libraryItemIdentitySchema.parse(identityInput)
-  return `${encodeURIComponent(identity.itemKind)}/${encodeURIComponent(identity.id)}/versions/${identity.version}`
+  const path = `${encodeURIComponent(identity.itemKind)}/${encodeURIComponent(identity.id)}/versions/${identity.version}`
+  return identity.itemKind === "media"
+    ? `${path}?mediaSource=${encodeURIComponent(identity.mediaSource)}`
+    : path
+}
+
+const appendIdentitySuffix = (path: string, suffix: string) => {
+  const [pathname, query = ""] = path.split("?", 2)
+  return `${pathname}/${suffix}${query ? `?${query}` : ""}`
 }
 
 const collectionPath = (collectionId: string) =>
@@ -450,7 +458,7 @@ export function createLibraryPreferenceClient(
       }),
     setFavorite: (identity, input) =>
       preferenceMutation({
-        path: `/v1/studio/library/items/${identityPath(identity)}/favorite`,
+        path: `/v1/studio/library/items/${appendIdentitySuffix(identityPath(identity), "favorite")}`,
         method: "PUT",
         body: librarySetFavoriteRequestSchema.parse({
           schemaVersion: 1,
@@ -462,7 +470,7 @@ export function createLibraryPreferenceClient(
       }),
     recordUsed: (identity, input) =>
       preferenceMutation({
-        path: `/v1/studio/library/items/${identityPath(identity)}/used`,
+        path: `/v1/studio/library/items/${appendIdentitySuffix(identityPath(identity), "used")}`,
         method: "POST",
         body: libraryRecordUseRequestSchema.parse({
           schemaVersion: 1,

@@ -156,9 +156,7 @@ describe("Studio library discovery adapter", () => {
     const adapter = createStudioLibraryDiscoveryAdapter({ fetchRequest })
 
     const result = adapter.getDetail(
-      "template",
-      summary.id,
-      summary.version,
+      { itemKind: "template", id: summary.id, version: summary.version },
       new AbortController().signal
     )
     const resolved = await result
@@ -170,9 +168,11 @@ describe("Studio library discovery adapter", () => {
 
     await expect(
       adapter.getDetail(
-        "template",
-        "different-template",
-        summary.version,
+        {
+          itemKind: "template",
+          id: "different-template",
+          version: summary.version,
+        },
         new AbortController().signal
       )
     ).rejects.toMatchObject({ code: "library_invalid_response" })

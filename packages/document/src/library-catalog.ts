@@ -16,6 +16,7 @@ const normalizedTagSchema = z.string().regex(normalizedTagPattern)
 const sha256Schema = z.string().regex(sha256Pattern)
 const dateTimeSchema = z.string().datetime()
 const generationSchema = z.string().trim().min(1).max(128)
+export const libraryMediaSourceSchema = z.enum(["curated", "managed", "local"])
 const publicHttpUrlSchema = z
   .string()
   .url()
@@ -301,7 +302,7 @@ const rawLibraryMediaSummarySchema = z
   .object({
     ...libraryCatalogCommonFields,
     itemKind: z.literal("media"),
-    mediaSource: z.enum(["curated", "managed", "local"]),
+    mediaSource: libraryMediaSourceSchema,
     mimeType: z.enum([
       "image/png",
       "image/jpeg",
@@ -455,6 +456,7 @@ const mediaSelectionIdentitySchema = z.discriminatedUnion("source", [
     .object({
       source: z.literal("managed"),
       assetId: catalogIdSchema,
+      catalogVersion: z.number().int().positive(),
       refetch: z.literal("required"),
     })
     .strict(),
@@ -485,17 +487,18 @@ export const libraryMediaDetailSchema = z
         message: "Selection identity must match the media summary exactly",
       })
     }
-    if (
-      detail.selectionIdentity.source !== "managed" &&
-      (detail.selectionIdentity.source === "curated"
+    const selectionVersion =
+      detail.selectionIdentity.source === "curated"
         ? detail.selectionIdentity.version
-        : detail.selectionIdentity.revision) !== detail.summary.version
-    ) {
+        : detail.selectionIdentity.source === "managed"
+          ? detail.selectionIdentity.catalogVersion
+          : detail.selectionIdentity.revision
+    if (selectionVersion !== detail.summary.version) {
       context.addIssue({
         code: "custom",
         path: ["selectionIdentity"],
         message:
-          "Curated and local selection versions must match the media summary",
+          "Media selection versions must match the media summary exactly",
       })
     }
   })
@@ -633,14 +636,16 @@ export class LibraryCatalogIndex {
   get(
     itemKind: LibraryCatalogItemSummary["itemKind"],
     id: string,
-    version?: number
+    version?: number,
+    mediaSource?: LibraryMediaSummary["mediaSource"]
   ) {
     const parsedId = catalogIdSchema.parse(id)
     const matches = this.#items.filter(
       (item) =>
         item.itemKind === itemKind &&
         item.id === parsedId &&
-        (version === undefined || item.version === version)
+        (version === undefined || item.version === version) &&
+        (item.itemKind !== "media" || item.mediaSource === mediaSource)
     )
     return (
       matches.sort((left, right) => right.version - left.version)[0] ?? null
@@ -767,9 +772,13 @@ function normalizeSearch(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, " ")
 }
 
-function itemIdentity(item: LibraryCatalogItemSummary) {
-  return `${item.itemKind}:${item.id}@${item.version}`
+export function libraryCatalogItemIdentity(item: LibraryCatalogItemSummary) {
+  return item.itemKind === "media"
+    ? `media:${item.mediaSource}:${item.id}@${item.version}`
+    : `template:${item.id}@${item.version}`
 }
+
+const itemIdentity = libraryCatalogItemIdentity
 
 function matchesCatalogQuery(
   item: LibraryCatalogItemSummary,

@@ -183,6 +183,7 @@ const createHarness = () => {
     kind: "template" | "media"
     id: string
     version: number
+    mediaSource?: "curated" | "managed" | "local"
     signal: AbortSignal
     deferred: Deferred<LibraryCatalogItemDetail>
   }> = []
@@ -201,9 +202,18 @@ const createHarness = () => {
       })
       return deferred.promise
     }),
-    getDetail: vi.fn((kind, id, version, signal) => {
+    getDetail: vi.fn((identity, signal) => {
       const deferred = new Deferred<LibraryCatalogItemDetail>()
-      detailRequests.push({ kind, id, version, signal, deferred })
+      detailRequests.push({
+        kind: identity.itemKind,
+        id: identity.id,
+        version: identity.version,
+        ...(identity.itemKind === "media"
+          ? { mediaSource: identity.mediaSource }
+          : {}),
+        signal,
+        deferred,
+      })
       return deferred.promise
     }),
     getTaxonomy: vi.fn(() => taxonomy),
@@ -435,7 +445,8 @@ describe("LibraryDiscoveryController taxonomy and query ownership", () => {
     const detailPromise = harness.controller.selectItem(
       "media",
       "photo-result",
-      1
+      1,
+      "curated"
     )
     harness.detailRequests.at(-1)!.deferred.resolve(mediaDetail("photo-result"))
     await detailPromise
@@ -818,11 +829,15 @@ describe("LibraryDiscoveryController pagination, details, and lifetime", () => {
     const harness = createHarness()
     harness.controller.activate()
 
-    const first = harness.controller.selectItem("media", "first", 1)
+    const first = harness.controller.selectItem("media", "first", 1, "curated")
     const firstRequest = harness.detailRequests[0]
-    const second = harness.controller.selectItem("media", "second", 2, {
-      requestFocus: true,
-    })
+    const second = harness.controller.selectItem(
+      "media",
+      "second",
+      2,
+      "curated",
+      { requestFocus: true }
+    )
     const secondRequest = harness.detailRequests[1]
     expect(firstRequest.signal.aborted).toBe(true)
     firstRequest.deferred.resolve(mediaDetail("first"))
@@ -833,10 +848,18 @@ describe("LibraryDiscoveryController pagination, details, and lifetime", () => {
         status: "ready",
         detail: { summary: { id: "second", version: 2 } },
       },
-      focusIntent: { target: "item", itemIdentity: "media:second@2" },
+      focusIntent: {
+        target: "item",
+        itemIdentity: "media:curated:second@2",
+      },
     })
 
-    const wrong = harness.controller.selectItem("media", "expected", 1)
+    const wrong = harness.controller.selectItem(
+      "media",
+      "expected",
+      1,
+      "curated"
+    )
     harness.detailRequests[2].deferred.resolve(mediaDetail("different"))
     await wrong
     expect(harness.controller.getSnapshot()).toMatchObject({
@@ -853,7 +876,12 @@ describe("LibraryDiscoveryController pagination, details, and lifetime", () => {
     harness.controller.subscribe(listener)
     harness.controller.activate()
     const listRequest = harness.listRequests[0]
-    const detailPromise = harness.controller.selectItem("media", "selected", 1)
+    const detailPromise = harness.controller.selectItem(
+      "media",
+      "selected",
+      1,
+      "curated"
+    )
     const detailRequest = harness.detailRequests[0]
     const notifications = listener.mock.calls.length
 

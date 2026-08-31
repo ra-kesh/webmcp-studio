@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { LibraryPreferenceRepository } from "./library-preference-repository"
+import { sha256Hex } from "./media-assets"
 
 type Row = Record<string, any>
 
@@ -12,7 +13,21 @@ const otherIdentity = {
   itemKind: "media" as const,
   id: "asset-library-0001",
   version: 2,
+  mediaSource: "managed" as const,
 }
+
+const sourceFor = (value: {
+  itemKind: "template" | "media"
+  mediaSource?: string
+}) => (value.itemKind === "media" ? value.mediaSource : "template")
+
+const rowIdentityKey = (row: Row) =>
+  row.item_kind === "media"
+    ? `media:${row.item_source}:${row.item_id}@${row.item_version}`
+    : `template:${row.item_id}@${row.item_version}`
+
+const legacyHash = (value: unknown) =>
+  sha256Hex(new TextEncoder().encode(JSON.stringify(value)))
 const thirdIdentity = {
   itemKind: "template" as const,
   id: "template-modern",
@@ -154,9 +169,7 @@ class FakeStatement {
               result_kind:
                 "principal_id" in target ? "preference" : "collection",
               result_identity:
-                "principal_id" in target
-                  ? `${target.item_kind}:${target.item_id}@${target.item_version}`
-                  : target.id,
+                "principal_id" in target ? rowIdentityKey(target) : target.id,
               result_revision: target.revision,
             },
           ]
@@ -173,6 +186,7 @@ class FakeStatement {
         workspace,
         principal,
         kind,
+        source,
         id,
         version,
         expected,
@@ -185,6 +199,7 @@ class FakeStatement {
         workspace,
         principal,
         kind,
+        source,
         id,
         version
       )
@@ -193,6 +208,7 @@ class FakeStatement {
           workspace_id: workspace,
           principal_id: principal,
           item_kind: kind,
+          item_source: source,
           item_id: id,
           item_version: version,
           favorite,
@@ -232,6 +248,7 @@ class FakeStatement {
         workspace,
         principal,
         kind,
+        source,
         id,
         version,
         key,
@@ -243,6 +260,7 @@ class FakeStatement {
         workspace,
         principal,
         kind,
+        source,
         id,
         version
       )
@@ -251,6 +269,7 @@ class FakeStatement {
           workspace_id: workspace,
           principal_id: principal,
           item_kind: kind,
+          item_source: source,
           item_id: id,
           item_version: version,
           favorite: 0,
@@ -433,12 +452,14 @@ class FakeStatement {
       const row = this.state.collection(workspace, principal, id)
       if (!row || row.revision !== expected) return 0
       if (marker === "library:collection-claim-add") {
-        const [, , , , , , kind, itemId, version] = value
-        if (this.state.member(workspace, id, kind, itemId, version)) return 0
+        const [, , , , , , kind, itemId, version, , source] = value
+        if (this.state.member(workspace, id, kind, source, itemId, version))
+          return 0
       }
       if (marker === "library:collection-claim-remove") {
-        const [, , , , , , kind, itemId, version] = value
-        if (!this.state.member(workspace, id, kind, itemId, version)) return 0
+        const [, , , , , , kind, itemId, version, , source] = value
+        if (!this.state.member(workspace, id, kind, source, itemId, version))
+          return 0
       }
       if (marker === "library:collection-rename") {
         const [, , , , , name, normalized, now] = value
@@ -490,6 +511,7 @@ class FakeStatement {
         id,
         version,
         now,
+        source,
       ] = value
       const collection = this.state.collection(
         workspace,
@@ -506,6 +528,7 @@ class FakeStatement {
         workspace_id: workspace,
         collection_id: collectionId,
         item_kind: kind,
+        item_source: source,
         item_id: id,
         item_version: version,
         position: this.state.members.filter(
@@ -527,6 +550,7 @@ class FakeStatement {
         kind,
         id,
         version,
+        source,
       ] = value
       const collection = this.state.collection(
         workspace,
@@ -544,6 +568,7 @@ class FakeStatement {
           row.workspace_id === workspace &&
           row.collection_id === collectionId &&
           row.item_kind === kind &&
+          row.item_source === source &&
           row.item_id === id &&
           row.item_version === version
       )
@@ -624,11 +649,12 @@ class FakeStatement {
       )
         return 0
       for (const [position, ordered] of JSON.parse(value[5]).entries()) {
-        const { itemKind: kind, id, version } = ordered
+        const { itemKind: kind, id, version, mediaSource } = ordered
         const member = this.state.member(
           workspace,
           collectionId,
           kind,
+          kind === "media" ? mediaSource : "template",
           id,
           version
         )
@@ -723,8 +749,7 @@ class FakeStatement {
               (row) =>
                 row.workspace_id === workspace &&
                 row.principal_id === principal &&
-                `${row.item_kind}:${row.item_id}@${row.item_version}` ===
-                  identity
+                rowIdentityKey(row) === identity
             )
           : this.state.collection(workspace, principal, identity)
       if (
@@ -883,14 +908,25 @@ class FakeD1 {
     workspace: string,
     principal: string,
     kind: string,
-    id: string,
-    version: number
+    sourceOrId: string,
+    idOrVersion: string | number,
+    maybeVersion?: number
   ) {
+    const source =
+      maybeVersion === undefined
+        ? kind === "media"
+          ? "managed"
+          : "template"
+        : sourceOrId
+    const id = maybeVersion === undefined ? sourceOrId : String(idOrVersion)
+    const version =
+      maybeVersion === undefined ? Number(idOrVersion) : maybeVersion
     return this.preferences.find(
       (row) =>
         row.workspace_id === workspace &&
         row.principal_id === principal &&
         row.item_kind === kind &&
+        row.item_source === source &&
         row.item_id === id &&
         row.item_version === version
     )
@@ -909,14 +945,25 @@ class FakeD1 {
     workspace: string,
     collection: string,
     kind: string,
-    id: string,
-    version: number
+    sourceOrId: string,
+    idOrVersion: string | number,
+    maybeVersion?: number
   ) {
+    const source =
+      maybeVersion === undefined
+        ? kind === "media"
+          ? "managed"
+          : "template"
+        : sourceOrId
+    const id = maybeVersion === undefined ? sourceOrId : String(idOrVersion)
+    const version =
+      maybeVersion === undefined ? Number(idOrVersion) : maybeVersion
     return this.members.find(
       (row) =>
         row.workspace_id === workspace &&
         row.collection_id === collection &&
         row.item_kind === kind &&
+        row.item_source === source &&
         row.item_id === id &&
         row.item_version === version
     )
@@ -997,6 +1044,598 @@ const fixture = () => {
 }
 
 describe("LibraryPreferenceRepository", () => {
+  it("replays migrated legacy media preference receipts only for the exact source", async () => {
+    const { db, repository, admissions } = fixture()
+    const curated = {
+      itemKind: "media" as const,
+      id: "shared-legacy-media",
+      version: 1,
+      mediaSource: "curated" as const,
+    }
+    const managed = { ...curated, mediaSource: "managed" as const }
+    const sourceLess = {
+      itemKind: "media" as const,
+      id: curated.id,
+      version: curated.version,
+    }
+    const favoriteHash = await legacyHash({
+      operation: "set_favorite",
+      identity: sourceLess,
+      expectedRevision: 0,
+      favorite: true,
+    })
+    const usedHash = await legacyHash({
+      operation: "record_used",
+      identity: sourceLess,
+      completedAction: "insert",
+      completionId: "legacy-use-completion",
+    })
+    const preference = (input: {
+      source: "curated" | "managed"
+      key: string
+      hash: string
+      operation: "set_favorite" | "record_used"
+      lastUsedAt: string | null
+    }) => ({
+      workspace_id: "workspace-a",
+      principal_id: "principal-a",
+      item_kind: "media",
+      item_source: input.source,
+      item_id: curated.id,
+      item_version: 1,
+      favorite: 1,
+      last_used_at: input.lastUsedAt,
+      revision: 1,
+      last_mutation_key: input.key,
+      last_mutation_hash: input.hash,
+      last_mutation_operation: input.operation,
+      created_at: "2026-08-31T00:00:00.000Z",
+      updated_at: "2026-08-31T00:00:00.000Z",
+    })
+    const favoritePreference = preference({
+      source: "curated",
+      key: "legacy-favorite",
+      hash: favoriteHash,
+      operation: "set_favorite",
+      lastUsedAt: null,
+    })
+    const usedPreference = preference({
+      source: "managed",
+      key: "legacy-used",
+      hash: usedHash,
+      operation: "record_used",
+      lastUsedAt: "2026-08-31T00:00:00.000Z",
+    })
+    db.preferences.push(favoritePreference, usedPreference)
+    db.requests.push(
+      {
+        workspace_id: "workspace-a",
+        principal_id: "principal-a",
+        idempotency_key: "legacy-favorite",
+        operation: "set_favorite",
+        request_hash: favoriteHash,
+        result_kind: "preference",
+        result_identity: `media:curated:${curated.id}@1`,
+        result_revision: 1,
+        response_json: JSON.stringify({
+          schemaVersion: 1,
+          operation: "set_favorite",
+          preference: {
+            identity: curated,
+            favorite: true,
+            lastUsedAt: null,
+            collectionIds: [],
+            revision: 1,
+            updatedAt: "2026-08-31T00:00:00.000Z",
+          },
+          workspaceRevision: 1,
+        }),
+        created_at: "2026-08-31T00:00:00.000Z",
+      },
+      {
+        workspace_id: "workspace-a",
+        principal_id: "principal-a",
+        idempotency_key: "legacy-used",
+        operation: "record_used",
+        request_hash: usedHash,
+        result_kind: "preference",
+        result_identity: `media:managed:${managed.id}@1`,
+        result_revision: 1,
+        response_json: JSON.stringify({
+          schemaVersion: 1,
+          operation: "record_used",
+          completedAction: "insert",
+          completionId: "legacy-use-completion",
+          preference: {
+            identity: managed,
+            favorite: true,
+            lastUsedAt: "2026-08-31T00:00:00.000Z",
+            collectionIds: [],
+            revision: 1,
+            updatedAt: "2026-08-31T00:00:00.000Z",
+          },
+          workspaceRevision: 1,
+        }),
+        created_at: "2026-08-31T00:00:00.000Z",
+      }
+    )
+
+    await expect(
+      repository.setFavorite(
+        "workspace-a",
+        "principal-a",
+        curated,
+        0,
+        true,
+        "legacy-favorite"
+      )
+    ).resolves.toMatchObject({ preference: { identity: curated } })
+    await expect(
+      repository.recordUsed(
+        "workspace-a",
+        "principal-a",
+        managed,
+        "insert",
+        "legacy-use-completion",
+        "legacy-used"
+      )
+    ).resolves.toMatchObject({ preference: { identity: managed } })
+    await expect(
+      repository.setFavorite(
+        "workspace-a",
+        "principal-a",
+        managed,
+        0,
+        true,
+        "legacy-favorite"
+      )
+    ).rejects.toMatchObject({ code: "idempotency_key_reused", status: 409 })
+    await expect(
+      repository.recordUsed(
+        "workspace-a",
+        "principal-a",
+        curated,
+        "insert",
+        "legacy-use-completion",
+        "legacy-used"
+      )
+    ).rejects.toMatchObject({ code: "idempotency_key_reused", status: 409 })
+    await expect(
+      repository.setFavorite(
+        "workspace-a",
+        "principal-a",
+        curated,
+        0,
+        false,
+        "legacy-favorite"
+      )
+    ).rejects.toMatchObject({ code: "idempotency_key_reused", status: 409 })
+    expect(admissions).toEqual([])
+  })
+
+  it("repairs receiptless legacy favorite and Recent claims on the first exact-source retry", async () => {
+    const { db, repository, admissions } = fixture()
+    const curated = {
+      itemKind: "media" as const,
+      id: "receiptless-legacy-media",
+      version: 1,
+      mediaSource: "curated" as const,
+    }
+    const managed = { ...curated, mediaSource: "managed" as const }
+    const sourceLess = {
+      itemKind: "media" as const,
+      id: curated.id,
+      version: curated.version,
+    }
+    const favoriteHash = await legacyHash({
+      operation: "set_favorite",
+      identity: sourceLess,
+      expectedRevision: 0,
+      favorite: true,
+    })
+    const usedHash = await legacyHash({
+      operation: "record_used",
+      identity: sourceLess,
+      completedAction: "insert",
+      completionId: "receiptless-use-completion",
+    })
+    const preference = (input: {
+      source: "curated" | "managed"
+      key: string
+      hash: string
+      operation: "set_favorite" | "record_used"
+      lastUsedAt: string | null
+    }) => ({
+      workspace_id: "workspace-a",
+      principal_id: "principal-a",
+      item_kind: "media",
+      item_source: input.source,
+      item_id: curated.id,
+      item_version: curated.version,
+      favorite: 1,
+      last_used_at: input.lastUsedAt,
+      revision: 1,
+      last_mutation_key: input.key,
+      last_mutation_hash: input.hash,
+      last_mutation_operation: input.operation,
+      created_at: "2026-08-31T00:00:00.000Z",
+      updated_at: "2026-08-31T00:00:00.000Z",
+    })
+    db.preferences.push(
+      preference({
+        source: "curated",
+        key: "receiptless-legacy-favorite",
+        hash: favoriteHash,
+        operation: "set_favorite",
+        lastUsedAt: null,
+      }),
+      preference({
+        source: "managed",
+        key: "receiptless-legacy-used",
+        hash: usedHash,
+        operation: "record_used",
+        lastUsedAt: "2026-08-31T00:00:00.000Z",
+      })
+    )
+
+    const favorite = await repository.setFavorite(
+      "workspace-a",
+      "principal-a",
+      curated,
+      0,
+      true,
+      "receiptless-legacy-favorite"
+    )
+    const used = await repository.recordUsed(
+      "workspace-a",
+      "principal-a",
+      managed,
+      "insert",
+      "receiptless-use-completion",
+      "receiptless-legacy-used"
+    )
+
+    expect(favorite.preference.identity).toEqual(curated)
+    expect(used.preference.identity).toEqual(managed)
+    expect(db.requests).toHaveLength(2)
+    expect(db.requests.map(({ request_hash }) => request_hash)).toEqual([
+      favoriteHash,
+      usedHash,
+    ])
+    expect(db.preferences.map(({ revision }) => revision)).toEqual([1, 1])
+
+    await expect(
+      repository.setFavorite(
+        "workspace-a",
+        "principal-a",
+        curated,
+        0,
+        true,
+        "receiptless-legacy-favorite"
+      )
+    ).resolves.toEqual(favorite)
+    await expect(
+      repository.recordUsed(
+        "workspace-a",
+        "principal-a",
+        managed,
+        "insert",
+        "receiptless-use-completion",
+        "receiptless-legacy-used"
+      )
+    ).resolves.toEqual(used)
+    await expect(
+      repository.setFavorite(
+        "workspace-a",
+        "principal-a",
+        managed,
+        0,
+        true,
+        "receiptless-legacy-favorite"
+      )
+    ).rejects.toMatchObject({ code: "idempotency_key_reused", status: 409 })
+    await expect(
+      repository.recordUsed(
+        "workspace-a",
+        "principal-a",
+        curated,
+        "insert",
+        "receiptless-use-completion",
+        "receiptless-legacy-used"
+      )
+    ).rejects.toMatchObject({ code: "idempotency_key_reused", status: 409 })
+    expect(db.requests).toHaveLength(2)
+    expect(db.preferences.map(({ revision }) => revision)).toEqual([1, 1])
+    expect(admissions).toEqual([])
+  })
+
+  it("replays migrated add, remove, and reorder receipts with exact member sources", async () => {
+    const { db, repository, admissions } = fixture()
+    const collectionId = "collection-legacy-media"
+    const curated = {
+      itemKind: "media" as const,
+      id: "shared-legacy-collection-media",
+      version: 1,
+      mediaSource: "curated" as const,
+    }
+    const managed = { ...curated, mediaSource: "managed" as const }
+    const managedSecond = {
+      itemKind: "media" as const,
+      id: "second-legacy-collection-media",
+      version: 2,
+      mediaSource: "managed" as const,
+    }
+    const curatedSecond = {
+      ...managedSecond,
+      mediaSource: "curated" as const,
+    }
+    const withoutSource = (item: typeof curated | typeof managedSecond) => ({
+      itemKind: item.itemKind,
+      id: item.id,
+      version: item.version,
+    })
+    const addHash = await legacyHash({
+      operation: "add_collection_member",
+      collectionId,
+      expectedRevision: 1,
+      body: { identity: withoutSource(curated) },
+    })
+    const removeHash = await legacyHash({
+      operation: "remove_collection_member",
+      collectionId,
+      expectedRevision: 2,
+      body: { identity: withoutSource(curated) },
+    })
+    const ordered = [managedSecond, curated]
+    const reorderHash = await legacyHash({
+      operation: "reorder_collection_members",
+      collectionId,
+      expectedRevision: 3,
+      body: { ordered: ordered.map(withoutSource) },
+    })
+    const collection = (
+      revision: number,
+      members: readonly (typeof curated | typeof managedSecond)[]
+    ) => ({
+      summary: {
+        id: collectionId,
+        name: "Legacy media",
+        scope: "workspace" as const,
+        revision,
+        itemCount: members.length,
+        createdAt: "2026-08-31T00:00:00.000Z",
+        updatedAt: `2026-08-31T00:00:0${revision}.000Z`,
+      },
+      members,
+    })
+    const request = (input: {
+      key: string
+      operation:
+        | "add_collection_member"
+        | "remove_collection_member"
+        | "reorder_collection_members"
+      hash: string
+      revision: number
+      response: unknown
+    }) => ({
+      workspace_id: "workspace-a",
+      principal_id: "principal-a",
+      idempotency_key: input.key,
+      operation: input.operation,
+      request_hash: input.hash,
+      result_kind: "collection",
+      result_identity: collectionId,
+      result_revision: input.revision,
+      response_json: JSON.stringify(input.response),
+      created_at: "2026-08-31T00:00:00.000Z",
+    })
+    db.requests.push(
+      request({
+        key: "legacy-add-media",
+        operation: "add_collection_member",
+        hash: addHash,
+        revision: 2,
+        response: {
+          schemaVersion: 1,
+          operation: "add_collection_member",
+          identity: curated,
+          collection: collection(2, [curated]),
+          workspaceRevision: 2,
+        },
+      }),
+      request({
+        key: "legacy-remove-media",
+        operation: "remove_collection_member",
+        hash: removeHash,
+        revision: 3,
+        response: {
+          schemaVersion: 1,
+          operation: "remove_collection_member",
+          identity: curated,
+          collection: collection(3, []),
+          workspaceRevision: 3,
+        },
+      }),
+      request({
+        key: "legacy-reorder-media",
+        operation: "reorder_collection_members",
+        hash: reorderHash,
+        revision: 4,
+        response: {
+          schemaVersion: 1,
+          operation: "reorder_collection_members",
+          collection: collection(4, ordered),
+          workspaceRevision: 4,
+        },
+      })
+    )
+
+    await expect(
+      repository.addCollectionMember(
+        "workspace-a",
+        "principal-a",
+        collectionId,
+        1,
+        curated,
+        "legacy-add-media"
+      )
+    ).resolves.toMatchObject({ identity: curated })
+    await expect(
+      repository.removeCollectionMember(
+        "workspace-a",
+        "principal-a",
+        collectionId,
+        2,
+        curated,
+        "legacy-remove-media"
+      )
+    ).resolves.toMatchObject({ identity: curated })
+    await expect(
+      repository.reorderCollectionMembers(
+        "workspace-a",
+        "principal-a",
+        collectionId,
+        3,
+        ordered,
+        "legacy-reorder-media"
+      )
+    ).resolves.toMatchObject({ collection: { members: ordered } })
+
+    await expect(
+      repository.addCollectionMember(
+        "workspace-a",
+        "principal-a",
+        collectionId,
+        1,
+        managed,
+        "legacy-add-media"
+      )
+    ).rejects.toMatchObject({ code: "idempotency_key_reused", status: 409 })
+    await expect(
+      repository.removeCollectionMember(
+        "workspace-a",
+        "principal-a",
+        collectionId,
+        2,
+        managed,
+        "legacy-remove-media"
+      )
+    ).rejects.toMatchObject({ code: "idempotency_key_reused", status: 409 })
+    await expect(
+      repository.reorderCollectionMembers(
+        "workspace-a",
+        "principal-a",
+        collectionId,
+        3,
+        [curatedSecond, curated],
+        "legacy-reorder-media"
+      )
+    ).rejects.toMatchObject({ code: "idempotency_key_reused", status: 409 })
+    await expect(
+      repository.reorderCollectionMembers(
+        "workspace-a",
+        "principal-a",
+        collectionId,
+        4,
+        ordered,
+        "legacy-reorder-media"
+      )
+    ).rejects.toMatchObject({ code: "idempotency_key_reused", status: 409 })
+    expect(admissions).toEqual([])
+  })
+
+  it("mutates same-id curated, managed, and local media as independent identities", async () => {
+    const { repository } = fixture()
+    const identities = (["curated", "managed", "local"] as const).map(
+      (mediaSource) => ({
+        itemKind: "media" as const,
+        id: "shared-media",
+        version: 1,
+        mediaSource,
+      })
+    )
+    for (const [index, mediaIdentity] of identities.entries()) {
+      await repository.setFavorite(
+        "workspace-a",
+        "principal-a",
+        mediaIdentity,
+        0,
+        true,
+        `source-favorite-${index}`
+      )
+    }
+    await repository.recordUsed(
+      "workspace-a",
+      "principal-a",
+      identities[1],
+      "insert",
+      "source-completion-managed",
+      "source-used-managed"
+    )
+
+    const projection = await repository.readProjection(
+      "workspace-a",
+      "principal-a"
+    )
+    expect(projection.preferences).toHaveLength(3)
+    expect(
+      projection.preferences.map((entry) => [
+        entry.identity.itemKind === "media"
+          ? entry.identity.mediaSource
+          : "template",
+        entry.favorite,
+        entry.lastUsedAt !== null,
+      ])
+    ).toEqual([
+      ["curated", true, false],
+      ["managed", true, true],
+      ["local", true, false],
+    ])
+
+    const created = await repository.createCollection(
+      "workspace-a",
+      "principal-a",
+      "Source aware",
+      "source-create-collection"
+    )
+    let revision = created.collection.summary.revision
+    for (const [index, mediaIdentity] of identities.entries()) {
+      const receipt = await repository.addCollectionMember(
+        "workspace-a",
+        "principal-a",
+        created.collection.summary.id,
+        revision,
+        mediaIdentity,
+        `source-add-${index}`
+      )
+      revision = receipt.collection.summary.revision
+    }
+    const collection = await repository.getCollection(
+      "workspace-a",
+      "principal-a",
+      created.collection.summary.id
+    )
+    expect(collection.members).toEqual(identities)
+
+    const reordered = await repository.reorderCollectionMembers(
+      "workspace-a",
+      "principal-a",
+      created.collection.summary.id,
+      revision,
+      [identities[2], identities[0], identities[1]],
+      "source-reorder"
+    )
+    const removed = await repository.removeCollectionMember(
+      "workspace-a",
+      "principal-a",
+      created.collection.summary.id,
+      reordered.collection.summary.revision,
+      identities[0],
+      "source-remove-curated"
+    )
+    expect(removed.collection.members).toEqual([identities[2], identities[1]])
+  })
+
   it("keeps reads isolated by workspace and principal", async () => {
     const { db, repository } = fixture()
     db.preferences.push(
@@ -1004,6 +1643,7 @@ describe("LibraryPreferenceRepository", () => {
         workspace_id: "workspace-a",
         principal_id: "principal-a",
         item_kind: identity.itemKind,
+        item_source: sourceFor(identity),
         item_id: identity.id,
         item_version: identity.version,
         favorite: 1,
@@ -1016,6 +1656,7 @@ describe("LibraryPreferenceRepository", () => {
         workspace_id: "workspace-a",
         principal_id: "principal-b",
         item_kind: otherIdentity.itemKind,
+        item_source: sourceFor(otherIdentity),
         item_id: otherIdentity.id,
         item_version: otherIdentity.version,
         favorite: 1,
@@ -1626,6 +2267,7 @@ describe("LibraryPreferenceRepository", () => {
         workspace_id: "workspace-a",
         collection_id: collectionId,
         item_kind: thirdIdentity.itemKind,
+        item_source: sourceFor(thirdIdentity),
         item_id: thirdIdentity.id,
         item_version: thirdIdentity.version,
         position: 2,
@@ -1635,6 +2277,7 @@ describe("LibraryPreferenceRepository", () => {
         workspace_id: "workspace-a",
         collection_id: collectionId,
         item_kind: otherIdentity.itemKind,
+        item_source: sourceFor(otherIdentity),
         item_id: otherIdentity.id,
         item_version: otherIdentity.version,
         position: 1,
@@ -1644,6 +2287,7 @@ describe("LibraryPreferenceRepository", () => {
         workspace_id: "workspace-a",
         collection_id: collectionId,
         item_kind: identity.itemKind,
+        item_source: sourceFor(identity),
         item_id: identity.id,
         item_version: identity.version,
         position: 0,
@@ -1725,6 +2369,7 @@ describe("LibraryPreferenceRepository", () => {
         workspace_id: "workspace-a",
         collection_id: collectionId,
         item_kind: member.itemKind,
+        item_source: sourceFor(member),
         item_id: member.id,
         item_version: member.version,
         position,

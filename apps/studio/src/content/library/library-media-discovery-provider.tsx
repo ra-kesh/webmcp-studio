@@ -8,7 +8,7 @@ import {
   useSyncExternalStore,
 } from "react"
 import type { PropsWithChildren } from "react"
-import type { LibraryMediaDetail } from "@webmcp/document"
+import type { LibraryMediaDetail, LibraryMediaSummary } from "@webmcp/document"
 import { deviceLocalMediaDiscoveryAdapter } from "./device-local-media-discovery-adapter"
 import type {
   DeviceLocalMediaDiscoveryAdapter,
@@ -18,13 +18,11 @@ import type {
 import { LibraryDiscoveryController } from "./discovery-controller"
 import type {
   LibraryDiscoveryDependencies,
+  LibraryDiscoveryFailure,
   LibraryDiscoveryFilters,
   LibraryDiscoveryState,
 } from "./discovery-controller"
-import type {
-  LibraryDiscoveryControllerFactory,
-  LibraryDiscoveryControllerPort,
-} from "./library-discovery-provider"
+import type { LibraryDiscoveryControllerPort } from "./library-discovery-provider"
 import { studioLibraryDiscoveryAdapter } from "./library-discovery-adapter"
 import { useLibraryDiscoveryInvalidation } from "./library-preference-provider"
 import {
@@ -49,16 +47,39 @@ type LibraryMediaDiscoveryFilterPatch = Partial<
   Omit<LibraryDiscoveryFilters, "itemKinds">
 >
 
+export type LibraryMediaDiscoveryScope = Readonly<{
+  entryPoint: LibraryDiscoveryState["entryPoint"]
+  ownerKinds: LibraryDiscoveryFilters["ownerKinds"]
+  collectionId: string | null
+}>
+
+export type LibraryMediaExactDetailResult =
+  | Readonly<{ status: "ready"; detail: LibraryMediaDetail }>
+  | Readonly<{
+      status: "failed"
+      message: string
+      requestId: string | null
+    }>
+
+type AtomicLibraryDiscoveryControllerPort = LibraryDiscoveryControllerPort &
+  Pick<LibraryDiscoveryController, "setScope">
+
+export type LibraryMediaDiscoveryControllerFactory = (
+  dependencies: LibraryDiscoveryDependencies
+) => AtomicLibraryDiscoveryControllerPort
+
 export type LibraryMediaDiscoveryControllerPort = Omit<
-  LibraryDiscoveryControllerPort,
-  "setFilters" | "selectItem" | "retryDetail"
+  AtomicLibraryDiscoveryControllerPort,
+  "setFilters" | "setScope" | "selectItem" | "retryDetail"
 > &
   Readonly<{
     setFilters: (patch: LibraryMediaDiscoveryFilterPatch) => void
+    setScope: (scope: LibraryMediaDiscoveryScope) => void
     selectItem: (
       id: string,
-      version: number
-    ) => Promise<LibraryMediaDetail | null>
+      version: number,
+      mediaSource: Exclude<LibraryMediaSummary["mediaSource"], "local">
+    ) => Promise<LibraryMediaExactDetailResult>
     retryDetail: () => Promise<LibraryMediaDetail | null>
   }>
 
@@ -67,6 +88,7 @@ export type LibraryMediaDiscoveryCommands = Readonly<{
   applySearch: () => void
   clearSearch: () => void
   setFilters: (patch: LibraryMediaDiscoveryFilterPatch) => void
+  setScope: (scope: LibraryMediaDiscoveryScope) => void
   setOrder: (order: LibraryDiscoveryState["order"]) => void
   setEntryPoint: (entryPoint: LibraryDiscoveryState["entryPoint"]) => void
   refresh: () => Promise<void>
@@ -74,8 +96,9 @@ export type LibraryMediaDiscoveryCommands = Readonly<{
   loadMore: () => Promise<void>
   selectItem: (
     id: string,
-    version: number
-  ) => Promise<LibraryMediaDetail | null>
+    version: number,
+    mediaSource: Exclude<LibraryMediaSummary["mediaSource"], "local">
+  ) => Promise<LibraryMediaExactDetailResult>
   retryDetail: () => Promise<LibraryMediaDetail | null>
   clearSelection: () => void
   clearAnnouncement: (id: number) => void
@@ -89,16 +112,27 @@ const createCommands = (
   applySearch: () => controller.applySearch(),
   clearSearch: () => controller.clearSearch(),
   setFilters: (patch) => controller.setFilters(patch),
+  setScope: (scope) => controller.setScope(scope),
   setOrder: (order) => controller.setOrder(order),
   setEntryPoint: (entryPoint) => controller.setEntryPoint(entryPoint),
   refresh: () => controller.refresh(),
   retryReplacement: () => controller.retryReplacement(),
   loadMore: () => controller.loadMore(),
-  selectItem: (id, version) => controller.selectItem(id, version),
+  selectItem: (id, version, mediaSource) =>
+    controller.selectItem(id, version, mediaSource),
   retryDetail: () => controller.retryDetail(),
   clearSelection: () => controller.clearSelection(),
   clearAnnouncement: (id) => controller.clearAnnouncement(id),
   clearFocusIntent: (id) => controller.clearFocusIntent(id),
+})
+
+const failedExactDetail = (
+  failure: LibraryDiscoveryFailure | null,
+  fallback: string
+): LibraryMediaExactDetailResult => ({
+  status: "failed",
+  message: failure?.message ?? fallback,
+  requestId: failure?.requestId ?? null,
 })
 
 const mediaOnlyDependencies = (
@@ -119,11 +153,14 @@ const mediaOnlyDependencies = (
     }
     return result
   },
-  async getDetail(kind, id, version, signal) {
-    if (kind !== "media") {
+  async getDetail(identity, signal) {
+    if (identity.itemKind !== "media") {
       throw new Error("Media discovery cannot load template details.")
     }
-    const detail = await dependencies.getDetail(kind, id, version, signal)
+    if (identity.mediaSource === "local") {
+      throw new Error("Server media discovery cannot load local details.")
+    }
+    const detail = await dependencies.getDetail(identity, signal)
     if (
       detail.summary.itemKind !== "media" ||
       detail.summary.mediaSource === "local"
@@ -136,7 +173,7 @@ const mediaOnlyDependencies = (
 
 export function createMediaLibraryDiscoveryController(
   dependencies: LibraryDiscoveryDependencies,
-  createController: LibraryDiscoveryControllerFactory = (input) =>
+  createController: LibraryMediaDiscoveryControllerFactory = (input) =>
     new LibraryDiscoveryController(input)
 ): LibraryMediaDiscoveryControllerPort {
   const controller = createController(mediaOnlyDependencies(dependencies))
@@ -153,6 +190,40 @@ export function createMediaLibraryDiscoveryController(
       patch as Partial<LibraryDiscoveryFilters>
     controller.setFilters({ ...safePatch, itemKinds: ["media"] })
   }
+  const setScope = (scope: LibraryMediaDiscoveryScope) => {
+    controller.setScope(
+      {
+        itemKinds: ["media"],
+        ownerKinds: scope.ownerKinds,
+        collectionId: scope.collectionId,
+      },
+      scope.entryPoint
+    )
+  }
+  const selectItem = async (
+    id: string,
+    version: number,
+    mediaSource: Exclude<LibraryMediaSummary["mediaSource"], "local">
+  ): Promise<LibraryMediaExactDetailResult> => {
+    const detail = (await controller.selectItem(
+      "media",
+      id,
+      version,
+      mediaSource
+    )) as LibraryMediaDetail | null
+    if (detail) return { status: "ready", detail }
+    const settled = controller.getSnapshot().detail
+    return failedExactDetail(
+      settled.status === "failed" &&
+        settled.itemKind === "media" &&
+        settled.id === id &&
+        settled.version === version &&
+        settled.mediaSource === mediaSource
+        ? settled.failure
+        : null,
+      "The exact media version could not be verified."
+    )
+  }
   return Object.freeze({
     getSnapshot: controller.getSnapshot,
     subscribe: controller.subscribe,
@@ -163,17 +234,13 @@ export function createMediaLibraryDiscoveryController(
     applySearch: () => controller.applySearch(),
     clearSearch: () => controller.clearSearch(),
     setFilters,
+    setScope,
     setOrder: (order) => controller.setOrder(order),
     setEntryPoint: (entryPoint) => controller.setEntryPoint(entryPoint),
     refresh: () => controller.refresh(),
     retryReplacement: () => controller.retryReplacement(),
     loadMore: () => controller.loadMore(),
-    selectItem: (id, version) =>
-      controller.selectItem(
-        "media",
-        id,
-        version
-      ) as Promise<LibraryMediaDetail | null>,
+    selectItem,
     retryDetail: () =>
       controller.retryDetail() as Promise<LibraryMediaDetail | null>,
     clearSelection: () => controller.clearSelection(),
@@ -192,7 +259,7 @@ export type LibraryMediaDiscoveryApi = Readonly<{
     selectItem: (
       assetId: string,
       revision: number
-    ) => Promise<LibraryMediaDetail | null>
+    ) => Promise<LibraryMediaExactDetailResult>
     recheckSelection: (
       identity: DeviceLocalMediaSelectionIdentity,
       signal?: AbortSignal
@@ -221,7 +288,7 @@ const LibraryMediaDiscoveryContext =
   createContext<LibraryMediaDiscoveryContextValue | null>(null)
 
 export type LibraryMediaDiscoveryProviderProps = PropsWithChildren<{
-  createController?: LibraryDiscoveryControllerFactory
+  createController?: LibraryMediaDiscoveryControllerFactory
   localAdapter?: DeviceLocalMediaDiscoveryAdapter
   scheduleFinalization?: (callback: () => void) => void
 }>
@@ -323,8 +390,21 @@ export function LibraryMediaDiscoveryProvider({
   const localCommands = useMemo<LibraryMediaDiscoveryApi["localCommands"]>(
     () => ({
       refresh: () => owners.overlay.refresh(),
-      selectItem: (assetId, revision) =>
-        owners.overlay.selectItem(assetId, revision),
+      selectItem: async (assetId, revision) => {
+        const detail = await owners.overlay.selectItem(assetId, revision)
+        if (detail) return { status: "ready" as const, detail }
+        const settled = owners.overlay.getSnapshot().detail
+        return {
+          status: "failed" as const,
+          message:
+            settled.status === "failed" &&
+            settled.assetId === assetId &&
+            settled.revision === revision
+              ? settled.failure.message
+              : "The exact device-local media version could not be verified.",
+          requestId: null,
+        }
+      },
       recheckSelection: (identity, signal) =>
         owners.overlay.recheckSelection(identity, signal),
       loadPreview: (identity, signal) =>

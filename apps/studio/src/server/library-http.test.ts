@@ -274,7 +274,7 @@ describe("library HTTP contract", () => {
 
     const response = await handlers.getItemDetail(
       new Request(
-        `https://studio.test/v1/studio/library/items/media/${asset.id}/versions/3`
+        `https://studio.test/v1/studio/library/items/media/${asset.id}/versions/3?mediaSource=managed`
       ),
       "media",
       asset.id,
@@ -284,9 +284,12 @@ describe("library HTTP contract", () => {
     expect(catalog.getDetail).toHaveBeenCalledWith(
       "workspace-a",
       "principal-a",
-      "media",
-      asset.id,
-      3
+      {
+        itemKind: "media",
+        id: asset.id,
+        version: 3,
+        mediaSource: "managed",
+      }
     )
     expect(response.status).toBe(200)
     const body = await response.text()
@@ -306,6 +309,35 @@ describe("library HTTP contract", () => {
       },
     })
     expect(body).not.toContain("r2Key")
+  })
+
+  it("requires one canonical media source on item routes and rejects it for templates", async () => {
+    const requests = [
+      "https://studio.test/v1/studio/library/items/media/shared/versions/1",
+      "https://studio.test/v1/studio/library/items/media/shared/versions/1?mediaSource=managed&mediaSource=curated",
+      "https://studio.test/v1/studio/library/items/media/shared/versions/1?mediaSource=unknown",
+      "https://studio.test/v1/studio/library/items/media/shared/versions/1?mediaSource=managed&extra=value",
+    ]
+    for (const url of requests) {
+      const response = await handlers.getItemDetail(
+        new Request(url),
+        "media",
+        "shared",
+        1
+      )
+      expect(response.status).toBe(400)
+    }
+
+    const templateResponse = await handlers.getItemDetail(
+      new Request(
+        "https://studio.test/v1/studio/library/items/template/shared/versions/1?mediaSource=curated"
+      ),
+      "template",
+      "shared",
+      1
+    )
+    expect(templateResponse.status).toBe(400)
+    expect(catalog.getDetail).not.toHaveBeenCalled()
   })
 
   it("preserves the shared all-item default when itemKind is omitted", async () => {

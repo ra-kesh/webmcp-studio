@@ -11,6 +11,7 @@ import type {
   LibraryCatalogPage,
   LibraryCatalogQuery,
   LibraryCatalogQueryInput,
+  LibraryItemIdentity,
 } from "@webmcp/document"
 
 const requestIdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/)
@@ -91,9 +92,7 @@ export type LibraryDiscoveryClient = Readonly<{
     signal: AbortSignal
   ) => Promise<LibraryDiscoveryListResult>
   getDetail: (
-    itemKind: "template" | "media",
-    id: string,
-    version: number,
+    identity: LibraryItemIdentity,
     signal: AbortSignal
   ) => Promise<LibraryCatalogItemDetail>
 }>
@@ -195,15 +194,14 @@ const canonicalListPath = (query: LibraryCatalogQuery) => {
   return `/v1/studio/library/items?${parameters.toString()}`
 }
 
-const detailPath = (
-  itemKind: "template" | "media",
-  id: string,
-  version: number
-) => {
-  const identity = libraryItemIdentitySchema.parse({ itemKind, id, version })
-  return `/v1/studio/library/items/${encodeURIComponent(
+const detailPath = (identityInput: LibraryItemIdentity) => {
+  const identity = libraryItemIdentitySchema.parse(identityInput)
+  const path = `/v1/studio/library/items/${encodeURIComponent(
     identity.itemKind
   )}/${encodeURIComponent(identity.id)}/versions/${identity.version}`
+  return identity.itemKind === "media"
+    ? `${path}?mediaSource=${encodeURIComponent(identity.mediaSource)}`
+    : path
 }
 
 export function createLibraryDiscoveryClient(
@@ -296,19 +294,24 @@ export function createLibraryDiscoveryClient(
             : "Studio returned library results for the wrong query.",
       })
     },
-    getDetail: async (itemKind, id, version, signal) =>
-      request({
-        path: detailPath(itemKind, id, version),
+    getDetail: async (identityInput, signal) => {
+      const identity = libraryItemIdentitySchema.parse(identityInput)
+      return request({
+        path: detailPath(identity),
         schema: libraryCatalogDetailResponseSchema,
         signal,
         unwrap: ({ detail }) => detail,
         revision: ({ workspaceRevision }) => workspaceRevision,
         validate: ({ detail }) =>
-          detail.summary.itemKind === itemKind &&
-          detail.summary.id === id &&
-          detail.summary.version === version
+          detail.summary.itemKind === identity.itemKind &&
+          detail.summary.id === identity.id &&
+          detail.summary.version === identity.version &&
+          (identity.itemKind !== "media" ||
+            (detail.summary.itemKind === "media" &&
+              detail.summary.mediaSource === identity.mediaSource))
             ? null
             : "Studio returned details for a different library item.",
-      }),
+      })
+    },
   })
 }

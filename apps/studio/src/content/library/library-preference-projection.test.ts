@@ -89,20 +89,23 @@ const media = (
     ...overrides,
   })
 
-type PreferenceItem = Pick<
-  LibraryTemplateSummary | LibraryMediaSummary,
-  "itemKind" | "id" | "version"
->
+type PreferenceItem =
+  | Pick<LibraryTemplateSummary, "itemKind" | "id" | "version">
+  | Pick<LibraryMediaSummary, "itemKind" | "id" | "version" | "mediaSource">
 
 const preference = (
   item: PreferenceItem,
   overrides: Partial<LibraryPreferenceSnapshot["preferences"][number]> = {}
 ): LibraryPreferenceSnapshot["preferences"][number] => ({
-  identity: {
-    itemKind: item.itemKind,
-    id: item.id,
-    version: item.version,
-  },
+  identity:
+    item.itemKind === "media"
+      ? {
+          itemKind: "media",
+          id: item.id,
+          version: item.version,
+          mediaSource: item.mediaSource,
+        }
+      : { itemKind: "template", id: item.id, version: item.version },
   favorite: true,
   lastUsedAt: "2026-08-31T10:00:00.000Z",
   collectionIds: ["collection-proposals"],

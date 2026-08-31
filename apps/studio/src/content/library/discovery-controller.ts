@@ -3,14 +3,21 @@ import {
   libraryCatalogItemDetailSchema,
   libraryCatalogPageSchema,
   libraryCatalogQuerySchema,
+  libraryCatalogItemIdentity,
+  libraryItemIdentitySchema,
 } from "@webmcp/document"
 import type {
   LibraryCatalogItemDetail,
   LibraryCatalogItemSummary,
   LibraryCatalogQuery,
   LibraryCatalogQueryInput,
+  LibraryItemIdentity,
+  LibraryMediaSummary,
 } from "@webmcp/document"
-import { isTrustedLibraryCursorInvalidation } from "./library-discovery-client"
+import {
+  isTrustedLibraryCursorInvalidation,
+  LibraryDiscoveryHttpError,
+} from "./library-discovery-client"
 import type {
   LibraryDiscoveryCursorReason,
   LibraryDiscoveryListResult,
@@ -109,6 +116,7 @@ export type LibraryDiscoveryAppliedQuery = LibraryDiscoveryFilters &
 export type LibraryDiscoveryFailure = Readonly<{
   kind: "request_failed" | "invalid_response"
   message: string
+  requestId?: string | null
   cursorReason?: LibraryDiscoveryCursorReason
 }>
 
@@ -130,6 +138,7 @@ export type LibraryDiscoveryDetailState =
       itemKind: "template" | "media"
       id: string
       version: number
+      mediaSource?: LibraryMediaSummary["mediaSource"]
     }>
   | Readonly<{
       status: "ready"
@@ -140,6 +149,7 @@ export type LibraryDiscoveryDetailState =
       itemKind: "template" | "media"
       id: string
       version: number
+      mediaSource?: LibraryMediaSummary["mediaSource"]
       failure: LibraryDiscoveryFailure
     }>
 
@@ -178,9 +188,7 @@ export type LibraryDiscoveryDependencies = Readonly<{
     signal: AbortSignal
   ) => Promise<LibraryDiscoveryListResult>
   getDetail: (
-    kind: "template" | "media",
-    id: string,
-    version: number,
+    identity: LibraryItemIdentity,
     signal: AbortSignal
   ) => Promise<LibraryCatalogItemDetail>
   getTaxonomy: () => LibraryTaxonomy
@@ -252,6 +260,8 @@ const requestFailure = (
   return {
     kind: "request_failed",
     message: error instanceof Error ? error.message : fallback,
+    requestId:
+      error instanceof LibraryDiscoveryHttpError ? error.requestId : null,
     ...(cursorReason ? { cursorReason } : {}),
   }
 }
@@ -264,13 +274,11 @@ const cursorReasonFrom = (
 const invalidResponse = (message: string): LibraryDiscoveryFailure => ({
   kind: "invalid_response",
   message,
+  requestId: null,
 })
 
-const itemIdentity = (
-  kind: LibraryCatalogItemSummary["itemKind"],
-  id: string,
-  version: number
-) => `${kind}:${id}@${version}`
+const itemIdentity = (item: LibraryCatalogItemSummary) =>
+  libraryCatalogItemIdentity(item)
 
 export class LibraryDiscoveryController {
   readonly #dependencies: LibraryDiscoveryDependencies
@@ -480,6 +488,30 @@ export class LibraryDiscoveryController {
     )
   }
 
+  setScope(
+    patch: Partial<LibraryDiscoveryFilters>,
+    entryPoint: LibraryDiscoveryEntryPoint
+  ) {
+    if (this.#state.disposed) return
+    const filters = immutable(
+      this.#validateFilters({ ...this.#state.filters, ...patch })
+    )
+    const filtersChanged =
+      JSON.stringify(filters) !== JSON.stringify(this.#state.filters)
+    const entryPointChanged = entryPoint !== this.#state.entryPoint
+    if (!filtersChanged && !entryPointChanged) return
+    this.#cancelSchedule()
+    this.#scheduledIntent += 1
+    this.#applyCriteria(
+      {
+        filters,
+        entryPoint,
+        search: normalizeSearch(this.#state.rawSearch),
+      },
+      "results"
+    )
+  }
+
   refresh() {
     if (this.#state.disposed || !this.#state.active) return Promise.resolve()
     return this.#startReplacement(this.#state.appliedQuery, "same-query")
@@ -534,28 +566,52 @@ export class LibraryDiscoveryController {
     kind: "template" | "media",
     id: string,
     version: number,
-    options: { requestFocus?: boolean } = {}
+    sourceOrOptions:
+      LibraryMediaSummary["mediaSource"] | { requestFocus?: boolean } = {},
+    mediaOptions: { requestFocus?: boolean } = {}
   ) {
     if (this.#state.disposed || !this.#state.active)
       return Promise.resolve(null)
     this.#abortDetail()
     const controller = new AbortController()
-    const identity = itemIdentity(kind, id, version)
+    const identity = libraryItemIdentitySchema.parse(
+      kind === "media"
+        ? { itemKind: kind, id, version, mediaSource: sourceOrOptions }
+        : { itemKind: kind, id, version }
+    )
+    const options =
+      kind === "media"
+        ? mediaOptions
+        : typeof sourceOrOptions === "object"
+          ? sourceOrOptions
+          : {}
+    const requestIdentity =
+      identity.itemKind === "media"
+        ? `media:${identity.mediaSource}:${identity.id}@${identity.version}`
+        : `template:${identity.id}@${identity.version}`
     const request: DetailRequest = {
       token: ++this.#requestToken,
       lifetime: this.#lifetime,
-      identity,
+      identity: requestIdentity,
       controller,
     }
     this.#detail = request
     this.#publish({
       ...this.#state,
-      detail: { status: "loading", itemKind: kind, id, version },
+      detail: {
+        status: "loading",
+        itemKind: kind,
+        id,
+        version,
+        ...(identity.itemKind === "media"
+          ? { mediaSource: identity.mediaSource }
+          : {}),
+      },
     })
     let result: Promise<LibraryCatalogItemDetail>
     try {
       result = Promise.resolve(
-        this.#dependencies.getDetail(kind, id, version, controller.signal)
+        this.#dependencies.getDetail(identity, controller.signal)
       )
     } catch (error) {
       result = Promise.reject(error)
@@ -572,6 +628,7 @@ export class LibraryDiscoveryController {
             kind,
             id,
             version,
+            identity.itemKind === "media" ? identity.mediaSource : undefined,
             invalidResponse(
               "The selected library item returned invalid details."
             )
@@ -581,13 +638,17 @@ export class LibraryDiscoveryController {
         if (
           detail.summary.itemKind !== kind ||
           detail.summary.id !== id ||
-          detail.summary.version !== version
+          detail.summary.version !== version ||
+          (identity.itemKind === "media" &&
+            (detail.summary.itemKind !== "media" ||
+              detail.summary.mediaSource !== identity.mediaSource))
         ) {
           this.#publishDetailFailure(
             request,
             kind,
             id,
             version,
+            identity.itemKind === "media" ? identity.mediaSource : undefined,
             invalidResponse(
               "The selected library detail identity did not match."
             )
@@ -599,7 +660,7 @@ export class LibraryDiscoveryController {
           ...this.#state,
           detail: { status: "ready", detail },
           focusIntent: options.requestFocus
-            ? this.#nextFocus("item", identity)
+            ? this.#nextFocus("item", requestIdentity)
             : null,
         })
         return detail
@@ -611,6 +672,7 @@ export class LibraryDiscoveryController {
           kind,
           id,
           version,
+          identity.itemKind === "media" ? identity.mediaSource : undefined,
           requestFailure(
             error,
             "The selected library item could not be loaded."
@@ -624,7 +686,12 @@ export class LibraryDiscoveryController {
   retryDetail() {
     const detail = this.#state.detail
     return detail.status === "failed"
-      ? this.selectItem(detail.itemKind, detail.id, detail.version)
+      ? this.selectItem(
+          detail.itemKind,
+          detail.id,
+          detail.version,
+          detail.itemKind === "media" ? detail.mediaSource! : {}
+        )
       : Promise.resolve(null)
   }
 
@@ -653,6 +720,12 @@ export class LibraryDiscoveryController {
     }>,
     focus: "search" | "results" | null
   ) {
+    const criteriaState = {
+      ...this.#state,
+      ...(patch.filters ? { filters: patch.filters } : {}),
+      ...(patch.order ? { order: patch.order } : {}),
+      ...(patch.entryPoint ? { entryPoint: patch.entryPoint } : {}),
+    }
     const applied = immutable(
       this.#createAppliedQuery(
         patch.search ?? this.#state.appliedQuery.search,
@@ -665,7 +738,7 @@ export class LibraryDiscoveryController {
       this.#queryKey(applied) !== this.#queryKey(this.#state.appliedQuery)
     if (!changed) {
       this.#publish({
-        ...this.#state,
+        ...criteriaState,
         appliedQuery: applied,
         queryScheduled: false,
         updatingResults: this.#state.replacementStatus === "loading",
@@ -676,7 +749,7 @@ export class LibraryDiscoveryController {
     this.#abortDetail()
     const retainedPage = this.#state.confirmedPage ?? this.#state.retainedPage
     this.#publish({
-      ...this.#state,
+      ...criteriaState,
       appliedQuery: applied,
       queryScheduled: false,
       updatingResults: true,
@@ -776,9 +849,7 @@ export class LibraryDiscoveryController {
       )
       return
     }
-    const replacementIdentities = page.items.map((item) =>
-      itemIdentity(item.itemKind, item.id, item.version)
-    )
+    const replacementIdentities = page.items.map((item) => itemIdentity(item))
     if (
       new Set(replacementIdentities).size !== replacementIdentities.length ||
       page.items.length > page.total ||
@@ -867,13 +938,9 @@ export class LibraryDiscoveryController {
       )
       return
     }
-    const seen = new Set(
-      current.items.map((item) =>
-        itemIdentity(item.itemKind, item.id, item.version)
-      )
-    )
+    const seen = new Set(current.items.map((item) => itemIdentity(item)))
     const appended = page.items.filter((item) => {
-      const identity = itemIdentity(item.itemKind, item.id, item.version)
+      const identity = itemIdentity(item)
       if (seen.has(identity)) return false
       seen.add(identity)
       return true
@@ -947,13 +1014,21 @@ export class LibraryDiscoveryController {
     kind: "template" | "media",
     id: string,
     version: number,
+    mediaSource: LibraryMediaSummary["mediaSource"] | undefined,
     failure: LibraryDiscoveryFailure
   ) {
     if (!this.#acceptsDetail(request)) return
     this.#detail = null
     this.#publish({
       ...this.#state,
-      detail: { status: "failed", itemKind: kind, id, version, failure },
+      detail: {
+        status: "failed",
+        itemKind: kind,
+        id,
+        version,
+        ...(kind === "media" ? { mediaSource } : {}),
+        failure,
+      },
     })
   }
 

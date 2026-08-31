@@ -302,6 +302,7 @@ export function projectPublicMediaDetail(
     selectionIdentity: {
       source: "managed",
       assetId: summary.id,
+      catalogVersion: summary.version,
       refetch: "required",
     },
   })

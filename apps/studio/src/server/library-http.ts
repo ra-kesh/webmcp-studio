@@ -117,7 +117,10 @@ const scalarLibraryQueryParameters = new Set([
   "cursor",
 ])
 
-const scalarParameter = (parameters: URLSearchParams, name: string) => {
+const scalarParameter = (
+  parameters: URLSearchParams,
+  name: string
+): string | null => {
   const values = parameters.getAll(name)
   if (values.length > 1) {
     throw new LibraryHttpError(
@@ -129,8 +132,8 @@ const scalarParameter = (parameters: URLSearchParams, name: string) => {
   return values[0] ?? null
 }
 
-const parseClientInput = <Output>(
-  schema: z.ZodType<Output>,
+const parseClientInput = <TOutput>(
+  schema: z.ZodType<TOutput>,
   input: unknown
 ) => {
   const parsed = schema.safeParse(input)
@@ -194,10 +197,29 @@ export const parseLibraryListRequest = (
 }
 
 const itemIdentity = (
+  request: Request,
   itemKind: string,
   id: string,
   version: string | number
 ) => {
+  const parameters = new URL(request.url).searchParams
+  for (const name of parameters.keys()) {
+    if (name !== "mediaSource") {
+      throw new LibraryHttpError(
+        "invalid_library_request",
+        400,
+        `Unknown library item query parameter: ${name}`
+      )
+    }
+  }
+  const mediaSource = scalarParameter(parameters, "mediaSource")
+  if (itemKind !== "media" && mediaSource !== null) {
+    throw new LibraryHttpError(
+      "invalid_library_request",
+      400,
+      "mediaSource is only valid for media identities"
+    )
+  }
   const parsedVersion =
     typeof version === "number"
       ? version
@@ -208,6 +230,11 @@ const itemIdentity = (
     itemKind,
     id,
     version: parsedVersion,
+    ...(itemKind === "media"
+      ? {
+          mediaSource,
+        }
+      : {}),
   })
 }
 
@@ -257,10 +284,10 @@ const expectedRevision = (
   return revision
 }
 
-const mutationBody = async <Output>(
+const mutationBody = async <TOutput>(
   request: Request,
   route: StudioJsonRoute,
-  schema: z.ZodType<Output>
+  schema: z.ZodType<TOutput>
 ) => parseClientInput(schema, await readStudioJsonBody(request, route))
 
 const responseHeaders = (etag?: string) => {
@@ -354,13 +381,7 @@ export const assertCatalogItemCapability = async (
   identity: LibraryItemIdentity,
   capability: "use" | "favorite" | "add_to_collection"
 ) => {
-  const result = await catalog.getDetail(
-    workspaceId,
-    principalId,
-    identity.itemKind,
-    identity.id,
-    identity.version
-  )
+  const result = await catalog.getDetail(workspaceId, principalId, identity)
   const permissions = result?.detail.summary.permissions
   const capabilityAllowed =
     capability === "favorite"
@@ -447,13 +468,7 @@ export function createLibraryHttpHandlers(
     identity: LibraryItemIdentity
   ) => {
     const result: LibraryCatalogServiceDetailResult | null =
-      await catalog.getDetail(
-        principal.workspaceId,
-        principal.id,
-        identity.itemKind,
-        identity.id,
-        identity.version
-      )
+      await catalog.getDetail(principal.workspaceId, principal.id, identity)
     if (!result) {
       throw new LibraryHttpError(
         "library_item_not_found",
@@ -483,7 +498,10 @@ export function createLibraryHttpHandlers(
       version: string | number
     ) =>
       withPrincipal(dependencies, request, (principal) =>
-        readCatalogDetail(principal, itemIdentity(itemKind, itemId, version))
+        readCatalogDetail(
+          principal,
+          itemIdentity(request, itemKind, itemId, version)
+        )
       ),
 
     getPreferences: (request: Request) =>
@@ -516,7 +534,7 @@ export function createLibraryHttpHandlers(
         const receipt = await repository.setFavorite(
           principal.workspaceId,
           principal.id,
-          itemIdentity(itemKind, itemId, version),
+          itemIdentity(request, itemKind, itemId, version),
           expectedRevision(request, "preference"),
           input.favorite,
           idempotencyKey(request)
@@ -545,7 +563,7 @@ export function createLibraryHttpHandlers(
         const receipt = await repository.recordUsed(
           principal.workspaceId,
           principal.id,
-          itemIdentity(itemKind, itemId, version),
+          itemIdentity(request, itemKind, itemId, version),
           input.completedAction,
           input.completionId,
           idempotencyKey(request)
@@ -681,7 +699,7 @@ export function createLibraryHttpHandlers(
           principal.id,
           collectionId(collectionIdInput),
           expectedRevision(request, "collection"),
-          itemIdentity(itemKind, itemId, version),
+          itemIdentity(request, itemKind, itemId, version),
           idempotencyKey(request)
         )
         return withEtag(
@@ -711,7 +729,7 @@ export function createLibraryHttpHandlers(
           principal.id,
           collectionId(collectionIdInput),
           expectedRevision(request, "collection"),
-          itemIdentity(itemKind, itemId, version),
+          itemIdentity(request, itemKind, itemId, version),
           idempotencyKey(request)
         )
         return withEtag(

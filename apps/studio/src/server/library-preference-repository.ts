@@ -5,6 +5,7 @@ import {
   libraryCollectionMutationReceiptSchema,
   libraryCollectionNameSchema,
   libraryItemIdentitySchema,
+  libraryItemIdentityKey,
   libraryPreferenceMutationReceiptSchema,
   libraryPreferenceSnapshotSchema,
   libraryReorderCollectionMembersRequestSchema,
@@ -30,6 +31,7 @@ import { sha256Hex } from "./media-assets"
 
 type PreferenceRow = {
   item_kind: LibraryItemIdentity["itemKind"]
+  item_source: "template" | "curated" | "managed" | "local"
   item_id: string
   item_version: number
   favorite: number
@@ -51,6 +53,7 @@ type CollectionRow = {
 type MemberRow = {
   collection_id: string
   item_kind: LibraryItemIdentity["itemKind"]
+  item_source: "template" | "curated" | "managed" | "local"
   item_id: string
   item_version: number
   position: number
@@ -118,14 +121,26 @@ export class LibraryPreferenceError extends Error {
   }
 }
 
-const identityKey = (identity: LibraryItemIdentity) =>
-  `${identity.itemKind}:${identity.id}@${identity.version}`
+const identityKey = libraryItemIdentityKey
 
-const preferenceIdentity = (row: PreferenceRow | MemberRow) => ({
-  itemKind: row.item_kind,
-  id: row.item_id,
-  version: Number(row.item_version),
-})
+const identitySource = (identity: LibraryItemIdentity) =>
+  identity.itemKind === "media" ? identity.mediaSource : "template"
+
+const preferenceIdentity = (
+  row: PreferenceRow | MemberRow
+): LibraryItemIdentity =>
+  row.item_kind === "media"
+    ? {
+        itemKind: "media",
+        id: row.item_id,
+        version: Number(row.item_version),
+        mediaSource: row.item_source as "curated" | "managed" | "local",
+      }
+    : {
+        itemKind: "template",
+        id: row.item_id,
+        version: Number(row.item_version),
+      }
 
 const collectionSummary = (row: CollectionRow): LibraryCollectionSummary => ({
   id: row.id,
@@ -139,6 +154,15 @@ const collectionSummary = (row: CollectionRow): LibraryCollectionSummary => ({
 
 const canonicalHash = async (value: unknown) =>
   sha256Hex(new TextEncoder().encode(JSON.stringify(value)))
+
+const legacyIdentityWithoutSource = (identity: LibraryItemIdentity) =>
+  identity.itemKind === "media"
+    ? {
+        itemKind: identity.itemKind,
+        id: identity.id,
+        version: identity.version,
+      }
+    : identity
 
 const assertIdempotencyKey = (input: string) => {
   const key = input.trim()
@@ -208,11 +232,11 @@ export class LibraryPreferenceRepository {
   private preferenceListStatement(workspaceId: string, principalId: string) {
     return this.db
       .prepare(
-        `/* library:preference-list */ SELECT item_kind, item_id, item_version,
+        `/* library:preference-list */ SELECT item_kind, item_source, item_id, item_version,
            favorite, last_used_at, revision, created_at, updated_at
          FROM library_item_preferences
          WHERE workspace_id = ?1 AND principal_id = ?2
-         ORDER BY item_kind, item_id, item_version`
+         ORDER BY item_kind, item_source, item_id, item_version`
       )
       .bind(workspaceId, principalId)
   }
@@ -220,13 +244,13 @@ export class LibraryPreferenceRepository {
   private membershipListStatement(workspaceId: string, principalId: string) {
     return this.db
       .prepare(
-        `/* library:membership-list */ SELECT m.collection_id, m.item_kind,
+        `/* library:membership-list */ SELECT m.collection_id, m.item_kind, m.item_source,
            m.item_id, m.item_version, m.position, m.added_at
          FROM library_collection_members m
          INNER JOIN library_collections c
            ON c.workspace_id = m.workspace_id AND c.id = m.collection_id
          WHERE m.workspace_id = ?1 AND c.owner_principal_id = ?2
-         ORDER BY m.item_kind, m.item_id, m.item_version, c.created_at, c.id`
+         ORDER BY m.item_kind, m.item_source, m.item_id, m.item_version, c.created_at, c.id`
       )
       .bind(workspaceId, principalId)
   }
@@ -406,7 +430,7 @@ export class LibraryPreferenceRepository {
   ) {
     return this.db
       .prepare(
-        `/* library:collection-members */ SELECT collection_id, item_kind,
+        `/* library:collection-members */ SELECT collection_id, item_kind, item_source,
            item_id, item_version, position, added_at
          FROM library_collection_members
          WHERE workspace_id = ?1 AND collection_id = ?2
@@ -485,7 +509,10 @@ export class LibraryPreferenceRepository {
          SELECT last_mutation_operation AS operation,
                 last_mutation_hash AS request_hash,
                 'preference' AS result_kind,
-                item_kind || ':' || item_id || '@' || item_version AS result_identity,
+                CASE WHEN item_kind = 'media'
+                  THEN 'media:' || item_source || ':' || item_id || '@' || item_version
+                  ELSE 'template:' || item_id || '@' || item_version
+                END AS result_identity,
                 revision AS result_revision
          FROM library_item_preferences
          WHERE workspace_id = ?1 AND principal_id = ?2 AND last_mutation_key = ?3
@@ -513,7 +540,10 @@ export class LibraryPreferenceRepository {
     key: string,
     hash: string,
     operation: T["operation"],
-    repair: (claim: MutationClaimRow) => Promise<T>
+    repair: (claim: MutationClaimRow) => Promise<T>,
+    compatibleLegacyHash?: string,
+    compatibleLegacyReceipt?: (receipt: T) => boolean,
+    compatibleLegacyClaim?: (claim: MutationClaimRow) => boolean
   ): Promise<T | null> {
     const claim = await this.currentClaim(workspaceId, principalId, key)
     if (!claim) return null
@@ -522,10 +552,27 @@ export class LibraryPreferenceRepository {
       principalId,
       key,
       hash,
-      operation
+      operation,
+      compatibleLegacyHash,
+      compatibleLegacyReceipt
     )
     if (lateReplay) return lateReplay
-    if (claim.operation !== operation || claim.request_hash !== hash) {
+    if (
+      claim.operation !== operation ||
+      (claim.request_hash !== hash &&
+        claim.request_hash !== compatibleLegacyHash)
+    ) {
+      throw new LibraryPreferenceError(
+        "idempotency_key_reused",
+        409,
+        "Idempotency-Key was already used for another library mutation"
+      )
+    }
+    if (
+      claim.request_hash !== hash &&
+      claim.request_hash === compatibleLegacyHash &&
+      (!compatibleLegacyClaim || !compatibleLegacyClaim(claim))
+    ) {
       throw new LibraryPreferenceError(
         "idempotency_key_reused",
         409,
@@ -541,9 +588,18 @@ export class LibraryPreferenceRepository {
   >(
     row: MutationRequestRow,
     expectedHash: string,
-    operation: T["operation"]
+    operation: T["operation"],
+    compatibleLegacyHash?: string,
+    compatibleLegacyReceipt?: (receipt: T) => boolean
   ): T {
-    if (row.request_hash !== expectedHash || row.operation !== operation) {
+    const currentHashMatches =
+      row.request_hash === expectedHash && row.operation === operation
+    const legacyHashMatches =
+      !currentHashMatches &&
+      compatibleLegacyHash !== undefined &&
+      row.request_hash === compatibleLegacyHash &&
+      row.operation === operation
+    if (!currentHashMatches && !legacyHashMatches) {
       throw new LibraryPreferenceError(
         "idempotency_key_reused",
         409,
@@ -582,6 +638,16 @@ export class LibraryPreferenceRepository {
       ) {
         throw new Error("Receipt result metadata mismatch")
       }
+      if (
+        legacyHashMatches &&
+        (!compatibleLegacyReceipt || !compatibleLegacyReceipt(parsed as T))
+      ) {
+        throw new LibraryPreferenceError(
+          "idempotency_key_reused",
+          409,
+          "Idempotency-Key was already used for another library mutation"
+        )
+      }
       return parsed as T
     } catch (error) {
       if (error instanceof LibraryPreferenceError) throw error
@@ -601,10 +667,20 @@ export class LibraryPreferenceRepository {
     principalId: string,
     key: string,
     hash: string,
-    operation: T["operation"]
+    operation: T["operation"],
+    compatibleLegacyHash?: string,
+    compatibleLegacyReceipt?: (receipt: T) => boolean
   ): Promise<T | null> {
     const row = await this.requestRow(workspaceId, principalId, key)
-    return row ? this.receipt<T>(row, hash, operation) : null
+    return row
+      ? this.receipt<T>(
+          row,
+          hash,
+          operation,
+          compatibleLegacyHash,
+          compatibleLegacyReceipt
+        )
+      : null
   }
 
   private receiptValueStatement(args: {
@@ -694,11 +770,14 @@ export class LibraryPreferenceRepository {
           }
         : {}),
     } as T
+    const receiptHash = args.claim.request_hash
+    const compatibleLegacyReceipt = (receipt: T) =>
+      identityKey(receipt.preference.identity) === resultIdentity
     const statement = this.receiptValueStatement({
       workspaceId: args.workspaceId,
       principalId: args.principalId,
       key: args.key,
-      hash: args.hash,
+      hash: receiptHash,
       operation: args.operation,
       resultKind: "preference",
       resultIdentity,
@@ -717,7 +796,9 @@ export class LibraryPreferenceRepository {
       args.principalId,
       args.key,
       args.hash,
-      args.operation
+      args.operation,
+      receiptHash,
+      compatibleLegacyReceipt
     )
     if (receipt) return receipt
     if (writeError) throw writeError
@@ -769,6 +850,7 @@ export class LibraryPreferenceRepository {
       ...(args.identity ? { identity: args.identity } : {}),
       workspaceRevision: snapshot.workspaceRevision,
     } as T
+    const receiptHash = args.claim.request_hash
     const now = this.now()
     let writeError: unknown = null
     try {
@@ -776,7 +858,7 @@ export class LibraryPreferenceRepository {
         workspaceId: args.workspaceId,
         principalId: args.principalId,
         key: args.key,
-        hash: args.hash,
+        hash: receiptHash,
         operation: args.operation,
         resultKind: "collection",
         resultIdentity: args.claim.result_identity,
@@ -792,7 +874,8 @@ export class LibraryPreferenceRepository {
       args.principalId,
       args.key,
       args.hash,
-      args.operation
+      args.operation,
+      receiptHash
     )
     if (receipt) return receipt
     if (writeError) throw writeError
@@ -1002,12 +1085,28 @@ export class LibraryPreferenceRepository {
       expectedRevision,
       favorite,
     })
+    const compatibleLegacyHash =
+      identity.itemKind === "media"
+        ? await canonicalHash({
+            operation,
+            identity: legacyIdentityWithoutSource(identity),
+            expectedRevision,
+            favorite,
+          })
+        : undefined
+    const compatibleLegacyReceipt = (receipt: LibrarySetFavoriteReceipt) =>
+      identityKey(receipt.preference.identity) === identityKey(identity)
+    const compatibleLegacyClaim = (claim: MutationClaimRow) =>
+      claim.result_kind === "preference" &&
+      claim.result_identity === identityKey(identity)
     const replay = await this.replay<LibrarySetFavoriteReceipt>(
       workspaceId,
       principalId,
       key,
       hash,
-      operation
+      operation,
+      compatibleLegacyHash,
+      compatibleLegacyReceipt
     )
     if (replay) return replay
     const repair = (claim: MutationClaimRow) =>
@@ -1026,7 +1125,10 @@ export class LibraryPreferenceRepository {
       key,
       hash,
       operation,
-      repair
+      repair,
+      compatibleLegacyHash,
+      compatibleLegacyReceipt,
+      compatibleLegacyClaim
     )
     if (claimReplay) return claimReplay
     if (favorite) {
@@ -1050,27 +1152,28 @@ export class LibraryPreferenceRepository {
       expectedRevision === 0
         ? this.db.prepare(
             `/* library:set-favorite */ INSERT INTO library_item_preferences
-         (workspace_id, principal_id, item_kind, item_id, item_version, favorite,
+         (workspace_id, principal_id, item_kind, item_source, item_id, item_version, favorite,
           last_used_at, revision, last_mutation_key, last_mutation_hash,
           last_mutation_operation, created_at, updated_at)
-         SELECT ?1, ?2, ?3, ?4, ?5, ?7, NULL, 1, ?8, ?10,
-           'set_favorite', ?9, ?9
-         WHERE ?6 = 0`
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?8, NULL, 1, ?9, ?11,
+           'set_favorite', ?10, ?10
+         WHERE ?7 = 0`
           )
         : this.db.prepare(
             `/* library:set-favorite */ UPDATE library_item_preferences
-         SET favorite = ?7, revision = revision + 1,
-           last_mutation_key = ?8, last_mutation_hash = ?10,
-           last_mutation_operation = 'set_favorite', updated_at = ?9
+         SET favorite = ?8, revision = revision + 1,
+           last_mutation_key = ?9, last_mutation_hash = ?11,
+           last_mutation_operation = 'set_favorite', updated_at = ?10
          WHERE workspace_id = ?1 AND principal_id = ?2 AND item_kind = ?3
-           AND item_id = ?4 AND item_version = ?5 AND revision = ?6
-           AND last_mutation_key <> ?8`
+           AND item_source = ?4 AND item_id = ?5 AND item_version = ?6 AND revision = ?7
+           AND last_mutation_key <> ?9`
           )
     const statements = [
       statement.bind(
         workspaceId,
         principalId,
         identity.itemKind,
+        identitySource(identity),
         identity.id,
         identity.version,
         expectedRevision,
@@ -1096,7 +1199,10 @@ export class LibraryPreferenceRepository {
       key,
       hash,
       operation,
-      repair
+      repair,
+      compatibleLegacyHash,
+      compatibleLegacyReceipt,
+      compatibleLegacyClaim
     )
     if (repaired) return repaired
     const current = await this.readPreference(
@@ -1133,12 +1239,28 @@ export class LibraryPreferenceRepository {
       completedAction,
       completionId: parsedCompletionId,
     })
+    const compatibleLegacyHash =
+      identity.itemKind === "media"
+        ? await canonicalHash({
+            operation,
+            identity: legacyIdentityWithoutSource(identity),
+            completedAction,
+            completionId: parsedCompletionId,
+          })
+        : undefined
+    const compatibleLegacyReceipt = (receipt: LibraryRecordUseReceipt) =>
+      identityKey(receipt.preference.identity) === identityKey(identity)
+    const compatibleLegacyClaim = (claim: MutationClaimRow) =>
+      claim.result_kind === "preference" &&
+      claim.result_identity === identityKey(identity)
     const replay = await this.replay<LibraryRecordUseReceipt>(
       workspaceId,
       principalId,
       key,
       hash,
-      operation
+      operation,
+      compatibleLegacyHash,
+      compatibleLegacyReceipt
     )
     if (replay) return replay
     const repair = (claim: MutationClaimRow) =>
@@ -1159,7 +1281,10 @@ export class LibraryPreferenceRepository {
       key,
       hash,
       operation,
-      repair
+      repair,
+      compatibleLegacyHash,
+      compatibleLegacyReceipt,
+      compatibleLegacyClaim
     )
     if (claimReplay) return claimReplay
     await this.admission.assertCanUse(workspaceId, principalId, identity)
@@ -1175,12 +1300,12 @@ export class LibraryPreferenceRepository {
         this.db
           .prepare(
             `/* library:record-used */ INSERT INTO library_item_preferences
-         (workspace_id, principal_id, item_kind, item_id, item_version, favorite,
+         (workspace_id, principal_id, item_kind, item_source, item_id, item_version, favorite,
           last_used_at, revision, last_mutation_key, last_mutation_hash,
           last_mutation_operation, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, 0, ?7, 1, ?6, ?8,
-           'record_used', ?7, ?7)
-         ON CONFLICT (workspace_id, principal_id, item_kind, item_id, item_version)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?8, 1, ?7, ?9,
+           'record_used', ?8, ?8)
+         ON CONFLICT (workspace_id, principal_id, item_kind, item_source, item_id, item_version)
            DO UPDATE SET last_used_at = CASE
              WHEN last_used_at IS NULL OR last_used_at < excluded.last_used_at
              THEN excluded.last_used_at ELSE last_used_at END,
@@ -1188,13 +1313,14 @@ export class LibraryPreferenceRepository {
            last_mutation_key = excluded.last_mutation_key,
            last_mutation_hash = excluded.last_mutation_hash
            , last_mutation_operation = excluded.last_mutation_operation
-         WHERE library_item_preferences.revision = ?9
+         WHERE library_item_preferences.revision = ?10
            AND library_item_preferences.last_mutation_key <> excluded.last_mutation_key`
           )
           .bind(
             workspaceId,
             principalId,
             identity.itemKind,
+            identitySource(identity),
             identity.id,
             identity.version,
             key,
@@ -1219,7 +1345,10 @@ export class LibraryPreferenceRepository {
         key,
         hash,
         operation,
-        repair
+        repair,
+        compatibleLegacyHash,
+        compatibleLegacyReceipt,
+        compatibleLegacyClaim
       )
       if (repaired) return repaired
       if (attempt === 1) {
@@ -1353,6 +1482,10 @@ export class LibraryPreferenceRepository {
       "create_collection" | "delete_collection"
     >
     hashBody: unknown
+    legacyHashBody?: unknown
+    compatibleLegacyReceipt?: (
+      receipt: LibraryCollectionMutationReceipt
+    ) => boolean
     receiptIdentity?: LibraryItemIdentity
     admit?: () => Promise<void>
     prepare: (
@@ -1375,12 +1508,23 @@ export class LibraryPreferenceRepository {
       expectedRevision: args.expectedRevision,
       body: args.hashBody,
     })
+    const compatibleLegacyHash =
+      args.legacyHashBody === undefined
+        ? undefined
+        : await canonicalHash({
+            operation: args.operation,
+            collectionId,
+            expectedRevision: args.expectedRevision,
+            body: args.legacyHashBody,
+          })
     const replay = await this.replay<LibraryCollectionMutationReceipt>(
       args.workspaceId,
       args.principalId,
       key,
       hash,
-      args.operation
+      args.operation,
+      compatibleLegacyHash,
+      args.compatibleLegacyReceipt
     )
     if (replay) return replay
     const repair = (claim: MutationClaimRow) =>
@@ -1400,7 +1544,9 @@ export class LibraryPreferenceRepository {
         key,
         hash,
         args.operation,
-        repair
+        repair,
+        compatibleLegacyHash,
+        args.compatibleLegacyReceipt
       )
     if (claimReplay) return claimReplay
     await args.admit?.()
@@ -1435,7 +1581,9 @@ export class LibraryPreferenceRepository {
         key,
         hash,
         args.operation,
-        repair
+        repair,
+        compatibleLegacyHash,
+        args.compatibleLegacyReceipt
       )
     if (repaired) return repaired
     let latest: LibraryCollectionDetail
@@ -1545,6 +1693,16 @@ export class LibraryPreferenceRepository {
       keyInput: key,
       operation: "add_collection_member",
       hashBody: { identity },
+      legacyHashBody:
+        identity.itemKind === "media"
+          ? { identity: legacyIdentityWithoutSource(identity) }
+          : undefined,
+      compatibleLegacyReceipt: (receipt) =>
+        receipt.operation === "add_collection_member" &&
+        identityKey(receipt.identity) === identityKey(identity) &&
+        receipt.collection.members.some(
+          (member) => identityKey(member) === identityKey(identity)
+        ),
       receiptIdentity: identity,
       admit: () =>
         this.admission.assertCanAddToCollection(
@@ -1582,11 +1740,12 @@ export class LibraryPreferenceRepository {
                         ON owned.workspace_id = m.workspace_id
                        AND owned.id = m.collection_id
                       WHERE m.workspace_id = ?1 AND owned.owner_principal_id = ?2
-                        AND m.item_kind = ?7 AND m.item_id = ?8
-                        AND m.item_version = ?9) < 100
+                        AND m.item_kind = ?7 AND m.item_source = ?11
+                        AND m.item_id = ?8 AND m.item_version = ?9) < 100
                  AND NOT EXISTS (SELECT 1 FROM library_collection_members
                    WHERE workspace_id = ?1 AND collection_id = ?3
-                     AND item_kind = ?7 AND item_id = ?8 AND item_version = ?9)`
+                     AND item_kind = ?7 AND item_source = ?11
+                     AND item_id = ?8 AND item_version = ?9)`
               )
               .bind(
                 workspaceId,
@@ -1598,13 +1757,14 @@ export class LibraryPreferenceRepository {
                 identity.itemKind,
                 identity.id,
                 identity.version,
-                mutationHash
+                mutationHash,
+                identitySource(identity)
               ),
             this.db
               .prepare(
                 `/* library:member-add */ INSERT INTO library_collection_members
-               (workspace_id, collection_id, item_kind, item_id, item_version, position, added_at)
-               SELECT ?1, ?3, ?6, ?7, ?8,
+               (workspace_id, collection_id, item_kind, item_source, item_id, item_version, position, added_at)
+               SELECT ?1, ?3, ?6, ?10, ?7, ?8,
                  (SELECT COUNT(*) FROM library_collection_members
                   WHERE workspace_id = ?1 AND collection_id = ?3), ?9
                FROM library_collections c
@@ -1620,7 +1780,8 @@ export class LibraryPreferenceRepository {
                 identity.itemKind,
                 identity.id,
                 identity.version,
-                now
+                now,
+                identitySource(identity)
               ),
           ],
           collection: {
@@ -1655,6 +1816,16 @@ export class LibraryPreferenceRepository {
       keyInput: key,
       operation: "remove_collection_member",
       hashBody: { identity },
+      legacyHashBody:
+        identity.itemKind === "media"
+          ? { identity: legacyIdentityWithoutSource(identity) }
+          : undefined,
+      compatibleLegacyReceipt: (receipt) =>
+        receipt.operation === "remove_collection_member" &&
+        identityKey(receipt.identity) === identityKey(identity) &&
+        receipt.collection.members.every(
+          (member) => identityKey(member) !== identityKey(identity)
+        ),
       receiptIdentity: identity,
       prepare: (current, id, mutationKey, now, mutationHash) => {
         const members = current.members.filter(
@@ -1678,7 +1849,8 @@ export class LibraryPreferenceRepository {
                WHERE workspace_id = ?1 AND owner_principal_id = ?2 AND id = ?3
                  AND revision = ?4 AND EXISTS (SELECT 1 FROM library_collection_members
                    WHERE workspace_id = ?1 AND collection_id = ?3
-                     AND item_kind = ?7 AND item_id = ?8 AND item_version = ?9)`
+                     AND item_kind = ?7 AND item_source = ?11
+                     AND item_id = ?8 AND item_version = ?9)`
               )
               .bind(
                 workspaceId,
@@ -1690,13 +1862,15 @@ export class LibraryPreferenceRepository {
                 identity.itemKind,
                 identity.id,
                 identity.version,
-                mutationHash
+                mutationHash,
+                identitySource(identity)
               ),
             this.db
               .prepare(
                 `/* library:member-remove */ DELETE FROM library_collection_members
                WHERE workspace_id = ?1 AND collection_id = ?3
-                 AND item_kind = ?6 AND item_id = ?7 AND item_version = ?8
+                 AND item_kind = ?6 AND item_source = ?9
+                 AND item_id = ?7 AND item_version = ?8
                  AND EXISTS (SELECT 1 FROM library_collections c
                    WHERE c.workspace_id = ?1 AND c.owner_principal_id = ?2 AND c.id = ?3
                      AND c.revision = ?4 + 1 AND c.last_mutation_key = ?5)`
@@ -1709,7 +1883,8 @@ export class LibraryPreferenceRepository {
                 mutationKey,
                 identity.itemKind,
                 identity.id,
-                identity.version
+                identity.version,
+                identitySource(identity)
               ),
             this.db
               .prepare(
@@ -1783,6 +1958,15 @@ export class LibraryPreferenceRepository {
       keyInput: key,
       operation: "reorder_collection_members",
       hashBody: { ordered },
+      legacyHashBody: {
+        ordered: ordered.map(legacyIdentityWithoutSource),
+      },
+      compatibleLegacyReceipt: (receipt) =>
+        receipt.operation === "reorder_collection_members" &&
+        receipt.collection.members.length === ordered.length &&
+        receipt.collection.members.every(
+          (member, index) => identityKey(member) === identityKey(ordered[index])
+        ),
       prepare: (current, id, mutationKey, now, mutationHash) => {
         const currentKeys = new Set(current.members.map(identityKey))
         const orderedKeys = new Set(ordered.map(identityKey))
@@ -1811,10 +1995,12 @@ export class LibraryPreferenceRepository {
                  AND (SELECT COUNT(*) FROM library_collection_members
                       WHERE workspace_id = ?1 AND collection_id = ?3) = ?7
                  AND NOT EXISTS (
-                   SELECT item_kind, item_id, item_version FROM library_collection_members
+                   SELECT item_kind, item_source, item_id, item_version FROM library_collection_members
                    WHERE workspace_id = ?1 AND collection_id = ?3
                    EXCEPT
                    SELECT json_extract(value, '$.itemKind'),
+                          CASE WHEN json_extract(value, '$.itemKind') = 'media'
+                            THEN json_extract(value, '$.mediaSource') ELSE 'template' END,
                           json_extract(value, '$.id'),
                           json_extract(value, '$.version')
                    FROM json_each(?9)
@@ -1856,6 +2042,9 @@ export class LibraryPreferenceRepository {
                  SELECT CAST(entry.key AS INTEGER)
                  FROM json_each(?6) AS entry
                  WHERE json_extract(entry.value, '$.itemKind') = item_kind
+                   AND CASE WHEN item_kind = 'media'
+                     THEN json_extract(entry.value, '$.mediaSource')
+                     ELSE 'template' END = item_source
                    AND json_extract(entry.value, '$.id') = item_id
                    AND json_extract(entry.value, '$.version') = item_version
                )

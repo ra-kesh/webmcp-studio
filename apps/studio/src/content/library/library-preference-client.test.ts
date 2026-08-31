@@ -11,6 +11,12 @@ const identity = {
   id: "proposal-template",
   version: 2,
 }
+const managedMediaIdentity = {
+  itemKind: "media" as const,
+  id: "shared-asset",
+  version: 2,
+  mediaSource: "managed" as const,
+}
 
 const snapshot = (workspaceRevision = 4): LibraryPreferenceSnapshot => ({
   workspaceRevision,
@@ -103,6 +109,64 @@ describe("library preference HTTP client", () => {
       schemaVersion: 1,
       favorite: true,
     })
+  })
+
+  it("carries the source-aware media identity through favorite and Recent routes", async () => {
+    const preference = {
+      ...snapshot().preferences[0],
+      identity: managedMediaIdentity,
+      favorite: true,
+      lastUsedAt: "2026-08-31T08:01:00.000Z",
+      revision: 4,
+      updatedAt: "2026-08-31T08:01:00.000Z",
+    }
+    const fetchRequest = vi.fn<LibraryPreferenceFetch>(async (input) => {
+      const url = String(input)
+      return url.includes("/favorite?")
+        ? response(
+            {
+              schemaVersion: 1,
+              receipt: {
+                schemaVersion: 1,
+                operation: "set_favorite",
+                preference,
+                workspaceRevision: 5,
+              },
+            },
+            { etag: '"library-preference-revision-4"' }
+          )
+        : response(
+            {
+              schemaVersion: 1,
+              receipt: {
+                schemaVersion: 1,
+                operation: "record_used",
+                completedAction: "insert",
+                completionId: "insert-managed-1",
+                preference,
+                workspaceRevision: 6,
+              },
+            },
+            { etag: '"library-preference-revision-4"' }
+          )
+    })
+    const client = createLibraryPreferenceClient(fetchRequest)
+
+    await client.setFavorite(managedMediaIdentity, {
+      favorite: true,
+      expectedRevision: 3,
+      idempotencyKey: "favorite-managed-1",
+    })
+    await client.recordUsed(managedMediaIdentity, {
+      completedAction: "insert",
+      completionId: "insert-managed-1",
+      idempotencyKey: "recent-managed-1",
+    })
+
+    expect(fetchRequest.mock.calls.map(([url]) => url)).toEqual([
+      "/v1/studio/library/items/media/shared-asset/versions/2/favorite?mediaSource=managed",
+      "/v1/studio/library/items/media/shared-asset/versions/2/used?mediaSource=managed",
+    ])
   })
 
   it("round-trips an assign-field Recent receipt with the exact request body", async () => {

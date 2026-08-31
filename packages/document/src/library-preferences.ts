@@ -3,6 +3,7 @@ import {
   catalogIdSchema,
   libraryCatalogItemDetailSchema,
   libraryCatalogPageSchema,
+  libraryMediaSourceSchema,
 } from "./library-catalog"
 
 export const LIBRARY_COLLECTION_LIMIT = 100
@@ -15,8 +16,12 @@ const workspaceRevisionSchema = z.number().int().nonnegative()
 const preferenceRevisionSchema = z.number().int().nonnegative()
 const collectionRevisionSchema = z.number().int().positive()
 
-const identityKey = (identity: LibraryItemIdentity) =>
-  `${identity.itemKind}:${identity.id}@${identity.version}`
+export const libraryItemIdentityKey = (identity: LibraryItemIdentity) =>
+  identity.itemKind === "media"
+    ? `media:${identity.mediaSource}:${identity.id}@${identity.version}`
+    : `template:${identity.id}@${identity.version}`
+
+const identityKey = libraryItemIdentityKey
 
 const rejectDuplicateIdentities = (
   identities: readonly LibraryItemIdentity[],
@@ -90,13 +95,27 @@ export const libraryCollectionIdSchema = catalogIdSchema.refine(
   "Collection IDs must use the collection- prefix"
 )
 
-export const libraryItemIdentitySchema = z
+const libraryTemplateItemIdentitySchema = z
   .object({
-    itemKind: z.enum(["template", "media"]),
+    itemKind: z.literal("template"),
     id: catalogIdSchema,
     version: z.number().int().positive(),
   })
   .strict()
+
+const libraryMediaItemIdentitySchema = z
+  .object({
+    itemKind: z.literal("media"),
+    id: catalogIdSchema,
+    version: z.number().int().positive(),
+    mediaSource: libraryMediaSourceSchema,
+  })
+  .strict()
+
+export const libraryItemIdentitySchema = z.discriminatedUnion("itemKind", [
+  libraryTemplateItemIdentitySchema,
+  libraryMediaItemIdentitySchema,
+])
 
 export type LibraryItemIdentity = z.infer<typeof libraryItemIdentitySchema>
 

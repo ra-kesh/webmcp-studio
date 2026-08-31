@@ -14,7 +14,10 @@ import type {
   LibraryCollectionSummary,
   LibraryItemIdentity,
 } from "@webmcp/document"
-import { libraryCollectionNameSchema } from "@webmcp/document"
+import {
+  libraryCollectionNameSchema,
+  libraryItemIdentityKey,
+} from "@webmcp/document"
 import { Badge } from "@webmcp/ui/components/badge"
 import { Button } from "@webmcp/ui/components/button"
 import {
@@ -67,8 +70,7 @@ export type LibraryCollectionDialogRequest = Readonly<{
 export type LibraryCollectionBrowserControllerFactory =
   () => LibraryCollectionBrowserController
 
-const identityKey = (identity: LibraryItemIdentity) =>
-  `${identity.itemKind}:${identity.id}@${identity.version}`
+const identityKey = libraryItemIdentityKey
 
 const EMPTY_COLLECTIONS: readonly LibraryCollectionSummary[] = []
 const IDLE_COLLECTION_CATALOG: LibraryCollectionCatalogState = {

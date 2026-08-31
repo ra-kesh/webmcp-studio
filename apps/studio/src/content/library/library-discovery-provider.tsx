@@ -8,7 +8,10 @@ import {
   useSyncExternalStore,
 } from "react"
 import type { PropsWithChildren } from "react"
-import type { LibraryCatalogItemDetail } from "@webmcp/document"
+import type {
+  LibraryCatalogItemDetail,
+  LibraryMediaSummary,
+} from "@webmcp/document"
 import { LibraryDiscoveryController } from "./discovery-controller"
 import type {
   LibraryDiscoveryDependencies,
@@ -58,7 +61,8 @@ export type LibraryDiscoveryCommands = Readonly<{
   selectItem: (
     kind: "template" | "media",
     id: string,
-    version: number
+    version: number,
+    mediaSource?: LibraryMediaSummary["mediaSource"]
   ) => Promise<LibraryCatalogItemDetail | null>
   retryDetail: () => Promise<LibraryCatalogItemDetail | null>
   clearSelection: () => void
@@ -103,7 +107,13 @@ const createCommands = (
   refresh: () => controller.refresh(),
   retryReplacement: () => controller.retryReplacement(),
   loadMore: () => controller.loadMore(),
-  selectItem: (kind, id, version) => controller.selectItem(kind, id, version),
+  selectItem: (kind, id, version, mediaSource) =>
+    controller.selectItem(
+      kind,
+      id,
+      version,
+      kind === "media" ? mediaSource : {}
+    ),
   retryDetail: () => controller.retryDetail(),
   clearSelection: () => controller.clearSelection(),
   clearAnnouncement: (id) => controller.clearAnnouncement(id),

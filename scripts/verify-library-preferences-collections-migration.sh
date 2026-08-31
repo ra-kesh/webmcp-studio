@@ -18,11 +18,11 @@ VALUES
   ('workspace-b', 'Workspace B', 'personal', '2026-08-31T00:00:00.000Z');
 
 INSERT INTO library_item_preferences
-  (workspace_id, principal_id, item_kind, item_id, item_version, favorite,
+  (workspace_id, principal_id, item_kind, item_source, item_id, item_version, favorite,
    last_used_at, revision, last_mutation_key, last_mutation_operation,
    last_mutation_hash, created_at, updated_at)
 VALUES
-  ('workspace-a', 'principal-a', 'template', 'template-a', 1, 1, NULL, 1,
+  ('workspace-a', 'principal-a', 'template', 'template', 'template-a', 1, 1, NULL, 1,
    'favorite-1', 'set_favorite',
    'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd',
    '2026-08-31T00:01:00.000Z', '2026-08-31T00:01:00.000Z');
@@ -53,10 +53,10 @@ VALUES
    '2026-08-31T00:03:00.000Z');
 
 INSERT INTO library_collection_members
-  (workspace_id, collection_id, item_kind, item_id, item_version, position,
+  (workspace_id, collection_id, item_kind, item_source, item_id, item_version, position,
    added_at)
 VALUES
-  ('workspace-a', 'collection-a', 'template', 'template-a', 1, 0,
+  ('workspace-a', 'collection-a', 'template', 'template', 'template-a', 1, 0,
    '2026-08-31T00:04:00.000Z');
 
 INSERT INTO library_mutation_requests
@@ -88,13 +88,13 @@ test "$(sqlite3 "$database" 'SELECT COUNT(*) FROM library_collections')" = "1"
 test "$(sqlite3 "$database" 'SELECT COUNT(*) FROM library_collection_members')" = "1"
 test "$(sqlite3 "$database" 'SELECT COUNT(*) FROM library_mutation_requests')" = "2"
 
-test "$(sqlite3 "$database" 'SELECT group_concat(name, ",") FROM (SELECT name FROM pragma_table_info("library_item_preferences") WHERE pk > 0 ORDER BY pk)')" = "workspace_id,principal_id,item_kind,item_id,item_version"
-test "$(sqlite3 "$database" 'SELECT group_concat(name, ",") FROM (SELECT name FROM pragma_table_info("library_collection_members") WHERE pk > 0 ORDER BY pk)')" = "workspace_id,collection_id,item_kind,item_id,item_version"
+test "$(sqlite3 "$database" 'SELECT group_concat(name, ",") FROM (SELECT name FROM pragma_table_info("library_item_preferences") WHERE pk > 0 ORDER BY pk)')" = "workspace_id,principal_id,item_kind,item_source,item_id,item_version"
+test "$(sqlite3 "$database" 'SELECT group_concat(name, ",") FROM (SELECT name FROM pragma_table_info("library_collection_members") WHERE pk > 0 ORDER BY pk)')" = "workspace_id,collection_id,item_kind,item_source,item_id,item_version"
 test "$(sqlite3 "$database" 'SELECT group_concat(name, ",") FROM (SELECT name FROM pragma_table_info("library_mutation_requests") WHERE pk > 0 ORDER BY pk)')" = "workspace_id,principal_id,idempotency_key"
 test "$(sqlite3 "$database" 'SELECT COUNT(*) FROM sqlite_master WHERE type = "trigger" AND name GLOB "library_*_revision_*"')" = "9"
 test "$(sqlite3 "$database" 'SELECT COUNT(*) FROM sqlite_master WHERE type = "trigger" AND name = "library_mutation_requests_claim_guard"')" = "1"
 test "$(sqlite3 "$database" 'SELECT COUNT(*) FROM pragma_index_list("library_item_preferences") WHERE name IN ("idx_library_item_preferences_favorite", "idx_library_item_preferences_recent")')" = "2"
-test "$(sqlite3 "$database" 'SELECT group_concat(name || ":" || "desc", ",") FROM (SELECT name, "desc" FROM pragma_index_xinfo("idx_library_item_preferences_recent") WHERE key = 1 ORDER BY seqno)')" = "workspace_id:0,principal_id:0,last_used_at:1,item_kind:0,item_id:0,item_version:0"
+test "$(sqlite3 "$database" 'SELECT group_concat(name || ":" || "desc", ",") FROM (SELECT name, "desc" FROM pragma_index_xinfo("idx_library_item_preferences_recent") WHERE key = 1 ORDER BY seqno)')" = "workspace_id:0,principal_id:0,last_used_at:1,item_kind:0,item_source:0,item_id:0,item_version:0"
 test "$(sqlite3 "$database" 'SELECT COUNT(*) FROM pragma_index_list("library_collection_members") WHERE name = "idx_library_collection_members_item"')" = "1"
 test "$(sqlite3 "$database" 'SELECT COUNT(*) FROM pragma_index_list("library_mutation_requests") WHERE name = "idx_library_mutation_requests_created"')" = "1"
 test "$(sqlite3 "$database" 'SELECT COUNT(*) FROM pragma_foreign_key_list("library_collection_members") WHERE "table" = "library_collections" AND on_delete = "CASCADE"')" = "2"
@@ -103,10 +103,10 @@ test -z "$(sqlite3 "$database" 'PRAGMA foreign_key_check')"
 if sqlite3 -bail "$database" <<'SQL' 2>/dev/null
 PRAGMA foreign_keys = ON;
 INSERT INTO library_collection_members
-  (workspace_id, collection_id, item_kind, item_id, item_version, position,
+  (workspace_id, collection_id, item_kind, item_source, item_id, item_version, position,
    added_at)
 VALUES
-  ('workspace-b', 'collection-a', 'template', 'foreign-item', 1, 1,
+  ('workspace-b', 'collection-a', 'template', 'template', 'foreign-item', 1, 1,
    '2026-08-31T00:05:00.000Z');
 SQL
 then
@@ -221,14 +221,14 @@ fi
 sqlite3 -bail "$database" <<'SQL'
 PRAGMA foreign_keys = ON;
 INSERT INTO library_collection_members
-  (workspace_id, collection_id, item_kind, item_id, item_version, position,
+  (workspace_id, collection_id, item_kind, item_source, item_id, item_version, position,
    added_at)
 VALUES
-  ('workspace-a', 'collection-a', 'media', 'media-b', 1, 1,
+  ('workspace-a', 'collection-a', 'media', 'curated', 'media-b', 1, 1,
    '2026-08-31T00:06:00.000Z'),
-  ('workspace-a', 'collection-a', 'template', 'template-c', 1, 2,
+  ('workspace-a', 'collection-a', 'template', 'template', 'template-c', 1, 2,
    '2026-08-31T00:06:00.000Z'),
-  ('workspace-a', 'collection-a', 'media', 'media-d', 1, 3,
+  ('workspace-a', 'collection-a', 'media', 'curated', 'media-d', 1, 3,
    '2026-08-31T00:06:00.000Z');
 SQL
 if sqlite3 -bail "$database" <<'SQL' 2>/dev/null
@@ -291,11 +291,11 @@ if sqlite3 -bail "$database" <<'SQL' 2>/dev/null
 PRAGMA foreign_keys = ON;
 BEGIN IMMEDIATE;
 INSERT INTO library_item_preferences
-  (workspace_id, principal_id, item_kind, item_id, item_version, favorite,
+  (workspace_id, principal_id, item_kind, item_source, item_id, item_version, favorite,
    last_used_at, revision, last_mutation_key, last_mutation_operation,
    last_mutation_hash, created_at, updated_at)
 VALUES
-  ('workspace-a', 'principal-a', 'media', 'media-a', 1, 1, NULL, 1,
+  ('workspace-a', 'principal-a', 'media', 'curated', 'media-a', 1, 1, NULL, 1,
    'failed-batch', 'set_favorite',
    'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
    '2026-08-31T00:07:00.000Z',
@@ -394,11 +394,11 @@ PRAGMA foreign_keys = ON;
 INSERT INTO workspaces (id, name, kind, created_at)
 VALUES ('workspace-c', 'Workspace C', 'personal', '2026-08-31T00:00:00.000Z');
 INSERT INTO library_item_preferences
-  (workspace_id, principal_id, item_kind, item_id, item_version, favorite,
+  (workspace_id, principal_id, item_kind, item_source, item_id, item_version, favorite,
    last_used_at, revision, last_mutation_key, last_mutation_operation,
    last_mutation_hash, created_at, updated_at)
 VALUES
-  ('workspace-c', 'principal-c', 'template', 'template-c', 1, 1, NULL, 1,
+  ('workspace-c', 'principal-c', 'template', 'template', 'template-c', 1, 1, NULL, 1,
    'cascade-1', 'set_favorite',
    '1111111111111111111111111111111111111111111111111111111111111111',
    '2026-08-31T00:08:00.000Z', '2026-08-31T00:08:00.000Z');
@@ -412,10 +412,10 @@ VALUES
    '2222222222222222222222222222222222222222222222222222222222222222',
    '2026-08-31T00:08:00.000Z', '2026-08-31T00:08:00.000Z');
 INSERT INTO library_collection_members
-  (workspace_id, collection_id, item_kind, item_id, item_version, position,
+  (workspace_id, collection_id, item_kind, item_source, item_id, item_version, position,
    added_at)
 VALUES
-  ('workspace-c', 'collection-c', 'template', 'template-c', 1, 0,
+  ('workspace-c', 'collection-c', 'template', 'template', 'template-c', 1, 0,
    '2026-08-31T00:08:00.000Z');
 DELETE FROM workspaces WHERE id = 'workspace-c';
 SQL

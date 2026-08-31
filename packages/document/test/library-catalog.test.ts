@@ -320,6 +320,7 @@ describe("library catalog schemas", () => {
         selectionIdentity: {
           source: "managed",
           assetId: media.id,
+          catalogVersion: media.version,
           refetch: "required",
         },
       }).success
@@ -331,6 +332,7 @@ describe("library catalog schemas", () => {
         selectionIdentity: {
           source: "managed",
           assetId: "different-asset",
+          catalogVersion: media.version,
           refetch: "required",
         },
       }).success
@@ -413,6 +415,29 @@ describe("library catalog schemas", () => {
 })
 
 describe("library catalog index", () => {
+  it("keeps curated, managed, and local media with the same id and version distinct", () => {
+    const items = (["curated", "managed", "local"] as const).map((source) =>
+      mediaSummary({ id: "shared-identity", source })
+    )
+    const index = new LibraryCatalogIndex("catalog-source-aware-r1", items)
+
+    const page = index.list({
+      generation: "source-aware",
+      itemKinds: ["media"],
+      limit: 10,
+    })
+    expect(page.total).toBe(3)
+    expect(
+      page.items.map((item) => item.itemKind === "media" && item.mediaSource)
+    ).toEqual(["curated", "managed", "local"])
+    expect(
+      (["curated", "managed", "local"] as const).map((source) => {
+        const item = index.get("media", "shared-identity", 1, source)
+        return item?.itemKind === "media" ? item.mediaSource : null
+      })
+    ).toEqual(["curated", "managed", "local"])
+  })
+
   it("owns immutable snapshots and rejects duplicate version identities", () => {
     const source = templateSummary()
     const index = new LibraryCatalogIndex("catalog-r1", [source])

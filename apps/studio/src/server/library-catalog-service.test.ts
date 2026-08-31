@@ -82,6 +82,82 @@ const managedReader = (
 })
 
 describe("LibraryCatalogService", () => {
+  it("keeps same-id curated and managed media independently discoverable and mutable", async () => {
+    const curated = studioLibraryCatalogSummaries.find(
+      (item) => item.itemKind === "media"
+    )!
+    const managed = managedEntry({ catalogVersion: curated.version })
+    managed.asset.id = curated.id
+    managed.asset.name = "Workspace collision"
+    const managedMedia = managedReader(managed)
+    const service = new LibraryCatalogService(
+      {
+        readProjection: async () => ({
+          workspaceRevision: 17,
+          preferences: [
+            preference(curated.id, curated.version, {
+              identity: {
+                itemKind: "media",
+                id: curated.id,
+                version: curated.version,
+                mediaSource: "managed",
+              },
+            }),
+          ],
+        }),
+      },
+      { managedMedia }
+    )
+
+    const page = await service.list("workspace-a", "principal-a", {
+      generation: "same-id-source-aware",
+      itemKinds: ["media"],
+      limit: 50,
+    })
+    const collisions = page.page.items.flatMap((item) =>
+      item.itemKind === "media" && item.id === curated.id ? [item] : []
+    )
+    expect(collisions).toHaveLength(2)
+    expect(
+      collisions.map((item) => [item.mediaSource, item.preferences?.favorite])
+    ).toEqual([
+      ["curated", false],
+      ["managed", true],
+    ])
+
+    const curatedDetail = await service.getDetail(
+      "workspace-a",
+      "principal-a",
+      {
+        itemKind: "media",
+        id: curated.id,
+        version: curated.version,
+        mediaSource: "curated",
+      }
+    )
+    const managedDetail = await service.getDetail(
+      "workspace-a",
+      "principal-a",
+      {
+        itemKind: "media",
+        id: curated.id,
+        version: curated.version,
+        mediaSource: "managed",
+      }
+    )
+    expect(curatedDetail?.detail.summary).toMatchObject({
+      mediaSource: "curated",
+      preferences: { favorite: false },
+    })
+    expect(managedDetail?.detail).toMatchObject({
+      summary: { mediaSource: "managed", preferences: { favorite: true } },
+      selectionIdentity: {
+        source: "managed",
+        catalogVersion: curated.version,
+      },
+    })
+  })
+
   it("overlays only the current principal's exact preference identities", async () => {
     let projection: LibraryPreferenceProjectionSnapshot = {
       workspaceRevision: 7,
@@ -174,6 +250,7 @@ describe("LibraryCatalogService", () => {
                 itemKind: "media",
                 id: entry.asset.id,
                 version: entry.metadata.catalogVersion,
+                mediaSource: "managed",
               },
             }),
           ],
@@ -249,13 +326,12 @@ describe("LibraryCatalogService", () => {
       { managedMedia: managed }
     )
 
-    const detail = await service.getDetail(
-      "workspace-a",
-      "principal-a",
-      "media",
-      entry.asset.id,
-      entry.metadata.catalogVersion
-    )
+    const detail = await service.getDetail("workspace-a", "principal-a", {
+      itemKind: "media",
+      id: entry.asset.id,
+      version: entry.metadata.catalogVersion,
+      mediaSource: "managed",
+    })
     expect(detail?.detail).toMatchObject({
       summary: {
         id: entry.asset.id,
@@ -266,29 +342,28 @@ describe("LibraryCatalogService", () => {
       selectionIdentity: {
         source: "managed",
         assetId: entry.asset.id,
+        catalogVersion: entry.metadata.catalogVersion,
         refetch: "required",
       },
     })
     expect(JSON.stringify(detail)).not.toContain("r2Key")
     expect(
-      await service.getDetail(
-        "workspace-a",
-        "principal-a",
-        "media",
-        entry.asset.id,
-        entry.metadata.catalogVersion + 1
-      )
+      await service.getDetail("workspace-a", "principal-a", {
+        itemKind: "media",
+        id: entry.asset.id,
+        version: entry.metadata.catalogVersion + 1,
+        mediaSource: "managed",
+      })
     ).toBeNull()
 
     current = null
     expect(
-      await service.getDetail(
-        "workspace-a",
-        "principal-a",
-        "media",
-        entry.asset.id,
-        entry.metadata.catalogVersion
-      )
+      await service.getDetail("workspace-a", "principal-a", {
+        itemKind: "media",
+        id: entry.asset.id,
+        version: entry.metadata.catalogVersion,
+        mediaSource: "managed",
+      })
     ).toBeNull()
   })
 
@@ -299,13 +374,11 @@ describe("LibraryCatalogService", () => {
         preferences: [preference("signal-creative-brief", 1)],
       }),
     })
-    const result = await service.getDetail(
-      "workspace-a",
-      "principal-a",
-      "template",
-      "signal-creative-brief",
-      1
-    )
+    const result = await service.getDetail("workspace-a", "principal-a", {
+      itemKind: "template",
+      id: "signal-creative-brief",
+      version: 1,
+    })
 
     expect(result).not.toBeNull()
     expect(result?.workspaceRevision).toBe(11)
@@ -314,13 +387,11 @@ describe("LibraryCatalogService", () => {
     expect(result?.detail.summary.provenance.sourceName).toBeTruthy()
     expect(JSON.stringify(result)).not.toContain('"document"')
     expect(
-      await service.getDetail(
-        "workspace-a",
-        "principal-a",
-        "template",
-        "missing-template",
-        1
-      )
+      await service.getDetail("workspace-a", "principal-a", {
+        itemKind: "template",
+        id: "missing-template",
+        version: 1,
+      })
     ).toBeNull()
   })
 
@@ -359,13 +430,11 @@ describe("LibraryCatalogService", () => {
     const list = await service.list("workspace-a", "principal-a", {
       generation: "permission-revocation-test",
     })
-    const detail = await service.getDetail(
-      "workspace-a",
-      "principal-a",
-      baseSummary.itemKind,
-      baseSummary.id,
-      baseSummary.version
-    )
+    const detail = await service.getDetail("workspace-a", "principal-a", {
+      itemKind: "template",
+      id: baseSummary.id,
+      version: baseSummary.version,
+    })
 
     expect(list.page.items[0]?.preferences).toEqual({
       favorite: false,

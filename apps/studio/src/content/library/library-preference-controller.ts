@@ -4,6 +4,7 @@ import {
   libraryCollectionIdSchema,
   libraryCollectionNameSchema,
   libraryItemIdentitySchema,
+  libraryItemIdentityKey,
   libraryPreferenceSnapshotSchema,
 } from "@webmcp/document"
 import type {
@@ -179,8 +180,7 @@ type CollectionDetailRequest = Readonly<{
   promise: Promise<LibraryCollectionDetail | null>
 }>
 
-const identityKey = (identity: LibraryItemIdentity) =>
-  `${identity.itemKind}:${identity.id}@${identity.version}`
+const identityKey = libraryItemIdentityKey
 
 const identitiesEqual = (
   left: readonly LibraryItemIdentity[],

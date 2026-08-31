@@ -9,6 +9,7 @@ import {
 import type {
   LibraryCatalogItemSummary,
   LibraryMediaDetail,
+  LibraryMediaSummary,
   LibraryTemplateDetail,
 } from "@webmcp/document"
 import { studioMediaManifest } from "./media/manifest"
@@ -54,7 +55,7 @@ export const studioLibraryCatalogIndex = new LibraryCatalogIndex(
 
 const detailByIdentity = new Map<string, StudioLibraryCatalogDetail>(
   projectedItems.map(({ summary, detail }) => [
-    identityFor(summary.itemKind, summary.id, summary.version),
+    identityFor(summary),
     deepFreeze(detail),
   ])
 )
@@ -64,12 +65,15 @@ const latestDetailIdentity = new Map<
   Readonly<{ version: number; identity: string }>
 >()
 for (const { summary } of projectedItems) {
-  const latestKey = `${summary.itemKind}:${summary.id}`
+  const latestKey =
+    summary.itemKind === "media"
+      ? `media:${summary.mediaSource}:${summary.id}`
+      : `template:${summary.id}`
   const current = latestDetailIdentity.get(latestKey)
   if (!current || summary.version > current.version) {
     latestDetailIdentity.set(latestKey, {
       version: summary.version,
-      identity: identityFor(summary.itemKind, summary.id, summary.version),
+      identity: identityFor(summary),
     })
   }
 }
@@ -82,33 +86,42 @@ export function getStudioLibraryCatalogDetail(
 export function getStudioLibraryCatalogDetail(
   itemKind: "media",
   id: string,
-  version?: number
+  version?: number,
+  mediaSource?: LibraryMediaSummary["mediaSource"]
 ): LibraryMediaDetail | null
 export function getStudioLibraryCatalogDetail(
   itemKind: LibraryCatalogItemSummary["itemKind"],
   id: string,
-  version?: number
+  version?: number,
+  mediaSource: LibraryMediaSummary["mediaSource"] = "curated"
 ): StudioLibraryCatalogDetail | null {
+  if (itemKind === "media" && mediaSource !== "curated") return null
   const identity =
     version === undefined
-      ? latestDetailIdentity.get(`${itemKind}:${id}`)?.identity
-      : identityFor(itemKind, id, version)
+      ? latestDetailIdentity.get(
+          itemKind === "media" ? `media:${mediaSource}:${id}` : `template:${id}`
+        )?.identity
+      : itemKind === "media"
+        ? identityFor({ itemKind, id, version, mediaSource })
+        : identityFor({ itemKind, id, version })
   return identity ? (detailByIdentity.get(identity) ?? null) : null
 }
 
 function identityFor(
-  itemKind: LibraryCatalogItemSummary["itemKind"],
-  id: string,
-  version: number
+  item:
+    | Pick<LibraryCatalogItemSummary, "itemKind" | "id" | "version">
+    | Pick<LibraryMediaSummary, "itemKind" | "id" | "version" | "mediaSource">
 ) {
-  return `${itemKind}:${id}@${version}`
+  return item.itemKind === "media"
+    ? `media:${(item as Pick<LibraryMediaSummary, "mediaSource">).mediaSource}:${item.id}@${item.version}`
+    : `template:${item.id}@${item.version}`
 }
 
 function revisionFor(items: readonly LibraryCatalogItemSummary[]) {
   const identity = items
     .map(
       (item) =>
-        `${identityFor(item.itemKind, item.id, item.version)}:${item.provenance.contentSha256 ?? "unhashed"}`
+        `${identityFor(item)}:${item.provenance.contentSha256 ?? "unhashed"}`
     )
     .sort()
     .join("|")

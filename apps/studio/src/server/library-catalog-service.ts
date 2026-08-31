@@ -2,6 +2,7 @@ import {
   LibraryCatalogIndex,
   libraryCatalogItemDetailSchema,
   libraryCatalogQuerySchema,
+  libraryItemIdentityKey,
   projectPublicMediaDetail,
   projectPublicMediaSummary,
 } from "@webmcp/document"
@@ -11,6 +12,7 @@ import type {
   LibraryCatalogPage,
   LibraryCatalogQueryInput,
   LibraryPermissionProjection,
+  LibraryItemIdentity,
   LibraryPreferenceState,
 } from "@webmcp/document"
 import {
@@ -61,18 +63,24 @@ type LibraryCatalogServiceOptions = Readonly<{
   baseCatalogRevision?: string
   baseSummaries?: readonly LibraryCatalogItemSummary[]
   resolveBaseDetail?: (
-    itemKind: LibraryCatalogItemSummary["itemKind"],
-    id: string,
-    version: number
+    identity: LibraryItemIdentity
   ) => LibraryCatalogItemDetail | null
   managedMedia?: ManagedMediaLibraryCatalogReader
 }>
 
-const identityKey = (identity: {
-  itemKind: LibraryCatalogItemSummary["itemKind"]
-  id: string
-  version: number
-}) => `${identity.itemKind}:${identity.id}@${identity.version}`
+const identityKey = libraryItemIdentityKey
+
+const identityForSummary = (
+  summary: LibraryCatalogItemSummary
+): LibraryItemIdentity =>
+  summary.itemKind === "media"
+    ? {
+        itemKind: "media",
+        id: summary.id,
+        version: summary.version,
+        mediaSource: summary.mediaSource,
+      }
+    : { itemKind: "template", id: summary.id, version: summary.version }
 
 const compactProjection = (
   preference: LibraryPreferenceState | undefined,
@@ -139,10 +147,19 @@ export class LibraryCatalogService {
     this.#baseSummaries = options.baseSummaries ?? studioLibraryCatalogSummaries
     this.#resolveBaseDetail =
       options.resolveBaseDetail ??
-      ((itemKind, id, version) =>
-        itemKind === "template"
-          ? getStudioLibraryCatalogDetail("template", id, version)
-          : getStudioLibraryCatalogDetail("media", id, version))
+      ((identity) =>
+        identity.itemKind === "template"
+          ? getStudioLibraryCatalogDetail(
+              "template",
+              identity.id,
+              identity.version
+            )
+          : getStudioLibraryCatalogDetail(
+              "media",
+              identity.id,
+              identity.version,
+              identity.mediaSource
+            ))
     this.#managedMedia = options.managedMedia ?? null
   }
 
@@ -176,13 +193,20 @@ export class LibraryCatalogService {
   async getDetail(
     workspaceId: string,
     principalId: string,
-    itemKind: LibraryCatalogItemSummary["itemKind"],
-    id: string,
-    version: number
+    identity: LibraryItemIdentity
   ): Promise<LibraryCatalogServiceDetailResult | null> {
-    let base = this.#resolveBaseDetail(itemKind, id, version)
-    if (!base && itemKind === "media" && this.#managedMedia) {
-      const entry = await this.#managedMedia.getExact(workspaceId, id, version)
+    let base = this.#resolveBaseDetail(identity)
+    if (
+      !base &&
+      identity.itemKind === "media" &&
+      identity.mediaSource === "managed" &&
+      this.#managedMedia
+    ) {
+      const entry = await this.#managedMedia.getExact(
+        workspaceId,
+        identity.id,
+        identity.version
+      )
       if (entry) {
         base = projectPublicMediaDetail(
           managedAssetForProjection(entry),
@@ -205,7 +229,7 @@ export class LibraryCatalogService {
       summary: {
         ...base.summary,
         preferences: compactProjection(
-          byIdentity.get(identityKey(base.summary)),
+          byIdentity.get(identityKey(identityForSummary(base.summary))),
           base.summary.permissions
         ),
       },
@@ -224,6 +248,7 @@ export class LibraryCatalogService {
           itemKind: "media",
           id: entry.asset.id,
           version: entry.metadata.catalogVersion,
+          mediaSource: "managed",
         })
       )
       return projectPublicMediaSummary(
@@ -243,7 +268,22 @@ export class LibraryCatalogService {
       ...this.#baseSummaries.map((summary) => ({
         ...summary,
         preferences: compactProjection(
-          byIdentity.get(identityKey(summary)),
+          byIdentity.get(
+            identityKey(
+              summary.itemKind === "media"
+                ? {
+                    itemKind: "media",
+                    id: summary.id,
+                    version: summary.version,
+                    mediaSource: summary.mediaSource,
+                  }
+                : {
+                    itemKind: "template",
+                    id: summary.id,
+                    version: summary.version,
+                  }
+            )
+          ),
           summary.permissions
         ),
       })),

@@ -48,6 +48,7 @@ const secondIdentity = {
   itemKind: "media",
   id: "editorial-grid",
   version: 1,
+  mediaSource: "curated",
 } as const
 
 const preference = () =>
@@ -180,6 +181,38 @@ describe("library preference identity and state contracts", () => {
       libraryPreferenceStateSchema.safeParse({
         ...preference(),
         collectionIds: ["collection-client-work", "collection-client-work"],
+      }).success
+    ).toBe(false)
+  })
+
+  it("treats media source as part of preference and collection identity", () => {
+    const sameMedia = (["curated", "managed", "local"] as const).map(
+      (mediaSource) => ({
+        itemKind: "media" as const,
+        id: "shared-media",
+        version: 1,
+        mediaSource,
+      })
+    )
+    expect(
+      libraryCollectionDetailSchema.safeParse({
+        summary: {
+          id: "collection-source-aware",
+          name: "Source aware",
+          scope: "workspace",
+          revision: 1,
+          itemCount: 3,
+          createdAt,
+          updatedAt,
+        },
+        members: sameMedia,
+      }).success
+    ).toBe(true)
+    expect(
+      libraryItemIdentitySchema.safeParse({
+        itemKind: "media",
+        id: "shared-media",
+        version: 1,
       }).success
     ).toBe(false)
   })

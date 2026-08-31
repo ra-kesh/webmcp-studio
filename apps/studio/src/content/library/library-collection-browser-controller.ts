@@ -4,7 +4,10 @@ import type {
   LibraryCollectionDetail,
   LibraryItemIdentity,
 } from "@webmcp/document"
-import { LIBRARY_COLLECTION_MEMBER_LIMIT } from "@webmcp/document"
+import {
+  LIBRARY_COLLECTION_MEMBER_LIMIT,
+  libraryItemIdentityKey,
+} from "@webmcp/document"
 import { LibraryDiscoveryHttpError } from "./library-discovery-client"
 import type {
   LibraryDiscoveryClient,
@@ -63,8 +66,7 @@ type Listener = () => void
 const PAGE_SIZE = 50
 const MAX_PAGES = Math.ceil(LIBRARY_COLLECTION_MEMBER_LIMIT / PAGE_SIZE)
 
-const identityKey = (identity: LibraryItemIdentity) =>
-  `${identity.itemKind}:${identity.id}@${identity.version}`
+const identityKey = libraryItemIdentityKey
 
 const immutable = <TValue>(value: TValue): TValue => {
   if (value && typeof value === "object" && !Object.isFrozen(value)) {
