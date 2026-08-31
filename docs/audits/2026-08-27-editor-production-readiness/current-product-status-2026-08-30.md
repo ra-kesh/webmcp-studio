@@ -4,6 +4,8 @@ Date: 2026-08-30
 
 Status: authoritative short-form continuation ledger
 
+Production evidence reconciled: 2026-08-31 at `aa3a020`.
+
 This page exists to prevent the long audit history or a conversation compaction
 from obscuring current truth. Detailed evidence remains in
 `remediation-progress.md` and each named phase entry.
@@ -52,10 +54,16 @@ artifacts.
    product depth.
 3. **ASSET-02 depth:** placement, crop and frame masks are real; general masks
    and a production background-removal workflow are not built.
-4. **Environment proof:** deployed migrations 0012/0013 and the remaining
-   deployed restart/parity/hostile-input evidence require explicit production
-   authorization. Live Stuwiz retrieval still needs its upstream authenticated
-   complete-source contract.
+4. **Environment proof:** the local manifest pins 17 immutable migrations, and
+   focused local harnesses verify migrations `0012` through `0017`. The last
+   retained read-only production baseline proves only an exact remote prefix
+   through `0011` and records `productionWriteReady: false`. A 2026-08-31
+   read-only plan stopped before remote inventory because Wrangler was not
+   authenticated, so the current production suffix is unknown. Applying the
+   inspected suffix, deploying matching Workers, production write exercises,
+   Access policy changes, and paid Browser Rendering evidence each require the
+   appropriate explicit authorization. Live Stuwiz retrieval still needs its
+   upstream authenticated complete-source contract.
 
 ## No-bounce execution order
 

@@ -2,7 +2,9 @@
 
 Date: 2026-08-31
 
-Baseline: `e719a3e` on `codex/business-beta`
+Original audit baseline: `e719a3e` on `codex/business-beta`
+
+Production evidence reconciliation baseline: `aa3a020` on 2026-08-31
 
 Scope: durable drafts and recovery, multi-tab conflicts, shared media,
 durable rendering, public API boundaries, deployed D1 migrations, and the
@@ -12,18 +14,20 @@ retained 100-page and 1,000-layer evidence.
 
 The local production spine is substantially implemented. The remaining work is
 mostly environment proof, not another rewrite of persistence, rendering, or
-the API. The exception is the deployment migration lineage: the current
-preflight proves that filenames are contiguous and that the remote ledger is a
-prefix, but it does not prove that checked-in SQL for an existing migration has
-remained unchanged.
+the API. BB-00 closed the migration-lineage exception. The manifest now pins
+the ordered filename and SHA-256 digest of all 17 migrations, and the shared
+validator fails before remote inspection when a migration is missing, extra,
+reordered, renumbered, or changed.
 
-The short status ledgers are also behind the tree. They describe migrations
-`0012` and `0013` as the pending production suffix. This baseline contains
-contiguous migrations through `0016`. The last retained read-only production
-evidence only proves a remote prefix through `0011`; current remote state must
-be inspected again before anyone states the exact pending suffix.
+The short status ledgers previously described `0012` and `0013` as the pending
+production suffix. The current local lineage continues through `0017`. The last
+retained read-only production evidence proves a remote prefix through `0011`
+only at the time of that capture. During this reconciliation, a read-only plan
+stopped before remote inventory because Wrangler was not authenticated. Current
+remote state must be inspected before anyone states the exact pending suffix.
 
-No remote Cloudflare state was read or changed in this audit.
+No remote Cloudflare state was changed in this audit or reconciliation. The
+reconciliation did not successfully read remote state.
 
 ## Implemented code versus open proof
 
@@ -34,7 +38,7 @@ No remote Cloudflare state was read or changed in this audit.
 | Shared asset availability                         | Browser-local bytes remain local by design. Promotion journals, owner coordination, managed-media upload/reconciliation, D1 promotion mappings, managed-use receipts, and recovery records exist. Migrations `0012`, `0013`, `0015`, and `0016` support promoted assets, use idempotency, catalog metadata, and source identity. Local cross-context PNG/PDF and recovery artifacts are retained.                                                            | Apply the migration suffix and matching Worker before exercising cross-profile availability. Then retain owner traversal, network-fault, restart, second-identity isolation, expiry, and cleanup evidence. Do not claim that an `asset:local/*` reference is shared before promotion succeeds.                   |
 | Durable render jobs                               | D1 is the visible job authority. `RenderJobWorkflow` owns retryable steps, attempt fences, cancellation checkpoints, deterministic artifacts, settlement, and cleanup. A reconciler repairs dispatch gaps. Routes expose enqueue, poll, retry, cancel, history, and expiry. Migration `0008` and focused execution tests exist. This matches Cloudflare's requirement that durable side effects live in idempotent Workflow steps.                           | Retain a deployed Worker/Workflow restart run, trace correlation, and seven-day artifact-expiry evidence. Queues are not used in this architecture; Workflows are the chosen durable executor, so adding a Queue would duplicate ownership.                                                                      |
 | API authentication, ownership, quotas, and errors | Cloudflare Access or the explicit local demo mode resolves one principal. Workspace-scoped repositories, general API admission, render/upload-specific admission, request IDs, the canonical error envelope, bounded issue paths, `Retry-After`, and asynchronous audit writes exist. Migrations `0009` through `0011` add the bounded request audit.                                                                                                        | Retain deployed Access rejection, cross-workspace denial, malformed and hostile resources, rate/concurrency exhaustion, request-to-audit correlation, and retention evidence.                                                                                                                                    |
-| Deployed D1 migrations                            | Deployment tooling validates configured resource identities, contiguous migration ordinals, a remote ledger prefix, a stable plan/apply suffix, package builds, and a zero-pending post-deploy state. Individual local migration harnesses cover the important upgrades.                                                                                                                                                                                     | Historical SQL content is not pinned. Filename-only prefix validation cannot detect a changed applied migration. The last retained remote baseline predates migrations `0012` through `0016`; the current pending suffix is unknown until a new read-only inspection runs.                                       |
+| Deployed D1 migrations                            | Deployment tooling validates configured resource identities, an immutable 17-entry local lineage, a remote ledger prefix, a stable plan/apply suffix, package builds, and a zero-pending post-deploy state. The manifest pins historical SQL content by digest. Individual local migration harnesses cover the important upgrades through `0017`.                                                                                                            | The last retained remote baseline proves an exact prefix through `0011` at capture time. The current pending suffix is unknown until authenticated read-only inspection succeeds. Applying the inspected suffix and deploying matching Workers remain production-write actions.                                  |
 | 100 pages and 1,000 layers                        | The selected 100-page artifact records 800 nodes, 24.2 ms p95 scroll, a 361 ms page switch, and three thumbnail starts at concurrency three. The selected 1,000-layer artifact records 33 mounted rows, 258 ms inspector editing, 17.5 ms p95 pan, and 17.4 ms p95 gesture zoom. Independent review accepted the correctness repairs around camera projection, history admission, image decode, and crop visibility.                                         | Healthy-host Browser Rendering still needs first and steady raster latency, portrait/landscape/square parity, cache-hit proof, server-side cancellation, memory, and completed Object URL release. No local active-page scale implementation is open.                                                            |
 
 ## Dependency-ordered gates
@@ -110,17 +114,55 @@ names from the migration directory and separately prove that adding the next
 contiguous migration succeeds when its manifest entry is added. They do not
 hardcode the current length or final filename.
 
-This branch predates `0017_media_derivation_jobs.sql`, which is already present
-on main. Main integration must append that exact filename and its SHA-256 digest
-to `migrations/manifest.json`. The validator must reject integration until that
-entry exists; no existing digest should be regenerated or changed. The
-append-safe tests require no update merely because `0017` becomes the new head.
+The original BB-00 branch predated `0017_media_derivation_jobs.sql`. Main
+integration appended that exact filename and digest without regenerating any
+historical entry. The append-safe tests required no update when `0017` became
+the new head.
 
 Main integration appended `0017_media_derivation_jobs.sql` with digest
 `3e2a05b9c3150499c29bdfb44916b1a4c11046890bd6541eaf9d6f3430bd01f7`.
 The historical `0001` through `0016` entries remain unchanged, and main's
 media-derivation verification scripts remain alongside the lineage check.
 
-No remote Cloudflare command, migration, deployment, resource mutation, port,
-or paid-capacity action was used for this checkpoint. BB-01 through BB-06 remain
-separately authorized evidence gates.
+No migration, deployment, resource mutation, port, or paid-capacity action was
+used for this checkpoint. The later reconciliation attempted the repository's
+read-only production plan, but Wrangler authentication failed before inventory
+or D1 inspection. BB-01 through BB-06 remain separately authorized evidence
+gates.
+
+## Production authorization checklist
+
+Do not combine these approvals. Each item has a different side effect and
+evidence boundary.
+
+1. **Authenticated read-only inspection.** Select the clean integration commit,
+   authenticate Wrangler to the configured production account, run the static
+   and remote-ready preflights, and read `sqlite_schema` plus `d1_migrations`.
+   Record the exact remote prefix and computed pending suffix. Stop on a missing
+   ledger, divergent filename, changed local digest, unexpected resource, or
+   account mismatch. This item does not authorize migration application,
+   deployment, Access changes, product writes, or Browser Rendering.
+2. **Schema and Worker promotion.** Name the reviewed commit and the exact
+   suffix returned by item 1. Explicitly authorize applying only that suffix to
+   the configured production D1 database, then deploying the matching Renderer
+   and Studio Workers. Require the post-deploy preflight, zero pending
+   migrations, and a new immutable read-only baseline. A stale plan, changed
+   lineage digest, changed suffix, dirty checkout, or build failure cancels the
+   authorization.
+3. **Owner production exercise.** Separately authorize ordinary production
+   test writes for owner traversal, multipart/R2, shared-media promotion and
+   reconciliation, durable render jobs, cancellation, hostile inputs, quotas,
+   and request-to-audit correlation. Use the product's public archive or delete
+   paths for cleanup. Do not edit D1 directly to manufacture results.
+4. **Identity and Access exercise.** Separately authorize a second real
+   principal and any temporary Access policy or identity setup needed to prove
+   cross-workspace denial. Opening challenge-judge access is a product-policy
+   decision, not a deployment prerequisite.
+5. **Paid Browser Rendering evidence.** Separately authorize billable Browser
+   runs on a healthy host for deployed conformance, first and steady raster
+   latency, cache hits, rapid-churn cancellation, memory, and Object URL
+   release. A local Browser simulation does not close this gate.
+6. **Wall-clock retention evidence.** Separately authorize the product objects
+   needed to observe artifact, audit, promotion, and use-receipt expiry over
+   real time. Do not alter production timestamps or retention policies to
+   shorten the wait.
