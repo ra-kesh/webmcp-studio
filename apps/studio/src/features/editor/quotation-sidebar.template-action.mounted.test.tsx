@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 
-import { act, type ComponentProps } from "react"
-import { createRoot, type Root } from "react-dom/client"
+import { act } from "react"
+import type { ComponentProps } from "react"
+import { createRoot } from "react-dom/client"
+import type { Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { renderConformanceDocument } from "@webmcp/document"
 import type { ResolvedTemplateAction } from "../../content/library/library-template-actions"
@@ -96,6 +98,13 @@ function props(
     onCreateComponentFromSelection: noOp,
     onInsertComponent: noOp,
     onFocusComponentSource: noOp,
+    assetWorkspaceView: "media",
+    mediaBrowserVisible: false,
+    mediaScope: { kind: "recent" },
+    mediaActionsEnabled: true,
+    onAssetWorkspaceViewChange: noOp,
+    onMediaScopeChange: noOp,
+    onMediaSelect: noOp,
     productCommandContext: {} as never,
     productCommandRuntime: {} as never,
     onSelectPage: noOp,

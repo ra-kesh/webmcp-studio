@@ -18,20 +18,21 @@ import { EditorPanelTabsList } from "@webmcp/ui/components/editor-chrome"
 import { Tabs, TabsContent, TabsTrigger } from "@webmcp/ui/components/tabs"
 import { cn } from "@webmcp/ui/lib/utils"
 import { FileWarning, FolderTree, Link2 } from "lucide-react"
-import {
-  LibraryTemplateBrowser,
-  type LibraryTemplateIntent,
-} from "../../content/library/library-template-browser"
+import { LibraryTemplateBrowser } from "../../content/library/library-template-browser"
+import type { LibraryTemplateIntent } from "../../content/library/library-template-browser"
+import type {
+  LibraryMediaIntent,
+  LibraryMediaScope,
+} from "../../content/library/library-media-browser"
 import type { ResolvedTemplateAction } from "../../content/library/library-template-actions"
 import { LayerTree } from "./layer-tree"
-import { ComponentAssetsPanel } from "./component-assets-panel"
+import { AssetWorkspacePanel } from "./asset-workspace-panel"
+import type { AssetWorkspaceView } from "./asset-workspace-panel"
 import type { ProductCommandMenuRuntime } from "./product-command-menu"
 import { PageOutputPanel } from "./page-output-panel"
 import type { PageOutputPanelProps } from "./page-output-panel"
-import {
-  templateImpactRows,
-  type TemplateCatalogIdentity,
-} from "./template-catalog-model"
+import { templateImpactRows } from "./template-catalog-model"
+import type { TemplateCatalogIdentity } from "./template-catalog-model"
 
 export type DocumentPanelTab = "templates" | "components" | "pages" | "layers"
 
@@ -63,6 +64,15 @@ export function QuotationSidebar({
   onCreateComponentFromSelection,
   onInsertComponent,
   onFocusComponentSource,
+  assetWorkspaceView,
+  mediaBrowserVisible,
+  mediaScope,
+  mediaPendingIdentity,
+  mediaActionError,
+  mediaActionsEnabled,
+  onAssetWorkspaceViewChange,
+  onMediaScopeChange,
+  onMediaSelect,
   productCommandContext,
   productCommandRuntime,
   compact = false,
@@ -115,6 +125,15 @@ export function QuotationSidebar({
   onCreateComponentFromSelection: () => void
   onInsertComponent: (componentId: string) => void
   onFocusComponentSource: (componentId: string) => void
+  assetWorkspaceView: AssetWorkspaceView
+  mediaBrowserVisible: boolean
+  mediaScope: LibraryMediaScope
+  mediaPendingIdentity?: string | null
+  mediaActionError?: string | null
+  mediaActionsEnabled: boolean
+  onAssetWorkspaceViewChange: (view: AssetWorkspaceView) => void
+  onMediaScopeChange: (scope: LibraryMediaScope) => void
+  onMediaSelect: (intent: LibraryMediaIntent) => void
   productCommandContext: ProductCommandRuntimeContext
   productCommandRuntime: ProductCommandMenuRuntime
   compact?: boolean
@@ -282,13 +301,22 @@ export function QuotationSidebar({
           value="components"
           className="flex min-h-0 flex-col overflow-hidden"
         >
-          <ComponentAssetsPanel
+          <AssetWorkspacePanel
             document={document}
-            canCreateFromSelection={canCreateComponentFromSelection}
+            activeView={assetWorkspaceView}
+            mediaBrowserVisible={mediaBrowserVisible}
+            mediaScope={mediaScope}
+            mediaPendingIdentity={mediaPendingIdentity}
+            mediaActionError={mediaActionError}
+            mediaActionsEnabled={mediaActionsEnabled}
+            canCreateComponentFromSelection={canCreateComponentFromSelection}
             reviewPending={reviewPending}
-            onCreateFromSelection={onCreateComponentFromSelection}
-            onInsert={onInsertComponent}
-            onFocusSource={onFocusComponentSource}
+            onActiveViewChange={onAssetWorkspaceViewChange}
+            onMediaScopeChange={onMediaScopeChange}
+            onMediaSelect={onMediaSelect}
+            onCreateComponentFromSelection={onCreateComponentFromSelection}
+            onInsertComponent={onInsertComponent}
+            onFocusComponentSource={onFocusComponentSource}
           />
         </TabsContent>
         <TabsContent

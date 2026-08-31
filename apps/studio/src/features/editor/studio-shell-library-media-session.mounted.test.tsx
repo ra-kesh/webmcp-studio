@@ -6,7 +6,10 @@ import type { Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { projectCuratedMediaDetail } from "@webmcp/document"
 import { studioMediaManifest } from "../../content/library/media/manifest"
-import { useLibraryMediaPickerSession } from "../studio-shell"
+import {
+  mediaPickerUsesDialog,
+  useLibraryMediaPickerSession,
+} from "../studio-shell"
 import type { ExactLibraryMediaActionPerformer } from "../studio-shell"
 
 type Session = ReturnType<typeof useLibraryMediaPickerSession>
@@ -171,6 +174,49 @@ describe("Studio shell exact media picker session", () => {
 
     await act(async () => latest.close(false))
     expect(latest.state).toBeNull()
+  })
+
+  it("keeps inline actions out of the focused dialog", async () => {
+    const perform = vi.fn<ExactLibraryMediaActionPerformer>(
+      async () => "rejected"
+    )
+    await mount(perform)
+
+    await act(async () => {
+      latest.openAction({
+        target: { type: "insert", pageId: "page-inline" },
+        presentation: "inline",
+      })
+    })
+    expect(latest.state).toMatchObject({
+      kind: "action",
+      presentation: "inline",
+    })
+    expect(mediaPickerUsesDialog(latest.state)).toBe(false)
+
+    await act(async () => {
+      await latest.executeExactSelection(detail())
+    })
+    expect(latest.state).toMatchObject({
+      kind: "action",
+      presentation: "inline",
+      pendingIdentity: null,
+      actionError:
+        "The selected image could not be applied. Retry in the current design.",
+    })
+    expect(mediaPickerUsesDialog(latest.state)).toBe(false)
+
+    await act(async () => latest.close(false))
+    await act(async () => {
+      latest.openAction({
+        target: { type: "insert", pageId: "page-dialog" },
+      })
+    })
+    expect(latest.state).toMatchObject({
+      kind: "action",
+      presentation: "dialog",
+    })
+    expect(mediaPickerUsesDialog(latest.state)).toBe(true)
   })
 
   it("aborts an old target and fences its stale completion from the new session", async () => {

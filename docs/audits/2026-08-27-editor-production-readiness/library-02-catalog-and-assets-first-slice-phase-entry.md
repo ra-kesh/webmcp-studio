@@ -2,7 +2,7 @@
 
 Date: 2026-08-31
 
-Status: implementation checkpoint
+Status: implemented and locally accepted; checkpoint commit pending
 
 Branch baseline: `e719a3e`
 
@@ -111,3 +111,39 @@ components.
 Catalog expansion beyond the accepted 21 templates and 37 media items belongs
 to a later content checkpoint. This first slice makes the existing breadth
 usable throughout the editor before adding more inventory.
+
+## Acceptance result
+
+The editor Assets tab now contains Media and Components views. Media mounts the
+accepted shared browser in compact density, so the existing 37-item curated
+catalog, workspace uploads, device-local media, Recent, Favorites, collections,
+search, taxonomy filters, exact previews, details, and recovery states are
+available without opening a task dialog. Components keeps its existing
+document-local search, create, insert, source-navigation, thumbnails, and empty
+states.
+
+Desktop and compact shells share the selected Assets view and media scope. The
+shell admits only the visible Media view, which keeps one discovery lease and
+one scroll owner. Creating a component switches the Assets workspace to
+Components. Review and quotation-refresh locks leave discovery readable while
+disabling document insertion.
+
+Media selected from Assets enters the existing exact action session with an
+inline presentation. That session captures the active page, runs the same
+source-aware preparation and canonical insert command as the focused dialog,
+records usage only after commit, retains retryable post-commit warnings, and
+aborts on view exit, document change, replacement session, or unmount. Inline
+pending and failure state stays in the browser. The upload, replace, field,
+archive, promotion, and recovery dialog stays closed for inline insertion.
+
+Accepted evidence:
+
+- 3 focused Vitest files, 10 tests passed;
+- Studio TypeScript check passed with no diagnostics;
+- scoped ESLint passed for all six changed TypeScript and TSX files;
+- Prettier check passed for all six changed TypeScript and TSX files;
+- `git diff --check` passed.
+
+No development server, browser automation, remote service, or port was started
+for this checkpoint. The mounted component and session suites cover the new
+interaction ownership without competing with other running product work.

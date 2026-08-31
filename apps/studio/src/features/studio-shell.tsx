@@ -166,6 +166,7 @@ import {
 import type { PageThumbnailDocumentSnapshot } from "./editor/page-thumbnail-raster-producer"
 import { QuotationSidebar } from "./editor/quotation-sidebar"
 import type { DocumentPanelTab } from "./editor/quotation-sidebar"
+import type { AssetWorkspaceView } from "./editor/asset-workspace-panel"
 import { AssetLibraryDialog } from "./editor/asset-library-dialog"
 import type { ManagedMediaAsset } from "./editor/managed-media-repository"
 import { ApiPlaygroundDialog } from "./editor/api-playground-dialog"
@@ -313,6 +314,7 @@ const mediaScopeFromCollection = (
 
 export type MediaPickerActionState = Readonly<{
   kind: "action"
+  presentation: "dialog" | "inline"
   sessionId: string
   target: LibraryMediaActionTarget
   targetName?: string
@@ -334,6 +336,10 @@ export type MediaPickerRecoveryState = Readonly<{
 
 export type MediaPickerState = MediaPickerActionState | MediaPickerRecoveryState
 
+export const mediaPickerUsesDialog = (state: MediaPickerState | null) =>
+  state !== null &&
+  (state.kind === "recover-local" || state.presentation === "dialog")
+
 export type MediaPickerUsageNotice = Readonly<{
   id: string
   correlationId: string
@@ -351,6 +357,7 @@ export type ExactLibraryMediaActionPerformer = (
 type OpenMediaPickerAction = Readonly<{
   target: LibraryMediaActionTarget
   initialCollection?: MediaPickerCollection
+  presentation?: "dialog" | "inline"
   targetName?: string
   focusReturnTarget?: HTMLElement | null
 }>
@@ -428,6 +435,7 @@ export function useLibraryMediaPickerSession({
     ({
       target,
       initialCollection = "recent",
+      presentation = "dialog",
       targetName,
       focusReturnTarget,
     }: OpenMediaPickerAction) => {
@@ -435,6 +443,7 @@ export function useLibraryMediaPickerSession({
       captureFocusTarget(focusReturnTarget)
       const next: MediaPickerActionState = {
         kind: "action",
+        presentation,
         sessionId: `media-picker-${crypto.randomUUID()}`,
         target,
         targetName,
@@ -1137,6 +1146,11 @@ export function StudioShell({
   }, [editor.sessionMode])
   const [documentPanelTab, setDocumentPanelTab] =
     useState<DocumentPanelTab>("templates")
+  const [assetWorkspaceView, setAssetWorkspaceView] =
+    useState<AssetWorkspaceView>("media")
+  const [assetMediaScope, setAssetMediaScope] = useState<LibraryMediaScope>({
+    kind: "recent",
+  })
   const {
     activeAction: criticalAction,
     error: criticalActionError,
@@ -1157,6 +1171,17 @@ export function StudioShell({
     documentPanelTab,
     compactDocumentPanelOpen: compactPanel === "document",
   })
+  const assetMediaBrowserVisibility = {
+    desktop:
+      desktopPresentation &&
+      documentPanelTab === "components" &&
+      assetWorkspaceView === "media",
+    compact:
+      !desktopPresentation &&
+      compactPanel === "document" &&
+      documentPanelTab === "components" &&
+      assetWorkspaceView === "media",
+  }
   const [imageSourceStateByNodeId, setImageSourceStateByNodeId] = useState<
     Partial<Record<string, InspectorImageSourceState>>
   >({})
@@ -2781,7 +2806,10 @@ export function StudioShell({
 
   const createComponentFromSelection = useCallback(() => {
     const componentId = editor.createComponentFromSelection()
-    if (componentId) setDocumentPanelTab("components")
+    if (componentId) {
+      setAssetWorkspaceView("components")
+      setDocumentPanelTab("components")
+    }
   }, [editor])
 
   const insertComponent = useCallback(
@@ -3023,6 +3051,41 @@ export function StudioShell({
     },
     [mediaPickerSession.executeExactSelection]
   )
+
+  const insertMediaFromAssets = useCallback(
+    (intent: LibraryMediaIntent) => {
+      mediaPickerSession.openAction({
+        target: { type: "insert", pageId: activePage.id },
+        presentation: "inline",
+      })
+      void mediaPickerSession.executeExactSelection(intent.detail)
+    },
+    [
+      activePage.id,
+      mediaPickerSession.executeExactSelection,
+      mediaPickerSession.openAction,
+    ]
+  )
+
+  const inlineMediaActionState =
+    mediaPicker?.kind === "action" && mediaPicker.presentation === "inline"
+      ? mediaPicker
+      : null
+  const inlineMediaBrowserVisible =
+    assetMediaBrowserVisibility.desktop || assetMediaBrowserVisibility.compact
+  const inlineMediaActionsEnabled =
+    !editor.pendingChangeSet &&
+    !pendingQuotationRefresh &&
+    !inlineMediaActionState?.pendingIdentity
+
+  useEffect(() => {
+    if (inlineMediaBrowserVisible || !inlineMediaActionState) return
+    mediaPickerSession.close(false)
+  }, [
+    inlineMediaActionState,
+    inlineMediaBrowserVisible,
+    mediaPickerSession.close,
+  ])
 
   const selectManagedRecoveryMedia = useCallback(
     (asset: ManagedMediaAsset) => {
@@ -4709,6 +4772,17 @@ export function StudioShell({
                   onCreateComponentFromSelection={createComponentFromSelection}
                   onInsertComponent={insertComponent}
                   onFocusComponentSource={focusComponentSource}
+                  assetWorkspaceView={assetWorkspaceView}
+                  mediaBrowserVisible={assetMediaBrowserVisibility.desktop}
+                  mediaScope={assetMediaScope}
+                  mediaPendingIdentity={
+                    inlineMediaActionState?.pendingIdentity ?? null
+                  }
+                  mediaActionError={inlineMediaActionState?.actionError ?? null}
+                  mediaActionsEnabled={inlineMediaActionsEnabled}
+                  onAssetWorkspaceViewChange={setAssetWorkspaceView}
+                  onMediaScopeChange={setAssetMediaScope}
+                  onMediaSelect={insertMediaFromAssets}
                   productCommandContext={productCommandContext}
                   productCommandRuntime={productMenuRuntime}
                   onSelectPage={editor.selectPage}
@@ -5416,6 +5490,17 @@ export function StudioShell({
                 onCreateComponentFromSelection={createComponentFromSelection}
                 onInsertComponent={insertComponent}
                 onFocusComponentSource={focusComponentSource}
+                assetWorkspaceView={assetWorkspaceView}
+                mediaBrowserVisible={assetMediaBrowserVisibility.compact}
+                mediaScope={assetMediaScope}
+                mediaPendingIdentity={
+                  inlineMediaActionState?.pendingIdentity ?? null
+                }
+                mediaActionError={inlineMediaActionState?.actionError ?? null}
+                mediaActionsEnabled={inlineMediaActionsEnabled}
+                onAssetWorkspaceViewChange={setAssetWorkspaceView}
+                onMediaScopeChange={setAssetMediaScope}
+                onMediaSelect={insertMediaFromAssets}
                 productCommandContext={productCommandContext}
                 productCommandRuntime={productMenuRuntime}
                 onSelectPage={(pageId) => {
@@ -5605,7 +5690,7 @@ export function StudioShell({
           </div>
         ) : null}
         <AssetLibraryDialog
-          open={mediaPicker !== null}
+          open={mediaPickerUsesDialog(mediaPicker)}
           onOpenChange={(open) => {
             if (!open) mediaPickerSession.close(true)
           }}
