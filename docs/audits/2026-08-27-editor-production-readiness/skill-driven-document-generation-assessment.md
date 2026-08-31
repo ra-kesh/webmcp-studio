@@ -1,7 +1,7 @@
 # Skill-driven document generation assessment
 
 Date: 31 August 2026
-Status: assessment complete; implementation not started
+Status: implemented and locally verified on an isolated branch; committed, not independently accepted, and not merged
 Roadmap item: `GEN-01`
 
 ## Decision
@@ -693,6 +693,85 @@ JSX remains an authoring convenience, not a second product model or a reason to
 execute third-party code inside Studio. The stricter transaction rule remains:
 compile and validate the whole plan first, then create one candidate.
 
+## GEN-01 implementation checkpoint, 31 August 2026
+
+Implementation is complete on branch `codex/gen-01-document-generation` in the
+isolated worktree `webmcp-studio-worktrees/gen-01`. The branch starts at exact
+`main` commit `6265561ab4c9aa70c7489c2a90b3dcac6c1179d3`. It has not been merged
+to `main`.
+
+State is recorded precisely:
+
+- **Implemented:** Gates A through D are present in the branch.
+- **Locally verified:** package typechecks, domain and WebMCP suites, focused
+  Studio Review tests, mounted durable creation, and skill validation pass.
+- **Committed:** each gate has its own commit.
+- **Independently accepted:** no. No independent reviewer has accepted these
+  commits yet.
+- **Merged:** no.
+
+### Gate commits
+
+| Gate | Commit                                     | Result                                                                                                                                                                            |
+| ---- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A    | `fb48fc1ed714ebebce820821fb1fb9a77ed161e8` | Five read-only discovery tools publish exact templates, presets, capabilities, and the Design Plan vocabulary without canonical bodies or media sources.                          |
+| B    | `a5804131398e7f64d7a4717b42aedd85f267f259` | A strict JSON compiler validates budgets and request-local references, remaps canonical IDs deterministically, and creates an isolated schema-v5 candidate.                       |
+| C    | `1deca7833d1489bfbf4f2acd104d990f00d714c1` | `propose_document_generation` resolves approved assets, compiles one idempotent candidate, renders Review thumbnails, and persists a fresh editable document only after approval. |
+| D    | `9053927d9f7a71079de7c39dfa92f173640b091f` | The first-party `studio-document` skill and third-party skill fixtures prove blank and template paths through public WebMCP tools.                                                |
+
+### Frozen safety boundary
+
+The first slice admits requests up to 512 KiB, prompts up to 16,000
+characters, 20 pages, 20 outputs, 1,000 nodes, 250 groups, 16 group levels,
+100 typography styles, 100 paint styles, 100 variables, 100 fields, 2,000
+bindings, four references, four design guides, 64 KiB of normalized guide
+decisions, and 24 template changes. Local IDs use a bounded request-local
+grammar and are remapped from the request and idempotency identity.
+
+The public generation boundary rejects model-supplied canonical documents,
+canonical IDs, arbitrary media URLs, JSX, HTML, CSS, scripts, unsupported
+fonts, unknown template identities, source-dependent quotation templates,
+unapproved assets, invalid geometry, dangling references, and plans that fail
+canonical validation or render policy. Template insertion is limited to an
+approved image and the canonical `add_node` command. The public response omits
+the candidate body and private media source. One candidate may wait in Review,
+one explicitly linked replacement is allowed, and durable storage failure
+leaves the candidate uncommitted.
+
+### Retained evidence
+
+- The five-page blank fixture creates editable text, shapes, approved media,
+  a group, typography and paint styles, a variable and binding, a field and
+  binding, one output, and five pages. The compiled candidate records the
+  external skill, normalized `design.md`, two analysis references, and the
+  approved asset identity.
+- The template fixture discovers `editorial-one-pager@1`, reads its public page
+  and field identities, changes bound text, inserts approved botanical media,
+  and replays the same idempotency key without compiling a duplicate.
+- The mounted Studio test proves discard performs zero repository creates and
+  two concurrent approval attempts perform exactly one durable create.
+- Review renders each candidate page through the canonical `Artboard` renderer
+  and exposes the start identity, skill and guide provenance, structure,
+  fields, assets, and validation state.
+
+The host default `node` is v18.18.1, which cannot start the current Vitest
+bundle because `rolldown` requires `util.styleText`. DOM-mounted Vitest evidence
+was therefore run with the installed Node v22.23.2 binary. Non-DOM suites were
+also run directly with Bun 1.2.5. This is a verification-environment constraint,
+not a product fallback.
+
+### Integration risks still open
+
+- Independent review and merge reconciliation have not happened.
+- The generated candidate itself is held in mounted editor memory until the
+  human decides; browser reload before approval discards it by design.
+- The first slice does not provide a WebMCP screenshot-inspection tool for a
+  remote GPT. The human sees canonical Review thumbnails, while GPT receives
+  the structural summary and validation result.
+- Only built-in exact templates are discoverable for generation in this slice.
+- The 512 KiB and graph ceilings are frozen conservative limits, not yet
+  informed by production request telemetry.
+
 ## Final assessment
 
 OpenPencil confirms that GPT can create sophisticated editable designs when it
@@ -701,8 +780,9 @@ loop. Studio already has the harder product foundations: a rich business-
 document model, exact commands, safe Review, deterministic renderers, versioned
 templates, and publishable API templates.
 
-The missing piece is not a new canvas engine or an in-app model. It is a
-self-describing WebMCP artifact boundary. GPT chat should be able to read any
-compatible GitHub `SKILL.md`, interpret its linked `design.md` and references,
-choose a template or blank start, submit one bounded design plan, and receive
-one canonical editable document after human approval.
+GEN-01 implements the missing piece as a self-describing WebMCP artifact
+boundary, not a new canvas engine or in-app model. A compatible GitHub
+`SKILL.md` can interpret its linked `design.md` and references, choose a
+template or blank start, and submit one bounded design plan. Studio owns the
+isolated candidate and creates one canonical editable document only after
+human approval.
