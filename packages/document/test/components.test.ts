@@ -175,6 +175,27 @@ function imageComponentFixture(): Document {
   return assertValidDocument(document)
 }
 
+function nestedMaskComponentSourceFixture(): Document {
+  const document = componentSourceFixture()
+  const component = document.components[0]!
+  const root = document.groups.find(
+    (group) => group.id === component.sourceGroupId
+  )!
+  const child = document.groups.find(
+    (group) => group.id === "group-component-hero-details"
+  )!
+  root.role = "mask"
+  if (root.role === "mask") {
+    root.mask = { type: "vector", sourceNodeIds: ["cover-panel"] }
+  }
+  child.nodeIds = ["cover-eyebrow", "cover-title"]
+  child.role = "mask"
+  if (child.role === "mask") {
+    child.mask = { type: "alpha", sourceNodeIds: ["cover-eyebrow"] }
+  }
+  return assertValidDocument(document)
+}
+
 describe("canonical document components", () => {
   it("resolves variant patches before instance overrides", () => {
     const document = componentFixture()
@@ -393,6 +414,105 @@ describe("canonical document components", () => {
     })
     expect(componentIntegrityIssues(refreshed)).toEqual([])
     expect(() => assertValidDocument(refreshed)).not.toThrow()
+  })
+
+  it("materializes and refreshes a nested mask component without losing parent or source identity", () => {
+    const source = nestedMaskComponentSourceFixture()
+    const created = applyCommand(source, {
+      ...commandMeta("create-nested-mask-instance"),
+      type: "create_component_instance",
+      pageId: "story",
+      instance: {
+        id: "instance-created-nested-mask",
+        name: "Created nested mask hero",
+        componentId: "component-hero",
+        variantId: "variant-compact",
+        rootGroupId: "group-created-nested-mask-hero",
+        transform: { x: 100, y: 200, scale: 0.5, rotation: 0 },
+        nodeMappings: [
+          {
+            sourceNodeId: "cover-panel",
+            instanceNodeId: "created-nested-mask-cover-panel",
+          },
+          {
+            sourceNodeId: "cover-eyebrow",
+            instanceNodeId: "created-nested-mask-cover-eyebrow",
+          },
+          {
+            sourceNodeId: "cover-title",
+            instanceNodeId: "created-nested-mask-cover-title",
+          },
+        ],
+        groupMappings: [
+          {
+            sourceGroupId: "group-component-hero",
+            instanceGroupId: "group-created-nested-mask-hero",
+          },
+          {
+            sourceGroupId: "group-component-hero-details",
+            instanceGroupId: "group-created-nested-mask-hero-details",
+          },
+        ],
+        overrides: {},
+      },
+    })
+    expect(
+      created.groups.find(
+        (group) => group.id === "group-created-nested-mask-hero"
+      )
+    ).toMatchObject({
+      role: "mask",
+      mask: {
+        type: "vector",
+        sourceNodeIds: ["created-nested-mask-cover-panel"],
+      },
+    })
+    expect(
+      created.groups.find(
+        (group) => group.id === "group-created-nested-mask-hero-details"
+      )
+    ).toMatchObject({
+      parentGroupId: "group-created-nested-mask-hero",
+      role: "mask",
+      mask: {
+        type: "alpha",
+        sourceNodeIds: ["created-nested-mask-cover-eyebrow"],
+      },
+    })
+
+    const changedSource = structuredClone(created)
+    const sourceChild = changedSource.groups.find(
+      (group) => group.id === "group-component-hero-details"
+    )
+    if (!sourceChild || sourceChild.role !== "mask") {
+      throw new Error("Missing nested source mask")
+    }
+    sourceChild.mask = { ...sourceChild.mask, type: "luminance" }
+    const refreshed = materializeComponentInstances(changedSource)
+    expect(
+      refreshed.groups.find(
+        (group) => group.id === "group-created-nested-mask-hero-details"
+      )
+    ).toMatchObject({
+      parentGroupId: "group-created-nested-mask-hero",
+      mask: {
+        type: "luminance",
+        sourceNodeIds: ["created-nested-mask-cover-eyebrow"],
+      },
+    })
+    expect(componentIntegrityIssues(refreshed)).toEqual([])
+
+    expect(() =>
+      applyCommand(source, {
+        ...commandMeta("release-component-child-mask"),
+        type: "release_mask_group",
+        expectedRevision: source.revision,
+        pageId: "cover",
+        groupId: "group-component-hero-details",
+      })
+    ).toThrowError(
+      expect.objectContaining({ code: "MASK_COMMAND_COMPONENT_STRUCTURE" })
+    )
   })
 
   it("propagates source edits while preserving, resetting and detaching overrides", () => {

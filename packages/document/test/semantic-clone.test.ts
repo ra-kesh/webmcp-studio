@@ -268,6 +268,32 @@ function maskSemanticFixture(): Document {
   }
 }
 
+function nestedMaskSemanticFixture(): Document {
+  const document = semanticFixture()
+  return {
+    ...document,
+    groups: [
+      {
+        id: "cover-outer-mask",
+        pageId: "cover",
+        name: "Cover outer mask",
+        nodeIds: ["panel", "divider"],
+        role: "mask",
+        mask: { type: "alpha", sourceNodeIds: ["panel"] },
+      },
+      {
+        id: "cover-child-mask",
+        pageId: "cover",
+        parentGroupId: "cover-outer-mask",
+        name: "Cover child mask",
+        nodeIds: ["title", "portrait"],
+        role: "mask",
+        mask: { type: "alpha", sourceNodeIds: ["title"] },
+      },
+    ],
+  }
+}
+
 describe("semantic document cloning", () => {
   it("remaps mask sources for page duplication and omits a partial relation", () => {
     const source = maskSemanticFixture()
@@ -348,6 +374,67 @@ describe("semantic document cloning", () => {
 
     const partial = captureSemanticFragment(source, "cover", ["panel"])
     expect(partial.groups).toEqual([])
+  })
+
+  it("round-trips a complete nested mask and rejects an incomplete parent mapping", () => {
+    const source = nestedMaskSemanticFixture()
+    const full = captureSemanticFragment(
+      source,
+      "cover",
+      source.pages[0]!.nodeIds
+    )
+    const clone = cloneSemanticFragment(full, {
+      targetPageId: "nested-mask-copy",
+      createId: deterministicId,
+    })
+    expect(clone.groups).toEqual([
+      expect.objectContaining({
+        id: "group-copy-cover-outer-mask",
+        nodeIds: ["node-copy-panel", "node-copy-divider"],
+        mask: { type: "alpha", sourceNodeIds: ["node-copy-panel"] },
+      }),
+      expect.objectContaining({
+        id: "group-copy-cover-child-mask",
+        parentGroupId: "group-copy-cover-outer-mask",
+        nodeIds: ["node-copy-title", "node-copy-portrait"],
+        mask: { type: "alpha", sourceNodeIds: ["node-copy-title"] },
+      }),
+    ])
+    const duplicated = applyCommand(source, {
+      id: "duplicate-nested-mask-page",
+      type: "duplicate_page",
+      actor: "human",
+      at,
+      outputId: "proposal",
+      page: {
+        ...source.pages[0]!,
+        id: "nested-mask-copy",
+        name: "Nested mask copy",
+        nodeIds: clone.nodeIds,
+      },
+      nodes: clone.nodes,
+      groups: clone.groups,
+      componentInstances: clone.componentInstances,
+      bindings: clone.bindings,
+      variableBindings: clone.variableBindings,
+    })
+    expect(validateDocument(duplicated)).toEqual([])
+    expect(
+      duplicated.groups.find(
+        (group) => group.id === "group-copy-cover-child-mask"
+      )
+    ).toMatchObject({ parentGroupId: "group-copy-cover-outer-mask" })
+
+    const incomplete = {
+      ...full,
+      groups: full.groups.filter((group) => group.id === "cover-child-mask"),
+    }
+    expect(() =>
+      cloneSemanticFragment(incomplete, {
+        targetPageId: "invalid-nested-mask-copy",
+        createId: deterministicId,
+      })
+    ).toThrow("Incomplete semantic parent group: cover-outer-mask")
   })
 
   it("duplicates a page with fresh hierarchy and every shared-field target", () => {

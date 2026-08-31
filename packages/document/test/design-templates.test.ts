@@ -13,6 +13,7 @@ import {
   validateDocument,
 } from "../src"
 import type { Document } from "../src"
+import { maskRenderConformanceDocument } from "../src/mask-render-conformance"
 
 function componentTemplateDocument(): Document {
   const document = structuredClone(
@@ -170,6 +171,59 @@ describe("design template repository", () => {
     expect(
       validateDocument(next).filter((issue) => issue.severity === "error")
     ).toEqual([])
+  })
+
+  it("remaps nested mask parents and sources deterministically", () => {
+    const source = structuredClone(maskRenderConformanceDocument)
+    source.groups = [
+      {
+        id: "template-outer-mask",
+        pageId: "mask-conformance-page",
+        name: "Template outer mask",
+        nodeIds: ["mask-conformance-below", "mask-conformance-above"],
+        role: "mask",
+        mask: { type: "vector", sourceNodeIds: ["mask-conformance-below"] },
+      },
+      {
+        id: "template-child-mask",
+        pageId: "mask-conformance-page",
+        parentGroupId: "template-outer-mask",
+        name: "Template child mask",
+        nodeIds: ["mask-conformance-source", "mask-conformance-content"],
+        role: "mask",
+        mask: { type: "alpha", sourceNodeIds: ["mask-conformance-source"] },
+      },
+    ]
+    const createId = (kind: string, sourceId: string) =>
+      `${kind}-template-copy-${sourceId}`
+    const next = cloneTemplateDocument(source, {
+      now: "2026-08-31T16:00:00.000Z",
+      createId,
+    })
+    expect(next.groups).toEqual([
+      expect.objectContaining({
+        id: "group-template-copy-template-outer-mask",
+        mask: {
+          type: "vector",
+          sourceNodeIds: ["node-template-copy-mask-conformance-below"],
+        },
+      }),
+      expect.objectContaining({
+        id: "group-template-copy-template-child-mask",
+        parentGroupId: "group-template-copy-template-outer-mask",
+        mask: {
+          type: "alpha",
+          sourceNodeIds: ["node-template-copy-mask-conformance-source"],
+        },
+      }),
+    ])
+    expect(validateDocument(next)).toEqual([])
+    expect(
+      cloneTemplateDocument(source, {
+        now: "2026-08-31T16:00:00.000Z",
+        createId,
+      })
+    ).toEqual(next)
   })
 
   it("ports component resources and override ownership into fresh template identities", () => {

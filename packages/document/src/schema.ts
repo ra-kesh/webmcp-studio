@@ -1288,6 +1288,7 @@ export const documentCommandSchema = z.discriminatedUnion("type", [
     expectedRevision: z.number().int().nonnegative(),
     pageId: id,
     groupId: id,
+    parentGroupId: id.optional(),
     name: z.string().trim().min(1),
     nodeIds: z.array(id).min(2).max(516),
     sourceNodeIds: z.tuple([id]).rest(id),
