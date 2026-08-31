@@ -255,6 +255,47 @@ describe("LibraryTemplateBrowser", () => {
     expect(controller.selectItem).not.toHaveBeenCalled()
   })
 
+  it("keeps every library destination visible in the compact editor header", async () => {
+    const controller = staticController(discoveryState())
+
+    await act(async () => {
+      root.render(
+        <DiscoveryTestRoot controller={controller}>
+          <LibraryTemplateBrowser
+            hasQuotationSource
+            variant="editor"
+            onCreate={vi.fn()}
+          />
+        </DiscoveryTestRoot>
+      )
+    })
+
+    const navigation = host.querySelector<HTMLElement>(
+      'nav[aria-label="Template collections"]'
+    )!
+    expect(navigation.className).not.toContain("overflow-x-auto")
+    expect(
+      navigation.querySelectorAll("[data-library-entry-point]")
+    ).toHaveLength(3)
+    expect(
+      navigation.querySelector(
+        'button[aria-label="Manage template collections"]'
+      )
+    ).not.toBeNull()
+    expect(
+      navigation.querySelector('[data-library-entry-point="featured"]')
+        ?.className
+    ).toContain("h-8")
+
+    const search = host
+      .querySelector('input[aria-label="Search design templates"]')
+      ?.closest('[data-slot="input-group"]')
+    expect(search?.className).toContain("h-8")
+    expect(
+      host.querySelector('button[aria-label="Filter templates"]')?.className
+    ).toContain("size-8")
+  })
+
   it("keeps catalog announcements audible after a persistent action error", async () => {
     const firstState = discoveryState({
       announcement: { id: 1, message: "4 results." },

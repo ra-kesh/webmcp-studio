@@ -1441,17 +1441,28 @@ function LibraryTemplateBrowserContent({
 
         <nav
           aria-label="Template collections"
-          className="flex gap-1 overflow-x-auto pb-0.5"
+          className={cn(
+            "flex gap-1",
+            variant === "editor"
+              ? "items-center overflow-visible"
+              : "overflow-x-auto pb-0.5"
+          )}
         >
           {entryPoints.map((entry) => (
             <button
               aria-current={state.entryPoint === entry.id ? "page" : undefined}
               className={cn(
-                "min-h-11 shrink-0 rounded-md px-3 text-xs font-medium transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/45",
+                "shrink-0 font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-studio-accent/45",
+                variant === "editor"
+                  ? "h-8 rounded-[5px] px-1.5 text-[11px]"
+                  : "min-h-11 rounded-md px-3 text-xs",
                 state.entryPoint === entry.id
-                  ? "bg-foreground text-background"
+                  ? variant === "editor"
+                    ? "bg-studio-accent/12 text-studio-accent hover:bg-studio-accent/16"
+                    : "bg-foreground text-background"
                   : "text-muted-foreground hover:bg-muted hover:text-foreground"
               )}
+              data-library-entry-point={entry.id}
               key={entry.id}
               type="button"
               onClick={() => updateEntryPoint(entry.id)}
@@ -1459,20 +1470,40 @@ function LibraryTemplateBrowserContent({
               {entry.label}
             </button>
           ))}
-          <button
-            className="min-h-11 shrink-0 rounded-md px-3 text-xs font-medium text-muted-foreground transition-colors outline-none hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/45"
-            data-library-collections-trigger="true"
-            type="button"
-            onClick={() =>
-              openCollections("manage", state.filters.collectionId)
-            }
-          >
-            Collections
-          </button>
+          {variant === "editor" ? (
+            <button
+              aria-label="Manage template collections"
+              className="grid size-8 shrink-0 place-items-center rounded-[5px] text-muted-foreground transition-colors outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-studio-accent/45"
+              data-library-collections-trigger="true"
+              title="Manage collections"
+              type="button"
+              onClick={() =>
+                openCollections("manage", state.filters.collectionId)
+              }
+            >
+              <Folders aria-hidden="true" className="size-3.5" />
+            </button>
+          ) : (
+            <button
+              className="min-h-11 shrink-0 rounded-md px-3 text-xs font-medium text-muted-foreground transition-colors outline-none hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/45"
+              data-library-collections-trigger="true"
+              type="button"
+              onClick={() =>
+                openCollections("manage", state.filters.collectionId)
+              }
+            >
+              Collections
+            </button>
+          )}
         </nav>
 
         <div className="flex items-center gap-2">
-          <InputGroup className="h-11 min-w-0 flex-1">
+          <InputGroup
+            className={cn(
+              "min-w-0 flex-1",
+              variant === "editor" ? "h-8 rounded-[5px]" : "h-11"
+            )}
+          >
             <InputGroupAddon>
               <Search aria-hidden="true" />
             </InputGroupAddon>
@@ -1504,7 +1535,7 @@ function LibraryTemplateBrowserContent({
               <SheetTrigger asChild>
                 <Button
                   aria-label="Filter templates"
-                  className="size-11 shrink-0"
+                  className="size-8 shrink-0 rounded-[5px]"
                   size="icon"
                   type="button"
                   variant="outline"

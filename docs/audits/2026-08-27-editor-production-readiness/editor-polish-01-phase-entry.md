@@ -492,3 +492,34 @@ checks pass, and live inspection found no console error or horizontal overflow.
 This is a retained sophistication checkpoint, not a claim of full OpenPencil
 parity; broad Inspector recipe consolidation and the complete compact/dark/
 coarse-pointer visual matrix remain later refinement work.
+
+## Follow-up template-panel refinement checkpoint — 2026-08-31
+
+Before this slice, the visual audit, OpenPencil north-star, Loora transaction
+reference, Canva editor composition and Orshot-style render-workflow reference
+were reread. The mounted editor was inspected at 1440 x 900 on isolated port 3101. Port 3000 was not touched.
+
+The editor-only Template collection rail measured 313 px inside a 240 px
+viewport. `Collections` began outside the panel at x=237.6 and ended at
+x=324.9, so the fourth destination was not visible without an undisclosed
+horizontal gesture. The same editor header reused 44 px start-surface controls
+despite the accepted 28-32 px desktop editor scale.
+
+Implemented:
+
+- the three library views and collection manager now fit in one 240 px row;
+- collection management is a named 32 px icon action instead of clipped text;
+- the selected view uses the shared Studio accent rather than a separate black
+  selection block;
+- editor search and filter controls now use the same 32 px compact anatomy;
+- the start surface retains its original 44 px targets and full text labels.
+
+Mounted acceptance confirmed a 240 px client and scroll width, four fully
+visible 32 px actions, no console warnings and no shell overflow. The focused
+template-browser suite passes 19/19, Studio typecheck passes, both edited files
+pass Prettier, and `git diff --check` passes.
+
+Package-wide ESLint remains blocked by the checked-in lint backlog: the run
+reported 206 errors across existing Studio files, including unchanged lines in
+the two touched files. No reported lint error points to this slice. That backlog
+is recorded rather than folded into this bounded visual change.
