@@ -1047,37 +1047,39 @@ export class LibraryPreferenceRepository {
       }
     }
     const now = this.now()
-    const statements = [
-      this.db
-        .prepare(
-          `/* library:set-favorite */ INSERT INTO library_item_preferences
+    const statement =
+      expectedRevision === 0
+        ? this.db.prepare(
+            `/* library:set-favorite */ INSERT INTO library_item_preferences
          (workspace_id, principal_id, item_kind, item_id, item_version, favorite,
           last_used_at, revision, last_mutation_key, last_mutation_hash,
           last_mutation_operation, created_at, updated_at)
          SELECT ?1, ?2, ?3, ?4, ?5, ?7, NULL, 1, ?8, ?10,
            'set_favorite', ?9, ?9
-         WHERE ?6 = 0
-         ON CONFLICT (workspace_id, principal_id, item_kind, item_id, item_version)
-         DO UPDATE SET favorite = excluded.favorite, revision = revision + 1,
-           last_mutation_key = excluded.last_mutation_key,
-           last_mutation_hash = excluded.last_mutation_hash,
-           last_mutation_operation = excluded.last_mutation_operation,
-           updated_at = excluded.updated_at
-         WHERE library_item_preferences.revision = ?6 AND ?6 > 0
-           AND library_item_preferences.last_mutation_key <> excluded.last_mutation_key`
-        )
-        .bind(
-          workspaceId,
-          principalId,
-          identity.itemKind,
-          identity.id,
-          identity.version,
-          expectedRevision,
-          favorite ? 1 : 0,
-          key,
-          now,
-          hash
-        ),
+         WHERE ?6 = 0`
+          )
+        : this.db.prepare(
+            `/* library:set-favorite */ UPDATE library_item_preferences
+         SET favorite = ?7, revision = revision + 1,
+           last_mutation_key = ?8, last_mutation_hash = ?10,
+           last_mutation_operation = 'set_favorite', updated_at = ?9
+         WHERE workspace_id = ?1 AND principal_id = ?2 AND item_kind = ?3
+           AND item_id = ?4 AND item_version = ?5 AND revision = ?6
+           AND last_mutation_key <> ?8`
+          )
+    const statements = [
+      statement.bind(
+        workspaceId,
+        principalId,
+        identity.itemKind,
+        identity.id,
+        identity.version,
+        expectedRevision,
+        favorite ? 1 : 0,
+        key,
+        now,
+        hash
+      ),
     ]
     const { receipt, writeError } =
       await this.runAndReplay<LibrarySetFavoriteReceipt>({

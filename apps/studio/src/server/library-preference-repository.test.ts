@@ -210,6 +210,7 @@ class FakeStatement {
       if (
         current &&
         expected > 0 &&
+        /^\s*\/\* library:set-favorite \*\/\s*UPDATE\b/.test(this.query) &&
         current.revision === expected &&
         current.last_mutation_key !== key
       ) {
@@ -1278,6 +1279,93 @@ describe("LibraryPreferenceRepository", () => {
     })
     expect(db.preferences[0].revision).toBe(2)
     expect(db.requests).toHaveLength(2)
+  })
+
+  it("updates an existing favorite after Recent without losing use metadata", async () => {
+    const { db, repository } = fixture()
+    const favorited = await repository.setFavorite(
+      "workspace-a",
+      "principal-a",
+      identity,
+      0,
+      true,
+      "favorite-before-recent"
+    )
+    const used = await repository.recordUsed(
+      "workspace-a",
+      "principal-a",
+      identity,
+      "create",
+      "document-created-after-favorite",
+      "recent-after-favorite"
+    )
+    const unfavorited = await repository.setFavorite(
+      "workspace-a",
+      "principal-a",
+      identity,
+      2,
+      false,
+      "unfavorite-after-recent"
+    )
+    const replay = await repository.setFavorite(
+      "workspace-a",
+      "principal-a",
+      identity,
+      2,
+      false,
+      "unfavorite-after-recent"
+    )
+
+    expect(favorited.preference).toMatchObject({
+      favorite: true,
+      lastUsedAt: null,
+      revision: 1,
+    })
+    expect(used.preference).toMatchObject({
+      favorite: true,
+      revision: 2,
+    })
+    expect(unfavorited).toEqual(replay)
+    expect(unfavorited.preference).toMatchObject({
+      favorite: false,
+      lastUsedAt: used.preference.lastUsedAt,
+      revision: 3,
+    })
+    expect(db.preferences[0]).toMatchObject({
+      favorite: 0,
+      last_used_at: used.preference.lastUsedAt,
+      revision: 3,
+      last_mutation_key: "unfavorite-after-recent",
+      last_mutation_operation: "set_favorite",
+    })
+    expect(db.requests).toHaveLength(3)
+
+    await expect(
+      repository.setFavorite(
+        "workspace-a",
+        "principal-a",
+        identity,
+        2,
+        true,
+        "stale-favorite-after-recent"
+      )
+    ).rejects.toMatchObject({
+      code: "library_preference_revision_mismatch",
+      status: 412,
+    })
+    await expect(
+      repository.setFavorite(
+        "workspace-a",
+        "principal-a",
+        otherIdentity,
+        1,
+        false,
+        "missing-favorite-update"
+      )
+    ).rejects.toMatchObject({
+      code: "library_preference_revision_mismatch",
+      status: 412,
+    })
   })
 
   it("supports collection CRUD, ordered membership and exact revision checks", async () => {
