@@ -216,9 +216,8 @@ Verification for the committed implementation:
 
 This is not an independent acceptance. C2 remains marked implemented, reviewed
 locally, committed, not merged, and independently unaccepted until a separate
-reviewer verifies the commit. C3 renderer support has not started in this
-branch. Fabric, React, and deterministic HTML still reject or lack nested
-consumption; Inspector, Studio, and WebMCP still need C4 argument and capability
+reviewer verifies the commit. At this checkpoint C3 renderer support had not
+started. Inspector, Studio, and WebMCP still need C4 argument and capability
 wiring; no retained or public output evidence is claimed.
 
 ### C3 — Fabric, React, and deterministic HTML
@@ -230,6 +229,40 @@ wiring; no retained or public output evidence is claimed.
 
 Exit: the three renderers agree on structure, bounds, ordering, readiness, and
 failure attribution.
+
+Checkpoint `1245f4fb616ee5a816d39f356b27d8663cfbee9a` closes the C3
+implementation on branch `codex/asset02-general-masks`. Fabric now constructs a
+complete candidate tree bottom-up, hands each completed child composite to its
+parent in canonical page geometry, preflights every image and luminance resource
+in the mask subtree before replacing mounted pixels, preserves the prior scene
+on descendant failure or stale work, flattens all-hidden child relations, and
+disposes each superseded retained object once through Fabric's recursive group
+ownership.
+
+React now consumes recursive paint-plan entries and holds the complete outer
+subtree behind one image, font, and luminance readiness transaction. A failed or
+stale descendant retains the committed outer model and reports the exact node
+and failure class. Deterministic HTML retains recursive canonical ordering,
+unique group-derived mask and filter IDs, correct nested translation, and one
+document-wide readiness scan that now includes fonts used by ordinary nested
+text content. The renderer Worker admits a valid nested tree and rejects a
+third mask level before browser allocation or capture.
+
+Verification for the committed implementation:
+
+- complete editor suite: 375/375 tests passed;
+- complete React render-view suite: 34/34 tests passed;
+- complete renderer suite: 101/101 tests passed;
+- focused document projection and validation suites: 54/54 tests passed;
+- document, editor, render-view, and renderer typechecks passed;
+- changed files passed Prettier and `git diff --check`; and
+- in-thread code review found and corrected Fabric's nested group recentering
+  and recursive-disposal ownership before the checkpoint was committed.
+
+This is not an independent acceptance. C3 is implemented, locally reviewed,
+committed, not merged, and independently unaccepted. C4 product surfaces and C5
+retained/public output evidence remain open; no pixel or public-output
+acceptance is claimed by this checkpoint.
 
 ### C4 — inspector, Studio, history surfaces, and WebMCP
 
@@ -253,13 +286,13 @@ Only then may M4C acceptance change.
 
 ## Exact gate ledger
 
-| Gate  | Implementation                                                                                    | Review and evidence                                                                                     | Accepted                 | Merged |
-| ----- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------ | ------ |
-| C0/C1 | `5381410` document implementation; recorded on main at `6265561ab4c9aa70c7489c2a90b3dcac6c1179d3` | Existing independent document-plan acceptance                                                           | Yes, document scope only | Yes    |
-| C2    | `fe5cc475eb7704a7665a2958d96f3a556be2f9d2`                                                        | 123 focused, 416 document, and 371 editor tests; local code review complete; independent review pending | No                       | No     |
-| C3    | Not started                                                                                       | No renderer nesting evidence                                                                            | No                       | No     |
-| C4    | Not started                                                                                       | No product-surface nesting evidence                                                                     | No                       | No     |
-| C5    | Not started                                                                                       | No retained or public nesting evidence                                                                  | No                       | No     |
+| Gate  | Implementation                                                                                    | Review and evidence                                                                                               | Accepted                 | Merged |
+| ----- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------ | ------ |
+| C0/C1 | `5381410` document implementation; recorded on main at `6265561ab4c9aa70c7489c2a90b3dcac6c1179d3` | Existing independent document-plan acceptance                                                                     | Yes, document scope only | Yes    |
+| C2    | `fe5cc475eb7704a7665a2958d96f3a556be2f9d2`                                                        | 123 focused, 416 document, and 371 editor tests; local code review complete; independent review pending           | No                       | No     |
+| C3    | `1245f4fb616ee5a816d39f356b27d8663cfbee9a`                                                        | 375 editor, 34 React, 101 renderer, and 54 document tests; local code review complete; independent review pending | No                       | No     |
+| C4    | Not started                                                                                       | No product-surface nesting evidence                                                                               | No                       | No     |
+| C5    | Not started                                                                                       | No retained or public nesting evidence                                                                            | No                       | No     |
 
 ## Required focused tests
 

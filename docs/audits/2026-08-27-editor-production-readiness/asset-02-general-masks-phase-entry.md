@@ -500,12 +500,14 @@ and only then change this gate to accepted.
   [`asset-02-m4c-nesting-plan.md`](./asset-02-m4c-nesting-plan.md).
 
 M4C C2 structural implementation is committed at
-`fe5cc475eb7704a7665a2958d96f3a556be2f9d2`. Commands, history, semantic clone,
-components, and templates now preserve the admitted two-level relation. The
-checkpoint is locally reviewed and verified but not independently accepted or
-merged. C3 renderers, C4 product surfaces, C5 retained/public evidence, and the
-overall M4C acceptance remain open. The exact status and test ledger live in the
-bounded nesting plan linked above.
+`fe5cc475eb7704a7665a2958d96f3a556be2f9d2`; C3 renderer implementation is
+committed at `1245f4fb616ee5a816d39f356b27d8663cfbee9a`. Commands, history,
+semantic clone, components, templates, Fabric, React, deterministic HTML, and
+the renderer admission boundary now preserve or consume the admitted two-level
+relation. Both checkpoints are locally reviewed and verified but not
+independently accepted or merged. C4 product surfaces, C5 retained/public
+evidence, and overall M4C acceptance remain open. The exact status and test
+ledger live in the bounded nesting plan linked above.
 
 Exit: nested and multi-source cases have strict limits, exact undo, deterministic cloning, and pixel conformance.
 
