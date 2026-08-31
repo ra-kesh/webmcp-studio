@@ -202,9 +202,30 @@ describe("canonical product command proposals", () => {
         arguments: {
           kind: "mask-create",
           sourceNodeIds: ["cover-mask-alternate", "cover-panel"],
+          parentGroupId: null,
         },
       },
-      { ...runtime, mask }
+      {
+        ...runtime,
+        mask,
+        editor: {
+          ...runtime.editor,
+          mask: {
+            canCreate: mask.create.enabled,
+            createDisabledReason: mask.create.disabledReason,
+            canRelease: mask.release.enabled,
+            releaseDisabledReason: mask.release.disabledReason,
+            canSetVector: mask.setVector.enabled,
+            vectorDisabledReason: mask.setVector.disabledReason,
+            canSetAlpha: mask.setAlpha.enabled,
+            alphaDisabledReason: mask.setAlpha.disabledReason,
+            canSetLuminance: mask.setLuminance.enabled,
+            luminanceDisabledReason: mask.setLuminance.disabledReason,
+            canSetSources: mask.setSources.enabled,
+            sourcesDisabledReason: mask.setSources.disabledReason,
+          },
+        },
+      }
     )
 
     const proposal = createProductCommandProposal(
@@ -236,6 +257,111 @@ describe("canonical product command proposals", () => {
     )
     expect(proposal.changeSet.operations[0]?.summary).toBe(
       "Create a vector mask from 2 ordered sources across 3 layers"
+    )
+  })
+
+  it("carries the exact parent mask through a nested create proposal", () => {
+    const document = structuredClone(northstarSeed)
+    const page = document.pages.find((candidate) => candidate.id === "cover")!
+    const panel = document.nodes.find((node) => node.id === "cover-panel")!
+    const childSource = {
+      ...structuredClone(panel),
+      id: "nested-proposal-source",
+      name: "Nested proposal source",
+    }
+    const childContent = {
+      ...structuredClone(panel),
+      id: "nested-proposal-content",
+      name: "Nested proposal content",
+    }
+    document.nodes.push(childSource, childContent)
+    page.nodeIds = [
+      panel.id,
+      childSource.id,
+      childContent.id,
+      ...page.nodeIds.filter((nodeId) => nodeId !== panel.id),
+    ]
+    document.groups = [
+      {
+        id: "proposal-outer-mask",
+        pageId: page.id,
+        name: "Proposal outer mask",
+        role: "mask",
+        nodeIds: [panel.id, childSource.id, childContent.id],
+        mask: { type: "vector", sourceNodeIds: [panel.id] },
+      },
+    ]
+    const nodeIds = [childSource.id, childContent.id]
+    const runtime = context(document, nodeIds, {
+      groupId: "proposal-outer-mask",
+    })
+    const mask = deriveInspectorMaskCapabilities({
+      document,
+      pageId: page.id,
+      selectedNodeIds: nodeIds,
+    })
+    const invocation = resolveProductCommand(
+      {
+        commandId: "mask.create",
+        target: {
+          kind: "selection",
+          documentId: document.id,
+          snapshotId: runtime.snapshotId,
+          displayName: "Selected nested layers",
+          pageId: page.id,
+          nodeIds,
+          groupId: "proposal-outer-mask",
+        },
+        arguments: {
+          kind: "mask-create",
+          sourceNodeIds: [childSource.id],
+          parentGroupId: "proposal-outer-mask",
+        },
+      },
+      {
+        ...runtime,
+        mask,
+        editor: {
+          ...runtime.editor,
+          mask: {
+            canCreate: mask.create.enabled,
+            createDisabledReason: mask.create.disabledReason,
+            canRelease: mask.release.enabled,
+            releaseDisabledReason: mask.release.disabledReason,
+            canSetVector: mask.setVector.enabled,
+            vectorDisabledReason: mask.setVector.disabledReason,
+            canSetAlpha: mask.setAlpha.enabled,
+            alphaDisabledReason: mask.setAlpha.disabledReason,
+            canSetLuminance: mask.setLuminance.enabled,
+            luminanceDisabledReason: mask.setLuminance.disabledReason,
+            canSetSources: mask.setSources.enabled,
+            sourcesDisabledReason: mask.setSources.disabledReason,
+          },
+        },
+      }
+    )
+
+    expect(invocation.enabled).toBe(true)
+    const proposal = createProductCommandProposal(
+      document,
+      invocation,
+      identity()
+    )
+    expect(proposal.changeSet.operations[0]?.command).toMatchObject({
+      type: "create_mask_group",
+      parentGroupId: "proposal-outer-mask",
+      nodeIds,
+      sourceNodeIds: [childSource.id],
+    })
+    expect(
+      previewChangeSet(document, proposal.changeSet, "snapshot-proposal").groups
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          parentGroupId: "proposal-outer-mask",
+          nodeIds,
+        }),
+      ])
     )
   })
 

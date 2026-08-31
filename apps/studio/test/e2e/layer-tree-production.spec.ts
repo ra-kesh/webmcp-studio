@@ -89,7 +89,12 @@ async function readPersistedDocument(page: Page) {
           document?: {
             revision: number
             nodes: Array<{ id: string }>
-            groups: Array<{ id: string; nodeIds: string[] }>
+            groups: Array<{
+              id: string
+              name: string
+              nodeIds: string[]
+              parentGroupId?: string
+            }>
           }
         }
       | undefined
@@ -114,9 +119,13 @@ async function waitForSaved(page: Page) {
     .toBe(expectedRevision)
 }
 
-async function seedLayerFixture(page: Page, bulkCount = 0) {
+async function seedLayerFixture(
+  page: Page,
+  bulkCount = 0,
+  mode: "organize" | "mask" = "organize"
+) {
   const fixture = await page.evaluate(
-    async ({ bulkLayerCount }) => {
+    async ({ bulkLayerCount, fixtureMode }) => {
       const match = location.pathname.match(/^\/documents\/([^/]+)$/)
       const documentId = match?.[1] ? decodeURIComponent(match[1]) : null
       if (!documentId) throw new Error("The editor is not on a document route")
@@ -142,6 +151,10 @@ async function seedLayerFixture(page: Page, bulkCount = 0) {
                 name: string
                 nodeIds: string[]
                 parentGroupId?: string
+                mask?: {
+                  type: "vector" | "alpha" | "luminance"
+                  sourceNodeIds: string[]
+                }
               }>
             }
           }
@@ -172,6 +185,10 @@ async function seedLayerFixture(page: Page, bulkCount = 0) {
           name: string
           nodeIds: string[]
           parentGroupId?: string
+          mask?: {
+            type: "vector" | "alpha" | "luminance"
+            sourceNodeIds: string[]
+          }
         }>
       }
       const firstPage = document.pages.at(0)
@@ -233,22 +250,33 @@ async function seedLayerFixture(page: Page, bulkCount = 0) {
         ...bulkNodes.map((node) => node.id)
       )
       document.groups.push(
-        {
-          id: ids.outerGroupId,
-          role: "organize",
-          pageId: firstPage.id,
-          name: "Outer group",
-          nodeIds: [ids.alphaId, ids.betaId],
-        },
-        {
+        fixtureMode === "mask"
+          ? {
+              id: ids.outerGroupId,
+              role: "mask",
+              pageId: firstPage.id,
+              name: "Outer mask",
+              nodeIds: [ids.alphaId, ids.betaId, ids.gammaId],
+              mask: { type: "vector", sourceNodeIds: [ids.alphaId] },
+            }
+          : {
+              id: ids.outerGroupId,
+              role: "organize",
+              pageId: firstPage.id,
+              name: "Outer group",
+              nodeIds: [ids.alphaId, ids.betaId],
+            }
+      )
+      if (fixtureMode === "organize") {
+        document.groups.push({
           id: ids.innerGroupId,
           role: "organize",
           pageId: firstPage.id,
           name: "Inner group",
           nodeIds: [ids.gammaId],
           parentGroupId: ids.outerGroupId,
-        }
-      )
+        })
+      }
       if (bulkNodes.length) {
         document.groups.push({
           id: "e2e-bulk-group",
@@ -261,7 +289,7 @@ async function seedLayerFixture(page: Page, bulkCount = 0) {
 
       return { ids, serialized: JSON.stringify(document) }
     },
-    { bulkLayerCount: bulkCount }
+    { bulkLayerCount: bulkCount, fixtureMode: mode }
   )
 
   await page
@@ -450,6 +478,64 @@ test("the hierarchy exposes ARIA state, keeps tree focus isolated, and searches 
   await expect(
     page.getByRole("status").filter({ hasText: /^\d+ layers$/ })
   ).toBeVisible()
+})
+
+test("the mask shortcut creates one nested history step and preserves Layers focus", async ({
+  page,
+}) => {
+  const ids = await seedLayerFixture(page, 0, "mask")
+  const tree = await openDesktopLayerTree(page)
+  const outer = tree.getByRole("treeitem", {
+    name: /Outer mask.*vector mask group/,
+  })
+  await outer.getByRole("button", { name: "Expand Outer mask" }).click()
+  const beta = tree.getByRole("treeitem", { name: /Beta label/ })
+  const gamma = tree.getByRole("treeitem", { name: /Gamma mark/ })
+  await beta.getByRole("button", { name: "Unlock Beta label" }).click()
+  await beta.click()
+  await gamma.click({ modifiers: ["ControlOrMeta"] })
+  expect((await inspectDesign(page)).selection?.nodeIds.sort()).toEqual(
+    [ids.betaId, ids.gammaId].sort()
+  )
+  const before = await inspectDesign(page)
+
+  await page.keyboard.press("ControlOrMeta+Alt+KeyM")
+
+  await expect
+    .poll(async () =>
+      (await readPersistedDocument(page)).groups.find(
+        (group) => group.parentGroupId === ids.outerGroupId
+      )
+    )
+    .toMatchObject({
+      name: "Mask",
+      nodeIds: [ids.betaId, ids.gammaId],
+      parentGroupId: ids.outerGroupId,
+    })
+  const after = await inspectDesign(page)
+  expect(after.document.revision).toBe(before.document.revision + 1)
+  expect(after.document.operationVersion).toBe(
+    before.document.operationVersion + 1
+  )
+  await expect(tree).toBeFocused()
+  const child = tree.getByRole("treeitem", {
+    name: /Mask.*vector mask group/,
+  })
+  await expect(child).toHaveAttribute("aria-level", "2")
+
+  await page.getByRole("button", { name: "Undo" }).click()
+  await expect
+    .poll(async () =>
+      (await readPersistedDocument(page)).groups.some(
+        (group) => group.parentGroupId === ids.outerGroupId
+      )
+    )
+    .toBe(false)
+  expect(
+    (await readPersistedDocument(page)).groups.find(
+      (group) => group.id === ids.outerGroupId
+    )?.nodeIds
+  ).toEqual([ids.alphaId, ids.betaId, ids.gammaId])
 })
 
 test("rename cancel is inert, rename commit is one history step, and one undo restores it", async ({

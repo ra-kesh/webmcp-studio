@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest"
 import { buildLayerTreeModel } from "@webmcp/editor/layer-tree"
-import type { ProductCommandRuntimeContext } from "@webmcp/editor/product-commands"
+import {
+  buildLayerContextMenu,
+  type ProductCommandRuntimeContext,
+} from "@webmcp/editor/product-commands"
 import { renderConformanceDocument } from "@webmcp/document"
 import { maskRenderConformanceDocument } from "@webmcp/document/internal/mask-render-conformance"
 import {
   createLayerProductCommandContext,
+  createLayerProductCommandTarget,
   layerContextSelectionNodeIds,
 } from "./layer-context-menu"
 
@@ -87,6 +91,70 @@ describe("layer mask command context", () => {
     expect(context.mask?.setSources).toEqual({
       enabled: true,
       disabledReason: null,
+    })
+  })
+
+  it("carries the exact parent mask from a nested Layers selection", () => {
+    const document = structuredClone(maskRenderConformanceDocument)
+    const outer = document.groups.find(
+      (group) => group.id === "mask-conformance-group"
+    )!
+    const originalContent = document.nodes.find(
+      (node) => node.id === "mask-conformance-content"
+    )!
+    const secondContent = {
+      ...structuredClone(originalContent),
+      id: "mask-conformance-content-two",
+      name: "Second masked content",
+    }
+    document.nodes.push(secondContent)
+    document.pages[0]!.nodeIds.splice(
+      document.pages[0]!.nodeIds.indexOf(originalContent.id) + 1,
+      0,
+      secondContent.id
+    )
+    outer.nodeIds.push(secondContent.id)
+    const nestedSelection = {
+      pageId: page.id,
+      nodeIds: [originalContent.id, secondContent.id],
+    }
+    const nestedModel = buildLayerTreeModel(document, page.id)
+    const nestedContent = nestedModel.byKey.get(`node:${originalContent.id}`)!
+    const context = createLayerProductCommandContext(
+      {
+        ...base,
+        nodeIds: document.nodes.map((node) => node.id),
+        groupIds: document.groups.map((group) => group.id),
+      },
+      document,
+      nestedContent,
+      nestedSelection
+    )
+    const menu = buildLayerContextMenu(
+      context,
+      createLayerProductCommandTarget(context, nestedContent)
+    )
+    const create = menu
+      .flatMap((group) => group.items)
+      .find(
+        (item) =>
+          item.type === "command" &&
+          item.command.invocation.commandId === "mask.create"
+      )
+
+    expect(context.mask?.createParentGroupId).toBe(outer.id)
+    expect(create).toMatchObject({
+      type: "command",
+      command: {
+        enabled: true,
+        invocation: {
+          arguments: {
+            kind: "mask-create",
+            sourceNodeIds: [originalContent.id],
+            parentGroupId: outer.id,
+          },
+        },
+      },
     })
   })
 })

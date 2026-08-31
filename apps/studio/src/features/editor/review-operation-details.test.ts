@@ -216,9 +216,25 @@ describe("review operation details", () => {
 
     expect(details).toEqual({
       label: "Portrait mask",
-      context: "vector mask · 1 source · 1 content layer",
+      context: "vector mask · 1 source · 1 content layer · top level",
       before: `Separate layers: ${source.name} · ${content.name}`,
       after: `Mask source: ${source.name}`,
+    })
+
+    const parent = document.groups[0]!
+    if (operation.command.type !== "create_mask_group") {
+      throw new Error("Expected a create mask command")
+    }
+    expect(
+      operationDetails(document, {
+        ...operation,
+        command: { ...operation.command, parentGroupId: parent.id },
+      })
+    ).toEqual({
+      label: "Portrait mask",
+      context: `vector mask · 1 source · 1 content layer · inside ${parent.name}`,
+      before: `Separate layers: ${source.name} · ${content.name}`,
+      after: `Mask source: ${source.name} · Parent: ${parent.name}`,
     })
   })
 
@@ -274,6 +290,15 @@ describe("review operation details", () => {
       context: "Release mask",
       before: `Mask source: ${source.name}`,
       after: "Mask group removed; layers remain on the page",
+    })
+    const parent = document.groups[0]!
+    document.groups.find(
+      (group) => group.id === "review-mask-group"
+    )!.parentGroupId = parent.id
+    expect(operationDetails(document, release)).toMatchObject({
+      label: "Portrait mask",
+      context: `Release nested mask · ${parent.name}`,
+      after: `Mask group removed; layers return to ${parent.name}`,
     })
     expect(operationDetails(document, setSources)).toMatchObject({
       label: "Portrait mask",

@@ -30,6 +30,7 @@ export type MaskCommandCapability = Readonly<{
 
 export type InspectorMaskCapabilities = Readonly<{
   groupId: string | null
+  createParentGroupId: string | null
   type: "vector" | "alpha" | "luminance" | null
   sourceNodeIds: readonly string[]
   eligibleSourceNodeIds: readonly string[]
@@ -101,6 +102,21 @@ function maskComponentOwnership(document: Document) {
   }
 }
 
+function groupSubtreeIds(
+  document: Document,
+  groupId: string,
+  visited = new Set<string>()
+): string[] {
+  if (visited.has(groupId)) return []
+  visited.add(groupId)
+  return [
+    groupId,
+    ...document.groups
+      .filter((candidate) => candidate.parentGroupId === groupId)
+      .flatMap((candidate) => groupSubtreeIds(document, candidate.id, visited)),
+  ]
+}
+
 function maskSourceAdmissionReason(
   document: Document,
   node: SceneNode | undefined,
@@ -156,6 +172,16 @@ export function deriveInspectorMaskCapabilities({
     ? document.groups.find((candidate) => candidate.id === selectedGroupId)
     : undefined
   const maskGroup = group?.role === "mask" ? group : undefined
+  const mutationGroupIds = maskGroup
+    ? groupSubtreeIds(document, maskGroup.id)
+    : []
+  const mutationNodeIds = new Set(
+    mutationGroupIds.flatMap(
+      (groupId) =>
+        document.groups.find((candidate) => candidate.id === groupId)
+          ?.nodeIds ?? []
+    )
+  )
   const componentOwnership = maskComponentOwnership(document)
   const inComponentInstance =
     nodes.some(
@@ -163,21 +189,19 @@ export function deriveInspectorMaskCapabilities({
         componentOwnership.sourceNodeIds.has(node.id) ||
         componentOwnership.instanceNodeIds.has(node.id)
     ) ||
-    Boolean(
-      maskGroup &&
-      (componentOwnership.sourceGroupIds.has(maskGroup.id) ||
-        componentOwnership.instanceGroupIds.has(maskGroup.id))
+    mutationGroupIds.some(
+      (groupId) =>
+        componentOwnership.sourceGroupIds.has(groupId) ||
+        componentOwnership.instanceGroupIds.has(groupId)
+    ) ||
+    [...mutationNodeIds].some(
+      (nodeId) =>
+        componentOwnership.sourceNodeIds.has(nodeId) ||
+        componentOwnership.instanceNodeIds.has(nodeId)
     )
   const anyLocked = nodes.some((node) => node.locked)
   const createSourceNodeIds = orderedSelectedNodeIds.slice(0, 1)
   const source = nodeById.get(createSourceNodeIds[0] ?? "")
-  const nestedMask = document.groups.find(
-    (candidate) =>
-      candidate.role === "mask" &&
-      orderedSelectedNodeIds.some((nodeId) =>
-        candidate.nodeIds.includes(nodeId)
-      )
-  )
   const directParentIds = orderedSelectedNodeIds.map(
     (nodeId) =>
       document.groups.find((candidate) => candidate.nodeIds.includes(nodeId))
@@ -185,6 +209,9 @@ export function deriveInspectorMaskCapabilities({
   )
   const mixedParents = new Set(directParentIds).size > 1
   const nestedParentId = directParentIds[0]
+  const nestedParent = nestedParentId
+    ? document.groups.find((candidate) => candidate.id === nestedParentId)
+    : undefined
   const sourceAdmissionReason = maskSourceAdmissionReason(
     document,
     source,
@@ -203,8 +230,27 @@ export function deriveInspectorMaskCapabilities({
   else if (inComponentInstance) createReason = MASK_COMPONENT_REASON
   else if (mixedParents)
     createReason = "Select top-level layers that share the same parent."
-  else if (nestedParentId || nestedMask)
-    createReason = "Nested mask groups are not available in this version."
+  else if (nestedParentId && nestedParent?.role !== "mask")
+    createReason = "Nested masks can only be created inside a mask group."
+  else if (nestedParent?.role === "mask" && nestedParent.parentGroupId)
+    createReason = "A mask can contain only one nested mask level."
+  else if (
+    nestedParent?.role === "mask" &&
+    orderedSelectedNodeIds.some((nodeId) =>
+      nestedParent.mask.sourceNodeIds.includes(nodeId)
+    )
+  )
+    createReason = "A parent mask source cannot move into its child mask."
+  else if (
+    nestedParent?.role === "mask" &&
+    orderedSelectedNodeIds.some(
+      (nodeId, index) =>
+        index > 0 &&
+        page!.nodeIds.indexOf(nodeId) !==
+          page!.nodeIds.indexOf(orderedSelectedNodeIds[index - 1]!) + 1
+    )
+  )
+    createReason = "Nested mask layers must be contiguous in page order."
   else if (sourceAdmissionReason) createReason = sourceAdmissionReason
   else if (
     orderedSelectedNodeIds.length - createSourceNodeIds.length >
@@ -239,13 +285,26 @@ export function deriveInspectorMaskCapabilities({
         }
       }),
       groups: [
-        ...document.groups,
+        ...document.groups.map((candidateGroup) =>
+          candidateGroup.id === nestedParent?.id &&
+          candidateGroup.role === "mask"
+            ? {
+                ...candidateGroup,
+                nodeIds: candidateGroup.nodeIds.filter(
+                  (nodeId) => !selected.has(nodeId)
+                ),
+              }
+            : candidateGroup
+        ),
         {
           id: preflightGroupId,
           pageId,
           name: "Mask admission preflight",
           role: "mask",
           nodeIds: orderedSelectedNodeIds,
+          ...(nestedParent?.role === "mask"
+            ? { parentGroupId: nestedParent.id }
+            : {}),
           mask: { type: "vector", sourceNodeIds: [createSourceNodeIds[0]!] },
         },
       ],
@@ -294,15 +353,7 @@ export function deriveInspectorMaskCapabilities({
   else if (!maskGroup) groupMutationReason = "Select one mask group first."
   else if (maskGroup.pageId !== pageId)
     groupMutationReason = "Select a mask group on the active page."
-  else if (
-    maskGroup.parentGroupId ||
-    document.groups.some(
-      (candidate) => candidate.parentGroupId === maskGroup.id
-    )
-  )
-    groupMutationReason =
-      "Nested mask groups are not available in this version."
-  else if (groupNodes.some((node) => node.locked))
+  else if ([...mutationNodeIds].some((nodeId) => nodeById.get(nodeId)?.locked))
     groupMutationReason = MASK_LOCKED_REASON
   else if (inComponentInstance) groupMutationReason = MASK_COMPONENT_REASON
 
@@ -369,6 +420,7 @@ export function deriveInspectorMaskCapabilities({
 
   return {
     groupId: maskGroup?.id ?? null,
+    createParentGroupId: nestedParent?.role === "mask" ? nestedParent.id : null,
     type: maskGroup?.mask.type ?? null,
     sourceNodeIds: maskGroup ? [...maskGroup.mask.sourceNodeIds] : [],
     eligibleSourceNodeIds,

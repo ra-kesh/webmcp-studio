@@ -271,6 +271,7 @@ export function createProductCommandProposal(
         string,
         ...string[],
       ]
+      const parentGroupId = invocation.arguments.parentGroupId
       if (
         sourceNodeIds.length < 1 ||
         sourceNodeIds.length > 4 ||
@@ -299,8 +300,9 @@ export function createProductCommandProposal(
           nodeIds: [...selection.nodeIds],
           sourceNodeIds,
           maskType: "vector",
+          ...(parentGroupId ? { parentGroupId } : {}),
         },
-        summary: `Create a vector mask from ${sourceNodeIds.length} ordered source${sourceNodeIds.length === 1 ? "" : "s"} across ${selection.nodeIds.length} layers`,
+        summary: `Create a vector mask from ${sourceNodeIds.length} ordered source${sourceNodeIds.length === 1 ? "" : "s"} across ${selection.nodeIds.length} layers${parentGroupId ? ` inside ${parentGroupId}` : ""}`,
       })
       break
     }

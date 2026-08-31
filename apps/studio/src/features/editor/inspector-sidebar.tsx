@@ -361,7 +361,11 @@ function MaskInspectorSection({
         nodeIds: selection.nodeIds,
         groupId: selection.groupId ?? null,
       },
-      arguments: { kind: "mask-create", sourceNodeIds: [sourceNodeId] },
+      arguments: {
+        kind: "mask-create",
+        sourceNodeIds: [sourceNodeId],
+        parentGroupId: capabilities.createParentGroupId,
+      },
     })
   }
   const groupTarget =

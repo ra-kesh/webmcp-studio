@@ -184,6 +184,13 @@ describe("product command catalog", () => {
       kind: "alignment",
       variants: expect.arrayContaining(["left", "bottom"]),
     })
+    expect(productCommandArgumentContract("mask.create")).toEqual({
+      kind: "mask-create",
+      fields: {
+        sourceNodeIds: { type: "string[]", minItems: 1, maxItems: 4 },
+        parentGroupId: { type: "string|null" },
+      },
+    })
     expect(productCommandArgumentContract("history.undo")).toEqual({
       kind: "none",
     })
@@ -209,6 +216,7 @@ describe("product command runtime", () => {
     }
     const mask = {
       groupId: "group-1",
+      createParentGroupId: "group-1",
       type: "vector" as const,
       sourceNodeIds: ["node-1"],
       eligibleSourceNodeIds: ["node-1", "node-2"],
@@ -248,11 +256,32 @@ describe("product command runtime", () => {
           nodeIds: ["node-1", "node-2"],
           groupId: "group-1",
         }),
-        arguments: { kind: "mask-create", sourceNodeIds: ["node-1"] },
+        arguments: {
+          kind: "mask-create",
+          sourceNodeIds: ["node-1"],
+          parentGroupId: "group-1",
+        },
       },
       runtimeContext
     )
     expect(create.enabled).toBe(true)
+    expect(
+      resolveProductCommand(
+        {
+          commandId: "mask.create",
+          target: selectionTarget({
+            nodeIds: ["node-1", "node-2"],
+            groupId: "group-1",
+          }),
+          arguments: {
+            kind: "mask-create",
+            sourceNodeIds: ["node-1"],
+            parentGroupId: null,
+          },
+        },
+        runtimeContext
+      ).disabledReason
+    ).toBe("The selected layers no longer share that exact mask parent.")
     expect(
       resolveProductCommand(
         {
