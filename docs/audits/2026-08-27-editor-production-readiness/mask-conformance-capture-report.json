@@ -1,0 +1,317 @@
+{
+  "version": 2,
+  "runId": "2026-08-31T10-06-25.744Z-843e8534-8cd3-4f63-8557-6440ece79d6b",
+  "artifactRoot": "artifacts/runs/2026-08-31T10-06-25.744Z-843e8534-8cd3-4f63-8557-6440ece79d6b",
+  "corpus": "mask",
+  "documentId": "mask-render-conformance-v1",
+  "revision": 1,
+  "baseUrl": "http://localhost:3001",
+  "deviceScaleFactor": 1,
+  "browserCaptureRuntime": {
+    "browserVersion": "152.0.7977.64",
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+    "platform": "MacIntel",
+    "hostOperatingSystem": "darwin",
+    "hostArchitecture": "arm64"
+  },
+  "browserCaptureEvidence": {
+    "pageErrorPolicy": "fail_before_surface_ready",
+    "pageErrors": [],
+    "surfaces": [
+      {
+        "pageId": "mask-conformance-page",
+        "surface": "render-view",
+        "state": "ready",
+        "maskState": "visible"
+      },
+      {
+        "pageId": "mask-conformance-page",
+        "surface": "fabric",
+        "state": "ready",
+        "maskState": "visible"
+      },
+      {
+        "pageId": "mask-conformance-page",
+        "surface": "render-view",
+        "state": "ready",
+        "maskState": "hidden-source"
+      },
+      {
+        "pageId": "mask-conformance-page",
+        "surface": "fabric",
+        "state": "ready",
+        "maskState": "hidden-source"
+      }
+    ]
+  },
+  "pageOrder": [
+    "mask-conformance-page"
+  ],
+  "outputs": [
+    {
+      "id": "mask-conformance-output",
+      "pageIds": [
+        "mask-conformance-page"
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "render-view/mask-conformance-page-visible.png",
+      "bytes": 3949,
+      "sha256": "6b5aff59fcb3ad433a40a72cff1b7de1a5f0abd8349e22540225b7cd540b9555",
+      "width": 480,
+      "height": 360
+    },
+    {
+      "path": "render-view/mask-conformance-page-hidden-source.png",
+      "bytes": 3434,
+      "sha256": "52202d8f828f19297087dd966ad6fad731be1298ef6312085378667496ee6eda",
+      "width": 480,
+      "height": 360
+    },
+    {
+      "path": "fabric/mask-conformance-page-visible.png",
+      "bytes": 4065,
+      "sha256": "509fe6ea1fbbba590c138158dd150c40abab22e177ba1d9123e36a9fb7487414",
+      "width": 480,
+      "height": 360
+    },
+    {
+      "path": "fabric/mask-conformance-page-hidden-source.png",
+      "bytes": 3638,
+      "sha256": "0cc395c602026cca0cd67de7de8c9e959951b8eb42ef914bfb7d397c4afcd6b8",
+      "width": 480,
+      "height": 360
+    },
+    {
+      "path": "renderer-png/mask-visible-1x.png",
+      "bytes": 3958,
+      "sha256": "0101d6d364d46d6c39be098483fce0e2b962217a9f5b2529902116c68927e0f4",
+      "width": 480,
+      "height": 360
+    },
+    {
+      "path": "renderer-png/mask-visible-2x.png",
+      "bytes": 8941,
+      "sha256": "58cb856b828051608b7502df343a2892eb62e1db8f5dd87f051a24dc82d6f30e",
+      "width": 960,
+      "height": 720
+    },
+    {
+      "path": "renderer-png/mask-hidden-source-1x.png",
+      "bytes": 3467,
+      "sha256": "52ef48ce06300dd292590e3fc82b450b2e494c259c451b6991bce274652cbf84",
+      "width": 480,
+      "height": 360
+    },
+    {
+      "path": "renderer-png/mask-hidden-source-2x.png",
+      "bytes": 7870,
+      "sha256": "4b1ae5bad6287e4e44a2b63f52c1120f219ea59c6c571e42e8dc9754f21bbbe8",
+      "width": 960,
+      "height": 720
+    },
+    {
+      "path": "renderer-pdf/mask-visible.pdf",
+      "bytes": 3822,
+      "sha256": "4911c987dfddc572caf710058b24a624e65a00a4d9ffd2db7454978f6ca79f0b"
+    },
+    {
+      "path": "renderer-pdf/mask-visible.png",
+      "bytes": 4028,
+      "sha256": "277290c891ff2485aa892201c1cd4325e8eb5a29001eaf9f0cdee87a223c465a",
+      "width": 480,
+      "height": 360
+    },
+    {
+      "path": "renderer-pdf/mask-hidden-source.pdf",
+      "bytes": 1629,
+      "sha256": "051e9fff85fe55b51b164ad7ed9ecb472918444c01b01c3c1f67f11b5b7d6548"
+    },
+    {
+      "path": "renderer-pdf/mask-hidden-source.png",
+      "bytes": 4457,
+      "sha256": "bb6897c80c83ff699c89a6ed737345d63574f11e13c7bb95bacf187289463519",
+      "width": 480,
+      "height": 360
+    },
+    {
+      "path": "renderer-endpoint-smoke/ordinary-carrier.png",
+      "bytes": 5216,
+      "sha256": "d772b6bf3ce3ad2b0a5e4c0c34c2b403c940b4ccbf009e7af024b8da425d58f2",
+      "width": 480,
+      "height": 360
+    },
+    {
+      "path": "renderer-endpoint-smoke/ordinary-carrier.pdf",
+      "bytes": 2290,
+      "sha256": "24cd9770814a1ecc7be6a7e46414578ca5ca545e45961d4dd4b0dcadd41fab6a"
+    },
+    {
+      "path": "renderer-endpoint-smoke/ordinary-carrier-raster.png",
+      "bytes": 6104,
+      "sha256": "b774bac299dd3ef25ee2c2586ecc25340957b604cfd21d925454b6dd9805d0db",
+      "width": 480,
+      "height": 360
+    }
+  ],
+  "maskEvidence": {
+    "directHtml": {
+      "states": [
+        "visible",
+        "hidden-source"
+      ],
+      "deviceScaleFactors": [
+        1,
+        2
+      ],
+      "pngPathPattern": "renderer-png/mask-{state}-{scale}x.png",
+      "pdfPathPattern": "renderer-pdf/mask-{state}.pdf",
+      "pdfRasterPathPattern": "renderer-pdf/mask-{state}.png"
+    },
+    "pngPdfRasterComparisons": [
+      {
+        "baseline": "renderer-png/mask-visible-1x.png",
+        "candidate": "renderer-pdf/mask-visible.png",
+        "comparedChannels": 691200,
+        "comparedPixels": 172800,
+        "changedChannels": 1421,
+        "pixelsAboveChannelDifference": 173,
+        "maxChannelDifference": 26,
+        "meanAbsoluteDifference": 0.009716435185185186,
+        "threshold": {
+          "channelDifference": 8,
+          "maxPixelsAboveChannelDifference": 250,
+          "maxMeanChannelDifference": 0.16,
+          "maxChannelDifference": 32
+        }
+      },
+      {
+        "baseline": "renderer-png/mask-hidden-source-1x.png",
+        "candidate": "renderer-pdf/mask-hidden-source.png",
+        "comparedChannels": 691200,
+        "comparedPixels": 172800,
+        "changedChannels": 98042,
+        "pixelsAboveChannelDifference": 42,
+        "maxChannelDifference": 13,
+        "meanAbsoluteDifference": 0.14564236111111112,
+        "threshold": {
+          "channelDifference": 8,
+          "maxPixelsAboveChannelDifference": 250,
+          "maxMeanChannelDifference": 0.16,
+          "maxChannelDifference": 32
+        }
+      }
+    ],
+    "browserSurfaceComparisons": [
+      {
+        "baseline": "render-view/mask-conformance-page-visible.png",
+        "candidate": "fabric/mask-conformance-page-visible.png",
+        "comparedChannels": 691200,
+        "comparedPixels": 172800,
+        "changedChannels": 1244,
+        "pixelsAboveChannelDifference": 0,
+        "maxChannelDifference": 3,
+        "meanAbsoluteDifference": 0.0020124421296296297,
+        "threshold": {
+          "channelDifference": 8,
+          "maxPixelsAboveChannelDifference": 51,
+          "maxMeanChannelDifference": 0.046,
+          "maxChannelDifference": 23
+        }
+      },
+      {
+        "baseline": "render-view/mask-conformance-page-hidden-source.png",
+        "candidate": "fabric/mask-conformance-page-hidden-source.png",
+        "comparedChannels": 691200,
+        "comparedPixels": 172800,
+        "changedChannels": 560,
+        "pixelsAboveChannelDifference": 3,
+        "maxChannelDifference": 48,
+        "meanAbsoluteDifference": 0.0010561342592592593,
+        "threshold": {
+          "channelDifference": 8,
+          "maxPixelsAboveChannelDifference": 765,
+          "maxMeanChannelDifference": 0.171,
+          "maxChannelDifference": 48
+        }
+      }
+    ],
+    "directHtmlBrowserRenderViewComparisons": [
+      {
+        "baseline": "renderer-png/mask-visible-1x.png",
+        "candidate": "render-view/mask-conformance-page-visible.png",
+        "comparedChannels": 691200,
+        "comparedPixels": 172800,
+        "changedChannels": 1119,
+        "pixelsAboveChannelDifference": 0,
+        "maxChannelDifference": 4,
+        "meanAbsoluteDifference": 0.002220775462962963,
+        "threshold": {
+          "channelDifference": 8,
+          "maxPixelsAboveChannelDifference": 51,
+          "maxMeanChannelDifference": 0.046,
+          "maxChannelDifference": 23
+        }
+      },
+      {
+        "baseline": "renderer-png/mask-hidden-source-1x.png",
+        "candidate": "render-view/mask-conformance-page-hidden-source.png",
+        "comparedChannels": 691200,
+        "comparedPixels": 172800,
+        "changedChannels": 1233,
+        "pixelsAboveChannelDifference": 0,
+        "maxChannelDifference": 3,
+        "meanAbsoluteDifference": 0.002505787037037037,
+        "threshold": {
+          "channelDifference": 8,
+          "maxPixelsAboveChannelDifference": 51,
+          "maxMeanChannelDifference": 0.046,
+          "maxChannelDifference": 23
+        }
+      }
+    ],
+    "oneToTwoXComparisons": [
+      {
+        "baseline": "renderer-png/mask-visible-1x.png",
+        "candidate": "renderer-png/mask-visible-2x.png downsampled to CSS pixels",
+        "comparedChannels": 691200,
+        "comparedPixels": 172800,
+        "changedChannels": 10835,
+        "pixelsAboveChannelDifference": 669,
+        "maxChannelDifference": 24,
+        "meanAbsoluteDifference": 0.05003327546296296,
+        "threshold": {
+          "channelDifference": 8,
+          "maxPixelsAboveChannelDifference": 1100,
+          "maxMeanChannelDifference": 0.08,
+          "maxChannelDifference": 32
+        }
+      },
+      {
+        "baseline": "renderer-png/mask-hidden-source-1x.png",
+        "candidate": "renderer-png/mask-hidden-source-2x.png downsampled to CSS pixels",
+        "comparedChannels": 691200,
+        "comparedPixels": 172800,
+        "changedChannels": 14432,
+        "pixelsAboveChannelDifference": 986,
+        "maxChannelDifference": 24,
+        "meanAbsoluteDifference": 0.07266927083333333,
+        "threshold": {
+          "channelDifference": 8,
+          "maxPixelsAboveChannelDifference": 1100,
+          "maxMeanChannelDifference": 0.08,
+          "maxChannelDifference": 32
+        }
+      }
+    ],
+    "ordinaryEndpointSmoke": {
+      "exercised": true,
+      "png": "renderer-endpoint-smoke/ordinary-carrier.png",
+      "pdf": "renderer-endpoint-smoke/ordinary-carrier.pdf",
+      "pdfRaster": "renderer-endpoint-smoke/ordinary-carrier-raster.png",
+      "scope": "Schema-v4 carrier only; this validates ordinary Worker endpoints and is not evidence that the Worker renders the direct mask HTML."
+    }
+  }
+}

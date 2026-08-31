@@ -1,7 +1,7 @@
 # ASSET-02 general masks phase entry
 
 Date: 2026-08-31
-Status: accepted phase contract; Gate M0 implementation next
+Status: Gate M0 accepted; Gate M1 implementation next
 Scope: local, non-destructive masks and clipping
 Out of scope: background-removal services and generated replacement assets
 
@@ -616,8 +616,39 @@ Evidence:
 - document package typecheck: passed
 - formatting and diff checks: passed
 
-Still required for the M0 exit:
+Required for the M0 exit and satisfied by checkpoint B:
 
 - translate the retained rectangle/vector oracle through Fabric, React, and renderer HTML
 - prove the shared HTML structure through one PNG and one PDF endpoint smoke
 - retain one serialized browser comparison for the Fabric and React result
+
+## Gate M0 checkpoint B — cross-renderer feasibility accepted
+
+Accepted on 2026-08-31. Gate M0 is complete.
+
+Implemented:
+
+- Fabric renders the bounded mask group as one object-cached composite whose final child uses `destination-in`; source opacity participates in mask alpha and the source is not painted independently.
+- React render view uses a bounded presentational SVG alpha mask while preserving accessibility from rendered content inside `foreignObject`.
+- deterministic renderer HTML applies the mask to the bounds-local wrapper and translates content into that coordinate space.
+- visible-source and hidden-source fallthrough states are retained for both React and Fabric in the browser harness.
+- the direct renderer HTML is retained as 1x and 2x PNG plus PDF and PDF raster for both states.
+- the capture job fails when Fabric and React, direct HTML and React, PNG and PDF raster, or downsampled 2x and 1x output exceed explicit pixel thresholds.
+- one ordinary schema-v4 document exercises the real Worker PNG and PDF endpoints in the same run; this is transport/readiness evidence, not mask-semantic evidence.
+
+The accepted endpoint wording is clarified here rather than introducing a private raw-HTML renderer ingress. Gate M0 intentionally predates schema version 5, so the production Worker request contract cannot carry a mask relation yet. Exact mask semantics are proved through the same deterministic HTML helper and real Chromium PNG/PDF boundaries used by the renderer. Gate M2 must additionally pass the canonical schema-v5 mask document through the public Worker PNG and PDF endpoints before vector masks are considered end to end.
+
+Retained evidence:
+
+- report: `mask-conformance-capture-report.json`
+- artifact run: `artifacts/runs/2026-08-31T10-06-25.744Z-843e8534-8cd3-4f63-8557-6440ece79d6b`
+- 148 focused tests: 14 document paint-plan, 18 React conformance, 28 deterministic HTML, and 88 Fabric adapter
+- document, render-view, renderer, editor, and Studio typechecks passed
+- retained browser run emitted no page errors
+- visible Fabric versus React: 0 pixels above channel delta 8, mean channel delta 0.0021, maximum 3
+- hidden-source Fabric versus React: 3 pixels above channel delta 8, mean channel delta 0.0011, maximum 48 at an antialiased edge
+- direct HTML versus React: 0 pixels above channel delta 8 in both states
+- 1x versus downsampled 2x: 669 affected pixels for visible and 986 for hidden-source, both below the 1,100-pixel gate with maximum channel delta 24
+- PNG versus PDF raster: 173 affected pixels for visible and 42 for hidden-source, both below the 250-pixel gate
+
+The first production slice remains unchanged: one visible unstroked rectangle vector source, one or more content nodes, no nested mask group, the accepted resource limits, and unmasked fallthrough when no source is visible. Schema, persistence, commands, and user-facing controls begin in Gate M1 and Gate M2.

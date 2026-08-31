@@ -231,6 +231,15 @@ describe("shared page paint plan mask oracle", () => {
     ).toThrowError(
       expect.objectContaining({ code: "MASK_GROUP_UNSUPPORTED_SOURCE" })
     )
+
+    const strokedSourceNodes = nodes.map((node) =>
+      node.id === "source" ? { ...node, strokeWidth: 2 } : node
+    )
+    expect(() =>
+      projectPagePaintPlan(page, strokedSourceNodes, [relation])
+    ).toThrowError(
+      expect.objectContaining({ code: "MASK_GROUP_UNSUPPORTED_SOURCE" })
+    )
   })
 
   it("rejects an over-budget device-pixel composite", () => {

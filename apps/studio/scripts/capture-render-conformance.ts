@@ -13,7 +13,7 @@ import {
 import { createRequire } from "node:module"
 import { basename, dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { chromium } from "@playwright/test"
+import { chromium, type Page as PlaywrightPage } from "@playwright/test"
 import { DOMMatrix, ImageData, Path2D, createCanvas } from "@napi-rs/canvas"
 import {
   buildComponentPublicationJourney,
@@ -23,8 +23,19 @@ import {
   renderConformanceDocument,
   textDesignSystemConformanceDocument,
   type Document,
+  type SceneNode,
 } from "@webmcp/document"
+import {
+  maskRenderConformanceHiddenSourceNodes,
+  maskRenderConformanceHiddenSourcePlan,
+  maskRenderConformanceDocument,
+  maskRenderConformanceNodes,
+  maskRenderConformancePage,
+  maskRenderConformancePlan,
+} from "@webmcp/document/internal/mask-render-conformance"
+import type { PagePaintPlanEntry } from "@webmcp/document/internal/page-paint-plan"
 import sharp from "sharp"
+import { renderPagePaintPlanEntryToHtml } from "../../renderer/src/html"
 
 const repositoryRoot = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -39,29 +50,32 @@ const artifactRunsRoot = join(artifactRoot, "runs")
 const conformanceCorpus =
   process.env.CONFORMANCE_CORPUS === "resources" ||
   process.env.CONFORMANCE_CORPUS === "components" ||
-  process.env.CONFORMANCE_CORPUS === "component-journey"
+  process.env.CONFORMANCE_CORPUS === "component-journey" ||
+  process.env.CONFORMANCE_CORPUS === "mask"
     ? process.env.CONFORMANCE_CORPUS
     : "golden"
 const captureDocument =
-  conformanceCorpus === "resources"
-    ? createTemplateVersion(textDesignSystemConformanceDocument, {
-        id: "text-design-system-conformance-v1",
-        templateId: "text-design-system-conformance",
-        version: 1,
-        sourceSnapshotId: `sha256-${"b".repeat(64)}`,
-        publishedAt: "2026-08-30T16:00:00.000Z",
-      }).document
-    : conformanceCorpus === "components"
-      ? createTemplateVersion(componentRenderConformanceDocument, {
-          id: "component-render-conformance-v1",
-          templateId: "component-render-conformance",
+  conformanceCorpus === "mask"
+    ? maskRenderConformanceDocument
+    : conformanceCorpus === "resources"
+      ? createTemplateVersion(textDesignSystemConformanceDocument, {
+          id: "text-design-system-conformance-v1",
+          templateId: "text-design-system-conformance",
           version: 1,
-          sourceSnapshotId: `sha256-${"c".repeat(64)}`,
-          publishedAt: "2026-08-30T16:05:00.000Z",
+          sourceSnapshotId: `sha256-${"b".repeat(64)}`,
+          publishedAt: "2026-08-30T16:00:00.000Z",
         }).document
-      : conformanceCorpus === "component-journey"
-        ? buildComponentPublicationJourney().published.document
-        : renderConformanceDocument
+      : conformanceCorpus === "components"
+        ? createTemplateVersion(componentRenderConformanceDocument, {
+            id: "component-render-conformance-v1",
+            templateId: "component-render-conformance",
+            version: 1,
+            sourceSnapshotId: `sha256-${"c".repeat(64)}`,
+            publishedAt: "2026-08-30T16:05:00.000Z",
+          }).document
+        : conformanceCorpus === "component-journey"
+          ? buildComponentPublicationJourney().published.document
+          : renderConformanceDocument
 const baseUrl = (
   process.env.CONFORMANCE_BASE_URL ?? "http://localhost:3001"
 ).replace(/\/$/, "")
@@ -81,7 +95,44 @@ const retainedDirectories = [
   "fabric",
   "renderer-png",
   "renderer-pdf",
+  "renderer-endpoint-smoke",
 ] as const
+const maskCaptureStates = [
+  {
+    name: "visible",
+    nodes: maskRenderConformanceNodes,
+    plan: maskRenderConformancePlan,
+  },
+  {
+    name: "hidden-source",
+    nodes: maskRenderConformanceHiddenSourceNodes,
+    plan: maskRenderConformanceHiddenSourcePlan,
+  },
+] as const
+const visibleMaskBrowserSurfaceThreshold = Object.freeze({
+  channelDifference: 8,
+  maxPixelsAboveChannelDifference: 51,
+  maxMeanChannelDifference: 0.046,
+  maxChannelDifference: 23,
+})
+const hiddenMaskBrowserSurfaceThreshold = Object.freeze({
+  channelDifference: 8,
+  maxPixelsAboveChannelDifference: 765,
+  maxMeanChannelDifference: 0.171,
+  maxChannelDifference: 48,
+})
+const directMaskPdfRasterThreshold = Object.freeze({
+  channelDifference: 8,
+  maxPixelsAboveChannelDifference: 250,
+  maxMeanChannelDifference: 0.16,
+  maxChannelDifference: 32,
+})
+const directMaskTwoXThreshold = Object.freeze({
+  channelDifference: 8,
+  maxPixelsAboveChannelDifference: 1_100,
+  maxMeanChannelDifference: 0.08,
+  maxChannelDifference: 32,
+})
 const browserCaptureSurfaces = ["render-view", "fabric"] as const
 type BrowserCaptureSurface = (typeof browserCaptureSurfaces)[number]
 type BrowserCaptureScope = Readonly<{
@@ -108,6 +159,7 @@ const browserSurfaceCaptures: Array<
     pageId: string
     surface: BrowserCaptureSurface
     state: "ready"
+    maskState: (typeof maskCaptureStates)[number]["name"] | null
   }>
 > = []
 
@@ -123,7 +175,9 @@ const reportPath = join(
       ? "component-conformance-capture-report.json"
       : conformanceCorpus === "component-journey"
         ? "component-journey-conformance-capture-report.json"
-        : "render-conformance-capture-report.json"
+        : conformanceCorpus === "mask"
+          ? "mask-conformance-capture-report.json"
+          : "render-conformance-capture-report.json"
 )
 const temporaryReportPath = join(
   auditRoot,
@@ -191,13 +245,20 @@ function verifyDocumentRoundTrip() {
             { id: "whatsapp", pageIds: ["whatsapp-card"] },
             { id: "follow-up", pageIds: ["square-card"] },
           ]
-        : [
-            {
-              id: "mixed-document",
-              pageIds: ["properties-page", "long-text-page"],
-            },
-            { id: "square-image", pageIds: ["square-page"] },
-          ]
+        : conformanceCorpus === "mask"
+          ? [
+              {
+                id: "mask-conformance-output",
+                pageIds: ["mask-conformance-page"],
+              },
+            ]
+          : [
+              {
+                id: "mixed-document",
+                pageIds: ["properties-page", "long-text-page"],
+              },
+              { id: "square-image", pageIds: ["square-page"] },
+            ]
   )
 }
 
@@ -231,71 +292,96 @@ async function captureBrowserSurfaces() {
       hostOperatingSystem: process.platform,
       hostArchitecture: process.arch,
     }
+    const browserStates =
+      conformanceCorpus === "mask"
+        ? maskCaptureStates.map(({ name }) => name)
+        : [null]
     for (const pageId of pageIds) {
-      captureScope = { pageId, phase: "navigation", surface: null }
-      await browserPage.goto(
-        `${baseUrl}/render-conformance?corpus=${conformanceCorpus}&page=${encodeURIComponent(pageId)}`,
-        { waitUntil: "networkidle" }
-      )
-      assertNoBrowserPageErrors(`${pageId} navigation`)
-      const embeddedDocument = await browserPage
-        .locator('script[data-conformance-document="v3"]')
-        .textContent()
-      assert.ok(embeddedDocument, "Conformance route omitted its document")
-      assert.equal(
-        JSON.stringify(documentSchema.parse(JSON.parse(embeddedDocument))),
-        JSON.stringify(captureDocument),
-        `${pageId} browser fixture differs from the imported document`
-      )
-
-      captureScope = { pageId, phase: "readiness", surface: null }
-      await browserPage.waitForFunction(
-        (targetPageId) =>
-          ["render-view", "fabric"].every((surface) => {
-            const element = document.querySelector(
-              `[data-conformance-capture="${surface}:${targetPageId}"]`
-            )
-            return (
-              element?.getAttribute("data-conformance-state") === "ready" ||
-              element?.getAttribute("data-conformance-state") === "error"
-            )
-          }),
-        pageId,
-        { timeout: 30_000 }
-      )
-      assertNoBrowserPageErrors(`${pageId} surface readiness`)
-
-      for (const surface of browserCaptureSurfaces) {
-        captureScope = { pageId, phase: "capture", surface }
-        const locator = browserPage.locator(
-          `[data-conformance-capture="${surface}:${pageId}"]`
+      for (const maskState of browserStates) {
+        captureScope = { pageId, phase: "navigation", surface: null }
+        const maskStateQuery = maskState
+          ? `&maskState=${encodeURIComponent(maskState)}`
+          : ""
+        await browserPage.goto(
+          `${baseUrl}/render-conformance?corpus=${conformanceCorpus}&page=${encodeURIComponent(pageId)}${maskStateQuery}`,
+          { waitUntil: "networkidle" }
         )
-        assertNoBrowserPageErrors(`${surface}:${pageId} ready claim`)
+        assertNoBrowserPageErrors(`${pageId} navigation`)
+        const embeddedDocument = await browserPage
+          .locator('script[data-conformance-document="v3"]')
+          .textContent()
+        assert.ok(embeddedDocument, "Conformance route omitted its document")
         assert.equal(
-          await locator.getAttribute("data-conformance-state"),
-          "ready",
-          `${surface}:${pageId} did not reach capture readiness`
+          JSON.stringify(documentSchema.parse(JSON.parse(embeddedDocument))),
+          JSON.stringify(captureDocument),
+          `${pageId} browser fixture differs from the imported document`
         )
-        const bytes = await locator.screenshot({
-          animations: "disabled",
-          caret: "hide",
-          scale: "css",
-          type: "png",
-        })
-        assertNoBrowserPageErrors(`${surface}:${pageId} screenshot`)
-        await writeFile(join(stagingRoot, surface, `${pageId}.png`), bytes)
-        browserSurfaceCaptures.push({ pageId, surface, state: "ready" })
+
+        captureScope = { pageId, phase: "readiness", surface: null }
+        await browserPage.waitForFunction(
+          (targetPageId) =>
+            ["render-view", "fabric"].every((surface) => {
+              const element = document.querySelector(
+                `[data-conformance-capture="${surface}:${targetPageId}"]`
+              )
+              return (
+                element?.getAttribute("data-conformance-state") === "ready" ||
+                element?.getAttribute("data-conformance-state") === "error"
+              )
+            }),
+          pageId,
+          { timeout: 30_000 }
+        )
+        assertNoBrowserPageErrors(`${pageId} surface readiness`)
+
+        for (const surface of browserCaptureSurfaces) {
+          captureScope = { pageId, phase: "capture", surface }
+          const locator = browserPage.locator(
+            `[data-conformance-capture="${surface}:${pageId}"]`
+          )
+          assertNoBrowserPageErrors(`${surface}:${pageId} ready claim`)
+          assert.equal(
+            await locator.getAttribute("data-conformance-state"),
+            "ready",
+            `${surface}:${pageId} did not reach capture readiness`
+          )
+          const bytes = await locator.screenshot({
+            animations: "disabled",
+            caret: "hide",
+            scale: "css",
+            type: "png",
+          })
+          assertNoBrowserPageErrors(`${surface}:${pageId} screenshot`)
+          const artifactName = maskState
+            ? `${pageId}-${maskState}.png`
+            : `${pageId}.png`
+          await writeFile(join(stagingRoot, surface, artifactName), bytes)
+          browserSurfaceCaptures.push({
+            pageId,
+            surface,
+            state: "ready",
+            maskState,
+          })
+        }
+        captureScope = null
       }
-      captureScope = null
     }
   } finally {
     browserPage.off("pageerror", onPageError)
+    await browserPage.close()
+    console.info("Closed retained browser capture page")
     await context.close()
+    console.info("Closed retained browser capture context")
     await browser.close()
+    console.info("Closed retained browser capture browser")
   }
 }
 
 async function captureRendererArtifacts() {
+  if (conformanceCorpus === "mask") {
+    await captureMaskRendererArtifacts()
+    return
+  }
   for (const page of captureDocument.pages) {
     const { response, body } = await fetchRendererArtifact(
       `${baseUrl}/v1/studio/export-png`,
@@ -355,6 +441,148 @@ async function captureRendererArtifacts() {
   await rasterizePdf(pdf, output.pageIds)
 }
 
+async function captureMaskRendererArtifacts() {
+  const browser = await chromium.launch({ channel: "chrome", headless: true })
+  const pdfsToRasterize: Array<
+    Readonly<{
+      state: (typeof maskCaptureStates)[number]["name"]
+      bytes: Uint8Array
+    }>
+  > = []
+  try {
+    for (const state of maskCaptureStates) {
+      const html = renderMaskHtml(state.nodes, state.plan.entries)
+      for (const deviceScaleFactor of [1, 2] as const) {
+        const context = await browser.newContext({
+          deviceScaleFactor,
+          viewport: {
+            width: maskRenderConformancePage.width,
+            height: maskRenderConformancePage.height,
+          },
+        })
+        const browserPage = await context.newPage()
+        try {
+          await browserPage.setContent(html, { waitUntil: "load" })
+          await waitForDirectMaskPaint(browserPage)
+          const png = await browserPage.screenshot({
+            animations: "disabled",
+            caret: "hide",
+            scale: "device",
+            type: "png",
+          })
+          await writeFile(
+            join(
+              stagingRoot,
+              "renderer-png",
+              `mask-${state.name}-${deviceScaleFactor}x.png`
+            ),
+            png
+          )
+          console.info(
+            `Captured direct mask ${state.name} PNG at ${deviceScaleFactor}x`
+          )
+          if (deviceScaleFactor === 1) {
+            const pdf = await browserPage.pdf({
+              width: `${maskRenderConformancePage.width}px`,
+              height: `${maskRenderConformancePage.height}px`,
+              printBackground: true,
+              preferCSSPageSize: true,
+            })
+            await writeFile(
+              join(stagingRoot, "renderer-pdf", `mask-${state.name}.pdf`),
+              pdf
+            )
+            pdfsToRasterize.push({
+              state: state.name,
+              bytes: Uint8Array.from(pdf),
+            })
+            console.info(`Captured direct mask ${state.name} PDF`)
+          }
+        } finally {
+          await browserPage.close()
+          await context.close()
+          console.info(
+            `Closed direct mask ${state.name} ${deviceScaleFactor}x context`
+          )
+        }
+      }
+    }
+  } finally {
+    await browser.close()
+  }
+  for (const pdf of pdfsToRasterize) {
+    await rasterizePdf(
+      pdf.bytes,
+      [maskRenderConformancePage.id],
+      "renderer-pdf",
+      [`mask-${pdf.state}`]
+    )
+    console.info(`Rasterized direct mask ${pdf.state} PDF`)
+  }
+  await captureMaskEndpointSmoke()
+}
+
+function renderMaskHtml(
+  nodes: readonly SceneNode[],
+  entries: readonly PagePaintPlanEntry[]
+) {
+  const nodesById = new Map(nodes.map((node) => [node.id, node]))
+  const paint = entries
+    .map((entry) => renderPagePaintPlanEntryToHtml(entry, nodesById))
+    .join("")
+  return `<!doctype html><html><head><meta charset="utf-8"><style>*{box-sizing:border-box}html,body{margin:0;width:${maskRenderConformancePage.width}px;height:${maskRenderConformancePage.height}px;overflow:hidden}body{position:relative;background:${maskRenderConformancePage.background};-webkit-print-color-adjust:exact;print-color-adjust:exact}@page{size:${maskRenderConformancePage.width}px ${maskRenderConformancePage.height}px;margin:0}</style></head><body data-page-id="${maskRenderConformancePage.id}">${paint}</body></html>`
+}
+
+async function waitForDirectMaskPaint(browserPage: PlaywrightPage) {
+  await browserPage.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      )
+  )
+}
+
+async function captureMaskEndpointSmoke() {
+  const page = maskRenderConformancePage
+  const { response: pngResponse, body: png } = await fetchRendererArtifact(
+    `${baseUrl}/v1/studio/export-png`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ document: captureDocument, pageId: page.id }),
+    },
+    "Mask carrier endpoint PNG smoke"
+  )
+  assert.equal(pngResponse.status, 200, decodeErrorBody(png))
+  assert.equal(pngResponse.headers.get("Content-Type"), "image/png")
+  await writeFile(
+    join(stagingRoot, "renderer-endpoint-smoke", "ordinary-carrier.png"),
+    png
+  )
+
+  const { response: pdfResponse, body: pdf } = await fetchRendererArtifact(
+    `${baseUrl}/v1/studio/export-pdf`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        document: captureDocument,
+        outputId: pdfOutput.id,
+      }),
+    },
+    "Mask carrier endpoint PDF smoke"
+  )
+  assert.equal(pdfResponse.status, 200, decodeErrorBody(pdf))
+  assert.equal(pdfResponse.headers.get("Content-Type"), "application/pdf")
+  await writeFile(
+    join(stagingRoot, "renderer-endpoint-smoke", "ordinary-carrier.pdf"),
+    pdf
+  )
+  await rasterizePdf(pdf, [page.id], "renderer-endpoint-smoke", [
+    "ordinary-carrier-raster",
+  ])
+}
+
 async function fetchRendererArtifact(
   url: string,
   init: RequestInit,
@@ -393,7 +621,17 @@ function wait(milliseconds: number) {
   return new Promise<void>((complete) => setTimeout(complete, milliseconds))
 }
 
-async function rasterizePdf(pdfBytes: Uint8Array, outputPageIds: string[]) {
+async function rasterizePdf(
+  pdfBytes: Uint8Array,
+  outputPageIds: readonly string[],
+  directory: (typeof retainedDirectories)[number] = "renderer-pdf",
+  rasterNames: readonly string[] = outputPageIds
+) {
+  assert.equal(
+    rasterNames.length,
+    outputPageIds.length,
+    "PDF raster names must match the PDF page count"
+  )
   const require = createRequire(import.meta.url)
   const nodeProcess = process as NodeJS.Process & {
     getBuiltinModule?: (name: string) => unknown
@@ -405,7 +643,7 @@ async function rasterizePdf(pdfBytes: Uint8Array, outputPageIds: string[]) {
   }
   Object.assign(globalThis, { DOMMatrix, ImageData, Path2D })
   const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs")
-  const task = getDocument({ data: pdfBytes })
+  const task = getDocument({ data: Uint8Array.from(pdfBytes) })
   const pdf = await task.promise
   try {
     assert.equal(pdf.numPages, outputPageIds.length, "Renderer PDF page count")
@@ -433,50 +671,47 @@ async function rasterizePdf(pdfBytes: Uint8Array, outputPageIds: string[]) {
         viewport,
       }).promise
       await writeFile(
-        join(stagingRoot, "renderer-pdf", `${pageId}.png`),
+        join(stagingRoot, directory, `${rasterNames[index]}.png`),
         canvas.toBuffer("image/png")
       )
     }
   } finally {
-    await task.destroy()
+    // pdfjs' loading-task teardown blocks synchronously under Bun after a
+    // successful raster. This one-shot evidence process releases it on exit.
   }
 }
 
 async function buildCaptureReport() {
   const artifacts = []
-  for (const directory of retainedDirectories) {
-    const names =
-      directory === "renderer-pdf"
-        ? [
-            `${pdfOutput.id}.pdf`,
-            ...pdfOutput.pageIds.map((pageId) => `${pageId}.png`),
-          ]
-        : pageIds.map((pageId) => `${pageId}.png`)
-    for (const name of names) {
-      const path = join(stagingRoot, directory, name)
-      const bytes = await readFile(path)
-      const entry: Record<string, unknown> = {
-        path: `${directory}/${name}`,
-        bytes: bytes.byteLength,
-        sha256: createHash("sha256").update(bytes).digest("hex"),
-      }
-      if (name.endsWith(".png")) {
-        const metadata = await sharp(bytes).metadata()
-        const pageId = basename(name, ".png")
-        const page = captureDocument.pages.find(
-          (candidate) => candidate.id === pageId
-        )!
-        assert.equal(metadata.width, page.width, `${directory}/${name} width`)
-        assert.equal(
-          metadata.height,
-          page.height,
-          `${directory}/${name} height`
-        )
-        entry.width = metadata.width
-        entry.height = metadata.height
-      }
-      artifacts.push(entry)
+  for (const artifact of retainedArtifactSpecs()) {
+    const path = join(stagingRoot, artifact.directory, artifact.name)
+    const bytes = await readFile(path)
+    const entry: Record<string, unknown> = {
+      path: `${artifact.directory}/${artifact.name}`,
+      bytes: bytes.byteLength,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
     }
+    if (artifact.name.endsWith(".png")) {
+      const metadata = await sharp(bytes).metadata()
+      const page = captureDocument.pages.find(
+        (candidate) => candidate.id === artifact.pageId
+      )
+      assert.ok(page, `Unknown artifact page ${artifact.pageId}`)
+      const scale = artifact.scale ?? 1
+      assert.equal(
+        metadata.width,
+        page.width * scale,
+        `${artifact.directory}/${artifact.name} width`
+      )
+      assert.equal(
+        metadata.height,
+        page.height * scale,
+        `${artifact.directory}/${artifact.name} height`
+      )
+      entry.width = metadata.width
+      entry.height = metadata.height
+    }
+    artifacts.push(entry)
   }
   return {
     version: 2,
@@ -499,7 +734,254 @@ async function buildCaptureReport() {
       pageIds: ids,
     })),
     artifacts,
+    ...(conformanceCorpus === "mask"
+      ? {
+          maskEvidence: {
+            directHtml: {
+              states: maskCaptureStates.map(({ name }) => name),
+              deviceScaleFactors: [1, 2],
+              pngPathPattern: "renderer-png/mask-{state}-{scale}x.png",
+              pdfPathPattern: "renderer-pdf/mask-{state}.pdf",
+              pdfRasterPathPattern: "renderer-pdf/mask-{state}.png",
+            },
+            pngPdfRasterComparisons: await Promise.all(
+              maskCaptureStates.map(({ name }) =>
+                comparePngArtifacts(
+                  `renderer-png/mask-${name}-1x.png`,
+                  `renderer-pdf/mask-${name}.png`,
+                  directMaskPdfRasterThreshold
+                )
+              )
+            ),
+            browserSurfaceComparisons: await Promise.all(
+              maskCaptureStates.map(({ name }) =>
+                comparePngArtifacts(
+                  `render-view/${maskRenderConformancePage.id}-${name}.png`,
+                  `fabric/${maskRenderConformancePage.id}-${name}.png`,
+                  name === "visible"
+                    ? visibleMaskBrowserSurfaceThreshold
+                    : hiddenMaskBrowserSurfaceThreshold
+                )
+              )
+            ),
+            directHtmlBrowserRenderViewComparisons: await Promise.all(
+              maskCaptureStates.map(({ name }) =>
+                comparePngArtifacts(
+                  `renderer-png/mask-${name}-1x.png`,
+                  `render-view/${maskRenderConformancePage.id}-${name}.png`,
+                  visibleMaskBrowserSurfaceThreshold
+                )
+              )
+            ),
+            oneToTwoXComparisons: await Promise.all(
+              maskCaptureStates.map(({ name }) =>
+                comparePngArtifactsAtCssScale(
+                  `renderer-png/mask-${name}-1x.png`,
+                  `renderer-png/mask-${name}-2x.png`,
+                  directMaskTwoXThreshold
+                )
+              )
+            ),
+            ordinaryEndpointSmoke: {
+              exercised: true,
+              png: "renderer-endpoint-smoke/ordinary-carrier.png",
+              pdf: "renderer-endpoint-smoke/ordinary-carrier.pdf",
+              pdfRaster: "renderer-endpoint-smoke/ordinary-carrier-raster.png",
+              scope:
+                "Schema-v4 carrier only; this validates ordinary Worker endpoints and is not evidence that the Worker renders the direct mask HTML.",
+            },
+          },
+        }
+      : {}),
   }
+}
+
+type RetainedArtifactSpec = Readonly<{
+  directory: (typeof retainedDirectories)[number]
+  name: string
+  pageId?: string
+  scale?: number
+}>
+
+function retainedArtifactSpecs(): RetainedArtifactSpec[] {
+  if (conformanceCorpus === "mask") {
+    const pageId = maskRenderConformancePage.id
+    return [
+      ...browserCaptureSurfaces.flatMap((surface) =>
+        maskCaptureStates.map(({ name }) => ({
+          directory: surface,
+          name: `${pageId}-${name}.png`,
+          pageId,
+        }))
+      ),
+      ...maskCaptureStates.flatMap(({ name }) =>
+        [1, 2].map((scale) => ({
+          directory: "renderer-png" as const,
+          name: `mask-${name}-${scale}x.png`,
+          pageId,
+          scale,
+        }))
+      ),
+      ...maskCaptureStates.flatMap(({ name }) => [
+        {
+          directory: "renderer-pdf" as const,
+          name: `mask-${name}.pdf`,
+        },
+        {
+          directory: "renderer-pdf" as const,
+          name: `mask-${name}.png`,
+          pageId,
+        },
+      ]),
+      {
+        directory: "renderer-endpoint-smoke",
+        name: "ordinary-carrier.png",
+        pageId,
+      },
+      {
+        directory: "renderer-endpoint-smoke",
+        name: "ordinary-carrier.pdf",
+      },
+      {
+        directory: "renderer-endpoint-smoke",
+        name: "ordinary-carrier-raster.png",
+        pageId,
+      },
+    ]
+  }
+  return retainedDirectories.flatMap((directory) => {
+    if (directory === "renderer-endpoint-smoke") return []
+    const names =
+      directory === "renderer-pdf"
+        ? [
+            `${pdfOutput.id}.pdf`,
+            ...pdfOutput.pageIds.map((pageId) => `${pageId}.png`),
+          ]
+        : pageIds.map((pageId) => `${pageId}.png`)
+    return names.map((name) => ({
+      directory,
+      name,
+      ...(name.endsWith(".png") ? { pageId: basename(name, ".png") } : {}),
+    }))
+  })
+}
+
+type PngComparisonThreshold = Readonly<{
+  channelDifference: number
+  maxPixelsAboveChannelDifference: number
+  maxMeanChannelDifference: number
+  maxChannelDifference: number
+}>
+
+async function comparePngArtifacts(
+  leftPath: string,
+  rightPath: string,
+  threshold: PngComparisonThreshold
+) {
+  const [left, right] = await Promise.all([
+    sharp(join(stagingRoot, leftPath)).ensureAlpha().raw().toBuffer({
+      resolveWithObject: true,
+    }),
+    sharp(join(stagingRoot, rightPath)).ensureAlpha().raw().toBuffer({
+      resolveWithObject: true,
+    }),
+  ])
+  return compareDecodedPngs(leftPath, rightPath, left, right, threshold)
+}
+
+async function comparePngArtifactsAtCssScale(
+  oneXPath: string,
+  twoXPath: string,
+  threshold: PngComparisonThreshold
+) {
+  const oneX = await sharp(join(stagingRoot, oneXPath))
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true })
+  const twoX = await sharp(join(stagingRoot, twoXPath))
+    .resize(oneX.info.width, oneX.info.height, {
+      fit: "fill",
+      kernel: "lanczos3",
+    })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true })
+  return compareDecodedPngs(
+    oneXPath,
+    `${twoXPath} downsampled to CSS pixels`,
+    oneX,
+    twoX,
+    threshold
+  )
+}
+
+function compareDecodedPngs(
+  leftPath: string,
+  rightPath: string,
+  left: Readonly<{
+    data: Uint8Array
+    info: Readonly<{ width: number; height: number }>
+  }>,
+  right: Readonly<{
+    data: Uint8Array
+    info: Readonly<{ width: number; height: number }>
+  }>,
+  threshold: PngComparisonThreshold
+) {
+  assert.equal(
+    left.info.width,
+    right.info.width,
+    `${leftPath} and ${rightPath} widths differ`
+  )
+  assert.equal(
+    left.info.height,
+    right.info.height,
+    `${leftPath} and ${rightPath} heights differ`
+  )
+  let changedChannels = 0
+  let pixelsAboveChannelDifference = 0
+  let totalAbsoluteDifference = 0
+  let maxChannelDifference = 0
+  for (let index = 0; index < left.data.length; index += 4) {
+    let pixelMaxDifference = 0
+    for (let channel = 0; channel < 4; channel += 1) {
+      const difference = Math.abs(
+        left.data[index + channel]! - right.data[index + channel]!
+      )
+      if (difference > 0) changedChannels += 1
+      totalAbsoluteDifference += difference
+      pixelMaxDifference = Math.max(pixelMaxDifference, difference)
+      maxChannelDifference = Math.max(maxChannelDifference, difference)
+    }
+    if (pixelMaxDifference > threshold.channelDifference) {
+      pixelsAboveChannelDifference += 1
+    }
+  }
+  const comparison = {
+    baseline: leftPath,
+    candidate: rightPath,
+    comparedChannels: left.data.length,
+    comparedPixels: left.data.length / 4,
+    changedChannels,
+    pixelsAboveChannelDifference,
+    maxChannelDifference,
+    meanAbsoluteDifference: totalAbsoluteDifference / left.data.length,
+    threshold,
+  }
+  assert.ok(
+    comparison.pixelsAboveChannelDifference <=
+      threshold.maxPixelsAboveChannelDifference,
+    `${leftPath} vs ${rightPath} has ${comparison.pixelsAboveChannelDifference} pixels above channel delta ${threshold.channelDifference}; limit is ${threshold.maxPixelsAboveChannelDifference}`
+  )
+  assert.ok(
+    comparison.meanAbsoluteDifference <= threshold.maxMeanChannelDifference,
+    `${leftPath} vs ${rightPath} has mean channel delta ${comparison.meanAbsoluteDifference}; limit is ${threshold.maxMeanChannelDifference}`
+  )
+  assert.ok(
+    comparison.maxChannelDifference <= threshold.maxChannelDifference,
+    `${leftPath} vs ${rightPath} has maximum channel delta ${comparison.maxChannelDifference}; limit is ${threshold.maxChannelDifference}`
+  )
+  return comparison
 }
 
 function assertNoBrowserPageErrors(stage: string) {

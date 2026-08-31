@@ -13,22 +13,77 @@ import {
   textDesignSystemConformanceDocument,
 } from "@webmcp/document"
 import {
+  maskRenderConformanceHiddenSourcePlan,
+  maskRenderConformanceNodes,
+  maskRenderConformancePlan,
+} from "@webmcp/document/internal/mask-render-conformance"
+import {
   createImageResourceLoadState,
   decodedImageNaturalSizeForSource,
   imageResourceIdentity,
   imageResourceStateChangeForFailure,
   imageResourceStateChangeForLoad,
+  maskGroupRenderModel,
   reduceImageResourceLoadState,
   renderFrameStyle,
   renderImageFrameMaskStyle,
   renderImagePaintStyle,
+  renderMaskGroupWrapperStyle,
   renderNodeDataAttributes,
   renderNodeStyle,
   renderTextLineStyle,
   renderTextSegmentStyle,
+  renderVectorMaskSourceAttributes,
+  shouldCompositeMaskGroup,
 } from "../src"
 
 describe("React render-view conformance", () => {
+  it("consumes the shared Gate M0 vector-mask plan with bounded top-left geometry", () => {
+    const nodesById = new Map(
+      maskRenderConformanceNodes.map((node) => [node.id, node])
+    )
+    const entry = maskRenderConformancePlan.entries[1]!
+    const model = maskGroupRenderModel(entry, nodesById)
+
+    expect(model.content.map((node) => node.id)).toEqual(
+      entry.kind === "mask_group"
+        ? entry.content.map((contentEntry) => contentEntry.nodeId)
+        : []
+    )
+    expect(model.content.map((node) => node.id)).not.toContain(model.source.id)
+    expect(renderMaskGroupWrapperStyle(model.entry.bounds)).toEqual({
+      position: "absolute",
+      left: model.entry.bounds.x,
+      top: model.entry.bounds.y,
+      width: model.entry.bounds.width,
+      height: model.entry.bounds.height,
+      overflow: "hidden",
+    })
+    const source = renderVectorMaskSourceAttributes(
+      model.source,
+      model.entry.bounds
+    )
+    expect(source).toMatchObject({
+      fill: "white",
+      opacity: model.source.opacity,
+      x: model.source.x - model.entry.bounds.x,
+      y: model.source.y - model.entry.bounds.y,
+      transform: `rotate(${model.source.rotation} ${model.source.x - model.entry.bounds.x} ${model.source.y - model.entry.bounds.y})`,
+    })
+    expect(shouldCompositeMaskGroup(entry)).toBe(true)
+  })
+
+  it("falls through to ordinary bounded content when the shared source is hidden", () => {
+    const entry = maskRenderConformanceHiddenSourcePlan.entries[1]!
+    expect(entry).toMatchObject({
+      kind: "mask_group",
+      visibleSourceNodeIds: [],
+      maskEnabled: false,
+      compositeRequired: false,
+    })
+    expect(shouldCompositeMaskGroup(entry)).toBe(false)
+  })
+
   it("renders every component semantic case from its materialized ordinary nodes", () => {
     const nodesById = new Map(
       componentRenderConformanceDocument.nodes.map((node) => [node.id, node])
@@ -85,12 +140,12 @@ describe("React render-view conformance", () => {
     })
     if (bodyProjection.type !== "text") throw new Error("Missing body text")
     const firstLine = bodyProjection.content.layout.lines[0]!
-    expect(renderTextSegmentStyle(firstLine.segments[0]!, firstLine)).toMatchObject(
-      {
-        fontStyle: "italic",
-        textDecorationLine: "underline",
-      }
-    )
+    expect(
+      renderTextSegmentStyle(firstLine.segments[0]!, firstLine)
+    ).toMatchObject({
+      fontStyle: "italic",
+      textDecorationLine: "underline",
+    })
     const mixedProjection = projectNodeForRender(mixedText)
     if (mixedProjection.type !== "text") throw new Error("Missing mixed text")
     const rangeLine = mixedProjection.content.layout.lines.find((line) =>

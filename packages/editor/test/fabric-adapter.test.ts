@@ -6,10 +6,12 @@ import {
   Group,
   Path,
   Rect,
+  setEnv,
   Textbox,
   type TPointerEvent,
   type Transform,
 } from "fabric"
+import { getEnv as getNodeFabricEnv, StaticCanvas } from "fabric/node"
 import { describe, expect, it, vi } from "vitest"
 import {
   componentRenderConformanceCases,
@@ -23,11 +25,19 @@ import {
   projectNodeForRender,
   renderConformanceDocument,
   textDesignSystemConformanceDocument,
+  type SceneNode,
 } from "@webmcp/document"
+import {
+  maskRenderConformanceHiddenSourceNodes,
+  maskRenderConformanceHiddenSourcePlan,
+  maskRenderConformanceNodes,
+  maskRenderConformancePlan,
+} from "@webmcp/document/internal/mask-render-conformance"
 import {
   createFabricSyncObject,
   createFabricObjectForSync,
   createFabricImageGroup,
+  createFabricVectorMaskPaint,
   applyFabricTextListEdit,
   cancelFabricTextEditing,
   constrainTextGeometryPatch,
@@ -75,6 +85,145 @@ function decodedFabricImage(
     naturalHeight: naturalSize.height,
   } as HTMLImageElement)
 }
+
+function maskGroupEntry(plan: typeof maskRenderConformancePlan) {
+  const entry = plan.entries.find(
+    (candidate) => candidate.kind === "mask_group"
+  )
+  if (!entry || entry.kind !== "mask_group") {
+    throw new Error("Missing retained vector mask paint-plan entry")
+  }
+  return entry
+}
+
+function createRetainedMaskContentObject(node: SceneNode) {
+  if (node.type === "image")
+    throw new Error("The M0 fixture has no image content")
+  return createFabricSyncObject(node)
+}
+
+describe("Fabric vector mask paint consumer", () => {
+  it("uses an absolute top-left rotated source clip on a bounded composite", () => {
+    const entry = maskGroupEntry(maskRenderConformancePlan)
+    const nodesById = new Map(
+      maskRenderConformanceNodes.map((node) => [node.id, node])
+    )
+    const result = createFabricVectorMaskPaint(
+      entry,
+      nodesById,
+      createRetainedMaskContentObject
+    )
+
+    expect(result.kind).toBe("composite")
+    if (result.kind !== "composite") return
+    const source = maskRenderConformanceNodes.find(
+      (node) => node.id === "mask-conformance-source"
+    )!
+    const content = maskRenderConformanceNodes.find(
+      (node) => node.id === "mask-conformance-content"
+    )!
+    const sourceObject = createFabricSyncObject(source)
+    const expectedContent = createFabricSyncObject(content)
+
+    expect(result.object).toMatchObject({
+      left: entry.bounds.x,
+      top: entry.bounds.y,
+      width: entry.bounds.width,
+      height: entry.bounds.height,
+      originX: "left",
+      originY: "top",
+      objectCaching: true,
+    })
+    expect(result.maskObject).toMatchObject({
+      width: source.width,
+      height: source.height,
+      angle: source.rotation,
+      opacity: source.opacity,
+      originX: "left",
+      originY: "top",
+      globalCompositeOperation: "destination-in",
+    })
+    expect(result.maskObject.left).toBeCloseTo(
+      source.x - entry.bounds.x - entry.bounds.width / 2,
+      10
+    )
+    expect(result.maskObject.top).toBeCloseTo(
+      source.y - entry.bounds.y - entry.bounds.height / 2,
+      10
+    )
+    result.maskObject
+      .calcTransformMatrix()
+      .forEach((value, index) =>
+        expect(value).toBeCloseTo(sourceObject.calcOwnMatrix()[index]!, 10)
+      )
+
+    const groupedContent = result.object.getObjects()[0]!
+    groupedContent
+      .calcTransformMatrix()
+      .forEach((value, index) =>
+        expect(value).toBeCloseTo(expectedContent.calcOwnMatrix()[index]!, 10)
+      )
+  })
+
+  it("retains source opacity in the bounded destination-in pixels", () => {
+    setEnv(getNodeFabricEnv())
+    const entry = maskGroupEntry(maskRenderConformancePlan)
+    const nodesById = new Map(
+      maskRenderConformanceNodes.map((node) => [node.id, node])
+    )
+    const result = createFabricVectorMaskPaint(
+      entry,
+      nodesById,
+      createRetainedMaskContentObject
+    )
+    expect(result.kind).toBe("composite")
+    if (result.kind !== "composite") return
+
+    const canvas = new StaticCanvas(undefined, {
+      width: 480,
+      height: 360,
+      enableRetinaScaling: false,
+      renderOnAddRemove: false,
+    })
+    canvas.add(result.object)
+    canvas.renderAll()
+    const alpha = canvas.contextContainer.getImageData(160, 140, 1, 1).data[3]!
+    const source = maskRenderConformanceNodes.find(
+      (node) => node.id === "mask-conformance-source"
+    )!
+    const content = maskRenderConformanceNodes.find(
+      (node) => node.id === "mask-conformance-content"
+    )!
+    expect(alpha).toBeCloseTo(255 * source.opacity * content.opacity, -1)
+    canvas.dispose()
+  })
+
+  it("falls through without a composite when the only source is hidden", () => {
+    const entry = maskGroupEntry(maskRenderConformanceHiddenSourcePlan)
+    const nodesById = new Map(
+      maskRenderConformanceHiddenSourceNodes.map((node) => [node.id, node])
+    )
+    const result = createFabricVectorMaskPaint(
+      entry,
+      nodesById,
+      createRetainedMaskContentObject
+    )
+
+    expect(entry.maskEnabled).toBe(false)
+    expect(entry.compositeRequired).toBe(false)
+    expect(result).toMatchObject({ kind: "fallthrough" })
+    if (result.kind !== "fallthrough") return
+    expect(result.objects).toHaveLength(1)
+    expect(result.objects[0]).toMatchObject({
+      left: maskRenderConformanceHiddenSourceNodes.find(
+        (node) => node.id === "mask-conformance-content"
+      )!.x,
+      top: maskRenderConformanceHiddenSourceNodes.find(
+        (node) => node.id === "mask-conformance-content"
+      )!.y,
+    })
+  })
+})
 
 describe("equivalentImageSources", () => {
   it("accepts a browser-resolved absolute URL for the same document-relative image", () => {

@@ -22,11 +22,18 @@ import {
   type SceneNode,
 } from "@webmcp/document"
 import {
+  maskRenderConformanceHiddenSourceNodes,
+  maskRenderConformanceHiddenSourcePlan,
+  maskRenderConformanceNodes,
+  maskRenderConformancePlan,
+} from "@webmcp/document/internal/mask-render-conformance"
+import {
   markRenderResourcesReady,
   renderDocumentThumbnailToHtml,
   renderDocumentToHtml,
   renderNodeToHtml,
   renderOutputToHtml,
+  renderPagePaintPlanEntryToHtml,
 } from "../src/html"
 
 function renderResourceFixture(options?: {
@@ -137,6 +144,67 @@ function renderResourceFixture(options?: {
 }
 
 describe("renderer HTML", () => {
+  it("serializes the retained vector-mask paint entry for the shared PNG/PDF HTML source", () => {
+    const entry = maskRenderConformancePlan.entries[1]
+    if (!entry || entry.kind !== "mask_group") {
+      throw new Error("Missing retained mask group")
+    }
+    const maskHtml = renderPagePaintPlanEntryToHtml(
+      entry,
+      new Map(maskRenderConformanceNodes.map((node) => [node.id, node]))
+    )
+    const pngHtml = `<body>${maskHtml}</body>`
+    const pdfHtml = `<section class="studio-page">${maskHtml}</section>`
+    const source = maskRenderConformanceNodes[1]
+    const content = maskRenderConformanceNodes[2]
+
+    expect(pngHtml).toContain(maskHtml)
+    expect(pdfHtml).toContain(maskHtml)
+    expect(maskHtml).toContain('data-mask-group-id="mask-conformance-group"')
+    expect(maskHtml).toContain('data-mask-enabled="true"')
+    expect(maskHtml).toContain('data-mask-composite="true"')
+    expect(maskHtml).toContain("overflow:hidden")
+    expect(maskHtml).toContain(`width:${entry.bounds.width}px`)
+    expect(maskHtml).toContain(`height:${entry.bounds.height}px`)
+    expect(maskHtml).toContain(
+      `transform:translate(${-entry.bounds.x}px,${-entry.bounds.y}px)`
+    )
+    expect(maskHtml).toContain(
+      `transform="rotate(${source.rotation} ${source.x - entry.bounds.x} ${source.y - entry.bounds.y})"`
+    )
+    expect(maskHtml).toContain(`data-mask-source-id="${source.id}"`)
+    expect(maskHtml).toContain(`data-node-id="${content.id}"`)
+    expect(maskHtml).not.toContain(`data-node-id="${source.id}"`)
+    expect(maskHtml).toMatch(
+      /data-mask-group-id="mask-conformance-group"[^>]+style="[^"]*mask:url\(/
+    )
+    expect(maskHtml).not.toMatch(
+      /data-mask-content="mask-conformance-group"[^>]+style="[^"]*mask:/
+    )
+  })
+
+  it("falls through to canonical content without an ordinary hidden mask source", () => {
+    const entry = maskRenderConformanceHiddenSourcePlan.entries[1]
+    if (!entry || entry.kind !== "mask_group") {
+      throw new Error("Missing retained hidden-source mask group")
+    }
+    const maskHtml = renderPagePaintPlanEntryToHtml(
+      entry,
+      new Map(
+        maskRenderConformanceHiddenSourceNodes.map((node) => [node.id, node])
+      )
+    )
+    const content = maskRenderConformanceHiddenSourceNodes[2]
+    const source = maskRenderConformanceHiddenSourceNodes[1]
+
+    expect(maskHtml).toContain('data-mask-enabled="false"')
+    expect(maskHtml).toContain('data-mask-composite="false"')
+    expect(maskHtml).not.toContain("<mask ")
+    expect(maskHtml).toContain(`data-node-id="${content.id}"`)
+    expect(maskHtml).not.toContain(`data-node-id="${source.id}"`)
+    expect(maskHtml).not.toContain(`data-mask-source-id="${source.id}"`)
+  })
+
   it("serializes every component semantic case into the shared HTML/PDF source", () => {
     const html = renderOutputToHtml(
       componentRenderConformanceDocument,

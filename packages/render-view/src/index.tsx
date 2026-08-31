@@ -1,9 +1,15 @@
 import {
   useEffect,
+  useId,
   useReducer,
   type CSSProperties,
   type SyntheticEvent,
 } from "react"
+import type {
+  PagePaintBounds,
+  PagePaintPlan,
+  PagePaintPlanEntry,
+} from "@webmcp/document/internal/page-paint-plan"
 import {
   projectImagePaint,
   projectNodeForRender,
@@ -64,6 +70,278 @@ export const renderFrameStyle = (
   transformOrigin: "top left",
   display: frame.visible ? undefined : "none",
 })
+
+export function renderMaskGroupWrapperStyle(
+  bounds: PagePaintBounds
+): CSSProperties {
+  return {
+    position: "absolute",
+    left: bounds.x,
+    top: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+    overflow: "hidden",
+  }
+}
+
+export function renderVectorMaskSourceAttributes(
+  source: Extract<SceneNode, { type: "rect" }>,
+  bounds: PagePaintBounds
+) {
+  const x = source.x - bounds.x
+  const y = source.y - bounds.y
+  return {
+    fill: "white",
+    height: source.height,
+    opacity: source.opacity,
+    rx: source.radius,
+    transform: `rotate(${source.rotation} ${x} ${y})`,
+    width: source.width,
+    x,
+    y,
+  }
+}
+
+export function shouldCompositeMaskGroup(entry: PagePaintPlanEntry) {
+  return (
+    entry.kind === "mask_group" && entry.maskEnabled && entry.compositeRequired
+  )
+}
+
+type VectorMaskPaintEntry = Extract<
+  PagePaintPlanEntry,
+  { kind: "mask_group"; maskType: "vector" }
+>
+
+export type MaskGroupRenderModel = Readonly<{
+  entry: VectorMaskPaintEntry
+  source: Extract<SceneNode, { type: "rect" }>
+  content: readonly SceneNode[]
+}>
+
+/**
+ * Resolves the small Gate M0 vector-mask contract before React creates DOM.
+ * The shared page paint plan determines both source suppression and content
+ * order, so this renderer cannot accidentally use page order independently.
+ */
+export function maskGroupRenderModel(
+  entry: PagePaintPlanEntry,
+  nodesById: ReadonlyMap<string, SceneNode>
+): MaskGroupRenderModel {
+  if (entry.kind !== "mask_group" || entry.maskType !== "vector") {
+    throw new Error("React mask rendering requires a vector mask group entry")
+  }
+  if (entry.sourceNodeIds.length !== 1) {
+    throw new Error("React Gate M0 mask rendering requires one source")
+  }
+  const sourceId = entry.sourceNodeIds[0]!
+  const source = nodesById.get(sourceId)
+  if (!source || source.type !== "rect") {
+    throw new Error("React Gate M0 mask rendering requires a rectangle source")
+  }
+  const content = entry.content.map((contentEntry) => {
+    if (contentEntry.kind !== "node") {
+      throw new Error("React Gate M0 mask rendering does not support nesting")
+    }
+    const node = nodesById.get(contentEntry.nodeId)
+    if (!node) {
+      throw new Error(`Mask content node ${contentEntry.nodeId} is missing`)
+    }
+    return node
+  })
+  return { entry, source, content }
+}
+
+function RenderMaskGroupContent({
+  content,
+  imageSemantics,
+  imageResourceRevisions,
+  imageResourceTokens,
+  showImageRecoveryActions,
+  onImageResourceStateChange,
+}: {
+  content: readonly SceneNode[]
+  imageSemantics: "content" | "thumbnail"
+  imageResourceRevisions?: Readonly<Record<string, string | number>>
+  imageResourceTokens?: Readonly<Record<string, string>>
+  showImageRecoveryActions: boolean
+  onImageResourceStateChange?: (state: ImageResourceStateChange) => void
+}) {
+  return (
+    <div
+      style={{
+        position: "relative",
+        width: "100%",
+        height: "100%",
+      }}
+    >
+      {content.map((node) => (
+        <RenderNode
+          key={node.id}
+          imageSemantics={imageSemantics}
+          node={node}
+          imageResourceRevision={imageResourceRevisions?.[node.id]}
+          imageResourceToken={imageResourceTokens?.[node.id]}
+          showImageRecoveryActions={showImageRecoveryActions}
+          onImageResourceStateChange={onImageResourceStateChange}
+        />
+      ))}
+    </div>
+  )
+}
+
+/**
+ * Renders one Gate M0 rectangle/vector entry. It is deliberately separate
+ * from Artboard until schema-backed groups choose the shared paint-plan path.
+ */
+export function MaskGroupPaintEntry({
+  entry,
+  nodesById,
+  imageSemantics = "content",
+  imageResourceRevisions,
+  imageResourceTokens,
+  showImageRecoveryActions = true,
+  onImageResourceStateChange,
+}: {
+  entry: PagePaintPlanEntry
+  nodesById: ReadonlyMap<string, SceneNode>
+  imageSemantics?: "content" | "thumbnail"
+  imageResourceRevisions?: Readonly<Record<string, string | number>>
+  imageResourceTokens?: Readonly<Record<string, string>>
+  showImageRecoveryActions?: boolean
+  onImageResourceStateChange?: (state: ImageResourceStateChange) => void
+}) {
+  const {
+    content,
+    entry: maskEntry,
+    source,
+  } = maskGroupRenderModel(entry, nodesById)
+  const maskId = `studio-mask-${useId().replaceAll(":", "")}`
+  const wrapperStyle = renderMaskGroupWrapperStyle(maskEntry.bounds)
+  const contentProps = {
+    content,
+    imageSemantics,
+    imageResourceRevisions,
+    imageResourceTokens,
+    showImageRecoveryActions,
+    onImageResourceStateChange,
+  }
+
+  if (!shouldCompositeMaskGroup(maskEntry)) {
+    return (
+      <div data-mask-group-id={maskEntry.groupId} style={wrapperStyle}>
+        <div
+          style={{
+            position: "absolute",
+            left: -maskEntry.bounds.x,
+            top: -maskEntry.bounds.y,
+            width: "100%",
+            height: "100%",
+          }}
+        >
+          <RenderMaskGroupContent {...contentProps} />
+        </div>
+      </div>
+    )
+  }
+
+  const sourceAttributes = renderVectorMaskSourceAttributes(
+    source,
+    maskEntry.bounds
+  )
+  return (
+    <svg
+      data-mask-group-id={maskEntry.groupId}
+      role="presentation"
+      style={wrapperStyle}
+      viewBox={`0 0 ${maskEntry.bounds.width} ${maskEntry.bounds.height}`}
+    >
+      <defs>
+        <mask
+          height={maskEntry.bounds.height}
+          id={maskId}
+          maskUnits="userSpaceOnUse"
+          style={{ maskType: "alpha" }}
+          width={maskEntry.bounds.width}
+          x={0}
+          y={0}
+        >
+          <rect {...sourceAttributes} />
+        </mask>
+      </defs>
+      <g mask={`url(#${maskId})`}>
+        <foreignObject
+          height={maskEntry.bounds.height}
+          width={maskEntry.bounds.width}
+          x={0}
+          y={0}
+        >
+          <div
+            style={{
+              position: "absolute",
+              left: -maskEntry.bounds.x,
+              top: -maskEntry.bounds.y,
+              width: "100%",
+              height: "100%",
+            }}
+          >
+            <RenderMaskGroupContent {...contentProps} />
+          </div>
+        </foreignObject>
+      </g>
+    </svg>
+  )
+}
+
+/** Opt-in Gate M0 page consumer used by the retained browser oracle. */
+export function PagePaintPlanView({
+  plan,
+  nodesById,
+  width,
+  height,
+  background,
+}: {
+  plan: PagePaintPlan
+  nodesById: ReadonlyMap<string, SceneNode>
+  width: number
+  height: number
+  background: string
+}) {
+  return (
+    <div
+      data-page-paint-plan={plan.pageId}
+      style={{
+        position: "relative",
+        width,
+        height,
+        overflow: "hidden",
+        background,
+      }}
+    >
+      {plan.entries.map((entry) => {
+        if (entry.kind === "mask_group") {
+          return (
+            <MaskGroupPaintEntry
+              key={entry.groupId}
+              entry={entry}
+              nodesById={nodesById}
+              showImageRecoveryActions={false}
+            />
+          )
+        }
+        const node = nodesById.get(entry.nodeId)
+        return node ? (
+          <RenderNode
+            key={node.id}
+            imageSemantics="content"
+            node={node}
+            showImageRecoveryActions={false}
+          />
+        ) : null
+      })}
+    </div>
+  )
+}
 
 export function renderTextLineStyle(line: ProjectedTextLine): CSSProperties {
   return {

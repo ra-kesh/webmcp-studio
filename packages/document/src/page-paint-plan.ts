@@ -250,10 +250,11 @@ export function projectPagePaintPlan(
           { groupId: relation.groupId, nodeId: sourceNodeId }
         )
       }
-      if (nodesById.get(sourceNodeId)?.type !== "rect") {
+      const sourceNode = nodesById.get(sourceNodeId)
+      if (sourceNode?.type !== "rect" || sourceNode.strokeWidth !== 0) {
         throw new PagePaintPlanError(
           "MASK_GROUP_UNSUPPORTED_SOURCE",
-          `Mask source ${sourceNodeId} is outside the Gate M0 rectangle contract`,
+          `Mask source ${sourceNodeId} is outside the Gate M0 unstroked rectangle contract`,
           { groupId: relation.groupId, nodeId: sourceNodeId }
         )
       }

@@ -11,6 +11,10 @@ import {
   type SceneNode,
 } from "@webmcp/document"
 import type { PageThumbnailSize } from "@webmcp/document"
+import type {
+  PagePaintPlanEntry,
+  PagePaintBounds,
+} from "@webmcp/document/internal/page-paint-plan"
 import { GEIST_LATIN_WOFF2_BASE64 } from "./geist-font"
 
 const MANAGED_FONT_FAMILY = "Geist Variable"
@@ -287,6 +291,92 @@ export function renderNodeToHtml(node: SceneNode): string {
   ].join(";")
   const textIdentity = `${identity} data-text-sizing-mode="${projection.content.sizingMode}" data-text-measurement="${projection.content.layout.measurement}" data-text-line-count="${projection.content.layout.lineCount}" data-text-overflow="${projection.content.layout.overflow ? "true" : "false"}" data-text-overflow-x="${projection.content.layout.overflowX ? "true" : "false"}" data-text-overflow-y="${projection.content.layout.overflowY ? "true" : "false"}"`
   return `<div ${textIdentity} style="${textStyle}">${renderTextMarkup(projection)}</div>`
+}
+
+const maskIdentifier = (groupId: string): string =>
+  `studio-mask-${Array.from(groupId, (character) =>
+    character.codePointAt(0)?.toString(16).padStart(6, "0")
+  ).join("-")}`
+
+const renderVectorMaskSource = (
+  node: SceneNode,
+  bounds: PagePaintBounds
+): string => {
+  if (node.type !== "rect") {
+    throw new Error(`Mask source ${node.id} must be a rectangle`)
+  }
+  const projection = projectNodeForRender(node)
+  if (projection.type !== "rect") {
+    throw new Error(`Mask source ${node.id} did not project as a rectangle`)
+  }
+  const { frame } = projection
+  const x = frame.x - bounds.x
+  const y = frame.y - bounds.y
+  const stroke = projection.content.stroke
+    ? ` stroke="white" stroke-width="${projection.content.strokeWidth}" stroke-opacity="${frame.opacity}"`
+    : ""
+  return `<rect data-mask-source-id="${escapeHtml(frame.id)}" x="${x}" y="${y}" width="${frame.width}" height="${frame.height}" rx="${projection.content.radius}" ry="${projection.content.radius}" fill="white" fill-opacity="${frame.opacity}"${stroke} transform="rotate(${frame.rotation} ${x} ${y})" />`
+}
+
+/**
+ * Serializes one shared page-paint-plan entry for the Gate M0 vector-mask
+ * feasibility fixture. It is deliberately not part of the normal document
+ * traversal until mask relations become canonical schema data.
+ */
+export function renderPagePaintPlanEntryToHtml(
+  entry: PagePaintPlanEntry,
+  nodesById: ReadonlyMap<string, SceneNode>
+): string {
+  if (entry.kind === "node") {
+    const node = nodesById.get(entry.nodeId)
+    if (!node) throw new Error(`Unknown paint-plan node: ${entry.nodeId}`)
+    return renderNodeToHtml(node)
+  }
+
+  if (entry.maskType !== "vector") {
+    throw new Error(`Unsupported mask type: ${entry.maskType}`)
+  }
+  const content = entry.content
+    .map((child) => renderPagePaintPlanEntryToHtml(child, nodesById))
+    .join("")
+  const { bounds } = entry
+  const groupId = escapeHtml(entry.groupId)
+  const compositeStyle = [
+    "position:absolute",
+    "box-sizing:border-box",
+    `left:${bounds.x}px`,
+    `top:${bounds.y}px`,
+    `width:${bounds.width}px`,
+    `height:${bounds.height}px`,
+    "overflow:hidden",
+    "isolation:isolate",
+  ]
+  const contentStyle = [
+    "position:absolute",
+    "left:0",
+    "top:0",
+    `width:${bounds.width}px`,
+    `height:${bounds.height}px`,
+    `transform:translate(${-bounds.x}px,${-bounds.y}px)`,
+    "transform-origin:top left",
+  ]
+
+  if (!entry.maskEnabled || !entry.compositeRequired) {
+    return `<div data-mask-group-id="${groupId}" data-mask-enabled="${entry.maskEnabled ? "true" : "false"}" data-mask-composite="false" style="${compositeStyle.join(";")}"><div data-mask-content="${groupId}" style="${contentStyle.join(";")}">${content}</div></div>`
+  }
+
+  const maskId = maskIdentifier(entry.groupId)
+  const sources = entry.visibleSourceNodeIds.map((sourceNodeId) => {
+    const source = nodesById.get(sourceNodeId)
+    if (!source) throw new Error(`Unknown mask source: ${sourceNodeId}`)
+    return renderVectorMaskSource(source, bounds)
+  })
+  compositeStyle.push(
+    `mask:url(#${maskId})`,
+    `-webkit-mask:url(#${maskId})`,
+    "mask-mode:alpha"
+  )
+  return `<div data-mask-group-id="${groupId}" data-mask-enabled="true" data-mask-composite="true" style="${compositeStyle.join(";")}"><svg aria-hidden="true" width="0" height="0" style="position:absolute"><defs><mask id="${maskId}" x="0" y="0" width="${bounds.width}" height="${bounds.height}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" mask-type="alpha">${sources.join("")}</mask></defs></svg><div data-mask-content="${groupId}" style="${contentStyle.join(";")}">${content}</div></div>`
 }
 
 function pageNodesMarkup(document: Document, pageId: string): string {

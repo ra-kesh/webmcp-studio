@@ -1,5 +1,5 @@
 import { projectPagePaintPlan, type MaskPaintRelation } from "./page-paint-plan"
-import type { Page, SceneNode } from "./schema"
+import { documentSchema, type Page, type SceneNode } from "./schema"
 
 export const maskRenderConformancePage: Page = {
   id: "mask-conformance-page",
@@ -96,3 +96,37 @@ export const maskRenderConformanceHiddenSourcePlan = projectPagePaintPlan(
   maskRenderConformanceHiddenSourceNodes,
   [maskRenderConformanceRelation]
 )
+
+/**
+ * Schema-v4 carrier used only to verify retained fixture identity in the
+ * browser harness. Its ordinary page order is not a mask representation.
+ */
+export const maskRenderConformanceDocument = documentSchema.parse({
+  schemaVersion: 4,
+  id: "mask-render-conformance-v1",
+  name: "Mask renderer conformance carrier",
+  revision: 1,
+  createdAt: "2026-08-31T00:00:00.000Z",
+  updatedAt: "2026-08-31T00:00:00.000Z",
+  outputs: [
+    {
+      id: "mask-conformance-output",
+      name: "Mask conformance output",
+      kind: "proposal",
+      pageIds: [maskRenderConformancePage.id],
+      exportFormats: ["png", "pdf"],
+    },
+  ],
+  pages: [maskRenderConformancePage],
+  nodes: maskRenderConformanceNodes,
+  groups: [],
+  components: [],
+  componentInstances: [],
+  typographyStyles: [],
+  paintStyles: [],
+  variables: [],
+  variableBindings: [],
+  fields: [],
+  fieldValues: {},
+  bindings: [],
+})

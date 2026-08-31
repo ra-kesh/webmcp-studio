@@ -62,6 +62,10 @@ import {
   type TextSelection,
 } from "@webmcp/document"
 import type {
+  PagePaintBounds,
+  PagePaintPlanEntry,
+} from "@webmcp/document/internal/page-paint-plan"
+import type {
   CanvasAdapter,
   CanvasAdapterEvents,
   CanvasImageCropDraft,
@@ -1473,6 +1477,128 @@ export function createFabricSyncObject(
   positionFixedTextboxFrame(text, node)
   applyFabricTextControlPolicy(text, node)
   return text
+}
+
+/**
+ * The deliberately narrow Fabric-side consumer for the Gate M0 paint oracle.
+ * It is not part of document synchronization: callers provide detached content
+ * objects, and the result must never be serialized as canonical mask state.
+ *
+ * Fabric groups use a centre-local child coordinate space even when their own
+ * origin is top-left. The helper moves each page-positioned child into that
+ * space. The mask is the final child and paints with destination-in inside the
+ * group's bounded cache, so its opacity remains meaningful and cannot affect
+ * the rest of the canvas.
+ */
+export type FabricVectorMaskPaint =
+  | Readonly<{
+      kind: "fallthrough"
+      objects: readonly FabricObject[]
+    }>
+  | Readonly<{
+      kind: "composite"
+      object: Group
+      maskObject: Rect
+    }>
+
+export function createFabricVectorMaskPaint(
+  entry: Extract<PagePaintPlanEntry, { kind: "mask_group" }>,
+  nodesById: ReadonlyMap<string, SceneNode>,
+  createContentObject: (node: SceneNode) => FabricObject
+): FabricVectorMaskPaint {
+  if (entry.maskType !== "vector") {
+    throw new Error("Fabric Gate M0 only supports vector mask paint entries")
+  }
+
+  const contentNodes = entry.content.map((content) => {
+    if (content.kind !== "node") {
+      throw new Error("Fabric Gate M0 does not support nested mask composites")
+    }
+    const node = nodesById.get(content.nodeId)
+    if (!node) {
+      throw new Error(`Fabric mask content ${content.nodeId} is missing`)
+    }
+    return node
+  })
+  const contentObjects = contentNodes.map(createContentObject)
+
+  // A hidden source explicitly falls through to normal content paint. Do not
+  // allocate a Group (and therefore no bounded offscreen cache) in this case.
+  if (!entry.compositeRequired) {
+    return { kind: "fallthrough", objects: contentObjects }
+  }
+
+  const sourceNodeId = entry.visibleSourceNodeIds[0]
+  const source = sourceNodeId ? nodesById.get(sourceNodeId) : undefined
+  if (
+    entry.visibleSourceNodeIds.length !== 1 ||
+    !source ||
+    source.type !== "rect"
+  ) {
+    throw new Error(
+      "Fabric Gate M0 requires exactly one visible rectangle vector source"
+    )
+  }
+  assertFabricMaskBounds(entry.bounds)
+
+  const maskObject = new Rect({
+    left: source.x,
+    top: source.y,
+    width: source.width,
+    height: source.height,
+    rx: source.radius,
+    ry: source.radius,
+    angle: source.rotation,
+    opacity: source.opacity,
+    originX: "left",
+    originY: "top",
+    fill: "#000000",
+    strokeWidth: 0,
+    globalCompositeOperation: "destination-in",
+    selectable: false,
+    evented: false,
+  })
+  const toCompositeCoordinates = (object: FabricObject) => {
+    // A detached object created from a Studio node is page-positioned. Convert
+    // it to the composite's centre-local coordinate system without changing
+    // its top-left rotation origin or its own affine properties.
+    object.set({
+      left: (object.left ?? 0) - entry.bounds.x - entry.bounds.width / 2,
+      top: (object.top ?? 0) - entry.bounds.y - entry.bounds.height / 2,
+    })
+    object.setCoords()
+    return object
+  }
+  const objects = contentObjects.map(toCompositeCoordinates)
+  toCompositeCoordinates(maskObject)
+  const object = new Group([...objects, maskObject], {
+    left: entry.bounds.x,
+    top: entry.bounds.y,
+    width: entry.bounds.width,
+    height: entry.bounds.height,
+    originX: "left",
+    originY: "top",
+    layoutManager: new LayoutManager(new FixedLayout()),
+    objectCaching: true,
+    selectable: false,
+    evented: false,
+    subTargetCheck: false,
+  })
+  object.setCoords()
+  return { kind: "composite", object, maskObject }
+}
+
+function assertFabricMaskBounds(bounds: PagePaintBounds) {
+  if (
+    !Number.isFinite(bounds.x) ||
+    !Number.isFinite(bounds.y) ||
+    !Number.isFinite(bounds.width) ||
+    !Number.isFinite(bounds.height) ||
+    bounds.width <= 0 ||
+    bounds.height <= 0
+  ) {
+    throw new Error("Fabric mask composite bounds must be finite and positive")
+  }
 }
 
 async function createImageObject(
