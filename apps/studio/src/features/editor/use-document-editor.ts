@@ -95,12 +95,13 @@ import {
   replaceDocumentWithResult,
   undoDocument,
 } from "@webmcp/editor/history"
-import {
-  createLibraryTemplateActions,
-  type ResolvedTemplateAction,
-  type TemplateActionIntent,
-  type TemplateActionSnapshot,
-  type TemplateMutation,
+import { createLibraryTemplateActions } from "../../content/library/library-template-actions"
+import type {
+  ResolvedTemplateAction,
+  TemplateActionIntent,
+  TemplateActionPorts,
+  TemplateActionSnapshot,
+  TemplateMutation,
 } from "../../content/library/library-template-actions"
 import { studioLibraryDiscoveryAdapter } from "../../content/library/library-discovery-adapter"
 import type {
@@ -243,6 +244,10 @@ import type {
   DraftOrigin,
   DraftRepositoryEvent,
 } from "./document-draft-repository"
+import {
+  completedLibraryTemplateCreate,
+  failedLibraryTemplateCreate,
+} from "./library-template-create-completion"
 import { DocumentDraftSaveController } from "./document-draft-save-controller"
 import type { LocalSaveState } from "./document-draft-save-controller"
 import { projectDocumentConflictModel } from "./document-conflict-model"
@@ -864,6 +869,19 @@ const expectedHeadForSummary = (
 const expectedHeadForRecord = (record: DocumentDraftRecord) =>
   expectedHeadForSummary(record.summary)
 
+const serverLibraryTemplateDetailPort: TemplateActionPorts["getDetail"] =
+  async (kind, id, version, signal) => {
+    const detail = await studioLibraryDiscoveryAdapter.getDetail(
+      kind,
+      id,
+      version,
+      signal
+    )
+    return detail.summary.itemKind === "template"
+      ? libraryTemplateDetailSchema.parse(detail)
+      : null
+  }
+
 function reconcileSelection(
   selection: Selection | null,
   document: Document
@@ -889,6 +907,7 @@ export function useDocumentEditor({
   onHistoryCommit,
   historyOptions,
   persistence,
+  libraryTemplateDetailPort = serverLibraryTemplateDetailPort,
 }: {
   initialRecord?: DocumentDraftRecord | null
   initialRecordWarning?: string | null
@@ -897,6 +916,7 @@ export function useDocumentEditor({
   onHistoryCommit?: (entry: DocumentHistoryCommit) => void
   historyOptions?: DocumentHistoryOptions
   persistence: StudioPersistenceApi
+  libraryTemplateDetailPort?: TemplateActionPorts["getDetail"]
 }) {
   const persistenceRef = useRef(persistence)
   persistenceRef.current = persistence
@@ -1248,17 +1268,7 @@ export function useDocumentEditor({
   > | null>(null)
   if (!libraryTemplateActionsRef.current) {
     libraryTemplateActionsRef.current = createLibraryTemplateActions({
-      async getDetail(kind, id, version, signal) {
-        const detail = await studioLibraryDiscoveryAdapter.getDetail(
-          kind,
-          id,
-          version,
-          signal
-        )
-        return detail.summary.itemKind === "template"
-          ? libraryTemplateDetailSchema.parse(detail)
-          : null
-      },
+      getDetail: libraryTemplateDetailPort,
       getCurrent: readTemplateActionSnapshot,
       prepareCreate(identity, current) {
         return prepareCreateFromTemplate({
@@ -9979,7 +9989,7 @@ export function useDocumentEditor({
         setDocumentError(
           "The active document changed while this template was being prepared. Choose the template again for the document now open."
         )
-        return false
+        return failedLibraryTemplateCreate()
       }
       const mutation = mutationInput as PreparedTemplateMutation
       const definition = builtInDesignTemplateRepository.get(
@@ -10002,27 +10012,28 @@ export function useDocumentEditor({
         setDocumentError(
           "The active document changed while this template was being prepared. Choose the template again for the document now open."
         )
-        return false
+        return failedLibraryTemplateCreate()
       }
-      if (
-        !(await persistAndInstallSession(
-          {
-            schemaVersion: 1,
-            document: mutation.document,
-            sourceContext,
-          },
-          {
-            kind: "template",
-            templateId: intent.id,
-            templateVersion: intent.version,
-          },
-          canInstall
-        ))
+      const installed = await persistAndInstallSession(
+        {
+          schemaVersion: 1,
+          document: mutation.document,
+          sourceContext,
+        },
+        {
+          kind: "template",
+          templateId: intent.id,
+          templateVersion: intent.version,
+        },
+        canInstall
       )
-        return false
+      if (!installed) return failedLibraryTemplateCreate()
       setTemplateActionError(null)
       setDocumentError(null)
-      return true
+      return completedLibraryTemplateCreate(
+        activeRecordRef.current,
+        mutation.document.id
+      )
     },
     [isCurrentTemplateActionSnapshot, persistAndInstallSession]
   )
@@ -10097,8 +10108,9 @@ export function useDocumentEditor({
 
   const confirmCreateFromLibraryTemplate = useCallback(
     async (resolved: ResolvedTemplateAction) => {
-      if (!allowMutation(false, true)) return false
-      if (activeLibraryTemplateInstallRef.current) return false
+      if (!allowMutation(false, true)) return failedLibraryTemplateCreate()
+      if (activeLibraryTemplateInstallRef.current)
+        return failedLibraryTemplateCreate()
       try {
         const mutation = await libraryTemplateActions.confirmCreate(resolved)
         const token = Symbol("library-template-create")
@@ -10124,7 +10136,7 @@ export function useDocumentEditor({
           error,
           "The selected template could not create a document."
         )
-        return false
+        return failedLibraryTemplateCreate()
       }
     },
     [
@@ -10195,8 +10207,8 @@ export function useDocumentEditor({
         version,
       })
       return resolved
-        ? confirmCreateFromLibraryTemplate(resolved)
-        : Promise.resolve(false)
+        ? (await confirmCreateFromLibraryTemplate(resolved)).succeeded
+        : false
     },
     [confirmCreateFromLibraryTemplate, resolveCreateFromLibraryTemplate]
   )

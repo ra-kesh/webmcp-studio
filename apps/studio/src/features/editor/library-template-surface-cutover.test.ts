@@ -42,4 +42,17 @@ describe("shared library template surface cutover", () => {
       "resolvedShellLayout.canUseDesktopLayout &&\n                    documentPanelTab"
     )
   })
+
+  it("routes Start, desktop, and compact template creation through one post-create command", () => {
+    expect(shellSource).toContain(
+      "const createFromLibraryTemplate = useCallback"
+    )
+    expect(shellSource).toContain("createLibraryTemplateDocument(template")
+    expect(
+      shellSource.match(/\(\) => createFromLibraryTemplate\(template\)/g)
+    ).toHaveLength(3)
+    expect(shellSource).not.toContain(
+      "const resolved =\n                  await editor.resolveCreateFromLibraryTemplate(template)"
+    )
+  })
 })

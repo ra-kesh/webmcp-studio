@@ -241,6 +241,20 @@ export function useLibraryPreferences(): LibraryPreferenceApi {
 }
 
 /**
+ * Read the stable command surface without subscribing the caller to preference
+ * projection updates. Document owners use this for noncritical side effects.
+ */
+export function useLibraryPreferenceCommands(): LibraryPreferenceCommands {
+  const context = useContext(LibraryPreferenceContext)
+  if (!context) {
+    throw new Error(
+      "useLibraryPreferenceCommands must be used within LibraryPreferenceProvider."
+    )
+  }
+  return context.commands
+}
+
+/**
  * Subscribe the discovery owner to authoritative preference revisions without
  * making it a consumer of preference state or editor-document state.
  */

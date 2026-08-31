@@ -212,6 +212,8 @@ import {
   DOCUMENT_TRANSITION_DISABLED_REASON,
   useDocumentEditor,
 } from "./editor/use-document-editor"
+import { createLibraryTemplateDocument } from "./editor/library-template-create-command"
+import { useLibraryPreferenceCommands } from "../content/library/library-preference-provider"
 import type { ReviewAffectedTarget } from "./editor/review-journal"
 import type { DocumentDraftRecord } from "./editor/document-draft-repository"
 import type { DocumentRouteMediaAdmission } from "./editor/document-route-admission"
@@ -429,6 +431,7 @@ export function StudioShell({
   onSessionOpened,
 }: StudioShellProps = {}) {
   const persistence = useStudioPersistence()
+  const libraryPreferenceCommands = useLibraryPreferenceCommands()
   const [routeTransitionPending, setRouteTransitionPending] = useState(false)
   const [initialShellLayoutState] = useState(() => {
     if (typeof window === "undefined") {
@@ -1652,6 +1655,19 @@ export function StudioShell({
         ? requestDraftReplacement(intent, nextActionLabel, run)
         : createSeparateDraft(intent, run),
     [createSeparateDraft, editor.localSaveState.status, requestDraftReplacement]
+  )
+  const createFromLibraryTemplate = useCallback(
+    (template: Parameters<typeof editor.resolveCreateFromLibraryTemplate>[0]) =>
+      createLibraryTemplateDocument(template, {
+        resolve: editor.resolveCreateFromLibraryTemplate,
+        confirm: editor.confirmCreateFromLibraryTemplate,
+        recordUsed: libraryPreferenceCommands.recordUsed,
+      }),
+    [
+      editor.confirmCreateFromLibraryTemplate,
+      editor.resolveCreateFromLibraryTemplate,
+      libraryPreferenceCommands.recordUsed,
+    ]
   )
 
   const zoomAtPoint = useCallback(
@@ -3365,13 +3381,7 @@ export function StudioShell({
                 version: template.version,
               },
               "Starting from the selected template",
-              async () => {
-                const resolved =
-                  await editor.resolveCreateFromLibraryTemplate(template)
-                return resolved
-                  ? editor.confirmCreateFromLibraryTemplate(resolved)
-                  : false
-              }
+              () => createFromLibraryTemplate(template)
             )
           }}
           onImportFile={async (file) =>
@@ -4203,15 +4213,7 @@ export function StudioShell({
                         version: template.version,
                       },
                       "Starting from the selected template",
-                      async () => {
-                        const resolved =
-                          await editor.resolveCreateFromLibraryTemplate(
-                            template
-                          )
-                        return resolved
-                          ? editor.confirmCreateFromLibraryTemplate(resolved)
-                          : false
-                      }
+                      () => createFromLibraryTemplate(template)
                     )) !== false
                   }
                   onResolveApplyTemplate={async (template) => {
@@ -4916,13 +4918,7 @@ export function StudioShell({
                       version: template.version,
                     },
                     "Starting from the selected template",
-                    async () => {
-                      const resolved =
-                        await editor.resolveCreateFromLibraryTemplate(template)
-                      return resolved
-                        ? editor.confirmCreateFromLibraryTemplate(resolved)
-                        : false
-                    }
+                    () => createFromLibraryTemplate(template)
                   )) !== false
                 }
                 onResolveApplyTemplate={async (template) => {

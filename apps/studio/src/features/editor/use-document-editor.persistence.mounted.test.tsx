@@ -36,7 +36,12 @@ import {
 } from "./studio-persistence-test-wrapper"
 import type { StudioPersistenceApi } from "../persistence/studio-persistence-provider"
 import { useDocumentEditor } from "./use-document-editor"
-import type { ResolvedTemplateAction } from "../../content/library/library-template-actions"
+import type {
+  ResolvedTemplateAction,
+  TemplateActionPorts,
+} from "../../content/library/library-template-actions"
+import { getStudioLibraryCatalogDetail } from "../../content/library/catalog"
+import { createLibraryTemplateDocument } from "./library-template-create-command"
 
 type Editor = ReturnType<typeof useDocumentEditor>
 
@@ -209,6 +214,12 @@ const repositoryLifecycle = (editor: Editor): RepositoryLifecycle =>
 
 const claimsDurableSave = (editor: Editor) =>
   editor.localSaveState.status === "saved"
+
+const mountedLibraryTemplateDetailPort: TemplateActionPorts["getDetail"] =
+  async (kind, id, version, signal) => {
+    if (signal.aborted) throw signal.reason
+    return getStudioLibraryCatalogDetail(kind, id, version)
+  }
 
 const expectExactSourceContext = (record: DocumentDraftRecord) => {
   expect(record.envelope.sourceContext).toEqual(
@@ -385,6 +396,7 @@ function MountedEditor({
     initialRecord,
     onInitialRecordInstalled,
     persistence,
+    libraryTemplateDetailPort: mountedLibraryTemplateDetailPort,
   })
   useLayoutEffect(() => {
     capture(editor)
@@ -2948,6 +2960,126 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     })
   })
 
+  it("records Recent once after the exact created document becomes durable and active", async () => {
+    const envelope = quotationEnvelope()
+    const { captured, hookRepository } = await openEnvelope(
+      envelope,
+      "library-create-records-recent"
+    )
+    const recordUsed = vi.fn(async () => true)
+
+    let created = false
+    await act(async () => {
+      created = await createLibraryTemplateDocument(
+        {
+          itemKind: "template",
+          id: "quotation-midnight-film",
+          version: 3,
+        },
+        {
+          resolve: captured.current!.resolveCreateFromLibraryTemplate,
+          confirm: captured.current!.confirmCreateFromLibraryTemplate,
+          recordUsed,
+        }
+      )
+    })
+
+    expect(created).toBe(true)
+    const createdDocumentId = captured.current!.document.id
+    expect(createdDocumentId).not.toBe(envelope.document.id)
+    expect(await readRecord(hookRepository, createdDocumentId)).toMatchObject({
+      summary: { documentId: createdDocumentId, deletedAt: null },
+      envelope: { document: { id: createdDocumentId } },
+    })
+    await vi.waitFor(() => expect(recordUsed).toHaveBeenCalledOnce())
+    expect(recordUsed).toHaveBeenCalledWith(
+      {
+        itemKind: "template",
+        id: "quotation-midnight-film",
+        version: 3,
+      },
+      "Midnight Film",
+      "create",
+      createdDocumentId
+    )
+  })
+
+  it("keeps a successful session-only template creation out of Recent", async () => {
+    const unavailableFactory = {
+      open: () => {
+        throw new Error("IndexedDB denied by browser policy")
+      },
+    } as unknown as IDBFactory
+    const unavailableRepository = new DocumentDraftRepository({
+      indexedDB: unavailableFactory,
+      sessionId: "session-only-library-create",
+    })
+    const captured = await mount(() => unavailableRepository)
+    await vi.waitFor(() => {
+      expect(repositoryLifecycle(captured.current!)).toMatchObject({
+        status: "unavailable",
+      })
+    })
+    const recordUsed = vi.fn(async () => true)
+
+    let created = false
+    await act(async () => {
+      created = await createLibraryTemplateDocument(
+        {
+          itemKind: "template",
+          id: "editorial-one-pager",
+          version: 1,
+        },
+        {
+          resolve: captured.current!.resolveCreateFromLibraryTemplate,
+          confirm: captured.current!.confirmCreateFromLibraryTemplate,
+          recordUsed,
+        }
+      )
+    })
+
+    expect(created).toBe(true)
+    expect(captured.current!.localSaveState.status).toBe("session_only")
+    expect(recordUsed).not.toHaveBeenCalled()
+  })
+
+  it("keeps a failed durable template creation out of Recent", async () => {
+    const envelope = quotationEnvelope()
+    const { captured, hookRepository } = await openEnvelope(
+      envelope,
+      "library-create-failure-no-recent"
+    )
+    vi.spyOn(hookRepository, "create").mockResolvedValue({
+      ok: false,
+      reason: "storage_unavailable",
+      failure: {
+        kind: "storage_unavailable",
+        message: "Injected template creation failure",
+      },
+    })
+    const recordUsed = vi.fn(async () => true)
+
+    let created = true
+    await act(async () => {
+      created = await createLibraryTemplateDocument(
+        {
+          itemKind: "template",
+          id: "quotation-midnight-film",
+          version: 3,
+        },
+        {
+          resolve: captured.current!.resolveCreateFromLibraryTemplate,
+          confirm: captured.current!.confirmCreateFromLibraryTemplate,
+          recordUsed,
+        }
+      )
+    })
+
+    expect(created).toBe(false)
+    expect(captured.current!.document.id).toBe(envelope.document.id)
+    expect(recordUsed).not.toHaveBeenCalled()
+  })
+
   it("does not let caller-owned resolved snapshot state forge create authority", async () => {
     const envelope = quotationEnvelope()
     const { captured, hookRepository } = await openEnvelope(
@@ -2967,8 +3099,6 @@ describe.sequential("useDocumentEditor repository persistence", () => {
       if (resolved) resolvedAction = resolved
     })
     expect(resolvedAction).toBeDefined()
-    if (!resolvedAction)
-      throw new Error("Expected exact create action resolution")
 
     const node = captured.current!.document.nodes[0]
     await act(async () => {
@@ -2987,13 +3117,15 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     writableSnapshot.documentGeneration = captured.current!.operationVersion
     const create = vi.spyOn(hookRepository, "create")
 
-    let confirmed = true
+    let confirmed: Awaited<
+      ReturnType<Editor["confirmCreateFromLibraryTemplate"]>
+    > = { succeeded: true, completionId: null }
     await act(async () => {
       confirmed =
         await captured.current!.confirmCreateFromLibraryTemplate(resolvedAction)
     })
 
-    expect(confirmed).toBe(false)
+    expect(confirmed).toEqual({ succeeded: false, completionId: null })
     expect(create).not.toHaveBeenCalled()
     expect(captured.current!.document).toEqual(authoritativeDocument)
     expect(captured.current!.document.id).toBe(envelope.document.id)
@@ -3031,7 +3163,7 @@ describe.sequential("useDocumentEditor repository persistence", () => {
         return originalCreate(...arguments_)
       })
 
-    let confirmation = Promise.resolve(false)
+    let confirmation!: ReturnType<Editor["confirmCreateFromLibraryTemplate"]>
     await act(async () => {
       confirmation = captured.current!.confirmCreateFromLibraryTemplate(
         resolved!
@@ -3054,13 +3186,19 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     expect(laterResolution).toBeNull()
     expect(captured.current!.document.id).toBe(envelope.document.id)
 
-    let confirmed = false
+    let confirmed: Awaited<typeof confirmation> = {
+      succeeded: false,
+      completionId: null,
+    }
     await act(async () => {
       releaseCreate?.()
       confirmed = await confirmation
     })
 
-    expect(confirmed).toBe(true)
+    expect(confirmed).toEqual({
+      succeeded: true,
+      completionId: captured.current!.document.id,
+    })
     expect(create).toHaveBeenCalledOnce()
     expect(captured.current!.document.id).not.toBe(envelope.document.id)
     expect(captured.current!.activeDesignTemplate).toEqual({
@@ -3101,7 +3239,7 @@ describe.sequential("useDocumentEditor repository persistence", () => {
         return originalCreate(...arguments_)
       })
 
-    let confirmation = Promise.resolve(true)
+    let confirmation!: ReturnType<Editor["confirmCreateFromLibraryTemplate"]>
     await act(async () => {
       confirmation = captured.current!.confirmCreateFromLibraryTemplate(
         resolved!
@@ -3111,13 +3249,16 @@ describe.sequential("useDocumentEditor repository persistence", () => {
 
     await act(async () => root.unmount())
     root = createRoot(host)
-    let confirmed = true
+    let confirmed: Awaited<typeof confirmation> = {
+      succeeded: true,
+      completionId: "unexpected",
+    }
     await act(async () => {
       releaseCreate?.()
       confirmed = await confirmation
     })
 
-    expect(confirmed).toBe(false)
+    expect(confirmed).toEqual({ succeeded: false, completionId: null })
     expect(create).toHaveBeenCalledOnce()
     expect(captured.current!.document.id).toBe(envelope.document.id)
     expect(captured.current!.getActiveDocumentId()).toBeNull()

@@ -276,6 +276,45 @@ describe("LibraryPreferenceController", () => {
     expect(setFavorite.mock.calls[1]?.[1].idempotencyKey).toBe("mutation-key-1")
   })
 
+  it("retries an unknown Recent completion with the exact completion and idempotency key", async () => {
+    const statusUnknown = new LibraryPreferenceHttpError({
+      code: "library_mutation_status_unknown",
+      status: 409,
+      message: "The mutation result is unknown.",
+      requestId: "request-recent-status-unknown-1",
+      retryable: false,
+      commitStatus: "unknown",
+    })
+    const recordUsed = vi
+      .fn()
+      .mockRejectedValueOnce(statusUnknown)
+      .mockResolvedValueOnce(result(recordReceipt(2, 2)))
+    const { controller } = controllerHarness({ recordUsed })
+    await activate(controller)
+
+    await controller.recordUsed(
+      identity,
+      "Proposal",
+      "create",
+      "document-created-1"
+    )
+    const failureKey = "recent:template:proposal-template@1:document-created-1"
+    expect(controller.getSnapshot().failures.get(failureKey)).toMatchObject({
+      retryMode: "same_key",
+      commitStatus: "unknown",
+    })
+
+    await controller.retry(failureKey)
+
+    expect(recordUsed).toHaveBeenCalledTimes(2)
+    expect(recordUsed.mock.calls[0]?.[1]).toEqual({
+      completedAction: "create",
+      completionId: "document-created-1",
+      idempotencyKey: "mutation-key-1",
+    })
+    expect(recordUsed.mock.calls[1]?.[1]).toEqual(recordUsed.mock.calls[0]?.[1])
+  })
+
   it("reconciles 412 before Retry and uses a new key with the latest revision", async () => {
     const readSnapshot = vi
       .fn()

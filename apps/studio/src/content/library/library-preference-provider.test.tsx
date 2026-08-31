@@ -19,10 +19,12 @@ import type { LibraryPreferenceClient } from "./library-preference-client"
 import {
   LibraryPreferenceProvider,
   useLibraryDiscoveryInvalidation,
+  useLibraryPreferenceCommands,
   useLibraryPreferences,
 } from "./library-preference-provider"
 import type {
   LibraryPreferenceApi,
+  LibraryPreferenceCommands,
   LibraryPreferenceControllerFactory,
 } from "./library-preference-provider"
 
@@ -81,6 +83,21 @@ function PreferenceProbe({
 function InvalidationOnlyProbe({ onRender }: { onRender: () => void }) {
   onRender()
   useLibraryDiscoveryInvalidation(() => undefined)
+  return null
+}
+
+function CommandsOnlyProbe({
+  capture,
+  onRender,
+}: {
+  capture: (commands: LibraryPreferenceCommands) => void
+  onRender: () => void
+}) {
+  onRender()
+  const commands = useLibraryPreferenceCommands()
+  useLayoutEffect(() => {
+    capture(commands)
+  }, [capture, commands])
   return null
 }
 
@@ -258,5 +275,38 @@ describe("LibraryPreferenceProvider", () => {
     await refresh
 
     await vi.waitFor(() => expect(readSnapshot).toHaveBeenCalledTimes(2))
+  })
+
+  it("publishes stable commands without rerendering a document owner on preference changes", async () => {
+    let controller: LibraryPreferenceController | null = null
+    const factory: LibraryPreferenceControllerFactory = (dependencies) => {
+      controller = new LibraryPreferenceController({ ...dependencies, client })
+      return controller
+    }
+    const onRender = vi.fn()
+    const captured = { current: null as LibraryPreferenceCommands | null }
+
+    await act(async () =>
+      root.render(
+        <LibraryPreferenceProvider
+          createController={factory}
+          sessionId="session-commands-only"
+        >
+          <CommandsOnlyProbe
+            capture={(commands) => (captured.current = commands)}
+            onRender={onRender}
+          />
+        </LibraryPreferenceProvider>
+      )
+    )
+    await vi.waitFor(() =>
+      expect(controller?.getSnapshot().snapshotStatus).toBe("ready")
+    )
+    const rendersAfterReady = onRender.mock.calls.length
+
+    await act(async () => controller?.refresh())
+
+    expect(onRender).toHaveBeenCalledTimes(rendersAfterReady)
+    expect(captured.current?.recordUsed).toBeTypeOf("function")
   })
 })
