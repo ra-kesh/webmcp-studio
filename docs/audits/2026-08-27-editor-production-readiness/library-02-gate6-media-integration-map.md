@@ -1,0 +1,441 @@
+# LIBRARY-02 Gate 6 media integration map
+
+Date: 2026-08-31
+
+Status: implementation-ready; no production code changed
+
+## Scope and entry condition
+
+This map turns the media portion of
+[the LIBRARY-02 phase entry](./library-02-phase-entry.md) into an implementation
+sequence. It follows
+[the Gate 5 preferences and collections map](./library-02-gate5-preferences-collections-map.md).
+Gate 6 must start from the accepted Gate 5 checkpoint because the active Gate 5
+work owns the discovery provider, template browser, editor hook and shell files
+that later media integration will use.
+
+This is not an editor architecture change. Studio already has the required
+document commands, media repositories, local recovery work, render admission
+and discovery contracts. Gate 6 joins those owners through exact media
+identities and replaces the six-item compatibility path.
+
+The following earlier audits remain binding:
+
+- [MEDIA-01 implementation audit](./media-01-implementation-audit.md);
+- [MEDIA-01 UX audit](./media-01-ux-audit.md);
+- [MEDIA-01 browser acceptance](./media-01-browser-acceptance.md);
+- [MEDIA-01 independent browser review](./media-01-browser-independent-review.md);
+- [ASSET-02 render contract](./asset-02-domain-render-contract.md);
+- [ASSET-02 server render admission](./asset-02-server-render-admission.md);
+- [ASSET-02 image replacement readiness](./asset-02-image-replacement-readiness.md).
+
+Gate 6 may change discovery and selection wiring. It must not weaken missing
+local recovery, archive impact, reference accounting, renderer proof or private
+R2 ownership.
+
+## Verified current truth
+
+### Curated media
+
+- `apps/studio/src/content/library/media/manifest.ts` validates 37 immutable
+  items. Each resource path encodes item ID, version and SHA-256. The manifest
+  also owns dimensions, MIME type, byte count, category, use cases, timestamps,
+  license and attribution.
+- The 37 declared resources exist under
+  `apps/studio/public/library/media/`. The OpenMoji license is checked in beside
+  the imported resources.
+- `apps/studio/src/content/library/catalog.ts` projects the curated manifest
+  into the immutable 58-item Studio catalog and exact-detail map.
+- `apps/studio/src/features/editor/asset-catalog.ts` remains a compatibility
+  facade for six Studio originals. It rebuilds those SVG files as JavaScript
+  data URIs and sets `resourcePath` to `null`.
+- `apps/studio/src/features/editor/asset-catalog.test.ts` deliberately proves
+  that the other 31 manifest entries are not accepted through the old facade.
+- `apps/studio/src/features/editor/asset-library-dialog.tsx` imports
+  `studioAssets`. Its Library collection therefore exposes six curated items,
+  not the 37-item manifest.
+- `apps/studio/src/server/render-field-assets.ts` resolves built-in asset fields
+  through the same six-item facade. Managed aliases use the verified managed
+  resource path. The other curated items have no equivalent publication and
+  render materializer.
+
+The catalog is ready for discovery. Curated insertion, replacement, asset-field
+assignment, publication and rendering are not ready for all catalog items.
+
+### Managed workspace media
+
+- `migrations/0007_workspace_media_assets.sql` stores workspace ownership,
+  name, MIME type, byte count, dimensions, content hash, private R2 key, status,
+  revision and use timestamps. It has no library description, tags, category,
+  use cases, provenance or license fields.
+- `apps/studio/src/server/media-asset-repository.ts` lists only ready items and
+  constrains every read and mutation by workspace. Search currently covers the
+  name only.
+- The managed content route uses exact metadata, immutable private caching,
+  ETag, content length and `X-Content-Type-Options: nosniff`. R2 keys never
+  appear in the public record.
+- Archive requires a current deletion-impact token and refuses any asset with
+  current-document or published-version references. Archive retains the R2
+  object.
+- Render materialization verifies the stored hash and decoded dimensions. A
+  failed or mismatched resource cannot complete a render job.
+- `apps/studio/src/features/editor/use-document-editor.ts` refetches a managed
+  record through `getManagedMedia` before insert or replacement. It commits the
+  typed document command before marking the managed asset used.
+- `apps/studio/src/server/library-catalog-service.ts` currently projects only
+  the fixed Studio catalog and principal preferences. It does not compose D1
+  managed media into library list or detail responses.
+
+Managed bytes and document use are sound. Search metadata and shared library
+discovery are missing.
+
+### Device-local media
+
+- `apps/studio/src/features/editor/local-asset-database.ts` and
+  `local-asset-store.ts` separate metadata, blobs, quarantine and promotion
+  journals in the version 6 IndexedDB schema.
+- Listing reads metadata without decoding every Blob. Per-record inspection
+  distinguishes ready, missing-byte and quarantined records instead of failing
+  the whole collection.
+- `apps/studio/src/features/editor/local-asset-preview.ts` uses a placeholder
+  when bytes are missing and does not silently replace canonical identity.
+- `apps/studio/src/features/editor/asset-library-model.ts` derives exact local
+  usage and archive impact from document references.
+- The media dialog already supports local upload, retry, recovery, promotion,
+  archive review and viewport-scoped object URLs.
+- `markLocalAssetUsed` updates the timestamp and increments the local record
+  revision. A local library identity that uses this revision is intentionally
+  mutable.
+- IndexedDB bytes exist only in the current browser profile. A server catalog
+  cannot claim that those bytes are present on another device or in another
+  browser profile.
+
+Local media belongs in the visible discovery result through a client overlay.
+It does not belong in server catalog storage and must keep its recovery path.
+
+### Shared catalog and preferences
+
+- `packages/document/src/library-catalog.ts` has strict media summary and
+  detail contracts for `curated`, `managed` and `local` sources.
+- `packages/document/src/library-catalog-projections.ts` already projects all
+  three source kinds. Managed detail requires an authoritative refetch. Local
+  detail carries the exact record revision and rejects archived, missing-byte
+  and incomplete records.
+- `apps/studio/src/server/library-catalog-service.ts` binds list cursors to the
+  immutable base catalog revision and Gate 5 preference workspace revision.
+  Managed upload, archive, restore or metadata changes do not yet invalidate a
+  library cursor.
+- Gate 5 D1 preferences own favorites, last use and collections. Existing
+  managed `/used` receipts and browser-local curated Recent state are separate
+  mechanisms. Media actions do not yet call the Gate 5 `recordUsed` command.
+
+## P0 gaps
+
+### P0.1 Exact curated materialization
+
+Resolve every curated selection by item ID and immutable version. The resolver
+must match the manifest path, checksum, MIME type, byte count and dimensions
+before a document command commits. A catalog list row is not enough authority.
+
+The canonical document and asset-field value must retain immutable version and
+content identity. Do not reduce a selection to an unversioned ID, arbitrary
+network URL or generated data URI.
+
+The manifest resource needs an approved first-party content path. Static
+hosting may remain the transport if tests prove that only manifest-declared
+exact resources resolve and that the response has the expected MIME type,
+length, immutable cache identity, ETag and nosniff policy.
+
+### P0.2 Curated publication and render parity
+
+The editor, published versions, output renderer and asset-field resolver must
+use the same curated identity resolver. Extend the current
+`render-field-assets.ts` boundary without admitting arbitrary SVG, filesystem
+paths or remote URLs. Preserve the existing inline, network-isolated renderer
+policy and ASSET-02 resource expectations.
+
+### P0.3 Managed catalog authority
+
+Compose ready managed media into `LibraryCatalogService` with workspace-scoped
+summaries and exact details. Before insert, replacement or field assignment,
+refetch the authoritative managed record and recheck `selectable`. If the item
+was archived after listing, stop before document mutation.
+
+### P0.4 Catalog cursor invalidation
+
+The server catalog revision must include a bounded workspace media catalog
+revision as well as the immutable Studio catalog and preference revision.
+Upload, archive, restore and searchable metadata changes must invalidate an old
+page or cursor. Do not compute an unbounded aggregate hash during each list
+request.
+
+### P0.5 Local availability and revision truth
+
+Project ready local records through a browser-owned discovery adapter. Do not
+send Blob URLs, IndexedDB bytes or local availability claims through catalog
+HTTP. Refetch the exact local revision and integrity state before a document
+command. Keep missing, quarantined and archived records out of ordinary search
+while retaining their current recovery and archive interfaces.
+
+### P0.6 Post-command Recent receipts
+
+After a successful insert, replacement or asset-field assignment, record the
+exact library identity through Gate 5 `recordUsed`. A failure may warn, but it
+must not roll back the document command.
+
+Managed media must also keep its repository `/used` receipt because that state
+drives managed-media recency. These are two independent post-command effects,
+not two document mutations. Retire or migrate the old curated localStorage
+Recent record only after durable library use is working.
+
+## P1 gaps
+
+### P1.1 Searchable managed metadata
+
+Add workspace-scoped media catalog metadata with description, normalized tags,
+category, use cases, provenance, license and a catalog version. Upload defaults
+must say that the item is a workspace upload or customer-provided asset. Do not
+invent a license or public source.
+
+Keep `catalog_version` separate from `media_assets.revision`.
+`markUsed` increments the media record revision today. Using that revision as a
+library version would change favorite and collection identity after every use.
+
+### P1.2 One media discovery controller and browser
+
+Reuse `LibraryDiscoveryController`, the Gate 5 preference provider and the
+strict catalog query. Add a media browser that combines curated, managed and
+ready local items while showing source and availability honestly. Do not copy
+the template browser into a second query and pagination implementation.
+
+The first integration should feed the existing media dialog. It must preserve
+upload, recovery, archive-impact and promotion commands. Gate 7 can later mount
+the same browser as the persistent editor Assets area.
+
+### P1.3 Device-local organization boundary
+
+The server cannot admit or resolve a browser-only item identity. For Gate 6,
+project local items with `canFavorite: false` and
+`canAddToCollection: false` until promotion to managed media. If the product
+later requires durable organization of local-only items, it needs a stable
+server registry contract. Accepting an unverifiable local identity in Gate 5
+preferences would be false durability.
+
+### P1.4 Bounded rendering and object URL use
+
+Keep managed results cursor-based. Bound the local projection and rendered card
+count. Preserve the dialog's viewport-near Blob loading and URL revocation.
+Opening a large media result must not decode every local image or mount every
+preview.
+
+## Canonical owners and ports
+
+| Responsibility                            | Existing owner to reuse                                                                                                                        |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Library schemas, identity and projections | `packages/document/src/library-catalog.ts`, `packages/document/src/library-catalog-projections.ts`, `packages/document/src/media.ts`           |
+| Curated source metadata                   | `apps/studio/src/content/library/media/manifest.ts` and `apps/studio/public/library/media/`                                                    |
+| Catalog list, detail and cursor authority | `apps/studio/src/server/library-catalog-service.ts`, `apps/studio/src/server/library-http.ts`                                                  |
+| Managed D1 and R2 authority               | `apps/studio/src/server/media-asset-repository.ts`, `apps/studio/src/server/media-asset-http.ts`, `migrations/0007_workspace_media_assets.sql` |
+| Browser discovery                         | `apps/studio/src/content/library/discovery-controller.ts`, the current discovery client, adapter and provider                                  |
+| Durable favorites, Recent and collections | Gate 5 preference repository, HTTP client, controller and provider                                                                             |
+| Device-local bytes and integrity          | `apps/studio/src/features/editor/local-asset-database.ts`, `local-asset-store.ts`, `local-asset-preview.ts`, `asset-library-model.ts`          |
+| Document mutation                         | `apps/studio/src/features/editor/use-document-editor.ts` typed editor commands                                                                 |
+| Current visible media workflows           | `apps/studio/src/features/editor/asset-library-dialog.tsx`, `asset-library-components.tsx`                                                     |
+| Publication and renderer materialization  | `apps/studio/src/server/render-field-assets.ts` and `media-asset-repository.ts`                                                                |
+| Managed WebMCP discovery                  | `apps/studio/src/features/editor/managed-webmcp-catalog.ts`                                                                                    |
+
+The shell and dialog orchestrate these ports. They do not become new byte,
+permission, history or render authorities.
+
+## Non-overlapping implementation slices
+
+### Slice A. Curated exact content
+
+Own manifest lookup, exact content resolution, approved first-party serving,
+client materialization, publication and render resolution, and focused tests.
+Do not edit the media dialog or managed repository in this slice.
+
+Likely files:
+
+- `apps/studio/src/content/library/media/manifest.ts`;
+- a focused curated content resolver and route under `apps/studio/src/server/`;
+- route registration;
+- `apps/studio/src/server/render-field-assets.ts`;
+- `apps/studio/src/features/editor/asset-catalog.ts` during compatibility
+  removal;
+- focused content, publication and render tests.
+
+### Slice B. Managed metadata and catalog
+
+Own the D1 metadata migration, repository reads and mutations, metadata search,
+workspace media catalog revision, dynamic library summaries/details and item
+admission. Do not edit editor React or document mutation code.
+
+Likely files:
+
+- a migration after `0014`;
+- `apps/studio/src/server/media-asset-repository.ts`;
+- `apps/studio/src/server/media-asset-http.ts` if metadata receives a dedicated
+  endpoint;
+- `apps/studio/src/server/library-catalog-service.ts`;
+- `apps/studio/src/server/library-http.ts`;
+- repository, HTTP and catalog tests.
+
+### Slice C. Device-local discovery overlay
+
+Own a pure browser adapter from verified local inventory to strict library
+media summaries and details. It must project only ready items, disable durable
+organization and expose an exact revision recheck port. Do not edit the media
+dialog in this slice.
+
+Likely files:
+
+- a focused adapter under `apps/studio/src/content/library/`;
+- `apps/studio/src/features/editor/local-asset-store.ts` only if a read port is
+  missing;
+- projection and stale-revision tests.
+
+### Slice D. Shared media browser
+
+Start only after slices A, B and C settle their contracts. Own the media view
+over the current discovery controller and preference provider. Add media cards,
+filters, source labels, details, favorites and collections where permitted.
+Keep upload, recovery, archive and promotion code untouched during the first UI
+checkpoint.
+
+Likely files:
+
+- a media browser beside
+  `apps/studio/src/content/library/library-template-browser.tsx`;
+- shared library card or filter components where reuse is real;
+- browser, keyboard, paging and preference projection tests.
+
+### Slice E. Exact actions and dialog cutover
+
+Own the single action boundary for insert, replace and asset-field assignment.
+It resolves exact detail, performs source-specific validation, commits one typed
+document command, then records managed and library use. After that boundary is
+accepted, replace the dialog's six-item Library feed with the shared media
+browser without removing its upload, recovery, archive or promotion flows.
+
+Likely files:
+
+- `apps/studio/src/features/editor/use-document-editor.ts`;
+- a focused media selection command module if separation is needed;
+- `apps/studio/src/features/editor/asset-library-dialog.tsx`;
+- `apps/studio/src/features/studio-shell.tsx` for orchestration only;
+- action, history, recovery and integrated browser tests.
+
+Slices A, B and C can run in parallel after Gate 5 commits. Slice D depends on
+their public contracts. Slice E owns the overlapping editor files and runs
+last.
+
+## Sequence
+
+1. Finish, review and checkpoint Gate 5. Do not start Gate 6 on an uncommitted
+   discovery or preference provider.
+2. Freeze three contracts in focused tests: curated exact content, managed
+   metadata plus media catalog revision, and client-only local projection.
+3. Implement slices A, B and C in parallel.
+4. Compose curated and managed media in the server catalog. Compose ready local
+   media in the browser. Update dynamic item admission and cursor invalidation.
+5. Implement slice D with one shared media discovery controller and Gate 5
+   preference projection.
+6. Implement slice E. Refetch exact source state before each command and record
+   Recent only after the command succeeds.
+7. Cut the existing dialog over to the shared media feed. Re-run all recovery,
+   archive and render regressions before closing Gate 6.
+
+## Essential evidence
+
+### Curated content
+
+- Exhaustively match all 37 manifest records to exact file bytes, SHA-256, MIME
+  type, byte count and decoded dimensions.
+- Reject unknown IDs, wrong versions, mismatched hashes, retired records and
+  path traversal.
+- Verify content length, ETag, immutable cache policy and nosniff.
+- Prove catalog list and detail never expose data URIs, Blob URLs, R2 keys or
+  renderer-only sources.
+- Cover insert and replacement for each source family. Cover asset-field,
+  publication and renderer resolution.
+
+### Managed metadata and catalog
+
+- Prove workspace isolation for metadata, search, exact detail and content.
+- Test truthful upload defaults and normalized description, tags, category and
+  use-case search.
+- Prove `catalog_version` does not change when only `last_used_at` changes.
+- Prove upload, archive, restore and metadata changes invalidate an old library
+  cursor.
+- Simulate list success followed by archive. Exact refetch must stop the command
+  before document mutation.
+- Keep the current rule that an asset referenced by a draft or published
+  version cannot be archived. Re-run R2 hash and dimension verification.
+
+### Device-local projection
+
+- Ordinary discovery contains only ready records with verified dimensions.
+- Missing, quarantined and archived records remain absent from search but
+  continue to appear in the existing recovery or impact path.
+- A changed local revision fails exact selection before document mutation.
+- A second browser profile cannot claim the first profile's local availability.
+- Favorite and collection actions remain unavailable until promotion.
+
+### Actions and interface
+
+- Insert and replacement create one history entry each. Replacement preserves
+  geometry, crop, frame and binding rules already accepted under ASSET-02.
+- Asset-field assignment resolves the same exact media identity.
+- `recordUsed` runs only after command success. Managed `/used` or library
+  preference failure cannot roll back the document.
+- Favorites, Recent, collections and source information survive reload where
+  their source contract permits it.
+- Desktop and compact browser acceptance retains keyboard focus, 44 px action
+  targets, pending state and nonblocking failure recovery.
+- A 1,000-item media result keeps mounted cards and local object URLs bounded.
+
+### Required regressions
+
+- the current 18 MEDIA-01 browser acceptance scenarios;
+- missing-local locate, managed replacement and remove-reference recovery;
+- local and managed archive impact and exact reference counts;
+- local promotion journals and durable Recent repair;
+- managed renderer admission, R2 hash checks and decoded dimension checks;
+- published-version asset resolution.
+
+## Reference code inspected
+
+The reference repositories remain read-only research material. Studio does not
+copy or import their code.
+
+OpenPencil checkout:
+`/Users/rakesh/Documents/Codex/2026-08-26/https-openai-com-webmcp-challenge-https/outputs/reference-repos/editors/open-pencil`
+
+- `src/components/assets-panel/AssetsPanel.vue` shows one searchable asset
+  view with grouped sources, grid and list modes, details, per-item busy state,
+  keyboard insertion, canvas-centred placement and drag as an accelerator. Its
+  clickable `div` pattern is not suitable for Studio. Studio should keep native
+  buttons.
+- `packages/core/src/io/subgraph.ts` copies only the selected dependency
+  closure.
+- `packages/core/src/library/materialize.ts` materializes only referenced
+  library content and images.
+- `tests/e2e/components/assets-panel.spec.ts` covers grouping, search, view
+  changes, details, insertion, drag and coordinates.
+
+Loora checkout:
+`/Users/rakesh/Documents/Codex/2026-08-26/https-openai-com-webmcp-challenge-https/outputs/reference-repos/editors/loora`
+
+- `packages/editor/src/components/assets-panel.tsx` shows one asset view with
+  upload, drop, paste, search, sorting, lazy images, per-item busy state and
+  usage counts. Its physical delete and base64 upload choices are not suitable
+  for Studio because they can break references and bypass R2 ownership.
+- `packages/rpc/src/asset-url.ts` derives a stable content route from asset
+  identity.
+- `packages/rpc/src/storage.ts` scopes stored object keys by owner.
+
+[The Loora editor reference](../../loora-editor-reference.md) provides the
+broader transaction and command context. These files confirm the current Studio
+direction. They do not justify replacing Studio's document, media, recovery or
+renderer architecture.
