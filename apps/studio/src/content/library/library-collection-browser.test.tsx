@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act } from "react"
+import { StrictMode, act } from "react"
 import { createRoot } from "react-dom/client"
 import type { Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -220,6 +220,54 @@ describe("LibraryCollectionBrowserDialog", () => {
     expect(preferenceController.deleteCollection).toHaveBeenCalledWith(
       summary.id
     )
+  })
+
+  it("keeps a loaded member visible through the StrictMode lifecycle", async () => {
+    const oneMemberSummary: LibraryCollectionSummary = {
+      ...summary,
+      itemCount: 1,
+    }
+    const oneMemberDetail: LibraryCollectionDetail = {
+      summary: oneMemberSummary,
+      members: [detail.members[0]],
+    }
+    const preferenceController = staticPreferenceController(
+      preferenceState({
+        snapshot: preferenceSnapshot({ collections: [oneMemberSummary] }),
+        collectionDetails: new Map([
+          [oneMemberSummary.id, { status: "ready", detail: oneMemberDetail }],
+        ]),
+      })
+    )
+
+    await act(async () => {
+      root.render(
+        <StrictMode>
+          <DiscoveryTestRoot
+            controller={staticController(discoveryState())}
+            preferenceController={preferenceController}
+          >
+            <LibraryCollectionBrowserDialog
+              open
+              createMemberController={memberController}
+              request={request()}
+              onFilterCollection={vi.fn()}
+              onOpenChange={vi.fn()}
+            />
+          </DiscoveryTestRoot>
+        </StrictMode>
+      )
+      await Promise.resolve()
+    })
+
+    await vi.waitFor(() =>
+      expect(
+        document.querySelectorAll("[data-library-collection-member]")
+      ).toHaveLength(1)
+    )
+    expect(document.body.textContent).toContain("1 of 500 items")
+    expect(document.body.textContent).toContain(catalogTemplates[0].name)
+    expect(document.body.textContent).not.toContain("This collection is empty")
   })
 
   it("retains create input and renders action-specific request identity with Retry and Dismiss", async () => {

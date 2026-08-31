@@ -214,7 +214,10 @@ function CollectionMemberList({
         : catalogState.status === "dismissed"
           ? catalogState.members
           : null
-  if (catalogState.status === "loading" && !members) {
+  if (
+    (catalogState.status === "idle" && detail.members.length > 0) ||
+    (catalogState.status === "loading" && !members)
+  ) {
     return (
       <div
         className="grid min-h-40 place-items-center text-sm text-muted-foreground"
@@ -487,6 +490,7 @@ export function LibraryCollectionBrowserDialog({
     useRef<LibraryCollectionDialogRequest["pendingMember"]>(null)
   const renameSelectionRef = useRef<string | null>(null)
   const appliedRequestKeyRef = useRef<number | null>(null)
+  const memberControllerLifetimeRef = useRef(0)
 
   const selectedSummary =
     collections.find(({ id }) => id === selectedId) ?? null
@@ -515,7 +519,15 @@ export function LibraryCollectionBrowserDialog({
       ? memberState
       : IDLE_COLLECTION_CATALOG
 
-  useEffect(() => () => memberController.dispose(), [memberController])
+  useEffect(() => {
+    const lifetime = ++memberControllerLifetimeRef.current
+    return () => {
+      queueMicrotask(() => {
+        if (lifetime !== memberControllerLifetimeRef.current) return
+        memberController.dispose()
+      })
+    }
+  }, [memberController])
 
   useEffect(() => {
     if (!open) {
