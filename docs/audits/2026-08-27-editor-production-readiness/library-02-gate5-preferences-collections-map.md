@@ -2,7 +2,7 @@
 
 Date: 2026-08-31
 
-Status: shared contract and migration independently accepted; repository, HTTP and client are active
+Status: Steps 1-4 independently accepted; browser authority and preference UI integration are active
 
 ## Decision
 
@@ -51,6 +51,68 @@ Status: **independently accepted and committed on 2026-08-31; zero open P0/P1 fi
   `verify-library-preferences-collections-migration.sh` passes, and the final
   independent review reports zero P0/P1.
 - Checkpoint: `32659d6 feat: add library preference persistence schema`.
+
+## Step 3 result — principal-scoped repository and HTTP authority
+
+Status: **independently accepted and committed on 2026-08-31; zero open P0/P1 findings**
+
+- Added atomic D1 preference, Recent and collection mutations with exact
+  expected revisions, operation-specific item admission, replay-safe
+  idempotency claims and typed receipts.
+- Projection, preference snapshot and collection-detail reads use D1 batches so
+  their workspace epoch and rows cannot come from different committed states.
+- Reorder uses bounded `json_each` statements with 9 and 6 bindings regardless
+  of collection size; the 500-member contract is covered without crossing D1's
+  per-statement parameter limit.
+- Added strict principal-scoped list/detail/preference/collection routes,
+  canonical query/path/revision parsing, bounded JSON policies, private
+  no-store responses and sanitized internal validation failures.
+- Catalog projection masks durable favorite or collection state after the
+  corresponding permission is revoked, while the scoped repository state
+  remains available for cleanup.
+- Focused repository and HTTP evidence passes, Studio typecheck passes, and two
+  independent final reviews report zero P0/P1.
+- Checkpoints: `bfbeca4 feat: persist library preferences and collections` and
+  `0993f96 feat: expose principal-scoped library APIs`.
+
+## Step 4 result — resilient browser preference owner
+
+Status: **independently accepted and committed on 2026-08-31; zero open P0/P1 findings**
+
+- Added a strict HTTP client, framework-independent preference controller and
+  StrictMode-safe provider with one authoritative preference snapshot.
+- Transport-unknown results retain the same idempotency key; reconciled 412
+  retries use a new key only after newer authoritative state is ready.
+- Late reads and mutation receipts cannot overwrite newer workspace,
+  preference or collection authority. Ordered collection detail, add/remove
+  membership projections and exact retry/failure state have one public owner.
+- Cross-tab messages remain privacy-safe invalidation hints. Focus, visibility
+  and explicit Refresh coalesce one follow-up authoritative read when another
+  read is already active.
+- Focused client/controller/provider evidence passes 31/31, Studio typecheck
+  passes, and the final independent review reports zero P0/P1.
+- Checkpoint: `01070ab feat: add resilient library preference client`.
+
+## Step 5 entry — browser authority and shared surface
+
+Status: **active**
+
+The pre-implementation review found four boundaries that must close before
+browser acceptance:
+
+- the Studio `:3001` local D1 stores do not yet contain migration `0014`;
+- concurrent first library requests can race localhost demo-session creation,
+  so the route runtime must serialize initial preference and discovery access;
+- an invalidated append cursor must start a retained replacement instead of
+  retrying the dead cursor;
+- template creation still resolves exact detail through the process-local
+  adapter and must use the same server authority as visible discovery.
+
+The active implementation is split into three non-overlapping checkpoints:
+server-backed discovery and cursor recovery, route-owned runtime/session
+bootstrap, and exact preference projection plus Favorites/Recent/failure UI in
+the single shared browser. Collection management and post-create Recent remain
+the following checkpoints.
 
 ## Evidence revisited
 
