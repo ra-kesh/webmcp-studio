@@ -142,6 +142,35 @@ describe("document history", () => {
     })
     expect(created.history.document.commandReceipts).toHaveLength(1)
   })
+
+  it("changes vector to alpha as one exact undoable history step", () => {
+    const before = {
+      ...structuredClone(maskRenderConformanceDocument),
+      revision: 10,
+    }
+    const initial = createDocumentHistory(before, "alpha-before")
+    const changed = commitCommandsWithResult(initial, [
+      {
+        id: "history-set-alpha-mask",
+        type: "set_mask_type",
+        actor: "human",
+        at: "2026-08-31T15:15:00.000Z",
+        expectedRevision: before.revision,
+        pageId: "mask-conformance-page",
+        groupId: "mask-conformance-group",
+        maskType: "alpha",
+      },
+    ])!
+    expect(changed.history.past).toHaveLength(1)
+    expect(changed.history.document.groups[0]).toMatchObject({
+      role: "mask",
+      mask: { type: "alpha" },
+    })
+    expect(undoDocument(changed.history).document).toEqual(before)
+    expect(redoDocument(undoDocument(changed.history)).document).toEqual(
+      changed.history.document
+    )
+  })
   it("admits canonical documents through full schema validation once", () => {
     const invalid = structuredClone(northstarSeed)
     invalid.nodes[0]!.x = Number.NaN

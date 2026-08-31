@@ -106,9 +106,9 @@ describe("shared page paint plan mask oracle", () => {
           id: relation.groupId,
           role: "mask",
           pageId: page.id,
-          name: "Unsupported alpha mask",
+          name: "Unsupported luminance mask",
           nodeIds: relation.nodeIds,
-          mask: { type: "alpha", sourceNodeIds: relation.sourceNodeIds },
+          mask: { type: "luminance", sourceNodeIds: relation.sourceNodeIds },
         },
       ],
     } as unknown as Document
@@ -116,6 +116,96 @@ describe("shared page paint plan mask oracle", () => {
     expect(() => projectPagePaintPlan(document, page.id)).toThrowError(
       expect.objectContaining({ code: "MASK_GROUP_UNSUPPORTED_TYPE" })
     )
+  })
+
+  it("projects alpha source resource requirements without renderer-private state", () => {
+    const imageSource = {
+      id: "alpha-image",
+      type: "image" as const,
+      name: "Alpha image",
+      x: 20,
+      y: 30,
+      width: 120,
+      height: 90,
+      rotation: 0,
+      opacity: 0.75,
+      visible: true,
+      locked: false,
+      assetId: "alpha-image-asset",
+      src: "https://cdn.example.com/alpha.png",
+      placement: {
+        mode: "fill" as const,
+        focalX: 0.5,
+        focalY: 0.5,
+        zoom: 1,
+        rotation: 0,
+        flipX: false,
+        flipY: false,
+      },
+      frameMask: { shape: "ellipse" as const },
+      alt: "",
+      decorative: true,
+    }
+    const alphaPage = {
+      ...page,
+      nodeIds: [imageSource.id, "content"],
+    }
+    const plan = projectPagePaintPlan(
+      alphaPage,
+      [imageSource, nodes[2]!],
+      [
+        {
+          ...relation,
+          maskType: "alpha",
+          nodeIds: alphaPage.nodeIds,
+          sourceNodeIds: [imageSource.id],
+        },
+      ]
+    )
+    expect(plan.entries[0]).toMatchObject({
+      kind: "mask_group",
+      maskType: "alpha",
+      sources: [
+        { nodeId: imageSource.id, kind: "image", assetId: imageSource.assetId },
+      ],
+    })
+    expect(JSON.stringify(plan)).not.toContain(imageSource.src)
+  })
+
+  it("projects every base and rich-run font family required by an alpha text source", () => {
+    const seedText = structuredClone(
+      northstarSeed.nodes.find((node) => node.type === "text")!
+    )
+    if (seedText.type !== "text") throw new Error("Expected text fixture")
+    seedText.id = "alpha-text"
+    seedText.fontFamily = "Geist Variable"
+    seedText.runs = [
+      { start: 0, end: 1, style: { fontFamily: "Inter" } },
+      { start: 1, end: 2, style: { fontFamily: "Geist Variable" } },
+    ]
+    const alphaPage = { ...page, nodeIds: [seedText.id, "content"] }
+    const plan = projectPagePaintPlan(
+      alphaPage,
+      [seedText, nodes[2]!],
+      [
+        {
+          ...relation,
+          maskType: "alpha",
+          nodeIds: alphaPage.nodeIds,
+          sourceNodeIds: [seedText.id],
+        },
+      ]
+    )
+    expect(plan.entries[0]).toMatchObject({
+      kind: "mask_group",
+      sources: [
+        {
+          nodeId: seedText.id,
+          kind: "text",
+          fontFamilies: ["Geist Variable", "Inter"],
+        },
+      ],
+    })
   })
 
   it("rejects a canonical source hidden inside a child group", () => {
@@ -237,6 +327,7 @@ describe("shared page paint plan mask oracle", () => {
           maskType: "vector",
           sourceNodeIds: ["source"],
           visibleSourceNodeIds: ["source"],
+          sources: [{ nodeId: "source", kind: "vector" }],
           content: [{ kind: "node", nodeId: "content" }],
           bounds: { x: 100, y: 90, width: 200, height: 180 },
           maskEnabled: true,
@@ -360,7 +451,7 @@ describe("shared page paint plan mask oracle", () => {
   it("admits rotated rectangle, ellipse, and icon sources and rejects non-vector or stroked sources", () => {
     expect(() =>
       projectPagePaintPlan(page, nodes, [
-        { ...relation, maskType: "alpha" as "vector" },
+        { ...relation, maskType: "luminance" as "vector" },
       ])
     ).toThrowError(
       expect.objectContaining({ code: "MASK_GROUP_UNSUPPORTED_TYPE" })

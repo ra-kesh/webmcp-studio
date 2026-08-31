@@ -67,6 +67,7 @@ import type {
   PagePaintPlanEntry,
 } from "@webmcp/document/internal/page-paint-plan"
 import {
+  isAdmittedAlphaMaskSource,
   isAdmittedVectorMaskSource,
   projectPagePaintPlan,
   supportedMaskPaintPixelRatio,
@@ -1508,6 +1509,8 @@ export type FabricVectorMaskPaint =
       maskObject: FabricObject
     }>
 
+export type FabricAlphaMaskPaint = FabricVectorMaskPaint
+
 function createFabricVectorMaskObject(
   source: Extract<SceneNode, { type: "rect" | "ellipse" | "icon" }>
 ) {
@@ -1538,6 +1541,15 @@ function applyFabricVectorMaskPaint(
   object.setCoords()
 }
 
+function applyFabricAlphaMaskPaint(object: FabricObject) {
+  object.set({
+    globalCompositeOperation: "destination-in",
+    selectable: false,
+    evented: false,
+  })
+  object.setCoords()
+}
+
 function pagePaintPlanIdentity(plan: PagePaintPlan) {
   return JSON.stringify(
     plan.entries.map((entry) =>
@@ -1546,6 +1558,7 @@ function pagePaintPlanIdentity(plan: PagePaintPlan) {
         : [
             "mask",
             entry.groupId,
+            entry.maskType,
             entry.sourceNodeIds,
             entry.visibleSourceNodeIds,
             entry.content.map((content) =>
@@ -1614,6 +1627,73 @@ export function createFabricVectorMaskPaint(
   // Detached objects are page-positioned. Convert them to the fixed
   // composite's centre-local coordinates without changing their own affine
   // properties or canonical node geometry.
+  const objects = contentObjects.map((object) =>
+    positionFabricMaskContentObject(object, entry.bounds)
+  )
+  positionFabricMaskContentObject(maskObject, entry.bounds)
+  const object = new Group([...objects, maskObject], {
+    left: entry.bounds.x,
+    top: entry.bounds.y,
+    width: entry.bounds.width,
+    height: entry.bounds.height,
+    originX: "left",
+    originY: "top",
+    layoutManager: new LayoutManager(new FixedLayout()),
+    objectCaching: true,
+    selectable: false,
+    evented: true,
+    interactive: true,
+    subTargetCheck: true,
+    hasControls: false,
+  })
+  object.setCoords()
+  return { kind: "composite", object, maskObject }
+}
+
+/**
+ * Builds an alpha composite from the source's ordinary rendered pixels. Image
+ * placement/frame clipping and text glyph layout therefore stay identical to
+ * normal Fabric paint; only the final blend operation changes.
+ */
+export function createFabricAlphaMaskPaint(
+  entry: Extract<PagePaintPlanEntry, { kind: "mask_group" }>,
+  nodesById: ReadonlyMap<string, SceneNode>,
+  createContentObject: (node: SceneNode) => FabricObject,
+  createSourceObject: (node: SceneNode) => FabricObject
+): FabricAlphaMaskPaint {
+  if (entry.maskType !== "alpha") {
+    throw new Error("Fabric alpha paint requires an alpha mask group entry")
+  }
+  const contentNodes = entry.content.map((content) => {
+    if (content.kind !== "node") {
+      throw new Error("Fabric alpha masks do not support nested composites")
+    }
+    const node = nodesById.get(content.nodeId)
+    if (!node)
+      throw new Error(`Fabric mask content ${content.nodeId} is missing`)
+    return node
+  })
+  const contentObjects = contentNodes.map(createContentObject)
+  if (!entry.compositeRequired) {
+    return { kind: "fallthrough", objects: contentObjects }
+  }
+
+  const sourceNodeId = entry.visibleSourceNodeIds[0]
+  const source = sourceNodeId ? nodesById.get(sourceNodeId) : undefined
+  if (
+    entry.visibleSourceNodeIds.length !== 1 ||
+    !isAdmittedAlphaMaskSource(source)
+  ) {
+    throw new Error(
+      "Fabric alpha masks require exactly one visible rectangle, ellipse, icon, image, or text source"
+    )
+  }
+  assertFabricMaskBounds(entry.bounds)
+  const maskObject = createSourceObject(source)
+  if (isMissingImagePlaceholder(maskObject)) {
+    throw new Error(`Fabric alpha mask source ${source.id} is unavailable`)
+  }
+  applyFabricAlphaMaskPaint(maskObject)
   const objects = contentObjects.map((object) =>
     positionFabricMaskContentObject(object, entry.bounds)
   )
@@ -3014,9 +3094,20 @@ export class FabricCanvasAdapter implements CanvasAdapter {
         object.set({ opacity: 0, evented: false })
         const maskObject = this.maskPaintObjectBySourceNodeId.get(nodeId)
         const maskEntry = this.maskEntryBySourceNodeId.get(nodeId)
-        if (maskObject && maskEntry && isAdmittedVectorMaskSource(node)) {
+        if (
+          maskObject &&
+          maskEntry &&
+          (maskEntry.maskType === "vector"
+            ? isAdmittedVectorMaskSource(node)
+            : isAdmittedAlphaMaskSource(node))
+        ) {
           syncFabricObjectFromNode(maskObject, node)
-          applyFabricVectorMaskPaint(maskObject, node)
+          if (maskEntry.maskType === "vector") {
+            if (!isAdmittedVectorMaskSource(node)) continue
+            applyFabricVectorMaskPaint(maskObject, node)
+          } else {
+            applyFabricAlphaMaskPaint(maskObject)
+          }
           positionFabricMaskContentObject(maskObject, maskEntry.bounds)
         }
       } else {
@@ -3045,6 +3136,40 @@ export class FabricCanvasAdapter implements CanvasAdapter {
   ) {
     const canvas = this.canvas
     if (!canvas) return
+    const inactiveMaskSourceIds = new Set(
+      plan.entries.flatMap((entry) =>
+        entry.kind === "mask_group" && !entry.compositeRequired
+          ? entry.sourceNodeIds
+          : []
+      )
+    )
+    const images = page.nodeIds.flatMap((nodeId) => {
+      const node = nodesById.get(nodeId)
+      return node?.type === "image" && !inactiveMaskSourceIds.has(node.id)
+        ? [node]
+        : []
+    })
+    const preparedImages = prepareFabricImageObjects(images, signal)
+
+    // Alpha-source decode is an admission barrier, not a recovery placeholder.
+    // Resolve it before replacing the mounted paint plan so a failed source
+    // leaves the last valid editor pixels intact.
+    for (const entry of plan.entries) {
+      if (
+        entry.kind !== "mask_group" ||
+        entry.maskType !== "alpha" ||
+        !entry.compositeRequired
+      ) {
+        continue
+      }
+      const sourceId = entry.visibleSourceNodeIds[0]
+      const source = sourceId ? nodesById.get(sourceId) : undefined
+      if (source?.type === "image") {
+        await preparedImages.get(source.id)
+        signal?.throwIfAborted()
+        if (generation !== this.generation || !this.canvas) return
+      }
+    }
     this.paintPlanMode = true
     canvas.discardActiveObject()
     canvas.remove(...canvas.getObjects())
@@ -3059,11 +3184,6 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     this.maskCompositeByGroupId.clear()
     this.paintPlanIdentity = null
 
-    const images = page.nodeIds.flatMap((nodeId) => {
-      const node = nodesById.get(nodeId)
-      return node?.type === "image" ? [node] : []
-    })
-    const preparedImages = prepareFabricImageObjects(images, signal)
     const createObject = async (node: SceneNode) => {
       const prepared =
         node.type === "image" ? preparedImages.get(node.id) : undefined
@@ -3111,11 +3231,33 @@ export class FabricCanvasAdapter implements CanvasAdapter {
       }
       signal?.throwIfAborted()
       if (generation !== this.generation || !this.canvas) return
-      const paint = createFabricVectorMaskPaint(entry, nodesById, (node) => {
+      const contentObject = (node: SceneNode) => {
         const object = contentObjects.get(node.id)
         if (!object) throw new Error(`Mask content ${node.id} is not prepared`)
         return object
-      })
+      }
+      const sourceNodeId = entry.visibleSourceNodeIds[0]
+      const source = sourceNodeId ? nodesById.get(sourceNodeId) : undefined
+      const preparedSource =
+        entry.maskType === "alpha" && source
+          ? await createObject(source)
+          : undefined
+      signal?.throwIfAborted()
+      if (generation !== this.generation || !this.canvas) return
+      const paint =
+        entry.maskType === "vector"
+          ? createFabricVectorMaskPaint(entry, nodesById, contentObject)
+          : createFabricAlphaMaskPaint(
+              entry,
+              nodesById,
+              contentObject,
+              (node) => {
+                if (!preparedSource || node.id !== sourceNodeId) {
+                  throw new Error(`Mask source ${node.id} is not prepared`)
+                }
+                return preparedSource
+              }
+            )
       if (paint.kind === "composite") {
         this.maskCompositeByGroupId.set(entry.groupId, paint.object)
         const visibleSourceId = entry.visibleSourceNodeIds[0]
@@ -3138,13 +3280,26 @@ export class FabricCanvasAdapter implements CanvasAdapter {
 
       for (const sourceNodeId of entry.sourceNodeIds) {
         const source = nodesById.get(sourceNodeId)
-        if (!isAdmittedVectorMaskSource(source)) {
+        if (
+          !source ||
+          (entry.maskType === "vector"
+            ? !isAdmittedVectorMaskSource(source)
+            : !isAdmittedAlphaMaskSource(source))
+        ) {
           throw new Error(`Mask source ${sourceNodeId} is unsupported`)
         }
         // The compositor owns its paint copy. This transparent, non-hit-testable
         // object keeps the canonical source explicitly addressable from Layers
         // and programmatic selection without painting it as an ordinary layer.
-        const selectionProxy = createFabricSyncObject(source)
+        const selectionProxy =
+          source.type === "image"
+            ? new Rect({
+                ...sharedOptions(source),
+                fill: "transparent",
+                stroke: undefined,
+                strokeWidth: 0,
+              })
+            : createFabricSyncObject(source)
         selectionProxy.set({ opacity: 0, evented: false })
         selectionProxy.setCoords()
         this.objectByNodeId.set(sourceNodeId, selectionProxy)

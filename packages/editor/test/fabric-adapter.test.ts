@@ -39,6 +39,7 @@ import {
   createFabricSyncObject,
   configureFabricSupportedPixelRatio,
   createFabricObjectForSync,
+  createFabricAlphaMaskPaint,
   createFabricImageGroup,
   createFabricVectorMaskPaint,
   applyFabricTextListEdit,
@@ -374,6 +375,90 @@ describe("Fabric vector mask paint consumer", () => {
         (node) => node.id === "mask-conformance-content"
       )!.y,
     })
+  })
+})
+
+describe("Fabric alpha mask paint consumer", () => {
+  it("uses canonical cropped image pixels and source opacity for destination-in", () => {
+    const baseEntry = maskGroupEntry(maskRenderConformancePlan)
+    const image = {
+      ...imageRenderParityNode(imageRenderParityCases[0]!, 1),
+      id: "mask-conformance-source",
+      name: "Alpha image source",
+      opacity: 0.58,
+      frameMask: { shape: "ellipse" as const },
+    }
+    const content = maskRenderConformanceNodes.find(
+      (node) => node.id === "mask-conformance-content"
+    )!
+    const entry = {
+      ...baseEntry,
+      maskType: "alpha" as const,
+      sources: [
+        { nodeId: image.id, kind: "image" as const, assetId: image.assetId },
+      ],
+    }
+    const naturalSize = imageRenderParityInput(
+      imageRenderParityCases[0]!,
+      1
+    ).naturalSize
+    const decoded = decodedFabricImage(image.src, {
+      width: naturalSize.width,
+      height: naturalSize.height,
+    })
+    const result = createFabricAlphaMaskPaint(
+      entry,
+      new Map([
+        [image.id, image],
+        [content.id, content],
+      ]),
+      createRetainedMaskContentObject,
+      () => createFabricImageGroup(image, decoded)
+    )
+
+    expect(result.kind).toBe("composite")
+    if (result.kind !== "composite") return
+    expect(result.maskObject).toBeInstanceOf(Group)
+    expect(result.maskObject).toMatchObject({
+      opacity: image.opacity,
+      globalCompositeOperation: "destination-in",
+    })
+    expect((result.maskObject as Group).clipPath).toBeTruthy()
+  })
+
+  it("rejects an unavailable image placeholder instead of masking with recovery UI", async () => {
+    const baseEntry = maskGroupEntry(maskRenderConformancePlan)
+    const image = {
+      ...imageRenderParityNode(imageRenderParityCases[0]!, 1),
+      id: "mask-conformance-source",
+    }
+    const content = maskRenderConformanceNodes.find(
+      (node) => node.id === "mask-conformance-content"
+    )!
+    const unavailable = await createFabricObjectForSync(image, async () => {
+      throw new Error("decode failed")
+    })
+    expect(() =>
+      createFabricAlphaMaskPaint(
+        {
+          ...baseEntry,
+          maskType: "alpha",
+          sources: [
+            {
+              nodeId: image.id,
+              kind: "image",
+              assetId: image.assetId,
+            },
+          ],
+        },
+        new Map([
+          [image.id, image],
+          [content.id, content],
+        ]),
+        createRetainedMaskContentObject,
+        () => unavailable
+      )
+    ).toThrow(`Fabric alpha mask source ${image.id} is unavailable`)
   })
 })
 

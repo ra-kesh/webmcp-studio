@@ -1,4 +1,9 @@
-import { applyCommand, northstarSeed, type Document, type SceneNode } from "@webmcp/document"
+import {
+  applyCommand,
+  northstarSeed,
+  type Document,
+  type SceneNode,
+} from "@webmcp/document"
 import { initialMaskPaintAdmission } from "@webmcp/document/internal/page-paint-plan"
 import { describe, expect, it } from "vitest"
 import {
@@ -25,8 +30,22 @@ const addInspectorMaskFixtures = (
     const sourceId = `inspector-source-${index}`
     const contentId = `inspector-content-${index}`
     document.nodes.push(
-      { ...structuredClone(template), id: sourceId, x: 0, y: 0, width: size, height: size },
-      { ...structuredClone(template), id: contentId, x: 0, y: 0, width: size, height: size }
+      {
+        ...structuredClone(template),
+        id: sourceId,
+        x: 0,
+        y: 0,
+        width: size,
+        height: size,
+      },
+      {
+        ...structuredClone(template),
+        id: contentId,
+        x: 0,
+        y: 0,
+        width: size,
+        height: size,
+      }
     )
     page.nodeIds.push(sourceId, contentId)
     document.groups.push({
@@ -498,7 +517,9 @@ describe("mask command capabilities", () => {
         pageId: "cover",
         selectedNodeIds: ["cover-title", "cover-panel"],
       }).create.disabledReason
-    ).toBe("This page already has 32 active mask composites. Release a mask before creating another.")
+    ).toBe(
+      "This page already has 32 active mask composites. Release a mask before creating another."
+    )
   })
 
   it("gives the exact summed 2x page area reason after front-edge compaction", () => {
@@ -511,7 +532,9 @@ describe("mask command capabilities", () => {
         pageId: "cover",
         selectedNodeIds: ["cover-title", "cover-panel"],
       }).create.disabledReason
-    ).toBe("The selected mask would exceed the page's summed 2x composite area budget. Reduce its bounds or release another mask.")
+    ).toBe(
+      "The selected mask would exceed the page's summed 2x composite area budget. Reduce its bounds or release another mask."
+    )
   })
 
   it("disables create when the selected composite fails the shared 2x contract", () => {
@@ -554,7 +577,9 @@ describe("mask command capabilities", () => {
         pageId: "cover",
         selectedNodeIds: document.pages[0]!.nodeIds,
       }).create.disabledReason
-    ).toBe("A mask can contain at most 512 content layers. Select 513 layers or fewer.")
+    ).toBe(
+      "A mask can contain at most 512 content layers. Select 513 layers or fewer."
+    )
   })
 
   it("rejects stroked, bound, nested, and component-owned source structure truthfully", () => {
@@ -694,7 +719,7 @@ describe("mask command capabilities", () => {
     )
   })
 
-  it("projects vector as selected and keeps alpha and luminance reasons exact", () => {
+  it("admits alpha for a capable source while luminance stays gated", () => {
     const document = structuredClone(northstarSeed)
     document.groups = [
       {
@@ -717,9 +742,10 @@ describe("mask command capabilities", () => {
     expect(capabilities.setVector.disabledReason).toBe(
       "This mask already uses Vector."
     )
-    expect(capabilities.setAlpha.disabledReason).toContain(
-      "image and text readiness"
-    )
+    expect(capabilities.setAlpha).toEqual({
+      enabled: true,
+      disabledReason: null,
+    })
     expect(capabilities.setLuminance.disabledReason).toContain("color-space")
   })
 })

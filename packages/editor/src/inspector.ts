@@ -56,8 +56,6 @@ const MASK_REVIEW_REASON = "Resolve the pending review before editing masks."
 const MASK_LOCKED_REASON = "Unlock the selected layers before editing masks."
 const MASK_COMPONENT_REASON =
   "Mask structure cannot be changed inside a component or instance. Detach the instance or use layers outside the component."
-const MASK_ALPHA_REASON =
-  "Alpha masks are not available yet because image and text readiness is not deterministic across every renderer."
 const MASK_LUMINANCE_REASON =
   "Luminance masks are not available yet because color-space output is not deterministic across every renderer."
 
@@ -107,8 +105,19 @@ function maskComponentOwnership(document: Document) {
 
 function maskSourceAdmissionReason(
   document: Document,
-  node: SceneNode | undefined
+  node: SceneNode | undefined,
+  maskType: "vector" | "alpha"
 ): string | null {
+  if (
+    maskType === "alpha" &&
+    node &&
+    (vectorMaskSource(node) || node.type === "image" || node.type === "text")
+  ) {
+    if (document.bindings.some((binding) => binding.nodeId === node.id)) {
+      return "A field-bound layer cannot be a mask source. Unbind it first."
+    }
+    return null
+  }
   if (!vectorMaskSource(node)) {
     return "The back layer must be an unlocked rectangle, ellipse, or icon for a vector mask."
   }
@@ -178,7 +187,11 @@ export function deriveInspectorMaskCapabilities({
   )
   const mixedParents = new Set(directParentIds).size > 1
   const nestedParentId = directParentIds[0]
-  const sourceAdmissionReason = maskSourceAdmissionReason(document, source)
+  const sourceAdmissionReason = maskSourceAdmissionReason(
+    document,
+    source,
+    "vector"
+  )
 
   let createReason: string | null = null
   if (!documentEditable) createReason = MASK_REVIEW_REASON
@@ -268,7 +281,12 @@ export function deriveInspectorMaskCapabilities({
   const eligibleSourceNodeIds = groupNodes
     .filter(
       (node) =>
-        !node.locked && maskSourceAdmissionReason(document, node) === null
+        !node.locked &&
+        maskSourceAdmissionReason(
+          document,
+          node,
+          maskGroup?.mask.type === "alpha" ? "alpha" : "vector"
+        ) === null
     )
     .map((node) => node.id)
   let groupMutationReason: string | null = null
@@ -300,7 +318,11 @@ export function deriveInspectorMaskCapabilities({
     sourceReason = "Choose a direct layer in this mask group as its source."
   }
   if (!sourceReason)
-    sourceReason = maskSourceAdmissionReason(document, requestedSource)
+    sourceReason = maskSourceAdmissionReason(
+      document,
+      requestedSource,
+      maskGroup?.mask.type === "alpha" ? "alpha" : "vector"
+    )
   if (
     !sourceReason &&
     maskGroup?.mask.sourceNodeIds.length === 1 &&
@@ -319,10 +341,31 @@ export function deriveInspectorMaskCapabilities({
     create: maskCapability(createReason === null, createReason),
     release: maskCapability(groupMutationReason === null, groupMutationReason),
     setVector: maskCapability(
-      groupMutationReason === null && maskGroup?.mask.type !== "vector",
-      groupMutationReason ?? "This mask already uses Vector."
+      groupMutationReason === null &&
+        maskGroup?.mask.type !== "vector" &&
+        maskSourceAdmissionReason(
+          document,
+          nodeById.get(maskGroup?.mask.sourceNodeIds[0] ?? ""),
+          "vector"
+        ) === null,
+      groupMutationReason ??
+        (maskGroup?.mask.type === "vector"
+          ? "This mask already uses Vector."
+          : "The current source is not an unstroked vector layer.")
     ),
-    setAlpha: maskCapability(false, groupMutationReason ?? MASK_ALPHA_REASON),
+    setAlpha: maskCapability(
+      groupMutationReason === null &&
+        maskGroup?.mask.type !== "alpha" &&
+        maskSourceAdmissionReason(
+          document,
+          nodeById.get(maskGroup?.mask.sourceNodeIds[0] ?? ""),
+          "alpha"
+        ) === null,
+      groupMutationReason ??
+        (maskGroup?.mask.type === "alpha"
+          ? "This mask already uses Alpha."
+          : "The current source cannot provide alpha coverage.")
+    ),
     setLuminance: maskCapability(
       false,
       groupMutationReason ?? MASK_LUMINANCE_REASON

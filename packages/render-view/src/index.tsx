@@ -1,6 +1,7 @@
 import {
   useEffect,
   useId,
+  useMemo,
   useReducer,
   type CSSProperties,
   type SyntheticEvent,
@@ -11,6 +12,7 @@ import type {
   PagePaintPlanEntry,
 } from "@webmcp/document/internal/page-paint-plan"
 import {
+  isAdmittedAlphaMaskSource,
   isAdmittedVectorMaskSource,
   projectPagePaintPlan,
   supportedMaskPaintPixelRatio,
@@ -119,16 +121,106 @@ export function renderViewDevicePixelRatio() {
   return supportedMaskPaintPixelRatio(ratio)
 }
 
-type VectorMaskPaintEntry = Extract<
-  PagePaintPlanEntry,
-  { kind: "mask_group"; maskType: "vector" }
->
+type MaskPaintPlanEntry = Extract<PagePaintPlanEntry, { kind: "mask_group" }>
+type VectorMaskPaintEntry = Omit<MaskPaintPlanEntry, "maskType"> &
+  Readonly<{ maskType: "vector" }>
+type AlphaMaskPaintEntry = Omit<MaskPaintPlanEntry, "maskType"> &
+  Readonly<{ maskType: "alpha" }>
 
 export type MaskGroupRenderModel = Readonly<{
   entry: VectorMaskPaintEntry
   source: Extract<SceneNode, { type: "rect" | "ellipse" | "icon" }>
   content: readonly SceneNode[]
 }>
+
+export type AlphaMaskGroupRenderModel = Readonly<{
+  entry: AlphaMaskPaintEntry
+  source: Extract<
+    SceneNode,
+    { type: "rect" | "ellipse" | "icon" | "image" | "text" }
+  >
+  content: readonly SceneNode[]
+}>
+
+export type AlphaImageMaskCommitState = Readonly<{
+  requestedIdentity: string
+  requestedModel: AlphaMaskGroupRenderModel
+  committedIdentity: string | null
+  committedModel: AlphaMaskGroupRenderModel | null
+  status: "loading" | "ready" | "error"
+}>
+
+export type AlphaImageMaskCommitEvent =
+  | Readonly<{
+      type: "request"
+      identity: string
+      model: AlphaMaskGroupRenderModel
+    }>
+  | Readonly<{ type: "ready" | "failed"; identity: string }>
+
+export function createAlphaImageMaskCommitState(
+  identity: string,
+  model: AlphaMaskGroupRenderModel
+): AlphaImageMaskCommitState {
+  return {
+    requestedIdentity: identity,
+    requestedModel: model,
+    committedIdentity: null,
+    committedModel: null,
+    status: "loading",
+  }
+}
+
+/**
+ * Keeps the last decoded alpha composite mounted until the exact replacement
+ * resource is ready. Late or failed candidates cannot replace valid pixels.
+ */
+export function reduceAlphaImageMaskCommitState(
+  state: AlphaImageMaskCommitState,
+  event: AlphaImageMaskCommitEvent
+): AlphaImageMaskCommitState {
+  if (event.type === "request") {
+    if (event.identity === state.requestedIdentity) {
+      return {
+        ...state,
+        requestedModel: event.model,
+        committedModel:
+          state.committedIdentity === event.identity
+            ? event.model
+            : state.committedModel,
+      }
+    }
+    return {
+      ...state,
+      requestedIdentity: event.identity,
+      requestedModel: event.model,
+      status: "loading",
+    }
+  }
+  if (event.identity !== state.requestedIdentity) return state
+  if (event.type === "failed") return { ...state, status: "error" }
+  return {
+    ...state,
+    committedIdentity: state.requestedIdentity,
+    committedModel: state.requestedModel,
+    status: "ready",
+  }
+}
+
+function maskGroupContent(
+  entry: Extract<PagePaintPlanEntry, { kind: "mask_group" }>,
+  nodesById: ReadonlyMap<string, SceneNode>
+) {
+  return entry.content.map((contentEntry) => {
+    if (contentEntry.kind !== "node") {
+      throw new Error("React mask rendering does not support nesting")
+    }
+    const node = nodesById.get(contentEntry.nodeId)
+    if (!node)
+      throw new Error(`Mask content node ${contentEntry.nodeId} is missing`)
+    return node
+  })
+}
 
 /**
  * Resolves the admitted vector-mask contract before React creates DOM.
@@ -152,17 +244,31 @@ export function maskGroupRenderModel(
       "React vector mask rendering requires a rectangle, ellipse, or icon source"
     )
   }
-  const content = entry.content.map((contentEntry) => {
-    if (contentEntry.kind !== "node") {
-      throw new Error("React vector mask rendering does not support nesting")
-    }
-    const node = nodesById.get(contentEntry.nodeId)
-    if (!node) {
-      throw new Error(`Mask content node ${contentEntry.nodeId} is missing`)
-    }
-    return node
-  })
-  return { entry, source, content }
+  const content = maskGroupContent(entry, nodesById)
+  return { entry: entry as VectorMaskPaintEntry, source, content }
+}
+
+export function alphaMaskGroupRenderModel(
+  entry: PagePaintPlanEntry,
+  nodesById: ReadonlyMap<string, SceneNode>
+): AlphaMaskGroupRenderModel {
+  if (entry.kind !== "mask_group" || entry.maskType !== "alpha") {
+    throw new Error("React alpha rendering requires an alpha mask group entry")
+  }
+  if (entry.sourceNodeIds.length !== 1) {
+    throw new Error("React alpha mask rendering requires one source")
+  }
+  const source = nodesById.get(entry.sourceNodeIds[0]!)
+  if (!isAdmittedAlphaMaskSource(source)) {
+    throw new Error(
+      "React alpha mask rendering requires a rectangle, ellipse, icon, image, or text source"
+    )
+  }
+  return {
+    entry: entry as AlphaMaskPaintEntry,
+    source,
+    content: maskGroupContent(entry, nodesById),
+  }
 }
 
 function RenderVectorMaskSource({
@@ -260,15 +366,7 @@ function RenderMaskGroupContent({
 /**
  * Renders one schema-backed vector-mask entry from the canonical paint plan.
  */
-export function MaskGroupPaintEntry({
-  entry,
-  nodesById,
-  imageSemantics = "content",
-  imageResourceRevisions,
-  imageResourceTokens,
-  showImageRecoveryActions = true,
-  onImageResourceStateChange,
-}: {
+type MaskGroupPaintEntryProps = Readonly<{
   entry: PagePaintPlanEntry
   nodesById: ReadonlyMap<string, SceneNode>
   imageSemantics?: "content" | "thumbnail"
@@ -276,12 +374,129 @@ export function MaskGroupPaintEntry({
   imageResourceTokens?: Readonly<Record<string, string>>
   showImageRecoveryActions?: boolean
   onImageResourceStateChange?: (state: ImageResourceStateChange) => void
+}>
+
+export function MaskGroupPaintEntry(props: MaskGroupPaintEntryProps) {
+  const model = useMemo(
+    () =>
+      props.entry.kind === "mask_group" && props.entry.maskType === "alpha"
+        ? alphaMaskGroupRenderModel(props.entry, props.nodesById)
+        : maskGroupRenderModel(props.entry, props.nodesById),
+    [props.entry, props.nodesById]
+  )
+  if (
+    model.entry.maskType === "alpha" &&
+    model.entry.compositeRequired &&
+    model.source.type === "image"
+  ) {
+    return (
+      <AtomicAlphaImageMaskPaintEntry
+        {...props}
+        model={model as AlphaMaskGroupRenderModel}
+      />
+    )
+  }
+  return <ResolvedMaskGroupPaintEntry {...props} model={model} />
+}
+
+function AtomicAlphaImageMaskPaintEntry({
+  model,
+  imageSemantics = "content",
+  imageResourceRevisions,
+  imageResourceTokens,
+  showImageRecoveryActions = true,
+  onImageResourceStateChange,
+}: MaskGroupPaintEntryProps & { model: AlphaMaskGroupRenderModel }) {
+  const source = model.source as Extract<SceneNode, { type: "image" }>
+  const revision = imageResourceRevisions?.[source.id]
+  const identity = imageResourceIdentity(source.id, source.src, revision)
+  const [commit, dispatchCommit] = useReducer(
+    reduceAlphaImageMaskCommitState,
+    undefined,
+    () => createAlphaImageMaskCommitState(identity, model)
+  )
+  useEffect(() => {
+    dispatchCommit({ type: "request", identity, model })
+  }, [identity, model])
+
+  const resourceToken = imageResourceTokens?.[source.id]
+  const probeToken = `alpha-mask:${identity}`
+  const handleProbeStateChange = (state: ImageResourceStateChange) => {
+    dispatchCommit({
+      type: state.readiness === "ready" ? "ready" : "failed",
+      identity,
+    })
+    if (resourceToken) {
+      onImageResourceStateChange?.({ ...state, token: resourceToken })
+    }
+  }
+  const needsProbe = commit.committedIdentity !== identity
+
+  return (
+    <>
+      {commit.committedModel ? (
+        <ResolvedMaskGroupPaintEntry
+          imageSemantics={imageSemantics}
+          imageResourceRevisions={imageResourceRevisions}
+          imageResourceTokens={imageResourceTokens}
+          showImageRecoveryActions={showImageRecoveryActions}
+          onImageResourceStateChange={onImageResourceStateChange}
+          entry={commit.committedModel.entry}
+          model={commit.committedModel}
+          nodesById={
+            new Map([
+              [commit.committedModel.source.id, commit.committedModel.source],
+              ...commit.committedModel.content.map(
+                (node) => [node.id, node] as const
+              ),
+            ])
+          }
+        />
+      ) : (
+        <div
+          data-mask-group-id={model.entry.groupId}
+          data-mask-resource-state={commit.status}
+          style={renderMaskGroupWrapperStyle(model.entry.bounds)}
+        />
+      )}
+      {needsProbe ? (
+        <div
+          aria-hidden
+          data-alpha-mask-resource-probe={source.id}
+          style={{
+            position: "absolute",
+            inset: 0,
+            overflow: "hidden",
+            pointerEvents: "none",
+            visibility: "hidden",
+          }}
+        >
+          <RenderNode
+            imageSemantics={imageSemantics}
+            imageResourceRevision={revision}
+            imageResourceToken={probeToken}
+            node={source}
+            showImageRecoveryActions={false}
+            suppressImageFailureFeedback
+            onImageResourceStateChange={handleProbeStateChange}
+          />
+        </div>
+      ) : null}
+    </>
+  )
+}
+
+function ResolvedMaskGroupPaintEntry({
+  model,
+  imageSemantics = "content",
+  imageResourceRevisions,
+  imageResourceTokens,
+  showImageRecoveryActions = true,
+  onImageResourceStateChange,
+}: MaskGroupPaintEntryProps & {
+  model: MaskGroupRenderModel | AlphaMaskGroupRenderModel
 }) {
-  const {
-    content,
-    entry: maskEntry,
-    source,
-  } = maskGroupRenderModel(entry, nodesById)
+  const { content, entry: maskEntry, source } = model
   const maskId = `studio-mask-${useId().replaceAll(":", "")}`
   const wrapperStyle = renderMaskGroupWrapperStyle(maskEntry.bounds)
   const contentProps = {
@@ -328,7 +543,40 @@ export function MaskGroupPaintEntry({
           x={0}
           y={0}
         >
-          <RenderVectorMaskSource bounds={maskEntry.bounds} source={source} />
+          {maskEntry.maskType === "vector" ? (
+            <RenderVectorMaskSource
+              bounds={maskEntry.bounds}
+              source={source as MaskGroupRenderModel["source"]}
+            />
+          ) : (
+            <foreignObject
+              data-mask-source-id={source.id}
+              height={maskEntry.bounds.height}
+              width={maskEntry.bounds.width}
+              x={0}
+              y={0}
+            >
+              <div
+                style={{
+                  position: "absolute",
+                  left: -maskEntry.bounds.x,
+                  top: -maskEntry.bounds.y,
+                  width: maskEntry.bounds.width,
+                  height: maskEntry.bounds.height,
+                }}
+              >
+                <RenderNode
+                  imageSemantics={imageSemantics}
+                  node={source}
+                  imageResourceRevision={imageResourceRevisions?.[source.id]}
+                  imageResourceToken={imageResourceTokens?.[source.id]}
+                  showImageRecoveryActions={showImageRecoveryActions}
+                  suppressImageFailureFeedback
+                  onImageResourceStateChange={onImageResourceStateChange}
+                />
+              </div>
+            </foreignObject>
+          )}
         </mask>
       </defs>
       <g mask={`url(#${maskId})`}>
@@ -567,6 +815,7 @@ function RenderNode({
   imageResourceRevision,
   imageResourceToken,
   showImageRecoveryActions,
+  suppressImageFailureFeedback = false,
   onImageResourceStateChange,
 }: {
   node: SceneNode
@@ -574,6 +823,7 @@ function RenderNode({
   imageResourceRevision?: string | number
   imageResourceToken?: string
   showImageRecoveryActions: boolean
+  suppressImageFailureFeedback?: boolean
   onImageResourceStateChange?: (state: ImageResourceStateChange) => void
 }) {
   const projection = projectNodeForRender(node)
@@ -642,6 +892,7 @@ function RenderNode({
       resourceRevision={imageResourceRevision}
       resourceToken={imageResourceToken}
       showRecoveryActions={showImageRecoveryActions}
+      suppressFailureFeedback={suppressImageFailureFeedback}
       onResourceStateChange={onImageResourceStateChange}
       projection={projection}
       style={style}
@@ -824,6 +1075,7 @@ function RenderImageNode({
   resourceRevision,
   resourceToken,
   showRecoveryActions,
+  suppressFailureFeedback,
   style,
 }: {
   dataAttributes: ReturnType<typeof renderNodeDataAttributes>
@@ -833,6 +1085,7 @@ function RenderImageNode({
   resourceRevision?: string | number
   resourceToken?: string
   showRecoveryActions: boolean
+  suppressFailureFeedback: boolean
   style: CSSProperties
 }) {
   const thumbnail = imageSemantics === "thumbnail"
@@ -975,7 +1228,7 @@ function RenderImageNode({
           onLoad={captureNaturalSize}
         />
       ) : null}
-      {visibleStatus === "error" ? (
+      {visibleStatus === "error" && !suppressFailureFeedback ? (
         <div
           aria-hidden={thumbnail || undefined}
           data-image-resource-feedback="error"

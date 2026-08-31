@@ -3711,3 +3711,35 @@ remains active**
 - The full evidence, missing capabilities, request/plan contract, adoption
   rules, and four implementation gates are recorded in
   `skill-driven-document-generation-assessment.md`.
+
+## 2026-08-31 — ASSET-02 Gate M3 alpha-mask implementation checkpoint
+
+Status: **implementation and focused verification complete; retained browser
+evidence blocked; Gate M3 not yet accepted**
+
+- Implemented canonical alpha-mask admission and rendering for rectangle,
+  ellipse, icon, image, and text sources without weakening the accepted M2
+  vector contract or its resource limits.
+- Connected the same page paint plan to Fabric, React, deterministic HTML, and
+  public PNG/PDF behavior, including image decode, crop/frame placement,
+  opacity, hidden-source fallthrough, managed fonts, and atomic failures.
+- Independent review initially held the checkpoint for React replacement
+  failure, missing alpha-text source attribution, and shallow public resource
+  coverage. React now preserves the previous valid composite during failed or
+  stale image replacement. Deterministic HTML consumes base and rich-run font
+  requirements and names the exact failing source. Public PNG/PDF tests now
+  prove alpha image and font failures stop capture and persistence.
+- Added retained alpha-image visible/hidden and alpha-text fixtures. The capture
+  harness now isolates PNG and PDF browser lifecycles and uses bounded timeouts;
+  accepted vector comparison thresholds were not changed.
+- Root verification passes 344/344 focused affected tests plus document,
+  editor, render-view, renderer, and Studio typechecks. `git diff --check`
+  passes.
+- Final independent re-review verdict: **COMMIT**, with no remaining P0/P1
+  finding. M2 admission limits and retained pixel thresholds remain unchanged.
+- The final retained run is blocked by orphaned Cloudflare Browser Rendering
+  processes whose local `workerd` children remain in an uninterruptible exiting
+  state. Port 3000 was not touched. Port 3001 cannot currently host the Studio
+  Worker. Partial evidence is preserved but is not promoted and M3 remains
+  unaccepted until the complete retained capture succeeds after a host-runtime
+  restart.

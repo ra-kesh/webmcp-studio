@@ -15,7 +15,7 @@ import { assertVariableBindingCompatible } from "./variables"
 import { componentIntegrityIssues } from "./components"
 import {
   assertCompositeAdmission,
-  isAdmittedVectorMaskSource,
+  isAdmittedMaskSource,
   initialMaskPaintAdmission,
   PagePaintPlanError,
   projectMaskCompositeGeometry,
@@ -557,10 +557,10 @@ export function validateDocument(document: Document): ValidationIssue[] {
           nodeId,
         })
       const sourceIds = new Set<string>()
-      if (group.mask.type !== "vector") {
+      if (group.mask.type === "luminance") {
         maskIssue(
           `type:${group.mask.type}`,
-          `${group.name} mask type is not admitted by the vector mask slice`
+          `${group.name} mask type is not admitted before the luminance gate`
         )
       }
       for (const sourceNodeId of group.mask.sourceNodeIds) {
@@ -592,12 +592,12 @@ export function validateDocument(document: Document): ValidationIssue[] {
         }
         const source = nodes.get(sourceNodeId)
         if (
-          group.mask.type === "vector" &&
-          !isAdmittedVectorMaskSource(source)
+          group.mask.type !== "luminance" &&
+          !isAdmittedMaskSource(group.mask.type, source)
         ) {
           maskIssue(
             `source-admission:${sourceNodeId}`,
-            `${group.name} mask source is outside the unstroked vector admission`,
+            `${group.name} mask source is not admitted for ${group.mask.type}`,
             sourceNodeId
           )
         }

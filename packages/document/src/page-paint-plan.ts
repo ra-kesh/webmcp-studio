@@ -1,6 +1,15 @@
 import type { Document, Page, SceneNode } from "./schema"
 
-export type MaskPaintType = "vector"
+export type MaskPaintType = "vector" | "alpha"
+
+export type MaskPaintSource =
+  | Readonly<{ nodeId: string; kind: "vector" }>
+  | Readonly<{ nodeId: string; kind: "image"; assetId: string }>
+  | Readonly<{
+      nodeId: string
+      kind: "text"
+      fontFamilies: readonly string[]
+    }>
 
 export type MaskPaintRelation = Readonly<{
   groupId: string
@@ -25,6 +34,7 @@ export type PagePaintPlanEntry =
       maskType: MaskPaintType
       sourceNodeIds: readonly string[]
       visibleSourceNodeIds: readonly string[]
+      sources: readonly MaskPaintSource[]
       content: readonly PagePaintPlanEntry[]
       bounds: PagePaintBounds
       maskEnabled: boolean
@@ -197,7 +207,8 @@ const isCanonicalMaskGroup = (
   group: Document["groups"][number]
 ): group is Document["groups"][number] & CanonicalMaskGroup =>
   (group as { role?: unknown; mask?: { type?: unknown } }).role === "mask" &&
-  (group as { mask?: { type?: unknown } }).mask?.type === "vector"
+  ((group as { mask?: { type?: unknown } }).mask?.type === "vector" ||
+    (group as { mask?: { type?: unknown } }).mask?.type === "alpha")
 
 export const isAdmittedVectorMaskSource = (
   node: SceneNode | undefined
@@ -207,6 +218,47 @@ export const isAdmittedVectorMaskSource = (
     (node.type === "rect" || node.type === "ellipse" || node.type === "icon") &&
     node.strokeWidth === 0
   )
+
+export const isAdmittedAlphaMaskSource = (
+  node: SceneNode | undefined
+): node is Extract<
+  SceneNode,
+  { type: "rect" | "ellipse" | "icon" | "image" | "text" }
+> =>
+  Boolean(
+    node &&
+    (node.type === "rect" ||
+      node.type === "ellipse" ||
+      node.type === "icon" ||
+      node.type === "image" ||
+      node.type === "text")
+  )
+
+const maskPaintSource = (node: SceneNode): MaskPaintSource => {
+  if (node.type === "image") {
+    return { nodeId: node.id, kind: "image", assetId: node.assetId }
+  }
+  if (node.type === "text") {
+    const fontFamilies = new Set([node.fontFamily])
+    for (const run of node.runs) {
+      if (run.style.fontFamily) fontFamilies.add(run.style.fontFamily)
+    }
+    return {
+      nodeId: node.id,
+      kind: "text",
+      fontFamilies: [...fontFamilies].sort(),
+    }
+  }
+  return { nodeId: node.id, kind: "vector" }
+}
+
+export const isAdmittedMaskSource = (
+  maskType: MaskPaintType,
+  node: SceneNode | undefined
+) =>
+  maskType === "vector"
+    ? isAdmittedVectorMaskSource(node)
+    : isAdmittedAlphaMaskSource(node)
 
 const canonicalMaskRelationsForPage = (
   document: Document,
@@ -356,10 +408,10 @@ export function projectPagePaintPlanFromRelations(
         { groupId: relation.groupId }
       )
     }
-    if (relation.maskType !== "vector") {
+    if (relation.maskType !== "vector" && relation.maskType !== "alpha") {
       throw new PagePaintPlanError(
         "MASK_GROUP_UNSUPPORTED_TYPE",
-        `Mask group ${relation.groupId} uses a type outside the Gate M2 vector contract`,
+        `Mask group ${relation.groupId} uses a mask type that is not admitted before the luminance gate`,
         { groupId: relation.groupId }
       )
     }
@@ -424,10 +476,10 @@ export function projectPagePaintPlanFromRelations(
         )
       }
       const sourceNode = nodesById.get(sourceNodeId)
-      if (!isAdmittedVectorMaskSource(sourceNode)) {
+      if (!isAdmittedMaskSource(relation.maskType, sourceNode)) {
         throw new PagePaintPlanError(
           "MASK_GROUP_UNSUPPORTED_SOURCE",
-          `Mask source ${sourceNodeId} is outside the Gate M2 unstroked vector contract`,
+          `Mask source ${sourceNodeId} is not admitted for a ${relation.maskType} mask`,
           { groupId: relation.groupId, nodeId: sourceNodeId }
         )
       }
@@ -505,6 +557,9 @@ export function projectPagePaintPlanFromRelations(
       maskType: relation.maskType,
       sourceNodeIds: [...relation.sourceNodeIds],
       visibleSourceNodeIds: geometry.visibleSourceNodeIds,
+      sources: relation.sourceNodeIds.map((sourceNodeId) =>
+        maskPaintSource(nodesById.get(sourceNodeId)!)
+      ),
       content: contentNodeIds.map((contentNodeId) => ({
         kind: "node",
         nodeId: contentNodeId,

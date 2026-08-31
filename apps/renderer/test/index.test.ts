@@ -6,7 +6,11 @@ import {
   northstarSeed,
 } from "@webmcp/document"
 import { launch } from "@cloudflare/playwright"
-import { maskRenderConformanceDocument } from "@webmcp/document/internal/mask-render-conformance"
+import {
+  alphaImageMaskRenderConformanceDocument,
+  alphaTextMaskRenderConformanceDocument,
+  maskRenderConformanceDocument,
+} from "@webmcp/document/internal/mask-render-conformance"
 import { MAX_RENDER_ARTIFACT_BYTES } from "../src/artifact-body"
 
 vi.mock("@cloudflare/playwright", () => ({ launch: vi.fn() }))
@@ -141,6 +145,148 @@ describe("renderer Worker", () => {
       expect(html).toContain('data-mask-group-id="mask-conformance-group"')
       expect(html).toContain('data-mask-composite="true"')
       expect(html).not.toContain('data-node-id="mask-conformance-source"')
+    }
+  )
+
+  it.each([
+    ["PNG", "/render", { pageId: "mask-conformance-page" }],
+    ["PDF", "/render/pdf", {}],
+  ])(
+    "passes a canonical alpha image mask through the public %s endpoint",
+    async (_format, path, requestFields) => {
+      const { default: worker } = await import("../src/index")
+      const browserPage = successfulBrowserPage([37, 80, 68, 70])
+      vi.mocked(launch).mockResolvedValue({
+        newPage: vi.fn(async () => browserPage),
+        close: vi.fn(async () => undefined),
+      } as never)
+      const response = await worker.fetch(
+        new Request(`https://renderer.internal${path}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Render-Persistence": "ephemeral",
+          },
+          body: JSON.stringify({
+            renderId: `mask-alpha-${_format.toLowerCase()}`,
+            outputId: "mask-conformance-output",
+            document: alphaImageMaskRenderConformanceDocument,
+            expectedImageResources: [],
+            ...requestFields,
+          }),
+        }) as never,
+        { BROWSER: {}, RENDERS: {} } as unknown as Env
+      )
+
+      expect(response.status).toBe(200)
+      const html = browserPage.setContent.mock.calls[0]?.[0]
+      expect(html).toContain('data-mask-group-id="mask-conformance-group"')
+      expect(html).toContain('data-mask-composite="true"')
+      expect(html).toContain('data-mask-source-id="mask-conformance-source"')
+      expect(html).toContain('data-node-id="mask-conformance-source"')
+      expect(html).toContain('data-image-frame-id="mask-conformance-source"')
+      expect(html).toContain("&quot;mode&quot;:&quot;manual&quot;")
+      expect(html).toContain("&quot;shape&quot;:&quot;ellipse&quot;")
+    }
+  )
+
+  it.each([
+    ["PNG", "/render", { pageId: "mask-conformance-page" }],
+    ["PDF", "/render/pdf", {}],
+  ])(
+    "rejects an alpha image source failure before public %s capture",
+    async (_format, path, requestFields) => {
+      const { default: worker } = await import("../src/index")
+      const browserPage = successfulBrowserPage([37, 80, 68, 70])
+      browserPage.evaluate.mockResolvedValue({
+        ready: false,
+        code: "image_decode_failed",
+        nodeId: "mask-conformance-source",
+      })
+      const close = vi.fn(async () => undefined)
+      vi.mocked(launch).mockResolvedValue({
+        newPage: vi.fn(async () => browserPage),
+        close,
+      } as never)
+      const put = vi.fn()
+
+      const response = await worker.fetch(
+        new Request(`https://renderer.internal${path}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            renderId: `mask-alpha-image-failure-${_format.toLowerCase()}`,
+            outputId: "mask-conformance-output",
+            document: alphaImageMaskRenderConformanceDocument,
+            expectedImageResources: [],
+            ...requestFields,
+          }),
+        }) as never,
+        { BROWSER: {}, RENDERS: { put } } as unknown as Env
+      )
+
+      expect(response.status).toBe(422)
+      expect(await response.json()).toEqual({
+        error: "render_resource_failed",
+        code: "image_decode_failed",
+        message:
+          "Required render resource failed for node mask-conformance-source",
+        nodeId: "mask-conformance-source",
+      })
+      expect(browserPage.screenshot).not.toHaveBeenCalled()
+      expect(browserPage.pdf).not.toHaveBeenCalled()
+      expect(put).not.toHaveBeenCalled()
+      expect(close).toHaveBeenCalledOnce()
+    }
+  )
+
+  it.each([
+    ["PNG", "/render", { pageId: "mask-conformance-page" }],
+    ["PDF", "/render/pdf", {}],
+  ])(
+    "rejects an alpha text font failure before public %s capture",
+    async (_format, path, requestFields) => {
+      const { default: worker } = await import("../src/index")
+      const browserPage = successfulBrowserPage([37, 80, 68, 70])
+      browserPage.evaluate.mockResolvedValue({
+        ready: false,
+        code: "managed_font_failed",
+        nodeId: "mask-conformance-source",
+      })
+      const close = vi.fn(async () => undefined)
+      vi.mocked(launch).mockResolvedValue({
+        newPage: vi.fn(async () => browserPage),
+        close,
+      } as never)
+      const put = vi.fn()
+
+      const response = await worker.fetch(
+        new Request(`https://renderer.internal${path}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            renderId: `mask-alpha-font-failure-${_format.toLowerCase()}`,
+            outputId: "mask-conformance-output",
+            document: alphaTextMaskRenderConformanceDocument,
+            expectedImageResources: [],
+            ...requestFields,
+          }),
+        }) as never,
+        { BROWSER: {}, RENDERS: { put } } as unknown as Env
+      )
+
+      expect(response.status).toBe(422)
+      expect(await response.json()).toEqual({
+        error: "render_resource_failed",
+        code: "managed_font_failed",
+        message:
+          "Required render resource failed for node mask-conformance-source",
+        nodeId: "mask-conformance-source",
+      })
+      expect(browserPage.screenshot).not.toHaveBeenCalled()
+      expect(browserPage.pdf).not.toHaveBeenCalled()
+      expect(put).not.toHaveBeenCalled()
+      expect(close).toHaveBeenCalledOnce()
     }
   )
 

@@ -26,8 +26,22 @@ const addMaskAdmissionFixtures = (
     const sourceId = `admission-source-${index}`
     const contentId = `admission-content-${index}`
     document.nodes.push(
-      { ...structuredClone(template), id: sourceId, x: 0, y: 0, width: size, height: size },
-      { ...structuredClone(template), id: contentId, x: 0, y: 0, width: size, height: size }
+      {
+        ...structuredClone(template),
+        id: sourceId,
+        x: 0,
+        y: 0,
+        width: size,
+        height: size,
+      },
+      {
+        ...structuredClone(template),
+        id: contentId,
+        x: 0,
+        y: 0,
+        width: size,
+        height: size,
+      }
     )
     page.nodeIds.push(sourceId, contentId)
     document.groups.push({
@@ -406,12 +420,12 @@ describe("strict document validation", () => {
       pageId: "cover",
       name: "Unsupported mask",
       nodeIds: ["cover-panel", "cover-eyebrow"],
-      mask: { type: "alpha", sourceNodeIds: ["cover-panel"] },
+      mask: { type: "luminance", sourceNodeIds: ["cover-panel"] },
     })
     expect(errorsFor(unsupported)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          id: "group:unsupported-mask:mask:type:alpha",
+          id: "group:unsupported-mask:mask:type:luminance",
           code: "invalid_group",
         }),
       ])

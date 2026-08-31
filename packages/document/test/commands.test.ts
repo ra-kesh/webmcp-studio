@@ -263,6 +263,58 @@ describe("canonical document commands", () => {
     }
   )
 
+  it.each(["image", "text"] as const)(
+    "creates an alpha mask from a %s source atomically",
+    (type) => {
+      const document = createMaskCommandFixture()
+      replaceCreateFixtureSource(document, type)
+      const created = applyCommand(document, {
+        ...createMaskCommand(),
+        maskType: "alpha",
+      })
+      expect(created.groups[0]).toMatchObject({
+        role: "mask",
+        mask: { type: "alpha", sourceNodeIds: ["mask-conformance-below"] },
+      })
+      expect(created.revision).toBe(document.revision + 1)
+    }
+  )
+
+  it("changes a vector group to alpha once and keeps the alpha no-op identical", () => {
+    const created = applyCommand(
+      createMaskCommandFixture(),
+      createMaskCommand()
+    )
+    const changed = applyCommand(created, {
+      id: "set-alpha-mask-type",
+      type: "set_mask_type",
+      actor: "human",
+      at: "2026-08-31T14:00:30.000Z",
+      expectedRevision: created.revision,
+      pageId: "mask-conformance-page",
+      groupId: "created-mask",
+      maskType: "alpha",
+    })
+    expect(changed.groups[0]).toMatchObject({
+      role: "mask",
+      mask: { type: "alpha" },
+    })
+    expect(changed.revision).toBe(created.revision + 1)
+
+    const noOp = applyCommand(changed, {
+      id: "alpha-mask-type-no-op",
+      type: "set_mask_type",
+      actor: "human",
+      at: "2026-08-31T14:00:31.000Z",
+      expectedRevision: changed.revision,
+      pageId: "mask-conformance-page",
+      groupId: "created-mask",
+      maskType: "alpha",
+    })
+    expect(noOp).toEqual(changed)
+    expect(noOp.revision).toBe(changed.revision)
+  })
+
   it.each([
     ["line", "MASK_COMMAND_UNSUPPORTED_SOURCE"],
     ["image", "MASK_COMMAND_UNSUPPORTED_SOURCE"],
@@ -447,7 +499,7 @@ describe("canonical document commands", () => {
       change: (document: ReturnType<typeof createMaskCommandFixture>) =>
         applyCommand(document, {
           ...createMaskCommand(),
-          maskType: "alpha" as const,
+          maskType: "luminance" as const,
         }),
       code: "MASK_COMMAND_UNSUPPORTED_TYPE",
     },

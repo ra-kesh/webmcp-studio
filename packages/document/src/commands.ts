@@ -54,7 +54,8 @@ import {
 import { assertValidCanonicalDocument, assertValidDocument } from "./validation"
 import {
   initialMaskPaintAdmission,
-  isAdmittedVectorMaskSource,
+  isAdmittedMaskSource,
+  type MaskPaintType,
 } from "./page-paint-plan"
 import { sha256 } from "@noble/hashes/sha2.js"
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js"
@@ -1213,17 +1214,18 @@ const assertSingleMaskSource = (
   }
 }
 
-const assertVectorMaskType = (
+const assertMaskTypeAdmission = (
   command: MaskProductCommand,
   maskType: "vector" | "alpha" | "luminance"
-) => {
-  if (maskType !== "vector") {
+): MaskPaintType => {
+  if (maskType !== "vector" && maskType !== "alpha") {
     throw new MaskCommandError(
       "MASK_COMMAND_UNSUPPORTED_TYPE",
-      `Mask type ${maskType} is not admitted by Gate M2`,
+      `Mask type ${maskType} is not admitted before the luminance gate`,
       maskCommandContext(command)
     )
   }
+  return maskType
 }
 
 const assertMaskNodesUnlocked = (
@@ -1272,7 +1274,8 @@ const assertMaskComponentStructure = (
 const assertMaskSourceAdmission = (
   document: Document,
   command: MaskProductCommand,
-  sourceNodeId: string
+  sourceNodeId: string,
+  maskType: MaskPaintType
 ) => {
   const source = document.nodes.find((node) => node.id === sourceNodeId)
   if (!source) {
@@ -1283,6 +1286,7 @@ const assertMaskSourceAdmission = (
     )
   }
   if (
+    maskType === "vector" &&
     (source.type === "rect" ||
       source.type === "ellipse" ||
       source.type === "icon") &&
@@ -1294,10 +1298,12 @@ const assertMaskSourceAdmission = (
       maskCommandContext(command, [sourceNodeId])
     )
   }
-  if (!isAdmittedVectorMaskSource(source)) {
+  if (!isAdmittedMaskSource(maskType, source)) {
     throw new MaskCommandError(
       "MASK_COMMAND_UNSUPPORTED_SOURCE",
-      `Mask source ${sourceNodeId} must be an unstroked rectangle, ellipse, or icon`,
+      maskType === "vector"
+        ? `Mask source ${sourceNodeId} must be an unstroked rectangle, ellipse, or icon`
+        : `Mask source ${sourceNodeId} must be a rectangle, ellipse, icon, image, or text layer for alpha`,
       maskCommandContext(command, [sourceNodeId])
     )
   }
@@ -2378,7 +2384,10 @@ function applyParsedCommand(
           maskCommandContext(command, command.nodeIds)
         )
       }
-      assertVectorMaskType(command, command.maskType)
+      const admittedMaskType = assertMaskTypeAdmission(
+        command,
+        command.maskType
+      )
       assertSingleMaskSource(command, command.sourceNodeIds)
       const uniqueNodeIds = new Set(command.nodeIds)
       if (uniqueNodeIds.size !== command.nodeIds.length) {
@@ -2443,7 +2452,12 @@ function applyParsedCommand(
         )
       }
       assertMaskNodesUnlocked(document, command, command.nodeIds)
-      assertMaskSourceAdmission(document, command, sourceNodeId)
+      assertMaskSourceAdmission(
+        document,
+        command,
+        sourceNodeId,
+        admittedMaskType
+      )
       const canonicalNodeIds = page.nodeIds.filter((nodeId) =>
         uniqueNodeIds.has(nodeId)
       )
@@ -2466,7 +2480,7 @@ function applyParsedCommand(
             nodeIds: canonicalNodeIds,
             role: "mask",
             mask: {
-              type: command.maskType,
+              type: admittedMaskType,
               sourceNodeIds: [sourceNodeId],
             },
           },
@@ -2490,17 +2504,26 @@ function applyParsedCommand(
     case "set_mask_type": {
       maskCommandPage(document, command)
       const group = maskCommandGroup(document, command)
-      assertVectorMaskType(command, command.maskType)
+      const admittedMaskType = assertMaskTypeAdmission(
+        command,
+        command.maskType
+      )
       if (group.mask.type === command.maskType) return document
       assertMaskNodesUnlocked(document, command, group.nodeIds)
       assertMaskComponentStructure(document, command, [group.id], group.nodeIds)
+      assertMaskSourceAdmission(
+        document,
+        command,
+        group.mask.sourceNodeIds[0]!,
+        admittedMaskType
+      )
       next = {
         ...document,
         groups: document.groups.map((candidate) =>
           candidate.id === group.id && candidate.role === "mask"
             ? {
                 ...candidate,
-                mask: { ...candidate.mask, type: command.maskType },
+                mask: { ...candidate.mask, type: admittedMaskType },
               }
             : candidate
         ),
@@ -2527,7 +2550,13 @@ function applyParsedCommand(
       }
       assertMaskNodesUnlocked(document, command, group.nodeIds)
       assertMaskComponentStructure(document, command, [group.id], group.nodeIds)
-      assertMaskSourceAdmission(document, command, sourceNodeId)
+      const admittedMaskType = assertMaskTypeAdmission(command, group.mask.type)
+      assertMaskSourceAdmission(
+        document,
+        command,
+        sourceNodeId,
+        admittedMaskType
+      )
       next = {
         ...document,
         groups: document.groups.map((candidate) =>

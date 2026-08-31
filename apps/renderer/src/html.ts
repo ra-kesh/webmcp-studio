@@ -12,10 +12,12 @@ import {
 } from "@webmcp/document"
 import type { PageThumbnailSize } from "@webmcp/document"
 import type {
+  MaskPaintSource,
   PagePaintPlanEntry,
   PagePaintBounds,
 } from "@webmcp/document/internal/page-paint-plan"
 import {
+  isAdmittedAlphaMaskSource,
   isAdmittedVectorMaskSource,
   projectPagePaintPlan,
 } from "@webmcp/document/internal/page-paint-plan"
@@ -38,6 +40,11 @@ type RenderFontSet = Iterable<RenderFontFace> & {
   check(query: string, text?: string): boolean
   load(query: string, text?: string): Promise<RenderFontFace[]>
 }
+
+type RenderFontRequirement = Readonly<{
+  nodeId: string
+  fontFamilies: readonly string[]
+}>
 
 type RenderImage = {
   complete: boolean
@@ -66,6 +73,7 @@ type ImagePaintProjector = (
 export async function markRenderResourcesReady(input: {
   root: RenderRoot
   fonts: RenderFontSet
+  fontRequirements?: readonly RenderFontRequirement[]
   images: RenderImage[]
   projectImagePaint: ImagePaintProjector
 }): Promise<void> {
@@ -76,8 +84,12 @@ export async function markRenderResourcesReady(input: {
   }
 
   try {
+    const fontRequirements = input.fontRequirements ?? []
     const query = '16px "Geist Variable"'
     const probeText = "WebMCP"
+    const managedFontSourceNodeId = fontRequirements.find((requirement) =>
+      requirement.fontFamilies.includes("Geist Variable")
+    )?.nodeId
     let managedFontReady = false
     try {
       // CSS-connected faces are lazy: an all-shape document does not request
@@ -92,12 +104,34 @@ export async function markRenderResourcesReady(input: {
       managedFontReady =
         input.fonts.check(query, probeText) && managedFaceLoaded
     } catch {
-      fail("managed_font_failed")
+      fail("managed_font_failed", managedFontSourceNodeId)
       return
     }
     if (!managedFontReady) {
-      fail("managed_font_failed")
+      fail("managed_font_failed", managedFontSourceNodeId)
       return
+    }
+
+    const checkedRequirements = new Set<string>()
+    for (const requirement of fontRequirements) {
+      for (const family of requirement.fontFamilies) {
+        if (family === "Geist Variable") continue
+        const requirementKey = `${requirement.nodeId}\u0000${family}`
+        if (checkedRequirements.has(requirementKey)) continue
+        checkedRequirements.add(requirementKey)
+        const requirementQuery = `16px "${family.replaceAll('"', '\\"')}"`
+        try {
+          await input.fonts.load(requirementQuery, probeText)
+          await input.fonts.ready
+          if (!input.fonts.check(requirementQuery, probeText)) {
+            fail("managed_font_failed", requirement.nodeId)
+            return
+          }
+        } catch {
+          fail("managed_font_failed", requirement.nodeId)
+          return
+        }
+      }
     }
 
     for (const image of input.images) {
@@ -170,7 +204,7 @@ export async function markRenderResourcesReady(input: {
 
 const geistFontDataUrl = `data:font/woff2;base64,${GEIST_LATIN_WOFF2_BASE64}`
 const geistFontFace = `@font-face{font-family:"${MANAGED_FONT_FAMILY}";font-style:normal;font-display:block;font-weight:100 900;src:url("${geistFontDataUrl}") format("woff2")}`
-const resourceReadyScript = `<script>(${markRenderResourcesReady.toString()})({root:document.documentElement,fonts:document.fonts,images:Array.from(document.querySelectorAll("img[data-node-id]")),projectImagePaint:${serializeImagePaintProjector()}})</script>`
+const resourceReadyScript = `<script>(${markRenderResourcesReady.toString()})({root:document.documentElement,fonts:document.fonts,fontRequirements:Array.from(document.querySelectorAll("[data-mask-font-families]"),element=>({nodeId:element.getAttribute("data-mask-font-source-node")||"",fontFamilies:JSON.parse(element.getAttribute("data-mask-font-families")||"[]")})),images:Array.from(document.querySelectorAll("img[data-node-id]")),projectImagePaint:${serializeImagePaintProjector()}})</script>`
 
 const escapeHtml = (value: string): string =>
   value
@@ -337,6 +371,28 @@ const renderVectorMaskSource = (
   throw new Error(`Mask source ${node.id} did not project as vector geometry`)
 }
 
+const renderAlphaMaskSource = (
+  node: SceneNode,
+  bounds: PagePaintBounds,
+  source: MaskPaintSource | undefined
+): string => {
+  if (!isAdmittedAlphaMaskSource(node)) {
+    throw new Error(
+      `Alpha mask source ${node.id} must be a rectangle, ellipse, icon, image, or text layer`
+    )
+  }
+  const translatedSource = `<div xmlns="http://www.w3.org/1999/xhtml" style="position:absolute;left:${-bounds.x}px;top:${-bounds.y}px;width:${bounds.width}px;height:${bounds.height}px">${renderNodeToHtml(node)}</div>`
+  const fontReadiness =
+    node.type === "text"
+      ? source?.kind === "text"
+        ? ` data-mask-font-source-node="${escapeHtml(node.id)}" data-mask-font-families="${escapeHtml(JSON.stringify(source.fontFamilies))}"`
+        : (() => {
+            throw new Error(`Missing alpha text readiness for ${node.id}`)
+          })()
+      : ""
+  return `<foreignObject data-mask-source-id="${escapeHtml(node.id)}"${fontReadiness} x="0" y="0" width="${bounds.width}" height="${bounds.height}">${translatedSource}</foreignObject>`
+}
+
 /**
  * Serializes one canonical page-paint-plan entry for every HTML render path.
  */
@@ -350,9 +406,6 @@ export function renderPagePaintPlanEntryToHtml(
     return renderNodeToHtml(node)
   }
 
-  if (entry.maskType !== "vector") {
-    throw new Error(`Unsupported mask type: ${entry.maskType}`)
-  }
   const content = entry.content
     .map((child) => renderPagePaintPlanEntryToHtml(child, nodesById))
     .join("")
@@ -386,7 +439,13 @@ export function renderPagePaintPlanEntryToHtml(
   const sources = entry.visibleSourceNodeIds.map((sourceNodeId) => {
     const source = nodesById.get(sourceNodeId)
     if (!source) throw new Error(`Unknown mask source: ${sourceNodeId}`)
-    return renderVectorMaskSource(source, bounds)
+    return entry.maskType === "vector"
+      ? renderVectorMaskSource(source, bounds)
+      : renderAlphaMaskSource(
+          source,
+          bounds,
+          entry.sources.find((candidate) => candidate.nodeId === sourceNodeId)
+        )
   })
   compositeStyle.push(
     `mask:url(#${maskId})`,

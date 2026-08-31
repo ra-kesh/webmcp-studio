@@ -39,6 +39,10 @@ import {
 
 function renderResourceFixture(options?: {
   fontCheck?: boolean
+  fontRequirements?: readonly Readonly<{
+    nodeId: string
+    fontFamilies: readonly string[]
+  }>[]
   fontLoadRejects?: boolean
   fontStatus?: string
   imageComplete?: boolean
@@ -134,6 +138,7 @@ function renderResourceFixture(options?: {
     input: {
       root,
       fonts: faces,
+      fontRequirements: options?.fontRequirements,
       images,
       projectImagePaint: options?.projectionRejects
         ? () => {
@@ -278,6 +283,68 @@ describe("renderer HTML", () => {
     }
   })
 
+  it("serializes image and text alpha from ordinary canonical paint and readiness", () => {
+    const baseEntry = maskRenderConformancePlan.entries[1]
+    if (!baseEntry || baseEntry.kind !== "mask_group") {
+      throw new Error("Missing retained mask group")
+    }
+    const content = maskRenderConformanceNodes.find(
+      (node) => node.id === "mask-conformance-content"
+    )!
+    const image = {
+      ...imageRenderParityNode(imageRenderParityCases[0]!, 1),
+      id: "mask-conformance-source",
+      opacity: 0.57,
+      frameMask: { shape: "ellipse" as const },
+    }
+    const imageHtml = renderPagePaintPlanEntryToHtml(
+      {
+        ...baseEntry,
+        maskType: "alpha",
+        sources: [{ nodeId: image.id, kind: "image", assetId: image.assetId }],
+      },
+      new Map<string, SceneNode>([
+        [image.id, image],
+        [content.id, content],
+      ])
+    )
+    expect(imageHtml).toContain(`data-mask-source-id="${image.id}"`)
+    expect(imageHtml).toContain(`data-node-id="${image.id}"`)
+    expect(imageHtml).toContain(`data-image-frame-id="${image.id}"`)
+    expect(imageHtml).toContain("&quot;shape&quot;:&quot;ellipse&quot;")
+    expect(imageHtml).toContain(`opacity:${image.opacity}`)
+
+    const text = renderConformanceDocument.nodes.find(
+      (node) => node.type === "text"
+    )!
+    const textSource = { ...text, id: "mask-conformance-source" }
+    const textHtml = renderPagePaintPlanEntryToHtml(
+      {
+        ...baseEntry,
+        maskType: "alpha",
+        sources: [
+          {
+            nodeId: textSource.id,
+            kind: "text",
+            fontFamilies: ["Geist Variable", "Inter"],
+          },
+        ],
+      },
+      new Map<string, SceneNode>([
+        [textSource.id, textSource],
+        [content.id, content],
+      ])
+    )
+    expect(textHtml).toContain(`data-mask-source-id="${textSource.id}"`)
+    expect(textHtml).toContain(`data-node-id="${textSource.id}"`)
+    expect(textHtml).toContain(`data-mask-font-source-node="${textSource.id}"`)
+    expect(textHtml).toContain(
+      'data-mask-font-families="[&quot;Geist Variable&quot;,&quot;Inter&quot;]"'
+    )
+    expect(textHtml).toContain("font-family:Geist Variable,sans-serif")
+    expect(textHtml).toContain(`opacity:${textSource.opacity}`)
+  })
+
   it("falls through to canonical content without an ordinary hidden mask source", () => {
     const entry = maskRenderConformanceHiddenSourcePlan.entries[1]
     if (!entry || entry.kind !== "mask_group") {
@@ -384,13 +451,46 @@ describe("renderer HTML", () => {
   })
 
   it("marks an exact managed-font failure instead of accepting fallback", async () => {
-    const fixture = renderResourceFixture({ fontStatus: "error" })
+    const fixture = renderResourceFixture({
+      fontStatus: "error",
+      fontRequirements: [
+        {
+          nodeId: "alpha-text-source",
+          fontFamilies: ["Geist Variable"],
+        },
+      ],
+    })
     await markRenderResourcesReady(fixture.input)
 
     expect(fixture.attributes.get("data-render-error")).toBe(
       "managed_font_failed"
     )
+    expect(fixture.attributes.get("data-render-error-node")).toBe(
+      "alpha-text-source"
+    )
     expect(fixture.attributes.has("data-render-ready")).toBe(false)
+  })
+
+  it("loads every base and run font required by an alpha text source", async () => {
+    const fixture = renderResourceFixture({
+      fontRequirements: [
+        {
+          nodeId: "alpha-text-source",
+          fontFamilies: ["Geist Variable", "Inter"],
+        },
+      ],
+    })
+    await markRenderResourcesReady(fixture.input)
+
+    expect(fixture.fontLoads).toEqual([
+      { query: '16px "Geist Variable"', text: "WebMCP" },
+      { query: '16px "Inter"', text: "WebMCP" },
+    ])
+    expect(fixture.fontChecks).toEqual([
+      { query: '16px "Geist Variable"', text: "WebMCP" },
+      { query: '16px "Inter"', text: "WebMCP" },
+    ])
+    expect(fixture.attributes.get("data-render-ready")).toBe("true")
   })
 
   it("marks a managed-font load rejection before decoding images", async () => {

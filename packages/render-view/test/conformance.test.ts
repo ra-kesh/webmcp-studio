@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
+import { createElement } from "react"
+import { renderToStaticMarkup } from "react-dom/server"
 import {
   componentRenderConformanceCases,
   componentRenderConformanceDocument,
@@ -18,12 +20,16 @@ import {
   maskRenderConformancePlan,
 } from "@webmcp/document/internal/mask-render-conformance"
 import {
+  createAlphaImageMaskCommitState,
   createImageResourceLoadState,
+  alphaMaskGroupRenderModel,
   decodedImageNaturalSizeForSource,
   imageResourceIdentity,
   imageResourceStateChangeForFailure,
   imageResourceStateChangeForLoad,
+  MaskGroupPaintEntry,
   maskGroupRenderModel,
+  reduceAlphaImageMaskCommitState,
   reduceImageResourceLoadState,
   renderViewDevicePixelRatio,
   renderFrameStyle,
@@ -88,6 +94,194 @@ describe("React render-view conformance", () => {
       compositeRequired: false,
     })
     expect(shouldCompositeMaskGroup(entry)).toBe(false)
+  })
+
+  it("mounts hidden alpha-image fallthrough without allocating its unavailable source", () => {
+    const baseEntry = maskRenderConformancePlan.entries[1]!
+    if (baseEntry.kind !== "mask_group") throw new Error("Missing mask entry")
+    const content = maskRenderConformanceNodes.find(
+      (node) => node.id === "mask-conformance-content"
+    )!
+    const image = {
+      ...imageRenderParityNode(imageRenderParityCases[0]!, 1),
+      id: "mask-conformance-source",
+      src: "https://cdn.example.com/unavailable-mask.png",
+      visible: false,
+    }
+    const hiddenAlphaEntry = {
+      ...baseEntry,
+      maskType: "alpha" as const,
+      visibleSourceNodeIds: [],
+      maskEnabled: false,
+      compositeRequired: false,
+      sources: [
+        { nodeId: image.id, kind: "image" as const, assetId: image.assetId },
+      ],
+    }
+    const markup = renderToStaticMarkup(
+      createElement(MaskGroupPaintEntry, {
+        entry: hiddenAlphaEntry,
+        nodesById: new Map([
+          [image.id, image],
+          [content.id, content],
+        ]),
+        showImageRecoveryActions: false,
+      })
+    )
+
+    expect(markup).toContain(`data-node-id="${content.id}"`)
+    expect(markup).not.toContain("data-alpha-mask-resource-probe")
+    expect(markup).not.toContain(image.src)
+    expect(markup).not.toContain("data-mask-resource-state")
+  })
+
+  it("resolves image and text alpha sources through canonical node paint", () => {
+    const baseEntry = maskRenderConformancePlan.entries[1]!
+    if (baseEntry.kind !== "mask_group") throw new Error("Missing mask entry")
+    const content = maskRenderConformanceNodes.find(
+      (node) => node.id === "mask-conformance-content"
+    )!
+    const image = {
+      ...imageRenderParityNode(imageRenderParityCases[0]!, 1),
+      id: "mask-conformance-source",
+      opacity: 0.61,
+      frameMask: { shape: "ellipse" as const },
+    }
+    const imageModel = alphaMaskGroupRenderModel(
+      {
+        ...baseEntry,
+        maskType: "alpha",
+        sources: [{ nodeId: image.id, kind: "image", assetId: image.assetId }],
+      },
+      new Map([
+        [image.id, image],
+        [content.id, content],
+      ])
+    )
+    expect(imageModel.source).toMatchObject({
+      type: "image",
+      placement: image.placement,
+      frameMask: image.frameMask,
+      opacity: image.opacity,
+    })
+
+    const text = renderConformanceDocument.nodes.find(
+      (node) => node.type === "text"
+    )!
+    const textSource = { ...text, id: "mask-conformance-source" }
+    const textModel = alphaMaskGroupRenderModel(
+      {
+        ...baseEntry,
+        maskType: "alpha",
+        sources: [
+          {
+            nodeId: textSource.id,
+            kind: "text",
+            fontFamilies: ["Geist Variable"],
+          },
+        ],
+      },
+      new Map([
+        [textSource.id, textSource],
+        [content.id, content],
+      ])
+    )
+    expect(textModel.source).toMatchObject({
+      type: "text",
+      opacity: textSource.opacity,
+      text: textSource.text,
+    })
+  })
+
+  it("keeps the previous alpha-image composite when a replacement fails", () => {
+    const baseEntry = maskRenderConformancePlan.entries[1]!
+    if (baseEntry.kind !== "mask_group") throw new Error("Missing mask entry")
+    const content = maskRenderConformanceNodes.find(
+      (node) => node.id === "mask-conformance-content"
+    )!
+    const image = {
+      ...imageRenderParityNode(imageRenderParityCases[0]!, 1),
+      id: "mask-conformance-source",
+    }
+    const initialModel = alphaMaskGroupRenderModel(
+      { ...baseEntry, maskType: "alpha" },
+      new Map([
+        [image.id, image],
+        [content.id, content],
+      ])
+    )
+    const initialIdentity = imageResourceIdentity(image.id, image.src, 1)
+    const ready = reduceAlphaImageMaskCommitState(
+      createAlphaImageMaskCommitState(initialIdentity, initialModel),
+      { type: "ready", identity: initialIdentity }
+    )
+
+    const replacement = { ...image, src: "https://cdn.example.com/missing.png" }
+    const replacementModel = alphaMaskGroupRenderModel(
+      { ...baseEntry, maskType: "alpha" },
+      new Map([
+        [replacement.id, replacement],
+        [content.id, content],
+      ])
+    )
+    const replacementIdentity = imageResourceIdentity(
+      replacement.id,
+      replacement.src,
+      2
+    )
+    const loading = reduceAlphaImageMaskCommitState(ready, {
+      type: "request",
+      identity: replacementIdentity,
+      model: replacementModel,
+    })
+    const failed = reduceAlphaImageMaskCommitState(loading, {
+      type: "failed",
+      identity: replacementIdentity,
+    })
+
+    expect(loading.status).toBe("loading")
+    expect(loading.committedModel).toBe(initialModel)
+    expect(failed.status).toBe("error")
+    expect(failed.committedIdentity).toBe(initialIdentity)
+    expect(failed.committedModel).toBe(initialModel)
+  })
+
+  it("commits only the exact ready alpha-image replacement", () => {
+    const baseEntry = maskRenderConformancePlan.entries[1]!
+    if (baseEntry.kind !== "mask_group") throw new Error("Missing mask entry")
+    const content = maskRenderConformanceNodes.find(
+      (node) => node.id === "mask-conformance-content"
+    )!
+    const image = {
+      ...imageRenderParityNode(imageRenderParityCases[0]!, 1),
+      id: "mask-conformance-source",
+    }
+    const model = alphaMaskGroupRenderModel(
+      { ...baseEntry, maskType: "alpha" },
+      new Map([
+        [image.id, image],
+        [content.id, content],
+      ])
+    )
+    const identity = imageResourceIdentity(image.id, image.src, 2)
+    const initial = createAlphaImageMaskCommitState(identity, model)
+
+    expect(
+      reduceAlphaImageMaskCommitState(initial, {
+        type: "ready",
+        identity: "stale-resource",
+      })
+    ).toBe(initial)
+
+    const ready = reduceAlphaImageMaskCommitState(initial, {
+      type: "ready",
+      identity,
+    })
+    expect(ready).toMatchObject({
+      status: "ready",
+      committedIdentity: identity,
+      committedModel: model,
+    })
   })
 
   it("renders every component semantic case from its materialized ordinary nodes", () => {

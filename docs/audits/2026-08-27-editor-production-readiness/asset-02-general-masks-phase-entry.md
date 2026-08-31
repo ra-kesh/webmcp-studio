@@ -1,7 +1,7 @@
 # ASSET-02 general masks phase entry
 
 Date: 2026-08-31
-Status: Gate M2 accepted; Gate M3 next
+Status: Gate M2 accepted; Gate M3 implemented, retained runtime evidence blocked
 Scope: local, non-destructive masks and clipping
 Out of scope: background-removal services and generated replacement assets
 
@@ -410,6 +410,80 @@ Exit: a user can create, edit, undo, release, duplicate, save, reload, publish, 
 - enforce memory and pixel admission
 
 Exit: alpha output and errors conform across editor, PNG, PDF, thumbnails, and publication.
+
+#### M3 domain/readiness checkpoint — 31 August 2026
+
+The domain contract extends the accepted semantic mask relation without adding
+renderer state to the document. `alpha` admits exactly rectangle, ellipse,
+icon, image, and text sources; `vector` remains limited to unstroked rectangle,
+ellipse, and icon sources. Luminance, multiple sources, and nesting remain
+outside M3. Image requirements expose canonical node and asset identity. Text
+requirements expose the node's base and rich-run font families. Source URLs,
+decoded elements, Fabric objects, and offscreen buffers remain private to
+renderer adapters.
+
+M3 reuses the accepted M2 admission unchanged: one direct source, 512 masked
+content layers, 8192 device pixels per composite edge, 16,777,216 device pixels
+per composite, 32 active composites and 67,108,864 admitted composite device
+pixels per page, at no more than 2x. Create, type change, and source reassignment
+remain atomic typed commands with the existing replay receipt, no-op identity,
+undo, lock, binding, component, and nesting rules.
+
+The stable readiness failures are `image_decode_failed`, `managed_font_failed`,
+`resource_readiness_failed`, and `resource_readiness_timeout`, with the exact
+source node named when it is known. The renderer gate must still prove image
+decode, text/font readiness including run families, crop, frame mask, source
+opacity, hidden-source behavior, 1x/2x admission, PNG/PDF/thumbnail/publication
+parity, and atomic failure before M3 is accepted.
+
+#### M3 implementation checkpoint — 31 August 2026
+
+The alpha-mask production slice is implemented across the canonical command,
+validation, inspector, Fabric, React, deterministic HTML, public PNG, and public
+PDF paths. It preserves the accepted M2 vector contract and admission limits.
+
+Implemented:
+
+- alpha sources admit rectangle, ellipse, icon, image, and text nodes while
+  vector sources remain restricted to unstroked rectangle, ellipse, and icon
+  nodes
+- Fabric composites ordinary source paint with `destination-in`, waits for
+  image decode, and keeps the previous mounted result when a replacement source
+  cannot decode
+- React and deterministic HTML render alpha sources through the same page paint
+  plan, including image placement, crop, frame mask, opacity, hidden-source
+  fallthrough, rich text, and managed-font readiness; React decodes replacement
+  image sources before swapping the mounted composite and ignores stale results
+- deterministic HTML consumes the paint plan's base and rich-run font families
+  and attributes managed-font failure to the exact alpha text source
+- public renderer tests carry the canonical alpha image fixture through PNG and
+  PDF request validation and HTML construction, then prove image and managed-font
+  readiness failures stop screenshot/PDF capture and persistence with the exact
+  source node; retained pixels remain an open acceptance item below
+- the retained conformance corpus contains visible and hidden alpha-image
+  fixtures plus a managed-font alpha-text fixture at 1x and 2x
+- the capture harness separates PNG and PDF browser lifecycles and adds bounded
+  navigation, screenshot, and operation timeouts without loosening any accepted
+  vector threshold
+
+Verification completed at this checkpoint:
+
+- 344/344 focused tests passed across document commands, validation, page paint
+  planning, editor history/inspector/Fabric, React conformance, renderer HTML,
+  and public renderer boundaries
+- document, editor, render-view, renderer, and Studio typechecks passed
+- `git diff --check` passed
+- final independent review verdict: **COMMIT**, with no remaining P0/P1 finding
+
+Gate M3 is not yet marked accepted. The retained browser run produced the
+Fabric and React states plus partial direct PNG/PDF evidence, then the local
+Cloudflare runtime accumulated orphaned Browser Rendering processes. Its
+`workerd` children are now stuck in an uninterruptible exiting state and a fresh
+Studio Worker cannot bind port 3001. This is a host-runtime blocker, not a pixel
+comparison failure. The old retained runs and the partial staging run are
+preserved and are not promoted as accepted evidence. After the host runtime is
+restarted, rerun `bun run capture:conformance:mask`, inspect the complete report,
+and only then change this gate to accepted.
 
 ### Gate M4: luminance, multiple sources, and nesting
 

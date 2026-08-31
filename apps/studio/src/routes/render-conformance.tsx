@@ -7,6 +7,9 @@ import {
   type Document,
 } from "@webmcp/document"
 import {
+  alphaImageMaskRenderConformanceDocument,
+  alphaImageMaskRenderConformanceHiddenSourceDocument,
+  alphaTextMaskRenderConformanceDocument,
   maskRenderConformanceDocument,
   maskRenderConformanceHiddenSourceNodes,
   maskRenderConformancePage,
@@ -19,16 +22,28 @@ import { waitForRenderViewDocumentFonts } from "../features/editor/render-confor
 const componentJourneyDocument =
   buildComponentPublicationJourney().published.document
 
-type MaskConformanceState = "visible" | "hidden-source"
+type MaskConformanceState =
+  | "visible"
+  | "hidden-source"
+  | "alpha-image"
+  | "alpha-image-hidden"
+  | "alpha-text"
 
 export const Route = createFileRoute("/render-conformance")({
   ssr: false,
   validateSearch: (search: Record<string, unknown>) => ({
     page: typeof search.page === "string" ? search.page : undefined,
-    maskState:
-      search.maskState === "hidden-source"
-        ? "hidden-source"
-        : ("visible" as MaskConformanceState),
+    maskState: (
+      [
+        "visible",
+        "hidden-source",
+        "alpha-image",
+        "alpha-image-hidden",
+        "alpha-text",
+      ] as const
+    ).includes(search.maskState as MaskConformanceState)
+      ? (search.maskState as MaskConformanceState)
+      : "visible",
     corpus:
       search.corpus === "resources" ||
       search.corpus === "components" ||
@@ -99,11 +114,17 @@ function MaskRenderConformanceHarness({
   const document =
     maskState === "visible"
       ? maskRenderConformanceDocument
-      : hiddenSourceMaskConformanceDocument
+      : maskState === "hidden-source"
+        ? hiddenSourceMaskConformanceDocument
+        : maskState === "alpha-image"
+          ? alphaImageMaskRenderConformanceDocument
+          : maskState === "alpha-image-hidden"
+            ? alphaImageMaskRenderConformanceHiddenSourceDocument
+            : alphaTextMaskRenderConformanceDocument
 
   return (
     <main
-      data-render-conformance-harness="mask-m2-production"
+      data-render-conformance-harness="mask-m3-production"
       style={{
         display: "grid",
         gridTemplateColumns: "auto auto",
