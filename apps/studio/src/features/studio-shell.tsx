@@ -94,7 +94,10 @@ import {
   resolveLibraryTemplateSurfaceVisibility,
   studioDesktopPresentationQuery,
 } from "./editor/library-template-surface-visibility"
-import { createInspectorSelectionModel } from "@webmcp/editor/inspector"
+import {
+  createInspectorSelectionModel,
+  deriveInspectorMaskCapabilities,
+} from "@webmcp/editor/inspector"
 import type { InspectorImageSourceState } from "@webmcp/editor/inspector"
 import { getNodeBounds, getSelectionBounds } from "@webmcp/editor/geometry"
 import type { NodeBounds } from "@webmcp/editor/geometry"
@@ -2180,6 +2183,28 @@ export function StudioShell({
     activeImageFrameMask: editor.imageCropSession?.draftFrameMask,
   })
 
+  const maskCommandCapabilities = deriveInspectorMaskCapabilities({
+    document: editor.document,
+    pageId: activePage.id,
+    selectedNodeIds: editor.selection?.nodeIds ?? [],
+    selectedGroupId: editor.selectedGroupId,
+    documentEditable: !editor.pendingChangeSet && !pendingQuotationRefresh,
+  })
+  const editorMaskCommandCapabilities = {
+    canCreate: maskCommandCapabilities.create.enabled,
+    createDisabledReason: maskCommandCapabilities.create.disabledReason,
+    canRelease: maskCommandCapabilities.release.enabled,
+    releaseDisabledReason: maskCommandCapabilities.release.disabledReason,
+    canSetVector: maskCommandCapabilities.setVector.enabled,
+    vectorDisabledReason: maskCommandCapabilities.setVector.disabledReason,
+    canSetAlpha: maskCommandCapabilities.setAlpha.enabled,
+    alphaDisabledReason: maskCommandCapabilities.setAlpha.disabledReason,
+    canSetLuminance: maskCommandCapabilities.setLuminance.enabled,
+    luminanceDisabledReason:
+      maskCommandCapabilities.setLuminance.disabledReason,
+    canSetSources: maskCommandCapabilities.setSources.enabled,
+    sourcesDisabledReason: maskCommandCapabilities.setSources.disabledReason,
+  }
   const commandContext: EditorCommandContext = {
     reviewPending: Boolean(editor.pendingChangeSet || pendingQuotationRefresh),
     hasSelection: Boolean(editor.selection?.nodeIds.length),
@@ -2193,6 +2218,7 @@ export function StudioShell({
     canTransformImage: imageSelectionCapabilities.canFlipImage,
     imageCropActive: Boolean(editor.imageCropSession),
     image: imageCommandCapabilities,
+    mask: editorMaskCommandCapabilities,
   }
   const readImageCropSession = () =>
     editor.imageCropPreviewStore?.getLiveSession() ?? editor.imageCropSession
@@ -2343,6 +2369,7 @@ export function StudioShell({
           activeImagePlacement: cropSession?.draft,
           activeImageFrameMask: cropSession?.draftFrameMask,
         }),
+        mask: editorMaskCommandCapabilities,
       }
       if (!isEditorCommandEnabled(commandId, context)) return false
       const nudge = options?.largeNudge ? 10 : 1
@@ -2486,6 +2513,23 @@ export function StudioShell({
         case "object.ungroup":
           editor.ungroupSelection()
           break
+        case "mask.create": {
+          const sourceNodeId = maskCommandCapabilities.createSourceNodeIds[0]
+          if (!sourceNodeId) return false
+          return editor.createMaskGroup([sourceNodeId])
+        }
+        case "mask.release":
+          return maskCommandCapabilities.groupId
+            ? editor.releaseMaskGroup(maskCommandCapabilities.groupId)
+            : false
+        case "mask.type.vector":
+          return maskCommandCapabilities.groupId
+            ? editor.setMaskType(maskCommandCapabilities.groupId, "vector")
+            : false
+        case "mask.type.alpha":
+        case "mask.type.luminance":
+        case "mask.sources.set":
+          return false
         case "object.delete":
           editor.deleteSelection()
           break
@@ -2633,9 +2677,27 @@ export function StudioShell({
         return
       }
       const commandId = resolveEditorShortcut(event, commandContext)
+      const maskShortcutHandled = commandId?.startsWith("mask.")
+        ? (() => {
+            const context = productCommandContextRef.current
+            const runner = productCommandRunnerRef.current
+            const command = context
+              ? projectProductCommandPalette(context, shortcutPlatform).find(
+                  (candidate) => candidate.invocation.commandId === commandId
+                )
+              : undefined
+            return Boolean(
+              runner &&
+              command &&
+              runner(command.invocation).status === "accepted"
+            )
+          })()
+        : false
       if (
         commandId &&
-        runEditorCommand(commandId, { largeNudge: event.shiftKey })
+        (maskShortcutHandled ||
+          (!commandId.startsWith("mask.") &&
+            runEditorCommand(commandId, { largeNudge: event.shiftKey })))
       ) {
         event.preventDefault()
         return
@@ -3162,6 +3224,7 @@ export function StudioShell({
       : null,
     activeTool: tool,
     editor: commandContext,
+    mask: maskCommandCapabilities,
     structureByTarget: Object.fromEntries([
       ...editor.document.pages.map((page) => {
         const output = editor.document.outputs.find(
@@ -3294,6 +3357,43 @@ export function StudioShell({
   const executeProductCommand = (
     invocation: ProductCommandInvocation
   ): boolean => {
+    if (invocation.commandId === "mask.create") {
+      if (
+        invocation.target?.kind !== "selection" ||
+        invocation.arguments?.kind !== "mask-create" ||
+        invocation.arguments.sourceNodeIds.length !== 1
+      ) {
+        return false
+      }
+      return editor.createMaskGroup([invocation.arguments.sourceNodeIds[0]!])
+    }
+    if (invocation.commandId === "mask.release") {
+      return invocation.target?.kind === "group"
+        ? editor.releaseMaskGroup(invocation.target.groupId)
+        : false
+    }
+    if (
+      invocation.commandId === "mask.type.vector" ||
+      invocation.commandId === "mask.type.alpha" ||
+      invocation.commandId === "mask.type.luminance"
+    ) {
+      if (invocation.target?.kind !== "group") return false
+      const maskType = invocation.commandId.slice("mask.type.".length) as
+        "vector" | "alpha" | "luminance"
+      return editor.setMaskType(invocation.target.groupId, maskType)
+    }
+    if (invocation.commandId === "mask.sources.set") {
+      if (
+        invocation.target?.kind !== "group" ||
+        invocation.arguments?.kind !== "mask-sources" ||
+        invocation.arguments.sourceNodeIds.length !== 1
+      ) {
+        return false
+      }
+      return editor.setMaskSources(invocation.target.groupId, [
+        invocation.arguments.sourceNodeIds[0]!,
+      ])
+    }
     if (isEditorCommandId(invocation.commandId)) {
       return runEditorCommand(invocation.commandId)
     }
@@ -5091,6 +5191,8 @@ export function StudioShell({
                   reviewNavigationDocument={editor.previewDocument}
                   selectedNodes={editor.selectedNodes}
                   selectedGroupId={editor.selectedGroupId}
+                  productCommandContext={productCommandContext}
+                  productCommandRuntime={productMenuRuntime}
                   textEditingState={textEditingState}
                   imageCropPreviewStore={editor.imageCropPreviewStore}
                   capabilityContext={inspectorCapabilityContext}
@@ -5336,6 +5438,8 @@ export function StudioShell({
                 reviewNavigationDocument={editor.previewDocument}
                 selectedNodes={editor.selectedNodes}
                 selectedGroupId={editor.selectedGroupId}
+                productCommandContext={productCommandContext}
+                productCommandRuntime={productMenuRuntime}
                 textEditingState={textEditingState}
                 imageCropPreviewStore={editor.imageCropPreviewStore}
                 capabilityContext={inspectorCapabilityContext}

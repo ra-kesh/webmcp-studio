@@ -125,6 +125,14 @@ const commandLabel = (commands: DocumentCommand[]) => {
       return "Unbind variable"
     case "replace_image_source":
       return "Replace image"
+    case "create_mask_group":
+      return "Create mask"
+    case "release_mask_group":
+      return "Release mask"
+    case "set_mask_type":
+      return "Change mask type"
+    case "set_mask_sources":
+      return "Change mask source"
     case "relink_asset_references":
       return "Make image available everywhere"
     case "remove_node":
@@ -247,6 +255,7 @@ export function commitCommandsWithResult(
     applyCanonicalHistoryCommand,
     history.document
   )
+  if (document === history.document) return null
   const committedAt = options.committedAt ?? Date.now()
   const afterSnapshotId =
     options.snapshotId ?? createSnapshotId(commands.at(-1)?.id)

@@ -22,6 +22,7 @@ import {
   type SceneNode,
 } from "@webmcp/document"
 import {
+  maskRenderConformanceDocument,
   maskRenderConformanceHiddenSourceNodes,
   maskRenderConformanceHiddenSourcePlan,
   maskRenderConformanceNodes,
@@ -144,6 +145,56 @@ function renderResourceFixture(options?: {
 }
 
 describe("renderer HTML", () => {
+  it("uses the canonical paint plan in document, thumbnail, and output HTML", () => {
+    const pageId = "mask-conformance-page"
+    const outputs = [
+      renderDocumentToHtml(maskRenderConformanceDocument, pageId),
+      renderDocumentThumbnailToHtml(maskRenderConformanceDocument, pageId, {
+        width: 240,
+        height: 180,
+      }),
+      renderOutputToHtml(
+        maskRenderConformanceDocument,
+        "mask-conformance-output"
+      ),
+    ]
+
+    for (const html of outputs) {
+      expect(html).toContain('data-mask-group-id="mask-conformance-group"')
+      expect(html).toContain('data-mask-composite="true"')
+      expect(html).toContain('data-mask-source-id="mask-conformance-source"')
+      expect(html).not.toContain('data-node-id="mask-conformance-source"')
+      expect(html).toContain('data-node-id="mask-conformance-content"')
+    }
+  })
+
+  it("keeps negative, rotated, frame-masked image content inside the production mask composite", () => {
+    const imageContent = {
+      ...imageRenderParityNode(imageRenderParityCases[0]!, 1),
+      id: "mask-conformance-content",
+      name: "Frame-masked image content",
+      x: -36,
+      y: 54,
+      rotation: -11,
+      opacity: 0.74,
+      frameMask: { shape: "ellipse" as const },
+    }
+    const document = {
+      ...maskRenderConformanceDocument,
+      nodes: maskRenderConformanceDocument.nodes.map((node) =>
+        node.id === imageContent.id ? imageContent : node
+      ),
+    }
+    const html = renderDocumentToHtml(document, "mask-conformance-page")
+
+    expect(html).toContain('data-mask-group-id="mask-conformance-group"')
+    expect(html).toContain('data-mask-composite="true"')
+    expect(html).toContain('data-image-frame-id="mask-conformance-content"')
+    expect(html).toContain("left:-36px")
+    expect(html).toContain("transform:rotate(-11deg)")
+    expect(html).toContain("&quot;shape&quot;:&quot;ellipse&quot;")
+  })
+
   it("serializes the retained vector-mask paint entry for the shared PNG/PDF HTML source", () => {
     const entry = maskRenderConformancePlan.entries[1]
     if (!entry || entry.kind !== "mask_group") {
@@ -181,6 +232,50 @@ describe("renderer HTML", () => {
     expect(maskHtml).not.toMatch(
       /data-mask-content="mask-conformance-group"[^>]+style="[^"]*mask:/
     )
+  })
+
+  it("serializes admitted ellipse and icon sources with rotation and opacity", () => {
+    const entry = maskRenderConformancePlan.entries[1]
+    if (!entry || entry.kind !== "mask_group") {
+      throw new Error("Missing retained mask group")
+    }
+    const baseSource = maskRenderConformanceNodes.find(
+      (node) => node.id === "mask-conformance-source"
+    )!
+    const content = maskRenderConformanceNodes.find(
+      (node) => node.id === "mask-conformance-content"
+    )!
+    if (baseSource.type !== "rect") throw new Error("Expected rectangle source")
+    const { radius: _radius, ...sourceFrame } = baseSource
+    const cases: Array<{ source: SceneNode; tag: string }> = [
+      { source: { ...sourceFrame, type: "ellipse" }, tag: "ellipse" },
+      {
+        source: {
+          ...sourceFrame,
+          type: "icon",
+          path: "M2 2h20v20H2z",
+          viewBox: "0 0 24 24",
+        },
+        tag: "svg",
+      },
+    ]
+
+    for (const { source, tag } of cases) {
+      const html = renderPagePaintPlanEntryToHtml(
+        entry,
+        new Map([
+          [source.id, source],
+          [content.id, content],
+        ])
+      )
+      expect(html).toContain(`<${tag} data-mask-source-id="${source.id}"`)
+      expect(html).toContain(
+        `${source.type === "icon" ? "opacity" : "fill-opacity"}="${source.opacity}"`
+      )
+      expect(html).toContain(
+        `transform="rotate(${source.rotation} ${source.x - entry.bounds.x} ${source.y - entry.bounds.y})"`
+      )
+    }
   })
 
   it("falls through to canonical content without an ordinary hidden mask source", () => {

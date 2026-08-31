@@ -1,8 +1,10 @@
-import { northstarSeed, type SceneNode } from "@webmcp/document"
+import { applyCommand, northstarSeed, type Document, type SceneNode } from "@webmcp/document"
+import { initialMaskPaintAdmission } from "@webmcp/document/internal/page-paint-plan"
 import { describe, expect, it } from "vitest"
 import {
   capabilitiesForNodes,
   createInspectorSelectionModel,
+  deriveInspectorMaskCapabilities,
   type InspectorCapabilityContext,
   parseInspectorNumber,
 } from "../src/inspector"
@@ -11,6 +13,32 @@ const title = northstarSeed.nodes.find(
   (node): node is Extract<SceneNode, { type: "text" }> =>
     node.id === "cover-title" && node.type === "text"
 )!
+
+const addInspectorMaskFixtures = (
+  document: Document,
+  count: number,
+  size: number
+) => {
+  const page = document.pages.find((candidate) => candidate.id === "cover")!
+  const template = document.nodes.find((node) => node.id === "cover-panel")!
+  for (let index = 0; index < count; index += 1) {
+    const sourceId = `inspector-source-${index}`
+    const contentId = `inspector-content-${index}`
+    document.nodes.push(
+      { ...structuredClone(template), id: sourceId, x: 0, y: 0, width: size, height: size },
+      { ...structuredClone(template), id: contentId, x: 0, y: 0, width: size, height: size }
+    )
+    page.nodeIds.push(sourceId, contentId)
+    document.groups.push({
+      id: `inspector-mask-${index}`,
+      pageId: page.id,
+      name: `Inspector mask ${index}`,
+      role: "mask",
+      nodeIds: [sourceId, contentId],
+      mask: { type: "vector", sourceNodeIds: [sourceId] },
+    })
+  }
+}
 
 type ImageNode = Extract<SceneNode, { type: "image" }>
 
@@ -418,6 +446,281 @@ describe("inspector selection model", () => {
         hasMissingSource: false,
       },
     })
+  })
+})
+
+describe("mask command capabilities", () => {
+  it("uses the backmost selected eligible layer as one explicit source", () => {
+    const document = structuredClone(northstarSeed)
+    document.groups = []
+    const capabilities = deriveInspectorMaskCapabilities({
+      document,
+      pageId: "cover",
+      selectedNodeIds: ["cover-title", "cover-panel"],
+    })
+
+    expect(capabilities.create).toEqual({
+      enabled: true,
+      disabledReason: null,
+    })
+    expect(capabilities.createSourceNodeIds).toEqual(["cover-panel"])
+
+    const created = applyCommand(document, {
+      id: "inspector-noncontiguous-parity",
+      type: "create_mask_group",
+      actor: "human",
+      at: "2026-08-31T17:00:00.000Z",
+      expectedRevision: document.revision,
+      pageId: "cover",
+      groupId: "inspector-parity-mask",
+      name: "Inspector parity mask",
+      nodeIds: ["cover-title", "cover-panel"],
+      sourceNodeIds: ["cover-panel"],
+      maskType: "vector",
+    })
+    const compacted = created.pages.find((page) => page.id === "cover")!.nodeIds
+    expect(compacted.indexOf("cover-title")).toBe(
+      compacted.indexOf("cover-panel") + 1
+    )
+  })
+
+  it("gives the exact active composite count reason after front-edge compaction", () => {
+    const document = structuredClone(northstarSeed)
+    document.groups = []
+    addInspectorMaskFixtures(
+      document,
+      initialMaskPaintAdmission.maxActiveCompositesPerPage,
+      1
+    )
+    expect(
+      deriveInspectorMaskCapabilities({
+        document,
+        pageId: "cover",
+        selectedNodeIds: ["cover-title", "cover-panel"],
+      }).create.disabledReason
+    ).toBe("This page already has 32 active mask composites. Release a mask before creating another.")
+  })
+
+  it("gives the exact summed 2x page area reason after front-edge compaction", () => {
+    const document = structuredClone(northstarSeed)
+    document.groups = []
+    addInspectorMaskFixtures(document, 4, 2_000)
+    expect(
+      deriveInspectorMaskCapabilities({
+        document,
+        pageId: "cover",
+        selectedNodeIds: ["cover-title", "cover-panel"],
+      }).create.disabledReason
+    ).toBe("The selected mask would exceed the page's summed 2x composite area budget. Reduce its bounds or release another mask.")
+  })
+
+  it("disables create when the selected composite fails the shared 2x contract", () => {
+    const document = structuredClone(northstarSeed)
+    document.groups = []
+    const title = document.nodes.find((node) => node.id === "cover-title")!
+    title.width = 3_000
+    title.height = 2_000
+    title.x = 0
+    title.y = 0
+
+    expect(
+      deriveInspectorMaskCapabilities({
+        document,
+        pageId: "cover",
+        selectedNodeIds: ["cover-panel", "cover-title"],
+      }).create
+    ).toEqual({
+      enabled: false,
+      disabledReason:
+        "The selected mask exceeds the Gate M2 composite bounds at 2x. Reduce or move the selected layers.",
+    })
+  })
+
+  it("reports the exact 512-content create limit", () => {
+    const document = structuredClone(northstarSeed)
+    document.groups = []
+    const source = document.nodes.find((node) => node.id === "cover-panel")!
+    const content = Array.from({ length: 513 }, (_, index) => ({
+      ...structuredClone(source),
+      id: `mask-content-${index}`,
+      name: `Mask content ${index}`,
+    }))
+    document.nodes = [source, ...content]
+    document.pages[0]!.nodeIds = document.nodes.map((node) => node.id)
+
+    expect(
+      deriveInspectorMaskCapabilities({
+        document,
+        pageId: "cover",
+        selectedNodeIds: document.pages[0]!.nodeIds,
+      }).create.disabledReason
+    ).toBe("A mask can contain at most 512 content layers. Select 513 layers or fewer.")
+  })
+
+  it("rejects stroked, bound, nested, and component-owned source structure truthfully", () => {
+    const stroked = structuredClone(northstarSeed)
+    stroked.groups = []
+    const panel = stroked.nodes.find((node) => node.id === "cover-panel")
+    if (panel?.type !== "rect") throw new Error("Fixture panel is missing")
+    panel.strokeWidth = 1
+    expect(
+      deriveInspectorMaskCapabilities({
+        document: stroked,
+        pageId: "cover",
+        selectedNodeIds: ["cover-panel", "cover-title"],
+      }).create.disabledReason
+    ).toBe("Vector mask sources must not have a stroke.")
+
+    const bound = structuredClone(northstarSeed)
+    bound.groups = []
+    bound.bindings.push({
+      id: "binding-mask-source",
+      fieldId: bound.fields[0]!.id,
+      nodeId: "cover-panel",
+      property: "visible",
+    })
+    expect(
+      deriveInspectorMaskCapabilities({
+        document: bound,
+        pageId: "cover",
+        selectedNodeIds: ["cover-panel", "cover-title"],
+      }).create.disabledReason
+    ).toBe("A field-bound layer cannot be a mask source. Unbind it first.")
+
+    const nested = structuredClone(northstarSeed)
+    nested.groups = [
+      {
+        id: "nested-parent",
+        pageId: "cover",
+        name: "Nested",
+        role: "organize",
+        nodeIds: ["cover-panel", "cover-title"],
+      },
+    ]
+    expect(
+      deriveInspectorMaskCapabilities({
+        document: nested,
+        pageId: "cover",
+        selectedNodeIds: ["cover-panel", "cover-title"],
+      }).create.disabledReason
+    ).toBe("Nested mask groups are not available in this version.")
+  })
+
+  it("rejects mixed parents and both kinds of component ownership", () => {
+    const mixedParents = structuredClone(northstarSeed)
+    mixedParents.groups = [
+      {
+        id: "partial-parent",
+        pageId: "cover",
+        name: "Partial parent",
+        role: "organize",
+        nodeIds: ["cover-title"],
+      },
+    ]
+    expect(
+      deriveInspectorMaskCapabilities({
+        document: mixedParents,
+        pageId: "cover",
+        selectedNodeIds: ["cover-panel", "cover-title"],
+      }).create.disabledReason
+    ).toBe("Select top-level layers that share the same parent.")
+
+    const componentSource = structuredClone(northstarSeed)
+    componentSource.groups = [
+      {
+        id: "component-source-group",
+        pageId: "cover",
+        name: "Component source",
+        role: "organize",
+        nodeIds: ["cover-panel", "cover-title"],
+      },
+    ]
+    componentSource.components = [
+      {
+        id: "component-source",
+        name: "Component source",
+        sourceGroupId: "component-source-group",
+        defaultVariantId: "component-source-default",
+        variants: [
+          {
+            id: "component-source-default",
+            name: "Default",
+            overrides: {},
+          },
+        ],
+      },
+    ]
+    expect(
+      deriveInspectorMaskCapabilities({
+        document: componentSource,
+        pageId: "cover",
+        selectedNodeIds: ["cover-panel", "cover-title"],
+      }).create.disabledReason
+    ).toBe(
+      "Mask structure cannot be changed inside a component or instance. Detach the instance or use layers outside the component."
+    )
+
+    const componentInstance = structuredClone(northstarSeed)
+    componentInstance.componentInstances = [
+      {
+        id: "component-instance",
+        name: "Component instance",
+        componentId: "component-source",
+        variantId: "component-source-default",
+        rootGroupId: "component-instance-group",
+        transform: { x: 0, y: 0, scale: 1, rotation: 0 },
+        nodeMappings: [
+          {
+            sourceNodeId: "source-panel",
+            instanceNodeId: "cover-panel",
+          },
+          {
+            sourceNodeId: "source-title",
+            instanceNodeId: "cover-title",
+          },
+        ],
+        groupMappings: [],
+        overrides: {},
+      },
+    ]
+    expect(
+      deriveInspectorMaskCapabilities({
+        document: componentInstance,
+        pageId: "cover",
+        selectedNodeIds: ["cover-panel", "cover-title"],
+      }).create.disabledReason
+    ).toBe(
+      "Mask structure cannot be changed inside a component or instance. Detach the instance or use layers outside the component."
+    )
+  })
+
+  it("projects vector as selected and keeps alpha and luminance reasons exact", () => {
+    const document = structuredClone(northstarSeed)
+    document.groups = [
+      {
+        id: "cover-mask",
+        pageId: "cover",
+        name: "Cover mask",
+        role: "mask",
+        nodeIds: ["cover-panel", "cover-title"],
+        mask: { type: "vector", sourceNodeIds: ["cover-panel"] },
+      },
+    ]
+    const capabilities = deriveInspectorMaskCapabilities({
+      document,
+      pageId: "cover",
+      selectedNodeIds: ["cover-panel", "cover-title"],
+      selectedGroupId: "cover-mask",
+    })
+
+    expect(capabilities.type).toBe("vector")
+    expect(capabilities.setVector.disabledReason).toBe(
+      "This mask already uses Vector."
+    )
+    expect(capabilities.setAlpha.disabledReason).toContain(
+      "image and text readiness"
+    )
+    expect(capabilities.setLuminance.disabledReason).toContain("color-space")
   })
 })
 

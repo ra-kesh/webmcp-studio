@@ -1,4 +1,5 @@
-export { applyCommand, applyFieldValues } from "./commands"
+export { applyCommand, applyFieldValues, MaskCommandError } from "./commands"
+export type { MaskCommandErrorCode } from "./commands"
 export * from "./change-sets"
 export * from "./fields"
 export * from "./groups"

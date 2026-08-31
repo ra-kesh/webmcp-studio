@@ -110,7 +110,17 @@ export function createProductCommandProposal(
     ? document.pages.find((candidate) => candidate.id === selection.pageId)
     : target?.kind === "page"
       ? document.pages.find((candidate) => candidate.id === target.pageId)
-      : undefined
+      : target?.kind === "group"
+        ? document.pages.find((candidate) => candidate.id === target.pageId)
+        : undefined
+  const targetGroup =
+    target?.kind === "group"
+      ? document.groups.find((candidate) => candidate.id === target.groupId)
+      : selection?.groupId
+        ? document.groups.find(
+            (candidate) => candidate.id === selection.groupId
+          )
+        : undefined
   const operations: Array<{
     command: DocumentCommandDraft
     summary: string
@@ -242,6 +252,114 @@ export function createProductCommandProposal(
       operations.push({
         command: { type: "ungroup_nodes", groupId: selection.groupId },
         summary: "Ungroup selected layers",
+      })
+      break
+    case "mask.create": {
+      if (!page || !selection || selectedNodes.length < 2) {
+        throw new ProductCommandProposalError(
+          "invalid_target",
+          "Select at least two layers on one page to create a mask."
+        )
+      }
+      if (invocation.arguments?.kind !== "mask-create") {
+        throw new ProductCommandProposalError(
+          "invalid_target",
+          "Choose exactly one selected layer as the mask source."
+        )
+      }
+      const sourceNodeId = invocation.arguments.sourceNodeIds[0]
+      if (!sourceNodeId || invocation.arguments.sourceNodeIds.length !== 1) {
+        throw new ProductCommandProposalError(
+          "invalid_target",
+          "Choose exactly one selected layer as the mask source."
+        )
+      }
+      const sourceNodeIds: [string] = [sourceNodeId]
+      if (
+        !sourceNodeIds.every((nodeId) => selection.nodeIds.includes(nodeId))
+      ) {
+        throw new ProductCommandProposalError(
+          "invalid_target",
+          "The mask source must be one of the selected layers."
+        )
+      }
+      operations.push({
+        command: {
+          type: "create_mask_group",
+          expectedRevision: document.revision,
+          pageId: page.id,
+          groupId: `mask-${identity.id()}`,
+          name: "Mask",
+          nodeIds: [...selection.nodeIds],
+          sourceNodeIds,
+          maskType: "vector",
+        },
+        summary: `Create a vector mask from ${selection.nodeIds.length} layers`,
+      })
+      break
+    }
+    case "mask.release":
+      if (!page || !targetGroup || targetGroup.role !== "mask") {
+        throw new ProductCommandProposalError(
+          "invalid_target",
+          "Select one mask group to release."
+        )
+      }
+      operations.push({
+        command: {
+          type: "release_mask_group",
+          expectedRevision: document.revision,
+          pageId: page.id,
+          groupId: targetGroup.id,
+        },
+        summary: `Release ${targetGroup.name}`,
+      })
+      break
+    case "mask.type.vector":
+    case "mask.type.alpha":
+    case "mask.type.luminance": {
+      if (!page || !targetGroup || targetGroup.role !== "mask") {
+        throw new ProductCommandProposalError(
+          "invalid_target",
+          "Select one mask group before changing its type."
+        )
+      }
+      const maskType = invocation.commandId.slice("mask.type.".length) as
+        "vector" | "alpha" | "luminance"
+      operations.push({
+        command: {
+          type: "set_mask_type",
+          expectedRevision: document.revision,
+          pageId: page.id,
+          groupId: targetGroup.id,
+          maskType,
+        },
+        summary: `Set ${targetGroup.name} to ${maskType}`,
+      })
+      break
+    }
+    case "mask.sources.set":
+      if (!page || !targetGroup || targetGroup.role !== "mask") {
+        throw new ProductCommandProposalError(
+          "invalid_target",
+          "Select one mask group before changing its source."
+        )
+      }
+      if (invocation.arguments?.kind !== "mask-sources") {
+        throw new ProductCommandProposalError(
+          "invalid_target",
+          "Choose exactly one layer in the mask group as its source."
+        )
+      }
+      operations.push({
+        command: {
+          type: "set_mask_sources",
+          expectedRevision: document.revision,
+          pageId: page.id,
+          groupId: targetGroup.id,
+          sourceNodeIds: [...invocation.arguments.sourceNodeIds],
+        },
+        summary: `Change the source for ${targetGroup.name}`,
       })
       break
     case "arrange.front":

@@ -21,7 +21,16 @@ export type LayerTreeItem = {
   visibilityMixed: boolean
   lockMixed: boolean
   component: LayerComponentMetadata | null
+  mask: LayerMaskMetadata | null
   children: LayerTreeItem[]
+}
+
+export type LayerMaskMetadata = {
+  role: "group" | "source" | "content"
+  groupId: string
+  groupName: string
+  type: "vector" | "alpha" | "luminance"
+  sourceNodeIds: string[]
 }
 
 export type LayerComponentMetadata = {
@@ -91,6 +100,16 @@ export function buildLayerTreeModel(
   )
   const groups = document.groups.filter((group) => group.pageId === pageId)
   const groupById = new Map(groups.map((group) => [group.id, group]))
+  const maskGroupByDirectNodeId = new Map<
+    string,
+    Extract<GroupDefinition, { role: "mask" }>
+  >()
+  for (const group of groups) {
+    if (group.role !== "mask") continue
+    for (const nodeId of group.nodeIds) {
+      maskGroupByDirectNodeId.set(nodeId, group)
+    }
+  }
   const childGroups = new Map<string, GroupDefinition[]>()
   const directMembership = new Map<string, string>()
   const componentById = new Map(
@@ -248,6 +267,7 @@ export function buildLayerTreeModel(
   const frontZByKey = new Map<string, number>()
 
   const nodeItem = (node: SceneNode, parentGroupId: string | null) => {
+    const maskGroup = maskGroupByDirectNodeId.get(node.id)
     const item: LayerTreeItem = {
       key: layerKey("node", node.id),
       id: node.id,
@@ -262,6 +282,17 @@ export function buildLayerTreeModel(
       visibilityMixed: false,
       lockMixed: false,
       component: componentMetadataForNode(node.id),
+      mask: maskGroup
+        ? {
+            role: maskGroup.mask.sourceNodeIds.includes(node.id)
+              ? "source"
+              : "content",
+            groupId: maskGroup.id,
+            groupName: maskGroup.name,
+            type: maskGroup.mask.type,
+            sourceNodeIds: [...maskGroup.mask.sourceNodeIds],
+          }
+        : null,
       children: [],
     }
     byKey.set(item.key, item)
@@ -315,6 +346,16 @@ export function buildLayerTreeModel(
       visibilityMixed: visibleCount > 0 && visibleCount < descendants.length,
       lockMixed: lockedCount > 0 && lockedCount < descendants.length,
       component: componentMetadataForGroup(group.id),
+      mask:
+        group.role === "mask"
+          ? {
+              role: "group",
+              groupId: group.id,
+              groupName: group.name,
+              type: group.mask.type,
+              sourceNodeIds: [...group.mask.sourceNodeIds],
+            }
+          : null,
       children,
     }
     byKey.set(item.key, item)
@@ -350,7 +391,11 @@ function filterLayerItems(
     const children = filterLayerItems(item.children, normalizedQuery)
     const matches =
       item.name.toLocaleLowerCase().includes(normalizedQuery) ||
-      item.nodeType.toLocaleLowerCase().includes(normalizedQuery)
+      item.nodeType.toLocaleLowerCase().includes(normalizedQuery) ||
+      (item.mask?.role === "group" && "mask".includes(normalizedQuery)) ||
+      (item.mask?.role === "source" &&
+        "mask source".includes(normalizedQuery)) ||
+      Boolean(item.mask?.type.includes(normalizedQuery))
     return matches || children.length ? [{ ...item, children }] : []
   })
 }

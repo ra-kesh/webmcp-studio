@@ -191,6 +191,107 @@ describe("product command catalog", () => {
 })
 
 describe("product command runtime", () => {
+  it("keeps mask payloads explicit and shares exact capability reasons", () => {
+    const maskEditor = {
+      canCreate: true,
+      createDisabledReason: null,
+      canRelease: true,
+      releaseDisabledReason: null,
+      canSetVector: false,
+      vectorDisabledReason: "This mask already uses Vector.",
+      canSetAlpha: false,
+      alphaDisabledReason:
+        "Alpha masks are not available yet because image and text readiness is not deterministic across every renderer.",
+      canSetLuminance: false,
+      luminanceDisabledReason:
+        "Luminance masks are not available yet because color-space output is not deterministic across every renderer.",
+      canSetSources: true,
+      sourcesDisabledReason: null,
+    }
+    const mask = {
+      groupId: "group-1",
+      type: "vector" as const,
+      sourceNodeIds: ["node-1"],
+      eligibleSourceNodeIds: ["node-1", "node-2"],
+      createSourceNodeIds: ["node-1"],
+      reassignmentSourceNodeIds: [],
+      create: { enabled: true, disabledReason: null },
+      release: { enabled: true, disabledReason: null },
+      setVector: {
+        enabled: false,
+        disabledReason: "This mask already uses Vector.",
+      },
+      setAlpha: {
+        enabled: false,
+        disabledReason: maskEditor.alphaDisabledReason,
+      },
+      setLuminance: {
+        enabled: false,
+        disabledReason: maskEditor.luminanceDisabledReason,
+      },
+      setSources: { enabled: true, disabledReason: null },
+    }
+    const runtimeContext = context({
+      editor: { ...editorContext, mask: maskEditor },
+      mask,
+      selection: {
+        pageId: "page-1",
+        nodeIds: ["node-1", "node-2"],
+        nodeTypes: ["rect", "text"],
+        groupId: "group-1",
+        anyLocked: false,
+        allLocked: false,
+        allVisible: true,
+        allHidden: false,
+      },
+    })
+    const create = resolveProductCommand(
+      {
+        commandId: "mask.create",
+        target: selectionTarget({
+          nodeIds: ["node-1", "node-2"],
+          groupId: "group-1",
+        }),
+        arguments: { kind: "mask-create", sourceNodeIds: ["node-1"] },
+      },
+      runtimeContext
+    )
+    expect(create.enabled).toBe(true)
+    expect(
+      resolveProductCommand(
+        {
+          commandId: "mask.sources.set",
+          target: {
+            kind: "group",
+            documentId: "document-1",
+            snapshotId: "snapshot-1",
+            displayName: "Mask",
+            pageId: "page-1",
+            groupId: "group-1",
+          },
+          arguments: { kind: "mask-sources", sourceNodeIds: ["node-1"] },
+        },
+        runtimeContext
+      ).disabledReason
+    ).toBe("That layer is already the mask source.")
+    expect(
+      resolveProductCommand(
+        {
+          commandId: "mask.type.alpha",
+          target: {
+            kind: "group",
+            documentId: "document-1",
+            snapshotId: "snapshot-1",
+            displayName: "Mask",
+            pageId: "page-1",
+            groupId: "group-1",
+          },
+        },
+        runtimeContext
+      ).disabledReason
+    ).toBe(maskEditor.alphaDisabledReason)
+  })
+
   it("owns checked state, dynamic labels, and supplied disabled reasons", () => {
     const current = context({
       activeTool: "hand",

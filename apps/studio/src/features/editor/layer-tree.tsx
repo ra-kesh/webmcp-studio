@@ -58,6 +58,7 @@ import type { Selection } from "@webmcp/editor"
 import { buildLayerContextMenu } from "@webmcp/editor/product-commands"
 import type { ProductCommandRuntimeContext } from "@webmcp/editor/product-commands"
 import { Button } from "@webmcp/ui/components/button"
+import { Badge } from "@webmcp/ui/components/badge"
 import { EditorPanelState } from "@webmcp/ui/components/editor-chrome"
 import { Input } from "@webmcp/ui/components/input"
 import {
@@ -271,6 +272,14 @@ function LayerRow({
           : componentRole === "instance-child"
             ? "component instance layer"
             : null
+  const maskDescription =
+    row.item.mask?.role === "group"
+      ? `${row.item.mask.type} mask group`
+      : row.item.mask?.role === "source"
+        ? `${row.item.mask.type} mask source for ${row.item.mask.groupName}`
+        : row.item.mask?.role === "content"
+          ? `masked content in ${row.item.mask.groupName}`
+          : null
   const isRename = rename?.key === row.item.key
   const isDropTarget = dropState?.targetKey === row.item.key
 
@@ -290,11 +299,9 @@ function LayerRow({
       }}
       id={`layer-tree-item-${row.item.key.replaceAll(":", "-")}`}
       role="treeitem"
-      aria-label={
-        componentDescription
-          ? `${row.item.name}, ${componentDescription}`
-          : row.item.name
-      }
+      aria-label={[row.item.name, componentDescription, maskDescription]
+        .filter(Boolean)
+        .join(", ")}
       aria-expanded={row.item.children.length ? expanded : undefined}
       aria-level={row.depth}
       aria-posinset={row.positionInSet}
@@ -306,6 +313,9 @@ function LayerRow({
       data-component-role={componentRole}
       data-component-id={row.item.component?.componentId}
       data-component-overridden={overrideCount ? "true" : undefined}
+      data-mask-role={row.item.mask?.role}
+      data-mask-group-id={row.item.mask?.groupId}
+      data-mask-type={row.item.mask?.type}
       data-selected={selectedState === "all" ? "true" : undefined}
       data-selection-mixed={selectedState === "partial" ? "true" : undefined}
       data-active={active ? "true" : undefined}
@@ -422,6 +432,24 @@ function LayerRow({
           title={`${overrideCount} component override${overrideCount === 1 ? "" : "s"}`}
           aria-label={`${overrideCount} component override${overrideCount === 1 ? "" : "s"}`}
         />
+      ) : null}
+
+      {row.item.mask?.role === "group" ? (
+        <Badge
+          variant="secondary"
+          className="mr-1 h-5 shrink-0 px-1.5 text-[9px] font-medium"
+          aria-label={`${row.item.mask.type} mask`}
+        >
+          Mask
+        </Badge>
+      ) : row.item.mask?.role === "source" ? (
+        <Badge
+          variant="outline"
+          className="mr-1 h-5 shrink-0 px-1.5 text-[9px] font-medium"
+          aria-label={`Mask source for ${row.item.mask.groupName}`}
+        >
+          Mask source
+        </Badge>
       ) : null}
 
       {!isRename ? (
@@ -610,7 +638,9 @@ export function LayerTree({
     return [...model.byKey.values()].filter(
       (item) =>
         item.name.toLocaleLowerCase().includes(normalized) ||
-        item.nodeType.toLocaleLowerCase().includes(normalized)
+        item.nodeType.toLocaleLowerCase().includes(normalized) ||
+        Boolean(item.mask?.role.includes(normalized)) ||
+        Boolean(item.mask?.type.includes(normalized))
     ).length
   }, [model.byKey, query])
   const activeRowIndex = activeKey

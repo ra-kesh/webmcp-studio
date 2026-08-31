@@ -1055,6 +1055,28 @@ export const documentSchema = z
     fields: z.array(fieldDefinitionSchema),
     fieldValues: z.record(z.string(), fieldValueSchema),
     bindings: z.array(fieldBindingSchema),
+    /**
+     * A bounded replay ledger for externally addressable structural commands.
+     * It is optional so existing schema-v5 documents retain byte-for-byte
+     * meaning until the first replay-protected command is applied.
+     */
+    commandReceipts: z
+      .array(
+        z
+          .object({
+            id,
+            fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+          })
+          .strict()
+      )
+      .max(128)
+      .refine(
+        (receipts) =>
+          new Set(receipts.map((receipt) => receipt.id)).size ===
+          receipts.length,
+        "Command receipt ids must be unique"
+      )
+      .optional(),
   })
   .strict()
 
@@ -1260,6 +1282,36 @@ export const documentCommandSchema = z.discriminatedUnion("type", [
     type: z.literal("set_image_frame_mask"),
     nodeId: id,
     frameMask: imageFrameMaskSchema,
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("create_mask_group"),
+    expectedRevision: z.number().int().nonnegative(),
+    pageId: id,
+    groupId: id,
+    name: z.string().trim().min(1),
+    nodeIds: z.array(id).min(2).max(513),
+    sourceNodeIds: z.tuple([id]).rest(id),
+    maskType: maskGroupTypeSchema,
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("release_mask_group"),
+    expectedRevision: z.number().int().nonnegative(),
+    pageId: id,
+    groupId: id,
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("set_mask_type"),
+    expectedRevision: z.number().int().nonnegative(),
+    pageId: id,
+    groupId: id,
+    maskType: maskGroupTypeSchema,
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("set_mask_sources"),
+    expectedRevision: z.number().int().nonnegative(),
+    pageId: id,
+    groupId: id,
+    sourceNodeIds: z.tuple([id]).rest(id),
   }),
   commandBaseSchema.extend({
     type: z.literal("replace_image_source"),

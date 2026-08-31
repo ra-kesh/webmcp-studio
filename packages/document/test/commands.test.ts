@@ -1,10 +1,117 @@
 import { describe, expect, it } from "vitest"
 import {
   applyCommand,
+  documentCommandSchema,
+  type Document,
+  type SceneNode,
   northstarSeed,
   sceneNodeSchema,
   validateDocument,
 } from "../src"
+import { maskRenderConformanceDocument } from "../src/mask-render-conformance"
+
+const createMaskCommandFixture = (): Document => ({
+  ...structuredClone(maskRenderConformanceDocument),
+  revision: 7,
+  groups: [],
+})
+
+const createMaskCommand = () => ({
+  id: "create-mask-transaction",
+  type: "create_mask_group" as const,
+  actor: "human" as const,
+  at: "2026-08-31T14:00:00.000Z",
+  expectedRevision: 7,
+  pageId: "mask-conformance-page",
+  groupId: "created-mask",
+  name: "Created mask",
+  nodeIds: ["mask-conformance-above", "mask-conformance-below"],
+  sourceNodeIds: ["mask-conformance-below"] as [string],
+  maskType: "vector" as const,
+})
+
+const replaceCreateFixtureSource = (
+  document: Document,
+  type: "ellipse" | "icon" | "line" | "image" | "text" | "stroked_rect"
+) => {
+  const index = document.nodes.findIndex(
+    (node) => node.id === "mask-conformance-below"
+  )
+  const current = document.nodes[index]!
+  const base = {
+    id: current.id,
+    name: current.name,
+    x: current.x,
+    y: current.y,
+    width: current.width,
+    height: current.height,
+    rotation: 27,
+    opacity: current.opacity,
+    visible: current.visible,
+    locked: current.locked,
+  }
+  const source: SceneNode =
+    type === "ellipse"
+      ? { ...base, type, fill: "#000000", strokeWidth: 0 }
+      : type === "icon"
+        ? {
+            ...base,
+            type,
+            path: "M0 0h24v24H0z",
+            viewBox: "0 0 24 24",
+            fill: "#000000",
+            strokeWidth: 0,
+          }
+        : type === "line"
+          ? { ...base, type, stroke: "#000000", strokeWidth: 2 }
+          : type === "image"
+            ? {
+                ...base,
+                type,
+                assetId: "mask-command-image",
+                src: "https://cdn.example.com/mask-command.png",
+                placement: {
+                  mode: "fill",
+                  focalX: 0.5,
+                  focalY: 0.5,
+                  zoom: 1,
+                  rotation: 0,
+                  flipX: false,
+                  flipY: false,
+                },
+                frameMask: { shape: "rectangle" },
+                alt: "Mask command",
+                decorative: false,
+              }
+            : type === "text"
+              ? {
+                  ...base,
+                  type,
+                  text: "Mask",
+                  runs: [],
+                  paragraphs: [],
+                  links: [],
+                  color: "#000000",
+                  fontFamily: "Geist Variable",
+                  fontSize: 24,
+                  fontWeight: 500,
+                  italic: false,
+                  decoration: "none",
+                  lineHeight: 1.2,
+                  letterSpacing: 0,
+                  align: "left",
+                  sizingMode: "fixed",
+                }
+              : {
+                  ...base,
+                  type: "rect",
+                  fill: "#000000",
+                  radius: 0,
+                  stroke: "#000000",
+                  strokeWidth: 2,
+                }
+  document.nodes[index] = source
+}
 
 function maskCommandFixture() {
   const document = structuredClone(northstarSeed)
@@ -29,6 +136,357 @@ function maskCommandFixture() {
 }
 
 describe("canonical document commands", () => {
+  it("requires exact strict structural transaction envelopes", () => {
+    const command = createMaskCommand()
+    const { expectedRevision: _expectedRevision, ...missingRevision } = command
+    expect(documentCommandSchema.safeParse(missingRevision).success).toBe(false)
+    expect(
+      documentCommandSchema.safeParse({ ...command, unexpected: true }).success
+    ).toBe(false)
+  })
+
+  it("creates one canonical top-level mask transaction and protects its replay identity", () => {
+    const before = createMaskCommandFixture()
+    const command = createMaskCommand()
+    const created = applyCommand(before, command)
+
+    expect(created.pages[0]?.nodeIds).toEqual([
+      "mask-conformance-source",
+      "mask-conformance-content",
+      "mask-conformance-below",
+      "mask-conformance-above",
+    ])
+    expect(created.groups).toEqual([
+      {
+        id: "created-mask",
+        pageId: "mask-conformance-page",
+        name: "Created mask",
+        nodeIds: ["mask-conformance-below", "mask-conformance-above"],
+        role: "mask",
+        mask: {
+          type: "vector",
+          sourceNodeIds: ["mask-conformance-below"],
+        },
+      },
+    ])
+    expect(created.revision).toBe(8)
+    expect(created.commandReceipts).toHaveLength(1)
+
+    const replayed = applyCommand(created, command)
+    expect(replayed).toEqual(created)
+    expect(replayed.revision).toBe(8)
+    expect(replayed.commandReceipts).toHaveLength(1)
+
+    expect(() =>
+      applyCommand(created, { ...command, name: "Different payload" })
+    ).toThrowError(
+      expect.objectContaining({
+        code: "MASK_COMMAND_REPLAY_CONFLICT",
+        commandId: command.id,
+        groupId: command.groupId,
+      })
+    )
+  })
+
+  it("rejects a create command that fits at 1x but exceeds canonical 2x admission", () => {
+    const before = createMaskCommandFixture()
+    const content = before.nodes.find(
+      (node) => node.id === "mask-conformance-above"
+    )!
+    content.x = 0
+    content.y = 0
+    content.width = 3_000
+    content.height = 2_000
+
+    expect(() => applyCommand(before, createMaskCommand())).toThrowError(
+      expect.objectContaining({ name: "DocumentValidationError" })
+    )
+    expect(before.groups).toEqual([])
+    expect(before.revision).toBe(7)
+  })
+
+  it("applies source change and release atomically while semantic no-ops preserve identity", () => {
+    const created = applyCommand(
+      createMaskCommandFixture(),
+      createMaskCommand()
+    )
+    const setSource = {
+      id: "set-mask-source",
+      type: "set_mask_sources" as const,
+      actor: "human" as const,
+      at: "2026-08-31T14:01:00.000Z",
+      expectedRevision: created.revision,
+      pageId: "mask-conformance-page",
+      groupId: "created-mask",
+      sourceNodeIds: ["mask-conformance-above"] as [string],
+    }
+    const changed = applyCommand(created, setSource)
+    expect(changed.groups[0]).toMatchObject({
+      role: "mask",
+      mask: { sourceNodeIds: ["mask-conformance-above"] },
+    })
+    expect(changed.revision).toBe(created.revision + 1)
+
+    const typeNoOp = applyCommand(changed, {
+      id: "mask-type-no-op",
+      type: "set_mask_type",
+      actor: "human",
+      at: "2026-08-31T14:02:00.000Z",
+      expectedRevision: changed.revision,
+      pageId: "mask-conformance-page",
+      groupId: "created-mask",
+      maskType: "vector",
+    })
+    expect(typeNoOp).toEqual(changed)
+    expect(typeNoOp.commandReceipts).toHaveLength(2)
+
+    const released = applyCommand(changed, {
+      id: "release-mask",
+      type: "release_mask_group",
+      actor: "human",
+      at: "2026-08-31T14:03:00.000Z",
+      expectedRevision: changed.revision,
+      pageId: "mask-conformance-page",
+      groupId: "created-mask",
+    })
+    expect(released.groups).toEqual([])
+    expect(released.pages).toEqual(changed.pages)
+    expect(released.revision).toBe(changed.revision + 1)
+  })
+
+  it.each(["ellipse", "icon"] as const)(
+    "creates a mask from a rotated unstroked %s source",
+    (type) => {
+      const document = createMaskCommandFixture()
+      replaceCreateFixtureSource(document, type)
+      expect(() => applyCommand(document, createMaskCommand())).not.toThrow()
+    }
+  )
+
+  it.each([
+    ["line", "MASK_COMMAND_UNSUPPORTED_SOURCE"],
+    ["image", "MASK_COMMAND_UNSUPPORTED_SOURCE"],
+    ["text", "MASK_COMMAND_UNSUPPORTED_SOURCE"],
+    ["stroked_rect", "MASK_COMMAND_STROKED_SOURCE"],
+  ] as const)("rejects a %s mask source with a stable error", (type, code) => {
+    const document = createMaskCommandFixture()
+    replaceCreateFixtureSource(document, type)
+    const before = structuredClone(document)
+    expect(() => applyCommand(document, createMaskCommand())).toThrowError(
+      expect.objectContaining({ code })
+    )
+    expect(document).toEqual(before)
+  })
+
+  it("rejects field-bound and component-owned mask structure before mutation", () => {
+    const bound = createMaskCommandFixture()
+    bound.fields = [
+      {
+        id: "mask-source-fill",
+        key: "mask_source_fill",
+        label: "Mask source fill",
+        type: "color",
+        required: false,
+        defaultValue: "#cbd5e1",
+        agentDescription: "Controls the candidate mask source fill.",
+        validation: {},
+      },
+    ]
+    bound.fieldValues = { "mask-source-fill": "#cbd5e1" }
+    bound.bindings = [
+      {
+        id: "mask-source-fill-binding",
+        fieldId: "mask-source-fill",
+        nodeId: "mask-conformance-below",
+        property: "fill",
+      },
+    ]
+    const boundBefore = structuredClone(bound)
+    expect(() => applyCommand(bound, createMaskCommand())).toThrowError(
+      expect.objectContaining({ code: "MASK_COMMAND_SOURCE_BOUND" })
+    )
+    expect(bound).toEqual(boundBefore)
+
+    const grouped = applyCommand(northstarSeed, {
+      id: "mask-component-source-group",
+      type: "group_nodes",
+      actor: "human",
+      at: "2026-08-31T14:05:00.000Z",
+      groupId: "mask-component-source",
+      pageId: "cover",
+      name: "Mask component source",
+      nodeIds: ["cover-panel", "cover-eyebrow"],
+    })
+    const componentDocument = applyCommand(grouped, {
+      id: "create-mask-component",
+      type: "create_component",
+      actor: "human",
+      at: "2026-08-31T14:06:00.000Z",
+      component: {
+        id: "mask-component",
+        name: "Mask component",
+        description: "",
+        sourceGroupId: "mask-component-source",
+        defaultVariantId: "mask-component-default",
+        variants: [
+          {
+            id: "mask-component-default",
+            name: "Default",
+            overrides: {},
+          },
+        ],
+      },
+    })
+    const componentBefore = structuredClone(componentDocument)
+    expect(() =>
+      applyCommand(componentDocument, {
+        id: "mask-component-structure",
+        type: "create_mask_group",
+        actor: "human",
+        at: "2026-08-31T14:07:00.000Z",
+        expectedRevision: componentDocument.revision,
+        pageId: "cover",
+        groupId: "component-mask",
+        name: "Component mask",
+        nodeIds: ["cover-panel", "cover-eyebrow"],
+        sourceNodeIds: ["cover-panel"],
+        maskType: "vector",
+      })
+    ).toThrowError(
+      expect.objectContaining({ code: "MASK_COMMAND_COMPONENT_STRUCTURE" })
+    )
+    expect(componentDocument).toEqual(componentBefore)
+  })
+
+  it("rejects an invalid source reassignment atomically", () => {
+    const created = applyCommand(
+      createMaskCommandFixture(),
+      createMaskCommand()
+    )
+    const candidate = structuredClone(created)
+    const content = candidate.nodes.find(
+      (node) => node.id === "mask-conformance-above"
+    )
+    if (!content || content.type !== "rect") throw new Error("Expected rect")
+    content.stroke = "#000000"
+    content.strokeWidth = 2
+    const before = structuredClone(candidate)
+
+    expect(() =>
+      applyCommand(candidate, {
+        id: "invalid-source-reassignment",
+        type: "set_mask_sources",
+        actor: "human",
+        at: "2026-08-31T14:08:00.000Z",
+        expectedRevision: candidate.revision,
+        pageId: "mask-conformance-page",
+        groupId: "created-mask",
+        sourceNodeIds: ["mask-conformance-above"],
+      })
+    ).toThrowError(
+      expect.objectContaining({ code: "MASK_COMMAND_STROKED_SOURCE" })
+    )
+    expect(candidate).toEqual(before)
+  })
+
+  it("keeps the replay ledger bounded", () => {
+    let document = createMaskCommandFixture()
+    for (let index = 0; index < 129; index += 1) {
+      const creating = document.groups.length === 0
+      document = applyCommand(
+        document,
+        creating
+          ? {
+              ...createMaskCommand(),
+              id: `bounded-mask-command-${index}`,
+              expectedRevision: document.revision,
+              groupId: `bounded-mask-group-${index}`,
+            }
+          : {
+              id: `bounded-mask-command-${index}`,
+              type: "release_mask_group",
+              actor: "human",
+              at: "2026-08-31T14:10:00.000Z",
+              expectedRevision: document.revision,
+              pageId: "mask-conformance-page",
+              groupId: document.groups[0]!.id,
+            }
+      )
+    }
+    expect(document.commandReceipts).toHaveLength(128)
+    expect(document.commandReceipts?.[0]?.id).toBe("bounded-mask-command-1")
+    expect(document.commandReceipts?.at(-1)?.id).toBe(
+      "bounded-mask-command-128"
+    )
+  })
+
+  it.each([
+    {
+      label: "stale revision",
+      change: (document: ReturnType<typeof createMaskCommandFixture>) =>
+        applyCommand(document, {
+          ...createMaskCommand(),
+          expectedRevision: document.revision + 1,
+        }),
+      code: "MASK_COMMAND_STALE_REVISION",
+    },
+    {
+      label: "multiple sources",
+      change: (document: ReturnType<typeof createMaskCommandFixture>) =>
+        applyCommand(document, {
+          ...createMaskCommand(),
+          sourceNodeIds: [
+            "mask-conformance-below",
+            "mask-conformance-above",
+          ] as [string, string],
+        }),
+      code: "MASK_COMMAND_SOURCE_COUNT",
+    },
+    {
+      label: "unsupported mode",
+      change: (document: ReturnType<typeof createMaskCommandFixture>) =>
+        applyCommand(document, {
+          ...createMaskCommand(),
+          maskType: "alpha" as const,
+        }),
+      code: "MASK_COMMAND_UNSUPPORTED_TYPE",
+    },
+    {
+      label: "mixed parents",
+      change: (document: ReturnType<typeof createMaskCommandFixture>) => {
+        const candidate = structuredClone(document)
+        candidate.groups = [
+          {
+            id: "existing-parent",
+            pageId: "mask-conformance-page",
+            name: "Existing parent",
+            nodeIds: ["mask-conformance-above"],
+            role: "organize",
+          },
+        ]
+        return applyCommand(candidate, createMaskCommand())
+      },
+      code: "MASK_COMMAND_MIXED_PARENTS",
+    },
+    {
+      label: "locked source",
+      change: (document: ReturnType<typeof createMaskCommandFixture>) => {
+        const candidate = structuredClone(document)
+        candidate.nodes.find(
+          (node) => node.id === "mask-conformance-below"
+        )!.locked = true
+        return applyCommand(candidate, createMaskCommand())
+      },
+      code: "MASK_COMMAND_LOCKED",
+    },
+  ])("rejects $label before mutating", ({ change, code }) => {
+    const document = createMaskCommandFixture()
+    const before = structuredClone(document)
+    expect(() => change(document)).toThrowError(
+      expect.objectContaining({ code })
+    )
+    expect(document).toEqual(before)
+  })
   it("rejects generic mask-breaking mutations without changing the input", () => {
     const document = maskCommandFixture()
     const before = structuredClone(document)

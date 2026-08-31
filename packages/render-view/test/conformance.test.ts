@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
   componentRenderConformanceCases,
   componentRenderConformanceDocument,
@@ -25,6 +25,7 @@ import {
   imageResourceStateChangeForLoad,
   maskGroupRenderModel,
   reduceImageResourceLoadState,
+  renderViewDevicePixelRatio,
   renderFrameStyle,
   renderImageFrameMaskStyle,
   renderImagePaintStyle,
@@ -38,6 +39,11 @@ import {
 } from "../src"
 
 describe("React render-view conformance", () => {
+  it("caps a 3x host at the shared 2x mask ratio", () => {
+    vi.stubGlobal("devicePixelRatio", 3)
+    expect(renderViewDevicePixelRatio()).toBe(2)
+    vi.unstubAllGlobals()
+  })
   it("consumes the shared Gate M0 vector-mask plan with bounded top-left geometry", () => {
     const nodesById = new Map(
       maskRenderConformanceNodes.map((node) => [node.id, node])

@@ -1,5 +1,6 @@
 import type { Document } from "@webmcp/document"
 import type { LayerTreeItem, Selection } from "@webmcp/editor"
+import { deriveInspectorMaskCapabilities } from "@webmcp/editor/inspector"
 import type {
   ProductCommandRuntimeContext,
   ProductCommandTarget,
@@ -36,13 +37,24 @@ export function createLayerProductCommandContext(
     const node = document.nodes.find((candidate) => candidate.id === nodeId)
     return node ? [node] : []
   })
+  const maskGroupId =
+    item.mask?.groupId ?? (item.kind === "group" ? item.id : null)
+  const mask = deriveInspectorMaskCapabilities({
+    document,
+    pageId: base.activePageId,
+    selectedNodeIds: nodeIds,
+    selectedGroupId: maskGroupId,
+    candidateSourceNodeIds:
+      item.kind === "node" && item.mask?.role !== "source" ? [item.id] : [],
+    documentEditable: !base.editor.reviewPending,
+  })
   return {
     ...base,
     selection: {
       pageId: base.activePageId,
       nodeIds,
       nodeTypes: nodes.map((node) => node.type),
-      groupId: item.kind === "group" ? item.id : null,
+      groupId: mask.groupId ?? (item.kind === "group" ? item.id : null),
       anyLocked: nodes.some((node) => node.locked),
       allLocked: nodes.length > 0 && nodes.every((node) => node.locked),
       allVisible: nodes.length > 0 && nodes.every((node) => node.visible),
@@ -54,7 +66,22 @@ export function createLayerProductCommandContext(
       selectedNodeCount: nodeIds.length,
       hasSelectedGroup: item.kind === "group",
       hasZoomSelection: nodeIds.length > 0,
+      mask: {
+        canCreate: mask.create.enabled,
+        createDisabledReason: mask.create.disabledReason,
+        canRelease: mask.release.enabled,
+        releaseDisabledReason: mask.release.disabledReason,
+        canSetVector: mask.setVector.enabled,
+        vectorDisabledReason: mask.setVector.disabledReason,
+        canSetAlpha: mask.setAlpha.enabled,
+        alphaDisabledReason: mask.setAlpha.disabledReason,
+        canSetLuminance: mask.setLuminance.enabled,
+        luminanceDisabledReason: mask.setLuminance.disabledReason,
+        canSetSources: mask.setSources.enabled,
+        sourcesDisabledReason: mask.setSources.disabledReason,
+      },
     },
+    mask,
   }
 }
 

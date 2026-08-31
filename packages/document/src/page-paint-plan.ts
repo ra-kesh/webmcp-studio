@@ -37,12 +37,26 @@ export type PagePaintPlan = Readonly<{
 }>
 
 export const initialMaskPaintAdmission = Object.freeze({
+  maxPixelRatio: 2,
   maxSources: 1,
   maxMaskedDescendants: 512,
   maxNestingDepth: 1,
   maxCompositeDimension: 8192,
   maxCompositePixelArea: 16_777_216,
+  // Gate M2 admits at most four full-area composites per page. The separate
+  // count cap also prevents many tiny masks from creating unbounded surfaces.
+  maxActiveCompositesPerPage: 32,
+  maxPageCompositePixelArea: 67_108_864,
 })
+
+/**
+ * Normalizes host display ratios to the only range Gate M2 admits. Consumers
+ * must use this value for both paint-plan projection and backing-store sizing.
+ */
+export const supportedMaskPaintPixelRatio = (requested: number) =>
+  Number.isFinite(requested) && requested > 0
+    ? Math.min(requested, initialMaskPaintAdmission.maxPixelRatio)
+    : 1
 
 export type PagePaintPlanErrorCode =
   | "MASK_GROUP_PAGE_MISMATCH"
@@ -59,7 +73,10 @@ export type PagePaintPlanErrorCode =
   | "MASK_GROUP_NESTING_UNSUPPORTED"
   | "MASK_GROUP_CONTENT_LIMIT"
   | "MASK_GROUP_COMPOSITE_LIMIT"
+  | "MASK_PAGE_COMPOSITE_COUNT_LIMIT"
+  | "MASK_PAGE_COMPOSITE_AREA_LIMIT"
   | "MASK_GROUP_INVALID_PIXEL_RATIO"
+  | "MASK_GROUP_PIXEL_RATIO_LIMIT"
 
 export class PagePaintPlanError extends Error {
   readonly code: PagePaintPlanErrorCode
@@ -182,6 +199,15 @@ const isCanonicalMaskGroup = (
   (group as { role?: unknown; mask?: { type?: unknown } }).role === "mask" &&
   (group as { mask?: { type?: unknown } }).mask?.type === "vector"
 
+export const isAdmittedVectorMaskSource = (
+  node: SceneNode | undefined
+): node is Extract<SceneNode, { type: "rect" | "ellipse" | "icon" }> =>
+  Boolean(
+    node &&
+    (node.type === "rect" || node.type === "ellipse" || node.type === "icon") &&
+    node.strokeWidth === 0
+  )
+
 const canonicalMaskRelationsForPage = (
   document: Document,
   page: Page
@@ -292,6 +318,12 @@ export function projectPagePaintPlanFromRelations(
       "Mask paint pixel ratio must be finite and greater than zero"
     )
   }
+  if (pixelRatio > initialMaskPaintAdmission.maxPixelRatio) {
+    throw new PagePaintPlanError(
+      "MASK_GROUP_PIXEL_RATIO_LIMIT",
+      `Mask paint pixel ratio ${pixelRatio} exceeds the Gate M2 maximum of ${initialMaskPaintAdmission.maxPixelRatio}`
+    )
+  }
 
   const nodesById = new Map(nodes.map((node) => [node.id, node]))
   const pageIndex = new Map(
@@ -327,7 +359,7 @@ export function projectPagePaintPlanFromRelations(
     if (relation.maskType !== "vector") {
       throw new PagePaintPlanError(
         "MASK_GROUP_UNSUPPORTED_TYPE",
-        `Mask group ${relation.groupId} uses a type outside the Gate M0 vector contract`,
+        `Mask group ${relation.groupId} uses a type outside the Gate M2 vector contract`,
         { groupId: relation.groupId }
       )
     }
@@ -392,10 +424,10 @@ export function projectPagePaintPlanFromRelations(
         )
       }
       const sourceNode = nodesById.get(sourceNodeId)
-      if (sourceNode?.type !== "rect" || sourceNode.strokeWidth !== 0) {
+      if (!isAdmittedVectorMaskSource(sourceNode)) {
         throw new PagePaintPlanError(
           "MASK_GROUP_UNSUPPORTED_SOURCE",
-          `Mask source ${sourceNodeId} is outside the Gate M0 unstroked rectangle contract`,
+          `Mask source ${sourceNodeId} is outside the Gate M2 unstroked vector contract`,
           { groupId: relation.groupId, nodeId: sourceNodeId }
         )
       }
@@ -422,6 +454,8 @@ export function projectPagePaintPlanFromRelations(
   }
 
   const entries: PagePaintPlanEntry[] = []
+  let activeCompositeCount = 0
+  let admittedDevicePixelArea = 0
   for (const nodeId of page.nodeIds) {
     const relation = relationByNodeId.get(nodeId)
     if (!relation) {
@@ -440,7 +474,31 @@ export function projectPagePaintPlanFromRelations(
       relation.nodeIds.map((nodeId) => nodesById.get(nodeId)!),
       relation.sourceNodeIds
     )
-    assertCompositeAdmission(relation.groupId, geometry.bounds, pixelRatio)
+    if (geometry.compositeRequired) {
+      assertCompositeAdmission(relation.groupId, geometry.bounds, pixelRatio)
+      activeCompositeCount += 1
+      admittedDevicePixelArea +=
+        Math.ceil(geometry.bounds.width * pixelRatio) *
+        Math.ceil(geometry.bounds.height * pixelRatio)
+      if (
+        activeCompositeCount >
+        initialMaskPaintAdmission.maxActiveCompositesPerPage
+      ) {
+        throw new PagePaintPlanError(
+          "MASK_PAGE_COMPOSITE_COUNT_LIMIT",
+          `Page ${page.id} exceeds the Gate M2 active composite count limit`
+        )
+      }
+      if (
+        admittedDevicePixelArea >
+        initialMaskPaintAdmission.maxPageCompositePixelArea
+      ) {
+        throw new PagePaintPlanError(
+          "MASK_PAGE_COMPOSITE_AREA_LIMIT",
+          `Page ${page.id} exceeds the Gate M2 admitted composite area limit`
+        )
+      }
+    }
     entries.push({
       kind: "mask_group",
       groupId: relation.groupId,

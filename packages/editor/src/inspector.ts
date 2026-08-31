@@ -1,4 +1,10 @@
-import type { SceneNode } from "@webmcp/document"
+import type { Document, SceneNode } from "@webmcp/document"
+import {
+  initialMaskPaintAdmission,
+  PagePaintPlanError,
+  projectPagePaintPlan,
+  supportedMaskPaintPixelRatio,
+} from "@webmcp/document/internal/page-paint-plan"
 
 export type InspectorSharedValue<T> =
   { kind: "empty" } | { kind: "value"; value: T } | { kind: "mixed" }
@@ -15,6 +21,318 @@ export type InspectorNodeCapabilities = {
   canFlipImage: boolean
   canApplyFrameMask: boolean
   hasMissingSource: boolean
+}
+
+export type MaskCommandCapability = Readonly<{
+  enabled: boolean
+  disabledReason: string | null
+}>
+
+export type InspectorMaskCapabilities = Readonly<{
+  groupId: string | null
+  type: "vector" | "alpha" | "luminance" | null
+  sourceNodeIds: readonly string[]
+  eligibleSourceNodeIds: readonly string[]
+  createSourceNodeIds: readonly string[]
+  reassignmentSourceNodeIds: readonly string[]
+  create: MaskCommandCapability
+  release: MaskCommandCapability
+  setVector: MaskCommandCapability
+  setAlpha: MaskCommandCapability
+  setLuminance: MaskCommandCapability
+  setSources: MaskCommandCapability
+}>
+
+export type InspectorMaskCapabilityContext = Readonly<{
+  document: Document
+  pageId: string
+  selectedNodeIds: readonly string[]
+  selectedGroupId?: string | null
+  candidateSourceNodeIds?: readonly string[]
+  documentEditable?: boolean
+}>
+
+const MASK_REVIEW_REASON = "Resolve the pending review before editing masks."
+const MASK_LOCKED_REASON = "Unlock the selected layers before editing masks."
+const MASK_COMPONENT_REASON =
+  "Mask structure cannot be changed inside a component or instance. Detach the instance or use layers outside the component."
+const MASK_ALPHA_REASON =
+  "Alpha masks are not available yet because image and text readiness is not deterministic across every renderer."
+const MASK_LUMINANCE_REASON =
+  "Luminance masks are not available yet because color-space output is not deterministic across every renderer."
+
+const maskCapability = (
+  enabled: boolean,
+  disabledReason: string | null
+): MaskCommandCapability => ({
+  enabled,
+  disabledReason: enabled ? null : disabledReason,
+})
+
+const vectorMaskSource = (node: SceneNode | undefined) =>
+  node?.type === "rect" || node?.type === "ellipse" || node?.type === "icon"
+
+function maskComponentOwnership(document: Document) {
+  const sourceNodeIds = new Set<string>()
+  const sourceGroupIds = new Set<string>()
+  const collect = (groupId: string, visited = new Set<string>()) => {
+    if (visited.has(groupId)) return
+    visited.add(groupId)
+    const group = document.groups.find((candidate) => candidate.id === groupId)
+    if (!group) return
+    sourceGroupIds.add(group.id)
+    for (const nodeId of group.nodeIds) sourceNodeIds.add(nodeId)
+    for (const child of document.groups.filter(
+      (candidate) => candidate.parentGroupId === group.id
+    )) {
+      collect(child.id, visited)
+    }
+  }
+  for (const component of document.components) collect(component.sourceGroupId)
+  return {
+    sourceNodeIds,
+    sourceGroupIds,
+    instanceNodeIds: new Set(
+      document.componentInstances.flatMap((instance) =>
+        instance.nodeMappings.map((mapping) => mapping.instanceNodeId)
+      )
+    ),
+    instanceGroupIds: new Set(
+      document.componentInstances.flatMap((instance) =>
+        instance.groupMappings.map((mapping) => mapping.instanceGroupId)
+      )
+    ),
+  }
+}
+
+function maskSourceAdmissionReason(
+  document: Document,
+  node: SceneNode | undefined
+): string | null {
+  if (!vectorMaskSource(node)) {
+    return "The back layer must be an unlocked rectangle, ellipse, or icon for a vector mask."
+  }
+  if (node.strokeWidth !== 0) {
+    return "Vector mask sources must not have a stroke."
+  }
+  if (document.bindings.some((binding) => binding.nodeId === node.id)) {
+    return "A field-bound layer cannot be a mask source. Unbind it first."
+  }
+  return null
+}
+
+/**
+ * Canonical human-facing mask policy. Every menu, shortcut and inspector
+ * projects these exact results instead of recreating selection rules.
+ * The backmost selected layer is the deterministic source, matching the
+ * established Figma/OpenPencil stack convention while storing its exact ID.
+ */
+export function deriveInspectorMaskCapabilities({
+  document,
+  pageId,
+  selectedNodeIds,
+  selectedGroupId = null,
+  candidateSourceNodeIds = [],
+  documentEditable = true,
+}: InspectorMaskCapabilityContext): InspectorMaskCapabilities {
+  const page = document.pages.find((candidate) => candidate.id === pageId)
+  const nodeById = new Map(document.nodes.map((node) => [node.id, node]))
+  const selected = new Set(selectedNodeIds)
+  const orderedSelectedNodeIds = (page?.nodeIds ?? []).filter((nodeId) =>
+    selected.has(nodeId)
+  )
+  const nodes = orderedSelectedNodeIds.flatMap((nodeId) => {
+    const node = nodeById.get(nodeId)
+    return node ? [node] : []
+  })
+  const group = selectedGroupId
+    ? document.groups.find((candidate) => candidate.id === selectedGroupId)
+    : undefined
+  const maskGroup = group?.role === "mask" ? group : undefined
+  const componentOwnership = maskComponentOwnership(document)
+  const inComponentInstance =
+    nodes.some(
+      (node) =>
+        componentOwnership.sourceNodeIds.has(node.id) ||
+        componentOwnership.instanceNodeIds.has(node.id)
+    ) ||
+    Boolean(
+      maskGroup &&
+      (componentOwnership.sourceGroupIds.has(maskGroup.id) ||
+        componentOwnership.instanceGroupIds.has(maskGroup.id))
+    )
+  const anyLocked = nodes.some((node) => node.locked)
+  const createSourceNodeIds = orderedSelectedNodeIds.slice(0, 1)
+  const source = nodeById.get(createSourceNodeIds[0] ?? "")
+  const nestedMask = document.groups.find(
+    (candidate) =>
+      candidate.role === "mask" &&
+      orderedSelectedNodeIds.some((nodeId) =>
+        candidate.nodeIds.includes(nodeId)
+      )
+  )
+  const directParentIds = orderedSelectedNodeIds.map(
+    (nodeId) =>
+      document.groups.find((candidate) => candidate.nodeIds.includes(nodeId))
+        ?.id
+  )
+  const mixedParents = new Set(directParentIds).size > 1
+  const nestedParentId = directParentIds[0]
+  const sourceAdmissionReason = maskSourceAdmissionReason(document, source)
+
+  let createReason: string | null = null
+  if (!documentEditable) createReason = MASK_REVIEW_REASON
+  else if (!page) createReason = "The active page is no longer available."
+  else if (orderedSelectedNodeIds.length < 2)
+    createReason =
+      "Select at least two layers. The back layer becomes the mask source."
+  else if (orderedSelectedNodeIds.length !== selected.size)
+    createReason = "Select layers from one page to create a mask."
+  else if (anyLocked) createReason = MASK_LOCKED_REASON
+  else if (inComponentInstance) createReason = MASK_COMPONENT_REASON
+  else if (mixedParents)
+    createReason = "Select top-level layers that share the same parent."
+  else if (nestedParentId || nestedMask)
+    createReason = "Nested mask groups are not available in this version."
+  else if (sourceAdmissionReason) createReason = sourceAdmissionReason
+  else if (
+    orderedSelectedNodeIds.length - createSourceNodeIds.length >
+    initialMaskPaintAdmission.maxMaskedDescendants
+  )
+    createReason = `A mask can contain at most ${initialMaskPaintAdmission.maxMaskedDescendants} content layers. Select ${initialMaskPaintAdmission.maxMaskedDescendants + 1} layers or fewer.`
+  else {
+    const preflightGroupId = "__inspector-mask-admission-preflight__"
+    const candidate: Document = {
+      ...document,
+      pages: document.pages.map((candidatePage) => {
+        if (candidatePage.id !== pageId) return candidatePage
+        const block = new Set(orderedSelectedNodeIds)
+        const remaining = candidatePage.nodeIds.filter(
+          (nodeId) => !block.has(nodeId)
+        )
+        const edgeIndex = Math.max(
+          ...orderedSelectedNodeIds.map((nodeId) =>
+            candidatePage.nodeIds.indexOf(nodeId)
+          )
+        )
+        const toIndex = remaining.filter(
+          (nodeId) => candidatePage.nodeIds.indexOf(nodeId) < edgeIndex
+        ).length
+        return {
+          ...candidatePage,
+          nodeIds: [
+            ...remaining.slice(0, toIndex),
+            ...orderedSelectedNodeIds,
+            ...remaining.slice(toIndex),
+          ],
+        }
+      }),
+      groups: [
+        ...document.groups,
+        {
+          id: preflightGroupId,
+          pageId,
+          name: "Mask admission preflight",
+          role: "mask",
+          nodeIds: orderedSelectedNodeIds,
+          mask: { type: "vector", sourceNodeIds: [createSourceNodeIds[0]!] },
+        },
+      ],
+    }
+    try {
+      projectPagePaintPlan(candidate, pageId, {
+        pixelRatio: supportedMaskPaintPixelRatio(
+          initialMaskPaintAdmission.maxPixelRatio
+        ),
+      })
+    } catch (error) {
+      if (error instanceof PagePaintPlanError) {
+        if (error.code === "MASK_GROUP_COMPOSITE_LIMIT")
+          createReason =
+            "The selected mask exceeds the Gate M2 composite bounds at 2x. Reduce or move the selected layers."
+        else if (error.code === "MASK_PAGE_COMPOSITE_COUNT_LIMIT")
+          createReason = `This page already has ${initialMaskPaintAdmission.maxActiveCompositesPerPage} active mask composites. Release a mask before creating another.`
+        else if (error.code === "MASK_PAGE_COMPOSITE_AREA_LIMIT")
+          createReason =
+            "The selected mask would exceed the page's summed 2x composite area budget. Reduce its bounds or release another mask."
+      }
+    }
+  }
+
+  const groupNodes = maskGroup
+    ? maskGroup.nodeIds.flatMap((nodeId) => {
+        const node = nodeById.get(nodeId)
+        return node ? [node] : []
+      })
+    : []
+  const eligibleSourceNodeIds = groupNodes
+    .filter(
+      (node) =>
+        !node.locked && maskSourceAdmissionReason(document, node) === null
+    )
+    .map((node) => node.id)
+  let groupMutationReason: string | null = null
+  if (!documentEditable) groupMutationReason = MASK_REVIEW_REASON
+  else if (!maskGroup) groupMutationReason = "Select one mask group first."
+  else if (maskGroup.pageId !== pageId)
+    groupMutationReason = "Select a mask group on the active page."
+  else if (
+    maskGroup.parentGroupId ||
+    document.groups.some(
+      (candidate) => candidate.parentGroupId === maskGroup.id
+    )
+  )
+    groupMutationReason =
+      "Nested mask groups are not available in this version."
+  else if (groupNodes.some((node) => node.locked))
+    groupMutationReason = MASK_LOCKED_REASON
+  else if (inComponentInstance) groupMutationReason = MASK_COMPONENT_REASON
+
+  const requestedSources = [...new Set(candidateSourceNodeIds)]
+  let sourceReason = groupMutationReason
+  if (!sourceReason && requestedSources.length !== 1)
+    sourceReason = "Choose one layer in this mask group as its source."
+  const requestedSource = nodeById.get(requestedSources[0] ?? "")
+  if (
+    !sourceReason &&
+    (!requestedSource || !maskGroup?.nodeIds.includes(requestedSource.id))
+  ) {
+    sourceReason = "Choose a direct layer in this mask group as its source."
+  }
+  if (!sourceReason)
+    sourceReason = maskSourceAdmissionReason(document, requestedSource)
+  if (
+    !sourceReason &&
+    maskGroup?.mask.sourceNodeIds.length === 1 &&
+    maskGroup.mask.sourceNodeIds[0] === requestedSources[0]
+  ) {
+    sourceReason = "That layer is already the mask source."
+  }
+
+  return {
+    groupId: maskGroup?.id ?? null,
+    type: maskGroup?.mask.type ?? null,
+    sourceNodeIds: maskGroup ? [...maskGroup.mask.sourceNodeIds] : [],
+    eligibleSourceNodeIds,
+    createSourceNodeIds,
+    reassignmentSourceNodeIds: requestedSources,
+    create: maskCapability(createReason === null, createReason),
+    release: maskCapability(groupMutationReason === null, groupMutationReason),
+    setVector: maskCapability(
+      groupMutationReason === null && maskGroup?.mask.type !== "vector",
+      groupMutationReason ?? "This mask already uses Vector."
+    ),
+    setAlpha: maskCapability(false, groupMutationReason ?? MASK_ALPHA_REASON),
+    setLuminance: maskCapability(
+      false,
+      groupMutationReason ?? MASK_LUMINANCE_REASON
+    ),
+    setSources: maskCapability(
+      groupMutationReason === null &&
+        (requestedSources.length === 0 || sourceReason === null),
+      requestedSources.length === 0 ? groupMutationReason : sourceReason
+    ),
+  }
 }
 
 /**

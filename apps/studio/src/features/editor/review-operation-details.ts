@@ -52,6 +52,56 @@ export function operationDetails(
   operation: ChangeOperation
 ): ReviewOperationDetails {
   const command = operation.command
+  const nodeNames = (nodeIds: readonly string[]) =>
+    nodeIds.map(
+      (nodeId) =>
+        document.nodes.find((candidate) => candidate.id === nodeId)?.name ??
+        nodeId
+    )
+  const groupFor = (groupId: string) =>
+    document.groups.find((candidate) => candidate.id === groupId)
+  const maskSourceNames = (groupId: string) => {
+    const group = groupFor(groupId)
+    return group?.role === "mask" ? nodeNames(group.mask.sourceNodeIds) : []
+  }
+  if (command.type === "create_mask_group") {
+    const contentIds = command.nodeIds.filter(
+      (nodeId) => !command.sourceNodeIds.includes(nodeId)
+    )
+    return {
+      label: command.name,
+      context: `${command.maskType} mask · ${command.sourceNodeIds.length} source · ${contentIds.length} content layer${contentIds.length === 1 ? "" : "s"}`,
+      before: `Separate layers: ${nodeNames(command.nodeIds).join(" · ")}`,
+      after: `Mask source: ${nodeNames(command.sourceNodeIds).join(" · ")}`,
+    }
+  }
+  if (command.type === "release_mask_group") {
+    const group = groupFor(command.groupId)
+    return {
+      label: group?.name ?? command.groupId,
+      context: "Release mask",
+      before: `Mask source: ${maskSourceNames(command.groupId).join(" · ") || "Unknown layer"}`,
+      after: "Mask group removed; layers remain on the page",
+    }
+  }
+  if (command.type === "set_mask_type") {
+    const group = groupFor(command.groupId)
+    return {
+      label: group?.name ?? command.groupId,
+      context: "Mask type",
+      before: group?.role === "mask" ? group.mask.type : "Unknown type",
+      after: command.maskType,
+    }
+  }
+  if (command.type === "set_mask_sources") {
+    const group = groupFor(command.groupId)
+    return {
+      label: group?.name ?? command.groupId,
+      context: "Mask source",
+      before: maskSourceNames(command.groupId).join(" · ") || "Unknown layer",
+      after: nodeNames(command.sourceNodeIds).join(" · "),
+    }
+  }
   if (command.type === "set_field") {
     const field = document.fields.find(
       (candidate) => candidate.id === command.fieldId

@@ -149,6 +149,7 @@ function componentLayerDocument() {
     id: instance.rootGroupId,
     pageId: "story",
     name: instance.name,
+    role: "organize",
     nodeIds: instance.nodeMappings.map((mapping) => mapping.instanceNodeId),
   })
   const nodes = resolveComponentInstanceNodes(document, instance)
@@ -160,6 +161,40 @@ function componentLayerDocument() {
 }
 
 describe("layer tree model", () => {
+  it("labels mask groups, sources, and content from explicit identities", () => {
+    const document = structuredClone(northstarSeed)
+    document.groups = [
+      {
+        id: "cover-mask",
+        pageId: "cover",
+        name: "Cover mask",
+        role: "mask",
+        nodeIds: ["cover-panel", "cover-title"],
+        mask: { type: "vector", sourceNodeIds: ["cover-panel"] },
+      },
+    ]
+
+    const model = buildLayerTreeModel(document, "cover")
+    expect(model.byKey.get(layerKey("group", "cover-mask"))?.mask).toEqual({
+      role: "group",
+      groupId: "cover-mask",
+      groupName: "Cover mask",
+      type: "vector",
+      sourceNodeIds: ["cover-panel"],
+    })
+    expect(model.byKey.get(layerKey("node", "cover-panel"))?.mask?.role).toBe(
+      "source"
+    )
+    expect(model.byKey.get(layerKey("node", "cover-title"))?.mask?.role).toBe(
+      "content"
+    )
+    expect(
+      visibleLayerRows(model.items, new Set(), "mask source").map(
+        (row) => row.item.id
+      )
+    ).toContain("cover-panel")
+  })
+
   it("projects main components, instances, and child override ownership", () => {
     const document = componentLayerDocument()
     const sourceModel = buildLayerTreeModel(document, "cover")

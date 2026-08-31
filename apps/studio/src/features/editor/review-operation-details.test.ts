@@ -183,4 +183,103 @@ describe("review operation details", () => {
       expect(JSON.stringify(details)).not.toContain(source.src)
     }
   )
+
+  it("names every source and content layer in a mask proposal", () => {
+    const document = quotationStarter.document
+    const page = document.pages[0]!
+    const source = document.nodes.find(
+      (node) => page.nodeIds.includes(node.id) && node.type === "rect"
+    )!
+    const content = document.nodes.find(
+      (node) => page.nodeIds.includes(node.id) && node.id !== source.id
+    )!
+    const operation: ChangeOperation = {
+      id: "create-mask-operation",
+      status: "pending",
+      summary: "Create a vector mask",
+      command: {
+        id: "create-mask-command",
+        type: "create_mask_group",
+        actor: "agent",
+        at: "2026-08-31T12:10:00.000Z",
+        expectedRevision: document.revision,
+        pageId: page.id,
+        groupId: "review-mask-group",
+        name: "Portrait mask",
+        nodeIds: [source.id, content.id],
+        sourceNodeIds: [source.id],
+        maskType: "vector",
+      },
+    }
+
+    const details = operationDetails(document, operation)
+
+    expect(details).toEqual({
+      label: "Portrait mask",
+      context: "vector mask · 1 source · 1 content layer",
+      before: `Separate layers: ${source.name} · ${content.name}`,
+      after: `Mask source: ${source.name}`,
+    })
+  })
+
+  it("describes source reassignment and release from canonical group state", () => {
+    const document = structuredClone(quotationStarter.document)
+    const page = document.pages[0]!
+    const source = document.nodes.find(
+      (node) => page.nodeIds.includes(node.id) && node.type === "rect"
+    )!
+    const content = document.nodes.find(
+      (node) => page.nodeIds.includes(node.id) && node.id !== source.id
+    )!
+    document.groups.push({
+      id: "review-mask-group",
+      role: "mask",
+      pageId: page.id,
+      name: "Portrait mask",
+      nodeIds: [source.id, content.id],
+      mask: { type: "vector", sourceNodeIds: [source.id] },
+    })
+    const release: ChangeOperation = {
+      id: "release-mask-operation",
+      status: "pending",
+      summary: "Release the mask",
+      command: {
+        id: "release-mask-command",
+        type: "release_mask_group",
+        actor: "agent",
+        at: "2026-08-31T12:11:00.000Z",
+        expectedRevision: document.revision,
+        pageId: page.id,
+        groupId: "review-mask-group",
+      },
+    }
+    const setSources: ChangeOperation = {
+      id: "set-mask-source-operation",
+      status: "pending",
+      summary: "Change the mask source",
+      command: {
+        id: "set-mask-source-command",
+        type: "set_mask_sources",
+        actor: "agent",
+        at: "2026-08-31T12:12:00.000Z",
+        expectedRevision: document.revision,
+        pageId: page.id,
+        groupId: "review-mask-group",
+        sourceNodeIds: [content.id],
+      },
+    }
+
+    expect(operationDetails(document, release)).toMatchObject({
+      label: "Portrait mask",
+      context: "Release mask",
+      before: `Mask source: ${source.name}`,
+      after: "Mask group removed; layers remain on the page",
+    })
+    expect(operationDetails(document, setSources)).toMatchObject({
+      label: "Portrait mask",
+      context: "Mask source",
+      before: source.name,
+      after: content.name,
+    })
+  })
 })

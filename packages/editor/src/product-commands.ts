@@ -12,6 +12,7 @@ import {
   type EditorShortcutPlatform,
 } from "./commands"
 import type { Alignment, Distribution } from "./geometry"
+import type { InspectorMaskCapabilities } from "./inspector"
 import {
   documentStructureCommandIds,
   isDocumentStructureCommandEnabled,
@@ -90,6 +91,7 @@ export type ProductCommandIconToken =
   | "visibility"
   | "zoom"
   | "output"
+  | "mask"
 
 export type ProductShortcut = Readonly<{
   code: string
@@ -147,6 +149,14 @@ export type ProductCommandArguments =
       relativeTo: "selection" | "page"
     }>
   | Readonly<{ kind: "distribution"; distribution: Distribution }>
+  | Readonly<{
+      kind: "mask-create"
+      sourceNodeIds: readonly [string]
+    }>
+  | Readonly<{
+      kind: "mask-sources"
+      sourceNodeIds: readonly [string]
+    }>
 
 export type ProductCommandArgumentContract =
   | Readonly<{ kind: "none" }>
@@ -163,6 +173,18 @@ export type ProductCommandArgumentContract =
   | Readonly<{
       kind: "distribution"
       variants: readonly Distribution[]
+    }>
+  | Readonly<{
+      kind: "mask-create"
+      fields: Readonly<{
+        sourceNodeIds: Readonly<{ type: "string[]"; minItems: 1; maxItems: 1 }>
+      }>
+    }>
+  | Readonly<{
+      kind: "mask-sources"
+      fields: Readonly<{
+        sourceNodeIds: Readonly<{ type: "string[]"; minItems: 1; maxItems: 1 }>
+      }>
     }>
 
 export type ProductCommandInvocation = Readonly<{
@@ -197,6 +219,22 @@ export function productCommandArgumentContract(
   }
   if (commandId === "arrange.distribute") {
     return { kind: "distribution", variants: ["horizontal", "vertical"] }
+  }
+  if (commandId === "mask.create") {
+    return {
+      kind: "mask-create",
+      fields: {
+        sourceNodeIds: { type: "string[]", minItems: 1, maxItems: 1 },
+      },
+    }
+  }
+  if (commandId === "mask.sources.set") {
+    return {
+      kind: "mask-sources",
+      fields: {
+        sourceNodeIds: { type: "string[]", minItems: 1, maxItems: 1 },
+      },
+    }
   }
   return { kind: "none" }
 }
@@ -244,6 +282,7 @@ export type ProductCommandRuntimeContext = Readonly<{
   stateByCommandId?: Readonly<
     Partial<Record<ProductCommandId, ProductCommandStateInput>>
   >
+  mask?: InspectorMaskCapabilities
 }>
 
 export type ResolvedProductCommand = Readonly<{
@@ -309,6 +348,12 @@ const proposalExecutableProductCommands = new Set<ProductCommandId>([
   "arrange.backward",
   "arrange.align",
   "arrange.distribute",
+  "mask.create",
+  "mask.release",
+  "mask.type.vector",
+  "mask.type.alpha",
+  "mask.type.luminance",
+  "mask.sources.set",
   "page.remove",
   "page.move-up",
   "page.move-down",
@@ -372,6 +417,7 @@ function editorCategory(id: EditorCommandId): ProductCommandCategory {
 function editorScope(id: EditorCommandId): ProductCommandScope {
   if (id.startsWith("tool.") || id.startsWith("canvas.")) return "global"
   if (id === "selection.select-all") return "page"
+  if (id.startsWith("mask.") && id !== "mask.create") return "group"
   if (
     id === "history.undo" ||
     id === "history.redo" ||
@@ -395,6 +441,7 @@ function editorIcon(id: EditorCommandId): ProductCommandIconToken {
   if (id === "object.duplicate") return "duplicate"
   if (id === "object.delete") return "delete"
   if (id === "object.group" || id === "object.ungroup") return "group"
+  if (id.startsWith("mask.")) return "mask"
   if (id === "object.add-text") return "text"
   if (id.startsWith("object.add-")) return "shape"
   if (id.includes("crop") || id.includes("frame")) return "crop"
@@ -463,10 +510,11 @@ const editorDefinitions = Object.fromEntries(
         ),
         icon: editorIcon(id),
         shortcuts: (current.shortcuts ?? []).map(
-          ({ code, primary, shift, mode }) => ({
+          ({ code, primary, shift, alt, mode }) => ({
             code,
             primary,
             shift,
+            alt,
             mode,
           })
         ),
@@ -911,6 +959,26 @@ function validateInvocationArguments(
           reason: "Choose a distribution direction.",
         }
   }
+  if (invocation.commandId === "mask.create") {
+    return invocation.arguments?.kind === "mask-create" &&
+      invocation.arguments.sourceNodeIds.length === 1
+      ? { ok: true }
+      : {
+          ok: false,
+          status: "invalid",
+          reason: "Choose exactly one layer as the mask source.",
+        }
+  }
+  if (invocation.commandId === "mask.sources.set") {
+    return invocation.arguments?.kind === "mask-sources" &&
+      invocation.arguments.sourceNodeIds.length === 1
+      ? { ok: true }
+      : {
+          ok: false,
+          status: "invalid",
+          reason: "Choose exactly one layer as the mask source.",
+        }
+  }
   if (
     invocation.arguments &&
     invocation.arguments.kind !== "none" &&
@@ -980,6 +1048,12 @@ function defaultDisabledReason(
     return "The image already uses this frame shape."
   if (commandId.startsWith("image."))
     return "Select an unlocked image with a ready source."
+  if (commandId.startsWith("mask.")) {
+    return editorCommandDisabledReason(
+      commandId as EditorCommandId,
+      context.editor
+    )
+  }
   if (
     context.editor.imageCropActive &&
     productCommandCatalog[commandId].mutating
@@ -1074,6 +1148,17 @@ function invocationEnabled(
     return false
   }
   if (
+    invocation.commandId === "mask.sources.set" &&
+    invocation.arguments?.kind === "mask-sources"
+  ) {
+    const sourceNodeId = invocation.arguments.sourceNodeIds[0]
+    return Boolean(
+      sourceNodeId &&
+      context.mask?.eligibleSourceNodeIds.includes(sourceNodeId) &&
+      !context.mask.sourceNodeIds.includes(sourceNodeId)
+    )
+  }
+  if (
     invocation.commandId === "arrange.forward" ||
     invocation.commandId === "arrange.backward"
   ) {
@@ -1097,6 +1182,21 @@ function invocationDisabledReason(
   invocation: ProductCommandInvocation,
   context: ProductCommandRuntimeContext
 ) {
+  if (
+    invocation.commandId === "mask.sources.set" &&
+    invocation.arguments?.kind === "mask-sources"
+  ) {
+    const sourceNodeId = invocation.arguments.sourceNodeIds[0]
+    if (sourceNodeId && context.mask?.sourceNodeIds.includes(sourceNodeId)) {
+      return "That layer is already the mask source."
+    }
+    if (
+      sourceNodeId &&
+      !context.mask?.eligibleSourceNodeIds.includes(sourceNodeId)
+    ) {
+      return "Choose an unstroked, unbound rectangle, ellipse, or icon in this mask group."
+    }
+  }
   if (
     (invocation.commandId === "arrange.forward" ||
       invocation.commandId === "arrange.backward") &&
@@ -1144,6 +1244,15 @@ function dynamicState(
       label: selection?.allLocked ? "Unlock selection" : "Lock selection",
       ...supplied,
     }
+  }
+  if (commandId === "mask.type.vector") {
+    return { checked: context.mask?.type === "vector", ...supplied }
+  }
+  if (commandId === "mask.type.alpha") {
+    return { checked: context.mask?.type === "alpha", ...supplied }
+  }
+  if (commandId === "mask.type.luminance") {
+    return { checked: context.mask?.type === "luminance", ...supplied }
   }
   return supplied
 }
@@ -1303,6 +1412,16 @@ function targetFor(
       groupId: context.selection.groupId ?? null,
     }
   }
+  if (scope === "group" && context.mask?.groupId) {
+    return {
+      kind: "group",
+      documentId: context.documentId,
+      snapshotId: context.snapshotId,
+      displayName: "Selected mask",
+      pageId: context.activePageId,
+      groupId: context.mask.groupId,
+    }
+  }
   if (scope === "page") {
     return {
       kind: "page",
@@ -1331,11 +1450,27 @@ function itemFor(
   context: ProductCommandRuntimeContext,
   args?: ProductCommandArguments
 ) {
+  const argumentsForCommand =
+    args ??
+    (id === "mask.create" && context.mask?.createSourceNodeIds.length === 1
+      ? {
+          kind: "mask-create" as const,
+          sourceNodeIds: [context.mask.createSourceNodeIds[0]!] as const,
+        }
+      : id === "mask.sources.set" &&
+          context.mask?.reassignmentSourceNodeIds.length === 1
+        ? {
+            kind: "mask-sources" as const,
+            sourceNodeIds: [
+              context.mask.reassignmentSourceNodeIds[0]!,
+            ] as const,
+          }
+        : undefined)
   return commandItem(
     id,
     context,
     targetFor(context, productCommandCatalog[id].scope),
-    args
+    argumentsForCommand
   )
 }
 
@@ -1413,6 +1548,17 @@ const imageItems = (context: ProductCommandRuntimeContext) => [
     itemFor("image.frame.rounded-rectangle", context),
     itemFor("image.frame.ellipse", context),
   ]),
+]
+
+const maskItems = (context: ProductCommandRuntimeContext) => [
+  itemFor("mask.create", context),
+  itemFor("mask.release", context),
+  submenu("mask-type", "Mask type", [
+    itemFor("mask.type.vector", context),
+    itemFor("mask.type.alpha", context),
+    itemFor("mask.type.luminance", context),
+  ]),
+  itemFor("mask.sources.set", context),
 ]
 
 export function buildProductAppMenus(
@@ -1523,6 +1669,8 @@ export function buildProductAppMenus(
             itemFor("object.group", context),
             itemFor("object.ungroup", context),
             itemFor("object.rename", context),
+            separator(),
+            ...maskItems(context),
           ],
         },
         {
@@ -1609,7 +1757,6 @@ export function projectProductCommandCapabilities(
   context: ProductCommandRuntimeContext
 ): readonly ResolvedProductCommand[] {
   return productCommandIds.flatMap((commandId) => {
-    const definition = productCommandCatalog[commandId]
     if (commandId === "arrange.align") {
       return [
         ...alignmentItems(context, "selection"),
@@ -1625,16 +1772,7 @@ export function projectProductCommandCapabilities(
         return { ...resolved, label: `Distribute ${distribution}` }
       })
     }
-    const target = targetFor(context, definition.scope)
-    return [
-      resolveProductCommand(
-        {
-          commandId,
-          ...(target ? { target } : {}),
-        },
-        context
-      ),
-    ]
+    return [itemFor(commandId, context).command]
   })
 }
 
@@ -1733,6 +1871,8 @@ export function buildCanvasContextMenu(
         separator(),
         itemFor("object.visibility.toggle", context),
         itemFor("object.lock.toggle", context),
+        separator(),
+        ...maskItems(context),
       ],
     },
     ...(allImages ? [{ id: "image", items: imageItems(context) }] : []),
@@ -1779,6 +1919,7 @@ export function buildLayerContextMenu(
         targetItem("object.lock.toggle"),
       ],
     },
+    { id: "mask", items: maskItems(context) },
   ]
 }
 

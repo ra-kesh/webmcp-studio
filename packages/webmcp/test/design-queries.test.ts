@@ -65,6 +65,53 @@ describe("design queries", () => {
     })
   })
 
+  it("exposes safe mask roles and identities without renderer-private state", () => {
+    const document = structuredClone(northstarSeed)
+    document.groups.push({
+      id: "cover-mask",
+      role: "mask",
+      pageId: "cover",
+      name: "Cover mask",
+      nodeIds: ["cover-panel", "cover-eyebrow"],
+      mask: { type: "vector", sourceNodeIds: ["cover-panel"] },
+    })
+
+    const tree = readDesignTree(document, identity, {
+      pageId: "cover",
+      depth: 4,
+      limit: 100,
+      cursor: null,
+    })
+    expect(tree.items.find((item) => item.id === "cover-mask")).toMatchObject({
+      mask: {
+        role: "group",
+        groupId: "cover-mask",
+        type: "vector",
+        sourceNodeIds: ["cover-panel"],
+      },
+    })
+    expect(tree.items.find((item) => item.id === "cover-panel")).toMatchObject({
+      mask: { role: "source", groupId: "cover-mask" },
+    })
+    expect(
+      tree.items.find((item) => item.id === "cover-eyebrow")
+    ).toMatchObject({ mask: { role: "content", groupId: "cover-mask" } })
+
+    expect(readDesignNode(document, identity, "cover-panel").mask).toEqual({
+      groupId: "cover-mask",
+      groupName: "Cover mask",
+      type: "vector",
+      role: "source",
+      sourceNodeIds: ["cover-panel"],
+      contentNodeIds: ["cover-eyebrow"],
+      visibleSourceNodeIds: ["cover-panel"],
+      locked: false,
+    })
+    expect(
+      JSON.stringify(readDesignNode(document, identity, "cover-panel"))
+    ).not.toContain("composite")
+  })
+
   it("searches names and text across pages with query-bound cursors", () => {
     const result = searchDesignNodes(northstarSeed, identity, {
       query: "package",

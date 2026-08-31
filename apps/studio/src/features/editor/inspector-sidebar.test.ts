@@ -1,6 +1,8 @@
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { renderConformanceDocument } from "@webmcp/document"
+import { maskRenderConformanceDocument } from "@webmcp/document/internal/mask-render-conformance"
+import type { ProductCommandRuntimeContext } from "@webmcp/editor/product-commands"
 import { describe, expect, it, vi } from "vitest"
 import { studioMediaManifest } from "../../content/library/media/manifest"
 
@@ -115,6 +117,110 @@ describe("InspectorSidebar basic property controls", () => {
     expect(markup).not.toContain(
       'aria-label="Fill color picker" type="color" disabled=""'
     )
+  })
+})
+
+describe("InspectorSidebar mask controls", () => {
+  it("shows Vector selected and gives exact reasons for deferred mask types", () => {
+    const group = maskRenderConformanceDocument.groups[0]!
+    const page = maskRenderConformanceDocument.pages[0]!
+    const selectedNodes = group.nodeIds.flatMap((nodeId) => {
+      const node = maskRenderConformanceDocument.nodes.find(
+        (candidate) => candidate.id === nodeId
+      )
+      return node ? [node] : []
+    })
+    const productCommandContext = {
+      documentId: maskRenderConformanceDocument.id,
+      snapshotId: "snapshot-mask",
+      activePageId: page.id,
+      activeOutputId: maskRenderConformanceDocument.outputs[0]!.id,
+      pageIds: [page.id],
+      outputIds: [maskRenderConformanceDocument.outputs[0]!.id],
+      nodeIds: page.nodeIds,
+      groupIds: [group.id],
+      selection: {
+        pageId: page.id,
+        nodeIds: group.nodeIds,
+        nodeTypes: selectedNodes.map((node) => node.type),
+        groupId: group.id,
+        anyLocked: false,
+        allLocked: false,
+        allVisible: true,
+        allHidden: false,
+      },
+      activeTool: "select",
+      editor: {
+        reviewPending: false,
+        hasSelection: true,
+        selectedNodeCount: selectedNodes.length,
+        hasSelectedGroup: true,
+        hasClipboard: false,
+        hasUndo: false,
+        hasRedo: false,
+        hasZoomSelection: true,
+        canCropImage: false,
+        imageCropActive: false,
+      },
+    } satisfies ProductCommandRuntimeContext
+    const markup = renderToStaticMarkup(
+      createElement(InspectorSidebar, {
+        document: maskRenderConformanceDocument,
+        selectedNodes,
+        selectedGroupId: group.id,
+        pendingChangeSet: null,
+        lastResolvedChangeSet: null,
+        changeSetConflict: null,
+        changeSetError: null,
+        isApplyingChangeSet: false,
+        webMcpStatus: "ready",
+        webMcpError: null,
+        productCommandContext,
+        capabilityContext: { documentEditable: true },
+        onUpdateNode: vi.fn(),
+        onUpdateSelection: vi.fn(),
+        onUpdateField: vi.fn(),
+        onCreateField: vi.fn(),
+        onUpdateFieldDefinition: vi.fn(),
+        onRemoveField: vi.fn(),
+        onBindField: vi.fn(),
+        onUnbindField: vi.fn(),
+        onFocusNode: vi.fn(),
+        onDecideChangeOperation: vi.fn(),
+        onDecideAllChangeOperations: vi.fn(),
+        onApplyChangeSet: vi.fn(),
+        onDiscardChangeSet: vi.fn(),
+        onAlignSelection: vi.fn(),
+        onAlignSelectionToPage: vi.fn(),
+        onDistributeSelection: vi.fn(),
+        onSetSelectionLocked: vi.fn(),
+        onSetSelectionVisible: vi.fn(),
+        onReorderSelection: vi.fn(),
+        onDuplicateSelection: vi.fn(),
+        onDeleteSelection: vi.fn(),
+        onUpdateImageFrameGeometry: vi.fn(),
+        onSetImagePlacement: vi.fn(),
+        onSetImageFrameMask: vi.fn(),
+        onRunImageCommand: vi.fn(),
+        isImageCommandEnabled: () => false,
+        onRetryImageSource: vi.fn(),
+        onRemoveImageLayer: vi.fn(),
+      })
+    )
+
+    expect(markup).toContain('data-mask-inspector="true"')
+    expect(markup).toContain('aria-label="Vector mask"')
+    expect(markup).toContain('data-state="on"')
+    expect(markup).toContain('aria-label="Alpha mask unavailable"')
+    expect(markup).toContain(
+      "Alpha masks are not available yet because image and text readiness is not deterministic across every renderer."
+    )
+    expect(markup).toContain('aria-label="Luminance mask unavailable"')
+    expect(markup).toContain(
+      "Luminance masks are not available yet because color-space output is not deterministic across every renderer."
+    )
+    expect(markup).toContain('aria-label="Mask source layer"')
+    expect(markup).toContain("Release mask")
   })
 })
 

@@ -52,6 +52,12 @@ import {
   resolveComponentInstanceNodes,
 } from "./components"
 import { assertValidCanonicalDocument, assertValidDocument } from "./validation"
+import {
+  initialMaskPaintAdmission,
+  isAdmittedVectorMaskSource,
+} from "./page-paint-plan"
+import { sha256 } from "@noble/hashes/sha2.js"
+import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js"
 
 type FieldValue = string | number | boolean
 
@@ -175,6 +181,57 @@ class MaskStructureMutationError extends Error {
     this.code = code
     this.groupId = groupId
     this.nodeId = nodeId
+  }
+}
+
+export type MaskCommandErrorCode =
+  | "MASK_COMMAND_REPLAY_CONFLICT"
+  | "MASK_COMMAND_PAYLOAD_LIMIT"
+  | "MASK_COMMAND_STALE_REVISION"
+  | "MASK_COMMAND_PAGE_MISSING"
+  | "MASK_COMMAND_GROUP_EXISTS"
+  | "MASK_COMMAND_GROUP_MISSING"
+  | "MASK_COMMAND_GROUP_PAGE_MISMATCH"
+  | "MASK_COMMAND_NOT_MASK_GROUP"
+  | "MASK_COMMAND_NODE_MISSING"
+  | "MASK_COMMAND_NODE_PAGE_MISMATCH"
+  | "MASK_COMMAND_DUPLICATE_NODE"
+  | "MASK_COMMAND_SOURCE_COUNT"
+  | "MASK_COMMAND_SOURCE_NOT_MEMBER"
+  | "MASK_COMMAND_NO_CONTENT"
+  | "MASK_COMMAND_UNSUPPORTED_TYPE"
+  | "MASK_COMMAND_UNSUPPORTED_SOURCE"
+  | "MASK_COMMAND_STROKED_SOURCE"
+  | "MASK_COMMAND_LOCKED"
+  | "MASK_COMMAND_NESTING_UNSUPPORTED"
+  | "MASK_COMMAND_MIXED_PARENTS"
+  | "MASK_COMMAND_COMPONENT_STRUCTURE"
+  | "MASK_COMMAND_SOURCE_BOUND"
+
+export class MaskCommandError extends Error {
+  readonly code: MaskCommandErrorCode
+  readonly commandId: string
+  readonly pageId?: string
+  readonly groupId?: string
+  readonly nodeIds: readonly string[]
+
+  constructor(
+    code: MaskCommandErrorCode,
+    message: string,
+    context: {
+      commandId: string
+      pageId?: string
+      groupId?: string
+      nodeIds?: readonly string[]
+    }
+  ) {
+    super(message)
+    this.name = "MaskCommandError"
+    this.code = code
+    this.commandId = context.commandId
+    this.pageId = context.pageId
+    this.groupId = context.groupId
+    this.nodeIds = context.nodeIds ?? []
   }
 }
 
@@ -1014,11 +1071,275 @@ function assertComponentStructureEditable(
   }
 }
 
+type MaskProductCommand = Extract<
+  DocumentCommand,
+  {
+    type:
+      | "create_mask_group"
+      | "release_mask_group"
+      | "set_mask_type"
+      | "set_mask_sources"
+  }
+>
+
+const isMaskProductCommand = (
+  command: DocumentCommand
+): command is MaskProductCommand =>
+  command.type === "create_mask_group" ||
+  command.type === "release_mask_group" ||
+  command.type === "set_mask_type" ||
+  command.type === "set_mask_sources"
+
+const maskCommandContext = (
+  command: MaskProductCommand,
+  nodeIds: readonly string[] = []
+) => ({
+  commandId: command.id,
+  pageId: command.pageId,
+  groupId: command.groupId,
+  nodeIds,
+})
+
+const maskCommandFingerprint = (command: MaskProductCommand) => {
+  const payload = JSON.stringify(command)
+  if (payload.length > 16_384) {
+    throw new MaskCommandError(
+      "MASK_COMMAND_PAYLOAD_LIMIT",
+      `Mask command ${command.id} exceeds the replay payload limit`,
+      maskCommandContext(command)
+    )
+  }
+  return bytesToHex(sha256(utf8ToBytes(payload)))
+}
+
+const replayedMaskCommand = (
+  document: Document,
+  command: MaskProductCommand,
+  fingerprint: string
+) => {
+  const receipt = document.commandReceipts?.find(
+    (candidate) => candidate.id === command.id
+  )
+  if (!receipt) return false
+  if (receipt.fingerprint === fingerprint) return true
+  throw new MaskCommandError(
+    "MASK_COMMAND_REPLAY_CONFLICT",
+    `Mask command identity ${command.id} was already used with a different payload`,
+    maskCommandContext(command)
+  )
+}
+
+const assertMaskCommandRevision = (
+  document: Document,
+  command: MaskProductCommand
+) => {
+  if (command.expectedRevision !== document.revision) {
+    throw new MaskCommandError(
+      "MASK_COMMAND_STALE_REVISION",
+      `Mask command ${command.id} expected revision ${command.expectedRevision}, received ${document.revision}`,
+      maskCommandContext(command)
+    )
+  }
+}
+
+const maskCommandPage = (document: Document, command: MaskProductCommand) => {
+  const page = document.pages.find(
+    (candidate) => candidate.id === command.pageId
+  )
+  if (!page) {
+    throw new MaskCommandError(
+      "MASK_COMMAND_PAGE_MISSING",
+      `Mask command ${command.id} references unknown page ${command.pageId}`,
+      maskCommandContext(command)
+    )
+  }
+  return page
+}
+
+const maskCommandGroup = (
+  document: Document,
+  command: Exclude<MaskProductCommand, { type: "create_mask_group" }>
+) => {
+  const group = document.groups.find(
+    (candidate) => candidate.id === command.groupId
+  )
+  if (!group) {
+    throw new MaskCommandError(
+      "MASK_COMMAND_GROUP_MISSING",
+      `Mask command ${command.id} references unknown group ${command.groupId}`,
+      maskCommandContext(command)
+    )
+  }
+  if (group.pageId !== command.pageId) {
+    throw new MaskCommandError(
+      "MASK_COMMAND_GROUP_PAGE_MISMATCH",
+      `Mask group ${group.id} does not belong to page ${command.pageId}`,
+      maskCommandContext(command, group.nodeIds)
+    )
+  }
+  if (group.role !== "mask") {
+    throw new MaskCommandError(
+      "MASK_COMMAND_NOT_MASK_GROUP",
+      `Group ${group.id} is not a mask group`,
+      maskCommandContext(command, group.nodeIds)
+    )
+  }
+  if (
+    group.parentGroupId ||
+    document.groups.some((candidate) => candidate.parentGroupId === group.id)
+  ) {
+    throw new MaskCommandError(
+      "MASK_COMMAND_NESTING_UNSUPPORTED",
+      `Gate M2 does not admit nested mask group ${group.id}`,
+      maskCommandContext(command, group.nodeIds)
+    )
+  }
+  return group
+}
+
+const assertSingleMaskSource = (
+  command: MaskProductCommand,
+  sourceNodeIds: readonly string[]
+) => {
+  if (
+    sourceNodeIds.length !== initialMaskPaintAdmission.maxSources ||
+    new Set(sourceNodeIds).size !== sourceNodeIds.length
+  ) {
+    throw new MaskCommandError(
+      "MASK_COMMAND_SOURCE_COUNT",
+      `Mask command ${command.id} requires exactly one unique source`,
+      maskCommandContext(command, sourceNodeIds)
+    )
+  }
+}
+
+const assertVectorMaskType = (
+  command: MaskProductCommand,
+  maskType: "vector" | "alpha" | "luminance"
+) => {
+  if (maskType !== "vector") {
+    throw new MaskCommandError(
+      "MASK_COMMAND_UNSUPPORTED_TYPE",
+      `Mask type ${maskType} is not admitted by Gate M2`,
+      maskCommandContext(command)
+    )
+  }
+}
+
+const assertMaskNodesUnlocked = (
+  document: Document,
+  command: MaskProductCommand,
+  nodeIds: readonly string[]
+) => {
+  const locked = nodeIds.filter(
+    (nodeId) => document.nodes.find((node) => node.id === nodeId)?.locked
+  )
+  if (locked.length) {
+    throw new MaskCommandError(
+      "MASK_COMMAND_LOCKED",
+      `Mask command ${command.id} cannot change locked layers`,
+      maskCommandContext(command, locked)
+    )
+  }
+}
+
+const assertMaskComponentStructure = (
+  document: Document,
+  command: MaskProductCommand,
+  groupIds: readonly string[],
+  nodeIds: readonly string[]
+) => {
+  const ownership = componentStructuralOwnership(document)
+  const protectedNodeIds = nodeIds.filter(
+    (nodeId) =>
+      ownership.sourceNodeIds.has(nodeId) ||
+      ownership.instanceNodeIds.has(nodeId)
+  )
+  const protectedGroupIds = groupIds.filter(
+    (groupId) =>
+      ownership.sourceGroupIds.has(groupId) ||
+      ownership.instanceGroupIds.has(groupId)
+  )
+  if (protectedNodeIds.length || protectedGroupIds.length) {
+    throw new MaskCommandError(
+      "MASK_COMMAND_COMPONENT_STRUCTURE",
+      `Mask command ${command.id} cannot change component-owned structure`,
+      maskCommandContext(command, protectedNodeIds)
+    )
+  }
+}
+
+const assertMaskSourceAdmission = (
+  document: Document,
+  command: MaskProductCommand,
+  sourceNodeId: string
+) => {
+  const source = document.nodes.find((node) => node.id === sourceNodeId)
+  if (!source) {
+    throw new MaskCommandError(
+      "MASK_COMMAND_NODE_MISSING",
+      `Mask source ${sourceNodeId} does not exist`,
+      maskCommandContext(command, [sourceNodeId])
+    )
+  }
+  if (
+    (source.type === "rect" ||
+      source.type === "ellipse" ||
+      source.type === "icon") &&
+    source.strokeWidth !== 0
+  ) {
+    throw new MaskCommandError(
+      "MASK_COMMAND_STROKED_SOURCE",
+      `Mask source ${sourceNodeId} must not have a stroke`,
+      maskCommandContext(command, [sourceNodeId])
+    )
+  }
+  if (!isAdmittedVectorMaskSource(source)) {
+    throw new MaskCommandError(
+      "MASK_COMMAND_UNSUPPORTED_SOURCE",
+      `Mask source ${sourceNodeId} must be an unstroked rectangle, ellipse, or icon`,
+      maskCommandContext(command, [sourceNodeId])
+    )
+  }
+  if (document.bindings.some((binding) => binding.nodeId === sourceNodeId)) {
+    throw new MaskCommandError(
+      "MASK_COMMAND_SOURCE_BOUND",
+      `Mask source ${sourceNodeId} is controlled by a field binding`,
+      maskCommandContext(command, [sourceNodeId])
+    )
+  }
+}
+
+const appendMaskCommandReceipt = (
+  document: Document,
+  command: MaskProductCommand,
+  fingerprint: string
+): Document => ({
+  ...document,
+  commandReceipts: [
+    ...(document.commandReceipts ?? []),
+    { id: command.id, fingerprint },
+  ].slice(-128),
+})
+
 function applyParsedCommand(
   document: Document,
   command: DocumentCommand,
   validateResult: (document: Document) => Document
 ): Document {
+  const maskCommand = isMaskProductCommand(command) ? command : undefined
+  const maskFingerprint = maskCommand
+    ? maskCommandFingerprint(maskCommand)
+    : undefined
+  if (
+    maskCommand &&
+    maskFingerprint &&
+    replayedMaskCommand(document, maskCommand, maskFingerprint)
+  ) {
+    return document
+  }
+  if (maskCommand) assertMaskCommandRevision(document, maskCommand)
+
   let next: Document
 
   switch (command.type) {
@@ -2048,6 +2369,181 @@ function applyParsedCommand(
       next = { ...document, nodes }
       break
     }
+    case "create_mask_group": {
+      const page = maskCommandPage(document, command)
+      if (document.groups.some((group) => group.id === command.groupId)) {
+        throw new MaskCommandError(
+          "MASK_COMMAND_GROUP_EXISTS",
+          `Mask group ${command.groupId} already exists`,
+          maskCommandContext(command, command.nodeIds)
+        )
+      }
+      assertVectorMaskType(command, command.maskType)
+      assertSingleMaskSource(command, command.sourceNodeIds)
+      const uniqueNodeIds = new Set(command.nodeIds)
+      if (uniqueNodeIds.size !== command.nodeIds.length) {
+        throw new MaskCommandError(
+          "MASK_COMMAND_DUPLICATE_NODE",
+          `Mask command ${command.id} contains duplicate layers`,
+          maskCommandContext(command, command.nodeIds)
+        )
+      }
+      const sourceNodeId = command.sourceNodeIds[0]!
+      if (!uniqueNodeIds.has(sourceNodeId)) {
+        throw new MaskCommandError(
+          "MASK_COMMAND_SOURCE_NOT_MEMBER",
+          `Mask source ${sourceNodeId} is not a selected member`,
+          maskCommandContext(command, [sourceNodeId])
+        )
+      }
+      if (command.nodeIds.length - command.sourceNodeIds.length < 1) {
+        throw new MaskCommandError(
+          "MASK_COMMAND_NO_CONTENT",
+          `Mask command ${command.id} needs at least one content layer`,
+          maskCommandContext(command, command.nodeIds)
+        )
+      }
+      const missingNodeIds = command.nodeIds.filter(
+        (nodeId) => !document.nodes.some((node) => node.id === nodeId)
+      )
+      if (missingNodeIds.length) {
+        throw new MaskCommandError(
+          "MASK_COMMAND_NODE_MISSING",
+          `Mask command ${command.id} references missing layers`,
+          maskCommandContext(command, missingNodeIds)
+        )
+      }
+      const wrongPageNodeIds = command.nodeIds.filter(
+        (nodeId) => !page.nodeIds.includes(nodeId)
+      )
+      if (wrongPageNodeIds.length) {
+        throw new MaskCommandError(
+          "MASK_COMMAND_NODE_PAGE_MISMATCH",
+          `Every mask member must belong to page ${page.id}`,
+          maskCommandContext(command, wrongPageNodeIds)
+        )
+      }
+      assertMaskComponentStructure(document, command, [], command.nodeIds)
+      const directParents = command.nodeIds.map(
+        (nodeId) =>
+          document.groups.find((group) => group.nodeIds.includes(nodeId))?.id
+      )
+      if (new Set(directParents).size > 1) {
+        throw new MaskCommandError(
+          "MASK_COMMAND_MIXED_PARENTS",
+          `Mask members must share one top-level parent`,
+          maskCommandContext(command, command.nodeIds)
+        )
+      }
+      if (directParents[0]) {
+        throw new MaskCommandError(
+          "MASK_COMMAND_NESTING_UNSUPPORTED",
+          `Gate M2 does not admit a mask inside group ${directParents[0]}`,
+          maskCommandContext(command, command.nodeIds)
+        )
+      }
+      assertMaskNodesUnlocked(document, command, command.nodeIds)
+      assertMaskSourceAdmission(document, command, sourceNodeId)
+      const canonicalNodeIds = page.nodeIds.filter((nodeId) =>
+        uniqueNodeIds.has(nodeId)
+      )
+      next = {
+        ...document,
+        pages: document.pages.map((candidate) =>
+          candidate.id === page.id
+            ? {
+                ...candidate,
+                nodeIds: compactNodeBlock(candidate.nodeIds, canonicalNodeIds),
+              }
+            : candidate
+        ),
+        groups: [
+          ...document.groups,
+          {
+            id: command.groupId,
+            pageId: command.pageId,
+            name: command.name,
+            nodeIds: canonicalNodeIds,
+            role: "mask",
+            mask: {
+              type: command.maskType,
+              sourceNodeIds: [sourceNodeId],
+            },
+          },
+        ],
+      }
+      break
+    }
+    case "release_mask_group": {
+      maskCommandPage(document, command)
+      const group = maskCommandGroup(document, command)
+      assertMaskNodesUnlocked(document, command, group.nodeIds)
+      assertMaskComponentStructure(document, command, [group.id], group.nodeIds)
+      next = {
+        ...document,
+        groups: document.groups.filter(
+          (candidate) => candidate.id !== group.id
+        ),
+      }
+      break
+    }
+    case "set_mask_type": {
+      maskCommandPage(document, command)
+      const group = maskCommandGroup(document, command)
+      assertVectorMaskType(command, command.maskType)
+      if (group.mask.type === command.maskType) return document
+      assertMaskNodesUnlocked(document, command, group.nodeIds)
+      assertMaskComponentStructure(document, command, [group.id], group.nodeIds)
+      next = {
+        ...document,
+        groups: document.groups.map((candidate) =>
+          candidate.id === group.id && candidate.role === "mask"
+            ? {
+                ...candidate,
+                mask: { ...candidate.mask, type: command.maskType },
+              }
+            : candidate
+        ),
+      }
+      break
+    }
+    case "set_mask_sources": {
+      maskCommandPage(document, command)
+      const group = maskCommandGroup(document, command)
+      assertSingleMaskSource(command, command.sourceNodeIds)
+      const sourceNodeId = command.sourceNodeIds[0]!
+      if (!group.nodeIds.includes(sourceNodeId)) {
+        throw new MaskCommandError(
+          "MASK_COMMAND_SOURCE_NOT_MEMBER",
+          `Mask source ${sourceNodeId} is not a direct member of ${group.id}`,
+          maskCommandContext(command, [sourceNodeId])
+        )
+      }
+      if (
+        group.mask.sourceNodeIds.length === 1 &&
+        group.mask.sourceNodeIds[0] === sourceNodeId
+      ) {
+        return document
+      }
+      assertMaskNodesUnlocked(document, command, group.nodeIds)
+      assertMaskComponentStructure(document, command, [group.id], group.nodeIds)
+      assertMaskSourceAdmission(document, command, sourceNodeId)
+      next = {
+        ...document,
+        groups: document.groups.map((candidate) =>
+          candidate.id === group.id && candidate.role === "mask"
+            ? {
+                ...candidate,
+                mask: {
+                  ...candidate.mask,
+                  sourceNodeIds: [sourceNodeId],
+                },
+              }
+            : candidate
+        ),
+      }
+      break
+    }
     case "replace_image_source": {
       const index = document.nodes.findIndex(
         (node) => node.id === command.nodeId
@@ -2762,9 +3258,13 @@ function applyParsedCommand(
 
   const projected = applyFieldValues(next)
   const reconciled = reconcileOrdinaryComponentMutations(document, projected)
+  const receipted =
+    maskCommand && maskFingerprint
+      ? appendMaskCommandReceipt(reconciled, maskCommand, maskFingerprint)
+      : reconciled
   return validateResult(
     applyFieldValues({
-      ...reconciled,
+      ...receipted,
       revision: document.revision + 1,
       updatedAt: command.at,
     })

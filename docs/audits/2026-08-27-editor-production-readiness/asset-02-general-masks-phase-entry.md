@@ -1,7 +1,7 @@
 # ASSET-02 general masks phase entry
 
 Date: 2026-08-31
-Status: Gate M1 accepted; Gate M2 next
+Status: Gate M2 accepted; Gate M3 next
 Scope: local, non-destructive masks and clipping
 Out of scope: background-removal services and generated replacement assets
 
@@ -686,3 +686,49 @@ Verification:
 - formatting and diff checks passed
 
 User-facing typed create, set, and release mask commands intentionally remain Gate M2 work.
+
+## Gate M2 checkpoint A: vertical slice integrated, admission review held
+
+Started on 2026-08-31 after re-reading this audit, OpenPencil's mask behavior, and Loora's transaction and command boundaries.
+
+The first integrated slice now includes:
+
+- typed create, release, type, and source commands with stable failures, semantic no-ops, bounded replay receipts, and exact undo and redo
+- canonical vector-mask rendering in Fabric, React render view, deterministic HTML, thumbnails, and the public PNG and PDF renderer paths
+- shared product commands across inspector, Layers, context menus, shortcuts, command surfaces, review details, API proposals, and WebMCP inspection
+- explicit Layers semantics for mask groups, mask sources, and masked content
+- truthful rejection of unsupported source types, strokes, bindings, components, mixed parents, page mismatches, locks, and nested masks
+
+The first independent M2 review returned **HOLD** for one connected admission problem:
+
+- canonical validation admitted each composite only at 1x while supported editor and preview paths may project at 2x
+- projection had per-composite limits but no maximum active composite count or aggregate device-pixel area per page
+- inspector capability preflight did not expose those admission failures before mutation
+
+M2 is not accepted until one shared admission contract covers canonical validation, typed commands, inspector capability state, and every supported 1x and 2x renderer path. Required retained evidence includes the exact 2x boundary, aggregate many-small-mask rejection, and matching preflight disabled reasons.
+
+## Gate M2 checkpoint B: accepted
+
+Accepted on 2026-08-31 after the admission HOLD was remediated and independently re-reviewed.
+
+The final admission contract adds:
+
+- one shared supported mask ratio capped at 2x for canonical validation, inspector preflight, React projection, and Fabric's actual retina backing store and object caches
+- per-composite limits of 8192 device pixels and 16,777,216 device pixels of area
+- a per-page limit of 32 active mask composites and 67,108,864 summed device pixels of area at 2x
+- command-parity compaction before inspector preflight, so non-contiguous selected layers receive the same admission result as the atomic create command
+- exact inspector disabled reasons for content count, individual composite bounds, page composite count, and page composite area
+
+Final evidence:
+
+- independent review verdict: **COMMIT**
+- full document suite: 384/384 passed before the admission patch; focused document admission and command suites: 87/87 passed after it
+- editor full suite: 340/340 passed; final inspector admission suite: 30/30 passed
+- render-view: 18/18 passed, including host DPR 3 capped to the supported 2x projection
+- renderer: 77/77 passed, including public schema-v5 PNG and PDF endpoint coverage
+- WebMCP product proposals: 5/5 passed; design queries: 6/6 passed
+- Studio mask inspector, context-menu, and review-detail suites: 23/23 passed
+- document, editor, render-view, renderer, WebMCP, and Studio typechecks passed
+- final formatting and diff checks passed
+
+Gate M3 begins from this frozen vector-mask contract. It may add deterministic alpha sources without weakening the M2 command, admission, history, or renderer guarantees.

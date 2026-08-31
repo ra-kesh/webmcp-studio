@@ -52,10 +52,33 @@ export const editorCommandIds = [
   "object.duplicate",
   "object.group",
   "object.ungroup",
+  "mask.create",
+  "mask.release",
+  "mask.type.vector",
+  "mask.type.alpha",
+  "mask.type.luminance",
+  "mask.sources.set",
   "object.delete",
 ] as const
 
 export type EditorCommandId = (typeof editorCommandIds)[number]
+
+export type EditorMaskCommandId = Extract<EditorCommandId, `mask.${string}`>
+
+export type EditorMaskCommandCapabilities = Readonly<{
+  canCreate: boolean
+  createDisabledReason: string | null
+  canRelease: boolean
+  releaseDisabledReason: string | null
+  canSetVector: boolean
+  vectorDisabledReason: string | null
+  canSetAlpha: boolean
+  alphaDisabledReason: string | null
+  canSetLuminance: boolean
+  luminanceDisabledReason: string | null
+  canSetSources: boolean
+  sourcesDisabledReason: string | null
+}>
 
 export type EditorImageCommandCapabilities = Readonly<{
   canInsert: boolean
@@ -307,6 +330,7 @@ export type EditorCommandContext = {
   imageCropActive: boolean
   /** Canonical image command policy. Legacy image fields remain during wiring. */
   image?: EditorImageCommandCapabilities
+  mask?: EditorMaskCommandCapabilities
 }
 
 export function isEditorCommandEnabled(
@@ -339,6 +363,18 @@ export function isEditorCommandEnabled(
       return context.selectedNodeCount > 1
     case "object.ungroup":
       return context.hasSelectedGroup
+    case "mask.create":
+      return context.mask?.canCreate ?? false
+    case "mask.release":
+      return context.mask?.canRelease ?? false
+    case "mask.type.vector":
+      return context.mask?.canSetVector ?? false
+    case "mask.type.alpha":
+      return context.mask?.canSetAlpha ?? false
+    case "mask.type.luminance":
+      return context.mask?.canSetLuminance ?? false
+    case "mask.sources.set":
+      return context.mask?.canSetSources ?? false
     case "image.insert":
       return context.image?.canInsert ?? !context.imageCropActive
     case "image.replace":
@@ -398,6 +434,18 @@ export function editorCommandDisabledReason(
   if (commandId === "image.replace") {
     return context.image?.replaceDisabledReason ?? null
   }
+  if (commandId === "mask.create")
+    return context.mask?.createDisabledReason ?? null
+  if (commandId === "mask.release")
+    return context.mask?.releaseDisabledReason ?? null
+  if (commandId === "mask.type.vector")
+    return context.mask?.vectorDisabledReason ?? null
+  if (commandId === "mask.type.alpha")
+    return context.mask?.alphaDisabledReason ?? null
+  if (commandId === "mask.type.luminance")
+    return context.mask?.luminanceDisabledReason ?? null
+  if (commandId === "mask.sources.set")
+    return context.mask?.sourcesDisabledReason ?? null
   return null
 }
 
@@ -460,6 +508,7 @@ export type EditorShortcut = {
   code: string
   primary?: boolean
   shift?: boolean
+  alt?: boolean
   mode?: EditorShortcutMode
 }
 
@@ -678,6 +727,39 @@ export const editorCommandRegistry = {
     mutating: true,
     shortcuts: [{ code: "KeyG", primary: true, shift: true }],
   },
+  "mask.create": {
+    label: "Use as mask",
+    historyLabel: "Create mask",
+    mutating: true,
+    shortcuts: [{ code: "KeyM", primary: true, alt: true }],
+  },
+  "mask.release": {
+    label: "Release mask",
+    historyLabel: "Release mask",
+    mutating: true,
+    shortcuts: [{ code: "KeyM", primary: true, shift: true, alt: true }],
+  },
+  "mask.type.vector": {
+    label: "Vector mask",
+    historyLabel: "Change mask type",
+    mutating: true,
+    shortcuts: [{ code: "KeyV", alt: true }],
+  },
+  "mask.type.alpha": {
+    label: "Alpha mask",
+    historyLabel: "Change mask type",
+    mutating: true,
+  },
+  "mask.type.luminance": {
+    label: "Luminance mask",
+    historyLabel: "Change mask type",
+    mutating: true,
+  },
+  "mask.sources.set": {
+    label: "Use selected layer as mask source",
+    historyLabel: "Change mask source",
+    mutating: true,
+  },
   "object.delete": {
     label: "Delete",
     mutating: true,
@@ -736,11 +818,12 @@ export function formatEditorShortcut(
   const key =
     shortcutKeyLabels[shortcut.code] ?? shortcut.code.replace(/^Key/, "")
   if (platform === "mac") {
-    return `${shortcut.primary ? "⌘" : ""}${shortcut.shift ? "⇧" : ""}${key}`
+    return `${shortcut.primary ? "⌘" : ""}${shortcut.shift ? "⇧" : ""}${shortcut.alt ? "⌥" : ""}${key}`
   }
   return [
     shortcut.primary ? "Ctrl" : null,
     shortcut.shift ? "Shift" : null,
+    shortcut.alt ? "Alt" : null,
     key,
   ]
     .filter(Boolean)
@@ -759,13 +842,13 @@ export function resolveEditorShortcut(
   event: EditorKeyboardChord,
   context?: EditorCommandContext
 ): EditorCommandId | null {
-  if (event.altKey) return null
   const primary = event.metaKey || event.ctrlKey
   const chordMatches = editorShortcuts.filter(
     (shortcut) =>
       shortcut.code === event.code &&
       Boolean(shortcut.primary) === primary &&
-      Boolean(shortcut.shift) === event.shiftKey
+      Boolean(shortcut.shift) === event.shiftKey &&
+      Boolean(shortcut.alt) === event.altKey
   )
   const modeMatches = (shortcut: EditorShortcut) =>
     shortcut.mode === "crop-active"

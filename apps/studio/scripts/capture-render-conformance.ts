@@ -27,13 +27,13 @@ import {
 } from "@webmcp/document"
 import {
   maskRenderConformanceHiddenSourceNodes,
-  maskRenderConformanceHiddenSourcePlan,
   maskRenderConformanceDocument,
-  maskRenderConformanceNodes,
   maskRenderConformancePage,
-  maskRenderConformancePlan,
 } from "@webmcp/document/internal/mask-render-conformance"
-import type { PagePaintPlanEntry } from "@webmcp/document/internal/page-paint-plan"
+import {
+  projectPagePaintPlan,
+  type PagePaintPlanEntry,
+} from "@webmcp/document/internal/page-paint-plan"
 import sharp from "sharp"
 import { renderPagePaintPlanEntryToHtml } from "../../renderer/src/html"
 
@@ -97,16 +97,18 @@ const retainedDirectories = [
   "renderer-pdf",
   "renderer-endpoint-smoke",
 ] as const
+const hiddenSourceMaskConformanceDocument: Document = {
+  ...maskRenderConformanceDocument,
+  nodes: maskRenderConformanceHiddenSourceNodes,
+}
 const maskCaptureStates = [
   {
     name: "visible",
-    nodes: maskRenderConformanceNodes,
-    plan: maskRenderConformancePlan,
+    document: maskRenderConformanceDocument,
   },
   {
     name: "hidden-source",
-    nodes: maskRenderConformanceHiddenSourceNodes,
-    plan: maskRenderConformanceHiddenSourcePlan,
+    document: hiddenSourceMaskConformanceDocument,
   },
 ] as const
 const visibleMaskBrowserSurfaceThreshold = Object.freeze({
@@ -451,8 +453,13 @@ async function captureMaskRendererArtifacts() {
   > = []
   try {
     for (const state of maskCaptureStates) {
-      const html = renderMaskHtml(state.nodes, state.plan.entries)
       for (const deviceScaleFactor of [1, 2] as const) {
+        const plan = projectPagePaintPlan(
+          state.document,
+          maskRenderConformancePage.id,
+          { pixelRatio: deviceScaleFactor }
+        )
+        const html = renderMaskHtml(state.document.nodes, plan.entries)
         const context = await browser.newContext({
           deviceScaleFactor,
           viewport: {
@@ -551,12 +558,12 @@ async function captureMaskEndpointSmoke() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ document: captureDocument, pageId: page.id }),
     },
-    "Mask carrier endpoint PNG smoke"
+    "Canonical mask endpoint PNG"
   )
   assert.equal(pngResponse.status, 200, decodeErrorBody(png))
   assert.equal(pngResponse.headers.get("Content-Type"), "image/png")
   await writeFile(
-    join(stagingRoot, "renderer-endpoint-smoke", "ordinary-carrier.png"),
+    join(stagingRoot, "renderer-endpoint-smoke", "canonical-mask-v5.png"),
     png
   )
 
@@ -570,16 +577,16 @@ async function captureMaskEndpointSmoke() {
         outputId: pdfOutput.id,
       }),
     },
-    "Mask carrier endpoint PDF smoke"
+    "Canonical mask endpoint PDF"
   )
   assert.equal(pdfResponse.status, 200, decodeErrorBody(pdf))
   assert.equal(pdfResponse.headers.get("Content-Type"), "application/pdf")
   await writeFile(
-    join(stagingRoot, "renderer-endpoint-smoke", "ordinary-carrier.pdf"),
+    join(stagingRoot, "renderer-endpoint-smoke", "canonical-mask-v5.pdf"),
     pdf
   )
   await rasterizePdf(pdf, [page.id], "renderer-endpoint-smoke", [
-    "ordinary-carrier-raster",
+    "canonical-mask-v5-raster",
   ])
 }
 
@@ -782,13 +789,13 @@ async function buildCaptureReport() {
                 )
               )
             ),
-            ordinaryEndpointSmoke: {
+            productionEndpointSmoke: {
               exercised: true,
-              png: "renderer-endpoint-smoke/ordinary-carrier.png",
-              pdf: "renderer-endpoint-smoke/ordinary-carrier.pdf",
-              pdfRaster: "renderer-endpoint-smoke/ordinary-carrier-raster.png",
+              png: "renderer-endpoint-smoke/canonical-mask-v5.png",
+              pdf: "renderer-endpoint-smoke/canonical-mask-v5.pdf",
+              pdfRaster: "renderer-endpoint-smoke/canonical-mask-v5-raster.png",
               scope:
-                "Schema-v4 carrier only; this validates ordinary Worker endpoints and is not evidence that the Worker renders the direct mask HTML.",
+                "Canonical schema-v5 mask document rendered through the public Studio PNG and PDF endpoints.",
             },
           },
         }
@@ -835,16 +842,16 @@ function retainedArtifactSpecs(): RetainedArtifactSpec[] {
       ]),
       {
         directory: "renderer-endpoint-smoke",
-        name: "ordinary-carrier.png",
+        name: "canonical-mask-v5.png",
         pageId,
       },
       {
         directory: "renderer-endpoint-smoke",
-        name: "ordinary-carrier.pdf",
+        name: "canonical-mask-v5.pdf",
       },
       {
         directory: "renderer-endpoint-smoke",
-        name: "ordinary-carrier-raster.png",
+        name: "canonical-mask-v5-raster.png",
         pageId,
       },
     ]

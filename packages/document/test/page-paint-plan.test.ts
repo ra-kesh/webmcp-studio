@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   initialMaskPaintAdmission,
   projectPagePaintPlan,
+  supportedMaskPaintPixelRatio,
   type MaskPaintRelation,
 } from "../src/page-paint-plan"
 import { decodeDocument, northstarSeed } from "../src"
@@ -356,7 +357,7 @@ describe("shared page paint plan mask oracle", () => {
     ).toThrowError(expect.objectContaining({ code: "MASK_GROUP_DUPLICATE_ID" }))
   })
 
-  it("rejects mask modes and source shapes outside the Gate M0 contract", () => {
+  it("admits rotated rectangle, ellipse, and icon sources and rejects non-vector or stroked sources", () => {
     expect(() =>
       projectPagePaintPlan(page, nodes, [
         { ...relation, maskType: "alpha" as "vector" },
@@ -370,11 +371,41 @@ describe("shared page paint plan mask oracle", () => {
         ? ({
             ...node,
             type: "ellipse",
+            rotation: 37,
           } as SceneNode)
         : node
     )
     expect(() =>
       projectPagePaintPlan(page, ellipseSourceNodes, [relation])
+    ).not.toThrow()
+
+    const iconSourceNodes = nodes.map((node) =>
+      node.id === "source"
+        ? ({
+            ...node,
+            type: "icon",
+            path: "M0 0h24v24H0z",
+            viewBox: "0 0 24 24",
+            rotation: -22,
+          } as SceneNode)
+        : node
+    )
+    expect(() =>
+      projectPagePaintPlan(page, iconSourceNodes, [relation])
+    ).not.toThrow()
+
+    const lineSourceNodes = nodes.map((node) =>
+      node.id === "source"
+        ? ({
+            ...node,
+            type: "line",
+            stroke: "#000000",
+            strokeWidth: 2,
+          } as SceneNode)
+        : node
+    )
+    expect(() =>
+      projectPagePaintPlan(page, lineSourceNodes, [relation])
     ).toThrowError(
       expect.objectContaining({ code: "MASK_GROUP_UNSUPPORTED_SOURCE" })
     )
@@ -441,6 +472,68 @@ describe("shared page paint plan mask oracle", () => {
       projectPagePaintPlan(page, fractionalNodes, [relation])
     ).toThrowError(
       expect.objectContaining({ code: "MASK_GROUP_COMPOSITE_LIMIT" })
+    )
+  })
+
+  it("freezes the Gate M2 projector at a maximum 2x pixel ratio", () => {
+    expect(supportedMaskPaintPixelRatio(3)).toBe(2)
+    expect(supportedMaskPaintPixelRatio(1.5)).toBe(1.5)
+    expect(supportedMaskPaintPixelRatio(Number.NaN)).toBe(1)
+    expect(() =>
+      projectPagePaintPlan(page, nodes, [relation], { pixelRatio: 2 })
+    ).not.toThrow()
+    expect(() =>
+      projectPagePaintPlan(page, nodes, [relation], { pixelRatio: 2.01 })
+    ).toThrowError(
+      expect.objectContaining({ code: "MASK_GROUP_PIXEL_RATIO_LIMIT" })
+    )
+  })
+
+  it("rejects many small active composites at the shared per-page count cap", () => {
+    const count = initialMaskPaintAdmission.maxActiveCompositesPerPage + 1
+    const manyNodes = Array.from({ length: count * 2 }, (_, index) =>
+      rect(`small-${index}`, { x: index * 2, width: 1, height: 1 })
+    )
+    const manyPage = {
+      ...page,
+      nodeIds: manyNodes.map((node) => node.id),
+    }
+    const relations = Array.from({ length: count }, (_, index) => ({
+      groupId: `small-mask-${index}`,
+      pageId: page.id,
+      maskType: "vector" as const,
+      nodeIds: [`small-${index * 2}`, `small-${index * 2 + 1}`],
+      sourceNodeIds: [`small-${index * 2}`],
+    }))
+    expect(() =>
+      projectPagePaintPlan(manyPage, manyNodes, relations, { pixelRatio: 2 })
+    ).toThrowError(
+      expect.objectContaining({ code: "MASK_PAGE_COMPOSITE_COUNT_LIMIT" })
+    )
+  })
+
+  it("rejects summed 2x page area before any renderer allocates", () => {
+    const count = 5
+    const areaNodes = Array.from({ length: count * 2 }, (_, index) =>
+      rect(`area-${index}`, {
+        x: 0,
+        y: 0,
+        width: 2_000,
+        height: 2_000,
+      })
+    )
+    const areaPage = { ...page, nodeIds: areaNodes.map((node) => node.id) }
+    const relations = Array.from({ length: count }, (_, index) => ({
+      groupId: `area-mask-${index}`,
+      pageId: page.id,
+      maskType: "vector" as const,
+      nodeIds: [`area-${index * 2}`, `area-${index * 2 + 1}`],
+      sourceNodeIds: [`area-${index * 2}`],
+    }))
+    expect(() =>
+      projectPagePaintPlan(areaPage, areaNodes, relations, { pixelRatio: 2 })
+    ).toThrowError(
+      expect.objectContaining({ code: "MASK_PAGE_COMPOSITE_AREA_LIMIT" })
     )
   })
 })

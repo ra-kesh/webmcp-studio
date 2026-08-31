@@ -136,8 +136,8 @@ const imageCommandContext = (
 describe("editor command registry", () => {
   it("has no duplicate keyboard chords", () => {
     const chords = editorShortcuts.map(
-      ({ code, primary, shift, mode }) =>
-        `${mode ?? "always"}:${primary ? "primary" : "plain"}:${shift ? "shift" : "plain"}:${code}`
+      ({ code, primary, shift, alt, mode }) =>
+        `${mode ?? "always"}:${primary ? "primary" : "plain"}:${shift ? "shift" : "plain"}:${alt ? "alt" : "plain"}:${code}`
     )
     expect(new Set(chords).size).toBe(chords.length)
   })

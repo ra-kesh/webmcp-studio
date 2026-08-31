@@ -9361,6 +9361,90 @@ export function useDocumentEditor({
     ])
   }, [activePageId, commit, selection])
 
+  const createMaskGroup = useCallback(
+    (sourceNodeIds: readonly [string]) => {
+      const document = historyRef.current.document
+      const nodeIds =
+        selection?.pageId === activePageId ? selection.nodeIds : []
+      if (nodeIds.length < 2) return false
+      const groupId = `mask-${crypto.randomUUID()}`
+      const committed = commit(
+        [
+          {
+            type: "create_mask_group",
+            expectedRevision: document.revision,
+            pageId: activePageId,
+            groupId,
+            name: "Mask",
+            nodeIds,
+            sourceNodeIds: [...sourceNodeIds] as [string],
+            maskType: "vector",
+          },
+        ],
+        { label: "Create mask" }
+      )
+      if (committed) setEditorSelection({ pageId: activePageId, nodeIds })
+      return committed
+    },
+    [activePageId, commit, selection, setEditorSelection]
+  )
+
+  const releaseMaskGroup = useCallback(
+    (groupId: string) => {
+      const document = historyRef.current.document
+      return commit(
+        [
+          {
+            type: "release_mask_group",
+            expectedRevision: document.revision,
+            pageId: activePageId,
+            groupId,
+          },
+        ],
+        { label: "Release mask" }
+      )
+    },
+    [activePageId, commit]
+  )
+
+  const setMaskType = useCallback(
+    (groupId: string, maskType: "vector" | "alpha" | "luminance") => {
+      const document = historyRef.current.document
+      return commit(
+        [
+          {
+            type: "set_mask_type",
+            expectedRevision: document.revision,
+            pageId: activePageId,
+            groupId,
+            maskType,
+          },
+        ],
+        { label: "Change mask type" }
+      )
+    },
+    [activePageId, commit]
+  )
+
+  const setMaskSources = useCallback(
+    (groupId: string, sourceNodeIds: readonly [string]) => {
+      const document = historyRef.current.document
+      return commit(
+        [
+          {
+            type: "set_mask_sources",
+            expectedRevision: document.revision,
+            pageId: activePageId,
+            groupId,
+            sourceNodeIds: [...sourceNodeIds] as [string],
+          },
+        ],
+        { label: "Change mask source" }
+      )
+    },
+    [activePageId, commit]
+  )
+
   const selectedGroupId = findSelectedGroupId(
     history.document,
     selection?.nodeIds ?? []
@@ -10936,6 +11020,10 @@ export function useDocumentEditor({
     reorderSelection,
     reorderNode,
     groupSelection,
+    createMaskGroup,
+    releaseMaskGroup,
+    setMaskType,
+    setMaskSources,
     createComponentFromSelection,
     createComponentInstance,
     switchComponentVariant,

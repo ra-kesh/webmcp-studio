@@ -8,6 +8,7 @@ import {
   northstarQuotationPayload,
   renderConformanceDocument,
 } from "@webmcp/document"
+import { maskRenderConformanceDocument } from "@webmcp/document/internal/mask-render-conformance"
 import { describe, expect, it } from "vitest"
 import {
   breakDocumentHistoryCoalescing,
@@ -33,6 +34,114 @@ const updateTitleX = (id: string, x: number) => ({
 })
 
 describe("document history", () => {
+  it("creates and releases a mask as exact single history steps", () => {
+    const before = {
+      ...structuredClone(maskRenderConformanceDocument),
+      revision: 10,
+      groups: [],
+    }
+    const initial = createDocumentHistory(before, "mask-before")
+    const createCommand = {
+      id: "history-create-mask",
+      type: "create_mask_group" as const,
+      actor: "human" as const,
+      at: "2026-08-31T15:00:00.000Z",
+      expectedRevision: before.revision,
+      pageId: "mask-conformance-page",
+      groupId: "history-mask",
+      name: "History mask",
+      nodeIds: ["mask-conformance-source", "mask-conformance-content"],
+      sourceNodeIds: ["mask-conformance-source"] as [string],
+      maskType: "vector" as const,
+    }
+    const created = commitCommandsWithResult(initial, [createCommand])!
+    expect(created.history.past).toHaveLength(1)
+    expect(created.commit.label).toBe("Create mask")
+    expect(undoDocument(created.history).document).toEqual(before)
+    expect(redoDocument(undoDocument(created.history)).document).toEqual(
+      created.history.document
+    )
+
+    const released = commitCommandsWithResult(created.history, [
+      {
+        id: "history-release-mask",
+        type: "release_mask_group",
+        actor: "human",
+        at: "2026-08-31T15:01:00.000Z",
+        expectedRevision: created.history.document.revision,
+        pageId: "mask-conformance-page",
+        groupId: "history-mask",
+      },
+    ])!
+    expect(released.history.past).toHaveLength(2)
+    expect(released.commit.label).toBe("Release mask")
+    expect(undoDocument(released.history).document).toEqual(
+      created.history.document
+    )
+    expect(redoDocument(undoDocument(released.history)).document).toEqual(
+      released.history.document
+    )
+  })
+
+  it("does not emit history, snapshots, operation versions, commits, or receipts for mask no-ops", () => {
+    const before = {
+      ...structuredClone(maskRenderConformanceDocument),
+      revision: 10,
+      groups: [],
+    }
+    const initial = createDocumentHistory(before, "mask-before")
+    const createCommand = {
+      id: "history-idempotent-mask",
+      type: "create_mask_group" as const,
+      actor: "human" as const,
+      at: "2026-08-31T15:10:00.000Z",
+      expectedRevision: before.revision,
+      pageId: "mask-conformance-page",
+      groupId: "history-idempotent-group",
+      name: "History idempotent mask",
+      nodeIds: ["mask-conformance-source", "mask-conformance-content"],
+      sourceNodeIds: ["mask-conformance-source"] as [string],
+      maskType: "vector" as const,
+    }
+    const created = commitCommandsWithResult(initial, [createCommand])!
+    const replay = commitCommandsWithResult(created.history, [createCommand])
+    expect(replay).toBeNull()
+    expect(commitCommands(created.history, [createCommand])).toBe(
+      created.history
+    )
+
+    const semanticNoOp = commitCommandsWithResult(created.history, [
+      {
+        id: "history-mask-type-no-op",
+        type: "set_mask_type",
+        actor: "human",
+        at: "2026-08-31T15:11:00.000Z",
+        expectedRevision: created.history.document.revision,
+        pageId: "mask-conformance-page",
+        groupId: "history-idempotent-group",
+        maskType: "vector",
+      },
+    ])
+    expect(semanticNoOp).toBeNull()
+    const sourceNoOp = commitCommandsWithResult(created.history, [
+      {
+        id: "history-mask-source-no-op",
+        type: "set_mask_sources",
+        actor: "human",
+        at: "2026-08-31T15:12:00.000Z",
+        expectedRevision: created.history.document.revision,
+        pageId: "mask-conformance-page",
+        groupId: "history-idempotent-group",
+        sourceNodeIds: ["mask-conformance-source"],
+      },
+    ])
+    expect(sourceNoOp).toBeNull()
+    expect(created.history).toMatchObject({
+      snapshotId: "snapshot-history-idempotent-mask",
+      operationVersion: 1,
+    })
+    expect(created.history.document.commandReceipts).toHaveLength(1)
+  })
   it("admits canonical documents through full schema validation once", () => {
     const invalid = structuredClone(northstarSeed)
     invalid.nodes[0]!.x = Number.NaN

@@ -15,6 +15,10 @@ import type {
   PagePaintPlanEntry,
   PagePaintBounds,
 } from "@webmcp/document/internal/page-paint-plan"
+import {
+  isAdmittedVectorMaskSource,
+  projectPagePaintPlan,
+} from "@webmcp/document/internal/page-paint-plan"
 import { GEIST_LATIN_WOFF2_BASE64 } from "./geist-font"
 
 const MANAGED_FONT_FAMILY = "Geist Variable"
@@ -302,26 +306,39 @@ const renderVectorMaskSource = (
   node: SceneNode,
   bounds: PagePaintBounds
 ): string => {
-  if (node.type !== "rect") {
-    throw new Error(`Mask source ${node.id} must be a rectangle`)
+  if (!isAdmittedVectorMaskSource(node)) {
+    throw new Error(
+      `Mask source ${node.id} must be a rectangle, ellipse, or icon`
+    )
   }
   const projection = projectNodeForRender(node)
-  if (projection.type !== "rect") {
-    throw new Error(`Mask source ${node.id} did not project as a rectangle`)
-  }
   const { frame } = projection
   const x = frame.x - bounds.x
   const y = frame.y - bounds.y
-  const stroke = projection.content.stroke
-    ? ` stroke="white" stroke-width="${projection.content.strokeWidth}" stroke-opacity="${frame.opacity}"`
-    : ""
-  return `<rect data-mask-source-id="${escapeHtml(frame.id)}" x="${x}" y="${y}" width="${frame.width}" height="${frame.height}" rx="${projection.content.radius}" ry="${projection.content.radius}" fill="white" fill-opacity="${frame.opacity}"${stroke} transform="rotate(${frame.rotation} ${x} ${y})" />`
+  const transform = `rotate(${frame.rotation} ${x} ${y})`
+  if (projection.type === "rect") {
+    const stroke = projection.content.stroke
+      ? ` stroke="white" stroke-width="${projection.content.strokeWidth}" stroke-opacity="${frame.opacity}"`
+      : ""
+    return `<rect data-mask-source-id="${escapeHtml(frame.id)}" x="${x}" y="${y}" width="${frame.width}" height="${frame.height}" rx="${projection.content.radius}" ry="${projection.content.radius}" fill="white" fill-opacity="${frame.opacity}"${stroke} transform="${transform}" />`
+  }
+  if (projection.type === "ellipse") {
+    const stroke = projection.content.stroke
+      ? ` stroke="white" stroke-width="${projection.content.strokeWidth}" stroke-opacity="${frame.opacity}"`
+      : ""
+    return `<ellipse data-mask-source-id="${escapeHtml(frame.id)}" cx="${x + frame.width / 2}" cy="${y + frame.height / 2}" rx="${frame.width / 2}" ry="${frame.height / 2}" fill="white" fill-opacity="${frame.opacity}"${stroke} transform="${transform}" />`
+  }
+  if (projection.type === "icon") {
+    const stroke = projection.content.stroke
+      ? ` stroke="white" stroke-width="${projection.content.strokeWidth}"`
+      : ""
+    return `<svg data-mask-source-id="${escapeHtml(frame.id)}" x="${x}" y="${y}" width="${frame.width}" height="${frame.height}" viewBox="${escapeHtml(projection.content.viewBox)}" preserveAspectRatio="xMidYMid meet" overflow="visible" opacity="${frame.opacity}" transform="${transform}"><path d="${escapeHtml(projection.content.path)}" fill="white"${stroke} /></svg>`
+  }
+  throw new Error(`Mask source ${node.id} did not project as vector geometry`)
 }
 
 /**
- * Serializes one shared page-paint-plan entry for the Gate M0 vector-mask
- * feasibility fixture. It is deliberately not part of the normal document
- * traversal until mask relations become canonical schema data.
+ * Serializes one canonical page-paint-plan entry for every HTML render path.
  */
 export function renderPagePaintPlanEntryToHtml(
   entry: PagePaintPlanEntry,
@@ -383,10 +400,8 @@ function pageNodesMarkup(document: Document, pageId: string): string {
   const page = document.pages.find((candidate) => candidate.id === pageId)
   if (!page) throw new Error(`Unknown page: ${pageId}`)
   const nodesById = new Map(document.nodes.map((node) => [node.id, node]))
-  return page.nodeIds
-    .map((nodeId) => nodesById.get(nodeId))
-    .filter((node): node is SceneNode => node !== undefined)
-    .map(renderNodeToHtml)
+  return projectPagePaintPlan(document, page.id)
+    .entries.map((entry) => renderPagePaintPlanEntryToHtml(entry, nodesById))
     .join("")
 }
 

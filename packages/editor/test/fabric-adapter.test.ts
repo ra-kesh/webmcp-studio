@@ -1,5 +1,6 @@
 import {
   ActiveSelection,
+  config,
   Ellipse,
   FabricImage,
   FabricObject,
@@ -28,6 +29,7 @@ import {
   type SceneNode,
 } from "@webmcp/document"
 import {
+  maskRenderConformanceDocument,
   maskRenderConformanceHiddenSourceNodes,
   maskRenderConformanceHiddenSourcePlan,
   maskRenderConformanceNodes,
@@ -35,6 +37,7 @@ import {
 } from "@webmcp/document/internal/mask-render-conformance"
 import {
   createFabricSyncObject,
+  configureFabricSupportedPixelRatio,
   createFabricObjectForSync,
   createFabricImageGroup,
   createFabricVectorMaskPaint,
@@ -103,6 +106,115 @@ function createRetainedMaskContentObject(node: SceneNode) {
 }
 
 describe("Fabric vector mask paint consumer", () => {
+  it("caps Fabric's real retina backing-store ratio at 2x", () => {
+    const previous = config.devicePixelRatio
+    config.configure({ devicePixelRatio: 3 })
+    expect(configureFabricSupportedPixelRatio()).toBe(2)
+    expect(config.devicePixelRatio).toBe(2)
+    config.configure({ devicePixelRatio: previous })
+  })
+
+  it("cuts ordinary adapter sync over to the canonical paint plan while preserving node selection", async () => {
+    const objects: FabricObject[] = []
+    let selected: FabricObject[] = []
+    const fakeCanvas = {
+      backgroundColor: "",
+      add: vi.fn((...added: FabricObject[]) => objects.push(...added)),
+      clear: vi.fn(() => objects.splice(0)),
+      discardActiveObject: vi.fn(() => {
+        selected = []
+      }),
+      getActiveObjects: vi.fn(() => selected),
+      getObjects: vi.fn(() => objects),
+      remove: vi.fn((...removed: FabricObject[]) => {
+        for (const object of removed) {
+          const index = objects.indexOf(object)
+          if (index >= 0) objects.splice(index, 1)
+        }
+      }),
+      requestRenderAll: vi.fn(),
+      setActiveObject: vi.fn((object: FabricObject) => {
+        selected = [object]
+      }),
+      setDimensions: vi.fn(),
+    }
+    const adapter = new FabricCanvasAdapter({
+      onNodesChange: vi.fn(),
+      onSelectionChange: vi.fn(),
+    })
+    Reflect.set(adapter, "canvas", fakeCanvas)
+
+    await adapter.sync(maskRenderConformanceDocument, "mask-conformance-page")
+
+    const objectByNodeId = Reflect.get(adapter, "objectByNodeId") as Map<
+      string,
+      FabricObject
+    >
+    const content = objectByNodeId.get("mask-conformance-content")!
+    const source = objectByNodeId.get("mask-conformance-source")!
+    const composite = objects.find(
+      (object): object is Group =>
+        object instanceof Group && object.getObjects().includes(content)
+    )
+    expect(composite).toMatchObject({
+      objectCaching: true,
+      interactive: true,
+      subTargetCheck: true,
+    })
+    expect(content.group).toBe(composite)
+    expect(source.group).toBeUndefined()
+    expect(source).toMatchObject({ opacity: 0, evented: false })
+
+    selected = [content]
+    expect(adapter.getSelection()).toEqual({
+      pageId: "mask-conformance-page",
+      nodeIds: ["mask-conformance-content"],
+    })
+    adapter.select({
+      pageId: "mask-conformance-page",
+      nodeIds: ["mask-conformance-source"],
+    })
+    expect(fakeCanvas.setActiveObject).toHaveBeenLastCalledWith(source)
+    expect(adapter.getSelection()).toEqual({
+      pageId: "mask-conformance-page",
+      nodeIds: ["mask-conformance-source"],
+    })
+
+    const maskPaintBefore = (
+      Reflect.get(adapter, "maskPaintObjectBySourceNodeId") as Map<
+        string,
+        FabricObject
+      >
+    ).get("mask-conformance-source")!
+    fakeCanvas.add.mockClear()
+    fakeCanvas.remove.mockClear()
+    const updated = {
+      ...maskRenderConformanceDocument,
+      nodes: maskRenderConformanceDocument.nodes.map((node) =>
+        node.id === "mask-conformance-content" && node.type === "rect"
+          ? { ...node, fill: "#7c3aed" }
+          : node.id === "mask-conformance-source"
+            ? { ...node, opacity: 0.63 }
+            : node
+      ),
+    }
+    await adapter.sync(updated, "mask-conformance-page")
+
+    expect(fakeCanvas.add).not.toHaveBeenCalled()
+    expect(fakeCanvas.remove).not.toHaveBeenCalled()
+    expect(objectByNodeId.get("mask-conformance-content")).toBe(content)
+    expect((content as Rect).fill).toBe("#7c3aed")
+    expect(
+      (
+        Reflect.get(adapter, "maskPaintObjectBySourceNodeId") as Map<
+          string,
+          FabricObject
+        >
+      ).get("mask-conformance-source")
+    ).toBe(maskPaintBefore)
+    expect(maskPaintBefore.opacity).toBe(0.63)
+  })
+
   it("uses an absolute top-left rotated source clip on a bounded composite", () => {
     const entry = maskGroupEntry(maskRenderConformancePlan)
     const nodesById = new Map(
@@ -196,6 +308,46 @@ describe("Fabric vector mask paint consumer", () => {
     )!
     expect(alpha).toBeCloseTo(255 * source.opacity * content.opacity, -1)
     canvas.dispose()
+  })
+
+  it("uses admitted ellipse and icon geometry as adapter-owned mask paint", () => {
+    const entry = maskGroupEntry(maskRenderConformancePlan)
+    const baseSource = maskRenderConformanceNodes.find(
+      (node) => node.id === "mask-conformance-source"
+    )!
+    if (baseSource.type !== "rect") throw new Error("Expected rectangle source")
+    const { radius: _radius, ...sourceFrame } = baseSource
+    const ellipse = { ...sourceFrame, type: "ellipse" as const }
+    const icon = {
+      ...sourceFrame,
+      type: "icon" as const,
+      path: "M2 2h20v20H2z",
+      viewBox: "0 0 24 24",
+    }
+    const content = maskRenderConformanceNodes.find(
+      (node) => node.id === "mask-conformance-content"
+    )!
+
+    for (const source of [ellipse, icon]) {
+      const result = createFabricVectorMaskPaint(
+        entry,
+        new Map([
+          [source.id, source],
+          [content.id, content],
+        ]),
+        createRetainedMaskContentObject
+      )
+      expect(result.kind).toBe("composite")
+      if (result.kind !== "composite") continue
+      expect(result.maskObject).toBeInstanceOf(
+        source.type === "ellipse" ? Ellipse : Group
+      )
+      expect(result.maskObject).toMatchObject({
+        angle: source.rotation,
+        opacity: source.opacity,
+        globalCompositeOperation: "destination-in",
+      })
+    }
   })
 
   it("falls through without a composite when the only source is hidden", () => {

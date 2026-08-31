@@ -278,6 +278,17 @@ const flattenLayerTree = (
       visible: item.visible,
       locked: item.locked,
       childCount: item.children.length,
+      ...(item.mask
+        ? {
+            mask: {
+              role: item.mask.role,
+              groupId: item.mask.groupId,
+              groupName: item.mask.groupName,
+              type: item.mask.type,
+              sourceNodeIds: item.mask.sourceNodeIds,
+            },
+          }
+        : {}),
       ...(item.visibilityMixed ? { visibilityMixed: true } : {}),
       ...(item.lockMixed ? { lockMixed: true } : {}),
     }
@@ -376,6 +387,31 @@ export function readDesignNode(
     (candidate) => candidate.id === page.outputId
   )
   const group = directGroupForNode(document, node.id)
+  const mask =
+    group?.role === "mask"
+      ? {
+          groupId: group.id,
+          groupName: group.name,
+          type: group.mask.type,
+          role: group.mask.sourceNodeIds.includes(node.id)
+            ? ("source" as const)
+            : ("content" as const),
+          sourceNodeIds: [...group.mask.sourceNodeIds],
+          contentNodeIds: group.nodeIds.filter(
+            (candidateId) => !group.mask.sourceNodeIds.includes(candidateId)
+          ),
+          visibleSourceNodeIds: group.mask.sourceNodeIds.filter(
+            (sourceNodeId) =>
+              document.nodes.find((candidate) => candidate.id === sourceNodeId)
+                ?.visible
+          ),
+          locked: group.nodeIds.some(
+            (groupNodeId) =>
+              document.nodes.find((candidate) => candidate.id === groupNodeId)
+                ?.locked
+          ),
+        }
+      : null
   const bindings = document.bindings
     .filter((binding) => binding.nodeId === node.id)
     .map((binding) => {
@@ -402,6 +438,7 @@ export function readDesignNode(
       ? { id: output.id, name: output.name, kind: output.kind }
       : null,
     groupAncestry: groupAncestry(document, group?.id ?? null),
+    mask,
     node: publicDesignNode(node),
     bindings,
   }

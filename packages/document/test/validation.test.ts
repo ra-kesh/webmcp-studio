@@ -14,7 +14,66 @@ const clone = () => structuredClone(northstarSeed)
 const errorsFor = (document: Document) =>
   validateDocument(document).filter((issue) => issue.severity === "error")
 
+const addMaskAdmissionFixtures = (
+  document: Document,
+  count: number,
+  size: number
+) => {
+  const page = document.pages.find((candidate) => candidate.id === "cover")!
+  const template = document.nodes.find((node) => node.id === "cover-panel")!
+  document.groups = []
+  for (let index = 0; index < count; index += 1) {
+    const sourceId = `admission-source-${index}`
+    const contentId = `admission-content-${index}`
+    document.nodes.push(
+      { ...structuredClone(template), id: sourceId, x: 0, y: 0, width: size, height: size },
+      { ...structuredClone(template), id: contentId, x: 0, y: 0, width: size, height: size }
+    )
+    page.nodeIds.push(sourceId, contentId)
+    document.groups.push({
+      id: `admission-mask-${index}`,
+      pageId: page.id,
+      name: `Admission mask ${index}`,
+      role: "mask",
+      nodeIds: [sourceId, contentId],
+      mask: { type: "vector", sourceNodeIds: [sourceId] },
+    })
+  }
+}
+
 describe("strict document validation", () => {
+  it("reports a canonical page above the active mask composite count", () => {
+    const document = clone()
+    addMaskAdmissionFixtures(
+      document,
+      initialMaskPaintAdmission.maxActiveCompositesPerPage + 1,
+      1
+    )
+    expect(errorsFor(document)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "page:cover:mask-composite-admission",
+          code: "render_limit_exceeded",
+          message: expect.stringContaining("active mask composite count"),
+        }),
+      ])
+    )
+  })
+
+  it("reports a canonical page above the summed 2x mask area", () => {
+    const document = clone()
+    addMaskAdmissionFixtures(document, 5, 2_000)
+    expect(errorsFor(document)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "page:cover:mask-composite-admission",
+          code: "render_limit_exceeded",
+          message: expect.stringContaining("summed 2x mask composite area"),
+        }),
+      ])
+    )
+  })
+
   it("reparses public validation inputs and rejects semantic invalidity", () => {
     const document = clone()
     expect(assertValidDocument(document)).not.toBe(document)
@@ -410,5 +469,65 @@ describe("strict document validation", () => {
         }),
       ])
     )
+
+    const twoXOnly = clone()
+    const twoXContent = twoXOnly.nodes.find(
+      (node) => node.id === "cover-eyebrow"
+    )!
+    twoXContent.x = 0
+    twoXContent.y = 0
+    twoXContent.width = 3_000
+    twoXContent.height = 2_000
+    twoXOnly.groups.push({
+      id: "two-x-mask",
+      role: "mask",
+      pageId: "cover",
+      name: "Two x mask",
+      nodeIds: ["cover-panel", "cover-eyebrow"],
+      mask: { type: "vector", sourceNodeIds: ["cover-panel"] },
+    })
+    expect(errorsFor(twoXOnly)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "group:two-x-mask:mask:composite-limit",
+          code: "invalid_group",
+        }),
+      ])
+    )
   })
+
+  it.each(["ellipse", "icon"] as const)(
+    "admits an unstroked rotated %s as the direct vector source",
+    (type) => {
+      const document = clone()
+      const source = document.nodes.find((node) => node.id === "cover-panel")!
+      Object.assign(
+        source,
+        type === "ellipse"
+          ? { type, rotation: 31 }
+          : {
+              type,
+              rotation: -19,
+              path: "M0 0h24v24H0z",
+              viewBox: "0 0 24 24",
+            }
+      )
+      document.groups.push({
+        id: `${type}-mask`,
+        role: "mask",
+        pageId: "cover",
+        name: `${type} mask`,
+        nodeIds: ["cover-panel", "cover-eyebrow"],
+        mask: { type: "vector", sourceNodeIds: ["cover-panel"] },
+      })
+
+      expect(errorsFor(document)).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: `group:${type}-mask:mask:source-admission:cover-panel`,
+          }),
+        ])
+      )
+    }
+  )
 })

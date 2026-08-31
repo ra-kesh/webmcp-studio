@@ -59,6 +59,7 @@ export function componentDocumentFixture(): Document {
       pageId: "cover",
       name: component.name,
       nodeIds: ["cover-panel"],
+      role: "organize",
     },
     {
       id: "group-component-hero-details",
@@ -66,12 +67,14 @@ export function componentDocumentFixture(): Document {
       name: "Hero details",
       nodeIds: ["cover-eyebrow"],
       parentGroupId: component.sourceGroupId,
+      role: "organize",
     },
     {
       id: instance.rootGroupId,
       pageId: "story",
       name: instance.name,
       nodeIds: ["instance-cover-panel"],
+      role: "organize",
     },
     {
       id: "group-instance-hero-details",
@@ -79,6 +82,7 @@ export function componentDocumentFixture(): Document {
       name: "Hero details",
       nodeIds: ["instance-cover-eyebrow"],
       parentGroupId: instance.rootGroupId,
+      role: "organize",
     }
   )
   document.components = [component]

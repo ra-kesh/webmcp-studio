@@ -15,9 +15,12 @@ import { assertVariableBindingCompatible } from "./variables"
 import { componentIntegrityIssues } from "./components"
 import {
   assertCompositeAdmission,
+  isAdmittedVectorMaskSource,
   initialMaskPaintAdmission,
   PagePaintPlanError,
   projectMaskCompositeGeometry,
+  projectPagePaintPlan,
+  supportedMaskPaintPixelRatio,
 } from "./page-paint-plan"
 
 export type ValidationIssue = {
@@ -590,11 +593,11 @@ export function validateDocument(document: Document): ValidationIssue[] {
         const source = nodes.get(sourceNodeId)
         if (
           group.mask.type === "vector" &&
-          (source?.type !== "rect" || source.strokeWidth !== 0)
+          !isAdmittedVectorMaskSource(source)
         ) {
           maskIssue(
             `source-admission:${sourceNodeId}`,
-            `${group.name} mask source is outside the unstroked rectangle admission`,
+            `${group.name} mask source is outside the unstroked vector admission`,
             sourceNodeId
           )
         }
@@ -636,7 +639,13 @@ export function validateDocument(document: Document): ValidationIssue[] {
         )
         if (geometry.visibleContentNodeIds.length > 0) {
           try {
-            assertCompositeAdmission(group.id, geometry.bounds, 1)
+            assertCompositeAdmission(
+              group.id,
+              geometry.bounds,
+              supportedMaskPaintPixelRatio(
+                initialMaskPaintAdmission.maxPixelRatio
+              )
+            )
           } catch (error) {
             if (
               error instanceof PagePaintPlanError &&
@@ -690,6 +699,35 @@ export function validateDocument(document: Document): ValidationIssue[] {
         message: `${group.name} must occupy one contiguous layer stack`,
         pageId: group.pageId,
       })
+    }
+  }
+
+  // Canonical admission uses the highest Gate M2 renderer ratio. A document
+  // accepted here is therefore allocatable by the shared 1x and 2x paths.
+  for (const page of document.pages) {
+    try {
+      projectPagePaintPlan(document, page.id, {
+        pixelRatio: supportedMaskPaintPixelRatio(
+          initialMaskPaintAdmission.maxPixelRatio
+        ),
+      })
+    } catch (error) {
+      if (
+        error instanceof PagePaintPlanError &&
+        (error.code === "MASK_PAGE_COMPOSITE_COUNT_LIMIT" ||
+          error.code === "MASK_PAGE_COMPOSITE_AREA_LIMIT")
+      ) {
+        issues.push({
+          id: `page:${page.id}:mask-composite-admission`,
+          severity: "error",
+          code: "render_limit_exceeded",
+          message:
+            error.code === "MASK_PAGE_COMPOSITE_COUNT_LIMIT"
+              ? `Page ${page.name} exceeds the Gate M2 active mask composite count limit`
+              : `Page ${page.name} exceeds the Gate M2 summed 2x mask composite area limit`,
+          pageId: page.id,
+        })
+      }
     }
   }
 

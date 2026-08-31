@@ -11,6 +11,11 @@ import type {
   PagePaintPlanEntry,
 } from "@webmcp/document/internal/page-paint-plan"
 import {
+  isAdmittedVectorMaskSource,
+  projectPagePaintPlan,
+  supportedMaskPaintPixelRatio,
+} from "@webmcp/document/internal/page-paint-plan"
+import {
   projectImagePaint,
   projectNodeForRender,
   projectPageForRender,
@@ -85,7 +90,7 @@ export function renderMaskGroupWrapperStyle(
 }
 
 export function renderVectorMaskSourceAttributes(
-  source: Extract<SceneNode, { type: "rect" }>,
+  source: Extract<SceneNode, { type: "rect" | "ellipse" }>,
   bounds: PagePaintBounds
 ) {
   const x = source.x - bounds.x
@@ -94,7 +99,8 @@ export function renderVectorMaskSourceAttributes(
     fill: "white",
     height: source.height,
     opacity: source.opacity,
-    rx: source.radius,
+    rx: source.type === "rect" ? source.radius : source.width / 2,
+    ry: source.type === "rect" ? source.radius : source.height / 2,
     transform: `rotate(${source.rotation} ${x} ${y})`,
     width: source.width,
     x,
@@ -108,6 +114,11 @@ export function shouldCompositeMaskGroup(entry: PagePaintPlanEntry) {
   )
 }
 
+export function renderViewDevicePixelRatio() {
+  const ratio = globalThis.devicePixelRatio
+  return supportedMaskPaintPixelRatio(ratio)
+}
+
 type VectorMaskPaintEntry = Extract<
   PagePaintPlanEntry,
   { kind: "mask_group"; maskType: "vector" }
@@ -115,12 +126,12 @@ type VectorMaskPaintEntry = Extract<
 
 export type MaskGroupRenderModel = Readonly<{
   entry: VectorMaskPaintEntry
-  source: Extract<SceneNode, { type: "rect" }>
+  source: Extract<SceneNode, { type: "rect" | "ellipse" | "icon" }>
   content: readonly SceneNode[]
 }>
 
 /**
- * Resolves the small Gate M0 vector-mask contract before React creates DOM.
+ * Resolves the admitted vector-mask contract before React creates DOM.
  * The shared page paint plan determines both source suppression and content
  * order, so this renderer cannot accidentally use page order independently.
  */
@@ -132,16 +143,18 @@ export function maskGroupRenderModel(
     throw new Error("React mask rendering requires a vector mask group entry")
   }
   if (entry.sourceNodeIds.length !== 1) {
-    throw new Error("React Gate M0 mask rendering requires one source")
+    throw new Error("React vector mask rendering requires one source")
   }
   const sourceId = entry.sourceNodeIds[0]!
   const source = nodesById.get(sourceId)
-  if (!source || source.type !== "rect") {
-    throw new Error("React Gate M0 mask rendering requires a rectangle source")
+  if (!isAdmittedVectorMaskSource(source)) {
+    throw new Error(
+      "React vector mask rendering requires a rectangle, ellipse, or icon source"
+    )
   }
   const content = entry.content.map((contentEntry) => {
     if (contentEntry.kind !== "node") {
-      throw new Error("React Gate M0 mask rendering does not support nesting")
+      throw new Error("React vector mask rendering does not support nesting")
     }
     const node = nodesById.get(contentEntry.nodeId)
     if (!node) {
@@ -150,6 +163,60 @@ export function maskGroupRenderModel(
     return node
   })
   return { entry, source, content }
+}
+
+function RenderVectorMaskSource({
+  source,
+  bounds,
+}: {
+  source: Extract<SceneNode, { type: "rect" | "ellipse" | "icon" }>
+  bounds: PagePaintBounds
+}) {
+  const x = source.x - bounds.x
+  const y = source.y - bounds.y
+  const transform = `rotate(${source.rotation} ${x} ${y})`
+  if (source.type === "icon") {
+    return (
+      <svg
+        data-mask-source-id={source.id}
+        height={source.height}
+        opacity={source.opacity}
+        overflow="visible"
+        preserveAspectRatio="xMidYMid meet"
+        transform={transform}
+        viewBox={source.viewBox}
+        width={source.width}
+        x={x}
+        y={y}
+      >
+        <path
+          d={source.path}
+          fill="white"
+          stroke={source.stroke ? "white" : undefined}
+          strokeWidth={source.strokeWidth}
+        />
+      </svg>
+    )
+  }
+  const attributes = renderVectorMaskSourceAttributes(source, bounds)
+  const shared = {
+    ...attributes,
+    "data-mask-source-id": source.id,
+    stroke: source.stroke ? "white" : undefined,
+    strokeOpacity: source.stroke ? source.opacity : undefined,
+    strokeWidth: source.strokeWidth,
+  }
+  return source.type === "ellipse" ? (
+    <ellipse
+      {...shared}
+      cx={x + source.width / 2}
+      cy={y + source.height / 2}
+      rx={source.width / 2}
+      ry={source.height / 2}
+    />
+  ) : (
+    <rect {...shared} />
+  )
 }
 
 function RenderMaskGroupContent({
@@ -191,8 +258,7 @@ function RenderMaskGroupContent({
 }
 
 /**
- * Renders one Gate M0 rectangle/vector entry. It is deliberately separate
- * from Artboard until schema-backed groups choose the shared paint-plan path.
+ * Renders one schema-backed vector-mask entry from the canonical paint plan.
  */
 export function MaskGroupPaintEntry({
   entry,
@@ -245,10 +311,6 @@ export function MaskGroupPaintEntry({
     )
   }
 
-  const sourceAttributes = renderVectorMaskSourceAttributes(
-    source,
-    maskEntry.bounds
-  )
   return (
     <svg
       data-mask-group-id={maskEntry.groupId}
@@ -266,7 +328,7 @@ export function MaskGroupPaintEntry({
           x={0}
           y={0}
         >
-          <rect {...sourceAttributes} />
+          <RenderVectorMaskSource bounds={maskEntry.bounds} source={source} />
         </mask>
       </defs>
       <g mask={`url(#${maskId})`}>
@@ -293,7 +355,7 @@ export function MaskGroupPaintEntry({
   )
 }
 
-/** Opt-in Gate M0 page consumer used by the retained browser oracle. */
+/** Shared page consumer used by production Artboards and conformance views. */
 export function PagePaintPlanView({
   plan,
   nodesById,
@@ -1020,6 +1082,9 @@ export function Artboard({
   if (!page) throw new Error(`Unknown page: ${pageId}`)
   const projectedPage = projectPageForRender(page)
   const nodesById = new Map(document.nodes.map((node) => [node.id, node]))
+  const paintPlan = projectPagePaintPlan(document, projectedPage.id, {
+    pixelRatio: renderViewDevicePixelRatio(),
+  })
 
   return (
     <div
@@ -1041,8 +1106,22 @@ export function Artboard({
           transformOrigin: "top left",
         }}
       >
-        {projectedPage.nodeIds.map((nodeId) => {
-          const node = nodesById.get(nodeId)
+        {paintPlan.entries.map((entry) => {
+          if (entry.kind === "mask_group") {
+            return (
+              <MaskGroupPaintEntry
+                key={entry.groupId}
+                entry={entry}
+                nodesById={nodesById}
+                imageSemantics={imageSemantics}
+                imageResourceRevisions={imageResourceRevisions}
+                imageResourceTokens={imageResourceTokens}
+                showImageRecoveryActions={showImageRecoveryActions}
+                onImageResourceStateChange={onImageResourceStateChange}
+              />
+            )
+          }
+          const node = nodesById.get(entry.nodeId)
           return node ? (
             <RenderNode
               key={node.id}

@@ -6,6 +6,7 @@ import {
   northstarSeed,
 } from "@webmcp/document"
 import { launch } from "@cloudflare/playwright"
+import { maskRenderConformanceDocument } from "@webmcp/document/internal/mask-render-conformance"
 import { MAX_RENDER_ARTIFACT_BYTES } from "../src/artifact-body"
 
 vi.mock("@cloudflare/playwright", () => ({ launch: vi.fn() }))
@@ -103,6 +104,45 @@ describe("renderer Worker", () => {
   beforeEach(() => {
     vi.mocked(launch).mockReset()
   })
+
+  it.each([
+    ["PNG", "/render", { pageId: "mask-conformance-page" }],
+    ["PDF", "/render/pdf", {}],
+  ])(
+    "passes a canonical schema-v5 vector mask through the public %s endpoint",
+    async (_format, path, requestFields) => {
+      const { default: worker } = await import("../src/index")
+      const browserPage = successfulBrowserPage([37, 80, 68, 70])
+      vi.mocked(launch).mockResolvedValue({
+        newPage: vi.fn(async () => browserPage),
+        close: vi.fn(async () => undefined),
+      } as never)
+      const response = await worker.fetch(
+        new Request(`https://renderer.internal${path}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Render-Persistence": "ephemeral",
+          },
+          body: JSON.stringify({
+            renderId: `mask-schema-v5-${_format.toLowerCase()}`,
+            outputId: "mask-conformance-output",
+            document: maskRenderConformanceDocument,
+            expectedImageResources: [],
+            ...requestFields,
+          }),
+        }) as never,
+        { BROWSER: {}, RENDERS: {} } as unknown as Env
+      )
+
+      expect(response.status).toBe(200)
+      expect(browserPage.setContent).toHaveBeenCalledOnce()
+      const html = browserPage.setContent.mock.calls[0]?.[0]
+      expect(html).toContain('data-mask-group-id="mask-conformance-group"')
+      expect(html).toContain('data-mask-composite="true"')
+      expect(html).not.toContain('data-node-id="mask-conformance-source"')
+    }
+  )
 
   it("waits for resources, then stores and returns a sized browser PDF", async () => {
     const { default: worker } = await import("../src/index")

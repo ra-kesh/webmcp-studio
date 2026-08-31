@@ -92,11 +92,16 @@ import type {
   EditorImageFrameCommandId,
 } from "@webmcp/editor/commands"
 import type { ImageCropPreviewStore } from "@webmcp/editor/image-crop-preview-store"
-import { createInspectorSelectionModel } from "@webmcp/editor/inspector"
+import {
+  createInspectorSelectionModel,
+  deriveInspectorMaskCapabilities,
+} from "@webmcp/editor/inspector"
 import type {
   InspectorCapabilityContext,
+  InspectorMaskCapabilities,
   InspectorSharedValue,
 } from "@webmcp/editor/inspector"
+import type { ProductCommandRuntimeContext } from "@webmcp/editor/product-commands"
 import { toolCatalog } from "@webmcp/webmcp"
 import type { ReviewAffectedTarget, ReviewJournal } from "./review-journal"
 import { createEmptyReviewJournal } from "./review-journal"
@@ -186,6 +191,7 @@ import {
 } from "./text-formatting-model"
 import { ReusableStyleField } from "./reusable-style-field"
 import { DesignVariablesPanel } from "./design-variables-panel"
+import type { ProductCommandMenuRuntime } from "./product-command-menu"
 
 const DEMO_AGENT_BRIEF =
   "Inspect and validate the open design. Adapt it for Mira & Dev, 14 February 2027 in Udaipur, using The Moonlit Weekend package at ₹4,25,000, valid until 30 November 2026. Search the approved asset library for warm sandstone architecture. Then create one coordinated human-reviewed proposal that updates those shared fields and inserts the best asset on the Cover at x 620, y 120, width 540, height 900 with cover fit. Do not apply or publish anything. Summarize the affected outputs and wait for my review."
@@ -296,6 +302,188 @@ function InspectorSection({
       </div>
       <div className="flex min-w-0 flex-col gap-2.5">{children}</div>
     </section>
+  )
+}
+
+function MaskInspectorSection({
+  document,
+  capabilities,
+  commandContext,
+  commandRuntime,
+}: {
+  document: Document
+  capabilities: InspectorMaskCapabilities
+  commandContext?: ProductCommandRuntimeContext
+  commandRuntime?: ProductCommandMenuRuntime
+}) {
+  const group = capabilities.groupId
+    ? document.groups.find((candidate) => candidate.id === capabilities.groupId)
+    : undefined
+  const sourceOptions =
+    group?.role === "mask"
+      ? group.nodeIds.flatMap((nodeId) => {
+          const node = document.nodes.find(
+            (candidate) => candidate.id === nodeId
+          )
+          if (!node || !capabilities.eligibleSourceNodeIds.includes(node.id)) {
+            return []
+          }
+          return [node]
+        })
+      : []
+  const identity = commandContext
+    ? {
+        documentId: commandContext.documentId,
+        snapshotId: commandContext.snapshotId,
+        pageId: commandContext.activePageId,
+      }
+    : null
+  const runCreate = () => {
+    const sourceNodeId = capabilities.createSourceNodeIds[0]
+    const selection = commandContext?.selection
+    if (!identity || !selection || !sourceNodeId) return
+    commandRuntime?.run({
+      commandId: "mask.create",
+      target: {
+        ...identity,
+        kind: "selection",
+        displayName: `${selection.nodeIds.length} selected layers`,
+        nodeIds: selection.nodeIds,
+        groupId: selection.groupId ?? null,
+      },
+      arguments: { kind: "mask-create", sourceNodeIds: [sourceNodeId] },
+    })
+  }
+  const groupTarget =
+    identity && capabilities.groupId
+      ? {
+          ...identity,
+          kind: "group" as const,
+          displayName: group?.name ?? "Selected mask",
+          groupId: capabilities.groupId,
+        }
+      : null
+  const runGroupCommand = (
+    commandId:
+      | "mask.release"
+      | "mask.type.vector"
+      | "mask.type.alpha"
+      | "mask.type.luminance"
+  ) => {
+    if (groupTarget) commandRuntime?.run({ commandId, target: groupTarget })
+  }
+
+  if (!group && (commandContext?.selection?.nodeIds.length ?? 0) < 2)
+    return null
+  return (
+    <InspectorSection title="Mask" data-mask-inspector="true">
+      {!group ? (
+        <div className="flex flex-col gap-1.5">
+          <Button
+            variant="outline"
+            className="justify-start"
+            disabled={!capabilities.create.enabled}
+            onClick={runCreate}
+          >
+            Use as mask
+          </Button>
+          {!capabilities.create.enabled &&
+          capabilities.create.disabledReason ? (
+            <p className="text-[10px] leading-4 text-muted-foreground">
+              {capabilities.create.disabledReason}
+            </p>
+          ) : null}
+        </div>
+      ) : (
+        <>
+          <Field className="gap-1.5">
+            <FieldLabel>Type</FieldLabel>
+            <ToggleGroup
+              type="single"
+              value={capabilities.type ?? undefined}
+              aria-label="Mask type"
+              className="grid grid-cols-3"
+            >
+              <ToggleGroupItem
+                value="vector"
+                aria-label="Vector mask"
+                aria-pressed={capabilities.type === "vector"}
+                onClick={() => runGroupCommand("mask.type.vector")}
+              >
+                Vector
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="alpha"
+                aria-label="Alpha mask unavailable"
+                disabled={!capabilities.setAlpha.enabled}
+                title={capabilities.setAlpha.disabledReason ?? undefined}
+                onClick={() => runGroupCommand("mask.type.alpha")}
+              >
+                Alpha
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="luminance"
+                aria-label="Luminance mask unavailable"
+                disabled={!capabilities.setLuminance.enabled}
+                title={capabilities.setLuminance.disabledReason ?? undefined}
+                onClick={() => runGroupCommand("mask.type.luminance")}
+              >
+                Luma
+              </ToggleGroupItem>
+            </ToggleGroup>
+            <FieldDescription>
+              {capabilities.setAlpha.disabledReason}{" "}
+              {capabilities.setLuminance.disabledReason}
+            </FieldDescription>
+          </Field>
+          <Field className="gap-1.5">
+            <FieldLabel>Source layer</FieldLabel>
+            <Select
+              value={capabilities.sourceNodeIds[0]}
+              disabled={!groupTarget || sourceOptions.length < 2}
+              onValueChange={(sourceNodeId) => {
+                if (!groupTarget) return
+                commandRuntime?.run({
+                  commandId: "mask.sources.set",
+                  target: groupTarget,
+                  arguments: {
+                    kind: "mask-sources",
+                    sourceNodeIds: [sourceNodeId],
+                  },
+                })
+              }}
+            >
+              <SelectTrigger aria-label="Mask source layer">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {sourceOptions.map((node) => (
+                    <SelectItem key={node.id} value={node.id}>
+                      {node.name}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            {sourceOptions.length < 2 ? (
+              <FieldDescription>
+                Add another unstroked rectangle, ellipse, or icon to change the
+                source.
+              </FieldDescription>
+            ) : null}
+          </Field>
+          <Button
+            variant="outline"
+            className="justify-start"
+            disabled={!capabilities.release.enabled}
+            onClick={() => runGroupCommand("mask.release")}
+          >
+            Release mask
+          </Button>
+        </>
+      )}
+    </InspectorSection>
   )
 }
 
@@ -3992,6 +4180,8 @@ export function InspectorSidebar({
   onResetAllComponentOverrides = ignoreComponentInstance,
   onDetachComponentInstance = ignoreComponentInstance,
   onFocusComponentSource = ignoreComponentSource,
+  productCommandContext,
+  productCommandRuntime,
   capabilityContext,
   focusFieldId = null,
   className,
@@ -4102,6 +4292,8 @@ export function InspectorSidebar({
   onResetAllComponentOverrides?: (instanceId: string) => boolean
   onDetachComponentInstance?: (instanceId: string) => boolean
   onFocusComponentSource?: (componentId: string) => void
+  productCommandContext?: ProductCommandRuntimeContext
+  productCommandRuntime?: ProductCommandMenuRuntime
   capabilityContext?: InspectorCapabilityContext
   focusFieldId?: string | null
   className?: string
@@ -4118,6 +4310,29 @@ export function InspectorSidebar({
   const componentSelection = useMemo(
     () => projectComponentSelection(document, selectedNodes, selectedGroupId),
     [document, selectedGroupId, selectedNodes]
+  )
+  const maskCapabilities = useMemo(
+    () =>
+      deriveInspectorMaskCapabilities({
+        document,
+        pageId:
+          productCommandContext?.activePageId ??
+          document.pages.find((page) =>
+            selectedNodes.some((node) => page.nodeIds.includes(node.id))
+          )?.id ??
+          document.pages[0]?.id ??
+          "missing-page",
+        selectedNodeIds: selectedNodes.map((node) => node.id),
+        selectedGroupId,
+        documentEditable: capabilityContext?.documentEditable ?? true,
+      }),
+    [
+      capabilityContext?.documentEditable,
+      document,
+      productCommandContext?.activePageId,
+      selectedGroupId,
+      selectedNodes,
+    ]
   )
   const controlIdPrefix = `inspector-${useId()}`
   const selectedNode = selectedNodes.length === 1 ? selectedNodes[0] : undefined
@@ -4237,6 +4452,12 @@ export function InspectorSidebar({
                 onFocusSource={onFocusComponentSource}
               />
             ) : null}
+            <MaskInspectorSection
+              document={document}
+              capabilities={maskCapabilities}
+              commandContext={productCommandContext}
+              commandRuntime={productCommandRuntime}
+            />
             {selectedNode ? (
               <NodeInspector
                 document={document}
