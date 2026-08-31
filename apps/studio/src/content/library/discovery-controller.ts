@@ -7,10 +7,14 @@ import {
 import type {
   LibraryCatalogItemDetail,
   LibraryCatalogItemSummary,
-  LibraryCatalogPage,
   LibraryCatalogQuery,
   LibraryCatalogQueryInput,
 } from "@webmcp/document"
+import { isTrustedLibraryCursorInvalidation } from "./library-discovery-client"
+import type {
+  LibraryDiscoveryCursorReason,
+  LibraryDiscoveryListResult,
+} from "./library-discovery-client"
 
 export const LIBRARY_DISCOVERY_QUERY_DELAY_MS = 180
 export const LIBRARY_DISCOVERY_PAGE_SIZE = 24
@@ -105,9 +109,11 @@ export type LibraryDiscoveryAppliedQuery = LibraryDiscoveryFilters &
 export type LibraryDiscoveryFailure = Readonly<{
   kind: "request_failed" | "invalid_response"
   message: string
+  cursorReason?: LibraryDiscoveryCursorReason
 }>
 
 export type LibraryDiscoveryConfirmedPage = Readonly<{
+  workspaceRevision: number
   catalogRevision: string
   generation: string
   queryIdentity: string
@@ -170,7 +176,7 @@ export type LibraryDiscoveryDependencies = Readonly<{
   list: (
     query: LibraryCatalogQueryInput,
     signal: AbortSignal
-  ) => Promise<LibraryCatalogPage>
+  ) => Promise<LibraryDiscoveryListResult>
   getDetail: (
     kind: "template" | "media",
     id: string,
@@ -197,6 +203,7 @@ type AppendRequest = Readonly<{
   generation: string
   queryKey: string
   queryIdentity: string
+  workspaceRevision: number
   catalogRevision: string
   cursor: string
   controller: AbortController
@@ -219,6 +226,13 @@ const emptyFilters = (): LibraryDiscoveryFilters => ({
   collectionId: null,
 })
 
+const libraryDiscoveryListResultSchema = z
+  .object({
+    workspaceRevision: z.number().int().nonnegative(),
+    page: libraryCatalogPageSchema,
+  })
+  .strict()
+
 const normalizeSearch = (value: string) =>
   value.trim().toLowerCase().replace(/\s+/g, " ")
 
@@ -233,10 +247,19 @@ const immutable = <TValue>(value: TValue): TValue => {
 const requestFailure = (
   error: unknown,
   fallback: string
-): LibraryDiscoveryFailure => ({
-  kind: "request_failed",
-  message: error instanceof Error ? error.message : fallback,
-})
+): LibraryDiscoveryFailure => {
+  const cursorReason = cursorReasonFrom(error)
+  return {
+    kind: "request_failed",
+    message: error instanceof Error ? error.message : fallback,
+    ...(cursorReason ? { cursorReason } : {}),
+  }
+}
+
+const cursorReasonFrom = (
+  error: unknown
+): LibraryDiscoveryCursorReason | null =>
+  isTrustedLibraryCursorInvalidation(error) ? error.cursorReason : null
 
 const invalidResponse = (message: string): LibraryDiscoveryFailure => ({
   kind: "invalid_response",
@@ -485,6 +508,7 @@ export class LibraryDiscoveryController {
       generation: page.generation,
       queryKey: page.queryKey,
       queryIdentity: page.queryIdentity,
+      workspaceRevision: page.workspaceRevision,
       catalogRevision: page.catalogRevision,
       cursor: page.nextCursor,
       controller,
@@ -709,9 +733,9 @@ export class LibraryDiscoveryController {
 
   #completeReplacement(request: ReplacementRequest, value: unknown) {
     if (!this.#acceptsReplacement(request)) return
-    let page: LibraryCatalogPage
+    let result: LibraryDiscoveryListResult
     try {
-      page = immutable(libraryCatalogPageSchema.parse(value))
+      result = immutable(libraryDiscoveryListResultSchema.parse(value))
     } catch {
       this.#publishReplacementFailure(
         request,
@@ -719,6 +743,7 @@ export class LibraryDiscoveryController {
       )
       return
     }
+    const { page, workspaceRevision } = result
     if (page.generation !== request.generation) {
       this.#publishReplacementFailure(
         request,
@@ -727,6 +752,18 @@ export class LibraryDiscoveryController {
       return
     }
     const prior = this.#state.confirmedPage
+    const priorWorkspaceRevision =
+      prior?.workspaceRevision ?? this.#state.retainedPage?.workspaceRevision
+    if (
+      priorWorkspaceRevision !== undefined &&
+      workspaceRevision < priorWorkspaceRevision
+    ) {
+      this.#publishReplacementFailure(
+        request,
+        invalidResponse("The library returned an older workspace revision.")
+      )
+      return
+    }
     if (
       prior?.queryKey === request.queryKey &&
       prior.queryIdentity !== page.queryIdentity
@@ -756,6 +793,7 @@ export class LibraryDiscoveryController {
     }
     this.#replacement = null
     const confirmedPage = immutable({
+      workspaceRevision,
       catalogRevision: page.catalogRevision,
       generation: page.generation,
       queryIdentity: page.queryIdentity,
@@ -801,9 +839,9 @@ export class LibraryDiscoveryController {
 
   #completeAppend(request: AppendRequest, value: unknown) {
     if (!this.#acceptsAppend(request)) return
-    let page: LibraryCatalogPage
+    let result: LibraryDiscoveryListResult
     try {
-      page = immutable(libraryCatalogPageSchema.parse(value))
+      result = immutable(libraryDiscoveryListResultSchema.parse(value))
     } catch {
       this.#publishAppendFailure(
         request,
@@ -811,9 +849,11 @@ export class LibraryDiscoveryController {
       )
       return
     }
+    const { page, workspaceRevision } = result
     const current = this.#state.confirmedPage
     if (
       !current ||
+      workspaceRevision !== request.workspaceRevision ||
       page.generation !== request.generation ||
       page.queryIdentity !== request.queryIdentity ||
       page.catalogRevision !== request.catalogRevision ||
@@ -879,6 +919,10 @@ export class LibraryDiscoveryController {
 
   #failAppend(request: AppendRequest, error: unknown) {
     if (!this.#acceptsAppend(request)) return
+    if (cursorReasonFrom(error)) {
+      this.#append = null
+      return this.#startReplacement(this.#state.appliedQuery, "same-query")
+    }
     this.#publishAppendFailure(
       request,
       requestFailure(error, "More library items could not be loaded.")
@@ -933,6 +977,7 @@ export class LibraryDiscoveryController {
       page?.queryKey === request.queryKey &&
       page.generation === request.generation &&
       page.queryIdentity === request.queryIdentity &&
+      page.workspaceRevision === request.workspaceRevision &&
       page.catalogRevision === request.catalogRevision &&
       page.nextCursor === request.cursor
     )

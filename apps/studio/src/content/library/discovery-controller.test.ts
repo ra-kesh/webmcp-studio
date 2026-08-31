@@ -6,7 +6,6 @@ import {
 } from "@webmcp/document"
 import type {
   LibraryCatalogItemDetail,
-  LibraryCatalogPage,
   LibraryCatalogQuery,
 } from "@webmcp/document"
 import {
@@ -18,6 +17,8 @@ import type {
   LibraryDiscoveryDependencies,
   LibraryTaxonomy,
 } from "./discovery-controller"
+import { LibraryDiscoveryHttpError } from "./library-discovery-client"
+import type { LibraryDiscoveryListResult } from "./library-discovery-client"
 
 class Deferred<TValue> {
   readonly promise: Promise<TValue>
@@ -152,9 +153,11 @@ const pageFor = (
     queryIdentity?: string
     generation?: string
     catalogRevision?: string
+    workspaceRevision?: number
   } = {}
-) =>
-  libraryCatalogPageSchema.parse({
+) => ({
+  workspaceRevision: options.workspaceRevision ?? 1,
+  page: libraryCatalogPageSchema.parse({
     schemaVersion: 1,
     catalogRevision: options.catalogRevision ?? "test-catalog-v1",
     generation: options.generation ?? query.generation,
@@ -162,7 +165,8 @@ const pageFor = (
     items,
     nextCursor: options.cursor ?? null,
     total: options.total ?? items.length,
-  })
+  }),
+})
 
 const flush = async () => {
   await Promise.resolve()
@@ -173,7 +177,7 @@ const createHarness = () => {
   const listRequests: Array<{
     query: LibraryCatalogQuery
     signal: AbortSignal
-    deferred: Deferred<LibraryCatalogPage>
+    deferred: Deferred<LibraryDiscoveryListResult>
   }> = []
   const detailRequests: Array<{
     kind: "template" | "media"
@@ -189,7 +193,7 @@ const createHarness = () => {
   }> = []
   const dependencies: LibraryDiscoveryDependencies = {
     list: vi.fn((query, signal) => {
-      const deferred = new Deferred<LibraryCatalogPage>()
+      const deferred = new Deferred<LibraryDiscoveryListResult>()
       listRequests.push({
         query: query as LibraryCatalogQuery,
         signal,
@@ -341,6 +345,7 @@ describe("LibraryDiscoveryController taxonomy and query ownership", () => {
         cursor: "old-page-2",
         total: 2,
         catalogRevision: "catalog-rev-1",
+        workspaceRevision: 8,
       })
     )
     await flush()
@@ -353,6 +358,7 @@ describe("LibraryDiscoveryController taxonomy and query ownership", () => {
     refresh.deferred.resolve(
       pageFor(refresh.query, [mediaSummary("new-only")], {
         catalogRevision: "catalog-rev-2",
+        workspaceRevision: 9,
       })
     )
     oldAppend.deferred.resolve(
@@ -360,13 +366,47 @@ describe("LibraryDiscoveryController taxonomy and query ownership", () => {
         total: 2,
         queryIdentity: queryIdentity(oldAppend.query),
         catalogRevision: "catalog-rev-1",
+        workspaceRevision: 8,
       })
     )
     await Promise.all([oldAppendPromise, refreshPromise])
 
     expect(harness.controller.getSnapshot().confirmedPage).toMatchObject({
+      workspaceRevision: 9,
       catalogRevision: "catalog-rev-2",
       items: [{ id: "new-only" }],
+    })
+  })
+
+  it("rejects a replacement older than the retained workspace authority", async () => {
+    const harness = createHarness()
+    harness.controller.activate()
+    const initial = harness.listRequests[0]
+    initial.deferred.resolve(
+      pageFor(initial.query, [mediaSummary("newer")], {
+        workspaceRevision: 12,
+      })
+    )
+    await flush()
+
+    const refresh = harness.controller.refresh()
+    harness.listRequests[1].deferred.resolve(
+      pageFor(harness.listRequests[1].query, [mediaSummary("stale")], {
+        workspaceRevision: 11,
+      })
+    )
+    await refresh
+
+    expect(harness.controller.getSnapshot()).toMatchObject({
+      confirmedPage: {
+        workspaceRevision: 12,
+        items: [{ id: "newer" }],
+      },
+      replacementStatus: "failed",
+      replacementFailure: {
+        kind: "invalid_response",
+        message: "The library returned an older workspace revision.",
+      },
     })
   })
 
@@ -556,6 +596,44 @@ describe("LibraryDiscoveryController pagination, details, and lifetime", () => {
     })
   })
 
+  it("rejects an append from a different workspace revision without mixing pages", async () => {
+    const harness = createHarness()
+    harness.controller.activate()
+    const initial = harness.listRequests[0]
+    initial.deferred.resolve(
+      pageFor(initial.query, [mediaSummary("a")], {
+        cursor: "cursor-page-2",
+        total: 2,
+        workspaceRevision: 20,
+      })
+    )
+    await flush()
+
+    const loadMore = harness.controller.loadMore()
+    const append = harness.listRequests[1]
+    append.deferred.resolve(
+      pageFor(append.query, [mediaSummary("b")], {
+        total: 2,
+        queryIdentity:
+          harness.controller.getSnapshot().confirmedPage!.queryIdentity,
+        workspaceRevision: 21,
+      })
+    )
+    await loadMore
+
+    expect(harness.controller.getSnapshot()).toMatchObject({
+      confirmedPage: {
+        workspaceRevision: 20,
+        items: [{ id: "a" }],
+      },
+      appendStatus: "failed",
+      appendFailure: {
+        kind: "invalid_response",
+        message: "The next library page did not match the confirmed results.",
+      },
+    })
+  })
+
   it("keeps append failures separate and ignores a late page after query replacement", async () => {
     const harness = createHarness()
     harness.controller.activate()
@@ -603,6 +681,103 @@ describe("LibraryDiscoveryController pagination, details, and lifetime", () => {
         .getSnapshot()
         .confirmedPage?.items.some(({ id }) => id === "too-late")
     ).not.toBe(true)
+  })
+
+  it("replaces retained same-query results when the server invalidates an append cursor", async () => {
+    const harness = createHarness()
+    harness.controller.activate()
+    const initial = harness.listRequests[0]
+    initial.deferred.resolve(
+      pageFor(initial.query, [mediaSummary("retained-first")], {
+        cursor: "obsolete-page-2",
+        total: 2,
+        catalogRevision: "catalog-rev-before-preference",
+      })
+    )
+    await flush()
+
+    const loadMore = harness.controller.loadMore()
+    harness.listRequests[1].deferred.reject(
+      new LibraryDiscoveryHttpError({
+        code: "invalid_library_request",
+        status: 400,
+        message: "Library cursor is no longer valid for this result set.",
+        requestId: "request-obsolete-cursor",
+        retryable: false,
+        cursorReason: "catalog_revision_mismatch",
+      })
+    )
+    await flush()
+
+    expect(harness.listRequests).toHaveLength(3)
+    const replacement = harness.listRequests[2]
+    expect(replacement.query).toMatchObject({
+      cursor: null,
+      generation: "library-1-2",
+    })
+    expect(harness.controller.getSnapshot()).toMatchObject({
+      confirmedPage: { items: [{ id: "retained-first" }] },
+      updatingResults: true,
+      replacementStatus: "loading",
+      appendStatus: "idle",
+      appendFailure: null,
+    })
+
+    replacement.deferred.resolve(
+      pageFor(replacement.query, [mediaSummary("authoritative-first")], {
+        catalogRevision: "catalog-rev-after-preference",
+      })
+    )
+    await loadMore
+
+    expect(harness.listRequests).toHaveLength(3)
+    expect(harness.controller.getSnapshot()).toMatchObject({
+      confirmedPage: {
+        catalogRevision: "catalog-rev-after-preference",
+        items: [{ id: "authoritative-first" }],
+        nextCursor: null,
+      },
+      updatingResults: false,
+      replacementStatus: "idle",
+      appendStatus: "idle",
+      appendFailure: null,
+    })
+  })
+
+  it("does not let a forged cursor-shaped error trigger replacement", async () => {
+    const harness = createHarness()
+    harness.controller.activate()
+    const initial = harness.listRequests[0]
+    initial.deferred.resolve(
+      pageFor(initial.query, [mediaSummary("retained-first")], {
+        cursor: "current-page-2",
+        total: 2,
+      })
+    )
+    await flush()
+
+    const loadMore = harness.controller.loadMore()
+    harness.listRequests[1].deferred.reject(
+      Object.assign(new Error("forged cursor error"), {
+        code: "invalid_library_request",
+        status: 400,
+        requestId: "request-forged-cursor",
+        retryable: false,
+        cursorReason: "catalog_revision_mismatch",
+      })
+    )
+    await loadMore
+
+    expect(harness.listRequests).toHaveLength(2)
+    expect(harness.controller.getSnapshot()).toMatchObject({
+      confirmedPage: { items: [{ id: "retained-first" }] },
+      replacementStatus: "idle",
+      appendStatus: "failed",
+      appendFailure: {
+        kind: "request_failed",
+        message: "forged cursor error",
+      },
+    })
   })
 
   it("rejects an early terminal append that does not satisfy the confirmed total", async () => {

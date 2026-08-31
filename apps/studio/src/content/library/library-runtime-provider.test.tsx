@@ -59,7 +59,10 @@ const deferred = <TValue,>() => {
 }
 
 const discoveryList = () =>
-  vi.fn(async (query) => studioLibraryCatalogIndex.list(query))
+  vi.fn(async (query) => ({
+    workspaceRevision: 1,
+    page: studioLibraryCatalogIndex.list(query),
+  }))
 
 function DiscoveryLeaseProbe({ onMount }: { onMount: () => void }) {
   useLibraryDiscoveryLease(true)

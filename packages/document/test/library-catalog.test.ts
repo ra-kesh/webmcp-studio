@@ -3,6 +3,7 @@ import {
   LibraryCatalogCursorError,
   LibraryCatalogIndex,
   libraryCatalogItemSummarySchema,
+  libraryCatalogQueryIdentity,
   libraryCatalogQuerySchema,
   libraryMediaDetailSchema,
   libraryMediaSummarySchema,
@@ -361,6 +362,32 @@ describe("library catalog schemas", () => {
         limit: 51,
       }).success
     ).toBe(false)
+
+    expect(
+      libraryCatalogQueryIdentity({
+        generation: "identity-a",
+        search: "  Client   READY ",
+        categoryIds: ["social", "documents", "social"],
+        cursor: null,
+      })
+    ).toBe(
+      libraryCatalogQueryIdentity({
+        generation: "identity-b",
+        search: "client ready",
+        categoryIds: ["documents", "social"],
+      })
+    )
+    expect(
+      libraryCatalogQueryIdentity({
+        generation: "identity-a",
+        search: "different query",
+      })
+    ).not.toBe(
+      libraryCatalogQueryIdentity({
+        generation: "identity-a",
+        search: "client ready",
+      })
+    )
   })
 
   it("does not depend on the host locale for search or ordering", () => {

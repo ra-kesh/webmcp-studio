@@ -1,17 +1,15 @@
-import type {
-  LibraryCatalogItemDetail,
-  LibraryCatalogItemSummary,
-  LibraryCatalogQueryInput,
-} from "@webmcp/document"
-import {
-  getStudioLibraryCatalogDetail,
-  studioLibraryCatalogIndex,
-} from "./catalog"
+import type { LibraryCatalogItemSummary } from "@webmcp/document"
+import { studioLibraryCatalogIndex } from "./catalog"
 import { libraryTaxonomySchema } from "./discovery-controller"
 import type {
   LibraryDiscoveryDependencies,
   LibraryTaxonomy,
 } from "./discovery-controller"
+import { createLibraryDiscoveryClient } from "./library-discovery-client"
+import type {
+  LibraryDiscoveryClient,
+  LibraryDiscoveryFetch,
+} from "./library-discovery-client"
 
 export type StudioLibraryDiscoveryAdapter = Pick<
   LibraryDiscoveryDependencies,
@@ -19,21 +17,9 @@ export type StudioLibraryDiscoveryAdapter = Pick<
 >
 
 export type StudioLibraryDiscoveryAdapterOptions = Readonly<{
-  scheduleAsyncBoundary?: () => Promise<void>
+  client?: LibraryDiscoveryClient
+  fetchRequest?: LibraryDiscoveryFetch
 }>
-
-export class StudioLibraryDetailNotFoundError extends Error {
-  readonly code = "library_detail_not_found"
-
-  constructor(
-    readonly itemKind: "template" | "media",
-    readonly itemId: string,
-    readonly itemVersion: number
-  ) {
-    super(`Library ${itemKind} ${itemId}@${itemVersion} was not found.`)
-    this.name = "StudioLibraryDetailNotFoundError"
-  }
-}
 
 const immutable = <TValue>(value: TValue): TValue => {
   if (value && typeof value === "object" && !Object.isFrozen(value)) {
@@ -41,12 +27,6 @@ const immutable = <TValue>(value: TValue): TValue => {
     for (const child of Object.values(value)) immutable(child)
   }
   return value
-}
-
-const throwIfAborted = (signal: AbortSignal) => {
-  if (!signal.aborted) return
-  if (signal.reason instanceof Error) throw signal.reason
-  throw new DOMException("The library request was aborted.", "AbortError")
 }
 
 const titleLabel = (id: string) => {
@@ -124,49 +104,18 @@ const studioLibraryTaxonomy: LibraryTaxonomy = immutable(
   })
 )
 
-const defaultAsyncBoundary = () => Promise.resolve()
-
 export function createStudioLibraryDiscoveryAdapter(
   options: StudioLibraryDiscoveryAdapterOptions = {}
 ): StudioLibraryDiscoveryAdapter {
-  const scheduleAsyncBoundary =
-    options.scheduleAsyncBoundary ?? defaultAsyncBoundary
-
-  const runAsync = async <TValue>(
-    signal: AbortSignal,
-    lookup: () => TValue
-  ) => {
-    throwIfAborted(signal)
-    await scheduleAsyncBoundary()
-    throwIfAborted(signal)
-    const value = lookup()
-    throwIfAborted(signal)
-    await scheduleAsyncBoundary()
-    throwIfAborted(signal)
-    return value
+  if (options.client && options.fetchRequest) {
+    throw new Error("Supply a library discovery client or fetch, not both.")
   }
+  const client =
+    options.client ?? createLibraryDiscoveryClient(options.fetchRequest)
 
   return Object.freeze({
-    list(query: LibraryCatalogQueryInput, signal: AbortSignal) {
-      return runAsync(signal, () => studioLibraryCatalogIndex.list(query))
-    },
-    getDetail(
-      itemKind: "template" | "media",
-      id: string,
-      version: number,
-      signal: AbortSignal
-    ): Promise<LibraryCatalogItemDetail> {
-      return runAsync(signal, () => {
-        const detail =
-          itemKind === "template"
-            ? getStudioLibraryCatalogDetail("template", id, version)
-            : getStudioLibraryCatalogDetail("media", id, version)
-        if (!detail) {
-          throw new StudioLibraryDetailNotFoundError(itemKind, id, version)
-        }
-        return detail
-      })
-    },
+    list: client.list,
+    getDetail: client.getDetail,
     getTaxonomy() {
       return studioLibraryTaxonomy
     },

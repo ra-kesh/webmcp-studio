@@ -649,7 +649,7 @@ export class LibraryCatalogIndex {
 
   list(input: LibraryCatalogQueryInput): LibraryCatalogPage {
     const query = libraryCatalogQuerySchema.parse(input)
-    const queryIdentity = identityForQuery(query)
+    const queryIdentity = libraryCatalogQueryIdentity(query)
     const matches = this.#items
       .filter((item) => item.catalogStatus === "active")
       .filter((item) => matchesCatalogQuery(item, query))
@@ -854,7 +854,10 @@ function comparatorFor(order: LibraryCatalogQuery["order"]) {
   }
 }
 
-function identityForQuery(query: LibraryCatalogQuery) {
+export function libraryCatalogQueryIdentity(
+  input: LibraryCatalogQueryInput
+): string {
+  const query = libraryCatalogQuerySchema.parse(input)
   const identity = JSON.stringify({
     search: query.search,
     itemKinds: query.itemKinds,
