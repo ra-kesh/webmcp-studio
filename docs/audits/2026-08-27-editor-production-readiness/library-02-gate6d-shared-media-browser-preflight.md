@@ -6,6 +6,13 @@ Scope: implementation ownership and interaction planning for Gate 6 Slice D,
 with the Slice E handoff boundary recorded so the two slices do not overlap.
 This is an implementation preflight, not a completion or acceptance claim.
 
+Implementation checkpoint: D0/D1 was accepted on 2026-08-31 at commit
+`fc41c50` after independent review and remediation. The accepted foundation
+owns the isolated media-only controller/provider, source-aware browser
+identity, retained bounded device-local overlay, server-only cursor authority,
+and exact abortable local preview port. D2 remains active under the separate
+UI preflight; this document does not claim the shared browser is complete.
+
 ## Sources reread
 
 - `library-02-gate6-media-integration-map.md`, especially P1.3, P1.4 and

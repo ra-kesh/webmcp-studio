@@ -2,7 +2,7 @@
 
 Date: 2026-08-31
 
-Status: Slices A, B and C accepted; Slice D active from its accepted preflight
+Status: Slices A, B and C accepted; Slice D0/D1 accepted and Slice D2 active
 
 ## Accepted checkpoints
 
@@ -77,6 +77,40 @@ closed three P1 findings and returned zero remaining P0/P1.
 Acceptance evidence: 49 focused local-store/adapter tests, the Studio
 typecheck, scoped ESLint and scoped diff checks passed in implementation and
 independent review.
+
+### Slice D — D0/D1 discovery ownership foundation
+
+Accepted on 2026-08-31 at commit `fc41c50` after an independent code review
+found four P1 boundary defects, all four were remediated, and the independent
+re-review returned zero remaining P0/P1 findings.
+
+- Media discovery has a separate route-owned controller/provider initialized
+  with `itemKinds: ["media"]` before activation. Its frozen public proxy cannot
+  be switched back to template or mixed discovery, while the template and
+  media controllers share only the Gate 5 preference invalidation authority.
+- Server results and device-local results remain separate authorities. Server
+  pages reject local-source rows and alone own totals, cursors and append;
+  local inventory is bounded, metadata-only, retained, and reprojected through
+  every new query before a replacement read can fail.
+- Browser identity includes source, ID and exact version or revision, so an
+  identical local, managed and curated ID cannot collide in focus, selection
+  or preview state.
+- Local detail and preview use exact Gate 6C rechecks. Preview reads are
+  active-only, concurrently abortable, fenced by query and controller
+  lifetime, and cancelled on caller abort, query change, deactivation or
+  disposal. D2 therefore has no reason to import the local asset store.
+- Retained local cards cannot leak from Uploads into Studio Library,
+  Favorites, or collection scopes after a failed refresh. Inventory health and
+  integrity status remain visible even when the filtered projection is empty.
+
+Acceptance evidence: the root verification passed 65 focused discovery,
+provider, local-adapter, template-browser and preference tests plus Studio
+typecheck and scoped ESLint. The final independent remediation review passed
+14 focused tests and Studio typecheck with zero remaining P0/P1 findings.
+
+Slice D is not complete. The pure shared media browser, card/detail surface,
+viewport object-URL lifecycle, virtualization and browser acceptance remain
+under `library-02-gate6d2-shared-media-browser-ui-spec.md`.
 
 ## Scope and entry condition
 
