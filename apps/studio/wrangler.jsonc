@@ -13,6 +13,9 @@
     "enabled": true,
     "head_sampling_rate": 1,
   },
+  "assets": {
+    "binding": "CURATED_MEDIA",
+  },
   "triggers": {
     "crons": ["*/5 * * * *"],
   },

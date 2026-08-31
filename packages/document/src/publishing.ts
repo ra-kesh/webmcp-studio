@@ -16,6 +16,7 @@ import {
 } from "./validation"
 import { validateRenderPolicy } from "./render-policy"
 import { parseAssetReference } from "./fields"
+import { curatedAssetIdentityFromSource } from "./media"
 
 export type PublishReadiness = {
   blocking: ValidationIssue[]
@@ -102,6 +103,13 @@ export function getPublishReadiness(document: Document): PublishReadiness {
         : []
     )
   )
+  const curatedAssetNodeIds = new Set(
+    document.nodes.flatMap((node) =>
+      node.type === "image" && curatedAssetIdentityFromSource(node.src)
+        ? [node.id]
+        : []
+    )
+  )
   // Workspace-managed IDs are the canonical persisted publication identity.
   // They are resolved by the authenticated server immediately before render;
   // every other render-policy issue remains a publication blocker.
@@ -110,7 +118,8 @@ export function getPublishReadiness(document: Document): PublishReadiness {
       !(
         issue.code === "unmanaged_asset" &&
         issue.nodeId &&
-        managedAssetNodeIds.has(issue.nodeId)
+        (managedAssetNodeIds.has(issue.nodeId) ||
+          curatedAssetNodeIds.has(issue.nodeId))
       )
   )
   const localAssetNodeIds = document.nodes.flatMap((node) =>
@@ -156,7 +165,8 @@ export function getPublishReadiness(document: Document): PublishReadiness {
         const parsed = parseAssetReference(value)
         return (
           parsed?.publishRequiresResolution !== false &&
-          parsed?.source !== "managed_workspace"
+          parsed?.source !== "managed_workspace" &&
+          parsed?.source !== "curated_studio"
         )
       })
       return unresolved

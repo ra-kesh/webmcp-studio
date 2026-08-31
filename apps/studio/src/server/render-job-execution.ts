@@ -6,6 +6,12 @@ import {
 import type { Document, RenderResourcePlan } from "@webmcp/document"
 import { MediaAssetRepository } from "./media-asset-repository"
 import {
+  createCuratedMediaResourceFetcher,
+  resolveCuratedMediaContent,
+} from "../content/library/media/curated-media-content"
+import {
+  CuratedAssetMaterializationError,
+  ManagedAssetMaterializationError,
   materializeManagedDocumentAssets,
   resolveRenderFieldAssetIdsForWorkspace,
 } from "./render-field-assets"
@@ -16,6 +22,7 @@ import {
   RenderAdmissionCompletionError,
   reserveRenderCapacityForBudget,
 } from "./render-admission-service"
+import type { RenderAdmissionLease } from "./render-admission-service"
 import {
   RendererInvocationError,
   rendererInvocationErrorFromResponse,
@@ -89,26 +96,50 @@ const artifactIdentity = async (
 export async function prepareRenderJob(
   env: Env,
   workspaceId: string,
-  request: RenderJobRequest
+  request: RenderJobRequest,
+  signal?: AbortSignal
 ): Promise<PreparedRenderJob> {
+  signal?.throwIfAborted()
   const version = await getTemplateVersion(
     env.DB,
     workspaceId,
     request.templateId,
     request.version
   )
+  signal?.throwIfAborted()
   if (!version) throw new Error("template_not_found")
   const mediaAssets = new MediaAssetRepository(env.DB, env.ASSETS)
+  const fetchCuratedResource = createCuratedMediaResourceFetcher(
+    env.CURATED_MEDIA
+  )
+  const resolveCuratedAsset = (
+    assetId: string,
+    curatedVersion: number,
+    resolverSignal?: AbortSignal
+  ) =>
+    resolveCuratedMediaContent(
+      { assetId, version: curatedVersion },
+      fetchCuratedResource,
+      resolverSignal
+    )
   const fieldAssets = await resolveRenderFieldAssetIdsForWorkspace(
     version,
     request.modifications,
-    (assetId) => mediaAssets.resolveRendererSource(workspaceId, assetId)
+    (assetId, resolverSignal) =>
+      mediaAssets.resolveRendererSource(workspaceId, assetId, resolverSignal),
+    resolveCuratedAsset,
+    signal
   )
+  signal?.throwIfAborted()
   const materialized = await materializeManagedDocumentAssets(
     materializeTemplateVersion(version, fieldAssets.modifications),
-    (assetId) => mediaAssets.resolveRendererSource(workspaceId, assetId),
-    fieldAssets.resources
+    (assetId, resolverSignal) =>
+      mediaAssets.resolveRendererSource(workspaceId, assetId, resolverSignal),
+    fieldAssets.resources,
+    signal,
+    resolveCuratedAsset
   )
+  signal?.throwIfAborted()
   await assertRenderImageResourceAdmission(
     materialized.document,
     materialized.resources
@@ -133,6 +164,44 @@ export async function prepareRenderJob(
   }
 }
 
+const remainingRenderDeadlineMs = (deadlineAt: string) => {
+  const remainingMs = Date.parse(deadlineAt) - Date.now()
+  if (remainingMs <= 0) throw new RenderDeadlineExceededError()
+  return remainingMs
+}
+
+export async function withRenderDeadline<T>(
+  deadlineAt: string,
+  operation: (signal: AbortSignal) => Promise<T>
+): Promise<T> {
+  const controller = new AbortController()
+  const timeout = setTimeout(
+    () => controller.abort(new RenderDeadlineExceededError()),
+    Math.max(1, remainingRenderDeadlineMs(deadlineAt))
+  )
+  try {
+    return await operation(controller.signal)
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+export async function completeRenderAdmissionWithinDeadline(
+  deadlineAt: string,
+  lease: RenderAdmissionLease,
+  actualBytes: number
+): Promise<boolean> {
+  remainingRenderDeadlineMs(deadlineAt)
+  await completeRenderLeaseWithRetry(lease, actualBytes)
+  try {
+    remainingRenderDeadlineMs(deadlineAt)
+    return true
+  } catch (error) {
+    if (isRenderDeadlineError(error)) return false
+    throw error
+  }
+}
+
 async function invokeRenderer(
   env: Env,
   document: Document,
@@ -142,8 +211,12 @@ async function invokeRenderer(
   outputId: string,
   format: "png" | "pdf",
   pageId?: string,
+  signal?: AbortSignal,
   timeoutMs = 3 * 60_000
 ): Promise<RenderArtifact> {
+  const invocationSignal = signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(Math.max(1, timeoutMs))])
+    : AbortSignal.timeout(Math.max(1, timeoutMs))
   const response = await env.RENDERER.fetch(
     new Request(
       format === "pdf"
@@ -151,7 +224,7 @@ async function invokeRenderer(
         : "https://renderer.internal/render",
       {
         method: "POST",
-        signal: AbortSignal.timeout(Math.max(1, timeoutMs)),
+        signal: invocationSignal,
         headers: {
           "Content-Type": "application/json",
           Prefer: "return=minimal",
@@ -175,15 +248,19 @@ async function invokeRenderer(
       }
     )
   )
+  invocationSignal.throwIfAborted()
   if (!response.ok) throw await rendererInvocationErrorFromResponse(response)
   const key = response.headers.get("X-Render-Key")
   if (!key) throw new Error("Renderer did not return an artifact key")
   await response.body?.cancel()
+  invocationSignal.throwIfAborted()
   const page = pageId
     ? document.pages.find((candidate) => candidate.id === pageId)
     : undefined
+  const id = await artifactIdentity(renderId, outputId, pageId ?? null, format)
+  invocationSignal.throwIfAborted()
   return {
-    id: await artifactIdentity(renderId, outputId, pageId ?? null, format),
+    id,
     outputId,
     pageId: pageId ?? null,
     format,
@@ -243,6 +320,21 @@ async function deleteRenderPrefix(env: Env, renderId: string) {
   } while (cursor)
 }
 
+async function failKnownRenderReservation(
+  env: Env,
+  admissionKey: string,
+  reservationId: string
+) {
+  const stub = env.RENDER_ADMISSION.getByName(admissionKey)
+  await failRenderLeaseWithRetry({
+    reservationId,
+    complete: async () => {
+      throw new Error("Cannot complete a failed render reservation")
+    },
+    fail: () => stub.fail(reservationId, Date.now()),
+  })
+}
+
 export async function cancelRenderJobExecution(
   env: Env,
   renderId: string,
@@ -295,16 +387,13 @@ export async function cancelRenderJobExecution(
 
   let admissionSettled = !job.reservation_id
   if (job.reservation_id) {
-    const stub = env.RENDER_ADMISSION.getByName(job.admission_key)
-    admissionSettled = await stub
-      .fail(job.reservation_id, Date.now())
+    admissionSettled = await failKnownRenderReservation(
+      env,
+      job.admission_key,
+      job.reservation_id
+    )
       .then(() => true)
-      .catch(() =>
-        stub
-          .fail(job.reservation_id!, Date.now())
-          .then(() => true)
-          .catch(() => false)
-      )
+      .catch(() => false)
   }
   const completedAt = new Date().toISOString()
   await env.DB.prepare(
@@ -337,11 +426,50 @@ async function settleCancelled(
   await cancelRenderJobExecution(env, renderId, expectedAttemptId)
 }
 
+async function settleDeadlineAfterAdmissionCompletion(
+  env: Env,
+  plan: RenderAttemptPlan
+): Promise<RenderAttemptResult> {
+  const settledAt = new Date().toISOString()
+  const error = new RenderDeadlineExceededError()
+  const results = await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE render_jobs
+       SET status = 'failed', error_code = 'render_deadline_exceeded',
+           error_message = ?3, completed_at = ?4, heartbeat_at = ?4,
+           updated_at = ?4, retryable = 0,
+           admission_settlement = 'completed'
+       WHERE id = ?1 AND status = 'rendering' AND active_attempt_id = ?2`
+    ).bind(plan.renderId, plan.attemptId, error.message, settledAt),
+    env.DB.prepare(
+      `UPDATE render_attempts
+       SET status = 'failed', retryable = 0,
+           error_code = 'render_deadline_exceeded', error_message = ?2,
+           finished_at = ?3
+       WHERE id = ?1 AND status = 'running'
+         AND EXISTS (
+           SELECT 1 FROM render_jobs
+           WHERE id = ?4 AND status = 'failed' AND active_attempt_id = ?1
+         )`
+    ).bind(plan.attemptId, error.message, settledAt, plan.renderId),
+  ])
+  if (!results[0]?.meta.changes) {
+    const latest = await loadJob(env, plan.renderId)
+    if (latest?.status === "cancelled" || latest?.status === "cancelling") {
+      return { status: "cancelled" }
+    }
+    return { status: "already_terminal" }
+  }
+  await deleteRenderPrefix(env, plan.storageRenderId)
+  return { status: "failed", message: error.message }
+}
+
 const retryableFailure = (error: unknown) =>
-  !(error instanceof RendererInvocationError) ||
-  error.status === 408 ||
-  error.status === 429 ||
-  error.status >= 500
+  !isRenderDeadlineError(error) &&
+  (!(error instanceof RendererInvocationError) ||
+    error.status === 408 ||
+    error.status === 429 ||
+    error.status >= 500)
 
 export type RenderArtifactSelection = {
   outputId: string
@@ -372,10 +500,51 @@ export class RenderCancellationRequestedError extends Error {
 }
 
 export class RenderDeadlineExceededError extends Error {
+  readonly code = "render_deadline_exceeded"
+
   constructor() {
     super("The render did not finish before its deadline")
     this.name = "RenderDeadlineExceededError"
   }
+}
+
+const isRenderDeadlineError = (error: unknown) =>
+  error instanceof RenderDeadlineExceededError ||
+  (error instanceof Error && error.name === "RenderDeadlineExceededError")
+
+export const durableRenderFailureCode = (
+  error: unknown,
+  settlementUnknown = false
+) => {
+  if (settlementUnknown) return "admission_settlement_unknown"
+  if (isRenderDeadlineError(error)) return "render_deadline_exceeded"
+  if (
+    error instanceof CuratedAssetMaterializationError ||
+    error instanceof ManagedAssetMaterializationError
+  ) {
+    return error.code
+  }
+  if (error && typeof error === "object" && "code" in error) {
+    const code = error.code
+    if (
+      code === "curated_asset_materialization_failed" ||
+      code === "managed_asset_materialization_failed"
+    ) {
+      return code
+    }
+  }
+  return error instanceof RendererInvocationError
+    ? error.code
+    : "renderer_failed"
+}
+
+export const durableRenderFailureMessage = (error: unknown) => {
+  if (error instanceof Error) return error.message.slice(0, 500)
+  if (error && typeof error === "object" && "message" in error) {
+    const message = error.message
+    if (typeof message === "string") return message.slice(0, 500)
+  }
+  return "Renderer failed"
 }
 
 async function refreshAttemptHeartbeat(env: Env, plan: RenderAttemptPlan) {
@@ -459,7 +628,8 @@ export async function beginRenderJobAttempt(
      SET status = 'rendering', attempt_count = ?2, reservation_id = ?3,
          active_attempt_id = ?4, workflow_instance_id = ?5,
          started_at = COALESCE(started_at, ?6), heartbeat_at = ?6,
-         updated_at = ?6, error_code = NULL, error_message = NULL
+         updated_at = ?6, deadline_at = COALESCE(deadline_at, ?7),
+         error_code = NULL, error_message = NULL
      WHERE id = ?1
        AND status IN ('queued', 'retrying')
        AND cancellation_requested_at IS NULL`
@@ -469,7 +639,8 @@ export async function beginRenderJobAttempt(
           reservationId,
           attemptId,
           workflowInstanceId,
-          now
+          now,
+          deadlineAt
         ),
         env.DB.prepare(
           `INSERT INTO render_attempts
@@ -505,7 +676,9 @@ export async function beginRenderJobAttempt(
 
   try {
     const parsed = renderRequestSchema.parse(JSON.parse(initial.request_json))
-    const prepared = await prepareRenderJob(env, initial.workspace_id, parsed)
+    const prepared = await withRenderDeadline(deadlineAt, (signal) =>
+      prepareRenderJob(env, initial.workspace_id, parsed, signal)
+    )
     await reserveRenderCapacityForBudget(
       env,
       initial.admission_key,
@@ -570,7 +743,7 @@ export async function renderJobArtifact(
   plan: RenderAttemptPlan,
   selection: RenderArtifactSelection
 ) {
-  const remainingMs = await refreshAttemptHeartbeat(env, plan)
+  await refreshAttemptHeartbeat(env, plan)
   const current = await loadJob(env, plan.renderId)
   if (
     current?.status !== "rendering" ||
@@ -588,17 +761,21 @@ export async function renderJobArtifact(
     throw new RenderCancellationRequestedError()
   }
   const parsed = renderRequestSchema.parse(JSON.parse(current.request_json))
-  const prepared = await prepareRenderJob(env, current.workspace_id, parsed)
-  return invokeRenderer(
-    env,
-    prepared.document,
-    prepared.resources,
-    plan.renderId,
-    plan.storageRenderId,
-    selection.outputId,
-    selection.format,
-    selection.pageId,
-    Math.min(remainingMs, 3 * 60_000)
+  const prepared = await withRenderDeadline(plan.deadlineAt, (signal) =>
+    prepareRenderJob(env, current.workspace_id, parsed, signal)
+  )
+  return withRenderDeadline(plan.deadlineAt, (signal) =>
+    invokeRenderer(
+      env,
+      prepared.document,
+      prepared.resources,
+      plan.renderId,
+      plan.storageRenderId,
+      selection.outputId,
+      selection.format,
+      selection.pageId,
+      signal
+    )
   )
 }
 
@@ -629,17 +806,34 @@ export async function completeRenderJobAttempt(
     return { status: "cancelled" }
   }
   const parsed = renderRequestSchema.parse(JSON.parse(current.request_json))
-  const prepared = await prepareRenderJob(env, current.workspace_id, parsed)
+  const prepared = await withRenderDeadline(plan.deadlineAt, (signal) =>
+    prepareRenderJob(env, current.workspace_id, parsed, signal)
+  )
+  await refreshAttemptHeartbeat(env, plan)
   const lease = await reserveRenderCapacityForBudget(
     env,
     current.admission_key,
     prepared.plan,
     plan.reservationId
   )
-  await completeRenderLeaseWithRetry(
-    lease,
-    artifacts.reduce((total, artifact) => total + artifact.bytes, 0)
-  )
+  const admissionCompletedBeforeDeadline =
+    await completeRenderAdmissionWithinDeadline(
+      plan.deadlineAt,
+      lease,
+      artifacts.reduce((total, artifact) => total + artifact.bytes, 0)
+    )
+  if (!admissionCompletedBeforeDeadline) {
+    return settleDeadlineAfterAdmissionCompletion(env, plan)
+  }
+
+  try {
+    remainingRenderDeadlineMs(plan.deadlineAt)
+  } catch (error) {
+    if (isRenderDeadlineError(error)) {
+      return settleDeadlineAfterAdmissionCompletion(env, plan)
+    }
+    throw error
+  }
 
   const completedAt = new Date().toISOString()
   const expiresAt = new Date(Date.now() + artifactRetentionMs).toISOString()
@@ -651,8 +845,9 @@ export async function completeRenderJobAttempt(
            error_code = NULL, error_message = NULL,
            admission_settlement = 'completed'
        WHERE id = ?1 AND status = 'rendering'
-         AND cancellation_requested_at IS NULL AND active_attempt_id = ?4`
-    ).bind(plan.renderId, completedAt, expiresAt, plan.attemptId),
+         AND cancellation_requested_at IS NULL AND active_attempt_id = ?4
+         AND deadline_at > ?5`
+    ).bind(plan.renderId, completedAt, expiresAt, plan.attemptId, completedAt),
     ...artifacts.map((artifact) =>
       env.DB.prepare(
         `INSERT INTO render_outputs
@@ -698,7 +893,7 @@ export async function completeRenderJobAttempt(
     throw new RenderAdmissionCompletionError([error])
   })
   const completion = results[0]
-  if (!completion?.meta.changes) {
+  if (!completion.meta.changes) {
     const latest = await loadJob(env, plan.renderId)
     if (
       latest?.status === "cancelling" &&
@@ -706,6 +901,14 @@ export async function completeRenderJobAttempt(
     ) {
       await settleCancelled(env, plan.renderId, artifacts, plan.attemptId)
       return { status: "cancelled" }
+    }
+    if (
+      latest?.status === "rendering" &&
+      latest.active_attempt_id === plan.attemptId &&
+      latest.deadline_at &&
+      Date.parse(latest.deadline_at) <= Date.now()
+    ) {
+      return settleDeadlineAfterAdmissionCompletion(env, plan)
     }
     if (latest?.status !== "completed") {
       await deleteRenderPrefix(env, plan.storageRenderId)
@@ -737,25 +940,18 @@ export async function failRenderJobAttempt(
       error.message.includes("completion settlement is unknown"))
   let admissionSettled = false
   if (!settlementUnknown && current.admission_settlement === "pending") {
-    const parsed = renderRequestSchema.parse(JSON.parse(current.request_json))
-    const prepared = await prepareRenderJob(env, current.workspace_id, parsed)
-    const lease = await reserveRenderCapacityForBudget(
+    admissionSettled = await failKnownRenderReservation(
       env,
       current.admission_key,
-      prepared.plan,
       plan.reservationId
     )
-    admissionSettled = await failRenderLeaseWithRetry(lease)
       .then(() => true)
       .catch(() => false)
   }
   if (!settlementUnknown) {
     await deleteRenderPrefix(env, plan.storageRenderId)
   }
-  const rendererFailure =
-    error instanceof RendererInvocationError ? error : null
-  const message =
-    error instanceof Error ? error.message.slice(0, 500) : "Renderer failed"
+  const message = durableRenderFailureMessage(error)
   const canRetry =
     (settlementUnknown || retryableFailure(error)) &&
     plan.attempt < current.max_attempts
@@ -771,11 +967,7 @@ export async function failRenderJobAttempt(
   )
     .bind(
       plan.renderId,
-      settlementUnknown
-        ? "admission_settlement_unknown"
-        : error instanceof RenderDeadlineExceededError
-          ? "render_deadline_exceeded"
-          : (rendererFailure?.code ?? "renderer_failed"),
+      durableRenderFailureCode(error, settlementUnknown),
       message,
       settledAt,
       canRetry ? 1 : 0,
@@ -792,11 +984,7 @@ export async function failRenderJobAttempt(
     .bind(
       plan.attemptId,
       canRetry ? 1 : 0,
-      settlementUnknown
-        ? "admission_settlement_unknown"
-        : error instanceof RenderDeadlineExceededError
-          ? "render_deadline_exceeded"
-          : (rendererFailure?.code ?? "renderer_failed"),
+      durableRenderFailureCode(error, settlementUnknown),
       message,
       settledAt
     )

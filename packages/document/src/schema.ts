@@ -7,8 +7,11 @@ import {
   textRunSchema,
 } from "./rich-text"
 import {
+  CURATED_ASSET_PATH_PREFIX,
   LOCAL_ASSET_PREFIX,
   MANAGED_ASSET_PREFIX,
+  curatedAssetSourceSchema,
+  curatedImageAssetIdentity,
   localAssetIdSchema,
   localAssetSourceSchema,
   localImageAssetIdentity,
@@ -235,9 +238,12 @@ export const sceneNodeSchema = z
     }
     const identity = managedImageAssetIdentity(node.assetId, node.src)
     const localIdentity = localImageAssetIdentity(node.assetId, node.src)
+    const curatedIdentity = curatedImageAssetIdentity(node.assetId, node.src)
     if (
       (node.src.startsWith(LOCAL_ASSET_PREFIX) && !localIdentity.local) ||
-      (node.src.startsWith(MANAGED_ASSET_PREFIX) && !identity.managed)
+      (node.src.startsWith(MANAGED_ASSET_PREFIX) && !identity.managed) ||
+      (node.src.startsWith(CURATED_ASSET_PATH_PREFIX) &&
+        !curatedIdentity.curated)
     ) {
       context.addIssue({
         code: "custom",
@@ -257,6 +263,13 @@ export const sceneNodeSchema = z
         code: "custom",
         path: ["assetId"],
         message: `Managed image assetId must match ${identity.assetId}`,
+      })
+    }
+    if (curatedIdentity.curated && !curatedIdentity.coherent) {
+      context.addIssue({
+        code: "custom",
+        path: ["assetId"],
+        message: `Curated image assetId must match ${curatedIdentity.assetId}`,
       })
     }
   })
@@ -337,6 +350,9 @@ export function isSafeFieldAssetReference(value: string): boolean {
   if (value.startsWith("asset:managed/")) {
     return managedAssetSourceSchema.safeParse(value).success
   }
+  if (value.startsWith(CURATED_ASSET_PATH_PREFIX)) {
+    return curatedAssetSourceSchema.safeParse(value).success
+  }
   if (isRenderSafeImageSource(value)) return true
   try {
     return new URL(value).protocol === "https:"
@@ -349,7 +365,7 @@ const optionalAssetReferenceSchema = z
   .string()
   .refine(
     isSafeFieldAssetReference,
-    "Asset values must be an HTTPS URL, inline safe image, or managed asset reference"
+    "Asset values must be an approved curated path, HTTPS URL, inline safe image, or managed asset reference"
   )
 
 const DECIMAL_CURRENCY = /^-?(?:0|[1-9]\d*)(?:\.\d{1,2})?$/

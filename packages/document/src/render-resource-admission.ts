@@ -47,8 +47,23 @@ const decodeInlineRaster = (source: string): Uint8Array | null => {
   }
 }
 
+const decodeInlineImage = (source: string): Uint8Array | null => {
+  const raster = decodeInlineRaster(source)
+  if (raster) return raster
+  if (!/^data:image\/svg\+xml(?:;charset=utf-8)?,/i.test(source)) return null
+  const separator = source.indexOf(",")
+  if (separator < 0) return null
+  try {
+    return new TextEncoder().encode(
+      decodeURIComponent(source.slice(separator + 1))
+    )
+  } catch {
+    return null
+  }
+}
+
 const sha256Hex = async (bytes: Uint8Array): Promise<string> => {
-  const digest = await crypto.subtle.digest("SHA-256", Uint8Array.from(bytes))
+  const digest = await crypto.subtle.digest("SHA-256", bytes.slice().buffer)
   return Array.from(new Uint8Array(digest), (byte) =>
     byte.toString(16).padStart(2, "0")
   ).join("")
@@ -118,7 +133,7 @@ export async function assertRenderImageResourceAdmission(
       )
     }
 
-    const bytes = decodeInlineRaster(node.src)
+    const bytes = decodeInlineImage(node.src)
     if (!bytes || (await sha256Hex(bytes)) !== expectation.contentHash) {
       throw new RenderImageResourceAdmissionError(
         "image_resource_source_mismatch",

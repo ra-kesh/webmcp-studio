@@ -3,6 +3,7 @@ import type { Document } from "./schema"
 
 export const MANAGED_ASSET_PREFIX = "asset:managed/"
 export const LOCAL_ASSET_PREFIX = "asset:local/"
+export const CURATED_ASSET_PATH_PREFIX = "/library/media/"
 
 /**
  * Authoritative upload bounds shared by browser admission and the Worker.
@@ -47,6 +48,12 @@ export const managedAssetSourceSchema = z
   .string()
   .regex(/^asset:managed\/asset-[A-Za-z0-9_-]{10,90}$/)
 
+export const curatedAssetSourceSchema = z
+  .string()
+  .regex(
+    /^\/library\/media\/([A-Za-z0-9][A-Za-z0-9._:-]{0,199})\/v([1-9][0-9]*)\/([a-f0-9]{64})\.(?:svg|jpg|png|webp)$/
+  )
+
 export const managedAssetSource = (assetId: string) =>
   `${MANAGED_ASSET_PREFIX}${mediaAssetIdSchema.parse(assetId)}` as const
 
@@ -61,6 +68,20 @@ export const localAssetIdFromSource = (source: string) => {
 export const managedAssetIdFromSource = (source: string) => {
   const parsed = managedAssetSourceSchema.safeParse(source)
   return parsed.success ? parsed.data.slice(MANAGED_ASSET_PREFIX.length) : null
+}
+
+export const curatedAssetIdentityFromSource = (source: string) => {
+  const parsed = curatedAssetSourceSchema.safeParse(source)
+  if (!parsed.success) return null
+  const match = parsed.data.match(
+    /^\/library\/media\/([A-Za-z0-9][A-Za-z0-9._:-]{0,199})\/v([1-9][0-9]*)\/([a-f0-9]{64})\./
+  )
+  if (!match) return null
+  return {
+    assetId: match[1]!,
+    version: Number(match[2]),
+    contentSha256: match[3]!,
+  }
 }
 
 /**
@@ -86,6 +107,17 @@ export const localImageAssetIdentity = (assetId: string, source: string) => {
     local: true as const,
     coherent: assetId === sourceAssetId,
     assetId: sourceAssetId,
+  }
+}
+
+export const curatedImageAssetIdentity = (assetId: string, source: string) => {
+  const sourceIdentity = curatedAssetIdentityFromSource(source)
+  if (!sourceIdentity)
+    return { curated: false as const, coherent: true as const }
+  return {
+    curated: true as const,
+    coherent: assetId === sourceIdentity.assetId,
+    ...sourceIdentity,
   }
 }
 

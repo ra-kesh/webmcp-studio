@@ -11,11 +11,16 @@ import type { Document } from "@webmcp/document"
 import { JsonBodyError, jsonBodyErrorResponse } from "@webmcp/worker-boundary"
 import { z } from "zod"
 import { createEphemeralArtifactRendererRequest } from "../../../server/artifact-renderer-request"
+import {
+  createCuratedMediaResourceFetcher,
+  resolveCuratedMediaContent,
+} from "../../../content/library/media/curated-media-content"
 import { apiIssuesFrom } from "../../../server/api-boundary"
 import { readStudioJsonBody } from "../../../server/json-request-policy"
 import { MediaAssetRepository } from "../../../server/media-asset-repository"
 import { MediaAssetError } from "../../../server/media-assets"
 import {
+  CuratedAssetMaterializationError,
   ManagedAssetMaterializationError,
   materializeManagedDocumentAssets,
 } from "../../../server/render-field-assets"
@@ -86,6 +91,9 @@ export const Route = createFileRoute("/v1/studio/export-pdf")({
             workerEnv.DB,
             workerEnv.ASSETS
           )
+          const fetchCuratedResource = createCuratedMediaResourceFetcher(
+            workerEnv.CURATED_MEDIA
+          )
           const materialized = await materializeManagedDocumentAssets(
             parsed.data.document,
             (assetId, resourceSignal) =>
@@ -95,7 +103,13 @@ export const Route = createFileRoute("/v1/studio/export-pdf")({
                 resourceSignal
               ),
             [],
-            request.signal
+            request.signal,
+            (assetId, version, resourceSignal) =>
+              resolveCuratedMediaContent(
+                { assetId, version },
+                fetchCuratedResource,
+                resourceSignal
+              )
           )
           request.signal.throwIfAborted()
           renderDocument = materialized.document
@@ -120,6 +134,7 @@ export const Route = createFileRoute("/v1/studio/export-pdf")({
           }
           if (
             error instanceof ManagedAssetMaterializationError ||
+            error instanceof CuratedAssetMaterializationError ||
             error instanceof RenderImageResourceAdmissionError
           ) {
             return respond(

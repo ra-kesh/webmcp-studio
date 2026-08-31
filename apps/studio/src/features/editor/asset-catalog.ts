@@ -1,9 +1,16 @@
 import { validateAssetFieldPublicationIdentities } from "@webmcp/document"
 import type { Document, ValidationIssue } from "@webmcp/document"
+import { studioMediaManifest } from "../../content/library/media/manifest"
+import type { StudioMediaManifestItem } from "../../content/library/media/manifest"
 import {
-  studioMediaManifest,
-  type StudioMediaManifestItem,
-} from "../../content/library/media/manifest"
+  curatedMediaContentPath,
+  curatedMediaManifestItemForValue,
+  resolveCuratedMediaContent,
+} from "../../content/library/media/curated-media-content"
+import type {
+  CuratedMediaResourceFetcher,
+  VerifiedCuratedMediaContent,
+} from "../../content/library/media/curated-media-content"
 
 export type StudioAsset = Omit<StudioMediaManifestItem, "resourcePath"> & {
   resourcePath: null
@@ -120,20 +127,76 @@ export const studioAssets: StudioAsset[] = [
   ),
 ]
 
+const compatibilityPath = (item: StudioAsset) =>
+  `/library/media/${item.id}/v${item.version}/${item.contentSha256}.svg`
+
+const compatibilityAssetForValue = (value: unknown) =>
+  studioAssets.find(
+    (candidate) =>
+      candidate.src === value || compatibilityPath(candidate) === value
+  )
+
+export const studioCompatibilityAssetForValue = compatibilityAssetForValue
+
+export const studioCompatibilityAssetPathForValue = (value: unknown) => {
+  const item = compatibilityAssetForValue(value)
+  return item ? compatibilityPath(item) : undefined
+}
+
 export const studioAssetIdForValue = (value: unknown) =>
-  typeof value === "string"
-    ? studioAssets.find(
-        (candidate) => candidate.id === value || candidate.src === value
-      )?.id
+  compatibilityAssetForValue(value)?.id ??
+  curatedMediaManifestItemForValue(value)?.id
+
+export const studioAssetIdentityForValue = (value: unknown) => {
+  const compatibility = compatibilityAssetForValue(value)
+  const item = compatibility ?? curatedMediaManifestItemForValue(value)
+  return item
+    ? {
+        assetId: item.id,
+        version: item.version,
+        contentSha256: item.contentSha256,
+      }
     : undefined
+}
+
+export const studioAssetContentPathForValue = (value: unknown) => {
+  const item = curatedMediaManifestItemForValue(value)
+  return item ? curatedMediaContentPath(item.id, item.version) : undefined
+}
+
+export async function resolveStudioAssetContent(
+  assetId: string,
+  version: number,
+  fetchResource: CuratedMediaResourceFetcher,
+  signal?: AbortSignal
+): Promise<VerifiedCuratedMediaContent> {
+  return resolveCuratedMediaContent({ assetId, version }, fetchResource, signal)
+}
 
 export function studioAssetFieldPublicationIssues(
   document: Document
 ): ValidationIssue[] {
-  return validateAssetFieldPublicationIdentities(document, (value) =>
-    Boolean(studioAssetIdForValue(value))
+  const fieldIssues = validateAssetFieldPublicationIdentities(
+    document,
+    (value) => Boolean(studioAssetIdForValue(value))
   ).map((issue) => ({
     ...issue,
     message: issue.message.replace("approved asset", "approved Studio asset"),
   }))
+  const curatedNodeIssues: ValidationIssue[] = document.nodes.flatMap((node) =>
+    node.type === "image" &&
+    node.src.startsWith("/library/media/") &&
+    !curatedMediaManifestItemForValue(node.src)
+      ? [
+          {
+            id: `node:${node.id}:unknown-curated-asset`,
+            severity: "error" as const,
+            code: "unmanaged_asset" as const,
+            message: `${node.name} does not use an exact approved Studio asset version`,
+            nodeId: node.id,
+          },
+        ]
+      : []
+  )
+  return [...fieldIssues, ...curatedNodeIssues]
 }

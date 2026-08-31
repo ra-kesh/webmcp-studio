@@ -5,7 +5,10 @@ import { JsonBodyError, jsonBodyErrorResponse } from "@webmcp/worker-boundary"
 import { databaseTemplateId } from "../../../server/demo-session"
 import { readStudioJsonBody } from "../../../server/json-request-policy"
 import { MediaAssetError } from "../../../server/media-assets"
-import { ManagedAssetMaterializationError } from "../../../server/render-field-assets"
+import {
+  CuratedAssetMaterializationError,
+  ManagedAssetMaterializationError,
+} from "../../../server/render-field-assets"
 import {
   renderRequestHash,
   renderRequestSchema,
@@ -169,8 +172,11 @@ async function ensureWorkflow(env: Env, job: ExistingJobRow) {
 }
 
 const preparationErrorResponse = (error: unknown) => {
-  const managedNodeFailure =
-    error instanceof ManagedAssetMaterializationError ? error : null
+  const materializationFailure =
+    error instanceof ManagedAssetMaterializationError ||
+    error instanceof CuratedAssetMaterializationError
+      ? error
+      : null
   const managedAssetFailure = error instanceof MediaAssetError ? error : null
   const resourceFailure =
     error instanceof RenderImageResourceAdmissionError ? error : null
@@ -205,15 +211,15 @@ const preparationErrorResponse = (error: unknown) => {
       error: {
         code: resourceFailure
           ? "render_resource_admission_failed"
-          : managedNodeFailure
-            ? managedNodeFailure.code
+          : materializationFailure
+            ? materializationFailure.code
             : managedAssetFailure
               ? "managed_asset_integrity_failed"
               : "invalid_modification",
         message: resourceFailure
           ? resourceFailure.message
-          : managedNodeFailure
-            ? managedNodeFailure.message
+          : materializationFailure
+            ? materializationFailure.message
             : managedAssetFailure
               ? "A managed image failed resource integrity validation"
               : message,
@@ -223,10 +229,10 @@ const preparationErrorResponse = (error: unknown) => {
               assetId: resourceFailure.assetId,
               nodeId: resourceFailure.nodeId,
             }
-          : managedNodeFailure
+          : materializationFailure
             ? {
-                assetId: managedNodeFailure.assetId,
-                nodeId: managedNodeFailure.nodeId,
+                assetId: materializationFailure.assetId,
+                nodeId: materializationFailure.nodeId,
               }
             : {}),
       },
@@ -321,7 +327,12 @@ export const Route = createFileRoute("/v1/studio/render")({
         }
 
         try {
-          await prepareRenderJob(workerEnv, session.workspaceId, parsed.data)
+          await prepareRenderJob(
+            workerEnv,
+            session.workspaceId,
+            parsed.data,
+            request.signal
+          )
         } catch (error) {
           return respond(preparationErrorResponse(error))
         }

@@ -41,6 +41,7 @@ import { Route as V1StudioLibraryItemsIndexRouteImport } from './routes/v1/studi
 import { Route as V1StudioDocumentsDocumentIdRevisionsSnapshotIdRouteImport } from './routes/v1/studio/documents/$documentId/revisions/$snapshotId'
 import { Route as V1StudioLibraryCollectionsCollectionIdOrderRouteImport } from './routes/v1/studio/library/collections/$collectionId/order'
 import { Route as V1StudioLibraryItemsItemKindItemIdVersionsVersionRouteImport } from './routes/v1/studio/library/items/$itemKind/$itemId/versions/$version'
+import { Route as V1StudioLibraryMediaAssetIdVersionsVersionContentRouteImport } from './routes/v1/studio/library/media/$assetId/versions/$version/content'
 import { Route as V1StudioLibraryItemsItemKindItemIdVersionsVersionFavoriteRouteImport } from './routes/v1/studio/library/items/$itemKind/$itemId/versions/$version.favorite'
 import { Route as V1StudioLibraryItemsItemKindItemIdVersionsVersionUsedRouteImport } from './routes/v1/studio/library/items/$itemKind/$itemId/versions/$version.used'
 import { Route as V1StudioLibraryCollectionsCollectionIdItemsItemKindItemIdVersionsVersionRouteImport } from './routes/v1/studio/library/collections/$collectionId/items/$itemKind/$itemId/versions/$version'
@@ -221,6 +222,12 @@ const V1StudioLibraryItemsItemKindItemIdVersionsVersionRoute =
     path: '/v1/studio/library/items/$itemKind/$itemId/versions/$version',
     getParentRoute: () => rootRouteImport,
   } as any)
+const V1StudioLibraryMediaAssetIdVersionsVersionContentRoute =
+  V1StudioLibraryMediaAssetIdVersionsVersionContentRouteImport.update({
+    id: '/v1/studio/library/media/$assetId/versions/$version/content',
+    path: '/v1/studio/library/media/$assetId/versions/$version/content',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const V1StudioLibraryItemsItemKindItemIdVersionsVersionFavoriteRoute =
   V1StudioLibraryItemsItemKindItemIdVersionsVersionFavoriteRouteImport.update({
     id: '/favorite',
@@ -276,6 +283,7 @@ export interface FileRoutesByFullPath {
   '/v1/studio/documents/$documentId/revisions/$snapshotId': typeof V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute
   '/v1/studio/library/collections/$collectionId/order': typeof V1StudioLibraryCollectionsCollectionIdOrderRoute
   '/v1/studio/library/items/$itemKind/$itemId/versions/$version': typeof V1StudioLibraryItemsItemKindItemIdVersionsVersionRouteWithChildren
+  '/v1/studio/library/media/$assetId/versions/$version/content': typeof V1StudioLibraryMediaAssetIdVersionsVersionContentRoute
   '/v1/studio/library/items/$itemKind/$itemId/versions/$version/favorite': typeof V1StudioLibraryItemsItemKindItemIdVersionsVersionFavoriteRoute
   '/v1/studio/library/items/$itemKind/$itemId/versions/$version/used': typeof V1StudioLibraryItemsItemKindItemIdVersionsVersionUsedRoute
   '/v1/studio/library/collections/$collectionId/items/$itemKind/$itemId/versions/$version': typeof V1StudioLibraryCollectionsCollectionIdItemsItemKindItemIdVersionsVersionRoute
@@ -312,6 +320,7 @@ export interface FileRoutesByTo {
   '/v1/studio/documents/$documentId/revisions/$snapshotId': typeof V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute
   '/v1/studio/library/collections/$collectionId/order': typeof V1StudioLibraryCollectionsCollectionIdOrderRoute
   '/v1/studio/library/items/$itemKind/$itemId/versions/$version': typeof V1StudioLibraryItemsItemKindItemIdVersionsVersionRouteWithChildren
+  '/v1/studio/library/media/$assetId/versions/$version/content': typeof V1StudioLibraryMediaAssetIdVersionsVersionContentRoute
   '/v1/studio/library/items/$itemKind/$itemId/versions/$version/favorite': typeof V1StudioLibraryItemsItemKindItemIdVersionsVersionFavoriteRoute
   '/v1/studio/library/items/$itemKind/$itemId/versions/$version/used': typeof V1StudioLibraryItemsItemKindItemIdVersionsVersionUsedRoute
   '/v1/studio/library/collections/$collectionId/items/$itemKind/$itemId/versions/$version': typeof V1StudioLibraryCollectionsCollectionIdItemsItemKindItemIdVersionsVersionRoute
@@ -350,6 +359,7 @@ export interface FileRoutesById {
   '/v1/studio/documents/$documentId/revisions/$snapshotId': typeof V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute
   '/v1/studio/library/collections/$collectionId/order': typeof V1StudioLibraryCollectionsCollectionIdOrderRoute
   '/v1/studio/library/items/$itemKind/$itemId/versions/$version': typeof V1StudioLibraryItemsItemKindItemIdVersionsVersionRouteWithChildren
+  '/v1/studio/library/media/$assetId/versions/$version/content': typeof V1StudioLibraryMediaAssetIdVersionsVersionContentRoute
   '/v1/studio/library/items/$itemKind/$itemId/versions/$version/favorite': typeof V1StudioLibraryItemsItemKindItemIdVersionsVersionFavoriteRoute
   '/v1/studio/library/items/$itemKind/$itemId/versions/$version/used': typeof V1StudioLibraryItemsItemKindItemIdVersionsVersionUsedRoute
   '/v1/studio/library/collections/$collectionId/items/$itemKind/$itemId/versions/$version': typeof V1StudioLibraryCollectionsCollectionIdItemsItemKindItemIdVersionsVersionRoute
@@ -388,6 +398,7 @@ export interface FileRouteTypes {
     | '/v1/studio/documents/$documentId/revisions/$snapshotId'
     | '/v1/studio/library/collections/$collectionId/order'
     | '/v1/studio/library/items/$itemKind/$itemId/versions/$version'
+    | '/v1/studio/library/media/$assetId/versions/$version/content'
     | '/v1/studio/library/items/$itemKind/$itemId/versions/$version/favorite'
     | '/v1/studio/library/items/$itemKind/$itemId/versions/$version/used'
     | '/v1/studio/library/collections/$collectionId/items/$itemKind/$itemId/versions/$version'
@@ -424,6 +435,7 @@ export interface FileRouteTypes {
     | '/v1/studio/documents/$documentId/revisions/$snapshotId'
     | '/v1/studio/library/collections/$collectionId/order'
     | '/v1/studio/library/items/$itemKind/$itemId/versions/$version'
+    | '/v1/studio/library/media/$assetId/versions/$version/content'
     | '/v1/studio/library/items/$itemKind/$itemId/versions/$version/favorite'
     | '/v1/studio/library/items/$itemKind/$itemId/versions/$version/used'
     | '/v1/studio/library/collections/$collectionId/items/$itemKind/$itemId/versions/$version'
@@ -461,6 +473,7 @@ export interface FileRouteTypes {
     | '/v1/studio/documents/$documentId/revisions/$snapshotId'
     | '/v1/studio/library/collections/$collectionId/order'
     | '/v1/studio/library/items/$itemKind/$itemId/versions/$version'
+    | '/v1/studio/library/media/$assetId/versions/$version/content'
     | '/v1/studio/library/items/$itemKind/$itemId/versions/$version/favorite'
     | '/v1/studio/library/items/$itemKind/$itemId/versions/$version/used'
     | '/v1/studio/library/collections/$collectionId/items/$itemKind/$itemId/versions/$version'
@@ -492,6 +505,7 @@ export interface RootRouteChildren {
   V1StudioLibraryItemsIndexRoute: typeof V1StudioLibraryItemsIndexRoute
   V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute: typeof V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute
   V1StudioLibraryItemsItemKindItemIdVersionsVersionRoute: typeof V1StudioLibraryItemsItemKindItemIdVersionsVersionRouteWithChildren
+  V1StudioLibraryMediaAssetIdVersionsVersionContentRoute: typeof V1StudioLibraryMediaAssetIdVersionsVersionContentRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -720,6 +734,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof V1StudioLibraryItemsItemKindItemIdVersionsVersionRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/v1/studio/library/media/$assetId/versions/$version/content': {
+      id: '/v1/studio/library/media/$assetId/versions/$version/content'
+      path: '/v1/studio/library/media/$assetId/versions/$version/content'
+      fullPath: '/v1/studio/library/media/$assetId/versions/$version/content'
+      preLoaderRoute: typeof V1StudioLibraryMediaAssetIdVersionsVersionContentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/v1/studio/library/items/$itemKind/$itemId/versions/$version/favorite': {
       id: '/v1/studio/library/items/$itemKind/$itemId/versions/$version/favorite'
       path: '/favorite'
@@ -855,6 +876,8 @@ const rootRouteChildren: RootRouteChildren = {
     V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute,
   V1StudioLibraryItemsItemKindItemIdVersionsVersionRoute:
     V1StudioLibraryItemsItemKindItemIdVersionsVersionRouteWithChildren,
+  V1StudioLibraryMediaAssetIdVersionsVersionContentRoute:
+    V1StudioLibraryMediaAssetIdVersionsVersionContentRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

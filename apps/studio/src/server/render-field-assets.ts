@@ -5,13 +5,20 @@ import type {
   TemplateVersion,
 } from "@webmcp/document"
 import {
+  curatedAssetIdentityFromSource,
+  curatedImageAssetIdentity,
   managedImageAssetIdentity,
   validateAssetFieldPublicationIdentities,
 } from "@webmcp/document"
 import {
   studioAssetIdForValue,
+  studioAssetIdentityForValue,
   studioAssets,
+  studioCompatibilityAssetForValue,
+  studioCompatibilityAssetPathForValue,
 } from "../features/editor/asset-catalog"
+import type { VerifiedCuratedMediaContent } from "../content/library/media/curated-media-content"
+import { studioMediaManifest } from "../content/library/media/manifest"
 import { managedAssetIdFromSource, managedAssetSource } from "./media-assets"
 import type {
   MediaAssetReference,
@@ -23,11 +30,31 @@ type ManagedAssetResolver = (
   signal?: AbortSignal
 ) => Promise<VerifiedManagedAssetResource>
 
+type CuratedAssetResolver = (
+  assetId: string,
+  version: number,
+  signal?: AbortSignal
+) => Promise<VerifiedCuratedMediaContent>
+
 export type ManagedImageResourceExpectation = RenderImageResourceExpectation
 
 export type ResolvedRenderFieldAssets = {
   modifications: TemplateModifications
   resources: VerifiedManagedAssetResource[]
+}
+
+const compatibilityRendererResource = (value: unknown) => {
+  const asset = studioCompatibilityAssetForValue(value)
+  return asset
+    ? ({
+        assetId: asset.id,
+        src: asset.src,
+        width: asset.width,
+        height: asset.height,
+        contentHash: asset.contentSha256,
+        revision: asset.version,
+      } satisfies VerifiedManagedAssetResource)
+    : null
 }
 
 export type MaterializedManagedDocument = {
@@ -36,6 +63,17 @@ export type MaterializedManagedDocument = {
 }
 
 const contentHashPattern = /^[a-f0-9]{64}$/
+
+const curatedRendererResource = (
+  content: VerifiedCuratedMediaContent
+): VerifiedManagedAssetResource => ({
+  assetId: content.identity.assetId,
+  src: content.src,
+  width: content.item.width,
+  height: content.item.height,
+  contentHash: content.identity.contentSha256,
+  revision: content.identity.version,
+})
 
 function assertVerifiedManagedAssetResource(
   expectedAssetId: string,
@@ -74,6 +112,21 @@ export class ManagedAssetMaterializationError extends Error {
   }
 }
 
+export class CuratedAssetMaterializationError extends Error {
+  readonly code = "curated_asset_materialization_failed"
+
+  constructor(
+    readonly assetId: string,
+    readonly nodeId: string,
+    cause: unknown
+  ) {
+    super(`Curated image node ${nodeId} failed resource integrity validation`, {
+      cause,
+    })
+    this.name = "CuratedAssetMaterializationError"
+  }
+}
+
 export function resolveRenderFieldAssetIds(
   version: Pick<TemplateVersion, "manifest">,
   modifications: TemplateModifications
@@ -95,12 +148,66 @@ export function resolveRenderFieldAssetIds(
       }
       const asset = studioAssets.find((candidate) => candidate.id === value)
       if (/^asset-[A-Za-z0-9_-]{10,90}$/.test(value)) return [key, value]
-      if (!asset) {
+      if (asset) return [key, asset.src]
+      const curatedIdentity = studioAssetIdentityForValue(value)
+      if (!curatedIdentity) {
         throw new Error(
           `Unknown approved asset ID for ${parameter.label}: ${value}`
         )
       }
-      return [key, asset.src]
+      const manifestItem = studioMediaManifest.find(
+        (candidate) =>
+          candidate.id === curatedIdentity.assetId &&
+          candidate.version === curatedIdentity.version &&
+          candidate.contentSha256 === curatedIdentity.contentSha256
+      )
+      if (!manifestItem) throw new Error(`Unknown approved asset ID: ${value}`)
+      return [key, manifestItem.resourcePath]
+    })
+  )
+}
+
+function resolveRenderFieldAssetIdentities(
+  version: Pick<TemplateVersion, "manifest">,
+  modifications: TemplateModifications
+): TemplateModifications {
+  return Object.fromEntries(
+    Object.entries(modifications).map(([key, value]) => {
+      const parameter = version.manifest.parameters.find(
+        (candidate) => candidate.key === key
+      )
+      if (parameter?.type === "currency" && typeof value !== "string") {
+        throw new Error(
+          `${parameter.label} must use an exact decimal string to avoid money precision loss`
+        )
+      }
+      if (parameter?.type !== "asset") return [key, value]
+      if (value === "" && !parameter.required) return [key, value]
+      if (typeof value !== "string" || value.startsWith("data:image/")) {
+        throw new Error(`${parameter.label} must use an approved asset ID`)
+      }
+      if (/^asset-[A-Za-z0-9_-]{10,90}$/.test(value)) return [key, value]
+      if (studioCompatibilityAssetPathForValue(value) === value) {
+        return [key, value]
+      }
+      const identity = studioAssetIdentityForValue(value)
+      if (!identity) {
+        throw new Error(
+          `Unknown approved asset ID for ${parameter.label}: ${value}`
+        )
+      }
+      const item = studioMediaManifest.find(
+        (candidate) =>
+          candidate.id === identity.assetId &&
+          candidate.version === identity.version &&
+          candidate.contentSha256 === identity.contentSha256
+      )
+      if (!item) {
+        throw new Error(
+          `Unknown approved asset ID for ${parameter.label}: ${value}`
+        )
+      }
+      return [key, item.resourcePath]
     })
   )
 }
@@ -108,9 +215,12 @@ export function resolveRenderFieldAssetIds(
 export async function resolveRenderFieldAssetIdsForWorkspace(
   version: Pick<TemplateVersion, "manifest">,
   modifications: TemplateModifications,
-  resolveManagedAsset: ManagedAssetResolver
+  resolveManagedAsset: ManagedAssetResolver,
+  resolveCuratedAsset?: CuratedAssetResolver,
+  signal?: AbortSignal
 ): Promise<ResolvedRenderFieldAssets> {
-  const resolved = resolveRenderFieldAssetIds(version, modifications)
+  signal?.throwIfAborted()
+  const resolved = resolveRenderFieldAssetIdentities(version, modifications)
   const resourcesById = new Map<string, Promise<VerifiedManagedAssetResource>>()
   const entries = await Promise.all(
     Object.entries(resolved).map(async ([key, value]) => {
@@ -123,6 +233,56 @@ export async function resolveRenderFieldAssetIdsForWorkspace(
       if (value === "") return [key, value] as const
       // Built-in IDs are already converted by the synchronous resolver.
       if (value.startsWith("data:image/")) return [key, value] as const
+      const compatibility = compatibilityRendererResource(value)
+      if (compatibility) {
+        resourcesById.set(
+          `curated:${compatibility.assetId}@${compatibility.revision}`,
+          Promise.resolve(compatibility)
+        )
+        return [key, value] as const
+      }
+      const curatedIdentity = curatedAssetIdentityFromSource(value)
+      if (curatedIdentity) {
+        try {
+          if (!resolveCuratedAsset) {
+            throw new Error(
+              `Curated media resolver is unavailable for ${parameter.label}`
+            )
+          }
+          const resourceKey = `curated:${curatedIdentity.assetId}@${curatedIdentity.version}`
+          let pending = resourcesById.get(resourceKey)
+          if (!pending) {
+            pending = resolveCuratedAsset(
+              curatedIdentity.assetId,
+              curatedIdentity.version,
+              signal
+            ).then((content) => {
+              signal?.throwIfAborted()
+              if (
+                content.identity.contentSha256 !== curatedIdentity.contentSha256
+              ) {
+                throw new Error(
+                  `Curated media ${curatedIdentity.assetId}@${curatedIdentity.version} did not match its canonical source`
+                )
+              }
+              return assertVerifiedManagedAssetResource(
+                curatedIdentity.assetId,
+                curatedRendererResource(content)
+              )
+            })
+            resourcesById.set(resourceKey, pending)
+          }
+          await pending
+        } catch (error) {
+          signal?.throwIfAborted()
+          throw new CuratedAssetMaterializationError(
+            curatedIdentity.assetId,
+            `field:${parameter.id}:modification`,
+            error
+          )
+        }
+        return [key, value] as const
+      }
       const assetId = managedAssetIdFromSource(managedAssetSource(value))
       if (!assetId) {
         throw new Error(
@@ -131,12 +291,23 @@ export async function resolveRenderFieldAssetIdsForWorkspace(
       }
       let pending = resourcesById.get(assetId)
       if (!pending) {
-        pending = resolveManagedAsset(assetId).then((resource) =>
-          assertVerifiedManagedAssetResource(assetId, resource)
-        )
+        pending = resolveManagedAsset(assetId, signal).then((resource) => {
+          signal?.throwIfAborted()
+          return assertVerifiedManagedAssetResource(assetId, resource)
+        })
         resourcesById.set(assetId, pending)
       }
-      const resource = await pending
+      let resource: VerifiedManagedAssetResource
+      try {
+        resource = await pending
+      } catch (error) {
+        signal?.throwIfAborted()
+        throw new ManagedAssetMaterializationError(
+          assetId,
+          `field:${parameter.id}:modification`,
+          error
+        )
+      }
       return [key, resource.src] as const
     })
   )
@@ -229,22 +400,69 @@ export async function materializeManagedDocumentAssets(
   input: Document,
   resolveManagedAsset: ManagedAssetResolver,
   initialResources: readonly VerifiedManagedAssetResource[] = [],
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  resolveCuratedAsset?: CuratedAssetResolver
 ): Promise<MaterializedManagedDocument> {
   signal?.throwIfAborted()
   const document = structuredClone(input)
-  const resolvedById = new Map(
-    initialResources.map((resource) => [
-      resource.assetId,
-      Promise.resolve(
-        assertVerifiedManagedAssetResource(resource.assetId, resource)
-      ),
-    ])
-  )
+  const resolvedById = new Map<string, Promise<VerifiedManagedAssetResource>>()
+  for (const resource of initialResources) {
+    const verified = Promise.resolve(
+      assertVerifiedManagedAssetResource(resource.assetId, resource)
+    )
+    resolvedById.set(resource.assetId, verified)
+    resolvedById.set(
+      `curated:${resource.assetId}@${resource.revision}`,
+      verified
+    )
+  }
   const resources: ManagedImageResourceExpectation[] = []
   const resolveSource = async (source: string) => {
     signal?.throwIfAborted()
+    const compatibility = compatibilityRendererResource(source)
+    if (compatibility) {
+      const resourceKey = `curated:${compatibility.assetId}@${compatibility.revision}`
+      const existing = resolvedById.get(resourceKey)
+      if (existing) return existing
+      const verified = Promise.resolve(
+        assertVerifiedManagedAssetResource(compatibility.assetId, compatibility)
+      )
+      resolvedById.set(resourceKey, verified)
+      return verified
+    }
     const assetId = managedAssetIdFromSource(source)
+    const curatedIdentity = curatedAssetIdentityFromSource(source)
+    if (!assetId && !curatedIdentity) return null
+    if (curatedIdentity) {
+      if (!resolveCuratedAsset) {
+        throw new Error(
+          `Curated media resolver is unavailable for ${curatedIdentity.assetId}@${curatedIdentity.version}`
+        )
+      }
+      const resourceKey = `curated:${curatedIdentity.assetId}@${curatedIdentity.version}`
+      let pending = resolvedById.get(resourceKey)
+      if (!pending) {
+        pending = resolveCuratedAsset(
+          curatedIdentity.assetId,
+          curatedIdentity.version,
+          signal
+        ).then((content) => {
+          if (
+            content.identity.contentSha256 !== curatedIdentity.contentSha256
+          ) {
+            throw new Error(
+              `Curated media ${curatedIdentity.assetId}@${curatedIdentity.version} did not match its canonical source`
+            )
+          }
+          return assertVerifiedManagedAssetResource(
+            curatedIdentity.assetId,
+            curatedRendererResource(content)
+          )
+        })
+        resolvedById.set(resourceKey, pending)
+      }
+      return pending
+    }
     if (!assetId) return null
     let pending = resolvedById.get(assetId)
     if (!pending) {
@@ -261,12 +479,20 @@ export async function materializeManagedDocumentAssets(
     signal?.throwIfAborted()
     if (node.type !== "image") continue
     const identity = managedImageAssetIdentity(node.assetId, node.src)
+    const curatedIdentity = curatedImageAssetIdentity(node.assetId, node.src)
     if (identity.managed && !identity.coherent) {
       throw new Error(
         `Managed image ${node.name} has mismatched assetId and src identities`
       )
     }
-    const assetId = managedAssetIdFromSource(node.src)
+    if (curatedIdentity.curated && !curatedIdentity.coherent) {
+      throw new Error(
+        `Curated image ${node.name} has mismatched assetId and src identities`
+      )
+    }
+    const assetId =
+      managedAssetIdFromSource(node.src) ??
+      (curatedIdentity.curated ? curatedIdentity.assetId : null)
     if (!assetId) continue
     try {
       const resource = await resolveSource(node.src)
@@ -282,19 +508,54 @@ export async function materializeManagedDocumentAssets(
       })
     } catch (error) {
       signal?.throwIfAborted()
+      if (curatedIdentity.curated) {
+        throw new CuratedAssetMaterializationError(assetId, node.id, error)
+      }
       throw new ManagedAssetMaterializationError(assetId, node.id, error)
+    }
+  }
+  const resolveFieldSource = async (
+    fieldId: string,
+    source: string,
+    slot: "default" | "current"
+  ) => {
+    try {
+      return await resolveSource(source)
+    } catch (error) {
+      signal?.throwIfAborted()
+      const curatedIdentity = curatedAssetIdentityFromSource(source)
+      if (curatedIdentity) {
+        throw new CuratedAssetMaterializationError(
+          curatedIdentity.assetId,
+          `field:${fieldId}:${slot}`,
+          error
+        )
+      }
+      const managedAssetId = managedAssetIdFromSource(source)
+      if (managedAssetId) {
+        throw new ManagedAssetMaterializationError(
+          managedAssetId,
+          `field:${fieldId}:${slot}`,
+          error
+        )
+      }
+      throw error
     }
   }
   for (const field of document.fields) {
     signal?.throwIfAborted()
     if (field.type !== "asset") continue
     if (typeof field.defaultValue === "string") {
-      const resource = await resolveSource(field.defaultValue)
+      const resource = await resolveFieldSource(
+        field.id,
+        field.defaultValue,
+        "default"
+      )
       if (resource) field.defaultValue = resource.src
     }
     const current = document.fieldValues[field.id]
     if (typeof current === "string") {
-      const resource = await resolveSource(current)
+      const resource = await resolveFieldSource(field.id, current, "current")
       if (resource) document.fieldValues[field.id] = resource.src
     }
   }
@@ -306,24 +567,61 @@ export async function materializeManagedDocumentAssets(
 }
 
 export const catalogAssetFieldIssues = (document: Document) => {
-  return validateAssetFieldPublicationIdentities(
+  const fieldIssues = validateAssetFieldPublicationIdentities(
     document,
     (value) =>
       Boolean(studioAssetIdForValue(value)) ||
       (typeof value === "string" && managedAssetIdFromSource(value) !== null)
   )
+  const curatedNodeIssues = document.nodes.flatMap((node) =>
+    node.type === "image" &&
+    node.src.startsWith("/library/media/") &&
+    !studioAssetIdentityForValue(node.src)
+      ? [
+          {
+            id: `node:${node.id}:unknown-curated-asset`,
+            severity: "error" as const,
+            code: "unmanaged_asset" as const,
+            message: `${node.name} does not use an exact approved Studio asset version`,
+            nodeId: node.id,
+          },
+        ]
+      : []
+  )
+  return [...fieldIssues, ...curatedNodeIssues]
 }
 
 export function publicTemplateVersion(
   version: TemplateVersion
 ): TemplateVersion {
+  const document = structuredClone(version.document)
+  for (const node of document.nodes) {
+    if (node.type !== "image") continue
+    node.src = studioCompatibilityAssetPathForValue(node.src) ?? node.src
+  }
+  for (const field of document.fields) {
+    if (field.type !== "asset") continue
+    if (typeof field.defaultValue === "string") {
+      field.defaultValue =
+        studioCompatibilityAssetPathForValue(field.defaultValue) ??
+        field.defaultValue
+    }
+    const current = document.fieldValues[field.id]
+    if (typeof current === "string") {
+      document.fieldValues[field.id] =
+        studioCompatibilityAssetPathForValue(current) ?? current
+    }
+  }
   return {
     ...version,
+    document,
     manifest: {
       ...version.manifest,
       parameters: version.manifest.parameters.map((parameter) => {
         if (parameter.type !== "asset") return parameter
         const publicId = (value: unknown): string | undefined => {
+          const compatibilityPath = studioCompatibilityAssetPathForValue(value)
+          if (compatibilityPath) return compatibilityPath
           if (
             typeof value === "string" &&
             /^asset-[A-Za-z0-9_-]{10,90}$/.test(value)
@@ -333,6 +631,7 @@ export function publicTemplateVersion(
           if (typeof value === "string") {
             const managedId = managedAssetIdFromSource(value)
             if (managedId) return managedId
+            if (curatedAssetIdentityFromSource(value)) return value
           }
           return studioAssetIdForValue(value)
         }

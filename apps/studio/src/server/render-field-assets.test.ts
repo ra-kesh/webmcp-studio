@@ -1,15 +1,28 @@
+import { readFile } from "node:fs/promises"
 import { describe, expect, it, vi } from "vitest"
-import { createTemplateVersion, northstarSeed } from "@webmcp/document"
+import {
+  assertRenderImageResourceAdmission,
+  assertRenderableDocument,
+  createTemplateVersion,
+  northstarSeed,
+} from "@webmcp/document"
 import type { Document, TemplateVersion } from "@webmcp/document"
 import { studioAssets } from "../features/editor/asset-catalog"
+import {
+  legacyCuratedMediaCompatibilityItems,
+  resolveCuratedMediaContent,
+} from "../content/library/media/curated-media-content"
+import { studioMediaManifest } from "../content/library/media/manifest"
 import {
   catalogAssetFieldIssues,
   collectManagedDocumentAssetReferences,
   materializeManagedDocumentAssets,
   publicTemplateVersion,
   resolveRenderFieldAssetIds,
+  resolveRenderFieldAssetIdsForWorkspace,
 } from "./render-field-assets"
 import type { ManagedAssetMaterializationError } from "./render-field-assets"
+import { durableRenderFailureCode } from "./render-job-execution"
 
 const rendererResource = (assetId: string, src = studioAssets[0].src) => ({
   assetId,
@@ -19,6 +32,23 @@ const rendererResource = (assetId: string, src = studioAssets[0].src) => ({
   contentHash: "a".repeat(64),
   revision: 3,
 })
+
+const resolveCurated = (assetId: string, version: number) =>
+  resolveCuratedMediaContent({ assetId, version }, async (resourcePath) => {
+    const item = [
+      ...studioMediaManifest,
+      ...legacyCuratedMediaCompatibilityItems,
+    ].find((candidate) => candidate.resourcePath === resourcePath)!
+    const bytes = new Uint8Array(
+      await readFile(new URL(`../../public${resourcePath}`, import.meta.url))
+    )
+    return new Response(bytes.slice().buffer, {
+      headers: {
+        "Content-Length": String(bytes.byteLength),
+        "Content-Type": item.mimeType,
+      },
+    })
+  })
 
 const manifest: TemplateVersion["manifest"] = {
   schemaVersion: 1,
@@ -52,6 +82,119 @@ const manifest: TemplateVersion["manifest"] = {
 }
 
 describe("render field asset resolution", () => {
+  it("materializes every curated manifest ID through its exact immutable version", async () => {
+    for (const item of studioMediaManifest) {
+      const managed = vi.fn(async () => {
+        throw new Error("Managed resolution must not run for curated media")
+      })
+      const curated = vi.fn(resolveCurated)
+      const resolved = await resolveRenderFieldAssetIdsForWorkspace(
+        { manifest },
+        { hero_asset: item.id },
+        managed,
+        curated
+      )
+
+      expect(resolved.modifications.hero_asset).toBe(item.resourcePath)
+      expect(resolved.resources).toEqual([
+        {
+          assetId: item.id,
+          src: expect.stringMatching(/^data:image\//),
+          width: item.width,
+          height: item.height,
+          contentHash: item.contentSha256,
+          revision: item.version,
+        },
+      ])
+      expect(curated).toHaveBeenCalledWith(item.id, item.version, undefined)
+      expect(managed).not.toHaveBeenCalled()
+    }
+  })
+
+  it("keeps curated identity canonical through publication and materializes only a render clone", async () => {
+    const item = studioMediaManifest.find(
+      (candidate) => !studioAssets.some((asset) => asset.id === candidate.id)
+    )!
+    const document = documentWithAsset(item.resourcePath)
+    document.nodes.push({
+      id: "curated-image",
+      name: "Curated image",
+      type: "image",
+      x: 10,
+      y: 10,
+      width: 100,
+      height: 100,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+      assetId: item.id,
+      src: item.resourcePath,
+      placement: {
+        mode: "fill",
+        focalX: 0.5,
+        focalY: 0.5,
+        zoom: 1,
+        rotation: 0,
+        flipX: false,
+        flipY: false,
+      },
+      frameMask: { shape: "rectangle" },
+      decorative: false,
+      alt: item.description,
+    })
+    document.pages[0].nodeIds.push("curated-image")
+    const canonical = structuredClone(document)
+    const version = createTemplateVersion(document, {
+      id: "version-with-curated-asset",
+      templateId: document.id,
+      version: 1,
+      sourceSnapshotId: `sha256-${"c".repeat(64)}`,
+      publishedAt: "2026-08-31T00:00:00.000Z",
+    })
+
+    const published = publicTemplateVersion(version)
+    expect(published.manifest.parameters.at(-1)).toMatchObject({
+      defaultValue: item.resourcePath,
+      exampleValue: item.resourcePath,
+    })
+    expect(JSON.stringify(published)).not.toContain("data:image")
+
+    const materialized = await materializeManagedDocumentAssets(
+      document,
+      async () => {
+        throw new Error("Managed resolution must not run for curated media")
+      },
+      [],
+      undefined,
+      resolveCurated
+    )
+    const materializedNode = materialized.document.nodes.find(
+      (node) => node.id === "curated-image"
+    )
+    if (materializedNode?.type !== "image") {
+      throw new Error("Expected the curated image node")
+    }
+    expect(materializedNode.assetId).toBe(item.id)
+    expect(materializedNode.src).toMatch(/^data:image\//)
+    expect(materialized.resources).toEqual([
+      {
+        nodeId: "curated-image",
+        assetId: item.id,
+        width: item.width,
+        height: item.height,
+        contentHash: item.contentSha256,
+        revision: item.version,
+      },
+    ])
+    await assertRenderImageResourceAdmission(
+      materialized.document,
+      materialized.resources
+    )
+    expect(() => assertRenderableDocument(materialized.document)).not.toThrow()
+    expect(document).toEqual(canonical)
+  })
+
   it("resolves a public catalog ID to its private renderer source", () => {
     expect(
       resolveRenderFieldAssetIds(
@@ -127,7 +270,70 @@ describe("render field asset resolution", () => {
     expect(catalogAssetFieldIssues(document)).toEqual([])
   })
 
-  it("projects private catalog sources to stable IDs in the public manifest", () => {
+  it("projects every compatibility source to an exact immutable v1 public identity", async () => {
+    for (const asset of studioAssets) {
+      const document = documentWithAsset(asset.src)
+      const version = createTemplateVersion(document, {
+        id: `version-with-${asset.id}`,
+        templateId: document.id,
+        version: 1,
+        sourceSnapshotId: `sha256-${"a".repeat(64)}`,
+        publishedAt: "2026-08-28T00:00:00.000Z",
+      })
+      const exactPath = `/library/media/${asset.id}/v${asset.version}/${asset.contentSha256}.svg`
+      const publicVersion = publicTemplateVersion(version)
+      expect(publicVersion.manifest.parameters.at(-1)).toMatchObject({
+        key: "hero_asset",
+        defaultValue: exactPath,
+        exampleValue: exactPath,
+      })
+      expect(publicVersion.document.fields.at(-1)?.defaultValue).toBe(exactPath)
+      expect(publicVersion.document.fieldValues.hero_asset).toBe(exactPath)
+      expect(JSON.stringify(publicVersion)).not.toContain("data:image")
+
+      const browserContent = await resolveCurated(asset.id, asset.version)
+      expect(browserContent.canonicalSource).toBe(exactPath)
+      expect(browserContent.identity.contentSha256).toBe(asset.contentSha256)
+      expect(browserContent.src).toBe(asset.src)
+
+      const curated = vi.fn(resolveCurated)
+      const resolved = await resolveRenderFieldAssetIdsForWorkspace(
+        publicVersion,
+        { hero_asset: exactPath },
+        async () => {
+          throw new Error("Managed resolution must not run")
+        },
+        curated
+      )
+      expect(resolved.modifications.hero_asset).toBe(exactPath)
+      expect(resolved.resources).toEqual([
+        expect.objectContaining({
+          assetId: asset.id,
+          src: asset.src,
+          contentHash: asset.contentSha256,
+          revision: asset.version,
+        }),
+      ])
+      expect(curated).not.toHaveBeenCalled()
+
+      const renderProjection = await materializeManagedDocumentAssets(
+        publicVersion.document,
+        async () => {
+          throw new Error("Managed resolution must not run")
+        },
+        [],
+        undefined,
+        curated
+      )
+      expect(renderProjection.document.fields.at(-1)?.defaultValue).toBe(
+        asset.src
+      )
+      expect(renderProjection.document.fieldValues.hero_asset).toBe(asset.src)
+      expect(publicVersion.document.fieldValues.hero_asset).toBe(exactPath)
+    }
+  })
+
+  it("projects private catalog sources to stable exact identities in the public manifest", () => {
     const document = documentWithAsset(studioAssets[0].src)
     const version = createTemplateVersion(document, {
       id: "version-with-asset",
@@ -140,8 +346,8 @@ describe("render field asset resolution", () => {
     const publicVersion = publicTemplateVersion(version)
     expect(publicVersion.manifest.parameters.at(-1)).toMatchObject({
       key: "hero_asset",
-      defaultValue: studioAssets[0].id,
-      exampleValue: studioAssets[0].id,
+      defaultValue: `/library/media/${studioAssets[0].id}/v${studioAssets[0].version}/${studioAssets[0].contentSha256}.svg`,
+      exampleValue: `/library/media/${studioAssets[0].id}/v${studioAssets[0].version}/${studioAssets[0].contentSha256}.svg`,
     })
     expect(JSON.stringify(publicVersion.manifest)).not.toContain("data:image")
     expect(publicTemplateVersion(publicVersion)).toEqual(publicVersion)
@@ -434,6 +640,201 @@ describe("render field asset resolution", () => {
           return rendererResource(assetId)
         },
         [],
+        controller.signal
+      )
+    ).rejects.toBe(reason)
+  })
+
+  it("passes cancellation and deadline signals through stalled curated field resolution", async () => {
+    const item = studioMediaManifest.find(
+      (candidate) => !studioAssets.some((asset) => asset.id === candidate.id)
+    )!
+    const cancelled = new AbortController()
+    const cancellationReason = new DOMException(
+      "Render cancellation requested",
+      "AbortError"
+    )
+    cancelled.abort(cancellationReason)
+    const neverCalled = vi.fn(resolveCurated)
+    await expect(
+      resolveRenderFieldAssetIdsForWorkspace(
+        { manifest },
+        { hero_asset: item.resourcePath },
+        async () => rendererResource("unused"),
+        neverCalled,
+        cancelled.signal
+      )
+    ).rejects.toBe(cancellationReason)
+    expect(neverCalled).not.toHaveBeenCalled()
+
+    const deadlineController = new AbortController()
+    const deadlineReason = new DOMException(
+      "Render deadline exceeded",
+      "TimeoutError"
+    )
+    setTimeout(() => deadlineController.abort(deadlineReason), 5)
+    const deadline = deadlineController.signal
+    const stalled = vi.fn(
+      (_assetId: string, _version: number, signal?: AbortSignal) =>
+        new Promise<never>((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          })
+        })
+    )
+    await expect(
+      resolveRenderFieldAssetIdsForWorkspace(
+        { manifest },
+        { hero_asset: item.resourcePath },
+        async () => rendererResource("unused"),
+        stalled,
+        deadline
+      )
+    ).rejects.toMatchObject({ name: "TimeoutError" })
+    expect(stalled).toHaveBeenCalledWith(item.id, item.version, deadline)
+  })
+
+  it("contains curated failures from unbound default and current asset fields", async () => {
+    const item = studioMediaManifest.find(
+      (candidate) => !studioAssets.some((asset) => asset.id === candidate.id)
+    )!
+    const document = documentWithAsset(item.resourcePath)
+    const rejected = vi.fn(async () => {
+      throw new Error("curated bytes drifted")
+    })
+    await expect(
+      materializeManagedDocumentAssets(
+        document,
+        async () => rendererResource("unused"),
+        [],
+        undefined,
+        rejected
+      )
+    ).rejects.toMatchObject({
+      code: "curated_asset_materialization_failed",
+      assetId: item.id,
+      nodeId: "field:hero_asset:default",
+    })
+
+    const currentOnly = documentWithAsset("")
+    const field = currentOnly.fields.at(-1)!
+    field.required = false
+    field.defaultValue = ""
+    currentOnly.fieldValues[field.id] = item.resourcePath
+    await expect(
+      materializeManagedDocumentAssets(
+        currentOnly,
+        async () => rendererResource("unused"),
+        [],
+        undefined,
+        rejected
+      )
+    ).rejects.toMatchObject({
+      code: "curated_asset_materialization_failed",
+      assetId: item.id,
+      nodeId: "field:hero_asset:current",
+    })
+  })
+
+  it("classifies curated and managed modification failures with exact field locators", async () => {
+    const curated = studioMediaManifest.find(
+      (candidate) => !studioAssets.some((asset) => asset.id === candidate.id)
+    )!
+    let curatedError: unknown
+    try {
+      await resolveRenderFieldAssetIdsForWorkspace(
+        { manifest },
+        { hero_asset: curated.resourcePath },
+        async () => rendererResource("unused"),
+        async () => {
+          throw new Error("curated bytes drifted")
+        }
+      )
+    } catch (error) {
+      curatedError = error
+    }
+    expect(curatedError).toMatchObject({
+      code: "curated_asset_materialization_failed",
+      assetId: curated.id,
+      nodeId: "field:hero_asset:modification",
+    })
+    expect(durableRenderFailureCode(curatedError)).toBe(
+      "curated_asset_materialization_failed"
+    )
+
+    const managedAssetId = "asset-0123456789abcdef0123456789abcdef"
+    let managedError: unknown
+    try {
+      await resolveRenderFieldAssetIdsForWorkspace(
+        { manifest },
+        { hero_asset: managedAssetId },
+        async () => {
+          throw new Error("managed bytes unavailable")
+        }
+      )
+    } catch (error) {
+      managedError = error
+    }
+    expect(managedError).toMatchObject({
+      code: "managed_asset_materialization_failed",
+      assetId: managedAssetId,
+      nodeId: "field:hero_asset:modification",
+    })
+    expect(durableRenderFailureCode(managedError)).toBe(
+      "managed_asset_materialization_failed"
+    )
+  })
+
+  it("contains managed failures from unbound default and current asset fields", async () => {
+    const assetId = "asset-0123456789abcdef0123456789abcdef"
+    const source = `asset:managed/${assetId}`
+    const rejected = vi.fn(async () => {
+      throw new Error("managed bytes unavailable")
+    })
+    const document = documentWithAsset(source)
+    await expect(
+      materializeManagedDocumentAssets(document, rejected)
+    ).rejects.toMatchObject({
+      code: "managed_asset_materialization_failed",
+      assetId,
+      nodeId: "field:hero_asset:default",
+    })
+
+    const currentOnly = documentWithAsset("")
+    const field = currentOnly.fields.at(-1)!
+    field.required = false
+    field.defaultValue = ""
+    currentOnly.fieldValues[field.id] = source
+    let currentError: unknown
+    try {
+      await materializeManagedDocumentAssets(currentOnly, rejected)
+    } catch (error) {
+      currentError = error
+    }
+    expect(currentError).toMatchObject({
+      code: "managed_asset_materialization_failed",
+      assetId,
+      nodeId: "field:hero_asset:current",
+    })
+    expect(durableRenderFailureCode(currentError)).toBe(
+      "managed_asset_materialization_failed"
+    )
+  })
+
+  it("preserves abort reasons while containing modification failures", async () => {
+    const assetId = "asset-0123456789abcdef0123456789abcdef"
+    const controller = new AbortController()
+    const reason = new DOMException("Render cancelled", "AbortError")
+    await expect(
+      resolveRenderFieldAssetIdsForWorkspace(
+        { manifest },
+        { hero_asset: assetId },
+        async (_assetId, signal) => {
+          controller.abort(reason)
+          signal?.throwIfAborted()
+          return rendererResource(assetId)
+        },
+        undefined,
         controller.signal
       )
     ).rejects.toBe(reason)

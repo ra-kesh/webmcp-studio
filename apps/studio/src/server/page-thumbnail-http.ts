@@ -16,8 +16,13 @@ import { JsonBodyError, jsonBodyErrorResponse } from "@webmcp/worker-boundary"
 import { z } from "zod"
 import { readStudioJsonBody } from "./json-request-policy"
 import { MediaAssetRepository } from "./media-asset-repository"
+import {
+  createCuratedMediaResourceFetcher,
+  resolveCuratedMediaContent,
+} from "../content/library/media/curated-media-content"
 import { MediaAssetError } from "./media-assets"
 import {
+  CuratedAssetMaterializationError,
   ManagedAssetMaterializationError,
   materializeManagedDocumentAssets,
 } from "./render-field-assets"
@@ -85,6 +90,9 @@ const productionDependencies: PageThumbnailHandlerDependencies = {
   prepareDocument: async (env, principal, document, signal) => {
     signal.throwIfAborted()
     const mediaAssets = new MediaAssetRepository(env.DB, env.ASSETS)
+    const fetchCuratedResource = createCuratedMediaResourceFetcher(
+      env.CURATED_MEDIA
+    )
     const materialized = await materializeManagedDocumentAssets(
       document,
       (assetId, resourceSignal) =>
@@ -94,7 +102,13 @@ const productionDependencies: PageThumbnailHandlerDependencies = {
           resourceSignal
         ),
       [],
-      signal
+      signal,
+      (assetId, version, resourceSignal) =>
+        resolveCuratedMediaContent(
+          { assetId, version },
+          fetchCuratedResource,
+          resourceSignal
+        )
     )
     signal.throwIfAborted()
     await assertRenderImageResourceAdmission(
@@ -121,6 +135,7 @@ function resourceFailureResponse(error: unknown): Response | null {
   }
   if (
     error instanceof ManagedAssetMaterializationError ||
+    error instanceof CuratedAssetMaterializationError ||
     error instanceof RenderImageResourceAdmissionError
   ) {
     return Response.json(

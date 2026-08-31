@@ -10,6 +10,7 @@ import {
   type FieldValue,
   type SceneNode,
 } from "./schema"
+import { curatedAssetIdentityFromSource } from "./media"
 
 export type BindableProperty = FieldBinding["property"]
 
@@ -178,6 +179,7 @@ export type ParsedAssetReference = {
   source:
     | "managed_local"
     | "managed_workspace"
+    | "curated_studio"
     | "inline_render_safe"
     | "legacy_https"
   publishRequiresResolution: boolean
@@ -198,6 +200,13 @@ export function parseAssetReference(
     return {
       reference: value,
       source: "managed_workspace",
+      publishRequiresResolution: true,
+    }
+  }
+  if (curatedAssetIdentityFromSource(value)) {
+    return {
+      reference: value,
+      source: "curated_studio",
       publishRequiresResolution: true,
     }
   }

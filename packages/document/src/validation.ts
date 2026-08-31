@@ -5,7 +5,10 @@ import {
   fieldDefinitionValidationMessage,
   fieldValueSatisfiesDefinition,
 } from "./fields"
-import { managedImageAssetIdentity } from "./media"
+import {
+  curatedAssetIdentityFromSource,
+  managedImageAssetIdentity,
+} from "./media"
 import { projectTextLayout } from "./text-layout"
 import { normalizeRichTextContent } from "./rich-text"
 import { assertVariableBindingCompatible } from "./variables"
@@ -425,6 +428,7 @@ export function validateDocument(document: Document): ValidationIssue[] {
         node.src.trim() &&
         !node.src.startsWith("asset:local/") &&
         !node.src.startsWith("asset:managed/") &&
+        !curatedAssetIdentityFromSource(node.src) &&
         !node.src.startsWith("data:image/") &&
         !node.src.startsWith("https://")
       ) {

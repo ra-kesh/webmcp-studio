@@ -20,6 +20,7 @@ import {
 } from "./fields"
 import {
   assetReferenceKeysForSource,
+  curatedAssetIdentityFromSource,
   localAssetIdFromSource,
   managedAssetIdFromSource,
 } from "./media"
@@ -169,7 +170,9 @@ function applyValue(
   if (property === "src" && node.type === "image") {
     const src = String(value)
     const projectedAssetId =
-      managedAssetIdFromSource(src) ?? localAssetIdFromSource(src)
+      managedAssetIdFromSource(src) ??
+      localAssetIdFromSource(src) ??
+      curatedAssetIdentityFromSource(src)?.assetId
     if (
       node.src === src &&
       (!projectedAssetId || node.assetId === projectedAssetId)
