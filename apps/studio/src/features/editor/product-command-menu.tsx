@@ -49,7 +49,8 @@ export type ProductCommandMenuRuntime = Readonly<{
 }>
 
 export const productCommandMenuDensity = {
-  desktopItem: "min-h-7 py-1 text-xs leading-4",
+  desktopItem:
+    "min-h-7 py-1 text-xs leading-4 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:py-2",
   compactItem:
     "min-h-11 py-2 text-xs leading-4 min-[1280px]:min-h-7 min-[1280px]:py-1 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:py-2",
   shortcut: "font-mono text-[11px] tracking-normal",

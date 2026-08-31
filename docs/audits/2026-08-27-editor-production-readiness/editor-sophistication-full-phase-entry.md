@@ -156,8 +156,9 @@ Mounted acceptance on isolated port 3102 confirmed:
 - desktop More-menu and nested command rows resolve to 28 px with 12 px labels;
   compact rows resolve to 44 px, while descriptive text presets retain their
   deliberate 56 px two-line anatomy;
-- at a 1440 px viewport with `(pointer: coarse)` true, product-menu rows remain
-  44 px rather than collapsing to desktop density;
+- at a 1440 px viewport with `(pointer: coarse)` true, both responsive dropdown
+  rows and the canvas context menu remain at least 44 px rather than collapsing
+  to desktop density;
 - shortcuts resolve to Geist Mono at 11 px with normal letter spacing;
 - forced dark mode resolves workspace, panel and floating colors to the named
   dark tokens, keeps the artboard light and redraws ruler chrome after layout;
@@ -171,11 +172,11 @@ Evidence:
 - 19 focused product-menu, visual-contract, shared panel, Inspector and
   quotation tests pass across six matched files;
 - `git diff --check` passes;
-- retained captures: `gate-b-desktop-1440x900.png`,
-  `gate-b-more-menu-1440x900.png`, `gate-b-compact-390x820.png`,
-  `gate-b-compact-menu-390x820.png`,
-  `gate-b-coarse-pointer-1440x900.png` and
-  `gate-b-dark-reduced-motion-1440x900.png`;
+- retained captures: `gate-b-desktop-1440x900.jpg`,
+  `gate-b-more-menu-1440x900.jpg`, `gate-b-compact-390x820.jpg`,
+  `gate-b-compact-menu-390x820.jpg`,
+  `gate-b-coarse-pointer-1440x900.jpg` and
+  `gate-b-dark-reduced-motion-1440x900.jpg`;
 - retained measurements: `gate-b-metrics.json`.
 
 The isolated D1 library-schema limitation from the baseline remains visible in
@@ -186,9 +187,37 @@ Gate B commit: `0783b813d71d208aa3132b2614563cb7727203b8`
 
 ## Local closure review
 
-No P0 or P1 visual, interaction or code findings remain in the two gate
-commits. This is a local closure review, not the independent Gate C acceptance
-defined above.
+The first local closure missed one coarse-pointer path. Independent review held
+the gate with a P1 because `desktopItem` kept menubar and context-menu rows at
+28 px on wide coarse-pointer devices. The retained matrix had measured only the
+responsive More dropdown.
+
+The follow-up applies the same 44 px coarse-pointer override to `desktopItem`,
+which covers menubar, canvas, page and layer context-menu items, checkbox items
+and subtriggers without changing command projection or dispatch.
+
+The mounted regression opened the real canvas context menu at 1440 x 900 with
+`(pointer: coarse)` true and confirmed:
+
+- `Select all`, `Insert`, `View` and every nested Insert command resolve to
+  44 px rows with 12 px labels;
+- the disabled two-line Paste explanation expands to 48 px instead of clipping;
+- both top-level and nested subtriggers keep the same target contract;
+- the page has no interaction or command-state mutation.
+
+Retained evidence:
+
+- `gate-b-followup-coarse-context-1440x900.jpg`;
+- `gate-b-followup-coarse-context-metrics.json`.
+
+Independent review also found that the six original Gate B captures used `.png`
+names despite containing JPEG streams. The follow-up renames those files and
+the new context-menu capture to `.jpg`. A `file` signature check confirms all
+seven are JPEG images with matching extensions. The Gate A and baseline `.png`
+captures remain unchanged because their signatures are true PNG.
+
+No P0 or P1 local finding remains after the correction. Independent re-review
+is still pending.
 
 ### Motion review
 
@@ -217,5 +246,7 @@ layout-property animation.
   paths and the merge-tree reports no conflict;
 - the original main checkout and its known untracked capture directories were
   not modified;
-- implementation: complete; local acceptance: complete; independent
-  acceptance: pending; committed: complete; merged: no.
+- implementation: complete; local acceptance after P1 correction: complete;
+  independent acceptance: pending re-review; committed gates: complete;
+  follow-up commit: this review-fix checkpoint, with its exact hash reported in
+  the controller handoff; merged: no.

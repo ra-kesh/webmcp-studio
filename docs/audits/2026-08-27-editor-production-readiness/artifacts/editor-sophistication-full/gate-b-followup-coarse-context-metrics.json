@@ -1,0 +1,92 @@
+{
+  "topContextMetrics": {
+    "items": [
+      {
+        "fontSize": "12px",
+        "height": 48,
+        "label": "PasteCopy a layer before pasting.⌘V",
+        "slot": "context-menu-item"
+      },
+      {
+        "fontSize": "12px",
+        "height": 44,
+        "label": "Select all⌘A",
+        "slot": "context-menu-item"
+      },
+      {
+        "fontSize": "12px",
+        "height": 44,
+        "label": "Insert",
+        "slot": "context-menu-sub-trigger"
+      },
+      {
+        "fontSize": "12px",
+        "height": 44,
+        "label": "View",
+        "slot": "context-menu-sub-trigger"
+      }
+    ],
+    "media": {
+      "coarse": true,
+      "fine": false
+    }
+  },
+  "nestedContextMetrics": {
+    "items": [
+      {
+        "fontSize": "12px",
+        "height": 48,
+        "label": "PasteCopy a layer before pasting.⌘V",
+        "slot": "context-menu-item"
+      },
+      {
+        "fontSize": "12px",
+        "height": 44,
+        "label": "Select all⌘A",
+        "slot": "context-menu-item"
+      },
+      {
+        "fontSize": "12px",
+        "height": 44,
+        "label": "Insert",
+        "slot": "context-menu-sub-trigger"
+      },
+      {
+        "fontSize": "12px",
+        "height": 44,
+        "label": "Add textT",
+        "slot": "context-menu-item"
+      },
+      {
+        "fontSize": "12px",
+        "height": 44,
+        "label": "Add image",
+        "slot": "context-menu-item"
+      },
+      {
+        "fontSize": "12px",
+        "height": 44,
+        "label": "Add rectangleR",
+        "slot": "context-menu-item"
+      },
+      {
+        "fontSize": "12px",
+        "height": 44,
+        "label": "Add ellipseO",
+        "slot": "context-menu-item"
+      },
+      {
+        "fontSize": "12px",
+        "height": 44,
+        "label": "Add lineL",
+        "slot": "context-menu-item"
+      },
+      {
+        "fontSize": "12px",
+        "height": 44,
+        "label": "View",
+        "slot": "context-menu-sub-trigger"
+      }
+    ]
+  }
+}

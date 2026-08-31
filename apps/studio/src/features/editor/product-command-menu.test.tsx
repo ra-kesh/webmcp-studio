@@ -25,6 +25,9 @@ describe("ResponsiveProductCommandDropdownGroups", () => {
   it("keeps desktop menus compact while preserving coarse-pointer-sized compact rows", () => {
     expect(productCommandMenuDensity.desktopItem).toContain("min-h-7")
     expect(productCommandMenuDensity.desktopItem).toContain("text-xs")
+    expect(productCommandMenuDensity.desktopItem).toContain(
+      "[@media(pointer:coarse)]:min-h-11"
+    )
     expect(productCommandMenuDensity.compactItem).toContain("min-h-11")
     expect(productCommandMenuDensity.compactItem).toContain(
       "min-[1280px]:min-h-7"
