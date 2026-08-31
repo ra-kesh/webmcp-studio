@@ -173,7 +173,48 @@ describe("media derivation execution", () => {
         output: { mediaType: "image/png", bytes: png },
       })
     )
+    expect(result).toMatchObject({
+      status: "succeeded",
+      settlement: {
+        provenance: {
+          providerKey: job("running").providerKey,
+          providerModelVersion: job("running").providerModelVersion,
+        },
+      },
+    })
   })
+
+  it.each([
+    ["provider key", { key: "different-provider" }],
+    ["model version", { modelVersion: "different-model" }],
+  ])(
+    "rejects a current %s mismatch before provider start",
+    async (_, mismatch) => {
+      const fixture = dependencies()
+      Object.defineProperty(fixture.value.provider, "key", {
+        value: mismatch.key ?? fixture.value.provider.key,
+      })
+      Object.defineProperty(fixture.value.provider, "modelVersion", {
+        value: mismatch.modelVersion ?? fixture.value.provider.modelVersion,
+      })
+
+      const result = await executeMediaDerivation(
+        fixture.value,
+        "workspace-a",
+        jobId
+      )
+
+      expect(result.status).toBe("failed")
+      expect(fixture.provider.starts).toHaveLength(0)
+      expect(fixture.value.admitAttempt).not.toHaveBeenCalled()
+      expect(fixture.jobs.fail).toHaveBeenCalledWith(
+        "workspace-a",
+        jobId,
+        attemptId,
+        { code: "provider_configuration_mismatch", retryable: false }
+      )
+    }
+  )
 
   it("rejects late provider success after cancellation", async () => {
     const fixture = dependencies()

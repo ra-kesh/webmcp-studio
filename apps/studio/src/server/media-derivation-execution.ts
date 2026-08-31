@@ -99,6 +99,22 @@ const readVerifiedSource = async (
 const cancellationRequested = (job: MediaDerivationJob) =>
   job.state === "cancelling" || job.state === "cancelled"
 
+const assertFrozenProvider = (
+  job: MediaDerivationJob,
+  provider: MediaDerivationProvider
+) => {
+  if (
+    provider.key !== job.providerKey ||
+    provider.modelVersion !== job.providerModelVersion
+  ) {
+    throw new MediaDerivationExecutionError(
+      "provider_configuration_mismatch",
+      false,
+      "The configured provider does not match the job snapshot"
+    )
+  }
+}
+
 export async function executeMediaDerivation(
   dependencies: MediaDerivationExecutionDependencies,
   workspaceId: string,
@@ -111,6 +127,7 @@ export async function executeMediaDerivation(
   let execution: ProviderExecution | null = null
   const signal = AbortSignal.timeout(dependencies.timeoutMs)
   try {
+    assertFrozenProvider(claimed.job, dependencies.provider)
     await dependencies.admitAttempt(claimed.job)
     const input = sanitizeProviderInput(
       await readVerifiedSource(dependencies, claimed.job, claimed.attempt.id)

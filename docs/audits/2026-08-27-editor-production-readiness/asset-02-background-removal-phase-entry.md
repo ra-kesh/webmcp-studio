@@ -606,3 +606,20 @@ re-review.
   workspace asset, proves a distinct running job succeeds with its own
   provenance, proves the existing asset is unchanged, checks retry stability,
   and exercises the unique-insert race cleanup path.
+
+## Independent-review correction: frozen provider execution
+
+The P1 provider-snapshot finding is repaired locally and awaits independent
+re-review.
+
+- After claiming a fenced attempt, the executor compares the configured
+  adapter's exact key and model version with the immutable job snapshot.
+- A mismatch settles the claimed attempt and job with the non-retryable safe
+  code `provider_configuration_mismatch`. It occurs before admission reads,
+  source-byte loading, or `provider.start`, so current environment drift cannot
+  dispatch a paid call under a different provider identity.
+- An exact frozen key/model pair proceeds through the existing execution path.
+  Output provenance continues to copy provider key and model version from the
+  immutable job, not from mutable environment configuration.
+- Focused execution tests cover both key and model mismatch with zero provider
+  starts, plus exact-pair success and provenance identity.
