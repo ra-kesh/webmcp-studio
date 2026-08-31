@@ -487,12 +487,59 @@ and only then change this gate to accepted.
 
 ### Gate M4: luminance, multiple sources, and nesting
 
-- define union behavior for multiple mask sources
-- add luminance color-space rules
-- support bounded nested paint plans
-- complete component, variant, instance, clipboard, and template behavior
+- **M4A — multiple sources:** admit one to four explicit direct sources for
+  existing vector and alpha masks. Preserve canonical source ID order for
+  inspection, review, history, and cloning. Combine visible contributions with
+  source-over union. Keep nesting at one level and keep luminance rejected.
+- **M4B — luminance:** freeze and prove color-space and alpha math across every
+  renderer before admitting the already-schema-valid luminance value.
+- **M4C — nesting:** add a real bounded recursive paint plan, recursive memory
+  accounting, typed structural creation/release, and component/template clone
+  evidence before raising the current nesting limit.
 
 Exit: nested and multi-source cases have strict limits, exact undo, deterministic cloning, and pixel conformance.
+
+#### M4A domain checkpoint — 31 August 2026
+
+M4A raises only `maxSources` from one to four. A source remains a direct member
+of its mask group and all existing vector/alpha type, lock, binding, component,
+page, content, composite-area, and replay rules remain unchanged. The explicit
+`sourceNodeIds` order is canonical and a different order is a reviewable,
+revisioned command change even though coverage is order-independent.
+
+Visible source contributions combine with source-over union:
+`1 - product(1 - sourceAlpha)`. Hidden sources contribute zero. If every source
+is hidden, the relation remains stored and content paints unmasked, matching the
+accepted M2/M3 hidden-source rule. The page paint plan declares this as
+`source_over_union`; adapters must not reinterpret it as intersection.
+
+This checkpoint is document-domain evidence only. Renderer, UI, API, WebMCP,
+editor-history integration, and retained pixel conformance must still prove the
+four-source limit before M4A is accepted. M4B and M4C remain explicitly
+unadmitted.
+
+#### M4A implementation checkpoint — 31 August 2026
+
+The canonical document, Fabric, React, deterministic HTML, and public renderer
+paths now implement the frozen one-to-four-source contract. Fabric constructs
+one ordered source-over union and applies `destination-in` once. React and HTML
+emit the same ordered source contributions. Hidden sources are excluded; an
+all-hidden source set retains the relation and paints content unmasked without
+allocating or awaiting mask resources. Multi-image readiness is atomic and
+stale image events cannot replace a newer result.
+
+Verification completed at this checkpoint:
+
+- 307/307 focused tests passed across document commands, paint planning,
+  cloning, validation, Fabric, React conformance, deterministic HTML, and public
+  renderer boundaries
+- document, editor, render-view, and renderer typechecks passed
+- all changed files passed Prettier checking and `git diff --check`
+- final independent review verdict: **COMMIT**, with no remaining P0/P1 finding
+
+Gate M4A is not yet marked accepted. The Studio UI, public API, WebMCP proposal
+surface, one-step editor history journey, and retained multi-source pixel corpus
+remain open. M4B luminance and M4C nesting remain explicitly unadmitted.
 
 ### Gate M5: API, WebMCP, and product polish
 

@@ -328,6 +328,7 @@ describe("shared page paint plan mask oracle", () => {
           sourceNodeIds: ["source"],
           visibleSourceNodeIds: ["source"],
           sources: [{ nodeId: "source", kind: "vector" }],
+          sourceCombination: "source_over_union",
           content: [{ kind: "node", nodeId: "content" }],
           bounds: { x: 100, y: 90, width: 200, height: 180 },
           maskEnabled: true,
@@ -397,6 +398,67 @@ describe("shared page paint plan mask oracle", () => {
         { kind: "node", nodeId: "content-2" },
       ],
     })
+  })
+
+  it("preserves explicit multi-source order and declares source-over union", () => {
+    const multiSourceRelation = {
+      ...relation,
+      nodeIds: ["below", "source", "content"],
+      sourceNodeIds: ["source", "below"],
+    }
+    const result = projectPagePaintPlan(page, nodes, [multiSourceRelation])
+    expect(result.entries[0]).toMatchObject({
+      kind: "mask_group",
+      sourceNodeIds: ["source", "below"],
+      visibleSourceNodeIds: ["source", "below"],
+      sourceCombination: "source_over_union",
+      content: [{ kind: "node", nodeId: "content" }],
+    })
+
+    const oneVisible = nodes.map((node) =>
+      node.id === "source" ? { ...node, visible: false } : node
+    )
+    expect(
+      projectPagePaintPlan(page, oneVisible, [multiSourceRelation]).entries[0]
+    ).toMatchObject({
+      visibleSourceNodeIds: ["below"],
+      maskEnabled: true,
+      compositeRequired: true,
+    })
+    const allHidden = oneVisible.map((node) =>
+      node.id === "below" ? { ...node, visible: false } : node
+    )
+    expect(
+      projectPagePaintPlan(page, allHidden, [multiSourceRelation]).entries[0]
+    ).toMatchObject({
+      visibleSourceNodeIds: [],
+      maskEnabled: false,
+      compositeRequired: false,
+    })
+  })
+
+  it("rejects a fifth source before allocating a composite", () => {
+    const sourceNodes = Array.from({ length: 5 }, (_, index) =>
+      rect(`source-${index}`)
+    )
+    const content = rect("multi-content")
+    const sourcePage = {
+      ...page,
+      nodeIds: [...sourceNodes.map((node) => node.id), content.id],
+    }
+    expect(() =>
+      projectPagePaintPlan(
+        sourcePage,
+        [...sourceNodes, content],
+        [
+          {
+            ...relation,
+            nodeIds: sourcePage.nodeIds,
+            sourceNodeIds: sourceNodes.map((node) => node.id),
+          },
+        ]
+      )
+    ).toThrowError(expect.objectContaining({ code: "MASK_GROUP_SOURCE_LIMIT" }))
   })
 
   it("uses conservative top-left-rotation bounds", () => {

@@ -130,6 +130,7 @@ type AlphaMaskPaintEntry = Omit<MaskPaintPlanEntry, "maskType"> &
 export type MaskGroupRenderModel = Readonly<{
   entry: VectorMaskPaintEntry
   source: Extract<SceneNode, { type: "rect" | "ellipse" | "icon" }>
+  sources: readonly Extract<SceneNode, { type: "rect" | "ellipse" | "icon" }>[]
   content: readonly SceneNode[]
 }>
 
@@ -139,6 +140,10 @@ export type AlphaMaskGroupRenderModel = Readonly<{
     SceneNode,
     { type: "rect" | "ellipse" | "icon" | "image" | "text" }
   >
+  sources: readonly Extract<
+    SceneNode,
+    { type: "rect" | "ellipse" | "icon" | "image" | "text" }
+  >[]
   content: readonly SceneNode[]
 }>
 
@@ -147,6 +152,8 @@ export type AlphaImageMaskCommitState = Readonly<{
   requestedModel: AlphaMaskGroupRenderModel
   committedIdentity: string | null
   committedModel: AlphaMaskGroupRenderModel | null
+  requiredResourceIdentities: readonly string[]
+  readyResourceIdentities: readonly string[]
   status: "loading" | "ready" | "error"
 }>
 
@@ -155,18 +162,26 @@ export type AlphaImageMaskCommitEvent =
       type: "request"
       identity: string
       model: AlphaMaskGroupRenderModel
+      resourceIdentities?: readonly string[]
     }>
-  | Readonly<{ type: "ready" | "failed"; identity: string }>
+  | Readonly<{
+      type: "ready" | "failed"
+      identity: string
+      resourceIdentity?: string
+    }>
 
 export function createAlphaImageMaskCommitState(
   identity: string,
-  model: AlphaMaskGroupRenderModel
+  model: AlphaMaskGroupRenderModel,
+  resourceIdentities: readonly string[] = [identity]
 ): AlphaImageMaskCommitState {
   return {
     requestedIdentity: identity,
     requestedModel: model,
     committedIdentity: null,
     committedModel: null,
+    requiredResourceIdentities: resourceIdentities,
+    readyResourceIdentities: [],
     status: "loading",
   }
 }
@@ -184,6 +199,8 @@ export function reduceAlphaImageMaskCommitState(
       return {
         ...state,
         requestedModel: event.model,
+        requiredResourceIdentities:
+          event.resourceIdentities ?? state.requiredResourceIdentities,
         committedModel:
           state.committedIdentity === event.identity
             ? event.model
@@ -194,15 +211,32 @@ export function reduceAlphaImageMaskCommitState(
       ...state,
       requestedIdentity: event.identity,
       requestedModel: event.model,
+      requiredResourceIdentities: event.resourceIdentities ?? [event.identity],
+      readyResourceIdentities: [],
       status: "loading",
     }
   }
   if (event.identity !== state.requestedIdentity) return state
   if (event.type === "failed") return { ...state, status: "error" }
+  const resourceIdentity = event.resourceIdentity ?? event.identity
+  if (!state.requiredResourceIdentities.includes(resourceIdentity)) return state
+  const readyResourceIdentities = state.readyResourceIdentities.includes(
+    resourceIdentity
+  )
+    ? state.readyResourceIdentities
+    : [...state.readyResourceIdentities, resourceIdentity]
+  if (
+    !state.requiredResourceIdentities.every((required) =>
+      readyResourceIdentities.includes(required)
+    )
+  ) {
+    return { ...state, readyResourceIdentities, status: "loading" }
+  }
   return {
     ...state,
     committedIdentity: state.requestedIdentity,
     committedModel: state.requestedModel,
+    readyResourceIdentities,
     status: "ready",
   }
 }
@@ -234,18 +268,28 @@ export function maskGroupRenderModel(
   if (entry.kind !== "mask_group" || entry.maskType !== "vector") {
     throw new Error("React mask rendering requires a vector mask group entry")
   }
-  if (entry.sourceNodeIds.length !== 1) {
-    throw new Error("React vector mask rendering requires one source")
-  }
-  const sourceId = entry.sourceNodeIds[0]!
-  const source = nodesById.get(sourceId)
-  if (!isAdmittedVectorMaskSource(source)) {
-    throw new Error(
-      "React vector mask rendering requires a rectangle, ellipse, or icon source"
-    )
+  const canonicalSources = entry.sourceNodeIds.map((sourceId) => {
+    const source = nodesById.get(sourceId)
+    if (!isAdmittedVectorMaskSource(source)) {
+      throw new Error(
+        "React vector mask rendering requires rectangle, ellipse, or icon sources"
+      )
+    }
+    return source
+  })
+  const source = canonicalSources[0]
+  if (!source) {
+    throw new Error("React vector mask rendering requires a source")
   }
   const content = maskGroupContent(entry, nodesById)
-  return { entry: entry as VectorMaskPaintEntry, source, content }
+  return {
+    entry: entry as VectorMaskPaintEntry,
+    source,
+    sources: canonicalSources.filter((candidate) =>
+      entry.visibleSourceNodeIds.includes(candidate.id)
+    ),
+    content,
+  }
 }
 
 export function alphaMaskGroupRenderModel(
@@ -255,18 +299,25 @@ export function alphaMaskGroupRenderModel(
   if (entry.kind !== "mask_group" || entry.maskType !== "alpha") {
     throw new Error("React alpha rendering requires an alpha mask group entry")
   }
-  if (entry.sourceNodeIds.length !== 1) {
-    throw new Error("React alpha mask rendering requires one source")
-  }
-  const source = nodesById.get(entry.sourceNodeIds[0]!)
-  if (!isAdmittedAlphaMaskSource(source)) {
-    throw new Error(
-      "React alpha mask rendering requires a rectangle, ellipse, icon, image, or text source"
-    )
+  const canonicalSources = entry.sourceNodeIds.map((sourceId) => {
+    const source = nodesById.get(sourceId)
+    if (!isAdmittedAlphaMaskSource(source)) {
+      throw new Error(
+        "React alpha mask rendering requires rectangle, ellipse, icon, image, or text sources"
+      )
+    }
+    return source
+  })
+  const source = canonicalSources[0]
+  if (!source) {
+    throw new Error("React alpha mask rendering requires a source")
   }
   return {
     entry: entry as AlphaMaskPaintEntry,
     source,
+    sources: canonicalSources.filter((candidate) =>
+      entry.visibleSourceNodeIds.includes(candidate.id)
+    ),
     content: maskGroupContent(entry, nodesById),
   }
 }
@@ -387,7 +438,7 @@ export function MaskGroupPaintEntry(props: MaskGroupPaintEntryProps) {
   if (
     model.entry.maskType === "alpha" &&
     model.entry.compositeRequired &&
-    model.source.type === "image"
+    model.sources.some((source) => source.type === "image")
   ) {
     return (
       <AtomicAlphaImageMaskPaintEntry
@@ -407,25 +458,38 @@ function AtomicAlphaImageMaskPaintEntry({
   showImageRecoveryActions = true,
   onImageResourceStateChange,
 }: MaskGroupPaintEntryProps & { model: AlphaMaskGroupRenderModel }) {
-  const source = model.source as Extract<SceneNode, { type: "image" }>
-  const revision = imageResourceRevisions?.[source.id]
-  const identity = imageResourceIdentity(source.id, source.src, revision)
+  const imageSources = model.sources.filter(
+    (source): source is Extract<SceneNode, { type: "image" }> =>
+      source.type === "image"
+  )
+  const resourceIdentities = imageSources.map((source) =>
+    imageResourceIdentity(
+      source.id,
+      source.src,
+      imageResourceRevisions?.[source.id]
+    )
+  )
+  const identity = JSON.stringify(resourceIdentities)
   const [commit, dispatchCommit] = useReducer(
     reduceAlphaImageMaskCommitState,
     undefined,
-    () => createAlphaImageMaskCommitState(identity, model)
+    () => createAlphaImageMaskCommitState(identity, model, resourceIdentities)
   )
   useEffect(() => {
-    dispatchCommit({ type: "request", identity, model })
+    dispatchCommit({ type: "request", identity, model, resourceIdentities })
   }, [identity, model])
 
-  const resourceToken = imageResourceTokens?.[source.id]
-  const probeToken = `alpha-mask:${identity}`
-  const handleProbeStateChange = (state: ImageResourceStateChange) => {
+  const handleProbeStateChange = (
+    source: Extract<SceneNode, { type: "image" }>,
+    resourceIdentity: string,
+    state: ImageResourceStateChange
+  ) => {
     dispatchCommit({
       type: state.readiness === "ready" ? "ready" : "failed",
       identity,
+      resourceIdentity,
     })
+    const resourceToken = imageResourceTokens?.[source.id]
     if (resourceToken) {
       onImageResourceStateChange?.({ ...state, token: resourceToken })
     }
@@ -445,7 +509,9 @@ function AtomicAlphaImageMaskPaintEntry({
           model={commit.committedModel}
           nodesById={
             new Map([
-              [commit.committedModel.source.id, commit.committedModel.source],
+              ...commit.committedModel.sources.map(
+                (source) => [source.id, source] as const
+              ),
               ...commit.committedModel.content.map(
                 (node) => [node.id, node] as const
               ),
@@ -459,29 +525,40 @@ function AtomicAlphaImageMaskPaintEntry({
           style={renderMaskGroupWrapperStyle(model.entry.bounds)}
         />
       )}
-      {needsProbe ? (
-        <div
-          aria-hidden
-          data-alpha-mask-resource-probe={source.id}
-          style={{
-            position: "absolute",
-            inset: 0,
-            overflow: "hidden",
-            pointerEvents: "none",
-            visibility: "hidden",
-          }}
-        >
-          <RenderNode
-            imageSemantics={imageSemantics}
-            imageResourceRevision={revision}
-            imageResourceToken={probeToken}
-            node={source}
-            showImageRecoveryActions={false}
-            suppressImageFailureFeedback
-            onImageResourceStateChange={handleProbeStateChange}
-          />
-        </div>
-      ) : null}
+      {needsProbe
+        ? imageSources.map((source, index) => {
+            const resourceIdentity = resourceIdentities[index]!
+            if (commit.readyResourceIdentities.includes(resourceIdentity)) {
+              return null
+            }
+            return (
+              <div
+                aria-hidden
+                key={resourceIdentity}
+                data-alpha-mask-resource-probe={source.id}
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  overflow: "hidden",
+                  pointerEvents: "none",
+                  visibility: "hidden",
+                }}
+              >
+                <RenderNode
+                  imageSemantics={imageSemantics}
+                  imageResourceRevision={imageResourceRevisions?.[source.id]}
+                  imageResourceToken={`alpha-mask:${resourceIdentity}`}
+                  node={source}
+                  showImageRecoveryActions={false}
+                  suppressImageFailureFeedback
+                  onImageResourceStateChange={(state) =>
+                    handleProbeStateChange(source, resourceIdentity, state)
+                  }
+                />
+              </div>
+            )
+          })
+        : null}
     </>
   )
 }
@@ -496,7 +573,7 @@ function ResolvedMaskGroupPaintEntry({
 }: MaskGroupPaintEntryProps & {
   model: MaskGroupRenderModel | AlphaMaskGroupRenderModel
 }) {
-  const { content, entry: maskEntry, source } = model
+  const { content, entry: maskEntry, sources } = model
   const maskId = `studio-mask-${useId().replaceAll(":", "")}`
   const wrapperStyle = renderMaskGroupWrapperStyle(maskEntry.bounds)
   const contentProps = {
@@ -543,40 +620,46 @@ function ResolvedMaskGroupPaintEntry({
           x={0}
           y={0}
         >
-          {maskEntry.maskType === "vector" ? (
-            <RenderVectorMaskSource
-              bounds={maskEntry.bounds}
-              source={source as MaskGroupRenderModel["source"]}
-            />
-          ) : (
-            <foreignObject
-              data-mask-source-id={source.id}
-              height={maskEntry.bounds.height}
-              width={maskEntry.bounds.width}
-              x={0}
-              y={0}
-            >
-              <div
-                style={{
-                  position: "absolute",
-                  left: -maskEntry.bounds.x,
-                  top: -maskEntry.bounds.y,
-                  width: maskEntry.bounds.width,
-                  height: maskEntry.bounds.height,
-                }}
-              >
-                <RenderNode
-                  imageSemantics={imageSemantics}
-                  node={source}
-                  imageResourceRevision={imageResourceRevisions?.[source.id]}
-                  imageResourceToken={imageResourceTokens?.[source.id]}
-                  showImageRecoveryActions={showImageRecoveryActions}
-                  suppressImageFailureFeedback
-                  onImageResourceStateChange={onImageResourceStateChange}
+          {maskEntry.maskType === "vector"
+            ? sources.map((source) => (
+                <RenderVectorMaskSource
+                  key={source.id}
+                  bounds={maskEntry.bounds}
+                  source={source as MaskGroupRenderModel["source"]}
                 />
-              </div>
-            </foreignObject>
-          )}
+              ))
+            : sources.map((source) => (
+                <foreignObject
+                  key={source.id}
+                  data-mask-source-id={source.id}
+                  height={maskEntry.bounds.height}
+                  width={maskEntry.bounds.width}
+                  x={0}
+                  y={0}
+                >
+                  <div
+                    style={{
+                      position: "absolute",
+                      left: -maskEntry.bounds.x,
+                      top: -maskEntry.bounds.y,
+                      width: maskEntry.bounds.width,
+                      height: maskEntry.bounds.height,
+                    }}
+                  >
+                    <RenderNode
+                      imageSemantics={imageSemantics}
+                      node={source}
+                      imageResourceRevision={
+                        imageResourceRevisions?.[source.id]
+                      }
+                      imageResourceToken={imageResourceTokens?.[source.id]}
+                      showImageRecoveryActions={showImageRecoveryActions}
+                      suppressImageFailureFeedback
+                      onImageResourceStateChange={onImageResourceStateChange}
+                    />
+                  </div>
+                </foreignObject>
+              ))}
         </mask>
       </defs>
       <g mask={`url(#${maskId})`}>

@@ -3743,3 +3743,25 @@ evidence blocked; Gate M3 not yet accepted**
   Worker. Partial evidence is preserved but is not promoted and M3 remains
   unaccepted until the complete retained capture succeeds after a host-runtime
   restart.
+
+## 2026-08-31 — ASSET-02 Gate M4A multi-source implementation checkpoint
+
+Status: **core implementation and independent review complete; product
+integration and retained pixels remain open; Gate M4A not yet accepted**
+
+- Raised the existing vector/alpha mask contract from one source to one-to-four
+  explicit direct sources while preserving canonical source order, the accepted
+  nesting limit, and the rejection of luminance masks.
+- Implemented one source-over union followed by one destination-in composite in
+  Fabric, with equivalent ordered sibling mask contributions in React and
+  deterministic HTML.
+- Preserved hidden-source fallthrough, all-hidden no-allocation behavior,
+  ordered semantic cloning, exact command no-ops, atomic multi-image readiness,
+  and stale-event rejection.
+- Root verification passes 307/307 focused affected tests plus document, editor,
+  render-view, and renderer typechecks. Changed files pass Prettier and
+  `git diff --check`.
+- Final independent review verdict: **COMMIT**, with no remaining P0/P1 finding.
+- M4A remains unaccepted until the Studio UI, API/WebMCP proposal path,
+  one-history-step editor journey, and retained multi-source pixel corpus are
+  complete. M4B luminance and M4C nesting remain unadmitted.

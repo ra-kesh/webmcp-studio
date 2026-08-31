@@ -435,18 +435,25 @@ export function renderPagePaintPlanEntryToHtml(
     return `<div data-mask-group-id="${groupId}" data-mask-enabled="${entry.maskEnabled ? "true" : "false"}" data-mask-composite="false" style="${compositeStyle.join(";")}"><div data-mask-content="${groupId}" style="${contentStyle.join(";")}">${content}</div></div>`
   }
 
+  if (entry.maskType !== "vector" && entry.maskType !== "alpha") {
+    throw new Error(`Unsupported mask paint type: ${entry.maskType}`)
+  }
+
   const maskId = maskIdentifier(entry.groupId)
-  const sources = entry.visibleSourceNodeIds.map((sourceNodeId) => {
-    const source = nodesById.get(sourceNodeId)
-    if (!source) throw new Error(`Unknown mask source: ${sourceNodeId}`)
-    return entry.maskType === "vector"
-      ? renderVectorMaskSource(source, bounds)
-      : renderAlphaMaskSource(
-          source,
-          bounds,
-          entry.sources.find((candidate) => candidate.nodeId === sourceNodeId)
-        )
-  })
+  const visibleSourceIds = new Set(entry.visibleSourceNodeIds)
+  const sources = entry.sourceNodeIds
+    .filter((sourceNodeId) => visibleSourceIds.has(sourceNodeId))
+    .map((sourceNodeId) => {
+      const source = nodesById.get(sourceNodeId)
+      if (!source) throw new Error(`Unknown mask source: ${sourceNodeId}`)
+      return entry.maskType === "vector"
+        ? renderVectorMaskSource(source, bounds)
+        : renderAlphaMaskSource(
+            source,
+            bounds,
+            entry.sources.find((candidate) => candidate.nodeId === sourceNodeId)
+          )
+    })
   compositeStyle.push(
     `mask:url(#${maskId})`,
     `-webkit-mask:url(#${maskId})`,

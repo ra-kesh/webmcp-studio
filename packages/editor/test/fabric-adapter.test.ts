@@ -34,7 +34,12 @@ import {
   maskRenderConformanceHiddenSourcePlan,
   maskRenderConformanceNodes,
   maskRenderConformancePlan,
+  multiAlphaMaskRenderConformanceDocument,
+  multiVectorMaskRenderConformanceAllHiddenDocument,
+  multiVectorMaskRenderConformanceDocument,
+  multiVectorMaskRenderConformanceOneHiddenDocument,
 } from "@webmcp/document/internal/mask-render-conformance"
+import { projectPagePaintPlan } from "@webmcp/document/internal/page-paint-plan"
 import {
   createFabricSyncObject,
   configureFabricSupportedPixelRatio,
@@ -459,6 +464,117 @@ describe("Fabric alpha mask paint consumer", () => {
         () => unavailable
       )
     ).toThrow(`Fabric alpha mask source ${image.id} is unavailable`)
+  })
+})
+
+describe("Fabric multi-source mask paint", () => {
+  it("unions visible vector sources once in canonical order", () => {
+    const document = multiVectorMaskRenderConformanceDocument
+    const entry = maskGroupEntry(
+      projectPagePaintPlan(document, document.pages[0]!.id)
+    )
+    const nodesById = new Map(document.nodes.map((node) => [node.id, node]))
+    const result = createFabricVectorMaskPaint(
+      entry,
+      nodesById,
+      createRetainedMaskContentObject
+    )
+
+    expect(result.kind).toBe("composite")
+    if (result.kind !== "composite") return
+    expect([...result.sourceObjects.keys()]).toEqual(entry.sourceNodeIds)
+    expect(result.sourceObjects.size).toBe(2)
+    expect(result.maskObject).toBeInstanceOf(Group)
+    expect(result.maskObject).toMatchObject({
+      globalCompositeOperation: "destination-in",
+      objectCaching: true,
+    })
+    for (const sourceObject of result.sourceObjects.values()) {
+      expect(sourceObject.globalCompositeOperation).toBe("source-over")
+    }
+
+    setEnv(getNodeFabricEnv())
+    const canvas = new StaticCanvas(undefined, {
+      width: 480,
+      height: 360,
+      enableRetinaScaling: false,
+      renderOnAddRemove: false,
+    })
+    canvas.add(result.object)
+    canvas.renderAll()
+    const alphaAt = (x: number, y: number) =>
+      canvas.contextContainer.getImageData(x, y, 1, 1).data[3]!
+    const nonzeroAlphas: number[] = []
+    for (let y = 80; y < 260; y += 10) {
+      for (let x = 80; x < 380; x += 10) {
+        const alpha = alphaAt(x, y)
+        if (alpha) nonzeroAlphas.push(alpha)
+      }
+    }
+    expect(nonzeroAlphas.length).toBeGreaterThan(0)
+    expect(Math.min(...nonzeroAlphas)).toBeGreaterThan(0)
+    expect(Math.max(...nonzeroAlphas)).toBeLessThan(255)
+    expect(new Set(nonzeroAlphas).size).toBeGreaterThan(1)
+    canvas.dispose()
+  })
+
+  it("excludes one hidden source and allocates nothing when all are hidden", () => {
+    const oneHidden = multiVectorMaskRenderConformanceOneHiddenDocument
+    const oneEntry = maskGroupEntry(
+      projectPagePaintPlan(oneHidden, oneHidden.pages[0]!.id)
+    )
+    const oneResult = createFabricVectorMaskPaint(
+      oneEntry,
+      new Map(oneHidden.nodes.map((node) => [node.id, node])),
+      createRetainedMaskContentObject
+    )
+    expect(oneResult.kind).toBe("composite")
+    if (oneResult.kind === "composite") {
+      expect(oneResult.sourceObjects.size).toBe(1)
+    }
+
+    const allHidden = multiVectorMaskRenderConformanceAllHiddenDocument
+    const allEntry = maskGroupEntry(
+      projectPagePaintPlan(allHidden, allHidden.pages[0]!.id)
+    )
+    const allResult = createFabricVectorMaskPaint(
+      allEntry,
+      new Map(allHidden.nodes.map((node) => [node.id, node])),
+      createRetainedMaskContentObject
+    )
+    expect(allResult).toMatchObject({ kind: "fallthrough" })
+  })
+
+  it("builds one alpha union after every image/text source is prepared", () => {
+    const document = multiAlphaMaskRenderConformanceDocument
+    const entry = maskGroupEntry(
+      projectPagePaintPlan(document, document.pages[0]!.id)
+    )
+    const nodesById = new Map(document.nodes.map((node) => [node.id, node]))
+    const preparedIds: string[] = []
+    const result = createFabricAlphaMaskPaint(
+      entry,
+      nodesById,
+      createRetainedMaskContentObject,
+      (node) => {
+        preparedIds.push(node.id)
+        return new Rect({
+          left: node.x,
+          top: node.y,
+          width: node.width,
+          height: node.height,
+          fill: "#000000",
+          opacity: node.opacity,
+          originX: "left",
+          originY: "top",
+        })
+      }
+    )
+    expect(result.kind).toBe("composite")
+    if (result.kind !== "composite") return
+    expect(preparedIds).toEqual(entry.visibleSourceNodeIds)
+    expect([...result.sourceObjects.keys()]).toEqual(entry.sourceNodeIds)
+    expect(result.maskObject.globalCompositeOperation).toBe("destination-in")
   })
 })
 

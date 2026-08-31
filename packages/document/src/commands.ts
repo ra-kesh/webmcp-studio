@@ -1198,17 +1198,18 @@ const maskCommandGroup = (
   return group
 }
 
-const assertSingleMaskSource = (
+const assertMaskSourceCount = (
   command: MaskProductCommand,
   sourceNodeIds: readonly string[]
 ) => {
   if (
-    sourceNodeIds.length !== initialMaskPaintAdmission.maxSources ||
+    sourceNodeIds.length < 1 ||
+    sourceNodeIds.length > initialMaskPaintAdmission.maxSources ||
     new Set(sourceNodeIds).size !== sourceNodeIds.length
   ) {
     throw new MaskCommandError(
       "MASK_COMMAND_SOURCE_COUNT",
-      `Mask command ${command.id} requires exactly one unique source`,
+      `Mask command ${command.id} requires between one and ${initialMaskPaintAdmission.maxSources} unique sources`,
       maskCommandContext(command, sourceNodeIds)
     )
   }
@@ -2388,7 +2389,7 @@ function applyParsedCommand(
         command,
         command.maskType
       )
-      assertSingleMaskSource(command, command.sourceNodeIds)
+      assertMaskSourceCount(command, command.sourceNodeIds)
       const uniqueNodeIds = new Set(command.nodeIds)
       if (uniqueNodeIds.size !== command.nodeIds.length) {
         throw new MaskCommandError(
@@ -2397,12 +2398,14 @@ function applyParsedCommand(
           maskCommandContext(command, command.nodeIds)
         )
       }
-      const sourceNodeId = command.sourceNodeIds[0]!
-      if (!uniqueNodeIds.has(sourceNodeId)) {
+      const nonMemberSourceNodeIds = command.sourceNodeIds.filter(
+        (sourceNodeId) => !uniqueNodeIds.has(sourceNodeId)
+      )
+      if (nonMemberSourceNodeIds.length) {
         throw new MaskCommandError(
           "MASK_COMMAND_SOURCE_NOT_MEMBER",
-          `Mask source ${sourceNodeId} is not a selected member`,
-          maskCommandContext(command, [sourceNodeId])
+          `Every mask source must be a selected member`,
+          maskCommandContext(command, nonMemberSourceNodeIds)
         )
       }
       if (command.nodeIds.length - command.sourceNodeIds.length < 1) {
@@ -2452,12 +2455,14 @@ function applyParsedCommand(
         )
       }
       assertMaskNodesUnlocked(document, command, command.nodeIds)
-      assertMaskSourceAdmission(
-        document,
-        command,
-        sourceNodeId,
-        admittedMaskType
-      )
+      for (const sourceNodeId of command.sourceNodeIds) {
+        assertMaskSourceAdmission(
+          document,
+          command,
+          sourceNodeId,
+          admittedMaskType
+        )
+      }
       const canonicalNodeIds = page.nodeIds.filter((nodeId) =>
         uniqueNodeIds.has(nodeId)
       )
@@ -2481,7 +2486,7 @@ function applyParsedCommand(
             role: "mask",
             mask: {
               type: admittedMaskType,
-              sourceNodeIds: [sourceNodeId],
+              sourceNodeIds: [...command.sourceNodeIds],
             },
           },
         ],
@@ -2517,6 +2522,14 @@ function applyParsedCommand(
         group.mask.sourceNodeIds[0]!,
         admittedMaskType
       )
+      for (const sourceNodeId of group.mask.sourceNodeIds.slice(1)) {
+        assertMaskSourceAdmission(
+          document,
+          command,
+          sourceNodeId,
+          admittedMaskType
+        )
+      }
       next = {
         ...document,
         groups: document.groups.map((candidate) =>
@@ -2533,30 +2546,36 @@ function applyParsedCommand(
     case "set_mask_sources": {
       maskCommandPage(document, command)
       const group = maskCommandGroup(document, command)
-      assertSingleMaskSource(command, command.sourceNodeIds)
-      const sourceNodeId = command.sourceNodeIds[0]!
-      if (!group.nodeIds.includes(sourceNodeId)) {
+      assertMaskSourceCount(command, command.sourceNodeIds)
+      const nonMemberSourceNodeIds = command.sourceNodeIds.filter(
+        (sourceNodeId) => !group.nodeIds.includes(sourceNodeId)
+      )
+      if (nonMemberSourceNodeIds.length) {
         throw new MaskCommandError(
           "MASK_COMMAND_SOURCE_NOT_MEMBER",
-          `Mask source ${sourceNodeId} is not a direct member of ${group.id}`,
-          maskCommandContext(command, [sourceNodeId])
+          `Every mask source must be a direct member of ${group.id}`,
+          maskCommandContext(command, nonMemberSourceNodeIds)
         )
       }
       if (
-        group.mask.sourceNodeIds.length === 1 &&
-        group.mask.sourceNodeIds[0] === sourceNodeId
+        group.mask.sourceNodeIds.length === command.sourceNodeIds.length &&
+        group.mask.sourceNodeIds.every(
+          (sourceNodeId, index) => sourceNodeId === command.sourceNodeIds[index]
+        )
       ) {
         return document
       }
       assertMaskNodesUnlocked(document, command, group.nodeIds)
       assertMaskComponentStructure(document, command, [group.id], group.nodeIds)
       const admittedMaskType = assertMaskTypeAdmission(command, group.mask.type)
-      assertMaskSourceAdmission(
-        document,
-        command,
-        sourceNodeId,
-        admittedMaskType
-      )
+      for (const sourceNodeId of command.sourceNodeIds) {
+        assertMaskSourceAdmission(
+          document,
+          command,
+          sourceNodeId,
+          admittedMaskType
+        )
+      }
       next = {
         ...document,
         groups: document.groups.map((candidate) =>
@@ -2565,7 +2584,7 @@ function applyParsedCommand(
                 ...candidate,
                 mask: {
                   ...candidate.mask,
-                  sourceNodeIds: [sourceNodeId],
+                  sourceNodeIds: [...command.sourceNodeIds],
                 },
               }
             : candidate

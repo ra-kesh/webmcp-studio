@@ -315,6 +315,55 @@ describe("canonical document commands", () => {
     expect(noOp.revision).toBe(changed.revision)
   })
 
+  it("creates and reorders up to four explicit mask sources atomically", () => {
+    const before = createMaskCommandFixture()
+    const created = applyCommand(before, {
+      ...createMaskCommand(),
+      nodeIds: [
+        "mask-conformance-below",
+        "mask-conformance-source",
+        "mask-conformance-above",
+      ],
+      sourceNodeIds: ["mask-conformance-below", "mask-conformance-source"],
+    })
+    expect(created.groups[0]).toMatchObject({
+      role: "mask",
+      mask: {
+        sourceNodeIds: ["mask-conformance-below", "mask-conformance-source"],
+      },
+    })
+
+    const reordered = applyCommand(created, {
+      id: "reorder-mask-sources",
+      type: "set_mask_sources",
+      actor: "human",
+      at: "2026-08-31T14:00:45.000Z",
+      expectedRevision: created.revision,
+      pageId: "mask-conformance-page",
+      groupId: "created-mask",
+      sourceNodeIds: ["mask-conformance-source", "mask-conformance-below"],
+    })
+    expect(reordered.groups[0]).toMatchObject({
+      role: "mask",
+      mask: {
+        sourceNodeIds: ["mask-conformance-source", "mask-conformance-below"],
+      },
+    })
+    expect(reordered.revision).toBe(created.revision + 1)
+    const noOp = applyCommand(reordered, {
+      id: "mask-source-order-no-op",
+      type: "set_mask_sources",
+      actor: "human",
+      at: "2026-08-31T14:00:46.000Z",
+      expectedRevision: reordered.revision,
+      pageId: "mask-conformance-page",
+      groupId: "created-mask",
+      sourceNodeIds: ["mask-conformance-source", "mask-conformance-below"],
+    })
+    expect(noOp).toEqual(reordered)
+    expect(noOp.revision).toBe(reordered.revision)
+  })
+
   it.each([
     ["line", "MASK_COMMAND_UNSUPPORTED_SOURCE"],
     ["image", "MASK_COMMAND_UNSUPPORTED_SOURCE"],
@@ -483,14 +532,17 @@ describe("canonical document commands", () => {
       code: "MASK_COMMAND_STALE_REVISION",
     },
     {
-      label: "multiple sources",
+      label: "more than four sources",
       change: (document: ReturnType<typeof createMaskCommandFixture>) =>
         applyCommand(document, {
           ...createMaskCommand(),
           sourceNodeIds: [
             "mask-conformance-below",
             "mask-conformance-above",
-          ] as [string, string],
+            "mask-source-3",
+            "mask-source-4",
+            "mask-source-5",
+          ] as [string, string, string, string, string],
         }),
       code: "MASK_COMMAND_SOURCE_COUNT",
     },

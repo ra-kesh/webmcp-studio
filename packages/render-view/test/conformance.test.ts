@@ -18,7 +18,12 @@ import {
   maskRenderConformanceHiddenSourcePlan,
   maskRenderConformanceNodes,
   maskRenderConformancePlan,
+  multiAlphaMaskRenderConformanceDocument,
+  multiVectorMaskRenderConformanceAllHiddenDocument,
+  multiVectorMaskRenderConformanceDocument,
+  multiVectorMaskRenderConformanceOneHiddenDocument,
 } from "@webmcp/document/internal/mask-render-conformance"
+import { projectPagePaintPlan } from "@webmcp/document/internal/page-paint-plan"
 import {
   createAlphaImageMaskCommitState,
   createImageResourceLoadState,
@@ -282,6 +287,94 @@ describe("React render-view conformance", () => {
       committedIdentity: identity,
       committedModel: model,
     })
+  })
+
+  it("preserves canonical multi-source union order and hidden fallthrough", () => {
+    const visibleDocument = multiVectorMaskRenderConformanceDocument
+    const visibleEntry = projectPagePaintPlan(
+      visibleDocument,
+      visibleDocument.pages[0]!.id
+    ).entries.find((entry) => entry.kind === "mask_group")!
+    const visibleModel = maskGroupRenderModel(
+      visibleEntry,
+      new Map(visibleDocument.nodes.map((node) => [node.id, node]))
+    )
+    expect(visibleModel.sources.map((source) => source.id)).toEqual(
+      visibleEntry.kind === "mask_group" ? visibleEntry.sourceNodeIds : []
+    )
+
+    const oneHidden = multiVectorMaskRenderConformanceOneHiddenDocument
+    const oneHiddenEntry = projectPagePaintPlan(
+      oneHidden,
+      oneHidden.pages[0]!.id
+    ).entries.find((entry) => entry.kind === "mask_group")!
+    expect(
+      maskGroupRenderModel(
+        oneHiddenEntry,
+        new Map(oneHidden.nodes.map((node) => [node.id, node]))
+      ).sources
+    ).toHaveLength(1)
+
+    const allHidden = multiVectorMaskRenderConformanceAllHiddenDocument
+    const allHiddenEntry = projectPagePaintPlan(
+      allHidden,
+      allHidden.pages[0]!.id
+    ).entries.find((entry) => entry.kind === "mask_group")!
+    expect(shouldCompositeMaskGroup(allHiddenEntry)).toBe(false)
+    const markup = renderToStaticMarkup(
+      createElement(MaskGroupPaintEntry, {
+        entry: allHiddenEntry,
+        nodesById: new Map(allHidden.nodes.map((node) => [node.id, node])),
+      })
+    )
+    expect(markup).toContain('data-node-id="mask-conformance-content"')
+    expect(markup).not.toContain("data-mask-source-id")
+    expect(markup).not.toContain("data-alpha-mask-resource-probe")
+  })
+
+  it("commits a multi-image/text alpha union only after every image is ready", () => {
+    const document = multiAlphaMaskRenderConformanceDocument
+    const entry = projectPagePaintPlan(
+      document,
+      document.pages[0]!.id
+    ).entries.find((candidate) => candidate.kind === "mask_group")!
+    const model = alphaMaskGroupRenderModel(
+      entry,
+      new Map(document.nodes.map((node) => [node.id, node]))
+    )
+    const imageIdentities = model.sources.flatMap((source) =>
+      source.type === "image"
+        ? [imageResourceIdentity(source.id, source.src, 1)]
+        : []
+    )
+    const identity = JSON.stringify(imageIdentities)
+    const initial = createAlphaImageMaskCommitState(
+      identity,
+      model,
+      imageIdentities
+    )
+    const firstReady = reduceAlphaImageMaskCommitState(initial, {
+      type: "ready",
+      identity,
+      resourceIdentity: imageIdentities[0],
+    })
+    expect(firstReady.status).toBe("loading")
+    expect(firstReady.committedModel).toBeNull()
+    const failed = reduceAlphaImageMaskCommitState(firstReady, {
+      type: "failed",
+      identity,
+      resourceIdentity: imageIdentities[1],
+    })
+    expect(failed.status).toBe("error")
+    expect(failed.committedModel).toBeNull()
+    const ready = reduceAlphaImageMaskCommitState(firstReady, {
+      type: "ready",
+      identity,
+      resourceIdentity: imageIdentities[1],
+    })
+    expect(ready.status).toBe("ready")
+    expect(ready.committedModel).toBe(model)
+    expect(model.sources.at(-1)?.type).toBe("text")
   })
 
   it("renders every component semantic case from its materialized ordinary nodes", () => {

@@ -27,6 +27,10 @@ import {
   maskRenderConformanceHiddenSourcePlan,
   maskRenderConformanceNodes,
   maskRenderConformancePlan,
+  multiAlphaMaskRenderConformanceDocument,
+  multiVectorMaskRenderConformanceAllHiddenDocument,
+  multiVectorMaskRenderConformanceDocument,
+  multiVectorMaskRenderConformanceOneHiddenDocument,
 } from "@webmcp/document/internal/mask-render-conformance"
 import {
   markRenderResourcesReady,
@@ -170,6 +174,59 @@ describe("renderer HTML", () => {
       expect(html).toContain('data-mask-source-id="mask-conformance-source"')
       expect(html).not.toContain('data-node-id="mask-conformance-source"')
       expect(html).toContain('data-node-id="mask-conformance-content"')
+    }
+  })
+
+  it("serializes source-over union sources in canonical order and excludes hidden sources", () => {
+    const visible = renderDocumentToHtml(
+      multiVectorMaskRenderConformanceDocument,
+      "mask-conformance-page"
+    )
+    const sourceIds =
+      multiVectorMaskRenderConformanceDocument.groups[0]!.role === "mask"
+        ? multiVectorMaskRenderConformanceDocument.groups[0]!.mask.sourceNodeIds
+        : []
+    const offsets = sourceIds.map((sourceId) =>
+      visible.indexOf(`data-mask-source-id="${sourceId}"`)
+    )
+    expect(offsets.every((offset) => offset >= 0)).toBe(true)
+    expect(offsets).toEqual([...offsets].sort((a, b) => a - b))
+
+    const oneHidden = renderDocumentToHtml(
+      multiVectorMaskRenderConformanceOneHiddenDocument,
+      "mask-conformance-page"
+    )
+    expect(oneHidden.match(/data-mask-source-id=/g)).toHaveLength(1)
+
+    const allHidden = renderDocumentToHtml(
+      multiVectorMaskRenderConformanceAllHiddenDocument,
+      "mask-conformance-page"
+    )
+    expect(allHidden).toContain('data-mask-composite="false"')
+    expect(allHidden).not.toContain("data-mask-source-id=")
+  })
+
+  it("includes every alpha image/text source in shared document, thumbnail, and PDF HTML", () => {
+    const document = multiAlphaMaskRenderConformanceDocument
+    const outputs = [
+      renderDocumentToHtml(document, "mask-conformance-page"),
+      renderDocumentThumbnailToHtml(document, "mask-conformance-page", {
+        width: 240,
+        height: 180,
+      }),
+      renderOutputToHtml(document, "mask-conformance-output"),
+    ]
+    const sourceIds =
+      document.groups[0]!.role === "mask"
+        ? document.groups[0]!.mask.sourceNodeIds
+        : []
+    for (const html of outputs) {
+      for (const sourceId of sourceIds) {
+        expect(html).toContain(`data-mask-source-id="${sourceId}"`)
+      }
+      expect(html.match(/data-mask-source-id=/g)).toHaveLength(3)
+      expect(html.match(/<img data-node-id=/g)).toHaveLength(2)
+      expect(html).toContain("data-mask-font-families=")
     }
   })
 

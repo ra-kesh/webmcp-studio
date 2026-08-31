@@ -1,6 +1,7 @@
 import type { Document, Page, SceneNode } from "./schema"
 
 export type MaskPaintType = "vector" | "alpha"
+export type MaskSourceCombination = "source_over_union"
 
 export type MaskPaintSource =
   | Readonly<{ nodeId: string; kind: "vector" }>
@@ -35,6 +36,7 @@ export type PagePaintPlanEntry =
       sourceNodeIds: readonly string[]
       visibleSourceNodeIds: readonly string[]
       sources: readonly MaskPaintSource[]
+      sourceCombination: MaskSourceCombination
       content: readonly PagePaintPlanEntry[]
       bounds: PagePaintBounds
       maskEnabled: boolean
@@ -48,7 +50,7 @@ export type PagePaintPlan = Readonly<{
 
 export const initialMaskPaintAdmission = Object.freeze({
   maxPixelRatio: 2,
-  maxSources: 1,
+  maxSources: 4,
   maxMaskedDescendants: 512,
   maxNestingDepth: 1,
   maxCompositeDimension: 8192,
@@ -145,9 +147,10 @@ export const projectMaskCompositeGeometry = (
   sourceNodeIds: readonly string[]
 ) => {
   const sourceIds = new Set(sourceNodeIds)
-  const visibleSourceNodeIds = nodes
-    .filter((node) => sourceIds.has(node.id) && node.visible)
-    .map((node) => node.id)
+  const nodesById = new Map(nodes.map((node) => [node.id, node]))
+  const visibleSourceNodeIds = sourceNodeIds.filter(
+    (nodeId) => nodesById.get(nodeId)?.visible
+  )
   const visibleContentNodeIds = nodes
     .filter((node) => !sourceIds.has(node.id) && node.visible)
     .map((node) => node.id)
@@ -156,7 +159,6 @@ export const projectMaskCompositeGeometry = (
   const contributingNodeIds = compositeRequired
     ? [...visibleSourceNodeIds, ...visibleContentNodeIds]
     : visibleContentNodeIds
-  const nodesById = new Map(nodes.map((node) => [node.id, node]))
   const bounds = unionBounds(
     contributingNodeIds.map((nodeId) =>
       rotatedFrameBounds(nodesById.get(nodeId)!)
@@ -560,6 +562,7 @@ export function projectPagePaintPlanFromRelations(
       sources: relation.sourceNodeIds.map((sourceNodeId) =>
         maskPaintSource(nodesById.get(sourceNodeId)!)
       ),
+      sourceCombination: "source_over_union",
       content: contentNodeIds.map((contentNodeId) => ({
         kind: "node",
         nodeId: contentNodeId,

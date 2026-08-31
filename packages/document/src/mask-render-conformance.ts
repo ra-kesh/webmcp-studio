@@ -258,3 +258,115 @@ export const alphaTextMaskRenderConformanceDocument = alphaMaskDocument(
   "Alpha text mask renderer conformance carrier",
   alphaTextMaskRenderConformanceNodes
 )
+
+const multiSourceMaskDocument = (
+  id: string,
+  name: string,
+  maskType: "vector" | "alpha",
+  sources: readonly SceneNode[]
+) => {
+  const content = maskRenderConformanceNodes[2]!
+  const below = maskRenderConformanceNodes[0]!
+  const above = maskRenderConformanceNodes[3]!
+  const sourceNodeIds = sources.map((source) => source.id) as [
+    string,
+    ...string[],
+  ]
+  return documentSchema.parse({
+    ...maskRenderConformanceDocument,
+    id,
+    name,
+    pages: [
+      {
+        ...maskRenderConformancePage,
+        nodeIds: [below.id, ...sourceNodeIds, content.id, above.id],
+      },
+    ],
+    nodes: [below, ...sources, content, above],
+    groups: [
+      {
+        ...maskRenderConformanceDocument.groups[0],
+        name,
+        nodeIds: [...sourceNodeIds, content.id],
+        mask: { type: maskType, sourceNodeIds },
+      },
+    ],
+  })
+}
+
+const secondVectorMaskSource = {
+  ...(maskRenderConformanceNodes[1] as Extract<SceneNode, { type: "rect" }>),
+  id: "mask-conformance-source-two",
+  name: "Second vector mask source",
+  x: 232,
+  y: 128,
+  width: 144,
+  height: 104,
+  rotation: -6,
+  opacity: 0.64,
+}
+
+export const multiVectorMaskRenderConformanceDocument = multiSourceMaskDocument(
+  "multi-vector-mask-render-conformance-v1",
+  "Multi-vector mask renderer conformance carrier",
+  "vector",
+  [maskRenderConformanceNodes[1]!, secondVectorMaskSource]
+)
+
+export const multiVectorMaskRenderConformanceOneHiddenDocument =
+  multiSourceMaskDocument(
+    "multi-vector-one-hidden-mask-render-conformance-v1",
+    "Multi-vector one-hidden renderer conformance carrier",
+    "vector",
+    [
+      maskRenderConformanceNodes[1]!,
+      { ...secondVectorMaskSource, visible: false },
+    ]
+  )
+
+export const multiVectorMaskRenderConformanceAllHiddenDocument =
+  multiSourceMaskDocument(
+    "multi-vector-all-hidden-mask-render-conformance-v1",
+    "Multi-vector all-hidden renderer conformance carrier",
+    "vector",
+    [
+      { ...maskRenderConformanceNodes[1]!, visible: false },
+      { ...secondVectorMaskSource, visible: false },
+    ]
+  )
+
+const secondAlphaImageSource = {
+  ...(alphaImageMaskRenderConformanceNodes[1] as Extract<
+    SceneNode,
+    { type: "image" }
+  >),
+  id: "mask-conformance-source-image-two",
+  name: "Second alpha image mask source",
+  x: 220,
+  y: 112,
+  opacity: 0.57,
+}
+const alphaTextSource = {
+  ...(alphaTextMaskRenderConformanceNodes[1] as Extract<
+    SceneNode,
+    { type: "text" }
+  >),
+  id: "mask-conformance-source-text",
+}
+
+export const multiAlphaMaskRenderConformanceDocument = multiSourceMaskDocument(
+  "multi-alpha-mask-render-conformance-v1",
+  "Multi-alpha mask renderer conformance carrier",
+  "alpha",
+  [
+    {
+      ...(alphaImageMaskRenderConformanceNodes[1] as Extract<
+        SceneNode,
+        { type: "image" }
+      >),
+      id: "mask-conformance-source-image-one",
+    },
+    secondAlphaImageSource,
+    alphaTextSource,
+  ]
+)

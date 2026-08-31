@@ -1507,6 +1507,7 @@ export type FabricVectorMaskPaint =
       kind: "composite"
       object: Group
       maskObject: FabricObject
+      sourceObjects: ReadonlyMap<string, FabricObject>
     }>
 
 export type FabricAlphaMaskPaint = FabricVectorMaskPaint
@@ -1515,11 +1516,11 @@ function createFabricVectorMaskObject(
   source: Extract<SceneNode, { type: "rect" | "ellipse" | "icon" }>
 ) {
   const object = createFabricSyncObject(source)
-  applyFabricVectorMaskPaint(object, source)
+  applyFabricVectorMaskSourcePaint(object, source)
   return object
 }
 
-function applyFabricVectorMaskPaint(
+function applyFabricVectorMaskSourcePaint(
   object: FabricObject,
   source: Extract<SceneNode, { type: "rect" | "ellipse" | "icon" }>
 ) {
@@ -1534,6 +1535,40 @@ function applyFabricVectorMaskPaint(
   }
   object.set({
     opacity: source.opacity,
+    globalCompositeOperation: "source-over",
+    selectable: false,
+    evented: false,
+  })
+  object.setCoords()
+}
+
+function createFabricMaskSourceUnion(
+  sourceObjects: readonly FabricObject[],
+  bounds: PagePaintBounds
+) {
+  if (sourceObjects.length === 1) {
+    const source = sourceObjects[0]!
+    applyFabricAlphaMaskPaint(source)
+    return source
+  }
+  const union = new Group([...sourceObjects], {
+    left: bounds.x,
+    top: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+    originX: "left",
+    originY: "top",
+    layoutManager: new LayoutManager(new FixedLayout()),
+    objectCaching: true,
+    selectable: false,
+    evented: false,
+  })
+  applyFabricAlphaMaskPaint(union)
+  return union
+}
+
+function applyFabricAlphaMaskPaint(object: FabricObject) {
+  object.set({
     globalCompositeOperation: "destination-in",
     selectable: false,
     evented: false,
@@ -1541,9 +1576,9 @@ function applyFabricVectorMaskPaint(
   object.setCoords()
 }
 
-function applyFabricAlphaMaskPaint(object: FabricObject) {
+function applyFabricAlphaMaskSourcePaint(object: FabricObject) {
   object.set({
-    globalCompositeOperation: "destination-in",
+    globalCompositeOperation: "source-over",
     selectable: false,
     evented: false,
   })
@@ -1611,26 +1646,34 @@ export function createFabricVectorMaskPaint(
     return { kind: "fallthrough", objects: contentObjects }
   }
 
-  const sourceNodeId = entry.visibleSourceNodeIds[0]
-  const source = sourceNodeId ? nodesById.get(sourceNodeId) : undefined
-  if (
-    entry.visibleSourceNodeIds.length !== 1 ||
-    !isAdmittedVectorMaskSource(source)
-  ) {
+  const sources = entry.sourceNodeIds.flatMap((sourceNodeId) => {
+    if (!entry.visibleSourceNodeIds.includes(sourceNodeId)) return []
+    const source = nodesById.get(sourceNodeId)
+    return isAdmittedVectorMaskSource(source) ? [source] : []
+  })
+  if (sources.length !== entry.visibleSourceNodeIds.length) {
     throw new Error(
-      "Fabric vector masks require exactly one visible rectangle, ellipse, or icon source"
+      "Fabric vector masks require visible rectangle, ellipse, or icon sources"
     )
   }
   assertFabricMaskBounds(entry.bounds)
 
-  const maskObject = createFabricVectorMaskObject(source)
+  const sourceObjects = new Map<string, FabricObject>()
+  for (const source of sources) {
+    const object = createFabricVectorMaskObject(source)
+    positionFabricMaskContentObject(object, entry.bounds)
+    sourceObjects.set(source.id, object)
+  }
+  const maskObject = createFabricMaskSourceUnion(
+    [...sourceObjects.values()],
+    entry.bounds
+  )
   // Detached objects are page-positioned. Convert them to the fixed
   // composite's centre-local coordinates without changing their own affine
   // properties or canonical node geometry.
   const objects = contentObjects.map((object) =>
     positionFabricMaskContentObject(object, entry.bounds)
   )
-  positionFabricMaskContentObject(maskObject, entry.bounds)
   const object = new Group([...objects, maskObject], {
     left: entry.bounds.x,
     top: entry.bounds.y,
@@ -1647,7 +1690,7 @@ export function createFabricVectorMaskPaint(
     hasControls: false,
   })
   object.setCoords()
-  return { kind: "composite", object, maskObject }
+  return { kind: "composite", object, maskObject, sourceObjects }
 }
 
 /**
@@ -1678,26 +1721,33 @@ export function createFabricAlphaMaskPaint(
     return { kind: "fallthrough", objects: contentObjects }
   }
 
-  const sourceNodeId = entry.visibleSourceNodeIds[0]
-  const source = sourceNodeId ? nodesById.get(sourceNodeId) : undefined
-  if (
-    entry.visibleSourceNodeIds.length !== 1 ||
-    !isAdmittedAlphaMaskSource(source)
-  ) {
+  const sources = entry.sourceNodeIds.flatMap((sourceNodeId) => {
+    if (!entry.visibleSourceNodeIds.includes(sourceNodeId)) return []
+    const source = nodesById.get(sourceNodeId)
+    return isAdmittedAlphaMaskSource(source) ? [source] : []
+  })
+  if (sources.length !== entry.visibleSourceNodeIds.length) {
     throw new Error(
-      "Fabric alpha masks require exactly one visible rectangle, ellipse, icon, image, or text source"
+      "Fabric alpha masks require visible rectangle, ellipse, icon, image, or text sources"
     )
   }
   assertFabricMaskBounds(entry.bounds)
-  const maskObject = createSourceObject(source)
-  if (isMissingImagePlaceholder(maskObject)) {
-    throw new Error(`Fabric alpha mask source ${source.id} is unavailable`)
+  const sourceObjects = new Map<string, FabricObject>()
+  for (const source of sources) {
+    const sourceObject = createSourceObject(source)
+    if (isMissingImagePlaceholder(sourceObject)) {
+      throw new Error(`Fabric alpha mask source ${source.id} is unavailable`)
+    }
+    positionFabricMaskContentObject(sourceObject, entry.bounds)
+    sourceObjects.set(source.id, sourceObject)
   }
-  applyFabricAlphaMaskPaint(maskObject)
+  const maskObject = createFabricMaskSourceUnion(
+    [...sourceObjects.values()],
+    entry.bounds
+  )
   const objects = contentObjects.map((object) =>
     positionFabricMaskContentObject(object, entry.bounds)
   )
-  positionFabricMaskContentObject(maskObject, entry.bounds)
   const object = new Group([...objects, maskObject], {
     left: entry.bounds.x,
     top: entry.bounds.y,
@@ -1714,7 +1764,7 @@ export function createFabricAlphaMaskPaint(
     hasControls: false,
   })
   object.setCoords()
-  return { kind: "composite", object, maskObject }
+  return { kind: "composite", object, maskObject, sourceObjects }
 }
 
 function assertFabricMaskBounds(bounds: PagePaintBounds) {
@@ -3104,8 +3154,11 @@ export class FabricCanvasAdapter implements CanvasAdapter {
           syncFabricObjectFromNode(maskObject, node)
           if (maskEntry.maskType === "vector") {
             if (!isAdmittedVectorMaskSource(node)) continue
-            applyFabricVectorMaskPaint(maskObject, node)
+            applyFabricVectorMaskSourcePaint(maskObject, node)
           } else {
+            applyFabricAlphaMaskSourcePaint(maskObject)
+          }
+          if (maskEntry.visibleSourceNodeIds.length === 1) {
             applyFabricAlphaMaskPaint(maskObject)
           }
           positionFabricMaskContentObject(maskObject, maskEntry.bounds)
@@ -3138,8 +3191,10 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     if (!canvas) return
     const inactiveMaskSourceIds = new Set(
       plan.entries.flatMap((entry) =>
-        entry.kind === "mask_group" && !entry.compositeRequired
-          ? entry.sourceNodeIds
+        entry.kind === "mask_group"
+          ? entry.sourceNodeIds.filter(
+              (sourceId) => !entry.visibleSourceNodeIds.includes(sourceId)
+            )
           : []
       )
     )
@@ -3162,12 +3217,13 @@ export class FabricCanvasAdapter implements CanvasAdapter {
       ) {
         continue
       }
-      const sourceId = entry.visibleSourceNodeIds[0]
-      const source = sourceId ? nodesById.get(sourceId) : undefined
-      if (source?.type === "image") {
-        await preparedImages.get(source.id)
-        signal?.throwIfAborted()
-        if (generation !== this.generation || !this.canvas) return
+      for (const sourceId of entry.visibleSourceNodeIds) {
+        const source = nodesById.get(sourceId)
+        if (source?.type === "image") {
+          await preparedImages.get(source.id)
+          signal?.throwIfAborted()
+          if (generation !== this.generation || !this.canvas) return
+        }
       }
     }
     this.paintPlanMode = true
@@ -3236,12 +3292,13 @@ export class FabricCanvasAdapter implements CanvasAdapter {
         if (!object) throw new Error(`Mask content ${node.id} is not prepared`)
         return object
       }
-      const sourceNodeId = entry.visibleSourceNodeIds[0]
-      const source = sourceNodeId ? nodesById.get(sourceNodeId) : undefined
-      const preparedSource =
-        entry.maskType === "alpha" && source
-          ? await createObject(source)
-          : undefined
+      const preparedSources = new Map<string, FabricObject>()
+      if (entry.maskType === "alpha") {
+        for (const sourceNodeId of entry.visibleSourceNodeIds) {
+          const source = nodesById.get(sourceNodeId)
+          if (source) preparedSources.set(source.id, await createObject(source))
+        }
+      }
       signal?.throwIfAborted()
       if (generation !== this.generation || !this.canvas) return
       const paint =
@@ -3252,7 +3309,8 @@ export class FabricCanvasAdapter implements CanvasAdapter {
               nodesById,
               contentObject,
               (node) => {
-                if (!preparedSource || node.id !== sourceNodeId) {
+                const preparedSource = preparedSources.get(node.id)
+                if (!preparedSource) {
                   throw new Error(`Mask source ${node.id} is not prepared`)
                 }
                 return preparedSource
@@ -3260,12 +3318,8 @@ export class FabricCanvasAdapter implements CanvasAdapter {
             )
       if (paint.kind === "composite") {
         this.maskCompositeByGroupId.set(entry.groupId, paint.object)
-        const visibleSourceId = entry.visibleSourceNodeIds[0]
-        if (visibleSourceId) {
-          this.maskPaintObjectBySourceNodeId.set(
-            visibleSourceId,
-            paint.maskObject
-          )
+        for (const [visibleSourceId, sourceObject] of paint.sourceObjects) {
+          this.maskPaintObjectBySourceNodeId.set(visibleSourceId, sourceObject)
         }
         canvas.add(paint.object)
       } else canvas.add(...paint.objects)
@@ -3344,7 +3398,10 @@ export class FabricCanvasAdapter implements CanvasAdapter {
         isAdmittedVectorMaskSource(previewNode)
       ) {
         syncFabricObjectFromNode(maskObject, previewNode)
-        applyFabricVectorMaskPaint(maskObject, previewNode)
+        applyFabricVectorMaskSourcePaint(maskObject, previewNode)
+        if (sourceEntry.visibleSourceNodeIds.length === 1) {
+          applyFabricAlphaMaskPaint(maskObject)
+        }
         positionFabricMaskContentObject(maskObject, sourceEntry.bounds)
         this.maskCompositeByGroupId
           .get(sourceEntry.groupId)
@@ -3372,7 +3429,10 @@ export class FabricCanvasAdapter implements CanvasAdapter {
       const sourceEntry = this.maskEntryBySourceNodeId.get(nodeId)
       if (maskObject && sourceEntry && isAdmittedVectorMaskSource(node)) {
         syncFabricObjectFromNode(maskObject, node)
-        applyFabricVectorMaskPaint(maskObject, node)
+        applyFabricVectorMaskSourcePaint(maskObject, node)
+        if (sourceEntry.visibleSourceNodeIds.length === 1) {
+          applyFabricAlphaMaskPaint(maskObject)
+        }
         positionFabricMaskContentObject(maskObject, sourceEntry.bounds)
         this.maskCompositeByGroupId
           .get(sourceEntry.groupId)

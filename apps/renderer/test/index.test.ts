@@ -10,6 +10,8 @@ import {
   alphaImageMaskRenderConformanceDocument,
   alphaTextMaskRenderConformanceDocument,
   maskRenderConformanceDocument,
+  multiAlphaMaskRenderConformanceDocument,
+  multiVectorMaskRenderConformanceDocument,
 } from "@webmcp/document/internal/mask-render-conformance"
 import { MAX_RENDER_ARTIFACT_BYTES } from "../src/artifact-body"
 
@@ -108,6 +110,55 @@ describe("renderer Worker", () => {
   beforeEach(() => {
     vi.mocked(launch).mockReset()
   })
+
+  it.each([
+    [
+      "vector",
+      multiVectorMaskRenderConformanceDocument,
+      "/render",
+      { pageId: "mask-conformance-page" },
+    ],
+    ["vector", multiVectorMaskRenderConformanceDocument, "/render/pdf", {}],
+    [
+      "alpha",
+      multiAlphaMaskRenderConformanceDocument,
+      "/render",
+      { pageId: "mask-conformance-page" },
+    ],
+    ["alpha", multiAlphaMaskRenderConformanceDocument, "/render/pdf", {}],
+  ])(
+    "passes canonical multi-source %s through %s",
+    async (_maskType, document, path, requestFields) => {
+      const { default: worker } = await import("../src/index")
+      const browserPage = successfulBrowserPage([37, 80, 68, 70])
+      vi.mocked(launch).mockResolvedValue({
+        newPage: vi.fn(async () => browserPage),
+        close: vi.fn(async () => undefined),
+      } as never)
+      const response = await worker.fetch(
+        new Request(`https://renderer.internal${path}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Render-Persistence": "ephemeral",
+          },
+          body: JSON.stringify({
+            renderId: `multi-${_maskType}-${path.endsWith("pdf") ? "pdf" : "png"}`,
+            outputId: "mask-conformance-output",
+            document,
+            expectedImageResources: [],
+            ...requestFields,
+          }),
+        }) as never,
+        { BROWSER: {}, RENDERS: {} } as unknown as Env
+      )
+      expect(response.status).toBe(200)
+      const html = browserPage.setContent.mock.calls[0]?.[0]
+      expect(html.match(/data-mask-source-id=/g)).toHaveLength(
+        _maskType === "vector" ? 2 : 3
+      )
+    }
+  )
 
   it.each([
     ["PNG", "/render", { pageId: "mask-conformance-page" }],

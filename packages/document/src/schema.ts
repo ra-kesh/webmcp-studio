@@ -1289,7 +1289,7 @@ export const documentCommandSchema = z.discriminatedUnion("type", [
     pageId: id,
     groupId: id,
     name: z.string().trim().min(1),
-    nodeIds: z.array(id).min(2).max(513),
+    nodeIds: z.array(id).min(2).max(516),
     sourceNodeIds: z.tuple([id]).rest(id),
     maskType: maskGroupTypeSchema,
   }),

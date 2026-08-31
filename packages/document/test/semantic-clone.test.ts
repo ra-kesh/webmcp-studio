@@ -253,15 +253,15 @@ function maskSemanticFixture(): Document {
         id: "cover-mask",
         pageId: "cover",
         name: "Cover mask",
-        nodeIds: ["panel", "title"],
+        nodeIds: ["panel", "title", "portrait"],
         role: "mask",
-        mask: { type: "vector", sourceNodeIds: ["panel"] },
+        mask: { type: "alpha", sourceNodeIds: ["title", "portrait"] },
       },
       {
         id: "media-group",
         pageId: "cover",
         name: "Media group",
-        nodeIds: ["portrait", "divider"],
+        nodeIds: ["divider"],
         role: "organize",
       },
     ],
@@ -287,9 +287,12 @@ describe("semantic document cloning", () => {
       id: "group-copy-cover-mask",
       pageId: "cover-mask-copy",
       name: "Cover mask",
-      nodeIds: ["node-copy-panel", "node-copy-title"],
+      nodeIds: ["node-copy-panel", "node-copy-title", "node-copy-portrait"],
       role: "mask",
-      mask: { type: "vector", sourceNodeIds: ["node-copy-panel"] },
+      mask: {
+        type: "alpha",
+        sourceNodeIds: ["node-copy-title", "node-copy-portrait"],
+      },
     })
     expect(
       clonedMask?.role === "mask"

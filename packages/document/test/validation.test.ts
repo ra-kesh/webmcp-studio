@@ -510,6 +510,64 @@ describe("strict document validation", () => {
     )
   })
 
+  it("admits four unique sources and reports a fifth with a stable limit issue", () => {
+    const document = clone()
+    document.groups = []
+    const source = document.nodes.find((node) => node.id === "cover-panel")!
+    const copies = Array.from({ length: 5 }, (_, index) => ({
+      ...structuredClone(source),
+      id: `multi-source-${index}`,
+      name: `Multi source ${index}`,
+    }))
+    const content = {
+      ...structuredClone(source),
+      id: "multi-source-content",
+      name: "Multi source content",
+    }
+    document.nodes = [...copies, content]
+    document.pages[0]!.nodeIds = document.nodes.map((node) => node.id)
+    const maskGroup: Document["groups"][number] = {
+      id: "five-source-mask",
+      role: "mask" as const,
+      pageId: document.pages[0]!.id,
+      name: "Five source mask",
+      nodeIds: document.pages[0]!.nodeIds,
+      mask: {
+        type: "vector" as const,
+        sourceNodeIds: copies.map((node) => node.id) as [
+          string,
+          string,
+          string,
+          string,
+          string,
+        ],
+      },
+    }
+    document.groups.push(maskGroup)
+
+    expect(errorsFor(document)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "group:five-source-mask:mask:source-limit",
+          code: "invalid_group",
+        }),
+      ])
+    )
+    maskGroup.mask.sourceNodeIds = maskGroup.mask.sourceNodeIds.slice(0, 4) as [
+      string,
+      string,
+      string,
+      string,
+    ]
+    expect(errorsFor(document)).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "group:five-source-mask:mask:source-limit",
+        }),
+      ])
+    )
+  })
+
   it.each(["ellipse", "icon"] as const)(
     "admits an unstroked rotated %s as the direct vector source",
     (type) => {
