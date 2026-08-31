@@ -1447,12 +1447,12 @@ function LibraryMediaBrowserContent({
         }}
       >
         <TabsList
-          className="w-full justify-start gap-0 overflow-x-auto p-0 group-data-horizontal/tabs:h-12"
+          className="w-full justify-start gap-0 p-0 group-data-horizontal/tabs:h-12"
           variant="line"
         >
           {tabScopes.map((tab) => (
             <TabsTrigger
-              className="h-full min-w-fit shrink-0 rounded-none px-3 after:bottom-[-1px]"
+              className="h-full min-w-0 flex-1 rounded-none px-1.5 text-xs after:bottom-[-1px]"
               key={tab.value}
               value={tab.value}
             >

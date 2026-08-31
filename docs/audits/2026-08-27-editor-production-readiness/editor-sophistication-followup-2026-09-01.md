@@ -147,6 +147,24 @@ stored a 315,688-byte PDF artifact. The complete browser journey then passed
 curated-image insertion, publish, durable Workflow execution, artifact
 download, PDF signature, seven-page inspection, and rendered text.
 
+## Live product-cleanliness follow-up
+
+The running editor was inspected at 1,440, 1,280, 1,024, 768 and 640 CSS-pixel
+widths after the artifact journey. The wide three-column shell and the compact
+canvas-first shell both preserve a usable toolbar, centered page, page strip,
+panel entry points and zoom controls. The Inspector's native fill control was
+also exercised with 48 continuous color inputs on a newly inserted rectangle.
+Every update completed on the next animation frame (16.3 ms average, 17.8 ms
+maximum), the document autosaved, Undo restored the original state, and no page
+error occurred.
+
+That live pass did expose one visible default-width defect: Media's four source
+tabs used content-sized 24 px horizontal padding, pushing **Favorites** beyond
+the 264 px document panel and presenting a clipped label. The source tabs now
+share the available width with compact typography and remain fully visible at
+the default panel width. The repaired surface was verified in the live
+Cloudflare/Vite application and the focused Media browser suite passes 18/18.
+
 ## Acceptance
 
 - the start heading still receives programmatic focus after returning home but
