@@ -31,6 +31,7 @@ export function CommitInput({
   value: string | number
   onCommit: (value: string) => void
 }) {
+  const generatedId = useId()
   const [draft, setDraft] = useState(String(value))
   const cancelBlurRef = useRef(false)
   useEffect(() => setDraft(String(value)), [value])
@@ -40,6 +41,8 @@ export function CommitInput({
   return (
     <Input
       {...props}
+      id={props.id ?? generatedId}
+      name={props.name ?? generatedId}
       value={draft}
       onChange={(event) => setDraft(event.target.value)}
       onBlur={() => {
@@ -70,11 +73,14 @@ export function CommitTextarea({
   disabled?: boolean
   onCommit: (value: string) => void
 }) {
+  const id = useId()
   const [draft, setDraft] = useState(value)
   const cancelBlurRef = useRef(false)
   useEffect(() => setDraft(value), [value])
   return (
     <Textarea
+      id={id}
+      name={id}
       className="min-h-24 resize-y text-xs leading-relaxed"
       value={draft}
       disabled={disabled}
@@ -505,6 +511,7 @@ export function InspectorColorField({
           <input
             ref={pickerRef}
             aria-label={pickerLabel}
+            name={`${id}-picker`}
             type="color"
             disabled={disabled}
             className="absolute inset-0 size-full cursor-pointer opacity-0 disabled:cursor-not-allowed"

@@ -103,6 +103,7 @@ export function StudioCommandPalette({
       <Command shouldFilter={false} loop>
         <CommandInput
           aria-label="Search commands"
+          name="command-search"
           autoFocus
           placeholder="Search commands…"
           value={query}

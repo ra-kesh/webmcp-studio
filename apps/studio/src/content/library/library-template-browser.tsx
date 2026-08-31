@@ -1516,6 +1516,7 @@ function LibraryTemplateBrowserContent({
             <InputGroupInput
               ref={searchRef}
               aria-label="Search design templates"
+              name="template-search"
               placeholder="Search templates…"
               type="search"
               value={state.rawSearch}

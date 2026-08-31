@@ -4386,6 +4386,7 @@ export function StudioShell({
               aria-hidden="true"
               hidden
               tabIndex={-1}
+              name="document-json-import"
               type="file"
               accept=".json,application/json"
               onChange={(event) => {
@@ -4418,6 +4419,7 @@ export function StudioShell({
               aria-hidden="true"
               hidden
               tabIndex={-1}
+              name="quotation-json-import"
               type="file"
               accept=".json,application/json"
               onChange={(event) => {

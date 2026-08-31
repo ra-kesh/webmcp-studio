@@ -12,7 +12,8 @@ export const Route = createFileRoute("/v1/studio/templates/$templateId")({
         if (session instanceof Response) return session
         const json = (body: unknown, init?: ResponseInit) =>
           session.respond(Response.json(body, init))
-        const versionValue = new URL(request.url).searchParams.get("version")
+        const searchParams = new URL(request.url).searchParams
+        const versionValue = searchParams.get("version")
         const version = versionValue ? Number(versionValue) : undefined
         if (
           versionValue &&
@@ -27,6 +28,9 @@ export const Route = createFileRoute("/v1/studio/templates/$templateId")({
           version
         )
         if (!published) {
+          if (searchParams.get("missing") === "empty") {
+            return session.respond(new Response(null, { status: 204 }))
+          }
           return json(
             { error: { code: "template_not_found" } },
             { status: 404 }

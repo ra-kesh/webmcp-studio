@@ -165,6 +165,20 @@ share the available width with compact typography and remain fully visible at
 the default panel width. The repaired surface was verified in the live
 Cloudflare/Vite application and the focused Media browser suite passes 18/18.
 
+Publish and API-playground overlays were then opened from the same live
+document and remained geometrically bounded with their current validation and
+immutable-version states intact. This check found two sources of avoidable
+DevTools noise. An unpublished document requested its missing immutable stream
+through the public 404 contract even though absence is an expected editor
+state, and several editor search/commit controls had an accessible label but
+no stable HTML field identity. Internal publication discovery now requests the
+same endpoint with `missing=empty`, which preserves the public 404 default but
+returns 204 for the expected empty state. Search, commit, picker and hidden
+import controls now carry stable `name` or `id` values. A cache-free editor
+reload, unlocked Inspector selection, and both overlays now produce no console
+errors, warnings, or browser issues. Studio typecheck and the focused
+workspace-publication isolation regression pass.
+
 ## Acceptance
 
 - the start heading still receives programmatic focus after returning home but

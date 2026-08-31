@@ -813,10 +813,10 @@ async function readLatestPublishedVersion(
   signal?: AbortSignal
 ) {
   const response = await fetch(
-    `/v1/studio/templates/${encodeURIComponent(templateId)}`,
+    `/v1/studio/templates/${encodeURIComponent(templateId)}?missing=empty`,
     { signal }
   )
-  if (response.status === 404) return null
+  if (response.status === 204 || response.status === 404) return null
   if (!response.ok) {
     throw new Error(`Publishing service: status ${response.status}.`)
   }

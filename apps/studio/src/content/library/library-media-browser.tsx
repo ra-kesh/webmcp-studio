@@ -1470,6 +1470,7 @@ function LibraryMediaBrowserContent({
           <InputGroupInput
             ref={searchRef}
             aria-label="Search media"
+            name="media-search"
             className="h-full"
             placeholder="Search media…"
             type="search"
