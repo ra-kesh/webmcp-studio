@@ -100,7 +100,7 @@ Status: **active**
 The pre-implementation review found four boundaries that must close before
 browser acceptance:
 
-- the Studio `:3001` local D1 stores do not yet contain migration `0014`;
+- the Studio `:3001` local D1 stores did not yet contain migration `0014`;
 - concurrent first library requests can race localhost demo-session creation,
   so the route runtime must serialize initial preference and discovery access;
 - an invalidated append cursor must start a retained replacement instead of
@@ -113,6 +113,13 @@ server-backed discovery and cursor recovery, route-owned runtime/session
 bootstrap, and exact preference projection plus Favorites/Recent/failure UI in
 the single shared browser. Collection management and post-create Recent remain
 the following checkpoints.
+
+Local migration acceptance on 2026-08-31 applied `0014` only to the configured
+Wrangler local D1 state. `wrangler d1 migrations list DB --local` now reports no
+pending migrations, and a read-only schema query confirms
+`library_collection_members`, `library_collections`,
+`library_item_preferences`, `library_mutation_requests`, and
+`library_workspace_state`. No remote Cloudflare database was accessed.
 
 ## Step 5A result — route runtime, server discovery and shared preferences
 
