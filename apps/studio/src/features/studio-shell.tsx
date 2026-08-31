@@ -147,8 +147,6 @@ import {
 } from "@webmcp/ui/components/tooltip"
 import { cn } from "@webmcp/ui/lib/utils"
 
-import { ProductPageFilmstrip } from "./editor/page-filmstrip"
-import { CanvasZoomControls } from "./editor/canvas-zoom-controls"
 import { namedDocumentMediaUses } from "./editor/asset-library-model"
 import { EditorPanelSplitter } from "./editor/editor-panel-splitter"
 import type { StudioShellLayoutRepository } from "./editor/studio-shell-layout"
@@ -166,7 +164,6 @@ import {
   studioPageThumbnailRendererRevision,
 } from "./editor/page-thumbnail-raster-producer"
 import type { PageThumbnailDocumentSnapshot } from "./editor/page-thumbnail-raster-producer"
-import { QuotationSidebar } from "./editor/quotation-sidebar"
 import type { DocumentPanelTab } from "./editor/quotation-sidebar"
 import type { AssetWorkspaceView } from "./editor/asset-workspace-panel"
 import {
@@ -187,14 +184,11 @@ import {
 import { studioAssets } from "./editor/asset-catalog"
 import { StudioStartSurface } from "./editor/studio-start-surface"
 import { useRecentDocumentsVisibility } from "./editor/recent-documents-provider"
-import { EmptyCanvasActions } from "./editor/empty-canvas-actions"
-import { FabricArtboard } from "./editor/fabric-artboard"
 import type {
   FabricArtboardHandle,
   ImageSourceStateChange,
 } from "./editor/fabric-artboard"
 import { handleEditorEscape } from "./editor/editor-escape"
-import { InspectorSidebar } from "./editor/inspector-sidebar"
 import {
   captureImageCropFocusSession,
   isImageCropCanvasFocus,
@@ -204,10 +198,6 @@ import type {
   ImageCropEntrySource,
   ImageCropFocusSession,
 } from "./editor/image-crop-focus"
-import { ImageCropToolbar } from "./editor/image-crop-toolbar"
-import { SelectedImageToolbar } from "./editor/selected-image-toolbar"
-import { TextFormattingToolbar } from "./editor/text-formatting-toolbar"
-import { TextLinkEditor } from "./editor/text-link-editor"
 import type { TextLinkEditorResult } from "./editor/text-link-editor"
 import {
   applySelectedImageToolbarCameraProjection,
@@ -252,7 +242,6 @@ import { useStudioWebMcp } from "./editor/use-studio-webmcp"
 import { useDraftReplacement } from "./editor/use-draft-replacement"
 import { useDocumentRouteNavigationGuard } from "./editor/use-document-route-navigation-guard"
 import { useCanvasGestureNavigation } from "./editor/use-canvas-gesture-navigation"
-import { CanvasRulerGuideOverlay } from "./editor/canvas-ruler-guide-overlay"
 import type { CanvasRulerGuideOverlayHandle } from "./editor/canvas-ruler-guide-overlay"
 import { useEditorWorkspaceGuides } from "./editor/use-editor-workspace-guides"
 import { projectVisibleGuideSnapTargets } from "./editor/guide-snap-targets"
@@ -355,6 +344,61 @@ const RenameLayerDialog = lazy(() =>
 const StructureCommandDialogs = lazy(() =>
   import("./editor/structure-command-dialogs").then((module) => ({
     default: module.StructureCommandDialogs,
+  }))
+)
+const QuotationSidebar = lazy(() =>
+  import("./editor/quotation-sidebar").then((module) => ({
+    default: module.QuotationSidebar,
+  }))
+)
+const InspectorSidebar = lazy(() =>
+  import("./editor/inspector-sidebar").then((module) => ({
+    default: module.InspectorSidebar,
+  }))
+)
+const FabricArtboard = lazy(() =>
+  import("./editor/fabric-artboard").then((module) => ({
+    default: module.FabricArtboard,
+  }))
+)
+const ProductPageFilmstrip = lazy(() =>
+  import("./editor/page-filmstrip").then((module) => ({
+    default: module.ProductPageFilmstrip,
+  }))
+)
+const CanvasRulerGuideOverlay = lazy(() =>
+  import("./editor/canvas-ruler-guide-overlay").then((module) => ({
+    default: module.CanvasRulerGuideOverlay,
+  }))
+)
+const CanvasZoomControls = lazy(() =>
+  import("./editor/canvas-zoom-controls").then((module) => ({
+    default: module.CanvasZoomControls,
+  }))
+)
+const EmptyCanvasActions = lazy(() =>
+  import("./editor/empty-canvas-actions").then((module) => ({
+    default: module.EmptyCanvasActions,
+  }))
+)
+const ImageCropToolbar = lazy(() =>
+  import("./editor/image-crop-toolbar").then((module) => ({
+    default: module.ImageCropToolbar,
+  }))
+)
+const SelectedImageToolbar = lazy(() =>
+  import("./editor/selected-image-toolbar").then((module) => ({
+    default: module.SelectedImageToolbar,
+  }))
+)
+const TextFormattingToolbar = lazy(() =>
+  import("./editor/text-formatting-toolbar").then((module) => ({
+    default: module.TextFormattingToolbar,
+  }))
+)
+const TextLinkEditor = lazy(() =>
+  import("./editor/text-link-editor").then((module) => ({
+    default: module.TextLinkEditor,
   }))
 )
 
@@ -4171,7 +4215,7 @@ export function StudioShell({
     )
   }
 
-  return (
+  const workspace = (
     <Sheet
       open={compactPanel !== null}
       onOpenChange={(open) => {
@@ -6297,7 +6341,10 @@ export function StudioShell({
               open
               onOpenChange={setGuideManagerOpen}
               pageName={activePage.name}
-              pageSize={{ width: activePage.width, height: activePage.height }}
+              pageSize={{
+                width: activePage.width,
+                height: activePage.height,
+              }}
               guides={guideWorkspace.activeGuides}
               onAddGuide={(guide) => {
                 addWorkspaceGuide(guide)
@@ -6342,5 +6389,23 @@ export function StudioShell({
         ) : null}
       </main>
     </Sheet>
+  )
+
+  return (
+    <Suspense
+      fallback={
+        <main
+          aria-busy="true"
+          className="grid min-h-dvh place-items-center bg-muted/20"
+        >
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+            <span>Preparing the editor…</span>
+          </div>
+        </main>
+      }
+    >
+      {workspace}
+    </Suspense>
   )
 }

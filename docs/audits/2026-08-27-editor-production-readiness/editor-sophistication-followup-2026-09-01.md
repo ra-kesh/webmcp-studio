@@ -66,6 +66,43 @@ named **Use comfortable page strip**. Captures proved both controls remained
 present and usable; the regression now asserts their current product labels.
 The two repaired cases passed 2/2, followed by the complete gate at 5/5.
 
+## Editor-surface code-splitting closure
+
+The remaining performance-polish gate was revisited against the accepted
+START-01 rule that the document library and editor must not both render as
+interactive surfaces. Persistence and session ownership remain shared in
+`StudioShell`; this pass did not duplicate those contracts or perform a risky
+route-controller rewrite. Instead, editor-only visual surfaces now cross real
+lazy boundaries: the Fabric artboard, document and Inspector sidebars, page
+filmstrip, ruler/guide overlay, zoom controls, empty-canvas actions, crop and
+selection toolbars, text formatting, and link editing.
+
+The production client shell fell from 1,114.50 kB minified / 290.16 kB gzip to
+672.77 kB / 175.75 kB. The editor surfaces are emitted as independently named
+chunks, including 19.98 kB for the artboard shell, 73.80 kB for the document
+sidebar, 126.23 kB for Inspector, and 20.95 kB for the filmstrip. Fabric's
+373.45 kB adapter remains cold until a document opens. The 500 kB warning is
+still visible for the remaining shell and has not been hidden by raising the
+limit.
+
+A temporary production preview on port 4173 was started only for measurement
+and stopped immediately afterward. Its start page measured 766 ms LCP and
+0.00 CLS at 1x CPU/network. The complete start-page request inventory contained
+none of the editor-only chunks. Opening the opt-in six-page sample then loaded
+those chunks on demand and produced the complete toolbar, canvas, page strip,
+document panel, and Inspector accessibility tree. The focused shell/session
+matrix passed 15/15, Studio typecheck passed, and the full client, SSR, and
+renderer production build passed.
+
+That production-preview document also made the configured remote Browser
+Rendering binding exercise real page-thumbnail requests. Parallel browser
+creation exceeded the account's current Browser Rendering new-browser rate
+limit and returned 429 errors through the local thumbnail endpoint. This is
+not a code-splitting failure: the interactive editor and lazy surfaces mounted
+correctly, while the renderer-backed thumbnail producer retried/fell back. It
+is retained as a separate reliability finding for bounded thumbnail
+concurrency/session reuse; no deployment or remote data mutation occurred.
+
 ## Core interaction recertification
 
 The Inspector and canvas-gesture Playwright gates still booted the pre-library
