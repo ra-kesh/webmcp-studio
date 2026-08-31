@@ -10,6 +10,12 @@ import {
   alphaImageMaskRenderConformanceDocument,
   alphaImageMaskRenderConformanceHiddenSourceDocument,
   alphaTextMaskRenderConformanceDocument,
+  luminanceAllHiddenRenderConformanceDocument,
+  luminanceImageTextRenderConformanceDocument,
+  luminanceOneHiddenRenderConformanceDocument,
+  luminanceOverlapRenderConformanceDocument,
+  luminancePrimaryCoefficientRenderConformanceDocument,
+  luminanceSecondaryCoefficientRenderConformanceDocument,
   maskRenderConformanceDocument,
   maskRenderConformanceHiddenSourceNodes,
   maskRenderConformancePage,
@@ -36,6 +42,12 @@ type MaskConformanceState =
   | "multi-vector-one-hidden"
   | "multi-vector-all-hidden"
   | "multi-alpha"
+  | "luminance-primary"
+  | "luminance-secondary"
+  | "luminance-overlap"
+  | "luminance-image-text"
+  | "luminance-one-hidden"
+  | "luminance-all-hidden"
 
 export const Route = createFileRoute("/render-conformance")({
   ssr: false,
@@ -52,6 +64,12 @@ export const Route = createFileRoute("/render-conformance")({
         "multi-vector-one-hidden",
         "multi-vector-all-hidden",
         "multi-alpha",
+        "luminance-primary",
+        "luminance-secondary",
+        "luminance-overlap",
+        "luminance-image-text",
+        "luminance-one-hidden",
+        "luminance-all-hidden",
       ] as const
     ).includes(search.maskState as MaskConformanceState)
       ? (search.maskState as MaskConformanceState)
@@ -140,11 +158,23 @@ function MaskRenderConformanceHarness({
                   ? multiVectorMaskRenderConformanceOneHiddenDocument
                   : maskState === "multi-vector-all-hidden"
                     ? multiVectorMaskRenderConformanceAllHiddenDocument
-                    : multiAlphaMaskRenderConformanceDocument
+                    : maskState === "multi-alpha"
+                      ? multiAlphaMaskRenderConformanceDocument
+                      : maskState === "luminance-primary"
+                        ? luminancePrimaryCoefficientRenderConformanceDocument
+                        : maskState === "luminance-secondary"
+                          ? luminanceSecondaryCoefficientRenderConformanceDocument
+                          : maskState === "luminance-overlap"
+                            ? luminanceOverlapRenderConformanceDocument
+                            : maskState === "luminance-image-text"
+                              ? luminanceImageTextRenderConformanceDocument
+                              : maskState === "luminance-one-hidden"
+                                ? luminanceOneHiddenRenderConformanceDocument
+                                : luminanceAllHiddenRenderConformanceDocument
 
   return (
     <main
-      data-render-conformance-harness="mask-m4a-production"
+      data-render-conformance-harness="mask-m4b-production"
       style={{
         display: "grid",
         gridTemplateColumns: "auto auto",

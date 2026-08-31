@@ -252,7 +252,7 @@ describe("renderer HTML", () => {
     )
 
     expect(html.match(/data-luminance-source-id=/g)).toHaveLength(2)
-    expect(html.match(/type="luminanceToAlpha"/g)).toHaveLength(2)
+    expect(html.match(/0\.2126 0\.7152 0\.0722 0 0/g)).toHaveLength(2)
     expect(html.match(/color-interpolation-filters="sRGB"/g)).toHaveLength(2)
     expect(html.match(/in2="SourceGraphic" operator="in"/g)).toHaveLength(2)
     const offsets = entry.sourceNodeIds.map((sourceId) =>
@@ -277,7 +277,7 @@ describe("renderer HTML", () => {
       { ...oneHiddenEntry, maskType: "luminance" },
       new Map(oneHidden.nodes.map((node) => [node.id, node]))
     )
-    expect(oneHiddenHtml.match(/type="luminanceToAlpha"/g)).toHaveLength(1)
+    expect(oneHiddenHtml.match(/0\.2126 0\.7152 0\.0722 0 0/g)).toHaveLength(1)
     expect(oneHiddenHtml.match(/data-mask-source-id=/g)).toHaveLength(1)
 
     const allHidden = multiVectorMaskRenderConformanceAllHiddenDocument
@@ -293,7 +293,7 @@ describe("renderer HTML", () => {
       new Map(allHidden.nodes.map((node) => [node.id, node]))
     )
     expect(allHiddenHtml).toContain('data-mask-composite="false"')
-    expect(allHiddenHtml).not.toContain("luminanceToAlpha")
+    expect(allHiddenHtml).not.toContain("0.2126 0.7152 0.0722 0 0")
     expect(allHiddenHtml).not.toContain("data-mask-source-id")
   })
 
@@ -310,7 +310,7 @@ describe("renderer HTML", () => {
       new Map(document.nodes.map((node) => [node.id, node]))
     )
 
-    expect(html.match(/type="luminanceToAlpha"/g)).toHaveLength(3)
+    expect(html.match(/0\.2126 0\.7152 0\.0722 0 0/g)).toHaveLength(3)
     expect(html.match(/data-luminance-source-isolation=/g)).toHaveLength(3)
     expect(html.match(/<img data-node-id=/g)).toHaveLength(2)
     expect(html).toContain("data-mask-font-source-node=")

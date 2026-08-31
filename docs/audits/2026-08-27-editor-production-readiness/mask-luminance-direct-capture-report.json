@@ -1,0 +1,460 @@
+{
+  "version": 2,
+  "runId": "2026-08-31T16-26-51.017Z-88b8694a-3c2e-448b-839f-ecf1fc1de5c0",
+  "artifactRoot": "artifacts/runs/2026-08-31T16-26-51.017Z-88b8694a-3c2e-448b-839f-ecf1fc1de5c0",
+  "corpus": "mask",
+  "captureScope": "direct-only",
+  "documentId": "mask-render-conformance-v1",
+  "revision": 1,
+  "baseUrl": "http://localhost:3001",
+  "deviceScaleFactor": 1,
+  "browserCaptureRuntime": null,
+  "browserCaptureEvidence": {
+    "exercised": false,
+    "skippedReason": "Host-blocked: the browser route requires the local app server; no server was started.",
+    "pageErrorPolicy": "fail_before_surface_ready",
+    "pageErrors": [],
+    "surfaces": []
+  },
+  "pageOrder": ["mask-conformance-page"],
+  "outputs": [
+    {
+      "id": "mask-conformance-output",
+      "pageIds": ["mask-conformance-page"]
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "renderer-png/mask-luminance-primary-1x.png",
+      "bytes": 1395,
+      "sha256": "b973032c13c86ac75abd85e892943578cb5e7f08d5e8ce29ad8652ba1fce03ad",
+      "width": 480,
+      "height": 360
+    },
+    {
+      "path": "renderer-png/mask-luminance-primary-2x.png",
+      "bytes": 3646,
+      "sha256": "6ddabf2e2548bb3a78ea186cfbd464a324ca0746d45bb83e5e016211687bf454",
+      "width": 960,
+      "height": 720
+    },
+    {
+      "path": "renderer-png/mask-luminance-secondary-1x.png",
+      "bytes": 1393,
+      "sha256": "08d6be8c0f570dcec597b36b79bb1715fb434aa1c5ad5ea250660f746e0cc1ce",
+      "width": 480,
+      "height": 360
+    },
+    {
+      "path": "renderer-png/mask-luminance-secondary-2x.png",
+      "bytes": 3647,
+      "sha256": "b68385ec1dc53f823b4a342168231f140510a63568ce592064b3f57deff692b5",
+      "width": 960,
+      "height": 720
+    },
+    {
+      "path": "renderer-png/mask-luminance-overlap-1x.png",
+      "bytes": 1372,
+      "sha256": "b3948ab4ba5978777f9d674d9b7792886ee00a78e1bcc2fd6106d5d0dd0464a9",
+      "width": 480,
+      "height": 360
+    },
+    {
+      "path": "renderer-png/mask-luminance-overlap-2x.png",
+      "bytes": 3623,
+      "sha256": "ecb8350ae29ce9a5637129d2556527a22ab520f478809e8188ffda7c38a514d1",
+      "width": 960,
+      "height": 720
+    },
+    {
+      "path": "renderer-png/mask-luminance-image-text-1x.png",
+      "bytes": 1405,
+      "sha256": "ecd73cd6f6c714bb105bfacf4fdde4fe6ca827a0c6c0854d419e36ece31bfc77",
+      "width": 480,
+      "height": 360
+    },
+    {
+      "path": "renderer-png/mask-luminance-image-text-2x.png",
+      "bytes": 3656,
+      "sha256": "26c502b211a85cc89d990c469bbec02ed7aa721812d8b42f27fd9f565dad5391",
+      "width": 960,
+      "height": 720
+    },
+    {
+      "path": "renderer-png/mask-luminance-one-hidden-1x.png",
+      "bytes": 1373,
+      "sha256": "1c565b3de758d3d1a08861d800e90590b7f4aa77dd61b050017267bd9ab48bad",
+      "width": 480,
+      "height": 360
+    },
+    {
+      "path": "renderer-png/mask-luminance-one-hidden-2x.png",
+      "bytes": 3624,
+      "sha256": "cd709308ca2895a9608ae3593b1644f715b852ee4f1686f094de7212d5d39189",
+      "width": 960,
+      "height": 720
+    },
+    {
+      "path": "renderer-png/mask-luminance-all-hidden-1x.png",
+      "bytes": 1370,
+      "sha256": "c1432734686b9f0468bfdf749d5ba577748e1b509b35c0fa25e2a78ab298a599",
+      "width": 480,
+      "height": 360
+    },
+    {
+      "path": "renderer-png/mask-luminance-all-hidden-2x.png",
+      "bytes": 3622,
+      "sha256": "4e9318b2e3898b05edb6b34eb65cb5c84e8542ecb08849cbf12f4aae4028b390",
+      "width": 960,
+      "height": 720
+    }
+  ],
+  "maskEvidence": {
+    "directHtml": {
+      "states": [
+        "luminance-primary",
+        "luminance-secondary",
+        "luminance-overlap",
+        "luminance-image-text",
+        "luminance-one-hidden",
+        "luminance-all-hidden"
+      ],
+      "deviceScaleFactors": [1, 2],
+      "pngPathPattern": "renderer-png/mask-{state}-{scale}x.png",
+      "pdfPathPattern": null,
+      "pdfRasterPathPattern": null
+    },
+    "pngPdfRasterComparisons": [],
+    "browserSurfaceComparisons": [],
+    "directHtmlBrowserRenderViewComparisons": [],
+    "oneToTwoXComparisons": [
+      {
+        "baseline": "renderer-png/mask-luminance-primary-1x.png",
+        "candidate": "renderer-png/mask-luminance-primary-2x.png downsampled to CSS pixels",
+        "comparedChannels": 691200,
+        "comparedPixels": 172800,
+        "changedChannels": 9024,
+        "pixelsAboveChannelDifference": 1008,
+        "maxChannelDifference": 27,
+        "meanAbsoluteDifference": 0.06838541666666667,
+        "threshold": {
+          "channelDifference": 8,
+          "maxPixelsAboveChannelDifference": 1100,
+          "maxMeanChannelDifference": 0.08,
+          "maxChannelDifference": 32
+        }
+      },
+      {
+        "baseline": "renderer-png/mask-luminance-secondary-1x.png",
+        "candidate": "renderer-png/mask-luminance-secondary-2x.png downsampled to CSS pixels",
+        "comparedChannels": 691200,
+        "comparedPixels": 172800,
+        "changedChannels": 5304,
+        "pixelsAboveChannelDifference": 4,
+        "maxChannelDifference": 13,
+        "meanAbsoluteDifference": 0.022048611111111113,
+        "threshold": {
+          "channelDifference": 8,
+          "maxPixelsAboveChannelDifference": 1100,
+          "maxMeanChannelDifference": 0.08,
+          "maxChannelDifference": 32
+        }
+      },
+      {
+        "baseline": "renderer-png/mask-luminance-overlap-1x.png",
+        "candidate": "renderer-png/mask-luminance-overlap-2x.png downsampled to CSS pixels",
+        "comparedChannels": 691200,
+        "comparedPixels": 172800,
+        "changedChannels": 2256,
+        "pixelsAboveChannelDifference": 0,
+        "maxChannelDifference": 7,
+        "meanAbsoluteDifference": 0.009895833333333333,
+        "threshold": {
+          "channelDifference": 8,
+          "maxPixelsAboveChannelDifference": 1100,
+          "maxMeanChannelDifference": 0.08,
+          "maxChannelDifference": 32
+        }
+      },
+      {
+        "baseline": "renderer-png/mask-luminance-image-text-1x.png",
+        "candidate": "renderer-png/mask-luminance-image-text-2x.png downsampled to CSS pixels",
+        "comparedChannels": 691200,
+        "comparedPixels": 172800,
+        "changedChannels": 4560,
+        "pixelsAboveChannelDifference": 412,
+        "maxChannelDifference": 24,
+        "meanAbsoluteDifference": 0.020341435185185185,
+        "threshold": {
+          "channelDifference": 8,
+          "maxPixelsAboveChannelDifference": 1100,
+          "maxMeanChannelDifference": 0.08,
+          "maxChannelDifference": 32
+        }
+      },
+      {
+        "baseline": "renderer-png/mask-luminance-one-hidden-1x.png",
+        "candidate": "renderer-png/mask-luminance-one-hidden-2x.png downsampled to CSS pixels",
+        "comparedChannels": 691200,
+        "comparedPixels": 172800,
+        "changedChannels": 1524,
+        "pixelsAboveChannelDifference": 0,
+        "maxChannelDifference": 2,
+        "meanAbsoluteDifference": 0.0022222222222222222,
+        "threshold": {
+          "channelDifference": 8,
+          "maxPixelsAboveChannelDifference": 1100,
+          "maxMeanChannelDifference": 0.08,
+          "maxChannelDifference": 32
+        }
+      },
+      {
+        "baseline": "renderer-png/mask-luminance-all-hidden-1x.png",
+        "candidate": "renderer-png/mask-luminance-all-hidden-2x.png downsampled to CSS pixels",
+        "comparedChannels": 691200,
+        "comparedPixels": 172800,
+        "changedChannels": 3024,
+        "pixelsAboveChannelDifference": 508,
+        "maxChannelDifference": 27,
+        "meanAbsoluteDifference": 0.03321180555555556,
+        "threshold": {
+          "channelDifference": 8,
+          "maxPixelsAboveChannelDifference": 1100,
+          "maxMeanChannelDifference": 0.08,
+          "maxChannelDifference": 32
+        }
+      }
+    ],
+    "coefficientPixelProbes": [
+      {
+        "state": "luminance-primary",
+        "artifact": "renderer-png/mask-luminance-primary-1x.png",
+        "sample": "black",
+        "expected": 0,
+        "tolerance": 4,
+        "actual": [0, 0, 0],
+        "x": 72,
+        "y": 120
+      },
+      {
+        "state": "luminance-primary",
+        "artifact": "renderer-png/mask-luminance-primary-1x.png",
+        "sample": "white",
+        "expected": 255,
+        "tolerance": 4,
+        "actual": [255, 255, 255],
+        "x": 136,
+        "y": 120
+      },
+      {
+        "state": "luminance-primary",
+        "artifact": "renderer-png/mask-luminance-primary-1x.png",
+        "sample": "red",
+        "expected": 54,
+        "tolerance": 4,
+        "actual": [54, 54, 54],
+        "x": 200,
+        "y": 120
+      },
+      {
+        "state": "luminance-primary",
+        "artifact": "renderer-png/mask-luminance-primary-1x.png",
+        "sample": "green",
+        "expected": 182,
+        "tolerance": 4,
+        "actual": [182, 182, 182],
+        "x": 264,
+        "y": 120
+      },
+      {
+        "state": "luminance-primary",
+        "artifact": "renderer-png/mask-luminance-primary-2x.png",
+        "sample": "black",
+        "expected": 0,
+        "tolerance": 4,
+        "actual": [0, 0, 0],
+        "x": 144,
+        "y": 240
+      },
+      {
+        "state": "luminance-primary",
+        "artifact": "renderer-png/mask-luminance-primary-2x.png",
+        "sample": "white",
+        "expected": 255,
+        "tolerance": 4,
+        "actual": [255, 255, 255],
+        "x": 272,
+        "y": 240
+      },
+      {
+        "state": "luminance-primary",
+        "artifact": "renderer-png/mask-luminance-primary-2x.png",
+        "sample": "red",
+        "expected": 54,
+        "tolerance": 4,
+        "actual": [54, 54, 54],
+        "x": 400,
+        "y": 240
+      },
+      {
+        "state": "luminance-primary",
+        "artifact": "renderer-png/mask-luminance-primary-2x.png",
+        "sample": "green",
+        "expected": 182,
+        "tolerance": 4,
+        "actual": [182, 182, 182],
+        "x": 528,
+        "y": 240
+      },
+      {
+        "state": "luminance-secondary",
+        "artifact": "renderer-png/mask-luminance-secondary-1x.png",
+        "sample": "grey",
+        "expected": 128,
+        "tolerance": 4,
+        "actual": [128, 128, 128],
+        "x": 72,
+        "y": 120
+      },
+      {
+        "state": "luminance-secondary",
+        "artifact": "renderer-png/mask-luminance-secondary-1x.png",
+        "sample": "blue",
+        "expected": 18,
+        "tolerance": 4,
+        "actual": [18, 18, 18],
+        "x": 136,
+        "y": 120
+      },
+      {
+        "state": "luminance-secondary",
+        "artifact": "renderer-png/mask-luminance-secondary-1x.png",
+        "sample": "transparent-red",
+        "expected": 0,
+        "tolerance": 4,
+        "actual": [0, 0, 0],
+        "x": 200,
+        "y": 120
+      },
+      {
+        "state": "luminance-secondary",
+        "artifact": "renderer-png/mask-luminance-secondary-1x.png",
+        "sample": "opacity-red",
+        "expected": 22,
+        "tolerance": 4,
+        "actual": [22, 22, 22],
+        "x": 264,
+        "y": 120
+      },
+      {
+        "state": "luminance-secondary",
+        "artifact": "renderer-png/mask-luminance-secondary-2x.png",
+        "sample": "grey",
+        "expected": 128,
+        "tolerance": 4,
+        "actual": [128, 128, 128],
+        "x": 144,
+        "y": 240
+      },
+      {
+        "state": "luminance-secondary",
+        "artifact": "renderer-png/mask-luminance-secondary-2x.png",
+        "sample": "blue",
+        "expected": 18,
+        "tolerance": 4,
+        "actual": [18, 18, 18],
+        "x": 272,
+        "y": 240
+      },
+      {
+        "state": "luminance-secondary",
+        "artifact": "renderer-png/mask-luminance-secondary-2x.png",
+        "sample": "transparent-red",
+        "expected": 0,
+        "tolerance": 4,
+        "actual": [0, 0, 0],
+        "x": 400,
+        "y": 240
+      },
+      {
+        "state": "luminance-secondary",
+        "artifact": "renderer-png/mask-luminance-secondary-2x.png",
+        "sample": "opacity-red",
+        "expected": 22,
+        "tolerance": 4,
+        "actual": [22, 22, 22],
+        "x": 528,
+        "y": 240
+      },
+      {
+        "state": "luminance-overlap",
+        "artifact": "renderer-png/mask-luminance-overlap-1x.png",
+        "sample": "red-green-union",
+        "expected": 68,
+        "tolerance": 4,
+        "actual": [68, 68, 68],
+        "x": 200,
+        "y": 120
+      },
+      {
+        "state": "luminance-overlap",
+        "artifact": "renderer-png/mask-luminance-overlap-2x.png",
+        "sample": "red-green-union",
+        "expected": 68,
+        "tolerance": 4,
+        "actual": [68, 68, 68],
+        "x": 400,
+        "y": 240
+      },
+      {
+        "state": "luminance-one-hidden",
+        "artifact": "renderer-png/mask-luminance-one-hidden-1x.png",
+        "sample": "hidden-green",
+        "expected": 27,
+        "tolerance": 4,
+        "actual": [27, 27, 27],
+        "x": 200,
+        "y": 120
+      },
+      {
+        "state": "luminance-one-hidden",
+        "artifact": "renderer-png/mask-luminance-one-hidden-2x.png",
+        "sample": "hidden-green",
+        "expected": 27,
+        "tolerance": 4,
+        "actual": [27, 27, 27],
+        "x": 400,
+        "y": 240
+      },
+      {
+        "state": "luminance-all-hidden",
+        "artifact": "renderer-png/mask-luminance-all-hidden-1x.png",
+        "sample": "all-hidden-fallthrough",
+        "expected": 255,
+        "tolerance": 4,
+        "actual": [255, 255, 255],
+        "x": 200,
+        "y": 120
+      },
+      {
+        "state": "luminance-all-hidden",
+        "artifact": "renderer-png/mask-luminance-all-hidden-2x.png",
+        "sample": "all-hidden-fallthrough",
+        "expected": 255,
+        "tolerance": 4,
+        "actual": [255, 255, 255],
+        "x": 400,
+        "y": 240
+      }
+    ],
+    "pdfCapture": {
+      "exercised": false,
+      "skippedReason": "Host-runtime blocked: Playwright page.pdf() stalled before the first artifact. PNG evidence was retained; PDF capture is deferred until the host runtime is healthy."
+    },
+    "productionEndpointSmoke": {
+      "exercised": false,
+      "states": [],
+      "scope": "Host-blocked: browser-route and public endpoint capture require the local app server; direct deterministic HTML PNG evidence ran without a server."
+    }
+  }
+}

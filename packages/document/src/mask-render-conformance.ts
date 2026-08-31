@@ -262,7 +262,7 @@ export const alphaTextMaskRenderConformanceDocument = alphaMaskDocument(
 const multiSourceMaskDocument = (
   id: string,
   name: string,
-  maskType: "vector" | "alpha",
+  maskType: "vector" | "alpha" | "luminance",
   sources: readonly SceneNode[]
 ) => {
   const content = maskRenderConformanceNodes[2]!
@@ -369,4 +369,132 @@ export const multiAlphaMaskRenderConformanceDocument = multiSourceMaskDocument(
     secondAlphaImageSource,
     alphaTextSource,
   ]
+)
+
+const luminanceCoefficientDocument = (
+  id: string,
+  name: string,
+  sources: readonly Extract<SceneNode, { type: "rect" }>[]
+) => {
+  const content = rect(
+    `${id}-content`,
+    "Luminance coefficient content",
+    48,
+    80,
+    288,
+    80,
+    "#ffffff"
+  )
+  const sourceNodeIds = sources.map((source) => source.id) as [
+    string,
+    ...string[],
+  ]
+  return documentSchema.parse({
+    ...maskRenderConformanceDocument,
+    id,
+    name,
+    pages: [
+      {
+        ...maskRenderConformancePage,
+        name,
+        background: "#000000",
+        nodeIds: [...sourceNodeIds, content.id],
+      },
+    ],
+    nodes: [...sources, content],
+    groups: [
+      {
+        id: `${id}-group`,
+        pageId: maskRenderConformancePage.id,
+        name,
+        nodeIds: [...sourceNodeIds, content.id],
+        role: "mask",
+        mask: { type: "luminance", sourceNodeIds },
+      },
+    ],
+  })
+}
+
+const coefficientSource = (
+  id: string,
+  x: number,
+  fill: string,
+  opacity = 1
+) => ({
+  ...rect(id, id, x, 80, 48, 80, fill),
+  opacity,
+})
+
+export const luminancePrimaryCoefficientRenderConformanceDocument =
+  luminanceCoefficientDocument(
+    "luminance-primary-coefficients-v1",
+    "Luminance black white red green coefficients",
+    [
+      coefficientSource("luminance-black", 48, "#000000"),
+      coefficientSource("luminance-white", 112, "#ffffff"),
+      coefficientSource("luminance-red", 176, "#ff0000"),
+      coefficientSource("luminance-green", 240, "#00ff00"),
+    ]
+  )
+
+export const luminanceSecondaryCoefficientRenderConformanceDocument =
+  luminanceCoefficientDocument(
+    "luminance-secondary-coefficients-v1",
+    "Luminance grey blue transparent opacity coefficients",
+    [
+      coefficientSource("luminance-grey", 48, "#808080"),
+      coefficientSource("luminance-blue", 112, "#0000ff"),
+      coefficientSource("luminance-transparent-red", 176, "#ff0000", 0),
+      coefficientSource("luminance-opacity-red", 240, "#ff0000", 0.4),
+    ]
+  )
+
+export const luminanceOverlapRenderConformanceDocument =
+  luminanceCoefficientDocument(
+    "luminance-overlap-v1",
+    "Luminance independently converted source overlap",
+    [
+      coefficientSource("luminance-overlap-red", 176, "#ff0000", 0.5),
+      coefficientSource("luminance-overlap-green", 176, "#00ff00", 0.25),
+    ]
+  )
+
+export const luminanceImageTextRenderConformanceDocument = documentSchema.parse(
+  {
+    ...multiAlphaMaskRenderConformanceDocument,
+    id: "luminance-image-text-v1",
+    name: "Luminance image and text source conformance",
+    groups: multiAlphaMaskRenderConformanceDocument.groups.map((group) =>
+      group.role === "mask"
+        ? { ...group, mask: { ...group.mask, type: "luminance" } }
+        : group
+    ),
+  }
+)
+
+export const luminanceOneHiddenRenderConformanceDocument = documentSchema.parse(
+  {
+    ...luminanceOverlapRenderConformanceDocument,
+    id: "luminance-one-hidden-v1",
+    name: "Luminance one hidden source conformance",
+    nodes: luminanceOverlapRenderConformanceDocument.nodes.map((node) =>
+      node.id === "luminance-overlap-green" ? { ...node, visible: false } : node
+    ),
+  }
+)
+
+export const luminanceAllHiddenRenderConformanceDocument = documentSchema.parse(
+  {
+    ...luminanceOverlapRenderConformanceDocument,
+    id: "luminance-all-hidden-v1",
+    name: "Luminance all hidden source conformance",
+    nodes: luminanceOverlapRenderConformanceDocument.nodes.map((node) =>
+      node.id === "luminance-overlap-red" ||
+      node.id === "luminance-overlap-green"
+        ? { ...node, visible: false }
+        : node.id === "luminance-overlap-v1-content"
+          ? { ...node, x: 176, width: 48 }
+          : node
+    ),
+  }
 )

@@ -257,7 +257,7 @@ export async function verifyBrowserLuminanceConversion(): Promise<boolean> {
   ] as const
   const expected = [0, 255, 128, 54, 182, 18, 0, 22, 68]
   const filter = (id: string) =>
-    `<filter id="${id}" color-interpolation-filters="sRGB"><feColorMatrix in="SourceGraphic" type="luminanceToAlpha" result="y"/><feComposite in="y" in2="SourceGraphic" operator="in"/></filter>`
+    `<filter id="${id}" color-interpolation-filters="sRGB"><feColorMatrix in="SourceGraphic" type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0.2126 0.7152 0.0722 0 0" result="y"/><feComposite in="y" in2="SourceGraphic" operator="in"/></filter>`
   const filters = colors.map((_, index) => filter(`f${index}`)).join("")
   const outputs = colors
     .map(
@@ -482,6 +482,41 @@ const renderAlphaMaskSource = (
   return `<foreignObject data-mask-source-id="${escapeHtml(node.id)}"${fontReadiness} x="0" y="0" width="${bounds.width}" height="${bounds.height}">${translatedSource}</foreignObject>`
 }
 
+const renderLuminanceVectorMaskSource = (
+  node: SceneNode,
+  bounds: PagePaintBounds
+): string => {
+  if (!isAdmittedVectorMaskSource(node)) {
+    throw new Error(`Luminance vector source ${node.id} is not supported`)
+  }
+  const projection = projectNodeForRender(node)
+  const { frame } = projection
+  const x = frame.x - bounds.x
+  const y = frame.y - bounds.y
+  const transform = `rotate(${frame.rotation} ${x} ${y})`
+  if (projection.type === "rect") {
+    const stroke = projection.content.stroke
+      ? ` stroke="${escapeHtml(projection.content.stroke)}" stroke-width="${projection.content.strokeWidth}" stroke-opacity="${frame.opacity}"`
+      : ""
+    return `<rect data-mask-source-id="${escapeHtml(frame.id)}" x="${x}" y="${y}" width="${frame.width}" height="${frame.height}" rx="${projection.content.radius}" ry="${projection.content.radius}" fill="${escapeHtml(projection.content.fill)}" fill-opacity="${frame.opacity}"${stroke} transform="${transform}" />`
+  }
+  if (projection.type === "ellipse") {
+    const stroke = projection.content.stroke
+      ? ` stroke="${escapeHtml(projection.content.stroke)}" stroke-width="${projection.content.strokeWidth}" stroke-opacity="${frame.opacity}"`
+      : ""
+    return `<ellipse data-mask-source-id="${escapeHtml(frame.id)}" cx="${x + frame.width / 2}" cy="${y + frame.height / 2}" rx="${frame.width / 2}" ry="${frame.height / 2}" fill="${escapeHtml(projection.content.fill)}" fill-opacity="${frame.opacity}"${stroke} transform="${transform}" />`
+  }
+  if (projection.type === "icon") {
+    const stroke = projection.content.stroke
+      ? ` stroke="${escapeHtml(projection.content.stroke)}" stroke-width="${projection.content.strokeWidth}"`
+      : ""
+    return `<svg data-mask-source-id="${escapeHtml(frame.id)}" x="${x}" y="${y}" width="${frame.width}" height="${frame.height}" viewBox="${escapeHtml(projection.content.viewBox)}" preserveAspectRatio="xMidYMid meet" overflow="visible" opacity="${frame.opacity}" transform="${transform}"><path d="${escapeHtml(projection.content.path)}" fill="${escapeHtml(projection.content.fill)}"${stroke} /></svg>`
+  }
+  throw new Error(
+    `Luminance vector source ${node.id} did not project as vector geometry`
+  )
+}
+
 /**
  * Serializes one canonical page-paint-plan entry for every HTML render path.
  */
@@ -542,13 +577,15 @@ export function renderPagePaintPlanEntryToHtml(
       const markup =
         entry.maskType === "vector"
           ? renderVectorMaskSource(source, bounds)
-          : renderAlphaMaskSource(
-              source,
-              bounds,
-              entry.sources.find(
-                (candidate) => candidate.nodeId === sourceNodeId
+          : entry.maskType === "luminance" && isAdmittedVectorMaskSource(source)
+            ? renderLuminanceVectorMaskSource(source, bounds)
+            : renderAlphaMaskSource(
+                source,
+                bounds,
+                entry.sources.find(
+                  (candidate) => candidate.nodeId === sourceNodeId
+                )
               )
-            )
       const filterId = `${maskId}-luminance-${index}`
       return { sourceNodeId, markup, filterId }
     })
@@ -557,14 +594,19 @@ export function renderPagePaintPlanEntryToHtml(
       ? visibleSources
           .map(
             ({ sourceNodeId, filterId }) =>
-              `<filter id="${filterId}" data-luminance-source-id="${escapeHtml(sourceNodeId)}" x="0" y="0" width="${bounds.width}" height="${bounds.height}" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feColorMatrix in="SourceGraphic" type="luminanceToAlpha" result="${filterId}-luminance"/><feComposite in="${filterId}-luminance" in2="SourceGraphic" operator="in" result="${filterId}-luminance-alpha"/></filter>`
+              `<filter id="${filterId}" data-luminance-source-id="${escapeHtml(sourceNodeId)}" x="0" y="0" width="${bounds.width}" height="${bounds.height}" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feColorMatrix in="SourceGraphic" type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0.2126 0.7152 0.0722 0 0" result="${filterId}-luminance"/><feComposite in="${filterId}-luminance" in2="SourceGraphic" operator="in" result="${filterId}-luminance-alpha"/></filter>`
           )
           .join("")
       : ""
   const sources = visibleSources
     .map(({ sourceNodeId, markup, filterId }) =>
       entry.maskType === "luminance"
-        ? `<g data-luminance-source-isolation="${escapeHtml(sourceNodeId)}" filter="url(#${filterId})">${markup}</g>`
+        ? markup.startsWith("<foreignObject ")
+          ? markup.replace(
+              "<foreignObject ",
+              `<foreignObject data-luminance-source-isolation="${escapeHtml(sourceNodeId)}" filter="url(#${filterId})" `
+            )
+          : `<g data-luminance-source-isolation="${escapeHtml(sourceNodeId)}" filter="url(#${filterId})">${markup}</g>`
         : markup
     )
     .join("")

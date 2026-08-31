@@ -28,6 +28,12 @@ import {
   alphaImageMaskRenderConformanceDocument,
   alphaImageMaskRenderConformanceHiddenSourceDocument,
   alphaTextMaskRenderConformanceDocument,
+  luminanceAllHiddenRenderConformanceDocument,
+  luminanceImageTextRenderConformanceDocument,
+  luminanceOneHiddenRenderConformanceDocument,
+  luminanceOverlapRenderConformanceDocument,
+  luminancePrimaryCoefficientRenderConformanceDocument,
+  luminanceSecondaryCoefficientRenderConformanceDocument,
   maskRenderConformanceHiddenSourceNodes,
   maskRenderConformanceDocument,
   maskRenderConformancePage,
@@ -82,6 +88,18 @@ const captureDocument =
 const baseUrl = (
   process.env.CONFORMANCE_BASE_URL ?? "http://localhost:3001"
 ).replace(/\/$/, "")
+const directOnly = process.env.CONFORMANCE_DIRECT_ONLY === "true"
+const directPngOnly = process.env.CONFORMANCE_DIRECT_FORMATS === "png"
+if (directOnly && conformanceCorpus !== "mask") {
+  throw new Error(
+    "CONFORMANCE_DIRECT_ONLY is supported only for the mask corpus"
+  )
+}
+if (directPngOnly && !directOnly) {
+  throw new Error(
+    "CONFORMANCE_DIRECT_FORMATS=png requires CONFORMANCE_DIRECT_ONLY=true"
+  )
+}
 const pageIds = captureDocument.pages.map((page) => page.id)
 const pdfOutput = requirePdfOutput(captureDocument)
 const rendererRetryDelayMs = Number(
@@ -104,7 +122,7 @@ const hiddenSourceMaskConformanceDocument: Document = {
   ...maskRenderConformanceDocument,
   nodes: maskRenderConformanceHiddenSourceNodes,
 }
-const maskCaptureStates = [
+const allMaskCaptureStates = [
   {
     name: "visible",
     document: maskRenderConformanceDocument,
@@ -141,7 +159,36 @@ const maskCaptureStates = [
     name: "multi-alpha",
     document: multiAlphaMaskRenderConformanceDocument,
   },
+  {
+    name: "luminance-primary",
+    document: luminancePrimaryCoefficientRenderConformanceDocument,
+  },
+  {
+    name: "luminance-secondary",
+    document: luminanceSecondaryCoefficientRenderConformanceDocument,
+  },
+  {
+    name: "luminance-overlap",
+    document: luminanceOverlapRenderConformanceDocument,
+  },
+  {
+    name: "luminance-image-text",
+    document: luminanceImageTextRenderConformanceDocument,
+  },
+  {
+    name: "luminance-one-hidden",
+    document: luminanceOneHiddenRenderConformanceDocument,
+  },
+  {
+    name: "luminance-all-hidden",
+    document: luminanceAllHiddenRenderConformanceDocument,
+  },
 ] as const
+type MaskCaptureState = (typeof allMaskCaptureStates)[number]
+const maskCaptureStates: readonly MaskCaptureState[] =
+  process.env.CONFORMANCE_MASK_PHASE === "luminance"
+    ? allMaskCaptureStates.filter(({ name }) => name.startsWith("luminance-"))
+    : allMaskCaptureStates
 const visibleMaskBrowserSurfaceThreshold = Object.freeze({
   channelDifference: 8,
   maxPixelsAboveChannelDifference: 51,
@@ -209,7 +256,9 @@ const reportPath = join(
       : conformanceCorpus === "component-journey"
         ? "component-journey-conformance-capture-report.json"
         : conformanceCorpus === "mask"
-          ? "mask-conformance-capture-report.json"
+          ? directOnly
+            ? "mask-luminance-direct-capture-report.json"
+            : "mask-conformance-capture-report.json"
           : "render-conformance-capture-report.json"
 )
 const temporaryReportPath = join(
@@ -224,7 +273,7 @@ for (const directory of retainedDirectories) {
 
 try {
   verifyDocumentRoundTrip()
-  await captureBrowserSurfaces()
+  if (!directOnly) await captureBrowserSurfaces()
   await captureRendererArtifacts()
   const report = await buildCaptureReport()
   await rename(stagingRoot, finalRunRoot)
@@ -556,6 +605,8 @@ async function captureMaskRendererArtifacts() {
     await pngBrowser.close()
   }
 
+  if (directPngOnly) return
+
   // Chrome can stall while creating a new high-DPI context after page.pdf().
   // Keep PDF generation in a fresh browser lifecycle so raster screenshots and
   // print capture cannot interfere with one another.
@@ -619,7 +670,7 @@ async function captureMaskRendererArtifacts() {
     )
     console.info(`Rasterized direct mask ${pdf.state} PDF`)
   }
-  await captureMaskEndpointSmoke()
+  if (!directOnly) await captureMaskEndpointSmoke()
 }
 
 async function waitForDirectMaskPaint(browserPage: PlaywrightPage) {
@@ -842,12 +893,17 @@ async function buildCaptureReport() {
     runId: captureRunId,
     artifactRoot: `artifacts/runs/${captureRunId}`,
     corpus: conformanceCorpus,
+    captureScope: directOnly ? "direct-only" : "full",
     documentId: captureDocument.id,
     revision: captureDocument.revision,
     baseUrl,
     deviceScaleFactor: 1,
     browserCaptureRuntime,
     browserCaptureEvidence: {
+      exercised: !directOnly,
+      skippedReason: directOnly
+        ? "Host-blocked: the browser route requires the local app server; no server was started."
+        : null,
       pageErrorPolicy: "fail_before_surface_ready",
       pageErrors: browserPageErrors,
       surfaces: browserSurfaceCaptures,
@@ -865,37 +921,47 @@ async function buildCaptureReport() {
               states: maskCaptureStates.map(({ name }) => name),
               deviceScaleFactors: [1, 2],
               pngPathPattern: "renderer-png/mask-{state}-{scale}x.png",
-              pdfPathPattern: "renderer-pdf/mask-{state}.pdf",
-              pdfRasterPathPattern: "renderer-pdf/mask-{state}.png",
+              pdfPathPattern: directPngOnly
+                ? null
+                : "renderer-pdf/mask-{state}.pdf",
+              pdfRasterPathPattern: directPngOnly
+                ? null
+                : "renderer-pdf/mask-{state}.png",
             },
             pngPdfRasterComparisons: await Promise.all(
-              maskCaptureStates.map(({ name }) =>
-                comparePngArtifacts(
-                  `renderer-png/mask-${name}-1x.png`,
-                  `renderer-pdf/mask-${name}.png`,
-                  directMaskPdfRasterThreshold
-                )
-              )
+              directPngOnly
+                ? []
+                : maskCaptureStates.map(({ name }) =>
+                    comparePngArtifacts(
+                      `renderer-png/mask-${name}-1x.png`,
+                      `renderer-pdf/mask-${name}.png`,
+                      directMaskPdfRasterThreshold
+                    )
+                  )
             ),
             browserSurfaceComparisons: await Promise.all(
-              maskCaptureStates.map(({ name }) =>
-                comparePngArtifacts(
-                  `render-view/${maskRenderConformancePage.id}-${name}.png`,
-                  `fabric/${maskRenderConformancePage.id}-${name}.png`,
-                  name.includes("hidden")
-                    ? hiddenMaskBrowserSurfaceThreshold
-                    : visibleMaskBrowserSurfaceThreshold
-                )
-              )
+              directOnly
+                ? []
+                : maskCaptureStates.map(({ name }) =>
+                    comparePngArtifacts(
+                      `render-view/${maskRenderConformancePage.id}-${name}.png`,
+                      `fabric/${maskRenderConformancePage.id}-${name}.png`,
+                      name.includes("hidden")
+                        ? hiddenMaskBrowserSurfaceThreshold
+                        : visibleMaskBrowserSurfaceThreshold
+                    )
+                  )
             ),
             directHtmlBrowserRenderViewComparisons: await Promise.all(
-              maskCaptureStates.map(({ name }) =>
-                comparePngArtifacts(
-                  `renderer-png/mask-${name}-1x.png`,
-                  `render-view/${maskRenderConformancePage.id}-${name}.png`,
-                  visibleMaskBrowserSurfaceThreshold
-                )
-              )
+              directOnly
+                ? []
+                : maskCaptureStates.map(({ name }) =>
+                    comparePngArtifacts(
+                      `renderer-png/mask-${name}-1x.png`,
+                      `render-view/${maskRenderConformancePage.id}-${name}.png`,
+                      visibleMaskBrowserSurfaceThreshold
+                    )
+                  )
             ),
             oneToTwoXComparisons: await Promise.all(
               maskCaptureStates.map(({ name }) =>
@@ -906,22 +972,143 @@ async function buildCaptureReport() {
                 )
               )
             ),
+            coefficientPixelProbes: await assertLuminanceCoefficientArtifacts(),
+            pdfCapture: {
+              exercised: !directPngOnly,
+              skippedReason: directPngOnly
+                ? "Host-runtime blocked: Playwright page.pdf() stalled before the first artifact. PNG evidence was retained; PDF capture is deferred until the host runtime is healthy."
+                : null,
+            },
             productionEndpointSmoke: {
-              exercised: true,
-              states: maskCaptureStates.map(({ name }) => ({
-                name,
-                png: `renderer-endpoint-smoke/canonical-mask-v5-${name}.png`,
-                thumbnail: `renderer-endpoint-smoke/canonical-mask-v5-${name}-thumbnail.png`,
-                pdf: `renderer-endpoint-smoke/canonical-mask-v5-${name}.pdf`,
-                pdfRaster: `renderer-endpoint-smoke/canonical-mask-v5-${name}-raster.png`,
-              })),
-              scope:
-                "Canonical schema-v5 single- and multi-source vector and alpha mask documents rendered through the public Studio PNG and PDF endpoints.",
+              exercised: !directOnly,
+              states: directOnly
+                ? []
+                : maskCaptureStates.map(({ name }) => ({
+                    name,
+                    png: `renderer-endpoint-smoke/canonical-mask-v5-${name}.png`,
+                    thumbnail: `renderer-endpoint-smoke/canonical-mask-v5-${name}-thumbnail.png`,
+                    pdf: `renderer-endpoint-smoke/canonical-mask-v5-${name}.pdf`,
+                    pdfRaster: `renderer-endpoint-smoke/canonical-mask-v5-${name}-raster.png`,
+                  })),
+              scope: directOnly
+                ? "Host-blocked: browser-route and public endpoint capture require the local app server; direct deterministic HTML PNG evidence ran without a server."
+                : "Canonical schema-v5 vector, alpha, and coefficient-sensitive luminance mask documents rendered through the public Studio PNG, thumbnail, and PDF endpoints.",
             },
           },
         }
       : {}),
   }
+}
+
+function luminanceCoefficientProbes() {
+  return [
+    {
+      state: "luminance-primary",
+      samples: [
+        { x: 72, y: 120, expected: 0, label: "black" },
+        { x: 136, y: 120, expected: 255, label: "white" },
+        { x: 200, y: 120, expected: 54, label: "red" },
+        { x: 264, y: 120, expected: 182, label: "green" },
+      ],
+    },
+    {
+      state: "luminance-secondary",
+      samples: [
+        { x: 72, y: 120, expected: 128, label: "grey" },
+        { x: 136, y: 120, expected: 18, label: "blue" },
+        { x: 200, y: 120, expected: 0, label: "transparent-red" },
+        { x: 264, y: 120, expected: 22, label: "opacity-red" },
+      ],
+    },
+    {
+      state: "luminance-overlap",
+      samples: [{ x: 200, y: 120, expected: 68, label: "red-green-union" }],
+    },
+    {
+      state: "luminance-one-hidden",
+      samples: [{ x: 200, y: 120, expected: 27, label: "hidden-green" }],
+    },
+    {
+      state: "luminance-all-hidden",
+      samples: [
+        { x: 200, y: 120, expected: 255, label: "all-hidden-fallthrough" },
+      ],
+    },
+  ] as const
+}
+
+async function assertLuminanceCoefficientArtifacts() {
+  const activeStates = new Set(maskCaptureStates.map(({ name }) => name))
+  const evidence: Array<Record<string, unknown>> = []
+  for (const fixture of luminanceCoefficientProbes()) {
+    if (!activeStates.has(fixture.state)) continue
+    const prefix = `canonical-mask-v5-${fixture.state}`
+    const artifacts = [
+      ...(directOnly
+        ? []
+        : [
+            {
+              path: `render-view/${maskRenderConformancePage.id}-${fixture.state}.png`,
+              scale: 1,
+            },
+            {
+              path: `fabric/${maskRenderConformancePage.id}-${fixture.state}.png`,
+              scale: 1,
+            },
+          ]),
+      { path: `renderer-png/mask-${fixture.state}-1x.png`, scale: 1 },
+      { path: `renderer-png/mask-${fixture.state}-2x.png`, scale: 2 },
+      ...(directPngOnly
+        ? []
+        : [{ path: `renderer-pdf/mask-${fixture.state}.png`, scale: 1 }]),
+      ...(directOnly
+        ? []
+        : [
+            { path: `renderer-endpoint-smoke/${prefix}.png`, scale: 1 },
+            {
+              path: `renderer-endpoint-smoke/${prefix}-thumbnail.png`,
+              scale: 0.5,
+            },
+            {
+              path: `renderer-endpoint-smoke/${prefix}-raster.png`,
+              scale: 1,
+            },
+          ]),
+    ] as const
+    for (const artifact of artifacts) {
+      const image = await sharp(join(stagingRoot, artifact.path))
+        .removeAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true })
+      for (const sample of fixture.samples) {
+        const x = Math.floor(sample.x * artifact.scale)
+        const y = Math.floor(sample.y * artifact.scale)
+        const offset = (y * image.info.width + x) * image.info.channels
+        const actual = [
+          image.data[offset]!,
+          image.data[offset + 1]!,
+          image.data[offset + 2]!,
+        ]
+        for (const channel of actual) {
+          assert.ok(
+            Math.abs(channel - sample.expected) <= 4,
+            `${artifact.path} ${sample.label} expected ${sample.expected}±4, received rgb(${actual.join(",")}) at ${x},${y}`
+          )
+        }
+        evidence.push({
+          state: fixture.state,
+          artifact: artifact.path,
+          sample: sample.label,
+          expected: sample.expected,
+          tolerance: 4,
+          actual,
+          x,
+          y,
+        })
+      }
+    }
+  }
+  return evidence
 }
 
 type RetainedArtifactSpec = Readonly<{
@@ -937,13 +1124,15 @@ function retainedArtifactSpecs(): RetainedArtifactSpec[] {
   if (conformanceCorpus === "mask") {
     const pageId = maskRenderConformancePage.id
     return [
-      ...browserCaptureSurfaces.flatMap((surface) =>
-        maskCaptureStates.map(({ name }) => ({
-          directory: surface,
-          name: `${pageId}-${name}.png`,
-          pageId,
-        }))
-      ),
+      ...(directOnly
+        ? []
+        : browserCaptureSurfaces.flatMap((surface) =>
+            maskCaptureStates.map(({ name }) => ({
+              directory: surface,
+              name: `${pageId}-${name}.png`,
+              pageId,
+            }))
+          )),
       ...maskCaptureStates.flatMap(({ name }) =>
         [1, 2].map((scale) => ({
           directory: "renderer-png" as const,
@@ -952,40 +1141,44 @@ function retainedArtifactSpecs(): RetainedArtifactSpec[] {
           scale,
         }))
       ),
-      ...maskCaptureStates.flatMap(({ name }) => [
-        {
-          directory: "renderer-pdf" as const,
-          name: `mask-${name}.pdf`,
-        },
-        {
-          directory: "renderer-pdf" as const,
-          name: `mask-${name}.png`,
-          pageId,
-        },
-      ]),
-      ...maskCaptureStates.flatMap(({ name }) => [
-        {
-          directory: "renderer-endpoint-smoke" as const,
-          name: `canonical-mask-v5-${name}.png`,
-          pageId,
-        },
-        {
-          directory: "renderer-endpoint-smoke" as const,
-          name: `canonical-mask-v5-${name}.pdf`,
-        },
-        {
-          directory: "renderer-endpoint-smoke" as const,
-          name: `canonical-mask-v5-${name}-thumbnail.png`,
-          pageId,
-          expectedWidth: 240,
-          expectedHeight: 180,
-        },
-        {
-          directory: "renderer-endpoint-smoke" as const,
-          name: `canonical-mask-v5-${name}-raster.png`,
-          pageId,
-        },
-      ]),
+      ...(directPngOnly
+        ? []
+        : maskCaptureStates.flatMap(({ name }) => [
+            {
+              directory: "renderer-pdf" as const,
+              name: `mask-${name}.pdf`,
+            },
+            {
+              directory: "renderer-pdf" as const,
+              name: `mask-${name}.png`,
+              pageId,
+            },
+          ])),
+      ...(directOnly
+        ? []
+        : maskCaptureStates.flatMap(({ name }) => [
+            {
+              directory: "renderer-endpoint-smoke" as const,
+              name: `canonical-mask-v5-${name}.png`,
+              pageId,
+            },
+            {
+              directory: "renderer-endpoint-smoke" as const,
+              name: `canonical-mask-v5-${name}.pdf`,
+            },
+            {
+              directory: "renderer-endpoint-smoke" as const,
+              name: `canonical-mask-v5-${name}-thumbnail.png`,
+              pageId,
+              expectedWidth: 240,
+              expectedHeight: 180,
+            },
+            {
+              directory: "renderer-endpoint-smoke" as const,
+              name: `canonical-mask-v5-${name}-raster.png`,
+              pageId,
+            },
+          ])),
     ]
   }
   return retainedDirectories.flatMap((directory) => {
