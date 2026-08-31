@@ -46,6 +46,17 @@ class FakeD1Statement {
         (asset) => asset.workspace_id === workspaceId && asset.id === second
       )
     }
+    if (marker === "media:catalog-get") {
+      const asset = this.state.assets.find(
+        (candidate) =>
+          candidate.workspace_id === workspaceId && candidate.id === second
+      )
+      return asset ? [this.state.catalogRow(asset)] : []
+    }
+    if (marker === "media:catalog-revision") {
+      const revision = this.state.catalogRevisions.get(workspaceId)
+      return revision === undefined ? [] : [{ revision }]
+    }
     if (marker === "media:hash-get") {
       return this.state.assets.filter(
         (asset) =>
@@ -137,22 +148,36 @@ class FakeD1Statement {
         ? "last_used_at"
         : "created_at"
       return this.state.assets
-        .filter(
-          (asset) =>
+        .filter((asset) => {
+          const catalog = this.state.catalogRow(asset)
+          const searchable = [
+            asset.name,
+            catalog.catalog_description,
+            catalog.catalog_tags_json,
+            catalog.catalog_category_id,
+            catalog.catalog_use_case_ids_json,
+            catalog.catalog_provenance_source_name,
+            catalog.catalog_license_name,
+          ]
+            .join(" ")
+            .toLowerCase()
+          return (
             asset.workspace_id === workspaceId &&
             asset.status === "ready" &&
-            (!query || String(asset.name).toLowerCase().includes(query)) &&
+            (!query || searchable.includes(query)) &&
             (!cursorSort ||
               String(asset[sort]) < cursorSort ||
               (asset[sort] === cursorSort &&
                 String(asset.id) < String(cursorId)))
-        )
+          )
+        })
         .sort(
           (left, right) =>
             String(right[sort]).localeCompare(String(left[sort])) ||
             String(right.id).localeCompare(String(left.id))
         )
         .slice(0, limit)
+        .map((asset) => this.state.catalogRow(asset))
     }
     if (marker === "media:references") {
       return this.state.references
@@ -211,6 +236,14 @@ class FakeD1Statement {
         updated_at: now,
         last_used_at: now,
       })
+      this.state.catalogMetadata.push(
+        this.state.defaultCatalogMetadata(
+          String(workspaceId),
+          String(id),
+          String(now)
+        )
+      )
+      this.state.bumpCatalogRevision(String(workspaceId))
       return 1
     }
     if (marker === "media:idempotency-insert") {
@@ -326,6 +359,11 @@ class FakeD1Statement {
       asset.last_used_at = now
       asset.archived_at = null
       asset.revision = Number(asset.revision) + 1
+      this.state.bumpCatalogIdentity(
+        String(workspaceId),
+        String(id),
+        String(now)
+      )
       return 1
     }
     if (marker === "media:promotion-restore") {
@@ -348,6 +386,11 @@ class FakeD1Statement {
       asset.last_used_at = now
       asset.archived_at = null
       asset.revision = Number(asset.revision) + 1
+      this.state.bumpCatalogIdentity(
+        String(workspaceId),
+        String(id),
+        String(now)
+      )
       return 1
     }
     if (marker === "media:archive") {
@@ -368,6 +411,60 @@ class FakeD1Statement {
       asset.archived_at = now
       asset.updated_at = now
       asset.revision = Number(asset.revision) + 1
+      this.state.bumpCatalogIdentity(
+        String(workspaceId),
+        String(id),
+        String(now)
+      )
+      return 1
+    }
+    if (marker === "media:catalog-update") {
+      const [
+        workspaceId,
+        assetId,
+        expectedVersion,
+        description,
+        tagsJson,
+        categoryId,
+        useCaseIdsJson,
+        sourceName,
+        sourceUrl,
+        licenseId,
+        licenseName,
+        licenseUrl,
+        attributionRequired,
+        attributionText,
+        now,
+      ] = this.values
+      const metadata = this.state.catalogMetadata.find(
+        (candidate) =>
+          candidate.workspace_id === workspaceId &&
+          candidate.asset_id === assetId &&
+          candidate.catalog_version === expectedVersion
+      )
+      const asset = this.state.assets.find(
+        (candidate) =>
+          candidate.workspace_id === workspaceId &&
+          candidate.id === assetId &&
+          candidate.status === "ready"
+      )
+      if (!metadata || !asset) return 0
+      Object.assign(metadata, {
+        description,
+        tags_json: tagsJson,
+        category_id: categoryId,
+        use_case_ids_json: useCaseIdsJson,
+        provenance_source_name: sourceName,
+        provenance_source_url: sourceUrl,
+        license_id: licenseId,
+        license_name: licenseName,
+        license_url: licenseUrl,
+        attribution_required: attributionRequired,
+        attribution_text: attributionText,
+        catalog_version: Number(metadata.catalog_version) + 1,
+        updated_at: now,
+      })
+      this.state.bumpCatalogRevision(String(workspaceId))
       return 1
     }
     return 0
@@ -380,14 +477,88 @@ class FakeD1 {
   useRequests: Row[] = []
   promotions: Row[] = []
   references: Row[] = []
+  catalogMetadata: Row[] = []
+  catalogRevisions = new Map<string, number>()
   batchFailure: Error | (() => Error) | null = null
   batchFailureAfterMutation: Error | (() => Error) | null = null
   batchResultChanges: number[] | null = null
   skipPromotionRequestMutation = false
+  archiveAssetBeforeBatch: string | null = null
   archiveAssetAfterBatch: string | null = null
 
   prepare(query: string) {
     return new FakeD1Statement(query, this) as unknown as D1PreparedStatement
+  }
+
+  defaultCatalogMetadata(workspaceId: string, assetId: string, now: string) {
+    return {
+      workspace_id: workspaceId,
+      asset_id: assetId,
+      description: "Customer-provided workspace upload",
+      tags_json: "[]",
+      category_id: "workspace-upload",
+      use_case_ids_json: "[]",
+      provenance_source_name: "Workspace upload",
+      provenance_source_url: null,
+      license_id: "customer-provided",
+      license_name: "Customer-provided; rights not verified",
+      license_url: null,
+      attribution_required: 0,
+      attribution_text: null,
+      catalog_version: 1,
+      created_at: now,
+      updated_at: now,
+    }
+  }
+
+  catalogRow(asset: Row) {
+    const metadata =
+      this.catalogMetadata.find(
+        (candidate) =>
+          candidate.workspace_id === asset.workspace_id &&
+          candidate.asset_id === asset.id
+      ) ??
+      this.defaultCatalogMetadata(
+        String(asset.workspace_id),
+        String(asset.id),
+        String(asset.created_at)
+      )
+    return {
+      ...asset,
+      catalog_description: metadata.description,
+      catalog_tags_json: metadata.tags_json,
+      catalog_category_id: metadata.category_id,
+      catalog_use_case_ids_json: metadata.use_case_ids_json,
+      catalog_provenance_source_name: metadata.provenance_source_name,
+      catalog_provenance_source_url: metadata.provenance_source_url,
+      catalog_license_id: metadata.license_id,
+      catalog_license_name: metadata.license_name,
+      catalog_license_url: metadata.license_url,
+      catalog_attribution_required: metadata.attribution_required,
+      catalog_attribution_text: metadata.attribution_text,
+      catalog_version: metadata.catalog_version,
+      catalog_created_at: metadata.created_at,
+      catalog_updated_at: metadata.updated_at,
+    }
+  }
+
+  bumpCatalogRevision(workspaceId: string) {
+    this.catalogRevisions.set(
+      workspaceId,
+      (this.catalogRevisions.get(workspaceId) ?? 0) + 1
+    )
+  }
+
+  bumpCatalogIdentity(workspaceId: string, assetId: string, now: string) {
+    const metadata = this.catalogMetadata.find(
+      (candidate) =>
+        candidate.workspace_id === workspaceId && candidate.asset_id === assetId
+    )
+    if (metadata) {
+      metadata.catalog_version = Number(metadata.catalog_version) + 1
+      metadata.updated_at = now
+    }
+    this.bumpCatalogRevision(workspaceId)
   }
 
   async batch<T>(statements: D1PreparedStatement[]) {
@@ -396,17 +567,44 @@ class FakeD1 {
       this.batchFailure = null
       throw typeof failure === "function" ? failure() : failure
     }
+    if (this.archiveAssetBeforeBatch) {
+      const asset = this.assets.find(
+        (candidate) => candidate.id === this.archiveAssetBeforeBatch
+      )
+      this.archiveAssetBeforeBatch = null
+      if (asset) {
+        const archivedAt = "2026-08-28T00:09:00.000Z"
+        asset.status = "archived"
+        asset.archived_at = archivedAt
+        asset.updated_at = archivedAt
+        asset.revision = Number(asset.revision) + 1
+        this.bumpCatalogIdentity(
+          String(asset.workspace_id),
+          String(asset.id),
+          archivedAt
+        )
+      }
+    }
     const snapshot = structuredClone({
       assets: this.assets,
       requests: this.requests,
       useRequests: this.useRequests,
       promotions: this.promotions,
       references: this.references,
+      catalogMetadata: this.catalogMetadata,
+      catalogRevisions: [...this.catalogRevisions],
     })
     const results: D1Result<T>[] = []
     try {
       for (const statement of statements) {
-        results.push(await (statement as unknown as FakeD1Statement).run<T>())
+        const fakeStatement = statement as unknown as FakeD1Statement
+        results.push(
+          /\/\* media:(?:catalog-get|list|storage|catalog-revision) \*\//.test(
+            fakeStatement.query
+          )
+            ? await fakeStatement.all<T>()
+            : await fakeStatement.run<T>()
+        )
       }
     } catch (error) {
       this.assets = snapshot.assets
@@ -414,6 +612,8 @@ class FakeD1 {
       this.useRequests = snapshot.useRequests
       this.promotions = snapshot.promotions
       this.references = snapshot.references
+      this.catalogMetadata = snapshot.catalogMetadata
+      this.catalogRevisions = new Map(snapshot.catalogRevisions)
       throw error
     }
     if (this.batchFailureAfterMutation) {
@@ -427,9 +627,16 @@ class FakeD1 {
       )
       this.archiveAssetAfterBatch = null
       if (asset) {
+        const archivedAt = "2026-08-28T00:10:00.000Z"
         asset.status = "archived"
-        asset.archived_at = "2026-08-28T00:10:00.000Z"
+        asset.archived_at = archivedAt
+        asset.updated_at = archivedAt
         asset.revision = Number(asset.revision) + 1
+        this.bumpCatalogIdentity(
+          String(asset.workspace_id),
+          String(asset.id),
+          archivedAt
+        )
       }
     }
     if (this.batchResultChanges) {
@@ -693,6 +900,222 @@ describe("MediaAssetRepository", () => {
     })
     expect(list.assets.map((asset) => asset.name)).toEqual(["first.png"])
     expect(list.storage).toEqual({ bytes: png1x1.length, count: 1 })
+  })
+
+  it("persists truthful managed catalog defaults and isolates exact metadata by workspace", async () => {
+    const { repository } = repositoryFixture()
+    const first = await repository.upload(
+      "workspace-a",
+      await validatedUpload(),
+      null
+    )
+
+    await expect(
+      repository.lookupCatalogEntry("workspace-a", first.asset.id)
+    ).resolves.toMatchObject({
+      asset: { id: first.asset.id, status: "ready" },
+      metadata: {
+        description: "Customer-provided workspace upload",
+        tags: [],
+        categoryId: "workspace-upload",
+        useCaseIds: [],
+        catalogVersion: 1,
+        provenance: {
+          sourceName: "Workspace upload",
+          sourceUrl: null,
+          license: {
+            id: "customer-provided",
+            name: "Customer-provided; rights not verified",
+            url: null,
+          },
+          attribution: { required: false, text: null },
+        },
+      },
+    })
+    await expect(
+      repository.lookupCatalogEntry("workspace-b", first.asset.id)
+    ).rejects.toMatchObject({ code: "asset_not_found", status: 404 })
+    await expect(
+      repository.updateCatalogMetadata("workspace-b", first.asset.id, 1, {
+        tags: ["foreign"],
+      })
+    ).rejects.toMatchObject({ code: "asset_not_found", status: 404 })
+    await expect(
+      repository.lookupCatalogEntry("workspace-a", first.asset.id)
+    ).resolves.toMatchObject({ metadata: { tags: [], catalogVersion: 1 } })
+  })
+
+  it("normalizes metadata, searches every catalog field, and rejects stale catalog writes", async () => {
+    const { repository } = repositoryFixture()
+    const first = await repository.upload(
+      "workspace-a",
+      await validatedUpload("portrait.png"),
+      null
+    )
+    const updated = await repository.updateCatalogMetadata(
+      "workspace-a",
+      first.asset.id,
+      1,
+      {
+        description: "  Leadership   portrait for the annual report ",
+        tags: ["Executive Team", "leadership", "executive-team"],
+        categoryId: " People & Portraits ",
+        useCaseIds: [" Annual Report ", "profile"],
+      }
+    )
+    expect(updated.metadata).toMatchObject({
+      description: "Leadership portrait for the annual report",
+      tags: ["executive-team", "leadership"],
+      categoryId: "people-portraits",
+      useCaseIds: ["annual-report", "profile"],
+      catalogVersion: 2,
+    })
+
+    for (const query of [
+      "leadership portrait",
+      "executive-team",
+      "people-portraits",
+      "annual-report",
+      "workspace upload",
+      "rights not verified",
+    ]) {
+      await expect(
+        repository.listCatalog("workspace-a", {
+          collection: "uploads",
+          query,
+          limit: 10,
+          cursor: null,
+        })
+      ).resolves.toMatchObject({
+        entries: [{ asset: { id: first.asset.id } }],
+      })
+    }
+    await expect(
+      repository.updateCatalogMetadata("workspace-a", first.asset.id, 1, {
+        tags: ["stale"],
+      })
+    ).rejects.toMatchObject({
+      code: "asset_catalog_version_mismatch",
+      status: 412,
+    })
+  })
+
+  it("returns the committed metadata snapshot when archive follows the atomic update batch", async () => {
+    const { db, repository } = repositoryFixture()
+    const first = await repository.upload(
+      "workspace-a",
+      await validatedUpload(),
+      null
+    )
+    db.archiveAssetAfterBatch = first.asset.id
+
+    await expect(
+      repository.updateCatalogMetadata("workspace-a", first.asset.id, 1, {
+        tags: ["approved"],
+      })
+    ).resolves.toMatchObject({
+      asset: { id: first.asset.id, status: "ready" },
+      metadata: { tags: ["approved"], catalogVersion: 2 },
+    })
+    await expect(
+      repository.lookupCatalogEntry("workspace-a", first.asset.id)
+    ).rejects.toMatchObject({ code: "asset_not_found", status: 404 })
+    expect(await repository.catalogRevision("workspace-a")).toBe(3)
+  })
+
+  it("returns a typed not-found outcome when archive wins before the metadata CAS batch", async () => {
+    const { db, repository } = repositoryFixture()
+    const first = await repository.upload(
+      "workspace-a",
+      await validatedUpload(),
+      null
+    )
+    db.archiveAssetBeforeBatch = first.asset.id
+
+    await expect(
+      repository.updateCatalogMetadata("workspace-a", first.asset.id, 1, {
+        tags: ["too-late"],
+      })
+    ).rejects.toMatchObject({ code: "asset_not_found", status: 404 })
+    expect(await repository.catalogRevision("workspace-a")).toBe(2)
+  })
+
+  it("keeps catalog identity and epoch separate from use revisions", async () => {
+    const { repository } = repositoryFixture()
+    const upload = await validatedUpload()
+    const first = await repository.upload("workspace-a", upload, null)
+    expect(await repository.catalogRevision("workspace-a")).toBe(1)
+
+    await repository.markUsed("workspace-a", first.asset.id, "catalog-use-1")
+    expect(await repository.catalogRevision("workspace-a")).toBe(1)
+    await expect(
+      repository.lookupCatalogEntry("workspace-a", first.asset.id)
+    ).resolves.toMatchObject({ metadata: { catalogVersion: 1 } })
+
+    const changed = await repository.updateCatalogMetadata(
+      "workspace-a",
+      first.asset.id,
+      1,
+      { tags: ["portrait"] }
+    )
+    expect(changed.metadata.catalogVersion).toBe(2)
+    expect(await repository.catalogRevision("workspace-a")).toBe(2)
+
+    const unchanged = await repository.updateCatalogMetadata(
+      "workspace-a",
+      first.asset.id,
+      2,
+      { tags: ["portrait"] }
+    )
+    expect(unchanged.metadata.catalogVersion).toBe(2)
+    expect(await repository.catalogRevision("workspace-a")).toBe(2)
+
+    const impact = await repository.deletionImpact(
+      "workspace-a",
+      first.asset.id
+    )
+    await repository.archive(
+      "workspace-a",
+      first.asset.id,
+      impact.revision,
+      impact.token
+    )
+    expect(await repository.catalogRevision("workspace-a")).toBe(3)
+    await expect(
+      repository.lookupCatalogEntry("workspace-a", first.asset.id)
+    ).rejects.toMatchObject({ code: "asset_not_found" })
+
+    await repository.upload("workspace-a", upload, null)
+    expect(await repository.catalogRevision("workspace-a")).toBe(4)
+    await expect(
+      repository.lookupCatalogEntry("workspace-a", first.asset.id)
+    ).resolves.toMatchObject({ metadata: { catalogVersion: 4 } })
+  })
+
+  it("does not advance the catalog epoch when references block archive", async () => {
+    const { db, repository } = repositoryFixture()
+    const { asset } = await repository.upload(
+      "workspace-a",
+      await validatedUpload(),
+      null
+    )
+    db.references.push({
+      workspace_id: "workspace-a",
+      asset_id: asset.id,
+      reference_kind: "current_document",
+      source_id: "document-1",
+      reference_key: "node:cover:src",
+      document_id: "document-1",
+      page_id: "page-cover",
+      node_id: "cover",
+      field_id: null,
+      property: "src",
+    })
+    const impact = await repository.deletionImpact("workspace-a", asset.id)
+    await expect(
+      repository.archive("workspace-a", asset.id, impact.revision, impact.token)
+    ).rejects.toMatchObject({ code: "asset_referenced", status: 409 })
+    expect(await repository.catalogRevision("workspace-a")).toBe(1)
   })
 
   it("marks Recent exactly once and replays the durable receipt", async () => {

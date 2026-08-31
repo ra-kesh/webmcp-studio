@@ -18,6 +18,15 @@ import type {
   ValidatedMediaUpload,
   VerifiedManagedAssetResource,
 } from "./media-assets"
+import {
+  ManagedMediaCatalogError,
+  managedMediaCatalogMetadataEqual,
+  normalizeManagedMediaCatalogMetadataUpdate,
+} from "./media-asset-catalog-metadata"
+import type {
+  ManagedMediaCatalogMetadata,
+  ManagedMediaCatalogMetadataUpdate,
+} from "./media-asset-catalog-metadata"
 
 type MediaAssetRow = {
   id: string
@@ -34,6 +43,23 @@ type MediaAssetRow = {
   created_at: string
   updated_at: string
   last_used_at: string
+}
+
+type MediaAssetCatalogRow = MediaAssetRow & {
+  catalog_description: string
+  catalog_tags_json: string
+  catalog_category_id: string
+  catalog_use_case_ids_json: string
+  catalog_provenance_source_name: string
+  catalog_provenance_source_url: string | null
+  catalog_license_id: string
+  catalog_license_name: string
+  catalog_license_url: string | null
+  catalog_attribution_required: number
+  catalog_attribution_text: string | null
+  catalog_version: number
+  catalog_created_at: string
+  catalog_updated_at: string
 }
 
 type ReferenceRow = {
@@ -80,6 +106,18 @@ export type MediaAssetListResult = {
   assets: PublicMediaAsset[]
   nextCursor: string | null
   storage: { bytes: number; count: number }
+}
+
+export type ManagedMediaCatalogEntry = {
+  asset: PublicMediaAsset
+  metadata: ManagedMediaCatalogMetadata
+}
+
+export type ManagedMediaCatalogListResult = {
+  entries: ManagedMediaCatalogEntry[]
+  nextCursor: string | null
+  storage: { bytes: number; count: number }
+  catalogRevision: number
 }
 
 export type MediaAssetUploadResult = {
@@ -131,6 +169,22 @@ const qualifiedMediaAssetColumns = (alias: string) =>
     .map((column) => `${alias}.${column} AS ${column}`)
     .join(", ")
 
+const mediaAssetCatalogColumns = `${qualifiedMediaAssetColumns("assets")},
+  metadata.description AS catalog_description,
+  metadata.tags_json AS catalog_tags_json,
+  metadata.category_id AS catalog_category_id,
+  metadata.use_case_ids_json AS catalog_use_case_ids_json,
+  metadata.provenance_source_name AS catalog_provenance_source_name,
+  metadata.provenance_source_url AS catalog_provenance_source_url,
+  metadata.license_id AS catalog_license_id,
+  metadata.license_name AS catalog_license_name,
+  metadata.license_url AS catalog_license_url,
+  metadata.attribution_required AS catalog_attribution_required,
+  metadata.attribution_text AS catalog_attribution_text,
+  metadata.catalog_version AS catalog_version,
+  metadata.created_at AS catalog_created_at,
+  metadata.updated_at AS catalog_updated_at`
+
 const managedUploadR2Key = (workspaceId: string, contentHash: string) =>
   `media/workspaces/${encodeURIComponent(workspaceId)}/content/${contentHash}/original`
 
@@ -164,6 +218,47 @@ const publicAssetLookup = (row: MediaAssetRow) => ({
   lastUsedAt: row.last_used_at,
   status: row.status,
   selectable: row.status === "ready",
+})
+
+const catalogStringArray = (value: string, field: string) => {
+  const parsed: unknown = JSON.parse(value)
+  if (
+    !Array.isArray(parsed) ||
+    parsed.some((entry) => typeof entry !== "string")
+  ) {
+    throw new Error(`media_asset_catalog_${field}_invalid`)
+  }
+  return parsed
+}
+
+const catalogMetadata = (
+  row: MediaAssetCatalogRow
+): ManagedMediaCatalogMetadata => ({
+  description: row.catalog_description,
+  tags: catalogStringArray(row.catalog_tags_json, "tags"),
+  categoryId: row.catalog_category_id,
+  useCaseIds: catalogStringArray(row.catalog_use_case_ids_json, "use_cases"),
+  provenance: {
+    sourceName: row.catalog_provenance_source_name,
+    sourceUrl: row.catalog_provenance_source_url,
+    license: {
+      id: row.catalog_license_id,
+      name: row.catalog_license_name,
+      url: row.catalog_license_url,
+    },
+    attribution: {
+      required: row.catalog_attribution_required === 1,
+      text: row.catalog_attribution_text,
+    },
+  },
+  catalogVersion: Number(row.catalog_version),
+  createdAt: row.catalog_created_at,
+  updatedAt: row.catalog_updated_at,
+})
+
+const catalogEntry = (row: MediaAssetCatalogRow): ManagedMediaCatalogEntry => ({
+  asset: publicAsset(row),
+  metadata: catalogMetadata(row),
 })
 
 const publicPromotion = (
@@ -322,6 +417,176 @@ export class MediaAssetRepository {
     return publicAssetLookup(row)
   }
 
+  private catalogRowStatement(workspaceId: string, assetId: string) {
+    assertMediaAssetId(assetId)
+    return this.db
+      .prepare(
+        `/* media:catalog-get */ SELECT ${mediaAssetCatalogColumns}
+         FROM media_assets assets
+         JOIN media_asset_catalog_metadata metadata
+           ON metadata.workspace_id = assets.workspace_id
+          AND metadata.asset_id = assets.id
+         WHERE assets.workspace_id = ?1 AND assets.id = ?2`
+      )
+      .bind(workspaceId, assetId)
+  }
+
+  private async catalogRow(workspaceId: string, assetId: string) {
+    return this.catalogRowStatement(
+      workspaceId,
+      assetId
+    ).first<MediaAssetCatalogRow>()
+  }
+
+  async lookupCatalogEntry(
+    workspaceId: string,
+    assetId: string
+  ): Promise<ManagedMediaCatalogEntry> {
+    const row = await this.catalogRow(workspaceId, assetId)
+    if (!row || row.status !== "ready") {
+      throw new MediaAssetError(
+        "asset_not_found",
+        404,
+        "Asset was not found in this workspace catalog"
+      )
+    }
+    return catalogEntry(row)
+  }
+
+  async catalogRevision(workspaceId: string): Promise<number> {
+    const state = await this.catalogRevisionStatement(workspaceId).first<{
+      revision: number
+    }>()
+    return Number(state?.revision ?? 0)
+  }
+
+  private storageUsageStatement(workspaceId: string) {
+    return this.db
+      .prepare(
+        `/* media:storage */ SELECT COALESCE(SUM(bytes), 0) AS bytes, COUNT(*) AS count
+         FROM media_assets WHERE workspace_id = ?1`
+      )
+      .bind(workspaceId)
+  }
+
+  private catalogRevisionStatement(workspaceId: string) {
+    return this.db
+      .prepare(
+        `/* media:catalog-revision */ SELECT revision
+         FROM media_asset_catalog_state WHERE workspace_id = ?1`
+      )
+      .bind(workspaceId)
+  }
+
+  async updateCatalogMetadata(
+    workspaceId: string,
+    assetId: string,
+    expectedCatalogVersion: number,
+    update: ManagedMediaCatalogMetadataUpdate
+  ): Promise<ManagedMediaCatalogEntry> {
+    if (
+      !Number.isInteger(expectedCatalogVersion) ||
+      expectedCatalogVersion < 1
+    ) {
+      throw new ManagedMediaCatalogError(
+        "invalid_asset_catalog_version",
+        400,
+        "Expected catalog version must be a positive integer"
+      )
+    }
+    const currentRow = await this.catalogRow(workspaceId, assetId)
+    if (!currentRow || currentRow.status !== "ready") {
+      throw new MediaAssetError(
+        "asset_not_found",
+        404,
+        "Asset was not found in this workspace catalog"
+      )
+    }
+    const current = catalogMetadata(currentRow)
+    if (current.catalogVersion !== expectedCatalogVersion) {
+      throw new ManagedMediaCatalogError(
+        "asset_catalog_version_mismatch",
+        412,
+        "Asset catalog metadata changed before this update"
+      )
+    }
+    const normalized = normalizeManagedMediaCatalogMetadataUpdate(
+      update,
+      current
+    )
+    if (managedMediaCatalogMetadataEqual(normalized, current)) {
+      return catalogEntry(currentRow)
+    }
+    const now = this.now()
+    const updateStatement = this.db
+      .prepare(
+        `/* media:catalog-update */ UPDATE media_asset_catalog_metadata
+         SET description = ?4,
+             tags_json = ?5,
+             category_id = ?6,
+             use_case_ids_json = ?7,
+             provenance_source_name = ?8,
+             provenance_source_url = ?9,
+             license_id = ?10,
+             license_name = ?11,
+             license_url = ?12,
+             attribution_required = ?13,
+             attribution_text = ?14,
+             catalog_version = catalog_version + 1,
+             updated_at = ?15
+         WHERE workspace_id = ?1 AND asset_id = ?2
+           AND catalog_version = ?3
+           AND EXISTS (
+             SELECT 1 FROM media_assets assets
+             WHERE assets.workspace_id = ?1
+               AND assets.id = ?2
+               AND assets.status = 'ready'
+           )`
+      )
+      .bind(
+        workspaceId,
+        assetId,
+        expectedCatalogVersion,
+        normalized.description,
+        JSON.stringify(normalized.tags),
+        normalized.categoryId,
+        JSON.stringify(normalized.useCaseIds),
+        normalized.provenance.sourceName,
+        normalized.provenance.sourceUrl,
+        normalized.provenance.license.id,
+        normalized.provenance.license.name,
+        normalized.provenance.license.url,
+        normalized.provenance.attribution.required ? 1 : 0,
+        normalized.provenance.attribution.text,
+        now
+      )
+    const [updateResult, committedResult] = await this.db.batch([
+      updateStatement,
+      this.catalogRowStatement(workspaceId, assetId),
+    ])
+    const committed = committedResult.results[0] as
+      MediaAssetCatalogRow | undefined
+    if (Number(updateResult.meta.changes) !== 1) {
+      const latest = committed
+      if (!latest || latest.status !== "ready") {
+        throw new MediaAssetError(
+          "asset_not_found",
+          404,
+          "Asset was removed from the workspace catalog"
+        )
+      }
+      throw new ManagedMediaCatalogError(
+        "asset_catalog_version_mismatch",
+        412,
+        "Asset catalog metadata changed while this update was committed"
+      )
+    }
+    if (!committed || committed.status !== "ready") {
+      throw new Error("media_asset_catalog_update_unreadable")
+    }
+    return catalogEntry(committed)
+  }
+
   private async ensureStoredUpload(
     row: MediaAssetRow,
     upload: ValidatedMediaUpload
@@ -404,22 +669,48 @@ export class MediaAssetRepository {
     workspaceId: string,
     options: MediaAssetListOptions
   ): Promise<MediaAssetListResult> {
+    const result = await this.listCatalog(workspaceId, options)
+    return {
+      assets: result.entries.map((entry) => entry.asset),
+      nextCursor: result.nextCursor,
+      storage: result.storage,
+    }
+  }
+
+  async listCatalog(
+    workspaceId: string,
+    options: MediaAssetListOptions
+  ): Promise<ManagedMediaCatalogListResult> {
     const cursor = options.cursor ? decodeCursor(options.cursor, options) : null
     const sortColumn =
-      options.collection === "recent" ? "last_used_at" : "created_at"
+      options.collection === "recent"
+        ? "assets.last_used_at"
+        : "assets.created_at"
     const query = options.query.trim().toLocaleLowerCase()
     const search = `%${escapeLike(query)}%`
-    const rows = await this.db
+    const listStatement = this.db
       .prepare(
-        `/* media:list */ SELECT ${mediaAssetColumns}
-         FROM media_assets
-         WHERE workspace_id = ?1 AND status = 'ready'
-           AND (?2 = '' OR lower(name) LIKE ?3 ESCAPE '\\')
+        `/* media:list */ SELECT ${mediaAssetCatalogColumns}
+         FROM media_assets assets
+         JOIN media_asset_catalog_metadata metadata
+           ON metadata.workspace_id = assets.workspace_id
+          AND metadata.asset_id = assets.id
+         WHERE assets.workspace_id = ?1 AND assets.status = 'ready'
+           AND (
+             ?2 = ''
+             OR lower(assets.name) LIKE ?3 ESCAPE '\\'
+             OR lower(metadata.description) LIKE ?3 ESCAPE '\\'
+             OR lower(metadata.tags_json) LIKE ?3 ESCAPE '\\'
+             OR lower(metadata.category_id) LIKE ?3 ESCAPE '\\'
+             OR lower(metadata.use_case_ids_json) LIKE ?3 ESCAPE '\\'
+             OR lower(metadata.provenance_source_name) LIKE ?3 ESCAPE '\\'
+             OR lower(metadata.license_name) LIKE ?3 ESCAPE '\\'
+           )
            AND (
              ?4 IS NULL OR ${sortColumn} < ?4
-             OR (${sortColumn} = ?4 AND id < ?5)
+             OR (${sortColumn} = ?4 AND assets.id < ?5)
            )
-         ORDER BY ${sortColumn} DESC, id DESC
+         ORDER BY ${sortColumn} DESC, assets.id DESC
          LIMIT ?6`
       )
       .bind(
@@ -430,13 +721,22 @@ export class MediaAssetRepository {
         cursor?.id ?? null,
         options.limit + 1
       )
-      .all<MediaAssetRow>()
-    const hasMore = rows.results.length > options.limit
-    const page = rows.results.slice(0, options.limit)
+    const [rowsResult, storageResult, catalogRevisionResult] =
+      await this.db.batch([
+        listStatement,
+        this.storageUsageStatement(workspaceId),
+        this.catalogRevisionStatement(workspaceId),
+      ])
+    const rows = rowsResult.results as MediaAssetCatalogRow[]
+    const hasMore = rows.length > options.limit
+    const page = rows.slice(0, options.limit)
     const tail = page.at(-1)
-    const storage = await this.storageUsage(workspaceId)
+    const storageRow = storageResult.results[0] as
+      { bytes: number; count: number } | undefined
+    const catalogState = catalogRevisionResult.results[0] as
+      { revision: number } | undefined
     return {
-      assets: page.map(publicAsset),
+      entries: page.map(catalogEntry),
       nextCursor:
         hasMore && tail
           ? encodeCursor({
@@ -450,18 +750,19 @@ export class MediaAssetRepository {
               id: tail.id,
             })
           : null,
-      storage,
+      storage: {
+        bytes: Number(storageRow?.bytes ?? 0),
+        count: Number(storageRow?.count ?? 0),
+      },
+      catalogRevision: Number(catalogState?.revision ?? 0),
     }
   }
 
   async storageUsage(workspaceId: string) {
-    const storage = await this.db
-      .prepare(
-        `/* media:storage */ SELECT COALESCE(SUM(bytes), 0) AS bytes, COUNT(*) AS count
-         FROM media_assets WHERE workspace_id = ?1`
-      )
-      .bind(workspaceId)
-      .first<{ bytes: number; count: number }>()
+    const storage = await this.storageUsageStatement(workspaceId).first<{
+      bytes: number
+      count: number
+    }>()
     return {
       bytes: Number(storage?.bytes ?? 0),
       count: Number(storage?.count ?? 0),
