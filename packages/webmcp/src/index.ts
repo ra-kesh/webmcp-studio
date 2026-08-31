@@ -21,6 +21,8 @@ export const toolNames = [
   "read_design_components",
   "search_design_nodes",
   "search_assets",
+  "inspect_background_removal",
+  "manage_background_removal",
   "validate_design",
   "propose_asset_insertion",
   "propose_field_updates",
@@ -166,6 +168,22 @@ export const toolCatalog: readonly ToolDescriptor[] = [
     mutates: false,
     requiresHumanReview: false,
     routes: ["library", "editor"],
+  },
+  {
+    name: "inspect_background_removal",
+    description:
+      "Inspect background-removal policy, durable jobs, and safe output provenance.",
+    mutates: false,
+    requiresHumanReview: false,
+    routes: ["library", "editor", "review"],
+  },
+  {
+    name: "manage_background_removal",
+    description:
+      "Start with exact privacy consent, cancel, or retry a background-removal job.",
+    mutates: true,
+    requiresHumanReview: true,
+    routes: ["library", "editor", "review"],
   },
   {
     name: "validate_design",

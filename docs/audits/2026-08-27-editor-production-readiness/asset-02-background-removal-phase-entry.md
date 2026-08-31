@@ -1,7 +1,7 @@
 # ASSET-02 background removal phase entry
 
 Date: 2026-08-31
-Status: Slices B0 through B2 implemented and locally verified; B1 and B2 await independent acceptance and Slices B3 and B4 remain closed
+Status: Slices B0 through B4 implemented and locally verified; independent acceptance, provider configuration, and deployed evidence remain open
 Scope: provider-neutral image derivation jobs and non-destructive application
 
 ## Decision
@@ -525,3 +525,53 @@ Focused local verification at this checkpoint:
 
 Live compact-keyboard and deployed-provider journeys remain B4 acceptance
 evidence; this local checkpoint does not claim independent acceptance.
+
+## B4 implementation result
+
+Slice B4 is implemented on the isolated background-removal branch. It is not
+independently accepted or merged, and its deployed evidence gate remains open.
+
+- Authenticated API inspection covers policy, latest source job, exact job, and
+  immutable output provenance. Historical job and provenance reads do not
+  depend on the current provider being configured.
+- Public provenance contains only source/output asset IDs, derivation job ID,
+  operation, accepted privacy-policy version, normalized output type and
+  dimensions, and creation time. It removes workspace identity, provider and
+  model identifiers, source/output hashes, R2 keys, URLs, bytes, and attempt
+  internals. API audit paths normalize the output asset ID.
+- The successful before/after review shows that safe provenance before Apply.
+  The result remains a managed Media asset even when document application is
+  rejected or never requested.
+- WebMCP registers `inspect_background_removal` for policy, source history,
+  durable job, and safe-provenance reads. It registers
+  `manage_background_removal` only for start, cancel, and retry. The start
+  action requires a selectable workspace asset plus affirmative consent for an
+  exact policy version; built-in, local-only, archived, and unknown assets fail
+  before dispatch.
+- WebMCP cannot choose a provider, send a URL or payload, bypass quotas, or
+  apply output to the document. Document application remains the human-visible
+  renderer-acknowledged Studio action. Cancel and retry preserve optimistic
+  concurrency with the expected job update timestamp.
+- Exact provider key, provider model version, privacy-policy version, source
+  hash, and output hash remain in immutable internal job/provenance records for
+  audit. Provider and model identities intentionally remain outside public API
+  and WebMCP projections.
+
+Focused local verification at this checkpoint:
+
+- WebMCP registration, consent, ownership, inspection, proposal, publication,
+  and rendering suites: 67/67 passed
+- Studio API-boundary, derivation, client, control, mounted replacement, and
+  WebMCP lifecycle suites: 57/57 passed
+- WebMCP and Studio typechecks: passed
+- Studio production client, SSR, and renderer build: passed (existing route-file
+  and chunk-size warnings remain)
+- local route generation and `git diff --check`: passed
+- no provider call, deployment, secret write, paid operation, or remote
+  Cloudflare resource operation was performed
+
+The following acceptance evidence is deliberately not claimed: real staging
+D1/R2/Workflow/provider execution, provider retention and region verification,
+real billing/cancellation behavior, compact keyboard/browser journeys, deployed
+WebMCP registration, and production renderer evidence. Those require explicit
+deployment/provider authority and independent acceptance.

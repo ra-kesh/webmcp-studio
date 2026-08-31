@@ -232,6 +232,77 @@ export type StudioWebMcpRenderRecord = {
   error?: string
 }
 
+export type StudioWebMcpMediaDerivationJob = Readonly<{
+  id: string
+  sourceAssetId: string
+  operation: "remove_background"
+  state:
+    "queued" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled"
+  outputAssetId: string | null
+  attemptCount: number
+  maxAttempts: number
+  retryable: boolean
+  safeFailureCode: string | null
+  createdAt: string
+  startedAt: string | null
+  completedAt: string | null
+  cancellationRequestedAt: string | null
+  updatedAt: string
+}>
+
+export type StudioWebMcpMediaDerivationPolicy = Readonly<{
+  operation: "remove_background"
+  privacyPolicyVersion: string
+  subprocessor: string
+  retention: string
+  region: string | null
+  cost: string
+  cancellationLimits: string
+}>
+
+export type StudioWebMcpMediaDerivationProvenance = Readonly<{
+  outputAssetId: string
+  sourceAssetId: string
+  derivationJobId: string
+  operation: "remove_background"
+  privacyPolicyVersion: string
+  outputMediaType: "image/png" | "image/jpeg" | "image/webp"
+  outputWidth: number
+  outputHeight: number
+  createdAt: string
+}>
+
+export type StudioWebMcpMediaDerivationInspection =
+  | Readonly<{
+      kind: "policy"
+      policy: StudioWebMcpMediaDerivationPolicy
+    }>
+  | Readonly<{
+      kind: "source"
+      policy: StudioWebMcpMediaDerivationPolicy
+      job: StudioWebMcpMediaDerivationJob | null
+    }>
+  | Readonly<{ kind: "job"; job: StudioWebMcpMediaDerivationJob }>
+  | Readonly<{
+      kind: "output"
+      provenance: StudioWebMcpMediaDerivationProvenance | null
+    }>
+
+export type StudioWebMcpMediaDerivationMutation =
+  | Readonly<{
+      action: "start"
+      assetId: string
+      consent: Readonly<{
+        accepted: true
+        privacyPolicyVersion: string
+      }>
+    }>
+  | Readonly<{
+      action: "cancel" | "retry"
+      jobId: string
+      expectedUpdatedAt: string
+    }>
+
 export type StudioWebMcpServices = {
   getSnapshot(): StudioWebMcpSnapshot
   searchAssets(
@@ -242,6 +313,20 @@ export type StudioWebMcpServices = {
     assetId: string,
     signal?: AbortSignal
   ): Promise<StudioWebMcpAsset | null>
+  mediaDerivations?: Readonly<{
+    inspect: (
+      input:
+        | Readonly<{ kind: "policy" }>
+        | Readonly<{ kind: "source"; assetId: string }>
+        | Readonly<{ kind: "job"; jobId: string }>
+        | Readonly<{ kind: "output"; assetId: string }>,
+      signal?: AbortSignal
+    ) => Promise<StudioWebMcpMediaDerivationInspection>
+    mutate: (
+      input: StudioWebMcpMediaDerivationMutation,
+      signal?: AbortSignal
+    ) => Promise<StudioWebMcpMediaDerivationJob>
+  }>
   proposeChangeSet(
     changeSet: ChangeSet,
     provenance: StudioWebMcpProposalProvenance
@@ -398,13 +483,17 @@ const ownWebMcpToolExecution = (
         )
       } catch {
         const statusUnknown =
-          tool.name === "publish_template" || tool.name === "render_template"
+          tool.name === "publish_template" ||
+          tool.name === "render_template" ||
+          tool.name === "manage_background_removal"
         return errorResult(
           new DesignQueryError(
             statusUnknown ? "execution_status_unknown" : "execution_cancelled",
-            statusUnknown
-              ? "Studio stopped waiting, but the server may have committed this request. Inspect publication or render history before retrying with the same identity."
-              : "This WebMCP operation stopped before it could be confirmed. Inspect the current Studio session and retry."
+            tool.name === "manage_background_removal"
+              ? "Studio stopped waiting, but the server may have committed this background-removal request. Inspect the job before retrying."
+              : statusUnknown
+                ? "Studio stopped waiting, but the server may have committed this request. Inspect publication or render history before retrying with the same identity."
+                : "This WebMCP operation stopped before it could be confirmed. Inspect the current Studio session and retry."
           )
         )
       } finally {
@@ -3038,6 +3127,187 @@ async function commandRequestDigest(value: unknown) {
     .join("")
 }
 
+const requireMediaDerivations = (services: StudioWebMcpServices) => {
+  if (!services.mediaDerivations) {
+    throw new DesignQueryError(
+      "capabilities_unavailable",
+      "Background removal is not available in this Studio session."
+    )
+  }
+  return services.mediaDerivations
+}
+
+const parseMediaDerivationInspection = (input: unknown) => {
+  const value = queryObject(input)
+  assertQueryKeys(value, ["kind", "assetId", "jobId"])
+  if (value.kind === "policy") {
+    if (value.assetId !== undefined || value.jobId !== undefined) {
+      throw new DesignQueryError(
+        "invalid_query",
+        "Policy inspection does not accept an asset or job ID."
+      )
+    }
+    return { kind: "policy" as const }
+  }
+  if (value.kind === "source" || value.kind === "output") {
+    if (
+      typeof value.assetId !== "string" ||
+      !value.assetId ||
+      value.jobId !== undefined
+    ) {
+      throw new DesignQueryError(
+        "invalid_query",
+        `${value.kind} inspection requires exactly one assetId.`
+      )
+    }
+    return value.kind === "source"
+      ? { kind: "source" as const, assetId: value.assetId }
+      : { kind: "output" as const, assetId: value.assetId }
+  }
+  if (value.kind === "job") {
+    if (
+      typeof value.jobId !== "string" ||
+      !value.jobId ||
+      value.assetId !== undefined
+    ) {
+      throw new DesignQueryError(
+        "invalid_query",
+        "Job inspection requires exactly one jobId."
+      )
+    }
+    return { kind: "job" as const, jobId: value.jobId }
+  }
+  throw new DesignQueryError(
+    "invalid_query",
+    "kind must be policy, source, job, or output."
+  )
+}
+
+const parseMediaDerivationMutation = (
+  input: unknown
+): StudioWebMcpMediaDerivationMutation => {
+  const value = queryObject(input)
+  assertQueryKeys(value, [
+    "action",
+    "assetId",
+    "jobId",
+    "expectedUpdatedAt",
+    "consent",
+  ])
+  if (value.action === "start") {
+    if (
+      typeof value.assetId !== "string" ||
+      !value.assetId ||
+      value.jobId !== undefined ||
+      value.expectedUpdatedAt !== undefined ||
+      !value.consent ||
+      typeof value.consent !== "object" ||
+      Array.isArray(value.consent)
+    ) {
+      throw new DesignQueryError(
+        "invalid_query",
+        "Start requires exactly one assetId and explicit consent."
+      )
+    }
+    const consent = value.consent as Record<string, unknown>
+    assertQueryKeys(consent, ["accepted", "privacyPolicyVersion"])
+    if (
+      consent.accepted !== true ||
+      typeof consent.privacyPolicyVersion !== "string" ||
+      !consent.privacyPolicyVersion.trim()
+    ) {
+      throw new DesignQueryError(
+        "invalid_query",
+        "Start requires accepted consent for an exact privacyPolicyVersion."
+      )
+    }
+    return {
+      action: "start",
+      assetId: value.assetId,
+      consent: {
+        accepted: true,
+        privacyPolicyVersion: consent.privacyPolicyVersion,
+      },
+    }
+  }
+  if (value.action === "cancel" || value.action === "retry") {
+    if (
+      typeof value.jobId !== "string" ||
+      !value.jobId ||
+      typeof value.expectedUpdatedAt !== "string" ||
+      !value.expectedUpdatedAt ||
+      value.assetId !== undefined ||
+      value.consent !== undefined
+    ) {
+      throw new DesignQueryError(
+        "invalid_query",
+        `${value.action} requires exactly jobId and expectedUpdatedAt.`
+      )
+    }
+    return {
+      action: value.action,
+      jobId: value.jobId,
+      expectedUpdatedAt: value.expectedUpdatedAt,
+    }
+  }
+  throw new DesignQueryError(
+    "invalid_query",
+    "action must be start, cancel, or retry."
+  )
+}
+
+const publicMediaDerivationJob = (job: StudioWebMcpMediaDerivationJob) => ({
+  id: job.id,
+  sourceAssetId: job.sourceAssetId,
+  operation: job.operation,
+  state: job.state,
+  outputAssetId: job.outputAssetId,
+  attemptCount: job.attemptCount,
+  maxAttempts: job.maxAttempts,
+  retryable: job.retryable,
+  safeFailureCode: job.safeFailureCode,
+  createdAt: job.createdAt,
+  startedAt: job.startedAt,
+  completedAt: job.completedAt,
+  cancellationRequestedAt: job.cancellationRequestedAt,
+  updatedAt: job.updatedAt,
+})
+
+const publicMediaDerivationInspection = (
+  inspection: StudioWebMcpMediaDerivationInspection
+) => {
+  if (inspection.kind === "policy") return inspection
+  if (inspection.kind === "source") {
+    return {
+      ...inspection,
+      job: inspection.job ? publicMediaDerivationJob(inspection.job) : null,
+    }
+  }
+  if (inspection.kind === "job") {
+    return {
+      kind: inspection.kind,
+      job: publicMediaDerivationJob(inspection.job),
+    }
+  }
+  const provenance = inspection.provenance
+  return {
+    kind: inspection.kind,
+    provenance: provenance
+      ? {
+          outputAssetId: provenance.outputAssetId,
+          sourceAssetId: provenance.sourceAssetId,
+          derivationJobId: provenance.derivationJobId,
+          operation: provenance.operation,
+          privacyPolicyVersion: provenance.privacyPolicyVersion,
+          outputMediaType: provenance.outputMediaType,
+          outputWidth: provenance.outputWidth,
+          outputHeight: provenance.outputHeight,
+          createdAt: provenance.createdAt,
+        }
+      : null,
+  }
+}
+
 const affectedFromResolvedCommand = (resolved: ResolvedProductCommand) => {
   const target = resolved.invocation.target
   return {
@@ -4391,6 +4661,113 @@ export function studioWebMcpTools(
           return textResult(
             `Found ${matches.length} approved asset${matches.length === 1 ? "" : "s"}.`,
             { assets: matches, nextCursor: page.nextCursor }
+          )
+        } catch (error) {
+          return errorResult(error)
+        }
+      },
+    },
+    {
+      name: "inspect_background_removal",
+      title: "Inspect background removal",
+      description:
+        "Inspect the current background-removal privacy terms, the latest job for a workspace asset, one durable job, or safe immutable output provenance. Results never expose provider identifiers, URLs, storage keys, hashes, or source bytes.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["kind"],
+        properties: {
+          kind: {
+            type: "string",
+            enum: ["policy", "source", "job", "output"],
+          },
+          assetId: { type: "string", minLength: 1 },
+          jobId: { type: "string", minLength: 1 },
+        },
+      },
+      annotations: { readOnlyHint: true, untrustedContentHint: true },
+      execute: async (input, execution) => {
+        try {
+          const inspection = await requireMediaDerivations(services).inspect(
+            parseMediaDerivationInspection(input),
+            execution?.signal
+          )
+          const result = publicMediaDerivationInspection(inspection)
+          const subject =
+            result.kind === "policy"
+              ? "privacy terms"
+              : result.kind === "source"
+                ? "source history"
+                : result.kind === "job"
+                  ? `job ${result.job.id}`
+                  : "output provenance"
+          return textResult(`Inspected background-removal ${subject}.`, result)
+        } catch (error) {
+          return errorResult(error)
+        }
+      },
+    },
+    {
+      name: "manage_background_removal",
+      title: "Manage background removal",
+      description:
+        "Start background removal for one approved workspace asset with explicit consent for the exact displayed privacy-policy version, or cancel/retry one durable job with its expected update timestamp. This does not apply the result to the document; the user reviews before/after output and applies it in Studio.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["action"],
+        properties: {
+          action: { type: "string", enum: ["start", "cancel", "retry"] },
+          assetId: { type: "string", minLength: 1 },
+          jobId: { type: "string", minLength: 1 },
+          expectedUpdatedAt: { type: "string", minLength: 1 },
+          consent: {
+            type: "object",
+            additionalProperties: false,
+            required: ["accepted", "privacyPolicyVersion"],
+            properties: {
+              accepted: { const: true },
+              privacyPolicyVersion: { type: "string", minLength: 1 },
+            },
+          },
+        },
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+        untrustedContentHint: true,
+      },
+      execute: async (input, execution) => {
+        try {
+          const parsed = parseMediaDerivationMutation(input)
+          if (parsed.action === "start") {
+            const asset = await services.resolveAsset(
+              parsed.assetId,
+              execution?.signal
+            )
+            if (
+              !asset ||
+              asset.ownership !== "workspace" ||
+              !asset.selectable
+            ) {
+              throw new DesignQueryError(
+                "invalid_query",
+                "Background removal requires a selectable workspace asset returned by search_assets."
+              )
+            }
+          }
+          const job = await requireMediaDerivations(services).mutate(
+            parsed,
+            execution?.signal
+          )
+          const result = { job: publicMediaDerivationJob(job) }
+          return textResult(
+            parsed.action === "start"
+              ? `Background-removal job ${job.id} is ${job.state}. Inspect it before applying any result.`
+              : `Background-removal job ${job.id} is ${job.state}.`,
+            result
           )
         } catch (error) {
           return errorResult(error)

@@ -174,6 +174,15 @@ import {
 } from "./editor/managed-media-repository"
 import type { ManagedMediaAsset } from "./editor/managed-media-repository"
 import { useBackgroundRemoval } from "./editor/use-background-removal"
+import {
+  cancelBackgroundRemoval,
+  createBackgroundRemovalWithConsent,
+  getBackgroundRemovalJob,
+  getBackgroundRemovalPolicy,
+  getBackgroundRemovalProvenance,
+  getLatestBackgroundRemoval,
+  retryBackgroundRemoval,
+} from "./editor/background-removal-client"
 import { ApiPlaygroundDialog } from "./editor/api-playground-dialog"
 import { studioAssets } from "./editor/asset-catalog"
 import { NewDocumentDialog } from "./editor/new-document-dialog"
@@ -2337,6 +2346,54 @@ export function StudioShell({
       publishedVersion: publishedVersion ?? null,
       renderHistory: renderHistory.records,
       mutationDisabledReason: documentTransitionDisabledReason,
+      mediaDerivations: {
+        inspect: async (input, signal) => {
+          if (input.kind === "policy") {
+            return {
+              kind: input.kind,
+              policy: await getBackgroundRemovalPolicy(signal),
+            }
+          }
+          if (input.kind === "source") {
+            const [policy, job] = await Promise.all([
+              getBackgroundRemovalPolicy(signal),
+              getLatestBackgroundRemoval(input.assetId, signal),
+            ])
+            return { kind: input.kind, policy, job }
+          }
+          if (input.kind === "job") {
+            return {
+              kind: input.kind,
+              job: await getBackgroundRemovalJob(input.jobId, signal),
+            }
+          }
+          return {
+            kind: input.kind,
+            provenance: await getBackgroundRemovalProvenance(
+              input.assetId,
+              signal
+            ),
+          }
+        },
+        mutate: async (input, signal) => {
+          if (input.action === "start") {
+            return createBackgroundRemovalWithConsent(
+              input.assetId,
+              input.consent.privacyPolicyVersion,
+              signal
+            )
+          }
+          const current = await getBackgroundRemovalJob(input.jobId, signal)
+          if (current.updatedAt !== input.expectedUpdatedAt) {
+            throw new Error(
+              "Background-removal job changed. Inspect it before trying again."
+            )
+          }
+          return input.action === "cancel"
+            ? cancelBackgroundRemoval(current, signal)
+            : retryBackgroundRemoval(current, signal)
+        },
+      },
       getProductCommandContext: () => {
         const context = productCommandContextRef.current
         return context

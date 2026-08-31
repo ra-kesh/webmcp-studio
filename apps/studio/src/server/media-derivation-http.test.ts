@@ -47,6 +47,7 @@ const principal: StudioPrincipal = {
 const repository = {
   create: vi.fn(),
   get: vi.fn(),
+  getProvenance: vi.fn(),
   latestForSource: vi.fn(),
   retry: vi.fn(),
   requestCancellation: vi.fn(),
@@ -171,6 +172,43 @@ describe("media derivation HTTP", () => {
     expect(await response.json()).toEqual({
       job: expect.not.objectContaining({ providerKey: expect.anything() }),
     })
+  })
+
+  it("projects immutable provenance without provider or storage identity", async () => {
+    repository.getProvenance.mockResolvedValue({
+      workspaceId: "workspace-a",
+      outputAssetId: "asset-fedcba9876543210fedcba9876543210",
+      sourceAssetId,
+      sourceContentHash: "a".repeat(64),
+      derivationJobId: jobId,
+      operation: "remove_background",
+      providerKey: "private-provider",
+      providerModelVersion: "private-model",
+      privacyPolicyVersion: "privacy-v1",
+      outputContentHash: "b".repeat(64),
+      outputMediaType: "image/png",
+      outputWidth: 800,
+      outputHeight: 600,
+      createdAt: now,
+    })
+    const response = await handlers.provenance(
+      new Request(
+        "https://studio.test/v1/studio/assets/asset-fedcba9876543210fedcba9876543210/derivation-provenance"
+      ),
+      "asset-fedcba9876543210fedcba9876543210"
+    )
+    const body = await response.json()
+
+    expect(body).toMatchObject({
+      provenance: {
+        sourceAssetId,
+        derivationJobId: jobId,
+        privacyPolicyVersion: "privacy-v1",
+      },
+    })
+    expect(JSON.stringify(body)).not.toMatch(
+      /provider|contentHash|workspace|r2|storage/i
+    )
   })
 
   it("rejects stale cancellation and never calls the mutation", async () => {

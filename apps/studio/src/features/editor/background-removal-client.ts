@@ -40,8 +40,27 @@ const policySchema = z
 
 const latestJobSchema = z.object({ job: jobSchema.nullable() }).strict()
 
+const provenanceSchema = z
+  .object({
+    outputAssetId: z.string(),
+    sourceAssetId: z.string(),
+    derivationJobId: z.string(),
+    operation: z.literal("remove_background"),
+    privacyPolicyVersion: z.string(),
+    outputMediaType: z.enum(["image/png", "image/jpeg", "image/webp"]),
+    outputWidth: z.number().int().positive(),
+    outputHeight: z.number().int().positive(),
+    createdAt: z.string(),
+  })
+  .strict()
+
+const provenanceResponseSchema = z
+  .object({ provenance: provenanceSchema.nullable() })
+  .strict()
+
 export type BackgroundRemovalJob = z.infer<typeof jobSchema>
 export type BackgroundRemovalPolicy = z.infer<typeof policySchema>
+export type BackgroundRemovalProvenance = z.infer<typeof provenanceSchema>
 
 export class BackgroundRemovalClientError extends Error {
   constructor(
@@ -94,6 +113,17 @@ export const createBackgroundRemoval = async (
   policy: BackgroundRemovalPolicy,
   signal?: AbortSignal
 ) =>
+  createBackgroundRemovalWithConsent(
+    assetId,
+    policy.privacyPolicyVersion,
+    signal
+  )
+
+export const createBackgroundRemovalWithConsent = async (
+  assetId: string,
+  privacyPolicyVersion: string,
+  signal?: AbortSignal
+) =>
   readResponse(
     await fetch(
       `/v1/studio/assets/${encodeURIComponent(assetId)}/derivations`,
@@ -106,7 +136,7 @@ export const createBackgroundRemoval = async (
           parameters: {},
           consent: {
             accepted: true,
-            privacyPolicyVersion: policy.privacyPolicyVersion,
+            privacyPolicyVersion,
           },
         }),
       }
@@ -127,6 +157,20 @@ export const getLatestBackgroundRemoval = async (
       latestJobSchema
     )
   ).job
+
+export const getBackgroundRemovalProvenance = async (
+  outputAssetId: string,
+  signal?: AbortSignal
+) =>
+  (
+    await readResponse(
+      await fetch(
+        `/v1/studio/assets/${encodeURIComponent(outputAssetId)}/derivation-provenance`,
+        { signal }
+      ),
+      provenanceResponseSchema
+    )
+  ).provenance
 
 export const getBackgroundRemovalJob = async (
   jobId: string,

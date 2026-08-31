@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import {
   cancelBackgroundRemoval,
   createBackgroundRemoval,
+  getBackgroundRemovalProvenance,
   getBackgroundRemovalJob,
   getBackgroundRemovalPolicy,
   getLatestBackgroundRemoval,
@@ -10,6 +11,7 @@ import {
 import type {
   BackgroundRemovalJob,
   BackgroundRemovalPolicy,
+  BackgroundRemovalProvenance,
 } from "./background-removal-client"
 
 export type BackgroundRemovalModel = Readonly<{
@@ -18,6 +20,7 @@ export type BackgroundRemovalModel = Readonly<{
   policy: BackgroundRemovalPolicy | null
   policyLoading: boolean
   job: BackgroundRemovalJob | null
+  provenance: BackgroundRemovalProvenance | null
   busy: boolean
   applying: boolean
   applied: boolean
@@ -60,6 +63,8 @@ export function useBackgroundRemoval({
   const [policy, setPolicy] = useState<BackgroundRemovalPolicy | null>(null)
   const [policyLoading, setPolicyLoading] = useState(false)
   const [job, setJob] = useState<BackgroundRemovalJob | null>(null)
+  const [provenance, setProvenance] =
+    useState<BackgroundRemovalProvenance | null>(null)
   const [applying, setApplying] = useState(false)
   const [applied, setApplied] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -90,6 +95,13 @@ export function useBackgroundRemoval({
       if (generation !== generationRef.current) return
       setJob(current)
     }
+    if (current.state === "succeeded" && current.outputAssetId) {
+      const next = await getBackgroundRemovalProvenance(
+        current.outputAssetId,
+        controller.signal
+      )
+      if (generation === generationRef.current) setProvenance(next)
+    }
   }, [])
 
   useEffect(() => {
@@ -98,6 +110,7 @@ export function useBackgroundRemoval({
     controllerRef.current = null
     setPolicy(null)
     setJob(null)
+    setProvenance(null)
     setApplying(false)
     setApplied(false)
     setError(null)
@@ -113,10 +126,7 @@ export function useBackgroundRemoval({
       .then(([nextPolicy, latestJob]) => {
         if (generation !== generationRef.current) return
         setPolicy(nextPolicy)
-        if (latestJob) {
-          if (terminal(latestJob.state)) setJob(latestJob)
-          else void watch(latestJob)
-        }
+        if (latestJob) void watch(latestJob)
       })
       .catch((caught: unknown) => {
         if (controller.signal.aborted || generation !== generationRef.current) {
@@ -205,6 +215,7 @@ export function useBackgroundRemoval({
     policy,
     policyLoading,
     job,
+    provenance,
     busy:
       job?.state === "queued" ||
       job?.state === "running" ||

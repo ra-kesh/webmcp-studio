@@ -3,6 +3,7 @@ import {
   BackgroundRemovalClientError,
   cancelBackgroundRemoval,
   createBackgroundRemoval,
+  getBackgroundRemovalProvenance,
   getLatestBackgroundRemoval,
   retryBackgroundRemoval,
 } from "./background-removal-client"
@@ -86,6 +87,34 @@ describe("background-removal client", () => {
       state: "succeeded",
       outputAssetId: expect.any(String),
     })
+  })
+
+  it("accepts only safe public provenance fields", async () => {
+    const outputAssetId = "asset-fedcba9876543210fedcba9876543210"
+    const fetch = vi.fn(
+      async (_input: RequestInfo | URL, _request?: RequestInit) =>
+        Response.json({
+          provenance: {
+            outputAssetId,
+            sourceAssetId,
+            derivationJobId: job("succeeded").id,
+            operation: "remove_background",
+            privacyPolicyVersion: "privacy-v1",
+            outputMediaType: "image/png",
+            outputWidth: 800,
+            outputHeight: 600,
+            createdAt: now,
+          },
+        })
+    )
+    vi.stubGlobal("fetch", fetch)
+
+    await expect(
+      getBackgroundRemovalProvenance(outputAssetId)
+    ).resolves.toMatchObject({ sourceAssetId, outputAssetId })
+    expect(fetch.mock.lastCall?.[0]).toBe(
+      `/v1/studio/assets/${outputAssetId}/derivation-provenance`
+    )
   })
 
   it.each(["cancel", "retry"] as const)(

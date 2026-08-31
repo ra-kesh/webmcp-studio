@@ -16,6 +16,7 @@ import type {
   StudioWebMcpRenderSelection,
   StudioWebMcpSnapshot,
   StudioWebMcpProposalProvenance,
+  StudioWebMcpServices as RegisteredStudioWebMcpServices,
   WebMcpModelContext,
 } from "@webmcp/webmcp"
 import type { StudioAsset } from "./asset-catalog"
@@ -60,6 +61,7 @@ type StudioWebMcpServices = Omit<
   "assets" | "commandCapabilities" | "productCommandContext"
 > & {
   assets: readonly StudioAsset[]
+  mediaDerivations?: RegisteredStudioWebMcpServices["mediaDerivations"]
   mutationDisabledReason?: string | null
   getProductCommandContext: () => ProductCommandRuntimeContext | null
   runProductCommand: (
@@ -102,6 +104,7 @@ export function projectStudioWebMcpSnapshot(
 ): StudioWebMcpSnapshot {
   const {
     mutationDisabledReason: disabledReason,
+    mediaDerivations: _mediaDerivations,
     getProductCommandContext,
     runProductCommand: _runProductCommand,
     proposeChangeSet: _proposeChangeSet,
@@ -227,6 +230,7 @@ export function useStudioWebMcp(
                 registeredCatalog.search(input, signal),
               resolveAsset: (assetId, signal) =>
                 registeredCatalog.resolve(assetId, signal),
+              mediaDerivations: servicesRef.current.mediaDerivations,
               proposeChangeSet: (changeSet, provenance) => {
                 controller.signal.throwIfAborted()
                 assertMutationEnabled(servicesRef.current)

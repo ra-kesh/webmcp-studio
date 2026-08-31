@@ -3,16 +3,17 @@ import { requireStudioPrincipal } from "./studio-principal"
 import type {
   MediaDerivationDispatcher,
   MediaDerivationHttpDependencies,
+  MediaDerivationReadHttpDependencies,
 } from "./media-derivation-http"
 import { MediaDerivationError } from "./media-derivations"
 
 type MediaDerivationWorkflowBinding = Readonly<{
-  create(options: {
+  create: (options: {
     id: string
     params: { workspaceId: string; jobId: string }
     retention: { successRetention: string; errorRetention: string }
-  }): Promise<{ id: string }>
-  get(id: string): Promise<{ status(): Promise<unknown> }>
+  }) => Promise<{ id: string }>
+  get: (id: string) => Promise<{ status: () => Promise<unknown> }>
 }>
 
 type ConfiguredMediaDerivationEnv = Env & {
@@ -61,13 +62,6 @@ const dispatcherFor = (
 ): MediaDerivationDispatcher => ({
   dispatch: async ({ workspaceId, jobId }) => {
     const workflows = env.MEDIA_DERIVATION_JOBS
-    if (!workflows) {
-      throw new MediaDerivationError(
-        "derivation_not_configured",
-        503,
-        "Background removal dispatch is not configured"
-      )
-    }
     try {
       await workflows.create({
         id: jobId,
@@ -218,3 +212,10 @@ export const mediaDerivationRouteDependencies = (
       admitCreate(env, principal, sourceAssetId),
   }
 }
+
+export const mediaDerivationReadRouteDependencies = (
+  workerEnv: Env
+): MediaDerivationReadHttpDependencies => ({
+  db: workerEnv.DB,
+  requirePrincipal: (request) => requireStudioPrincipal(workerEnv, request),
+})

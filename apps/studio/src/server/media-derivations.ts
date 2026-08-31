@@ -135,6 +135,18 @@ export type PublicMediaDerivationJob = Readonly<{
   updatedAt: string
 }>
 
+export type PublicMediaDerivationProvenance = Readonly<{
+  outputAssetId: string
+  sourceAssetId: string
+  derivationJobId: string
+  operation: MediaDerivationOperation
+  privacyPolicyVersion: string
+  outputMediaType: "image/png" | "image/jpeg" | "image/webp"
+  outputWidth: number
+  outputHeight: number
+  createdAt: string
+}>
+
 export const publicMediaDerivationJob = (
   job: MediaDerivationJob
 ): PublicMediaDerivationJob => ({
@@ -152,6 +164,20 @@ export const publicMediaDerivationJob = (
   completedAt: job.completedAt,
   cancellationRequestedAt: job.cancellationRequestedAt,
   updatedAt: job.updatedAt,
+})
+
+export const publicMediaDerivationProvenance = (
+  provenance: MediaDerivationProvenance
+): PublicMediaDerivationProvenance => ({
+  outputAssetId: provenance.outputAssetId,
+  sourceAssetId: provenance.sourceAssetId,
+  derivationJobId: provenance.derivationJobId,
+  operation: provenance.operation,
+  privacyPolicyVersion: provenance.privacyPolicyVersion,
+  outputMediaType: provenance.outputMediaType,
+  outputWidth: provenance.outputWidth,
+  outputHeight: provenance.outputHeight,
+  createdAt: provenance.createdAt,
 })
 
 export class MediaDerivationError extends Error {

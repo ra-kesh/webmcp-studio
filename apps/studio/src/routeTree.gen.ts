@@ -33,6 +33,7 @@ import { Route as V1StudioTemplatesTemplateIdRouteImport } from './routes/v1/stu
 import { Route as V1RendersRenderIdOutputsOutputIdRouteImport } from './routes/v1/renders/$renderId/outputs/$outputId'
 import { Route as V1StudioAssetsAssetIdContentRouteImport } from './routes/v1/studio/assets/$assetId/content'
 import { Route as V1StudioAssetsAssetIdDeletionImpactRouteImport } from './routes/v1/studio/assets/$assetId/deletion-impact'
+import { Route as V1StudioAssetsAssetIdDerivationProvenanceRouteImport } from './routes/v1/studio/assets/$assetId/derivation-provenance'
 import { Route as V1StudioAssetsAssetIdDerivationsRouteImport } from './routes/v1/studio/assets/$assetId/derivations'
 import { Route as V1StudioAssetsAssetIdUsedRouteImport } from './routes/v1/studio/assets/$assetId/used'
 import { Route as V1StudioAssetsLocalPromotionsIndexRouteImport } from './routes/v1/studio/assets/local-promotions/index'
@@ -179,6 +180,12 @@ const V1StudioAssetsAssetIdDeletionImpactRoute =
     path: '/deletion-impact',
     getParentRoute: () => V1StudioAssetsAssetIdRoute,
   } as any)
+const V1StudioAssetsAssetIdDerivationProvenanceRoute =
+  V1StudioAssetsAssetIdDerivationProvenanceRouteImport.update({
+    id: '/derivation-provenance',
+    path: '/derivation-provenance',
+    getParentRoute: () => V1StudioAssetsAssetIdRoute,
+  } as any)
 const V1StudioAssetsAssetIdDerivationsRoute =
   V1StudioAssetsAssetIdDerivationsRouteImport.update({
     id: '/derivations',
@@ -310,6 +317,7 @@ export interface FileRoutesByFullPath {
   '/v1/renders/$renderId/outputs/$outputId': typeof V1RendersRenderIdOutputsOutputIdRoute
   '/v1/studio/assets/$assetId/content': typeof V1StudioAssetsAssetIdContentRoute
   '/v1/studio/assets/$assetId/deletion-impact': typeof V1StudioAssetsAssetIdDeletionImpactRoute
+  '/v1/studio/assets/$assetId/derivation-provenance': typeof V1StudioAssetsAssetIdDerivationProvenanceRoute
   '/v1/studio/assets/$assetId/derivations': typeof V1StudioAssetsAssetIdDerivationsRoute
   '/v1/studio/assets/$assetId/used': typeof V1StudioAssetsAssetIdUsedRoute
   '/v1/studio/assets/local-promotions/$localAssetId': typeof V1StudioAssetsLocalPromotionsLocalAssetIdRoute
@@ -352,6 +360,7 @@ export interface FileRoutesByTo {
   '/v1/renders/$renderId/outputs/$outputId': typeof V1RendersRenderIdOutputsOutputIdRoute
   '/v1/studio/assets/$assetId/content': typeof V1StudioAssetsAssetIdContentRoute
   '/v1/studio/assets/$assetId/deletion-impact': typeof V1StudioAssetsAssetIdDeletionImpactRoute
+  '/v1/studio/assets/$assetId/derivation-provenance': typeof V1StudioAssetsAssetIdDerivationProvenanceRoute
   '/v1/studio/assets/$assetId/derivations': typeof V1StudioAssetsAssetIdDerivationsRoute
   '/v1/studio/assets/$assetId/used': typeof V1StudioAssetsAssetIdUsedRoute
   '/v1/studio/assets/local-promotions/$localAssetId': typeof V1StudioAssetsLocalPromotionsLocalAssetIdRoute
@@ -396,6 +405,7 @@ export interface FileRoutesById {
   '/v1/renders/$renderId/outputs/$outputId': typeof V1RendersRenderIdOutputsOutputIdRoute
   '/v1/studio/assets/$assetId/content': typeof V1StudioAssetsAssetIdContentRoute
   '/v1/studio/assets/$assetId/deletion-impact': typeof V1StudioAssetsAssetIdDeletionImpactRoute
+  '/v1/studio/assets/$assetId/derivation-provenance': typeof V1StudioAssetsAssetIdDerivationProvenanceRoute
   '/v1/studio/assets/$assetId/derivations': typeof V1StudioAssetsAssetIdDerivationsRoute
   '/v1/studio/assets/$assetId/used': typeof V1StudioAssetsAssetIdUsedRoute
   '/v1/studio/assets/local-promotions/$localAssetId': typeof V1StudioAssetsLocalPromotionsLocalAssetIdRoute
@@ -440,6 +450,7 @@ export interface FileRouteTypes {
     | '/v1/renders/$renderId/outputs/$outputId'
     | '/v1/studio/assets/$assetId/content'
     | '/v1/studio/assets/$assetId/deletion-impact'
+    | '/v1/studio/assets/$assetId/derivation-provenance'
     | '/v1/studio/assets/$assetId/derivations'
     | '/v1/studio/assets/$assetId/used'
     | '/v1/studio/assets/local-promotions/$localAssetId'
@@ -482,6 +493,7 @@ export interface FileRouteTypes {
     | '/v1/renders/$renderId/outputs/$outputId'
     | '/v1/studio/assets/$assetId/content'
     | '/v1/studio/assets/$assetId/deletion-impact'
+    | '/v1/studio/assets/$assetId/derivation-provenance'
     | '/v1/studio/assets/$assetId/derivations'
     | '/v1/studio/assets/$assetId/used'
     | '/v1/studio/assets/local-promotions/$localAssetId'
@@ -525,6 +537,7 @@ export interface FileRouteTypes {
     | '/v1/renders/$renderId/outputs/$outputId'
     | '/v1/studio/assets/$assetId/content'
     | '/v1/studio/assets/$assetId/deletion-impact'
+    | '/v1/studio/assets/$assetId/derivation-provenance'
     | '/v1/studio/assets/$assetId/derivations'
     | '/v1/studio/assets/$assetId/used'
     | '/v1/studio/assets/local-promotions/$localAssetId'
@@ -745,6 +758,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof V1StudioAssetsAssetIdDeletionImpactRouteImport
       parentRoute: typeof V1StudioAssetsAssetIdRoute
     }
+    '/v1/studio/assets/$assetId/derivation-provenance': {
+      id: '/v1/studio/assets/$assetId/derivation-provenance'
+      path: '/derivation-provenance'
+      fullPath: '/v1/studio/assets/$assetId/derivation-provenance'
+      preLoaderRoute: typeof V1StudioAssetsAssetIdDerivationProvenanceRouteImport
+      parentRoute: typeof V1StudioAssetsAssetIdRoute
+    }
     '/v1/studio/assets/$assetId/derivations': {
       id: '/v1/studio/assets/$assetId/derivations'
       path: '/derivations'
@@ -895,6 +915,7 @@ const V1RendersRenderIdRouteWithChildren =
 interface V1StudioAssetsAssetIdRouteChildren {
   V1StudioAssetsAssetIdContentRoute: typeof V1StudioAssetsAssetIdContentRoute
   V1StudioAssetsAssetIdDeletionImpactRoute: typeof V1StudioAssetsAssetIdDeletionImpactRoute
+  V1StudioAssetsAssetIdDerivationProvenanceRoute: typeof V1StudioAssetsAssetIdDerivationProvenanceRoute
   V1StudioAssetsAssetIdDerivationsRoute: typeof V1StudioAssetsAssetIdDerivationsRoute
   V1StudioAssetsAssetIdUsedRoute: typeof V1StudioAssetsAssetIdUsedRoute
 }
@@ -903,6 +924,8 @@ const V1StudioAssetsAssetIdRouteChildren: V1StudioAssetsAssetIdRouteChildren = {
   V1StudioAssetsAssetIdContentRoute: V1StudioAssetsAssetIdContentRoute,
   V1StudioAssetsAssetIdDeletionImpactRoute:
     V1StudioAssetsAssetIdDeletionImpactRoute,
+  V1StudioAssetsAssetIdDerivationProvenanceRoute:
+    V1StudioAssetsAssetIdDerivationProvenanceRoute,
   V1StudioAssetsAssetIdDerivationsRoute: V1StudioAssetsAssetIdDerivationsRoute,
   V1StudioAssetsAssetIdUsedRoute: V1StudioAssetsAssetIdUsedRoute,
 }
@@ -1007,3 +1030,12 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { createStart } from '@tanstack/react-start'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+  }
+}

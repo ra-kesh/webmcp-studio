@@ -43,6 +43,20 @@ const model = (
         updatedAt: now,
       }
     : null,
+  provenance:
+    state === "succeeded"
+      ? {
+          outputAssetId: "asset-fedcba9876543210fedcba9876543210",
+          sourceAssetId,
+          derivationJobId: "derivation-01234567-89ab-cdef-0123-456789abcdef",
+          operation: "remove_background",
+          privacyPolicyVersion: "privacy-v1",
+          outputMediaType: "image/png",
+          outputWidth: 800,
+          outputHeight: 600,
+          createdAt: now,
+        }
+      : null,
   busy: state === "queued" || state === "running" || state === "cancelling",
   applying: false,
   applied: false,
@@ -86,5 +100,8 @@ describe("BackgroundRemovalControl", () => {
     expect(markup).toContain("After")
     expect(markup).toContain("Apply to image")
     expect(markup).toContain("result is already saved in Media")
+    expect(markup).toContain("Derived from")
+    expect(markup).toContain("privacy-v1")
+    expect(markup).not.toMatch(/provider|storage|content hash/i)
   })
 })

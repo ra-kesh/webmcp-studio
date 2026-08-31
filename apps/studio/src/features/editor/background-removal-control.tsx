@@ -197,6 +197,21 @@ export function BackgroundRemovalControl({
             The result is already saved in Media. Apply waits for both live
             renderers, then creates one Undo step.
           </p>
+          {model.provenance ? (
+            <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 rounded-md border bg-background p-2 text-[10px] leading-4">
+              <dt className="text-muted-foreground">Derived from</dt>
+              <dd className="break-all">{model.provenance.sourceAssetId}</dd>
+              <dt className="text-muted-foreground">Job</dt>
+              <dd className="break-all">{model.provenance.derivationJobId}</dd>
+              <dt className="text-muted-foreground">Policy</dt>
+              <dd>{model.provenance.privacyPolicyVersion}</dd>
+              <dt className="text-muted-foreground">Output</dt>
+              <dd>
+                {model.provenance.outputWidth} × {model.provenance.outputHeight}
+                {" PNG"}
+              </dd>
+            </dl>
+          ) : null}
         </div>
       ) : null}
 

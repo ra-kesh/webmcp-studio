@@ -1,13 +1,19 @@
 import { createFileRoute } from "@tanstack/react-router"
-import { createMediaDerivationHttpHandlers } from "../../../../../server/media-derivation-http"
-import { mediaDerivationRouteDependencies } from "../../../../../server/media-derivation-route-dependencies"
+import {
+  createMediaDerivationHttpHandlers,
+  createMediaDerivationReadHttpHandlers,
+} from "../../../../../server/media-derivation-http"
+import {
+  mediaDerivationReadRouteDependencies,
+  mediaDerivationRouteDependencies,
+} from "../../../../../server/media-derivation-route-dependencies"
 
 export const Route = createFileRoute("/v1/studio/assets/$assetId/derivations")({
   server: {
     handlers: {
       GET: ({ request, params, context }) =>
-        createMediaDerivationHttpHandlers(
-          mediaDerivationRouteDependencies(context.workerEnv)
+        createMediaDerivationReadHttpHandlers(
+          mediaDerivationReadRouteDependencies(context.workerEnv)
         ).latest(request, params.assetId),
       POST: ({ request, params, context }) =>
         createMediaDerivationHttpHandlers(

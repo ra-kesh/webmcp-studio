@@ -218,6 +218,34 @@ describe("API boundary", () => {
     )
   })
 
+  it("normalizes safe derivation provenance without asset-cardinality labels", async () => {
+    const db = database()
+    const request = new Request(
+      "https://studio.test/v1/studio/assets/asset-0123456789abcdef0123456789abcdef/derivation-provenance"
+    )
+    const result = await finalizeApiResponse(
+      db as unknown as D1Database,
+      request,
+      Response.json({ provenance: null }),
+      "request-provenance",
+      performance.now()
+    )
+    await result.audit
+    const bind = db.prepare.mock.results[0]?.value.bind
+    expect(bind).toHaveBeenCalledWith(
+      "request-provenance",
+      expect.any(String),
+      "GET",
+      "/v1/studio/assets/:assetId/derivation-provenance",
+      200,
+      expect.any(Number),
+      null,
+      null,
+      null,
+      0
+    )
+  })
+
   it("normalizes managed-media use receipts without exposing asset identity in the audit path", async () => {
     const db = database()
     const request = new Request(

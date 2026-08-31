@@ -8,6 +8,7 @@ import {
   mediaDerivationCreateInputSchema,
   MediaDerivationError,
   publicMediaDerivationJob,
+  publicMediaDerivationProvenance,
 } from "./media-derivations"
 import type { MediaDerivationConfiguration } from "./media-derivations"
 
@@ -33,12 +34,26 @@ export type MediaDerivationHttpDependencies = Readonly<{
   dispatcher: MediaDerivationDispatcher
   repository?: Pick<
     MediaDerivationRepository,
-    "create" | "get" | "latestForSource" | "retry" | "requestCancellation"
+    | "create"
+    | "get"
+    | "getProvenance"
+    | "latestForSource"
+    | "retry"
+    | "requestCancellation"
   >
   admitCreate: (
     principal: StudioPrincipal,
     sourceAssetId: string
   ) => Promise<void>
+}>
+
+export type MediaDerivationReadHttpDependencies = Readonly<{
+  db: D1Database
+  requirePrincipal: PrincipalResolver
+  repository?: Pick<
+    MediaDerivationRepository,
+    "get" | "getProvenance" | "latestForSource"
+  >
 }>
 
 const consentSchema = z
@@ -72,7 +87,7 @@ const errorResponse = (request: Request, error: MediaDerivationError) =>
   )
 
 const withPrincipal = async (
-  dependencies: MediaDerivationHttpDependencies,
+  dependencies: Pick<MediaDerivationHttpDependencies, "requirePrincipal">,
   request: Request,
   operation: (principal: StudioPrincipal) => Promise<Response>
 ) => {
@@ -88,6 +103,50 @@ const withPrincipal = async (
       return principal.respond(errorResponse(request, error))
     }
     throw error
+  }
+}
+
+export function createMediaDerivationReadHttpHandlers(
+  dependencies: MediaDerivationReadHttpDependencies
+) {
+  const repository =
+    dependencies.repository ?? new MediaDerivationRepository(dependencies.db)
+  return {
+    latest: (request: Request, sourceAssetId: string) =>
+      withPrincipal(dependencies, request, async (principal) => {
+        const job = await repository.latestForSource(
+          principal.workspaceId,
+          sourceAssetId
+        )
+        return Response.json(
+          { job: job ? publicMediaDerivationJob(job) : null },
+          { headers: noStore }
+        )
+      }),
+    get: (request: Request, jobId: string) =>
+      withPrincipal(dependencies, request, async (principal) =>
+        Response.json(
+          publicMediaDerivationJob(
+            await repository.get(principal.workspaceId, jobId)
+          ),
+          { headers: noStore }
+        )
+      ),
+    provenance: (request: Request, outputAssetId: string) =>
+      withPrincipal(dependencies, request, async (principal) => {
+        const provenance = await repository.getProvenance(
+          principal.workspaceId,
+          outputAssetId
+        )
+        return Response.json(
+          {
+            provenance: provenance
+              ? publicMediaDerivationProvenance(provenance)
+              : null,
+          },
+          { headers: noStore }
+        )
+      }),
   }
 }
 
@@ -167,6 +226,22 @@ export function createMediaDerivationHttpHandlers(
         )
         return Response.json(
           { job: job ? publicMediaDerivationJob(job) : null },
+          { headers: noStore }
+        )
+      }),
+
+    provenance: (request: Request, outputAssetId: string) =>
+      withPrincipal(dependencies, request, async (principal) => {
+        const provenance = await repository.getProvenance(
+          principal.workspaceId,
+          outputAssetId
+        )
+        return Response.json(
+          {
+            provenance: provenance
+              ? publicMediaDerivationProvenance(provenance)
+              : null,
+          },
           { headers: noStore }
         )
       }),

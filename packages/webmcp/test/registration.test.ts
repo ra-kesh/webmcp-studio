@@ -15,6 +15,10 @@ import type { ProductCommandRuntimeContext } from "@webmcp/editor/product-comman
 import {
   registerStudioWebMcpTools,
   type StudioWebMcpProposalProvenance,
+  type StudioWebMcpMediaDerivationInspection,
+  type StudioWebMcpMediaDerivationJob,
+  type StudioWebMcpMediaDerivationMutation,
+  type StudioWebMcpServices,
   type StudioWebMcpRenderRecord,
   type StudioWebMcpRenderSelection,
   type WebMcpTool,
@@ -67,6 +71,23 @@ const managedAsset = {
 const archivedManagedAsset = {
   ...managedAsset,
   selectable: false,
+}
+
+const derivationJob: StudioWebMcpMediaDerivationJob = {
+  id: "derivation-01234567-89ab-cdef-0123-456789abcdef",
+  sourceAssetId: managedAsset.id,
+  operation: "remove_background",
+  state: "queued",
+  outputAssetId: null,
+  attemptCount: 0,
+  maxAttempts: 3,
+  retryable: false,
+  safeFailureCode: null,
+  createdAt: "2026-08-31T12:00:00.000Z",
+  startedAt: null,
+  completedAt: null,
+  cancellationRequestedAt: null,
+  updatedAt: "2026-08-31T12:00:00.000Z",
 }
 
 const fillPlacement = {
@@ -291,6 +312,52 @@ function setup(
     },
     resolveAsset: async (assetId: string) =>
       catalogAssets.find((asset) => asset.id === assetId) ?? null,
+    mediaDerivations: {
+      inspect: vi.fn(
+        async (
+          input: Parameters<
+            NonNullable<StudioWebMcpServices["mediaDerivations"]>["inspect"]
+          >[0]
+        ): Promise<StudioWebMcpMediaDerivationInspection> => {
+          if (input.kind === "policy") {
+            return {
+              kind: "policy",
+              policy: {
+                operation: "remove_background",
+                privacyPolicyVersion: "privacy-v1",
+                subprocessor: "Configured processor",
+                retention: "Deleted within 24 hours",
+                region: "India",
+                cost: "1 credit",
+                cancellationLimits: "Cancellation is cooperative",
+              },
+            }
+          }
+          if (input.kind === "source") {
+            return {
+              kind: "source",
+              policy: {
+                operation: "remove_background",
+                privacyPolicyVersion: "privacy-v1",
+                subprocessor: "Configured processor",
+                retention: "Deleted within 24 hours",
+                region: "India",
+                cost: "1 credit",
+                cancellationLimits: "Cancellation is cooperative",
+              },
+              job: derivationJob,
+            }
+          }
+          if (input.kind === "job") return { kind: "job", job: derivationJob }
+          return { kind: "output", provenance: null }
+        }
+      ),
+      mutate: vi.fn(
+        async (
+          _input: StudioWebMcpMediaDerivationMutation
+        ): Promise<StudioWebMcpMediaDerivationJob> => derivationJob
+      ),
+    },
     proposeChangeSet: (
       changeSet: ChangeSet,
       provenance: StudioWebMcpProposalProvenance
@@ -386,6 +453,8 @@ describe("WebMCP registration", () => {
       "read_design_components",
       "search_design_nodes",
       "search_assets",
+      "inspect_background_removal",
+      "manage_background_removal",
       "validate_design",
       "propose_asset_insertion",
       "propose_field_updates",
@@ -847,6 +916,84 @@ describe("WebMCP registration", () => {
     expect(
       templateCandidate.nodes.find((node) => node.name === "Footer")
     ).toMatchObject({ visible: false })
+  })
+
+  it("requires exact consent and workspace ownership for background removal", async () => {
+    const state = setup(northstarSeed, northstarSeed, [...assets, managedAsset])
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const inspection = await state.registered
+      .get("inspect_background_removal")
+      ?.execute({ kind: "policy" })
+    expect(inspection?.structuredContent).toEqual({
+      kind: "policy",
+      policy: expect.objectContaining({
+        privacyPolicyVersion: "privacy-v1",
+        subprocessor: "Configured processor",
+      }),
+    })
+
+    const missingConsent = await state.registered
+      .get("manage_background_removal")
+      ?.execute({ action: "start", assetId: managedAsset.id })
+    expect(missingConsent).toMatchObject({
+      isError: true,
+      structuredContent: { code: "invalid_query" },
+    })
+    expect(state.services.mediaDerivations.mutate).not.toHaveBeenCalled()
+
+    const builtIn = await state.registered
+      .get("manage_background_removal")
+      ?.execute({
+        action: "start",
+        assetId: assets[0].id,
+        consent: {
+          accepted: true,
+          privacyPolicyVersion: "privacy-v1",
+        },
+      })
+    expect(builtIn).toMatchObject({ isError: true })
+    expect(state.services.mediaDerivations.mutate).not.toHaveBeenCalled()
+
+    const started = await state.registered
+      .get("manage_background_removal")
+      ?.execute({
+        action: "start",
+        assetId: managedAsset.id,
+        consent: {
+          accepted: true,
+          privacyPolicyVersion: "privacy-v1",
+        },
+      })
+    expect(state.services.mediaDerivations.mutate).toHaveBeenCalledWith(
+      {
+        action: "start",
+        assetId: managedAsset.id,
+        consent: {
+          accepted: true,
+          privacyPolicyVersion: "privacy-v1",
+        },
+      },
+      expect.any(AbortSignal)
+    )
+    expect(started?.structuredContent).toEqual({
+      job: expect.objectContaining({
+        id: derivationJob.id,
+        state: "queued",
+      }),
+    })
+    expect(JSON.stringify(started?.structuredContent)).not.toMatch(
+      /provider|url|hash|storage|workspace/i
+    )
   })
 
   it("discovers and proposes reviewed reusable-style operations", async () => {
