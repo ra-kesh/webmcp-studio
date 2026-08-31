@@ -372,6 +372,31 @@ historical C4 result; the focused Studio surface tests and the nested keyboard
 E2E were green. C4 is implemented and locally verified, but is not
 independently accepted or merged.
 
+### Final M4C acceptance — 1 September 2026
+
+M4C is accepted and merged to `main` at `2793265`. The independent reviewer
+read the C2–C5 production paths, checked the synthetic merge with main, verified
+all 30 retained output files against their recorded SHA-256 hashes, and returned
+**ACCEPT** with no P0 or P1 findings. The sole merge conflict was mechanical:
+the conformance script retained main's current text-design-system publication
+imports and discarded the branch's obsolete fixture import.
+
+Post-merge integration verification passed 427/427 document, 376/376 editor,
+34/34 React render-view, 101/101 renderer, and 73/73 WebMCP tests, plus every
+workspace typecheck. The Studio merge corrections passed their focused 14/14
+tests. A resource-saturated parallel Studio run produced unrelated five-second
+timeouts; all ten affected files then passed serially at 186/186. A complete
+serial run passed 1,812/1,813, with its only failure—the Recent collection
+keyboard-dispatch test—passing immediately in isolation at 18/18. This is
+recorded as a test-order/load flake rather than a mask defect; it remains a
+test-harness reliability item and does not weaken the retained mask evidence.
+
+General masks now support vector, alpha, and luminance sources, up to four
+ordered sources, and two mask levels across commands, history, inspector,
+Layers, review, Fabric, React, deterministic HTML, thumbnails, public PNG/PDF,
+and WebMCP. M4C is closed. The explicit depth, source-count, geometry, paint
+budget, component, and organize-wrapper non-goals remain in force.
+
 ## Required focused tests
 
 - Projection: parent/child type combinations, sibling child masks, canonical
