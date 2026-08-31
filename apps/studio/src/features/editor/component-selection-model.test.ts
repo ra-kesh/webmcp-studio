@@ -54,7 +54,7 @@ function componentDocument(): Document {
       },
     ],
     overrides: {
-      "cover-title": { text: "Instance title", fill: "#ee4422" },
+      "cover-title": { text: "Instance title", color: "#ee4422" },
     },
     removedProperties: {
       "cover-title": ["typographyStyleId"],
@@ -110,7 +110,7 @@ describe("component Inspector selection", () => {
       kind: "instance",
       instance: { id: "component-cover-hero-instance" },
       selectedSourceNodeId: null,
-      totalOverrideProperties: ["fill", "text", "typographyStyleId"],
+      totalOverrideProperties: ["color", "text", "typographyStyleId"],
     })
   })
 
@@ -125,7 +125,7 @@ describe("component Inspector selection", () => {
     ).toMatchObject({
       kind: "instance",
       selectedSourceNodeId: "cover-title",
-      selectedOverrideProperties: ["fill", "text", "typographyStyleId"],
+      selectedOverrideProperties: ["color", "text", "typographyStyleId"],
     })
   })
 })
