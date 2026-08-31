@@ -272,6 +272,8 @@ export function createPageThumbnailRequestHandler(
           )
         )
       }
+      const failure = resourceFailureResponse(error)
+      if (failure) return respond(failure)
       throw error
     }
 
