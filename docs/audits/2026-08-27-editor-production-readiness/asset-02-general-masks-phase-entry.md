@@ -503,8 +503,9 @@ M4C C2 structural implementation is committed at
 `fe5cc475eb7704a7665a2958d96f3a556be2f9d2`; C3 renderer implementation is
 committed at `1245f4fb616ee5a816d39f356b27d8663cfbee9a`; C4 product-surface
 implementation is committed at `41becdac5f9538ade2f8d871e2cd5879486ab91e`;
-C5 retained-output implementation is committed at `b91732b`; and the M5
-test-only regression cleanup is committed at `86e568f`.
+C5 retained-output implementation is committed at `b91732b`, its negative
+evidence addendum at `7a70487`, and the thumbnail-boundary correction it exposed
+at `69585f7`; the M5 test-only regression cleanup is committed at `86e568f`.
 Commands, history, semantic clone, components, templates, Fabric, React,
 deterministic HTML, the renderer admission boundary, Studio, review, product
 commands, and WebMCP now preserve or consume the admitted two-level relation.
@@ -540,12 +541,17 @@ the public PNG, thumbnail, and PDF endpoints. Every comparison is within the
 frozen threshold; the exact paths and metrics are recorded in
 [`mask-nesting-capture-report.json`](./mask-nesting-capture-report.json) and
 [`mask-nesting-direct-capture-report.json`](./mask-nesting-direct-capture-report.json).
-Focused negative contracts continue to prove resource failure, stale
-candidates, last-valid subtree preservation, depth rejection, and recursive
-paint-budget rejection.
+Those reports also retain hashed descendant-image-failure, third-level-depth,
+and summed-2x-area fixtures. Direct HTML proves the node-specific decode error
+before capture; the paint planner proves both limits before allocation; and all
+nine public PNG, thumbnail, and PDF negative requests return 422 with stable
+resource-admission or document-validation identities. The negative run exposed
+a thumbnail-only 500, fixed at `69585f7`; the complete negative-evidence
+addendum is committed at `7a70487`. Focused contracts continue to prove stale
+candidates and last-valid subtree preservation.
 
-Final verification passed 417/417 document, 376/376 editor, 34/34 React,
-101/101 renderer, 67/67 WebMCP, and 1,766/1,766 Studio tests. All six relevant
+Final verification passed 420/420 document, 376/376 editor, 34/34 React,
+101/101 renderer, 67/67 WebMCP, and 1,767/1,767 Studio tests. All six relevant
 typechecks, scoped Studio lint, Prettier, and `git diff --check` also passed. The
 M5 cleanup only refreshed stale test fixtures and expectations; it made no
 production behavior change. C5 is implemented, retained, and locally reviewed,

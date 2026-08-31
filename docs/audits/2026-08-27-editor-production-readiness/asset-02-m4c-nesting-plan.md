@@ -286,13 +286,13 @@ Only then may M4C acceptance change.
 
 ## Exact gate ledger
 
-| Gate  | Implementation                                                                                    | Review and evidence                                                                                                                                                                              | Accepted                 | Merged |
-| ----- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------ | ------ |
-| C0/C1 | `5381410` document implementation; recorded on main at `6265561ab4c9aa70c7489c2a90b3dcac6c1179d3` | Existing independent document-plan acceptance                                                                                                                                                    | Yes, document scope only | Yes    |
-| C2    | `fe5cc475eb7704a7665a2958d96f3a556be2f9d2`                                                        | 123 focused, 416 document, and 371 editor tests; local code review complete; independent review pending                                                                                          | No                       | No     |
-| C3    | `1245f4fb616ee5a816d39f356b27d8663cfbee9a`                                                        | 375 editor, 34 React, 101 renderer, and 54 document tests; local code review complete; independent review pending                                                                                | No                       | No     |
-| C4    | `41becdac5f9538ade2f8d871e2cd5879486ab91e`                                                        | 376 editor, 67 WebMCP, 24 focused Studio, and 1 keyboard E2E tests; three typechecks and local review complete; independent review pending                                                       | No                       | No     |
-| C5    | `b91732b`                                                                                         | Two retained runs cover renderer, scale, export, thumbnail, and public parity within frozen thresholds; full suites are green after `86e568f`; local review complete; independent review pending | No                       | No     |
+| Gate  | Implementation                                                                                    | Review and evidence                                                                                                                                                                                           | Accepted                 | Merged |
+| ----- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ | ------ |
+| C0/C1 | `5381410` document implementation; recorded on main at `6265561ab4c9aa70c7489c2a90b3dcac6c1179d3` | Existing independent document-plan acceptance                                                                                                                                                                 | Yes, document scope only | Yes    |
+| C2    | `fe5cc475eb7704a7665a2958d96f3a556be2f9d2`                                                        | 123 focused, 416 document, and 371 editor tests; local code review complete; independent review pending                                                                                                       | No                       | No     |
+| C3    | `1245f4fb616ee5a816d39f356b27d8663cfbee9a`                                                        | 375 editor, 34 React, 101 renderer, and 54 document tests; local code review complete; independent review pending                                                                                             | No                       | No     |
+| C4    | `41becdac5f9538ade2f8d871e2cd5879486ab91e`                                                        | 376 editor, 67 WebMCP, 24 focused Studio, and 1 keyboard E2E tests; three typechecks and local review complete; independent review pending                                                                    | No                       | No     |
+| C5    | `b91732b`; negative-evidence addendum `7a70487`; thumbnail boundary fix `69585f7`                 | Two retained runs cover renderer, scale, export, thumbnail, public parity, resource failure, depth, and area limits; full suites are green after `86e568f`; local review complete; independent review pending | No                       | No     |
 
 #### C5 retained/public checkpoint — 1 September 2026
 
@@ -303,9 +303,9 @@ The frozen positive corpus now covers three exact nested states:
 - alpha over luminance with every source hidden.
 
 The retained browser/public run is
-`2026-08-31T20-25-24.176Z-6139eae7-5e1e-47b0-aa9e-1ae60051282d`; the retained
+`2026-08-31T21-12-17.709Z-2478ac38-c866-4d67-a3c5-ac224f75788a`; the retained
 direct run is
-`2026-08-31T20-26-01.968Z-87b8b6b5-181e-4677-ab90-2e30f246f439`. They are
+`2026-08-31T21-06-59.232Z-5a17539e-d461-46b8-b7e8-1cc16975fd52`. They are
 split because the direct renderer and the local Browser Rendering lifecycle
 have different stability boundaries; together they cover Fabric versus React,
 direct 1x versus downsampled 2x, direct and public PNG versus PDF raster,
@@ -323,11 +323,21 @@ produced 244, 188, and 517. Direct PNG versus direct PDF raster produced 0,
 Visual inspection confirmed the three direct PNGs preserve the intended nested
 mask semantics.
 
-Failure, stale-resource, last-valid-subtree, depth, and recursive paint-budget
-behavior remains covered by the focused document, Fabric, React, and renderer
-contracts rather than being represented as a successful pixel fixture. Final
-verification passed 417/417 document, 376/376 editor, 34/34 React, 101/101
-renderer, 67/67 WebMCP, and 1,766/1,766 Studio tests, plus all six relevant
+The same reports now retain three hashed negative fixtures. Direct HTML records
+the exact nested descendant `image_decode_failed` identity before capture, and
+the paint-plan boundary records third-level nesting and summed 2x composite
+area rejection before allocation. Every public PNG, thumbnail, and PDF endpoint
+returns 422 for all three fixtures: corrupt inline image admission reports
+`render_resource_admission_failed` / `image_resource_inline_invalid`, depth
+reports `document_validation_failed` / `invalid_group`, and area reports
+`document_validation_failed` / `render_limit_exceeded`. This matrix exposed and
+closed a thumbnail-only 500 at `69585f7`; semantic thumbnail input now fails
+before preparation, capacity reservation, or renderer invocation.
+Stale-resource and last-valid-subtree behavior remains covered by the focused
+Fabric and React contracts.
+
+Final verification passed 420/420 document, 376/376 editor, 34/34 React,
+101/101 renderer, 67/67 WebMCP, and 1,767/1,767 Studio tests, plus all six relevant
 typechecks, scoped Studio lint, Prettier, and `git diff --check`. The M5 test-only
 cleanup at `86e568f` aligned stale schema, catalog, template, mounted-hook, and
 thumbnail expectations with the current product contracts; it did not change
