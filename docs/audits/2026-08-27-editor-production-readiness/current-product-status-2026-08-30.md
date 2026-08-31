@@ -54,16 +54,20 @@ artifacts.
    product depth.
 3. **ASSET-02 depth:** placement, crop and frame masks are real; general masks
    and a production background-removal workflow are not built.
-4. **Environment proof:** the local manifest pins 17 immutable migrations, and
-   focused local harnesses verify migrations `0012` through `0017`. The last
-   retained read-only production baseline proves only an exact remote prefix
-   through `0011` and records `productionWriteReady: false`. A 2026-08-31
-   read-only plan stopped before remote inventory because Wrangler was not
-   authenticated, so the current production suffix is unknown. Applying the
-   inspected suffix, deploying matching Workers, production write exercises,
-   Access policy changes, and paid Browser Rendering evidence each require the
-   appropriate explicit authorization. Live Stuwiz retrieval still needs its
-   upstream authenticated complete-source contract.
+4. **Environment proof:** the local manifest records the current filenames and
+   digests of 17 migrations, and focused local harnesses verify migrations
+   `0012` through `0017`. The static verifier rejects disagreement between the
+   current SQL files and manifest. It cannot detect a coordinated change to both,
+   and the deployment snapshot detects changes only during one plan/apply run.
+   A trusted historical lineage anchor remains open. The retained production
+   baseline records an exact remote prefix through `0011` at its 2026-08-30
+   capture and `productionWriteReady: false`. Wrangler authentication later
+   failed, and no successful current remote inventory or D1 inspection was
+   retained. Applying an inspected suffix, deploying matching Workers,
+   production write exercises, Access policy changes, and paid Browser
+   Rendering evidence each require the appropriate explicit authorization.
+   Live Stuwiz retrieval still needs its upstream authenticated complete-source
+   contract.
 
 ## No-bounce execution order
 
