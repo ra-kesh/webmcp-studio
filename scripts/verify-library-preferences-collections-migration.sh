@@ -316,6 +316,44 @@ fi
 test "$(sqlite3 "$database" 'SELECT COUNT(*) FROM library_item_preferences WHERE item_id = "media-a"')" = "0"
 test "$(sqlite3 "$database" 'SELECT revision FROM library_workspace_state WHERE workspace_id = "workspace-a"')" = "$revision_before_failed_batch"
 
+# An exact retained claim may repair its own receipt, while the trigger tests
+# above continue to reject a different hash, operation, principal, or target.
+sqlite3 -bail "$database" <<'SQL'
+INSERT INTO library_mutation_requests
+  (workspace_id, principal_id, idempotency_key, operation, request_hash,
+   result_kind, result_identity, result_revision, response_json, created_at)
+VALUES
+  ('workspace-a', 'principal-a', 'favorite-2', 'set_favorite',
+   'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+   'preference', 'template:template-a@1', 2,
+   '{"schemaVersion":1,"operation":"set_favorite"}',
+   '2026-08-31T00:07:00.000Z');
+SQL
+test "$(sqlite3 "$database" 'SELECT COUNT(*) FROM library_mutation_requests WHERE idempotency_key = "favorite-2"')" = "1"
+
+sqlite3 -bail "$database" <<'SQL'
+INSERT INTO library_collections
+  (id, workspace_id, owner_principal_id, name, normalized_name, scope,
+   revision, last_mutation_key, last_mutation_operation, last_mutation_hash,
+   created_at, updated_at)
+VALUES
+  ('collection-atomic', 'workspace-a', 'principal-a', 'Atomic', 'atomic',
+   'workspace', 1, 'atomic-collection', 'create_collection',
+   '4444444444444444444444444444444444444444444444444444444444444444',
+   '2026-08-31T00:07:00.000Z', '2026-08-31T00:07:00.000Z');
+INSERT INTO library_mutation_requests
+  (workspace_id, principal_id, idempotency_key, operation, request_hash,
+   result_kind, result_identity, result_revision, response_json, created_at)
+VALUES
+  ('workspace-a', 'principal-a', 'atomic-collection', 'create_collection',
+   '4444444444444444444444444444444444444444444444444444444444444444',
+   'collection', 'collection-atomic', 1,
+   '{"schemaVersion":1,"operation":"create_collection"}',
+   '2026-08-31T00:07:00.000Z');
+SQL
+test "$(sqlite3 "$database" 'SELECT COUNT(*) FROM library_mutation_requests WHERE idempotency_key = "atomic-collection"')" = "1"
+sqlite3 -bail "$database" 'DELETE FROM library_mutation_requests WHERE idempotency_key = "atomic-collection"; DELETE FROM library_collections WHERE id = "collection-atomic";'
+
 sqlite3 -bail "$database" <<'SQL'
 PRAGMA foreign_keys = ON;
 DELETE FROM library_collections

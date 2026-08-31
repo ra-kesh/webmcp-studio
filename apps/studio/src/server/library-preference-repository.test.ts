@@ -151,6 +151,13 @@ class FakeStatement {
             {
               operation: target.last_mutation_operation,
               request_hash: target.last_mutation_hash,
+              result_kind:
+                "principal_id" in target ? "preference" : "collection",
+              result_identity:
+                "principal_id" in target
+                  ? `${target.item_kind}:${target.item_id}@${target.item_version}`
+                  : target.id,
+              result_revision: target.revision,
             },
           ]
         : []
@@ -289,6 +296,10 @@ class FakeStatement {
         resultRevision,
       ] = value
       const row = this.state.preference(workspace, principal, kind, id, version)
+      if (this.state.dropNextReceiptInsert) {
+        this.state.dropNextReceiptInsert = false
+        return 0
+      }
       if (
         !row ||
         row.last_mutation_key !== key ||
@@ -296,7 +307,7 @@ class FakeStatement {
         row.last_mutation_operation !== operation ||
         row.revision !== resultRevision
       )
-        throw new Error("claim guard")
+        return 0
       const collectionIds = this.state.collectionIdsFor(
         workspace,
         principal,
@@ -381,6 +392,10 @@ class FakeStatement {
         now,
       ] = value
       const collection = this.state.collection(workspace, principal, id)
+      if (this.state.dropNextReceiptInsert) {
+        this.state.dropNextReceiptInsert = false
+        return 0
+      }
       if (
         !collection ||
         collection.last_mutation_key !== key ||
@@ -388,7 +403,7 @@ class FakeStatement {
         collection.last_mutation_operation !== operation ||
         collection.revision !== revision
       ) {
-        throw new Error("claim guard")
+        return 0
       }
       const response = JSON.parse(json)
       response.workspaceRevision = this.state.revisions.get(workspace) ?? 0
@@ -633,6 +648,10 @@ class FakeStatement {
         now,
       ] = value
       const row = this.state.collection(workspace, principal, id)
+      if (this.state.dropNextReceiptInsert) {
+        this.state.dropNextReceiptInsert = false
+        return 0
+      }
       if (
         !row ||
         row.revision !== revision ||
@@ -640,7 +659,7 @@ class FakeStatement {
         row.last_mutation_hash !== hash ||
         row.last_mutation_operation !== operation
       )
-        throw new Error("claim guard")
+        return 0
       this.state.insertRequest({
         workspace_id: workspace,
         principal_id: principal,
@@ -653,6 +672,82 @@ class FakeStatement {
         response_json: json,
         created_at: now,
       })
+      return 1
+    }
+    if (marker === "library:receipt-assert") {
+      const [
+        workspace,
+        principal,
+        key,
+        operation,
+        hash,
+        kind,
+        identity,
+        revision,
+      ] = value
+      const request = this.state.requests.find(
+        (row) =>
+          row.workspace_id === workspace &&
+          row.principal_id === principal &&
+          row.idempotency_key === key &&
+          row.operation === operation &&
+          row.request_hash === hash &&
+          row.result_kind === kind &&
+          row.result_identity === identity &&
+          row.result_revision === revision
+      )
+      if (!request) throw new Error("library receipt missing")
+      return 0
+    }
+    if (marker === "library:receipt-value") {
+      const [
+        workspace,
+        principal,
+        key,
+        operation,
+        hash,
+        kind,
+        identity,
+        revision,
+        response,
+        now,
+      ] = value
+      if (this.state.dropNextReceiptInsert) {
+        this.state.dropNextReceiptInsert = false
+        return 0
+      }
+      const target =
+        kind === "preference"
+          ? this.state.preferences.find(
+              (row) =>
+                row.workspace_id === workspace &&
+                row.principal_id === principal &&
+                `${row.item_kind}:${row.item_id}@${row.item_version}` ===
+                  identity
+            )
+          : this.state.collection(workspace, principal, identity)
+      if (
+        !target ||
+        target.revision !== revision ||
+        target.last_mutation_key !== key ||
+        target.last_mutation_hash !== hash ||
+        target.last_mutation_operation !== operation
+      ) {
+        throw new Error("claim guard")
+      }
+      this.state.insertRequest({
+        workspace_id: workspace,
+        principal_id: principal,
+        idempotency_key: key,
+        operation,
+        request_hash: hash,
+        result_kind: kind,
+        result_identity: identity,
+        result_revision: revision,
+        response_json: this.state.malformedNextReceipt ? "{not-json" : response,
+        created_at: now,
+      })
+      this.state.malformedNextReceipt = false
       return 1
     }
     if (marker === "library:collection-delete") {
@@ -700,21 +795,22 @@ class FakeD1 {
   requests: Row[] = []
   revisions = new Map<string, number>()
   malformedNextReceipt = false
+  dropNextReceiptInsert = false
   batchMarkers: string[][] = []
   onClaimRead: (() => void) | null = null
   mutationBatchFailure: Error | null = null
+  mutationBatchFailureMarker: string | null = null
 
   prepare(query: string) {
     return new FakeStatement(query, this) as unknown as D1PreparedStatement
   }
 
   async batch(statements: D1PreparedStatement[]) {
-    this.batchMarkers.push(
-      statements.map(
-        (statement) =>
-          (statement as unknown as FakeStatement).marker() ?? "unknown"
-      )
+    const markers = statements.map(
+      (statement) =>
+        (statement as unknown as FakeStatement).marker() ?? "unknown"
     )
+    this.batchMarkers.push(markers)
     const isReadBatch = statements.every((statement) =>
       [
         "library:workspace-revision",
@@ -729,6 +825,14 @@ class FakeD1 {
       const failure = this.mutationBatchFailure
       this.mutationBatchFailure = null
       throw failure
+    }
+    if (
+      this.mutationBatchFailureMarker &&
+      markers.includes(this.mutationBatchFailureMarker)
+    ) {
+      const marker = this.mutationBatchFailureMarker
+      this.mutationBatchFailureMarker = null
+      throw new Error(`D1 write unavailable at ${marker}`)
     }
     const snapshot = structuredClone({
       preferences: this.preferences,
@@ -1031,7 +1135,7 @@ describe("LibraryPreferenceRepository", () => {
     ).rejects.toThrow("D1 write unavailable")
   })
 
-  it("rejects a reused current claim when its retained receipt is missing", async () => {
+  it("repairs an exact current preference claim when its receipt is missing", async () => {
     const { db, repository } = fixture()
     await repository.setFavorite(
       "workspace-a",
@@ -1043,6 +1147,21 @@ describe("LibraryPreferenceRepository", () => {
     )
     db.requests = []
 
+    const repaired = await repository.setFavorite(
+      "workspace-a",
+      "principal-a",
+      identity,
+      0,
+      true,
+      "retained-claim"
+    )
+    expect(repaired).toMatchObject({
+      operation: "set_favorite",
+      preference: { favorite: true, revision: 1 },
+    })
+    expect(db.preferences[0]).toMatchObject({ favorite: 1, revision: 1 })
+    expect(db.requests).toHaveLength(1)
+
     await expect(
       repository.setFavorite(
         "workspace-a",
@@ -1053,6 +1172,12 @@ describe("LibraryPreferenceRepository", () => {
         "retained-claim"
       )
     ).rejects.toMatchObject({ code: "idempotency_key_reused", status: 409 })
+  })
+
+  it("repairs a preference target on retry when receipt persistence is interrupted", async () => {
+    const { db, repository } = fixture()
+    db.dropNextReceiptInsert = true
+
     await expect(
       repository.setFavorite(
         "workspace-a",
@@ -1060,11 +1185,26 @@ describe("LibraryPreferenceRepository", () => {
         identity,
         0,
         true,
-        "retained-claim"
+        "favorite-receipt-assert"
       )
     ).rejects.toMatchObject({ code: "library_receipt_invalid", status: 500 })
-    expect(db.preferences[0]).toMatchObject({ favorite: 1, revision: 1 })
+    expect(db.preferences).toHaveLength(1)
     expect(db.requests).toHaveLength(0)
+    await expect(
+      repository.setFavorite(
+        "workspace-a",
+        "principal-a",
+        identity,
+        0,
+        true,
+        "favorite-receipt-assert"
+      )
+    ).resolves.toMatchObject({
+      operation: "set_favorite",
+      preference: { revision: 1 },
+    })
+    expect(db.preferences).toHaveLength(1)
+    expect(db.requests).toHaveLength(1)
   })
 
   it("adopts a receipt that commits between the first replay read and claim preflight", async () => {
@@ -1254,6 +1394,129 @@ describe("LibraryPreferenceRepository", () => {
     ).rejects.toMatchObject({ code: "library_collection_not_found" })
   })
 
+  it("repairs exact collection and member claims without repeating target writes", async () => {
+    const { db, repository } = fixture()
+    const created = await repository.createCollection(
+      "workspace-a",
+      "principal-a",
+      "Repairable",
+      "repair-collection-create"
+    )
+    if (created.operation !== "create_collection")
+      throw new Error("unexpected receipt")
+    const collectionId = created.collection.summary.id
+    db.requests = []
+
+    const repairedCreate = await repository.createCollection(
+      "workspace-a",
+      "principal-a",
+      "Repairable",
+      "repair-collection-create"
+    )
+    expect(repairedCreate).toMatchObject({
+      operation: "create_collection",
+      collection: { summary: { id: collectionId, revision: 1 } },
+    })
+    expect(db.collections).toHaveLength(1)
+
+    const added = await repository.addCollectionMember(
+      "workspace-a",
+      "principal-a",
+      collectionId,
+      1,
+      identity,
+      "repair-member-add"
+    )
+    db.requests = db.requests.filter(
+      (request) => request.idempotency_key !== "repair-member-add"
+    )
+    const repairedAdd = await repository.addCollectionMember(
+      "workspace-a",
+      "principal-a",
+      collectionId,
+      1,
+      identity,
+      "repair-member-add"
+    )
+    expect(repairedAdd).toEqual(added)
+    expect(db.members).toHaveLength(1)
+    expect(db.collections[0].revision).toBe(2)
+  })
+
+  it("repairs a collection target on retry when receipt persistence is interrupted", async () => {
+    const { db, repository } = fixture()
+    db.dropNextReceiptInsert = true
+
+    await expect(
+      repository.createCollection(
+        "workspace-a",
+        "principal-a",
+        "Atomic collection",
+        "collection-receipt-assert"
+      )
+    ).rejects.toMatchObject({ code: "library_receipt_invalid", status: 500 })
+    expect(db.collections).toHaveLength(1)
+    expect(db.requests).toHaveLength(0)
+    await expect(
+      repository.createCollection(
+        "workspace-a",
+        "principal-a",
+        "Atomic collection",
+        "collection-receipt-assert"
+      )
+    ).resolves.toMatchObject({
+      operation: "create_collection",
+      collection: { summary: { revision: 1 } },
+    })
+    expect(db.collections).toHaveLength(1)
+    expect(db.requests).toHaveLength(1)
+  })
+
+  it("finishes a claimed delete when failure follows its durable receipt", async () => {
+    const { db, repository } = fixture()
+    const created = await repository.createCollection(
+      "workspace-a",
+      "principal-a",
+      "Delete recovery",
+      "delete-recovery-create"
+    )
+    if (created.operation !== "create_collection")
+      throw new Error("unexpected receipt")
+    const collectionId = created.collection.summary.id
+    db.mutationBatchFailureMarker = "library:collection-delete"
+
+    await expect(
+      repository.deleteCollection(
+        "workspace-a",
+        "principal-a",
+        collectionId,
+        1,
+        "delete-recovery"
+      )
+    ).rejects.toThrow("D1 write unavailable at library:collection-delete")
+    expect(db.collections[0]).toMatchObject({
+      id: collectionId,
+      revision: 2,
+      last_mutation_key: "delete-recovery",
+    })
+    expect(db.requests).toHaveLength(2)
+
+    const repaired = await repository.deleteCollection(
+      "workspace-a",
+      "principal-a",
+      collectionId,
+      1,
+      "delete-recovery"
+    )
+    expect(repaired).toMatchObject({
+      operation: "delete_collection",
+      collectionId,
+      deletedRevision: 2,
+    })
+    expect(db.collections).toHaveLength(0)
+    expect(repaired.workspaceRevision).toBeGreaterThan(0)
+  })
+
   it("compacts positions safely when rows are stored in reverse order", async () => {
     const { db, repository } = fixture()
     const collectionId = "collection-reverse-order"
@@ -1318,7 +1581,11 @@ describe("LibraryPreferenceRepository", () => {
       [otherIdentity.id, 0],
       [thirdIdentity.id, 1],
     ])
-    expect(db.batchMarkers.at(-1)).toContain("library:member-compact-offset")
+    expect(
+      db.batchMarkers.some((markers) =>
+        markers.includes("library:member-compact-offset")
+      )
+    ).toBe(true)
   })
 
   it("reorders an empty collection without emitting invalid position SQL", async () => {

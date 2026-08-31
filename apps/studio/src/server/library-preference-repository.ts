@@ -64,7 +64,13 @@ type MutationRequestRow = {
   result_revision: number
   response_json: string
 }
-type MutationClaimRow = { operation: string; request_hash: string }
+type MutationClaimRow = {
+  operation: string
+  request_hash: string
+  result_kind: "preference" | "collection"
+  result_identity: string
+  result_revision: number
+}
 
 type WorkspaceRevisionRow = { revision: number }
 
@@ -473,6 +479,32 @@ export class LibraryPreferenceRepository {
       .first<MutationRequestRow>()
   }
 
+  private currentClaim(workspaceId: string, principalId: string, key: string) {
+    return this.db
+      .prepare(
+        `/* library:claim-get */
+         SELECT last_mutation_operation AS operation,
+                last_mutation_hash AS request_hash,
+                'preference' AS result_kind,
+                item_kind || ':' || item_id || '@' || item_version AS result_identity,
+                revision AS result_revision
+         FROM library_item_preferences
+         WHERE workspace_id = ?1 AND principal_id = ?2 AND last_mutation_key = ?3
+         UNION ALL
+         SELECT last_mutation_operation AS operation,
+                last_mutation_hash AS request_hash,
+                'collection' AS result_kind,
+                id AS result_identity,
+                revision AS result_revision
+         FROM library_collections
+         WHERE workspace_id = ?1 AND owner_principal_id = ?2
+           AND last_mutation_key = ?3
+         LIMIT 1`
+      )
+      .bind(workspaceId, principalId, key)
+      .first<MutationClaimRow>()
+  }
+
   private async reconcileClaim<
     T extends
       LibraryPreferenceMutationReceipt | LibraryCollectionMutationReceipt,
@@ -481,25 +513,10 @@ export class LibraryPreferenceRepository {
     principalId: string,
     key: string,
     hash: string,
-    operation: T["operation"]
+    operation: T["operation"],
+    repair: (claim: MutationClaimRow) => Promise<T>
   ): Promise<T | null> {
-    const claim = await this.db
-      .prepare(
-        `/* library:claim-get */
-         SELECT last_mutation_operation AS operation,
-                last_mutation_hash AS request_hash
-         FROM library_item_preferences
-         WHERE workspace_id = ?1 AND principal_id = ?2 AND last_mutation_key = ?3
-         UNION ALL
-         SELECT last_mutation_operation AS operation,
-                last_mutation_hash AS request_hash
-         FROM library_collections
-         WHERE workspace_id = ?1 AND owner_principal_id = ?2
-           AND last_mutation_key = ?3
-         LIMIT 1`
-      )
-      .bind(workspaceId, principalId, key)
-      .first<MutationClaimRow>()
+    const claim = await this.currentClaim(workspaceId, principalId, key)
     if (!claim) return null
     const lateReplay = await this.replay<T>(
       workspaceId,
@@ -516,11 +533,7 @@ export class LibraryPreferenceRepository {
         "Idempotency-Key was already used for another library mutation"
       )
     }
-    throw new LibraryPreferenceError(
-      "library_receipt_invalid",
-      500,
-      "Library mutation target exists but its durable receipt is missing"
-    )
+    return repair({ ...claim, result_revision: Number(claim.result_revision) })
   }
 
   private receipt<
@@ -595,57 +608,27 @@ export class LibraryPreferenceRepository {
     return row ? this.receipt<T>(row, hash, operation) : null
   }
 
-  private preferenceReceiptStatement(args: {
+  private receiptValueStatement(args: {
     workspaceId: string
     principalId: string
     key: string
     hash: string
-    operation: "set_favorite" | "record_used"
-    identity: LibraryItemIdentity
-    completedAction?: LibraryCompletedAction
-    completionId?: string
+    operation:
+      | LibraryPreferenceMutationReceipt["operation"]
+      | LibraryCollectionMutationReceipt["operation"]
+    resultKind: MutationRequestRow["result_kind"]
+    resultIdentity: string
     resultRevision: number
+    response:
+      LibraryPreferenceMutationReceipt | LibraryCollectionMutationReceipt
     now: string
   }) {
-    const extra =
-      args.operation === "record_used"
-        ? `, 'completedAction', ?10, 'completionId', ?11`
-        : ""
     return this.db
       .prepare(
-        `/* library:preference-receipt */ INSERT INTO library_mutation_requests
+        `/* library:receipt-value */ INSERT INTO library_mutation_requests
          (workspace_id, principal_id, idempotency_key, operation, request_hash,
           result_kind, result_identity, result_revision, response_json, created_at)
-         SELECT ?1, ?2, ?3, ?4, ?5, 'preference',
-           ?6 || ':' || ?7 || '@' || ?8, p.revision,
-           json_object(
-             'schemaVersion', 1, 'operation', ?4,
-             'preference', json_object(
-               'identity', json_object('itemKind', p.item_kind, 'id', p.item_id, 'version', p.item_version),
-               'favorite', json(CASE p.favorite WHEN 1 THEN 'true' ELSE 'false' END),
-               'lastUsedAt', p.last_used_at,
-               'collectionIds', json(COALESCE((
-                 SELECT json_group_array(collection_id) FROM (
-                   SELECT m.collection_id FROM library_collection_members m
-                   INNER JOIN library_collections c
-                     ON c.workspace_id = m.workspace_id AND c.id = m.collection_id
-                   WHERE m.workspace_id = ?1 AND c.owner_principal_id = ?2
-                     AND m.item_kind = p.item_kind AND m.item_id = p.item_id
-                     AND m.item_version = p.item_version
-                   ORDER BY c.created_at, c.id
-                 )
-               ), '[]')),
-               'revision', p.revision, 'updatedAt', p.updated_at
-             ),
-             'workspaceRevision', COALESCE((SELECT revision FROM library_workspace_state WHERE workspace_id = ?1), 0)
-             ${extra}
-           ), ?9
-         FROM library_item_preferences p
-         WHERE p.workspace_id = ?1 AND p.principal_id = ?2
-           AND p.item_kind = ?6 AND p.item_id = ?7 AND p.item_version = ?8
-           AND p.last_mutation_key = ?3 AND p.last_mutation_hash = ?5
-           AND p.last_mutation_operation = ?4
-           AND p.revision = ?12`
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`
       )
       .bind(
         args.workspaceId,
@@ -653,56 +636,327 @@ export class LibraryPreferenceRepository {
         args.key,
         args.operation,
         args.hash,
-        args.identity.itemKind,
-        args.identity.id,
-        args.identity.version,
-        args.now,
-        args.completedAction ?? null,
-        args.completionId ?? null,
-        args.resultRevision
-      )
-  }
-
-  private collectionReceiptStatement(args: {
-    workspaceId: string
-    principalId: string
-    key: string
-    hash: string
-    operation: Exclude<
-      LibraryCollectionMutationReceipt["operation"],
-      "delete_collection"
-    >
-    collectionId: string
-    resultRevision: number
-    response: Omit<LibraryCollectionMutationReceipt, "workspaceRevision">
-    now: string
-  }) {
-    return this.db
-      .prepare(
-        `/* library:collection-receipt */ INSERT INTO library_mutation_requests
-         (workspace_id, principal_id, idempotency_key, operation, request_hash,
-          result_kind, result_identity, result_revision, response_json, created_at)
-         SELECT ?1, ?2, ?3, ?4, ?5, 'collection', ?6, ?7,
-           json_set(?8, '$.workspaceRevision', COALESCE((
-             SELECT revision FROM library_workspace_state WHERE workspace_id = ?1
-           ), 0)), ?9
-         FROM library_collections c
-         WHERE c.workspace_id = ?1 AND c.owner_principal_id = ?2 AND c.id = ?6
-           AND c.last_mutation_key = ?3 AND c.last_mutation_hash = ?5
-           AND c.last_mutation_operation = ?4
-           AND c.revision = ?7`
-      )
-      .bind(
-        args.workspaceId,
-        args.principalId,
-        args.key,
-        args.operation,
-        args.hash,
-        args.collectionId,
+        args.resultKind,
+        args.resultIdentity,
         args.resultRevision,
         JSON.stringify(args.response),
         args.now
       )
+  }
+
+  private async repairPreferenceClaim<
+    T extends LibrarySetFavoriteReceipt | LibraryRecordUseReceipt,
+  >(args: {
+    workspaceId: string
+    principalId: string
+    key: string
+    hash: string
+    operation: T["operation"]
+    identity: LibraryItemIdentity
+    claim: MutationClaimRow
+    completedAction?: LibraryCompletedAction
+    completionId?: string
+  }): Promise<T> {
+    const resultIdentity = identityKey(args.identity)
+    if (
+      args.claim.result_kind !== "preference" ||
+      args.claim.result_identity !== resultIdentity
+    ) {
+      throw new LibraryPreferenceError(
+        "library_receipt_invalid",
+        500,
+        "Library preference claim metadata is invalid"
+      )
+    }
+    const now = this.now()
+    const projection = await this.readProjection(
+      args.workspaceId,
+      args.principalId
+    )
+    const preference = projection.preferences.find(
+      (candidate) => identityKey(candidate.identity) === resultIdentity
+    )
+    if (!preference || preference.revision !== args.claim.result_revision) {
+      throw new LibraryPreferenceError(
+        "library_receipt_invalid",
+        500,
+        "Library preference claim revision is invalid"
+      )
+    }
+    const response = {
+      schemaVersion: 1 as const,
+      operation: args.operation,
+      preference,
+      workspaceRevision: projection.workspaceRevision,
+      ...(args.operation === "record_used"
+        ? {
+            completedAction: args.completedAction,
+            completionId: args.completionId,
+          }
+        : {}),
+    } as T
+    const statement = this.receiptValueStatement({
+      workspaceId: args.workspaceId,
+      principalId: args.principalId,
+      key: args.key,
+      hash: args.hash,
+      operation: args.operation,
+      resultKind: "preference",
+      resultIdentity,
+      resultRevision: args.claim.result_revision,
+      response,
+      now,
+    })
+    let writeError: unknown = null
+    try {
+      await statement.run()
+    } catch (error) {
+      writeError = error
+    }
+    const receipt = await this.replay<T>(
+      args.workspaceId,
+      args.principalId,
+      args.key,
+      args.hash,
+      args.operation
+    )
+    if (receipt) return receipt
+    if (writeError) throw writeError
+    throw new LibraryPreferenceError(
+      "library_receipt_invalid",
+      500,
+      "Library preference claim could not be repaired"
+    )
+  }
+
+  private async repairCollectionClaim<
+    T extends Exclude<
+      LibraryCollectionMutationReceipt,
+      LibraryDeleteCollectionReceipt
+    >,
+  >(args: {
+    workspaceId: string
+    principalId: string
+    key: string
+    hash: string
+    operation: T["operation"]
+    claim: MutationClaimRow
+    identity?: LibraryItemIdentity
+  }): Promise<T> {
+    if (args.claim.result_kind !== "collection") {
+      throw new LibraryPreferenceError(
+        "library_receipt_invalid",
+        500,
+        "Library collection claim metadata is invalid"
+      )
+    }
+    const snapshot = await this.readCollectionSnapshot(
+      args.workspaceId,
+      args.principalId,
+      args.claim.result_identity
+    )
+    const collection = snapshot.collection
+    if (collection.summary.revision !== args.claim.result_revision) {
+      throw new LibraryPreferenceError(
+        "library_receipt_invalid",
+        500,
+        "Library collection claim revision is invalid"
+      )
+    }
+    const response = {
+      schemaVersion: 1 as const,
+      operation: args.operation,
+      collection,
+      ...(args.identity ? { identity: args.identity } : {}),
+      workspaceRevision: snapshot.workspaceRevision,
+    } as T
+    const now = this.now()
+    let writeError: unknown = null
+    try {
+      await this.receiptValueStatement({
+        workspaceId: args.workspaceId,
+        principalId: args.principalId,
+        key: args.key,
+        hash: args.hash,
+        operation: args.operation,
+        resultKind: "collection",
+        resultIdentity: args.claim.result_identity,
+        resultRevision: args.claim.result_revision,
+        response,
+        now,
+      }).run()
+    } catch (error) {
+      writeError = error
+    }
+    const receipt = await this.replay<T>(
+      args.workspaceId,
+      args.principalId,
+      args.key,
+      args.hash,
+      args.operation
+    )
+    if (receipt) return receipt
+    if (writeError) throw writeError
+    throw new LibraryPreferenceError(
+      "library_receipt_invalid",
+      500,
+      "Library collection claim could not be repaired"
+    )
+  }
+
+  private async repairDeleteCollectionClaim(args: {
+    workspaceId: string
+    principalId: string
+    key: string
+    hash: string
+    collectionId: string
+    claim: MutationClaimRow
+  }): Promise<LibraryDeleteCollectionReceipt> {
+    const operation = "delete_collection" as const
+    if (
+      args.claim.result_kind !== "collection" ||
+      args.claim.result_identity !== args.collectionId
+    ) {
+      throw new LibraryPreferenceError(
+        "library_receipt_invalid",
+        500,
+        "Library collection delete claim metadata is invalid"
+      )
+    }
+    const baseResponse = {
+      schemaVersion: 1 as const,
+      operation,
+      collectionId: args.collectionId,
+      deletedRevision: args.claim.result_revision,
+      workspaceRevision: 0,
+    }
+    const now = this.now()
+    let writeError: unknown = null
+    try {
+      await this.receiptValueStatement({
+        workspaceId: args.workspaceId,
+        principalId: args.principalId,
+        key: args.key,
+        hash: args.hash,
+        operation,
+        resultKind: "collection",
+        resultIdentity: args.collectionId,
+        resultRevision: args.claim.result_revision,
+        response: baseResponse,
+        now,
+      }).run()
+    } catch (error) {
+      writeError = error
+    }
+    const receipt = await this.replay<LibraryDeleteCollectionReceipt>(
+      args.workspaceId,
+      args.principalId,
+      args.key,
+      args.hash,
+      operation
+    )
+    if (!receipt) {
+      if (writeError) throw writeError
+      throw new LibraryPreferenceError(
+        "library_receipt_invalid",
+        500,
+        "Library collection delete claim could not be repaired"
+      )
+    }
+    return this.completeDeleteCollectionReceipt({
+      workspaceId: args.workspaceId,
+      principalId: args.principalId,
+      key: args.key,
+      hash: args.hash,
+      collectionId: args.collectionId,
+      deletedRevision: args.claim.result_revision,
+    })
+  }
+
+  private async completeDeleteCollectionReceipt(args: {
+    workspaceId: string
+    principalId: string
+    key: string
+    hash: string
+    collectionId: string
+    deletedRevision: number
+  }): Promise<LibraryDeleteCollectionReceipt> {
+    const operation = "delete_collection" as const
+    const statements = [
+      this.db
+        .prepare(
+          `/* library:collection-delete */ DELETE FROM library_collections
+         WHERE workspace_id = ?1 AND owner_principal_id = ?2 AND id = ?3
+           AND revision = ?4 AND last_mutation_key = ?5`
+        )
+        .bind(
+          args.workspaceId,
+          args.principalId,
+          args.collectionId,
+          args.deletedRevision,
+          args.key
+        ),
+      this.db
+        .prepare(
+          `/* library:delete-receipt-revision */ UPDATE library_mutation_requests
+         SET response_json = json_set(response_json, '$.workspaceRevision',
+           COALESCE((SELECT revision FROM library_workspace_state WHERE workspace_id = ?1), 0))
+         WHERE workspace_id = ?1 AND principal_id = ?2 AND idempotency_key = ?3
+           AND operation = 'delete_collection' AND request_hash = ?4
+           AND json_extract(response_json, '$.workspaceRevision') = 0
+           AND NOT EXISTS (
+             SELECT 1 FROM library_collections c
+             WHERE c.workspace_id = ?1 AND c.owner_principal_id = ?2
+               AND c.id = ?5 AND c.revision = ?6
+               AND c.last_mutation_key = ?3
+               AND c.last_mutation_hash = ?4
+               AND c.last_mutation_operation = 'delete_collection'
+           )`
+        )
+        .bind(
+          args.workspaceId,
+          args.principalId,
+          args.key,
+          args.hash,
+          args.collectionId,
+          args.deletedRevision
+        ),
+    ]
+    const { receipt, writeError } =
+      await this.runAndReplay<LibraryDeleteCollectionReceipt>({
+        workspaceId: args.workspaceId,
+        principalId: args.principalId,
+        key: args.key,
+        hash: args.hash,
+        operation,
+        statements,
+      })
+    const claim = await this.currentClaim(
+      args.workspaceId,
+      args.principalId,
+      args.key
+    )
+    if (
+      claim?.operation === operation &&
+      claim.request_hash === args.hash &&
+      claim.result_identity === args.collectionId &&
+      Number(claim.result_revision) === args.deletedRevision
+    ) {
+      if (writeError) throw writeError
+      throw new LibraryPreferenceError(
+        "library_receipt_invalid",
+        500,
+        "Library collection delete target is still present"
+      )
+    }
+    if (receipt?.workspaceRevision && receipt.workspaceRevision > 0)
+      return receipt
+    if (writeError) throw writeError
+    throw new LibraryPreferenceError(
+      "library_receipt_invalid",
+      500,
+      "Library collection delete receipt was not finalized"
+    )
   }
 
   private async runAndReplay<
@@ -757,12 +1011,23 @@ export class LibraryPreferenceRepository {
       operation
     )
     if (replay) return replay
+    const repair = (claim: MutationClaimRow) =>
+      this.repairPreferenceClaim<LibrarySetFavoriteReceipt>({
+        workspaceId,
+        principalId,
+        key,
+        hash,
+        operation,
+        identity,
+        claim,
+      })
     const claimReplay = await this.reconcileClaim<LibrarySetFavoriteReceipt>(
       workspaceId,
       principalId,
       key,
       hash,
-      operation
+      operation,
+      repair
     )
     if (claimReplay) return claimReplay
     if (favorite) {
@@ -782,7 +1047,6 @@ export class LibraryPreferenceRepository {
       }
     }
     const now = this.now()
-    const resultRevision = expectedRevision + 1
     const statements = [
       this.db
         .prepare(
@@ -814,16 +1078,6 @@ export class LibraryPreferenceRepository {
           now,
           hash
         ),
-      this.preferenceReceiptStatement({
-        workspaceId,
-        principalId,
-        key,
-        hash,
-        operation,
-        identity,
-        resultRevision,
-        now,
-      }),
     ]
     const { receipt, writeError } =
       await this.runAndReplay<LibrarySetFavoriteReceipt>({
@@ -835,6 +1089,15 @@ export class LibraryPreferenceRepository {
         statements,
       })
     if (receipt) return receipt
+    const repaired = await this.reconcileClaim<LibrarySetFavoriteReceipt>(
+      workspaceId,
+      principalId,
+      key,
+      hash,
+      operation,
+      repair
+    )
+    if (repaired) return repaired
     const current = await this.readPreference(
       workspaceId,
       principalId,
@@ -877,12 +1140,25 @@ export class LibraryPreferenceRepository {
       operation
     )
     if (replay) return replay
+    const repair = (claim: MutationClaimRow) =>
+      this.repairPreferenceClaim<LibraryRecordUseReceipt>({
+        workspaceId,
+        principalId,
+        key,
+        hash,
+        operation,
+        identity,
+        claim,
+        completedAction,
+        completionId: parsedCompletionId,
+      })
     const claimReplay = await this.reconcileClaim<LibraryRecordUseReceipt>(
       workspaceId,
       principalId,
       key,
       hash,
-      operation
+      operation,
+      repair
     )
     if (claimReplay) return claimReplay
     await this.admission.assertCanUse(workspaceId, principalId, identity)
@@ -893,7 +1169,6 @@ export class LibraryPreferenceRepository {
         identity
       )
       const expectedRevision = current.revision
-      const resultRevision = expectedRevision + 1
       const now = this.now()
       const statements = [
         this.db
@@ -926,18 +1201,6 @@ export class LibraryPreferenceRepository {
             hash,
             expectedRevision
           ),
-        this.preferenceReceiptStatement({
-          workspaceId,
-          principalId,
-          key,
-          hash,
-          operation,
-          identity,
-          completedAction,
-          completionId: parsedCompletionId,
-          resultRevision,
-          now,
-        }),
       ]
       const { receipt, writeError } =
         await this.runAndReplay<LibraryRecordUseReceipt>({
@@ -949,6 +1212,15 @@ export class LibraryPreferenceRepository {
           statements,
         })
       if (receipt) return receipt
+      const repaired = await this.reconcileClaim<LibraryRecordUseReceipt>(
+        workspaceId,
+        principalId,
+        key,
+        hash,
+        operation,
+        repair
+      )
+      if (repaired) return repaired
       if (attempt === 1) {
         if (writeError) throw writeError
         throw new LibraryPreferenceError(
@@ -979,13 +1251,23 @@ export class LibraryPreferenceRepository {
       operation
     )
     if (replay) return replay
+    const repair = (claim: MutationClaimRow) =>
+      this.repairCollectionClaim<LibraryCreateCollectionReceipt>({
+        workspaceId,
+        principalId,
+        key,
+        hash,
+        operation,
+        claim,
+      })
     const claimReplay =
       await this.reconcileClaim<LibraryCreateCollectionReceipt>(
         workspaceId,
         principalId,
         key,
         hash,
-        operation
+        operation,
+        repair
       )
     if (claimReplay) return claimReplay
     if ((await this.listCollections(workspaceId, principalId)).length >= 100) {
@@ -999,19 +1281,6 @@ export class LibraryPreferenceRepository {
       this.createCollectionId()
     )
     const now = this.now()
-    const collection: LibraryCollectionDetail = {
-      summary: {
-        id: collectionId,
-        name,
-        scope: "workspace",
-        revision: 1,
-        itemCount: 0,
-        createdAt: now,
-        updatedAt: now,
-      },
-      members: [],
-    }
-    const response = { schemaVersion: 1 as const, operation, collection }
     const statements = [
       this.db
         .prepare(
@@ -1034,17 +1303,6 @@ export class LibraryPreferenceRepository {
           now,
           hash
         ),
-      this.collectionReceiptStatement({
-        workspaceId,
-        principalId,
-        key,
-        hash,
-        operation,
-        collectionId,
-        resultRevision: 1,
-        response,
-        now,
-      }),
     ]
     const { receipt, writeError } =
       await this.runAndReplay<LibraryCreateCollectionReceipt>({
@@ -1056,6 +1314,15 @@ export class LibraryPreferenceRepository {
         statements,
       })
     if (receipt) return receipt
+    const repaired = await this.reconcileClaim<LibraryCreateCollectionReceipt>(
+      workspaceId,
+      principalId,
+      key,
+      hash,
+      operation,
+      repair
+    )
+    if (repaired) return repaired
     if (writeError && isCollectionNameConstraint(writeError)) {
       throw new LibraryPreferenceError(
         "library_collection_name_conflict",
@@ -1085,6 +1352,7 @@ export class LibraryPreferenceRepository {
       "create_collection" | "delete_collection"
     >
     hashBody: unknown
+    receiptIdentity?: LibraryItemIdentity
     admit?: () => Promise<void>
     prepare: (
       current: LibraryCollectionDetail,
@@ -1114,13 +1382,24 @@ export class LibraryPreferenceRepository {
       args.operation
     )
     if (replay) return replay
+    const repair = (claim: MutationClaimRow) =>
+      this.repairCollectionClaim({
+        workspaceId: args.workspaceId,
+        principalId: args.principalId,
+        key,
+        hash,
+        operation: args.operation,
+        claim,
+        identity: args.receiptIdentity,
+      })
     const claimReplay =
       await this.reconcileClaim<LibraryCollectionMutationReceipt>(
         args.workspaceId,
         args.principalId,
         key,
         hash,
-        args.operation
+        args.operation,
+        repair
       )
     if (claimReplay) return claimReplay
     await args.admit?.()
@@ -1138,26 +1417,6 @@ export class LibraryPreferenceRepository {
     }
     const now = this.now()
     const prepared = args.prepare(current, collectionId, key, now, hash)
-    const resultRevision = args.expectedRevision + 1
-    const response = {
-      schemaVersion: 1 as const,
-      operation: args.operation,
-      collection: prepared.collection,
-      ...(prepared.identity ? { identity: prepared.identity } : {}),
-    } as Omit<LibraryCollectionMutationReceipt, "workspaceRevision">
-    prepared.statements.push(
-      this.collectionReceiptStatement({
-        workspaceId: args.workspaceId,
-        principalId: args.principalId,
-        key,
-        hash,
-        operation: args.operation,
-        collectionId,
-        resultRevision,
-        response,
-        now,
-      })
-    )
     const { receipt, writeError } =
       await this.runAndReplay<LibraryCollectionMutationReceipt>({
         workspaceId: args.workspaceId,
@@ -1168,6 +1427,16 @@ export class LibraryPreferenceRepository {
         statements: prepared.statements,
       })
     if (receipt) return receipt
+    const repaired =
+      await this.reconcileClaim<LibraryCollectionMutationReceipt>(
+        args.workspaceId,
+        args.principalId,
+        key,
+        hash,
+        args.operation,
+        repair
+      )
+    if (repaired) return repaired
     let latest: LibraryCollectionDetail
     try {
       latest = await this.getCollection(
@@ -1275,6 +1544,7 @@ export class LibraryPreferenceRepository {
       keyInput: key,
       operation: "add_collection_member",
       hashBody: { identity },
+      receiptIdentity: identity,
       admit: () =>
         this.admission.assertCanAddToCollection(
           workspaceId,
@@ -1384,6 +1654,7 @@ export class LibraryPreferenceRepository {
       keyInput: key,
       operation: "remove_collection_member",
       hashBody: { identity },
+      receiptIdentity: identity,
       prepare: (current, id, mutationKey, now, mutationHash) => {
         const members = current.members.filter(
           (member) => identityKey(member) !== identityKey(identity)
@@ -1637,14 +1908,33 @@ export class LibraryPreferenceRepository {
       hash,
       operation
     )
-    if (replay) return replay
+    if (replay) {
+      return this.completeDeleteCollectionReceipt({
+        workspaceId,
+        principalId,
+        key,
+        hash,
+        collectionId,
+        deletedRevision: replay.deletedRevision,
+      })
+    }
+    const repair = (claim: MutationClaimRow) =>
+      this.repairDeleteCollectionClaim({
+        workspaceId,
+        principalId,
+        key,
+        hash,
+        collectionId,
+        claim,
+      })
     const claimReplay =
       await this.reconcileClaim<LibraryDeleteCollectionReceipt>(
         workspaceId,
         principalId,
         key,
         hash,
-        operation
+        operation,
+        repair
       )
     if (claimReplay) return claimReplay
     const current = await this.getCollection(
@@ -1660,14 +1950,6 @@ export class LibraryPreferenceRepository {
       )
     }
     const now = this.now()
-    const deletedRevision = expectedRevision + 1
-    const baseResponse = {
-      schemaVersion: 1 as const,
-      operation,
-      collectionId,
-      deletedRevision,
-      workspaceRevision: 0,
-    }
     const statements = [
       this.db
         .prepare(
@@ -1686,45 +1968,6 @@ export class LibraryPreferenceRepository {
           now,
           hash
         ),
-      this.db
-        .prepare(
-          `/* library:collection-delete-receipt */ INSERT INTO library_mutation_requests
-         (workspace_id, principal_id, idempotency_key, operation, request_hash,
-          result_kind, result_identity, result_revision, response_json, created_at)
-         SELECT ?1, ?2, ?3, ?4, ?5, 'collection', ?6, ?7, ?8, ?9
-         FROM library_collections c WHERE c.workspace_id = ?1
-           AND c.owner_principal_id = ?2 AND c.id = ?6
-           AND c.last_mutation_key = ?3 AND c.last_mutation_hash = ?5
-           AND c.last_mutation_operation = 'delete_collection'
-           AND c.revision = ?7`
-        )
-        .bind(
-          workspaceId,
-          principalId,
-          key,
-          operation,
-          hash,
-          collectionId,
-          deletedRevision,
-          JSON.stringify(baseResponse),
-          now
-        ),
-      this.db
-        .prepare(
-          `/* library:collection-delete */ DELETE FROM library_collections
-         WHERE workspace_id = ?1 AND owner_principal_id = ?2 AND id = ?3
-           AND revision = ?4 AND last_mutation_key = ?5`
-        )
-        .bind(workspaceId, principalId, collectionId, deletedRevision, key),
-      this.db
-        .prepare(
-          `/* library:delete-receipt-revision */ UPDATE library_mutation_requests
-         SET response_json = json_set(response_json, '$.workspaceRevision',
-           COALESCE((SELECT revision FROM library_workspace_state WHERE workspace_id = ?1), 0))
-         WHERE workspace_id = ?1 AND principal_id = ?2 AND idempotency_key = ?3
-           AND operation = 'delete_collection' AND request_hash = ?4`
-        )
-        .bind(workspaceId, principalId, key, hash),
     ]
     const { receipt, writeError } =
       await this.runAndReplay<LibraryDeleteCollectionReceipt>({
@@ -1736,6 +1979,15 @@ export class LibraryPreferenceRepository {
         statements,
       })
     if (receipt) return receipt
+    const repaired = await this.reconcileClaim<LibraryDeleteCollectionReceipt>(
+      workspaceId,
+      principalId,
+      key,
+      hash,
+      operation,
+      repair
+    )
+    if (repaired) return repaired
     try {
       const latest = await this.getCollection(
         workspaceId,
