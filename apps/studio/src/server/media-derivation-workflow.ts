@@ -4,6 +4,7 @@ import { MediaAssetRepository } from "./media-asset-repository"
 import { executeMediaDerivation } from "./media-derivation-execution"
 import { MediaDerivationExecutionError } from "./media-derivation-execution"
 import { MediaDerivationRepository } from "./media-derivation-repository"
+import { MediaDerivationOutputRepository } from "./media-derivation-output"
 import { DeterministicMediaDerivationProvider } from "./media-derivation-provider"
 import type { MediaDerivationProvider } from "./media-derivation-provider"
 
@@ -22,7 +23,7 @@ type WorkflowMediaDerivationEnv = Env & {
 
 const fakeTransparentPng = Uint8Array.from(
   atob(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+XkX4WQAAAABJRU5ErkJggg=="
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQI12NgYGBgAAAABQABXvMqOgAAAABJRU5ErkJggg=="
   ),
   (character) => character.charCodeAt(0)
 )
@@ -96,9 +97,11 @@ export class MediaDerivationJobWorkflow extends WorkflowEntrypoint<
                 )
               }
             },
-            settleOutput: async () => {
-              throw new Error("media_derivation_output_transaction_not_ready")
-            },
+            settleOutput: (input) =>
+              new MediaDerivationOutputRepository(
+                this.env.DB,
+                this.env.ASSETS
+              ).settle(input),
             timeoutMs: positiveInteger(
               this.env.MEDIA_DERIVATION_ATTEMPT_TIMEOUT_MS,
               120_000

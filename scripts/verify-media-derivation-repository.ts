@@ -1,9 +1,12 @@
 import { Database } from "bun:sqlite"
+import { Buffer } from "node:buffer"
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { MediaDerivationRepository } from "../apps/studio/src/server/media-derivation-repository"
+import { MediaDerivationOutputRepository } from "../apps/studio/src/server/media-derivation-output"
+import { validateMediaUpload } from "../apps/studio/src/server/media-assets"
 import type {
   MediaDerivationConfiguration,
   MediaDerivationCreateInput,
@@ -92,6 +95,20 @@ class BunD1Database {
       this.database.exec("ROLLBACK")
       throw error
     }
+  }
+}
+
+class MemoryR2Bucket {
+  readonly objects = new Map<string, Uint8Array>()
+  readonly deleted: string[] = []
+
+  async put(key: string, value: Uint8Array) {
+    this.objects.set(key, Uint8Array.from(value))
+  }
+
+  async delete(key: string) {
+    this.deleted.push(key)
+    this.objects.delete(key)
   }
 }
 
@@ -552,6 +569,103 @@ try {
   assert(
     competingAfter.state === "running",
     "Failed provenance claim partially settled the job"
+  )
+
+  const transparentPng = Uint8Array.from(
+    Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQI12NgYGBgAAAABQABXvMqOgAAAABJRU5ErkJggg==",
+      "base64"
+    )
+  )
+  const outputBucket = new MemoryR2Bucket()
+  let outputSequence = 0
+  const outputRepository = new MediaDerivationOutputRepository(
+    d1 as unknown as D1Database,
+    outputBucket as unknown as R2Bucket,
+    {
+      createAssetId: () =>
+        `asset-derived-${String(++outputSequence).padStart(17, "0")}`,
+      now: () => "2026-08-31T01:00:00.000Z",
+      normalizeOutput: (output, name) =>
+        validateMediaUpload(
+          Object.assign(
+            new Blob([Uint8Array.from(output.bytes).buffer], {
+              type: output.mediaType,
+            }),
+            { name: "background-removed.png" }
+          ),
+          name
+        ),
+    }
+  )
+  const outputJob = await repository.create(
+    "workspace-a",
+    "atomic-output",
+    { ...createInput, sourceAssetId: "asset-0000000000000006" },
+    { ...configuration, providerModelVersion: "atomic-output-model" }
+  )
+  const outputClaim = await repository.claim("workspace-a", outputJob.job.id)
+  const outputSettlement = await outputRepository.settle({
+    job: outputClaim.job,
+    attemptId: outputClaim.attempt.id,
+    output: { mediaType: "image/png", bytes: transparentPng },
+  })
+  assert(
+    outputSettlement.job.state === "succeeded" &&
+      outputSettlement.job.outputAssetId === "asset-derived-00000000000000001",
+    "Atomic output settlement did not publish the derived asset"
+  )
+  assert(
+    Number(
+      database
+        .query(
+          `SELECT COUNT(*) AS count FROM media_assets assets
+           JOIN media_derivation_provenance provenance
+             ON provenance.workspace_id = assets.workspace_id
+            AND provenance.output_asset_id = assets.id
+           WHERE provenance.derivation_job_id = ?`
+        )
+        .get(outputJob.job.id)?.count
+    ) === 1,
+    "Atomic output settlement omitted asset or provenance"
+  )
+  assert(
+    outputBucket.objects.size === 1,
+    "Atomic output settlement did not retain one immutable R2 object"
+  )
+
+  const lateOutputJob = await repository.create(
+    "workspace-a",
+    "late-output",
+    { ...createInput, sourceAssetId: "asset-0000000000000006" },
+    { ...configuration, providerModelVersion: "late-output-model" }
+  )
+  const lateOutputClaim = await repository.claim(
+    "workspace-a",
+    lateOutputJob.job.id
+  )
+  await repository.requestCancellation("workspace-a", lateOutputJob.job.id)
+  await expectCode(
+    outputRepository.settle({
+      job: lateOutputClaim.job,
+      attemptId: lateOutputClaim.attempt.id,
+      output: { mediaType: "image/png", bytes: transparentPng },
+    }),
+    "storage_failure"
+  )
+  assert(
+    outputBucket.deleted.some((key) => key.includes(lateOutputJob.job.id)),
+    "A rejected late output was not removed from staged R2 storage"
+  )
+  assert(
+    Number(
+      database
+        .query(
+          "SELECT COUNT(*) AS count FROM media_assets WHERE id = 'asset-derived-00000000000000002'"
+        )
+        .get()?.count
+    ) === 0,
+    "A rejected late output became selectable"
   )
 
   assert(

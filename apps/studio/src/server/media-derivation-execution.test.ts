@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { executeMediaDerivation } from "./media-derivation-execution"
 import { DeterministicMediaDerivationProvider } from "./media-derivation-provider"
+import { sanitizeProviderInput } from "./media-derivation-provider"
 import type { MediaDerivationJob } from "./media-derivations"
 
 const png = Uint8Array.from(
@@ -128,6 +129,32 @@ const dependencies = () => {
 }
 
 describe("media derivation execution", () => {
+  it("strips PNG ancillary metadata before provider dispatch", () => {
+    const withPhysicalMetadata = Uint8Array.from(
+      Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQI12NgYGBgAAAABQABXvMqOgAAAABJRU5ErkJggg==",
+        "base64"
+      )
+    )
+    const sanitized = sanitizeProviderInput({
+      jobId,
+      attemptId,
+      workspaceId: "workspace-a",
+      sourceAssetId: job("running").sourceAssetId,
+      sourceContentHash: hash,
+      mediaType: "image/png",
+      width: 1,
+      height: 1,
+      bytes: withPhysicalMetadata,
+    })
+    expect(Buffer.from(sanitized.bytes).toString("base64")).toBe(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQI12NgYGBgAAAABQABXvMqOgAAAABJRU5ErkJggg=="
+    )
+    expect(() =>
+      sanitizeProviderInput({ ...sanitized, mediaType: "image/jpeg" })
+    ).toThrowError(expect.objectContaining({ code: "unsupported_input" }))
+  })
+
   it("verifies source identity before the adapter and delegates settlement", async () => {
     const fixture = dependencies()
     const result = await executeMediaDerivation(

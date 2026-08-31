@@ -1,7 +1,7 @@
 # ASSET-02 background removal phase entry
 
 Date: 2026-08-31
-Status: Slices B0 and B1 implemented and locally verified; B1 awaits independent acceptance and Slices B2 through B4 remain closed
+Status: Slices B0 through B2 implemented and locally verified; B1 and B2 await independent acceptance and Slices B3 and B4 remain closed
 Scope: provider-neutral image derivation jobs and non-destructive application
 
 ## Decision
@@ -443,6 +443,44 @@ independently accepted or merged.
 Focused local verification at this checkpoint:
 
 - media-derivation contract, HTTP, and execution tests: 12/12 passed
+- Studio typecheck: passed
+- no provider call, deployment, secret write, paid operation, or remote
+  Cloudflare resource operation was performed
+
+## B2 implementation result
+
+Slice B2 is implemented on the isolated background-removal branch. It is not
+independently accepted or merged.
+
+- Provider input is workspace-owned bytes whose stored and computed hashes
+  match the frozen source identity. The dispatch sanitizer admits PNG only,
+  removes ancillary chunks including EXIF and color profiles, retains pixel
+  chunks and transparency semantics, and rejects JPEG or WebP until a deployed
+  image normalizer can correct orientation and color without leaking metadata.
+- Output admission requires a bounded, non-interlaced, 8-bit RGBA PNG with at
+  least one transparent pixel. It rejects opaque pixels-only output, other
+  media types, ancillary metadata, malformed chunks, unsupported filters, and
+  decompression failures.
+- R2 receives one attempt-scoped immutable object before D1 settlement. One D1
+  batch inserts the new ready asset, settles the exact running attempt and job,
+  and inserts immutable provenance. The provenance insert guard aborts the
+  batch if a stale or cancelled attempt no longer owns settlement.
+- A failed or incomplete batch triggers a committed-state read. Exact committed
+  output survives a lost D1 response. Otherwise the staged object is deleted
+  and no selectable asset remains.
+- The source row and object are never updated. The derived asset uses its own
+  ID, R2 key, content hash, dimensions, catalog row, and provenance. Renderers
+  continue to see it as an ordinary verified managed asset.
+- The B1 Workflow now uses this settlement transaction. Provider, quota, and
+  policy configuration still fail closed, and no production adapter is
+  configured.
+
+Focused local verification at this checkpoint:
+
+- normalization, source sanitization, execution, cancellation, output
+  transaction, and reconciliation tests: 8/8 passed
+- executable SQLite repository verification, including atomic output and late
+  cancellation cleanup: passed
 - Studio typecheck: passed
 - no provider call, deployment, secret write, paid operation, or remote
   Cloudflare resource operation was performed

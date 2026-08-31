@@ -10,6 +10,10 @@ import type {
   ProviderExecution,
   VerifiedDerivationInput,
 } from "./media-derivation-provider"
+import {
+  MediaDerivationDispatchError,
+  sanitizeProviderInput,
+} from "./media-derivation-provider"
 
 export type MediaDerivationOutput = Readonly<{
   mediaType: "image/png" | "image/jpeg" | "image/webp"
@@ -50,7 +54,10 @@ export class MediaDerivationExecutionError extends Error {
 }
 
 const safeFailure = (error: unknown) => {
-  if (error instanceof MediaDerivationExecutionError) {
+  if (
+    error instanceof MediaDerivationExecutionError ||
+    error instanceof MediaDerivationDispatchError
+  ) {
     return { code: error.code, retryable: error.retryable }
   }
   if (error instanceof DOMException && error.name === "TimeoutError") {
@@ -105,10 +112,8 @@ export async function executeMediaDerivation(
   const signal = AbortSignal.timeout(dependencies.timeoutMs)
   try {
     await dependencies.admitAttempt(claimed.job)
-    const input = await readVerifiedSource(
-      dependencies,
-      claimed.job,
-      claimed.attempt.id
+    const input = sanitizeProviderInput(
+      await readVerifiedSource(dependencies, claimed.job, claimed.attempt.id)
     )
     signal.throwIfAborted()
     execution = await dependencies.provider.start(input)
