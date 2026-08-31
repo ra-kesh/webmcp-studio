@@ -6,9 +6,11 @@ import {
   assertLocalAssetCapacity,
   deleteLocalAsset,
   getLocalAssetRecord,
+  getLocalAssetMetadataSummary,
   hasLocalAssetBlob,
   hasLocalAsset,
   inspectRequestedLocalAssets,
+  listLocalAssetMetadataInventory,
   listLocalAssetSummaries,
   listLocalAssetInventory,
   localAssetStorageSummary,
@@ -143,6 +145,241 @@ afterEach(async () => {
 })
 
 describe("local asset store", () => {
+  it("lists bounded metadata without opening Blob storage and defers decode to exact inspection", async () => {
+    const file = new File(["image"], "image.png", { type: "image/png" })
+    await saveLocalAsset(file, "asset-metadata-only", {
+      width: 10,
+      height: 20,
+    })
+    const transactions = vi.spyOn(IDBDatabase.prototype, "transaction")
+    const getAll = vi.spyOn(IDBObjectStore.prototype, "getAll")
+    const createObjectUrl = vi.spyOn(URL, "createObjectURL")
+    const verifyBlob = vi.fn(async () => ({ width: 10, height: 20 }))
+
+    const inventory = await listLocalAssetMetadataInventory({ limit: 1 })
+    const metadata = await getLocalAssetMetadataSummary("asset-metadata-only")
+
+    expect(inventory).toMatchObject({
+      schemaVersion: 1,
+      databaseVersion: 6,
+      migrationState: "current",
+      legacyRecordCount: 0,
+      legacyMetadataRecordCount: 0,
+      metadataRecordCount: 1,
+      examinedMetadataCount: 1,
+      unindexedMetadataCount: 0,
+      truncated: false,
+      assets: [
+        expect.objectContaining({
+          id: "asset-metadata-only",
+          width: 10,
+          height: 20,
+          integrity: "ready",
+        }),
+      ],
+      issues: [],
+    })
+    expect(getAll).not.toHaveBeenCalled()
+    expect(metadata).toMatchObject({
+      id: "asset-metadata-only",
+      width: 10,
+      height: 20,
+      revision: 1,
+    })
+    expect(createObjectUrl).not.toHaveBeenCalled()
+    expect(
+      transactions.mock.calls.flatMap(([names]) =>
+        typeof names === "string" ? [names] : Array.from(names)
+      )
+    ).not.toContain("asset-blobs")
+    expect(verifyBlob).not.toHaveBeenCalled()
+
+    transactions.mockClear()
+    const [selected] = await inspectRequestedLocalAssets(
+      ["asset-metadata-only"],
+      { verifyBlob }
+    )
+
+    expect(selected).toMatchObject({
+      status: "ready",
+      record: { id: "asset-metadata-only", blob: file },
+    })
+    expect(verifyBlob).toHaveBeenCalledOnce()
+    expect(verifyBlob).toHaveBeenCalledWith(file)
+    expect(createObjectUrl).not.toHaveBeenCalled()
+    expect(
+      transactions.mock.calls.flatMap(([names]) =>
+        typeof names === "string" ? [names] : Array.from(names)
+      )
+    ).toContain("asset-blobs")
+  })
+
+  it("reconciles decoded dimension drift with a new revision before exact selection", async () => {
+    const file = new File(["image"], "dimension-drift.png", {
+      type: "image/png",
+    })
+    await saveLocalAsset(file, "asset-dimension-drift", {
+      width: 10,
+      height: 20,
+    })
+
+    await expect(
+      inspectRequestedLocalAssets(["asset-dimension-drift"], {
+        verifyBlob: async () => ({ width: 30, height: 40 }),
+      })
+    ).resolves.toEqual([
+      expect.objectContaining({
+        status: "unavailable",
+        code: "local_media_local_repository_changed",
+      }),
+    ])
+    await expect(
+      getLocalAssetMetadataSummary("asset-dimension-drift")
+    ).resolves.toMatchObject({
+      width: 30,
+      height: 40,
+      revision: 2,
+    })
+    await expect(
+      inspectRequestedLocalAssets(["asset-dimension-drift"], {
+        verifyBlob: async () => ({ width: 30, height: 40 }),
+      })
+    ).resolves.toEqual([
+      expect.objectContaining({
+        status: "ready",
+        record: expect.objectContaining({
+          width: 30,
+          height: 40,
+          revision: 2,
+        }),
+      }),
+    ])
+  })
+
+  it("reports normalized split-store metadata without claiming it is current schema", async () => {
+    const file = new File(["image"], "legacy-metadata.png", {
+      type: "image/png",
+    })
+    await saveLocalAsset(file, "asset-legacy-metadata", {
+      width: 10,
+      height: 20,
+    })
+    await updateCurrentAssetStorage("asset-legacy-metadata", {
+      metadata: {
+        schemaVersion: 3,
+        id: "asset-legacy-metadata",
+        name: "legacy-metadata.png",
+        mediaType: "image/png",
+        size: file.size,
+        width: 10,
+        height: 20,
+        createdAt: "2026-08-30T00:00:00.000Z",
+        updatedAt: "2026-08-30T00:00:00.000Z",
+        lastUsedAt: "2026-08-30T00:00:00.000Z",
+        archivedAt: null,
+        revision: 1,
+      },
+    })
+
+    await expect(listLocalAssetMetadataInventory()).resolves.toMatchObject({
+      migrationState: "metadata_upgrade_pending",
+      legacyMetadataRecordCount: 1,
+      metadataRecordCount: 1,
+      assets: [
+        expect.objectContaining({
+          schemaVersion: 4,
+          id: "asset-legacy-metadata",
+        }),
+      ],
+    })
+  })
+
+  it("bounds the metadata cursor and reports an intentionally partial scan", async () => {
+    await saveLocalAsset(
+      new File(["older"], "older.png", { type: "image/png" }),
+      "asset-older",
+      {
+        width: 10,
+        height: 20,
+        now: "2026-08-30T00:00:00.000Z",
+      }
+    )
+    await saveLocalAsset(
+      new File(["newer"], "newer.png", { type: "image/png" }),
+      "asset-newer",
+      {
+        width: 10,
+        height: 20,
+        now: "2026-08-31T00:00:00.000Z",
+      }
+    )
+
+    await expect(
+      listLocalAssetMetadataInventory({ limit: 1 })
+    ).resolves.toMatchObject({
+      migrationState: "scan_truncated",
+      metadataRecordCount: 2,
+      truncated: true,
+      assets: [expect.objectContaining({ id: "asset-newer" })],
+    })
+    await expect(
+      listLocalAssetMetadataInventory({ limit: 1_001 })
+    ).rejects.toThrow("1-1000 item limit")
+  })
+
+  it("reports pending legacy migration without reading or migrating legacy bytes during discovery", async () => {
+    const blob = new Blob(["legacy-image"], { type: "image/png" })
+    await openLegacyDatabase({
+      id: "legacy-metadata-only",
+      blob,
+      name: "legacy.png",
+      mediaType: "image/png",
+      createdAt: "2026-08-01T00:00:00.000Z",
+    })
+    const getAll = vi.spyOn(IDBObjectStore.prototype, "getAll")
+
+    const beforeSelection = await listLocalAssetMetadataInventory()
+
+    expect(beforeSelection).toMatchObject({
+      migrationState: "legacy_pending",
+      legacyRecordCount: 1,
+      metadataRecordCount: 0,
+      assets: [],
+    })
+    expect(getAll).not.toHaveBeenCalled()
+
+    const verifyBlob = vi.fn(async () => ({ width: 1, height: 1 }))
+    const [selected] = await inspectRequestedLocalAssets(
+      ["legacy-metadata-only"],
+      { verifyBlob }
+    )
+    expect(selected).toMatchObject({
+      status: "unavailable",
+      code: "local_media_local_repository_changed",
+    })
+    expect(verifyBlob).toHaveBeenCalledWith(blob)
+    await expect(
+      inspectRequestedLocalAssets(["legacy-metadata-only"], { verifyBlob })
+    ).resolves.toEqual([
+      expect.objectContaining({
+        status: "ready",
+        record: expect.objectContaining({
+          id: "legacy-metadata-only",
+          blob,
+          width: 1,
+          height: 1,
+          revision: 2,
+        }),
+      }),
+    ])
+    await expect(listLocalAssetMetadataInventory()).resolves.toMatchObject({
+      migrationState: "current",
+      legacyRecordCount: 0,
+      metadataRecordCount: 1,
+      assets: [expect.objectContaining({ id: "legacy-metadata-only" })],
+    })
+  })
+
   it("inspects only requested aliases in exact order and keeps missing bytes distinct", async () => {
     const first = new File(["first"], "first.png", { type: "image/png" })
     const missing = new File(["missing"], "missing.png", {
@@ -397,7 +634,9 @@ describe("local asset store", () => {
     ).resolves.toEqual(
       expect.objectContaining({ ok: false, reason: "state_changed" })
     )
-    await expect(getLocalAssetRecord("asset-quarantine-race")).resolves.toBeNull()
+    await expect(
+      getLocalAssetRecord("asset-quarantine-race")
+    ).resolves.toBeNull()
     await expect(quarantineCount()).resolves.toBe(2)
   })
 
@@ -425,8 +664,25 @@ describe("local asset store", () => {
       })
     ).resolves.toEqual([
       {
+        status: "unavailable",
+        code: "local_media_local_repository_changed",
+        message:
+          "The saved image dimensions changed during verification. Retry with the updated local revision.",
+      },
+    ])
+    await expect(
+      inspectRequestedLocalAssets(["legacy-requested"], {
+        verifyBlob: async () => ({ width: 1, height: 1 }),
+      })
+    ).resolves.toEqual([
+      {
         status: "ready",
-        record: expect.objectContaining({ id: "legacy-requested" }),
+        record: expect.objectContaining({
+          id: "legacy-requested",
+          width: 1,
+          height: 1,
+          revision: 2,
+        }),
       },
     ])
     const database = await new Promise<IDBDatabase>((resolve, reject) => {

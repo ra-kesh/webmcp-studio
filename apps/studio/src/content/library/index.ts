@@ -4,6 +4,7 @@ export {
   studioLibraryCatalogIndex,
 } from "./catalog"
 export * from "./discovery-controller"
+export * from "./device-local-media-discovery-adapter"
 export * from "./library-discovery-adapter"
 export * from "./library-discovery-provider"
 export * from "./library-preview-controller"

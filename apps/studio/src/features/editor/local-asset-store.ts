@@ -11,6 +11,7 @@ import {
 import {
   LOCAL_ASSET_BLOB_STORE_NAME as BLOB_STORE_NAME,
   LOCAL_ASSET_LEGACY_STORE_NAME as LEGACY_STORE_NAME,
+  LOCAL_ASSET_LAST_USED_AT_INDEX,
   LOCAL_ASSET_METADATA_STORE_NAME as METADATA_STORE_NAME,
   LOCAL_ASSET_QUARANTINE_STORE_NAME as QUARANTINE_STORE_NAME,
   openLocalAssetDatabase,
@@ -48,6 +49,21 @@ export type LocalAssetIntegrityIssue = {
 }
 
 export type LocalAssetInventory = {
+  assets: LocalAssetSummary[]
+  issues: LocalAssetIntegrityIssue[]
+}
+
+export type LocalAssetMetadataInventory = {
+  schemaVersion: 1
+  databaseVersion: number
+  migrationState:
+    "current" | "legacy_pending" | "metadata_upgrade_pending" | "scan_truncated"
+  legacyRecordCount: number
+  legacyMetadataRecordCount: number
+  metadataRecordCount: number
+  examinedMetadataCount: number
+  unindexedMetadataCount: number
+  truncated: boolean
   assets: LocalAssetSummary[]
   issues: LocalAssetIntegrityIssue[]
 }
@@ -121,6 +137,14 @@ export type LocalAssetInventoryOptions = {
   /** Injectable for deterministic repository tests. Production verifies in-browser bytes. */
   verifyBlob?: LocalAssetBlobVerifier
   verificationConcurrency?: number
+}
+
+export const LOCAL_ASSET_METADATA_INVENTORY_LIMIT = 1_000
+
+export type LocalAssetMetadataInventoryOptions = {
+  includeArchived?: boolean
+  limit?: number
+  signal?: AbortSignal
 }
 
 export type LocalAssetStorageSummary = {
@@ -265,6 +289,24 @@ const parseSummary = (value: unknown): LocalAssetSummary | null => {
     revision: record.revision,
     integrity: "ready",
   }
+}
+
+const parseStoredMetadataSummary = (value: unknown) => {
+  if (!value || typeof value !== "object") return null
+  const record = value as {
+    schemaVersion?: unknown
+    integrity?: unknown
+  }
+  const legacyMetadata =
+    record.schemaVersion === 3 || record.schemaVersion === undefined
+  if (
+    !legacyMetadata &&
+    (record.schemaVersion !== 4 || record.integrity !== "ready")
+  ) {
+    return null
+  }
+  const summary = parseSummary(value)
+  return summary ? { summary, legacyMetadata } : null
 }
 
 const summaryForRecord = (record: LocalAssetRecord): LocalAssetSummary => {
@@ -1465,18 +1507,15 @@ export async function inspectRequestedLocalAssets(
               }
         }
 
+        let dimensions: { width: number; height: number } | null
         try {
-          const dimensions = await waitForLocalAssetOperation(
+          dimensions = await waitForLocalAssetOperation(
             verifyBlob(inspection.blob),
             signal
           )
           signal?.throwIfAborted()
           if (dimensions !== null && !dimensionsAreRendererSafe(dimensions)) {
             throw new Error("Saved image dimensions are outside Studio limits.")
-          }
-          return {
-            status: "ready" as const,
-            record: { ...inspection.summary, blob: inspection.blob },
           }
         } catch {
           signal?.throwIfAborted()
@@ -1514,6 +1553,27 @@ export async function inspectRequestedLocalAssets(
                 message:
                   "The saved image changed while Studio was checking it. Retry the check.",
               }
+        }
+        if (
+          dimensions !== null &&
+          (inspection.summary.width !== dimensions.width ||
+            inspection.summary.height !== dimensions.height)
+        ) {
+          await waitForLocalAssetOperation(
+            reconcileStoredAssetDimensions(inspection.summary, dimensions),
+            signal
+          )
+          signal?.throwIfAborted()
+          return {
+            status: "unavailable" as const,
+            code: "local_media_local_repository_changed",
+            message:
+              "The saved image dimensions changed during verification. Retry with the updated local revision.",
+          }
+        }
+        return {
+          status: "ready" as const,
+          record: { ...inspection.summary, blob: inspection.blob },
         }
       }
     )
@@ -1628,13 +1688,10 @@ export async function restoreLocalAssetBlob(
               })
             ),
             legacyConflictRequest.result
-              ? quarantineExpectationRecordFrom(
-                  legacyConflictRequest.result,
-                  {
-                    recordId: `legacy-conflict-${assetId}`,
-                    issueCode: "metadata_mismatch",
-                  }
-                )
+              ? quarantineExpectationRecordFrom(legacyConflictRequest.result, {
+                  recordId: `legacy-conflict-${assetId}`,
+                  issueCode: "metadata_mismatch",
+                })
               : null,
             legacyQuarantineRequest.result
               ? quarantineExpectationRecordFrom(
@@ -1777,6 +1834,186 @@ export async function hasLocalAssetBlob(assetId: string) {
     (store) => store.get(assetId)
   )
   return value instanceof Blob
+}
+
+/** Reads one metadata record without opening Blob storage or migrating bytes. */
+export async function getLocalAssetMetadataSummary(
+  assetIdInput: string,
+  signal?: AbortSignal
+): Promise<LocalAssetSummary | null> {
+  const assetId = localAssetIdSchema.parse(assetIdInput)
+  signal?.throwIfAborted()
+  const database = await openDatabaseForAbortableOperation(signal)
+  if (signal?.aborted) {
+    database.close()
+    signal.throwIfAborted()
+  }
+  return new Promise<LocalAssetSummary | null>((resolve, reject) => {
+    const transaction = database.transaction(METADATA_STORE_NAME, "readonly")
+    const request = transaction.objectStore(METADATA_STORE_NAME).get(assetId)
+    let result: LocalAssetSummary | null = null
+    request.onsuccess = () => {
+      result = parseStoredMetadataSummary(request.result)?.summary ?? null
+    }
+    const cleanUp = () => signal?.removeEventListener("abort", abort)
+    const abort = () => {
+      try {
+        transaction.abort()
+      } catch {
+        // Completion won the race; its handler preserves the abort reason.
+      }
+    }
+    transaction.oncomplete = () => {
+      cleanUp()
+      database.close()
+      if (signal?.aborted) {
+        reject(signal.reason)
+        return
+      }
+      resolve(result)
+    }
+    transaction.onerror = () => {
+      // The abort event is the rollback acknowledgement.
+    }
+    transaction.onabort = () => {
+      cleanUp()
+      database.close()
+      reject(
+        signal?.aborted
+          ? signal.reason
+          : (transaction.error ??
+              new Error("Asset metadata inspection was aborted"))
+      )
+    }
+    signal?.addEventListener("abort", abort, { once: true })
+    if (signal?.aborted) abort()
+  })
+}
+
+/**
+ * Reads only indexed metadata for discovery. Blob presence and decodability are
+ * deliberately rechecked by inspectRequestedLocalAssets at exact selection.
+ */
+export async function listLocalAssetMetadataInventory({
+  includeArchived = false,
+  limit = LOCAL_ASSET_METADATA_INVENTORY_LIMIT,
+  signal,
+}: LocalAssetMetadataInventoryOptions = {}): Promise<LocalAssetMetadataInventory> {
+  if (
+    !Number.isSafeInteger(limit) ||
+    limit < 1 ||
+    limit > LOCAL_ASSET_METADATA_INVENTORY_LIMIT
+  ) {
+    throw new RangeError(
+      `Local asset metadata inventory requires a 1-${LOCAL_ASSET_METADATA_INVENTORY_LIMIT} item limit.`
+    )
+  }
+  signal?.throwIfAborted()
+  const database = await openDatabaseForAbortableOperation(signal)
+  if (signal?.aborted) {
+    database.close()
+    signal.throwIfAborted()
+  }
+  const databaseVersion = database.version
+  const hasLegacyStore = database.objectStoreNames.contains(LEGACY_STORE_NAME)
+  return new Promise<LocalAssetMetadataInventory>((resolve, reject) => {
+    const storeNames = hasLegacyStore
+      ? [METADATA_STORE_NAME, LEGACY_STORE_NAME]
+      : [METADATA_STORE_NAME]
+    const transaction = database.transaction(storeNames, "readonly")
+    const metadataStore = transaction.objectStore(METADATA_STORE_NAME)
+    const metadataCountRequest = metadataStore.count()
+    const lastUsedIndex = metadataStore.index(LOCAL_ASSET_LAST_USED_AT_INDEX)
+    const indexedMetadataCountRequest = lastUsedIndex.count()
+    const legacyCountRequest = hasLegacyStore
+      ? transaction.objectStore(LEGACY_STORE_NAME).count()
+      : null
+    const cursorRequest = lastUsedIndex.openCursor(null, "prev")
+    const assets: LocalAssetSummary[] = []
+    const issues: LocalAssetIntegrityIssue[] = []
+    let examinedMetadataCount = 0
+    let legacyMetadataRecordCount = 0
+
+    cursorRequest.onsuccess = () => {
+      const cursor = cursorRequest.result
+      if (!cursor || examinedMetadataCount >= limit) return
+      examinedMetadataCount += 1
+      const parsed = parseStoredMetadataSummary(cursor.value)
+      if (!parsed) {
+        issues.push({
+          assetId: String(cursor.primaryKey).slice(0, 128),
+          code: "corrupt_metadata",
+          message: "Saved image metadata could not be validated.",
+        })
+      } else {
+        if (parsed.legacyMetadata) legacyMetadataRecordCount += 1
+        if (includeArchived || parsed.summary.archivedAt === null) {
+          assets.push(parsed.summary)
+        }
+      }
+      cursor.continue()
+    }
+
+    const cleanUp = () => signal?.removeEventListener("abort", abort)
+    const abort = () => {
+      try {
+        transaction.abort()
+      } catch {
+        // Completion won the race; its handler preserves the abort reason.
+      }
+    }
+    transaction.oncomplete = () => {
+      cleanUp()
+      database.close()
+      if (signal?.aborted) {
+        reject(signal.reason)
+        return
+      }
+      const metadataRecordCount = metadataCountRequest.result
+      const indexedMetadataCount = indexedMetadataCountRequest.result
+      const unindexedMetadataCount = Math.max(
+        0,
+        metadataRecordCount - indexedMetadataCount
+      )
+      const legacyRecordCount = legacyCountRequest?.result ?? 0
+      const truncated = indexedMetadataCount > examinedMetadataCount
+      const migrationState = legacyRecordCount
+        ? "legacy_pending"
+        : legacyMetadataRecordCount || unindexedMetadataCount
+          ? "metadata_upgrade_pending"
+          : truncated
+            ? "scan_truncated"
+            : "current"
+      resolve({
+        schemaVersion: 1,
+        databaseVersion,
+        migrationState,
+        legacyRecordCount,
+        legacyMetadataRecordCount,
+        metadataRecordCount,
+        examinedMetadataCount,
+        unindexedMetadataCount,
+        truncated,
+        assets,
+        issues,
+      })
+    }
+    transaction.onerror = () => {
+      // The abort event is the rollback acknowledgement.
+    }
+    transaction.onabort = () => {
+      cleanUp()
+      database.close()
+      reject(
+        signal?.aborted
+          ? signal.reason
+          : (transaction.error ??
+              new Error("Asset metadata inventory was aborted"))
+      )
+    }
+    signal?.addEventListener("abort", abort, { once: true })
+    if (signal?.aborted) abort()
+  })
 }
 
 export async function listLocalAssetInventory({

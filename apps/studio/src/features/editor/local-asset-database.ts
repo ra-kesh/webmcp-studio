@@ -8,7 +8,7 @@ export const LOCAL_ASSET_PROMOTION_JOURNAL_STORE_NAME =
   "asset-promotion-journal"
 
 const CREATED_AT_INDEX = "createdAt"
-const LAST_USED_AT_INDEX = "lastUsedAt"
+export const LOCAL_ASSET_LAST_USED_AT_INDEX = "lastUsedAt"
 
 const legacyRecentUseKey = (value: Record<string, unknown>) => {
   const input = [
@@ -115,8 +115,11 @@ export const openLocalAssetDatabase = () =>
       if (!metadataStore.indexNames.contains(CREATED_AT_INDEX)) {
         metadataStore.createIndex(CREATED_AT_INDEX, CREATED_AT_INDEX)
       }
-      if (!metadataStore.indexNames.contains(LAST_USED_AT_INDEX)) {
-        metadataStore.createIndex(LAST_USED_AT_INDEX, LAST_USED_AT_INDEX)
+      if (!metadataStore.indexNames.contains(LOCAL_ASSET_LAST_USED_AT_INDEX)) {
+        metadataStore.createIndex(
+          LOCAL_ASSET_LAST_USED_AT_INDEX,
+          LOCAL_ASSET_LAST_USED_AT_INDEX
+        )
       }
     }
     request.onsuccess = () => {
