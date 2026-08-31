@@ -5,6 +5,7 @@ import {
   createTemplateVersion,
   decodeDocument,
   decodeTemplateVersion,
+  documentSchema,
   migrateTemplateVersionForRepublication,
   northstarSeed,
 } from "../src"
@@ -35,14 +36,100 @@ function legacyDocument(document = northstarSeed): Record<string, unknown> {
     } = field
     return legacy
   })
+  clone.groups = clone.groups.map((group: any) => {
+    const { role: _role, mask: _mask, ...legacy } = group
+    return legacy
+  })
   return clone
 }
 
 describe("persisted document compatibility decoding", () => {
-  it("decodes current schemaVersion 4 documents without migrations", () => {
-    const decoded = decodeDocument(northstarSeed)
-    expect(decoded.migrations).toEqual([])
-    expect(decoded.document).toEqual(northstarSeed)
+  it("requires explicit strict v5 group roles and nonempty mask sources", () => {
+    const current = structuredClone(decodeDocument(northstarSeed).document)
+    current.groups.push({
+      id: "strict-v5-group",
+      role: "organize",
+      pageId: "cover",
+      name: "Strict v5 group",
+      nodeIds: ["cover-panel", "cover-eyebrow"],
+    })
+    const group = current.groups[0]
+    if (!group || group.nodeIds.length === 0) {
+      throw new Error("Expected a grouped Northstar fixture")
+    }
+
+    expect(() =>
+      documentSchema.parse({
+        ...current,
+        groups: [
+          {
+            id: group.id,
+            pageId: group.pageId,
+            name: group.name,
+            nodeIds: group.nodeIds,
+          },
+        ],
+      })
+    ).toThrow()
+    expect(() =>
+      documentSchema.parse({
+        ...current,
+        groups: [
+          {
+            ...group,
+            role: "mask",
+            mask: { type: "vector", sourceNodeIds: [] },
+          },
+        ],
+      })
+    ).toThrow()
+    expect(
+      documentSchema.parse({
+        ...current,
+        groups: [
+          {
+            ...group,
+            role: "mask",
+            mask: {
+              type: "luminance",
+              sourceNodeIds: [group.nodeIds[0]],
+            },
+          },
+        ],
+      }).groups[0]
+    ).toMatchObject({
+      role: "mask",
+      mask: { type: "luminance", sourceNodeIds: [group.nodeIds[0]] },
+    })
+  })
+
+  it("migrates writable schemaVersion 4 groups to explicit organize roles", () => {
+    const persisted = structuredClone(northstarSeed) as any
+    persisted.schemaVersion = 4
+    persisted.groups = persisted.groups.map((group: any) => {
+      const { role: _role, mask: _mask, ...legacy } = group
+      return legacy
+    })
+    const before = structuredClone(persisted)
+
+    const decoded = decodeDocument(persisted)
+
+    expect(persisted).toEqual(before)
+    expect(decoded.document.schemaVersion).toBe(5)
+    expect(decoded.document.groups).toEqual(
+      persisted.groups.map((group: any) => ({ ...group, role: "organize" }))
+    )
+    expect(decoded.migrations).toEqual([
+      {
+        code: "legacy_group_roles_initialized",
+        message:
+          "Document schema version 4 groups received explicit organize roles",
+      },
+      {
+        code: "document_schema_upgraded",
+        message: "Document schema was upgraded from version 4 to version 5",
+      },
+    ])
   })
 
   it("rewrites early schemaVersion 3 drafts that predate reusable resources", () => {
@@ -60,7 +147,7 @@ describe("persisted document compatibility decoding", () => {
 
     expect(persisted).toEqual(before)
     expect(decoded.document).toMatchObject({
-      schemaVersion: 4,
+      schemaVersion: 5,
       typographyStyles: [],
       paintStyles: [],
       variables: [],
@@ -72,6 +159,7 @@ describe("persisted document compatibility decoding", () => {
       "legacy_design_resources_initialized",
       "legacy_variable_bindings_initialized",
       "legacy_components_initialized",
+      "legacy_group_roles_initialized",
       "document_schema_upgraded",
     ])
   })
@@ -96,7 +184,7 @@ describe("persisted document compatibility decoding", () => {
     const decoded = decodeDocument(persisted)
 
     expect(persisted).toEqual(before)
-    expect(decoded.document.schemaVersion).toBe(4)
+    expect(decoded.document.schemaVersion).toBe(5)
     expect(
       decoded.document.nodes
         .filter((node) => node.type === "text")
@@ -119,6 +207,7 @@ describe("persisted document compatibility decoding", () => {
         "legacy_design_resources_initialized",
         "legacy_variable_bindings_initialized",
         "legacy_components_initialized",
+        "legacy_group_roles_initialized",
         "document_schema_upgraded",
       ])
     )
@@ -152,6 +241,47 @@ describe("persisted document compatibility decoding", () => {
     expect(() => decodeTemplateVersion(version)).toThrow(
       "Published schemaVersion 3 template versions are immutable"
     )
+  })
+
+  it("rejects an immutable schemaVersion 4 template but migrates it on republication", () => {
+    const current = decodeDocument(northstarSeed).document
+    const version = createTemplateVersion(current, {
+      id: "version-schema-four",
+      templateId: "northstar",
+      version: 1,
+      sourceSnapshotId: `sha256-${"4".repeat(64)}`,
+      publishedAt: "2026-08-28T11:00:00.000Z",
+    }) as any
+    version.document.schemaVersion = 4
+    version.document.groups = version.document.groups.map((group: any) => {
+      const { role: _role, mask: _mask, ...legacy } = group
+      return legacy
+    })
+    const before = structuredClone(version)
+
+    expect(() => decodeTemplateVersion(version)).toThrow(
+      "Published schemaVersion 4 template versions are immutable"
+    )
+    expect(version).toEqual(before)
+
+    const republished = migrateTemplateVersionForRepublication(version, {
+      id: "version-schema-four-republished",
+      templateId: "northstar",
+      version: 2,
+      sourceSnapshotId: `sha256-${"5".repeat(64)}`,
+      publishedAt: "2026-08-28T12:00:00.000Z",
+    })
+    expect(republished.version.document.schemaVersion).toBe(5)
+    expect(
+      republished.version.document.groups.every(
+        (group) => group.role === "organize"
+      )
+    ).toBe(true)
+    expect(republished.migrations.map((migration) => migration.code)).toEqual([
+      "legacy_group_roles_initialized",
+      "document_schema_upgraded",
+      "template_manifest_recomputed",
+    ])
   })
 
   it("normalizes a writable legacy managed image to one canonical identity", () => {
@@ -230,7 +360,7 @@ describe("persisted document compatibility decoding", () => {
     const decoded = decodeDocument(persisted)
 
     expect(persisted).toEqual(before)
-    expect(decoded.document.schemaVersion).toBe(4)
+    expect(decoded.document.schemaVersion).toBe(5)
     expect(
       decoded.document.nodes.find((node) => node.id === "legacy-cover-image")
     ).toMatchObject({
@@ -251,6 +381,7 @@ describe("persisted document compatibility decoding", () => {
         "legacy_image_placement_migrated",
         "legacy_image_frame_mask_defaulted",
         "legacy_image_accessibility_unresolved",
+        "legacy_group_roles_initialized",
         "document_schema_upgraded",
       ])
     )
@@ -343,6 +474,7 @@ describe("persisted document compatibility decoding", () => {
 
   it("normalizes supported formatted INR strings to canonical decimal storage", () => {
     const persisted = structuredClone(northstarSeed) as any
+    persisted.schemaVersion = 4
     const field = persisted.fields.find(
       (candidate: any) => candidate.id === "package_price"
     )

@@ -86,6 +86,7 @@ const createEditedDocument = () => {
   document.outputs[0]!.pageIds.push("manual-page")
   document.groups.push({
     id: "manual-group",
+    role: "organize",
     pageId: "manual-page",
     name: "Approved notes",
     nodeIds: ["manual-note"],
@@ -224,9 +225,9 @@ describe("quotation template application", () => {
       color: midnight.palette.accent,
       opacity: 0.84,
     })
-    expect(nextNote?.type === "text" ? nextNote.runs[0]?.style.color : null).toBe(
-      midnight.palette.muted
-    )
+    expect(
+      nextNote?.type === "text" ? nextNote.runs[0]?.style.color : null
+    ).toBe(midnight.palette.muted)
     expect(next.variables[0]).toMatchObject({
       id: "variable-template-surface",
       value: midnight.palette.surface,

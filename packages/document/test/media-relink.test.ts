@@ -52,7 +52,7 @@ const image = (id: string, assetId = localAssetId, src = from, x = 10) =>
 
 function mediaRelinkDocument(): Document {
   return documentSchema.parse({
-    schemaVersion: 4,
+    schemaVersion: 5,
     id: "media-relink-document",
     name: "Media relink fixture",
     revision: 7,
@@ -111,6 +111,7 @@ function mediaRelinkDocument(): Document {
     groups: [
       {
         id: "media-group",
+        role: "organize",
         pageId: "page-one",
         name: "Media",
         nodeIds: ["direct-one", "bound-one"],

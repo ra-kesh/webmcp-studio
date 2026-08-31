@@ -6,6 +6,7 @@ function componentDocument(): Document {
   const document = structuredClone(northstarSeed)
   document.groups.push({
     id: "component-source",
+    role: "organize",
     pageId: "cover",
     name: "Cover hero",
     nodeIds: ["cover-panel", "cover-title"],

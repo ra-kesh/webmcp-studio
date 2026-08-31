@@ -13,6 +13,12 @@ import { projectTextLayout } from "./text-layout"
 import { normalizeRichTextContent } from "./rich-text"
 import { assertVariableBindingCompatible } from "./variables"
 import { componentIntegrityIssues } from "./components"
+import {
+  assertCompositeAdmission,
+  initialMaskPaintAdmission,
+  PagePaintPlanError,
+  projectMaskCompositeGeometry,
+} from "./page-paint-plan"
 
 export type ValidationIssue = {
   id: string
@@ -460,6 +466,15 @@ export function validateDocument(document: Document): ValidationIssue[] {
   for (const group of document.groups) {
     const page = pages.get(group.pageId)
     if (!page) {
+      if (group.role === "mask") {
+        issues.push({
+          id: `group:${group.id}:mask-page`,
+          severity: "error",
+          code: "invalid_group",
+          message: `${group.name} mask must belong to an existing page`,
+          pageId: group.pageId,
+        })
+      }
       issues.push({
         id: `group:${group.id}:page`,
         severity: "error",
@@ -526,6 +541,117 @@ export function validateDocument(document: Document): ValidationIssue[] {
         })
       }
       directMembership.set(nodeId, group.id)
+    }
+
+    if (group.role === "mask") {
+      const maskIssue = (suffix: string, message: string, nodeId?: string) =>
+        issues.push({
+          id: `group:${group.id}:mask:${suffix}`,
+          severity: "error",
+          code: "invalid_group",
+          message,
+          pageId: group.pageId,
+          nodeId,
+        })
+      const sourceIds = new Set<string>()
+      if (group.mask.type !== "vector") {
+        maskIssue(
+          `type:${group.mask.type}`,
+          `${group.name} mask type is not admitted by the vector mask slice`
+        )
+      }
+      for (const sourceNodeId of group.mask.sourceNodeIds) {
+        if (sourceIds.has(sourceNodeId)) {
+          maskIssue(
+            `duplicate-source:${sourceNodeId}`,
+            `${group.name} mask contains the same source more than once`,
+            sourceNodeId
+          )
+          continue
+        }
+        sourceIds.add(sourceNodeId)
+        if (
+          !nodes.has(sourceNodeId) ||
+          !pageNodeIds.get(page.id)?.has(sourceNodeId)
+        ) {
+          maskIssue(
+            `source-page:${sourceNodeId}`,
+            `${group.name} mask source must exist on its page`,
+            sourceNodeId
+          )
+        }
+        if (!group.nodeIds.includes(sourceNodeId)) {
+          maskIssue(
+            `source-member:${sourceNodeId}`,
+            `${group.name} mask source must be a direct group member`,
+            sourceNodeId
+          )
+        }
+        const source = nodes.get(sourceNodeId)
+        if (
+          group.mask.type === "vector" &&
+          (source?.type !== "rect" || source.strokeWidth !== 0)
+        ) {
+          maskIssue(
+            `source-admission:${sourceNodeId}`,
+            `${group.name} mask source is outside the unstroked rectangle admission`,
+            sourceNodeId
+          )
+        }
+      }
+      if (sourceIds.size > initialMaskPaintAdmission.maxSources) {
+        maskIssue(
+          "source-limit",
+          `${group.name} mask exceeds the source admission limit`
+        )
+      }
+      const contentCount = group.nodeIds.filter(
+        (nodeId) => !sourceIds.has(nodeId)
+      ).length
+      if (contentCount === 0) {
+        maskIssue(
+          "content",
+          `${group.name} mask must contain a non-source layer`
+        )
+      }
+      if (contentCount > initialMaskPaintAdmission.maxMaskedDescendants) {
+        maskIssue(
+          "content-limit",
+          `${group.name} mask exceeds the masked-content admission limit`
+        )
+      }
+      if (group.parentGroupId || childGroupsByParent.has(group.id)) {
+        maskIssue(
+          "nesting",
+          `${group.name} mask exceeds the initial nesting admission`
+        )
+      }
+      const groupNodes = group.nodeIds
+        .map((nodeId) => nodes.get(nodeId))
+        .filter((node): node is NonNullable<typeof node> => Boolean(node))
+      if (groupNodes.length === group.nodeIds.length) {
+        const geometry = projectMaskCompositeGeometry(
+          groupNodes,
+          group.mask.sourceNodeIds
+        )
+        if (geometry.visibleContentNodeIds.length > 0) {
+          try {
+            assertCompositeAdmission(group.id, geometry.bounds, 1)
+          } catch (error) {
+            if (
+              error instanceof PagePaintPlanError &&
+              error.code === "MASK_GROUP_COMPOSITE_LIMIT"
+            ) {
+              maskIssue(
+                "composite-limit",
+                `${group.name} mask exceeds the initial composite admission limit`
+              )
+            } else {
+              throw error
+            }
+          }
+        }
+      }
     }
 
     const visited = new Set<string>([group.id])

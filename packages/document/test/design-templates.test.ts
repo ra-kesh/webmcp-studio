@@ -37,12 +37,14 @@ function componentTemplateDocument(): Document {
   document.groups.push(
     {
       id: sourceGroupId,
+      role: "organize",
       pageId: page.id,
       name: "Template component",
       nodeIds: [sourceNode.id],
     },
     {
       id: instanceGroupId,
+      role: "organize",
       pageId: page.id,
       name: "Template component 1",
       nodeIds: [instanceNodeId],

@@ -8,6 +8,7 @@ import {
   validateDocument,
 } from "../src"
 import type { Document } from "../src"
+import { initialMaskPaintAdmission } from "../src/page-paint-plan"
 
 const clone = () => structuredClone(northstarSeed)
 const errorsFor = (document: Document) =>
@@ -245,6 +246,7 @@ describe("strict document validation", () => {
     const page = document.pages.find((candidate) => candidate.id === "cover")!
     document.groups.push({
       id: "scattered-group",
+      role: "organize",
       pageId: page.id,
       name: "Scattered group",
       nodeIds: [page.nodeIds[0]!, page.nodeIds[2]!],
@@ -264,12 +266,14 @@ describe("strict document validation", () => {
     document.groups.push(
       {
         id: "duplicate-membership",
+        role: "organize",
         pageId: page.id,
         name: "Duplicate membership",
         nodeIds: [page.nodeIds[0]!, page.nodeIds[0]!],
       },
       {
         id: "empty-leaf",
+        role: "organize",
         pageId: page.id,
         name: "Empty leaf",
         nodeIds: [],
@@ -286,6 +290,123 @@ describe("strict document validation", () => {
         expect.objectContaining({
           code: "invalid_group",
           message: "Empty leaf does not contain any layers or child groups",
+        }),
+      ])
+    )
+  })
+
+  it("reports canonical mask relation failures as stable invalid_group issues", () => {
+    const document = clone()
+    const page = document.pages.find((candidate) => candidate.id === "cover")!
+    const source = document.nodes.find((node) => node.id === page.nodeIds[0])!
+    document.groups.push(
+      {
+        id: "invalid-mask",
+        role: "mask",
+        pageId: page.id,
+        name: "Invalid mask",
+        nodeIds: [page.nodeIds[1]!],
+        mask: {
+          type: "vector",
+          sourceNodeIds: [source.id, source.id],
+        },
+      },
+      {
+        id: "empty-mask",
+        role: "mask",
+        pageId: page.id,
+        name: "Empty mask",
+        nodeIds: [source.id],
+        mask: { type: "vector", sourceNodeIds: [source.id] },
+      }
+    )
+
+    expect(errorsFor(document)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: `group:invalid-mask:mask:duplicate-source:${source.id}`,
+          code: "invalid_group",
+        }),
+        expect.objectContaining({
+          id: `group:invalid-mask:mask:source-member:${source.id}`,
+          code: "invalid_group",
+        }),
+        expect.objectContaining({
+          id: "group:empty-mask:mask:content",
+          code: "invalid_group",
+        }),
+      ])
+    )
+  })
+
+  it("reports unsupported mode, nesting, and composite admission as stable mask issues", () => {
+    const unsupported = clone()
+    unsupported.groups.push({
+      id: "unsupported-mask",
+      role: "mask",
+      pageId: "cover",
+      name: "Unsupported mask",
+      nodeIds: ["cover-panel", "cover-eyebrow"],
+      mask: { type: "alpha", sourceNodeIds: ["cover-panel"] },
+    })
+    expect(errorsFor(unsupported)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "group:unsupported-mask:mask:type:alpha",
+          code: "invalid_group",
+        }),
+      ])
+    )
+
+    const nested = clone()
+    nested.groups.push(
+      {
+        id: "nested-mask",
+        role: "mask",
+        pageId: "cover",
+        name: "Nested mask",
+        nodeIds: ["cover-panel", "cover-eyebrow"],
+        mask: { type: "vector", sourceNodeIds: ["cover-panel"] },
+      },
+      {
+        id: "nested-mask-child",
+        role: "organize",
+        pageId: "cover",
+        parentGroupId: "nested-mask",
+        name: "Nested mask child",
+        nodeIds: ["cover-title"],
+      }
+    )
+    expect(errorsFor(nested)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "group:nested-mask:mask:nesting",
+          code: "invalid_group",
+        }),
+      ])
+    )
+
+    const oversized = clone()
+    const oversizedContent = oversized.nodes.find(
+      (node) => node.id === "cover-eyebrow"
+    )!
+    oversizedContent.x = 0
+    oversizedContent.y = 0
+    oversizedContent.width = initialMaskPaintAdmission.maxCompositeDimension
+    oversizedContent.height = initialMaskPaintAdmission.maxCompositeDimension
+    oversized.groups.push({
+      id: "oversized-mask",
+      role: "mask",
+      pageId: "cover",
+      name: "Oversized mask",
+      nodeIds: ["cover-panel", "cover-eyebrow"],
+      mask: { type: "vector", sourceNodeIds: ["cover-panel"] },
+    })
+    expect(errorsFor(oversized)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "group:oversized-mask:mask:composite-limit",
+          code: "invalid_group",
         }),
       ])
     )

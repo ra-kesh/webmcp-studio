@@ -386,7 +386,7 @@ const nodes: SceneNode[] = [
 ]
 
 export const northstarSeed: Document = documentSchema.parse({
-  schemaVersion: 4,
+  schemaVersion: 5,
   id: "doc-northstar-aditi-kabir",
   name: "Aditi & Kabir proposal pack",
   revision: 3,

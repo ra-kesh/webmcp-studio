@@ -111,7 +111,7 @@ const managedDetail = projectPublicMediaDetail(managedAsset, {
 })
 
 const document = documentSchema.parse({
-  schemaVersion: 4,
+  schemaVersion: 5,
   id: "document-dialog-media",
   name: "Media dialog",
   revision: 1,

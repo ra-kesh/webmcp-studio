@@ -12,6 +12,7 @@ function componentDocument(): Document {
   const document = structuredClone(northstarSeed)
   document.groups.push({
     id: "component-source",
+    role: "organize",
     pageId: "cover",
     name: "Cover hero",
     nodeIds: ["cover-panel", "cover-title"],
@@ -63,6 +64,7 @@ function componentDocument(): Document {
   document.componentInstances = [instance]
   document.groups.push({
     id: instance.rootGroupId,
+    role: "organize",
     pageId: "story",
     name: instance.name,
     nodeIds: instance.nodeMappings.map((mapping) => mapping.instanceNodeId),

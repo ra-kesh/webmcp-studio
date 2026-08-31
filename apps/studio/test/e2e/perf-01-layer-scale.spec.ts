@@ -63,6 +63,7 @@ function createLayerScaleDocument() {
     groups: [
       {
         id: "perf-layer-group",
+        role: "organize",
         pageId: page.id,
         name: "Scale layers",
         nodeIds: nodes.map((node) => node.id),

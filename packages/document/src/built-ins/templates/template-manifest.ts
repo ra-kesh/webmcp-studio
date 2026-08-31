@@ -56,7 +56,7 @@ export const builtInTemplateManifestSchema = z
         .object({
           kind: z.literal("document"),
           documentId: z.string().min(1),
-          schemaVersion: z.literal(4),
+          schemaVersion: z.literal(5),
         })
         .strict(),
       z

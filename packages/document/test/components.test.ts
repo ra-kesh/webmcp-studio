@@ -75,6 +75,7 @@ function componentFixture(): Document {
       pageId: "cover",
       name: component.name,
       nodeIds: ["cover-panel"],
+      role: "organize",
     },
     {
       id: "group-component-hero-details",
@@ -82,12 +83,14 @@ function componentFixture(): Document {
       name: "Hero details",
       nodeIds: ["cover-eyebrow"],
       parentGroupId: component.sourceGroupId,
+      role: "organize",
     },
     {
       id: instance.rootGroupId,
       pageId: "story",
       name: instance.name,
       nodeIds: ["instance-cover-panel"],
+      role: "organize",
     },
     {
       id: "group-instance-hero-details",
@@ -95,6 +98,7 @@ function componentFixture(): Document {
       name: "Hero details",
       nodeIds: ["instance-cover-eyebrow"],
       parentGroupId: instance.rootGroupId,
+      role: "organize",
     }
   )
   document.components = [component]
@@ -285,6 +289,110 @@ describe("canonical document components", () => {
       nodeIds: ["created-cover-eyebrow"],
     })
     expect(next.revision).toBe(document.revision + 1)
+  })
+
+  it("remaps mask sources while creating and refreshing component groups", () => {
+    const sourceOnly = componentSourceFixture()
+    sourceOnly.groups = sourceOnly.groups
+      .filter((group) => group.id !== "group-component-hero-details")
+      .map((group) =>
+        group.id === "group-component-hero"
+          ? {
+              ...group,
+              nodeIds: ["cover-panel", "cover-eyebrow"],
+              role: "mask",
+              mask: { type: "vector", sourceNodeIds: ["cover-panel"] },
+            }
+          : group
+      )
+    const created = applyCommand(sourceOnly, {
+      ...commandMeta("create-mask-instance"),
+      type: "create_component_instance",
+      pageId: "story",
+      instance: {
+        id: "instance-created-mask",
+        name: "Created mask hero",
+        componentId: "component-hero",
+        variantId: "variant-default",
+        rootGroupId: "group-created-mask-hero",
+        transform: { x: 100, y: 200, scale: 0.5, rotation: 0 },
+        nodeMappings: [
+          {
+            sourceNodeId: "cover-panel",
+            instanceNodeId: "created-mask-cover-panel",
+          },
+          {
+            sourceNodeId: "cover-eyebrow",
+            instanceNodeId: "created-mask-cover-eyebrow",
+          },
+        ],
+        groupMappings: [
+          {
+            sourceGroupId: "group-component-hero",
+            instanceGroupId: "group-created-mask-hero",
+          },
+        ],
+        overrides: {},
+      },
+    })
+    expect(
+      created.groups.find((group) => group.id === "group-created-mask-hero")
+    ).toMatchObject({
+      role: "mask",
+      mask: {
+        type: "vector",
+        sourceNodeIds: ["created-mask-cover-panel"],
+      },
+    })
+
+    const linked = componentFixture()
+    linked.groups = linked.groups
+      .filter(
+        (group) =>
+          group.id !== "group-component-hero-details" &&
+          group.id !== "group-instance-hero-details"
+      )
+      .map((group) =>
+        group.id === "group-component-hero"
+          ? {
+              ...group,
+              nodeIds: ["cover-panel", "cover-eyebrow"],
+              role: "mask",
+              mask: { type: "vector", sourceNodeIds: ["cover-panel"] },
+            }
+          : group.id === "group-instance-hero"
+            ? {
+                ...group,
+                nodeIds: ["instance-cover-panel", "instance-cover-eyebrow"],
+              }
+            : group
+      )
+    linked.componentInstances = linked.componentInstances.map((instance) => ({
+      ...instance,
+      groupMappings: instance.groupMappings.filter(
+        (mapping) => mapping.sourceGroupId !== "group-component-hero-details"
+      ),
+    }))
+    const dangling = structuredClone(linked)
+    dangling.componentInstances[0]!.nodeMappings =
+      dangling.componentInstances[0]!.nodeMappings.filter(
+        (mapping) => mapping.sourceNodeId !== "cover-panel"
+      )
+    expect(() => materializeComponentInstances(dangling)).toThrow(
+      "Component instance instance-hero must map its complete source subtree"
+    )
+    const refreshed = materializeComponentInstances(linked)
+    expect(
+      refreshed.groups.find((group) => group.id === "group-instance-hero")
+    ).toMatchObject({
+      role: "mask",
+      mask: {
+        type: "vector",
+        sourceNodeIds: ["instance-cover-panel"],
+      },
+    })
+    expect(componentIntegrityIssues(refreshed)).toEqual([])
+    expect(() => assertValidDocument(refreshed)).not.toThrow()
   })
 
   it("propagates source edits while preserving, resetting and detaching overrides", () => {
@@ -776,14 +884,27 @@ describe("canonical document components", () => {
   it("detects direct and transitive component cycles iteratively", () => {
     const document = structuredClone(northstarSeed)
     document.groups = [
-      { id: "group-a", pageId: "cover", name: "A", nodeIds: [] },
-      { id: "group-b", pageId: "story", name: "B", nodeIds: [] },
+      {
+        id: "group-a",
+        pageId: "cover",
+        name: "A",
+        nodeIds: [],
+        role: "organize",
+      },
+      {
+        id: "group-b",
+        pageId: "story",
+        name: "B",
+        nodeIds: [],
+        role: "organize",
+      },
       {
         id: "instance-b-root",
         pageId: "cover",
         name: "B inside A",
         nodeIds: [],
         parentGroupId: "group-a",
+        role: "organize",
       },
       {
         id: "instance-a-root",
@@ -791,6 +912,7 @@ describe("canonical document components", () => {
         name: "A inside B",
         nodeIds: [],
         parentGroupId: "group-b",
+        role: "organize",
       },
     ]
     document.components = [
@@ -940,6 +1062,7 @@ describe("canonical document components", () => {
         pageId: "component-render-page",
         name: instance.name,
         nodeIds: [`component-propagation-${index}-card`],
+        role: "organize" as const,
       },
       {
         id: `component-propagation-${index}-nested-root`,
@@ -947,6 +1070,7 @@ describe("canonical document components", () => {
         name: "Badge nested in card",
         nodeIds: [`component-propagation-${index}-badge`],
         parentGroupId: instance.rootGroupId,
+        role: "organize" as const,
       },
     ])
     const fixture = materializeComponentInstances({

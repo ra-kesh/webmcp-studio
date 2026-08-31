@@ -817,6 +817,7 @@ export function prepareQuotationRefresh(
       name,
       pageId,
       nodeIds,
+      role: "organize",
       ...(parentGroupId ? { parentGroupId } : {}),
     })
   }

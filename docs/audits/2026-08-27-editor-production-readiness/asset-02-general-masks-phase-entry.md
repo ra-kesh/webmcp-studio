@@ -1,7 +1,7 @@
 # ASSET-02 general masks phase entry
 
 Date: 2026-08-31
-Status: Gate M0 accepted; Gate M1 implementation next
+Status: Gate M1 accepted; Gate M2 next
 Scope: local, non-destructive masks and clipping
 Out of scope: background-removal services and generated replacement assets
 
@@ -652,3 +652,37 @@ Retained evidence:
 - PNG versus PDF raster: 173 affected pixels for visible and 42 for hidden-source, both below the 250-pixel gate
 
 The first production slice remains unchanged: one visible unstroked rectangle vector source, one or more content nodes, no nested mask group, the accepted resource limits, and unmasked fallthrough when no source is visible. Schema, persistence, commands, and user-facing controls begin in Gate M1 and Gate M2.
+
+## Gate M1 checkpoint A — implementation started
+
+Started on 2026-08-31 after re-reading this audit and the relevant OpenPencil mask renderer plus Loora normalized-model and atomic-transaction boundaries.
+
+The implementation is split into four non-overlapping tracks:
+
+- schema version 5 and immutable v4 migration/republication behavior
+- canonical mask validation and document-derived page paint projection
+- semantic clone, duplicate, component, and generic structural-command preservation
+- canonical fixture upgrades, public projection boundary, integration checks, and final independent review
+
+Gate M1 will not add user-facing create/release/type commands. Those remain Gate M2 work. The checkpoint closes only when v4 documents migrate to explicit organizational groups without changing their rendering, canonical mask groups project deterministically, structural copy/component paths remap mask sources, and generic commands cannot leave a dangling relation.
+
+## Gate M1 checkpoint B — schema and projection accepted
+
+Accepted on 2026-08-31. Gate M1 is complete.
+
+Completed:
+
+- schema version 5 now requires discriminated `organize` and `mask` group roles; writable schema-v1 through v4 documents migrate existing groups explicitly to `organize`, while published schema-v4 versions remain immutable and cross the migration boundary only through republication
+- the canonical page paint projection remains package-internal; it derives supported vector mask relations from canonical groups and preserves flat ordinary output for organize groups
+- validation and projection report stable invalid-group, admission, and nesting failures, including rejected nested mask relations
+- semantic clone, page duplicate, and component source/instance remapping preserve mask source identity; generic structural operations retain their atomic protections against dangling or invalid relations
+- an explicit schema-v4 migration test proves organize-group documents retain their legacy flat page paint-plan identity
+
+Verification:
+
+- independent review verdict: **COMMIT**
+- 38/38 final targeted tests and 363/363 full document tests passed
+- document and Studio typechecks passed
+- formatting and diff checks passed
+
+User-facing typed create, set, and release mask commands intentionally remain Gate M2 work.

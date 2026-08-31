@@ -1,4 +1,4 @@
-import type { Page, SceneNode } from "./schema"
+import type { Document, Page, SceneNode } from "./schema"
 
 export type MaskPaintType = "vector"
 
@@ -56,6 +56,7 @@ export type PagePaintPlanErrorCode =
   | "MASK_GROUP_NO_CONTENT"
   | "MASK_GROUP_NONCONTIGUOUS"
   | "MASK_GROUP_OVERLAP"
+  | "MASK_GROUP_NESTING_UNSUPPORTED"
   | "MASK_GROUP_CONTENT_LIMIT"
   | "MASK_GROUP_COMPOSITE_LIMIT"
   | "MASK_GROUP_INVALID_PIXEL_RATIO"
@@ -112,7 +113,38 @@ const unionBounds = (bounds: readonly PagePaintBounds[]): PagePaintBounds => {
   return { x: left, y: top, width: right - left, height: bottom - top }
 }
 
-const assertCompositeAdmission = (
+export const projectMaskCompositeGeometry = (
+  nodes: readonly SceneNode[],
+  sourceNodeIds: readonly string[]
+) => {
+  const sourceIds = new Set(sourceNodeIds)
+  const visibleSourceNodeIds = nodes
+    .filter((node) => sourceIds.has(node.id) && node.visible)
+    .map((node) => node.id)
+  const visibleContentNodeIds = nodes
+    .filter((node) => !sourceIds.has(node.id) && node.visible)
+    .map((node) => node.id)
+  const maskEnabled = visibleSourceNodeIds.length > 0
+  const compositeRequired = maskEnabled && visibleContentNodeIds.length > 0
+  const contributingNodeIds = compositeRequired
+    ? [...visibleSourceNodeIds, ...visibleContentNodeIds]
+    : visibleContentNodeIds
+  const nodesById = new Map(nodes.map((node) => [node.id, node]))
+  const bounds = unionBounds(
+    contributingNodeIds.map((nodeId) =>
+      rotatedFrameBounds(nodesById.get(nodeId)!)
+    )
+  )
+  return {
+    visibleSourceNodeIds,
+    visibleContentNodeIds,
+    maskEnabled,
+    compositeRequired,
+    bounds,
+  } as const
+}
+
+export const assertCompositeAdmission = (
   groupId: string,
   bounds: PagePaintBounds,
   pixelRatio: number
@@ -132,13 +164,122 @@ const assertCompositeAdmission = (
   }
 }
 
+type CanonicalMaskGroup = Readonly<{
+  role: "mask"
+  id: string
+  pageId: string
+  nodeIds: readonly string[]
+  parentGroupId?: string
+  mask: Readonly<{
+    type: MaskPaintType
+    sourceNodeIds: readonly string[]
+  }>
+}>
+
+const isCanonicalMaskGroup = (
+  group: Document["groups"][number]
+): group is Document["groups"][number] & CanonicalMaskGroup =>
+  (group as { role?: unknown; mask?: { type?: unknown } }).role === "mask" &&
+  (group as { mask?: { type?: unknown } }).mask?.type === "vector"
+
+const canonicalMaskRelationsForPage = (
+  document: Document,
+  page: Page
+): MaskPaintRelation[] => {
+  const relations: MaskPaintRelation[] = []
+  for (const group of document.groups) {
+    if (group.role !== "mask" || group.pageId !== page.id) continue
+    if (
+      group.parentGroupId ||
+      document.groups.some((candidate) => candidate.parentGroupId === group.id)
+    ) {
+      throw new PagePaintPlanError(
+        "MASK_GROUP_NESTING_UNSUPPORTED",
+        `Mask group ${group.id} exceeds the initial nesting admission`,
+        { groupId: group.id }
+      )
+    }
+    if (!isCanonicalMaskGroup(group)) {
+      throw new PagePaintPlanError(
+        "MASK_GROUP_UNSUPPORTED_TYPE",
+        `Mask group ${group.id} uses a type outside the initial vector contract`,
+        { groupId: group.id }
+      )
+    }
+    relations.push({
+      groupId: group.id,
+      pageId: group.pageId,
+      maskType: group.mask.type,
+      // The canonical contract requires mask sources and content to be direct
+      // members. Do not expand descendants here: projection must reject an
+      // invalid nested relation even when a caller bypasses validation.
+      nodeIds: [...group.nodeIds],
+      sourceNodeIds: [...group.mask.sourceNodeIds],
+    })
+  }
+  return relations
+}
+
+/**
+ * Projects a canonical document page. Organize groups intentionally contribute
+ * no relation, preserving the legacy flat paint traversal. The relation overload
+ * below remains internal M0 fixture support until those fixtures are retired.
+ */
+export function projectPagePaintPlan(
+  document: Document,
+  pageId: string,
+  options?: { pixelRatio?: number }
+): PagePaintPlan
+/** @internal Gate M0 relation-fixture compatibility only. */
+export function projectPagePaintPlan(
+  page: Page,
+  nodes: readonly SceneNode[],
+  maskRelations: readonly MaskPaintRelation[],
+  options?: { pixelRatio?: number }
+): PagePaintPlan
+export function projectPagePaintPlan(
+  documentOrPage: Document | Page,
+  pageIdOrNodes: string | readonly SceneNode[],
+  relationsOrOptions:
+    readonly MaskPaintRelation[] | { pixelRatio?: number } = [],
+  options: { pixelRatio?: number } = {}
+): PagePaintPlan {
+  if ("pages" in documentOrPage) {
+    if (typeof pageIdOrNodes !== "string") {
+      throw new Error("Canonical paint-plan projection requires a page id")
+    }
+    const page = documentOrPage.pages.find(
+      (candidate) => candidate.id === pageIdOrNodes
+    )
+    if (!page) throw new Error(`Unknown page: ${pageIdOrNodes}`)
+    const projectionOptions = (
+      Array.isArray(relationsOrOptions) ? {} : relationsOrOptions
+    ) as { pixelRatio?: number }
+    return projectPagePaintPlanFromRelations(
+      page,
+      documentOrPage.nodes,
+      canonicalMaskRelationsForPage(documentOrPage, page),
+      projectionOptions
+    )
+  }
+  if (typeof pageIdOrNodes === "string") {
+    throw new Error("Relation paint-plan projection requires page nodes")
+  }
+  return projectPagePaintPlanFromRelations(
+    documentOrPage,
+    pageIdOrNodes,
+    relationsOrOptions as readonly MaskPaintRelation[],
+    options
+  )
+}
+
 /**
  * Builds the shared structural paint plan without depending on Fabric, DOM,
  * decoded resources, or provider URLs. Geometry follows the top-left rotation
  * origin shared by Fabric, React, and renderer HTML. Gate M0 passes relations explicitly;
  * schema v5 will derive the same input from canonical document groups.
  */
-export function projectPagePaintPlan(
+export function projectPagePaintPlanFromRelations(
   page: Page,
   nodes: readonly SceneNode[],
   maskRelations: readonly MaskPaintRelation[],
@@ -295,36 +436,24 @@ export function projectPagePaintPlan(
         relationByNodeId.get(candidateId)?.groupId === relation.groupId &&
         !sourceIds.has(candidateId)
     )
-    const visibleSourceNodeIds = relation.sourceNodeIds.filter(
-      (sourceNodeId) => nodesById.get(sourceNodeId)?.visible
+    const geometry = projectMaskCompositeGeometry(
+      relation.nodeIds.map((nodeId) => nodesById.get(nodeId)!),
+      relation.sourceNodeIds
     )
-    const visibleContentNodeIds = contentNodeIds.filter((contentNodeId) =>
-      Boolean(nodesById.get(contentNodeId)?.visible)
-    )
-    const maskEnabled = visibleSourceNodeIds.length > 0
-    const compositeRequired = maskEnabled && visibleContentNodeIds.length > 0
-    const contributingNodeIds = compositeRequired
-      ? [...visibleSourceNodeIds, ...visibleContentNodeIds]
-      : visibleContentNodeIds
-    const bounds = unionBounds(
-      contributingNodeIds.map((contributingNodeId) =>
-        rotatedFrameBounds(nodesById.get(contributingNodeId)!)
-      )
-    )
-    assertCompositeAdmission(relation.groupId, bounds, pixelRatio)
+    assertCompositeAdmission(relation.groupId, geometry.bounds, pixelRatio)
     entries.push({
       kind: "mask_group",
       groupId: relation.groupId,
       maskType: relation.maskType,
       sourceNodeIds: [...relation.sourceNodeIds],
-      visibleSourceNodeIds,
+      visibleSourceNodeIds: geometry.visibleSourceNodeIds,
       content: contentNodeIds.map((contentNodeId) => ({
         kind: "node",
         nodeId: contentNodeId,
       })),
-      bounds,
-      maskEnabled,
-      compositeRequired,
+      bounds: geometry.bounds,
+      maskEnabled: geometry.maskEnabled,
+      compositeRequired: geometry.compositeRequired,
     })
   }
 

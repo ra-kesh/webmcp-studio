@@ -5,6 +5,7 @@ import {
   type ComponentDefinition,
   type ComponentInstance,
   type Document,
+  type GroupDefinition,
   type SceneNode,
   type TextNodePatch,
 } from "./schema"
@@ -81,6 +82,66 @@ function buildComponentDocumentIndex(
 
 const own = (value: object, key: PropertyKey) =>
   Object.prototype.hasOwnProperty.call(value, key)
+
+function mappedGroupNodeId(
+  nodeMapping: ReadonlyMap<string, string>,
+  sourceNodeId: string,
+  sourceGroupId: string
+) {
+  const instanceNodeId = nodeMapping.get(sourceNodeId)
+  if (!instanceNodeId) {
+    throw new Error(
+      `Component group ${sourceGroupId} has an unmapped layer ${sourceNodeId}`
+    )
+  }
+  return instanceNodeId
+}
+
+function materializedGroupDefinition(
+  sourceGroup: GroupDefinition,
+  current: GroupDefinition,
+  nodeMapping: ReadonlyMap<string, string>,
+  name: string,
+  parentGroupId: string | undefined
+): GroupDefinition {
+  const common = {
+    id: current.id,
+    pageId: current.pageId,
+    name,
+    nodeIds: sourceGroup.nodeIds.map((sourceNodeId) =>
+      mappedGroupNodeId(nodeMapping, sourceNodeId, sourceGroup.id)
+    ),
+    ...(parentGroupId ? { parentGroupId } : {}),
+  }
+  if (sourceGroup.role === "organize") {
+    return { ...common, role: "organize" }
+  }
+  return {
+    ...common,
+    role: "mask",
+    mask: {
+      type: sourceGroup.mask.type,
+      sourceNodeIds: sourceGroup.mask.sourceNodeIds.map((sourceNodeId) =>
+        mappedGroupNodeId(nodeMapping, sourceNodeId, sourceGroup.id)
+      ) as [string, ...string[]],
+    },
+  }
+}
+
+function mappedMaskValue(
+  sourceGroup: GroupDefinition,
+  nodeMapping: ReadonlyMap<string, string>
+) {
+  if (sourceGroup.role === "organize") return undefined
+  const sourceNodeIds = sourceGroup.mask.sourceNodeIds.map((sourceNodeId) =>
+    nodeMapping.get(sourceNodeId)
+  )
+  if (sourceNodeIds.some((nodeId) => !nodeId)) return null
+  return {
+    type: sourceGroup.mask.type,
+    sourceNodeIds,
+  }
+}
 
 function stableValue(value: unknown): string {
   if (value === null || typeof value !== "object") {
@@ -681,6 +742,9 @@ export function componentIntegrityIssues(
         mapping.sourceGroupId === component.sourceGroupId
           ? instance.name
           : sourceGroup?.name
+      const expectedMask = sourceGroup
+        ? mappedMaskValue(sourceGroup, nodeMappingBySource)
+        : null
       const valid =
         sourceGroupIds.has(mapping.sourceGroupId) &&
         Boolean(sourceGroup) &&
@@ -690,7 +754,12 @@ export function componentIntegrityIssues(
         (sourceParent && sourceGroupIds.has(sourceParent)
           ? instanceGroup?.parentGroupId === expectedParent
           : mapping.instanceGroupId === instance.rootGroupId) &&
-        stableValue(instanceGroup?.nodeIds) === stableValue(expectedNodeIds)
+        stableValue(instanceGroup?.nodeIds) === stableValue(expectedNodeIds) &&
+        instanceGroup?.role === sourceGroup?.role &&
+        expectedMask !== null &&
+        stableValue(
+          instanceGroup?.role === "mask" ? instanceGroup.mask : undefined
+        ) === stableValue(expectedMask)
       if (valid) continue
       issues.push({
         code: "component_instance_mapping_invalid",
@@ -883,6 +952,18 @@ export function materializeComponentInstances(document: Document): Document {
           mapping.instanceGroupId,
         ])
       )
+      if (
+        nodeMapping.size !== instance.nodeMappings.length ||
+        source.nodeIds.some((sourceNodeId) => !nodeMapping.has(sourceNodeId)) ||
+        groupMapping.size !== instance.groupMappings.length ||
+        source.groupIds.some(
+          (sourceGroupId) => !groupMapping.has(sourceGroupId)
+        )
+      ) {
+        throw new Error(
+          `Component instance ${instance.id} must map its complete source subtree`
+        )
+      }
       for (const mapping of instance.groupMappings) {
         const sourceGroup = sourceGroups.get(mapping.sourceGroupId)
         const current = index.groupsById.get(mapping.instanceGroupId)
@@ -894,18 +975,18 @@ export function materializeComponentInstances(document: Document): Document {
             : sourceParent
               ? groupMapping.get(sourceParent)
               : undefined
-        groupUpdates.set(current.id, {
-          ...current,
-          name:
+        groupUpdates.set(
+          current.id,
+          materializedGroupDefinition(
+            sourceGroup,
+            current,
+            nodeMapping,
             sourceGroup.id === component.sourceGroupId
               ? instance.name
               : sourceGroup.name,
-          nodeIds: sourceGroup.nodeIds.flatMap((sourceNodeId) => {
-            const instanceNodeId = nodeMapping.get(sourceNodeId)
-            return instanceNodeId ? [instanceNodeId] : []
-          }),
-          parentGroupId,
-        })
+            parentGroupId
+          )
+        )
       }
 
       const targetPage = index.pagesById.get(root.pageId)

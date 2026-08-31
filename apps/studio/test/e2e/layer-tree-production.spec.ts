@@ -137,6 +137,7 @@ async function seedLayerFixture(page: Page, bulkCount = 0) {
               nodes: Array<Record<string, unknown> & { id: string }>
               groups: Array<{
                 id: string
+                role: "organize" | "mask"
                 pageId: string
                 name: string
                 nodeIds: string[]
@@ -166,6 +167,7 @@ async function seedLayerFixture(page: Page, bulkCount = 0) {
         nodes: Array<Record<string, unknown>>
         groups: Array<{
           id: string
+          role: "organize" | "mask"
           pageId: string
           name: string
           nodeIds: string[]
@@ -233,12 +235,14 @@ async function seedLayerFixture(page: Page, bulkCount = 0) {
       document.groups.push(
         {
           id: ids.outerGroupId,
+          role: "organize",
           pageId: firstPage.id,
           name: "Outer group",
           nodeIds: [ids.alphaId, ids.betaId],
         },
         {
           id: ids.innerGroupId,
+          role: "organize",
           pageId: firstPage.id,
           name: "Inner group",
           nodeIds: [ids.gammaId],
@@ -248,6 +252,7 @@ async function seedLayerFixture(page: Page, bulkCount = 0) {
       if (bulkNodes.length) {
         document.groups.push({
           id: "e2e-bulk-group",
+          role: "organize",
           pageId: firstPage.id,
           name: "Bulk layers",
           nodeIds: bulkNodes.map((node) => node.id),

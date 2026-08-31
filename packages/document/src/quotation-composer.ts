@@ -193,7 +193,14 @@ class QuotationCanvasWriter {
     parentGroupId?: string,
     semanticKey?: string
   ) {
-    this.groups.push({ id, name, pageId, nodeIds, parentGroupId })
+    this.groups.push({
+      id,
+      name,
+      pageId,
+      nodeIds,
+      parentGroupId,
+      role: "organize",
+    })
     if (semanticKey) {
       if (this.groupIdsBySemanticKey.has(semanticKey)) {
         throw new Error(
@@ -905,7 +912,7 @@ export function composeTracedQuotationDocument(
   const cover = buildQuotation(writer)
   const now = payload.quote.createdAt
   const document = assertValidDocument({
-    schemaVersion: 4,
+    schemaVersion: 5,
     id: `quotation-${payload.source.quotationId}`,
     name: payload.document.title,
     revision: payload.source.revision,

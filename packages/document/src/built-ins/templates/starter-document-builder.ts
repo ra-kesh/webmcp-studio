@@ -215,6 +215,7 @@ export function createStarterDocument(plan: StarterDocumentPlan): Document {
         pageId,
         name,
         nodeIds,
+        role: "organize",
       })
     }
     return {
@@ -271,7 +272,7 @@ export function createStarterDocument(plan: StarterDocumentPlan): Document {
   ].filter((variable) => paintStyleIds.has(variable.styleId))
 
   return documentSchema.parse({
-    schemaVersion: 4,
+    schemaVersion: 5,
     id: `${plan.id}-template-document`,
     name: plan.name,
     revision: 0,

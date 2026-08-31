@@ -51,12 +51,14 @@ function componentDocument(): Document {
   document.groups.push(
     {
       id: component.sourceGroupId,
+      role: "organize",
       pageId: "cover",
       name: component.name,
       nodeIds: ["cover-panel", "cover-eyebrow"],
     },
     {
       id: instance.rootGroupId,
+      role: "organize",
       pageId: "story",
       name: instance.name,
       nodeIds: instance.nodeMappings.map((mapping) => mapping.instanceNodeId),

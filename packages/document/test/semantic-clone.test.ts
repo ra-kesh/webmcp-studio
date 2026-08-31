@@ -13,7 +13,7 @@ const at = "2026-08-28T01:00:00.000Z"
 
 function semanticFixture(): Document {
   return documentSchema.parse({
-    schemaVersion: 4,
+    schemaVersion: 5,
     id: "semantic-document",
     name: "Semantic clone fixture",
     revision: 1,
@@ -161,6 +161,7 @@ function semanticFixture(): Document {
         pageId: "cover",
         name: "Cover group",
         nodeIds: ["panel", "title"],
+        role: "organize",
       },
       {
         id: "media-group",
@@ -168,6 +169,7 @@ function semanticFixture(): Document {
         name: "Media group",
         nodeIds: ["portrait", "divider"],
         parentGroupId: "cover-group",
+        role: "organize",
       },
     ],
     fields: [
@@ -242,7 +244,109 @@ function semanticFixture(): Document {
 const deterministicId = (kind: string, sourceId: string) =>
   `${kind}-copy-${sourceId}`
 
+function maskSemanticFixture(): Document {
+  const document = semanticFixture()
+  return {
+    ...document,
+    groups: [
+      {
+        id: "cover-mask",
+        pageId: "cover",
+        name: "Cover mask",
+        nodeIds: ["panel", "title"],
+        role: "mask",
+        mask: { type: "vector", sourceNodeIds: ["panel"] },
+      },
+      {
+        id: "media-group",
+        pageId: "cover",
+        name: "Media group",
+        nodeIds: ["portrait", "divider"],
+        role: "organize",
+      },
+    ],
+  }
+}
+
 describe("semantic document cloning", () => {
+  it("remaps mask sources for page duplication and omits a partial relation", () => {
+    const source = maskSemanticFixture()
+    const full = captureSemanticFragment(
+      source,
+      "cover",
+      source.pages[0]?.nodeIds ?? []
+    )
+    const clone = cloneSemanticFragment(full, {
+      targetPageId: "cover-mask-copy",
+      createId: deterministicId,
+    })
+    const clonedMask = clone.groups.find(
+      (group) => group.id === "group-copy-cover-mask"
+    )
+    expect(clonedMask).toEqual({
+      id: "group-copy-cover-mask",
+      pageId: "cover-mask-copy",
+      name: "Cover mask",
+      nodeIds: ["node-copy-panel", "node-copy-title"],
+      role: "mask",
+      mask: { type: "vector", sourceNodeIds: ["node-copy-panel"] },
+    })
+    expect(
+      clonedMask?.role === "mask"
+        ? clonedMask.mask.sourceNodeIds.includes("panel")
+        : true
+    ).toBe(false)
+
+    const danglingGroups = clone.groups.map((group) =>
+      group.role === "mask"
+        ? {
+            ...group,
+            mask: {
+              ...group.mask,
+              sourceNodeIds: ["panel"] as [string],
+            },
+          }
+        : group
+    )
+    expect(() =>
+      applyCommand(source, {
+        id: "reject-dangling-mask-copy",
+        type: "duplicate_nodes",
+        actor: "human",
+        at,
+        pageId: "cover",
+        nodes: clone.nodes,
+        groups: danglingGroups,
+        componentInstances: clone.componentInstances,
+        bindings: clone.bindings,
+        variableBindings: clone.variableBindings,
+      })
+    ).toThrow("invalid group references")
+
+    const duplicated = applyCommand(source, {
+      id: "duplicate-mask-cover",
+      type: "duplicate_page",
+      actor: "human",
+      at,
+      outputId: "proposal",
+      page: {
+        ...source.pages[0]!,
+        id: "cover-mask-copy",
+        name: "Cover mask copy",
+        nodeIds: clone.nodeIds,
+      },
+      nodes: clone.nodes,
+      groups: clone.groups,
+      componentInstances: clone.componentInstances,
+      bindings: clone.bindings,
+      variableBindings: clone.variableBindings,
+    })
+    expect(validateDocument(duplicated)).toEqual([])
+
+    const partial = captureSemanticFragment(source, "cover", ["panel"])
+    expect(partial.groups).toEqual([])
+  })
+
   it("duplicates a page with fresh hierarchy and every shared-field target", () => {
     const source = semanticFixture()
     const fragment = captureSemanticFragment(

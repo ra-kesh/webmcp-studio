@@ -97,12 +97,9 @@ export const maskRenderConformanceHiddenSourcePlan = projectPagePaintPlan(
   [maskRenderConformanceRelation]
 )
 
-/**
- * Schema-v4 carrier used only to verify retained fixture identity in the
- * browser harness. Its ordinary page order is not a mask representation.
- */
+/** Canonical schema-v5 carrier for the retained renderer fixture. */
 export const maskRenderConformanceDocument = documentSchema.parse({
-  schemaVersion: 4,
+  schemaVersion: 5,
   id: "mask-render-conformance-v1",
   name: "Mask renderer conformance carrier",
   revision: 1,
@@ -119,7 +116,22 @@ export const maskRenderConformanceDocument = documentSchema.parse({
   ],
   pages: [maskRenderConformancePage],
   nodes: maskRenderConformanceNodes,
-  groups: [],
+  groups: [
+    {
+      id: maskRenderConformanceRelation.groupId,
+      pageId: maskRenderConformanceRelation.pageId,
+      name: "Vector mask conformance",
+      nodeIds: [...maskRenderConformanceRelation.nodeIds],
+      role: "mask",
+      mask: {
+        type: maskRenderConformanceRelation.maskType,
+        sourceNodeIds: [...maskRenderConformanceRelation.sourceNodeIds] as [
+          string,
+          ...string[],
+        ],
+      },
+    },
+  ],
   components: [],
   componentInstances: [],
   typographyStyles: [],

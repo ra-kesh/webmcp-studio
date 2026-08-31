@@ -148,11 +148,148 @@ function pruneEmptyGroups(groups: Document["groups"]): Document["groups"] {
       )
     )
     const pruned = remaining.filter(
-      (group) => group.nodeIds.length > 0 || groupsWithChildren.has(group.id)
+      (group) =>
+        group.role === "mask" ||
+        group.nodeIds.length > 0 ||
+        groupsWithChildren.has(group.id)
     )
 
     if (pruned.length === remaining.length) return remaining
     remaining = pruned
+  }
+}
+
+class MaskStructureMutationError extends Error {
+  readonly code: "MASK_RELATION_PROTECTED" | "MASK_GROUP_BOUNDARY"
+  readonly groupId: string
+  readonly nodeId?: string
+
+  constructor(
+    code: "MASK_RELATION_PROTECTED" | "MASK_GROUP_BOUNDARY",
+    message: string,
+    groupId: string,
+    nodeId?: string
+  ) {
+    super(message)
+    this.name = "MaskStructureMutationError"
+    this.code = code
+    this.groupId = groupId
+    this.nodeId = nodeId
+  }
+}
+
+function maskGroupsContainingNode(document: Document, nodeId: string) {
+  return document.groups.filter(
+    (group): group is Extract<Document["groups"][number], { role: "mask" }> =>
+      group.role === "mask" &&
+      groupNodeIds(document.groups, group.id).includes(nodeId)
+  )
+}
+
+function groupIsInside(
+  groups: Document["groups"],
+  groupId: string | undefined,
+  ancestorGroupId: string
+) {
+  let currentGroupId = groupId
+  const visited = new Set<string>()
+  while (currentGroupId && !visited.has(currentGroupId)) {
+    visited.add(currentGroupId)
+    if (currentGroupId === ancestorGroupId) return true
+    currentGroupId = groups.find(
+      (group) => group.id === currentGroupId
+    )?.parentGroupId
+  }
+  return false
+}
+
+function assertMaskNodeCanLeave(
+  document: Document,
+  nodeId: string,
+  targetGroupId?: string
+) {
+  for (const group of maskGroupsContainingNode(document, nodeId)) {
+    if (groupIsInside(document.groups, targetGroupId, group.id)) continue
+    if (group.mask.sourceNodeIds.includes(nodeId)) {
+      throw new MaskStructureMutationError(
+        "MASK_RELATION_PROTECTED",
+        `Mask group ${group.id} source ${nodeId} cannot leave through a generic structural command`,
+        group.id,
+        nodeId
+      )
+    }
+    const sourceNodeIds = new Set(group.mask.sourceNodeIds)
+    const remainingContentNodeIds = groupNodeIds(
+      document.groups,
+      group.id
+    ).filter(
+      (candidateNodeId) =>
+        candidateNodeId !== nodeId && !sourceNodeIds.has(candidateNodeId)
+    )
+    if (!remainingContentNodeIds.length) {
+      throw new MaskStructureMutationError(
+        "MASK_RELATION_PROTECTED",
+        `Mask group ${group.id} cannot lose its final content layer ${nodeId}`,
+        group.id,
+        nodeId
+      )
+    }
+  }
+}
+
+function assertMaskGroupCanMove(
+  document: Document,
+  movingGroupId: string,
+  targetGroupId?: string
+) {
+  const movedNodeIds = new Set(groupNodeIds(document.groups, movingGroupId))
+  for (const group of document.groups) {
+    if (
+      group.role !== "mask" ||
+      groupIsInside(document.groups, group.id, movingGroupId) ||
+      groupIsInside(document.groups, targetGroupId, group.id)
+    ) {
+      continue
+    }
+    const members = groupNodeIds(document.groups, group.id)
+    if (!members.some((nodeId) => movedNodeIds.has(nodeId))) continue
+    const sourceNodeIds = new Set(group.mask.sourceNodeIds)
+    const remainingContentNodeIds = members.filter(
+      (nodeId) => !movedNodeIds.has(nodeId) && !sourceNodeIds.has(nodeId)
+    )
+    if (!remainingContentNodeIds.length) {
+      throw new MaskStructureMutationError(
+        "MASK_RELATION_PROTECTED",
+        `Mask group ${group.id} cannot lose its final content group ${movingGroupId}`,
+        group.id
+      )
+    }
+  }
+}
+
+function assertMaskGroupsStayContiguous(
+  document: Document,
+  pageId: string,
+  pageNodeIds: readonly string[],
+  nodeId?: string
+) {
+  for (const group of document.groups) {
+    if (group.role !== "mask" || group.pageId !== pageId) continue
+    const members = groupNodeIds(document.groups, group.id)
+    const indexes = members.map((member) => pageNodeIds.indexOf(member))
+    const first = Math.min(...indexes)
+    const last = Math.max(...indexes)
+    if (
+      indexes.some((index) => index < 0) ||
+      last - first + 1 !== indexes.length
+    ) {
+      throw new MaskStructureMutationError(
+        "MASK_GROUP_BOUNDARY",
+        `Layer reordering cannot cross mask group ${group.id}'s boundary`,
+        group.id,
+        nodeId
+      )
+    }
   }
 }
 
@@ -284,7 +421,15 @@ function appendSemanticClone(
       (group) =>
         group.pageId !== page.id ||
         group.nodeIds.some((nodeId) => !nodeIds.has(nodeId)) ||
-        (group.parentGroupId && !groupIds.has(group.parentGroupId))
+        (group.parentGroupId && !groupIds.has(group.parentGroupId)) ||
+        (group.role === "mask" &&
+          (new Set(group.mask.sourceNodeIds).size !==
+            group.mask.sourceNodeIds.length ||
+            group.mask.sourceNodeIds.some(
+              (sourceNodeId) =>
+                !nodeIds.has(sourceNodeId) ||
+                !group.nodeIds.includes(sourceNodeId)
+            )))
     )
   ) {
     throw new Error("The semantic clone contains invalid group references")
@@ -563,21 +708,41 @@ function createMaterializedComponentInstance(
         : sourceGroup.parentGroupId
           ? groupMapping.get(sourceGroup.parentGroupId)
           : undefined
-    return {
+    const nodeIds = sourceGroup.nodeIds.map((sourceNodeId) => {
+      const instanceNodeId = nodeMapping.get(sourceNodeId)
+      if (!instanceNodeId) {
+        throw new Error("A component instance must map every source layer")
+      }
+      return instanceNodeId
+    })
+    const common = {
       id: instanceGroupId,
       pageId: page.id,
       name:
         sourceGroupId === component.sourceGroupId
           ? command.instance.name
           : sourceGroup.name,
-      nodeIds: sourceGroup.nodeIds.map((sourceNodeId) => {
-        const instanceNodeId = nodeMapping.get(sourceNodeId)
-        if (!instanceNodeId) {
-          throw new Error("A component instance must map every source layer")
-        }
-        return instanceNodeId
-      }),
+      nodeIds,
       ...(parentGroupId ? { parentGroupId } : {}),
+    }
+    if (sourceGroup.role === "organize") {
+      return { ...common, role: "organize" as const }
+    }
+    return {
+      ...common,
+      role: "mask" as const,
+      mask: {
+        type: sourceGroup.mask.type,
+        sourceNodeIds: sourceGroup.mask.sourceNodeIds.map((sourceNodeId) => {
+          const instanceNodeId = nodeMapping.get(sourceNodeId)
+          if (!instanceNodeId) {
+            throw new Error(
+              `Component mask group ${sourceGroup.id} has an unmapped source ${sourceNodeId}`
+            )
+          }
+          return instanceNodeId
+        }) as [string, ...string[]],
+      },
     }
   })
   const nodes = resolveComponentInstanceNodes(document, command.instance)
@@ -1953,6 +2118,7 @@ function applyParsedCommand(
         throw new Error(`Unknown node: ${command.nodeId}`)
       }
       assertComponentStructureEditable(document, { nodeIds: [command.nodeId] })
+      assertMaskNodeCanLeave(document, command.nodeId)
       next = {
         ...document,
         nodes: document.nodes.filter((node) => node.id !== command.nodeId),
@@ -2000,6 +2166,12 @@ function applyParsedCommand(
       const [nodeId] = nodeIds.splice(currentIndex, 1)
       if (!nodeId) throw new Error(`Unknown node: ${command.nodeId}`)
       nodeIds.splice(Math.min(command.toIndex, nodeIds.length), 0, nodeId)
+      assertMaskGroupsStayContiguous(
+        document,
+        command.pageId,
+        nodeIds,
+        command.nodeId
+      )
       next = {
         ...document,
         pages: document.pages.map((candidate) =>
@@ -2039,6 +2211,7 @@ function applyParsedCommand(
       if (nodeIds.every((nodeId, index) => nodeId === page.nodeIds[index])) {
         throw new Error("The layer block is already in that position")
       }
+      assertMaskGroupsStayContiguous(document, command.pageId, nodeIds)
       next = {
         ...document,
         pages: document.pages.map((candidate) =>
@@ -2074,6 +2247,7 @@ function applyParsedCommand(
       if ((currentGroup?.id ?? undefined) === targetGroup?.id) {
         throw new Error("The layer already belongs to that group")
       }
+      assertMaskNodeCanLeave(document, command.nodeId, targetGroup?.id)
       next = {
         ...document,
         pages: targetGroup
@@ -2145,6 +2319,15 @@ function applyParsedCommand(
       if (group.parentGroupId === targetGroup?.id) {
         throw new Error("The group already has that parent")
       }
+      if (group.role === "mask" || targetGroup?.role === "mask") {
+        const maskGroup = group.role === "mask" ? group : targetGroup!
+        throw new MaskStructureMutationError(
+          "MASK_RELATION_PROTECTED",
+          `Mask group ${maskGroup.id} cannot be nested by reparent_group`,
+          maskGroup.id
+        )
+      }
+      assertMaskGroupCanMove(document, group.id, targetGroup?.id)
       next = {
         ...document,
         pages: targetGroup
@@ -2230,6 +2413,14 @@ function applyParsedCommand(
       if (directNodeIds.length + childGroups.length < 2) {
         throw new Error("A group needs at least two layers or child groups")
       }
+      const nestedMaskGroup = childGroups.find((group) => group.role === "mask")
+      if (nestedMaskGroup) {
+        throw new MaskStructureMutationError(
+          "MASK_RELATION_PROTECTED",
+          `Mask group ${nestedMaskGroup.id} cannot be nested by group_nodes`,
+          nestedMaskGroup.id
+        )
+      }
       next = {
         ...document,
         pages: document.pages.map((candidate) =>
@@ -2251,6 +2442,7 @@ function applyParsedCommand(
             pageId: command.pageId,
             name: command.name,
             nodeIds: directNodeIds,
+            role: "organize",
           },
         ],
       }
@@ -2284,6 +2476,13 @@ function applyParsedCommand(
         (candidate) => candidate.id === command.groupId
       )
       if (!group) throw new Error(`Unknown group: ${command.groupId}`)
+      if (group.role === "mask") {
+        throw new MaskStructureMutationError(
+          "MASK_RELATION_PROTECTED",
+          `Mask group ${group.id} cannot be released by ungroup_nodes`,
+          group.id
+        )
+      }
       assertComponentStructureEditable(document, {
         groupIds: [command.groupId],
       })

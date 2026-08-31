@@ -592,15 +592,36 @@ export const fieldBindingSchema = z
   })
   .strict()
 
-export const groupDefinitionSchema = z
-  .object({
-    id,
-    pageId: id,
-    name: z.string().min(1),
-    nodeIds: z.array(id),
-    parentGroupId: id.optional(),
+const groupDefinitionBaseSchema = z.object({
+  id,
+  pageId: id,
+  name: z.string().min(1),
+  nodeIds: z.array(id),
+  parentGroupId: id.optional(),
+})
+
+export const maskGroupTypeSchema = z.enum(["vector", "alpha", "luminance"])
+
+export const organizeGroupDefinitionSchema = groupDefinitionBaseSchema
+  .extend({ role: z.literal("organize") })
+  .strict()
+
+export const maskGroupDefinitionSchema = groupDefinitionBaseSchema
+  .extend({
+    role: z.literal("mask"),
+    mask: z
+      .object({
+        type: maskGroupTypeSchema,
+        sourceNodeIds: z.tuple([id]).rest(id),
+      })
+      .strict(),
   })
   .strict()
+
+export const groupDefinitionSchema = z.discriminatedUnion("role", [
+  organizeGroupDefinitionSchema,
+  maskGroupDefinitionSchema,
+])
 
 export const componentTransformSchema = z
   .object({
@@ -1015,7 +1036,7 @@ export const variableBindingSchema = z
 
 export const documentSchema = z
   .object({
-    schemaVersion: z.literal(4),
+    schemaVersion: z.literal(5),
     id,
     name: z.string().min(1),
     revision: z.number().int().nonnegative(),

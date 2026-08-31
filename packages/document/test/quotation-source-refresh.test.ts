@@ -33,7 +33,10 @@ const customRect = (id: string, name: string) =>
     strokeWidth: 0,
   }) satisfies SceneNode
 
-function deleteNode(document: ReturnType<typeof composeQuotationDocument>, id: string) {
+function deleteNode(
+  document: ReturnType<typeof composeQuotationDocument>,
+  id: string
+) {
   document.nodes = document.nodes.filter((node) => node.id !== id)
   document.pages = document.pages.map((page) => ({
     ...page,
@@ -239,6 +242,7 @@ describe("quotation source refresh", () => {
     currentDocument.groups.push(
       {
         id: "custom-child-group",
+        role: "organize",
         name: "Custom child group",
         pageId: page.id,
         nodeIds: [childNode.id],
@@ -246,6 +250,7 @@ describe("quotation source refresh", () => {
       },
       {
         id: "custom-parent-group",
+        role: "organize",
         name: "Custom parent group",
         pageId: page.id,
         nodeIds: [parentNode.id],
@@ -335,9 +340,9 @@ describe("quotation source refresh", () => {
       templateId: "editorial-olive",
     })
 
-    expect(result.document.nodes.some((node) => node.id === deletedNode.id)).toBe(
-      false
-    )
+    expect(
+      result.document.nodes.some((node) => node.id === deletedNode.id)
+    ).toBe(false)
     expect(
       result.impact.conflicts.some(
         (conflict) => conflict.semanticKey === "event.welcome.schedule"

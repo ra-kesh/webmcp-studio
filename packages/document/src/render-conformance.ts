@@ -214,7 +214,7 @@ const imageParityNodes = imageRenderParityCases.map((fixture) =>
 )
 
 export const imageRenderParityDocument: Document = documentSchema.parse({
-  schemaVersion: 4,
+  schemaVersion: 5,
   id: "image-render-parity-v1",
   name: "Image renderer parity corpus",
   revision: 1,
@@ -368,7 +368,7 @@ const componentConformanceMappedNodes = componentConformanceInstances.flatMap(
 )
 
 const componentConformanceDraft: Document = documentSchema.parse({
-  schemaVersion: 4,
+  schemaVersion: 5,
   id: "component-render-conformance-v1",
   name: "Component renderer conformance",
   revision: 1,
@@ -407,12 +407,14 @@ const componentConformanceDraft: Document = documentSchema.parse({
       pageId: "component-render-page",
       name: "Badge source",
       nodeIds: ["component-badge-source"],
+      role: "organize",
     },
     {
       id: "component-card-source-root",
       pageId: "component-render-page",
       name: "Card source",
       nodeIds: ["component-card-source"],
+      role: "organize",
     },
     {
       id: "component-card-nested-badge-root",
@@ -420,6 +422,7 @@ const componentConformanceDraft: Document = documentSchema.parse({
       name: "Badge nested in card",
       nodeIds: ["component-card-nested-badge"],
       parentGroupId: "component-card-source-root",
+      role: "organize",
     },
     ...componentConformanceInstances.flatMap((instance) => [
       {
@@ -427,6 +430,7 @@ const componentConformanceDraft: Document = documentSchema.parse({
         pageId: "component-render-page",
         name: instance.name,
         nodeIds: [`${instance.id}-card`],
+        role: "organize" as const,
       },
       {
         id: `${instance.id}-nested-root`,
@@ -434,6 +438,7 @@ const componentConformanceDraft: Document = documentSchema.parse({
         name: "Badge nested in card",
         nodeIds: [`${instance.id}-badge`],
         parentGroupId: instance.rootGroupId,
+        role: "organize" as const,
       },
     ]),
   ],
@@ -792,7 +797,7 @@ const nodes = [
 ] satisfies SceneNode[]
 
 export const renderConformanceDocument: Document = documentSchema.parse({
-  schemaVersion: 4,
+  schemaVersion: 5,
   id: "render-conformance-golden-v3",
   name: "Render conformance golden corpus",
   revision: 2,

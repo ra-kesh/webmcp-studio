@@ -38,6 +38,7 @@ function createSourceDocument(): Document {
       pageId: "cover",
       name: "Proposal hero",
       nodeIds: ["cover-panel"],
+      role: "organize",
     },
     {
       id: "journey-component-source-details",
@@ -45,6 +46,7 @@ function createSourceDocument(): Document {
       name: "Proposal hero details",
       nodeIds: ["cover-eyebrow"],
       parentGroupId: "journey-component-source",
+      role: "organize",
     }
   )
   return assertValidDocument(document)

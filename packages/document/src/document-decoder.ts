@@ -29,6 +29,16 @@ const legacyFieldDefinitionSchema = z
   })
   .strict()
 
+const legacyGroupDefinitionSchema = z
+  .object({
+    id: z.string().min(1),
+    pageId: z.string().min(1),
+    name: z.string().min(1),
+    nodeIds: z.array(z.string().min(1)),
+    parentGroupId: z.string().min(1).optional(),
+  })
+  .strict()
+
 const legacyDocumentSchema = documentSchema.extend({
   schemaVersion: z.union([
     z.literal(1),
@@ -36,6 +46,7 @@ const legacyDocumentSchema = documentSchema.extend({
     z.literal(3),
     z.literal(4),
   ]),
+  groups: z.array(legacyGroupDefinitionSchema).default([]),
   fields: z.array(legacyFieldDefinitionSchema),
   fieldValues: z.record(z.string(), fieldValueSchema),
 })
@@ -56,6 +67,7 @@ export type DocumentMigration = {
     | "legacy_design_resources_initialized"
     | "legacy_variable_bindings_initialized"
     | "legacy_components_initialized"
+    | "legacy_group_roles_initialized"
     | "document_schema_upgraded"
     | "legacy_field_preserved_as_text"
     | "legacy_fill_promoted_to_color"
@@ -500,21 +512,22 @@ function migrateLegacyDocument(input: unknown): DecodedDocument {
 
   const migrated = documentSchema.parse({
     ...legacy,
-    schemaVersion: 4,
+    schemaVersion: 5,
+    groups: legacy.groups.map((group) => ({ ...group, role: "organize" })),
     fields: legacy.fields.map((field) => fieldsById.get(field.id)),
   })
   return {
     document: assertValidDocument(applyFieldValues(migrated)),
     migrations: [
       ...migrations,
-      ...(legacy.schemaVersion === 4
-        ? []
-        : [
-            {
-              code: "document_schema_upgraded" as const,
-              message: `Document schema was upgraded from version ${legacy.schemaVersion} to version 4`,
-            },
-          ]),
+      {
+        code: "legacy_group_roles_initialized",
+        message: `Document schema version ${legacy.schemaVersion} groups received explicit organize roles`,
+      },
+      {
+        code: "document_schema_upgraded",
+        message: `Document schema was upgraded from version ${legacy.schemaVersion} to version 5`,
+      },
     ],
   }
 }
@@ -585,7 +598,12 @@ export function decodeTemplateVersion(input: unknown): DecodedTemplateVersion {
   const documentVersion = (
     persisted as { document?: { schemaVersion?: unknown } }
   ).document?.schemaVersion
-  if (documentVersion === 1 || documentVersion === 2 || documentVersion === 3) {
+  if (
+    documentVersion === 1 ||
+    documentVersion === 2 ||
+    documentVersion === 3 ||
+    documentVersion === 4
+  ) {
     throw new DocumentMigrationError(
       `Published schemaVersion ${documentVersion} template versions are immutable and cannot be migrated in place. Republish the source document under a new version identity.`
     )

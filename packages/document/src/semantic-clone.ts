@@ -83,13 +83,26 @@ export function captureSemanticFragment(
     )
   })
   const includedGroupIds = new Set(includedGroups.map((group) => group.id))
-  const groups = includedGroups.map((group) => ({
-    ...copy(group),
-    parentGroupId:
-      group.parentGroupId && includedGroupIds.has(group.parentGroupId)
-        ? group.parentGroupId
-        : undefined,
-  }))
+  const groups = includedGroups.map((group) => {
+    if (
+      group.role === "mask" &&
+      group.mask.sourceNodeIds.some(
+        (sourceNodeId) =>
+          !requested.has(sourceNodeId) || !group.nodeIds.includes(sourceNodeId)
+      )
+    ) {
+      throw new Error(
+        `Semantic mask group ${group.id} contains an incomplete source capture`
+      )
+    }
+    return {
+      ...copy(group),
+      parentGroupId:
+        group.parentGroupId && includedGroupIds.has(group.parentGroupId)
+          ? group.parentGroupId
+          : undefined,
+    }
+  })
   const bindings = document.bindings
     .filter((binding) => requested.has(binding.nodeId))
     .map(copy)
@@ -182,20 +195,46 @@ export function cloneSemanticFragment(
   const groups = fragment.groups.map((source) => {
     const id = groupIdMap.get(source.id)
     if (!id) throw new Error(`Incomplete semantic fragment group: ${source.id}`)
-    return {
+    const nodeIds = source.nodeIds.map((nodeId) => {
+      const clonedNodeId = nodeIdMap.get(nodeId)
+      if (!clonedNodeId) {
+        throw new Error(`Incomplete semantic group member: ${nodeId}`)
+      }
+      return clonedNodeId
+    })
+    const parentGroupId = source.parentGroupId
+      ? groupIdMap.get(source.parentGroupId)
+      : undefined
+    if (source.parentGroupId && !parentGroupId) {
+      throw new Error(
+        `Incomplete semantic parent group: ${source.parentGroupId}`
+      )
+    }
+    const common = {
       ...copy(source),
       id,
       pageId: options.targetPageId,
-      nodeIds: source.nodeIds.map((nodeId) => {
-        const clonedNodeId = nodeIdMap.get(nodeId)
-        if (!clonedNodeId) {
-          throw new Error(`Incomplete semantic group member: ${nodeId}`)
-        }
-        return clonedNodeId
-      }),
-      parentGroupId: source.parentGroupId
-        ? groupIdMap.get(source.parentGroupId)
-        : undefined,
+      nodeIds,
+      parentGroupId,
+    }
+    if (source.role === "organize") return common
+    return {
+      ...common,
+      mask: {
+        ...copy(source.mask),
+        sourceNodeIds: source.mask.sourceNodeIds.map((sourceNodeId) => {
+          if (!source.nodeIds.includes(sourceNodeId)) {
+            throw new Error(
+              `Semantic mask source is not a direct member: ${sourceNodeId}`
+            )
+          }
+          const clonedSourceNodeId = nodeIdMap.get(sourceNodeId)
+          if (!clonedSourceNodeId) {
+            throw new Error(`Incomplete semantic mask source: ${sourceNodeId}`)
+          }
+          return clonedSourceNodeId
+        }) as [string, ...string[]],
+      },
     }
   })
 

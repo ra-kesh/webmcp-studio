@@ -120,12 +120,14 @@ const componentSnapshot = (): CurrentDraftSnapshot => {
   document.groups.push(
     {
       id: component.sourceGroupId,
+      role: "organize",
       pageId: "cover",
       name: component.name,
       nodeIds: ["cover-panel"],
     },
     {
       id: "persisted-component-source-details",
+      role: "organize",
       pageId: "cover",
       name: "Hero details",
       nodeIds: ["cover-eyebrow"],
@@ -133,12 +135,14 @@ const componentSnapshot = (): CurrentDraftSnapshot => {
     },
     {
       id: instance.rootGroupId,
+      role: "organize",
       pageId: "story",
       name: instance.name,
       nodeIds: ["persisted-instance-cover-panel"],
     },
     {
       id: "persisted-component-instance-details",
+      role: "organize",
       pageId: "story",
       name: "Hero details",
       nodeIds: ["persisted-instance-cover-eyebrow"],
@@ -275,7 +279,7 @@ describe("current browser draft repository", () => {
       status: "current",
       envelope: {
         document: {
-          schemaVersion: 4,
+          schemaVersion: 5,
           components: [
             {
               id: "persisted-component",

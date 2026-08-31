@@ -165,7 +165,7 @@ function editorialOnePager(): Document {
     ),
   ]
   return documentSchema.parse({
-    schemaVersion: 4,
+    schemaVersion: 5,
     id: "editorial-one-pager-template-document",
     name: "Editorial one-pager",
     revision: 0,
@@ -295,7 +295,7 @@ function boldSquareAnnouncement(): Document {
     ),
   ]
   return documentSchema.parse({
-    schemaVersion: 4,
+    schemaVersion: 5,
     id: "bold-square-template-document",
     name: "Bold square announcement",
     revision: 0,
@@ -379,7 +379,7 @@ export const builtInDesignTemplateDefinitions: DesignTemplateDefinition[] = [
       job: "Create a concise printable proposal, brief or client introduction.",
       document: legacyEditorialOnePager,
       contentSha256:
-        "4503cffb03b304e7a743a2c2bc99cae9e44d6af7151534168ee0fc699d0b50cf",
+        "d3461fb1881baaf8057dadb5c5ec24b43584b4eb8a924fb5854840e5c0f6c939",
     }),
     document: legacyEditorialOnePager,
   },
@@ -405,7 +405,7 @@ export const builtInDesignTemplateDefinitions: DesignTemplateDefinition[] = [
       job: "Publish a legible launch or event announcement for social feeds.",
       document: legacyBoldSquareAnnouncement,
       contentSha256:
-        "479a303090c36a362e9bc03e1097afa2299a486c23fac4ffa475a33b37aeee03",
+        "0ee6121e616d9f3838d22515039ed4a2f85d98c42341555f42992afae01852a2",
     }),
     document: legacyBoldSquareAnnouncement,
   },
@@ -461,11 +461,11 @@ export const builtInDesignTemplateDefinitions: DesignTemplateDefinition[] = [
         ),
         contentSha256: {
           "quotation-editorial-olive":
-            "4b6b01ee5d85456e18a6a3d37eaa247c5097024f6bb187f2221377dcfd3a71ed",
+            "bf053bd31da14a50dd28bef67996086b0beeabf74cc7e82f2978cb389711856a",
           "quotation-warm-paper":
-            "ab933c32d03440916f8f5fe58a221177a810ad7843cec59ef7d36ad06ade85f0",
+            "1e49119fa6e7070872ed5f3ddfa762350ca44e8e4871b3968f59e38f022c7b5e",
           "quotation-midnight-film":
-            "604e45cf1a1161bf2ef040e83c1fe19cc61d2f200ec8e1b1063943bec5ee142e",
+            "e20ba6d14f33b1ee7f34761cb9b8d06a02585db42148bb139b2c02afffae7641",
         }[template.id],
       }),
       ...template,

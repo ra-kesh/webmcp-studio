@@ -6,7 +6,152 @@ import {
   validateDocument,
 } from "../src"
 
+function maskCommandFixture() {
+  const document = structuredClone(northstarSeed)
+  document.groups = [
+    {
+      id: "cover-mask",
+      pageId: "cover",
+      name: "Cover mask",
+      nodeIds: ["cover-panel", "cover-eyebrow"],
+      role: "mask",
+      mask: { type: "vector", sourceNodeIds: ["cover-panel"] },
+    },
+    {
+      id: "cover-target",
+      pageId: "cover",
+      name: "Cover target",
+      nodeIds: ["cover-title"],
+      role: "organize",
+    },
+  ]
+  return document
+}
+
 describe("canonical document commands", () => {
+  it("rejects generic mask-breaking mutations without changing the input", () => {
+    const document = maskCommandFixture()
+    const before = structuredClone(document)
+
+    expect(() =>
+      applyCommand(document, {
+        id: "remove-mask-source",
+        type: "remove_node",
+        actor: "human",
+        at: "2026-08-31T12:00:00.000Z",
+        nodeId: "cover-panel",
+      })
+    ).toThrowError(
+      expect.objectContaining({
+        code: "MASK_RELATION_PROTECTED",
+        groupId: "cover-mask",
+        nodeId: "cover-panel",
+      })
+    )
+    expect(() =>
+      applyCommand(document, {
+        id: "remove-final-mask-content",
+        type: "remove_node",
+        actor: "human",
+        at: "2026-08-31T12:00:01.000Z",
+        nodeId: "cover-eyebrow",
+      })
+    ).toThrowError(
+      expect.objectContaining({
+        code: "MASK_RELATION_PROTECTED",
+        groupId: "cover-mask",
+        nodeId: "cover-eyebrow",
+      })
+    )
+    expect(() =>
+      applyCommand(document, {
+        id: "reparent-mask-source",
+        type: "reparent_node",
+        actor: "human",
+        at: "2026-08-31T12:00:02.000Z",
+        pageId: "cover",
+        nodeId: "cover-panel",
+        targetGroupId: "cover-target",
+      })
+    ).toThrowError(
+      expect.objectContaining({
+        code: "MASK_RELATION_PROTECTED",
+        groupId: "cover-mask",
+        nodeId: "cover-panel",
+      })
+    )
+    expect(() =>
+      applyCommand(document, {
+        id: "ungroup-mask",
+        type: "ungroup_nodes",
+        actor: "human",
+        at: "2026-08-31T12:00:03.000Z",
+        groupId: "cover-mask",
+      })
+    ).toThrowError(
+      expect.objectContaining({
+        code: "MASK_RELATION_PROTECTED",
+        groupId: "cover-mask",
+      })
+    )
+    expect(() =>
+      applyCommand(document, {
+        id: "reparent-mask-group",
+        type: "reparent_group",
+        actor: "human",
+        at: "2026-08-31T12:00:03.500Z",
+        pageId: "cover",
+        groupId: "cover-mask",
+        targetGroupId: "cover-target",
+      })
+    ).toThrowError(
+      expect.objectContaining({
+        code: "MASK_RELATION_PROTECTED",
+        groupId: "cover-mask",
+      })
+    )
+    expect(() =>
+      applyCommand(document, {
+        id: "cross-mask-boundary",
+        type: "reorder_node",
+        actor: "human",
+        at: "2026-08-31T12:00:04.000Z",
+        pageId: "cover",
+        nodeId: "cover-panel",
+        toIndex: 3,
+      })
+    ).toThrowError(
+      expect.objectContaining({
+        code: "MASK_GROUP_BOUNDARY",
+        groupId: "cover-mask",
+        nodeId: "cover-panel",
+      })
+    )
+    expect(document).toEqual(before)
+  })
+
+  it("allows ordering inside a mask block without changing source identity", () => {
+    const document = maskCommandFixture()
+    const reordered = applyCommand(document, {
+      id: "reorder-inside-mask",
+      type: "reorder_node",
+      actor: "human",
+      at: "2026-08-31T12:01:00.000Z",
+      pageId: "cover",
+      nodeId: "cover-panel",
+      toIndex: 1,
+    })
+    expect(
+      reordered.pages.find((page) => page.id === "cover")?.nodeIds.slice(0, 2)
+    ).toEqual(["cover-eyebrow", "cover-panel"])
+    expect(
+      reordered.groups.find((group) => group.id === "cover-mask")
+    ).toMatchObject({
+      role: "mask",
+      mask: { sourceNodeIds: ["cover-panel"] },
+    })
+  })
+
   it("clears stale ranges when replacing text and canonicalizes supplied runs", () => {
     const document = structuredClone(northstarSeed)
     const title = document.nodes.find((node) => node.id === "cover-eyebrow")
@@ -860,6 +1005,7 @@ describe("canonical document commands", () => {
 
     expect(grouped.groups).toContainEqual({
       id: "cover-heading-group",
+      role: "organize",
       pageId: "cover",
       name: "Cover heading",
       nodeIds: ["cover-eyebrow", "cover-title", "cover-date"],
@@ -930,6 +1076,7 @@ describe("canonical document commands", () => {
           name: "Leaf",
           nodeIds: ["cover-title"],
           parentGroupId: "middle-group",
+          role: "organize" as const,
         },
         {
           id: "middle-group",
@@ -937,12 +1084,14 @@ describe("canonical document commands", () => {
           name: "Middle",
           nodeIds: [],
           parentGroupId: "root-group",
+          role: "organize" as const,
         },
         {
           id: "root-group",
           pageId: "cover",
           name: "Root",
           nodeIds: [],
+          role: "organize" as const,
         },
       ],
     }
@@ -971,12 +1120,14 @@ describe("canonical document commands", () => {
           name: "Child",
           nodeIds: ["cover-title"],
           parentGroupId: "parent-group",
+          role: "organize" as const,
         },
         {
           id: "parent-group",
           pageId: "cover",
           name: "Parent",
           nodeIds: ["cover-date"],
+          role: "organize" as const,
         },
       ],
     }
@@ -996,12 +1147,14 @@ describe("canonical document commands", () => {
         name: "Child",
         nodeIds: ["cover-title"],
         parentGroupId: "parent-group",
+        role: "organize",
       },
       {
         id: "parent-group",
         pageId: "cover",
         name: "Parent",
         nodeIds: [],
+        role: "organize",
       },
     ])
     expect(
@@ -1018,12 +1171,14 @@ describe("canonical document commands", () => {
           pageId: "cover",
           name: "Source",
           nodeIds: ["cover-title"],
+          role: "organize" as const,
         },
         {
           id: "target-group",
           pageId: "cover",
           name: "Target",
           nodeIds: ["cover-date"],
+          role: "organize" as const,
         },
       ],
     }
@@ -1044,6 +1199,7 @@ describe("canonical document commands", () => {
         pageId: "cover",
         name: "Target",
         nodeIds: ["cover-date", "cover-title"],
+        role: "organize",
       },
     ])
     expect(
@@ -1061,6 +1217,7 @@ describe("canonical document commands", () => {
           name: "Moving",
           nodeIds: ["cover-title"],
           parentGroupId: "old-parent",
+          role: "organize" as const,
         },
         {
           id: "old-parent",
@@ -1068,18 +1225,21 @@ describe("canonical document commands", () => {
           name: "Old parent",
           nodeIds: [],
           parentGroupId: "old-root",
+          role: "organize" as const,
         },
         {
           id: "old-root",
           pageId: "cover",
           name: "Old root",
           nodeIds: [],
+          role: "organize" as const,
         },
         {
           id: "target-group",
           pageId: "cover",
           name: "Target",
           nodeIds: ["cover-date"],
+          role: "organize" as const,
         },
       ],
     }

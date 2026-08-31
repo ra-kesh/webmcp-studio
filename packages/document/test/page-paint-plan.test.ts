@@ -4,11 +4,12 @@ import {
   projectPagePaintPlan,
   type MaskPaintRelation,
 } from "../src/page-paint-plan"
+import { decodeDocument, northstarSeed } from "../src"
 import {
   maskRenderConformanceHiddenSourcePlan,
   maskRenderConformancePlan,
 } from "../src/mask-render-conformance"
-import type { Page, SceneNode } from "../src/schema"
+import type { Document, Page, SceneNode } from "../src/schema"
 
 const page: Page = {
   id: "page-1",
@@ -57,6 +58,152 @@ const relation: MaskPaintRelation = {
 }
 
 describe("shared page paint plan mask oracle", () => {
+  it("derives mask paint from canonical v5 groups while organize groups stay flat", () => {
+    const document = {
+      pages: [page],
+      nodes,
+      groups: [
+        {
+          id: "organize-1",
+          role: "organize",
+          pageId: page.id,
+          name: "Organize only",
+          nodeIds: ["below"],
+        },
+        {
+          id: relation.groupId,
+          role: "mask",
+          pageId: page.id,
+          name: "Canonical mask",
+          nodeIds: relation.nodeIds,
+          mask: { type: "vector", sourceNodeIds: relation.sourceNodeIds },
+        },
+      ],
+    } as unknown as Document
+
+    expect(projectPagePaintPlan(document, page.id)).toMatchObject({
+      pageId: page.id,
+      entries: [
+        { kind: "node", nodeId: "below" },
+        {
+          kind: "mask_group",
+          groupId: relation.groupId,
+          sourceNodeIds: ["source"],
+          content: [{ kind: "node", nodeId: "content" }],
+        },
+        { kind: "node", nodeId: "above" },
+      ],
+    })
+  })
+
+  it("rejects unsupported canonical mask modes instead of painting them flat", () => {
+    const document = {
+      pages: [page],
+      nodes,
+      groups: [
+        {
+          id: relation.groupId,
+          role: "mask",
+          pageId: page.id,
+          name: "Unsupported alpha mask",
+          nodeIds: relation.nodeIds,
+          mask: { type: "alpha", sourceNodeIds: relation.sourceNodeIds },
+        },
+      ],
+    } as unknown as Document
+
+    expect(() => projectPagePaintPlan(document, page.id)).toThrowError(
+      expect.objectContaining({ code: "MASK_GROUP_UNSUPPORTED_TYPE" })
+    )
+  })
+
+  it("rejects a canonical source hidden inside a child group", () => {
+    const document = {
+      pages: [page],
+      nodes,
+      groups: [
+        {
+          id: relation.groupId,
+          role: "mask",
+          pageId: page.id,
+          name: "Nested source mask",
+          nodeIds: ["content"],
+          mask: { type: "vector", sourceNodeIds: ["source"] },
+        },
+        {
+          id: "source-child",
+          role: "organize",
+          pageId: page.id,
+          parentGroupId: relation.groupId,
+          name: "Nested source",
+          nodeIds: ["source"],
+        },
+      ],
+    } as unknown as Document
+
+    expect(() => projectPagePaintPlan(document, page.id)).toThrowError(
+      expect.objectContaining({ code: "MASK_GROUP_NESTING_UNSUPPORTED" })
+    )
+  })
+
+  it("rejects a canonical mask group with an organize child", () => {
+    const document = {
+      pages: [page],
+      nodes,
+      groups: [
+        {
+          id: relation.groupId,
+          role: "mask",
+          pageId: page.id,
+          name: "Nested canonical mask",
+          nodeIds: relation.nodeIds,
+          mask: { type: "vector", sourceNodeIds: relation.sourceNodeIds },
+        },
+        {
+          id: "organize-child",
+          role: "organize",
+          pageId: page.id,
+          parentGroupId: relation.groupId,
+          name: "Nested organize child",
+          nodeIds: ["above"],
+        },
+      ],
+    } as unknown as Document
+
+    expect(() => projectPagePaintPlan(document, page.id)).toThrowError(
+      expect.objectContaining({
+        code: "MASK_GROUP_NESTING_UNSUPPORTED",
+        groupId: relation.groupId,
+      })
+    )
+  })
+
+  it("keeps migrated schema-v4 organize groups on the legacy flat paint path", () => {
+    const legacy = structuredClone(northstarSeed) as unknown as {
+      schemaVersion: number
+      groups: Array<Record<string, unknown>>
+    }
+    legacy.schemaVersion = 4
+    legacy.groups = legacy.groups.map(
+      ({ role: _role, mask: _mask, ...group }) => group
+    )
+
+    const decoded = decodeDocument(legacy)
+    const migratedPage = decoded.document.pages[0]!
+    const legacyFlatPlan = projectPagePaintPlan(
+      migratedPage,
+      decoded.document.nodes,
+      []
+    )
+
+    expect(
+      decoded.document.groups.every((group) => group.role === "organize")
+    ).toBe(true)
+    expect(projectPagePaintPlan(decoded.document, migratedPage.id)).toEqual(
+      legacyFlatPlan
+    )
+  })
+
   it("retains one shared scene for every renderer consumer", () => {
     expect(maskRenderConformancePlan.entries).toMatchObject([
       { kind: "node", nodeId: "mask-conformance-below" },

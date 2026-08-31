@@ -144,6 +144,7 @@ describe("typed design variables", () => {
 
   it("migrates early version-three documents without losing content", () => {
     const legacy = structuredClone(northstarSeed) as any
+    legacy.schemaVersion = 3
     delete legacy.typographyStyles
     delete legacy.paintStyles
     delete legacy.variables
