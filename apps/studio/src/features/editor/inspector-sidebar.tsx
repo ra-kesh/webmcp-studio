@@ -778,7 +778,8 @@ function TextSelectionInspector({
               ? "Mixed selected text font weights"
               : `Selected text font weight ${fontWeight}`
           }
-          className="h-8 min-w-11 rounded-md px-2 text-[10px] tabular-nums"
+          className="h-8 min-w-[72px] gap-1 rounded-[5px] px-2 text-[11px] tabular-nums"
+          data-font-weight-cycle="true"
           disabled={disabled}
           onClick={() => {
             const weights = [400, 500, 600, 700, 800]
@@ -788,7 +789,10 @@ function TextSelectionInspector({
             })
           }}
         >
-          {fontWeight === null ? "Mix" : fontWeight}
+          <span className="text-muted-foreground">Weight</span>
+          <span className="font-mono">
+            {fontWeight === null ? "Mix" : fontWeight}
+          </span>
         </Button>
       </div>
 

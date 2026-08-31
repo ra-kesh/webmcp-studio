@@ -523,3 +523,31 @@ Package-wide ESLint remains blocked by the checked-in lint backlog: the run
 reported 206 errors across existing Studio files, including unchanged lines in
 the two touched files. No reported lint error points to this slice. That backlog
 is recorded rather than folded into this bounded visual change.
+
+## Follow-up text-control refinement checkpoint: 2026-08-31
+
+Before this slice, the full visual audit and the actual checked-out OpenPencil,
+Loora, Canva and Orshot-style reference implementations were revisited. Live
+inspection covered Layers, locked text, selection formatting, the compact
+Properties sheet and 320-390 px editor widths on isolated port 3101. Port 3000
+was not touched.
+
+The font-weight cycle appeared as a lone numeric `450` in both the floating
+text toolbar and Inspector selection card. Although the controls had accurate
+accessible names, their visible meaning depended on position and memory. This
+was weaker than the leading property cues used by the retained editor
+references.
+
+Implemented:
+
+- both controls now show a quiet `Weight` cue followed by the tabular value;
+- the toolbar and Inspector use the same 32 px anatomy and 78 px measured
+  width;
+- existing cycling behavior, mixed-value handling and accessible names remain
+  unchanged.
+
+Mounted acceptance at 1440 x 900 confirmed both controls render at 78 x 32 px,
+the document and viewport remain 1440 px wide, and browser diagnostics contain
+no warnings or errors. The two focused suites pass 12/12, Studio typecheck
+passes, the edited files pass Prettier, and `git diff --check` passes. The known
+package-wide ESLint backlog remains outside this bounded refinement.

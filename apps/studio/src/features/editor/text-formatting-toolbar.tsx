@@ -202,7 +202,8 @@ export function TextFormattingToolbar({
               ? "Mixed font weights"
               : `Font weight ${fontWeight}`
           }
-          className="h-8 min-w-11 rounded-md px-2 text-[10px] tabular-nums"
+          className="h-8 min-w-[72px] gap-1 rounded-[5px] px-2 text-[11px] tabular-nums"
+          data-font-weight-cycle="true"
           onClick={() => {
             const weights = [400, 500, 600, 700, 800]
             const currentIndex = weights.indexOf(fontWeight ?? 400)
@@ -211,7 +212,10 @@ export function TextFormattingToolbar({
             })
           }}
         >
-          {fontWeight === null ? "Mix" : fontWeight}
+          <span className="text-muted-foreground">Weight</span>
+          <span className="font-mono">
+            {fontWeight === null ? "Mix" : fontWeight}
+          </span>
         </Button>
         <Separator className="mx-0.5 h-5" orientation="vertical" />
         <div aria-label="Text color" className="flex items-center" role="group">

@@ -75,5 +75,7 @@ describe("text formatting toolbar", () => {
     expect(html).toContain("overflow-x-auto")
     expect(html).toContain("overscroll-x-contain")
     expect(html).toContain("[&amp;&gt;*]:shrink-0")
+    expect(html).toContain('data-font-weight-cycle="true"')
+    expect(html).toContain("Weight</span>")
   })
 })

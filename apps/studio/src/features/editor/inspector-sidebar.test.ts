@@ -415,6 +415,8 @@ describe("InspectorSidebar text selection state", () => {
     expect(markup).toContain("5 characters selected")
     expect(markup).toContain('aria-label="Mixed font sizes"')
     expect(markup).toContain('aria-label="Edit link for selected text"')
+    expect(markup).toContain('data-font-weight-cycle="true"')
+    expect(markup).toContain("Weight</span>")
     expect(markup).toContain("Geist Variable")
     expect(markup).toContain('data-reusable-style-field="Text style"')
     expect(markup).toContain('data-reusable-style-field="Paint style"')
