@@ -691,3 +691,32 @@ independent re-review.
   zero bytes only when that canonical asset is already counted by provenance.
 - Executable SQLite coverage proves an incoming output that crosses the ceiling
   leaves neither a selectable asset nor an orphaned staged object.
+
+## Five-P1 correction verification
+
+The five independent-review corrections are available for re-review at these
+checkpoints:
+
+- canonical same-hash output: `3e544017d79ede19a09b0b6610d4ef5da1ca8062`
+- frozen provider/model execution: `bc28ab588920736916f73ba051c4a72045e0b854`
+- cancel/retry mutation receipts: `81f7392fe531c201d8f668b58433e8cb21d19e56`
+- bounded PNG decoding: `e13613354b1fcf36aff218a219c39da3c49a4db4`
+- transactional create/output quotas: `63a98c81ed14cc9933381fe6007ddf84306ca937`
+
+Final local verification after all five checkpoints:
+
+- WebMCP suites: 67/67 passed
+- focused Studio derivation, API boundary, client, control, and mounted editor
+  suites: 58/58 passed
+- fresh/upgrade derivation migration verification: passed
+- executable SQLite repository verification: passed
+- WebMCP and Studio typechecks: passed under bundled Node v24.19.0
+- Studio client, SSR, and renderer production build: passed; the pre-existing
+  route-file and chunk-size warnings remain
+- static Cloudflare deployment preflight: passed with 19 immutable contiguous
+  migrations
+- focused Prettier check and `git diff --check`: passed
+
+No provider call, deployment, remote Cloudflare operation, secret/resource
+creation, port 3000 use, or browser-storage clearing was performed. Independent
+acceptance and deployed evidence remain open.

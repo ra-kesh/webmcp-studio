@@ -222,6 +222,8 @@ describe("derived background-removal output", () => {
       outputAssetId,
       sourceAssetId: job.sourceAssetId,
       derivationJobId: job.id,
+      providerKey: job.providerKey,
+      providerModelVersion: job.providerModelVersion,
       outputMediaType: "image/png",
     })
     expect(bucket.delete).not.toHaveBeenCalled()
