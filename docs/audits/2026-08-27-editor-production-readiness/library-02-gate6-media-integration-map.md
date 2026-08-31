@@ -2,7 +2,57 @@
 
 Date: 2026-08-31
 
-Status: implementation-ready; no production code changed
+Status: Slices A and B accepted; Slice C under independent review; Slice D
+preflight ready
+
+## Accepted checkpoints
+
+### Slice A — exact curated content
+
+Accepted on 2026-08-31 at commit `a8cb3a9` after a fresh independent code
+review returned zero P0/P1 findings.
+
+- All 37 active manifest identities resolve only through their declared exact
+  version, path, SHA-256, MIME type, byte count and dimensions.
+- The six compatibility identities retain independently stored immutable v1
+  bytes and exact public paths; they are not aliases for their active v2
+  successors.
+- GET/HEAD, ETag/304, immutable caching, content length and `nosniff` are
+  covered, while unknown or drifted content fails closed.
+- Editor, public template version, browser content, field materialization,
+  publication and renderer use one canonical identity. Data URIs remain a
+  transient render projection and never enter the saved document.
+- Durable jobs distinguish the absolute job deadline from ordinary renderer
+  timeouts, recompute and fence the remaining budget through final D1 publish,
+  settle the known reservation without re-preparing, and preserve typed
+  curated/managed field errors with stable locators.
+
+Acceptance evidence: the fresh reviewer passed eight focused Studio files,
+the curated document identity suite, and both Studio and Document typechecks.
+
+### Slice B — managed metadata and catalog authority
+
+Metadata/version authority was accepted at commit `66841a1`. Managed catalog
+composition was accepted on 2026-08-31 at commit `d7fa6b0` after an independent
+code review returned zero P0/P1 findings.
+
+- Ready managed media is composed into workspace-scoped catalog list/detail
+  through a D1-only reader; private R2 keys and content locators never enter
+  catalog responses.
+- Exact detail requires the current independent catalog version and rejects
+  stale, archived, foreign or missing records through the same not-found
+  boundary.
+- Catalog revision now binds the immutable base, Gate 5 preference epoch and
+  managed-media epoch. The media epoch is read even for template-only pages,
+  so any old cursor is rejected after a searchable media mutation.
+- Metadata search and provenance remain truthful: workspace upload,
+  customer-provided and rights not verified unless authoritative metadata says
+  otherwise. Managed repository recency does not masquerade as Gate 5 Recent.
+- Managed composition is bounded to 1,000 ready rows and fails closed at 1,001
+  instead of silently truncating catalog truth.
+
+Acceptance evidence: 60 focused repository/catalog/HTTP tests and the Studio
+typecheck passed in both implementation and independent review.
 
 ## Scope and entry condition
 
