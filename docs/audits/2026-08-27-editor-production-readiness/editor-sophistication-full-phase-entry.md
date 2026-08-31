@@ -2,7 +2,9 @@
 
 Date: 2026-08-31
 
-Status: active on isolated branch `codex/editor-sophistication-wide-20260831`
+Status: implemented and locally accepted on isolated branch
+`codex/editor-sophistication-wide-20260831`; independent acceptance and
+integration remain pending
 
 Exact base: `6265561ab4c9aa70c7489c2a90b3dcac6c1179d3`
 
@@ -179,3 +181,41 @@ Evidence:
 The isolated D1 library-schema limitation from the baseline remains visible in
 the Templates panel. This gate did not modify or accept Library behavior, and
 no browser storage was cleared.
+
+Gate B commit: `0783b813d71d208aa3132b2614563cb7727203b8`
+
+## Local closure review
+
+No P0 or P1 visual, interaction or code findings remain in the two gate
+commits. This is a local closure review, not the independent Gate C acceptance
+defined above.
+
+### Motion review
+
+| Before                                                       | After                                                                                                             | Why                                                                                         |
+| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Shared buttons, toggles and badges used `transition-all`.    | Buttons and toggles transition only color, background, border, shadow and transform for 150 ms on a strong curve. | Bounds work to intentional properties and stays inside the 100-160 ms press-feedback range. |
+| Badge feedback could transition layout-affecting properties. | Badges transition only color, background, border and shadow for 150 ms.                                           | Preserves quiet status feedback without layout motion.                                      |
+| Reduced-motion behavior was only source-inspected.           | Mounted controls resolve animation and transition durations to `0.00001s` when reduction is requested.            | Confirms the retained accessibility override wins over component motion.                    |
+
+Motion verdict: pass for this phase. Command execution and keyboard command
+paths remain immediate; the gate adds no keyframe, stagger, spring or
+layout-property animation.
+
+### Verification and integration state
+
+- both exact gate commits are descendants of dispatched base
+  `6265561ab4c9aa70c7489c2a90b3dcac6c1179d3`;
+- UI and Studio typechecks pass;
+- the final focused run passes 19 tests across six files;
+- targeted lint passes for every changed Studio file except
+  `inspector-sidebar.tsx`, whose seven reported rules already fail at the exact
+  dispatched base; the changed UI files pass targeted lint;
+- `git diff --check 6265561..HEAD` passes;
+- read-only comparison against main
+  `cee0f77587440a5ef349a1ea191b5f6d15048baa` finds no overlapping changed
+  paths and the merge-tree reports no conflict;
+- the original main checkout and its known untracked capture directories were
+  not modified;
+- implementation: complete; local acceptance: complete; independent
+  acceptance: pending; committed: complete; merged: no.
