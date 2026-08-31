@@ -3879,3 +3879,46 @@ open; luminance remains unadmitted**
 - Independent review caught and closed a 2x backing-store crop and a missing
   source attribution boundary. The helper is accepted; wiring it into the
   live adapter remains a separate step.
+
+## 2026-08-31 — ASSET-02 Gate M4B integrated luminance implementation
+
+Status: **domain and every online consumer implemented, independently accepted,
+and checkpointed; retained PNG/PDF/public artifact parity remains the final M4B
+acceptance item**
+
+- Admitted exact luminance create/set commands through the canonical document,
+  history, inspector, product-command, and WebMCP proposal boundaries. The
+  admitted source set and one-to-four ordering remain identical to alpha masks.
+- Integrated the shared sRGB `Y * A` raster core into the mounted Fabric
+  adapter. Every candidate union is prepared before the current scene or page
+  presentation is replaced. Failed, aborted, stale, or superseded candidates
+  release their temporary canvases and leave the last valid objects,
+  dimensions, and background intact.
+- Prevented stale live previews: any luminance-source edit forces one atomic
+  raster rebuild; detached source proxies are not treated as mutable mask
+  paint.
+- React and deterministic HTML isolate every visible source, apply explicit
+  sRGB `luminanceToAlpha`, intersect with the original SourceGraphic alpha, and
+  union the converted results in canonical order. Hidden sources do not wait or
+  allocate; all-hidden relations paint content normally.
+- Added a production-used SVG-to-image-to-sRGB-canvas readiness probe. Real
+  Chrome pixels verify black, white, grey, red, green, blue, transparent red,
+  source opacity, and two-source overlap using a fixed three-byte tolerance.
+- Conversion failure is atomic and source-attributed. React preserves its last
+  committed model; deterministic rendering emits
+  `luminance_conversion_failed` before ready state; the Worker forwards the
+  stable code and node ID before screenshot, PDF, R2, or artifact writes.
+- Independent reviewers first held the domain/renderer slice for premature
+  admission, a missing conversion success boundary, and markup-only evidence.
+  A second Fabric review held candidate lifetime cleanup and premature page
+  presentation mutation. Every finding was fixed, retested, and received a
+  final **COMMIT** verdict with no remaining P0/P1 finding.
+- Integrated focused evidence passes 458/458 tests: document 99, editor 192,
+  render-view 30, renderer 90, and WebMCP 47. Document, editor, render-view,
+  renderer, WebMCP, and Studio typechecks all pass; `git diff --check` passes.
+- Checkpoints: `64de41b` domain admission, `68c62d7` live Fabric integration,
+  and `70e80ea` deterministic browser/HTML/Worker rendering. Numeric and raster
+  foundations remain in `eaffce1` and `4a71d52`.
+- Remaining M4B evidence is deliberately narrow: retained cross-output
+  comparison for Fabric versus React, PNG versus PDF raster, thumbnail, and
+  public PNG/PDF artifacts. M4C nesting remains a separate gate.

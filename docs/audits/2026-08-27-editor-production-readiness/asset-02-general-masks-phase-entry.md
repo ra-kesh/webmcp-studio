@@ -647,8 +647,11 @@ Normative references:
 - <https://www.w3.org/TR/filter-effects-1/#elementdef-fecolormatrix>
 - <https://www.w3.org/TR/filter-effects-1/#propdef-color-interpolation-filters>
 
-M4B remains unadmitted until the document, browser-renderer, Fabric, public, and
-retained slices all satisfy this frozen contract. M4C nesting remains separate.
+M4B's domain value is now admitted only because the document commands, Fabric
+adapter, React preview, deterministic HTML renderer, and public Worker failure
+boundary landed together. Full M4B gate acceptance is still withheld until the
+retained cross-output corpus proves PNG/PDF and public artifact parity. M4C
+nesting remains separate.
 
 ### Gate M5: API, WebMCP, and product polish
 
