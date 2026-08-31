@@ -102,7 +102,34 @@ VALUES
    'image/png', 1, 1, '2026-08-31T00:03:00.000Z');
 SQL
 
-sqlite3 -bail "$upgrade_database" < "$repo_root/migrations/0018_media_derivation_canonical_outputs.sql"
+jobs_before=$(sqlite3 -json "$upgrade_database" \
+  'SELECT * FROM media_derivation_jobs ORDER BY workspace_id, id')
+requests_before=$(sqlite3 -json "$upgrade_database" \
+  'SELECT * FROM media_derivation_requests ORDER BY workspace_id, idempotency_key')
+attempts_before=$(sqlite3 -json "$upgrade_database" \
+  'SELECT * FROM media_derivation_attempts ORDER BY workspace_id, job_id, attempt_number')
+provenance_before=$(sqlite3 -json "$upgrade_database" \
+  'SELECT * FROM media_derivation_provenance ORDER BY workspace_id, derivation_job_id')
+
+# Cloudflare D1 applies a migration inside one transaction with foreign keys
+# already enabled. PRAGMA foreign_keys in the migration is therefore a no-op.
+sqlite3 -bail "$upgrade_database" <<SQL
+PRAGMA foreign_keys = ON;
+BEGIN IMMEDIATE;
+.read $repo_root/migrations/0018_media_derivation_canonical_outputs.sql
+COMMIT;
+SQL
+
+test "$(sqlite3 -json "$upgrade_database" \
+  'SELECT * FROM media_derivation_jobs ORDER BY workspace_id, id')" = "$jobs_before"
+test "$(sqlite3 -json "$upgrade_database" \
+  'SELECT * FROM media_derivation_requests ORDER BY workspace_id, idempotency_key')" = "$requests_before"
+test "$(sqlite3 -json "$upgrade_database" \
+  'SELECT * FROM media_derivation_attempts ORDER BY workspace_id, job_id, attempt_number')" = "$attempts_before"
+test "$(sqlite3 -json "$upgrade_database" \
+  'SELECT * FROM media_derivation_provenance ORDER BY workspace_id, derivation_job_id')" = "$provenance_before"
+test -z "$(sqlite3 "$upgrade_database" 'PRAGMA foreign_key_check')"
+
 sqlite3 -bail "$upgrade_database" < "$repo_root/migrations/0019_media_derivation_mutation_receipts.sql"
 
 test "$(sqlite3 "$upgrade_database" 'SELECT state || ":" || output_asset_id FROM media_derivation_jobs')" = "succeeded:asset-0000000000000002"

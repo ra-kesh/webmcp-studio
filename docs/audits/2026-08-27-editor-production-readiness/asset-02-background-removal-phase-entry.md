@@ -720,3 +720,28 @@ Final local verification after all five checkpoints:
 No provider call, deployment, remote Cloudflare operation, secret/resource
 creation, port 3000 use, or browser-storage clearing was performed. Independent
 acceptance and deployed evidence remain open.
+
+## Independent-review correction: D1-safe canonical-output migration
+
+Migration `0018_media_derivation_canonical_outputs.sql` no longer relies on
+`PRAGMA foreign_keys = OFF`, which D1 cannot apply inside its implicit migration
+transaction. Before replacing `media_derivation_jobs`, it snapshots requests,
+attempts, and provenance into constraint-free temporary tables. It then allows
+the old-parent cascade, installs the replacement parent, restores the child rows
+byte-for-byte, and recreates the temporarily removed insert guards.
+
+The executable upgrade check applies `0018` inside one transaction with foreign
+keys enabled. It compares the complete jobs, requests, attempts, and provenance
+row content before and after the migration and requires an empty
+`foreign_key_check` result before continuing to `0019`.
+
+### Integration note
+
+The target main checkpoint `ac9979737e7da2ce721a6933456d7f77bff51d11`
+conflicts with this branch in `packages/webmcp/test/registration.test.ts`.
+Integration must preserve both the background-removal registration assertions
+from this branch and main's document-generation registrations, then reconcile
+the expected registered-tool count and ordered tool-name list. This migration
+correction does not edit that file. Main later advanced to `9604bd6d` through
+documentation-only descendants; the same manual reconciliation remains
+required. Main was not edited during this correction.

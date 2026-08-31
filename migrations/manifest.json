@@ -71,7 +71,7 @@
     },
     {
       "name": "0018_media_derivation_canonical_outputs.sql",
-      "sha256": "170681553c6fd0e98dca611b4d75e3ddbd721f408462e28b468ee5d81abceeab"
+      "sha256": "2d7c93322adbc56c7c5d806330917db00dba72bac00424a88d5ea608e27b83dd"
     },
     {
       "name": "0019_media_derivation_mutation_receipts.sql",

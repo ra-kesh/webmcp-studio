@@ -1,85 +1,20 @@
-PRAGMA foreign_keys = OFF;
+PRAGMA foreign_keys = ON;
 
 DROP TRIGGER media_derivation_provenance_insert_guard;
 DROP TRIGGER media_derivation_provenance_immutable;
+DROP TRIGGER media_derivation_attempts_claim_guard;
 
-CREATE TABLE media_derivation_provenance_v2 (
-  workspace_id TEXT NOT NULL,
-  output_asset_id TEXT NOT NULL,
-  source_asset_id TEXT NOT NULL,
-  source_content_hash TEXT NOT NULL
-    CONSTRAINT chk_media_derivation_provenance_source_hash
-    CHECK (
-      length(source_content_hash) = 64
-      AND source_content_hash NOT GLOB '*[^a-f0-9]*'
-    ),
-  derivation_job_id TEXT NOT NULL,
-  operation TEXT NOT NULL
-    CONSTRAINT chk_media_derivation_provenance_operation
-    CHECK (operation = 'remove_background'),
-  provider_key TEXT NOT NULL
-    CONSTRAINT chk_media_derivation_provenance_provider_key
-    CHECK (
-      length(provider_key) BETWEEN 1 AND 128
-      AND substr(provider_key, 1, 1) GLOB '[A-Za-z0-9]'
-      AND provider_key NOT GLOB '*[^A-Za-z0-9._:-]*'
-    ),
-  provider_model_version TEXT NOT NULL
-    CONSTRAINT chk_media_derivation_provenance_model_version
-    CHECK (length(trim(provider_model_version)) BETWEEN 1 AND 200),
-  privacy_policy_version TEXT NOT NULL
-    CONSTRAINT chk_media_derivation_provenance_policy_version
-    CHECK (length(trim(privacy_policy_version)) BETWEEN 1 AND 200),
-  output_content_hash TEXT NOT NULL
-    CONSTRAINT chk_media_derivation_provenance_output_hash
-    CHECK (
-      length(output_content_hash) = 64
-      AND output_content_hash NOT GLOB '*[^a-f0-9]*'
-    ),
-  output_media_type TEXT NOT NULL
-    CONSTRAINT chk_media_derivation_provenance_media_type
-    CHECK (output_media_type IN ('image/png', 'image/jpeg', 'image/webp')),
-  output_width INTEGER NOT NULL
-    CONSTRAINT chk_media_derivation_provenance_width
-    CHECK (typeof(output_width) = 'integer' AND output_width BETWEEN 1 AND 16384),
-  output_height INTEGER NOT NULL
-    CONSTRAINT chk_media_derivation_provenance_height
-    CHECK (typeof(output_height) = 'integer' AND output_height BETWEEN 1 AND 16384),
-  created_at TEXT NOT NULL,
-  CONSTRAINT chk_media_derivation_provenance_distinct_assets
-    CHECK (source_asset_id <> output_asset_id),
-  CONSTRAINT chk_media_derivation_provenance_pixel_area
-    CHECK (output_width * output_height <= 100000000),
-  PRIMARY KEY (workspace_id, derivation_job_id),
-  FOREIGN KEY (workspace_id, source_asset_id, source_content_hash)
-    REFERENCES media_assets(workspace_id, id, content_hash) ON DELETE RESTRICT,
-  FOREIGN KEY (
-    workspace_id, output_asset_id, output_content_hash, output_media_type,
-    output_width, output_height
-  ) REFERENCES media_assets(
-    workspace_id, id, content_hash, media_type, width, height
-  ) ON DELETE RESTRICT,
-  FOREIGN KEY (
-    workspace_id, derivation_job_id, source_asset_id, source_content_hash,
-    operation, provider_key, provider_model_version, privacy_policy_version,
-    output_asset_id
-  ) REFERENCES media_derivation_jobs(
-    workspace_id, id, source_asset_id, source_content_hash, operation,
-    provider_key, provider_model_version, privacy_policy_version,
-    output_asset_id
-  ) ON DELETE CASCADE
-);
+-- D1 applies migrations inside a foreign-key-enabled transaction. Dropping the
+-- parent jobs table therefore cascades immediately; these unconstrained copies
+-- preserve every child row until the replacement parent exists.
+CREATE TABLE media_derivation_requests_0018_backup AS
+SELECT * FROM media_derivation_requests;
 
-INSERT INTO media_derivation_provenance_v2
-  (workspace_id, output_asset_id, source_asset_id, source_content_hash,
-   derivation_job_id, operation, provider_key, provider_model_version,
-   privacy_policy_version, output_content_hash, output_media_type,
-   output_width, output_height, created_at)
-SELECT workspace_id, output_asset_id, source_asset_id, source_content_hash,
-       derivation_job_id, operation, provider_key, provider_model_version,
-       privacy_policy_version, output_content_hash, output_media_type,
-       output_width, output_height, created_at
-FROM media_derivation_provenance;
+CREATE TABLE media_derivation_attempts_0018_backup AS
+SELECT * FROM media_derivation_attempts;
+
+CREATE TABLE media_derivation_provenance_0018_backup AS
+SELECT * FROM media_derivation_provenance;
 
 DROP TABLE media_derivation_provenance;
 
@@ -243,7 +178,86 @@ FROM media_derivation_jobs;
 
 DROP TABLE media_derivation_jobs;
 ALTER TABLE media_derivation_jobs_v2 RENAME TO media_derivation_jobs;
-ALTER TABLE media_derivation_provenance_v2 RENAME TO media_derivation_provenance;
+
+INSERT INTO media_derivation_requests
+SELECT * FROM media_derivation_requests_0018_backup;
+
+INSERT INTO media_derivation_attempts
+SELECT * FROM media_derivation_attempts_0018_backup;
+
+CREATE TABLE media_derivation_provenance (
+  workspace_id TEXT NOT NULL,
+  output_asset_id TEXT NOT NULL,
+  source_asset_id TEXT NOT NULL,
+  source_content_hash TEXT NOT NULL
+    CONSTRAINT chk_media_derivation_provenance_source_hash
+    CHECK (
+      length(source_content_hash) = 64
+      AND source_content_hash NOT GLOB '*[^a-f0-9]*'
+    ),
+  derivation_job_id TEXT NOT NULL,
+  operation TEXT NOT NULL
+    CONSTRAINT chk_media_derivation_provenance_operation
+    CHECK (operation = 'remove_background'),
+  provider_key TEXT NOT NULL
+    CONSTRAINT chk_media_derivation_provenance_provider_key
+    CHECK (
+      length(provider_key) BETWEEN 1 AND 128
+      AND substr(provider_key, 1, 1) GLOB '[A-Za-z0-9]'
+      AND provider_key NOT GLOB '*[^A-Za-z0-9._:-]*'
+    ),
+  provider_model_version TEXT NOT NULL
+    CONSTRAINT chk_media_derivation_provenance_model_version
+    CHECK (length(trim(provider_model_version)) BETWEEN 1 AND 200),
+  privacy_policy_version TEXT NOT NULL
+    CONSTRAINT chk_media_derivation_provenance_policy_version
+    CHECK (length(trim(privacy_policy_version)) BETWEEN 1 AND 200),
+  output_content_hash TEXT NOT NULL
+    CONSTRAINT chk_media_derivation_provenance_output_hash
+    CHECK (
+      length(output_content_hash) = 64
+      AND output_content_hash NOT GLOB '*[^a-f0-9]*'
+    ),
+  output_media_type TEXT NOT NULL
+    CONSTRAINT chk_media_derivation_provenance_media_type
+    CHECK (output_media_type IN ('image/png', 'image/jpeg', 'image/webp')),
+  output_width INTEGER NOT NULL
+    CONSTRAINT chk_media_derivation_provenance_width
+    CHECK (typeof(output_width) = 'integer' AND output_width BETWEEN 1 AND 16384),
+  output_height INTEGER NOT NULL
+    CONSTRAINT chk_media_derivation_provenance_height
+    CHECK (typeof(output_height) = 'integer' AND output_height BETWEEN 1 AND 16384),
+  created_at TEXT NOT NULL,
+  CONSTRAINT chk_media_derivation_provenance_distinct_assets
+    CHECK (source_asset_id <> output_asset_id),
+  CONSTRAINT chk_media_derivation_provenance_pixel_area
+    CHECK (output_width * output_height <= 100000000),
+  PRIMARY KEY (workspace_id, derivation_job_id),
+  FOREIGN KEY (workspace_id, source_asset_id, source_content_hash)
+    REFERENCES media_assets(workspace_id, id, content_hash) ON DELETE RESTRICT,
+  FOREIGN KEY (
+    workspace_id, output_asset_id, output_content_hash, output_media_type,
+    output_width, output_height
+  ) REFERENCES media_assets(
+    workspace_id, id, content_hash, media_type, width, height
+  ) ON DELETE RESTRICT,
+  FOREIGN KEY (
+    workspace_id, derivation_job_id, source_asset_id, source_content_hash,
+    operation, provider_key, provider_model_version, privacy_policy_version,
+    output_asset_id
+  ) REFERENCES media_derivation_jobs(
+    workspace_id, id, source_asset_id, source_content_hash, operation,
+    provider_key, provider_model_version, privacy_policy_version,
+    output_asset_id
+  ) ON DELETE CASCADE
+);
+
+INSERT INTO media_derivation_provenance
+SELECT * FROM media_derivation_provenance_0018_backup;
+
+DROP TABLE media_derivation_requests_0018_backup;
+DROP TABLE media_derivation_attempts_0018_backup;
+DROP TABLE media_derivation_provenance_0018_backup;
 
 CREATE TRIGGER media_derivation_jobs_legal_state_transition
 BEFORE UPDATE OF state ON media_derivation_jobs
@@ -293,6 +307,20 @@ WHEN OLD.state IN ('succeeded', 'cancelled')
   OR (OLD.state = 'failed' AND NEW.state <> 'queued')
 BEGIN
   SELECT RAISE(ABORT, 'media_derivation_job_settlement_immutable');
+END;
+
+CREATE TRIGGER media_derivation_attempts_claim_guard
+BEFORE INSERT ON media_derivation_attempts
+WHEN NEW.state <> 'running' OR NOT EXISTS (
+    SELECT 1 FROM media_derivation_jobs jobs
+    WHERE jobs.workspace_id = NEW.workspace_id
+      AND jobs.id = NEW.job_id
+      AND jobs.state = 'running'
+      AND jobs.active_attempt_id = NEW.id
+      AND jobs.attempt_count = NEW.attempt_number
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'media_derivation_attempt_claim_invalid');
 END;
 
 CREATE TRIGGER media_derivation_provenance_insert_guard
