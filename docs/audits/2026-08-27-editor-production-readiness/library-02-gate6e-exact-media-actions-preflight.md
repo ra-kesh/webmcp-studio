@@ -1,7 +1,7 @@
 # LIBRARY-02 Gate 6E exact media actions preflight
 
 **Date:** 2026-08-31
-**Status:** E0a and E0b accepted; E0c active. Gate 6E is not complete.
+**Status:** E0a, E0b and E0c accepted; E0d active. Gate 6E is not complete.
 
 ## Accepted implementation checkpoints
 
@@ -28,6 +28,45 @@ command or usage receipt.
 
 Acceptance evidence: 19 focused preparation tests, Studio typecheck, scoped
 ESLint, formatting, and diff checks passed.
+
+### E0c — editor executor and replacement final admission
+
+Accepted on 2026-08-31 at commit `0509ece` after independent review found five
+P1 defects in transition cancellation, local-preview warning handling, receipt
+settlement ownership, null local-use results and semantic no-op suppression.
+All five were remediated and the final re-review returned zero remaining P0/P1
+findings.
+
+The executor owns exact preparation inside one action mutex, commits insert,
+replace or field assignment through one canonical command, performs the final
+mutable-source check after renderer admission, and emits usage signals only
+after commit. Document/session transitions abort old work. Post-commit failures
+surface as retryable warnings without repeating or rolling back the edit.
+
+Acceptance evidence: 44/44 focused action, mounted-hook and replacement tests,
+Studio typecheck, scoped lint/diff checks and independent code re-review passed.
+
+### E0d — active entry conditions
+
+The pre-implementation reread of this audit plus OpenPencil and Loora found five
+P1 wiring seams that are now part of E0d acceptance: browser intents must retain
+the strict selected detail; exact detail lookup must include media source; the
+production media discovery provider must be mounted; legacy picker records may
+not be fabricated into current catalog identities; and post-commit retry
+warnings need a shell-owned lifetime beyond dialog close. E0d must close these
+before the ordinary dialog path is cut over.
+
+The E1 line-by-line cutover reconnaissance also recorded six preservation
+requirements before dialog replacement: mount/export the production media
+provider; route every ordinary source through the one executor; keep upload
+**Use** disabled until an exact managed catalog version is discoverable; keep
+recovery managed-only and independent from browser search; retain archive and
+promotion in a dedicated management surface; and route every opener through
+one focus-capturing function. The shared browser must become the sole owner of
+ordinary search/results/scrolling, while upload queue, recovery, archive,
+promotion, quota/status and close guards remain separate management workflows.
+`TypedFieldValueControl` may open `assign_field` only in source mode; API ID and
+field-default editing retain their existing separate contracts.
 
 ## Scope
 

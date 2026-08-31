@@ -7,11 +7,13 @@ with the Slice E handoff boundary recorded so the two slices do not overlap.
 This is an implementation preflight, not a completion or acceptance claim.
 
 Implementation checkpoint: D0/D1 was accepted on 2026-08-31 at commit
-`fc41c50` after independent review and remediation. The accepted foundation
-owns the isolated media-only controller/provider, source-aware browser
-identity, retained bounded device-local overlay, server-only cursor authority,
-and exact abortable local preview port. D2 remains active under the separate
-UI preflight; this document does not claim the shared browser is complete.
+`fc41c50`; the source-aware catalog/persistence boundary was accepted at
+`af48195`; and the pure shared browser was accepted at `c9d35f8`. Independent
+review found and closed the D2 scope, identity, detail, failure, compact-layout
+and retry P1s, then returned zero remaining P0/P1. Root verification passed the
+source migration suites, both typechecks, all 338 Document tests and a 62-test
+mounted browser matrix. Slice D is complete; editor action and dialog ownership
+remain in Slice E.
 
 ## Sources reread
 

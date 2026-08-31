@@ -2,8 +2,8 @@
 
 Date: 2026-08-31
 
-Status: Slices A, B and C accepted; Slice D0/D1 accepted; Slice D2 remediation
-active; Slice E0a/E0b accepted and E0c active
+Status: Slices A, B, C and D accepted; Slice E0a/E0b/E0c accepted and E0d
+active
 
 ## Accepted checkpoints
 
@@ -109,19 +109,34 @@ provider, local-adapter, template-browser and preference tests plus Studio
 typecheck and scoped ESLint. The final independent remediation review passed
 14 focused tests and Studio typecheck with zero remaining P0/P1 findings.
 
-Slice D is not complete. The pure shared media browser, card/detail surface,
-viewport object-URL lifecycle, virtualization and browser acceptance remain
-under `library-02-gate6d2-shared-media-browser-ui-spec.md`.
-
 The D2 collection, preview, and preference-projection foundations were
 checkpointed at commit `7ffb7f0` after their focused suites and independent
-reviews returned zero open P0/P1 findings. The main browser is not yet
-accepted: its first independent review found six P1 gaps in atomic scope
-cutover, source-aware server identity, exact details, cloud-failure visibility,
-compact Sheet usability, and exact-selection retry. Remediation remains active
-and no D2 completion claim is made.
+reviews returned zero open P0/P1 findings.
 
-### Slice E — E0a/E0b exact-action foundations
+The source-aware catalog and persistence boundary was accepted at commit
+`af48195`. Curated and managed media with the same ID/version remain distinct
+through detail, preferences, Recent and collections. Migration 0016 upgrades
+legacy preference/member identities and successful receipts without weakening
+idempotency: old-hash replay succeeds only for the caller's exact migrated
+source, while wrong-source reuse is rejected. Independent review found two
+receipt-replay P1s; both were remediated and the final re-review returned zero
+remaining P0/P1 findings.
+
+The pure shared browser was accepted at commit `c9d35f8`. Its first independent
+review found six P1 gaps in atomic scope cutover, source-aware server identity,
+exact details, cloud-failure visibility, compact Sheet usability and exact
+selection retry. All six were remediated and the final re-review returned zero
+remaining P0/P1 findings. The browser now owns truthful loading/failure/empty
+states, source grouping, exact details, permissions, collections, bounded local
+previews, keyboard navigation and the 48/49 virtualization boundary without
+issuing document commands.
+
+Acceptance evidence: root verification passed 109 source-focused Studio tests,
+both migration verifiers, all 338 Document tests, both typechecks and a 62-test
+mounted browser matrix. Receiptless legacy preference repair separately passed
+26/26 tests after its final P1 fix.
+
+### Slice E — E0a/E0b/E0c exact-action foundations
 
 E0a was accepted at commit `87357d7` after its duplicate action-union P1 was
 removed and independent re-review returned zero open P0/P1. `assign_field` is
@@ -131,8 +146,16 @@ persistence and idempotent replay.
 E0b was accepted at commit `bd0aaae` after independent review returned zero
 P0/P1. Curated, managed, and device-local selections now enter one exact,
 abortable, UI-free preparation boundary that preserves canonical sources and
-performs no document mutation or usage side effect. E0c editor execution and
-replacement final admission remain active; Slice E is not complete.
+performs no document mutation or usage side effect.
+
+E0c was accepted at commit `0509ece` after five independent-review P1s were
+remediated and the re-review returned zero remaining P0/P1. One mutex-owned
+executor now performs exact insert, replace and field assignment as one
+canonical command, rechecks mutable media after renderer admission, cancels on
+session transitions, suppresses semantic no-ops and records source-specific
+usage only after commit. Post-commit receipt failures remain retryable warnings
+and never roll back the document edit. E0d target/runtime/shell wiring is now
+active; Slice E is not complete.
 
 ## Scope and entry condition
 
