@@ -585,3 +585,39 @@ None of these blockers require changing the accepted crop, frame mask, replaceme
 The relation model, hidden-source behavior, source/content opacity order, structural failure rules, first-slice geometry, transaction envelope, and initial admission limits above are now frozen for Gate M0. Changing any of them requires an explicit audit amendment with renderer evidence; an adapter must not quietly invent different semantics.
 
 The production schema and controls remain intentionally unchanged at this checkpoint. The next commit is the bounded, test-first shared paint-plan/oracle slice. It must prove the contract before schema version 5 makes mask state persistent.
+
+## Gate M0 checkpoint A — shared structural oracle
+
+Accepted on 2026-08-31 as an intermediate checkpoint, not as the complete M0 exit.
+
+Implemented:
+
+- a package-internal `page-paint-plan.ts` projector with explicit test-only relations
+- one rectangle/vector source, canonical page-order content, hidden-source fallthrough, and source suppression from ordinary paint
+- top-left rotation bounds matching Fabric, React, and renderer HTML
+- explicit `maskEnabled` versus `compositeRequired` so hidden content allocates no offscreen surface
+- stable failures for duplicate identities, overlapping relations, missing or non-contiguous members, unsupported M0 mode/source, empty content, invalid scale, and admission limits
+- 1x/2x device-pixel admission and fractional ceil-boundary coverage
+
+Independent code review found and the checkpoint fixes:
+
+- duplicate group identities that could have silently dropped a relation
+- accidental admission of alpha, luminance, and non-rectangle sources before their gates
+- an exported API that could be mistaken for canonical direct-membership validation
+- allocation for a visible source when all content was hidden
+- a repeated 1x/2x assertion that did not exercise device-pixel admission
+- incorrect centre-rotation wording despite correct top-left renderer semantics
+
+The projector remains deliberately absent from the package public index. Gate M1 will derive trusted relations from canonical schema-v5 groups and then expose the validated projection boundary.
+
+Evidence:
+
+- focused document and retained render-conformance tests: 26 passed
+- document package typecheck: passed
+- formatting and diff checks: passed
+
+Still required for the M0 exit:
+
+- translate the retained rectangle/vector oracle through Fabric, React, and renderer HTML
+- prove the shared HTML structure through one PNG and one PDF endpoint smoke
+- retain one serialized browser comparison for the Fabric and React result
