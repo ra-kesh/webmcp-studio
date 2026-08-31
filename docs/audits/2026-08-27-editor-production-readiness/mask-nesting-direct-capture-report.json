@@ -1,7 +1,7 @@
 {
   "version": 2,
-  "runId": "2026-08-31T20-26-01.968Z-87b8b6b5-181e-4677-ab90-2e30f246f439",
-  "artifactRoot": "artifacts/runs/2026-08-31T20-26-01.968Z-87b8b6b5-181e-4677-ab90-2e30f246f439",
+  "runId": "2026-08-31T21-06-59.232Z-5a17539e-d461-46b8-b7e8-1cc16975fd52",
+  "artifactRoot": "artifacts/runs/2026-08-31T21-06-59.232Z-5a17539e-d461-46b8-b7e8-1cc16975fd52",
   "corpus": "mask",
   "captureScope": "direct-only",
   "documentId": "mask-render-conformance-v1",
@@ -73,7 +73,7 @@
     {
       "path": "renderer-pdf/mask-nested-vector-alpha.pdf",
       "bytes": 18534,
-      "sha256": "d0402486bcc1343761ac159c505d725f8ac84c66e0be198ce93b209016cfd1a1"
+      "sha256": "1eeef7044a45fb66e9d211e7c8897d8a6b922636c001d077cc1738b5bac097cc"
     },
     {
       "path": "renderer-pdf/mask-nested-vector-alpha.png",
@@ -85,7 +85,7 @@
     {
       "path": "renderer-pdf/mask-nested-luminance-vector-one-hidden.pdf",
       "bytes": 22565,
-      "sha256": "e553b18b1efb89049d99c4e79bf34086c98c7721519f9359493e94ec63ae4603"
+      "sha256": "e78e4201c38d01539f6a4b9ddca22f94cb7fe15f6bc640e1c3d41c43756a6efc"
     },
     {
       "path": "renderer-pdf/mask-nested-luminance-vector-one-hidden.png",
@@ -97,7 +97,7 @@
     {
       "path": "renderer-pdf/mask-nested-alpha-luminance-all-hidden.pdf",
       "bytes": 19569,
-      "sha256": "4856f25dfef1a26f63629d5b059695584dda58c96920a182be89ae1bec84ab1a"
+      "sha256": "1a821c76d96aaa862dede700c7dd0e94d3af19c1e28c1f3d15579e430ff6d6b0"
     },
     {
       "path": "renderer-pdf/mask-nested-alpha-luminance-all-hidden.png",
@@ -108,6 +108,50 @@
     }
   ],
   "maskEvidence": {
+    "nestingNegativeEvidence": {
+      "paintPlanAdmission": [
+        {
+          "fixture": "nested-third-level-rejection",
+          "documentId": "nested-over-depth-v1",
+          "revision": 1,
+          "sha256": "f57dd78f88728a77f66aea2d9bceaf47047930f25c7692241d75d102a9522130",
+          "pixelRatio": 2,
+          "rejected": true,
+          "code": "MASK_GROUP_NESTING_UNSUPPORTED",
+          "message": "Mask group nested-over-depth-grandchild-mask exceeds the bounded nesting depth",
+          "beforeAllocation": true
+        },
+        {
+          "fixture": "nested-summed-2x-area-rejection",
+          "documentId": "nested-composite-area-limit-v1",
+          "revision": 1,
+          "sha256": "64a5a286ade982f87e2e163c8db308c6ec6de56c878f6713edf9d4f6bcd29cdf",
+          "pixelRatio": 2,
+          "rejected": true,
+          "code": "MASK_PAGE_COMPOSITE_AREA_LIMIT",
+          "message": "Page mask-conformance-page exceeds the admitted composite area limit",
+          "beforeAllocation": true
+        }
+      ],
+      "directHtmlResourceFailure": {
+        "exercised": true,
+        "evidence": {
+          "fixture": "nested-descendant-image-decode",
+          "documentId": "nested-image-failure-v1",
+          "revision": 1,
+          "sha256": "685a57def36ec2896f6460d2d0c484b5e4a1caacdf8a92715df5335b59212760",
+          "rejected": true,
+          "code": "image_decode_failed",
+          "nodeId": "nested-vector-alpha-child-image",
+          "beforeCapture": true
+        }
+      },
+      "publicEndpointFailures": {
+        "exercised": false,
+        "externalReport": "mask-nesting-capture-report.json",
+        "states": []
+      }
+    },
     "directHtml": {
       "exercised": true,
       "externalReport": null,

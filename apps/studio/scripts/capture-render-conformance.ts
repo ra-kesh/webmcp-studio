@@ -13,7 +13,8 @@ import {
 import { createRequire } from "node:module"
 import { basename, dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { chromium, type Page as PlaywrightPage } from "@playwright/test"
+import { chromium } from "@playwright/test"
+import type { Page as PlaywrightPage } from "@playwright/test"
 import { DOMMatrix, ImageData, Path2D, createCanvas } from "@napi-rs/canvas"
 import {
   buildComponentPublicationJourney,
@@ -22,8 +23,8 @@ import {
   documentSchema,
   renderConformanceDocument,
   textDesignSystemConformanceDocument,
-  type Document,
 } from "@webmcp/document"
+import type { Document } from "@webmcp/document"
 import {
   alphaImageMaskRenderConformanceDocument,
   alphaImageMaskRenderConformanceHiddenSourceDocument,
@@ -42,10 +43,16 @@ import {
   multiVectorMaskRenderConformanceDocument,
   multiVectorMaskRenderConformanceOneHiddenDocument,
   nestedAlphaLuminanceAllHiddenRenderConformanceDocument,
+  nestedCompositeAreaLimitRenderConformanceDocument,
+  nestedImageFailureRenderConformanceDocument,
   nestedLuminanceVectorOneHiddenRenderConformanceDocument,
+  nestedOverDepthRenderConformanceDocument,
   nestedVectorAlphaRenderConformanceDocument,
 } from "@webmcp/document/internal/mask-render-conformance"
-import { projectPagePaintPlan } from "@webmcp/document/internal/page-paint-plan"
+import {
+  PagePaintPlanError,
+  projectPagePaintPlan,
+} from "@webmcp/document/internal/page-paint-plan"
 import sharp from "sharp"
 import { renderDocumentToHtml } from "../../renderer/src/html"
 
@@ -755,8 +762,10 @@ async function waitForDirectMaskPaint(browserPage: PlaywrightPage) {
   assert.equal(error, null, `Direct mask resource readiness failed: ${error}`)
   await browserPage.evaluate(
     () =>
-      new Promise<void>((resolve) =>
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      new Promise<void>((completeFrame) =>
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => completeFrame())
+        )
       )
   )
 }
@@ -956,6 +965,11 @@ async function buildCaptureReport() {
     }
     artifacts.push(entry)
   }
+  const nestingNegativeEvidence =
+    conformanceCorpus === "mask" &&
+    process.env.CONFORMANCE_MASK_PHASE === "nesting"
+      ? await assertNestedMaskNegativeEvidence()
+      : null
   return {
     version: 2,
     runId: captureRunId,
@@ -989,6 +1003,7 @@ async function buildCaptureReport() {
     ...(conformanceCorpus === "mask"
       ? {
           maskEvidence: {
+            nestingNegativeEvidence,
             directHtml: {
               exercised: !skipDirect,
               externalReport: skipDirect
@@ -1111,6 +1126,255 @@ async function buildCaptureReport() {
   }
 }
 
+function documentEvidence(document: Document) {
+  const bytes = JSON.stringify(document)
+  return {
+    documentId: document.id,
+    revision: document.revision,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+  }
+}
+
+function assertPaintPlanRejection(
+  fixture: string,
+  document: Document,
+  expectedCode:
+    "MASK_GROUP_NESTING_UNSUPPORTED" | "MASK_PAGE_COMPOSITE_AREA_LIMIT"
+) {
+  try {
+    projectPagePaintPlan(document, document.pages[0].id, { pixelRatio: 2 })
+  } catch (error) {
+    assert.ok(error instanceof PagePaintPlanError, `${fixture} error type`)
+    assert.equal(error.code, expectedCode, `${fixture} stable error code`)
+    return {
+      fixture,
+      ...documentEvidence(document),
+      pixelRatio: 2,
+      rejected: true,
+      code: error.code,
+      message: error.message,
+      beforeAllocation: true,
+    }
+  }
+  throw new Error(`${fixture} unexpectedly passed paint-plan admission`)
+}
+
+async function assertDirectNestedMaskResourceFailure() {
+  const fixtureDocument = nestedImageFailureRenderConformanceDocument
+  const nodeId = "nested-vector-alpha-child-image"
+  const browser = await chromium.launch({ channel: "chrome", headless: true })
+  const context = await browser.newContext({
+    deviceScaleFactor: 1,
+    viewport: {
+      width: maskRenderConformancePage.width,
+      height: maskRenderConformancePage.height,
+    },
+  })
+  const browserPage = await context.newPage()
+  browserPage.setDefaultTimeout(30_000)
+  try {
+    await browserPage.setContent(
+      renderDocumentToHtml(fixtureDocument, maskRenderConformancePage.id),
+      { waitUntil: "load" }
+    )
+    await browserPage.waitForFunction(
+      () =>
+        document.documentElement.hasAttribute("data-render-ready") ||
+        document.documentElement.hasAttribute("data-render-error"),
+      undefined,
+      { timeout: 30_000 }
+    )
+    const state = await browserPage.evaluate(() => ({
+      ready: document.documentElement.getAttribute("data-render-ready"),
+      code: document.documentElement.getAttribute("data-render-error"),
+      nodeId: document.documentElement.getAttribute("data-render-error-node"),
+    }))
+    assert.equal(state.ready, null)
+    assert.equal(state.code, "image_decode_failed")
+    assert.equal(state.nodeId, nodeId)
+    return {
+      fixture: "nested-descendant-image-decode",
+      ...documentEvidence(fixtureDocument),
+      rejected: true,
+      code: state.code,
+      nodeId: state.nodeId,
+      beforeCapture: true,
+    }
+  } finally {
+    await browserPage.close()
+    await context.close()
+    await browser.close()
+  }
+}
+
+type NegativeEndpointSurface = "png" | "thumbnail" | "pdf"
+
+function negativeEndpointRequest(
+  surface: NegativeEndpointSurface,
+  document: Document
+) {
+  const pageId = document.pages[0].id
+  const output = document.outputs.find((candidate) =>
+    candidate.pageIds.includes(pageId)
+  )
+  assert.ok(output, `${document.id} has no output for ${pageId}`)
+  const outputId = output.id
+  if (surface === "png") {
+    return {
+      path: "/v1/studio/export-png",
+      body: { document, pageId },
+    }
+  }
+  if (surface === "thumbnail") {
+    return {
+      path: "/v1/studio/page-thumbnail",
+      body: { document, pageId, size: { width: 240, height: 180 } },
+    }
+  }
+  return {
+    path: "/v1/studio/export-pdf",
+    body: { document, outputId },
+  }
+}
+
+function decodeJsonObject(bytes: Uint8Array) {
+  const value = JSON.parse(new TextDecoder().decode(bytes)) as unknown
+  assert.ok(value && typeof value === "object" && !Array.isArray(value))
+  return value as Record<string, unknown>
+}
+
+async function assertPublicNestedMaskNegativeEvidence() {
+  const fixtures = [
+    {
+      fixture: "nested-descendant-image-decode",
+      document: nestedImageFailureRenderConformanceDocument,
+      expectedCode: "render_resource_admission_failed",
+      expectedDetailCode: "image_resource_inline_invalid",
+      expectedIssueCode: null,
+      expectedNodeId: "nested-vector-alpha-child-image",
+    },
+    {
+      fixture: "nested-third-level-rejection",
+      document: nestedOverDepthRenderConformanceDocument,
+      expectedCode: "document_validation_failed",
+      expectedDetailCode: null,
+      expectedIssueCode: "invalid_group",
+      expectedNodeId: null,
+    },
+    {
+      fixture: "nested-summed-2x-area-rejection",
+      document: nestedCompositeAreaLimitRenderConformanceDocument,
+      expectedCode: "document_validation_failed",
+      expectedDetailCode: null,
+      expectedIssueCode: "render_limit_exceeded",
+      expectedNodeId: null,
+    },
+  ] as const
+  const evidence = []
+  for (const fixture of fixtures) {
+    for (const surface of ["png", "thumbnail", "pdf"] as const) {
+      const request = negativeEndpointRequest(surface, fixture.document)
+      const { response, body } = await fetchRendererArtifact(
+        `${baseUrl}${request.path}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(request.body),
+        },
+        `${fixture.fixture} ${surface} negative evidence`
+      )
+      const payload = decodeJsonObject(body)
+      const errorDetail = payload.error
+      assert.ok(
+        errorDetail &&
+          typeof errorDetail === "object" &&
+          !Array.isArray(errorDetail),
+        `${fixture.fixture} ${surface} omitted its public error detail`
+      )
+      const publicError = errorDetail as Record<string, unknown>
+      assert.equal(response.status, 422)
+      assert.equal(publicError.code, fixture.expectedCode)
+      if (fixture.expectedDetailCode) {
+        assert.equal(publicError.detailCode, fixture.expectedDetailCode)
+      }
+      if (fixture.expectedNodeId) {
+        assert.equal(publicError.nodeId, fixture.expectedNodeId)
+      }
+      if (fixture.expectedIssueCode) {
+        assert.ok(Array.isArray(publicError.issues))
+        assert.ok(
+          publicError.issues.some(
+            (issue) =>
+              issue &&
+              typeof issue === "object" &&
+              "code" in issue &&
+              issue.code === fixture.expectedIssueCode
+          ),
+          `${fixture.fixture} ${surface} omitted ${fixture.expectedIssueCode}`
+        )
+      }
+      evidence.push({
+        fixture: fixture.fixture,
+        ...documentEvidence(fixture.document),
+        surface,
+        path: request.path,
+        status: response.status,
+        code: publicError.code,
+        detailCode: publicError.detailCode ?? null,
+        nodeId: publicError.nodeId ?? null,
+        retryable: publicError.retryable,
+        issueCodes: Array.isArray(publicError.issues)
+          ? publicError.issues.flatMap((issue) =>
+              issue &&
+              typeof issue === "object" &&
+              "code" in issue &&
+              typeof issue.code === "string"
+                ? [issue.code]
+                : []
+            )
+          : [],
+      })
+    }
+  }
+  return evidence
+}
+
+async function assertNestedMaskNegativeEvidence() {
+  return {
+    paintPlanAdmission: [
+      assertPaintPlanRejection(
+        "nested-third-level-rejection",
+        nestedOverDepthRenderConformanceDocument,
+        "MASK_GROUP_NESTING_UNSUPPORTED"
+      ),
+      assertPaintPlanRejection(
+        "nested-summed-2x-area-rejection",
+        nestedCompositeAreaLimitRenderConformanceDocument,
+        "MASK_PAGE_COMPOSITE_AREA_LIMIT"
+      ),
+    ],
+    directHtmlResourceFailure: skipDirect
+      ? {
+          exercised: false,
+          externalReport: "mask-nesting-direct-capture-report.json",
+        }
+      : {
+          exercised: true,
+          evidence: await assertDirectNestedMaskResourceFailure(),
+        },
+    publicEndpointFailures: directOnly
+      ? {
+          exercised: false,
+          externalReport: "mask-nesting-capture-report.json",
+          states: [],
+        }
+      : {
+          exercised: true,
+          states: await assertPublicNestedMaskNegativeEvidence(),
+        },
+  }
+}
+
 function luminanceCoefficientProbes() {
   return [
     {
@@ -1196,9 +1460,9 @@ async function assertLuminanceCoefficientArtifacts() {
         const y = Math.floor(sample.y * artifact.scale)
         const offset = (y * image.info.width + x) * image.info.channels
         const actual = [
-          image.data[offset]!,
-          image.data[offset + 1]!,
-          image.data[offset + 2]!,
+          image.data[offset],
+          image.data[offset + 1],
+          image.data[offset + 2],
         ]
         for (const channel of actual) {
           assert.ok(
@@ -1391,7 +1655,7 @@ function compareDecodedPngs(
     let pixelMaxDifference = 0
     for (let channel = 0; channel < 4; channel += 1) {
       const difference = Math.abs(
-        left.data[index + channel]! - right.data[index + channel]!
+        left.data[index + channel] - right.data[index + channel]
       )
       if (difference > 0) changedChannels += 1
       totalAbsoluteDifference += difference

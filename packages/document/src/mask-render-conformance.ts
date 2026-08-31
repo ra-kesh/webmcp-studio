@@ -846,3 +846,156 @@ export const nestedAlphaLuminanceAllHiddenRenderConformanceDocument =
       ),
     ]
   )
+
+export const nestedImageFailureRenderConformanceDocument = documentSchema.parse(
+  {
+    ...nestedVectorAlphaRenderConformanceDocument,
+    id: "nested-image-failure-v1",
+    name: "Nested descendant image decode failure",
+    nodes: nestedVectorAlphaRenderConformanceDocument.nodes.map((node) =>
+      node.id === "nested-vector-alpha-child-image"
+        ? { ...node, src: "data:image/png;base64,AA==" }
+        : node
+    ),
+  }
+)
+
+const nestedOverDepthGrandchildSource = rect(
+  "nested-over-depth-grandchild-source",
+  "Over-depth grandchild source",
+  132,
+  96,
+  116,
+  96,
+  "#111827"
+)
+const nestedOverDepthGrandchildContent = rect(
+  "nested-over-depth-grandchild-content",
+  "Over-depth grandchild content",
+  164,
+  118,
+  108,
+  92,
+  "#f8fafc"
+)
+
+export const nestedOverDepthRenderConformanceDocument = documentSchema.parse({
+  ...nestedVectorAlphaRenderConformanceDocument,
+  id: "nested-over-depth-v1",
+  name: "Nested third-level admission failure",
+  pages: nestedVectorAlphaRenderConformanceDocument.pages.map((page) => ({
+    ...page,
+    nodeIds: page.nodeIds.flatMap((nodeId) =>
+      nodeId === "nested-vector-alpha-child-image"
+        ? [
+            nodeId,
+            nestedOverDepthGrandchildSource.id,
+            nestedOverDepthGrandchildContent.id,
+          ]
+        : [nodeId]
+    ),
+  })),
+  nodes: [
+    ...nestedVectorAlphaRenderConformanceDocument.nodes,
+    nestedOverDepthGrandchildSource,
+    nestedOverDepthGrandchildContent,
+  ],
+  groups: [
+    ...nestedVectorAlphaRenderConformanceDocument.groups,
+    {
+      id: "nested-over-depth-grandchild-mask",
+      pageId: maskRenderConformancePage.id,
+      parentGroupId: "nested-vector-alpha-v1-child-mask",
+      name: "Over-depth grandchild mask",
+      nodeIds: [
+        nestedOverDepthGrandchildSource.id,
+        nestedOverDepthGrandchildContent.id,
+      ],
+      role: "mask",
+      mask: {
+        type: "vector",
+        sourceNodeIds: [nestedOverDepthGrandchildSource.id],
+      },
+    },
+  ],
+})
+
+const nestedCompositeAreaChildren = Array.from({ length: 4 }, (_, index) => {
+  const source = rect(
+    `nested-area-limit-source-${index}`,
+    `Area-limit child ${index + 1} source`,
+    0,
+    0,
+    2_000,
+    2_000,
+    "#111827"
+  )
+  const content = rect(
+    `nested-area-limit-content-${index}`,
+    `Area-limit child ${index + 1} content`,
+    0,
+    0,
+    2_000,
+    2_000,
+    "#f8fafc"
+  )
+  return { source, content }
+})
+const nestedCompositeAreaOuterSource = rect(
+  "nested-area-limit-outer-source",
+  "Area-limit outer source",
+  0,
+  0,
+  2_000,
+  2_000,
+  "#111827"
+)
+
+export const nestedCompositeAreaLimitRenderConformanceDocument =
+  documentSchema.parse({
+    ...maskRenderConformanceDocument,
+    id: "nested-composite-area-limit-v1",
+    name: "Nested summed composite area admission failure",
+    pages: [
+      {
+        ...maskRenderConformancePage,
+        name: "Nested summed composite area admission failure",
+        nodeIds: [
+          nestedCompositeAreaOuterSource.id,
+          ...nestedCompositeAreaChildren.flatMap(({ source, content }) => [
+            source.id,
+            content.id,
+          ]),
+        ],
+      },
+    ],
+    nodes: [
+      nestedCompositeAreaOuterSource,
+      ...nestedCompositeAreaChildren.flatMap(({ source, content }) => [
+        source,
+        content,
+      ]),
+    ],
+    groups: [
+      {
+        id: "nested-area-limit-outer-mask",
+        pageId: maskRenderConformancePage.id,
+        name: "Area-limit outer mask",
+        nodeIds: [nestedCompositeAreaOuterSource.id],
+        role: "mask",
+        mask: {
+          type: "vector",
+          sourceNodeIds: [nestedCompositeAreaOuterSource.id],
+        },
+      },
+      ...nestedCompositeAreaChildren.map(({ source, content }, index) => ({
+        id: `nested-area-limit-child-mask-${index}`,
+        pageId: maskRenderConformancePage.id,
+        parentGroupId: "nested-area-limit-outer-mask",
+        name: `Area-limit child mask ${index + 1}`,
+        nodeIds: [source.id, content.id],
+        role: "mask" as const,
+        mask: { type: "vector" as const, sourceNodeIds: [source.id] },
+      })),
+    ],
+  })

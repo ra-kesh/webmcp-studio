@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest"
 import {
   nestedAlphaLuminanceAllHiddenRenderConformanceDocument,
+  nestedCompositeAreaLimitRenderConformanceDocument,
+  nestedImageFailureRenderConformanceDocument,
   nestedLuminanceVectorOneHiddenRenderConformanceDocument,
+  nestedOverDepthRenderConformanceDocument,
   nestedVectorAlphaRenderConformanceDocument,
 } from "../src/mask-render-conformance"
 import {
+  PagePaintPlanError,
   projectPagePaintPlan,
   type PagePaintPlanEntry,
 } from "../src/page-paint-plan"
@@ -108,5 +112,43 @@ describe("nested mask retained conformance fixtures", () => {
       maskEnabled: false,
       compositeRequired: false,
     })
+  })
+
+  it("retains an exact nested descendant image-decode failure fixture", () => {
+    expect(
+      nestedImageFailureRenderConformanceDocument.nodes.find(
+        (node) => node.id === "nested-vector-alpha-child-image"
+      )
+    ).toMatchObject({
+      type: "image",
+      src: "data:image/png;base64,AA==",
+    })
+    expect(
+      projectPagePaintPlan(
+        nestedImageFailureRenderConformanceDocument,
+        nestedImageFailureRenderConformanceDocument.pages[0]!.id
+      ).entries
+    ).toHaveLength(3)
+  })
+
+  it.each([
+    {
+      label: "third mask depth",
+      document: nestedOverDepthRenderConformanceDocument,
+      code: "MASK_GROUP_NESTING_UNSUPPORTED",
+    },
+    {
+      label: "summed 2x composite area",
+      document: nestedCompositeAreaLimitRenderConformanceDocument,
+      code: "MASK_PAGE_COMPOSITE_AREA_LIMIT",
+    },
+  ] as const)("retains the $label rejection fixture", ({ document, code }) => {
+    try {
+      projectPagePaintPlan(document, document.pages[0]!.id, { pixelRatio: 2 })
+      throw new Error(`Expected ${code}`)
+    } catch (error) {
+      expect(error).toBeInstanceOf(PagePaintPlanError)
+      expect(error).toMatchObject({ code })
+    }
   })
 })

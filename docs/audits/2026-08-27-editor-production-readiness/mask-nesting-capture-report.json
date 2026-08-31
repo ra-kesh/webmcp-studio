@@ -1,12 +1,12 @@
 {
   "version": 2,
-  "runId": "2026-08-31T20-25-24.176Z-6139eae7-5e1e-47b0-aa9e-1ae60051282d",
-  "artifactRoot": "artifacts/runs/2026-08-31T20-25-24.176Z-6139eae7-5e1e-47b0-aa9e-1ae60051282d",
+  "runId": "2026-08-31T21-12-17.709Z-2478ac38-c866-4d67-a3c5-ac224f75788a",
+  "artifactRoot": "artifacts/runs/2026-08-31T21-12-17.709Z-2478ac38-c866-4d67-a3c5-ac224f75788a",
   "corpus": "mask",
   "captureScope": "browser-public",
   "documentId": "mask-render-conformance-v1",
   "revision": 1,
-  "baseUrl": "http://localhost:3001",
+  "baseUrl": "http://127.0.0.1:3001",
   "deviceScaleFactor": 1,
   "browserCaptureRuntime": {
     "browserVersion": "152.0.7977.64",
@@ -123,7 +123,7 @@
     {
       "path": "renderer-endpoint-smoke/canonical-mask-v5-nested-vector-alpha.pdf",
       "bytes": 20593,
-      "sha256": "906acca7d7d7c5f08eb467382696de7f43f57a7af05f81be44361aa0e29c409e"
+      "sha256": "e28832477e961d49f7dfed93e26925ef5e39192fc6e90604a22821afe87fd2c9"
     },
     {
       "path": "renderer-endpoint-smoke/canonical-mask-v5-nested-vector-alpha-thumbnail.png",
@@ -149,7 +149,7 @@
     {
       "path": "renderer-endpoint-smoke/canonical-mask-v5-nested-luminance-vector-one-hidden.pdf",
       "bytes": 24698,
-      "sha256": "110114e4bd9e8e28bffe7e9dd27dc8283628b2065a84d440f71173da230877b9"
+      "sha256": "b53ae5354cde6d599d5be7c37b5087e3d5da29fb4f934774b8300d290dafddb1"
     },
     {
       "path": "renderer-endpoint-smoke/canonical-mask-v5-nested-luminance-vector-one-hidden-thumbnail.png",
@@ -175,7 +175,7 @@
     {
       "path": "renderer-endpoint-smoke/canonical-mask-v5-nested-alpha-luminance-all-hidden.pdf",
       "bytes": 21655,
-      "sha256": "a474eab1fb6df83d909f5a262254bc14f2e0024ea2b60c91c3cca4b4e97123d5"
+      "sha256": "4011bfd8a50fa6cd8e717b3652c454df0c4e26487b60f31649f2f805ce9d5d02"
     },
     {
       "path": "renderer-endpoint-smoke/canonical-mask-v5-nested-alpha-luminance-all-hidden-thumbnail.png",
@@ -193,6 +193,182 @@
     }
   ],
   "maskEvidence": {
+    "nestingNegativeEvidence": {
+      "paintPlanAdmission": [
+        {
+          "fixture": "nested-third-level-rejection",
+          "documentId": "nested-over-depth-v1",
+          "revision": 1,
+          "sha256": "f57dd78f88728a77f66aea2d9bceaf47047930f25c7692241d75d102a9522130",
+          "pixelRatio": 2,
+          "rejected": true,
+          "code": "MASK_GROUP_NESTING_UNSUPPORTED",
+          "message": "Mask group nested-over-depth-grandchild-mask exceeds the bounded nesting depth",
+          "beforeAllocation": true
+        },
+        {
+          "fixture": "nested-summed-2x-area-rejection",
+          "documentId": "nested-composite-area-limit-v1",
+          "revision": 1,
+          "sha256": "64a5a286ade982f87e2e163c8db308c6ec6de56c878f6713edf9d4f6bcd29cdf",
+          "pixelRatio": 2,
+          "rejected": true,
+          "code": "MASK_PAGE_COMPOSITE_AREA_LIMIT",
+          "message": "Page mask-conformance-page exceeds the admitted composite area limit",
+          "beforeAllocation": true
+        }
+      ],
+      "directHtmlResourceFailure": {
+        "exercised": false,
+        "externalReport": "mask-nesting-direct-capture-report.json"
+      },
+      "publicEndpointFailures": {
+        "exercised": true,
+        "states": [
+          {
+            "fixture": "nested-descendant-image-decode",
+            "documentId": "nested-image-failure-v1",
+            "revision": 1,
+            "sha256": "685a57def36ec2896f6460d2d0c484b5e4a1caacdf8a92715df5335b59212760",
+            "surface": "png",
+            "path": "/v1/studio/export-png",
+            "status": 422,
+            "code": "render_resource_admission_failed",
+            "detailCode": "image_resource_inline_invalid",
+            "nodeId": "nested-vector-alpha-child-image",
+            "retryable": false,
+            "issueCodes": []
+          },
+          {
+            "fixture": "nested-descendant-image-decode",
+            "documentId": "nested-image-failure-v1",
+            "revision": 1,
+            "sha256": "685a57def36ec2896f6460d2d0c484b5e4a1caacdf8a92715df5335b59212760",
+            "surface": "thumbnail",
+            "path": "/v1/studio/page-thumbnail",
+            "status": 422,
+            "code": "render_resource_admission_failed",
+            "detailCode": "image_resource_inline_invalid",
+            "nodeId": "nested-vector-alpha-child-image",
+            "retryable": false,
+            "issueCodes": []
+          },
+          {
+            "fixture": "nested-descendant-image-decode",
+            "documentId": "nested-image-failure-v1",
+            "revision": 1,
+            "sha256": "685a57def36ec2896f6460d2d0c484b5e4a1caacdf8a92715df5335b59212760",
+            "surface": "pdf",
+            "path": "/v1/studio/export-pdf",
+            "status": 422,
+            "code": "render_resource_admission_failed",
+            "detailCode": "image_resource_inline_invalid",
+            "nodeId": "nested-vector-alpha-child-image",
+            "retryable": false,
+            "issueCodes": []
+          },
+          {
+            "fixture": "nested-third-level-rejection",
+            "documentId": "nested-over-depth-v1",
+            "revision": 1,
+            "sha256": "f57dd78f88728a77f66aea2d9bceaf47047930f25c7692241d75d102a9522130",
+            "surface": "png",
+            "path": "/v1/studio/export-png",
+            "status": 422,
+            "code": "document_validation_failed",
+            "detailCode": null,
+            "nodeId": null,
+            "retryable": false,
+            "issueCodes": [
+              "invalid_group",
+              "invalid_group"
+            ]
+          },
+          {
+            "fixture": "nested-third-level-rejection",
+            "documentId": "nested-over-depth-v1",
+            "revision": 1,
+            "sha256": "f57dd78f88728a77f66aea2d9bceaf47047930f25c7692241d75d102a9522130",
+            "surface": "thumbnail",
+            "path": "/v1/studio/page-thumbnail",
+            "status": 422,
+            "code": "document_validation_failed",
+            "detailCode": null,
+            "nodeId": null,
+            "retryable": false,
+            "issueCodes": [
+              "invalid_group",
+              "invalid_group"
+            ]
+          },
+          {
+            "fixture": "nested-third-level-rejection",
+            "documentId": "nested-over-depth-v1",
+            "revision": 1,
+            "sha256": "f57dd78f88728a77f66aea2d9bceaf47047930f25c7692241d75d102a9522130",
+            "surface": "pdf",
+            "path": "/v1/studio/export-pdf",
+            "status": 422,
+            "code": "document_validation_failed",
+            "detailCode": null,
+            "nodeId": null,
+            "retryable": false,
+            "issueCodes": [
+              "invalid_group",
+              "invalid_group"
+            ]
+          },
+          {
+            "fixture": "nested-summed-2x-area-rejection",
+            "documentId": "nested-composite-area-limit-v1",
+            "revision": 1,
+            "sha256": "64a5a286ade982f87e2e163c8db308c6ec6de56c878f6713edf9d4f6bcd29cdf",
+            "surface": "png",
+            "path": "/v1/studio/export-png",
+            "status": 422,
+            "code": "document_validation_failed",
+            "detailCode": null,
+            "nodeId": null,
+            "retryable": false,
+            "issueCodes": [
+              "render_limit_exceeded"
+            ]
+          },
+          {
+            "fixture": "nested-summed-2x-area-rejection",
+            "documentId": "nested-composite-area-limit-v1",
+            "revision": 1,
+            "sha256": "64a5a286ade982f87e2e163c8db308c6ec6de56c878f6713edf9d4f6bcd29cdf",
+            "surface": "thumbnail",
+            "path": "/v1/studio/page-thumbnail",
+            "status": 422,
+            "code": "document_validation_failed",
+            "detailCode": null,
+            "nodeId": null,
+            "retryable": false,
+            "issueCodes": [
+              "render_limit_exceeded"
+            ]
+          },
+          {
+            "fixture": "nested-summed-2x-area-rejection",
+            "documentId": "nested-composite-area-limit-v1",
+            "revision": 1,
+            "sha256": "64a5a286ade982f87e2e163c8db308c6ec6de56c878f6713edf9d4f6bcd29cdf",
+            "surface": "pdf",
+            "path": "/v1/studio/export-pdf",
+            "status": 422,
+            "code": "document_validation_failed",
+            "detailCode": null,
+            "nodeId": null,
+            "retryable": false,
+            "issueCodes": [
+              "render_limit_exceeded"
+            ]
+          }
+        ]
+      }
+    },
     "directHtml": {
       "exercised": false,
       "externalReport": "mask-nesting-direct-capture-report.json",
