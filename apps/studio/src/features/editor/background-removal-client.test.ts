@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   BackgroundRemovalClientError,
+  backgroundRemovalMutationKey,
   cancelBackgroundRemoval,
   createBackgroundRemoval,
   getBackgroundRemovalProvenance,
   getLatestBackgroundRemoval,
+  mutateBackgroundRemoval,
   retryBackgroundRemoval,
 } from "./background-removal-client"
 import type {
@@ -142,6 +144,40 @@ describe("background-removal client", () => {
       })
     }
   )
+
+  it("reuses a deterministic WebMCP mutation receipt key", async () => {
+    const fetch = vi.fn(
+      async (_input: RequestInfo | URL, _request?: RequestInit) =>
+        Response.json(job("queued"))
+    )
+    vi.stubGlobal("fetch", fetch)
+    const key = await backgroundRemovalMutationKey(
+      "retry",
+      job("failed").id,
+      now
+    )
+
+    await mutateBackgroundRemoval(
+      job("failed").id,
+      now,
+      "retry",
+      undefined,
+      key
+    )
+    await mutateBackgroundRemoval(
+      job("failed").id,
+      now,
+      "retry",
+      undefined,
+      key
+    )
+
+    expect(key).toMatch(/^webmcp:[a-f0-9]{64}$/)
+    expect(fetch.mock.calls.map(([, request]) => request?.headers)).toEqual([
+      expect.objectContaining({ "Idempotency-Key": key }),
+      expect.objectContaining({ "Idempotency-Key": key }),
+    ])
+  })
 
   it("surfaces canonical safe API errors without inventing provider detail", async () => {
     vi.stubGlobal(

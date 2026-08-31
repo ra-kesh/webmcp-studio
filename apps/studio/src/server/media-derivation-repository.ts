@@ -5,6 +5,7 @@ import {
   assertMediaDerivationJobId,
   createMediaDerivationAttemptId,
   createMediaDerivationJobId,
+  mediaDerivationMutationRequestHash,
   mediaDerivationRequestIdentity,
   MediaDerivationError,
   parseMediaDerivationConfiguration,
@@ -88,6 +89,18 @@ type MediaDerivationProvenanceRow = {
   output_width: number
   output_height: number
   created_at: string
+}
+
+type MediaDerivationMutationReceiptRow = {
+  workspace_id: string
+  idempotency_key: string
+  job_id: string
+  action: "cancel" | "retry"
+  request_hash: string
+  result_json: string
+  dispatch_state: "not_required" | "pending" | "dispatched"
+  created_at: string
+  dispatched_at: string | null
 }
 
 const jobColumns = `
@@ -197,6 +210,12 @@ export type MediaDerivationClaim = Readonly<{
   attempt: MediaDerivationAttempt
 }>
 
+export type MediaDerivationMutationResult = Readonly<{
+  job: MediaDerivationJob
+  replayed: boolean
+  dispatchRequired: boolean
+}>
+
 export class MediaDerivationRepository {
   constructor(
     private readonly db: D1Database,
@@ -264,6 +283,95 @@ export class MediaDerivationRepository {
       )
     }
     return row
+  }
+
+  private mutationReceipt(workspaceId: string, idempotencyKey: string) {
+    return this.db
+      .prepare(
+        `/* derivation:mutation-receipt-get */
+         SELECT workspace_id, idempotency_key, job_id, action, request_hash,
+                result_json, dispatch_state, created_at, dispatched_at
+         FROM media_derivation_mutation_receipts
+         WHERE workspace_id = ?1 AND idempotency_key = ?2`
+      )
+      .bind(workspaceId, idempotencyKey)
+      .first<MediaDerivationMutationReceiptRow>()
+  }
+
+  private mutationReceiptResult(
+    receipt: MediaDerivationMutationReceiptRow,
+    expected: {
+      jobId: string
+      action: "cancel" | "retry"
+      requestHash: string
+    },
+    replayed: boolean
+  ): MediaDerivationMutationResult {
+    if (
+      receipt.job_id !== expected.jobId ||
+      receipt.action !== expected.action ||
+      receipt.request_hash !== expected.requestHash
+    ) {
+      throw new MediaDerivationError(
+        "idempotency_key_reused",
+        409,
+        "Idempotency-Key was already used for a different mutation"
+      )
+    }
+    let job: MediaDerivationJob
+    try {
+      job = JSON.parse(receipt.result_json) as MediaDerivationJob
+    } catch {
+      throw new Error("media_derivation_mutation_receipt_unreadable")
+    }
+    if (job.workspaceId !== receipt.workspace_id || job.id !== receipt.job_id) {
+      throw new Error("media_derivation_mutation_receipt_unreadable")
+    }
+    return {
+      job,
+      replayed,
+      dispatchRequired:
+        receipt.action === "retry" && receipt.dispatch_state === "pending",
+    }
+  }
+
+  private mutationReceiptStatement(input: {
+    workspaceId: string
+    idempotencyKey: string
+    jobId: string
+    action: "cancel" | "retry"
+    requestHash: string
+    job: MediaDerivationJob
+    dispatchState: "not_required" | "pending"
+    now: string
+    requiredState?: MediaDerivationJobState
+    requiredUpdatedAt?: string
+  }) {
+    return this.db
+      .prepare(
+        `/* derivation:mutation-receipt-insert */
+         INSERT INTO media_derivation_mutation_receipts
+           (workspace_id, idempotency_key, job_id, action, request_hash,
+            result_json, dispatch_state, created_at, dispatched_at)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL
+         WHERE ?9 IS NULL OR EXISTS (
+           SELECT 1 FROM media_derivation_jobs
+           WHERE workspace_id = ?1 AND id = ?3
+             AND state = ?9 AND updated_at = ?10
+         )`
+      )
+      .bind(
+        input.workspaceId,
+        input.idempotencyKey,
+        input.jobId,
+        input.action,
+        input.requestHash,
+        JSON.stringify(input.job),
+        input.dispatchState,
+        input.now,
+        input.requiredState ?? null,
+        input.requiredUpdatedAt ?? null
+      )
   }
 
   private async requestRow(workspaceId: string, idempotencyKey: string) {
@@ -749,6 +857,231 @@ export class MediaDerivationRepository {
       )
     }
     return jobFromRow(await this.requiredJob(workspaceId, current.id))
+  }
+
+  async requestCancellationWithReceipt(
+    workspaceId: string,
+    jobId: string,
+    idempotencyKeyInput: string,
+    expectedUpdatedAt: string
+  ): Promise<MediaDerivationMutationResult> {
+    const idempotencyKey =
+      assertMediaDerivationIdempotencyKey(idempotencyKeyInput)
+    const requestHash = await mediaDerivationMutationRequestHash({
+      workspaceId,
+      jobId,
+      action: "cancel",
+      expectedUpdatedAt,
+    })
+    const expected = { jobId, action: "cancel" as const, requestHash }
+    const existing = await this.mutationReceipt(workspaceId, idempotencyKey)
+    if (existing) return this.mutationReceiptResult(existing, expected, true)
+
+    const current = await this.requiredJob(workspaceId, jobId)
+    if (current.updated_at !== expectedUpdatedAt) {
+      throw new MediaDerivationError(
+        "derivation_state_conflict",
+        409,
+        "Media derivation changed before cancellation"
+      )
+    }
+    if (
+      current.state !== "queued" &&
+      current.state !== "running" &&
+      current.state !== "cancelling" &&
+      current.state !== "cancelled"
+    ) {
+      throw new MediaDerivationError(
+        "derivation_state_conflict",
+        409,
+        "Only a queued or running media derivation can be cancelled"
+      )
+    }
+
+    const now = this.now()
+    const currentJob = jobFromRow(current)
+    const resultJob: MediaDerivationJob =
+      current.state === "cancelling" || current.state === "cancelled"
+        ? currentJob
+        : {
+            ...currentJob,
+            state: current.state === "queued" ? "cancelled" : "cancelling",
+            cancellationRequestedAt: now,
+            completedAt: current.state === "queued" ? now : null,
+            retryable: false,
+            safeFailureCode: null,
+            updatedAt: now,
+          }
+    const receipt = this.mutationReceiptStatement({
+      workspaceId,
+      idempotencyKey,
+      jobId: current.id,
+      action: "cancel",
+      requestHash,
+      job: resultJob,
+      dispatchState: "not_required",
+      now,
+      requiredState: resultJob.state,
+      requiredUpdatedAt: resultJob.updatedAt,
+    })
+
+    try {
+      if (current.state === "cancelling" || current.state === "cancelled") {
+        const inserted = await receipt.run()
+        if (batchChanges(inserted) !== 1) {
+          throw new Error("media_derivation_mutation_receipt_incomplete")
+        }
+      } else {
+        const results = await this.db.batch([
+          this.db
+            .prepare(
+              `/* derivation:request-cancellation-receipted */
+               UPDATE media_derivation_jobs
+               SET state = CASE WHEN state = 'queued' THEN 'cancelled'
+                                ELSE 'cancelling' END,
+                   cancellation_requested_at = ?4,
+                   completed_at = CASE WHEN state = 'queued' THEN ?4 ELSE NULL END,
+                   retryable = 0, safe_failure_code = NULL, updated_at = ?4
+               WHERE workspace_id = ?1 AND id = ?2
+                 AND updated_at = ?3 AND state IN ('queued', 'running')`
+            )
+            .bind(workspaceId, current.id, expectedUpdatedAt, now),
+          receipt,
+        ])
+        if (results.some((result) => batchChanges(result) !== 1)) {
+          throw new MediaDerivationError(
+            "derivation_state_conflict",
+            409,
+            "Media derivation changed before cancellation was recorded"
+          )
+        }
+      }
+      return { job: resultJob, replayed: false, dispatchRequired: false }
+    } catch (error) {
+      const raced = await this.mutationReceipt(workspaceId, idempotencyKey)
+      if (raced) return this.mutationReceiptResult(raced, expected, true)
+      throw error
+    }
+  }
+
+  async retryWithReceipt(
+    workspaceId: string,
+    jobId: string,
+    idempotencyKeyInput: string,
+    expectedUpdatedAt: string
+  ): Promise<MediaDerivationMutationResult> {
+    const idempotencyKey =
+      assertMediaDerivationIdempotencyKey(idempotencyKeyInput)
+    const requestHash = await mediaDerivationMutationRequestHash({
+      workspaceId,
+      jobId,
+      action: "retry",
+      expectedUpdatedAt,
+    })
+    const expected = { jobId, action: "retry" as const, requestHash }
+    const existing = await this.mutationReceipt(workspaceId, idempotencyKey)
+    if (existing) return this.mutationReceiptResult(existing, expected, true)
+
+    const current = await this.requiredJob(workspaceId, jobId)
+    if (current.updated_at !== expectedUpdatedAt) {
+      throw new MediaDerivationError(
+        "derivation_state_conflict",
+        409,
+        "Media derivation changed before retry"
+      )
+    }
+    if (
+      current.state !== "failed" ||
+      !current.retryable ||
+      current.attempt_count >= current.max_attempts
+    ) {
+      throw new MediaDerivationError(
+        "derivation_state_conflict",
+        409,
+        "Only an eligible retryable failure can be requeued"
+      )
+    }
+
+    const now = this.now()
+    const resultJob: MediaDerivationJob = {
+      ...jobFromRow(current),
+      state: "queued",
+      activeAttemptId: null,
+      retryable: false,
+      safeFailureCode: null,
+      completedAt: null,
+      updatedAt: now,
+    }
+    const receipt = this.mutationReceiptStatement({
+      workspaceId,
+      idempotencyKey,
+      jobId: current.id,
+      action: "retry",
+      requestHash,
+      job: resultJob,
+      dispatchState: "pending",
+      now,
+      requiredState: "queued",
+      requiredUpdatedAt: now,
+    })
+    try {
+      const results = await this.db.batch([
+        this.db
+          .prepare(
+            `/* derivation:retry-receipted */
+             UPDATE media_derivation_jobs
+             SET state = 'queued', active_attempt_id = NULL, retryable = 0,
+                 safe_failure_code = NULL, completed_at = NULL, updated_at = ?4
+             WHERE workspace_id = ?1 AND id = ?2 AND updated_at = ?3
+               AND state = 'failed' AND retryable = 1
+               AND attempt_count < max_attempts`
+          )
+          .bind(workspaceId, current.id, expectedUpdatedAt, now),
+        receipt,
+      ])
+      if (results.some((result) => batchChanges(result) !== 1)) {
+        throw new MediaDerivationError(
+          "derivation_state_conflict",
+          409,
+          "Media derivation changed before retry was committed"
+        )
+      }
+      return { job: resultJob, replayed: false, dispatchRequired: true }
+    } catch (error) {
+      const raced = await this.mutationReceipt(workspaceId, idempotencyKey)
+      if (raced) return this.mutationReceiptResult(raced, expected, true)
+      throw error
+    }
+  }
+
+  async markRetryDispatched(
+    workspaceId: string,
+    jobId: string,
+    idempotencyKeyInput: string
+  ) {
+    const idempotencyKey =
+      assertMediaDerivationIdempotencyKey(idempotencyKeyInput)
+    const now = this.now()
+    const result = await this.db
+      .prepare(
+        `/* derivation:mutation-receipt-dispatched */
+         UPDATE media_derivation_mutation_receipts
+         SET dispatch_state = 'dispatched', dispatched_at = ?4
+         WHERE workspace_id = ?1 AND idempotency_key = ?2 AND job_id = ?3
+           AND action = 'retry' AND dispatch_state = 'pending'`
+      )
+      .bind(workspaceId, idempotencyKey, jobId, now)
+      .run()
+    if (batchChanges(result) === 1) return
+    const receipt = await this.mutationReceipt(workspaceId, idempotencyKey)
+    if (
+      receipt?.job_id === jobId &&
+      receipt.action === "retry" &&
+      receipt.dispatch_state === "dispatched"
+    ) {
+      return
+    }
+    throw new Error("media_derivation_mutation_dispatch_unreadable")
   }
 
   async settleCancellation(

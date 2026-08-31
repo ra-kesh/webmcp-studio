@@ -315,6 +315,13 @@ export type MediaDerivationRequestIdentity = Readonly<{
   requestFingerprint: string
 }>
 
+export const mediaDerivationMutationRequestHash = (input: {
+  workspaceId: string
+  jobId: string
+  action: "cancel" | "retry"
+  expectedUpdatedAt: string
+}) => sha256Text(canonicalJson(input))
+
 export async function mediaDerivationRequestIdentity(input: {
   workspaceId: string
   sourceAssetId: string

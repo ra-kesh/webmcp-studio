@@ -175,13 +175,13 @@ import {
 import type { ManagedMediaAsset } from "./editor/managed-media-repository"
 import { useBackgroundRemoval } from "./editor/use-background-removal"
 import {
-  cancelBackgroundRemoval,
+  backgroundRemovalMutationKey,
   createBackgroundRemovalWithConsent,
   getBackgroundRemovalJob,
   getBackgroundRemovalPolicy,
   getBackgroundRemovalProvenance,
   getLatestBackgroundRemoval,
-  retryBackgroundRemoval,
+  mutateBackgroundRemoval,
 } from "./editor/background-removal-client"
 import { ApiPlaygroundDialog } from "./editor/api-playground-dialog"
 import { studioAssets } from "./editor/asset-catalog"
@@ -2383,15 +2383,18 @@ export function StudioShell({
               signal
             )
           }
-          const current = await getBackgroundRemovalJob(input.jobId, signal)
-          if (current.updatedAt !== input.expectedUpdatedAt) {
-            throw new Error(
-              "Background-removal job changed. Inspect it before trying again."
-            )
-          }
-          return input.action === "cancel"
-            ? cancelBackgroundRemoval(current, signal)
-            : retryBackgroundRemoval(current, signal)
+          const idempotencyKey = await backgroundRemovalMutationKey(
+            input.action,
+            input.jobId,
+            input.expectedUpdatedAt
+          )
+          return mutateBackgroundRemoval(
+            input.jobId,
+            input.expectedUpdatedAt,
+            input.action,
+            signal,
+            idempotencyKey
+          )
         },
       },
       getProductCommandContext: () => {

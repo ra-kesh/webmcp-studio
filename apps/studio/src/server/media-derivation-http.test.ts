@@ -49,8 +49,9 @@ const repository = {
   get: vi.fn(),
   getProvenance: vi.fn(),
   latestForSource: vi.fn(),
-  retry: vi.fn(),
-  requestCancellation: vi.fn(),
+  retryWithReceipt: vi.fn(),
+  requestCancellationWithReceipt: vi.fn(),
+  markRetryDispatched: vi.fn(),
 }
 const dispatch = vi.fn(async () => undefined)
 const admitCreate = vi.fn(async () => undefined)
@@ -212,7 +213,13 @@ describe("media derivation HTTP", () => {
   })
 
   it("rejects stale cancellation and never calls the mutation", async () => {
-    repository.get.mockResolvedValue(job("running"))
+    repository.requestCancellationWithReceipt.mockRejectedValue(
+      new MediaDerivationError(
+        "derivation_state_conflict",
+        409,
+        "Media derivation changed before cancellation"
+      )
+    )
     const response = await handlers.cancel(
       jsonRequest(
         `https://studio.test/v1/studio/media-derivations/${jobId}/cancel`,
@@ -221,12 +228,20 @@ describe("media derivation HTTP", () => {
       jobId
     )
     expect(response.status).toBe(409)
-    expect(repository.requestCancellation).not.toHaveBeenCalled()
+    expect(repository.requestCancellationWithReceipt).toHaveBeenCalledWith(
+      "workspace-a",
+      jobId,
+      "request-key",
+      "2026-08-31T11:59:00.000Z"
+    )
   })
 
   it("requeues an eligible failure and redispatches it", async () => {
-    repository.get.mockResolvedValue(job("failed"))
-    repository.retry.mockResolvedValue(job("queued"))
+    repository.retryWithReceipt.mockResolvedValue({
+      job: job("queued"),
+      replayed: false,
+      dispatchRequired: true,
+    })
     const response = await handlers.retry(
       jsonRequest(
         `https://studio.test/v1/studio/media-derivations/${jobId}/retry`,
@@ -235,8 +250,38 @@ describe("media derivation HTTP", () => {
       jobId
     )
     expect(response.status).toBe(202)
-    expect(repository.retry).toHaveBeenCalledWith("workspace-a", jobId)
+    expect(repository.retryWithReceipt).toHaveBeenCalledWith(
+      "workspace-a",
+      jobId,
+      "request-key",
+      now
+    )
     expect(dispatch).toHaveBeenCalledWith({ workspaceId: "workspace-a", jobId })
+    expect(repository.markRetryDispatched).toHaveBeenCalledWith(
+      "workspace-a",
+      jobId,
+      "request-key"
+    )
+  })
+
+  it("returns a completed retry receipt without redispatching", async () => {
+    repository.retryWithReceipt.mockResolvedValue({
+      job: job("queued"),
+      replayed: true,
+      dispatchRequired: false,
+    })
+    const response = await handlers.retry(
+      jsonRequest(
+        `https://studio.test/v1/studio/media-derivations/${jobId}/retry`,
+        { expectedUpdatedAt: now },
+        "retry-replay"
+      ),
+      jobId
+    )
+
+    expect(response.status).toBe(202)
+    expect(dispatch).not.toHaveBeenCalled()
+    expect(repository.markRetryDispatched).not.toHaveBeenCalled()
   })
 
   it("returns canonical repository conflicts without leaking internals", async () => {

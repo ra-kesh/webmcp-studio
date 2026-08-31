@@ -72,6 +72,10 @@
     {
       "name": "0018_media_derivation_canonical_outputs.sql",
       "sha256": "170681553c6fd0e98dca611b4d75e3ddbd721f408462e28b468ee5d81abceeab"
+    },
+    {
+      "name": "0019_media_derivation_mutation_receipts.sql",
+      "sha256": "cd3d5cdcdcdb7a65c2eee690b6d1bf765ff31dcf84531926561726a23098c1ad"
     }
   ]
 }

@@ -376,13 +376,47 @@ try {
     firstFailure.state === "failed" && firstFailure.retryable,
     "Retryable failure was lost"
   )
-  const requeued = await repository.retry("workspace-a", created.job.id)
+  const retryReceiptKey = "retry-receipt-1"
+  const requeuedResult = await repository.retryWithReceipt(
+    "workspace-a",
+    created.job.id,
+    retryReceiptKey,
+    firstFailure.updatedAt
+  )
+  const requeued = requeuedResult.job
   assert(
     requeued.state === "queued" &&
       requeued.attemptCount === 1 &&
       requeued.providerKey === created.job.providerKey &&
-      requeued.requestFingerprint === created.job.requestFingerprint,
+      requeued.requestFingerprint === created.job.requestFingerprint &&
+      requeuedResult.dispatchRequired,
     "Retry changed frozen job identity"
+  )
+  await repository.markRetryDispatched(
+    "workspace-a",
+    created.job.id,
+    retryReceiptKey
+  )
+  const replayedRetry = await repository.retryWithReceipt(
+    "workspace-a",
+    created.job.id,
+    retryReceiptKey,
+    firstFailure.updatedAt
+  )
+  assert(
+    replayedRetry.replayed &&
+      !replayedRetry.dispatchRequired &&
+      JSON.stringify(replayedRetry.job) === JSON.stringify(requeued),
+    "Retry receipt did not return the original settled result"
+  )
+  await expectCode(
+    repository.requestCancellationWithReceipt(
+      "workspace-a",
+      created.job.id,
+      retryReceiptKey,
+      requeued.updatedAt
+    ),
+    "idempotency_key_reused"
   )
   const secondClaim = await repository.claim("workspace-a", created.job.id)
   assert(
@@ -469,15 +503,35 @@ try {
     { ...createInput, sourceAssetId: "asset-0000000000000006" },
     configuration
   )
-  const queuedCancelled = await repository.requestCancellation(
-    "workspace-a",
-    queuedCancellation.job.id
+  const queuedCancellationResult =
+    await repository.requestCancellationWithReceipt(
+      "workspace-a",
+      queuedCancellation.job.id,
+      "cancel-receipt-1",
+      queuedCancellation.job.updatedAt
+    )
+  const queuedCancelled = queuedCancellationResult.job
+  assert(
+    !queuedCancellationResult.replayed,
+    "Initial cancellation was reported as a replay"
   )
   assert(
     queuedCancelled.state === "cancelled" &&
       queuedCancelled.attemptCount === 0 &&
       queuedCancelled.completedAt !== null,
     "Queued cancellation did not settle immediately"
+  )
+  const replayedCancellation = await repository.requestCancellationWithReceipt(
+    "workspace-a",
+    queuedCancellation.job.id,
+    "cancel-receipt-1",
+    queuedCancellation.job.updatedAt
+  )
+  assert(
+    replayedCancellation.replayed &&
+      JSON.stringify(replayedCancellation.job) ===
+        JSON.stringify(queuedCancelled),
+    "Cancellation receipt did not return the original settled result"
   )
 
   const runningCancellation = await repository.create(

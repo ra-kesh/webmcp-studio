@@ -623,3 +623,27 @@ re-review.
   immutable job, not from mutable environment configuration.
 - Focused execution tests cover both key and model mismatch with zero provider
   starts, plus exact-pair success and provenance identity.
+
+## Independent-review correction: cancel and retry receipts
+
+The P1 cancel/retry idempotency finding is repaired locally and awaits
+independent re-review.
+
+- Cancel and retry now persist a workspace-scoped receipt keyed by the supplied
+  `Idempotency-Key`. The request hash covers workspace, job, action, and the
+  expected update timestamp. Reusing a key for different input returns
+  `idempotency_key_reused`.
+- The job transition and original result receipt are one D1 batch. A same-key,
+  same-body replay returns that stored result before checking current job state,
+  so a lost response cannot perform a second transition.
+- Retry receipts track `pending` versus `dispatched`. HTTP dispatches only a
+  pending receipt and marks it dispatched afterward. A replay of a completed
+  receipt returns the original queued result without another dispatch. If a
+  process stops between dispatch and marking, the existing deterministic
+  Workflow instance ID reconciles the pending dispatch safely.
+- WebMCP cancel/retry calls derive the same bounded receipt key from action, job
+  ID, and expected timestamp. The browser client can pass that key directly;
+  ordinary human UI actions retain a fresh key per explicit click.
+- Executable SQLite and focused HTTP/client tests cover cancellation and retry
+  replay, original-result stability, dispatched replay, and same-key different-
+  input conflict.

@@ -183,19 +183,37 @@ export const getBackgroundRemovalJob = async (
     jobSchema
   )
 
-const mutateJob = async (
-  job: BackgroundRemovalJob,
+export const backgroundRemovalMutationKey = async (
   action: "cancel" | "retry",
-  signal?: AbortSignal
+  jobId: string,
+  expectedUpdatedAt: string
+) => {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(
+      JSON.stringify({ action, expectedUpdatedAt, jobId, source: "webmcp" })
+    )
+  )
+  return `webmcp:${Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("")}`
+}
+
+export const mutateBackgroundRemoval = async (
+  jobId: string,
+  expectedUpdatedAt: string,
+  action: "cancel" | "retry",
+  signal?: AbortSignal,
+  idempotencyKey: string = crypto.randomUUID()
 ) =>
   readResponse(
     await fetch(
-      `/v1/studio/media-derivations/${encodeURIComponent(job.id)}/${action}`,
+      `/v1/studio/media-derivations/${encodeURIComponent(jobId)}/${action}`,
       {
         method: "POST",
         signal,
-        headers: mutationHeaders(crypto.randomUUID()),
-        body: JSON.stringify({ expectedUpdatedAt: job.updatedAt }),
+        headers: mutationHeaders(idempotencyKey),
+        body: JSON.stringify({ expectedUpdatedAt }),
       }
     ),
     jobSchema
@@ -204,9 +222,9 @@ const mutateJob = async (
 export const cancelBackgroundRemoval = (
   job: BackgroundRemovalJob,
   signal?: AbortSignal
-) => mutateJob(job, "cancel", signal)
+) => mutateBackgroundRemoval(job.id, job.updatedAt, "cancel", signal)
 
 export const retryBackgroundRemoval = (
   job: BackgroundRemovalJob,
   signal?: AbortSignal
-) => mutateJob(job, "retry", signal)
+) => mutateBackgroundRemoval(job.id, job.updatedAt, "retry", signal)

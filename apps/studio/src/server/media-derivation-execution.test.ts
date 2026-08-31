@@ -192,10 +192,13 @@ describe("media derivation execution", () => {
     async (_, mismatch) => {
       const fixture = dependencies()
       Object.defineProperty(fixture.value.provider, "key", {
-        value: mismatch.key ?? fixture.value.provider.key,
+        value: "key" in mismatch ? mismatch.key : fixture.value.provider.key,
       })
       Object.defineProperty(fixture.value.provider, "modelVersion", {
-        value: mismatch.modelVersion ?? fixture.value.provider.modelVersion,
+        value:
+          "modelVersion" in mismatch
+            ? mismatch.modelVersion
+            : fixture.value.provider.modelVersion,
       })
 
       const result = await executeMediaDerivation(

@@ -38,8 +38,9 @@ export type MediaDerivationHttpDependencies = Readonly<{
     | "get"
     | "getProvenance"
     | "latestForSource"
-    | "retry"
-    | "requestCancellation"
+    | "retryWithReceipt"
+    | "requestCancellationWithReceipt"
+    | "markRetryDispatched"
   >
   admitCreate: (
     principal: StudioPrincipal,
@@ -258,7 +259,7 @@ export function createMediaDerivationHttpHandlers(
 
     cancel: (request: Request, jobId: string) =>
       withPrincipal(dependencies, request, async (principal) => {
-        requireIdempotency(request)
+        const idempotencyKey = requireIdempotency(request)
         const parsed = mutationSchema.safeParse(await readJson(request))
         if (!parsed.success) {
           throw new MediaDerivationError(
@@ -267,19 +268,13 @@ export function createMediaDerivationHttpHandlers(
             "Cancellation requires the expected job update timestamp"
           )
         }
-        const current = await repository.get(principal.workspaceId, jobId)
-        if (current.updatedAt !== parsed.data.expectedUpdatedAt) {
-          throw new MediaDerivationError(
-            "derivation_state_conflict",
-            409,
-            "Media derivation changed before cancellation"
-          )
-        }
-        const job = await repository.requestCancellation(
+        const result = await repository.requestCancellationWithReceipt(
           principal.workspaceId,
-          jobId
+          jobId,
+          idempotencyKey,
+          parsed.data.expectedUpdatedAt
         )
-        return Response.json(publicMediaDerivationJob(job), {
+        return Response.json(publicMediaDerivationJob(result.job), {
           status: 202,
           headers: noStore,
         })
@@ -287,7 +282,7 @@ export function createMediaDerivationHttpHandlers(
 
     retry: (request: Request, jobId: string) =>
       withPrincipal(dependencies, request, async (principal) => {
-        requireIdempotency(request)
+        const idempotencyKey = requireIdempotency(request)
         const parsed = mutationSchema.safeParse(await readJson(request))
         if (!parsed.success) {
           throw new MediaDerivationError(
@@ -296,20 +291,24 @@ export function createMediaDerivationHttpHandlers(
             "Retry requires the expected job update timestamp"
           )
         }
-        const current = await repository.get(principal.workspaceId, jobId)
-        if (current.updatedAt !== parsed.data.expectedUpdatedAt) {
-          throw new MediaDerivationError(
-            "derivation_state_conflict",
-            409,
-            "Media derivation changed before retry"
+        const result = await repository.retryWithReceipt(
+          principal.workspaceId,
+          jobId,
+          idempotencyKey,
+          parsed.data.expectedUpdatedAt
+        )
+        if (result.dispatchRequired) {
+          await dependencies.dispatcher.dispatch({
+            workspaceId: principal.workspaceId,
+            jobId: result.job.id,
+          })
+          await repository.markRetryDispatched(
+            principal.workspaceId,
+            result.job.id,
+            idempotencyKey
           )
         }
-        const job = await repository.retry(principal.workspaceId, jobId)
-        await dependencies.dispatcher.dispatch({
-          workspaceId: principal.workspaceId,
-          jobId: job.id,
-        })
-        return Response.json(publicMediaDerivationJob(job), {
+        return Response.json(publicMediaDerivationJob(result.job), {
           status: 202,
           headers: noStore,
         })
