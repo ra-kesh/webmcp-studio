@@ -2,8 +2,7 @@
 
 Date: 2026-08-31
 
-Status: Slices A and B accepted; Slice C under independent review; Slice D
-preflight ready
+Status: Slices A, B and C accepted; Slice D active from its accepted preflight
 
 ## Accepted checkpoints
 
@@ -53,6 +52,31 @@ code review returned zero P0/P1 findings.
 
 Acceptance evidence: 60 focused repository/catalog/HTTP tests and the Studio
 typecheck passed in both implementation and independent review.
+
+### Slice C — bounded device-local discovery
+
+Accepted on 2026-08-31 at commit `2f8ddfe` after an independent re-review
+closed three P1 findings and returned zero remaining P0/P1.
+
+- Ordinary list and detail reads use only the browser metadata store. They do
+  not open Blob storage, decode images or create object URLs.
+- The bounded list returns items plus database version, migration state,
+  legacy and unindexed counts, examined/projected/archive/unavailable counts,
+  truncation and integrity issues. Partial or legacy state cannot appear as a
+  healthy empty result.
+- Only ready, unarchived, positive-dimension records project into discovery.
+  Device-local identities retain source and exact record revision, while
+  durable Favorites and Collections remain unavailable until promotion.
+- Exact selection alone reads and verifies bytes. Revision, archive, missing,
+  quarantine, unavailable and cross-profile changes fail before document
+  mutation.
+- A decoded-dimension mismatch performs revisioned metadata reconciliation and
+  returns a retryable repository-changed result; it never accepts false
+  dimensions or quarantines otherwise valid bytes.
+
+Acceptance evidence: 49 focused local-store/adapter tests, the Studio
+typecheck, scoped ESLint and scoped diff checks passed in implementation and
+independent review.
 
 ## Scope and entry condition
 
