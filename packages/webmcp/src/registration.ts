@@ -78,6 +78,13 @@ import {
   createProductCommandProposal,
   ProductCommandProposalError,
 } from "./product-command-proposals"
+import {
+  readBlankDocumentPresets,
+  readDesignPlanSchema,
+  readGenerationCapabilities,
+  readGenerationTemplate,
+  searchGenerationTemplates,
+} from "./generation-discovery"
 
 export type WebMcpToolResult = {
   content: Array<{ type: "text"; text: string }>
@@ -3351,6 +3358,143 @@ export function studioWebMcpTools(
   }
 
   const tools: WebMcpTool[] = [
+    {
+      name: "search_templates",
+      title: "Search generation templates",
+      description:
+        "Search Studio's current template catalog for a new-document job. Returns compact public summaries and exact template versions, never template bodies or private media locators.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          query: { type: "string", maxLength: 240 },
+          category: { type: "string", minLength: 1, maxLength: 120 },
+          formatFamily: { type: "string", minLength: 1, maxLength: 120 },
+          useCaseId: { type: "string", minLength: 1, maxLength: 120 },
+          cursor: { type: "string", minLength: 1, maxLength: 240 },
+          limit: { type: "integer", minimum: 1, maximum: 20 },
+        },
+      },
+      annotations: { readOnlyHint: true, untrustedContentHint: true },
+      execute: (input) => {
+        try {
+          const value = queryObject(input)
+          assertQueryKeys(value, [
+            "query",
+            "category",
+            "formatFamily",
+            "useCaseId",
+            "cursor",
+            "limit",
+          ])
+          const limit = value.limit === undefined ? 10 : value.limit
+          if (
+            typeof limit !== "number" ||
+            !Number.isInteger(limit) ||
+            limit < 1 ||
+            limit > 20
+          ) {
+            throw new Error("limit must be an integer from 1 to 20.")
+          }
+          const category = optionalQueryString(value.category, "category")
+          const formatFamily = optionalQueryString(
+            value.formatFamily,
+            "formatFamily"
+          )
+          const useCaseId = optionalQueryString(value.useCaseId, "useCaseId")
+          const startAfter = optionalQueryString(value.cursor, "cursor")
+          const result = searchGenerationTemplates({
+            query: optionalQueryString(value.query, "query") ?? "",
+            ...(category ? { category } : {}),
+            ...(formatFamily ? { formatFamily } : {}),
+            ...(useCaseId ? { useCaseId } : {}),
+            ...(startAfter ? { startAfter } : {}),
+            limit,
+          })
+          return textResult(
+            `Found ${result.templates.length} compatible template${result.templates.length === 1 ? "" : "s"}.`,
+            result
+          )
+        } catch (error) {
+          return errorResult(error)
+        }
+      },
+    },
+    {
+      name: "read_template",
+      title: "Read generation template",
+      description:
+        "Read one exact template version's compact manifest, fields, outputs, source requirements, and preview identity without returning its canonical document body.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["id", "version"],
+        properties: {
+          id: { type: "string", minLength: 1, maxLength: 200 },
+          version: { type: "integer", minimum: 1 },
+        },
+      },
+      annotations: { readOnlyHint: true, untrustedContentHint: true },
+      execute: (input) => {
+        try {
+          const value = queryObject(input)
+          assertQueryKeys(value, ["id", "version"])
+          if (typeof value.id !== "string" || !value.id) {
+            throw new Error("id is required.")
+          }
+          if (
+            typeof value.version !== "number" ||
+            !Number.isInteger(value.version) ||
+            value.version < 1
+          ) {
+            throw new Error("version must be a positive integer.")
+          }
+          const result = readGenerationTemplate(value.id, value.version)
+          return textResult(`Read ${result.name}@${result.version}.`, result)
+        } catch (error) {
+          return errorResult(error)
+        }
+      },
+    },
+    {
+      name: "read_generation_capabilities",
+      title: "Read document generation capabilities",
+      description:
+        "Read the live document-generation version, security limits, available fonts, asset rules, Review behavior, and idempotency contract.",
+      inputSchema: { type: "object", additionalProperties: false },
+      annotations: { readOnlyHint: true, untrustedContentHint: true },
+      execute: () =>
+        textResult(
+          "Read Studio's document-generation capabilities.",
+          readGenerationCapabilities()
+        ),
+    },
+    {
+      name: "read_blank_document_presets",
+      title: "Read blank document presets",
+      description:
+        "Read the exact blank presets supported as starting points for a bounded Studio Design Plan.",
+      inputSchema: { type: "object", additionalProperties: false },
+      annotations: { readOnlyHint: true, untrustedContentHint: true },
+      execute: () =>
+        textResult(
+          "Read Studio's blank document presets.",
+          readBlankDocumentPresets()
+        ),
+    },
+    {
+      name: "read_design_plan_schema",
+      title: "Read Studio Design Plan schema",
+      description:
+        "Read the current request-local Studio Design Plan vocabulary. This data-only boundary rejects JSX, HTML, CSS, scripts, canonical IDs, and renderer-private fields.",
+      inputSchema: { type: "object", additionalProperties: false },
+      annotations: { readOnlyHint: true, untrustedContentHint: true },
+      execute: () =>
+        textResult(
+          "Read Studio Design Plan version 1.",
+          readDesignPlanSchema()
+        ),
+    },
     {
       name: "inspect_design",
       title: "Inspect active design",

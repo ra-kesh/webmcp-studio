@@ -352,8 +352,13 @@ describe("WebMCP registration", () => {
       state.controller.signal
     )
 
-    expect(count).toBe(21)
+    expect(count).toBe(26)
     expect([...state.registered.keys()]).toEqual([
+      "search_templates",
+      "read_template",
+      "read_generation_capabilities",
+      "read_blank_document_presets",
+      "read_design_plan_schema",
       "inspect_design",
       "read_design_tree",
       "get_capabilities",

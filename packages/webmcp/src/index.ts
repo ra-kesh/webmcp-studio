@@ -1,9 +1,15 @@
 export * from "./change-sets"
 export * from "./design-queries"
+export * from "./generation-discovery"
 export * from "./registration"
 export * from "./product-command-proposals"
 
 export const toolNames = [
+  "search_templates",
+  "read_template",
+  "read_generation_capabilities",
+  "read_blank_document_presets",
+  "read_design_plan_schema",
   "inspect_design",
   "read_design_tree",
   "get_capabilities",
@@ -38,6 +44,42 @@ export type ToolDescriptor = {
 }
 
 export const toolCatalog: readonly ToolDescriptor[] = [
+  {
+    name: "search_templates",
+    description:
+      "Search exact Studio template versions for document generation.",
+    mutates: false,
+    requiresHumanReview: false,
+    routes: ["library", "editor"],
+  },
+  {
+    name: "read_template",
+    description: "Read one compact public template manifest.",
+    mutates: false,
+    requiresHumanReview: false,
+    routes: ["library", "editor", "template"],
+  },
+  {
+    name: "read_generation_capabilities",
+    description: "Read the document-generation limits and Review contract.",
+    mutates: false,
+    requiresHumanReview: false,
+    routes: ["editor", "review"],
+  },
+  {
+    name: "read_blank_document_presets",
+    description: "Read supported blank document starting presets.",
+    mutates: false,
+    requiresHumanReview: false,
+    routes: ["editor", "review"],
+  },
+  {
+    name: "read_design_plan_schema",
+    description: "Read the bounded Studio Design Plan vocabulary.",
+    mutates: false,
+    requiresHumanReview: false,
+    routes: ["editor", "review"],
+  },
   {
     name: "inspect_design",
     description:
