@@ -123,7 +123,7 @@ pending migrations, and a read-only schema query confirms
 
 ## Step 5A result — route runtime, server discovery and shared preferences
 
-Status: **independently accepted and committed on 2026-08-31; Collections and post-create Recent remain active**
+Status: **independently accepted and committed on 2026-08-31; Collections remains active**
 
 - The `/_studio` route now owns one preference-first library runtime. A visible
   loading status and bounded first-request deadline prevent a stalled bootstrap
@@ -150,6 +150,29 @@ Status: **independently accepted and committed on 2026-08-31; Collections and po
 - Checkpoints: `e337697 feat: mount route-owned library runtime`, `4501f85 feat:
   move library discovery to server authority`, and `68a7f7f feat: integrate
   shared library preferences`.
+
+## Step 5B result — post-create Recent
+
+Status: **independently accepted and committed on 2026-08-31; zero open P0/P1 findings**
+
+- Start, desktop and compact template Create now use one orchestration. It
+  records Recent only after the distinct document is durably persisted and its
+  exact nondeleted draft head is installed.
+- Resolve, prepare, Apply, failed Create and successful session-only Create do
+  not record use. The completion identity is the catalog-safe durable document
+  ID, so retries preserve one exact completed action.
+- `recordUsed` is a noncritical post-command effect. Asynchronous rejection and
+  unexpected synchronous failure cannot reject, block or roll back the already
+  completed document creation.
+- The editor keeps strict server-backed template detail as its production
+  default and exposes the same typed port for deterministic mounted evidence.
+  All 94 mounted persistence cases pass, including durable once, session-only
+  never and failed-create never. The focused combined result is 102/102.
+- The preference commands-only hook keeps the document owner out of preference
+  projection rerenders. Transport-unknown Retry retains the original
+  completion and idempotency key.
+- Final independent re-review reports zero P0/P1 findings.
+- Checkpoint: `035cd5b feat: record durable template creation in recent`.
 
 ## Evidence revisited
 
