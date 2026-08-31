@@ -501,13 +501,32 @@ and only then change this gate to accepted.
 
 M4C C2 structural implementation is committed at
 `fe5cc475eb7704a7665a2958d96f3a556be2f9d2`; C3 renderer implementation is
-committed at `1245f4fb616ee5a816d39f356b27d8663cfbee9a`. Commands, history,
-semantic clone, components, templates, Fabric, React, deterministic HTML, and
-the renderer admission boundary now preserve or consume the admitted two-level
-relation. Both checkpoints are locally reviewed and verified but not
-independently accepted or merged. C4 product surfaces, C5 retained/public
-evidence, and overall M4C acceptance remain open. The exact status and test
-ledger live in the bounded nesting plan linked above.
+committed at `1245f4fb616ee5a816d39f356b27d8663cfbee9a`; C4 product-surface
+implementation is committed at `41becdac5f9538ade2f8d871e2cd5879486ab91e`.
+Commands, history, semantic clone, components, templates, Fabric, React,
+deterministic HTML, the renderer admission boundary, Studio, review, product
+commands, and WebMCP now preserve or consume the admitted two-level relation.
+All three checkpoints are locally reviewed and verified but not independently
+accepted or merged. C5 retained/public evidence and overall M4C acceptance
+remain open. The exact status and test ledger live in the bounded nesting plan
+linked above.
+
+#### M4C C4 product-surface checkpoint — 1 September 2026
+
+Nested creation carries one required nullable parent identity from the
+inspector and Layers selection through keyboard dispatch, the Studio editor
+hook, the typed product invocation, WebMCP capability minting, and one canonical
+`create_mask_group` proposal. Capability IDs remain bound to document,
+snapshot, ordered selection, ordered sources, and the exact parent mask. Review
+details distinguish top-level creation from creation inside a named parent and
+truthfully describe nested release back into that parent.
+
+The C4 gate passed 376 editor tests, 67 WebMCP tests, 24 focused Studio tests,
+one Chrome keyboard/Layers/history E2E on port 3001, all three relevant
+typechecks, formatting, diff checking, and local code review. The repository-wide
+Studio run passed 1,748 of 1,765 tests; its 17 non-C4 failures remain recorded in
+the bounded plan for M5 cleanup rather than being represented as product-surface
+evidence. C4 remains independently unaccepted and unmerged.
 
 Exit: nested and multi-source cases have strict limits, exact undo, deterministic cloning, and pixel conformance.
 

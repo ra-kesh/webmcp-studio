@@ -286,13 +286,37 @@ Only then may M4C acceptance change.
 
 ## Exact gate ledger
 
-| Gate  | Implementation                                                                                    | Review and evidence                                                                                               | Accepted                 | Merged |
-| ----- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------ | ------ |
-| C0/C1 | `5381410` document implementation; recorded on main at `6265561ab4c9aa70c7489c2a90b3dcac6c1179d3` | Existing independent document-plan acceptance                                                                     | Yes, document scope only | Yes    |
-| C2    | `fe5cc475eb7704a7665a2958d96f3a556be2f9d2`                                                        | 123 focused, 416 document, and 371 editor tests; local code review complete; independent review pending           | No                       | No     |
-| C3    | `1245f4fb616ee5a816d39f356b27d8663cfbee9a`                                                        | 375 editor, 34 React, 101 renderer, and 54 document tests; local code review complete; independent review pending | No                       | No     |
-| C4    | Not started                                                                                       | No product-surface nesting evidence                                                                               | No                       | No     |
-| C5    | Not started                                                                                       | No retained or public nesting evidence                                                                            | No                       | No     |
+| Gate  | Implementation                                                                                    | Review and evidence                                                                                                                        | Accepted                 | Merged |
+| ----- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------ | ------ |
+| C0/C1 | `5381410` document implementation; recorded on main at `6265561ab4c9aa70c7489c2a90b3dcac6c1179d3` | Existing independent document-plan acceptance                                                                                              | Yes, document scope only | Yes    |
+| C2    | `fe5cc475eb7704a7665a2958d96f3a556be2f9d2`                                                        | 123 focused, 416 document, and 371 editor tests; local code review complete; independent review pending                                    | No                       | No     |
+| C3    | `1245f4fb616ee5a816d39f356b27d8663cfbee9a`                                                        | 375 editor, 34 React, 101 renderer, and 54 document tests; local code review complete; independent review pending                          | No                       | No     |
+| C4    | `41becdac5f9538ade2f8d871e2cd5879486ab91e`                                                        | 376 editor, 67 WebMCP, 24 focused Studio, and 1 keyboard E2E tests; three typechecks and local review complete; independent review pending | No                       | No     |
+| C5    | Not started                                                                                       | No retained or public nesting evidence                                                                                                     | No                       | No     |
+
+#### C4 product-surface checkpoint — 1 September 2026
+
+The inspector now admits only a direct child of one exact mask parent and
+mirrors the canonical parent-source, contiguity, depth, lock, component, and
+paint-budget rules before dispatch. Nested release, type, and source operations
+remain available when their complete subtree is valid. The required nullable
+`parentGroupId` travels through the product-command contract, inspector,
+shortcut, Studio editor hook, review details, WebMCP parser, capability ID, and
+single-operation proposal without inference or source truncation.
+
+Focused verification passed 96 editor tests, 54 WebMCP tests, 24 Studio tests,
+and one real Chrome keyboard/Layers/history test on port 3001. Full editor
+(376/376) and WebMCP (67/67) suites and editor, WebMCP, and Studio typechecks
+also passed. Prettier and `git diff --check` passed, and local review corrected
+outer-mask mutation admission to include locked or component-owned child
+descendants.
+
+An exploratory full Studio run passed 1,748 of 1,765 tests. Its 17 failures are
+outside the C4 mask path: stale schema/template/catalog expectations, an
+unmigrated curated-asset timeout, and existing mounted audit-hook/time-sensitive
+fixtures. They are not counted as C4 evidence and remain explicit M5 cleanup;
+the focused Studio surface tests and the nested keyboard E2E are green. C4 is
+implemented and locally verified, but is not independently accepted or merged.
 
 ## Required focused tests
 
