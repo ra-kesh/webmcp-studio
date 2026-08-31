@@ -9,10 +9,11 @@ import {
   libraryPreferenceSnapshotSchema,
   libraryReorderCollectionMembersRequestSchema,
   mediaIdempotencyKeySchema,
-  type LibraryCollectionDetail,
   type LibraryAddCollectionMemberReceipt,
+  type LibraryCollectionDetail,
   type LibraryCollectionMutationReceipt,
   type LibraryCollectionSummary,
+  type LibraryCompletedAction,
   type LibraryCreateCollectionReceipt,
   type LibraryDeleteCollectionReceipt,
   type LibraryItemIdentity,
@@ -73,8 +74,6 @@ type MutationClaimRow = {
 }
 
 type WorkspaceRevisionRow = { revision: number }
-
-export type LibraryCompletedAction = "create" | "insert" | "replace"
 
 export type LibraryItemAdmission = {
   assertCanFavorite(

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import type {
   LibraryCollectionDetail,
   LibraryCollectionMutationReceipt,
+  LibraryCompletedAction,
   LibraryPreferenceMutationReceipt,
   LibraryPreferenceSnapshot,
 } from "@webmcp/document"
@@ -90,12 +91,14 @@ const favoriteReceipt = (
 
 const recordReceipt = (
   workspaceRevision: number,
-  revision: number
+  revision: number,
+  completedAction: LibraryCompletedAction = "create",
+  completionId = "document-created-1"
 ): LibraryPreferenceMutationReceipt => ({
   schemaVersion: 1,
   operation: "record_used",
-  completedAction: "create",
-  completionId: "document-created-1",
+  completedAction,
+  completionId,
   preference: preference(revision, false, "2026-08-31T08:02:00.000Z"),
   workspaceRevision,
 })
@@ -288,17 +291,19 @@ describe("LibraryPreferenceController", () => {
     const recordUsed = vi
       .fn()
       .mockRejectedValueOnce(statusUnknown)
-      .mockResolvedValueOnce(result(recordReceipt(2, 2)))
+      .mockResolvedValueOnce(
+        result(recordReceipt(2, 2, "assign_field", "field-assignment-1"))
+      )
     const { controller } = controllerHarness({ recordUsed })
     await activate(controller)
 
     await controller.recordUsed(
       identity,
       "Proposal",
-      "create",
-      "document-created-1"
+      "assign_field",
+      "field-assignment-1"
     )
-    const failureKey = "recent:template:proposal-template@1:document-created-1"
+    const failureKey = "recent:template:proposal-template@1:field-assignment-1"
     expect(controller.getSnapshot().failures.get(failureKey)).toMatchObject({
       retryMode: "same_key",
       commitStatus: "unknown",
@@ -308,8 +313,8 @@ describe("LibraryPreferenceController", () => {
 
     expect(recordUsed).toHaveBeenCalledTimes(2)
     expect(recordUsed.mock.calls[0]?.[1]).toEqual({
-      completedAction: "create",
-      completionId: "document-created-1",
+      completedAction: "assign_field",
+      completionId: "field-assignment-1",
       idempotencyKey: "mutation-key-1",
     })
     expect(recordUsed.mock.calls[1]?.[1]).toEqual(recordUsed.mock.calls[0]?.[1])

@@ -10,6 +10,7 @@ import type {
   LibraryCollectionDetail,
   LibraryCollectionMutationReceipt,
   LibraryCollectionSummary,
+  LibraryCompletedAction,
   LibraryItemIdentity,
   LibraryPreferenceMutationReceipt,
   LibraryPreferenceSnapshot,
@@ -130,7 +131,7 @@ type RecordUsedCommand = Readonly<{
   key: string
   identity: LibraryItemIdentity
   itemName: string
-  completedAction: "create" | "insert" | "replace"
+  completedAction: LibraryCompletedAction
   completionId: string
   idempotencyKey: string
 }>
@@ -753,7 +754,7 @@ export class LibraryPreferenceController {
   recordUsed(
     identityInput: LibraryItemIdentity,
     itemName: string,
-    completedAction: "create" | "insert" | "replace",
+    completedAction: LibraryCompletedAction,
     completionId: string
   ) {
     const identity = libraryItemIdentitySchema.parse(identityInput)

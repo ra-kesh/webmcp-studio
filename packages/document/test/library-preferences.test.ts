@@ -12,6 +12,7 @@ import {
   libraryCollectionListResponseSchema,
   libraryCollectionMutationResponseSchema,
   libraryCollectionNameSchema,
+  libraryCompletedActionSchema,
   libraryCreateCollectionReceiptSchema,
   libraryCreateCollectionRequestSchema,
   libraryDeleteCollectionReceiptSchema,
@@ -323,7 +324,22 @@ describe("library preference mutation contracts", () => {
         false
       )
     }
-    for (const unsupportedAction of ["apply", "assign_field"]) {
+    expect(libraryCompletedActionSchema.options).toEqual([
+      "create",
+      "insert",
+      "replace",
+      "assign_field",
+    ])
+    for (const completedAction of libraryCompletedActionSchema.options) {
+      expect(
+        libraryRecordUseRequestSchema.safeParse({
+          schemaVersion: 1,
+          completedAction,
+          completionId: "document-1",
+        }).success
+      ).toBe(true)
+    }
+    for (const unsupportedAction of ["apply", "delete"]) {
       expect(
         libraryRecordUseRequestSchema.safeParse({
           schemaVersion: 1,
@@ -384,8 +400,8 @@ describe("library preference mutation contracts", () => {
         {
           schemaVersion: 1,
           operation: "record_used",
-          completedAction: "create",
-          completionId: "document-1",
+          completedAction: "assign_field",
+          completionId: "field-assignment-1",
           preference: preference(),
           workspaceRevision: 8,
         },

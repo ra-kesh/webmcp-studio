@@ -129,6 +129,48 @@ beforeEach(() => {
 })
 
 describe("library HTTP contract", () => {
+  it("round-trips assign-field Recent through the HTTP boundary", async () => {
+    const receipt = {
+      schemaVersion: 1 as const,
+      operation: "record_used" as const,
+      completedAction: "assign_field" as const,
+      completionId: "field-assignment-1",
+      preference: { ...preference, revision: 3 },
+      workspaceRevision: 9,
+    }
+    repository.recordUsed.mockResolvedValue(receipt)
+
+    const response = await handlers.recordUsed(
+      jsonRequest(
+        "https://studio.test/v1/studio/library/items/template/signal-creative-brief/versions/1/used",
+        "POST",
+        {
+          schemaVersion: 1,
+          completedAction: "assign_field",
+          completionId: "field-assignment-1",
+        },
+        { "Idempotency-Key": "recent-field-assignment-1" }
+      ),
+      identity.itemKind,
+      identity.id,
+      identity.version
+    )
+
+    expect(response.status).toBe(200)
+    expect(repository.recordUsed).toHaveBeenCalledWith(
+      principal.workspaceId,
+      principal.id,
+      identity,
+      "assign_field",
+      "field-assignment-1",
+      "recent-field-assignment-1"
+    )
+    await expect(response.json()).resolves.toEqual({
+      schemaVersion: 1,
+      receipt,
+    })
+  })
+
   it("enforces the requested item capability without coupling independent permissions", async () => {
     const detail = structuredClone(
       getStudioLibraryCatalogDetail("template", identity.id, identity.version)!

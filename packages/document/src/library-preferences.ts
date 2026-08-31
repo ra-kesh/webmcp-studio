@@ -255,10 +255,21 @@ export const librarySetFavoriteRequestSchema = z
   .object({ schemaVersion: z.literal(1), favorite: z.boolean() })
   .strict()
 
+export const libraryCompletedActionSchema = z.enum([
+  "create",
+  "insert",
+  "replace",
+  "assign_field",
+])
+
+export type LibraryCompletedAction = z.infer<
+  typeof libraryCompletedActionSchema
+>
+
 export const libraryRecordUseRequestSchema = z
   .object({
     schemaVersion: z.literal(1),
-    completedAction: z.enum(["create", "insert", "replace"]),
+    completedAction: libraryCompletedActionSchema,
     completionId: catalogIdSchema,
   })
   .strict()
@@ -329,7 +340,7 @@ export const libraryRecordUseReceiptSchema = z
   .object({
     ...preferenceReceiptFields,
     operation: z.literal("record_used"),
-    completedAction: z.enum(["create", "insert", "replace"]),
+    completedAction: libraryCompletedActionSchema,
     completionId: catalogIdSchema,
   })
   .strict()

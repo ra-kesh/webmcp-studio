@@ -11,6 +11,7 @@ import type { PropsWithChildren } from "react"
 import type {
   LibraryCollectionDetail,
   LibraryCollectionSummary,
+  LibraryCompletedAction,
   LibraryItemIdentity,
 } from "@webmcp/document"
 import { LibraryPreferenceController } from "./library-preference-controller"
@@ -70,7 +71,7 @@ export type LibraryPreferenceCommands = Readonly<{
   recordUsed: (
     identity: LibraryItemIdentity,
     itemName: string,
-    completedAction: "create" | "insert" | "replace",
+    completedAction: LibraryCompletedAction,
     completionId: string
   ) => Promise<boolean>
   createCollection: (name: string) => Promise<boolean>

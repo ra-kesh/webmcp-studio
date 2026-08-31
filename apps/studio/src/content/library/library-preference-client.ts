@@ -20,6 +20,7 @@ import type {
   LibraryCollectionDetailResponse,
   LibraryCollectionListResponse,
   LibraryCollectionMutationReceipt,
+  LibraryCompletedAction,
   LibraryItemIdentity,
   LibraryPreferenceMutationReceipt,
   LibraryPreferenceSnapshot,
@@ -92,7 +93,7 @@ export type LibraryPreferenceClient = Readonly<{
   recordUsed: (
     identity: LibraryItemIdentity,
     input: Readonly<{
-      completedAction: "create" | "insert" | "replace"
+      completedAction: LibraryCompletedAction
       completionId: string
       idempotencyKey: string
       signal?: AbortSignal

@@ -105,6 +105,51 @@ describe("library preference HTTP client", () => {
     })
   })
 
+  it("round-trips an assign-field Recent receipt with the exact request body", async () => {
+    const receipt = {
+      schemaVersion: 1 as const,
+      operation: "record_used" as const,
+      completedAction: "assign_field" as const,
+      completionId: "field-assignment-1",
+      preference: {
+        ...snapshot().preferences[0],
+        lastUsedAt: "2026-08-31T08:01:00.000Z",
+        revision: 4,
+        updatedAt: "2026-08-31T08:01:00.000Z",
+      },
+      workspaceRevision: 5,
+    }
+    const fetchRequest = vi.fn<LibraryPreferenceFetch>(async () =>
+      response(
+        { schemaVersion: 1, receipt },
+        { etag: '"library-preference-revision-4"' }
+      )
+    )
+    const client = createLibraryPreferenceClient(fetchRequest)
+
+    await expect(
+      client.recordUsed(identity, {
+        completedAction: "assign_field",
+        completionId: "field-assignment-1",
+        idempotencyKey: "recent-field-assignment-1",
+      })
+    ).resolves.toMatchObject({ value: receipt })
+
+    const [url, init] = fetchRequest.mock.calls[0]
+    expect(url).toBe(
+      "/v1/studio/library/items/template/proposal-template/versions/2/used"
+    )
+    expect(init?.method).toBe("POST")
+    expect(new Headers(init?.headers).get("Idempotency-Key")).toBe(
+      "recent-field-assignment-1"
+    )
+    expect(JSON.parse(String(init?.body))).toEqual({
+      schemaVersion: 1,
+      completedAction: "assign_field",
+      completionId: "field-assignment-1",
+    })
+  })
+
   it("fails closed on missing request identity, invalid schema, and inconsistent ETag", async () => {
     const missingRequest = createLibraryPreferenceClient(async () =>
       Response.json(

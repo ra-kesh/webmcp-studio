@@ -1251,16 +1251,16 @@ describe("LibraryPreferenceRepository", () => {
       "workspace-a",
       "principal-a",
       identity,
-      "insert",
-      "document-insert-2",
+      "assign_field",
+      "field-assignment-2",
       "recent-2"
     )
     const replay = await repository.recordUsed(
       "workspace-a",
       "principal-a",
       identity,
-      "insert",
-      "document-insert-2",
+      "assign_field",
+      "field-assignment-2",
       "recent-2"
     )
 
@@ -1271,7 +1271,7 @@ describe("LibraryPreferenceRepository", () => {
     })
     expect(second).toEqual(replay)
     expect(second).toMatchObject({
-      completedAction: "insert",
+      completedAction: "assign_field",
       preference: {
         revision: 2,
         lastUsedAt: "2026-09-01T00:00:00.000Z",
