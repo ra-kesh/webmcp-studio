@@ -51,13 +51,13 @@ The accepted starting point is narrow:
 The last point is the release truth. Resource inventory and a green deploy are
 not substitutes for it.
 
-| Evidence group | Can run with the owner now | Additional dependency |
-| --- | --- | --- |
-| owner traversal, multipart/R2, Workflow/artifact, hostile input, capacity/audit, parity, and healthy-host performance | yes, after explicit permission for ordinary production test writes | temporary owner Access browser context |
-| active-Workflow restart | no | explicit authorization for a same-commit Studio redeployment |
-| workspace isolation | no | a second human Access subject and temporary narrow policy change |
-| artifact expiry | no | completed immediate-run artifact plus seven days, one reconciler interval, and clock-skew margin |
-| audit retention | no | named immediate-run audit row plus more than 30 days and one new request |
+| Evidence group                                                                                                        | Can run with the owner now                                         | Additional dependency                                                                            |
+| --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| owner traversal, multipart/R2, Workflow/artifact, hostile input, capacity/audit, parity, and healthy-host performance | yes, after explicit permission for ordinary production test writes | temporary owner Access browser context                                                           |
+| active-Workflow restart                                                                                               | no                                                                 | explicit authorization for a same-commit Studio redeployment                                     |
+| workspace isolation                                                                                                   | no                                                                 | a second human Access subject and temporary narrow policy change                                 |
+| artifact expiry                                                                                                       | no                                                                 | completed immediate-run artifact plus seven days, one reconciler interval, and clock-skew margin |
+| audit retention                                                                                                       | no                                                                 | named immediate-run audit row plus more than 30 days and one new request                         |
 
 ## Important harness findings
 
@@ -220,7 +220,7 @@ API, not the foreground export route.
    instance identity, exact attempt fencing, succeeded settlement, and R2 keys
    under `<render-id>/attempt-<n>/`.
 5. Run `wrangler workflows instances describe webmcp-studio-render-jobs
-   <render-id>` read-only with step output disabled. Retain step states, retries,
+<render-id>` read-only with step output disabled. Retain step states, retries,
    timestamps, and errors only after sanitization.
 6. Read the exact R2 artifacts by their D1 keys and compare hashes with both D1
    and public downloads.
@@ -242,14 +242,14 @@ trust the forged identity.
 
 The minimum hostile matrix is:
 
-| Boundary | Request | Required result | Required non-invocation proof |
-| --- | --- | --- | --- |
-| JSON transport | wrong media type, malformed UTF-8/JSON, missing length, and streamed body over the route cap | exact `400`, `411`, or `413` code and retryability | no template, job, asset, Browser, or R2 change |
-| Strict schema | unknown top-level and nested keys plus a bad field type | canonical `issues` paths | no D1 product row or Workflow |
-| Render policy | unsupported font, unsafe color, remote image URL, oversized geometry, page count, or pixel area | `422` with stable resource or policy identity | no Browser call and no R2 artifact |
-| Multipart | SVG/GIF, signature/MIME mismatch, malformed structure, over-byte, over-edge, and over-pixel inputs | stable deterministic 4xx | no asset row and no R2 object |
-| Ownership | random asset, template, revision, render, and output IDs | scoped `404` | no cross-workspace metadata in the response |
-| Idempotency | same render or upload key with changed content | `409` | original row and object unchanged |
+| Boundary       | Request                                                                                            | Required result                                    | Required non-invocation proof                  |
+| -------------- | -------------------------------------------------------------------------------------------------- | -------------------------------------------------- | ---------------------------------------------- |
+| JSON transport | wrong media type, malformed UTF-8/JSON, missing length, and streamed body over the route cap       | exact `400`, `411`, or `413` code and retryability | no template, job, asset, Browser, or R2 change |
+| Strict schema  | unknown top-level and nested keys plus a bad field type                                            | canonical `issues` paths                           | no D1 product row or Workflow                  |
+| Render policy  | unsupported font, unsafe color, remote image URL, oversized geometry, page count, or pixel area    | `422` with stable resource or policy identity      | no Browser call and no R2 artifact             |
+| Multipart      | SVG/GIF, signature/MIME mismatch, malformed structure, over-byte, over-edge, and over-pixel inputs | stable deterministic 4xx                           | no asset row and no R2 object                  |
+| Ownership      | random asset, template, revision, render, and output IDs                                           | scoped `404`                                       | no cross-workspace metadata in the response    |
+| Idempotency    | same render or upload key with changed content                                                     | `409`                                              | original row and object unchanged              |
 
 Use an authenticated page-side streaming `fetch` for the missing-length case,
 because Playwright's request client adds a length to ordinary byte bodies. It
@@ -455,6 +455,28 @@ the evidence manifest links all of these results:
 
 Until then, commit `833547b` remains a verified production deployment with an
 active deployed-acceptance gate. It is not yet complete production evidence.
+
+## 2026-09-01 read-only Cloudflare recheck
+
+The production plan was rerun from local `main` after the product-cleanliness
+checkpoints. Wrangler authenticated to the configured account, found the
+canonical D1 database and both R2 buckets, and confirmed that the Studio and
+Renderer targets, RenderAdmission Durable Object, and Render Workflow are
+present. Both Workers packaged successfully with `wrangler deploy --dry-run`;
+the Studio package includes both Workflow bindings, D1, both R2 buckets, the
+Renderer service, static assets, Access configuration, and the Durable Object.
+The separate post-deploy inventory preflight also passes.
+
+The remote D1 migration ledger is an exact local prefix but is eight migrations
+behind current `main`: `0012` through `0019`. Those migrations cover local
+promotion mapping, media use receipts, library preferences/collections,
+catalog metadata, canonical media source identity, and media derivation jobs,
+outputs, and mutation receipts. This is a safe deployment stop, not a packaging
+failure: no migration, Worker, Workflow, object, Browser Rendering request, or
+other remote write was performed. The current branch is therefore
+deployment-plan-ready, while the deployed environment remains intentionally
+behind the local media/library feature set until an explicit production apply
+is authorized.
 
 ## Current Cloudflare references
 
