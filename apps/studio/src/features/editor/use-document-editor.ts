@@ -1067,7 +1067,7 @@ export function useDocumentEditor({
   const [pendingGeneratedDocument, setPendingGeneratedDocument] =
     useState<GeneratedDocumentPlan | null>(null)
   const pendingGeneratedDocumentRef = useRef<GeneratedDocumentPlan | null>(null)
-  const replacedGenerationRequestIdsRef = useRef(new Set<string>())
+  const generationReplacementConsumedRef = useRef(false)
   const generationApprovalInFlightRef = useRef(false)
   const [generatedDocumentError, setGeneratedDocumentError] = useState<
     string | null
@@ -10416,12 +10416,14 @@ export function useDocumentEditor({
             "A generated document is already waiting in Review. Discard it or submit one explicit replacement."
           )
         }
-        if (replacedGenerationRequestIdsRef.current.has(current.requestId)) {
+        if (generationReplacementConsumedRef.current) {
           throw new Error(
             "This generated document has already been replaced once. Review or discard the replacement."
           )
         }
-        replacedGenerationRequestIdsRef.current.add(current.requestId)
+        generationReplacementConsumedRef.current = true
+      } else {
+        generationReplacementConsumedRef.current = false
       }
       pendingGeneratedDocumentRef.current = plan
       setPendingGeneratedDocument(plan)
@@ -10434,6 +10436,7 @@ export function useDocumentEditor({
   const discardGeneratedDocument = useCallback(() => {
     if (generationApprovalInFlightRef.current) return false
     pendingGeneratedDocumentRef.current = null
+    generationReplacementConsumedRef.current = false
     setPendingGeneratedDocument(null)
     setGeneratedDocumentError(null)
     return true
@@ -10489,6 +10492,7 @@ export function useDocumentEditor({
         pendingGeneratedDocumentRef.current?.requestHash === plan.requestHash
       ) {
         pendingGeneratedDocumentRef.current = null
+        generationReplacementConsumedRef.current = false
         setPendingGeneratedDocument(null)
       }
       return true

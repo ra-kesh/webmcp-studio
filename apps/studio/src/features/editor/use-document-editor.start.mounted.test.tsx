@@ -579,6 +579,25 @@ describe("useDocumentEditor start session", () => {
     expect(create).not.toHaveBeenCalled()
 
     await act(async () => {
+      const replacement = {
+        ...plan,
+        requestId: "generated-review-replacement",
+        idempotencyKey: "generated-review-replacement-key",
+        requestHash: "generated-review-replacement-hash",
+        replacementForRequestId: plan.requestId,
+      }
+      expect(
+        captured.current?.editor.proposeDocumentGeneration(replacement)
+      ).toBe(replacement)
+      expect(() =>
+        captured.current?.editor.proposeDocumentGeneration({
+          ...replacement,
+          requestId: "generated-review-second-replacement",
+          idempotencyKey: "generated-review-second-replacement-key",
+          requestHash: "generated-review-second-replacement-hash",
+          replacementForRequestId: replacement.requestId,
+        })
+      ).toThrow(/already been replaced once/)
       expect(captured.current?.editor.discardGeneratedDocument()).toBe(true)
     })
     expect(create).not.toHaveBeenCalled()
