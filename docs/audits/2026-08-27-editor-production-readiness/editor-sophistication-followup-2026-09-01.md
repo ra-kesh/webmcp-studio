@@ -2,7 +2,7 @@
 
 Date: 2026-09-01
 
-Status: active on `main` after the accepted general-mask merge
+Status: accepted on `main` after the accepted general-mask merge
 
 ## Revisited evidence
 
@@ -37,6 +37,27 @@ was performed.
    as the next performance-polish gate; do not hide the warning by increasing
    the limit.
 
+## Measured startup split
+
+The cold editor surfaces now load only when opened: new document, draft
+replacement, recovery and conflict handling, quotation refresh, publishing,
+API playground, asset library, guide management, command search, keyboard
+shortcuts, layer rename, and structure-command dialogs. Their shared command
+identity and filtering model lives outside the command-palette component so a
+small helper import cannot pull the dialog back into the startup graph.
+
+The final production client Studio shell is 1,113.44 kB minified / 289.79 kB
+gzip, down from approximately 1,260.42 kB / 329.86 kB. That removes 146.98 kB
+minified and 40.07 kB gzip from the initial shell (about 12%) without raising
+the bundle warning threshold. Vite emits separate named chunks for every cold
+surface and no longer reports an ineffective command-palette dynamic import.
+
+The live application on port 3001 was used to open and close the new-document,
+Publish, API playground, Assets, and command-search surfaces after the split.
+The active document route remained intact and no dialog was left mounted.
+Focused shell and command tests passed 35/35; Studio typecheck, production
+client/SSR/renderer builds, formatting, and diff checks passed.
+
 ## Acceptance
 
 - the start heading still receives programmatic focus after returning home but
@@ -45,5 +66,5 @@ was performed.
   warning;
 - focused start-surface and route-layout tests pass;
 - Studio typecheck, formatting, and diff checks pass;
-- the next checkpoint measures and reduces the editor entry chunk without
-  changing command, document, Inspector, renderer, or WebMCP semantics.
+- the editor entry chunk is measurably smaller without changing command,
+  document, Inspector, renderer, or WebMCP semantics.

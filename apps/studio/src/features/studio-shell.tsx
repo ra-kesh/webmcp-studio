@@ -1,5 +1,7 @@
 // @refresh reset
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -167,7 +169,6 @@ import type { PageThumbnailDocumentSnapshot } from "./editor/page-thumbnail-rast
 import { QuotationSidebar } from "./editor/quotation-sidebar"
 import type { DocumentPanelTab } from "./editor/quotation-sidebar"
 import type { AssetWorkspaceView } from "./editor/asset-workspace-panel"
-import { AssetLibraryDialog } from "./editor/asset-library-dialog"
 import {
   getManagedMedia,
   managedMediaSource,
@@ -183,17 +184,10 @@ import {
   getLatestBackgroundRemoval,
   mutateBackgroundRemoval,
 } from "./editor/background-removal-client"
-import { ApiPlaygroundDialog } from "./editor/api-playground-dialog"
 import { studioAssets } from "./editor/asset-catalog"
-import { NewDocumentDialog } from "./editor/new-document-dialog"
 import { StudioStartSurface } from "./editor/studio-start-surface"
 import { useRecentDocumentsVisibility } from "./editor/recent-documents-provider"
-import { ReplaceCurrentDraftDialog } from "./editor/replace-current-draft-dialog"
-import { QuotationRefreshDialog } from "./editor/quotation-refresh-dialog"
 import { EmptyCanvasActions } from "./editor/empty-canvas-actions"
-import { DraftRecoveryDialog } from "./editor/draft-recovery-dialog"
-import { DocumentConflictDialog } from "./editor/document-conflict-dialog"
-import { PublishDialog } from "./editor/publish-dialog"
 import { FabricArtboard } from "./editor/fabric-artboard"
 import type {
   FabricArtboardHandle,
@@ -260,7 +254,6 @@ import { useDocumentRouteNavigationGuard } from "./editor/use-document-route-nav
 import { useCanvasGestureNavigation } from "./editor/use-canvas-gesture-navigation"
 import { CanvasRulerGuideOverlay } from "./editor/canvas-ruler-guide-overlay"
 import type { CanvasRulerGuideOverlayHandle } from "./editor/canvas-ruler-guide-overlay"
-import { GuideManagerDialog } from "./editor/guide-manager-dialog"
 import { useEditorWorkspaceGuides } from "./editor/use-editor-workspace-guides"
 import { projectVisibleGuideSnapTargets } from "./editor/guide-snap-targets"
 import {
@@ -281,12 +274,8 @@ import type {
   SessionHistoryAction,
   SessionHistoryLedger,
 } from "./editor/studio-session-history"
-import {
-  StudioCommandPalette,
-  productCommandInvocationKey,
-} from "./editor/command-palette"
-import type { StudioCommandPaletteItem } from "./editor/command-palette"
-import { KeyboardShortcutsDialog } from "./editor/keyboard-shortcuts-dialog"
+import { productCommandInvocationKey } from "./editor/command-palette-model"
+import type { StudioCommandPaletteItem } from "./editor/command-palette-model"
 import {
   ProductCommandContextMenu,
   ProductCommandDropdownItems,
@@ -294,9 +283,7 @@ import {
   ResponsiveProductCommandDropdownGroups,
 } from "./editor/product-command-menu"
 import type { ProductCommandMenuRuntime } from "./editor/product-command-menu"
-import { RenameLayerDialog } from "./editor/rename-layer-dialog"
 import type { RenameLayerTarget } from "./editor/rename-layer-dialog"
-import { StructureCommandDialogs } from "./editor/structure-command-dialogs"
 import type { StructureCommandDialogState } from "./editor/structure-command-dialogs"
 import {
   defaultStudioTextPresetId,
@@ -304,6 +291,72 @@ import {
 } from "./editor/text-presets"
 import type { StudioTextPresetId } from "./editor/text-presets"
 import { materializeLocalExportNodes } from "./editor/materialize-local-export-nodes"
+
+const AssetLibraryDialog = lazy(() =>
+  import("./editor/asset-library-dialog").then((module) => ({
+    default: module.AssetLibraryDialog,
+  }))
+)
+const ApiPlaygroundDialog = lazy(() =>
+  import("./editor/api-playground-dialog").then((module) => ({
+    default: module.ApiPlaygroundDialog,
+  }))
+)
+const NewDocumentDialog = lazy(() =>
+  import("./editor/new-document-dialog").then((module) => ({
+    default: module.NewDocumentDialog,
+  }))
+)
+const ReplaceCurrentDraftDialog = lazy(() =>
+  import("./editor/replace-current-draft-dialog").then((module) => ({
+    default: module.ReplaceCurrentDraftDialog,
+  }))
+)
+const QuotationRefreshDialog = lazy(() =>
+  import("./editor/quotation-refresh-dialog").then((module) => ({
+    default: module.QuotationRefreshDialog,
+  }))
+)
+const DraftRecoveryDialog = lazy(() =>
+  import("./editor/draft-recovery-dialog").then((module) => ({
+    default: module.DraftRecoveryDialog,
+  }))
+)
+const DocumentConflictDialog = lazy(() =>
+  import("./editor/document-conflict-dialog").then((module) => ({
+    default: module.DocumentConflictDialog,
+  }))
+)
+const PublishDialog = lazy(() =>
+  import("./editor/publish-dialog").then((module) => ({
+    default: module.PublishDialog,
+  }))
+)
+const GuideManagerDialog = lazy(() =>
+  import("./editor/guide-manager-dialog").then((module) => ({
+    default: module.GuideManagerDialog,
+  }))
+)
+const StudioCommandPalette = lazy(() =>
+  import("./editor/command-palette").then((module) => ({
+    default: module.StudioCommandPalette,
+  }))
+)
+const KeyboardShortcutsDialog = lazy(() =>
+  import("./editor/keyboard-shortcuts-dialog").then((module) => ({
+    default: module.KeyboardShortcutsDialog,
+  }))
+)
+const RenameLayerDialog = lazy(() =>
+  import("./editor/rename-layer-dialog").then((module) => ({
+    default: module.RenameLayerDialog,
+  }))
+)
+const StructureCommandDialogs = lazy(() =>
+  import("./editor/structure-command-dialogs").then((module) => ({
+    default: module.StructureCommandDialogs,
+  }))
+)
 
 export function documentMediaAdmissionActionModel(
   restoredAt: string | null,
@@ -4011,13 +4064,15 @@ export function StudioShell({
           <p className="text-sm text-muted-foreground">
             Studio is waiting for draft recovery.
           </p>
-          <DraftRecoveryDialog
-            recovery={editor.draftRecovery}
-            notice={editor.draftRecoveryNotice}
-            onDownload={editor.downloadDraftRecovery}
-            onRetry={editor.retryDraftRecovery}
-            onReset={editor.resetDraftRecovery}
-          />
+          <Suspense fallback={null}>
+            <DraftRecoveryDialog
+              recovery={editor.draftRecovery}
+              notice={editor.draftRecoveryNotice}
+              onDownload={editor.downloadDraftRecovery}
+              onRetry={editor.retryDraftRecovery}
+              onReset={editor.resetDraftRecovery}
+            />
+          </Suspense>
         </main>
       )
     }
@@ -4071,39 +4126,47 @@ export function StudioShell({
             )
           }}
         />
-        <NewDocumentDialog
-          open={newDocumentOpen}
-          starterMetadata={editor.starterMetadata}
-          onCreateBlank={(options) =>
-            requestDraftReplacement(
-              { kind: "blank" },
-              `Creating “${options.name}”`,
-              () => editor.createBlankDocument(options)
-            )
-          }
-          onCreated={finishOpenedSession}
-          onOpenChange={setNewDocumentOpen}
-          onRestoreDemo={() =>
-            requestDraftReplacement(
-              { kind: "sample" },
-              "Opening the Northstar sample",
-              editor.restoreDemoDocument
-            )
-          }
-        />
-        <ReplaceCurrentDraftDialog
-          documentName={editor.document.name}
-          error={editor.documentError}
-          nextActionLabel={pendingDraftReplacement?.nextActionLabel ?? "This"}
-          open={pendingDraftReplacement !== null}
-          replacing={replacementRunning}
-          sessionOnly={editor.localSaveState.status === "session_only"}
-          onCancel={cancelDraftReplacement}
-          onDownload={() => {
-            if (commitActiveTextEditing()) editor.downloadCurrentVersion()
-          }}
-          onReplace={() => void confirmDraftReplacement()}
-        />
+        {newDocumentOpen ? (
+          <Suspense fallback={null}>
+            <NewDocumentDialog
+              open
+              starterMetadata={editor.starterMetadata}
+              onCreateBlank={(options) =>
+                requestDraftReplacement(
+                  { kind: "blank" },
+                  `Creating “${options.name}”`,
+                  () => editor.createBlankDocument(options)
+                )
+              }
+              onCreated={finishOpenedSession}
+              onOpenChange={setNewDocumentOpen}
+              onRestoreDemo={() =>
+                requestDraftReplacement(
+                  { kind: "sample" },
+                  "Opening the Northstar sample",
+                  editor.restoreDemoDocument
+                )
+              }
+            />
+          </Suspense>
+        ) : null}
+        {pendingDraftReplacement ? (
+          <Suspense fallback={null}>
+            <ReplaceCurrentDraftDialog
+              documentName={editor.document.name}
+              error={editor.documentError}
+              nextActionLabel={pendingDraftReplacement.nextActionLabel}
+              open
+              replacing={replacementRunning}
+              sessionOnly={editor.localSaveState.status === "session_only"}
+              onCancel={cancelDraftReplacement}
+              onDownload={() => {
+                if (commitActiveTextEditing()) editor.downloadCurrentVersion()
+              }}
+              onReplace={() => void confirmDraftReplacement()}
+            />
+          </Suspense>
+        ) : null}
       </>
     )
   }
@@ -5849,92 +5912,103 @@ export function StudioShell({
             ))}
           </div>
         ) : null}
-        <AssetLibraryDialog
-          open={mediaPickerUsesDialog(mediaPicker)}
-          onOpenChange={(open) => {
-            if (!open) mediaPickerSession.close(true)
-          }}
-          mode={
-            mediaPicker?.kind === "recover-local"
-              ? "recover-local"
-              : mediaPicker?.target.type === "replace"
-                ? "replace"
-                : mediaPicker?.target.type === "assign_field"
-                  ? "assign_field"
-                  : "insert"
-          }
-          targetName={mediaPicker?.targetName}
-          document={editor.document}
-          documentMediaAdmission={editor.documentMediaAdmission}
-          localAssetRevision={editor.assetVersion}
-          recoveryMutationDisabledReason={
-            editor.imageCropSession
-              ? "Finish or cancel the active image crop before recovering document images."
-              : editor.pendingChangeSet
-                ? "Resolve or discard the pending Review before recovering document images."
-                : pendingQuotationRefresh
-                  ? "Accept or reject the pending quotation refresh before recovering document images."
+        {mediaPickerUsesDialog(mediaPicker) ? (
+          <Suspense fallback={null}>
+            <AssetLibraryDialog
+              open={mediaPickerUsesDialog(mediaPicker)}
+              onOpenChange={(open) => {
+                if (!open) mediaPickerSession.close(true)
+              }}
+              mode={
+                mediaPicker?.kind === "recover-local"
+                  ? "recover-local"
+                  : mediaPicker?.target.type === "replace"
+                    ? "replace"
+                    : mediaPicker?.target.type === "assign_field"
+                      ? "assign_field"
+                      : "insert"
+              }
+              targetName={mediaPicker?.targetName}
+              document={editor.document}
+              documentMediaAdmission={editor.documentMediaAdmission}
+              localAssetRevision={editor.assetVersion}
+              recoveryMutationDisabledReason={
+                editor.imageCropSession
+                  ? "Finish or cancel the active image crop before recovering document images."
+                  : editor.pendingChangeSet
+                    ? "Resolve or discard the pending Review before recovering document images."
+                    : pendingQuotationRefresh
+                      ? "Accept or reject the pending quotation refresh before recovering document images."
+                      : null
+              }
+              localAssetPromotions={editor.localAssetPromotions}
+              localMediaRecoveryOperations={editor.localMediaRecoveryOperations}
+              mediaScope={mediaPicker?.scope ?? { kind: "recent" }}
+              pendingIdentity={
+                mediaPicker?.kind === "action"
+                  ? mediaPicker.pendingIdentity
                   : null
-          }
-          localAssetPromotions={editor.localAssetPromotions}
-          localMediaRecoveryOperations={editor.localMediaRecoveryOperations}
-          mediaScope={mediaPicker?.scope ?? { kind: "recent" }}
-          pendingIdentity={
-            mediaPicker?.kind === "action" ? mediaPicker.pendingIdentity : null
-          }
-          actionError={
-            mediaPicker?.kind === "action" ? mediaPicker.actionError : null
-          }
-          actionsEnabled={
-            mediaPicker?.kind === "action" && !mediaPicker.pendingIdentity
-          }
-          onMediaScopeChange={mediaPickerSession.setScope}
-          onMediaSelect={selectExactMedia}
-          resolveUploadedMediaDetail={resolveUploadedMediaDetail}
-          onRecoveryManagedSelect={selectManagedRecoveryMedia}
-          onPromoteLocalAsset={(assetId) => {
-            void editor.startLocalAssetPromotion(assetId)
-          }}
-          onCancelLocalAssetPromotion={editor.cancelLocalAssetPromotion}
-          onLocateMissingLocalAsset={(assetId, file) => {
-            void editor.locateMissingLocalAsset(assetId, file)
-          }}
-          onKeepLocatedFileAsNewLocalAsset={(assetId) => {
-            void editor.keepLocatedFileAsNewLocalAsset(assetId)
-          }}
-          onUseStudioCopyForLocalAsset={(assetId, confirmIdentityConflict) => {
-            void editor.useStudioCopyForLocalAsset(
-              assetId,
-              confirmIdentityConflict
-            )
-          }}
-          onRetryLocalMediaRecovery={(assetId) => {
-            void editor.retryLocalMediaRecoverySave(assetId)
-          }}
-          onCancelLocalMediaRecovery={(assetId) => {
-            editor.cancelLocalMediaRecovery(assetId)
-          }}
-          onRemoveMissingLocalAsset={(assetId, referenceKey) => {
-            void editor.removeMissingLocalAsset(assetId, referenceKey)
-          }}
-          onChooseStudioImageForLocalAsset={(assetId) => {
-            mediaPickerSession.openRecovery({
-              localAssetId: assetId,
-              targetName: mediaPicker?.targetName ?? "missing image",
-            })
-          }}
-          onNavigateToReference={({ nodeId, pageId, fieldId }) => {
-            if (fieldId) {
-              setMediaReviewFieldId(null)
-              setCompactPanel("inspector")
-              window.requestAnimationFrame(() => setMediaReviewFieldId(fieldId))
-            } else if (nodeId) {
-              focusNode(nodeId)
-            } else if (pageId) {
-              editor.selectPage(pageId)
-            }
-          }}
-        />
+              }
+              actionError={
+                mediaPicker?.kind === "action" ? mediaPicker.actionError : null
+              }
+              actionsEnabled={
+                mediaPicker?.kind === "action" && !mediaPicker.pendingIdentity
+              }
+              onMediaScopeChange={mediaPickerSession.setScope}
+              onMediaSelect={selectExactMedia}
+              resolveUploadedMediaDetail={resolveUploadedMediaDetail}
+              onRecoveryManagedSelect={selectManagedRecoveryMedia}
+              onPromoteLocalAsset={(assetId) => {
+                void editor.startLocalAssetPromotion(assetId)
+              }}
+              onCancelLocalAssetPromotion={editor.cancelLocalAssetPromotion}
+              onLocateMissingLocalAsset={(assetId, file) => {
+                void editor.locateMissingLocalAsset(assetId, file)
+              }}
+              onKeepLocatedFileAsNewLocalAsset={(assetId) => {
+                void editor.keepLocatedFileAsNewLocalAsset(assetId)
+              }}
+              onUseStudioCopyForLocalAsset={(
+                assetId,
+                confirmIdentityConflict
+              ) => {
+                void editor.useStudioCopyForLocalAsset(
+                  assetId,
+                  confirmIdentityConflict
+                )
+              }}
+              onRetryLocalMediaRecovery={(assetId) => {
+                void editor.retryLocalMediaRecoverySave(assetId)
+              }}
+              onCancelLocalMediaRecovery={(assetId) => {
+                editor.cancelLocalMediaRecovery(assetId)
+              }}
+              onRemoveMissingLocalAsset={(assetId, referenceKey) => {
+                void editor.removeMissingLocalAsset(assetId, referenceKey)
+              }}
+              onChooseStudioImageForLocalAsset={(assetId) => {
+                mediaPickerSession.openRecovery({
+                  localAssetId: assetId,
+                  targetName: mediaPicker?.targetName ?? "missing image",
+                })
+              }}
+              onNavigateToReference={({ nodeId, pageId, fieldId }) => {
+                if (fieldId) {
+                  setMediaReviewFieldId(null)
+                  setCompactPanel("inspector")
+                  window.requestAnimationFrame(() =>
+                    setMediaReviewFieldId(fieldId)
+                  )
+                } else if (nodeId) {
+                  focusNode(nodeId)
+                } else if (pageId) {
+                  editor.selectPage(pageId)
+                }
+              }}
+            />
+          </Suspense>
+        ) : null}
         <AlertDialog
           open={editor.pendingDocumentImportMediaReview !== null}
           onOpenChange={(open) => {
@@ -6058,161 +6132,211 @@ export function StudioShell({
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-        <DraftRecoveryDialog
-          recovery={editor.draftRecovery}
-          notice={editor.draftRecoveryNotice}
-          onDownload={editor.downloadDraftRecovery}
-          onRetry={() => {
-            cancelActiveTextEditing()
-            editor.retryDraftRecovery()
-          }}
-          onReset={() => {
-            cancelActiveTextEditing()
-            editor.resetDraftRecovery()
-          }}
-        />
-        <DocumentConflictDialog
-          model={editor.conflictRecoveryModel}
-          onDownload={() => {
-            if (commitActiveTextEditing()) {
-              return editor.downloadCurrentVersion()
-            }
-            return false
-          }}
-          onReload={reloadSavedDocument}
-          onReturnHome={returnToDocumentsFromConflictRecovery}
-          onSaveCopy={saveRecoveredDocumentAsCopy}
-        />
-        <ReplaceCurrentDraftDialog
-          documentName={editor.document.name}
-          error={editor.documentError}
-          nextActionLabel={pendingDraftReplacement?.nextActionLabel ?? "This"}
-          open={pendingDraftReplacement !== null}
-          replacing={replacementRunning}
-          sessionOnly={editor.localSaveState.status === "session_only"}
-          onCancel={cancelDraftReplacement}
-          onDownload={() => {
-            if (commitActiveTextEditing()) editor.downloadCurrentVersion()
-          }}
-          onReplace={() => void confirmDraftReplacement()}
-        />
-        <NewDocumentDialog
-          open={newDocumentOpen}
-          onOpenChange={setNewDocumentOpen}
-          onCreateBlank={(options) => {
-            return requestNewDraft(
-              { kind: "blank" },
-              `Creating “${options.name}”`,
-              () => editor.createBlankDocument(options)
-            )
-          }}
-          onRestoreDemo={() => {
-            return requestNewDraft(
-              { kind: "sample" },
-              "Opening the Northstar sample",
-              editor.restoreDemoDocument
-            )
-          }}
-          onCreated={() => {
-            setAutoFit(true)
-            window.requestAnimationFrame(() => {
-              fitCanvas()
-              workspaceRef.current
-                ?.querySelector<HTMLElement>(
-                  ".upper-canvas, [role='application'][aria-label='Interactive design canvas']"
+        {editor.draftRecovery ? (
+          <Suspense fallback={null}>
+            <DraftRecoveryDialog
+              recovery={editor.draftRecovery}
+              notice={editor.draftRecoveryNotice}
+              onDownload={editor.downloadDraftRecovery}
+              onRetry={() => {
+                cancelActiveTextEditing()
+                editor.retryDraftRecovery()
+              }}
+              onReset={() => {
+                cancelActiveTextEditing()
+                editor.resetDraftRecovery()
+              }}
+            />
+          </Suspense>
+        ) : null}
+        {editor.conflictRecoveryModel.status !== "none" ? (
+          <Suspense fallback={null}>
+            <DocumentConflictDialog
+              model={editor.conflictRecoveryModel}
+              onDownload={() => {
+                if (commitActiveTextEditing()) {
+                  return editor.downloadCurrentVersion()
+                }
+                return false
+              }}
+              onReload={reloadSavedDocument}
+              onReturnHome={returnToDocumentsFromConflictRecovery}
+              onSaveCopy={saveRecoveredDocumentAsCopy}
+            />
+          </Suspense>
+        ) : null}
+        {pendingDraftReplacement ? (
+          <Suspense fallback={null}>
+            <ReplaceCurrentDraftDialog
+              documentName={editor.document.name}
+              error={editor.documentError}
+              nextActionLabel={pendingDraftReplacement.nextActionLabel}
+              open
+              replacing={replacementRunning}
+              sessionOnly={editor.localSaveState.status === "session_only"}
+              onCancel={cancelDraftReplacement}
+              onDownload={() => {
+                if (commitActiveTextEditing()) editor.downloadCurrentVersion()
+              }}
+              onReplace={() => void confirmDraftReplacement()}
+            />
+          </Suspense>
+        ) : null}
+        {newDocumentOpen ? (
+          <Suspense fallback={null}>
+            <NewDocumentDialog
+              open
+              onOpenChange={setNewDocumentOpen}
+              onCreateBlank={(options) => {
+                return requestNewDraft(
+                  { kind: "blank" },
+                  `Creating “${options.name}”`,
+                  () => editor.createBlankDocument(options)
                 )
-                ?.focus()
-            })
-          }}
-          starterMetadata={editor.starterMetadata}
-        />
-        <QuotationRefreshDialog
-          open={quotationRefreshOpen && pendingQuotationRefresh !== null}
-          pending={pendingQuotationRefresh}
-          error={editor.documentError}
-          onOpenChange={setQuotationRefreshOpen}
-          onChooseConflict={editor.chooseQuotationRefreshConflict}
-          onAccept={editor.acceptQuotationRefresh}
-          onReject={editor.rejectQuotationRefresh}
-        />
-        <PublishDialog
-          open={publishDialogOpen}
-          onOpenChange={setPublishDialogOpen}
-          document={editor.document}
-          documentSnapshotId={editor.documentSnapshotId}
-          templateId={editor.currentTemplateId}
-          latestVersion={editor.latestPublishedVersion}
-          currentSnapshotVersion={editor.currentSnapshotPublishedVersion}
-          pendingChangeSet={Boolean(
-            editor.pendingChangeSet || pendingQuotationRefresh
-          )}
-          publishError={editor.publishError}
-          publishSyncStatus={editor.publishSyncStatus}
-          onCancelPublish={editor.cancelPublication}
-          onPublish={async () => {
-            if (!commitActiveTextEditing()) {
-              throw new Error(
-                "Studio could not finish the active text edit before publishing."
-              )
-            }
-            return editor.publishTemplate()
-          }}
-        />
-        <ApiPlaygroundDialog
-          open={apiPlaygroundOpen}
-          onOpenChange={setApiPlaygroundOpen}
-          version={publishedVersion}
-          renderHistory={renderHistory}
-          onRequestPublish={() => {
-            setApiPlaygroundOpen(false)
-            setPublishDialogOpen(true)
-          }}
-        />
-        <StudioCommandPalette
-          open={commandPaletteOpen}
-          onOpenChange={setCommandPaletteOpen}
-          items={commandPaletteItems}
-        />
-        <KeyboardShortcutsDialog
-          open={shortcutReferenceOpen}
-          onOpenChange={setShortcutReferenceOpen}
-          items={commandPaletteItems}
-        />
-        <GuideManagerDialog
-          open={guideManagerOpen}
-          onOpenChange={setGuideManagerOpen}
-          pageName={activePage.name}
-          pageSize={{ width: activePage.width, height: activePage.height }}
-          guides={guideWorkspace.activeGuides}
-          onAddGuide={(guide) => {
-            addWorkspaceGuide(guide)
-          }}
-          onMoveGuide={(guideId, position) => {
-            moveWorkspaceGuide(guideId, position)
-          }}
-          onRemoveGuide={(guideId) => {
-            removeWorkspaceGuide(guideId)
-          }}
-          returnFocusRef={guideManagerTriggerRef}
-        />
-        <RenameLayerDialog
-          target={renameLayerTarget}
-          onOpenChange={(open) => {
-            if (!open) setRenameLayerTarget(null)
-          }}
-          onRename={editor.renameLayerNode}
-        />
-        <StructureCommandDialogs
-          state={structureCommandDialog}
-          onOpenChange={(open) => {
-            if (!open) setStructureCommandDialog(null)
-          }}
-          onRenamePage={(pageId, name) => editor.updatePage(pageId, { name })}
-          onRenameOutput={editor.updateOutput}
-          onAddOutput={editor.addOutput}
-          onDeletePage={editor.removePage}
-          onDeleteOutput={editor.removeOutput}
-        />
+              }}
+              onRestoreDemo={() => {
+                return requestNewDraft(
+                  { kind: "sample" },
+                  "Opening the Northstar sample",
+                  editor.restoreDemoDocument
+                )
+              }}
+              onCreated={() => {
+                setAutoFit(true)
+                window.requestAnimationFrame(() => {
+                  fitCanvas()
+                  workspaceRef.current
+                    ?.querySelector<HTMLElement>(
+                      ".upper-canvas, [role='application'][aria-label='Interactive design canvas']"
+                    )
+                    ?.focus()
+                })
+              }}
+              starterMetadata={editor.starterMetadata}
+            />
+          </Suspense>
+        ) : null}
+        {quotationRefreshOpen && pendingQuotationRefresh ? (
+          <Suspense fallback={null}>
+            <QuotationRefreshDialog
+              open
+              pending={pendingQuotationRefresh}
+              error={editor.documentError}
+              onOpenChange={setQuotationRefreshOpen}
+              onChooseConflict={editor.chooseQuotationRefreshConflict}
+              onAccept={editor.acceptQuotationRefresh}
+              onReject={editor.rejectQuotationRefresh}
+            />
+          </Suspense>
+        ) : null}
+        {publishDialogOpen ? (
+          <Suspense fallback={null}>
+            <PublishDialog
+              open
+              onOpenChange={setPublishDialogOpen}
+              document={editor.document}
+              documentSnapshotId={editor.documentSnapshotId}
+              templateId={editor.currentTemplateId}
+              latestVersion={editor.latestPublishedVersion}
+              currentSnapshotVersion={editor.currentSnapshotPublishedVersion}
+              pendingChangeSet={Boolean(
+                editor.pendingChangeSet || pendingQuotationRefresh
+              )}
+              publishError={editor.publishError}
+              publishSyncStatus={editor.publishSyncStatus}
+              onCancelPublish={editor.cancelPublication}
+              onPublish={async () => {
+                if (!commitActiveTextEditing()) {
+                  throw new Error(
+                    "Studio could not finish the active text edit before publishing."
+                  )
+                }
+                return editor.publishTemplate()
+              }}
+            />
+          </Suspense>
+        ) : null}
+        {apiPlaygroundOpen ? (
+          <Suspense fallback={null}>
+            <ApiPlaygroundDialog
+              open
+              onOpenChange={setApiPlaygroundOpen}
+              version={publishedVersion}
+              renderHistory={renderHistory}
+              onRequestPublish={() => {
+                setApiPlaygroundOpen(false)
+                setPublishDialogOpen(true)
+              }}
+            />
+          </Suspense>
+        ) : null}
+        {commandPaletteOpen ? (
+          <Suspense fallback={null}>
+            <StudioCommandPalette
+              open
+              onOpenChange={setCommandPaletteOpen}
+              items={commandPaletteItems}
+            />
+          </Suspense>
+        ) : null}
+        {shortcutReferenceOpen ? (
+          <Suspense fallback={null}>
+            <KeyboardShortcutsDialog
+              open
+              onOpenChange={setShortcutReferenceOpen}
+              items={commandPaletteItems}
+            />
+          </Suspense>
+        ) : null}
+        {guideManagerOpen ? (
+          <Suspense fallback={null}>
+            <GuideManagerDialog
+              open
+              onOpenChange={setGuideManagerOpen}
+              pageName={activePage.name}
+              pageSize={{ width: activePage.width, height: activePage.height }}
+              guides={guideWorkspace.activeGuides}
+              onAddGuide={(guide) => {
+                addWorkspaceGuide(guide)
+              }}
+              onMoveGuide={(guideId, position) => {
+                moveWorkspaceGuide(guideId, position)
+              }}
+              onRemoveGuide={(guideId) => {
+                removeWorkspaceGuide(guideId)
+              }}
+              returnFocusRef={guideManagerTriggerRef}
+            />
+          </Suspense>
+        ) : null}
+        {renameLayerTarget ? (
+          <Suspense fallback={null}>
+            <RenameLayerDialog
+              target={renameLayerTarget}
+              onOpenChange={(open) => {
+                if (!open) setRenameLayerTarget(null)
+              }}
+              onRename={editor.renameLayerNode}
+            />
+          </Suspense>
+        ) : null}
+        {structureCommandDialog ? (
+          <Suspense fallback={null}>
+            <StructureCommandDialogs
+              state={structureCommandDialog}
+              onOpenChange={(open) => {
+                if (!open) setStructureCommandDialog(null)
+              }}
+              onRenamePage={(pageId, name) =>
+                editor.updatePage(pageId, { name })
+              }
+              onRenameOutput={editor.updateOutput}
+              onAddOutput={editor.addOutput}
+              onDeletePage={editor.removePage}
+              onDeleteOutput={editor.removeOutput}
+            />
+          </Suspense>
+        ) : null}
       </main>
     </Sheet>
   )
