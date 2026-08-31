@@ -154,6 +154,7 @@ import {
   projectComponentInstanceCanvasTransform,
 } from "./component-canvas-interaction"
 import type { StudioAsset } from "./asset-catalog"
+import type { LibraryPreferenceCommands } from "../../content/library/library-preference-provider"
 import {
   getManagedMedia,
   managedMediaContentUrl,
@@ -199,6 +200,20 @@ import { ImageReplacementCoordinator } from "./image-replacement-coordinator"
 import type { PreparedImageReplacement } from "./image-replacement-coordinator"
 import type { ImageReplacementRendererEvent } from "./image-replacement-readiness"
 import { imageReplacementBindingImpact } from "./image-replacement-binding"
+import {
+  captureLibraryMediaActionAnchor,
+  commandForPreparedLibraryMediaAction,
+  libraryMediaActionAnchorError,
+  libraryMediaCommandIsNoOp,
+  libraryMediaFinalAdmissionError,
+  runLibraryMediaPostCommitUsage,
+} from "./library-media-action-executor"
+import type { LibraryMediaUsageWarning } from "./library-media-action-executor"
+import { prepareExactLibraryMediaAction } from "./library-media-action-preparation"
+import type {
+  LibraryMediaActionPreparationPorts,
+  LibraryMediaActionPreparationRequest,
+} from "./library-media-action-preparation"
 import { decodeStoredDraft, DRAFT_RECOVERY_STORAGE_KEY } from "./draft-recovery"
 import type { DraftRecoveryRecord } from "./draft-recovery"
 import {
@@ -364,6 +379,18 @@ type RendererReplacementPayload = Readonly<{
   anchor: AssetMutationAnchor
   asset: ReusableImageAsset
 }>
+
+export type PerformLibraryMediaActionOptions = Readonly<{
+  signal?: AbortSignal
+  recordUsed?: LibraryPreferenceCommands["recordUsed"]
+  refreshLocal?: () => Promise<unknown>
+  onUsageWarning?: (warning: LibraryMediaUsageWarning) => void
+}>
+
+export type PerformLibraryMediaActionOutcome =
+  | "committed"
+  | "no_op"
+  | "rejected"
 
 type ActivePersistenceSession = Readonly<{
   generation: number
@@ -872,9 +899,7 @@ const expectedHeadForRecord = (record: DocumentDraftRecord) =>
 const serverLibraryTemplateDetailPort: TemplateActionPorts["getDetail"] =
   async (kind, id, version, signal) => {
     const detail = await studioLibraryDiscoveryAdapter.getDetail(
-      kind,
-      id,
-      version,
+      { itemKind: kind, id, version },
       signal
     )
     return detail.summary.itemKind === "template"
@@ -1226,6 +1251,10 @@ export function useDocumentEditor({
   )
   const applyingChangeSetRef = useRef(false)
   const assetMutationActiveRef = useRef(false)
+  const activeLibraryMediaActionRef = useRef<{
+    correlationId: string
+    controller: AbortController
+  } | null>(null)
   const imageReplacementCoordinatorRef =
     useRef<ImageReplacementCoordinator<RendererReplacementPayload> | null>(null)
 
@@ -1695,6 +1724,25 @@ export function useDocumentEditor({
     [settlePersistenceSession]
   )
 
+  const cancelLibraryMediaActionForTransition = useCallback(() => {
+    const activeAction = activeLibraryMediaActionRef.current
+    if (activeAction) {
+      activeAction.controller.abort(
+        new DOMException(
+          "Studio changed documents before the image action committed.",
+          "AbortError"
+        )
+      )
+      activeLibraryMediaActionRef.current = null
+    }
+    const replacementCancelled =
+      imageReplacementCoordinatorRef.current?.cancel() ?? false
+    if (activeAction || replacementCancelled) {
+      assetMutationActiveRef.current = false
+      setIsImportingAsset(false)
+    }
+  }, [])
+
   const claimSessionTransition = useCallback(
     (kind: SessionTransition["kind"]): SessionTransition | null => {
       if (!mountedRef.current) return null
@@ -1717,6 +1765,7 @@ export function useDocumentEditor({
         )
         return null
       }
+      cancelLibraryMediaActionForTransition()
       const transition: SessionTransition = {
         token: sessionTransitionSequenceRef.current + 1,
         kind,
@@ -1769,7 +1818,7 @@ export function useDocumentEditor({
       activeSessionTransitionRef.current = transition
       return transition
     },
-    []
+    [cancelLibraryMediaActionForTransition]
   )
 
   const ownsSessionTransition = useCallback(
@@ -3023,11 +3072,16 @@ export function useDocumentEditor({
         recovery.reason === "quarantined_elsewhere") ||
       (recovery.status === "failed" && recovery.conflict === null)
     if (!canLeave) return false
+    cancelLibraryMediaActionForTransition()
     closePreservedPersistenceSession()
     projectConflictRecoveryState({ status: "inactive" })
     setSessionMode("start")
     return true
-  }, [closePreservedPersistenceSession, projectConflictRecoveryState])
+  }, [
+    cancelLibraryMediaActionForTransition,
+    closePreservedPersistenceSession,
+    projectConflictRecoveryState,
+  ])
 
   const getCurrentDocumentSnapshot = useCallback(
     () => structuredClone(historyRef.current.document),
@@ -4060,6 +4114,8 @@ export function useDocumentEditor({
 
   useEffect(
     () => () => {
+      activeLibraryMediaActionRef.current?.controller.abort()
+      activeLibraryMediaActionRef.current = null
       imageReplacementCoordinator.cancel()
     },
     [imageReplacementCoordinator]
@@ -5476,6 +5532,256 @@ export function useDocumentEditor({
       })
     },
     [imageReplacementCoordinator, readAssetMutationState]
+  )
+
+  const performLibraryMediaAction = useCallback(
+    async (
+      request: LibraryMediaActionPreparationRequest,
+      preparationPorts: LibraryMediaActionPreparationPorts,
+      options: PerformLibraryMediaActionOptions = {}
+    ): Promise<PerformLibraryMediaActionOutcome> => {
+      if (!allowMutation()) return "rejected" as const
+      if (
+        assetMutationActiveRef.current ||
+        activeLibraryMediaActionRef.current
+      ) {
+        setAssetError(
+          "Another image is still being prepared. Wait, then retry."
+        )
+        return "rejected" as const
+      }
+      if (options.signal?.aborted) return "rejected" as const
+
+      const controller = new AbortController()
+      const active = {
+        correlationId: request.correlationId,
+        controller,
+      }
+      const actionDocumentId = historyRef.current.document.id
+      activeLibraryMediaActionRef.current = active
+      assetMutationActiveRef.current = true
+      setIsImportingAsset(true)
+      setAssetError(null)
+      const abortActiveReplacement = () => {
+        controller.abort()
+        imageReplacementCoordinator.cancel()
+      }
+      options.signal?.addEventListener("abort", abortActiveReplacement, {
+        once: true,
+      })
+
+      let mutationLifetimeReleased = false
+      const releaseMutationLifetime = () => {
+        if (mutationLifetimeReleased) return
+        mutationLifetimeReleased = true
+        options.signal?.removeEventListener("abort", abortActiveReplacement)
+        if (activeLibraryMediaActionRef.current === active) {
+          activeLibraryMediaActionRef.current = null
+          assetMutationActiveRef.current = false
+          setIsImportingAsset(false)
+        }
+      }
+
+      const localPreviewState: {
+        url: string | null
+        installed: boolean
+      } = { url: null, installed: false }
+      try {
+        controller.signal.throwIfAborted()
+        const prepared = await prepareExactLibraryMediaAction(
+          request,
+          preparationPorts,
+          controller.signal
+        )
+        controller.signal.throwIfAborted()
+        const anchor = captureLibraryMediaActionAnchor(
+          prepared,
+          readAssetMutationState()
+        )
+        let committed = false
+        let insertedNodeId: string | null = null
+
+        if (prepared.target.type === "replace") {
+          if (anchor.kind !== "replace") return "rejected" as const
+          const currentState = readAssetMutationState()
+          const replacementCommand = commandForPreparedLibraryMediaAction(
+            prepared,
+            anchor,
+            currentState,
+            () => "unused-image-node-id"
+          ).command
+          if (libraryMediaCommandIsNoOp(replacementCommand, currentState)) {
+            return "no_op" as const
+          }
+          let previewSrc: string
+          if (prepared.source === "curated") {
+            previewSrc = prepared.rendererPreviewSource
+          } else if (prepared.source === "managed") {
+            previewSrc = managedMediaContentUrl(prepared.asset.assetId)
+          } else {
+            localPreviewState.url = URL.createObjectURL(prepared.previewBlob)
+            previewSrc = localPreviewState.url
+          }
+          const mutableAdmission =
+            prepared.source === "curated"
+              ? undefined
+              : async (signal: AbortSignal) => {
+                  const admitted = await prepareExactLibraryMediaAction(
+                    request,
+                    preparationPorts,
+                    signal
+                  )
+                  signal.throwIfAborted()
+                  const admissionReason = libraryMediaFinalAdmissionError(
+                    prepared,
+                    admitted
+                  )
+                  if (admissionReason) return admissionReason
+                  const reason = libraryMediaActionAnchorError(
+                    anchor,
+                    readAssetMutationState()
+                  )
+                  return reason
+                }
+          committed = await imageReplacementCoordinator.start({
+            token: `image-replacement-${prepared.correlationId}`,
+            nodeId: prepared.target.nodeId,
+            previewSrc,
+            naturalSize: {
+              width: prepared.asset.width,
+              height: prepared.asset.height,
+            },
+            payload: { anchor: anchor.assetAnchor, asset: prepared.asset },
+            ...(mutableAdmission ? { finalAdmission: mutableAdmission } : {}),
+          })
+        } else {
+          controller.signal.throwIfAborted()
+          const anchorReason = libraryMediaActionAnchorError(
+            anchor,
+            readAssetMutationState()
+          )
+          if (anchorReason) {
+            setAssetError(anchorReason)
+            return "rejected"
+          }
+          const preparedCommand = commandForPreparedLibraryMediaAction(
+            prepared,
+            anchor,
+            readAssetMutationState(),
+            () => `image-${crypto.randomUUID()}`
+          )
+          if (
+            libraryMediaCommandIsNoOp(
+              preparedCommand.command,
+              readAssetMutationState()
+            )
+          ) {
+            return "no_op" as const
+          }
+          controller.signal.throwIfAborted()
+          committed = commit([preparedCommand.command], {
+            label:
+              prepared.target.type === "insert"
+                ? "Add image"
+                : "Assign image field",
+          })
+          insertedNodeId = preparedCommand.insertedNodeId
+        }
+
+        if (!committed) return "rejected" as const
+        if (prepared.source === "local") {
+          const installLocalPreview = async () => {
+            if (
+              !mountedRef.current ||
+              historyRef.current.document.id !== actionDocumentId
+            ) {
+              return false
+            }
+            try {
+              const previewUrl =
+                localPreviewState.url ??
+                URL.createObjectURL(prepared.previewBlob)
+              localPreviewState.url = previewUrl
+              const previousUrl = assetUrlsRef.current.get(
+                prepared.asset.assetId
+              )
+              assetUrlsRef.current.set(prepared.asset.assetId, previewUrl)
+              localPreviewState.installed = true
+              if (previousUrl && previousUrl !== previewUrl) {
+                URL.revokeObjectURL(previousUrl)
+              }
+              setAssetVersion((current) => current + 1)
+              return true
+            } catch {
+              if (localPreviewState.url && !localPreviewState.installed) {
+                try {
+                  URL.revokeObjectURL(localPreviewState.url)
+                } catch {
+                  // The preview never became canonical; retry creates a new URL.
+                }
+                localPreviewState.url = null
+              }
+              return false
+            }
+          }
+          if (!(await installLocalPreview())) {
+            const warning: LibraryMediaUsageWarning = {
+              key: "local_preview",
+              message:
+                "The image change was saved, but its device preview could not open. Retry the preview without repeating the edit.",
+              retry: installLocalPreview,
+            }
+            setAssetError(warning.message)
+            options.onUsageWarning?.(warning)
+          }
+        }
+        if (insertedNodeId && prepared.target.type === "insert") {
+          setSelection({
+            pageId: prepared.target.pageId,
+            nodeIds: [insertedNodeId],
+          })
+        }
+        releaseMutationLifetime()
+        await runLibraryMediaPostCommitUsage(prepared, prepared.correlationId, {
+          recordUsed: options.recordUsed,
+          markManagedUsed: (assetId, idempotencyKey) =>
+            markManagedMediaUsed(assetId, { idempotencyKey }),
+          markLocalUsed: (assetId) => markLocalAssetUsed(assetId),
+          refreshLocal: options.refreshLocal,
+          onWarning: (warning) => {
+            if (
+              mountedRef.current &&
+              historyRef.current.document.id === actionDocumentId
+            ) {
+              setAssetError(warning.message)
+            }
+            options.onUsageWarning?.(warning)
+          },
+        })
+        return "committed" as const
+      } catch (error) {
+        if (controller.signal.aborted) return "rejected" as const
+        setAssetError(
+          error instanceof Error
+            ? error.message
+            : "The selected image could not be applied. Retry in the current design."
+        )
+        return "rejected" as const
+      } finally {
+        const unusedPreviewUrl = localPreviewState.installed
+          ? null
+          : localPreviewState.url
+        if (unusedPreviewUrl) {
+          try {
+            URL.revokeObjectURL(unusedPreviewUrl)
+          } catch {
+            // This URL was never installed as canonical preview state.
+          }
+        }
+        releaseMutationLifetime()
+      }
+    },
+    [allowMutation, commit, imageReplacementCoordinator, readAssetMutationState]
   )
 
   const addLibraryAsset = useCallback(
@@ -10988,6 +11294,7 @@ export function useDocumentEditor({
     addLine,
     addIcon,
     addImageFile,
+    performLibraryMediaAction,
     addLibraryAsset,
     addLocalAsset,
     addManagedMediaAsset,

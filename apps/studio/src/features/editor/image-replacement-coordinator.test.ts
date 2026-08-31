@@ -48,6 +48,16 @@ function fixture() {
   return { document, image }
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
+
 const candidate = (): PreparedImageReplacement<Payload> => ({
   token: "replacement-token",
   nodeId: "replacement-image",
@@ -250,5 +260,146 @@ describe("renderer-acknowledged image replacement coordinator", () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it("waits for abortable final admission after both renderers are ready", async () => {
+    const admission = deferred<string | null>()
+    let admissionSignal: AbortSignal | null = null
+    let commits = 0
+    const coordinator = new ImageReplacementCoordinator<Payload>({
+      validate: () => null,
+      commit: () => {
+        commits += 1
+        return true
+      },
+      onPendingChange: vi.fn(),
+      onFailure: vi.fn(),
+    })
+    const completion = coordinator.start({
+      ...candidate(),
+      finalAdmission: (signal) => {
+        admissionSignal = signal
+        return admission.promise
+      },
+    })
+
+    coordinator.report({
+      token: "replacement-token",
+      nodeId: "replacement-image",
+      src: "https://assets.example.test/replacement.png",
+      renderer: "fabric",
+      readiness: "ready",
+      naturalSize: { width: 1600, height: 900 },
+    })
+    expect(
+      coordinator.report({
+        token: "replacement-token",
+        nodeId: "replacement-image",
+        src: "https://assets.example.test/replacement.png",
+        renderer: "react",
+        readiness: "ready",
+        naturalSize: { width: 1600, height: 900 },
+      })
+    ).toBe("admitting")
+    expect(commits).toBe(0)
+    expect((admissionSignal as AbortSignal | null)?.aborted).toBe(false)
+
+    admission.resolve(null)
+
+    await expect(completion).resolves.toBe(true)
+    expect(commits).toBe(1)
+  })
+
+  it("aborts final admission on cancellation and never commits", async () => {
+    let admissionSignal: AbortSignal | null = null
+    let commits = 0
+    const failures: string[] = []
+    const coordinator = new ImageReplacementCoordinator<Payload>({
+      validate: () => null,
+      commit: () => {
+        commits += 1
+        return true
+      },
+      onPendingChange: vi.fn(),
+      onFailure: (message) => failures.push(message),
+    })
+    const completion = coordinator.start({
+      ...candidate(),
+      finalAdmission: (signal) => {
+        admissionSignal = signal
+        return new Promise<string | null>((_resolve, reject) => {
+          signal.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true }
+          )
+        })
+      },
+    })
+    coordinator.report({
+      token: "replacement-token",
+      nodeId: "replacement-image",
+      src: "https://assets.example.test/replacement.png",
+      renderer: "fabric",
+      readiness: "ready",
+      naturalSize: { width: 1600, height: 900 },
+    })
+    coordinator.report({
+      token: "replacement-token",
+      nodeId: "replacement-image",
+      src: "https://assets.example.test/replacement.png",
+      renderer: "react",
+      readiness: "ready",
+      naturalSize: { width: 1600, height: 900 },
+    })
+
+    expect(coordinator.cancel()).toBe(true)
+
+    await expect(completion).resolves.toBe(false)
+    expect((admissionSignal as AbortSignal | null)?.aborted).toBe(true)
+    expect(commits).toBe(0)
+    expect(failures).toEqual([])
+  })
+
+  it("revalidates the document anchor after final admission", async () => {
+    const admission = deferred<string | null>()
+    let valid = true
+    let commits = 0
+    const failures: string[] = []
+    const coordinator = new ImageReplacementCoordinator<Payload>({
+      validate: () => (valid ? null : "The replacement target changed."),
+      commit: () => {
+        commits += 1
+        return true
+      },
+      onPendingChange: vi.fn(),
+      onFailure: (message) => failures.push(message),
+    })
+    const completion = coordinator.start({
+      ...candidate(),
+      finalAdmission: () => admission.promise,
+    })
+    coordinator.report({
+      token: "replacement-token",
+      nodeId: "replacement-image",
+      src: "https://assets.example.test/replacement.png",
+      renderer: "fabric",
+      readiness: "ready",
+      naturalSize: { width: 1600, height: 900 },
+    })
+    coordinator.report({
+      token: "replacement-token",
+      nodeId: "replacement-image",
+      src: "https://assets.example.test/replacement.png",
+      renderer: "react",
+      readiness: "ready",
+      naturalSize: { width: 1600, height: 900 },
+    })
+    valid = false
+    admission.resolve(null)
+
+    await expect(completion).resolves.toBe(false)
+    expect(commits).toBe(0)
+    expect(failures).toEqual(["The replacement target changed."])
   })
 })
