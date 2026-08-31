@@ -1,0 +1,56 @@
+{
+  "requestId": "studio-document-blank-example",
+  "idempotencyKey": "studio-document-blank-example",
+  "prompt": "Create a restrained one-page editorial brief.",
+  "skill": {
+    "kind": "repository",
+    "title": "studio-document"
+  },
+  "start": {
+    "kind": "blank",
+    "presetId": "portrait",
+    "plan": {
+      "version": 1,
+      "documentName": "Editorial brief",
+      "outputs": [
+        {
+          "localId": "proposal",
+          "name": "Proposal",
+          "kind": "proposal",
+          "pageLocalIds": ["cover"],
+          "exportFormats": ["png", "pdf"]
+        }
+      ],
+      "pages": [
+        {
+          "localId": "cover",
+          "outputLocalId": "proposal",
+          "name": "Cover",
+          "width": 1240,
+          "height": 1754,
+          "background": "#f5f0e6",
+          "nodeLocalIds": ["title"]
+        }
+      ],
+      "nodes": [
+        {
+          "localId": "title",
+          "pageLocalId": "cover",
+          "type": "text",
+          "name": "Title",
+          "x": 96,
+          "y": 112,
+          "width": 1048,
+          "height": 180,
+          "text": "Editorial brief",
+          "color": "#17211b",
+          "fontFamily": "Geist Variable",
+          "fontSize": 72,
+          "fontWeight": 600
+        }
+      ]
+    }
+  },
+  "designGuides": [],
+  "references": []
+}

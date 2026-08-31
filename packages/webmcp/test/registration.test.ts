@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
+import { readFileSync } from "node:fs"
 import {
   applyCommand,
   createTemplateVersion,
@@ -19,6 +20,10 @@ import {
   type WebMcpTool,
 } from "../src"
 import { componentDocumentFixture } from "./component-fixture"
+import {
+  blankExternalSkillRequest,
+  templateExternalSkillRequest,
+} from "./fixtures/document-generation/requests"
 
 const assets = [
   {
@@ -633,6 +638,131 @@ describe("WebMCP registration", () => {
       isError: true,
       structuredContent: { code: "idempotency_key_reused" },
     })
+  })
+
+  it("accepts blank and template plans from an external skill through public WebMCP tools", async () => {
+    const fixtureRoot = new URL(
+      "./fixtures/document-generation/external-skill/",
+      import.meta.url
+    )
+    expect(readFileSync(new URL("SKILL.md", fixtureRoot), "utf8")).toContain(
+      "propose_document_generation"
+    )
+    expect(readFileSync(new URL("design.md", fixtureRoot), "utf8")).toContain(
+      "#b8663b"
+    )
+
+    const register = async (state: ReturnType<typeof setup>) =>
+      registerStudioWebMcpTools(
+        {
+          registerTool: async (tool) => {
+            state.registered.set(tool.name, tool)
+            return undefined
+          },
+        },
+        state.services,
+        state.controller.signal
+      )
+
+    const blank = setup()
+    await register(blank)
+    const capabilities = await blank.registered
+      .get("read_generation_capabilities")!
+      .execute({})
+    const schema = await blank.registered
+      .get("read_design_plan_schema")!
+      .execute({})
+    const presets = await blank.registered
+      .get("read_blank_document_presets")!
+      .execute({})
+    const assetSearch = await blank.registered.get("search_assets")!.execute({
+      query: "sandstone arches",
+      limit: 8,
+    })
+    const blankResult = await blank.registered
+      .get("propose_document_generation")!
+      .execute(blankExternalSkillRequest)
+
+    expect(capabilities.isError).not.toBe(true)
+    expect(schema.structuredContent).toMatchObject({ version: 1 })
+    expect(presets.structuredContent).toMatchObject({
+      presets: expect.arrayContaining([
+        expect.objectContaining({ id: "portrait" }),
+      ]),
+    })
+    expect(assetSearch.structuredContent).toMatchObject({
+      assets: expect.arrayContaining([
+        expect.objectContaining({ id: "sandstone-arches" }),
+      ]),
+    })
+    expect(blankResult.isError).not.toBe(true)
+    expect(blankResult.structuredContent).not.toHaveProperty("candidate.pages")
+    const blankCandidate = blank.proposedGeneration()!.candidate
+    expect(blankCandidate.pages).toHaveLength(5)
+    expect(blankCandidate.nodes.some((node) => node.type === "image")).toBe(
+      true
+    )
+    expect(blankCandidate.groups).toHaveLength(1)
+    expect(blankCandidate.typographyStyles).toHaveLength(1)
+    expect(blankCandidate.paintStyles).toHaveLength(1)
+    expect(blankCandidate.variables).toHaveLength(1)
+    expect(blankCandidate.variableBindings).toHaveLength(1)
+    expect(blankCandidate.fields).toHaveLength(1)
+    expect(blankCandidate.bindings).toHaveLength(1)
+    expect(blank.proposedGeneration()!.provenance).toMatchObject({
+      skill: { title: "editorial-proposal-maker" },
+      designGuides: [{ title: "Field Notes proposal system" }],
+      references: expect.arrayContaining([
+        expect.objectContaining({ label: "Editorial pacing reference" }),
+      ]),
+    })
+
+    const template = setup()
+    await register(template)
+    const search = await template.registered.get("search_templates")!.execute({
+      query: "editorial proposal",
+      limit: 8,
+    })
+    const detail = await template.registered.get("read_template")!.execute({
+      id: "editorial-one-pager",
+      version: 1,
+    })
+    await template.registered.get("search_assets")!.execute({
+      query: "olive botanical",
+      limit: 8,
+    })
+    const templateTool = template.registered.get("propose_document_generation")!
+    const first = await templateTool.execute(templateExternalSkillRequest)
+    const replay = await templateTool.execute(templateExternalSkillRequest)
+
+    expect(search.structuredContent).toMatchObject({
+      templates: expect.arrayContaining([
+        expect.objectContaining({ id: "editorial-one-pager", version: 1 }),
+      ]),
+    })
+    expect(detail.structuredContent).toMatchObject({
+      id: "editorial-one-pager",
+      version: 1,
+      outputs: [
+        expect.objectContaining({
+          pages: [expect.objectContaining({ id: "editorial-one-pager-page" })],
+        }),
+      ],
+    })
+    expect(first.isError).not.toBe(true)
+    expect(replay.structuredContent).toMatchObject({ replayed: true })
+    const templateCandidate = template.proposedGeneration()!.candidate
+    expect(templateCandidate.name).toBe(
+      "Mira and Dev destination wedding proposal"
+    )
+    expect(
+      templateCandidate.nodes.find((node) => node.name === "Document title")
+    ).toMatchObject({ text: "Mira & Dev in Udaipur" })
+    expect(
+      templateCandidate.nodes.find(
+        (node) => node.name === "Udaipur botanical study"
+      )
+    ).toMatchObject({ type: "image", assetId: "olive-botanical" })
   })
 
   it("discovers and proposes reviewed reusable-style operations", async () => {

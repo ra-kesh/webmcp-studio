@@ -1,0 +1,22 @@
+{
+  "requestId": "studio-document-template-example",
+  "idempotencyKey": "studio-document-template-example",
+  "prompt": "Adapt the exact editorial proposal template.",
+  "skill": {
+    "kind": "repository",
+    "title": "studio-document"
+  },
+  "start": {
+    "kind": "template",
+    "template": {
+      "id": "editorial-one-pager",
+      "version": 1
+    },
+    "fieldValues": {
+      "document_title": "Editorial proposal",
+      "document_subtitle": "A focused working session"
+    }
+  },
+  "designGuides": [],
+  "references": []
+}
