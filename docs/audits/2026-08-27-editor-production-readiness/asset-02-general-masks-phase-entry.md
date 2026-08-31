@@ -575,6 +575,81 @@ Gate M4A is not yet marked accepted only because the retained multi-source pixel
 corpus cannot run until the host Browser Rendering processes are cleared. M4B
 luminance and M4C nesting remain explicitly unadmitted.
 
+#### M4B luminance contract — 31 August 2026
+
+M4B uses an explicit sRGB luminance-to-alpha contract rather than a browser,
+CanvasKit, or Fabric default. For each source pixel, take non-premultiplied,
+gamma-encoded sRGB channels and source alpha in `[0, 1]` and compute:
+
+`Y = 0.2126R + 0.7152G + 0.0722B`
+
+`M = clamp(Y * A, 0, 1)`
+
+The alpha term includes node opacity, image/glyph alpha, crop and frame clipping,
+and antialias coverage. Every visible source is converted independently before
+the existing ordered source-over union is applied:
+`1 - product(1 - Mi)`. Converting before union prevents ordinary RGB blending
+from silently changing mask coverage. Source order remains canonical review and
+history truth even though the coverage equation is commutative.
+
+The renderer must explicitly select sRGB processing. Browser renderers first
+render each source into an isolated input that already includes resolved node
+opacity, image or glyph alpha, crop/frame clipping, and antialias coverage. An
+explicit `feColorMatrix type="luminanceToAlpha"` with
+`color-interpolation-filters="sRGB"` computes `Y`. A following
+`feComposite operator="in"` intersects that result with the isolated source's
+original alpha to compute `Y * A` before union. An exactly equivalent explicit
+filter chain is acceptable; relying only on `mask-type="luminance"` or the
+`feColorMatrix` output is not. Fabric uses one bounded sRGB offscreen source
+surface, applies the exact pixel transform, unions converted source alpha, and
+applies `destination-in` once. Temporary conversion storage is charged to the
+existing bounded composite and released after use; M4B does not add an
+unaccounted second surface.
+
+Admitted source types match alpha masks: rectangle, ellipse, icon, image, and
+text. Ordinary source paint remains authoritative, including fill and run
+colors, image pixels, crop/frame placement, transforms, and opacity. Hidden
+sources contribute zero and require no resource wait. An all-hidden relation is
+retained and content paints unmasked without allocating a composite, matching
+M2 through M4A.
+
+Image and managed-font readiness remains atomic and source-attributed. Existing
+`image_decode_failed`, `image_projection_failed`, `managed_font_failed`,
+`resource_readiness_failed`, and `resource_readiness_timeout` behavior is not
+relabelled. A new stable `luminance_conversion_failed` code is reserved only for
+an actual bounded filter or pixel-conversion failure, carrying the group and
+source when known. A failed or stale interactive candidate cannot replace the
+last valid composite.
+
+Every accepted M4A limit remains unchanged: one-to-four direct sources, 512
+content layers, nesting depth one, maximum 2x pixel ratio, 8192-pixel composite
+dimension, 16,777,216 device pixels per composite, 32 active composites per
+page, and 67,108,864 summed device pixels per page.
+
+Required evidence includes coefficient-sensitive black, white, grey, red,
+green, blue, transparent-color, opacity, image, text/run-font, multi-source,
+one-hidden, and all-hidden fixtures. Pure oracles must prove the formula and
+source-over math. Retained comparisons must cover Fabric versus React, React
+versus deterministic HTML, 1x versus 2x, PNG versus PDF raster, thumbnail, and
+public PNG/PDF paths. Broad screenshot similarity alone is insufficient;
+coefficient-sensitive pixel probes are required.
+
+OpenPencil's CanvasKit implementation proves the useful structure—luma
+conversion inside a destination-in mask layer with filter cleanup—but its tests
+only prove that `MakeLuma()` was invoked and reset. They do not prove numeric
+coefficients, color space, real pixels, opacity, multi-source overlap,
+image/text readiness, PDF behavior, or cross-renderer parity. It is a reference,
+not M4B acceptance evidence.
+
+Normative references:
+
+- <https://www.w3.org/TR/css-masking-1/#mask-processing>
+- <https://www.w3.org/TR/filter-effects-1/#elementdef-fecolormatrix>
+- <https://www.w3.org/TR/filter-effects-1/#propdef-color-interpolation-filters>
+
+M4B remains unadmitted until the document, browser-renderer, Fabric, public, and
+retained slices all satisfy this frozen contract. M4C nesting remains separate.
+
 ### Gate M5: API, WebMCP, and product polish
 
 - add public inspection and proposal tools

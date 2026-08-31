@@ -3818,3 +3818,28 @@ Status: **implemented and locally accepted; Slices B1 through B4 remain closed**
   verification files. No provider call, API route, UI, R2 output, document or
   mask change, server, deployment, retained artifact, or Cloudflare write was
   added.
+
+## 2026-08-31 — ASSET-02 Gate M4B luminance contract
+
+Status: **contract frozen; implementation not started; luminance remains
+unadmitted**
+
+- Re-read the M4 audit, OpenPencil's CanvasKit mask compositor and tests, and
+  the current Studio domain, Fabric, React, deterministic HTML, public renderer,
+  and retained-capture paths.
+- Froze explicit sRGB luminance-to-alpha math using non-premultiplied channels:
+  `M = (0.2126R + 0.7152G + 0.0722B) * A`, followed by the existing per-source
+  source-over union.
+- Kept M4A admission, readiness, hidden/all-hidden, memory, source, page, and
+  nesting limits unchanged. Luminance adds no unaccounted temporary surface.
+- Required explicit per-source browser filters that compute sRGB luminance and
+  then intersect it with the original isolated source alpha. A bounded exact
+  Fabric pixel conversion must produce the same `Y * A`; relying on
+  `mask-type:luminance`, bare `feColorMatrix`, or CanvasKit defaults is not
+  sufficient.
+- Defined coefficient-sensitive pure and retained evidence across shapes,
+  images, text/run fonts, opacity, transparent color, multi-source overlap,
+  browser/Fabric/direct rendering, 1x/2x, PNG/PDF, thumbnails, and public
+  endpoints.
+- OpenPencil remains an implementation reference only: its current luma test
+  proves filter invocation and cleanup, not numeric or cross-renderer parity.
