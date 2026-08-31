@@ -2119,11 +2119,17 @@ for (const width of [320, 390]) {
       "Asset library…"
     )
 
-    const dialogBounds = await dialog.boundingBox()
-    expect(dialogBounds).not.toBeNull()
-    expect(Math.round(dialogBounds!.x)).toBeLessThanOrEqual(1)
-    expect(Math.round(dialogBounds!.width)).toBeGreaterThanOrEqual(width - 2)
-    expect(Math.abs(dialogBounds!.height - 760)).toBeLessThanOrEqual(1)
+    await expect
+      .poll(async () => {
+        const bounds = await dialog.boundingBox()
+        return Boolean(
+          bounds &&
+          Math.round(bounds.x) <= 1 &&
+          Math.round(bounds.width) >= width - 2 &&
+          Math.abs(bounds.height - 760) <= 1
+        )
+      })
+      .toBe(true)
     const layout = await page.evaluate(() => ({
       clientWidth: document.documentElement.clientWidth,
       scrollWidth: document.documentElement.scrollWidth,

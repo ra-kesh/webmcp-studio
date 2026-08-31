@@ -96,6 +96,27 @@ clears the query through the visible button, and the complete hierarchy,
 rename, atomic reorder, selection, aggregate lock/visibility, drag-reparent,
 compact and 1,000-layer browser matrix passes 10/10.
 
+## Curated-image selection crash repair
+
+The complete media-production journey exposed a render-time identity error
+after inserting a curated Library image. The document mutation itself used the
+correct exact catalog identity and canonical curated resource path. The Studio
+shell then asked whether the selected image was eligible for background
+removal by constructing a managed-asset source from that curated ID. Because
+managed upload IDs intentionally use a stricter namespace, the constructor
+threw during React render and the route error boundary replaced the editor.
+
+The shell now classifies eligibility by parsing the selected node's persisted
+source and comparing the parsed managed ID with the node identity. It no longer
+constructs or validates a managed source merely to test its type. Curated and
+device-local images therefore remain valid editor selections while background
+removal stays limited to workspace-managed uploads. The focused curated insert
+journey and the four geometry-safe inspector replacement/recovery journeys pass
+without a page error. The complete 18-journey media-production matrix passes.
+Its compact geometry assertion now waits for the existing 100 ms dialog-open
+animation to settle before measuring the full-viewport surface, eliminating a
+timing-only 390 px false failure without weakening the geometry requirement.
+
 ## Acceptance
 
 - the start heading still receives programmatic focus after returning home but

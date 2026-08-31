@@ -171,7 +171,7 @@ import type { DocumentPanelTab } from "./editor/quotation-sidebar"
 import type { AssetWorkspaceView } from "./editor/asset-workspace-panel"
 import {
   getManagedMedia,
-  managedMediaSource,
+  managedMediaIdFromSource,
 } from "./editor/managed-media-repository"
 import type { ManagedMediaAsset } from "./editor/managed-media-repository"
 import { useBackgroundRemoval } from "./editor/use-background-removal"
@@ -3289,8 +3289,8 @@ export function StudioShell({
     sourceAssetId: selectedBackgroundRemovalImage?.assetId ?? null,
     sourceIsManaged: Boolean(
       selectedBackgroundRemovalImage &&
-      selectedBackgroundRemovalImage.src ===
-        managedMediaSource(selectedBackgroundRemovalImage.assetId)
+      managedMediaIdFromSource(selectedBackgroundRemovalImage.src) ===
+        selectedBackgroundRemovalImage.assetId
     ),
     editable: inspectorCapabilityContext.documentEditable,
     applyOutput: applyBackgroundRemovalOutput,
