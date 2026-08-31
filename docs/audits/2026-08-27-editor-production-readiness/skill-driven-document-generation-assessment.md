@@ -719,6 +719,11 @@ State is recorded precisely:
 | C    | `1deca7833d1489bfbf4f2acd104d990f00d714c1` | `propose_document_generation` resolves approved assets, compiles one idempotent candidate, renders Review thumbnails, and persists a fresh editable document only after approval. |
 | D    | `9053927d9f7a71079de7c39dfa92f173640b091f` | The first-party `studio-document` skill and third-party skill fixtures prove blank and template paths through public WebMCP tools.                                                |
 
+Post-gate invariant review found that replacement tracking was scoped to the
+current request ID, which allowed a replacement-of-a-replacement chain. Commit
+`13cbc17ee95d3f81ae59227f54bd9121b8da44cd` changes this to one replacement
+total for the pending candidate and retains a mounted regression assertion.
+
 ### Frozen safety boundary
 
 The first slice admits requests up to 512 KiB, prompts up to 16,000
