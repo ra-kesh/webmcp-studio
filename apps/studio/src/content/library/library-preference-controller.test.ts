@@ -514,6 +514,124 @@ describe("LibraryPreferenceController", () => {
     }
   })
 
+  it("does not infer a create result from a concurrent same-name snapshot", async () => {
+    const create =
+      deferred<
+        LibraryPreferenceClientResult<LibraryCollectionMutationReceipt>
+      >()
+    const otherSameName = {
+      ...collection(),
+      id: "collection-other-tab",
+      name: "Campaigns",
+    }
+    const readSnapshot = vi
+      .fn()
+      .mockResolvedValueOnce(result(snapshot(1)))
+      .mockResolvedValueOnce(
+        result({
+          ...snapshot(2),
+          collections: [otherSameName],
+        })
+      )
+    const { controller } = controllerHarness({
+      readSnapshot,
+      createCollection: vi.fn(() => create.promise),
+    })
+    await activate(controller)
+
+    const localAttempt = controller.createCollectionResult("Campaigns")
+    await controller.refresh()
+    expect(controller.getSnapshot().snapshot?.collections).toContainEqual(
+      otherSameName
+    )
+    create.reject(
+      new LibraryPreferenceHttpError({
+        code: "library_collection_name_conflict",
+        status: 409,
+        message: "Name already exists",
+        retryable: false,
+        commitStatus: "known",
+      })
+    )
+
+    await expect(localAttempt).resolves.toBeNull()
+    expect(controller.getSnapshot().snapshot?.collections).toContainEqual(
+      otherSameName
+    )
+  })
+
+  it("returns the exact summary from the validated local create receipt", async () => {
+    const baseReceipt = collectionReceipt("create_collection", {
+      name: "Campaigns",
+      workspaceRevision: 2,
+    })
+    if (baseReceipt.operation === "delete_collection") {
+      throw new Error("Expected create receipt")
+    }
+    const receipt: LibraryCollectionMutationReceipt = {
+      ...baseReceipt,
+      collection: {
+        ...baseReceipt.collection,
+        summary: {
+          ...baseReceipt.collection.summary,
+          id: "collection-local-attempt",
+        },
+      },
+    }
+    const { controller } = controllerHarness({
+      createCollection: vi.fn(async () => result(receipt)),
+    })
+    await activate(controller)
+
+    await expect(
+      controller.createCollectionResult("Campaigns")
+    ).resolves.toMatchObject({
+      id: "collection-local-attempt",
+      name: "Campaigns",
+      revision: 1,
+    })
+  })
+
+  it("returns no create result on a local failure and preserves retry authority", async () => {
+    const { controller } = controllerHarness({
+      createCollection: vi.fn(async () => {
+        throw networkFailure()
+      }),
+    })
+    await activate(controller)
+
+    await expect(
+      controller.createCollectionResult("Campaigns")
+    ).resolves.toBeNull()
+    expect(
+      controller.getSnapshot().failures.get("collection:create")
+    ).toMatchObject({ retryable: true, retryMode: "same_key" })
+  })
+
+  it("returns the exact create result when a same-key retry confirms the attempt", async () => {
+    const receipt = collectionReceipt("create_collection", {
+      name: "Campaigns",
+      workspaceRevision: 2,
+    })
+    const createCollection = vi
+      .fn()
+      .mockRejectedValueOnce(networkFailure())
+      .mockResolvedValueOnce(result(receipt))
+    const { controller } = controllerHarness({ createCollection })
+    await activate(controller)
+    await controller.createCollectionResult("Campaigns")
+
+    await expect(
+      controller.retryCreateCollectionResult()
+    ).resolves.toMatchObject({ name: "Campaigns" })
+    expect(createCollection.mock.calls[0]?.[0].idempotencyKey).toBe(
+      "mutation-key-1"
+    )
+    expect(createCollection.mock.calls[1]?.[0].idempotencyKey).toBe(
+      "mutation-key-1"
+    )
+  })
+
   it("loads and caches persisted ordered collection details, including after a fresh controller reload", async () => {
     const ordered = collectionDetail(1, [secondIdentity, identity])
     const authoritativeSnapshot: LibraryPreferenceSnapshot = {
@@ -559,6 +677,61 @@ describe("LibraryPreferenceController", () => {
     expect(
       reloaded.getSnapshot().collectionDetails.get("collection-proposals")
     ).toMatchObject({ status: "ready", detail: ordered })
+  })
+
+  it("dismisses a same-revision detail refresh failure back to confirmed detail", async () => {
+    const ordered = collectionDetail(1, [secondIdentity, identity])
+    const authoritativeSnapshot: LibraryPreferenceSnapshot = {
+      ...snapshot(1),
+      collections: [ordered.summary],
+    }
+    const getCollection = vi
+      .fn()
+      .mockResolvedValueOnce(
+        result({
+          schemaVersion: 1 as const,
+          workspaceRevision: 1,
+          collection: ordered,
+        })
+      )
+      .mockRejectedValueOnce(networkFailure())
+    const { controller } = controllerHarness({
+      readSnapshot: vi.fn(async () => result(authoritativeSnapshot)),
+      getCollection,
+    })
+    await activate(controller)
+    await controller.loadCollection(ordered.summary.id)
+    await controller.loadCollection(ordered.summary.id, true)
+
+    expect(
+      controller.getSnapshot().collectionDetails.get(ordered.summary.id)
+    ).toMatchObject({ status: "failed", retained: ordered })
+    controller.dismissCollectionDetailFailure(ordered.summary.id)
+    expect(
+      controller.getSnapshot().collectionDetails.get(ordered.summary.id)
+    ).toEqual({ status: "ready", detail: ordered })
+  })
+
+  it("dismisses a cold detail failure to a truthful reloadable state", async () => {
+    const ordered = collectionDetail(1, [identity])
+    const authoritativeSnapshot: LibraryPreferenceSnapshot = {
+      ...snapshot(1),
+      collections: [ordered.summary],
+    }
+    const { controller } = controllerHarness({
+      readSnapshot: vi.fn(async () => result(authoritativeSnapshot)),
+      getCollection: vi.fn(async () => {
+        throw networkFailure()
+      }),
+    })
+    await activate(controller)
+    await controller.loadCollection(ordered.summary.id)
+
+    controller.dismissCollectionDetailFailure(ordered.summary.id)
+
+    expect(
+      controller.getSnapshot().collectionDetails.get(ordered.summary.id)
+    ).toEqual({ status: "dismissed", retained: null })
   })
 
   it("keeps exact add-member detail usable when the follow-up snapshot refresh fails", async () => {

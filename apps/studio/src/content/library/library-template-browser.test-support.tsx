@@ -201,9 +201,16 @@ export const staticPreferenceController = (
     refreshAfterCurrent: vi.fn(async () => undefined),
     loadCollection: vi.fn(async () => null),
     retryCollectionDetail: vi.fn(async () => null),
+    dismissCollectionDetailFailure: vi.fn<(collectionId: string) => void>(),
     setFavorite: vi.fn(async () => true),
     recordUsed: vi.fn(async () => true),
     createCollection: vi.fn(async () => true),
+    createCollectionResult: vi.fn<
+      LibraryPreferenceControllerPort["createCollectionResult"]
+    >(async () => null),
+    retryCreateCollectionResult: vi.fn<
+      LibraryPreferenceControllerPort["retryCreateCollectionResult"]
+    >(async () => null),
     renameCollection: vi.fn(async () => true),
     deleteCollection: vi.fn(async () => true),
     addCollectionMember: vi.fn(async () => true),

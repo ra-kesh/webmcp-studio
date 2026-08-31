@@ -1,10 +1,11 @@
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual"
 import {
-  AlertCircle,
   ChevronRight,
   Ellipsis,
   FileStack,
   Filter,
+  FolderPlus,
+  Folders,
   Heart,
   LoaderCircle,
   RefreshCw,
@@ -31,8 +32,12 @@ import { Badge } from "@webmcp/ui/components/badge"
 import { Button } from "@webmcp/ui/components/button"
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@webmcp/ui/components/dropdown-menu"
 import {
@@ -62,6 +67,11 @@ import {
   useLibraryDiscoveryLease,
 } from "./library-discovery-provider"
 import { LibraryPreview } from "./library-preview"
+import {
+  LibraryCollectionBrowserDialog,
+  LibraryPreferenceFailureNotice,
+} from "./library-collection-browser"
+import type { LibraryCollectionDialogRequest } from "./library-collection-browser"
 import {
   projectLibraryCollectionOptions,
   projectLibraryTemplatePreferences,
@@ -380,6 +390,11 @@ function TemplateCard({
   onSelect,
   onInspect,
   onToggleFavorite,
+  collectionOptions,
+  collectionMutationPending,
+  onToggleCollection,
+  onNewCollection,
+  onManageCollections,
   favoritePending,
   onFocus,
   cardRef,
@@ -393,6 +408,11 @@ function TemplateCard({
   onSelect: () => void
   onInspect: () => void
   onToggleFavorite?: (favorite: boolean) => void
+  collectionOptions: readonly LibraryTemplateFilterOption[]
+  collectionMutationPending: (collectionId: string) => boolean
+  onToggleCollection?: (collectionId: string, member: boolean) => void
+  onNewCollection: (item: LibraryTemplateSummary) => void
+  onManageCollections: () => void
   favoritePending: boolean
   onFocus: () => void
   cardRef?: RefCallback<HTMLButtonElement>
@@ -485,10 +505,55 @@ function TemplateCard({
                 <Ellipsis aria-hidden="true" className="size-4" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem className="min-h-11" onSelect={onInspect}>
-                Show details
-              </DropdownMenuItem>
+            <DropdownMenuContent align="end" className="min-w-60">
+              <DropdownMenuGroup>
+                <DropdownMenuItem className="min-h-11" onSelect={onInspect}>
+                  Show details
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>Collections</DropdownMenuLabel>
+                {collectionOptions.map((collection) => {
+                  const member =
+                    item.preferences?.collectionIds.includes(collection.id) ??
+                    false
+                  const pending = collectionMutationPending(collection.id)
+                  return (
+                    <DropdownMenuCheckboxItem
+                      checked={member}
+                      className="min-h-11"
+                      data-library-collection-toggle={collection.id}
+                      disabled={pending || !item.permissions.canAddToCollection}
+                      key={collection.id}
+                      onSelect={() =>
+                        onToggleCollection?.(collection.id, !member)
+                      }
+                    >
+                      <span className="min-w-0 flex-1 truncate">
+                        {pending ? "Saving…" : collection.label}
+                      </span>
+                    </DropdownMenuCheckboxItem>
+                  )
+                })}
+                <DropdownMenuItem
+                  className="min-h-11"
+                  data-library-new-collection="true"
+                  disabled={!item.permissions.canAddToCollection}
+                  onSelect={() => onNewCollection(item)}
+                >
+                  <FolderPlus aria-hidden="true" />
+                  New collection
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="min-h-11"
+                  data-library-manage-collections="true"
+                  onSelect={onManageCollections}
+                >
+                  <Folders aria-hidden="true" />
+                  Manage collections
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -742,61 +807,6 @@ function useContainerColumns(variant: "start" | "editor") {
   return { hostRef, columns }
 }
 
-function PreferenceFailureNotice({
-  failure,
-  onRetry,
-  onDismiss,
-}: {
-  failure: LibraryPreferenceFailure
-  onRetry: () => void
-  onDismiss: () => void
-}) {
-  return (
-    <div
-      className="grid gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs"
-      data-library-preference-failure={failure.key}
-    >
-      <div className="flex min-w-0 items-start gap-2">
-        <AlertCircle
-          aria-hidden="true"
-          className="mt-0.5 size-4 shrink-0 text-destructive"
-        />
-        <div className="min-w-0">
-          <p className="font-medium text-foreground">{failure.message}</p>
-          {failure.requestId ? (
-            <p className="mt-1 text-[11px] break-all text-muted-foreground">
-              Request ID: {failure.requestId}
-            </p>
-          ) : null}
-        </div>
-      </div>
-      <div className="flex flex-wrap gap-2 pl-6">
-        {failure.retryable ? (
-          <Button
-            className="min-h-11"
-            size="sm"
-            type="button"
-            variant="outline"
-            onClick={onRetry}
-          >
-            <RefreshCw aria-hidden="true" />
-            Retry
-          </Button>
-        ) : null}
-        <Button
-          className="min-h-11"
-          size="sm"
-          type="button"
-          variant="ghost"
-          onClick={onDismiss}
-        >
-          Dismiss
-        </Button>
-      </div>
-    </div>
-  )
-}
-
 const favoriteKey = (item: LibraryTemplateSummary) =>
   `favorite:${identityKey(item)}`
 
@@ -815,6 +825,14 @@ type CollectionProps = Readonly<{
   hasQuotationSource: boolean
   onSelect: (item: LibraryTemplateSummary) => void
   onToggleFavorite?: LibraryTemplateBrowserProps["onToggleFavorite"]
+  collectionOptions: readonly LibraryTemplateFilterOption[]
+  onToggleCollection: (
+    item: LibraryTemplateSummary,
+    collectionId: string,
+    member: boolean
+  ) => void
+  onNewCollection: (item: LibraryTemplateSummary) => void
+  onManageCollections: () => void
   preferenceState: LibraryPreferenceStateOwner
   onCardFocus: (identity: string, index: number) => void
   onCollectionFocusLeave: () => void
@@ -831,6 +849,10 @@ function TemplateCollection({
   hasQuotationSource,
   onSelect,
   onToggleFavorite,
+  collectionOptions,
+  onToggleCollection,
+  onNewCollection,
+  onManageCollections,
   preferenceState,
   onCardFocus,
   onCollectionFocusLeave,
@@ -919,15 +941,29 @@ function TemplateCollection({
         item={item}
         key={key}
         selected={selectedKey === key}
+        collectionOptions={collectionOptions}
+        collectionMutationPending={(collectionId) =>
+          preferenceState.pending.has(
+            `collection:${collectionId}:add:${key}`
+          ) ||
+          preferenceState.pending.has(
+            `collection:${collectionId}:remove:${key}`
+          )
+        }
         favoritePending={preferenceState.pending.has(favoriteKey(item))}
         semanticPosition={{ position: index + 1, size: items.length }}
         onInspect={() => onSelect(item)}
+        onManageCollections={onManageCollections}
+        onNewCollection={onNewCollection}
         onFocus={() => onCardFocus(key, index)}
         onSelect={() => onSelect(item)}
         onToggleFavorite={
           onToggleFavorite
             ? (favorite) => onToggleFavorite(exactIdentity(item), favorite)
             : undefined
+        }
+        onToggleCollection={(collectionId, member) =>
+          onToggleCollection(item, collectionId, member)
         }
       />
     )
@@ -1036,6 +1072,14 @@ function LibraryTemplateBrowserContent({
   const { state: preferenceState, commands: preferenceCommands } =
     useLibraryPreferences()
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
+  const [collectionDialogOpen, setCollectionDialogOpen] = useState(false)
+  const [collectionDialogRequest, setCollectionDialogRequest] =
+    useState<LibraryCollectionDialogRequest>({
+      key: 0,
+      mode: "manage",
+      collectionId: null,
+      pendingMember: null,
+    })
   const [dismissedSnapshotFailure, setDismissedSnapshotFailure] = useState<
     string | null
   >(null)
@@ -1077,6 +1121,22 @@ function LibraryTemplateBrowserContent({
     () => collectionOptions ?? projectLibraryCollectionOptions(preferenceState),
     [collectionOptions, preferenceState]
   )
+  useEffect(() => {
+    const collectionId = state.filters.collectionId
+    if (
+      collectionId === null ||
+      preferenceState.snapshotStatus !== "ready" ||
+      effectiveCollectionOptions.some(({ id }) => id === collectionId)
+    ) {
+      return
+    }
+    commands.setFilters({ collectionId: null })
+  }, [
+    commands,
+    effectiveCollectionOptions,
+    preferenceState.snapshotStatus,
+    state.filters.collectionId,
+  ])
   const selectedItem = useMemo(
     () =>
       items.find((item) => identityKey(item) === selectedKey) ??
@@ -1138,6 +1198,42 @@ function LibraryTemplateBrowserContent({
   )
   const effectiveToggleFavorite =
     onToggleFavorite || preferenceState.snapshot ? toggleFavorite : undefined
+
+  const openCollections = useCallback(
+    (
+      mode: "manage" | "create",
+      collectionId: string | null = null,
+      pendingMember: LibraryCollectionDialogRequest["pendingMember"] = null
+    ) => {
+      setCollectionDialogRequest((current) => ({
+        key: current.key + 1,
+        mode,
+        collectionId,
+        pendingMember,
+      }))
+      setCollectionDialogOpen(true)
+    },
+    []
+  )
+  const toggleCollection = useCallback(
+    (item: LibraryTemplateSummary, collectionId: string, member: boolean) => {
+      if (!item.permissions.canAddToCollection) return
+      if (member) {
+        void preferenceCommands.addCollectionMember(
+          collectionId,
+          exactIdentity(item),
+          item.name
+        )
+      } else {
+        void preferenceCommands.removeCollectionMember(
+          collectionId,
+          exactIdentity(item),
+          item.name
+        )
+      }
+    },
+    [preferenceCommands]
+  )
 
   const updateFilters = useCallback(
     (patch: Partial<LibraryDiscoveryFilters>) => {
@@ -1363,6 +1459,16 @@ function LibraryTemplateBrowserContent({
               {entry.label}
             </button>
           ))}
+          <button
+            className="min-h-11 shrink-0 rounded-md px-3 text-xs font-medium text-muted-foreground transition-colors outline-none hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/45"
+            data-library-collections-trigger="true"
+            type="button"
+            onClick={() =>
+              openCollections("manage", state.filters.collectionId)
+            }
+          >
+            Collections
+          </button>
         </nav>
 
         <div className="flex items-center gap-2">
@@ -1453,7 +1559,7 @@ function LibraryTemplateBrowserContent({
           data-library-preference-errors="true"
         >
           {visibleSnapshotFailure ? (
-            <PreferenceFailureNotice
+            <LibraryPreferenceFailureNotice
               failure={visibleSnapshotFailure}
               onDismiss={() => setDismissedSnapshotFailure(snapshotFailureKey)}
               onRetry={() => {
@@ -1463,7 +1569,7 @@ function LibraryTemplateBrowserContent({
             />
           ) : null}
           {preferenceFailures.map((failure) => (
-            <PreferenceFailureNotice
+            <LibraryPreferenceFailureNotice
               failure={failure}
               key={failure.key}
               onDismiss={() => preferenceCommands.dismissFailure(failure.key)}
@@ -1587,6 +1693,7 @@ function LibraryTemplateBrowserContent({
                 forceFocusIdentity={Boolean(explicitFocusIdentity)}
                 hasQuotationSource={hasQuotationSource}
                 items={items}
+                collectionOptions={effectiveCollectionOptions}
                 preferenceState={preferenceState}
                 selectedKey={effectiveSelectedKey}
                 variant={variant}
@@ -1594,6 +1701,13 @@ function LibraryTemplateBrowserContent({
                   setFocusedCard({ identity, index })
                 }}
                 onCollectionFocusLeave={() => setFocusedCard(null)}
+                onManageCollections={() => openCollections("manage")}
+                onNewCollection={(item) =>
+                  openCollections("create", null, {
+                    identity: exactIdentity(item),
+                    name: item.name,
+                  })
+                }
                 onFocusIntentHandled={() => {
                   resultsFocusRequestedRef.current = false
                   const intent = state.focusIntent
@@ -1601,6 +1715,7 @@ function LibraryTemplateBrowserContent({
                 }}
                 onSelect={selectItem}
                 onToggleFavorite={effectiveToggleFavorite}
+                onToggleCollection={toggleCollection}
               />
               <div className="mt-3 grid gap-2">
                 {state.appendFailure ? (
@@ -1664,6 +1779,15 @@ function LibraryTemplateBrowserContent({
           </div>
         ) : null}
       </div>
+      <LibraryCollectionBrowserDialog
+        open={collectionDialogOpen}
+        request={collectionDialogRequest}
+        onFilterCollection={(collectionId) => {
+          updateFilters({ collectionId })
+          resultsFocusRequestedRef.current = true
+        }}
+        onOpenChange={setCollectionDialogOpen}
+      />
     </section>
   )
 }

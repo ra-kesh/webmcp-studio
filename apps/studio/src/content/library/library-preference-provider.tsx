@@ -10,6 +10,7 @@ import {
 import type { PropsWithChildren } from "react"
 import type {
   LibraryCollectionDetail,
+  LibraryCollectionSummary,
   LibraryItemIdentity,
 } from "@webmcp/document"
 import { LibraryPreferenceController } from "./library-preference-controller"
@@ -33,9 +34,12 @@ export type LibraryPreferenceControllerPort = Pick<
   | "refreshAfterCurrent"
   | "loadCollection"
   | "retryCollectionDetail"
+  | "dismissCollectionDetailFailure"
   | "setFavorite"
   | "recordUsed"
   | "createCollection"
+  | "createCollectionResult"
+  | "retryCreateCollectionResult"
   | "renameCollection"
   | "deleteCollection"
   | "addCollectionMember"
@@ -57,6 +61,7 @@ export type LibraryPreferenceCommands = Readonly<{
   retryCollectionDetail: (
     collectionId: string
   ) => Promise<LibraryCollectionDetail | null>
+  dismissCollectionDetailFailure: (collectionId: string) => void
   setFavorite: (
     identity: LibraryItemIdentity,
     itemName: string,
@@ -69,6 +74,10 @@ export type LibraryPreferenceCommands = Readonly<{
     completionId: string
   ) => Promise<boolean>
   createCollection: (name: string) => Promise<boolean>
+  createCollectionResult: (
+    name: string
+  ) => Promise<LibraryCollectionSummary | null>
+  retryCreateCollectionResult: () => Promise<LibraryCollectionSummary | null>
   renameCollection: (collectionId: string, name: string) => Promise<boolean>
   deleteCollection: (collectionId: string) => Promise<boolean>
   addCollectionMember: (
@@ -109,11 +118,15 @@ const createCommands = (
   loadCollection: (collectionId) => controller.loadCollection(collectionId),
   retryCollectionDetail: (collectionId) =>
     controller.retryCollectionDetail(collectionId),
+  dismissCollectionDetailFailure: (collectionId) =>
+    controller.dismissCollectionDetailFailure(collectionId),
   setFavorite: (identity, itemName, favorite) =>
     controller.setFavorite(identity, itemName, favorite),
   recordUsed: (identity, itemName, completedAction, completionId) =>
     controller.recordUsed(identity, itemName, completedAction, completionId),
   createCollection: (name) => controller.createCollection(name),
+  createCollectionResult: (name) => controller.createCollectionResult(name),
+  retryCreateCollectionResult: () => controller.retryCreateCollectionResult(),
   renameCollection: (collectionId, name) =>
     controller.renameCollection(collectionId, name),
   deleteCollection: (collectionId) => controller.deleteCollection(collectionId),

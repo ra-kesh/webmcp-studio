@@ -308,5 +308,10 @@ describe("LibraryPreferenceProvider", () => {
 
     expect(onRender).toHaveBeenCalledTimes(rendersAfterReady)
     expect(captured.current?.recordUsed).toBeTypeOf("function")
+    expect(captured.current?.createCollectionResult).toBeTypeOf("function")
+    expect(captured.current?.retryCreateCollectionResult).toBeTypeOf("function")
+    expect(captured.current?.dismissCollectionDetailFailure).toBeTypeOf(
+      "function"
+    )
   })
 })

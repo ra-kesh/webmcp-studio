@@ -86,6 +86,10 @@ export type LibraryCollectionDetailState =
       retained: LibraryCollectionDetail | null
       failure: LibraryPreferenceFailure
     }>
+  | Readonly<{
+      status: "dismissed"
+      retained: LibraryCollectionDetail | null
+    }>
 
 export type LibraryPreferenceStateOwner = Readonly<{
   active: boolean
@@ -151,6 +155,8 @@ type CollectionCommand = Readonly<{
 }>
 
 type PreferenceCommand = FavoriteCommand | RecordUsedCommand | CollectionCommand
+type PreferenceMutationReceipt =
+  LibraryPreferenceMutationReceipt | LibraryCollectionMutationReceipt
 
 type Attempt = Readonly<{
   token: number
@@ -568,7 +574,9 @@ export class LibraryPreferenceController {
     const retained =
       current?.status === "ready"
         ? current.detail
-        : current?.status === "loading" || current?.status === "failed"
+        : current?.status === "loading" ||
+            current?.status === "failed" ||
+            current?.status === "dismissed"
           ? current.retained
           : null
     const controller = new AbortController()
@@ -699,6 +707,30 @@ export class LibraryPreferenceController {
     return this.loadCollection(collectionId, true)
   }
 
+  dismissCollectionDetailFailure(collectionIdInput: string) {
+    const collectionId = libraryCollectionIdSchema.parse(collectionIdInput)
+    const current = this.#state.collectionDetails.get(collectionId)
+    if (current?.status !== "failed") return
+    const summary = collectionFor(this.#confirmedSnapshot, collectionId)
+    const collectionDetails = cloneMap(this.#state.collectionDetails)
+    if (
+      current.retained &&
+      summary &&
+      current.retained.summary.revision === summary.revision
+    ) {
+      collectionDetails.set(collectionId, {
+        status: "ready",
+        detail: current.retained,
+      })
+    } else {
+      collectionDetails.set(collectionId, {
+        status: "dismissed",
+        retained: current.retained,
+      })
+    }
+    this.#publish({ ...this.#state, collectionDetails })
+  }
+
   setFavorite(
     identityInput: LibraryItemIdentity,
     itemName: string,
@@ -737,15 +769,23 @@ export class LibraryPreferenceController {
   }
 
   createCollection(name: string) {
+    return this.createCollectionResult(name).then((result) => result !== null)
+  }
+
+  createCollectionResult(name: string) {
     const normalizedName = libraryCollectionNameSchema.parse(name)
-    return this.#execute({
+    return this.#executeReceipt({
       action: "create_collection",
       key: "collection:create",
       collectionId: null,
       collectionName: normalizedName,
       name: normalizedName,
       idempotencyKey: this.#dependencies.createIdempotencyKey(),
-    })
+    }).then((receipt) =>
+      receipt?.operation === "create_collection"
+        ? immutable(structuredClone(receipt.collection.summary))
+        : null
+    )
   }
 
   renameCollection(collectionId: string, name: string) {
@@ -836,24 +876,20 @@ export class LibraryPreferenceController {
   }
 
   retry(key: string) {
-    if (this.#state.disposed || this.#attempts.has(key)) {
-      return Promise.resolve(false)
+    const command = this.#retryCommand(key)
+    return command ? this.#execute(command) : Promise.resolve(false)
+  }
+
+  retryCreateCollectionResult() {
+    const command = this.#retryCommand("collection:create")
+    if (!command || command.action !== "create_collection") {
+      return Promise.resolve(null)
     }
-    const retry = this.#retries.get(key)
-    if (!retry) return Promise.resolve(false)
-    let command = retry.command
-    if (retry.mode === "new_key") {
-      const reconciled = this.#reconcileCommandRevision({
-        ...command,
-        idempotencyKey: this.#dependencies.createIdempotencyKey(),
-      })
-      if (!reconciled) {
-        this.#disableRetry(key)
-        return Promise.resolve(false)
-      }
-      command = reconciled
-    }
-    return this.#execute(command)
+    return this.#executeReceipt(command).then((receipt) =>
+      receipt?.operation === "create_collection"
+        ? immutable(structuredClone(receipt.collection.summary))
+        : null
+    )
   }
 
   dismissFailure(key: string) {
@@ -865,13 +901,19 @@ export class LibraryPreferenceController {
   }
 
   #execute(command: PreferenceCommand): Promise<boolean> {
+    return this.#executeReceipt(command).then((receipt) => receipt !== null)
+  }
+
+  #executeReceipt(
+    command: PreferenceCommand
+  ): Promise<PreferenceMutationReceipt | null> {
     if (
       this.#state.disposed ||
       !this.#state.active ||
       !this.#confirmedSnapshot ||
       this.#attempts.has(command.key)
     ) {
-      return Promise.resolve(false)
+      return Promise.resolve(null)
     }
     const token = ++this.#requestToken
     const attempt = {
@@ -889,16 +931,16 @@ export class LibraryPreferenceController {
     this.#publishProjected({ ...this.#state, pending, failures })
 
     return this.#requestFor(command).then(
-      (receipt) => this.#completeAttempt(attempt, receipt),
-      (error: unknown) => this.#failAttempt(attempt, error)
+      async (receipt) =>
+        (await this.#completeAttempt(attempt, receipt)) ? receipt : null,
+      async (error: unknown) => {
+        await this.#failAttempt(attempt, error)
+        return null
+      }
     )
   }
 
-  #requestFor(
-    command: PreferenceCommand
-  ): Promise<
-    LibraryPreferenceMutationReceipt | LibraryCollectionMutationReceipt
-  > {
+  #requestFor(command: PreferenceCommand): Promise<PreferenceMutationReceipt> {
     const client = this.#dependencies.client
     switch (command.action) {
       case "set_favorite":
@@ -1163,6 +1205,25 @@ export class LibraryPreferenceController {
     return command
   }
 
+  #retryCommand(key: string): PreferenceCommand | null {
+    if (this.#state.disposed || this.#attempts.has(key)) return null
+    const retry = this.#retries.get(key)
+    if (!retry) return null
+    let command = retry.command
+    if (retry.mode === "new_key") {
+      const reconciled = this.#reconcileCommandRevision({
+        ...command,
+        idempotencyKey: this.#dependencies.createIdempotencyKey(),
+      })
+      if (!reconciled) {
+        this.#disableRetry(key)
+        return null
+      }
+      command = reconciled
+    }
+    return command
+  }
+
   #preconditionReconciled(attempt: Attempt) {
     if (
       this.#state.snapshotStatus !== "ready" ||
@@ -1328,7 +1389,9 @@ export class LibraryPreferenceController {
       const detail =
         slot.status === "ready"
           ? slot.detail
-          : slot.status === "loading" || slot.status === "failed"
+          : slot.status === "loading" ||
+              slot.status === "failed" ||
+              slot.status === "dismissed"
             ? slot.retained
             : null
       if (!detail || detail.summary.revision === summary.revision) continue
