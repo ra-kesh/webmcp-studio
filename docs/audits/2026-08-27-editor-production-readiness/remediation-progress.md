@@ -4096,3 +4096,49 @@ Status: **implemented and live-accepted**
 - Focused tests pass 29/29, Studio typecheck and scoped lint pass, and a clean
   first insertion after reload rendered the selected asset while both pages
   remained in the ready state.
+
+## 2026-09-01: Gate 1 post-admission interaction ownership integration
+
+Status: **integrated on main and accepted for this bounded gate**
+
+- Reconciled source fix `c651f69` onto main after the simplified canvas chrome
+  in `0f737f1`, transient-guide cleanup in `6b058ca`, and event-policy revert
+  in `e6eaf24`. The `studio-shell.tsx` change is limited to one helper import
+  and five lazy declarations. Docked and overlay canvas chrome, pointer
+  capture, viewport double-click handling, and guide clearing retain their
+  current main behavior.
+- `createLazyEditorInteraction` gives `EmptyCanvasActions`,
+  `ImageCropToolbar`, `SelectedImageToolbar`, `TextFormattingToolbar`, and
+  `TextLinkEditor` a local null Suspense fallback below the admitted workspace.
+  Loading one of those controls can omit that control, but cannot hide the
+  route-wide workspace or disconnect Fabric.
+- The mounted ownership regression holds the image-selection and direct-text
+  interaction modules unresolved while the real `FabricArtboard` is mounted.
+  Both cases keep the route fallback absent, keep the painted scene connected,
+  keep adapter mount at one and unmount at zero, retain one document sync, and
+  deliver selection or direct-edit requests to the adapter. The selection
+  history regression separately proves that selection does not change the
+  document object, snapshot ID, operation version, Undo/Redo state, or history
+  commit list.
+- Verification used Node 22.23.2. The five focused Studio lifecycle,
+  invalidation, multi-artboard, and history files pass 23/23. The editor Fabric
+  adapter passes 104/104. The current selected-image and zoom chrome files pass
+  7/7. Studio typecheck, scoped Studio lint, and `git diff --check` pass.
+- Live proof reused the single Studio server on port 3001. Selecting the saved
+  `Sandstone arches` image kept all five canvas elements connected, retained
+  one selection outline, showed image actions and the Image Inspector, and
+  showed zero `Preparing the editor…` fallbacks. Direct editing of saved text
+  focused Fabric's hidden `TEXTAREA`, showed one selected-text formatting
+  toolbar, kept all five canvases connected, and also showed zero route
+  fallbacks. Painted image and text pixels remained visible in both captures.
+- The live direct-edit replay also logged one non-blocking Fabric pointer
+  selection error in `getSelectionStartFromPointer`; editing still entered and
+  the canvas stayed connected. This is a separate direct-selection follow-up,
+  not the suspension defect closed by this gate.
+- An independent read-only code review returned **ACCEPT** with no P0 or P1
+  finding. It confirmed the local boundary covers every post-admission control,
+  the mounted test exercises the original outer-boundary topology, and the
+  three later main commits named above remain intact.
+- This gate does not close the independent architecture audit's separate
+  renderer-admission and stale-Fabric findings. Its original one P0, two P1s,
+  and two P2s remain open for their assigned sequential gates.
