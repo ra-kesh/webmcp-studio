@@ -5637,6 +5637,7 @@ export function StudioShell({
                             : null
                         }
                         zoom={zoom}
+                        guidesVisible={guideWorkspace.preferences.guidesVisible}
                         snapTargets={
                           activePage.id === page.id
                             ? activeGuideSnapTargets

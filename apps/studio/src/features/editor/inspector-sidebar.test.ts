@@ -102,6 +102,20 @@ describe("InspectorSidebar basic property controls", () => {
         counterAlign: "stretch",
       },
       clipsContent: true,
+      layoutGrids: [
+        {
+          id: "inspector-columns",
+          pattern: "columns",
+          visible: true,
+          color: "#2563eb",
+          opacity: 0.12,
+          alignment: "stretch",
+          count: 12,
+          offset: 24,
+          sectionSize: 1,
+          gutter: 16,
+        },
+      ],
     })
 
     expect(markup).toContain('data-inspector-property="autoLayout"')
@@ -112,6 +126,13 @@ describe("InspectorSidebar basic property controls", () => {
     expect(markup).toContain('aria-label="Frame counter alignment"')
     expect(markup).toContain('aria-label="Padding top"')
     expect(markup).toContain("Clip content")
+    expect(markup).toContain('data-inspector-property="layoutGrids"')
+    expect(markup).toContain(
+      'data-layout-grid-inspector-id="inspector-columns"'
+    )
+    expect(markup).toContain('aria-label="Layout guide 1 pattern"')
+    expect(markup).toContain("Guide color")
+    expect(markup).toContain("Fill")
   })
 
   it("exposes positioning and sizing for a selected frame child", () => {

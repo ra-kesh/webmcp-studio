@@ -33,6 +33,7 @@ import { getNodeBounds, getSelectionBounds } from "@webmcp/editor/geometry"
 import { Button } from "@webmcp/ui/components/button"
 import { FabricRenderInvalidationController } from "./fabric-render-invalidation-controller"
 import { ImageCropFrameOverlay } from "./image-crop-frame-overlay"
+import { FrameLayoutGridOverlay } from "./frame-layout-grid-overlay"
 import type { ImageCropFramePreview } from "./image-crop-frame-overlay"
 import { useMultiArtboardRenderRegistry } from "./multi-artboard-render-registry-context"
 
@@ -179,6 +180,7 @@ export const FabricArtboard = forwardRef<
     imageCropPreviewStore?: ImageCropPreviewStore | null
     imageResourceTokens?: Readonly<Record<string, string>>
     zoom: number
+    guidesVisible?: boolean
     snapTargets?: readonly AlignmentSnapTarget[]
     interactive?: boolean
     onCanvasDoubleClick?: (point: { clientX: number; clientY: number }) => void
@@ -215,6 +217,7 @@ export const FabricArtboard = forwardRef<
     imageCropPreviewStore = null,
     imageResourceTokens,
     zoom,
+    guidesVisible = true,
     snapTargets = [],
     interactive = true,
     onCanvasDoubleClick,
@@ -1097,6 +1100,14 @@ export const FabricArtboard = forwardRef<
       >
         <canvas ref={canvasRef} />
       </div>
+      {ready ? (
+        <FrameLayoutGridOverlay
+          document={document}
+          pageId={pageId}
+          zoom={zoom}
+          visible={guidesVisible}
+        />
+      ) : null}
       <p id={canvasInstructionsId} className="sr-only">
         Interactive design canvas. Press Tab to leave the canvas controls. Press
         Escape to cancel the active crop, text edit, or object transform before

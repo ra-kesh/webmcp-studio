@@ -129,6 +129,20 @@ describe("review operation details", () => {
         nodeId: "review-frame",
         patch: {
           clipsContent: true,
+          layoutGrids: [
+            {
+              id: "review-columns",
+              pattern: "columns",
+              visible: true,
+              color: "#2563eb",
+              opacity: 0.12,
+              alignment: "stretch",
+              count: 12,
+              offset: 24,
+              sectionSize: 1,
+              gutter: 16,
+            },
+          ],
           autoLayout: {
             direction: "vertical",
             horizontalSizing: "fixed",
@@ -146,6 +160,7 @@ describe("review operation details", () => {
 
     expect(details.before).toContain("Show overflow")
     expect(details.after).toContain("Clip content")
+    expect(details.after).toContain("1 layout guide")
     expect(details.after).toContain("vertical · Gap 12")
   })
 

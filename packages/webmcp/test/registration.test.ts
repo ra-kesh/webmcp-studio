@@ -3115,6 +3115,7 @@ describe("WebMCP registration", () => {
     )
     const tool = state.registered.get("propose_canvas_edits")
     expect(JSON.stringify(tool?.inputSchema)).toContain('"autoLayout"')
+    expect(JSON.stringify(tool?.inputSchema)).toContain('"layoutGrids"')
     const result = await tool?.execute({
       documentId: document.id,
       baseRevision: document.revision,
@@ -3125,6 +3126,20 @@ describe("WebMCP registration", () => {
           nodeId: "contract-frame",
           patch: {
             clipsContent: true,
+            layoutGrids: [
+              {
+                id: "contract-columns",
+                pattern: "columns",
+                visible: true,
+                color: "#2563eb",
+                opacity: 0.12,
+                alignment: "stretch",
+                count: 12,
+                offset: 24,
+                sectionSize: 1,
+                gutter: 16,
+              },
+            ],
             autoLayout: {
               direction: "vertical",
               horizontalSizing: "fixed",
@@ -3144,6 +3159,11 @@ describe("WebMCP registration", () => {
       nodeId: "contract-frame",
       patch: { clipsContent: true },
     })
+    expect(state.proposed()?.operations[0]?.command).toMatchObject({
+      patch: {
+        layoutGrids: [{ id: "contract-columns", pattern: "columns" }],
+      },
+    })
 
     const malformed = await tool?.execute({
       documentId: document.id,
@@ -3158,6 +3178,35 @@ describe("WebMCP registration", () => {
       ],
     })
     expect(malformed?.isError).toBe(true)
+
+    const malformedGrid = await tool?.execute({
+      documentId: document.id,
+      baseRevision: document.revision,
+      baseSnapshotId: "snapshot-seed",
+      edits: [
+        {
+          nodeType: "frame",
+          nodeId: "contract-frame",
+          patch: {
+            layoutGrids: [
+              {
+                id: "unbounded-grid",
+                pattern: "columns",
+                visible: true,
+                color: "#2563eb",
+                opacity: 0.12,
+                alignment: "stretch",
+                count: 65,
+                offset: 24,
+                sectionSize: 1,
+                gutter: 16,
+              },
+            ],
+          },
+        },
+      ],
+    })
+    expect(malformedGrid?.isError).toBe(true)
   })
 
   it("rejects untyped, malformed, legacy, and renderer-private image patches", async () => {

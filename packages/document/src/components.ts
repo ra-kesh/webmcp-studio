@@ -9,6 +9,7 @@ import {
   type SceneNode,
   type TextNodePatch,
 } from "./schema"
+import { scaleFrameLayoutGrid } from "./frame-layout-grids"
 
 export type ComponentIntegrityIssue = {
   code:
@@ -344,6 +345,9 @@ function transformComponentNode(
                   },
                 }
               : null,
+            layoutGrids: (node.layoutGrids ?? []).map((grid) =>
+              scaleFrameLayoutGrid(grid, scale)
+            ),
           }
         : {}),
     })

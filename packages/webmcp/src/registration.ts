@@ -2237,6 +2237,7 @@ const publicNodeCanvasPatchProperties: Record<
     "children",
     "autoLayout",
     "clipsContent",
+    "layoutGrids",
   ]),
   ellipse: new Set(["fill", "stroke", "strokeWidth"]),
   line: new Set(["stroke", "strokeWidth"]),
@@ -2298,6 +2299,64 @@ const imagePlacementInputSchema = {
     flipY: { type: "boolean" },
   },
   required: ["mode", "focalX", "focalY", "zoom", "rotation", "flipX", "flipY"],
+} as const
+
+const frameLayoutGridInputSchema = {
+  oneOf: [
+    {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        id: { type: "string", minLength: 1 },
+        pattern: { type: "string", enum: ["columns", "rows"] },
+        visible: { type: "boolean" },
+        color: { type: "string", minLength: 1 },
+        opacity: { type: "number", minimum: 0, maximum: 1 },
+        alignment: {
+          type: "string",
+          enum: ["min", "center", "max", "stretch"],
+        },
+        count: { type: "integer", minimum: 1, maximum: 64 },
+        offset: { type: "number", minimum: 0 },
+        sectionSize: { type: "number", exclusiveMinimum: 0 },
+        gutter: { type: "number", minimum: 0 },
+      },
+      required: [
+        "id",
+        "pattern",
+        "visible",
+        "color",
+        "opacity",
+        "alignment",
+        "count",
+        "offset",
+        "sectionSize",
+        "gutter",
+      ],
+    },
+    {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        id: { type: "string", minLength: 1 },
+        pattern: { const: "grid" },
+        visible: { type: "boolean" },
+        color: { type: "string", minLength: 1 },
+        opacity: { type: "number", minimum: 0, maximum: 1 },
+        offset: { type: "number", minimum: 0 },
+        size: { type: "number", exclusiveMinimum: 0 },
+      },
+      required: [
+        "id",
+        "pattern",
+        "visible",
+        "color",
+        "opacity",
+        "offset",
+        "size",
+      ],
+    },
+  ],
 } as const
 
 const imageFrameMaskInputSchema = {
@@ -2481,6 +2540,11 @@ const typedCanvasEditInputSchema = {
           children: { type: "array", items: frameChildLayoutInputSchema },
           autoLayout: frameAutoLayoutInputSchema,
           clipsContent: { type: "boolean" },
+          layoutGrids: {
+            type: "array",
+            maxItems: 8,
+            items: frameLayoutGridInputSchema,
+          },
         },
       },
       {

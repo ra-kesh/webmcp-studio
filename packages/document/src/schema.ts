@@ -77,6 +77,49 @@ export const frameAutoLayoutSchema = z
   })
   .strict()
 
+const frameLayoutGridBaseSchema = z.object({
+  id,
+  visible: z.boolean().default(true),
+  color: z.string().min(1).default("#2563eb"),
+  opacity: z.number().min(0).max(1).default(0.12),
+  offset: z.number().nonnegative().default(0),
+})
+
+export const frameLayoutGridSchema = z.discriminatedUnion("pattern", [
+  frameLayoutGridBaseSchema
+    .extend({
+      pattern: z.enum(["columns", "rows"]),
+      alignment: z.enum(["min", "center", "max", "stretch"]),
+      count: z.number().int().min(1).max(64),
+      sectionSize: z.number().positive(),
+      gutter: z.number().nonnegative(),
+    })
+    .strict(),
+  frameLayoutGridBaseSchema
+    .extend({
+      pattern: z.literal("grid"),
+      size: z.number().positive(),
+    })
+    .strict(),
+])
+
+export const frameLayoutGridsSchema = z
+  .array(frameLayoutGridSchema)
+  .max(8)
+  .superRefine((grids, context) => {
+    const ids = new Set<string>()
+    grids.forEach((grid, index) => {
+      if (ids.has(grid.id)) {
+        context.addIssue({
+          code: "custom",
+          path: [index, "id"],
+          message: "Frame layout guide IDs must be unique",
+        })
+      }
+      ids.add(grid.id)
+    })
+  })
+
 /**
  * Image placement is deliberately expressed as product-level controls rather
  * than a serialized renderer matrix. The render projection owns the affine
@@ -224,6 +267,7 @@ export const sceneNodePatchSchema = z
       children: z.array(frameChildLayoutSchema).optional(),
       autoLayout: frameAutoLayoutSchema.nullable().optional(),
       clipsContent: z.boolean().optional(),
+      layoutGrids: frameLayoutGridsSchema.optional(),
     }),
   ])
   .refine((patch) => Object.keys(patch).length > 0, {
@@ -301,6 +345,7 @@ export const sceneNodeSchema = z
       children: z.array(frameChildLayoutSchema),
       autoLayout: frameAutoLayoutSchema.nullable().default(null),
       clipsContent: z.boolean().default(false),
+      layoutGrids: frameLayoutGridsSchema.optional(),
     }),
   ])
   .superRefine((node, context) => {

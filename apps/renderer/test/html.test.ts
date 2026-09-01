@@ -232,6 +232,47 @@ function nestedMaskDocument(
 }
 
 describe("renderer HTML", () => {
+  it("keeps frame layout-guide metadata out of export HTML", () => {
+    const document = structuredClone(northstarSeed)
+    const page = document.pages[0]!
+    page.nodeIds.unshift("export-grid-frame")
+    document.nodes.push({
+      id: "export-grid-frame",
+      type: "frame",
+      name: "Export grid frame",
+      x: 20,
+      y: 30,
+      width: 320,
+      height: 180,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
+      fill: "#ffffff",
+      radius: 0,
+      strokeWidth: 0,
+      children: [],
+      autoLayout: null,
+      clipsContent: false,
+      layoutGrids: [
+        {
+          id: "must-not-export",
+          pattern: "grid",
+          visible: true,
+          color: "#ff0000",
+          opacity: 1,
+          offset: 0,
+          size: 8,
+        },
+      ],
+    })
+
+    const html = renderDocumentToHtml(document, page.id)
+    expect(html).not.toContain("must-not-export")
+    expect(html).not.toContain("layoutGrids")
+  })
+
   it("clips frame children through the canonical ancestor bounds", () => {
     const document = structuredClone(northstarSeed)
     const page = document.pages.find((candidate) => candidate.id === "cover")!

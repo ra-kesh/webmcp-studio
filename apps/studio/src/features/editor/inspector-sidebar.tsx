@@ -2108,6 +2108,240 @@ function NodeInspector({
         </InspectorSection>
       ) : null}
 
+      {node.type === "frame" ? (
+        <InspectorSection
+          title="Layout guides"
+          data-inspector-property="layoutGrids"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[11px] leading-4 text-muted-foreground">
+              Editor-only columns, rows, and square grids.
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={
+                nodeMutationDisabled || (node.layoutGrids ?? []).length >= 8
+              }
+              onClick={() =>
+                onUpdate({
+                  layoutGrids: [
+                    ...(node.layoutGrids ?? []),
+                    {
+                      id: `grid-${node.id}-${Date.now()}`,
+                      pattern: "columns",
+                      visible: true,
+                      color: "#2563eb",
+                      opacity: 0.12,
+                      alignment: "stretch",
+                      count: 12,
+                      offset: 24,
+                      sectionSize: 1,
+                      gutter: 16,
+                    },
+                  ],
+                })
+              }
+            >
+              <Plus data-icon="inline-start" />
+              Add
+            </Button>
+          </div>
+          {(node.layoutGrids ?? []).length === 0 ? (
+            <p className="rounded-md border border-dashed px-2 py-3 text-center text-[11px] text-muted-foreground">
+              No layout guides on this frame.
+            </p>
+          ) : null}
+          {(node.layoutGrids ?? []).map((grid, gridIndex) => {
+            const replaceGrid = (
+              next: NonNullable<typeof node.layoutGrids>[number]
+            ) =>
+              onUpdate({
+                layoutGrids: (node.layoutGrids ?? []).map((candidate, index) =>
+                  index === gridIndex ? next : candidate
+                ),
+              })
+            return (
+              <div
+                key={grid.id}
+                className="space-y-2 rounded-md border p-2"
+                data-layout-grid-inspector-id={grid.id}
+              >
+                <div className="flex items-center gap-1.5">
+                  <Select
+                    value={grid.pattern}
+                    disabled={nodeMutationDisabled}
+                    onValueChange={(pattern) =>
+                      replaceGrid(
+                        pattern === "grid"
+                          ? {
+                              id: grid.id,
+                              pattern: "grid",
+                              visible: grid.visible,
+                              color: grid.color,
+                              opacity: grid.opacity,
+                              offset: grid.offset,
+                              size: 8,
+                            }
+                          : {
+                              id: grid.id,
+                              pattern: pattern as "columns" | "rows",
+                              visible: grid.visible,
+                              color: grid.color,
+                              opacity: grid.opacity,
+                              alignment: "stretch",
+                              count: 12,
+                              offset: grid.offset,
+                              sectionSize: 1,
+                              gutter: 16,
+                            }
+                      )
+                    }
+                  >
+                    <SelectTrigger
+                      aria-label={`Layout guide ${gridIndex + 1} pattern`}
+                      className="h-8 min-w-0 flex-1 text-[11px]"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="columns">Columns</SelectItem>
+                      <SelectItem value="rows">Rows</SelectItem>
+                      <SelectItem value="grid">Square grid</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    type="button"
+                    size="icon-xs"
+                    variant="ghost"
+                    disabled={nodeMutationDisabled}
+                    aria-label={
+                      grid.visible ? "Hide layout guide" : "Show layout guide"
+                    }
+                    onClick={() =>
+                      replaceGrid({ ...grid, visible: !grid.visible })
+                    }
+                  >
+                    {grid.visible ? <Eye /> : <EyeOff />}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon-xs"
+                    variant="ghost"
+                    disabled={nodeMutationDisabled}
+                    aria-label="Remove layout guide"
+                    onClick={() =>
+                      onUpdate({
+                        layoutGrids: (node.layoutGrids ?? []).filter(
+                          (_, index) => index !== gridIndex
+                        ),
+                      })
+                    }
+                  >
+                    <Trash2 />
+                  </Button>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {grid.pattern === "grid" ? (
+                    <InspectorNumberField
+                      label="Grid size"
+                      compactLabel="Size"
+                      min={0.1}
+                      value={inspectorValue(grid.size)}
+                      disabled={nodeMutationDisabled}
+                      onCommit={(size) => replaceGrid({ ...grid, size })}
+                    />
+                  ) : (
+                    <>
+                      <InspectorNumberField
+                        label="Section count"
+                        compactLabel="Count"
+                        min={1}
+                        max={64}
+                        integer
+                        value={inspectorValue(grid.count)}
+                        disabled={nodeMutationDisabled}
+                        onCommit={(count) => replaceGrid({ ...grid, count })}
+                      />
+                      <InspectorNumberField
+                        label="Gutter"
+                        compactLabel="Gutter"
+                        min={0}
+                        value={inspectorValue(grid.gutter)}
+                        disabled={nodeMutationDisabled}
+                        onCommit={(gutter) => replaceGrid({ ...grid, gutter })}
+                      />
+                      <Select
+                        value={grid.alignment}
+                        disabled={nodeMutationDisabled}
+                        onValueChange={(alignment) =>
+                          replaceGrid({
+                            ...grid,
+                            alignment: alignment as typeof grid.alignment,
+                          })
+                        }
+                      >
+                        <SelectTrigger
+                          aria-label="Layout guide alignment"
+                          className="h-8 text-[11px]"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="min">Start</SelectItem>
+                          <SelectItem value="center">Center</SelectItem>
+                          <SelectItem value="max">End</SelectItem>
+                          <SelectItem value="stretch">Stretch</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {grid.alignment !== "stretch" ? (
+                        <InspectorNumberField
+                          label="Section size"
+                          compactLabel="Size"
+                          min={0.1}
+                          value={inspectorValue(grid.sectionSize)}
+                          disabled={nodeMutationDisabled}
+                          onCommit={(sectionSize) =>
+                            replaceGrid({ ...grid, sectionSize })
+                          }
+                        />
+                      ) : null}
+                    </>
+                  )}
+                  <InspectorNumberField
+                    label="Guide offset"
+                    compactLabel="Offset"
+                    min={0}
+                    value={inspectorValue(grid.offset)}
+                    disabled={nodeMutationDisabled}
+                    onCommit={(offset) => replaceGrid({ ...grid, offset })}
+                  />
+                  <InspectorNumberField
+                    label="Guide opacity"
+                    compactLabel="Opacity"
+                    min={0}
+                    max={100}
+                    suffix="%"
+                    value={inspectorValue(grid.opacity * 100)}
+                    disabled={nodeMutationDisabled}
+                    onCommit={(opacity) =>
+                      replaceGrid({ ...grid, opacity: opacity / 100 })
+                    }
+                  />
+                </div>
+                <InspectorColorField
+                  label="Guide color"
+                  value={grid.color}
+                  disabled={nodeMutationDisabled}
+                  onCommit={(color) => replaceGrid({ ...grid, color })}
+                />
+              </div>
+            )
+          })}
+        </InspectorSection>
+      ) : null}
+
       <InspectorSection title="Opacity">
         <CommitPercentSlider
           label="Opacity"
@@ -2434,7 +2668,8 @@ function NodeInspector({
         </>
       ) : null}
 
-      {inspector.capabilities.cornerRadius && node.type === "rect" ? (
+      {inspector.capabilities.cornerRadius &&
+      (node.type === "rect" || node.type === "frame") ? (
         <InspectorSection
           title="Appearance"
           data-inspector-property="fill"

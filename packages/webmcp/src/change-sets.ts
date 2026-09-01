@@ -273,6 +273,7 @@ const nodeCanvasProperties: Record<SceneNode["type"], Set<string>> = {
     "children",
     "autoLayout",
     "clipsContent",
+    "layoutGrids",
   ]),
   ellipse: new Set(["fill", "stroke", "strokeWidth"]),
   line: new Set(["stroke", "strokeWidth"]),
@@ -334,6 +335,27 @@ function scaleNode(
               },
             }
           : null,
+        layoutGrids: (node.layoutGrids ?? []).map((grid) =>
+          grid.pattern === "grid"
+            ? {
+                ...grid,
+                offset: rounded(grid.offset * scale),
+                size: rounded(grid.size * scale),
+              }
+            : {
+                ...grid,
+                offset: rounded(
+                  grid.offset * (grid.pattern === "columns" ? scaleX : scaleY)
+                ),
+                sectionSize: rounded(
+                  grid.sectionSize *
+                    (grid.pattern === "columns" ? scaleX : scaleY)
+                ),
+                gutter: rounded(
+                  grid.gutter * (grid.pattern === "columns" ? scaleX : scaleY)
+                ),
+              }
+        ),
       }
     case "ellipse":
       return {
