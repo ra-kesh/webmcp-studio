@@ -86,7 +86,7 @@ type DrawOverlayInput = Readonly<{
 const DEFAULT_THEME: OverlayTheme = {
   background: "rgb(250 250 250 / 0.96)",
   foreground: "rgb(24 24 27)",
-  accent: "#0d99ff",
+  accent: "#0070f3",
 }
 
 const guideAxisCursor = (axis: GuideAxis) =>

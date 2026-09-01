@@ -5110,11 +5110,11 @@ export function StudioShell({
               </div>
               {editor.selectedNodes.length ? (
                 <div
-                  className="ml-auto hidden min-w-0 items-center gap-1.5 rounded-md bg-[#0d99ff]/8 px-2 py-1 min-[640px]:flex"
+                  className="ml-auto hidden min-w-0 items-center gap-1.5 rounded-md bg-studio-accent/8 px-2 py-1 min-[640px]:flex"
                   role="status"
                   aria-live="polite"
                 >
-                  <span className="size-1.5 shrink-0 rounded-full bg-[#0d99ff]" />
+                  <span className="size-1.5 shrink-0 rounded-full bg-studio-accent" />
                   <span className="max-w-64 truncate text-[11px] font-medium text-foreground">
                     {editor.selectedNodes.length === 1
                       ? editor.selectedNodes[0]?.name

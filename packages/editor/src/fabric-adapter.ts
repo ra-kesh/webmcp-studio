@@ -109,9 +109,9 @@ import {
   type FabricLuminanceMaskUnion,
 } from "./fabric-luminance-mask"
 
-// Figma-style blue stays legible on both paper and dark cinematic templates.
-const SELECTION_COLOR = "#0d99ff"
-const GUIDE_COLOR = "#2563eb"
+// VBG blue-700 is reserved for focus, selection, and canvas guides.
+const SELECTION_COLOR = "#0070f3"
+const GUIDE_COLOR = SELECTION_COLOR
 // Fabric multiplies every unstyled glyph box by 1.13 before applying its
 // lineHeight value. CSS line-height multiplies fontSize directly.
 const FABRIC_TEXT_LINE_HEIGHT_MULTIPLIER = 1.13

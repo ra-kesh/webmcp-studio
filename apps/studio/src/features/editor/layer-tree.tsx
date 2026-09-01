@@ -396,7 +396,7 @@ function LayerRow({
           data-testid="layer-rename-input"
           aria-label={`Rename ${rename.original}`}
           value={rename.draft}
-          className="h-6 min-w-0 flex-1 rounded-[4px] border-[#0d99ff] bg-background px-1.5 text-[11px] ring-2 ring-[#0d99ff]/20"
+          className="h-6 min-w-0 flex-1 rounded-[4px] border-studio-accent bg-background px-1.5 text-[11px] ring-2 ring-studio-accent/20"
           onFocus={(event) => event.currentTarget.select()}
           onChange={(event) => onRenameDraftChange(event.target.value)}
           onBlur={() => onCommitRename(false)}

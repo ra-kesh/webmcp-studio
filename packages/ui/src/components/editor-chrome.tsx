@@ -11,7 +11,7 @@ function EditorPanelHeader({
     <div
       data-slot="editor-panel-header"
       className={cn(
-        "flex h-(--studio-contextbar-height) shrink-0 items-center border-b border-border/80 bg-editor-panel px-2.5",
+        "flex h-(--studio-contextbar-height) shrink-0 items-center border-b border-border bg-editor-panel px-3",
         className
       )}
       {...props}
@@ -45,7 +45,7 @@ function EditorPanelSectionHeader({
     <div
       data-slot="editor-panel-section-header"
       className={cn(
-        "flex min-h-8 shrink-0 items-center gap-2 border-b border-border/70 bg-editor-panel-muted/65 px-2.5 text-[11px] font-medium",
+        "flex min-h-8 shrink-0 items-center gap-2 border-b border-border bg-editor-panel-muted px-3 text-xs font-medium",
         className
       )}
       {...props}
@@ -72,9 +72,9 @@ function EditorPanelNotice({
       data-slot="editor-panel-notice"
       data-tone={tone}
       className={cn(
-        "flex min-w-0 items-start gap-2 rounded-md border border-border/75 bg-muted/35 px-2.5 py-2 text-[11px] leading-4 text-muted-foreground",
+        "flex min-w-0 items-start gap-2 rounded-md border border-border bg-muted px-3 py-2 text-xs leading-4 text-muted-foreground",
         tone === "warning" &&
-          "border-amber-500/25 bg-amber-500/8 text-foreground",
+          "border-[color:var(--vbg-color-warning)]/25 bg-[color:var(--vbg-amber-100)] text-foreground",
         tone === "error" &&
           "border-destructive/30 bg-destructive/6 text-destructive",
         className
@@ -158,7 +158,7 @@ function EditorPanelState({
       </p>
       {description ? (
         <p
-          className="mt-1 max-w-56 text-[11px] leading-4 text-muted-foreground"
+          className="mt-1 max-w-56 text-xs leading-4 text-muted-foreground"
           data-slot="editor-panel-state-description"
         >
           {description}

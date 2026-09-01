@@ -1338,11 +1338,11 @@ function NodeOutline({
       className={`pointer-events-none absolute z-20 border-2 ${
         selected
           ? locked
-            ? "border-dashed border-[#0d99ff]"
+            ? "border-dashed border-studio-accent"
             : cropping
-              ? "border-[#0d99ff] outline-1 outline-offset-2 outline-white/90"
-              : "border-[#0d99ff]"
-          : "border-dashed border-[#0d99ff]/80 bg-[#0d99ff]/5"
+              ? "border-studio-accent outline-1 outline-offset-2 outline-white/90"
+              : "border-studio-accent"
+          : "border-dashed border-studio-accent/80 bg-studio-accent/5"
       }`}
       data-node-outline={kind}
       style={{
@@ -1355,7 +1355,7 @@ function NodeOutline({
       }}
     >
       {selected ? (
-        <span className="absolute -top-6 left-[-2px] max-w-56 truncate rounded-[3px] bg-[#0d99ff] px-1.5 py-0.5 font-sans text-[11px] leading-4 font-medium text-white shadow-sm">
+        <span className="absolute -top-6 left-[-2px] max-w-56 truncate rounded-[3px] bg-studio-accent px-1.5 py-0.5 font-sans text-[11px] leading-4 font-medium text-white shadow-sm">
           {cropping
             ? "Drag image to reposition"
             : (singleNode?.name ?? `${nodes.length} layers`)}
@@ -1370,7 +1370,7 @@ function NodeOutline({
           ].map((position) => (
             <span
               key={position}
-              className={`absolute size-2 rounded-[2px] border border-[#0d99ff] bg-white ${position}`}
+              className={`absolute size-2 rounded-[2px] border border-studio-accent bg-white ${position}`}
             />
           ))
         : null}

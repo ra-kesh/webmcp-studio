@@ -60,91 +60,69 @@
 }
 
 :root {
-  --studio-topbar-height: 3rem;
-  --studio-contextbar-height: 2.5rem;
-  --studio-control-xs: 1.5rem;
-  --studio-control-sm: 1.75rem;
-  --studio-control-md: 2rem;
-  --studio-row-height: 1.75rem;
-  --studio-compact-target: 2.75rem;
-  --studio-accent: oklch(0.65 0.19 250);
-  --studio-panel: oklch(0.992 0.002 90);
-  --studio-panel-muted: oklch(0.975 0.004 90);
-  --studio-panel-hover: oklch(0.955 0.006 90);
-  --studio-floating: oklch(1 0 0 / 96%);
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-  --workspace: oklch(0.955 0.006 90);
+  /*
+   * Studio is an interaction-dense product layer on Vercel's published
+   * foundation. Keep product aliases semantic and derive every visual value
+   * from the public VBG tokens loaded by the application root.
+   */
+  --studio-topbar-height: var(--vbg-space-12, 3rem);
+  --studio-contextbar-height: var(--vbg-space-10, 2.5rem);
+  --studio-control-xs: var(--vbg-space-6, 1.5rem);
+  --studio-control-sm: calc(
+    var(--vbg-space-6, 1.5rem) + var(--vbg-space-1, 0.25rem)
+  );
+  --studio-control-md: var(--vbg-control-height, 2.25rem);
+  --studio-row-height: calc(
+    var(--vbg-space-6, 1.5rem) + var(--vbg-space-1, 0.25rem)
+  );
+  --studio-compact-target: var(--vbg-control-height-touch, 2.75rem);
+  --studio-accent: var(--vbg-focus, oklch(0.5761 0.2508 258.23));
+  --studio-panel: var(--vbg-surface-primary, oklch(1 0 0));
+  --studio-panel-muted: var(--vbg-surface-secondary, oklch(0.984 0 0));
+  --studio-panel-hover: var(--vbg-gray-alpha-200, oklch(0 0 0 / 0.081));
+  --studio-floating: color-mix(
+    in oklch,
+    var(--vbg-surface-primary, oklch(1 0 0)) 96%,
+    transparent
+  );
+  --background: var(--vbg-surface-primary, oklch(1 0 0));
+  --foreground: var(--vbg-text-primary, oklch(0.205 0 0));
+  --card: var(--vbg-surface-primary, oklch(1 0 0));
+  --card-foreground: var(--vbg-text-primary, oklch(0.205 0 0));
+  --popover: var(--vbg-surface-primary, oklch(1 0 0));
+  --popover-foreground: var(--vbg-text-primary, oklch(0.205 0 0));
+  --primary: var(--vbg-gray-1000, oklch(0.205 0 0));
+  --primary-foreground: var(--vbg-background-100, oklch(1 0 0));
+  --secondary: var(--vbg-gray-alpha-100, oklch(0 0 0 / 0.05));
+  --secondary-foreground: var(--vbg-text-primary, oklch(0.205 0 0));
+  --muted: var(--vbg-gray-alpha-100, oklch(0 0 0 / 0.05));
+  --muted-foreground: var(--vbg-text-secondary, oklch(0.42 0 0));
+  --accent: var(--vbg-gray-alpha-200, oklch(0 0 0 / 0.081));
+  --accent-foreground: var(--vbg-text-primary, oklch(0.205 0 0));
+  --destructive: var(--vbg-color-error, oklch(0.6256 0.2524 23.03));
+  --border: var(--vbg-border-subtle, oklch(0 0 0 / 0.1));
+  --input: var(--vbg-border-default, oklch(0 0 0 / 0.08));
+  --ring: var(--vbg-focus, oklch(0.5761 0.2508 258.23));
+  --chart-1: var(--vbg-chart-1, oklch(0.205 0 0));
+  --chart-2: var(--vbg-chart-2, oklch(0.42 0 0));
+  --chart-3: var(--vbg-chart-3, oklch(0.59 0 0));
+  --chart-4: var(--vbg-chart-4, oklch(0.205 0 0));
+  --chart-5: var(--vbg-chart-5, oklch(0.42 0 0));
+  --radius: var(--vbg-radius, 0.5rem);
+  --sidebar: var(--vbg-surface-secondary, oklch(0.984 0 0));
+  --sidebar-foreground: var(--vbg-text-primary, oklch(0.205 0 0));
+  --sidebar-primary: var(--vbg-gray-1000, oklch(0.205 0 0));
+  --sidebar-primary-foreground: var(--vbg-background-100, oklch(1 0 0));
+  --sidebar-accent: var(--vbg-gray-alpha-200, oklch(0 0 0 / 0.081));
+  --sidebar-accent-foreground: var(--vbg-text-primary, oklch(0.205 0 0));
+  --sidebar-border: var(--vbg-border-subtle, oklch(0 0 0 / 0.1));
+  --sidebar-ring: var(--vbg-focus, oklch(0.5761 0.2508 258.23));
+  --workspace: var(--vbg-gray-100, oklch(0.961 0 0));
 }
 
-.dark {
-  --studio-accent: oklch(0.72 0.16 248);
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
-  --workspace: oklch(0.19 0.006 90);
-  --studio-panel: oklch(0.165 0.004 90);
-  --studio-panel-muted: oklch(0.195 0.005 90);
-  --studio-panel-hover: oklch(0.235 0.006 90);
-  --studio-floating: oklch(0.16 0.004 90 / 96%);
+.dark,
+.dark-theme {
+  color-scheme: dark;
 }
 
 @layer base {
@@ -153,7 +131,14 @@
   }
   body {
     @apply bg-background text-foreground;
-    font-feature-settings: "ss01", "cv02", "cv11";
+    font-family: var(--vbg-font-sans, var(--font-sans));
+    font-feature-settings:
+      "rlig" 1,
+      "calt" 0,
+      "ss11" 1;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
   }
   button:not(:disabled),
   [role="button"]:not(:disabled) {
@@ -185,4 +170,49 @@
       transition-duration: 0.01ms !important;
     }
   }
+}
+
+/*
+ * The published VBG bundle includes unlayered report composition rules for
+ * headings, prose, evidence tables, and standalone controls. Studio is product
+ * UI, so expose the VBG token contract at the root while allowing Tailwind's
+ * layered product components to own their compact geometry and composition.
+ */
+.studio-vbg-root
+  :where(
+    h1,
+    h2,
+    h3,
+    h4,
+    p,
+    ul,
+    ol,
+    dl,
+    dt,
+    dd,
+    figure,
+    figcaption,
+    blockquote,
+    pre,
+    code,
+    kbd,
+    samp,
+    table,
+    thead,
+    tbody,
+    tr,
+    th,
+    td,
+    a,
+    button,
+    input,
+    select,
+    textarea,
+    summary,
+    img,
+    svg,
+    video,
+    canvas
+  ) {
+  all: revert-layer;
 }
