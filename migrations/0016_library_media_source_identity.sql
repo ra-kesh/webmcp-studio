@@ -405,7 +405,7 @@ END;
 CREATE TRIGGER library_mutation_requests_claim_guard
 BEFORE INSERT ON library_mutation_requests
 BEGIN
-  SELECT CASE
+  SELECT (CASE
     WHEN NEW.result_kind = 'preference' AND EXISTS (
       SELECT 1 FROM library_item_preferences AS preference
       WHERE preference.workspace_id = NEW.workspace_id
@@ -431,5 +431,5 @@ BEGIN
         AND collection.last_mutation_hash = NEW.request_hash
     ) THEN 1
     ELSE RAISE(ABORT, 'library mutation target was not claimed')
-  END;
+  END);
 END;

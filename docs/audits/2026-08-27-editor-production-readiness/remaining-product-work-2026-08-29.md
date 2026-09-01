@@ -38,9 +38,14 @@ The measured editor entry-chunk and startup-polish gate recorded in
 shell is approximately 12% smaller, the current responsive matrix passes 5/5,
 and the routed Inspector/color and canvas-gesture gates pass 4/4 and 3/3. No
 new local feature program from the committed sequence remains open. Continue
-with observed product-cleanliness regressions only; deployed Cloudflare
-evidence, live Stuwiz retrieval and any optional background-removal provider
-remain separate environment or product-policy gates.
+with observed product-cleanliness regressions only. On 2026-09-01 the guarded
+production rollout applied the exact pending D1 suffix `0012` through `0019`,
+deployed the private Renderer and Studio Workers, passed the post-deploy
+resource verifier, and confirmed the owner-protected hostname returns the
+expected Cloudflare Access redirect. This supersedes the historical stale
+deployment wording in rows 8 and 10 below. Owner-authenticated adversarial and
+expiry evidence, live Stuwiz retrieval, and any optional background-removal
+provider remain separate hardening or product-policy gates.
 
 ## What is already a real product foundation
 

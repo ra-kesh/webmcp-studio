@@ -38,8 +38,10 @@ states above.
 All seven recorded workstreams are integrated into `main`. Later product
 cleanliness and startup checkpoints continue in
 `editor-sophistication-followup-2026-09-01.md`; they are not unfinished task
-branches from this orchestration ledger. Remote deployment, migrations and
-optional paid-provider evidence remain separately authorized environment gates.
+branches from this orchestration ledger. The authorized 2026-09-01 production
+rollout applied all migrations through `0019`, deployed matching Renderer and
+Studio Workers, and passed the post-deploy verifier. Optional paid-provider and
+long-running production evidence remain separate policy and hardening gates.
 
 ## Integration rules
 

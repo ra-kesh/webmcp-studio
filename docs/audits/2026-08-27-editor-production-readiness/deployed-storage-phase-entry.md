@@ -171,3 +171,31 @@ Still open for this larger gate: owner-authenticated product traversal,
 two-principal isolation, real multipart/R2 and Workflow/artifact exercises,
 capacity/audit/hostile-input evidence, a deployed restart, parity capture and
 expiry proof. Those are acceptance evidence, not missing deployment mechanics.
+
+## Current production deployment checkpoint
+
+Date: 2026-09-01
+
+- The guarded plan re-inspected the configured account, D1 database, two exact
+  R2 buckets, Access issuer/audience, private Renderer, service binding,
+  Workflows and Durable Object before mutation.
+- The remote migration ledger was an exact prefix through `0011`. The apply
+  sequence installed `0012` through `0019`; the final read-only query records
+  19 applied migrations ending at
+  `0019_media_derivation_mutation_receipts.sql`.
+- Wrangler's remote migration path initially rejected the unapplied trigger
+  migrations `0014` and `0016` with `incomplete input`. Their `SELECT CASE`
+  trigger expressions were parenthesized using the D1-compatible syntax. Both
+  complete SQLite migration harnesses and the checked-in lineage verifier pass.
+- Renderer version `bfaccb02-1d9b-4ca7-a2bb-a6af17c7fb02` deployed before
+  Studio version `91d00025-9eb5-47d6-9d68-175d4bd55572`.
+- The post-deploy verifier passed with zero pending migrations. A read-only
+  schema query found the expected library preference/collection and media
+  derivation tables in the APAC primary database.
+- `https://webmcp-studio.iamrakeshkumar.workers.dev` returns the expected
+  unauthenticated Cloudflare Access `302` login redirect. The private Renderer
+  has no public workers.dev or preview target.
+
+The production schema and matching Workers are current. The larger evidence
+program listed above remains useful hardening, but it no longer blocks the
+deployment claim.

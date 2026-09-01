@@ -55,7 +55,7 @@
     },
     {
       "name": "0014_library_preferences_collections.sql",
-      "sha256": "859375992143074e3a491ff8655fa577759526f65c60f0de00751b8bb680fa6b"
+      "sha256": "e35bf27585300a705559256c2acdb76ca4343e11965ef1a2e3c4a25379666031"
     },
     {
       "name": "0015_media_asset_catalog_metadata.sql",
@@ -63,7 +63,7 @@
     },
     {
       "name": "0016_library_media_source_identity.sql",
-      "sha256": "81d19cfbf733c8afee9433b15b3ef44988ea3d03cd3910a8c5d56bc7356b7871"
+      "sha256": "870d4801866edeb96a6860609d2d89ae4e3eb606add75225a71466027ddc5a61"
     },
     {
       "name": "0017_media_derivation_jobs.sql",
