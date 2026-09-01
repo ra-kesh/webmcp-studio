@@ -4,7 +4,7 @@ import type { Document, Page } from "@webmcp/document"
 import { visiblePageIds } from "@webmcp/editor/multi-artboard"
 import type { MultiArtboardLayoutController } from "@webmcp/editor/multi-artboard"
 import type { CanvasCamera, ViewportSize } from "@webmcp/editor/viewport"
-import type { ImageSourceStateChange } from "./fabric-artboard"
+import type { ImageSourceStateChange } from "./image-source-state-admission"
 import { ImageReplacementReactReadinessOwner } from "./image-replacement-react-readiness-owner"
 import type {
   ImageReplacementRenderer,

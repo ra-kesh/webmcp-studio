@@ -179,8 +179,8 @@ import type {
   CanvasRuntimeOwnerRelease,
   CanvasRuntimeReport,
   FabricArtboardHandle,
-  ImageSourceStateChange,
 } from "./editor/fabric-artboard"
+import type { ImageSourceStateChange } from "./editor/image-source-state-admission"
 import {
   canvasMountedDocumentMutationAdmitted,
   canvasPageMutationAdmitted,
@@ -2516,7 +2516,7 @@ export function StudioShell({
         const previous = current[state.nodeId]
         if (
           previous?.src === state.src &&
-          previous.readiness === state.readiness
+          previous?.readiness === state.readiness
         ) {
           return current
         }

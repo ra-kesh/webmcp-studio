@@ -1,6 +1,6 @@
 import { useCallback } from "react"
 import type { Document } from "@webmcp/document"
-import type { ImageSourceStateChange } from "./fabric-artboard"
+import type { ImageSourceStateChange } from "./image-source-state-admission"
 import type { ImageReplacementRendererEvent } from "./image-replacement-readiness"
 
 export function useImageReplacementFabricReadinessReporter({

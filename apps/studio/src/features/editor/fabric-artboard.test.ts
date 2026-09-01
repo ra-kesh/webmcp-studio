@@ -9,7 +9,6 @@ import {
   CanvasRuntimeOverlay,
   CropPreviewDimmer,
   FabricArtboard,
-  acceptImageSourceStateChange,
   applyImageCropModeOrReport,
   canvasRuntimeFailureMessage,
   canvasDocumentFontRequests,
@@ -21,6 +20,7 @@ import {
   waitForCanvasDocumentFonts,
   waitForCanvasOperation,
 } from "./fabric-artboard"
+import { acceptImageSourceStateChange } from "./image-source-state-admission"
 
 const imageFixture = renderConformanceDocument.nodes.find(
   (node) => node.id === "image-cover"

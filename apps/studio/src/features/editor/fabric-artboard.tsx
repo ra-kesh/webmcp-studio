@@ -22,7 +22,6 @@ import type {
   CanvasAdapterEvents,
   CanvasImageCropMode,
   CanvasImageCropPreview,
-  CanvasImageSourceReadiness,
   CanvasNodeChange,
   CanvasTextEditingState,
   AlignmentSnapTarget,
@@ -34,6 +33,10 @@ import { Button } from "@webmcp/ui/components/button"
 import { FabricRenderInvalidationController } from "./fabric-render-invalidation-controller"
 import { ImageCropFrameOverlay } from "./image-crop-frame-overlay"
 import type { ImageCropFramePreview } from "./image-crop-frame-overlay"
+import {
+  acceptImageSourceStateChange,
+  type ImageSourceStateChange,
+} from "./image-source-state-admission"
 import { useMultiArtboardRenderRegistry } from "./multi-artboard-render-registry-context"
 
 export type FabricArtboardHandle = {
@@ -1320,39 +1323,6 @@ export function settleCanvasInteractivity(
 }
 
 export type CanvasRuntimeFailureStage = "startup" | "sync" | "cleanup"
-
-export type ImageSourceStateChange = Readonly<{
-  nodeId: string
-  src: string
-  resourceToken?: string
-  readiness: "loading" | CanvasImageSourceReadiness
-  naturalSize?: Readonly<{ width: number; height: number }> | null
-}>
-
-export function acceptImageSourceStateChange(
-  currentSources: ReadonlyMap<string, string>,
-  reportedStates: Map<string, ImageSourceStateChange>,
-  state: ImageSourceStateChange,
-  currentResourceTokens?: ReadonlyMap<string, string | undefined>
-) {
-  if (currentSources.get(state.nodeId) !== state.src) return "stale" as const
-  if (
-    currentResourceTokens &&
-    currentResourceTokens.get(state.nodeId) !== state.resourceToken
-  ) {
-    return "stale" as const
-  }
-  const previous = reportedStates.get(state.nodeId)
-  if (
-    previous?.src === state.src &&
-    previous.resourceToken === state.resourceToken &&
-    previous.readiness === state.readiness
-  ) {
-    return "duplicate" as const
-  }
-  reportedStates.set(state.nodeId, state)
-  return "accepted" as const
-}
 
 export type CanvasRuntimeState = Readonly<
   | {
