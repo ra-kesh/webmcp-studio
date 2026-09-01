@@ -513,6 +513,7 @@ export type InspectorSelectionModel = {
     height: InspectorSharedValue<number>
     rotation: InspectorSharedValue<number>
     opacity: InspectorSharedValue<number>
+    blendMode: InspectorSharedValue<NonNullable<SceneNode["blendMode"]>>
     visible: InspectorSharedValue<boolean>
     locked: InspectorSharedValue<boolean>
   }
@@ -639,6 +640,7 @@ export const createInspectorSelectionModel = (
       height: sharedValue(nodes, (node) => node.height),
       rotation: sharedValue(nodes, (node) => node.rotation),
       opacity: sharedValue(nodes, (node) => node.opacity),
+      blendMode: sharedValue(nodes, (node) => node.blendMode ?? "normal"),
       visible: sharedValue(nodes, (node) => node.visible),
       locked: sharedValue(nodes, (node) => node.locked),
     },

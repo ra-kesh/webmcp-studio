@@ -1,4 +1,10 @@
-import type { ImageFrameMask, ImagePlacement, Page, SceneNode } from "./schema"
+import type {
+  BlendMode,
+  ImageFrameMask,
+  ImagePlacement,
+  Page,
+  SceneNode,
+} from "./schema"
 import { projectTextLayout, type TextLayoutProjection } from "./text-layout"
 
 export type RenderFrameProjection = {
@@ -12,6 +18,7 @@ export type RenderFrameProjection = {
   flipX: boolean
   flipY: boolean
   opacity: number
+  blendMode: BlendMode
   visible: boolean
   locked: boolean
 }
@@ -108,6 +115,7 @@ const projectFrame = (node: SceneNode): RenderFrameProjection => ({
   flipX: node.flipX ?? false,
   flipY: node.flipY ?? false,
   opacity: node.opacity,
+  blendMode: node.blendMode ?? "normal",
   visible: node.visible,
   locked: node.locked,
 })

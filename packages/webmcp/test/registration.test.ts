@@ -3048,6 +3048,7 @@ describe("WebMCP registration", () => {
           nodeId: "contract-image",
           patch: {
             constraints: { horizontal: "stretch", vertical: "center" },
+            blendMode: "multiply",
           },
         },
       ],
@@ -3059,6 +3060,7 @@ describe("WebMCP registration", () => {
       nodeId: "contract-image",
       patch: {
         constraints: { horizontal: "stretch", vertical: "center" },
+        blendMode: "multiply",
       },
     })
 
@@ -3076,6 +3078,20 @@ describe("WebMCP registration", () => {
     })
     expect(malformed?.isError).toBe(true)
     expect(malformed?.content[0]?.text).toContain("patch is invalid")
+
+    const malformedBlend = await tool?.execute({
+      documentId: document.id,
+      baseRevision: document.revision,
+      baseSnapshotId: "snapshot-seed",
+      edits: [
+        {
+          nodeType: "image",
+          nodeId: "contract-image",
+          patch: { blendMode: "source-in" },
+        },
+      ],
+    })
+    expect(malformedBlend?.isError).toBe(true)
   })
 
   it("advertises and proposes strict frame layout and clipping", async () => {

@@ -133,6 +133,7 @@ describe("InspectorSidebar basic property controls", () => {
     expect(markup).toContain('aria-label="Layout guide 1 pattern"')
     expect(markup).toContain("Guide color")
     expect(markup).toContain("Fill")
+    expect(markup).toContain('aria-label="Blend mode"')
   })
 
   it("exposes positioning and sizing for a selected frame child", () => {

@@ -247,6 +247,7 @@ const commonCanvasProperties = new Set([
   "flipX",
   "flipY",
   "opacity",
+  "blendMode",
   "visible",
   "locked",
   "constraints",

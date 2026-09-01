@@ -58,6 +58,7 @@ import {
   fabricTextControlVisibility,
   fabricObjectToNodePatch,
   fabricComparableNodeGeometry,
+  fabricBlendMode,
   fabricTransformKind,
   FabricCanvasAdapter,
   fabricTextObjectOptions,
@@ -641,8 +642,15 @@ describe("Fabric vector mask paint consumer", () => {
 
   it("uses an absolute top-left rotated source clip on a bounded composite", () => {
     const entry = maskGroupEntry(maskRenderConformancePlan)
+    const content = maskRenderConformanceNodes.find(
+      (node) => node.id === "mask-conformance-content"
+    )!
+    const blendedContent = { ...content, blendMode: "multiply" as const }
     const nodesById = new Map(
-      maskRenderConformanceNodes.map((node) => [node.id, node])
+      maskRenderConformanceNodes.map((node) => [
+        node.id,
+        node.id === blendedContent.id ? blendedContent : node,
+      ])
     )
     const result = createFabricVectorMaskPaint(
       entry,
@@ -655,11 +663,8 @@ describe("Fabric vector mask paint consumer", () => {
     const source = maskRenderConformanceNodes.find(
       (node) => node.id === "mask-conformance-source"
     )!
-    const content = maskRenderConformanceNodes.find(
-      (node) => node.id === "mask-conformance-content"
-    )!
     const sourceObject = createFabricSyncObject(source)
-    const expectedContent = createFabricSyncObject(content)
+    const expectedContent = createFabricSyncObject(blendedContent)
 
     expect(result.object).toMatchObject({
       left: entry.bounds.x,
@@ -694,6 +699,8 @@ describe("Fabric vector mask paint consumer", () => {
       )
 
     const groupedContent = result.object.getObjects()[0]!
+    expect(groupedContent.globalCompositeOperation).toBe("multiply")
+    expect(result.maskObject.globalCompositeOperation).toBe("destination-in")
     groupedContent
       .calcTransformMatrix()
       .forEach((value, index) =>
@@ -1100,6 +1107,20 @@ function setFabricPreviewRect(
 }
 
 describe("Fabric document boundary", () => {
+  it("maps normal to source-over and preserves admitted canvas blend modes", () => {
+    expect(fabricBlendMode("normal")).toBe("source-over")
+    expect(fabricBlendMode("multiply")).toBe("multiply")
+    expect(fabricBlendMode("luminosity")).toBe("luminosity")
+    const node = {
+      ...northstarSeed.nodes.find((candidate) => candidate.type === "rect")!,
+      blendMode: "screen" as const,
+      opacity: 0.6,
+    }
+    const object = createFabricSyncObject(node)
+    expect(object.globalCompositeOperation).toBe("screen")
+    expect(object.opacity).toBe(0.6)
+  })
+
   it("installs the canonical ancestor-frame clip on a child object", () => {
     const document = structuredClone(northstarSeed)
     const page = document.pages.find((candidate) => candidate.id === "cover")!

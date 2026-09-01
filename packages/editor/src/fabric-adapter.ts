@@ -50,6 +50,7 @@ import {
   textNodeBaseStyle,
   textRunOverrideAtCaret,
   type Document,
+  type BlendMode,
   type ImagePlacement,
   type RenderImageAffine,
   type RenderImageClip,
@@ -1070,6 +1071,7 @@ function sharedOptions(
     flipX: node.flipX ?? false,
     flipY: node.flipY ?? false,
     opacity: frame.opacity,
+    globalCompositeOperation: fabricBlendMode(frame.blendMode),
     visible: frame.visible,
     originX: "left" as const,
     originY: "top" as const,
@@ -1092,6 +1094,12 @@ function sharedOptions(
     padding: 5,
     objectCaching: true,
   }
+}
+
+export function fabricBlendMode(
+  blendMode: BlendMode
+): GlobalCompositeOperation {
+  return blendMode === "normal" ? "source-over" : blendMode
 }
 
 function borderedShapeDimensions(

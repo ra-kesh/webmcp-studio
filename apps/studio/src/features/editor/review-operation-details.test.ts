@@ -93,6 +93,27 @@ describe("review operation details", () => {
     expect(details.after).toContain("Horizontal: max · Vertical: stretch")
   })
 
+  it("names a layer blend-mode change", () => {
+    const document = quotationStarter.document
+    const node = document.nodes[0]!
+    const operation: ChangeOperation = {
+      id: "blend-operation",
+      status: "pending",
+      summary: "Blend the layer",
+      command: {
+        id: "blend-command",
+        type: "update_node",
+        actor: "agent",
+        at: "2026-09-02T01:00:00.000Z",
+        nodeId: node.id,
+        patch: { blendMode: "color-burn" },
+      },
+    }
+    const details = operationDetails(document, operation)
+    expect(details.before).toContain("blendMode: Normal")
+    expect(details.after).toContain("blendMode: Color Burn")
+  })
+
   it("summarizes frame flow and overflow changes", () => {
     const document = structuredClone(quotationStarter.document)
     const page = document.pages[0]!

@@ -430,6 +430,7 @@ export function renderNodeToHtml(node: SceneNode): string {
     `width:${frame.width}px`,
     `height:${frame.height}px`,
     `opacity:${frame.opacity}`,
+    `mix-blend-mode:${frame.blendMode}`,
     `transform:rotate(${frame.rotation}deg)`,
     "transform-origin:top left",
     `display:${frame.visible ? "block" : "none"}`,

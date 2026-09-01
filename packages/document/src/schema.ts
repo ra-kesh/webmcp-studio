@@ -36,6 +36,25 @@ export const constraintAxisSchema = z.enum([
   "scale",
 ])
 
+export const blendModeSchema = z.enum([
+  "normal",
+  "darken",
+  "multiply",
+  "color-burn",
+  "lighten",
+  "screen",
+  "color-dodge",
+  "overlay",
+  "soft-light",
+  "hard-light",
+  "difference",
+  "exclusion",
+  "hue",
+  "saturation",
+  "color",
+  "luminosity",
+])
+
 export const nodeConstraintsSchema = z
   .object({
     horizontal: constraintAxisSchema,
@@ -178,6 +197,7 @@ const baseNodeSchema = z
     flipX: z.boolean().optional(),
     flipY: z.boolean().optional(),
     opacity: z.number().min(0).max(1).default(1),
+    blendMode: blendModeSchema.optional(),
     visible: z.boolean().default(true),
     locked: z.boolean().default(false),
     constraints: nodeConstraintsSchema.default(defaultNodeConstraints),
@@ -195,6 +215,7 @@ const baseNodePatchSchema = z
     flipX: z.boolean().optional(),
     flipY: z.boolean().optional(),
     opacity: z.number().min(0).max(1).optional(),
+    blendMode: blendModeSchema.optional(),
     visible: z.boolean().optional(),
     locked: z.boolean().optional(),
     constraints: nodeConstraintsSchema.optional(),
@@ -1704,6 +1725,7 @@ export type TextNode = Extract<SceneNode, { type: "text" }>
 export type TextNodePatch = z.infer<typeof textNodePatchSchema>
 export type TextSizingMode = z.infer<typeof textSizingModeSchema>
 export type ConstraintAxis = z.infer<typeof constraintAxisSchema>
+export type BlendMode = z.infer<typeof blendModeSchema>
 export type NodeConstraints = z.infer<typeof nodeConstraintsSchema>
 export type FrameChildLayout = z.infer<typeof frameChildLayoutSchema>
 export type FrameAutoLayout = z.infer<typeof frameAutoLayoutSchema>

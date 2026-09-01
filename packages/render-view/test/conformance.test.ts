@@ -264,6 +264,26 @@ describe("React render-view conformance", () => {
     expect(shouldCompositeMaskGroup(entry)).toBe(true)
   })
 
+  it("blends retained mask content before the vector mask is applied", () => {
+    const entry = maskRenderConformancePlan.entries[1]!
+    if (entry.kind !== "mask_group") throw new Error("Missing mask entry")
+    const nodesById = new Map(
+      maskRenderConformanceNodes.map((node) => [
+        node.id,
+        node.id === "mask-conformance-content"
+          ? { ...node, blendMode: "multiply" as const }
+          : node,
+      ])
+    )
+    const markup = renderToStaticMarkup(
+      createElement(MaskGroupPaintEntry, { entry, nodesById })
+    )
+
+    expect(markup).toContain("mix-blend-mode:multiply")
+    expect(markup).toContain('data-mask-source-id="mask-conformance-source"')
+    expect(markup.match(/mix-blend-mode:multiply/g)).toHaveLength(1)
+  })
+
   it("falls through to ordinary bounded content when the shared source is hidden", () => {
     const entry = maskRenderConformanceHiddenSourcePlan.entries[1]!
     expect(entry).toMatchObject({
@@ -941,6 +961,7 @@ describe("React render-view conformance", () => {
         width: node.width,
         height: node.height,
         opacity: node.opacity,
+        mixBlendMode: node.blendMode ?? "normal",
         transform: `rotate(${node.rotation}deg)`,
         transformOrigin: "top left",
       })
@@ -952,6 +973,18 @@ describe("React render-view conformance", () => {
         "data-node-locked": node.locked ? "true" : "false",
       })
     }
+  })
+
+  it("applies blend mode to the final node frame after opacity", () => {
+    const node = {
+      ...renderConformanceDocument.nodes[0]!,
+      blendMode: "multiply" as const,
+    }
+    const style = renderFrameStyle(projectNodeForRender(node).frame)
+    expect(style).toMatchObject({
+      opacity: node.opacity,
+      mixBlendMode: "multiply",
+    })
   })
 
   it("mirrors a layer around its own center without moving its frame", () => {

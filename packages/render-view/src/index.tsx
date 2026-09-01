@@ -77,6 +77,7 @@ export const renderFrameStyle = (
   width: frame.width,
   height: frame.height,
   opacity: frame.opacity,
+  mixBlendMode: frame.blendMode,
   transform:
     frame.flipX || frame.flipY
       ? `rotate(${frame.rotation}deg) translate(${frame.width / 2}px, ${frame.height / 2}px) scale(${frame.flipX ? -1 : 1}, ${frame.flipY ? -1 : 1}) translate(${-frame.width / 2}px, ${-frame.height / 2}px)`

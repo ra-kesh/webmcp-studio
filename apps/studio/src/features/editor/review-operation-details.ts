@@ -66,6 +66,12 @@ function displayNodeProperty(
     return `${value.length} layout child${value.length === 1 ? "" : "ren"}`
   }
   if (key === "clipsContent") return value ? "Clip content" : "Show overflow"
+  if (key === "blendMode") {
+    return String(value ?? "normal")
+      .split("-")
+      .map((part) => part[0]?.toUpperCase() + part.slice(1))
+      .join(" ")
+  }
   if (key === "layoutGrids" && Array.isArray(value)) {
     return `${value.length} layout guide${value.length === 1 ? "" : "s"}`
   }

@@ -125,6 +125,7 @@ describe("render conformance corpus", () => {
           flipX: node.flipX ?? false,
           flipY: node.flipY ?? false,
           opacity: node.opacity,
+          blendMode: node.blendMode ?? "normal",
           visible: node.visible,
           locked: node.locked,
         })
@@ -254,6 +255,7 @@ describe("render conformance corpus", () => {
         flipX: node.flipX ?? false,
         flipY: node.flipY ?? false,
         opacity: node.opacity,
+        blendMode: node.blendMode ?? "normal",
         visible: node.visible,
         locked: node.locked,
       })

@@ -68,6 +68,7 @@ import {
 } from "@webmcp/document"
 import type {
   BindableProperty,
+  BlendMode,
   ChangeOperation,
   ChangeSet,
   Document,
@@ -208,6 +209,28 @@ import {
 
 const DEMO_AGENT_BRIEF =
   "Inspect and validate the open design. Adapt it for Mira & Dev, 14 February 2027 in Udaipur, using The Moonlit Weekend package at ₹4,25,000, valid until 30 November 2026. Search the approved asset library for warm sandstone architecture. Then create one coordinated human-reviewed proposal that updates those shared fields and inserts the best asset on the Cover at x 620, y 120, width 540, height 900 with cover fit. Do not apply or publish anything. Summarize the affected outputs and wait for my review."
+
+const BLEND_MODE_OPTIONS: readonly Readonly<{
+  value: BlendMode
+  label: string
+}>[] = [
+  { value: "normal", label: "Normal" },
+  { value: "darken", label: "Darken" },
+  { value: "multiply", label: "Multiply" },
+  { value: "color-burn", label: "Color burn" },
+  { value: "lighten", label: "Lighten" },
+  { value: "screen", label: "Screen" },
+  { value: "color-dodge", label: "Color dodge" },
+  { value: "overlay", label: "Overlay" },
+  { value: "soft-light", label: "Soft light" },
+  { value: "hard-light", label: "Hard light" },
+  { value: "difference", label: "Difference" },
+  { value: "exclusion", label: "Exclusion" },
+  { value: "hue", label: "Hue" },
+  { value: "saturation", label: "Saturation" },
+  { value: "color", label: "Color" },
+  { value: "luminosity", label: "Luminosity" },
+]
 
 const EMPTY_REVIEW_JOURNAL = createEmptyReviewJournal()
 const ignoreReviewTarget = () => undefined
@@ -2349,6 +2372,26 @@ function NodeInspector({
           disabled={nodeMutationDisabled}
           onCommit={(opacity) => onUpdate({ opacity: opacity / 100 })}
         />
+        <Select
+          value={node.blendMode ?? "normal"}
+          disabled={nodeMutationDisabled}
+          onValueChange={(blendMode) =>
+            onUpdate({ blendMode: blendMode as BlendMode })
+          }
+        >
+          <SelectTrigger aria-label="Blend mode" className="h-8 text-[11px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {BLEND_MODE_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
       </InspectorSection>
 
       {inspector.capabilities.text && node.type === "text" ? (

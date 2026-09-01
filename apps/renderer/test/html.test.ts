@@ -232,6 +232,15 @@ function nestedMaskDocument(
 }
 
 describe("renderer HTML", () => {
+  it("serializes the canonical layer blend mode after opacity", () => {
+    const document = structuredClone(northstarSeed)
+    const node = document.nodes[0]!
+    node.opacity = 0.65
+    node.blendMode = "multiply"
+    const html = renderNodeToHtml(node)
+    expect(html).toContain("opacity:0.65;mix-blend-mode:multiply")
+  })
+
   it("keeps frame layout-guide metadata out of export HTML", () => {
     const document = structuredClone(northstarSeed)
     const page = document.pages[0]!
