@@ -328,3 +328,21 @@ background-removal control suite passes 3/3.
   private-renderer admission, and inspectable PDF output;
 - the editor entry chunk is measurably smaller without changing command,
   document, Inspector, renderer, or WebMCP semantics.
+
+## Transient snapping-overlay correction
+
+A live collapsed-panel run exposed blue snap and spacing lines remaining after
+the canonical selection had been cleared. The first repair only reset the
+adapter's guide array on external deselection. That was incomplete: the guide
+pixels are painted on Fabric's `contextTop`, which is not cleared by every
+lower-canvas render, so old transform frames accumulated and survived after
+the guide state itself was empty.
+
+The adapter now follows Fabric's own aligning-guidelines lifecycle: clear the
+top context on `before:render`, paint only the current guide set on
+`after:render`, and synchronously clear the top context when transient guides
+are released through a workspace click-outside. The focused Fabric suite
+passes 110/110, the editor package typecheck passes, and the live port-3001
+editor no longer retains the accumulated dashed lines after its replacement
+adapter mounts. Persistent ruler guides remain a separate, deliberate feature;
+the affected page had zero persisted guides in the guide manager.

@@ -2973,6 +2973,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     this.canvas.on("object:resizing", this.onObjectTransformPreview)
     this.canvas.on("object:rotating", this.onObjectTransformPreview)
     this.canvas.on("text:editing:exited", this.onTextEditingExited)
+    this.canvas.on("before:render", this.onBeforeRender)
     this.canvas.on("after:render", this.onAfterRender)
     this.canvas.upperCanvasEl.addEventListener(
       "touchstart",
@@ -3051,6 +3052,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     canvas.off("object:resizing", this.onObjectTransformPreview)
     canvas.off("object:rotating", this.onObjectTransformPreview)
     canvas.off("text:editing:exited", this.onTextEditingExited)
+    canvas.off("before:render", this.onBeforeRender)
     canvas.off("after:render", this.onAfterRender)
     canvas.upperCanvasEl.removeEventListener(
       "touchstart",
@@ -5091,6 +5093,17 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     canvas.requestRenderAll()
   }
 
+  private onBeforeRender = () => {
+    const canvas = this.canvas
+    if (!canvas) return
+    // Snap and spacing guides are painted on Fabric's top context. Fabric does
+    // not clear that context as part of every lower-canvas render, so without
+    // this pass each transform frame leaves its pixels behind. This mirrors
+    // Fabric's own aligning-guidelines extension: clear before every render,
+    // then paint the current guide set in after:render.
+    canvas.clearContext(canvas.contextTop)
+  }
+
   private onAfterRender = () => {
     const canvas = this.canvas
     if (!canvas || !this.activeGuides.length) return
@@ -5159,7 +5172,13 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     this.resizeSnapLatch = null
     if (!this.activeGuides.length) return
     this.activeGuides = []
-    this.canvas?.requestRenderAll()
+    const canvas = this.canvas
+    if (!canvas) return
+    // Clear synchronously as well as scheduling a render. A workspace
+    // click-outside can clear selection without another Fabric pointer event,
+    // and stale top-context pixels must disappear immediately.
+    canvas.clearContext(canvas.contextTop)
+    canvas.requestRenderAll()
   }
 
   private onObjectModified = ({ target }: ModifiedEvent) => {

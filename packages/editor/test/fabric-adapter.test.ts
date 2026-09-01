@@ -1052,6 +1052,8 @@ function createTransformHarness(options?: {
     candidate.nodeIds.includes(node.id)
   )!
   const canvas = {
+    clearContext: vi.fn(),
+    contextTop: {} as CanvasRenderingContext2D,
     discardActiveObject: vi.fn(),
     endCurrentTransform: vi.fn(),
     getHeight: vi.fn(() => page.height),
@@ -1297,7 +1299,20 @@ describe("Fabric document boundary", () => {
 
     expect(Reflect.get(harness.adapter, "moveSnapLatch")).toBeNull()
     expect(Reflect.get(harness.adapter, "activeGuides")).toEqual([])
+    expect(harness.canvas.clearContext).toHaveBeenCalledWith(
+      harness.canvas.contextTop
+    )
     expect(harness.canvas.requestRenderAll).toHaveBeenCalled()
+  })
+
+  it("clears the previous top-context guide frame before repainting", () => {
+    const harness = createTransformHarness()
+
+    Reflect.get(harness.adapter, "onBeforeRender")()
+
+    expect(harness.canvas.clearContext).toHaveBeenCalledWith(
+      harness.canvas.contextTop
+    )
   })
 
   it("keeps Shift side handles on Fabric's public scale path", () => {
