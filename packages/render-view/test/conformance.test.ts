@@ -859,6 +859,20 @@ describe("React render-view conformance", () => {
     }
   })
 
+  it("mirrors a layer around its own center without moving its frame", () => {
+    const node = renderConformanceDocument.nodes[0]!
+    const frame = projectNodeForRender({ ...node, flipX: true }).frame
+
+    expect(renderFrameStyle(frame)).toMatchObject({
+      left: node.x,
+      top: node.y,
+      width: node.width,
+      height: node.height,
+      transform: `rotate(${node.rotation}deg) translate(${node.width / 2}px, ${node.height / 2}px) scale(-1, 1) translate(${-node.width / 2}px, ${-node.height / 2}px)`,
+      transformOrigin: "top left",
+    })
+  })
+
   it("does not collapse text whitespace or drop typography", () => {
     const node = renderConformanceDocument.nodes.find(
       (candidate) => candidate.id === "text-typography"

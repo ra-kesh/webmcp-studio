@@ -325,11 +325,11 @@ function LayerRow({
       data-drop-intent={isDropTarget ? dropState.intent : undefined}
       tabIndex={-1}
       className={cn(
-        "group/layer relative flex w-full cursor-default items-center overflow-hidden rounded-[4px] pr-1 text-[11px] outline-none select-none",
+        "group/layer relative flex w-full cursor-default items-center overflow-hidden rounded-sm pr-1 text-[11px] outline-none select-none",
         compact ? "h-(--studio-compact-target)" : "h-(--studio-row-height)",
-        "hover:bg-muted/65 focus-visible:ring-2 focus-visible:ring-studio-accent/55 focus-visible:ring-inset data-[active=true]:ring-1 data-[active=true]:ring-studio-accent/45 data-[active=true]:ring-inset",
-        "data-[selected=true]:bg-studio-accent/11 data-[selected=true]:text-foreground dark:data-[selected=true]:bg-studio-accent/18",
-        "data-[selection-mixed=true]:bg-muted/60",
+        "hover:bg-editor-panel-hover focus-visible:ring-2 focus-visible:ring-studio-accent/45 focus-visible:ring-inset data-[active=true]:ring-1 data-[active=true]:ring-border data-[active=true]:ring-inset",
+        "data-[selected=true]:bg-studio-accent/10 data-[selected=true]:text-foreground",
+        "data-[selection-mixed=true]:bg-editor-field",
         "data-[dragging=true]:opacity-30 data-[hidden=true]:opacity-50",
         "data-[drop-intent=inside]:bg-studio-accent/12 data-[drop-intent=inside]:ring-1 data-[drop-intent=inside]:ring-studio-accent",
         "after:pointer-events-none after:absolute after:right-1 after:left-[var(--drop-left)] after:z-10 after:hidden after:h-0.5 after:rounded-full after:bg-studio-accent data-[drop-intent=above]:after:top-0 data-[drop-intent=above]:after:block data-[drop-intent=below]:after:bottom-0 data-[drop-intent=below]:after:block"
@@ -396,7 +396,7 @@ function LayerRow({
           data-testid="layer-rename-input"
           aria-label={`Rename ${rename.original}`}
           value={rename.draft}
-          className="h-6 min-w-0 flex-1 rounded-[4px] border-[#0d99ff] bg-background px-1.5 text-[11px] ring-2 ring-[#0d99ff]/20"
+          className="h-6 min-w-0 flex-1 rounded-[4px] border-studio-accent bg-background px-1.5 text-[11px] ring-2 ring-studio-accent/20"
           onFocus={(event) => event.currentTarget.select()}
           onChange={(event) => onRenameDraftChange(event.target.value)}
           onBlur={() => onCommitRename(false)}
@@ -1174,7 +1174,7 @@ export function LayerTree({
 
   return (
     <section className="flex min-h-0 flex-1 flex-col" aria-label="Layers">
-      <div className="border-b border-border/70 p-2">
+      <div className="border-b border-border p-2">
         <div className="flex min-w-0 items-center gap-1">
           <div className="relative min-w-0 flex-1">
             <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -1186,7 +1186,7 @@ export function LayerTree({
               value={query}
               placeholder="Search layers…"
               className={cn(
-                "appearance-none rounded-md pr-2.5 pl-7 text-xs [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden",
+                "appearance-none rounded-sm border-transparent bg-editor-field pr-2.5 pl-7 text-[11px] hover:bg-editor-field-hover focus-visible:bg-background [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden",
                 compact
                   ? "h-(--studio-compact-target)"
                   : "h-(--studio-control-sm)"
@@ -1236,7 +1236,7 @@ export function LayerTree({
                 : undefined
             }
             tabIndex={0}
-            className="relative w-full outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset"
+            className="relative w-full outline-none focus-visible:[&_[data-active=true]]:ring-2 focus-visible:[&_[data-active=true]]:ring-studio-accent/45"
             style={{ height: `${rows.length * rowHeight}px` }}
             onKeyDown={onTreeKeyDown}
           >

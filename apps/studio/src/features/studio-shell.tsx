@@ -49,6 +49,7 @@ import {
 import { applyTextLinkToRange, getGroupNodeIds } from "@webmcp/document"
 import type {
   LibraryMediaDetail,
+  Page,
   SceneNode,
   TextParagraphStylePatch,
   TextRunStylePatch,
@@ -56,7 +57,6 @@ import type {
   TextSelectionLinkState,
 } from "@webmcp/document"
 import type { CanvasTextEditingState, NodeGeometryPatch } from "@webmcp/editor"
-import type { ImageResourceStateChange } from "@webmcp/render-view"
 import {
   applyEditorImageFrameCommand,
   applyEditorImagePlacementCommand,
@@ -103,8 +103,12 @@ import type { InspectorImageSourceState } from "@webmcp/editor/inspector"
 import { getNodeBounds, getSelectionBounds } from "@webmcp/editor/geometry"
 import type { NodeBounds } from "@webmcp/editor/geometry"
 import {
-  fitPageInViewport,
-  focusCameraOnBounds,
+  deriveActivePageId,
+  MultiArtboardLayoutController,
+  visiblePageIds,
+  WorkspaceCameraController,
+} from "@webmcp/editor/multi-artboard"
+import {
   resizeCameraForViewport,
   zoomCameraAtPoint,
 } from "@webmcp/editor/viewport"
@@ -155,15 +159,8 @@ import {
   getStudioShellPanelResizeBounds,
   resizeStudioShellPanelAtWidth,
   resolveStudioShellLayout,
-  setStudioShellFilmstripDensity,
   toggleStudioShellPanel,
 } from "./editor/studio-shell-layout"
-import {
-  createStudioPageThumbnailRasterProducer,
-  rendererBackedPageThumbnailsEnabled,
-  studioPageThumbnailRendererRevision,
-} from "./editor/page-thumbnail-raster-producer"
-import type { PageThumbnailDocumentSnapshot } from "./editor/page-thumbnail-raster-producer"
 import type { DocumentPanelTab } from "./editor/quotation-sidebar"
 import type { AssetWorkspaceView } from "./editor/asset-workspace-panel"
 import {
@@ -189,6 +186,7 @@ import type {
   FabricArtboardHandle,
   ImageSourceStateChange,
 } from "./editor/fabric-artboard"
+import { buildMultiArtboardPageSyncIdentities } from "./editor/multi-artboard-page-sync"
 import { handleEditorEscape } from "./editor/editor-escape"
 import {
   captureImageCropFocusSession,
@@ -362,9 +360,9 @@ const FabricArtboard = lazy(() =>
     default: module.FabricArtboard,
   }))
 )
-const ProductPageFilmstrip = lazy(() =>
-  import("./editor/page-filmstrip").then((module) => ({
-    default: module.ProductPageFilmstrip,
+const MultiArtboardWorkspace = lazy(() =>
+  import("./editor/multi-artboard-workspace").then((module) => ({
+    default: module.MultiArtboardWorkspace,
   }))
 )
 const CanvasRulerGuideOverlay = lazy(() =>
@@ -1030,14 +1028,6 @@ export function StudioShell({
     },
     [persistShellLayout]
   )
-  const setFilmstripDensity = useCallback(
-    (density: "compact" | "comfortable") => {
-      persistShellLayout(
-        setStudioShellFilmstripDensity(shellLayoutRef.current, density)
-      )
-    },
-    [persistShellLayout]
-  )
   const resolvedShellLayout = useMemo(
     () => resolveStudioShellLayout(shellLayout, shellAvailableWidth),
     [shellAvailableWidth, shellLayout]
@@ -1096,54 +1086,8 @@ export function StudioShell({
     routeDocumentId === null && editor.sessionMode === "start"
   )
   const sessionDocumentIdRef = useRef(editor.document.id)
-  const pageThumbnailSnapshotId = useMemo(() => {
-    const review = editor.pendingChangeSet
-    return review
-      ? `${editor.snapshotId}:review:${review.id}:${review.operations
-          .map((operation) => `${operation.id}:${operation.status}`)
-          .join(",")}`
-      : editor.snapshotId
-  }, [editor.pendingChangeSet, editor.snapshotId])
-  const pageThumbnailSnapshotRef = useRef<PageThumbnailDocumentSnapshot>({
-    document: editor.canonicalPreviewDocument,
-    snapshotId: pageThumbnailSnapshotId,
-  })
-  pageThumbnailSnapshotRef.current = {
-    document: editor.canonicalPreviewDocument,
-    snapshotId: pageThumbnailSnapshotId,
-  }
-  const pageThumbnailProducerRef = useRef<
-    ReturnType<typeof createStudioPageThumbnailRasterProducer> | undefined
-  >(undefined)
-  const pageThumbnailProducer = (pageThumbnailProducerRef.current ??=
-    createStudioPageThumbnailRasterProducer({
-      getSnapshot: () => pageThumbnailSnapshotRef.current,
-    }))
-  const rendererBackedPageThumbnailRaster = useMemo(
-    () => ({
-      admissionDelayMs: 300,
-      canonicalDocument: editor.canonicalPreviewDocument,
-      documentSnapshotId: pageThumbnailSnapshotId,
-      producer: pageThumbnailProducer,
-      rendererRevision: studioPageThumbnailRendererRevision,
-    }),
-    [
-      editor.canonicalPreviewDocument,
-      pageThumbnailProducer,
-      pageThumbnailSnapshotId,
-    ]
-  )
-  // Filmstrip browsing must not spend remote Browser Run time or inherit its
-  // new-session rate limit. Renderer-backed thumbnails remain an explicit
-  // conformance/profile mode; ordinary editing uses the bounded local path.
-  const useRendererBackedPageThumbnails = rendererBackedPageThumbnailsEnabled(
-    import.meta.env.VITE_STUDIO_RENDERER_THUMBNAILS
-  )
   const backgroundRemovalEnabled =
     import.meta.env.VITE_STUDIO_BACKGROUND_REMOVAL === "true"
-  const pageThumbnailRaster = useRendererBackedPageThumbnails
-    ? rendererBackedPageThumbnailRaster
-    : undefined
   const publishedVersion =
     editor.publishSyncStatus === "synced"
       ? editor.latestPublishedVersion
@@ -1315,7 +1259,16 @@ export function StudioShell({
     },
     []
   )
-  const cameraRef = useRef<CanvasCamera>({ x: 0, y: 0, zoom: 0.34 })
+  const cameraControllerRef = useRef<WorkspaceCameraController | null>(null)
+  cameraControllerRef.current ??= new WorkspaceCameraController({
+    x: 0,
+    y: 0,
+    zoom: 0.34,
+  })
+  const cameraRef = useRef<CanvasCamera>(cameraControllerRef.current.camera)
+  const explicitPageFocusRef = useRef<string | null>(null)
+  const selectionPageIdRef = useRef<string | null>(null)
+  const artboardHandlesRef = useRef(new Map<string, FabricArtboardHandle>())
   const committedZoomRef = useRef(zoom)
   committedZoomRef.current = zoom
   const autoFitRef = useRef(autoFit)
@@ -1362,6 +1315,22 @@ export function StudioShell({
     editor.previewDocument.pages.find(
       (page) => page.id === editor.activePageId
     ) ?? editor.previewDocument.pages[0]
+  const artboardLayout = useMemo(
+    () => new MultiArtboardLayoutController(editor.previewDocument.pages),
+    [editor.previewDocument.pages]
+  )
+  const activePageFrame = artboardLayout.getFrame(activePage.id)
+  const activePageFrameRef = useRef(activePageFrame)
+  activePageFrameRef.current = activePageFrame
+  selectionPageIdRef.current = editor.selection?.pageId ?? null
+  const activePageIdRef = useRef(editor.activePageId)
+  activePageIdRef.current = editor.activePageId
+  const selectPageRef = useRef(editor.selectPage)
+  selectPageRef.current = editor.selectPage
+  const pageSyncIdentities = useMemo(
+    () => buildMultiArtboardPageSyncIdentities(editor.previewDocument),
+    [editor.previewDocument]
+  )
   const activeOutput = editor.previewDocument.outputs.find(
     (output) => output.id === activePage.outputId
   )
@@ -1549,6 +1518,21 @@ export function StudioShell({
     : null
   const selectedImageBoundsRef = useRef(selectedImageBounds)
   selectedImageBoundsRef.current = selectedImageBounds
+  const selectedImagePageIdRef = useRef(editor.selection?.pageId ?? null)
+  selectedImagePageIdRef.current = editor.selection?.pageId ?? null
+  const cameraForPage = useCallback(
+    (camera: CanvasCamera, pageId: string | null): CanvasCamera => {
+      const frame = pageId ? artboardLayout.getFrame(pageId) : null
+      return frame
+        ? {
+            x: camera.x + frame.left * camera.zoom,
+            y: camera.y + frame.top * camera.zoom,
+            zoom: camera.zoom,
+          }
+        : camera
+    },
+    [artboardLayout]
+  )
   const projectSelectedImageToolbarOverlay = useCallback(
     (camera: CanvasCamera) => {
       const element = selectedImageToolbarOverlayRef.current
@@ -1556,11 +1540,11 @@ export function StudioShell({
       if (!element || !bounds) return
       applySelectedImageToolbarCameraProjection(element, {
         bounds,
-        camera,
+        camera: cameraForPage(camera, selectedImagePageIdRef.current),
         viewport: workspaceSizeRef.current,
       })
     },
-    []
+    [cameraForPage]
   )
   const installSelectedImageToolbarOverlay = useCallback(
     (element: HTMLDivElement | null) => {
@@ -1570,14 +1554,20 @@ export function StudioShell({
     [projectSelectedImageToolbarOverlay]
   )
   const selectedImageToolbarPlacement = selectedImageBounds
-    ? resolveSelectedImageToolbarPlacement({
-        frameLeft: cameraPosition.x + selectedImageBounds.left * zoom,
-        frameRight: cameraPosition.x + selectedImageBounds.right * zoom,
-        frameTop: cameraPosition.y + selectedImageBounds.top * zoom,
-        frameBottom: cameraPosition.y + selectedImageBounds.bottom * zoom,
-        viewportWidth: workspaceSize.width,
-        viewportHeight: workspaceSize.height,
-      })
+    ? (() => {
+        const camera = cameraForPage(
+          { ...cameraPosition, zoom },
+          editor.selection?.pageId ?? null
+        )
+        return resolveSelectedImageToolbarPlacement({
+          frameLeft: camera.x + selectedImageBounds.left * zoom,
+          frameRight: camera.x + selectedImageBounds.right * zoom,
+          frameTop: camera.y + selectedImageBounds.top * zoom,
+          frameBottom: camera.y + selectedImageBounds.bottom * zoom,
+          viewportWidth: workspaceSize.width,
+          viewportHeight: workspaceSize.height,
+        })
+      })()
     : null
   const textEditingNode = textEditingState
     ? editor.previewDocument.nodes.find(
@@ -1589,6 +1579,8 @@ export function StudioShell({
     : null
   const textEditingBoundsRef = useRef(textEditingBounds)
   textEditingBoundsRef.current = textEditingBounds
+  const textEditingPageIdRef = useRef(editor.selection?.pageId ?? null)
+  textEditingPageIdRef.current = editor.selection?.pageId ?? null
   const projectTextFormattingToolbarOverlay = useCallback(
     (camera: CanvasCamera) => {
       const element = textFormattingToolbarOverlayRef.current
@@ -1596,11 +1588,11 @@ export function StudioShell({
       if (!element || !bounds) return
       applySelectedImageToolbarCameraProjection(element, {
         bounds,
-        camera,
+        camera: cameraForPage(camera, textEditingPageIdRef.current),
         viewport: workspaceSizeRef.current,
       })
     },
-    []
+    [cameraForPage]
   )
   const installTextFormattingToolbarOverlay = useCallback(
     (element: HTMLDivElement | null) => {
@@ -1610,14 +1602,20 @@ export function StudioShell({
     [projectTextFormattingToolbarOverlay]
   )
   const textFormattingToolbarPlacement = textEditingBounds
-    ? resolveSelectedImageToolbarPlacement({
-        frameLeft: cameraPosition.x + textEditingBounds.left * zoom,
-        frameRight: cameraPosition.x + textEditingBounds.right * zoom,
-        frameTop: cameraPosition.y + textEditingBounds.top * zoom,
-        frameBottom: cameraPosition.y + textEditingBounds.bottom * zoom,
-        viewportWidth: workspaceSize.width,
-        viewportHeight: workspaceSize.height,
-      })
+    ? (() => {
+        const camera = cameraForPage(
+          { ...cameraPosition, zoom },
+          editor.selection?.pageId ?? null
+        )
+        return resolveSelectedImageToolbarPlacement({
+          frameLeft: camera.x + textEditingBounds.left * zoom,
+          frameRight: camera.x + textEditingBounds.right * zoom,
+          frameTop: camera.y + textEditingBounds.top * zoom,
+          frameBottom: camera.y + textEditingBounds.bottom * zoom,
+          viewportWidth: workspaceSize.width,
+          viewportHeight: workspaceSize.height,
+        })
+      })()
     : null
   useLayoutEffect(() => {
     projectSelectedImageToolbarOverlay(cameraRef.current)
@@ -1631,11 +1629,17 @@ export function StudioShell({
   ])
   const cropImageBounds = cropImageNode ? getNodeBounds(cropImageNode) : null
   const cropToolbarEdge = cropImageBounds
-    ? resolveImageCropToolbarEdge({
-        frameTop: cameraPosition.y + cropImageBounds.top * zoom,
-        frameBottom: cameraPosition.y + cropImageBounds.bottom * zoom,
-        viewportHeight: workspaceRef.current?.clientHeight ?? 0,
-      })
+    ? (() => {
+        const camera = cameraForPage(
+          { ...cameraPosition, zoom },
+          editor.imageCropSession?.target.pageId ?? null
+        )
+        return resolveImageCropToolbarEdge({
+          frameTop: camera.y + cropImageBounds.top * zoom,
+          frameBottom: camera.y + cropImageBounds.bottom * zoom,
+          viewportHeight: workspaceRef.current?.clientHeight ?? 0,
+        })
+      })()
     : "bottom"
 
   const cancelActiveTextEditing = useCallback(() => {
@@ -1840,12 +1844,12 @@ export function StudioShell({
     const frame = window.requestAnimationFrame(() => {
       const canvas =
         workspaceRef.current?.querySelector<HTMLElement>(
-          ".upper-canvas, [role='application'][aria-label='Interactive design canvas']"
+          `[data-canvas-page-id="${CSS.escape(activePage.id)}"] .upper-canvas, [data-canvas-page-id="${CSS.escape(activePage.id)}"] [role='application'][aria-label='Interactive design canvas']`
         ) ?? workspaceRef.current
       restoreImageCropFocus(focusSession, canvas)
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [editor.imageCropSession])
+  }, [activePage.id, editor.imageCropSession])
 
   const insertTextPreset = useCallback(
     (
@@ -1894,42 +1898,63 @@ export function StudioShell({
     textEditingNodeId,
   ])
 
-  const settleCameraState = useCallback((camera: CanvasCamera) => {
-    if (cameraSettlementTimerRef.current !== null) {
-      window.clearTimeout(cameraSettlementTimerRef.current)
-      cameraSettlementTimerRef.current = null
-    }
-    committedZoomRef.current = camera.zoom
-    setZoom(camera.zoom)
-    setCameraPosition({ x: camera.x, y: camera.y })
-  }, [])
+  const settleCameraState = useCallback(
+    (camera: CanvasCamera) => {
+      if (cameraSettlementTimerRef.current !== null) {
+        window.clearTimeout(cameraSettlementTimerRef.current)
+        cameraSettlementTimerRef.current = null
+      }
+      const settled = cameraControllerRef.current?.set(camera) ?? camera
+      cameraRef.current = settled
+      committedZoomRef.current = settled.zoom
+      setZoom(settled.zoom)
+      setCameraPosition({ x: settled.x, y: settled.y })
+      if (cameraTransformRef.current) {
+        cameraTransformRef.current.style.transform = `translate3d(${settled.x}px, ${settled.y}px, 0) scale(1)`
+      }
+      const derivedPageId = deriveActivePageId(artboardLayout, {
+        selectionPageId: selectionPageIdRef.current,
+        focusedPageId: explicitPageFocusRef.current,
+        camera: settled,
+        viewport: workspaceSizeRef.current,
+      })
+      explicitPageFocusRef.current = null
+      if (derivedPageId && derivedPageId !== activePageIdRef.current) {
+        selectPageRef.current(derivedPageId)
+      }
+    },
+    [artboardLayout]
+  )
 
   const applyCamera = useCallback(
     (camera: CanvasCamera) => {
-      cameraRef.current = camera
+      const nextCamera = cameraControllerRef.current?.set(camera) ?? camera
+      cameraRef.current = nextCamera
       const transform = cameraTransformRef.current
       if (transform) {
-        transform.style.transform = `translate3d(${camera.x}px, ${camera.y}px, 0)`
+        const previewScale = nextCamera.zoom / committedZoomRef.current
+        transform.style.transformOrigin = "top left"
+        transform.style.transform = `translate3d(${nextCamera.x}px, ${nextCamera.y}px, 0) scale(${previewScale})`
       }
-      artboardRef.current?.previewViewportZoom(
-        camera.zoom,
-        committedZoomRef.current
+      rulerGuideOverlayRef.current?.updateCamera(
+        cameraForPage(nextCamera, activePageFrameRef.current?.pageId ?? null)
       )
-      rulerGuideOverlayRef.current?.updateCamera(camera)
-      projectSelectedImageToolbarOverlay(camera)
-      projectTextFormattingToolbarOverlay(camera)
+      projectSelectedImageToolbarOverlay(nextCamera)
+      projectTextFormattingToolbarOverlay(nextCamera)
 
       if (cameraSettlementTimerRef.current !== null) {
         window.clearTimeout(cameraSettlementTimerRef.current)
       }
       cameraSettlementTimerRef.current = window.setTimeout(() => {
-        cameraSettlementTimerRef.current = null
-        committedZoomRef.current = camera.zoom
-        setZoom(camera.zoom)
-        setCameraPosition({ x: camera.x, y: camera.y })
+        settleCameraState(nextCamera)
       }, 120)
     },
-    [projectSelectedImageToolbarOverlay, projectTextFormattingToolbarOverlay]
+    [
+      cameraForPage,
+      projectSelectedImageToolbarOverlay,
+      projectTextFormattingToolbarOverlay,
+      settleCameraState,
+    ]
   )
 
   useEffect(
@@ -1944,12 +1969,25 @@ export function StudioShell({
   const fitCanvas = useCallback(() => {
     const workspace = workspaceRef.current
     if (!workspace) return
-    const camera = fitPageInViewport(
-      { width: activePage.width, height: activePage.height },
+    explicitPageFocusRef.current = activePage.id
+    const camera = cameraControllerRef.current?.zoomToPage(
+      artboardLayout,
+      activePage.id,
       { width: workspace.clientWidth, height: workspace.clientHeight }
     )
-    applyCamera(camera)
-  }, [activePage.height, activePage.width, applyCamera])
+    if (camera) applyCamera(camera)
+  }, [activePage.id, applyCamera, artboardLayout])
+
+  const fitAllPages = useCallback(() => {
+    const workspace = workspaceRef.current
+    if (!workspace) return
+    setAutoFit(false)
+    const camera = cameraControllerRef.current?.zoomToAllPages(artboardLayout, {
+      width: workspace.clientWidth,
+      height: workspace.clientHeight,
+    })
+    if (camera) applyCamera(camera)
+  }, [applyCamera, artboardLayout, setAutoFit])
 
   const focusWorkspace = useCallback(() => {
     setAutoFit(true)
@@ -1957,12 +1995,12 @@ export function StudioShell({
       window.requestAnimationFrame(() => {
         workspaceRef.current
           ?.querySelector<HTMLElement>(
-            ".upper-canvas, [role='application'][aria-label='Interactive design canvas']"
+            `[data-canvas-page-id="${CSS.escape(activePage.id)}"] .upper-canvas, [data-canvas-page-id="${CSS.escape(activePage.id)}"] [role='application'][aria-label='Interactive design canvas']`
           )
           ?.focus()
       })
     })
-  }, [])
+  }, [activePage.id])
 
   const finishOpenedSession = useCallback(async () => {
     const openedDocumentId = editor.getActiveDocumentId()
@@ -2198,17 +2236,22 @@ export function StudioShell({
   )
 
   const focusBounds = useCallback(
-    (bounds: NodeBounds) => {
+    (bounds: NodeBounds, pageId = activePage.id) => {
       const workspace = workspaceRef.current
       if (!workspace) return
-      const camera = focusCameraOnBounds(bounds, {
-        width: workspace.clientWidth,
-        height: workspace.clientHeight,
-      })
+      const worldBounds = artboardLayout.pageBoundsToWorld(pageId, bounds)
+      if (!worldBounds) return
+      explicitPageFocusRef.current = pageId
+      const camera = cameraControllerRef.current?.zoomToBounds(
+        worldBounds,
+        { width: workspace.clientWidth, height: workspace.clientHeight },
+        { padding: 160, maxZoom: 2 }
+      )
+      if (!camera) return
       setAutoFit(false)
       applyCamera(camera)
     },
-    [applyCamera]
+    [activePage.id, applyCamera, artboardLayout]
   )
 
   const markManualNavigation = useCallback(() => setAutoFit(false), [])
@@ -2221,8 +2264,90 @@ export function StudioShell({
 
   const zoomToSelection = useCallback(() => {
     const bounds = getSelectionBounds(editor.selectedNodes)
-    if (bounds) focusBounds(bounds)
-  }, [editor.selectedNodes, focusBounds])
+    if (bounds) focusBounds(bounds, editor.selection?.pageId)
+  }, [editor.selectedNodes, editor.selection?.pageId, focusBounds])
+
+  const focusPage = useCallback(
+    (pageId: string) => {
+      const workspace = workspaceRef.current
+      if (!workspace || !artboardLayout.getFrame(pageId)) return
+      explicitPageFocusRef.current = pageId
+      setAutoFit(true)
+      editor.selectPage(pageId)
+      const camera = cameraControllerRef.current?.zoomToPage(
+        artboardLayout,
+        pageId,
+        { width: workspace.clientWidth, height: workspace.clientHeight }
+      )
+      if (camera) applyCamera(camera)
+    },
+    [applyCamera, artboardLayout, editor.selectPage, setAutoFit]
+  )
+
+  const activateArtboard = useCallback(
+    (pageId: string) => {
+      if (
+        editor.imageCropSession &&
+        editor.imageCropSession.target.pageId !== pageId
+      ) {
+        return
+      }
+      explicitPageFocusRef.current = null
+      setAutoFit(false)
+      editor.selectPage(pageId)
+    },
+    [editor.imageCropSession, editor.selectPage, setAutoFit]
+  )
+
+  const addPageAndFocus = useCallback(
+    (outputId: string) => {
+      setAutoFit(true)
+      editor.addPage(outputId)
+    },
+    [editor.addPage, setAutoFit]
+  )
+
+  const interactionPageIds = useMemo(() => {
+    const pageIds = new Set<string>([activePage.id])
+    if (editor.selection?.pageId) pageIds.add(editor.selection.pageId)
+    if (editor.imageCropSession?.target.pageId) {
+      pageIds.add(editor.imageCropSession.target.pageId)
+    }
+    return pageIds
+  }, [activePage.id, editor.imageCropSession?.target.pageId, editor.selection])
+  const mountedArtboardPageIds = useMemo(
+    () =>
+      visiblePageIds(
+        artboardLayout,
+        { ...cameraPosition, zoom },
+        workspaceSize,
+        {
+          overscanScreens: desktopPresentation ? 1 : 0.5,
+          pinnedPageIds: interactionPageIds,
+        }
+      ),
+    [
+      artboardLayout,
+      cameraPosition,
+      desktopPresentation,
+      interactionPageIds,
+      workspaceSize,
+      zoom,
+    ]
+  )
+
+  const installArtboardHandle = useCallback(
+    (pageId: string, handle: FabricArtboardHandle | null) => {
+      if (handle) artboardHandlesRef.current.set(pageId, handle)
+      else artboardHandlesRef.current.delete(pageId)
+      if (pageId === activePageIdRef.current) artboardRef.current = handle
+    },
+    []
+  )
+
+  useLayoutEffect(() => {
+    artboardRef.current = artboardHandlesRef.current.get(activePage.id) ?? null
+  }, [activePage.id, mountedArtboardPageIds])
 
   const inspectorCapabilityContext = {
     documentEditable:
@@ -2271,16 +2396,6 @@ export function StudioShell({
       })
     },
     [editor.previewDocument.nodes, editor.reportImageReplacementRendererState]
-  )
-
-  const handleReactImageResourceStateChange = useCallback(
-    (state: ImageResourceStateChange) => {
-      editor.reportImageReplacementRendererState({
-        ...state,
-        renderer: "react",
-      })
-    },
-    [editor.reportImageReplacementRendererState]
   )
 
   const openMediaPicker = useCallback(
@@ -2785,12 +2900,13 @@ export function StudioShell({
       }
       if (next.width <= 0 || next.height <= 0) return
       if (autoFitRef.current) {
-        applyCamera(
-          fitPageInViewport(
-            { width: activePage.width, height: activePage.height },
-            next
-          )
+        explicitPageFocusRef.current = activePage.id
+        const camera = cameraControllerRef.current?.zoomToPage(
+          artboardLayout,
+          activePage.id,
+          next
         )
+        if (camera) applyCamera(camera)
         return
       }
       if (!sizeChanged) return
@@ -2804,16 +2920,10 @@ export function StudioShell({
       observer.disconnect()
       window.removeEventListener("resize", measureWorkspace)
     }
-  }, [
-    activePage.height,
-    activePage.width,
-    applyCamera,
-    autoFit,
-    workspaceElement,
-  ])
+  }, [activePage.id, applyCamera, artboardLayout, autoFit, workspaceElement])
 
   useEffect(() => {
-    setAutoFit(true)
+    if (!autoFitRef.current) return
     window.requestAnimationFrame(fitCanvas)
   }, [activePage.id, fitCanvas])
 
@@ -2995,7 +3105,7 @@ export function StudioShell({
     if (!node || !page) return
     if (page.id !== editor.activePageId) editor.selectPage(page.id)
     editor.setSelection({ pageId: page.id, nodeIds: [nodeId] })
-    focusBounds(getNodeBounds(node))
+    focusBounds(getNodeBounds(node), page.id)
   }
 
   const createComponentFromSelection = useCallback(() => {
@@ -3010,11 +3120,14 @@ export function StudioShell({
     (componentId: string) => {
       const workspace = workspaceRef.current
       const camera = cameraRef.current
-      const center = workspace
+      const worldCenter = workspace
         ? {
             x: (workspace.clientWidth / 2 - camera.x) / camera.zoom,
             y: (workspace.clientHeight / 2 - camera.y) / camera.zoom,
           }
+        : null
+      const center = worldCenter
+        ? (artboardLayout.worldToPage(activePage.id, worldCenter) ?? undefined)
         : undefined
       const instanceId = editor.createComponentInstance(componentId, center)
       if (!instanceId) return
@@ -3022,7 +3135,7 @@ export function StudioShell({
       setCompactPanel(null)
       window.requestAnimationFrame(() => zoomToSelection())
     },
-    [editor, zoomToSelection]
+    [activePage.id, artboardLayout, editor, zoomToSelection]
   )
 
   const focusComponentSource = useCallback(
@@ -3048,7 +3161,7 @@ export function StudioShell({
       setDocumentPanelTab("layers")
       setCompactPanel(null)
       const bounds = getSelectionBounds(nodes)
-      if (bounds) focusBounds(bounds)
+      if (bounds) focusBounds(bounds, group.pageId)
     },
     [editor, focusBounds]
   )
@@ -3070,7 +3183,7 @@ export function StudioShell({
       if (group.pageId !== editor.activePageId) editor.selectPage(group.pageId)
       editor.setSelection({ pageId: group.pageId, nodeIds })
       const bounds = getSelectionBounds(nodes)
-      if (bounds) focusBounds(bounds)
+      if (bounds) focusBounds(bounds, group.pageId)
     }
     if (target.kind === "node") {
       focusNode(target.id)
@@ -4236,10 +4349,10 @@ export function StudioShell({
         <p className="sr-only" role="status" aria-live="polite" aria-atomic>
           {shellLayoutError ?? ""}
         </p>
-        <header className="flex h-(--studio-topbar-height) min-w-0 shrink-0 items-center gap-1 border-b border-border/80 bg-editor-panel px-2 min-[1280px]:gap-3 min-[1280px]:px-3">
+        <header className="flex h-(--studio-topbar-height) min-w-0 shrink-0 items-center gap-1 border-b border-border bg-editor-panel px-2 min-[1280px]:gap-2 min-[1280px]:px-3">
           <button
             aria-label="Go to Studio home"
-            className="flex min-w-0 flex-1 items-center gap-2 rounded-md text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/40 min-[1280px]:w-56 min-[1280px]:flex-none min-[1280px]:gap-2.5"
+            className="flex min-w-0 flex-1 items-center gap-2 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/30 min-[1280px]:w-60 min-[1280px]:flex-none min-[1280px]:gap-2.5"
             disabled={!homeCommand.enabled}
             title={homeCommand.disabledReason ?? "Studio home"}
             type="button"
@@ -4247,7 +4360,7 @@ export function StudioShell({
               productCommandRuntime.run({ commandId: "document.home" })
             }}
           >
-            <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+            <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
               <StudioMark className="size-3.5" />
             </div>
             <div className="flex min-w-0 flex-col leading-none">
@@ -4276,14 +4389,14 @@ export function StudioShell({
           />
           <div
             aria-label="Canvas tools"
-            className="hidden shrink-0 items-center gap-0.5 rounded-md bg-muted/55 p-0.5 ring-1 ring-border/65 min-[640px]:flex"
+            className="hidden shrink-0 items-center gap-0.5 min-[640px]:flex"
             role="toolbar"
           >
             <IconButton
               label="Select"
               shortcut="V"
               aria-pressed={tool === "select"}
-              className="size-11 aria-pressed:bg-studio-accent aria-pressed:text-white aria-pressed:hover:bg-studio-accent/90 min-[1280px]:size-7"
+              className="size-11 aria-pressed:bg-primary aria-pressed:text-primary-foreground aria-pressed:hover:bg-primary/85 min-[1280px]:size-7"
               disabled={!commandEnabled("tool.select")}
               variant="ghost"
               onClick={() => runEditorCommand("tool.select")}
@@ -4294,7 +4407,7 @@ export function StudioShell({
               label="Hand tool"
               shortcut="H"
               aria-pressed={tool === "hand"}
-              className="size-11 aria-pressed:bg-studio-accent aria-pressed:text-white aria-pressed:hover:bg-studio-accent/90 min-[1280px]:size-7"
+              className="size-11 aria-pressed:bg-primary aria-pressed:text-primary-foreground aria-pressed:hover:bg-primary/85 min-[1280px]:size-7"
               disabled={!commandEnabled("tool.hand")}
               variant="ghost"
               onClick={() => runEditorCommand("tool.hand")}
@@ -4499,7 +4612,7 @@ export function StudioShell({
           />
           <div
             aria-label="History"
-            className="hidden shrink-0 items-center gap-0.5 rounded-md bg-muted/40 p-0.5 min-[860px]:flex"
+            className="hidden shrink-0 items-center gap-0.5 min-[860px]:flex"
             role="group"
           >
             <IconButton
@@ -4530,7 +4643,7 @@ export function StudioShell({
               />
               <div
                 aria-label="Selection actions"
-                className="hidden items-center gap-0.5 rounded-md bg-muted/40 p-0.5 min-[1280px]:flex"
+                className="hidden items-center gap-0.5 min-[1280px]:flex"
                 role="toolbar"
               >
                 <IconButton
@@ -5037,8 +5150,8 @@ export function StudioShell({
                   onMediaSelect={insertMediaFromAssets}
                   productCommandContext={productCommandContext}
                   productCommandRuntime={productMenuRuntime}
-                  onSelectPage={editor.selectPage}
-                  onAddPage={editor.addPage}
+                  onSelectPage={focusPage}
+                  onAddPage={addPageAndFocus}
                   onDuplicatePage={editor.duplicatePage}
                   onUpdatePage={editor.updatePage}
                   onRemovePage={editor.removePage}
@@ -5110,11 +5223,11 @@ export function StudioShell({
               </div>
               {editor.selectedNodes.length ? (
                 <div
-                  className="ml-auto hidden min-w-0 items-center gap-1.5 rounded-md bg-[#0d99ff]/8 px-2 py-1 min-[640px]:flex"
+                  className="ml-auto hidden min-w-0 items-center gap-1.5 rounded-md bg-studio-accent/8 px-2 py-1 min-[640px]:flex"
                   role="status"
                   aria-live="polite"
                 >
-                  <span className="size-1.5 shrink-0 rounded-full bg-[#0d99ff]" />
+                  <span className="size-1.5 shrink-0 rounded-full bg-studio-accent" />
                   <span className="max-w-64 truncate text-[11px] font-medium text-foreground">
                     {editor.selectedNodes.length === 1
                       ? editor.selectedNodes[0]?.name
@@ -5163,7 +5276,7 @@ export function StudioShell({
             {!editor.imageCropSession &&
             selectedImage &&
             selectedImageToolbarPlacement?.mode === "docked" ? (
-              <div className="relative z-30 flex shrink-0 justify-center border-b bg-editor-panel/92 p-1 backdrop-blur-sm">
+              <div className="relative z-30 flex shrink-0 justify-center border-b bg-editor-panel p-1">
                 <SelectedImageToolbar
                   image={selectedImage}
                   className="max-w-full shadow-sm"
@@ -5175,7 +5288,7 @@ export function StudioShell({
             {!editor.imageCropSession &&
             textEditingState &&
             textFormattingToolbarPlacement?.mode === "docked" ? (
-              <div className="relative z-30 flex shrink-0 justify-center border-b bg-editor-panel/92 p-1 backdrop-blur-sm">
+              <div className="relative z-30 flex shrink-0 justify-center border-b bg-editor-panel p-1">
                 <TextFormattingToolbar
                   state={textEditingState}
                   className="max-w-full shadow-sm"
@@ -5193,7 +5306,7 @@ export function StudioShell({
               <div
                 ref={installWorkspaceElement}
                 aria-label="Canvas viewport"
-                className={`workspace-grid relative min-h-0 flex-1 overflow-hidden overscroll-contain ${
+                className={`relative min-h-0 flex-1 overflow-hidden overscroll-contain bg-workspace ${
                   isPanning
                     ? "cursor-grabbing select-none"
                     : !editor.imageCropSession &&
@@ -5225,7 +5338,8 @@ export function StudioShell({
                     cameraTransformRef.current = element
                     if (element) {
                       const camera = cameraRef.current
-                      element.style.transform = `translate3d(${camera.x}px, ${camera.y}px, 0)`
+                      element.style.transformOrigin = "top left"
+                      element.style.transform = `translate3d(${camera.x}px, ${camera.y}px, 0) scale(${camera.zoom / committedZoomRef.current})`
                     }
                   }}
                   className="absolute top-0 left-0 will-change-transform"
@@ -5237,78 +5351,172 @@ export function StudioShell({
                     }
                   }}
                 >
-                  <FabricArtboard
-                    ref={artboardRef}
+                  <MultiArtboardWorkspace
                     document={editor.previewDocument}
-                    pageId={activePage.id}
-                    selection={editor.selection}
-                    hoveredNodeId={hoveredNodeId}
-                    textEditingNodeId={textEditingNodeId}
-                    textEditingSelection={textEditingSelection}
-                    imageCropMode={
-                      editor.imageCropSession
-                        ? {
-                            nodeId: editor.imageCropSession.target.nodeId,
-                            placement: editor.imageCropSession.draft,
-                          }
-                        : null
-                    }
-                    imageCropPreviewStore={editor.imageCropPreviewStore}
-                    imageResourceTokens={imageReplacementResourceTokens}
+                    layout={artboardLayout}
                     zoom={zoom}
-                    snapTargets={activeGuideSnapTargets}
-                    interactive={Boolean(
-                      !editor.pendingChangeSet && !pendingQuotationRefresh
+                    activePageId={activePage.id}
+                    mountedPageIds={mountedArtboardPageIds}
+                    interactionPageIds={interactionPageIds}
+                    mutationDisabled={Boolean(
+                      editor.pendingChangeSet ||
+                      pendingQuotationRefresh ||
+                      editor.draftRecovery
                     )}
-                    onCanvasDoubleClick={({ clientX, clientY }) =>
-                      zoomAtPoint(zoom * 1.75, clientX, clientY)
-                    }
-                    onNodeDoubleClick={(nodeId) =>
-                      editor.setSelection({
-                        pageId: activePage.id,
-                        nodeIds: [nodeId],
-                      })
-                    }
-                    onContextMenu={({ nodeId }) => {
-                      if (!nodeId) {
-                        editor.setSelection(null)
-                        guideWorkspace.setSelectedGuideId(null)
-                        return
-                      }
-                      if (editor.selection?.nodeIds.includes(nodeId)) return
-                      editor.setSelection({
-                        pageId: activePage.id,
-                        nodeIds: [nodeId],
-                      })
-                    }}
-                    onImageDoubleClick={(nodeId) =>
-                      beginImageCrop(nodeId, { source: "canvas" })
-                    }
-                    onImageCropPreview={({ nodeId, placement }) => {
-                      if (nodeId === editor.imageCropSession?.target.nodeId) {
-                        editor.previewImageCrop(placement)
-                      }
-                    }}
-                    onImageCropFramePreview={editor.previewImageCropFrame}
-                    onImageCropUnavailable={({ nodeId }) => {
-                      editor.rejectUnavailableImageCrop(nodeId)
-                    }}
-                    onImageSourceStateChange={handleImageSourceStateChange}
-                    onTextEditingStart={(nodeId) => {
-                      setTextEditingSelection(null)
-                      setTextEditingNodeId((requestedNodeId) =>
-                        requestedNodeId === nodeId ? null : requestedNodeId
-                      )
-                    }}
-                    onTextEditingChange={setTextEditingState}
-                    onSelectionChange={editor.setCanvasSelection}
-                    onNodesChange={editor.updateNodes}
+                    onActivatePage={activateArtboard}
+                    onFocusPage={focusPage}
+                    onAddPage={addPageAndFocus}
+                    renderArtboard={(page: Page) => (
+                      <>
+                        <FabricArtboard
+                          ref={(handle) =>
+                            installArtboardHandle(page.id, handle)
+                          }
+                          document={editor.previewDocument}
+                          documentSyncIdentity={pageSyncIdentities.get(page.id)}
+                          pageId={page.id}
+                          selection={
+                            editor.selection?.pageId === page.id
+                              ? editor.selection
+                              : null
+                          }
+                          hoveredNodeId={
+                            hoveredNodeId &&
+                            page.nodeIds.includes(hoveredNodeId)
+                              ? hoveredNodeId
+                              : null
+                          }
+                          textEditingNodeId={
+                            editor.selection?.pageId === page.id
+                              ? textEditingNodeId
+                              : null
+                          }
+                          textEditingSelection={textEditingSelection}
+                          imageCropMode={
+                            editor.imageCropSession?.target.pageId === page.id
+                              ? {
+                                  nodeId: editor.imageCropSession.target.nodeId,
+                                  placement: editor.imageCropSession.draft,
+                                }
+                              : null
+                          }
+                          imageCropPreviewStore={
+                            editor.imageCropSession?.target.pageId === page.id
+                              ? editor.imageCropPreviewStore
+                              : null
+                          }
+                          imageResourceTokens={imageReplacementResourceTokens}
+                          zoom={zoom}
+                          snapTargets={
+                            activePage.id === page.id
+                              ? activeGuideSnapTargets
+                              : []
+                          }
+                          interactive={Boolean(
+                            !editor.pendingChangeSet &&
+                            !pendingQuotationRefresh &&
+                            (!editor.imageCropSession ||
+                              editor.imageCropSession.target.pageId === page.id)
+                          )}
+                          onCanvasDoubleClick={({ clientX, clientY }) =>
+                            zoomAtPoint(zoom * 1.75, clientX, clientY)
+                          }
+                          onNodeDoubleClick={(nodeId) =>
+                            editor.setSelection({
+                              pageId: page.id,
+                              nodeIds: [nodeId],
+                            })
+                          }
+                          onContextMenu={({ nodeId }) => {
+                            if (!nodeId) {
+                              editor.setSelection(null)
+                              guideWorkspace.setSelectedGuideId(null)
+                              return
+                            }
+                            if (
+                              editor.selection?.pageId === page.id &&
+                              editor.selection.nodeIds.includes(nodeId)
+                            ) {
+                              return
+                            }
+                            editor.setSelection({
+                              pageId: page.id,
+                              nodeIds: [nodeId],
+                            })
+                          }}
+                          onImageDoubleClick={(nodeId) =>
+                            beginImageCrop(nodeId, { source: "canvas" })
+                          }
+                          onImageCropPreview={({ nodeId, placement }) => {
+                            if (
+                              nodeId === editor.imageCropSession?.target.nodeId
+                            ) {
+                              editor.previewImageCrop(placement)
+                            }
+                          }}
+                          onImageCropFramePreview={editor.previewImageCropFrame}
+                          onImageCropUnavailable={({ nodeId }) => {
+                            editor.rejectUnavailableImageCrop(nodeId)
+                          }}
+                          onImageSourceStateChange={
+                            handleImageSourceStateChange
+                          }
+                          onTextEditingStart={(nodeId) => {
+                            setTextEditingSelection(null)
+                            setTextEditingNodeId((requestedNodeId) =>
+                              requestedNodeId === nodeId
+                                ? null
+                                : requestedNodeId
+                            )
+                          }}
+                          onTextEditingChange={setTextEditingState}
+                          onSelectionChange={editor.setCanvasSelection}
+                          onNodesChange={editor.updateNodes}
+                        />
+                        {page.id === activePage.id &&
+                        page.nodeIds.length === 0 &&
+                        !editor.imageCropSession ? (
+                          <EmptyCanvasActions
+                            disabled={Boolean(
+                              editor.pendingChangeSet ||
+                              pendingQuotationRefresh ||
+                              editor.draftRecovery
+                            )}
+                            onAddText={() => {
+                              insertTextPreset()
+                            }}
+                            onAddImage={() => openMediaPicker("recent")}
+                            onChooseTemplate={() => {
+                              setDocumentPanelTab("templates")
+                              if (desktopPresentation) {
+                                if (
+                                  shellLayoutRef.current.leftPanel.collapsed
+                                ) {
+                                  toggleShellPanel("left")
+                                }
+                                return
+                              }
+                              compactPanelTriggerRef.current =
+                                document.activeElement instanceof
+                                HTMLButtonElement
+                                  ? document.activeElement
+                                  : null
+                              setCompactPanel("document")
+                            }}
+                            onAddPage={() => addPageAndFocus(page.outputId)}
+                          />
+                        ) : null}
+                      </>
+                    )}
                   />
                 </div>
                 <CanvasRulerGuideOverlay
                   ref={rulerGuideOverlayRef}
                   pageId={activePage.id}
-                  camera={{ ...cameraPosition, zoom }}
+                  camera={cameraForPage(
+                    { ...cameraPosition, zoom },
+                    activePage.id
+                  )}
                   viewport={workspaceSize}
                   pageSize={{
                     width: activePage.width,
@@ -5339,34 +5547,6 @@ export function StudioShell({
                     removeWorkspaceGuide(guideId)
                   }}
                 />
-                {activePage.nodeIds.length === 0 && !editor.imageCropSession ? (
-                  <EmptyCanvasActions
-                    disabled={Boolean(
-                      editor.pendingChangeSet ||
-                      pendingQuotationRefresh ||
-                      editor.draftRecovery
-                    )}
-                    onAddText={() => {
-                      insertTextPreset()
-                    }}
-                    onAddImage={() => openMediaPicker("recent")}
-                    onChooseTemplate={() => {
-                      setDocumentPanelTab("templates")
-                      if (desktopPresentation) {
-                        if (shellLayoutRef.current.leftPanel.collapsed) {
-                          toggleShellPanel("left")
-                        }
-                        return
-                      }
-                      compactPanelTriggerRef.current =
-                        document.activeElement instanceof HTMLButtonElement
-                          ? document.activeElement
-                          : null
-                      setCompactPanel("document")
-                    }}
-                    onAddPage={() => editor.addPage(activePage.outputId)}
-                  />
-                ) : null}
                 {!editor.imageCropSession &&
                 selectedImage &&
                 selectedImageToolbarPlacement?.mode === "overlay" ? (
@@ -5430,26 +5610,6 @@ export function StudioShell({
               </div>
             </ProductCommandContextMenu>
 
-            <ProductPageFilmstrip
-              document={editor.previewDocument}
-              density={shellLayout.filmstripDensity}
-              imageResourceTokens={imageReplacementResourceTokens}
-              onImageResourceStateChange={handleReactImageResourceStateChange}
-              activePageId={editor.activePageId}
-              reviewPending={Boolean(
-                editor.pendingChangeSet || pendingQuotationRefresh
-              )}
-              onSelectPage={editor.selectPage}
-              onAddPage={editor.addPage}
-              onDuplicatePage={editor.duplicatePage}
-              onRemovePage={editor.removePage}
-              onReorderPage={editor.reorderPage}
-              productCommandContext={productCommandContext}
-              productCommandRuntime={productMenuRuntime}
-              raster={pageThumbnailRaster}
-              onDensityChange={setFilmstripDensity}
-            />
-
             {editor.imageCropPreviewStore && cropImageName ? (
               <ImageCropToolbar
                 previewStore={editor.imageCropPreviewStore}
@@ -5460,9 +5620,7 @@ export function StudioShell({
                 className={
                   cropToolbarEdge === "top"
                     ? "top-24 bottom-auto min-[1280px]:top-24 min-[1280px]:bottom-auto"
-                    : shellLayout.filmstripDensity === "compact"
-                      ? "bottom-[100px] min-[1280px]:bottom-[108px]"
-                      : "bottom-[100px] min-[1280px]:bottom-[132px]"
+                    : "bottom-4"
                 }
                 onPreview={editor.previewImageCrop}
                 onRunCommand={runEditorCommand}
@@ -5474,12 +5632,7 @@ export function StudioShell({
 
             {!editor.imageCropSession ? (
               <CanvasZoomControls
-                className={cn(
-                  "absolute left-1/2 -translate-x-1/2",
-                  shellLayout.filmstripDensity === "compact"
-                    ? "bottom-[100px] min-[1280px]:bottom-[108px]"
-                    : "bottom-[100px] min-[1280px]:bottom-[132px]"
-                )}
+                className="absolute bottom-4 left-1/2 -translate-x-1/2"
                 zoom={zoom}
                 hasSelection={editor.selectedNodes.length > 0}
                 onZoomChange={setManualZoom}
@@ -5487,6 +5640,7 @@ export function StudioShell({
                   setAutoFit(true)
                   fitCanvas()
                 }}
+                onFitAll={fitAllPages}
                 onZoomToSelection={zoomToSelection}
               />
             ) : null}
@@ -5545,6 +5699,7 @@ export function StudioShell({
                     artboardRef.current?.restoreNodePreview(nodeId)
                   }
                   onUpdateSelection={editor.updateSelectionNodes}
+                  onTransformSelection={editor.transformSelectionNodes}
                   onUpdateField={editor.updateField}
                   onChooseFieldAsset={openFieldMediaPicker}
                   onCreateField={editor.createField}
@@ -5767,10 +5922,13 @@ export function StudioShell({
                 productCommandContext={productCommandContext}
                 productCommandRuntime={productMenuRuntime}
                 onSelectPage={(pageId) => {
-                  editor.selectPage(pageId)
+                  focusPage(pageId)
                   setCompactPanel(null)
                 }}
-                onAddPage={editor.addPage}
+                onAddPage={(outputId) => {
+                  addPageAndFocus(outputId)
+                  setCompactPanel(null)
+                }}
                 onDuplicatePage={editor.duplicatePage}
                 onUpdatePage={editor.updatePage}
                 onRemovePage={editor.removePage}
@@ -5811,6 +5969,7 @@ export function StudioShell({
                   artboardRef.current?.restoreNodePreview(nodeId)
                 }
                 onUpdateSelection={editor.updateSelectionNodes}
+                onTransformSelection={editor.transformSelectionNodes}
                 onUpdateField={editor.updateField}
                 onChooseFieldAsset={openFieldMediaPicker}
                 onCreateField={editor.createField}
@@ -6253,11 +6412,7 @@ export function StudioShell({
                 setAutoFit(true)
                 window.requestAnimationFrame(() => {
                   fitCanvas()
-                  workspaceRef.current
-                    ?.querySelector<HTMLElement>(
-                      ".upper-canvas, [role='application'][aria-label='Interactive design canvas']"
-                    )
-                    ?.focus()
+                  focusWorkspace()
                 })
               }}
               starterMetadata={editor.starterMetadata}

@@ -167,7 +167,7 @@ export function ImageCropFrameOverlay({
           }}
           onPointerCancel={cancelResize}
         >
-          <span className="pointer-events-none absolute top-1/2 left-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-[2px] border border-[#0d99ff] bg-white shadow-[0_0_0_1px_rgba(255,255,255,0.85)]" />
+          <span className="pointer-events-none absolute top-1/2 left-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-[2px] border border-studio-accent bg-white shadow-[0_0_0_1px_rgba(255,255,255,0.85)]" />
         </div>
       ))}
     </div>

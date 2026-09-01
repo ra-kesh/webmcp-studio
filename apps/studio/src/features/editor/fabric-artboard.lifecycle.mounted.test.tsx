@@ -12,6 +12,8 @@ import { renderConformanceDocument } from "@webmcp/document"
 import { quotationStarter } from "./quotation-starter"
 import { FabricArtboard } from "./fabric-artboard"
 import type { FabricArtboardHandle } from "./fabric-artboard"
+import { MultiArtboardRenderRegistry } from "./multi-artboard-render-registry"
+import { MultiArtboardRenderRegistryContext } from "./multi-artboard-render-registry-context"
 
 const reactEnvironment = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT: boolean
@@ -120,6 +122,41 @@ describe("FabricArtboard lifecycle", () => {
     expect(onRuntimeStateChange).toHaveBeenLastCalledWith(
       expect.objectContaining({ status: "error", stage: "startup", attempt: 0 })
     )
+  })
+
+  it("registers its page controller with the multi-artboard registry", async () => {
+    const registry = new MultiArtboardRenderRegistry()
+    const adapter = fakeAdapter()
+
+    await act(async () => {
+      root.render(
+        <MultiArtboardRenderRegistryContext.Provider value={registry}>
+          <FabricArtboard
+            {...baseProps}
+            runtimeOptions={{
+              loadAdapter: async () => adapterModule(() => adapter),
+            }}
+          />
+        </MultiArtboardRenderRegistryContext.Provider>
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(registry.getSnapshot().mountedPageIds).toEqual([
+      quotationStarter.document.pages[0].id,
+    ])
+
+    await act(async () => {
+      root.render(
+        <MultiArtboardRenderRegistryContext.Provider value={registry}>
+          {null}
+        </MultiArtboardRenderRegistryContext.Provider>
+      )
+      await Promise.resolve()
+    })
+
+    expect(registry.getSnapshot().mountedPageIds).toEqual([])
   })
 
   it("waits for exact prior teardown before a retry mounts another adapter", async () => {

@@ -62,7 +62,7 @@ describe("studio shell layout preferences", () => {
   test("encodes the audited panel and canvas metrics in its defaults", () => {
     expect(STUDIO_SHELL_LAYOUT_LIMITS).toEqual({
       leftPanel: { minimum: 208, default: 264, maximum: 360 },
-      rightPanel: { minimum: 280, default: 336, maximum: 440 },
+      rightPanel: { minimum: 256, default: 288, maximum: 400 },
       canvas: { minimum: 520 },
       splitter: { width: 12 },
       filmstrip: { compact: 96, comfortable: 120 },
@@ -70,7 +70,7 @@ describe("studio shell layout preferences", () => {
     expect(createDefaultStudioShellLayout()).toEqual({
       version: 1,
       leftPanel: { width: 264, collapsed: false },
-      rightPanel: { width: 336, collapsed: false },
+      rightPanel: { width: 288, collapsed: false },
       filmstripDensity: "compact",
     })
   })
@@ -90,7 +90,7 @@ describe("studio shell layout preferences", () => {
       layout: {
         version: 1,
         leftPanel: { width: 208, collapsed: false },
-        rightPanel: { width: 440, collapsed: true },
+        rightPanel: { width: 400, collapsed: true },
         filmstripDensity: "comfortable",
       },
     })
@@ -153,7 +153,7 @@ describe("studio shell layout preferences", () => {
       collapsed: false,
     })
     expect(setStudioShellPanelWidth(original, "right", 10).rightPanel).toEqual({
-      width: 280,
+      width: 256,
       collapsed: false,
     })
   })
@@ -173,19 +173,19 @@ describe("studio shell desktop reconciliation", () => {
       resolveStudioShellLayout(createDefaultStudioShellLayout(), 1280)
     ).toEqual({
       leftPanelWidth: 264,
-      rightPanelWidth: 336,
-      canvasWidth: 656,
-      minimumRequiredWidth: 1032,
+      rightPanelWidth: 288,
+      canvasWidth: 704,
+      minimumRequiredWidth: 1008,
       canUseDesktopLayout: true,
     })
   })
 
   test("shrinks both requested panels proportionally before the canvas", () => {
     expect(resolveStudioShellLayout(layoutWithWidths(360, 440), 1280)).toEqual({
-      leftPanelWidth: 328,
-      rightPanelWidth: 408,
+      leftPanelWidth: 347,
+      rightPanelWidth: 389,
       canvasWidth: 520,
-      minimumRequiredWidth: 1032,
+      minimumRequiredWidth: 1008,
       canUseDesktopLayout: true,
     })
   })
@@ -198,9 +198,9 @@ describe("studio shell desktop reconciliation", () => {
     )
     expect(resolveStudioShellLayout(layout, 1280)).toEqual({
       leftPanelWidth: 0,
-      rightPanelWidth: 432,
-      canvasWidth: 836,
-      minimumRequiredWidth: 812,
+      rightPanelWidth: 400,
+      canvasWidth: 868,
+      minimumRequiredWidth: 788,
       canUseDesktopLayout: true,
     })
     expect(layout.leftPanel).toEqual({ width: 352, collapsed: true })
@@ -208,12 +208,12 @@ describe("studio shell desktop reconciliation", () => {
 
   test("signals compact composition when panel and canvas minimums cannot fit", () => {
     expect(
-      resolveStudioShellLayout(createDefaultStudioShellLayout(), 1024)
+      resolveStudioShellLayout(createDefaultStudioShellLayout(), 1000)
     ).toEqual({
       leftPanelWidth: 208,
-      rightPanelWidth: 280,
+      rightPanelWidth: 256,
       canvasWidth: 512,
-      minimumRequiredWidth: 1032,
+      minimumRequiredWidth: 1008,
       canUseDesktopLayout: false,
     })
     expect(
@@ -232,21 +232,21 @@ describe("studio shell desktop reconciliation", () => {
       disabled: false,
     })
     expect(getStudioShellPanelResizeBounds(wide, "right", 1600)).toEqual({
-      value: 440,
-      minimum: 280,
-      maximum: 440,
+      value: 400,
+      minimum: 256,
+      maximum: 400,
       disabled: false,
     })
     expect(getStudioShellPanelResizeBounds(wide, "left", 1280)).toEqual({
-      value: 328,
+      value: 347,
       minimum: 208,
-      maximum: 328,
+      maximum: 347,
       disabled: false,
     })
     expect(getStudioShellPanelResizeBounds(wide, "right", 1280)).toEqual({
-      value: 408,
-      minimum: 280,
-      maximum: 408,
+      value: 389,
+      minimum: 256,
+      maximum: 389,
       disabled: false,
     })
   })
@@ -255,8 +255,8 @@ describe("studio shell desktop reconciliation", () => {
     const wide = layoutWithWidths(360, 440)
     const constrained = resolveStudioShellLayout(wide, 1280)
     expect(constrained).toMatchObject({
-      leftPanelWidth: 328,
-      rightPanelWidth: 408,
+      leftPanelWidth: 347,
+      rightPanelWidth: 389,
       canvasWidth: 520,
     })
 
@@ -266,28 +266,28 @@ describe("studio shell desktop reconciliation", () => {
       constrained.leftPanelWidth - 8,
       1280
     )
-    expect(movedInward.leftPanel.width).toBe(320)
-    expect(movedInward.rightPanel.width).toBe(408)
+    expect(movedInward.leftPanel.width).toBe(339)
+    expect(movedInward.rightPanel.width).toBe(389)
     expect(resolveStudioShellLayout(movedInward, 1280)).toMatchObject({
-      leftPanelWidth: 320,
-      rightPanelWidth: 408,
+      leftPanelWidth: 339,
+      rightPanelWidth: 389,
       canvasWidth: 528,
     })
     expect(
       getStudioShellPanelResizeBounds(movedInward, "right", 1280).maximum
-    ).toBe(416)
+    ).toBe(397)
 
     const movedOutward = resizeStudioShellPanelAtWidth(
       movedInward,
       "left",
-      328,
+      347,
       1280
     )
-    expect(movedOutward.leftPanel.width).toBe(328)
-    expect(movedOutward.rightPanel.width).toBe(408)
+    expect(movedOutward.leftPanel.width).toBe(347)
+    expect(movedOutward.rightPanel.width).toBe(389)
     expect(resolveStudioShellLayout(movedOutward, 1280)).toMatchObject({
-      leftPanelWidth: 328,
-      rightPanelWidth: 408,
+      leftPanelWidth: 347,
+      rightPanelWidth: 389,
       canvasWidth: 520,
     })
 
@@ -297,8 +297,8 @@ describe("studio shell desktop reconciliation", () => {
       constrained.leftPanelWidth + 8,
       1280
     )
-    expect(clampedOutward.leftPanel.width).toBe(328)
-    expect(clampedOutward.rightPanel.width).toBe(408)
+    expect(clampedOutward.leftPanel.width).toBe(347)
+    expect(clampedOutward.rightPanel.width).toBe(389)
     expect(resolveStudioShellLayout(clampedOutward, 1280).canvasWidth).toBe(520)
   })
 
@@ -312,28 +312,28 @@ describe("studio shell desktop reconciliation", () => {
       constrained.rightPanelWidth - 8,
       1280
     )
-    expect(movedInward.leftPanel.width).toBe(328)
-    expect(movedInward.rightPanel.width).toBe(400)
+    expect(movedInward.leftPanel.width).toBe(347)
+    expect(movedInward.rightPanel.width).toBe(381)
     expect(resolveStudioShellLayout(movedInward, 1280)).toMatchObject({
-      leftPanelWidth: 328,
-      rightPanelWidth: 400,
+      leftPanelWidth: 347,
+      rightPanelWidth: 381,
       canvasWidth: 528,
     })
     expect(
       getStudioShellPanelResizeBounds(movedInward, "left", 1280).maximum
-    ).toBe(336)
+    ).toBe(355)
 
     const movedOutward = resizeStudioShellPanelAtWidth(
       movedInward,
       "right",
-      408,
+      389,
       1280
     )
-    expect(movedOutward.leftPanel.width).toBe(328)
-    expect(movedOutward.rightPanel.width).toBe(408)
+    expect(movedOutward.leftPanel.width).toBe(347)
+    expect(movedOutward.rightPanel.width).toBe(389)
     expect(resolveStudioShellLayout(movedOutward, 1280)).toMatchObject({
-      leftPanelWidth: 328,
-      rightPanelWidth: 408,
+      leftPanelWidth: 347,
+      rightPanelWidth: 389,
       canvasWidth: 520,
     })
 
@@ -343,8 +343,8 @@ describe("studio shell desktop reconciliation", () => {
       constrained.rightPanelWidth + 8,
       1280
     )
-    expect(clampedOutward.leftPanel.width).toBe(328)
-    expect(clampedOutward.rightPanel.width).toBe(408)
+    expect(clampedOutward.leftPanel.width).toBe(347)
+    expect(clampedOutward.rightPanel.width).toBe(389)
     expect(resolveStudioShellLayout(clampedOutward, 1280).canvasWidth).toBe(520)
   })
 })
@@ -366,13 +366,13 @@ describe("studio shell splitter keyboard math", () => {
     expect(
       applyStudioShellResizeKey(initial, "right", { key: "ArrowLeft" }).layout
         .rightPanel.width
-    ).toBe(344)
+    ).toBe(296)
     expect(
       applyStudioShellResizeKey(initial, "right", {
         key: "ArrowRight",
         shiftKey: true,
       }).layout.rightPanel.width
-    ).toBe(304)
+    ).toBe(256)
   })
 
   test("supports Home, End, Enter, bounds, and unrelated keys", () => {
@@ -384,19 +384,19 @@ describe("studio shell splitter keyboard math", () => {
     expect(
       applyStudioShellResizeKey(initial, "right", { key: "End" }).layout
         .rightPanel.width
-    ).toBe(440)
+    ).toBe(400)
 
     const collapsed = applyStudioShellResizeKey(initial, "right", {
       key: "Enter",
     })
     expect(collapsed).toMatchObject({
       handled: true,
-      layout: { rightPanel: { width: 336, collapsed: true } },
+      layout: { rightPanel: { width: 288, collapsed: true } },
     })
     expect(
       applyStudioShellResizeKey(collapsed.layout, "right", { key: "Enter" })
         .layout.rightPanel
-    ).toEqual({ width: 336, collapsed: false })
+    ).toEqual({ width: 288, collapsed: false })
 
     const ignored = applyStudioShellResizeKey(initial, "left", { key: "Tab" })
     expect(ignored).toEqual({ handled: false, layout: initial })

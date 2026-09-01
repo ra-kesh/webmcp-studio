@@ -199,6 +199,11 @@ import {
 import { ReusableStyleField } from "./reusable-style-field"
 import { DesignVariablesPanel } from "./design-variables-panel"
 import type { ProductCommandMenuRuntime } from "./product-command-menu"
+import { PositionTransformControls } from "./position-transform-controls"
+import {
+  positionTransformPatch,
+  type PositionTransformAction,
+} from "./position-transform"
 
 const DEMO_AGENT_BRIEF =
   "Inspect and validate the open design. Adapt it for Mira & Dev, 14 February 2027 in Udaipur, using The Moonlit Weekend package at ₹4,25,000, valid until 30 November 2026. Search the approved asset library for warm sandstone architecture. Then create one coordinated human-reviewed proposal that updates those shared fields and inserts the best asset on the Cover at x 620, y 120, width 540, height 900 with cover fit. Do not apply or publish anything. Summarize the affected outputs and wait for my review."
@@ -209,6 +214,7 @@ const ignoreNodeId = (_nodeId: string) => undefined
 const ignoreNodePatch = (_nodeId: string, _patch: Partial<SceneNode>) =>
   undefined
 const ignoreNodePreviewCancel = (_nodeId: string) => undefined
+const ignorePositionTransform = (_action: PositionTransformAction) => undefined
 const ignoreTextStylePatch = (_patch: TextRunStylePatch) => undefined
 const ignoreTextParagraphStylePatch = (_patch: TextParagraphStylePatch) =>
   undefined
@@ -297,17 +303,17 @@ function InspectorSection({
     <section
       data-slot="inspector-section"
       className={cn(
-        "border-b border-border/80 px-3 pb-2.5 transition-colors outline-none [&_[data-slot=input]]:rounded-[5px] [&_[data-slot=select-trigger]]:rounded-[5px] [&_[data-slot=select-trigger]]:border-transparent [&_[data-slot=select-trigger]]:bg-muted/55 [&_[data-slot=select-trigger]]:hover:bg-muted/75 [&_[data-slot=select-trigger]]:focus-visible:border-studio-accent [&_[data-slot=select-trigger]]:focus-visible:bg-background [&_[data-slot=select-trigger]]:focus-visible:ring-2 [&_[data-slot=select-trigger]]:focus-visible:ring-studio-accent/25",
+        "border-b border-border px-3 pb-3 text-foreground transition-colors outline-none [&_[data-slot=select-trigger]]:h-6 [&_[data-slot=select-trigger]]:rounded-sm [&_[data-slot=select-trigger]]:border-transparent [&_[data-slot=select-trigger]]:bg-editor-field [&_[data-slot=select-trigger]]:px-2 [&_[data-slot=select-trigger]]:text-[11px] [&_[data-slot=select-trigger]]:hover:bg-editor-field-hover [&_[data-slot=select-trigger]]:focus-visible:border-studio-accent [&_[data-slot=select-trigger]]:focus-visible:bg-background [&_[data-slot=select-trigger]]:focus-visible:ring-2 [&_[data-slot=select-trigger]]:focus-visible:ring-studio-accent/20",
         className
       )}
       {...props}
     >
       <div className="flex h-8 min-w-0 items-center">
-        <h3 className="truncate text-[11px] leading-4 font-semibold">
+        <h3 className="truncate text-[11px] leading-4 font-semibold tracking-[-0.01em]">
           {title}
         </h3>
       </div>
-      <div className="flex min-w-0 flex-col gap-2.5">{children}</div>
+      <div className="flex min-w-0 flex-col gap-2">{children}</div>
     </section>
   )
 }
@@ -1534,36 +1540,33 @@ function NodeInspector({
       <section
         data-inspector-property="visible"
         tabIndex={-1}
+        aria-label={`${nodeTypeLabel} layer`}
         className={cn(
-          "flex scroll-mt-2 flex-col gap-3 border-b border-border/80 px-3 py-3 transition-colors outline-none",
+          "scroll-mt-2 border-b border-border px-3 py-2 transition-colors outline-none",
           focusedProperty === "visible" &&
             "bg-accent/70 ring-2 ring-ring ring-inset"
         )}
       >
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <h2 className="truncate text-xs font-semibold">{node.name}</h2>
-            <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
-              Selected {nodeTypeLabel.toLocaleLowerCase()} layer
-            </p>
-          </div>
-          <Badge variant="outline" className="font-normal">
+        <div className="flex min-h-7 min-w-0 items-center gap-1.5">
+          <CommitInput
+            aria-label="Layer name"
+            className="min-w-0 flex-1"
+            value={node.name}
+            disabled={nodeMutationDisabled}
+            onCommit={(name) => name.trim() && onUpdate({ name })}
+          />
+          <Badge
+            variant="secondary"
+            aria-label={`Layer type: ${nodeTypeLabel}`}
+            className="h-5 shrink-0 rounded-sm px-1.5 text-[11px] font-medium text-muted-foreground"
+          >
             {nodeTypeLabel}
           </Badge>
-        </div>
-        <div className="flex items-end gap-2">
-          <label className="min-w-0 flex-1 space-y-1.5">
-            <FieldLabel>Name in Layers</FieldLabel>
-            <CommitInput
-              value={node.name}
-              disabled={nodeMutationDisabled}
-              onCommit={(name) => name.trim() && onUpdate({ name })}
-            />
-          </label>
           <Button
             aria-label={node.visible ? "Hide layer" : "Show layer"}
-            size="icon"
-            variant="outline"
+            size="icon-xs"
+            variant="ghost"
+            className="shrink-0"
             disabled={imageCropBarOwnsTransforms}
             onClick={() => onUpdate({ visible: !node.visible })}
           >
@@ -1571,18 +1574,15 @@ function NodeInspector({
           </Button>
           <Button
             aria-label={node.locked ? "Unlock layer" : "Lock layer"}
-            size="icon"
-            variant="outline"
+            size="icon-xs"
+            variant="ghost"
+            className="shrink-0"
             disabled={imageCropBarOwnsTransforms}
             onClick={() => onUpdate({ locked: !node.locked })}
           >
             {node.locked ? <Lock /> : <Unlock />}
           </Button>
         </div>
-        <p className="text-[11px] leading-4 text-muted-foreground">
-          Identifies this object in Layers only. For text layers, visible copy
-          is edited under Typography.
-        </p>
         {node.locked ? (
           <EditorPanelNotice
             icon={<Lock />}
@@ -1591,6 +1591,31 @@ function NodeInspector({
           />
         ) : null}
       </section>
+
+      {inspector.capabilities.text && node.type === "text" ? (
+        <InspectorSection
+          title="Content"
+          data-inspector-property="text"
+          tabIndex={-1}
+          className={cn(
+            "scroll-mt-2",
+            focusedProperty === "text" &&
+              "bg-accent/70 ring-2 ring-ring ring-inset"
+          )}
+        >
+          <CommitTextarea
+            key={node.id}
+            aria-label="Text content"
+            rows={1}
+            className="h-8 min-h-8 resize-none overflow-y-auto focus:h-20 focus:min-h-20 focus:resize-y"
+            value={node.text}
+            disabled={nodeMutationDisabled}
+            onPreview={(text) => onPreview({ text })}
+            onPreviewCancel={onCancelPreview}
+            onCommit={(text) => onUpdate({ text })}
+          />
+        </InspectorSection>
+      ) : null}
 
       <InspectorSection title="Position">
         <AlignmentGrid
@@ -1603,6 +1628,8 @@ function NodeInspector({
             compactLabel="X"
             value={inspector.values.x}
             disabled={node.locked}
+            onPreview={(x) => onPreview({ x })}
+            onPreviewCancel={onCancelPreview}
             onCommit={(x) => commitFrameGeometry({ x })}
           />
           <InspectorNumberField
@@ -1610,6 +1637,8 @@ function NodeInspector({
             compactLabel="Y"
             value={inspector.values.y}
             disabled={node.locked}
+            onPreview={(y) => onPreview({ y })}
+            onPreviewCancel={onCancelPreview}
             onCommit={(y) => commitFrameGeometry({ y })}
           />
           <InspectorNumberField
@@ -1618,6 +1647,8 @@ function NodeInspector({
             value={inspector.values.width}
             min={1}
             disabled={node.locked || textWidthIsManaged}
+            onPreview={(width) => onPreview({ width })}
+            onPreviewCancel={onCancelPreview}
             onCommit={(width) => commitFrameGeometry({ width })}
           />
           <InspectorNumberField
@@ -1626,6 +1657,8 @@ function NodeInspector({
             value={inspector.values.height}
             min={1}
             disabled={node.locked || textHeightIsManaged}
+            onPreview={(height) => onPreview({ height })}
+            onPreviewCancel={onCancelPreview}
             onCommit={(height) => commitFrameGeometry({ height })}
           />
         </div>
@@ -1635,7 +1668,17 @@ function NodeInspector({
             compactLabel="°"
             value={inspector.values.rotation}
             disabled={node.locked}
+            onPreview={(rotation) => onPreview({ rotation })}
+            onPreviewCancel={onCancelPreview}
             onCommit={(rotation) => commitFrameGeometry({ rotation })}
+          />
+          <PositionTransformControls
+            disabled={nodeMutationDisabled}
+            flipX={node.flipX ?? false}
+            flipY={node.flipY ?? false}
+            onTransform={(action) =>
+              onUpdate(positionTransformPatch(node, action))
+            }
           />
         </div>
       </InspectorSection>
@@ -1651,16 +1694,7 @@ function NodeInspector({
 
       {inspector.capabilities.text && node.type === "text" ? (
         <>
-          <InspectorSection
-            title="Typography"
-            data-inspector-property="text"
-            tabIndex={-1}
-            className={cn(
-              "scroll-mt-2",
-              focusedProperty === "text" &&
-                "bg-accent/70 ring-2 ring-ring ring-inset"
-            )}
-          >
+          <InspectorSection title="Typography">
             {typographyStyleControl}
             {paintStyleControl}
             {liveTextEditingState ? (
@@ -1671,17 +1705,6 @@ function NodeInspector({
                 onEditLink={onEditTextLink}
               />
             ) : null}
-            <label className="flex flex-col gap-1.5">
-              <FieldLabel>Content</FieldLabel>
-              <span className="text-[11px] text-muted-foreground">
-                Text shown on the canvas.
-              </span>
-              <CommitTextarea
-                value={node.text}
-                disabled={nodeMutationDisabled}
-                onCommit={(text) => onUpdate({ text })}
-              />
-            </label>
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-3">
                 <div>
@@ -1812,6 +1835,8 @@ function NodeInspector({
                 value={inspectorValue(node.fontSize)}
                 min={0.1}
                 disabled={node.locked}
+                onPreview={(fontSize) => onPreview({ fontSize })}
+                onPreviewCancel={onCancelPreview}
                 onCommit={(fontSize) => onUpdate({ fontSize })}
               />
               <InspectorNumberField
@@ -1820,7 +1845,10 @@ function NodeInspector({
                 min={100}
                 max={900}
                 integer
+                step={10}
                 disabled={node.locked}
+                onPreview={(fontWeight) => onPreview({ fontWeight })}
+                onPreviewCancel={onCancelPreview}
                 onCommit={(fontWeight) => onUpdate({ fontWeight })}
               />
               <InspectorNumberField
@@ -1828,7 +1856,10 @@ function NodeInspector({
                 value={inspectorValue(node.lineHeight)}
                 min={0.5}
                 max={3}
+                step={0.01}
                 disabled={node.locked}
+                onPreview={(lineHeight) => onPreview({ lineHeight })}
+                onPreviewCancel={onCancelPreview}
                 onCommit={(lineHeight) => onUpdate({ lineHeight })}
               />
               <InspectorNumberField
@@ -1836,7 +1867,10 @@ function NodeInspector({
                 value={inspectorValue(node.letterSpacing)}
                 min={-20}
                 max={200}
+                step={0.1}
                 disabled={node.locked}
+                onPreview={(letterSpacing) => onPreview({ letterSpacing })}
+                onPreviewCancel={onCancelPreview}
                 onCommit={(letterSpacing) => onUpdate({ letterSpacing })}
               />
             </div>
@@ -2000,6 +2034,8 @@ function NodeInspector({
             value={inspectorValue(node.radius)}
             min={0}
             disabled={node.locked}
+            onPreview={(radius) => onPreview({ radius })}
+            onPreviewCancel={onCancelPreview}
             onCommit={(radius) => onUpdate({ radius })}
           />
           <InspectorColorField
@@ -2014,7 +2050,10 @@ function NodeInspector({
             label="Stroke width"
             value={inspectorValue(node.strokeWidth)}
             min={0}
+            step={0.1}
             disabled={node.locked}
+            onPreview={(strokeWidth) => onPreview({ strokeWidth })}
+            onPreviewCancel={onCancelPreview}
             onCommit={(strokeWidth) => onUpdate({ strokeWidth })}
           />
         </InspectorSection>
@@ -2053,7 +2092,10 @@ function NodeInspector({
             label="Stroke width"
             value={inspectorValue(node.strokeWidth)}
             min={0}
+            step={0.1}
             disabled={node.locked}
+            onPreview={(strokeWidth) => onPreview({ strokeWidth })}
+            onPreviewCancel={onCancelPreview}
             onCommit={(strokeWidth) => onUpdate({ strokeWidth })}
           />
         </InspectorSection>
@@ -2074,7 +2116,10 @@ function NodeInspector({
             label="Stroke width"
             value={inspectorValue(node.strokeWidth)}
             min={0.1}
+            step={0.1}
             disabled={node.locked}
+            onPreview={(strokeWidth) => onPreview({ strokeWidth })}
+            onPreviewCancel={onCancelPreview}
             onCommit={(strokeWidth) => onUpdate({ strokeWidth })}
           />
         </InspectorSection>
@@ -2466,6 +2511,7 @@ function NodeInspector({
 function MultiSelectionInspector({
   nodes,
   onUpdateSelection,
+  onTransformSelection,
   onAlign,
   onAlignToPage,
   onDistribute,
@@ -2477,6 +2523,7 @@ function MultiSelectionInspector({
 }: {
   nodes: SceneNode[]
   onUpdateSelection: (patch: Partial<SceneNode>) => void
+  onTransformSelection: (action: PositionTransformAction) => void
   onAlign: (alignment: Alignment) => void
   onAlignToPage: (alignment: Alignment) => void
   onDistribute: (distribution: "horizontal" | "vertical") => void
@@ -2592,6 +2639,10 @@ function MultiSelectionInspector({
             value={inspector.values.rotation}
             disabled={!movableCount}
             onCommit={(rotation) => onUpdateSelection({ rotation })}
+          />
+          <PositionTransformControls
+            disabled={!movableCount}
+            onTransform={onTransformSelection}
           />
           <InspectorNumberField
             label="Opacity"
@@ -4440,6 +4491,7 @@ export function InspectorSidebar({
   onPreviewNodePatch = ignoreNodePatch,
   onCancelNodePreview = ignoreNodePreviewCancel,
   onUpdateSelection,
+  onTransformSelection = ignorePositionTransform,
   onUpdateField,
   onChooseFieldAsset,
   onCreateField,
@@ -4523,6 +4575,7 @@ export function InspectorSidebar({
   onPreviewNodePatch?: (nodeId: string, patch: Partial<SceneNode>) => void
   onCancelNodePreview?: (nodeId: string) => void
   onUpdateSelection: (patch: Partial<SceneNode>) => void
+  onTransformSelection?: (action: PositionTransformAction) => void
   onUpdateField: (fieldId: string, value: string | number | boolean) => void
   onChooseFieldAsset?: (fieldId: string, opener: HTMLButtonElement) => void
   onCreateField: (field: Omit<FieldDefinition, "id">) => void
@@ -4833,6 +4886,7 @@ export function InspectorSidebar({
               <MultiSelectionInspector
                 nodes={selectedNodes}
                 onUpdateSelection={onUpdateSelection}
+                onTransformSelection={onTransformSelection}
                 onAlign={onAlignSelection}
                 onAlignToPage={onAlignSelectionToPage}
                 onDistribute={onDistributeSelection}

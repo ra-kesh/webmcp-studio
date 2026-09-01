@@ -3,6 +3,8 @@ import { TooltipProvider } from "@webmcp/ui/components/tooltip"
 
 import appCss from "@webmcp/ui/globals.css?url"
 
+const VERCEL_BRAND_CSS_URL = "https://vercel.com/geist/vercel-brand.css"
+
 export const Route = createRootRoute({
   head: () => ({
     meta: [
@@ -25,6 +27,10 @@ export const Route = createRootRoute({
     links: [
       {
         rel: "stylesheet",
+        href: VERCEL_BRAND_CSS_URL,
+      },
+      {
+        rel: "stylesheet",
         href: appCss,
       },
     ],
@@ -44,7 +50,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       <head>
         <HeadContent />
       </head>
-      <body>
+      <body className="studio-vbg-root" data-studio-density="compact">
         <TooltipProvider>{children}</TooltipProvider>
         <Scripts />
       </body>

@@ -244,6 +244,8 @@ const commonCanvasProperties = new Set([
   "width",
   "height",
   "rotation",
+  "flipX",
+  "flipY",
   "opacity",
   "visible",
   "locked",

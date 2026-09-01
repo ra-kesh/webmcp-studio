@@ -34,6 +34,7 @@ import { Button } from "@webmcp/ui/components/button"
 import { FabricRenderInvalidationController } from "./fabric-render-invalidation-controller"
 import { ImageCropFrameOverlay } from "./image-crop-frame-overlay"
 import type { ImageCropFramePreview } from "./image-crop-frame-overlay"
+import { useMultiArtboardRenderRegistry } from "./multi-artboard-render-registry-context"
 
 export type FabricArtboardHandle = {
   exportPng: () => string | null
@@ -125,6 +126,7 @@ export const FabricArtboard = forwardRef<
   FabricArtboardHandle,
   {
     document: Document
+    documentSyncIdentity?: string
     pageId: string
     selection: Selection | null
     hoveredNodeId?: string | null
@@ -158,6 +160,7 @@ export const FabricArtboard = forwardRef<
 >(function FabricArtboard(
   {
     document,
+    documentSyncIdentity,
     pageId,
     selection,
     hoveredNodeId = null,
@@ -195,6 +198,7 @@ export const FabricArtboard = forwardRef<
     renderControllerRef.current = new FabricRenderInvalidationController()
   }
   const renderController = renderControllerRef.current
+  const multiArtboardRenderRegistry = useMultiArtboardRenderRegistry()
   const adapterLifecycleTailRef = useRef<Promise<void>>(Promise.resolve())
   const imageRetryControllersRef = useRef(new Map<string, AbortController>())
   const retryOwnedFocusRef = useRef(false)
@@ -262,6 +266,9 @@ export const FabricArtboard = forwardRef<
     documentRevision: document.revision,
     pageId,
   }
+  const documentRef = useRef(document)
+  documentRef.current = document
+  const effectiveDocumentSyncIdentity = documentSyncIdentity ?? document
   const loadAdapter = runtimeOptions?.loadAdapter ?? loadDefaultFabricAdapter
   const startupTimeoutMs =
     runtimeOptions?.startupTimeoutMs ?? DEFAULT_CANVAS_STARTUP_TIMEOUT_MS
@@ -463,6 +470,16 @@ export const FabricArtboard = forwardRef<
     []
   )
 
+  useEffect(() => {
+    if (!multiArtboardRenderRegistry) return
+    multiArtboardRenderRegistry.attach(pageId, renderController)
+    return () => {
+      void multiArtboardRenderRegistry
+        .detach(pageId, renderController)
+        .catch(() => undefined)
+    }
+  }, [multiArtboardRenderRegistry, pageId, renderController])
+
   useImperativeHandle(
     ref,
     () => ({
@@ -655,13 +672,18 @@ export const FabricArtboard = forwardRef<
     if (mountedAttempt !== runtime.attempt) return
     const adapter = renderController.adapter
     if (!adapter) return
+    const syncDocument = documentRef.current
+    const syncPage = syncDocument.pages.find(
+      (candidate) => candidate.id === pageId
+    )
+    if (!syncPage) return
     settleCanvasInteractivity(adapter, interactive)
     let active = true
     const isActive = () => active
     const attempt = runtime.attempt
     const identity = {
-      documentId: document.id,
-      documentRevision: document.revision,
+      documentId: syncDocument.id,
+      documentRevision: syncDocument.revision,
       pageId,
     }
     const controller = new AbortController()
@@ -669,8 +691,8 @@ export const FabricArtboard = forwardRef<
       () => controller.abort(canvasTimeoutReason("sync")),
       syncTimeoutMs
     )
-    const imageSources = document.nodes.flatMap((node) =>
-      node.type === "image" && page?.nodeIds.includes(node.id)
+    const imageSources = syncDocument.nodes.flatMap((node) =>
+      node.type === "image" && syncPage.nodeIds.includes(node.id)
         ? [
             {
               nodeId: node.id,
@@ -698,13 +720,13 @@ export const FabricArtboard = forwardRef<
     )
     void renderController
       .invalidateDocument({
-        document,
+        document: syncDocument,
         pageId,
         signal: controller.signal,
         prepare: async () => {
           if (!isActive()) return
           await waitForCanvasDocumentFonts(
-            document,
+            syncDocument,
             pageId,
             undefined,
             controller.signal
@@ -770,10 +792,9 @@ export const FabricArtboard = forwardRef<
     }
   }, [
     applyImageCropMode,
-    document,
+    effectiveDocumentSyncIdentity,
     interactive,
     pageId,
-    page,
     mountedAttempt,
     reportImageSourceState,
     renderController,
@@ -1376,11 +1397,11 @@ function NodeOutline({
       className={`pointer-events-none absolute z-20 border-2 ${
         selected
           ? locked
-            ? "border-dashed border-[#0d99ff]"
+            ? "border-dashed border-studio-accent"
             : cropping
-              ? "border-[#0d99ff] outline-1 outline-offset-2 outline-white/90"
-              : "border-[#0d99ff]"
-          : "border-dashed border-[#0d99ff]/80 bg-[#0d99ff]/5"
+              ? "border-studio-accent outline-1 outline-offset-2 outline-white/90"
+              : "border-studio-accent"
+          : "border-dashed border-studio-accent/80 bg-studio-accent/5"
       }`}
       data-node-outline={kind}
       style={{
@@ -1393,7 +1414,7 @@ function NodeOutline({
       }}
     >
       {selected ? (
-        <span className="absolute -top-6 left-[-2px] max-w-56 truncate rounded-[3px] bg-[#0d99ff] px-1.5 py-0.5 font-sans text-[11px] leading-4 font-medium text-white shadow-sm">
+        <span className="absolute -top-6 left-[-2px] max-w-56 truncate rounded-[3px] bg-studio-accent px-1.5 py-0.5 font-sans text-[11px] leading-4 font-medium text-white shadow-sm">
           {cropping
             ? "Drag image to reposition"
             : (singleNode?.name ?? `${nodes.length} layers`)}
@@ -1408,7 +1429,7 @@ function NodeOutline({
           ].map((position) => (
             <span
               key={position}
-              className={`absolute size-2 rounded-[2px] border border-[#0d99ff] bg-white ${position}`}
+              className={`absolute size-2 rounded-[2px] border border-studio-accent bg-white ${position}`}
             />
           ))
         : null}

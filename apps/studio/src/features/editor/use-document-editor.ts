@@ -75,6 +75,11 @@ import {
   alignNodesToBounds,
   distributeNodes,
 } from "@webmcp/editor/geometry"
+import {
+  positionTransformLabel,
+  positionTransformPatch,
+  type PositionTransformAction,
+} from "./position-transform"
 import type { Alignment, Distribution } from "@webmcp/editor/geometry"
 import {
   createImageFrameCommandDrafts,
@@ -4292,6 +4297,24 @@ export function useDocumentEditor({
           patch,
         })),
         { label: "Update selection properties" }
+      )
+    },
+    [commit, selection]
+  )
+
+  const transformSelectionNodes = useCallback(
+    (action: PositionTransformAction) => {
+      const editableNodes = (selection?.nodeIds ?? [])
+        .map((nodeId) => findNode(historyRef.current.document, nodeId))
+        .filter((node): node is SceneNode => node !== undefined && !node.locked)
+      if (!editableNodes.length) return false
+      return commit(
+        editableNodes.map((node) => ({
+          type: "update_node" as const,
+          nodeId: node.id,
+          patch: positionTransformPatch(node, action),
+        })),
+        { label: positionTransformLabel(action) }
       )
     },
     [commit, selection]
@@ -11011,6 +11034,7 @@ export function useDocumentEditor({
     runImagePlacementCommand,
     runImageFrameCommand,
     updateSelectionNodes,
+    transformSelectionNodes,
     createTypographyStyle,
     updateTypographyStyle,
     deleteTypographyStyle,
