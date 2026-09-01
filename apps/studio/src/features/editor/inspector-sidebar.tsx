@@ -31,8 +31,6 @@ import {
   Database,
   Eye,
   EyeOff,
-  FlipHorizontal2,
-  FlipVertical2,
   ImageUp,
   Lock,
   Link2,
@@ -821,13 +819,6 @@ const inspectorValue = (value: number): InspectorSharedValue<number> => ({
   kind: "value",
   value,
 })
-
-export function imageFlipValues(placement: Readonly<ImagePlacement>) {
-  return [
-    ...(placement.flipX ? ["horizontal"] : []),
-    ...(placement.flipY ? ["vertical"] : []),
-  ]
-}
 
 const mapInspectorValue = <TFrom, TTo>(
   value: InspectorSharedValue<TFrom>,
@@ -2219,45 +2210,6 @@ function NodeInspector({
                 })
               }
             />
-          </div>
-          <div className="space-y-2">
-            <FieldLabel>Flip image</FieldLabel>
-            <ToggleGroup
-              type="multiple"
-              size="sm"
-              spacing={0}
-              variant="outline"
-              value={imageFlipValues(node.placement)}
-              disabled={imageTransformDisabled}
-              aria-label="Flip image"
-              onValueChange={(values) => {
-                if (values.includes("horizontal") !== node.placement.flipX) {
-                  onRunImageCommand("image.flip-horizontal")
-                }
-                if (values.includes("vertical") !== node.placement.flipY) {
-                  onRunImageCommand("image.flip-vertical")
-                }
-              }}
-            >
-              <ToggleGroupItem
-                value="horizontal"
-                aria-label="Flip image horizontally"
-                className="flex-1"
-                disabled={!isImageCommandEnabled("image.flip-horizontal")}
-              >
-                <FlipHorizontal2 aria-hidden="true" />
-                Horizontal
-              </ToggleGroupItem>
-              <ToggleGroupItem
-                value="vertical"
-                aria-label="Flip image vertically"
-                className="flex-1"
-                disabled={!isImageCommandEnabled("image.flip-vertical")}
-              >
-                <FlipVertical2 aria-hidden="true" />
-                Vertical
-              </ToggleGroupItem>
-            </ToggleGroup>
           </div>
           <div className="space-y-2 border-t pt-3">
             <div className="flex items-center justify-between gap-3">
