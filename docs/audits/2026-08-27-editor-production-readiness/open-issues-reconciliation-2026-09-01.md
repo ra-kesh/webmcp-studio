@@ -4,7 +4,7 @@ Date: 2026-09-01
 
 Updated: 2026-09-02
 
-Code baseline: `82e7ff456ebeb60e568e5189a198024fccf09439`
+Code baseline: `88e7b52a1e5a128757139efee141d9ec139023ee`
 
 This checkpoint reconciles the main conversation with the separate redesign,
 mask, rich-text, component, library, image-architecture, generation, independent
@@ -74,8 +74,17 @@ checkpoint and evidence stay auditable.
 8. Per-layer export settings.
 9. Additional text layout controls: direction, vertical alignment,
    justification, case transformation, and truncation behavior.
-10. Frame/layout-guide settings beyond the existing canvas rulers, snapping,
-    and persistent ruler guides.
+10. **Frame/layout-guide settings — completed as phase-map Gate 3 and
+    independently accepted.** Commit
+    `88e7b52a1e5a128757139efee141d9ec139023ee` adds strict per-frame column,
+    row, and square-grid metadata; bounded projection and component scaling;
+    frame size/background/stroke controls; nested-clipped editor-only overlay;
+    persisted View > Guides visibility; Review and strict WebMCP support; and
+    explicit HTML/PNG/PDF export isolation. Evidence:
+    `advanced-editor-depth-gate-03-frame-layout-guides-review-2026-09-01.md`.
+    No Gate 3 gap remains. Layout grids are deliberately authoring metadata,
+    not printable scene paint; promoting them to artwork would require a new
+    cross-renderer contract.
 
 These require document-model, command, renderer/export, history, Inspector,
 WebMCP, and migration work. They are not styling-only tasks.
