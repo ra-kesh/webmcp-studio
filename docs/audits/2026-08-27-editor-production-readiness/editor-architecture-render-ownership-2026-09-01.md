@@ -85,6 +85,45 @@ one continuous workspace that shows every document page. The default layout is
 vertical. The left Pages panel remains a navigation list. It does not become a
 second editor or a source of page geometry.
 
+### Coordination boundary
+
+This branch records the multi-artboard contract but does not implement it. The
+separate feature task owns the workspace host, page arrangement, camera, page
+shells, visibility policy, Pages-panel navigation changes, and filmstrip
+removal. This architecture task continues only the general
+`useDocumentEditor` decomposition and the Fabric-compatible invalidation
+boundary. It must not edit `page-filmstrip.tsx`, page-workspace UI, layout CSS,
+or the Pages-panel interaction code.
+
+### Integration contract from this branch
+
+The feature task may consume these tested pieces without reaching into
+`useDocumentEditor` internals:
+
+- `FabricRenderInvalidationController` owns one attached `CanvasAdapter`. A
+  multi-artboard registry creates one controller for each mounted page, passes
+  the canonical document and that page id to `invalidateDocument`, and routes
+  viewport, selection, preview, and repaint work through the named methods.
+- `whenDocumentSettled` gives adapter teardown and visibility transitions a
+  synchronization boundary. `detach` invalidates queued work by attachment
+  identity. `getSnapshot` exposes invalidation counts for registry tests.
+- `CanvasAdapter.requestRender` is the only public request for an explicit
+  Fabric repaint. Fabric still owns `requestRenderAll` and frame coalescing.
+- `useDocumentPreviewProjection` returns the canonical review projection and
+  the canvas-safe asset projection. The feature task renders the latter but
+  must never persist it or pass it to export.
+- `ImageCropSessionController` keeps crop preview state outside React render
+  state and settles through the existing editor callbacks. A future registry
+  must keep the crop session's page mounted until settlement.
+- The public editor command, history, persistence, selection, and WebMCP
+  contracts remain unchanged. The feature task must use them rather than
+  inventing page-specific mutation paths.
+
+The controller is intentionally page-scoped, not workspace-aware. Layout
+offsets, camera state, visibility, and active-page derivation belong above it.
+The feature task may add a registry around multiple controllers, but it must not
+add world coordinates to `CanvasAdapter`, document nodes, commands, or export.
+
 This change adds two coordinate spaces:
 
 - Page-local coordinates remain canonical. Node bounds, guides, crop frames,
@@ -300,4 +339,5 @@ The highest conflict risk is `use-document-editor.ts`, followed by
 redesign must not modify the extracted controllers. If it also changes the main
 hook return object or artboard props, merge the architecture branch first, then
 reapply visual work against the unchanged public editor methods. No CSS,
-Inspector component, route shell, or design-system file belongs in this branch.
+Inspector component, route shell, page-filmstrip, page-workspace UI, or
+design-system file belongs in this branch.
