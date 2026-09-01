@@ -2,7 +2,7 @@
 
 Date: 2026-09-01
 
-Status: Gate 1 ownership map accepted for implementation
+Status: Gates 1 through 4 accepted; multi-artboard extension planned
 
 Branch: `codex/editor-architecture-render-controller`
 
@@ -77,6 +77,136 @@ render invalidation controller depends only on `CanvasAdapter` and document
 types. React owns controller construction and lifecycle. Fabric owns Fabric
 objects, transform sessions, text editing, hit testing, and the final
 `requestRenderAll()` implementation.
+
+## Multi-artboard workspace extension
+
+Studio will replace the single active-page artboard and bottom filmstrip with
+one continuous workspace that shows every document page. The default layout is
+vertical. The left Pages panel remains a navigation list. It does not become a
+second editor or a source of page geometry.
+
+This change adds two coordinate spaces:
+
+- Page-local coordinates remain canonical. Node bounds, guides, crop frames,
+  commands, history, persistence, renderer input, and export all use the page's
+  own origin.
+- World coordinates exist only in workspace state. They place page frames on
+  the continuous canvas and let the camera pan or zoom across those frames.
+
+`MultiArtboardLayoutController` will derive a `PageWorldFrame` for every page
+from document order, page width and height, layout direction, and workspace
+gap. It will provide `pageToWorld`, `worldToPage`, and document-bounds queries.
+No command may write a world offset into a page or node. Reordering a page or
+changing its dimensions recomputes the layout without rewriting node geometry.
+
+`WorkspaceCameraController` will own the world-to-viewport transform. It will
+handle pan, zoom, zoom-to-page, zoom-to-selection, and zoom-to-all-pages.
+`MultiArtboardRenderRegistry` will own the set of mounted page adapters. Each
+mounted page keeps its own `FabricRenderInvalidationController`; the registry
+routes page-scoped invalidations and never turns the adapters into one shared
+Fabric scene.
+
+```text
+canonical Document
+        |
+        | page order and page-local geometry
+        v
+MultiArtboardLayoutController ------> PageWorldFrame by pageId
+        |                                      |
+        | document bounds                      | page/world mapping
+        v                                      v
+WorkspaceCameraController ----------> MultiArtboardRenderRegistry
+                                               |
+                         +---------------------+---------------------+
+                         |                     |                     |
+                  page A controller     page B controller     page C preview
+                  + Fabric adapter      + Fabric adapter      or placeholder
+```
+
+### Active page and selection ownership
+
+`activePageId` remains ephemeral workspace navigation state. The canonical
+document does not store it. The workspace derives it in this order:
+
+1. A valid node selection owns the active page through `selection.pageId`.
+2. A Pages-panel action or zoom-to-page request owns it until the camera motion
+   finishes.
+3. Passive pan and zoom choose the page containing the viewport center. If the
+   center falls in a gap, the page with the largest viewport intersection wins.
+   Document order breaks ties.
+
+Fabric hit testing must return the page id with the node ids. Marquee, crop,
+text editing, and transform sessions stay within the artboard where they
+started. The existing `Selection` contract permits one page id, so cross-page
+node selection is out of scope. A page may be active with no node selection.
+Keyboard commands target the selection page first, then the active page.
+
+Selecting a row in the left Pages panel updates the active page and asks the
+camera to zoom to that page. It does not copy page data into editor state. A
+selection change on an artboard updates the Pages-panel highlight through the
+same active-page derivation.
+
+### Invalidation and visibility policy
+
+The registry will split invalidation by cause:
+
+| Cause | Workspace action | Page-adapter action |
+| --- | --- | --- |
+| Page order, size, add, or remove | Recompute world frames and document bounds | Attach or detach only affected page entries |
+| Page node revision | Keep the current layout unless page size changed | Sync only that page's adapter |
+| Camera pan or zoom | Recompute viewport and visibility | Update mounted adapter zoom; do not resync page documents |
+| Selection | Derive the active page | Select on the owner and clear stale adapter selections |
+| Crop, transform, text, or inspector preview | Pin the owner page in the mounted set | Route the preview only to that page controller |
+| Explicit repaint | No layout change | Request paint only from mounted affected adapters |
+
+Every page keeps a lightweight world-frame shell so document height and scroll
+position stay stable. A Fabric adapter mounts when its frame intersects the
+viewport expanded by one viewport width and height on every side. Pages outside
+that overscan use a cached preview or placeholder. The active interaction page
+stays mounted until crop, transform, text editing, or continuous preview
+settles, even if the camera moves it outside overscan. Adapter teardown must
+abort queued document synchronization and clear its selection and previews.
+
+Visibility changes are render state, not document changes. They do not enter
+history or persistence. Camera movement must not enqueue `adapter.sync` for an
+unchanged page.
+
+### Camera commands and export
+
+Zoom-to-page fits the selected `PageWorldFrame` inside the workspace viewport
+with the existing safe inset. Zoom-to-all-pages fits the union of all page
+frames. Zoom-to-selection converts the selected page-local bounds through
+`pageToWorld` before fitting them. The inverse transform routes pointer input
+back to the owning page before Fabric hit testing.
+
+Export remains deliberately boring. Browser, PNG, and PDF rendering receive
+the canonical document and page ids exactly as they do now. The multi-artboard
+layout, camera, visibility state, cached previews, and world offsets never enter
+renderer input. Two exports of the same canonical document must remain byte or
+pixel equivalent under the existing conformance rules, regardless of camera
+position or which artboards are mounted.
+
+### Multi-artboard delivery gates
+
+1. Add the pure layout controller and coordinate conversion tests. Cover mixed
+   page sizes, reordering, gaps, empty documents, and round-trip conversion.
+2. Add the camera controller and deterministic active-page derivation. Test
+   Pages-panel focus, passive camera movement, gap tie-breaking,
+   zoom-to-page, zoom-to-selection, and zoom-to-all-pages.
+3. Add the page render registry and per-page invalidation routing. Prove that a
+   page-local edit does not sync an unrelated adapter and camera movement does
+   not cause document sync.
+4. Replace the single artboard host with page shells, overscan mounting, and
+   cold-page previews. Keep interaction pages pinned through settlement and
+   test teardown during queued sync.
+5. Remove the bottom filmstrip and make the left Pages panel navigation-only.
+   Run history, crop, transform, persistence, WebMCP, renderer conformance, and
+   accessibility checks before accepting the workspace change.
+
+A large-document acceptance fixture should contain at least 100 mixed-size
+pages. The number of mounted Fabric adapters must stay bounded by the viewport
+and overscan set, and a camera-only interaction must produce zero document-sync
+invalidations.
 
 ## OpenPencil comparison
 
