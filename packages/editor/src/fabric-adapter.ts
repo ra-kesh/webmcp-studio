@@ -39,6 +39,9 @@ import {
   projectNodeForRender,
   projectSvgViewport,
   replaceRichTextRange,
+  resolveCornerRadii,
+  roundedRectanglePath,
+  roundedRectanglePaintPath,
   resolveTextSelectionStyle,
   resolveTextSelectionStyleAttachment,
   resolveTextSelectionLink,
@@ -78,6 +81,10 @@ import {
 
 const frameClippedObjects = new WeakSet<FabricObject>()
 
+const usesCornerPath = (node: Extract<SceneNode, { type: "rect" | "frame" }>) =>
+  ((node.independentCorners ?? false) && node.cornerRadii !== undefined) ||
+  (node.cornerSmoothing ?? 0) > 0
+
 export function syncFabricFrameClip(
   object: FabricObject,
   node: SceneNode,
@@ -105,24 +112,59 @@ export function syncFabricFrameClip(
             width: node.width,
             height: node.height,
             radius: 0,
+            cornerRadii: {
+              topLeft: 0,
+              topRight: 0,
+              bottomRight: 0,
+              bottomLeft: 0,
+            },
+            cornerSmoothing: 0,
+            path: roundedRectanglePath({
+              width: node.width,
+              height: node.height,
+            }),
           },
           ...clips,
         ]
       : clips
-  const clipPaths = effectiveClips.map(
-    (clip) =>
-      new Rect({
-        left: clip.x,
-        top: clip.y,
-        width: clip.width,
-        height: clip.height,
-        rx: clip.radius,
-        ry: clip.radius,
-        originX: "left",
-        originY: "top",
-        absolutePositioned: true,
-      })
-  )
+  const clipPaths = effectiveClips.map((clip) => {
+    const cornerRadii = clip.cornerRadii ?? {
+      topLeft: clip.radius,
+      topRight: clip.radius,
+      bottomRight: clip.radius,
+      bottomLeft: clip.radius,
+    }
+    const cornerSmoothing = clip.cornerSmoothing ?? 0
+    const shared = {
+      left: clip.x,
+      top: clip.y,
+      originX: "left",
+      originY: "top",
+      absolutePositioned: true,
+      fill: "#000000",
+      strokeWidth: 0,
+      selectable: false,
+      evented: false,
+    } as const
+    return cornerSmoothing > 0 || new Set(Object.values(cornerRadii)).size > 1
+      ? new Path(
+          clip.path ??
+            roundedRectanglePath({
+              width: clip.width,
+              height: clip.height,
+              cornerRadii,
+              cornerSmoothing,
+            }),
+          shared
+        )
+      : new Rect({
+          ...shared,
+          width: clip.width,
+          height: clip.height,
+          rx: clip.radius,
+          ry: clip.radius,
+        })
+  })
   for (let index = 0; index < clipPaths.length - 1; index += 1) {
     clipPaths[index]!.set({ clipPath: clipPaths[index + 1] })
   }
@@ -1488,6 +1530,27 @@ export function createFabricSyncObject(
 ) {
   if (node.type === "rect" || node.type === "frame") {
     const dimensions = borderedShapeDimensions(node)
+    if (usesCornerPath(node)) {
+      const radii = resolveCornerRadii(
+        node.radius,
+        node.independentCorners ? node.cornerRadii : undefined
+      )
+      return new Path(
+        roundedRectanglePaintPath({
+          width: node.width,
+          height: node.height,
+          cornerRadii: radii,
+          cornerSmoothing: node.cornerSmoothing ?? 0,
+          strokeWidth: dimensions.strokeWidth,
+        }),
+        {
+          ...sharedOptions(node),
+          fill: node.fill,
+          stroke: node.stroke,
+          strokeWidth: dimensions.strokeWidth,
+        }
+      )
+    }
     return new Rect({
       ...sharedOptions(node),
       width: dimensions.width,
@@ -1614,7 +1677,11 @@ function applyFabricVectorMaskSourcePaint(
   object: FabricObject,
   source: Extract<SceneNode, { type: "rect" | "ellipse" | "icon" }>
 ) {
-  if (object instanceof Rect || object instanceof Ellipse) {
+  if (
+    object instanceof Rect ||
+    object instanceof Ellipse ||
+    object instanceof Path
+  ) {
     object.set({ fill: "#000000", stroke: undefined, strokeWidth: 0 })
   } else if (object instanceof Group) {
     for (const child of object.getObjects()) {
@@ -2597,7 +2664,23 @@ export function isPagePointInsideImageFrame(
     const normalizedY = (y - node.height / 2) / (node.height / 2)
     return normalizedX * normalizedX + normalizedY * normalizedY <= 1
   }
-  const radius = Math.min(node.width, node.height) * node.frameMask.radius
+  const shorterEdge = Math.min(node.width, node.height)
+  const normalizedRadii = node.frameMask.cornerRadii ?? {
+    topLeft: node.frameMask.radius,
+    topRight: node.frameMask.radius,
+    bottomRight: node.frameMask.radius,
+    bottomLeft: node.frameMask.radius,
+  }
+  const left = x < node.width / 2
+  const top = y < node.height / 2
+  const radius =
+    (top
+      ? left
+        ? normalizedRadii.topLeft
+        : normalizedRadii.topRight
+      : left
+        ? normalizedRadii.bottomLeft
+        : normalizedRadii.bottomRight) * shorterEdge
   if (
     (x >= radius && x <= node.width - radius) ||
     (y >= radius && y <= node.height - radius)
@@ -2644,6 +2727,22 @@ function createImageFrameClip(clip: RenderImageClip) {
       rx: clip.radiusX,
       ry: clip.radiusY,
     })
+  }
+  if (
+    clip.shape === "rounded_rectangle" &&
+    clip.cornerRadii &&
+    ((clip.cornerSmoothing ?? 0) > 0 ||
+      new Set(Object.values(clip.cornerRadii)).size > 1)
+  ) {
+    return new Path(
+      roundedRectanglePath({
+        width: clip.width,
+        height: clip.height,
+        cornerRadii: clip.cornerRadii,
+        cornerSmoothing: clip.cornerSmoothing ?? 0,
+      }),
+      shared
+    )
   }
   return new Rect({
     ...shared,
@@ -2751,7 +2850,26 @@ export function syncFabricObjectFromNode(
     scaleY: 1,
   }
 
-  if (node.type === "rect" && object instanceof Rect) {
+  if (
+    (node.type === "rect" || node.type === "frame") &&
+    object instanceof Path &&
+    usesCornerPath(node)
+  ) {
+    const replacement = createFabricSyncObject(node)
+    if (!(replacement instanceof Path)) return
+    Object.assign(options, {
+      path: replacement.path,
+      pathOffset: replacement.pathOffset,
+      width: replacement.width,
+      height: replacement.height,
+      fill: node.fill,
+      stroke: node.stroke,
+      strokeWidth: node.stroke ? node.strokeWidth : 0,
+    })
+  } else if (
+    (node.type === "rect" || node.type === "frame") &&
+    object instanceof Rect
+  ) {
     const dimensions = borderedShapeDimensions(node)
     Object.assign(options, {
       width: dimensions.width,
@@ -3341,6 +3459,19 @@ export class FabricCanvasAdapter implements CanvasAdapter {
           stagedObjectByNodeId.set(node.id, {
             object: stagedObject,
             replaces: null,
+          })
+          continue
+        }
+        if (
+          (node.type === "rect" || node.type === "frame") &&
+          previousNode !== node &&
+          usesCornerPath(node) !== object instanceof Path
+        ) {
+          const replacement = createFabricSyncObject(node)
+          stagedRegularCandidates.add(replacement)
+          stagedObjectByNodeId.set(node.id, {
+            object: replacement,
+            replaces: object,
           })
           continue
         }

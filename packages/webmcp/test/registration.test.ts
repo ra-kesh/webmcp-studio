@@ -3000,7 +3000,17 @@ describe("WebMCP registration", () => {
               rotation: 18,
               flipX: true,
             },
-            frameMask: { shape: "rounded_rectangle", radius: 0.16 },
+            frameMask: {
+              shape: "rounded_rectangle",
+              radius: 0.16,
+              cornerRadii: {
+                topLeft: 0.04,
+                topRight: 0.08,
+                bottomRight: 0.12,
+                bottomLeft: 0.16,
+              },
+              cornerSmoothing: 0.5,
+            },
           },
         },
       ],
@@ -3017,7 +3027,17 @@ describe("WebMCP registration", () => {
           rotation: 18,
           flipX: true,
         },
-        frameMask: { shape: "rounded_rectangle", radius: 0.16 },
+        frameMask: {
+          shape: "rounded_rectangle",
+          radius: 0.16,
+          cornerRadii: {
+            topLeft: 0.04,
+            topRight: 0.08,
+            bottomRight: 0.12,
+            bottomLeft: 0.16,
+          },
+          cornerSmoothing: 0.5,
+        },
       },
     })
   })
@@ -3092,6 +3112,63 @@ describe("WebMCP registration", () => {
       ],
     })
     expect(malformedBlend?.isError).toBe(true)
+  })
+
+  it("advertises and proposes strict independent corner geometry", async () => {
+    const document = withImageLayer()
+    const rect = document.nodes.find((node) => node.type === "rect")!
+    const state = setup(document)
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+    const tool = state.registered.get("propose_canvas_edits")
+    const schema = JSON.stringify(tool?.inputSchema)
+    expect(schema).toContain('"independentCorners"')
+    expect(schema).toContain('"cornerSmoothing"')
+
+    const result = await tool?.execute({
+      documentId: document.id,
+      baseRevision: document.revision,
+      baseSnapshotId: "snapshot-seed",
+      edits: [
+        {
+          nodeType: "rect",
+          nodeId: rect.id,
+          patch: {
+            independentCorners: true,
+            cornerRadii: {
+              topLeft: 4,
+              topRight: 8,
+              bottomRight: 12,
+              bottomLeft: 16,
+            },
+            cornerSmoothing: 0.65,
+          },
+        },
+      ],
+    })
+    expect(result?.isError).toBeUndefined()
+    expect(state.proposed()?.operations[0]?.command).toMatchObject({
+      type: "update_node",
+      nodeId: rect.id,
+      patch: {
+        independentCorners: true,
+        cornerRadii: {
+          topLeft: 4,
+          topRight: 8,
+          bottomRight: 12,
+          bottomLeft: 16,
+        },
+        cornerSmoothing: 0.65,
+      },
+    })
   })
 
   it("advertises and proposes strict frame layout and clipping", async () => {

@@ -72,6 +72,16 @@ function displayNodeProperty(
       .map((part) => part[0]?.toUpperCase() + part.slice(1))
       .join(" ")
   }
+  if (key === "independentCorners") {
+    return value ? "Independent corners" : "Linked corners"
+  }
+  if (key === "cornerRadii" && value && typeof value === "object") {
+    const radii = value as Record<string, unknown>
+    return `TL ${radii.topLeft} · TR ${radii.topRight} · BR ${radii.bottomRight} · BL ${radii.bottomLeft}`
+  }
+  if (key === "cornerSmoothing" && typeof value === "number") {
+    return `${Math.round(value * 100)}% smoothing`
+  }
   if (key === "layoutGrids" && Array.isArray(value)) {
     return `${value.length} layout guide${value.length === 1 ? "" : "s"}`
   }

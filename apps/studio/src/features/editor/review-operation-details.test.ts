@@ -114,6 +114,37 @@ describe("review operation details", () => {
     expect(details.after).toContain("blendMode: Color Burn")
   })
 
+  it("summarizes independent corner geometry", () => {
+    const document = quotationStarter.document
+    const node = document.nodes.find((candidate) => candidate.type === "rect")!
+    const operation: ChangeOperation = {
+      id: "corner-operation",
+      status: "pending",
+      summary: "Shape the corners",
+      command: {
+        id: "corner-command",
+        type: "update_node",
+        actor: "agent",
+        at: "2026-09-02T01:00:00.000Z",
+        nodeId: node.id,
+        patch: {
+          independentCorners: true,
+          cornerRadii: {
+            topLeft: 4,
+            topRight: 8,
+            bottomRight: 12,
+            bottomLeft: 16,
+          },
+          cornerSmoothing: 0.6,
+        },
+      },
+    }
+    const details = operationDetails(document, operation)
+    expect(details.after).toContain("Independent corners")
+    expect(details.after).toContain("TL 4 · TR 8 · BR 12 · BL 16")
+    expect(details.after).toContain("60% smoothing")
+  })
+
   it("summarizes frame flow and overflow changes", () => {
     const document = structuredClone(quotationStarter.document)
     const page = document.pages[0]!

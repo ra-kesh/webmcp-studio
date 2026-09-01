@@ -2741,6 +2741,85 @@ function NodeInspector({
             onPreviewCancel={onCancelPreview}
             onCommit={(radius) => onUpdate({ radius })}
           />
+          <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+            <Checkbox
+              aria-label="Independent corners"
+              checked={node.independentCorners ?? false}
+              disabled={node.locked}
+              onCheckedChange={(checked) =>
+                checked === true
+                  ? onUpdate({
+                      independentCorners: true,
+                      cornerRadii: node.cornerRadii ?? {
+                        topLeft: node.radius,
+                        topRight: node.radius,
+                        bottomRight: node.radius,
+                        bottomLeft: node.radius,
+                      },
+                    })
+                  : onUpdate({
+                      independentCorners: false,
+                      radius: node.cornerRadii?.topLeft ?? node.radius,
+                    })
+              }
+            />
+            Independent corners
+          </label>
+          {node.independentCorners ? (
+            <div className="grid grid-cols-2 gap-2">
+              {(
+                [
+                  ["Top left", "topLeft"],
+                  ["Top right", "topRight"],
+                  ["Bottom left", "bottomLeft"],
+                  ["Bottom right", "bottomRight"],
+                ] as const
+              ).map(([label, property]) => (
+                <InspectorNumberField
+                  key={property}
+                  label={label}
+                  value={inspectorValue(
+                    node.cornerRadii?.[property] ?? node.radius
+                  )}
+                  min={0}
+                  disabled={node.locked}
+                  onPreview={(value) =>
+                    onPreview({
+                      cornerRadii: {
+                        topLeft: node.cornerRadii?.topLeft ?? node.radius,
+                        topRight: node.cornerRadii?.topRight ?? node.radius,
+                        bottomRight:
+                          node.cornerRadii?.bottomRight ?? node.radius,
+                        bottomLeft: node.cornerRadii?.bottomLeft ?? node.radius,
+                        [property]: value,
+                      },
+                    })
+                  }
+                  onPreviewCancel={onCancelPreview}
+                  onCommit={(value) =>
+                    onUpdate({
+                      cornerRadii: {
+                        topLeft: node.cornerRadii?.topLeft ?? node.radius,
+                        topRight: node.cornerRadii?.topRight ?? node.radius,
+                        bottomRight:
+                          node.cornerRadii?.bottomRight ?? node.radius,
+                        bottomLeft: node.cornerRadii?.bottomLeft ?? node.radius,
+                        [property]: value,
+                      },
+                    })
+                  }
+                />
+              ))}
+            </div>
+          ) : null}
+          <CommitPercentSlider
+            label="Corner smoothing"
+            value={(node.cornerSmoothing ?? 0) * 100}
+            disabled={node.locked}
+            onCommit={(cornerSmoothing) =>
+              onUpdate({ cornerSmoothing: cornerSmoothing / 100 })
+            }
+          />
           <InspectorColorField
             label="Stroke"
             value={node.stroke ?? "#1e2622"}
@@ -3006,19 +3085,108 @@ function NodeInspector({
                 </ToggleGroupItem>
               </ToggleGroup>
             </div>
-            {node.frameMask.shape === "rounded_rectangle" ? (
-              <CommitPercentSlider
-                label="Corner radius"
-                value={node.frameMask.radius * 200}
-                disabled={imageFrameDisabled}
-                onCommit={(radius) =>
-                  onSetImageFrameMask(node.id, {
-                    shape: "rounded_rectangle",
-                    radius: radius / 200,
-                  })
-                }
-              />
-            ) : null}
+            {node.frameMask.shape === "rounded_rectangle"
+              ? (() => {
+                  const roundedMask = node.frameMask
+                  return (
+                    <div className="space-y-2">
+                      <CommitPercentSlider
+                        label="Corner radius"
+                        value={roundedMask.radius * 200}
+                        disabled={imageFrameDisabled}
+                        onCommit={(radius) =>
+                          onSetImageFrameMask(node.id, {
+                            ...roundedMask,
+                            radius: radius / 200,
+                          })
+                        }
+                      />
+                      <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                        <Checkbox
+                          aria-label="Independent image corners"
+                          checked={roundedMask.cornerRadii !== undefined}
+                          disabled={imageFrameDisabled}
+                          onCheckedChange={(checked) =>
+                            onSetImageFrameMask(
+                              node.id,
+                              checked === true
+                                ? {
+                                    ...roundedMask,
+                                    cornerRadii: {
+                                      topLeft: roundedMask.radius,
+                                      topRight: roundedMask.radius,
+                                      bottomRight: roundedMask.radius,
+                                      bottomLeft: roundedMask.radius,
+                                    },
+                                  }
+                                : {
+                                    shape: "rounded_rectangle",
+                                    radius: roundedMask.radius,
+                                    ...(roundedMask.cornerSmoothing !==
+                                    undefined
+                                      ? {
+                                          cornerSmoothing:
+                                            roundedMask.cornerSmoothing,
+                                        }
+                                      : {}),
+                                  }
+                            )
+                          }
+                        />
+                        Independent corners
+                      </label>
+                      {roundedMask.cornerRadii
+                        ? (() => {
+                            const independentRadii = roundedMask.cornerRadii
+                            return (
+                              <div className="grid grid-cols-2 gap-2">
+                                {(
+                                  [
+                                    ["Top left", "topLeft"],
+                                    ["Top right", "topRight"],
+                                    ["Bottom left", "bottomLeft"],
+                                    ["Bottom right", "bottomRight"],
+                                  ] as const
+                                ).map(([label, property]) => (
+                                  <InspectorNumberField
+                                    key={property}
+                                    label={label}
+                                    value={inspectorValue(
+                                      independentRadii[property] * 200
+                                    )}
+                                    min={0}
+                                    max={100}
+                                    disabled={imageFrameDisabled}
+                                    onCommit={(value) =>
+                                      onSetImageFrameMask(node.id, {
+                                        ...roundedMask,
+                                        cornerRadii: {
+                                          ...independentRadii,
+                                          [property]: value / 200,
+                                        },
+                                      })
+                                    }
+                                  />
+                                ))}
+                              </div>
+                            )
+                          })()
+                        : null}
+                      <CommitPercentSlider
+                        label="Corner smoothing"
+                        value={(roundedMask.cornerSmoothing ?? 0) * 100}
+                        disabled={imageFrameDisabled}
+                        onCommit={(cornerSmoothing) =>
+                          onSetImageFrameMask(node.id, {
+                            ...roundedMask,
+                            cornerSmoothing: cornerSmoothing / 100,
+                          })
+                        }
+                      />
+                    </div>
+                  )
+                })()
+              : null}
           </div>
           <div className="space-y-2 border-t pt-3">
             <div className="flex items-start gap-2.5 text-xs">

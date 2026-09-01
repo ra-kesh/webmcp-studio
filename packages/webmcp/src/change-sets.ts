@@ -265,10 +265,21 @@ const nodeCanvasProperties: Record<SceneNode["type"], Set<string>> = {
     "align",
     "sizingMode",
   ]),
-  rect: new Set(["fill", "radius", "stroke", "strokeWidth"]),
+  rect: new Set([
+    "fill",
+    "radius",
+    "independentCorners",
+    "cornerRadii",
+    "cornerSmoothing",
+    "stroke",
+    "strokeWidth",
+  ]),
   frame: new Set([
     "fill",
     "radius",
+    "independentCorners",
+    "cornerRadii",
+    "cornerSmoothing",
     "stroke",
     "strokeWidth",
     "children",
@@ -283,6 +294,19 @@ const nodeCanvasProperties: Record<SceneNode["type"], Set<string>> = {
 }
 
 const rounded = (value: number) => Math.round(value * 100) / 100
+
+const scaledCornerRadii = (
+  radii: Extract<SceneNode, { type: "rect" | "frame" }>["cornerRadii"],
+  scale: number
+) =>
+  radii
+    ? {
+        topLeft: rounded(radii.topLeft * scale),
+        topRight: rounded(radii.topRight * scale),
+        bottomRight: rounded(radii.bottomRight * scale),
+        bottomLeft: rounded(radii.bottomLeft * scale),
+      }
+    : undefined
 
 function scaleNode(
   node: SceneNode,
@@ -311,6 +335,9 @@ function scaleNode(
         ...node,
         ...geometry,
         radius: rounded(node.radius * scale),
+        ...(node.cornerRadii
+          ? { cornerRadii: scaledCornerRadii(node.cornerRadii, scale) }
+          : {}),
         strokeWidth: rounded(node.strokeWidth * scale),
       }
     case "frame":
@@ -318,6 +345,9 @@ function scaleNode(
         ...node,
         ...geometry,
         radius: rounded(node.radius * scale),
+        ...(node.cornerRadii
+          ? { cornerRadii: scaledCornerRadii(node.cornerRadii, scale) }
+          : {}),
         strokeWidth: rounded(node.strokeWidth * scale),
         children: node.children.map((child) => ({
           ...child,

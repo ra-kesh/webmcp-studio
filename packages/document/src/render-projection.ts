@@ -1,10 +1,12 @@
 import type {
   BlendMode,
+  CornerRadii,
   ImageFrameMask,
   ImagePlacement,
   Page,
   SceneNode,
 } from "./schema"
+import { resolveCornerRadii, roundedRectanglePath } from "./corner-geometry"
 import { projectTextLayout, type TextLayoutProjection } from "./text-layout"
 
 export type RenderFrameProjection = {
@@ -28,6 +30,13 @@ type ProjectedNode<Type extends SceneNode["type"], Content> = {
   frame: RenderFrameProjection
   content: Content
 }
+
+export type RenderCornerGeometry = Readonly<{
+  radii: CornerRadii
+  smoothing: number
+  path: string
+  independent: boolean
+}>
 
 export type RenderNodeProjection =
   | ProjectedNode<
@@ -53,6 +62,7 @@ export type RenderNodeProjection =
       {
         fill: string
         radius: number
+        corners: RenderCornerGeometry
         stroke?: string
         strokeWidth: number
       }
@@ -62,6 +72,7 @@ export type RenderNodeProjection =
       {
         fill: string
         radius: number
+        corners: RenderCornerGeometry
         stroke?: string
         strokeWidth: number
         clipsContent: boolean
@@ -120,6 +131,28 @@ const projectFrame = (node: SceneNode): RenderFrameProjection => ({
   locked: node.locked,
 })
 
+const projectCorners = (
+  node: Extract<SceneNode, { type: "rect" | "frame" }>
+): RenderCornerGeometry => {
+  const independent = (node.independentCorners ?? false) && !!node.cornerRadii
+  const radii = resolveCornerRadii(
+    node.radius,
+    independent ? node.cornerRadii : undefined
+  )
+  const smoothing = node.cornerSmoothing ?? 0
+  return {
+    radii,
+    smoothing,
+    path: roundedRectanglePath({
+      width: node.width,
+      height: node.height,
+      cornerRadii: radii,
+      cornerSmoothing: smoothing,
+    }),
+    independent,
+  }
+}
+
 export function projectNodeForRender(node: SceneNode): RenderNodeProjection {
   const frame = projectFrame(node)
   switch (node.type) {
@@ -151,6 +184,7 @@ export function projectNodeForRender(node: SceneNode): RenderNodeProjection {
         content: {
           fill: node.fill,
           radius: node.radius,
+          corners: projectCorners(node),
           stroke: node.stroke,
           strokeWidth: node.strokeWidth,
         },
@@ -162,6 +196,7 @@ export function projectNodeForRender(node: SceneNode): RenderNodeProjection {
         content: {
           fill: node.fill,
           radius: node.radius,
+          corners: projectCorners(node),
           stroke: node.stroke,
           strokeWidth: node.strokeWidth,
           clipsContent: node.clipsContent,
@@ -350,6 +385,8 @@ export type RenderImageClip =
       width: number
       height: number
       radius: number
+      cornerRadii?: CornerRadii
+      cornerSmoothing?: number
     }
   | {
       shape: "ellipse"
@@ -416,13 +453,31 @@ function projectImageClip(
       0,
       0.5
     )
-    return {
+    const shorterEdge = Math.min(frame.width, frame.height)
+    const base: Extract<RenderImageClip, { shape: "rounded_rectangle" }> = {
       shape: mask.shape,
       x: 0,
       y: 0,
       width: frame.width,
       height: frame.height,
-      radius: normalizedRadius * Math.min(frame.width, frame.height),
+      radius: normalizedRadius * shorterEdge,
+    }
+    if (!mask.cornerRadii && (mask.cornerSmoothing ?? 0) === 0) return base
+    const normalizedCornerRadii = mask.cornerRadii ?? {
+      topLeft: normalizedRadius,
+      topRight: normalizedRadius,
+      bottomRight: normalizedRadius,
+      bottomLeft: normalizedRadius,
+    }
+    return {
+      ...base,
+      cornerRadii: {
+        topLeft: normalizedCornerRadii.topLeft * shorterEdge,
+        topRight: normalizedCornerRadii.topRight * shorterEdge,
+        bottomRight: normalizedCornerRadii.bottomRight * shorterEdge,
+        bottomLeft: normalizedCornerRadii.bottomLeft * shorterEdge,
+      },
+      cornerSmoothing: mask.cornerSmoothing ?? 0,
     }
   }
 

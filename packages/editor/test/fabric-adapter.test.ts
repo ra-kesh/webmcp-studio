@@ -1364,6 +1364,34 @@ describe("Fabric document boundary", () => {
     }
   })
 
+  it("uses the canonical smooth four-corner path for advanced rectangles", () => {
+    const seed = northstarSeed.nodes.find((node) => node.type === "rect")!
+    if (seed.type !== "rect") throw new Error("Missing rectangle")
+    const object = createFabricSyncObject({
+      ...seed,
+      independentCorners: true,
+      cornerRadii: {
+        topLeft: 8,
+        topRight: 16,
+        bottomRight: 24,
+        bottomLeft: 32,
+      },
+      cornerSmoothing: 0.65,
+    })
+
+    expect(object).toBeInstanceOf(Path)
+    expect(object).toMatchObject({
+      fill: seed.fill,
+      opacity: seed.opacity,
+      stroke: seed.stroke,
+      strokeWidth: seed.strokeWidth,
+    })
+    expect((object as Path).path.length).toBeGreaterThan(8)
+    expect(
+      fabricComparableNodeGeometry(fabricObjectToNodePatch(object))
+    ).toEqual(fabricComparableNodeGeometry(seed))
+  })
+
   it("uses canonical resolved resource values for Fabric objects and text", () => {
     const panel = textDesignSystemConformanceDocument.nodes.find(
       (node) => node.id === "rect-stroke-radius"
@@ -3849,6 +3877,22 @@ describe("Fabric document boundary", () => {
       width: updated.width,
       height: updated.height,
     })
+
+    syncFabricObjectFromNode(group, {
+      ...updated,
+      frameMask: {
+        shape: "rounded_rectangle",
+        radius: 0.2,
+        cornerRadii: {
+          topLeft: 0.05,
+          topRight: 0.1,
+          bottomRight: 0.15,
+          bottomLeft: 0.2,
+        },
+        cornerSmoothing: 0.6,
+      },
+    })
+    expect(group.clipPath).toBeInstanceOf(Path)
   })
 
   it("rejects decoded images without usable natural dimensions", () => {

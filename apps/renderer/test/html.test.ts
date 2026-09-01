@@ -241,6 +241,41 @@ describe("renderer HTML", () => {
     expect(html).toContain("opacity:0.65;mix-blend-mode:multiply")
   })
 
+  it("serializes canonical smooth paths for shapes and image clips", () => {
+    const document = structuredClone(northstarSeed)
+    const rect = document.nodes.find((node) => node.type === "rect")!
+    if (rect.type !== "rect") throw new Error("Expected rectangle")
+    rect.independentCorners = true
+    rect.cornerRadii = {
+      topLeft: 6,
+      topRight: 12,
+      bottomRight: 18,
+      bottomLeft: 24,
+    }
+    rect.cornerSmoothing = 0.7
+    const shapeHtml = renderNodeToHtml(rect)
+    expect(shapeHtml).toContain("<svg")
+    expect(shapeHtml).toContain("<path d=")
+    expect(shapeHtml).toContain('vector-effect="non-scaling-stroke"')
+
+    const image = structuredClone(
+      renderConformanceDocument.nodes.find((node) => node.type === "image")!
+    )
+    if (image.type !== "image") throw new Error("Expected image")
+    image.frameMask = {
+      shape: "rounded_rectangle",
+      radius: 0.1,
+      cornerRadii: {
+        topLeft: 0.05,
+        topRight: 0.1,
+        bottomRight: 0.15,
+        bottomLeft: 0.2,
+      },
+      cornerSmoothing: 0.55,
+    }
+    expect(renderNodeToHtml(image)).toContain("data-image-frame-clip-path=")
+  })
+
   it("keeps frame layout-guide metadata out of export HTML", () => {
     const document = structuredClone(northstarSeed)
     const page = document.pages[0]!

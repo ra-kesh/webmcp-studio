@@ -2229,10 +2229,21 @@ const publicNodeCanvasPatchProperties: Record<
     "align",
     "sizingMode",
   ]),
-  rect: new Set(["fill", "radius", "stroke", "strokeWidth"]),
+  rect: new Set([
+    "fill",
+    "radius",
+    "independentCorners",
+    "cornerRadii",
+    "cornerSmoothing",
+    "stroke",
+    "strokeWidth",
+  ]),
   frame: new Set([
     "fill",
     "radius",
+    "independentCorners",
+    "cornerRadii",
+    "cornerSmoothing",
     "stroke",
     "strokeWidth",
     "children",
@@ -2360,6 +2371,28 @@ const frameLayoutGridInputSchema = {
   ],
 } as const
 
+const cornerRadiiInputSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    topLeft: { type: "number", minimum: 0 },
+    topRight: { type: "number", minimum: 0 },
+    bottomRight: { type: "number", minimum: 0 },
+    bottomLeft: { type: "number", minimum: 0 },
+  },
+  required: ["topLeft", "topRight", "bottomRight", "bottomLeft"],
+} as const
+
+const normalizedCornerRadiiInputSchema = {
+  ...cornerRadiiInputSchema,
+  properties: {
+    topLeft: { type: "number", minimum: 0, maximum: 0.5 },
+    topRight: { type: "number", minimum: 0, maximum: 0.5 },
+    bottomRight: { type: "number", minimum: 0, maximum: 0.5 },
+    bottomLeft: { type: "number", minimum: 0, maximum: 0.5 },
+  },
+} as const
+
 const imageFrameMaskInputSchema = {
   oneOf: [
     {
@@ -2380,6 +2413,8 @@ const imageFrameMaskInputSchema = {
       properties: {
         shape: { const: "rounded_rectangle" },
         radius: { type: "number", minimum: 0, maximum: 0.5 },
+        cornerRadii: normalizedCornerRadiiInputSchema,
+        cornerSmoothing: { type: "number", minimum: 0, maximum: 1 },
       },
       required: ["shape", "radius"],
     },
@@ -2540,6 +2575,9 @@ const typedCanvasEditInputSchema = {
         patch: {
           fill: { type: "string" },
           radius: { type: "number", minimum: 0 },
+          independentCorners: { type: "boolean" },
+          cornerRadii: cornerRadiiInputSchema,
+          cornerSmoothing: { type: "number", minimum: 0, maximum: 1 },
           stroke: { type: "string" },
           strokeWidth: { type: "number", minimum: 0 },
         },
@@ -2557,6 +2595,9 @@ const typedCanvasEditInputSchema = {
         patch: {
           fill: { type: "string" },
           radius: { type: "number", minimum: 0 },
+          independentCorners: { type: "boolean" },
+          cornerRadii: cornerRadiiInputSchema,
+          cornerSmoothing: { type: "number", minimum: 0, maximum: 1 },
           stroke: { type: "string" },
           strokeWidth: { type: "number", minimum: 0 },
           children: { type: "array", items: frameChildLayoutInputSchema },
@@ -2961,6 +3002,9 @@ const componentOverridePatchInputSchema = {
     },
     fill: { type: "string" },
     radius: { type: "number", minimum: 0 },
+    independentCorners: { type: "boolean" },
+    cornerRadii: cornerRadiiInputSchema,
+    cornerSmoothing: { type: "number", minimum: 0, maximum: 1 },
     stroke: { type: "string" },
     strokeWidth: { type: "number", minimum: 0 },
     placement: imagePlacementInputSchema,

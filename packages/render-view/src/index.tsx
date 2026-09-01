@@ -25,6 +25,9 @@ import {
   projectImagePaint,
   projectNodeForRender,
   projectPageForRender,
+  cornerRadiiCss,
+  roundedRectanglePath,
+  roundedRectanglePaintPath,
   type Document,
   type ImageFrameMask,
   type RenderFrameProjection,
@@ -45,8 +48,48 @@ export function renderImageFrameMaskStyle(
       mask.shape === "ellipse"
         ? "50%"
         : mask.shape === "rounded_rectangle"
-          ? mask.radius * Math.min(frame.width, frame.height)
+          ? mask.cornerRadii
+            ? cornerRadiiCss({
+                topLeft:
+                  mask.cornerRadii.topLeft *
+                  Math.min(frame.width, frame.height),
+                topRight:
+                  mask.cornerRadii.topRight *
+                  Math.min(frame.width, frame.height),
+                bottomRight:
+                  mask.cornerRadii.bottomRight *
+                  Math.min(frame.width, frame.height),
+                bottomLeft:
+                  mask.cornerRadii.bottomLeft *
+                  Math.min(frame.width, frame.height),
+              })
+            : mask.radius * Math.min(frame.width, frame.height)
           : undefined,
+    clipPath:
+      mask.shape === "rounded_rectangle" && (mask.cornerSmoothing ?? 0) > 0
+        ? `path('${roundedRectanglePath({
+            width: frame.width,
+            height: frame.height,
+            cornerRadii: mask.cornerRadii
+              ? {
+                  topLeft:
+                    mask.cornerRadii.topLeft *
+                    Math.min(frame.width, frame.height),
+                  topRight:
+                    mask.cornerRadii.topRight *
+                    Math.min(frame.width, frame.height),
+                  bottomRight:
+                    mask.cornerRadii.bottomRight *
+                    Math.min(frame.width, frame.height),
+                  bottomLeft:
+                    mask.cornerRadii.bottomLeft *
+                    Math.min(frame.width, frame.height),
+                }
+              : undefined,
+            radius: mask.radius * Math.min(frame.width, frame.height),
+            cornerSmoothing: mask.cornerSmoothing,
+          })}')`
+        : undefined,
   }
 }
 
@@ -550,6 +593,40 @@ function RenderVectorMaskSource({
           strokeWidth={source.strokeWidth}
         />
       </svg>
+    )
+  }
+  if (
+    source.type === "rect" &&
+    (((source.independentCorners ?? false) &&
+      source.cornerRadii !== undefined) ||
+      (source.cornerSmoothing ?? 0) > 0)
+  ) {
+    const projection = projectNodeForRender(source)
+    if (projection.type !== "rect") {
+      throw new Error(`Mask source ${source.id} did not project as a rectangle`)
+    }
+    return (
+      <path
+        d={roundedRectanglePaintPath({
+          width: projection.frame.width,
+          height: projection.frame.height,
+          cornerRadii: projection.content.corners.radii,
+          cornerSmoothing: projection.content.corners.smoothing,
+          strokeWidth: projection.content.stroke
+            ? projection.content.strokeWidth
+            : 0,
+        })}
+        data-mask-source-id={source.id}
+        fill="white"
+        opacity={source.opacity}
+        stroke={source.stroke ? "white" : undefined}
+        strokeWidth={source.strokeWidth}
+        transform={renderLocalSvgFrameTransform({
+          ...projection.frame,
+          x,
+          y,
+        })}
+      />
     )
   }
   const attributes = renderVectorMaskSourceAttributes(source, bounds)
@@ -1087,6 +1164,37 @@ function RenderCoverageMaskSource({
     const frameY = projection.frame.y - bounds.y
     const transform = renderSvgFrameTransform(projection.frame, frameX, frameY)
     if (projection.type === "rect") {
+      if (
+        projection.content.corners.independent ||
+        projection.content.corners.smoothing > 0
+      ) {
+        return (
+          <path
+            d={roundedRectanglePaintPath({
+              width: projection.frame.width,
+              height: projection.frame.height,
+              cornerRadii: projection.content.corners.radii,
+              cornerSmoothing: projection.content.corners.smoothing,
+              strokeWidth: projection.content.stroke
+                ? projection.content.strokeWidth
+                : 0,
+            })}
+            data-mask-source-id={source.id}
+            fill={projection.content.fill}
+            fillOpacity={projection.frame.opacity}
+            stroke={projection.content.stroke ?? undefined}
+            strokeOpacity={
+              projection.content.stroke ? projection.frame.opacity : undefined
+            }
+            strokeWidth={projection.content.strokeWidth}
+            transform={renderLocalSvgFrameTransform({
+              ...projection.frame,
+              x: frameX,
+              y: frameY,
+            })}
+          />
+        )
+      }
       return (
         <rect
           data-mask-source-id={source.id}
@@ -1187,6 +1295,18 @@ function RenderCoverageMaskSource({
                 cy={paint.clip.centerY}
                 rx={paint.clip.radiusX}
                 ry={paint.clip.radiusY}
+              />
+            ) : paint.clip.shape === "rounded_rectangle" &&
+              paint.clip.cornerRadii &&
+              ((paint.clip.cornerSmoothing ?? 0) > 0 ||
+                new Set(Object.values(paint.clip.cornerRadii)).size > 1) ? (
+              <path
+                d={roundedRectanglePath({
+                  width: paint.clip.width,
+                  height: paint.clip.height,
+                  cornerRadii: paint.clip.cornerRadii,
+                  cornerSmoothing: paint.clip.cornerSmoothing ?? 0,
+                })}
               />
             ) : (
               <rect
@@ -1651,6 +1771,11 @@ export function renderNodeStyle(
         ? `${rect.strokeWidth}px solid ${rect.stroke}`
         : undefined,
       borderRadius: rect.radius,
+      ...(rect.corners.independent
+        ? { borderRadius: cornerRadiiCss(rect.corners.radii) }
+        : {}),
+      clipPath:
+        rect.corners.smoothing > 0 ? `path('${rect.corners.path}')` : undefined,
     }
   }
   if (projection.type === "ellipse") {
@@ -1706,6 +1831,35 @@ function RenderNode({
   }
 
   if (projection.type === "rect" || projection.type === "frame") {
+    if (
+      projection.content.corners.independent ||
+      projection.content.corners.smoothing > 0
+    ) {
+      return (
+        <svg
+          {...dataAttributes}
+          style={{ ...renderFrameStyle(projection.frame), overflow: "visible" }}
+          viewBox={`0 0 ${projection.frame.width} ${projection.frame.height}`}
+          preserveAspectRatio="none"
+        >
+          <path
+            d={roundedRectanglePaintPath({
+              width: projection.frame.width,
+              height: projection.frame.height,
+              cornerRadii: projection.content.corners.radii,
+              cornerSmoothing: projection.content.corners.smoothing,
+              strokeWidth: projection.content.stroke
+                ? projection.content.strokeWidth
+                : 0,
+            })}
+            fill={projection.content.fill}
+            stroke={projection.content.stroke}
+            strokeWidth={projection.content.strokeWidth}
+            vectorEffect="non-scaling-stroke"
+          />
+        </svg>
+      )
+    }
     return <div {...dataAttributes} style={style} />
   }
 
@@ -1789,7 +1943,13 @@ function FrameClippedRenderNode({
           width: clip.width,
           height: clip.height,
           overflow: "hidden",
-          borderRadius: clip.radius,
+          borderRadius: clip.cornerRadii
+            ? cornerRadiiCss(clip.cornerRadii)
+            : clip.radius,
+          clipPath:
+            (clip.cornerSmoothing ?? 0) > 0 && clip.path
+              ? `path('${clip.path}')`
+              : undefined,
         }}
       >
         <div style={{ position: "absolute", left: -clip.x, top: -clip.y }}>

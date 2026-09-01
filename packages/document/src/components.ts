@@ -10,6 +10,7 @@ import {
   type TextNodePatch,
 } from "./schema"
 import { scaleFrameLayoutGrid } from "./frame-layout-grids"
+import { scaleCornerRadii } from "./corner-geometry"
 
 export type ComponentIntegrityIssue = {
   code:
@@ -325,6 +326,9 @@ function transformComponentNode(
     return sceneNodeSchema.parse({
       ...transformed,
       radius: node.radius * scale,
+      ...(node.cornerRadii
+        ? { cornerRadii: scaleCornerRadii(node.cornerRadii, scale) }
+        : {}),
       strokeWidth: node.strokeWidth * scale,
       ...(node.type === "frame"
         ? {
@@ -483,6 +487,19 @@ export function rebaseComponentInstanceOverridesForTransform(
         if (typeof next[property] === "number") {
           next[property] *= scaleRatio
         }
+      }
+      if (
+        next.cornerRadii &&
+        typeof next.cornerRadii === "object" &&
+        !Array.isArray(next.cornerRadii)
+      ) {
+        const radii = next.cornerRadii as Record<string, unknown>
+        next.cornerRadii = Object.fromEntries(
+          Object.entries(radii).map(([key, value]) => [
+            key,
+            typeof value === "number" ? value * scaleRatio : value,
+          ])
+        )
       }
       if (Array.isArray(next.runs)) {
         next.runs = next.runs.map((run) => {

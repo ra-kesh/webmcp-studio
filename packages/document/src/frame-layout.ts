@@ -1,4 +1,5 @@
-import type { Document, SceneNode } from "./schema"
+import { resolveCornerRadii, roundedRectanglePath } from "./corner-geometry"
+import type { CornerRadii, Document, SceneNode } from "./schema"
 
 type FrameNode = Extract<SceneNode, { type: "frame" }>
 
@@ -284,6 +285,9 @@ export type FrameClipBounds = Readonly<{
   width: number
   height: number
   radius: number
+  cornerRadii?: CornerRadii
+  cornerSmoothing?: number
+  path?: string
 }>
 
 /** Returns each clipping ancestor in immediate-parent to outer-parent order. */
@@ -298,12 +302,31 @@ export function projectFrameClipStack(
   while (owner && !seen.has(owner.id)) {
     seen.add(owner.id)
     if (owner.clipsContent) {
+      const independent =
+        (owner.independentCorners ?? false) && owner.cornerRadii !== undefined
+      const cornerRadii = resolveCornerRadii(
+        owner.radius,
+        independent ? owner.cornerRadii : undefined
+      )
+      const advancedCorners = independent || (owner.cornerSmoothing ?? 0) > 0
       clips.push({
         x: owner.x,
         y: owner.y,
         width: owner.width,
         height: owner.height,
         radius: owner.radius,
+        ...(advancedCorners
+          ? {
+              cornerRadii,
+              cornerSmoothing: owner.cornerSmoothing ?? 0,
+              path: roundedRectanglePath({
+                width: owner.width,
+                height: owner.height,
+                cornerRadii,
+                cornerSmoothing: owner.cornerSmoothing ?? 0,
+              }),
+            }
+          : {}),
       })
     }
     owner = owners.get(owner.id)
@@ -328,12 +351,28 @@ export function projectFrameClipBounds(
     )
     const x = Math.max(bounds?.x ?? -Infinity, clip.x)
     const y = Math.max(bounds?.y ?? -Infinity, clip.y)
+    const radius: number = bounds ? 0 : clip.radius
+    const cornerRadii: CornerRadii | undefined = bounds
+      ? undefined
+      : clip.cornerRadii
     bounds = {
       x,
       y,
       width: Math.max(0, right - x),
       height: Math.max(0, bottom - y),
-      radius: bounds ? 0 : clip.radius,
+      radius,
+      ...(cornerRadii
+        ? {
+            cornerRadii,
+            cornerSmoothing: clip.cornerSmoothing ?? 0,
+            path: roundedRectanglePath({
+              width: Math.max(0, right - x),
+              height: Math.max(0, bottom - y),
+              cornerRadii,
+              cornerSmoothing: clip.cornerSmoothing ?? 0,
+            }),
+          }
+        : {}),
     }
   }
   return bounds

@@ -74,6 +74,29 @@ const renderImageSourceInspector = (selectedImage: typeof image) =>
   renderSelectedInspector(selectedImage)
 
 describe("InspectorSidebar basic property controls", () => {
+  it("exposes compact independent image-corner controls", () => {
+    if (image.type !== "image") throw new Error("Expected image")
+    const markup = renderImageSourceInspector({
+      ...image,
+      frameMask: {
+        shape: "rounded_rectangle",
+        radius: 0.1,
+        cornerRadii: {
+          topLeft: 0.05,
+          topRight: 0.1,
+          bottomRight: 0.15,
+          bottomLeft: 0.2,
+        },
+        cornerSmoothing: 0.5,
+      },
+    })
+
+    expect(markup).toContain('aria-label="Independent image corners"')
+    expect(markup).toContain("Top left")
+    expect(markup).toContain("Bottom right")
+    expect(markup).toContain("Corner smoothing")
+  })
+
   it("exposes frame flow and clipping controls", () => {
     const markup = renderSelectedInspector({
       id: "inspector-frame",
@@ -90,6 +113,14 @@ describe("InspectorSidebar basic property controls", () => {
       constraints: { horizontal: "min", vertical: "min" },
       fill: "#ffffff",
       radius: 12,
+      independentCorners: true,
+      cornerRadii: {
+        topLeft: 4,
+        topRight: 8,
+        bottomRight: 12,
+        bottomLeft: 16,
+      },
+      cornerSmoothing: 0.6,
       strokeWidth: 0,
       children: [],
       autoLayout: {
@@ -134,6 +165,10 @@ describe("InspectorSidebar basic property controls", () => {
     expect(markup).toContain("Guide color")
     expect(markup).toContain("Fill")
     expect(markup).toContain('aria-label="Blend mode"')
+    expect(markup).toContain('aria-label="Independent corners"')
+    expect(markup).toContain("Top left")
+    expect(markup).toContain("Bottom right")
+    expect(markup).toContain("Corner smoothing")
   })
 
   it("exposes positioning and sizing for a selected frame child", () => {

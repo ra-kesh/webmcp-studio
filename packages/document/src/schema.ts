@@ -55,6 +55,26 @@ export const blendModeSchema = z.enum([
   "luminosity",
 ])
 
+export const cornerRadiiSchema = z
+  .object({
+    topLeft: z.number().nonnegative(),
+    topRight: z.number().nonnegative(),
+    bottomRight: z.number().nonnegative(),
+    bottomLeft: z.number().nonnegative(),
+  })
+  .strict()
+
+export const cornerSmoothingSchema = z.number().min(0).max(1)
+
+const normalizedCornerRadiiSchema = z
+  .object({
+    topLeft: z.number().min(0).max(0.5),
+    topRight: z.number().min(0).max(0.5),
+    bottomRight: z.number().min(0).max(0.5),
+    bottomLeft: z.number().min(0).max(0.5),
+  })
+  .strict()
+
 export const nodeConstraintsSchema = z
   .object({
     horizontal: constraintAxisSchema,
@@ -166,6 +186,9 @@ export const imageFrameMaskSchema = z.discriminatedUnion("shape", [
       shape: z.literal("rounded_rectangle"),
       /** Radius normalized against the shorter frame edge. */
       radius: z.number().min(0).max(0.5),
+      /** Optional independent radii normalized against the shorter edge. */
+      cornerRadii: normalizedCornerRadiiSchema.optional(),
+      cornerSmoothing: cornerSmoothingSchema.optional(),
     })
     .strict(),
   z.object({ shape: z.literal("ellipse") }).strict(),
@@ -248,6 +271,9 @@ export const sceneNodePatchSchema = z
       paintStyleId: id.optional(),
       fill: z.string().optional(),
       radius: z.number().min(0).optional(),
+      independentCorners: z.boolean().optional(),
+      cornerRadii: cornerRadiiSchema.optional(),
+      cornerSmoothing: cornerSmoothingSchema.optional(),
       stroke: z.string().optional(),
       strokeWidth: z.number().nonnegative().optional(),
     }),
@@ -283,6 +309,9 @@ export const sceneNodePatchSchema = z
       paintStyleId: id.optional(),
       fill: z.string().optional(),
       radius: z.number().min(0).optional(),
+      independentCorners: z.boolean().optional(),
+      cornerRadii: cornerRadiiSchema.optional(),
+      cornerSmoothing: cornerSmoothingSchema.optional(),
       stroke: z.string().optional(),
       strokeWidth: z.number().nonnegative().optional(),
       children: z.array(frameChildLayoutSchema).optional(),
@@ -321,6 +350,9 @@ export const sceneNodeSchema = z
       paintStyleId: id.optional(),
       fill: z.string(),
       radius: z.number().min(0).default(0),
+      independentCorners: z.boolean().optional(),
+      cornerRadii: cornerRadiiSchema.optional(),
+      cornerSmoothing: cornerSmoothingSchema.optional(),
       stroke: z.string().optional(),
       strokeWidth: z.number().nonnegative().default(0),
     }),
@@ -361,6 +393,9 @@ export const sceneNodeSchema = z
       paintStyleId: id.optional(),
       fill: z.string(),
       radius: z.number().min(0).default(0),
+      independentCorners: z.boolean().optional(),
+      cornerRadii: cornerRadiiSchema.optional(),
+      cornerSmoothing: cornerSmoothingSchema.optional(),
       stroke: z.string().optional(),
       strokeWidth: z.number().nonnegative().default(0),
       children: z.array(frameChildLayoutSchema),
@@ -370,6 +405,17 @@ export const sceneNodeSchema = z
     }),
   ])
   .superRefine((node, context) => {
+    if (
+      (node.type === "rect" || node.type === "frame") &&
+      node.independentCorners &&
+      !node.cornerRadii
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["cornerRadii"],
+        message: "Independent corners require all four corner radii",
+      })
+    }
     if (node.type !== "image") return
     if (node.decorative && node.alt !== "") {
       context.addIssue({
@@ -975,6 +1021,9 @@ export const componentOverridePropertySchema = z.enum([
   "sizingMode",
   "fill",
   "radius",
+  "independentCorners",
+  "cornerRadii",
+  "cornerSmoothing",
   "stroke",
   "strokeWidth",
   "path",
@@ -1727,6 +1776,7 @@ export type TextNodePatch = z.infer<typeof textNodePatchSchema>
 export type TextSizingMode = z.infer<typeof textSizingModeSchema>
 export type ConstraintAxis = z.infer<typeof constraintAxisSchema>
 export type BlendMode = z.infer<typeof blendModeSchema>
+export type CornerRadii = z.infer<typeof cornerRadiiSchema>
 export type NodeConstraints = z.infer<typeof nodeConstraintsSchema>
 export type FrameChildLayout = z.infer<typeof frameChildLayoutSchema>
 export type FrameAutoLayout = z.infer<typeof frameAutoLayoutSchema>

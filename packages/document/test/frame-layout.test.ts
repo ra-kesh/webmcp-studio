@@ -244,6 +244,20 @@ describe("canonical frame auto layout", () => {
       { x: 100, y: 80, width: 400, height: 200, radius: 16 },
       { x: 80, y: 60, width: 460, height: 260, radius: 28 },
     ])
+
+    container.independentCorners = true
+    container.cornerRadii = {
+      topLeft: 4,
+      topRight: 8,
+      bottomRight: 12,
+      bottomLeft: 16,
+    }
+    container.cornerSmoothing = 0.5
+    expect(projectFrameClipStack(clipping, childId)[0]).toMatchObject({
+      cornerRadii: container.cornerRadii,
+      cornerSmoothing: 0.5,
+    })
+    expect(projectFrameClipStack(clipping, childId)[0]?.path).toContain(" C ")
   })
 
   it("rejects cross-page child ownership", () => {

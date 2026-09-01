@@ -1144,6 +1144,44 @@ describe("React render-view conformance", () => {
     })
   })
 
+  it("renders independent smooth corners from the canonical path", () => {
+    const rect = renderConformanceDocument.nodes.find(
+      (node) => node.id === "rect-stroke-radius"
+    )!
+    if (rect.type !== "rect") throw new Error("Expected rectangle")
+    const advanced = {
+      ...rect,
+      independentCorners: true,
+      cornerRadii: {
+        topLeft: 8,
+        topRight: 16,
+        bottomRight: 24,
+        bottomLeft: 32,
+      },
+      cornerSmoothing: 0.6,
+    }
+    const projection = projectNodeForRender(advanced)
+    if (projection.type !== "rect") throw new Error("Expected rectangle")
+    expect(renderNodeStyle(projection)).toMatchObject({
+      borderRadius: "8px 16px 24px 32px",
+    })
+    expect(renderNodeStyle(projection).clipPath).toContain("path('")
+
+    const document = structuredClone(renderConformanceDocument)
+    document.nodes = document.nodes.map((node) =>
+      node.id === advanced.id ? advanced : node
+    )
+    const markup = renderToStaticMarkup(
+      createElement(Artboard, {
+        document,
+        pageId: document.pages.find((page) =>
+          page.nodeIds.includes(advanced.id)
+        )!.id,
+      })
+    )
+    expect(markup).toContain("<path d=")
+  })
+
   it("projects canonical placement and clips through an overflow-safe frame", () => {
     for (const id of ["image-cover", "image-contain"] as const) {
       const node = renderConformanceDocument.nodes.find(
