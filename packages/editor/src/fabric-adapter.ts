@@ -4760,10 +4760,9 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     ) {
       return
     }
-    this.moveSnapLatch = null
-    this.rotationSnapLatch = null
-    this.resizeSnapLatch = null
-    this.activeGuides = []
+    // A previous transform can release canonical guide state before Fabric has
+    // repainted its upper context. Starting another gesture must clear both.
+    this.clearGuides()
     if (
       transform.target instanceof ActiveSelection &&
       this.activeSelectionContainsLockedNode(transform.target)
@@ -5170,15 +5169,22 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     this.moveSnapLatch = null
     this.rotationSnapLatch = null
     this.resizeSnapLatch = null
-    if (!this.activeGuides.length) return
+    const hadActiveGuides = this.activeGuides.length > 0
     this.activeGuides = []
     const canvas = this.canvas
     if (!canvas) return
-    // Clear synchronously as well as scheduling a render. A workspace
-    // click-outside can clear selection without another Fabric pointer event,
-    // and stale top-context pixels must disappear immediately.
-    canvas.clearContext(canvas.contextTop)
-    canvas.requestRenderAll()
+    // The in-memory guide list and the already-painted top-context frame can
+    // diverge: page sync and transform cancellation may release the list before
+    // an external blank-canvas click arrives. Always clear the pixels even when
+    // activeGuides is already empty. Existing release callers own their normal
+    // follow-up repaint; a live guide transition requests one here as well.
+    // Canvas is complete in production; the guard also keeps staged/test
+    // adapters that have not allocated an upper context from throwing while
+    // they release transient state.
+    if (canvas.contextTop && typeof canvas.clearContext === "function") {
+      canvas.clearContext(canvas.contextTop)
+    }
+    if (hadActiveGuides) canvas.requestRenderAll()
   }
 
   private onObjectModified = ({ target }: ModifiedEvent) => {

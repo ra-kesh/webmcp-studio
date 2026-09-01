@@ -346,3 +346,19 @@ passes 110/110, the editor package typecheck passes, and the live port-3001
 editor no longer retains the accumulated dashed lines after its replacement
 adapter mounts. Persistent ruler guides remain a separate, deliberate feature;
 the affected page had zero persisted guides in the guide manager.
+
+### Residual empty-state correction
+
+A later live run proved that the first correction still contained one invalid
+shortcut: `clearGuides()` returned early when `activeGuides` was already empty.
+The painted `contextTop` frame can outlive that array because page sync or
+transform cancellation may release in-memory state before a later blank-canvas
+click. In that state the UI truthfully reported no selection while the old
+dashed pixels and spacing labels remained visible.
+
+The release path now treats renderer state and canonical interaction state as
+separate ownership domains: it always clears the top-context pixels, even when
+the guide array is already empty, while only scheduling an additional render
+when live guide state actually changed. A regression reproduces the exact
+empty-array/stale-frame state. The complete Fabric adapter suite passes
+**111/111** and the editor package typecheck passes.

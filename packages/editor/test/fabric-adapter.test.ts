@@ -1315,6 +1315,20 @@ describe("Fabric document boundary", () => {
     )
   })
 
+  it("clears stale top-context pixels even after guide state was already released", () => {
+    const harness = createTransformHarness()
+    expect(Reflect.get(harness.adapter, "activeGuides")).toEqual([])
+    harness.canvas.clearContext.mockClear()
+    harness.canvas.requestRenderAll.mockClear()
+
+    Reflect.get(harness.adapter, "clearGuides").call(harness.adapter)
+
+    expect(harness.canvas.clearContext).toHaveBeenCalledWith(
+      harness.canvas.contextTop
+    )
+    expect(harness.canvas.requestRenderAll).not.toHaveBeenCalled()
+  })
+
   it("keeps Shift side handles on Fabric's public scale path", () => {
     const target = new Rect({
       left: 50,
