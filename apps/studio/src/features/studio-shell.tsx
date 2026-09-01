@@ -176,21 +176,19 @@ import { StudioMark } from "./editor/studio-mark"
 import { useRecentDocumentsVisibility } from "./editor/recent-documents-provider"
 import type {
   CanvasDocumentSyncIdentity,
+  CanvasRuntimeOwnerRelease,
   CanvasRuntimeReport,
   FabricArtboardHandle,
   ImageSourceStateChange,
 } from "./editor/fabric-artboard"
 import {
-  assertCanvasReplacementMutationAdmission,
-  captureCanvasReplacementMutationAdmission,
   canvasMountedDocumentMutationAdmitted,
   canvasPageMutationAdmitted,
   canvasPagesMutationAdmitted,
-  reduceCanvasRuntimeAdmission,
-  releaseCanvasRuntimeAdmission,
   runCanvasMutationIfAdmitted,
 } from "./editor/canvas-runtime-admission"
 import type { CanvasRuntimeAdmissionRegistry } from "./editor/canvas-runtime-admission"
+import { CanvasRuntimeAdmissionController } from "./editor/canvas-runtime-admission-controller"
 import { buildMultiArtboardPageSyncIdentities } from "./editor/multi-artboard-page-sync"
 import { handleEditorEscape } from "./editor/editor-escape"
 import {
@@ -1138,54 +1136,20 @@ export function StudioShell({
     useState<RenameLayerTarget | null>(null)
   const [structureCommandDialog, setStructureCommandDialog] =
     useState<StructureCommandDialogState | null>(null)
-  const canvasRuntimeAdmissionSnapshotRef =
-    useRef<CanvasRuntimeAdmissionRegistry>(new Map())
-  const canvasRequestSnapshotRef = useRef<
-    ReadonlyMap<string, CanvasDocumentSyncIdentity>
-  >(new Map())
-  const canvasDocumentIdSnapshotRef = useRef(editor.previewDocument.id)
-  const captureCanvasCommitAdmission = useCallback((pageId?: string) => {
-    const documentId = canvasDocumentIdSnapshotRef.current
-    const requested = pageId
-      ? canvasRequestSnapshotRef.current.get(pageId)
-      : null
-    return () => {
-      if (canvasDocumentIdSnapshotRef.current !== documentId) return false
-      if (!pageId) {
-        return canvasMountedDocumentMutationAdmitted(
-          canvasRuntimeAdmissionSnapshotRef.current,
-          documentId,
-          canvasRequestSnapshotRef.current
-        )
-      }
-      const current = canvasRequestSnapshotRef.current.get(pageId)
-      return Boolean(
-        requested &&
-        current &&
-        current.documentId === requested.documentId &&
-        current.documentRevision === requested.documentRevision &&
-        current.pageId === requested.pageId &&
-        current.documentSyncIdentity === requested.documentSyncIdentity &&
-        canvasPageMutationAdmitted(
-          canvasRuntimeAdmissionSnapshotRef.current,
-          requested
-        )
-      )
-    }
-  }, [])
+  const canvasRuntimeAdmissionControllerRef =
+    useRef<CanvasRuntimeAdmissionController | null>(null)
+  const canvasRuntimeAdmissionController =
+    canvasRuntimeAdmissionControllerRef.current ??=
+      new CanvasRuntimeAdmissionController()
+  const captureCanvasCommitAdmission = useCallback(
+    (pageId?: string) =>
+      canvasRuntimeAdmissionController.captureCommit(pageId),
+    [canvasRuntimeAdmissionController]
+  )
   const captureCanvasReplacementCommitAdmission = useCallback(
-    (pageId: string) => {
-      const lease = captureCanvasReplacementMutationAdmission(
-        canvasRuntimeAdmissionSnapshotRef.current,
-        canvasRequestSnapshotRef.current.get(pageId)
-      )
-      return () =>
-        assertCanvasReplacementMutationAdmission(
-          lease,
-          canvasDocumentIdSnapshotRef.current
-        )
-    },
-    []
+    (pageId: string) =>
+      canvasRuntimeAdmissionController.captureReplacementCommit(pageId),
+    [canvasRuntimeAdmissionController]
   )
   const performCanvasAdmittedLibraryMediaAction = useCallback(
     (
@@ -1439,25 +1403,17 @@ export function StudioShell({
     useState<CanvasRuntimeAdmissionRegistry>(() => new Map())
   const reportCanvasRuntimeState = useCallback(
     (report: CanvasRuntimeReport) => {
-      const next = reduceCanvasRuntimeAdmission(
-        canvasRuntimeAdmissionSnapshotRef.current,
-        report
-      )
-      canvasRuntimeAdmissionSnapshotRef.current = next
+      const next = canvasRuntimeAdmissionController.report(report)
       setCanvasRuntimeAdmission(next)
     },
-    []
+    [canvasRuntimeAdmissionController]
   )
   const releaseCanvasRuntimeOwner = useCallback(
-    (owner: Parameters<typeof releaseCanvasRuntimeAdmission>[1]) => {
-      const next = releaseCanvasRuntimeAdmission(
-        canvasRuntimeAdmissionSnapshotRef.current,
-        owner
-      )
-      canvasRuntimeAdmissionSnapshotRef.current = next
+    (owner: CanvasRuntimeOwnerRelease) => {
+      const next = canvasRuntimeAdmissionController.release(owner)
       setCanvasRuntimeAdmission(next)
     },
-    []
+    [canvasRuntimeAdmissionController]
   )
   const canvasRequestsByPageId = useMemo(
     () =>
@@ -1486,9 +1442,11 @@ export function StudioShell({
       canvasRequestsByPageId.get(pageId) ?? null,
     [canvasRequestsByPageId]
   )
-  canvasRuntimeAdmissionSnapshotRef.current = canvasRuntimeAdmission
-  canvasRequestSnapshotRef.current = canvasRequestsByPageId
-  canvasDocumentIdSnapshotRef.current = editor.previewDocument.id
+  canvasRuntimeAdmissionController.synchronize(
+    canvasRuntimeAdmission,
+    canvasRequestsByPageId,
+    editor.previewDocument.id
+  )
   const canvasMutationAdmittedForPage = useCallback(
     (pageId: string) => {
       const request = canvasRequestForPage(pageId)
