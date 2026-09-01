@@ -4,7 +4,7 @@ Date: 2026-09-01
 
 Updated: 2026-09-02
 
-Code baseline: `9372b7a43fa83cef272f3a1f1545542b07f450c2`
+Code baseline: `c6a0f005b319f05099542384372dc5c2588ccf9a`
 
 This checkpoint reconciles the main conversation with the separate redesign,
 mask, rich-text, component, library, image-architecture, generation, independent
@@ -66,7 +66,9 @@ checkpoint and evidence stay auditable.
    future expansion of either contract must add a new canonical geometry and
    cross-renderer conformance gate.
 3. **Blend modes — completed as phase-map Gate 4 and independently
-   accepted.** Commit `9372b7a43fa83cef272f3a1f1545542b07f450c2`
+   accepted.** Commit `9372b7a43fa83cef272f3a1f1545542b07f450c2`,
+   with component-override repair
+   `c6a0f005b319f05099542384372dc5c2588ccf9a`,
    adds a strict 16-mode portable blend vocabulary; canonical projection;
    Fabric canvas and React/CSS/renderer mappings; explicit opacity, clipping,
    and retained-mask ordering; Inspector and Review controls; strict WebMCP
