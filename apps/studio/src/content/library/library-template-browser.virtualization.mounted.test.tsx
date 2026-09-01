@@ -261,18 +261,18 @@ describe("LibraryTemplateBrowser container grid and virtualization", () => {
     })
 
     const focused = host.querySelector<HTMLButtonElement>(
-      `button[aria-label="Show details for ${items[0]!.name}"]`
+      `button[data-template-details-label="Show details for ${items[0]!.name}"]`
     )!
     await act(async () => focused.focus())
-    expect(document.activeElement?.getAttribute("aria-label")).toBe(
-      `Show details for ${items[0]!.name}`
-    )
+    expect(
+      document.activeElement?.getAttribute("data-template-details-label")
+    ).toBe(`Show details for ${items[0]!.name}`)
 
     width = 700
     await notifyResize()
 
-    expect(document.activeElement?.getAttribute("aria-label")).toBe(
-      `Show details for ${items[0]!.name}`
-    )
+    expect(
+      document.activeElement?.getAttribute("data-template-details-label")
+    ).toBe(`Show details for ${items[0]!.name}`)
   })
 })

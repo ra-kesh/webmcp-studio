@@ -657,9 +657,9 @@ describe("LibraryTemplateBrowser", () => {
         new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })
       )
     })
-    expect(document.activeElement?.getAttribute("aria-label")).toMatch(
-      /^Show details for /
-    )
+    expect(
+      document.activeElement?.getAttribute("data-template-details-label")
+    ).toMatch(/^Show details for /)
   })
 
   it("distinguishes an empty catalog from a filtered no-results view", async () => {
@@ -704,9 +704,9 @@ describe("LibraryTemplateBrowser", () => {
     await act(async () => {
       emptyController.updateState(discoveryState())
       await vi.waitFor(() => {
-        expect(document.activeElement?.getAttribute("aria-label")).toMatch(
-          /^Show details for /
-        )
+        expect(
+          document.activeElement?.getAttribute("data-template-details-label")
+        ).toMatch(/^Show details for /)
       })
     })
   })
@@ -731,7 +731,7 @@ describe("LibraryTemplateBrowser", () => {
     const removed = initialItems[1]!
     const successor = initialItems[2]!
     const focusedButton = host.querySelector<HTMLButtonElement>(
-      `button[aria-label="Show details for ${removed.name}"]`
+      `button[data-template-details-label="Show details for ${removed.name}"]`
     )!
     await act(async () => focusedButton.focus())
 
@@ -743,9 +743,9 @@ describe("LibraryTemplateBrowser", () => {
       )
     })
 
-    expect(document.activeElement?.getAttribute("aria-label")).toBe(
-      `Show details for ${successor.name}`
-    )
+    expect(
+      document.activeElement?.getAttribute("data-template-details-label")
+    ).toBe(`Show details for ${successor.name}`)
   })
 
   it("does not steal focus back after focus leaves the results collection", async () => {
@@ -767,7 +767,7 @@ describe("LibraryTemplateBrowser", () => {
 
     const removed = initialItems[1]!
     const focusedButton = host.querySelector<HTMLButtonElement>(
-      `button[aria-label="Show details for ${removed.name}"]`
+      `button[data-template-details-label="Show details for ${removed.name}"]`
     )!
     const search = host.querySelector<HTMLInputElement>(
       'input[aria-label="Search design templates"]'

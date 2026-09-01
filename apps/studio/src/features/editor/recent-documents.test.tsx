@@ -136,8 +136,17 @@ const baseProps = () => ({
 })
 
 function buttonWithLabel(label: string) {
-  return document.body.querySelector<HTMLButtonElement>(
-    `button[aria-label="${label}"]`
+  return (
+    [...document.body.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => {
+        const candidate = button.getAttribute("aria-label")
+        return (
+          candidate === label ||
+          candidate?.startsWith(`${label} `) ||
+          button.getAttribute("data-document-open-label") === label
+        )
+      }
+    ) ?? null
   )
 }
 

@@ -444,7 +444,6 @@ function TemplateCard({
   favoritePending,
   onFocus,
   cardRef,
-  semanticPosition,
 }: {
   item: LibraryTemplateSummary
   selected: boolean
@@ -462,9 +461,9 @@ function TemplateCard({
   favoritePending: boolean
   onFocus: () => void
   cardRef?: RefCallback<HTMLButtonElement>
-  semanticPosition?: Readonly<{ position: number; size: number }>
 }) {
   const favorite = item.preferences?.favorite ?? false
+  const detailsMeta = `${dimensionLabel(item)} · ${item.pageCount} ${item.pageCount === 1 ? "page" : "pages"}`
   const createCompatibility = compatibilityFor(
     item,
     hasQuotationSource,
@@ -493,11 +492,9 @@ function TemplateCard({
         <div className="flex min-w-0 items-start gap-2">
           <button
             ref={cardRef}
-            aria-label={`Show details for ${item.name}`}
-            aria-posinset={semanticPosition?.position}
             aria-pressed={selected}
-            aria-setsize={semanticPosition?.size}
             className="min-h-11 min-w-0 flex-1 rounded-md text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/45"
+            data-template-details-label={`Show details for ${item.name}`}
             type="button"
             onClick={onSelect}
           >
@@ -505,9 +502,9 @@ function TemplateCard({
               {item.name}
             </span>
             <span className="mt-0.5 block truncate text-[11px] text-muted-foreground tabular-nums">
-              {dimensionLabel(item)} · {item.pageCount}{" "}
-              {item.pageCount === 1 ? "page" : "pages"}
+              {detailsMeta}
             </span>
+            <span className="sr-only">. Show details</span>
           </button>
           <button
             aria-label={
@@ -1007,7 +1004,6 @@ function TemplateCollection({
             )
           }
           favoritePending={preferenceState.pending.has(favoriteKey(item))}
-          semanticPosition={{ position: index + 1, size: items.length }}
           onInspect={() => onSelect(item)}
           onManageCollections={onManageCollections}
           onNewCollection={onNewCollection}

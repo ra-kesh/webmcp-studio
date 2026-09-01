@@ -50,7 +50,12 @@ import {
 } from "@webmcp/ui/components/input-group"
 import { Label } from "@webmcp/ui/components/label"
 import { Skeleton } from "@webmcp/ui/components/skeleton"
-import { Tabs, TabsList, TabsTrigger } from "@webmcp/ui/components/tabs"
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@webmcp/ui/components/tabs"
 import { cn } from "@webmcp/ui/lib/utils"
 import { useStudioPersistence } from "../persistence/studio-persistence-provider"
 import { DocumentPreview } from "./document-preview"
@@ -310,13 +315,13 @@ function DocumentCard({
       >
         <button
           ref={openRef}
-          aria-label={`Open ${row.name}`}
           aria-busy={opening || undefined}
           className={cn(
             "min-h-11 min-w-0 flex-1 rounded-md text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50",
             grid ? "block w-full" : "flex items-center gap-4"
           )}
           disabled={openDisabled}
+          data-document-open-label={`Open ${row.name}`}
           type="button"
           onClick={() => onOpen(row.documentId)}
         >
@@ -354,6 +359,7 @@ function DocumentCard({
               {row.pageCountLabel} · {row.outputCountLabel}
             </span>
           ) : null}
+          <span className="sr-only">. Open document</span>
         </button>
         <DocumentActionsMenu
           actionRef={actionRef}
@@ -1068,6 +1074,22 @@ export function RecentDocumentsView({
                 Trash
               </TabsTrigger>
             </TabsList>
+            <TabsContent
+              className="sr-only"
+              forceMount
+              hidden={collectionModel.collection !== "recent"}
+              value="recent"
+            >
+              Recent document collection
+            </TabsContent>
+            <TabsContent
+              className="sr-only"
+              forceMount
+              hidden={collectionModel.collection !== "trash"}
+              value="trash"
+            >
+              Trash document collection
+            </TabsContent>
           </Tabs>
           <form
             className="min-w-0 flex-1"

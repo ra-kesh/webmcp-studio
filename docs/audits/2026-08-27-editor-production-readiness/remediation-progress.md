@@ -4064,3 +4064,16 @@ Status: **implemented and locally accepted**
   `git diff --check` passes. A fresh desktop Lighthouse snapshot of the selected
   and editable inspector state now reports 100 Accessibility, 100 Best
   Practices, 100 SEO, 100 Agentic Browsing, and zero failed audits.
+- The same product was then exercised at 1,024, 768, 600, and 375 CSS pixels.
+  Compact navigation retained File, publish, export and API actions; the canvas,
+  page strip, panel entry points, zoom controls, and one-column start catalog
+  remained bounded without horizontal overflow.
+- Mobile accessibility inspection found template ordering metadata attached to
+  an inner button instead of its list item, collection tabs pointing to absent
+  tabpanels, and action labels that replaced rather than extended visible card
+  text. Redundant button ordering metadata was removed, both tab targets now
+  exist with only the active panel exposed, and card actions derive their names
+  from visible content plus a concise hidden action suffix.
+- The focused template and Recent-document suites pass 52/52 and Studio
+  typecheck passes. A cache-free 375 px Lighthouse snapshot now reports 100 in
+  all four audited categories with zero failed audits.
