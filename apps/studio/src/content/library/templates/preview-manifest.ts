@@ -9,7 +9,7 @@ import type {
 } from "@webmcp/document"
 import { z } from "zod"
 import { studioPageThumbnailRendererRevision } from "../../../features/editor/page-thumbnail-raster-producer"
-import publishedManifestJson from "../../../../public/library/previews/templates/manifest.json"
+import publishedManifestJson from "./published-preview-manifest.json"
 
 export const STUDIO_TEMPLATE_PREVIEW_MAX_WIDTH = 320
 export const STUDIO_TEMPLATE_PREVIEW_MAX_HEIGHT = 240

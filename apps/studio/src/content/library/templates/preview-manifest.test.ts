@@ -7,6 +7,7 @@ import {
   assertStudioTemplatePreviewManifestCoverage,
   listStudioTemplatePreviewSpecifications,
   parseStudioTemplatePreviewManifest,
+  studioTemplatePreviewManifest,
   studioTemplatePreviewManifestSchema,
   templatePreviewKey,
   type StudioTemplatePreviewManifest,
@@ -54,6 +55,7 @@ describe("Studio template preview manifest", () => {
         )
       ) as unknown
     )
+    expect(studioTemplatePreviewManifest).toEqual(manifest)
     expect(manifest.entries).toHaveLength(21)
     for (const { key, preview } of manifest.entries) {
       const bytes = await readFile(

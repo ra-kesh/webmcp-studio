@@ -39,6 +39,10 @@ const publicRoot = join(repositoryRoot, "apps/studio/public")
 const previewRoot = join(publicRoot, "library/previews/templates")
 const generationsRoot = join(previewRoot, "generations")
 const manifestPath = join(previewRoot, "manifest.json")
+const sourceManifestPath = join(
+  repositoryRoot,
+  "apps/studio/src/content/library/templates/published-preview-manifest.json"
+)
 const generationLockPath = join(previewRoot, ".generation-lock")
 const baseUrl = (
   process.env.LIBRARY_PREVIEW_BASE_URL ?? "http://localhost:3001"
@@ -146,6 +150,7 @@ async function generate() {
     previewRoot,
     `.manifest-${randomUUID()}.json`
   )
+  const temporarySourceManifestPath = `${sourceManifestPath}.${randomUUID()}.tmp`
   let publishedGeneration = false
   let publishedManifest = false
   try {
@@ -177,12 +182,11 @@ async function generate() {
       publishedGeneration = true
     }
 
-    await writeFile(
-      temporaryManifestPath,
-      `${JSON.stringify(manifest, null, 2)}\n`,
-      "utf8"
-    )
+    const serializedManifest = `${JSON.stringify(manifest, null, 2)}\n`
+    await writeFile(temporaryManifestPath, serializedManifest, "utf8")
+    await writeFile(temporarySourceManifestPath, serializedManifest, "utf8")
     await rename(temporaryManifestPath, manifestPath)
+    await rename(temporarySourceManifestPath, sourceManifestPath)
     publishedManifest = true
     await verifyPublishedManifest()
     process.stdout.write(
@@ -199,6 +203,7 @@ async function generate() {
   } finally {
     await rm(stagingRoot, { recursive: true, force: true })
     await rm(temporaryManifestPath, { force: true })
+    await rm(temporarySourceManifestPath, { force: true })
   }
 }
 
@@ -220,9 +225,18 @@ async function withGenerationLock(run: () => Promise<void>) {
 }
 
 async function verifyPublishedManifest() {
-  const manifest = parseStudioTemplatePreviewManifest(
-    JSON.parse(await readFile(manifestPath, "utf8")) as unknown
+  const publicManifestJson = JSON.parse(
+    await readFile(manifestPath, "utf8")
+  ) as unknown
+  const sourceManifestJson = JSON.parse(
+    await readFile(sourceManifestPath, "utf8")
+  ) as unknown
+  assert.deepEqual(
+    sourceManifestJson,
+    publicManifestJson,
+    "Bundled and public template preview manifests must match"
   )
+  const manifest = parseStudioTemplatePreviewManifest(publicManifestJson)
   assertStudioTemplatePreviewManifestCoverage(manifest)
   await verifyManifestFiles(manifest, publicPathFor)
   const expected = new Set(
