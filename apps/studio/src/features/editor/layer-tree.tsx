@@ -1176,49 +1176,62 @@ export function LayerTree({
 
   return (
     <section className="flex min-h-0 flex-1 flex-col" aria-label="Layers">
-      <div className={cn("p-2", !integrated && "border-b border-border")}>
-        <div className="flex min-w-0 items-center gap-1">
-          <div className="relative min-w-0 flex-1">
-            <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              type="search"
-              name="layer-search"
-              autoComplete="off"
-              aria-label="Search layers"
-              value={query}
-              placeholder="Search layers…"
-              className={cn(
-                "appearance-none rounded-sm border-transparent bg-editor-field pr-2.5 pl-7 text-[11px] hover:bg-editor-field-hover focus-visible:bg-background [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden",
-                compact
-                  ? "h-(--studio-compact-target)"
-                  : "h-(--studio-control-sm)"
-              )}
-              onChange={(event) => setQuery(event.target.value)}
-              onKeyDown={(event) => event.stopPropagation()}
-            />
-          </div>
-          {query ? (
-            <Button
-              type="button"
-              size="icon-xs"
-              variant="ghost"
-              aria-label="Clear layer search"
-              className={cn("shrink-0", compact ? "size-11" : "size-7")}
-              onClick={() => setQuery("")}
-            >
-              <X className="size-3" />
-            </Button>
-          ) : null}
-        </div>
-        <div className="mt-1.5 flex items-center justify-between px-0.5 text-[11px] leading-4 text-muted-foreground">
-          <span role="status" aria-live="polite" aria-atomic="true">
-            {query
-              ? `${matchCount} ${matchCount === 1 ? "result" : "results"}`
-              : `${model.byKey.size} ${model.byKey.size === 1 ? "layer" : "layers"}`}
+      {integrated ? (
+        <div
+          className="flex min-h-10 shrink-0 items-center gap-2 px-3 text-[11px] leading-4"
+          data-layer-tree-header="true"
+        >
+          <span className="font-semibold text-foreground">Layers</span>
+          <span className="tabular-nums text-muted-foreground">
+            {model.byKey.size} total
           </span>
-          <span>Front to back</span>
+          <span className="ml-auto text-muted-foreground">Front to back</span>
         </div>
-      </div>
+      ) : (
+        <div className="border-b border-border p-2">
+          <div className="flex min-w-0 items-center gap-1">
+            <div className="relative min-w-0 flex-1">
+              <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                type="search"
+                name="layer-search"
+                autoComplete="off"
+                aria-label="Search layers"
+                value={query}
+                placeholder="Search layers…"
+                className={cn(
+                  "appearance-none rounded-sm border-transparent bg-editor-field pr-2.5 pl-7 text-[11px] hover:bg-editor-field-hover focus-visible:bg-background [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden",
+                  compact
+                    ? "h-(--studio-compact-target)"
+                    : "h-(--studio-control-sm)"
+                )}
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) => event.stopPropagation()}
+              />
+            </div>
+            {query ? (
+              <Button
+                type="button"
+                size="icon-xs"
+                variant="ghost"
+                aria-label="Clear layer search"
+                className={cn("shrink-0", compact ? "size-11" : "size-7")}
+                onClick={() => setQuery("")}
+              >
+                <X className="size-3" />
+              </Button>
+            ) : null}
+          </div>
+          <div className="mt-1.5 flex items-center justify-between px-0.5 text-[11px] leading-4 text-muted-foreground">
+            <span role="status" aria-live="polite" aria-atomic="true">
+              {query
+                ? `${matchCount} ${matchCount === 1 ? "result" : "results"}`
+                : `${model.byKey.size} ${model.byKey.size === 1 ? "layer" : "layers"}`}
+            </span>
+            <span>Front to back</span>
+          </div>
+        </div>
+      )}
 
       {rows.length ? (
         <div

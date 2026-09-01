@@ -264,6 +264,15 @@ describe("QuotationSidebar exact template actions", () => {
     expect(
       document.body.querySelectorAll('[data-file-section-divider="true"]')
     ).toHaveLength(1)
+    const layerHeader = document.body.querySelector<HTMLElement>(
+      '[data-layer-tree-header="true"]'
+    )
+    expect(layerHeader?.textContent).toContain("Layers")
+    expect(layerHeader?.textContent).toMatch(/\d+ total/)
+    expect(layerHeader?.textContent).toContain("Front to back")
+    expect(
+      document.body.querySelector('input[aria-label="Search layers"]')
+    ).toBeNull()
     expect(
       pages && layers
         ? Boolean(

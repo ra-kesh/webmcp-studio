@@ -80,3 +80,8 @@ spacing rhythm rather than repeated borders. The Pages pane sizes to its actual
 row count up to 48% of the rail, so the six-page quotation is fully visible at
 1280×720 while larger documents still scroll. The active tab keeps a visible
 one-pixel inset keyboard-focus ring without the previous bordered blue box.
+
+The integrated File rail now omits layer search and uses one compact Layers
+header: the canonical layer total sits beside the title while stack order stays
+right-aligned. Standalone layer-tree surfaces retain search for larger,
+dedicated navigation contexts.

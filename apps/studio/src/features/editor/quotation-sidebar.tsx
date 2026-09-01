@@ -16,7 +16,6 @@ import {
 import { Button } from "@webmcp/ui/components/button"
 import {
   EditorPanelNotice,
-  EditorPanelSectionHeader,
   EditorPanelTabsList,
 } from "@webmcp/ui/components/editor-chrome"
 import { Tabs, TabsContent, TabsTrigger } from "@webmcp/ui/components/tabs"
@@ -387,9 +386,6 @@ export function QuotationSidebar({
               data-file-section-divider="true"
             />
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-              <EditorPanelSectionHeader className="min-h-10 border-b-0 px-3">
-                Layers
-              </EditorPanelSectionHeader>
               <LayerTree
                 key={`${document.id}:${activePageId}`}
                 document={document}
