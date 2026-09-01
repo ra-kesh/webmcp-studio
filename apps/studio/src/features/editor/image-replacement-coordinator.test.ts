@@ -3,13 +3,42 @@ import type { Document, SceneNode } from "@webmcp/document"
 import { commitCommands, createDocumentHistory } from "@webmcp/editor/history"
 import { quotationStarter } from "./quotation-starter"
 import { ImageReplacementCoordinator } from "./image-replacement-coordinator"
-import type { PreparedImageReplacement } from "./image-replacement-coordinator"
+import type {
+  ImageReplacementCoordinatorOptions,
+  PreparedImageReplacement,
+} from "./image-replacement-coordinator"
+import type { ImageReplacementRendererEvent } from "./image-replacement-readiness"
 
 type Payload = Readonly<{
   assetId: string
   src: string
   alt?: string
 }>
+
+const replacementIdentity = {
+  documentId: "replacement-document",
+  pageId: "replacement-page",
+} as const
+
+type TestRendererEvent = Omit<
+  ImageReplacementRendererEvent,
+  "documentId" | "pageId"
+> &
+  Partial<Pick<ImageReplacementRendererEvent, "documentId" | "pageId">>
+
+class ConnectedImageReplacementCoordinator<
+  TPayload,
+> extends ImageReplacementCoordinator<TPayload> {
+  constructor(options: ImageReplacementCoordinatorOptions<TPayload>) {
+    super(options)
+    this.registerOwner("fabric")
+    this.registerOwner("react")
+  }
+
+  override report(event: TestRendererEvent) {
+    return super.report({ ...replacementIdentity, ...event })
+  }
+}
 
 function fixture() {
   const document: Document = structuredClone(quotationStarter.document)
@@ -60,6 +89,7 @@ function deferred<T>() {
 
 const candidate = (): PreparedImageReplacement<Payload> => ({
   token: "replacement-token",
+  ...replacementIdentity,
   nodeId: "replacement-image",
   previewSrc: "https://assets.example.test/replacement.png",
   naturalSize: { width: 1600, height: 900 },
@@ -70,12 +100,57 @@ const candidate = (): PreparedImageReplacement<Payload> => ({
 })
 
 describe("renderer-acknowledged image replacement coordinator", () => {
+  it("refuses to expose a candidate when a required renderer owner is absent", async () => {
+    const previews: Array<PreparedImageReplacement<Payload> | null> = []
+    const failures: string[] = []
+    const coordinator = new ImageReplacementCoordinator<Payload>({
+      validate: () => null,
+      commit: vi.fn(() => true),
+      onPendingChange: (replacement) => previews.push(replacement),
+      onFailure: (message) => failures.push(message),
+    })
+    coordinator.registerOwner("fabric")
+
+    await expect(coordinator.start(candidate())).resolves.toBe(false)
+
+    expect(previews).toEqual([])
+    expect(failures).toHaveLength(1)
+    expect(failures[0]).toContain("document preview")
+    expect(failures[0]).toContain("not connected")
+  })
+
+  it("rolls back when the last required renderer owner disappears", async () => {
+    const previews: Array<PreparedImageReplacement<Payload> | null> = []
+    const failures: string[] = []
+    const coordinator = new ImageReplacementCoordinator<Payload>({
+      validate: () => null,
+      commit: vi.fn(() => true),
+      onPendingChange: (replacement) => previews.push(replacement),
+      onFailure: (message) => failures.push(message),
+    })
+    coordinator.registerOwner("fabric")
+    const unregisterReactA = coordinator.registerOwner("react")
+    const unregisterReactB = coordinator.registerOwner("react")
+    const completion = coordinator.start(candidate())
+
+    unregisterReactA()
+    expect(previews).toEqual([candidate()])
+
+    unregisterReactB()
+
+    await expect(completion).resolves.toBe(false)
+    expect(previews).toEqual([candidate(), null])
+    expect(failures).toHaveLength(1)
+    expect(failures[0]).toContain("document preview")
+    expect(failures[0]).toContain("became unavailable")
+  })
+
   it("keeps canonical state and history untouched when React rejects the candidate", async () => {
     const { document } = fixture()
     let history = createDocumentHistory(document, "snapshot-before")
     const previews: Array<PreparedImageReplacement<Payload> | null> = []
     const failures: string[] = []
-    const coordinator = new ImageReplacementCoordinator<Payload>({
+    const coordinator = new ConnectedImageReplacementCoordinator<Payload>({
       validate: () => null,
       commit: (replacement) => {
         history = commitCommands(history, [
@@ -128,7 +203,7 @@ describe("renderer-acknowledged image replacement coordinator", () => {
     const { document, image } = fixture()
     let history = createDocumentHistory(document, "snapshot-before")
     let commits = 0
-    const coordinator = new ImageReplacementCoordinator<Payload>({
+    const coordinator = new ConnectedImageReplacementCoordinator<Payload>({
       validate: () => null,
       commit: (replacement) => {
         commits += 1
@@ -183,7 +258,7 @@ describe("renderer-acknowledged image replacement coordinator", () => {
   it("ignores a stale token and revalidates the target before commit", async () => {
     let valid = true
     let commits = 0
-    const coordinator = new ImageReplacementCoordinator<Payload>({
+    const coordinator = new ConnectedImageReplacementCoordinator<Payload>({
       validate: () => (valid ? null : "The target changed."),
       commit: () => {
         commits += 1
@@ -232,7 +307,7 @@ describe("renderer-acknowledged image replacement coordinator", () => {
     try {
       let commits = 0
       const failures: string[] = []
-      const coordinator = new ImageReplacementCoordinator<Payload>({
+      const coordinator = new ConnectedImageReplacementCoordinator<Payload>({
         validate: () => null,
         commit: () => {
           commits += 1
@@ -266,7 +341,7 @@ describe("renderer-acknowledged image replacement coordinator", () => {
     const admission = deferred<string | null>()
     let admissionSignal: AbortSignal | null = null
     let commits = 0
-    const coordinator = new ImageReplacementCoordinator<Payload>({
+    const coordinator = new ConnectedImageReplacementCoordinator<Payload>({
       validate: () => null,
       commit: () => {
         commits += 1
@@ -314,7 +389,7 @@ describe("renderer-acknowledged image replacement coordinator", () => {
     let admissionSignal: AbortSignal | null = null
     let commits = 0
     const failures: string[] = []
-    const coordinator = new ImageReplacementCoordinator<Payload>({
+    const coordinator = new ConnectedImageReplacementCoordinator<Payload>({
       validate: () => null,
       commit: () => {
         commits += 1
@@ -366,7 +441,7 @@ describe("renderer-acknowledged image replacement coordinator", () => {
     let valid = true
     let commits = 0
     const failures: string[] = []
-    const coordinator = new ImageReplacementCoordinator<Payload>({
+    const coordinator = new ConnectedImageReplacementCoordinator<Payload>({
       validate: () => (valid ? null : "The replacement target changed."),
       commit: () => {
         commits += 1

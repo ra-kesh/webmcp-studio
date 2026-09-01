@@ -1,5 +1,6 @@
 import type {
   ImageReplacementReadinessSession,
+  ImageReplacementRenderer,
   ImageReplacementRendererEvent,
 } from "./image-replacement-readiness"
 import {
@@ -9,6 +10,8 @@ import {
 
 export type PreparedImageReplacement<TPayload> = Readonly<{
   token: string
+  documentId: string
+  pageId: string
   nodeId: string
   previewSrc: string
   naturalSize: Readonly<{ width: number; height: number }>
@@ -22,6 +25,7 @@ type ActiveImageReplacement<TPayload> = {
   resolve: (committed: boolean) => void
   timeout: ReturnType<typeof setTimeout>
   admissionController: AbortController | null
+  requiredRenderers: readonly ImageReplacementRenderer[]
 }
 
 export type ImageReplacementCoordinatorOptions<TPayload> = Readonly<{
@@ -32,17 +36,62 @@ export type ImageReplacementCoordinatorOptions<TPayload> = Readonly<{
   ) => void
   onFailure: (message: string) => void
   timeoutMs?: number
+  requiredRenderers?: readonly ImageReplacementRenderer[]
 }>
 
 export class ImageReplacementCoordinator<TPayload> {
   private active: ActiveImageReplacement<TPayload> | null = null
+  private readonly ownerCounts: Record<ImageReplacementRenderer, number> = {
+    fabric: 0,
+    react: 0,
+  }
 
   constructor(
     private readonly options: ImageReplacementCoordinatorOptions<TPayload>
   ) {}
 
+  registerOwner(renderer: ImageReplacementRenderer) {
+    this.ownerCounts[renderer] += 1
+    let registered = true
+    return () => {
+      if (!registered) return
+      registered = false
+      this.ownerCounts[renderer] = Math.max(0, this.ownerCounts[renderer] - 1)
+      const current = this.active
+      if (
+        current &&
+        this.ownerCounts[renderer] === 0 &&
+        current.requiredRenderers.includes(renderer)
+      ) {
+        this.finish(
+          current,
+          false,
+          `The ${renderer === "fabric" ? "editor canvas" : "document preview"} became unavailable before the replacement was ready. The original image was kept.`
+        )
+      }
+    }
+  }
+
   start(candidate: PreparedImageReplacement<TPayload>): Promise<boolean> {
     if (this.active) return Promise.resolve(false)
+    const requiredRenderers = [
+      ...(this.options.requiredRenderers ?? (["fabric", "react"] as const)),
+    ]
+    const missingOwners = requiredRenderers.filter(
+      (renderer) => this.ownerCounts[renderer] === 0
+    )
+    if (missingOwners.length > 0) {
+      this.options.onFailure(
+        `Image replacement is unavailable because ${missingOwners
+          .map((renderer) =>
+            renderer === "fabric" ? "the editor canvas" : "the document preview"
+          )
+          .join(
+            " and "
+          )} ${missingOwners.length === 1 ? "is" : "are"} not connected. The original image was kept.`
+      )
+      return Promise.resolve(false)
+    }
     return new Promise<boolean>((resolve) => {
       const timeout = setTimeout(() => {
         const current = this.active
@@ -57,13 +106,17 @@ export class ImageReplacementCoordinator<TPayload> {
         candidate,
         readiness: createImageReplacementReadinessSession(
           candidate.token,
+          candidate.documentId,
+          candidate.pageId,
           candidate.nodeId,
           candidate.previewSrc,
-          candidate.naturalSize
+          candidate.naturalSize,
+          requiredRenderers
         ),
         resolve,
         timeout,
         admissionController: null,
+        requiredRenderers,
       }
       this.options.onPendingChange(candidate)
     })

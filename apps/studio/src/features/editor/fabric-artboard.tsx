@@ -150,6 +150,7 @@ export const FabricArtboard = forwardRef<
     onImageCropFramePreview?: (preview: ImageCropFramePreview) => void
     onImageCropUnavailable?: (failure: ImageCropUnavailable) => void
     onImageSourceStateChange?: (state: ImageSourceStateChange) => void
+    registerImageReplacementOwner?: () => () => void
     onRuntimeStateChange?: (state: CanvasRuntimeReport) => void
     runtimeOptions?: FabricArtboardRuntimeOptions
     onTextEditingStart?: (nodeId: string) => void
@@ -180,6 +181,7 @@ export const FabricArtboard = forwardRef<
     onImageCropFramePreview,
     onImageCropUnavailable,
     onImageSourceStateChange,
+    registerImageReplacementOwner,
     onRuntimeStateChange,
     runtimeOptions,
     onTextEditingStart,
@@ -277,6 +279,11 @@ export const FabricArtboard = forwardRef<
     runtimeOptions?.startupTimeoutMs ?? DEFAULT_CANVAS_STARTUP_TIMEOUT_MS
   const syncTimeoutMs =
     runtimeOptions?.syncTimeoutMs ?? DEFAULT_CANVAS_SYNC_TIMEOUT_MS
+
+  useEffect(
+    () => registerImageReplacementOwner?.(),
+    [registerImageReplacementOwner]
+  )
 
   const page = useMemo(
     () => document.pages.find((candidate) => candidate.id === pageId),

@@ -4164,3 +4164,51 @@ Status: **closed, independently accepted and integrated into main**
   curated-content and HTTP files with 58 tests, plus Studio typecheck. The
   independent acceptance review and this integration audit report no remaining
   P0 or P1 finding.
+
+## 2026-09-01: Architecture Gate 4 React replacement ownership
+
+Status: **P0 closed on main; the audit's two P1 and two P2 findings remain
+open**
+
+- Reproduced the current-main topology failure before repair: the coordinator's
+  timeout regression passed while a production-only search found no React
+  readiness producer. The existing unit path could succeed only after a test
+  supplied both renderer acknowledgements manually.
+- Restored a real pending-only React admission surface with the production
+  Render View `Artboard`. It registers explicitly, consumes the exact pending
+  document/page/token/node/source identity, and reports decoded natural
+  dimensions through the existing readiness contract.
+- Registered Fabric ownership at the actual mounted `FabricArtboard` boundary.
+  The coordinator snapshots required owners, fails before exposing a candidate
+  when one is missing, and rolls back if the last required owner disappears.
+  The default production deadline remains 15 seconds.
+- Pinned the pending page in the continuous workspace's interaction set. The
+  canonical document and history remain unchanged until exact Fabric and React
+  acknowledgements complete the operation; failure, owner loss, and timeout
+  retain the original image.
+- Extracted `ImageReplacementWorkspace` as the production composition used by
+  both `StudioShell` and the mounted regression. It owns the real
+  `MultiArtboardWorkspace`, Fabric readiness injection, React readiness owner,
+  visibility calculation, and pending-page pin. The regression proves Fabric
+  alone stays pending, moves focus away mid-admission and retains the offscreen
+  target as an interaction owner, returns focus, and then commits once from a
+  real React `load`. React `error` and timeout roll back; missing React ownership
+  fails immediately without history mutation.
+- Node 22.23.2 verification passes Studio typecheck and 58/58 focused tests
+  across replacement readiness/coordinator/binding, mounted library actions,
+  Fabric lifecycle/unit behavior, and multi-artboard behavior. Scoped lint
+  found only the unchanged violations already present in the large editor hook;
+  no new owner or coordinator file reported an error.
+- A real browser journey reused the one existing Vite server on port 3001. It
+  replaced `Sandstone arches` with `Olive botanical`, observed the picker close,
+  Undo enable, saved state settle, and zero console errors, then used Undo to
+  restore the original local document.
+- Independent review initially held the hand-wired mounted test as P1 because
+  it did not protect the real shell integration seams. The production
+  composition extraction and offscreen pending-page assertion closed that gap;
+  re-review returned no remaining P0 or P1 and confirmed the existing lazy
+  workspace/artboard and Suspense boundaries remain intact.
+- Gate 1's local Suspense boundary, docked canvas chrome, and reverted canvas
+  event policy were left untouched. No P1 repair, GEN-01 work, Library work,
+  redesign, deployment, server startup, or capture-directory mutation was
+  included.

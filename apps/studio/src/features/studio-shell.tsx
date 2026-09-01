@@ -99,7 +99,6 @@ import type { NodeBounds } from "@webmcp/editor/geometry"
 import {
   deriveActivePageId,
   MultiArtboardLayoutController,
-  visiblePageIds,
   WorkspaceCameraController,
 } from "@webmcp/editor/multi-artboard"
 import {
@@ -201,6 +200,7 @@ import { imageCropKeyboardScreenDelta } from "./editor/image-crop-keyboard"
 import { projectNumericImageCropFrameEdit } from "./editor/image-crop-frame-numeric"
 import type { ImageCropArrowKey } from "./editor/image-crop-keyboard"
 import { imageReplacementConstraintsByNodeId } from "./editor/image-replacement-binding"
+import { ImageReplacementWorkspace } from "./editor/image-replacement-workspace"
 import {
   DOCUMENT_TRANSITION_DISABLED_REASON,
   useDocumentEditor,
@@ -1500,13 +1500,6 @@ export function StudioShell({
     editor.selectedNodes[0]?.type === "image"
       ? editor.selectedNodes[0]
       : null
-  const imageReplacementResourceTokens = useMemo(() => {
-    const replacement = editor.pendingImageReplacement
-    return replacement ? { [replacement.nodeId]: replacement.token } : undefined
-  }, [
-    editor.pendingImageReplacement?.nodeId,
-    editor.pendingImageReplacement?.token,
-  ])
   const selectedImageBounds = selectedImage
     ? getNodeBounds(selectedImage)
     : null
@@ -2301,7 +2294,7 @@ export function StudioShell({
     [editor.addPage, setAutoFit]
   )
 
-  const interactionPageIds = useMemo(() => {
+  const baseInteractionPageIds = useMemo(() => {
     const pageIds = new Set<string>([activePage.id])
     if (editor.selection?.pageId) pageIds.add(editor.selection.pageId)
     if (editor.imageCropSession?.target.pageId) {
@@ -2309,26 +2302,6 @@ export function StudioShell({
     }
     return pageIds
   }, [activePage.id, editor.imageCropSession?.target.pageId, editor.selection])
-  const mountedArtboardPageIds = useMemo(
-    () =>
-      visiblePageIds(
-        artboardLayout,
-        { ...cameraPosition, zoom },
-        workspaceSize,
-        {
-          overscanScreens: desktopPresentation ? 1 : 0.5,
-          pinnedPageIds: interactionPageIds,
-        }
-      ),
-    [
-      artboardLayout,
-      cameraPosition,
-      desktopPresentation,
-      interactionPageIds,
-      workspaceSize,
-      zoom,
-    ]
-  )
 
   const installArtboardHandle = useCallback(
     (pageId: string, handle: FabricArtboardHandle | null) => {
@@ -2341,7 +2314,7 @@ export function StudioShell({
 
   useLayoutEffect(() => {
     artboardRef.current = artboardHandlesRef.current.get(activePage.id) ?? null
-  }, [activePage.id, mountedArtboardPageIds])
+  }, [activePage.id])
 
   const inspectorCapabilityContext = {
     documentEditable:
@@ -2361,16 +2334,6 @@ export function StudioShell({
   ).capabilities
   const handleImageSourceStateChange = useCallback(
     (state: ImageSourceStateChange) => {
-      if (state.resourceToken && state.readiness !== "loading") {
-        editor.reportImageReplacementRendererState({
-          token: state.resourceToken,
-          nodeId: state.nodeId,
-          src: state.src,
-          renderer: "fabric",
-          readiness: state.readiness,
-          naturalSize: state.naturalSize,
-        })
-      }
       setImageSourceStateByNodeId((current) => {
         const node = editor.previewDocument.nodes.find(
           (candidate) => candidate.id === state.nodeId
@@ -2389,7 +2352,7 @@ export function StudioShell({
         }
       })
     },
-    [editor.previewDocument.nodes, editor.reportImageReplacementRendererState]
+    [editor.previewDocument.nodes]
   )
 
   const openMediaPicker = useCallback(
@@ -5251,13 +5214,20 @@ export function StudioShell({
                     }
                   }}
                 >
-                  <MultiArtboardWorkspace
+                  <ImageReplacementWorkspace
+                    workspaceComponent={MultiArtboardWorkspace}
                     document={editor.previewDocument}
                     layout={artboardLayout}
                     zoom={zoom}
                     activePageId={activePage.id}
-                    mountedPageIds={mountedArtboardPageIds}
-                    interactionPageIds={interactionPageIds}
+                    baseInteractionPageIds={baseInteractionPageIds}
+                    camera={{ ...cameraPosition, zoom }}
+                    viewport={workspaceSize}
+                    overscanScreens={desktopPresentation ? 1 : 0.5}
+                    pending={editor.pendingImageReplacement}
+                    registerOwner={editor.registerImageReplacementRendererOwner}
+                    reportState={editor.reportImageReplacementRendererState}
+                    onImageSourceStateChange={handleImageSourceStateChange}
                     mutationDisabled={Boolean(
                       editor.pendingChangeSet ||
                       pendingQuotationRefresh ||
@@ -5266,148 +5236,137 @@ export function StudioShell({
                     onActivatePage={activateArtboard}
                     onFocusPage={focusPage}
                     onAddPage={addPageAndFocus}
-                    renderArtboard={(page: Page) => (
-                      <>
-                        <FabricArtboard
-                          ref={(handle) =>
-                            installArtboardHandle(page.id, handle)
-                          }
-                          document={editor.previewDocument}
-                          documentSyncIdentity={pageSyncIdentities.get(page.id)}
-                          pageId={page.id}
-                          selection={
-                            editor.selection?.pageId === page.id
-                              ? editor.selection
-                              : null
-                          }
-                          hoveredNodeId={
-                            hoveredNodeId &&
-                            page.nodeIds.includes(hoveredNodeId)
-                              ? hoveredNodeId
-                              : null
-                          }
-                          textEditingNodeId={
-                            editor.selection?.pageId === page.id
-                              ? textEditingNodeId
-                              : null
-                          }
-                          textEditingSelection={textEditingSelection}
-                          imageCropMode={
-                            editor.imageCropSession?.target.pageId === page.id
-                              ? {
-                                  nodeId: editor.imageCropSession.target.nodeId,
-                                  placement: editor.imageCropSession.draft,
-                                }
-                              : null
-                          }
-                          imageCropPreviewStore={
-                            editor.imageCropSession?.target.pageId === page.id
-                              ? editor.imageCropPreviewStore
-                              : null
-                          }
-                          imageResourceTokens={imageReplacementResourceTokens}
-                          zoom={zoom}
-                          snapTargets={
-                            activePage.id === page.id
-                              ? activeGuideSnapTargets
-                              : []
-                          }
-                          interactive={Boolean(
-                            !editor.pendingChangeSet &&
-                            !pendingQuotationRefresh &&
-                            (!editor.imageCropSession ||
-                              editor.imageCropSession.target.pageId === page.id)
-                          )}
-                          onCanvasDoubleClick={({ clientX, clientY }) =>
-                            zoomAtPoint(zoom * 1.75, clientX, clientY)
-                          }
-                          onNodeDoubleClick={(nodeId) =>
-                            editor.setSelection({
-                              pageId: page.id,
-                              nodeIds: [nodeId],
-                            })
-                          }
-                          onContextMenu={({ nodeId }) => {
-                            if (!nodeId) {
-                              editor.setSelection(null)
-                              guideWorkspace.setSelectedGuideId(null)
-                              return
-                            }
-                            if (
-                              editor.selection?.pageId === page.id &&
-                              editor.selection.nodeIds.includes(nodeId)
-                            ) {
-                              return
-                            }
-                            editor.setSelection({
-                              pageId: page.id,
-                              nodeIds: [nodeId],
-                            })
-                          }}
-                          onImageDoubleClick={(nodeId) =>
-                            beginImageCrop(nodeId, { source: "canvas" })
-                          }
-                          onImageCropPreview={({ nodeId, placement }) => {
-                            if (
-                              nodeId === editor.imageCropSession?.target.nodeId
-                            ) {
-                              editor.previewImageCrop(placement)
-                            }
-                          }}
-                          onImageCropFramePreview={editor.previewImageCropFrame}
-                          onImageCropUnavailable={({ nodeId }) => {
-                            editor.rejectUnavailableImageCrop(nodeId)
-                          }}
-                          onImageSourceStateChange={
-                            handleImageSourceStateChange
-                          }
-                          onTextEditingStart={(nodeId) => {
-                            setTextEditingSelection(null)
-                            setTextEditingNodeId((requestedNodeId) =>
-                              requestedNodeId === nodeId
-                                ? null
-                                : requestedNodeId
-                            )
-                          }}
-                          onTextEditingChange={setTextEditingState}
-                          onSelectionChange={editor.setCanvasSelection}
-                          onNodesChange={editor.updateNodes}
-                        />
-                        {page.id === activePage.id &&
-                        page.nodeIds.length === 0 &&
-                        !editor.imageCropSession ? (
-                          <EmptyCanvasActions
-                            disabled={Boolean(
-                              editor.pendingChangeSet ||
-                              pendingQuotationRefresh ||
-                              editor.draftRecovery
-                            )}
-                            onAddText={() => {
-                              insertTextPreset()
-                            }}
-                            onAddImage={() => openMediaPicker("recent")}
-                            onChooseTemplate={() => {
-                              setDocumentPanelTab("templates")
-                              if (desktopPresentation) {
-                                if (
-                                  shellLayoutRef.current.leftPanel.collapsed
-                                ) {
-                                  toggleShellPanel("left")
-                                }
-                                return
+                    renderFabricArtboard={(page: Page) => (
+                      <FabricArtboard
+                        ref={(handle) => installArtboardHandle(page.id, handle)}
+                        document={editor.previewDocument}
+                        documentSyncIdentity={pageSyncIdentities.get(page.id)}
+                        pageId={page.id}
+                        selection={
+                          editor.selection?.pageId === page.id
+                            ? editor.selection
+                            : null
+                        }
+                        hoveredNodeId={
+                          hoveredNodeId && page.nodeIds.includes(hoveredNodeId)
+                            ? hoveredNodeId
+                            : null
+                        }
+                        textEditingNodeId={
+                          editor.selection?.pageId === page.id
+                            ? textEditingNodeId
+                            : null
+                        }
+                        textEditingSelection={textEditingSelection}
+                        imageCropMode={
+                          editor.imageCropSession?.target.pageId === page.id
+                            ? {
+                                nodeId: editor.imageCropSession.target.nodeId,
+                                placement: editor.imageCropSession.draft,
                               }
-                              compactPanelTriggerRef.current =
-                                document.activeElement instanceof
-                                HTMLButtonElement
-                                  ? document.activeElement
-                                  : null
-                              setCompactPanel("document")
-                            }}
-                            onAddPage={() => addPageAndFocus(page.outputId)}
-                          />
-                        ) : null}
-                      </>
+                            : null
+                        }
+                        imageCropPreviewStore={
+                          editor.imageCropSession?.target.pageId === page.id
+                            ? editor.imageCropPreviewStore
+                            : null
+                        }
+                        zoom={zoom}
+                        snapTargets={
+                          activePage.id === page.id
+                            ? activeGuideSnapTargets
+                            : []
+                        }
+                        interactive={Boolean(
+                          !editor.pendingChangeSet &&
+                          !pendingQuotationRefresh &&
+                          (!editor.imageCropSession ||
+                            editor.imageCropSession.target.pageId === page.id)
+                        )}
+                        onCanvasDoubleClick={({ clientX, clientY }) =>
+                          zoomAtPoint(zoom * 1.75, clientX, clientY)
+                        }
+                        onNodeDoubleClick={(nodeId) =>
+                          editor.setSelection({
+                            pageId: page.id,
+                            nodeIds: [nodeId],
+                          })
+                        }
+                        onContextMenu={({ nodeId }) => {
+                          if (!nodeId) {
+                            editor.setSelection(null)
+                            guideWorkspace.setSelectedGuideId(null)
+                            return
+                          }
+                          if (
+                            editor.selection?.pageId === page.id &&
+                            editor.selection.nodeIds.includes(nodeId)
+                          ) {
+                            return
+                          }
+                          editor.setSelection({
+                            pageId: page.id,
+                            nodeIds: [nodeId],
+                          })
+                        }}
+                        onImageDoubleClick={(nodeId) =>
+                          beginImageCrop(nodeId, { source: "canvas" })
+                        }
+                        onImageCropPreview={({ nodeId, placement }) => {
+                          if (
+                            nodeId === editor.imageCropSession?.target.nodeId
+                          ) {
+                            editor.previewImageCrop(placement)
+                          }
+                        }}
+                        onImageCropFramePreview={editor.previewImageCropFrame}
+                        onImageCropUnavailable={({ nodeId }) => {
+                          editor.rejectUnavailableImageCrop(nodeId)
+                        }}
+                        onTextEditingStart={(nodeId) => {
+                          setTextEditingSelection(null)
+                          setTextEditingNodeId((requestedNodeId) =>
+                            requestedNodeId === nodeId ? null : requestedNodeId
+                          )
+                        }}
+                        onTextEditingChange={setTextEditingState}
+                        onSelectionChange={editor.setCanvasSelection}
+                        onNodesChange={editor.updateNodes}
+                      />
                     )}
+                    renderPageOverlay={(page: Page) =>
+                      page.id === activePage.id &&
+                      page.nodeIds.length === 0 &&
+                      !editor.imageCropSession ? (
+                        <EmptyCanvasActions
+                          disabled={Boolean(
+                            editor.pendingChangeSet ||
+                            pendingQuotationRefresh ||
+                            editor.draftRecovery
+                          )}
+                          onAddText={() => {
+                            insertTextPreset()
+                          }}
+                          onAddImage={() => openMediaPicker("recent")}
+                          onChooseTemplate={() => {
+                            setDocumentPanelTab("templates")
+                            if (desktopPresentation) {
+                              if (shellLayoutRef.current.leftPanel.collapsed) {
+                                toggleShellPanel("left")
+                              }
+                              return
+                            }
+                            compactPanelTriggerRef.current =
+                              document.activeElement instanceof
+                              HTMLButtonElement
+                                ? document.activeElement
+                                : null
+                            setCompactPanel("document")
+                          }}
+                          onAddPage={() => addPageAndFocus(page.outputId)}
+                        />
+                      ) : null
+                    }
                   />
                 </div>
                 <CanvasRulerGuideOverlay

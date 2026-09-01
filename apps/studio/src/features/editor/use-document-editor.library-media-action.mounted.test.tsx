@@ -2,7 +2,7 @@
 
 import "fake-indexeddb/auto"
 import { webcrypto } from "node:crypto"
-import { act, useLayoutEffect } from "react"
+import { act, useLayoutEffect, useMemo } from "react"
 import { createRoot } from "react-dom/client"
 import type { Root } from "react-dom/client"
 import {
@@ -18,7 +18,13 @@ import {
   projectCuratedMediaDetail,
   projectLocalMediaDetail,
 } from "@webmcp/document"
-import type { LocalLibraryMediaMetadata } from "@webmcp/document"
+import type {
+  Document,
+  LocalLibraryMediaMetadata,
+  Page,
+} from "@webmcp/document"
+import type { CanvasAdapter, CanvasAdapterEvents } from "@webmcp/editor"
+import { MultiArtboardLayoutController } from "@webmcp/editor/multi-artboard"
 import { studioMediaManifest } from "../../content/library/media/manifest"
 import type { ExactDeviceLocalMediaSelection } from "../../content/library/device-local-media-discovery-adapter"
 import type { VerifiedCuratedMediaContent } from "../../content/library/media/curated-media-content"
@@ -33,6 +39,11 @@ import type {
 } from "./library-media-action-preparation"
 import type { LocalAssetRecord } from "./local-asset-store"
 import { useDocumentEditor } from "./use-document-editor"
+import type { PerformLibraryMediaActionOutcome } from "./use-document-editor"
+import { FabricArtboard } from "./fabric-artboard"
+import { ImageReplacementWorkspace } from "./image-replacement-workspace"
+import { MultiArtboardWorkspace } from "./multi-artboard-workspace"
+import { buildMultiArtboardPageSyncIdentities } from "./multi-artboard-page-sync"
 
 type Editor = ReturnType<typeof useDocumentEditor>
 
@@ -157,6 +168,128 @@ function MountedEditor({
   return null
 }
 
+const fakeAdapter = (
+  overrides: Partial<CanvasAdapter> = {}
+): CanvasAdapter => ({
+  mount: vi.fn(),
+  unmount: vi.fn(async () => undefined),
+  requestRender: vi.fn(),
+  sync: vi.fn(async () => undefined),
+  setViewportZoom: vi.fn(),
+  previewNodePatch: vi.fn(() => false),
+  restoreNodePreview: vi.fn(() => false),
+  setSnapTargets: vi.fn(),
+  select: vi.fn(),
+  getSelection: vi.fn(() => null),
+  enterTextEditing: vi.fn(() => false),
+  commitTextEditing: vi.fn(() => false),
+  cancelTextEditing: vi.fn(() => false),
+  applyTextEditingStyle: vi.fn(() => false),
+  applyTextEditingParagraphStyle: vi.fn(() => false),
+  cancelTransform: vi.fn(() => false),
+  setImageCropMode: vi.fn(() => false),
+  previewImageCropDraft: vi.fn(() => false),
+  nudgeImageCrop: vi.fn(() => false),
+  getImageNaturalSize: vi.fn(() => null),
+  getImageSourceReadiness: vi.fn(() => null),
+  retryImageSource: vi.fn(async () => null),
+  exportPng: vi.fn(() => null),
+  ...overrides,
+})
+
+const adapterModule = (
+  factory: (events: CanvasAdapterEvents) => CanvasAdapter
+) => {
+  function FabricCanvasAdapter(events: CanvasAdapterEvents) {
+    return factory(events)
+  }
+  return {
+    FabricCanvasAdapter: FabricCanvasAdapter as unknown as new (
+      events: CanvasAdapterEvents
+    ) => CanvasAdapter,
+  }
+}
+
+function MountedStudioReplacementComposition({
+  adapter,
+  capture,
+  events,
+  mountReactOwner,
+  preparationPorts,
+  timeoutMs,
+}: {
+  adapter: CanvasAdapter
+  capture: (editor: Editor, persistence: StudioPersistenceApi) => void
+  events: string[]
+  mountReactOwner: boolean
+  preparationPorts: LibraryMediaActionPreparationPorts
+  timeoutMs: number
+}) {
+  const persistence = useStudioPersistence()
+  const editor = useDocumentEditor({
+    persistence,
+    onHistoryCommit: () => events.push("commit"),
+    libraryMediaPreparationPorts: preparationPorts,
+    imageReplacementTimeoutMs: timeoutMs,
+  })
+  const layout = useMemo(
+    () => new MultiArtboardLayoutController(editor.previewDocument.pages),
+    [editor.previewDocument.pages]
+  )
+  const baseInteractionPageIds = useMemo(
+    () => new Set([editor.activePageId]),
+    [editor.activePageId]
+  )
+  const pageSyncIdentities = useMemo(
+    () => buildMultiArtboardPageSyncIdentities(editor.previewDocument),
+    [editor.previewDocument]
+  )
+  const fabricRuntimeOptions = useMemo(
+    () => ({ loadAdapter: async () => adapterModule(() => adapter) }),
+    [adapter]
+  )
+  useLayoutEffect(
+    () => capture(editor, persistence),
+    [capture, editor, persistence]
+  )
+
+  return (
+    <ImageReplacementWorkspace
+      activePageId={editor.activePageId}
+      baseInteractionPageIds={baseInteractionPageIds}
+      camera={{ x: 0, y: 0, zoom: 1 }}
+      document={editor.previewDocument}
+      layout={layout}
+      onActivatePage={editor.selectPage}
+      onAddPage={editor.addPage}
+      onFocusPage={editor.selectPage}
+      overscanScreens={0}
+      pending={editor.pendingImageReplacement}
+      reactOwnerEnabled={mountReactOwner}
+      registerOwner={editor.registerImageReplacementRendererOwner}
+      renderFabricArtboard={(page: Page) => (
+        <FabricArtboard
+          document={editor.previewDocument}
+          documentSyncIdentity={pageSyncIdentities.get(page.id)}
+          interactive
+          onNodesChange={editor.updateNodes}
+          onSelectionChange={editor.setCanvasSelection}
+          pageId={page.id}
+          runtimeOptions={fabricRuntimeOptions}
+          selection={
+            editor.selection?.pageId === page.id ? editor.selection : null
+          }
+          zoom={1}
+        />
+      )}
+      reportState={editor.reportImageReplacementRendererState}
+      viewport={{ width: 1_200, height: 800 }}
+      workspaceComponent={MultiArtboardWorkspace}
+      zoom={1}
+    />
+  )
+}
+
 describe("useDocumentEditor exact library media action", () => {
   let host: HTMLDivElement
   let root: Root
@@ -226,6 +359,140 @@ describe("useDocumentEditor exact library media action", () => {
     })
     events.length = 0
     return captured
+  }
+
+  async function mountReplacementComposition({
+    mountReactOwner = true,
+    timeoutMs = 15_000,
+  }: {
+    mountReactOwner?: boolean
+    timeoutMs?: number
+  } = {}) {
+    const preparation = mutablePreparationPorts()
+    const events: string[] = []
+    let installedDocument: Document | null = null
+    const adapter = fakeAdapter({
+      sync: vi.fn(async (nextDocument) => {
+        installedDocument = nextDocument
+      }),
+      getImageSourceReadiness: vi.fn((nodeId) =>
+        installedDocument?.nodes.some(
+          (node) => node.id === nodeId && node.type === "image"
+        )
+          ? "ready"
+          : null
+      ),
+      getImageNaturalSize: vi.fn((nodeId) => {
+        const node = installedDocument?.nodes.find(
+          (candidate) => candidate.id === nodeId && candidate.type === "image"
+        )
+        if (!node || node.type !== "image") return null
+        const catalogItem = studioMediaManifest.find(
+          (candidate) => candidate.id === node.assetId
+        )
+        return catalogItem
+          ? { width: catalogItem.width, height: catalogItem.height }
+          : null
+      }),
+    })
+    const captured: {
+      editor: Editor | null
+      persistence: StudioPersistenceApi | null
+      setPreparationPorts: (next: LibraryMediaActionPreparationPorts) => void
+    } = {
+      editor: null,
+      persistence: null,
+      setPreparationPorts: preparation.install,
+    }
+    await act(async () => {
+      root.render(
+        <StudioPersistenceTestWrapper
+          migrate={async () => ({
+            status: "repository_unavailable",
+            failure: {
+              kind: "storage_unavailable",
+              message: "Storage is unavailable in this mounted test.",
+            },
+          })}
+        >
+          <MountedStudioReplacementComposition
+            adapter={adapter}
+            events={events}
+            mountReactOwner={mountReactOwner}
+            preparationPorts={preparation.ports}
+            timeoutMs={timeoutMs}
+            capture={(editor, persistence) => {
+              captured.editor = editor
+              captured.persistence = persistence
+            }}
+          />
+        </StudioPersistenceTestWrapper>
+      )
+    })
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(captured.persistence?.state.status).toBe("unavailable")
+      )
+      await captured.editor?.createBlankDocument({
+        name: "Mounted Studio replacement",
+        width: 1_200,
+        height: 800,
+      })
+    })
+    const activePageId = captured.editor!.activePageId
+    const outputId = captured.editor!.document.outputs[0]?.id
+    if (!outputId) throw new Error("Expected the blank document output")
+    await act(async () => {
+      captured.editor!.addPage(outputId)
+    })
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(captured.editor!.document.pages).toHaveLength(2)
+      )
+    })
+    const replacementPageId = captured.editor!.activePageId
+    expect(replacementPageId).not.toBe(activePageId)
+    const exactDetail = detail()
+    captured.setPreparationPorts({
+      getExactDetail: vi.fn(async () => exactDetail),
+      resolveCurated: vi.fn(async () => content()),
+      getManagedRecord: vi.fn(async () => null),
+      verifyManagedResource: vi.fn(async () => {
+        throw new Error("Managed media is outside this test")
+      }),
+      recheckLocal: vi.fn(async () => {
+        throw new Error("Local media is outside this test")
+      }),
+    })
+    await act(async () => {
+      await expect(
+        captured.editor!.performLibraryMediaAction({
+          correlationId: "mounted-shell-source",
+          detail: exactDetail,
+          target: {
+            type: "insert",
+            pageId: replacementPageId,
+          },
+        })
+      ).resolves.toBe("committed")
+    })
+    events.length = 0
+    return Object.assign(captured, {
+      adapter,
+      events,
+      firstPageId: activePageId,
+      replacementPageId,
+    })
+  }
+
+  const installReactImageDimensions = (
+    image: HTMLImageElement,
+    size: Readonly<{ width: number; height: number }>
+  ) => {
+    Object.defineProperties(image, {
+      naturalWidth: { configurable: true, value: size.width },
+      naturalHeight: { configurable: true, value: size.height },
+    })
   }
 
   it("owns preparation with one mutex and aborts without mutation or usage", async () => {
@@ -635,6 +902,262 @@ describe("useDocumentEditor exact library media action", () => {
     expect(events.filter((event) => event === "commit")).toHaveLength(1)
   })
 
+  it("mounts the production Fabric and React owners and commits only after both install the candidate", async () => {
+    const captured = await mountReplacementComposition()
+    const resultItem = studioMediaManifest[1]
+    const exactDetail = detail(resultItem)
+    captured.setPreparationPorts({
+      getExactDetail: vi.fn(async () => exactDetail),
+      resolveCurated: vi.fn(async () => content(resultItem)),
+      getManagedRecord: vi.fn(async () => null),
+      verifyManagedResource: vi.fn(async () => {
+        throw new Error("Managed media is outside this test")
+      }),
+      recheckLocal: vi.fn(async () => {
+        throw new Error("Local media is outside this test")
+      }),
+    })
+    const sourceNode = captured.editor!.document.nodes.find(
+      (node) => node.type === "image" && node.assetId === item.id
+    )
+    if (sourceNode?.type !== "image") throw new Error("Expected source image")
+    const beforeSnapshotId = captured.editor!.snapshotId
+    const beforeOperationVersion = captured.editor!.operationVersion
+    let settled: PerformLibraryMediaActionOutcome | undefined
+    let replacement!: Promise<PerformLibraryMediaActionOutcome>
+
+    await act(async () => {
+      replacement = captured.editor!.performLibraryMediaAction(
+        {
+          correlationId: "mounted-shell-success",
+          detail: exactDetail,
+          target: {
+            type: "replace",
+            pageId: captured.replacementPageId,
+            nodeId: sourceNode.id,
+          },
+        },
+        { historyLabel: "Remove background" }
+      )
+      void replacement.then((outcome) => {
+        settled = outcome
+      })
+    })
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(captured.editor!.pendingImageReplacement ?? settled).toBeTruthy()
+      )
+      expect(settled).toBeUndefined()
+      expect(captured.editor!.pendingImageReplacement).not.toBeNull()
+      await vi.waitFor(() =>
+        expect(captured.adapter.getImageSourceReadiness).toHaveBeenCalledWith(
+          sourceNode.id
+        )
+      )
+    })
+
+    await act(async () => {
+      captured.editor!.selectPage(captured.firstPageId)
+    })
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(captured.editor!.activePageId).toBe(captured.firstPageId)
+      )
+    })
+    const pinnedTargetCanvas = host.querySelector(
+      `[data-canvas-page-id="${captured.replacementPageId}"]`
+    )
+    expect(pinnedTargetCanvas).not.toBeNull()
+    expect(
+      pinnedTargetCanvas?.closest('[data-interaction-owner="true"]')
+    ).not.toBeNull()
+    await act(async () => {
+      captured.editor!.selectPage(captured.replacementPageId)
+    })
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(captured.editor!.activePageId).toBe(captured.replacementPageId)
+      )
+    })
+
+    expect(settled).toBeUndefined()
+    expect(captured.editor!.snapshotId).toBe(beforeSnapshotId)
+    expect(captured.editor!.operationVersion).toBe(beforeOperationVersion)
+    expect(
+      captured.editor!.document.nodes.find((node) => node.id === sourceNode.id)
+    ).toMatchObject({ assetId: item.id, src: sourceNode.src })
+
+    const reactImage = host.querySelector<HTMLImageElement>(
+      "[data-image-replacement-react-owner] img"
+    )
+    expect(reactImage).not.toBeNull()
+    installReactImageDimensions(reactImage!, {
+      width: resultItem.width,
+      height: resultItem.height,
+    })
+    await act(async () => {
+      reactImage!.dispatchEvent(new Event("load"))
+      await expect(replacement).resolves.toBe("committed")
+    })
+
+    expect(captured.events).toEqual(["commit"])
+    expect(captured.editor!.documentUndoEntry?.label).toBe("Remove background")
+    expect(
+      captured.editor!.document.nodes.find((node) => node.id === sourceNode.id)
+    ).toMatchObject({ assetId: resultItem.id })
+  })
+
+  it("rolls the mounted replacement preview back when the React owner rejects the candidate", async () => {
+    const captured = await mountReplacementComposition()
+    const resultItem = studioMediaManifest[1]
+    const exactDetail = detail(resultItem)
+    captured.setPreparationPorts({
+      getExactDetail: vi.fn(async () => exactDetail),
+      resolveCurated: vi.fn(async () => content(resultItem)),
+      getManagedRecord: vi.fn(async () => null),
+      verifyManagedResource: vi.fn(async () => {
+        throw new Error("Managed media is outside this test")
+      }),
+      recheckLocal: vi.fn(async () => {
+        throw new Error("Local media is outside this test")
+      }),
+    })
+    const sourceNode = captured.editor!.document.nodes.find(
+      (node) => node.type === "image" && node.assetId === item.id
+    )!
+    const beforeDocument = captured.editor!.document
+    const beforeSnapshotId = captured.editor!.snapshotId
+    const beforeOperationVersion = captured.editor!.operationVersion
+    let replacement!: Promise<PerformLibraryMediaActionOutcome>
+
+    await act(async () => {
+      replacement = captured.editor!.performLibraryMediaAction({
+        correlationId: "mounted-shell-react-failure",
+        detail: exactDetail,
+        target: {
+          type: "replace",
+          pageId: captured.replacementPageId,
+          nodeId: sourceNode.id,
+        },
+      })
+    })
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(captured.editor!.pendingImageReplacement).not.toBeNull()
+      )
+    })
+    const reactImage = host.querySelector<HTMLImageElement>(
+      "[data-image-replacement-react-owner] img"
+    )
+    expect(reactImage).not.toBeNull()
+    await act(async () => {
+      reactImage!.dispatchEvent(new Event("error"))
+      await expect(replacement).resolves.toBe("rejected")
+    })
+
+    expect(captured.editor!.document).toBe(beforeDocument)
+    expect(captured.editor!.snapshotId).toBe(beforeSnapshotId)
+    expect(captured.editor!.operationVersion).toBe(beforeOperationVersion)
+    expect(captured.editor!.pendingImageReplacement).toBeNull()
+    expect(captured.events).toEqual([])
+    expect(captured.editor!.assetError).toContain("document preview")
+  })
+
+  it("times out the mounted two-owner path without changing canonical state or history", async () => {
+    const captured = await mountReplacementComposition({ timeoutMs: 250 })
+    const resultItem = studioMediaManifest[1]
+    const exactDetail = detail(resultItem)
+    captured.setPreparationPorts({
+      getExactDetail: vi.fn(async () => exactDetail),
+      resolveCurated: vi.fn(async () => content(resultItem)),
+      getManagedRecord: vi.fn(async () => null),
+      verifyManagedResource: vi.fn(async () => {
+        throw new Error("Managed media is outside this test")
+      }),
+      recheckLocal: vi.fn(async () => {
+        throw new Error("Local media is outside this test")
+      }),
+    })
+    const sourceNode = captured.editor!.document.nodes.find(
+      (node) => node.type === "image" && node.assetId === item.id
+    )!
+    const beforeDocument = captured.editor!.document
+    const beforeSnapshotId = captured.editor!.snapshotId
+    const beforeOperationVersion = captured.editor!.operationVersion
+
+    let replacement!: Promise<PerformLibraryMediaActionOutcome>
+    await act(async () => {
+      replacement = captured.editor!.performLibraryMediaAction({
+        correlationId: "mounted-shell-timeout",
+        detail: exactDetail,
+        target: {
+          type: "replace",
+          pageId: captured.replacementPageId,
+          nodeId: sourceNode.id,
+        },
+      })
+    })
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(captured.editor!.pendingImageReplacement).not.toBeNull()
+      )
+      await expect(replacement).resolves.toBe("rejected")
+    })
+
+    expect(captured.editor!.document).toBe(beforeDocument)
+    expect(captured.editor!.snapshotId).toBe(beforeSnapshotId)
+    expect(captured.editor!.operationVersion).toBe(beforeOperationVersion)
+    expect(captured.editor!.pendingImageReplacement).toBeNull()
+    expect(captured.events).toEqual([])
+    expect(captured.editor!.assetError).toContain("took too long")
+  })
+
+  it("fails the mounted replacement immediately when the required React owner is absent", async () => {
+    const captured = await mountReplacementComposition({
+      mountReactOwner: false,
+    })
+    const resultItem = studioMediaManifest[1]
+    const exactDetail = detail(resultItem)
+    captured.setPreparationPorts({
+      getExactDetail: vi.fn(async () => exactDetail),
+      resolveCurated: vi.fn(async () => content(resultItem)),
+      getManagedRecord: vi.fn(async () => null),
+      verifyManagedResource: vi.fn(async () => {
+        throw new Error("Managed media is outside this test")
+      }),
+      recheckLocal: vi.fn(async () => {
+        throw new Error("Local media is outside this test")
+      }),
+    })
+    const sourceNode = captured.editor!.document.nodes.find(
+      (node) => node.type === "image" && node.assetId === item.id
+    )!
+    const beforeDocument = captured.editor!.document
+    const beforeSnapshotId = captured.editor!.snapshotId
+
+    await act(async () => {
+      await expect(
+        captured.editor!.performLibraryMediaAction({
+          correlationId: "mounted-shell-missing-react",
+          detail: exactDetail,
+          target: {
+            type: "replace",
+            pageId: captured.replacementPageId,
+            nodeId: sourceNode.id,
+          },
+        })
+      ).resolves.toBe("rejected")
+    })
+
+    expect(captured.editor!.document).toBe(beforeDocument)
+    expect(captured.editor!.snapshotId).toBe(beforeSnapshotId)
+    expect(captured.editor!.pendingImageReplacement).toBeNull()
+    expect(captured.events).toEqual([])
+    expect(captured.editor!.assetError).toContain(
+      "document preview is not connected"
+    )
+  })
+
   it("commits a renderer-acknowledged background result as one named undo step", async () => {
     const events: string[] = []
     const captured = await mount(events)
@@ -672,6 +1195,10 @@ describe("useDocumentEditor exact library media action", () => {
     const sourceNode = captured.editor!.document.nodes.find(
       (node) => node.type === "image" && node.assetId === item.id
     )!
+    const unregisterFabric =
+      captured.editor!.registerImageReplacementRendererOwner("fabric")
+    const unregisterReact =
+      captured.editor!.registerImageReplacementRendererOwner("react")
     exactDetail = detail(resultItem)
     events.length = 0
     let replacement!: Promise<"committed" | "no_op" | "rejected">
@@ -710,6 +1237,8 @@ describe("useDocumentEditor exact library media action", () => {
       const pending = captured.editor!.pendingImageReplacement!
       const event = {
         token: pending.token,
+        documentId: pending.documentId,
+        pageId: pending.pageId,
         nodeId: pending.nodeId,
         src: pending.previewSrc,
         readiness: "ready" as const,
@@ -740,5 +1269,7 @@ describe("useDocumentEditor exact library media action", () => {
     expect(
       captured.editor!.document.nodes.find((node) => node.id === sourceNode.id)
     ).toMatchObject({ assetId: item.id })
+    unregisterReact()
+    unregisterFabric()
   }, 10_000)
 })

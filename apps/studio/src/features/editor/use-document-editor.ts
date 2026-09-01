@@ -190,7 +190,10 @@ import { reusableImageReplacementCommand } from "./media-selection-model"
 import type { ReusableImageAsset } from "./media-selection-model"
 import { ImageReplacementCoordinator } from "./image-replacement-coordinator"
 import type { PreparedImageReplacement } from "./image-replacement-coordinator"
-import type { ImageReplacementRendererEvent } from "./image-replacement-readiness"
+import type {
+  ImageReplacementRenderer,
+  ImageReplacementRendererEvent,
+} from "./image-replacement-readiness"
 import { imageReplacementBindingImpact } from "./image-replacement-binding"
 import {
   captureLibraryMediaActionAnchor,
@@ -504,7 +507,7 @@ async function quotationSourceIdentity(
   }
 }
 
-type PendingRendererReplacement =
+export type PendingRendererReplacement =
   PreparedImageReplacement<RendererReplacementPayload>
 
 export type StudioSessionMode = "start" | "workspace"
@@ -955,6 +958,7 @@ export function useDocumentEditor({
   onInitialRecordInstalled,
   onHistoryCommit,
   historyOptions,
+  imageReplacementTimeoutMs,
   persistence,
   libraryTemplateDetailPort = serverLibraryTemplateDetailPort,
   libraryMediaPreparationPorts = serverLibraryMediaPreparationPorts,
@@ -965,6 +969,7 @@ export function useDocumentEditor({
   onInitialRecordInstalled?: (record: DocumentDraftRecord) => void
   onHistoryCommit?: (entry: DocumentHistoryCommit) => void
   historyOptions?: DocumentHistoryOptions
+  imageReplacementTimeoutMs?: number
   persistence: StudioPersistenceApi
   libraryTemplateDetailPort?: TemplateActionPorts["getDetail"]
   libraryMediaPreparationPorts?: LibraryMediaActionPreparationPorts
@@ -4124,13 +4129,17 @@ export function useDocumentEditor({
     ]
   )
 
-  const imageReplacementCoordinator = useMemo(
+  const commitImageReplacementRef = useRef(commit)
+  commitImageReplacementRef.current = commit
+  const readImageReplacementStateRef = useRef(readAssetMutationState)
+  readImageReplacementStateRef.current = readAssetMutationState
+  const [imageReplacementCoordinator] = useState(
     () =>
       new ImageReplacementCoordinator<RendererReplacementPayload>({
         validate: (replacement) => {
           const abortReason = getAssetMutationAbortReason(
             replacement.payload.anchor,
-            readAssetMutationState()
+            readImageReplacementStateRef.current()
           )
           return abortReason
             ? assetMutationMessage("replace", {
@@ -4142,15 +4151,17 @@ export function useDocumentEditor({
         commit: (replacement) => {
           const node = findNode(historyRef.current.document, replacement.nodeId)
           if (node?.type !== "image") return false
-          return commit(
+          return commitImageReplacementRef.current(
             [reusableImageReplacementCommand(node, replacement.payload.asset)],
             { label: replacement.payload.historyLabel }
           )
         },
         onPendingChange: setPendingImageReplacement,
         onFailure: setAssetError,
-      }),
-    [commit, readAssetMutationState]
+        ...(imageReplacementTimeoutMs === undefined
+          ? {}
+          : { timeoutMs: imageReplacementTimeoutMs }),
+      })
   )
   imageReplacementCoordinatorRef.current = imageReplacementCoordinator
 
@@ -4167,6 +4178,11 @@ export function useDocumentEditor({
     (event: ImageReplacementRendererEvent) =>
       imageReplacementCoordinatorRef.current?.report(event) ?? "stale",
     []
+  )
+  const registerImageReplacementRendererOwner = useCallback(
+    (renderer: ImageReplacementRenderer) =>
+      imageReplacementCoordinator.registerOwner(renderer),
+    [imageReplacementCoordinator]
   )
 
   const settleImageCrop = useCallback(
@@ -5578,6 +5594,8 @@ export function useDocumentEditor({
                 }
           committed = await imageReplacementCoordinator.start({
             token: `image-replacement-${prepared.correlationId}`,
+            documentId: anchor.assetAnchor.documentId,
+            pageId: anchor.assetAnchor.pageId,
             nodeId: prepared.target.nodeId,
             previewSrc,
             naturalSize: {
@@ -11091,6 +11109,7 @@ export function useDocumentEditor({
     retryLocalMediaRecoverySave,
     cancelLocalMediaRecovery,
     reportImageReplacementRendererState,
+    registerImageReplacementRendererOwner,
     imageReplacementBlock,
     importDocumentFile,
     openDocumentFile,

@@ -12,7 +12,7 @@ The review found one P0, two P1s, and two P2s:
 
 | Priority | Status                                                       | Finding                                                                                                                                                                |
 | -------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| P0       | Confirmed                                                    | The multi-artboard merge removed the only production React image-readiness owner, so every mounted Studio replacement flow waits 15 seconds and rejects the candidate. |
+| P0       | Closed by the 2026-09-01 Gate 4 repair                       | The multi-artboard merge removed the only production React image-readiness owner, so every mounted Studio replacement flow waits 15 seconds and rejects the candidate. |
 | P1       | Confirmed control-flow defect                                | The last-good Fabric frame remains mutable during document synchronization while Fabric suppresses the events that would commit that mutation.                         |
 | P1       | Confirmed control-flow defect                                | A failed incremental Fabric synchronization leaves the old frame in `ready` indefinitely, with no visible error, retry, or complete applied identity.                  |
 | P2       | Confirmed behavior                                           | Export and publish remain enabled while a replacement preview is non-canonical, so the visible candidate and exported/published source can disagree.                   |
@@ -50,7 +50,8 @@ Those records are individually coherent but were not reconciled at the integrati
 
 ### P0 — Restore an actual React readiness owner before accepting image replacement
 
-Status: confirmed deterministic regression.
+Status: closed by the 2026-09-01 Gate 4 repair described below. The evidence in
+this finding remains the reproduction record for the reviewed commit.
 
 #### Trigger
 
@@ -88,6 +89,54 @@ Mount the real `StudioShell` replacement composition with `MultiArtboardWorkspac
 - React failure and missing React ownership keep the old canonical source and history;
 - stale page, token, source, dimensions, or document identity cannot settle the current operation;
 - background removal uses the same working path.
+
+#### Gate 4 remediation evidence
+
+The bounded Gate 4 repair restores the retained two-renderer contract without
+reviving the removed filmstrip or synthesizing readiness in the editor hook:
+
+- `StudioShell` now mounts a pending-only React readiness owner backed by the
+  production `@webmcp/render-view` `Artboard`. It registers for the lifetime of
+  the shell, reports the real image-resource result for the exact pending
+  document and page, and unmounts the admission surface after settlement.
+- Each mounted production `FabricArtboard` registers and unregisters Fabric
+  ownership. The coordinator snapshots the required renderer set when an
+  operation starts, refuses to expose a preview if a required owner is absent,
+  and rolls back if the last required owner disappears before settlement.
+- Readiness identity now includes exact document, page, token, node, source,
+  and natural dimensions. The pending page is pinned in the multi-artboard
+  interaction set so virtualization cannot remove the candidate owner mid-run.
+- The canonical document, snapshot, operation version, and history remain
+  unchanged until both real owners acknowledge the candidate. React failure,
+  owner loss, and the unchanged 15-second production deadline clear the preview
+  and retain the original source.
+- `ImageReplacementWorkspace` is the production composition used by both
+  `StudioShell` and the mounted regression. It owns the real
+  `MultiArtboardWorkspace`, `FabricArtboard` readiness injection, React
+  readiness owner, visibility calculation, and pending-page pin. Fabric
+  readiness alone remains pending; the success regression moves focus to
+  another page mid-admission, proves the offscreen target stays mounted and
+  interaction-owned, returns focus, and then uses an actual React image `load`
+  to commit one named history entry. React `error`, missing ownership, and a
+  deterministic test-only timeout all prove rollback without canonical or
+  history mutation. The existing background result regression still uses the
+  same shared replacement performer and named history path.
+- Verification ran with Node `v22.23.2`: Studio typecheck passed and seven
+  focused replacement, Fabric lifecycle, binding, and multi-artboard files
+  passed 58/58 tests. A real browser journey reused the single port-3001 Vite
+  server, replaced `Sandstone arches` with `Olive botanical`, observed the
+  picker close, Undo enable, and saved state settle with no console errors, then
+  undid the test change to restore the document.
+- Independent review first held the hand-wired test topology as P1 because it
+  would not have caught a shell integration regression. After the production
+  composition extraction and offscreen pending-page regression, re-review found
+  no remaining P0 or P1. It also confirmed that lazy workspace/artboard loading,
+  the outer workspace boundary, Gate 1 local boundaries, docked chrome, and the
+  reverted canvas event policy remain intact.
+
+This closes only the P0. The two P1 and two P2 findings below remain open and
+were not changed by this repair. Gate 1's local Suspense ownership, docked
+chrome, and reverted canvas event policy were not modified.
 
 ### P1 — Separate last-good pixel availability from Fabric mutation admission
 
@@ -283,7 +332,7 @@ No dev server, port 3000/3001 process, browser capture, capture directory, deplo
 
 ## Repair order and release gates
 
-1. Restore explicit React replacement ownership and add the real shell integration test. This closes the P0.
+1. Closed on 2026-09-01: explicit React replacement ownership and the real mounted composition regression now cover the P0.
 2. Add per-artboard applied identity plus `syncing/stale_error` mutation admission. Replace the boolean sync mutex and add transform-during-sync and failure-after-last-good tests. These close both P1s.
 3. Gate export, publish, and conflicting asset actions while replacement admission is pending.
 4. Replace the local-asset lifecycle boolean with a replay-safe generation/lease and add the StrictMode restore test.
