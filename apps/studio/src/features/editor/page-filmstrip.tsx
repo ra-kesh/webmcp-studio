@@ -1074,7 +1074,7 @@ export const PageFilmstrip = memo(function PageFilmstrip({
     <div
       aria-label={`${output?.name ?? "Current output"} pages`}
       className={cn(
-        "flex shrink-0 border-t bg-editor-panel",
+        "flex shrink-0 border-t bg-editor-panel-muted",
         density === "compact"
           ? "h-[88px] min-[1280px]:h-24"
           : "h-[88px] min-[1280px]:h-[120px]",
@@ -1165,7 +1165,7 @@ export const PageFilmstrip = memo(function PageFilmstrip({
         <ScrollBar orientation="horizontal" />
       </ScrollArea>
       {onDensityChange && desktopFilmstrip ? (
-        <div className="flex w-9 shrink-0 items-start justify-center border-l bg-muted/15 pt-2">
+        <div className="flex w-9 shrink-0 items-start justify-center border-l pt-2">
           <Button
             aria-label={
               density === "compact"

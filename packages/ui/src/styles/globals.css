@@ -151,15 +151,6 @@
 }
 
 @layer utilities {
-  .workspace-grid {
-    background-image: radial-gradient(
-      circle at center,
-      color-mix(in oklch, var(--foreground) 9%, transparent) 0.75px,
-      transparent 0.8px
-    );
-    background-size: 18px 18px;
-  }
-
   .canvas-container {
     touch-action: none;
   }

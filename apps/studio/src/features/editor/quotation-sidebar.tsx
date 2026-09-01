@@ -235,16 +235,16 @@ export function QuotationSidebar({
         className="min-h-0 flex-1 gap-0 overflow-hidden"
       >
         <EditorPanelTabsList aria-label="Editor panels">
-          <TabsTrigger value="templates" className="flex-none px-2.5 text-xs">
+          <TabsTrigger value="templates" className="flex-none px-2.5 text-[11px]">
             Templates
           </TabsTrigger>
-          <TabsTrigger value="components" className="flex-none px-2.5 text-xs">
+          <TabsTrigger value="components" className="flex-none px-2.5 text-[11px]">
             Assets
           </TabsTrigger>
-          <TabsTrigger value="pages" className="flex-none px-2.5 text-xs">
+          <TabsTrigger value="pages" className="flex-none px-2.5 text-[11px]">
             Pages
           </TabsTrigger>
-          <TabsTrigger value="layers" className="flex-none px-2.5 text-xs">
+          <TabsTrigger value="layers" className="flex-none px-2.5 text-[11px]">
             Layers
           </TabsTrigger>
         </EditorPanelTabsList>

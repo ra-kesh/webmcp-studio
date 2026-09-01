@@ -80,7 +80,7 @@ export function CanvasZoomControls({
       <div
         aria-label="Canvas zoom controls"
         className={cn(
-          "flex h-12 max-w-[calc(100%-1rem)] items-center gap-0.5 rounded-lg border bg-editor-floating p-1 shadow-md ring-1 ring-black/3 backdrop-blur-md min-[1280px]:h-9",
+          "flex h-12 max-w-[calc(100%-1rem)] items-center gap-0.5 rounded-md border bg-editor-floating p-1 shadow-sm min-[1280px]:h-9",
           className
         )}
         data-canvas-zoom-controls="true"

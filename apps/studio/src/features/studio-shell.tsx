@@ -4236,10 +4236,10 @@ export function StudioShell({
         <p className="sr-only" role="status" aria-live="polite" aria-atomic>
           {shellLayoutError ?? ""}
         </p>
-        <header className="flex h-(--studio-topbar-height) min-w-0 shrink-0 items-center gap-1 border-b border-border/80 bg-editor-panel px-2 min-[1280px]:gap-3 min-[1280px]:px-3">
+        <header className="flex h-(--studio-topbar-height) min-w-0 shrink-0 items-center gap-1 border-b border-border bg-editor-panel px-2 min-[1280px]:gap-2 min-[1280px]:px-3">
           <button
             aria-label="Go to Studio home"
-            className="flex min-w-0 flex-1 items-center gap-2 rounded-md text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/40 min-[1280px]:w-56 min-[1280px]:flex-none min-[1280px]:gap-2.5"
+            className="flex min-w-0 flex-1 items-center gap-2 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/30 min-[1280px]:w-60 min-[1280px]:flex-none min-[1280px]:gap-2.5"
             disabled={!homeCommand.enabled}
             title={homeCommand.disabledReason ?? "Studio home"}
             type="button"
@@ -4247,7 +4247,7 @@ export function StudioShell({
               productCommandRuntime.run({ commandId: "document.home" })
             }}
           >
-            <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+            <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
               <StudioMark className="size-3.5" />
             </div>
             <div className="flex min-w-0 flex-col leading-none">
@@ -4276,14 +4276,14 @@ export function StudioShell({
           />
           <div
             aria-label="Canvas tools"
-            className="hidden shrink-0 items-center gap-0.5 rounded-md bg-muted/55 p-0.5 ring-1 ring-border/65 min-[640px]:flex"
+            className="hidden shrink-0 items-center gap-0.5 min-[640px]:flex"
             role="toolbar"
           >
             <IconButton
               label="Select"
               shortcut="V"
               aria-pressed={tool === "select"}
-              className="size-11 aria-pressed:bg-studio-accent aria-pressed:text-white aria-pressed:hover:bg-studio-accent/90 min-[1280px]:size-7"
+              className="size-11 aria-pressed:bg-primary aria-pressed:text-primary-foreground aria-pressed:hover:bg-primary/85 min-[1280px]:size-7"
               disabled={!commandEnabled("tool.select")}
               variant="ghost"
               onClick={() => runEditorCommand("tool.select")}
@@ -4294,7 +4294,7 @@ export function StudioShell({
               label="Hand tool"
               shortcut="H"
               aria-pressed={tool === "hand"}
-              className="size-11 aria-pressed:bg-studio-accent aria-pressed:text-white aria-pressed:hover:bg-studio-accent/90 min-[1280px]:size-7"
+              className="size-11 aria-pressed:bg-primary aria-pressed:text-primary-foreground aria-pressed:hover:bg-primary/85 min-[1280px]:size-7"
               disabled={!commandEnabled("tool.hand")}
               variant="ghost"
               onClick={() => runEditorCommand("tool.hand")}
@@ -4499,7 +4499,7 @@ export function StudioShell({
           />
           <div
             aria-label="History"
-            className="hidden shrink-0 items-center gap-0.5 rounded-md bg-muted/40 p-0.5 min-[860px]:flex"
+            className="hidden shrink-0 items-center gap-0.5 min-[860px]:flex"
             role="group"
           >
             <IconButton
@@ -4530,7 +4530,7 @@ export function StudioShell({
               />
               <div
                 aria-label="Selection actions"
-                className="hidden items-center gap-0.5 rounded-md bg-muted/40 p-0.5 min-[1280px]:flex"
+                className="hidden items-center gap-0.5 min-[1280px]:flex"
                 role="toolbar"
               >
                 <IconButton
@@ -5163,7 +5163,7 @@ export function StudioShell({
             {!editor.imageCropSession &&
             selectedImage &&
             selectedImageToolbarPlacement?.mode === "docked" ? (
-              <div className="relative z-30 flex shrink-0 justify-center border-b bg-editor-panel/92 p-1 backdrop-blur-sm">
+              <div className="relative z-30 flex shrink-0 justify-center border-b bg-editor-panel p-1">
                 <SelectedImageToolbar
                   image={selectedImage}
                   className="max-w-full shadow-sm"
@@ -5175,7 +5175,7 @@ export function StudioShell({
             {!editor.imageCropSession &&
             textEditingState &&
             textFormattingToolbarPlacement?.mode === "docked" ? (
-              <div className="relative z-30 flex shrink-0 justify-center border-b bg-editor-panel/92 p-1 backdrop-blur-sm">
+              <div className="relative z-30 flex shrink-0 justify-center border-b bg-editor-panel p-1">
                 <TextFormattingToolbar
                   state={textEditingState}
                   className="max-w-full shadow-sm"
@@ -5193,7 +5193,7 @@ export function StudioShell({
               <div
                 ref={installWorkspaceElement}
                 aria-label="Canvas viewport"
-                className={`workspace-grid relative min-h-0 flex-1 overflow-hidden overscroll-contain ${
+                className={`relative min-h-0 flex-1 overflow-hidden overscroll-contain bg-workspace ${
                   isPanning
                     ? "cursor-grabbing select-none"
                     : !editor.imageCropSession &&
