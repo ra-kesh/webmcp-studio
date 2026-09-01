@@ -2975,6 +2975,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     this.canvas.on("text:editing:exited", this.onTextEditingExited)
     this.canvas.on("before:render", this.onBeforeRender)
     this.canvas.on("after:render", this.onAfterRender)
+    this.installTransformPointerTermination(this.canvas.upperCanvasEl)
     this.canvas.upperCanvasEl.addEventListener(
       "touchstart",
       this.onImageCropTouchStart,
@@ -3054,6 +3055,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     canvas.off("text:editing:exited", this.onTextEditingExited)
     canvas.off("before:render", this.onBeforeRender)
     canvas.off("after:render", this.onAfterRender)
+    this.removeTransformPointerTermination(canvas.upperCanvasEl)
     canvas.upperCanvasEl.removeEventListener(
       "touchstart",
       this.onImageCropTouchStart,
@@ -3079,6 +3081,22 @@ export class FabricCanvasAdapter implements CanvasAdapter {
 
   requestRender() {
     this.canvas?.requestRenderAll()
+  }
+
+  private installTransformPointerTermination(element: HTMLCanvasElement) {
+    element.addEventListener(
+      "pointercancel",
+      this.onTransformPointerTermination,
+      true
+    )
+  }
+
+  private removeTransformPointerTermination(element: HTMLCanvasElement) {
+    element.removeEventListener(
+      "pointercancel",
+      this.onTransformPointerTermination,
+      true
+    )
   }
 
   setMutationAdmission(admitted: boolean) {
@@ -4827,6 +4845,16 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     // that no-op session after Fabric has finalized it.
     this.restoreTransformTextPreviews()
     this.transformSessions.release()
+    this.clearGuides()
+  }
+
+  private onTransformPointerTermination = () => {
+    // Keep transient transform ownership on Fabric's upper canvas. Pointer
+    // cancellation is terminal just like pointer-up, but a live canonical
+    // transform must roll back rather than commit the last preview. Image-crop
+    // touch cancellation remains owned by its dedicated touchcancel listener
+    // and state machine below.
+    if (this.transformSessions.active) this.cancelTransform()
     this.clearGuides()
   }
 

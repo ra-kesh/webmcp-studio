@@ -1329,6 +1329,66 @@ describe("Fabric document boundary", () => {
     expect(harness.canvas.requestRenderAll).not.toHaveBeenCalled()
   })
 
+  it("registers and removes canvas-owned pointer cancellation", () => {
+    const adapter = new FabricCanvasAdapter({
+      onSelectionChange: vi.fn(),
+      onNodesChange: vi.fn(),
+    })
+    const element = {
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    } as unknown as HTMLCanvasElement
+    const terminationHandler = Reflect.get(
+      adapter,
+      "onTransformPointerTermination"
+    )
+
+    Reflect.get(adapter, "installTransformPointerTermination").call(
+      adapter,
+      element
+    )
+    Reflect.get(adapter, "removeTransformPointerTermination").call(
+      adapter,
+      element
+    )
+
+    expect(element.addEventListener).toHaveBeenCalledWith(
+      "pointercancel",
+      terminationHandler,
+      true
+    )
+    expect(element.removeEventListener).toHaveBeenCalledWith(
+      "pointercancel",
+      terminationHandler,
+      true
+    )
+  })
+
+  it("clears cancelled pointer paint without disturbing image-crop touch state", () => {
+    const harness = createTransformHarness()
+    const cropMode = { nodeId: "crop-node" }
+    const cropPinch = { nodeId: "crop-node" }
+    Reflect.set(harness.adapter, "imageCropMode", cropMode)
+    Reflect.set(harness.adapter, "imageCropPinch", cropPinch)
+    Reflect.set(harness.adapter, "suppressCropTouchUntilRelease", true)
+    Reflect.set(harness.adapter, "activeGuides", [
+      { axis: "x", value: 240, source: "page" },
+    ])
+
+    Reflect.get(harness.adapter, "onTransformPointerTermination")()
+
+    expect(harness.canvas.endCurrentTransform).not.toHaveBeenCalled()
+    expect(Reflect.get(harness.adapter, "activeGuides")).toEqual([])
+    expect(harness.canvas.clearContext).toHaveBeenCalledWith(
+      harness.canvas.contextTop
+    )
+    expect(Reflect.get(harness.adapter, "imageCropMode")).toBe(cropMode)
+    expect(Reflect.get(harness.adapter, "imageCropPinch")).toBe(cropPinch)
+    expect(Reflect.get(harness.adapter, "suppressCropTouchUntilRelease")).toBe(
+      true
+    )
+  })
+
   it("keeps Shift side handles on Fabric's public scale path", () => {
     const target = new Rect({
       left: 50,
@@ -2280,15 +2340,44 @@ describe("Fabric document boundary", () => {
     expect(harness.adapter.cancelTransform()).toBe(false)
   })
 
+  it("rolls back a live canonical transform when pointer ownership is cancelled", () => {
+    const harness = createTransformHarness()
+    const baseline = fabricObjectToNodePatch(harness.object)
+    harness.begin("drag")
+    harness.object.set({
+      left: harness.node.x + 48,
+      top: harness.node.y + 24,
+    })
+    Reflect.set(harness.adapter, "activeGuides", [
+      { axis: "x", value: 240, source: "page" },
+    ])
+
+    Reflect.get(harness.adapter, "onTransformPointerTermination")()
+
+    expect(harness.canvas.endCurrentTransform).toHaveBeenCalledOnce()
+    expect(fabricObjectToNodePatch(harness.object)).toEqual(baseline)
+    expect(harness.onNodesChange).not.toHaveBeenCalled()
+    expect(Reflect.get(harness.adapter, "activeGuides")).toEqual([])
+    expect(Reflect.get(harness.adapter, "transformSessions").active).toBeNull()
+    expect(harness.canvas.clearContext).toHaveBeenCalledWith(
+      harness.canvas.contextTop
+    )
+  })
+
   it("cancels and restores a live transform before adapter unmount", async () => {
     const harness = createTransformHarness()
     const baseline = fabricObjectToNodePatch(harness.object)
     const dispose = vi.fn(async () => undefined)
+    const removeEventListener = vi.fn()
     Object.assign(harness.canvas, {
       dispose,
       off: vi.fn(),
-      upperCanvasEl: { removeEventListener: vi.fn() },
+      upperCanvasEl: { removeEventListener },
     })
+    const terminationHandler = Reflect.get(
+      harness.adapter,
+      "onTransformPointerTermination"
+    )
     harness.begin("scale")
     harness.object.set({
       left: harness.node.x + 48,
@@ -2304,6 +2393,11 @@ describe("Fabric document boundary", () => {
     expect(harness.onNodesChange).not.toHaveBeenCalled()
     expect(Reflect.get(harness.adapter, "transformSessions").active).toBeNull()
     expect(dispose).toHaveBeenCalledOnce()
+    expect(removeEventListener).toHaveBeenCalledWith(
+      "pointercancel",
+      terminationHandler,
+      true
+    )
   })
 
   it("queues stale-context rollback outside Fabric's modified finalizer", async () => {

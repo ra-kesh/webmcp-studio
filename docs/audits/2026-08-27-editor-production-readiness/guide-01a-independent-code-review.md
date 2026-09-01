@@ -545,3 +545,38 @@ snap acquire/hold/release; Escape; rejected settlement; Undo/Redo; page change;
 and canonical resync. Verify visible handles track the clipped fixed frame,
 guides clear on every settlement, text never stretches, and one gesture creates
 exactly one history entry.
+
+## Stale transient-guide repair — 2026-09-01
+
+The reported full-page blue dashed lines and numeric distance labels were stale
+Fabric `contextTop` paint from the transient snap/spacing-guide renderer. They
+were not persistent ruler guides or a React DOM overlay: the persistent ruler
+overlay uses solid one-pixel page-local lines and a single ruler badge, while
+the screenshot matches `FabricCanvasAdapter.onAfterRender` exactly.
+
+Two lifecycle holes are closed:
+
+- `clearGuides()` now clears `contextTop` even when `activeGuides` is already
+  empty. State and imperative canvas pixels can diverge when another teardown
+  path resets the guide array first, so an early return based only on model
+  state could leave the previous frame visible after blank-click or deselect.
+- The Fabric upper canvas owns one capture-phase `pointercancel` listener.
+  Cancellation rolls back an active canonical transform, clears its session,
+  and clears transient guide paint. The listener is removed on unmount. Image
+  crop retains its dedicated `touchcancel` state machine and is not mutated by
+  this handler; no page- or window-global listener was introduced.
+
+`lostpointercapture` is intentionally not used. Fabric 7.4 has
+`enablePointerEvents` disabled by default and finalizes ordinary mouse/touch
+transforms through separate compatibility-event paths. A capture-loss callback
+cannot be proven to run after Fabric's successful `object:modified` settlement
+on every supported input path, so treating it as cancellation could roll back a
+valid drag or resize. `pointercancel` is the unambiguous aborted-gesture signal.
+
+Verification:
+
+- Focused regressions: 4 pass, covering stale pixels with empty guide state,
+  listener registration/removal, no-active-transform crop isolation, and exact
+  active-transform rollback.
+- Full `fabric-adapter.test.ts`: 114 tests pass.
+- `@webmcp/editor` typecheck passes.
