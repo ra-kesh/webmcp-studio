@@ -4589,6 +4589,30 @@ export function StudioShell({
       role="toolbar"
     >
       <IconButton
+        ref={leftPanelToggleRef}
+        label={
+          shellLayout.leftPanel.collapsed
+            ? "Expand document panel"
+            : "Collapse document panel"
+        }
+        className="hidden size-7 min-[1280px]:inline-flex"
+        aria-controls={
+          shellLayout.leftPanel.collapsed ? undefined : "studio-document-panel"
+        }
+        aria-expanded={!shellLayout.leftPanel.collapsed}
+        onClick={() => toggleShellPanel("left")}
+      >
+        {shellLayout.leftPanel.collapsed ? (
+          <PanelLeftOpen />
+        ) : (
+          <PanelLeftClose />
+        )}
+      </IconButton>
+      <Separator
+        className="mx-0.5 hidden h-4 min-[1280px]:block"
+        orientation="vertical"
+      />
+      <IconButton
         label="Select"
         shortcut="V"
         aria-pressed={tool === "select"}
@@ -4738,6 +4762,28 @@ export function StudioShell({
           </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
+      <Separator
+        className="mx-0.5 hidden h-4 min-[860px]:block"
+        orientation="vertical"
+      />
+      <IconButton
+        label="Undo"
+        shortcut="⌘Z"
+        className="hidden size-11 min-[860px]:inline-flex min-[1280px]:size-7"
+        disabled={!commandEnabled("history.undo")}
+        onClick={() => runEditorCommand("history.undo")}
+      >
+        <Undo2 />
+      </IconButton>
+      <IconButton
+        label="Redo"
+        shortcut="⇧⌘Z"
+        className="hidden size-11 min-[860px]:inline-flex min-[1280px]:size-7"
+        disabled={!commandEnabled("history.redo")}
+        onClick={() => runEditorCommand("history.redo")}
+      >
+        <Redo2 />
+      </IconButton>
     </div>
   )
 
@@ -4797,31 +4843,8 @@ export function StudioShell({
           >
             <Layers3 />
           </IconButton>
-          <IconButton
-            ref={leftPanelToggleRef}
-            label={
-              shellLayout.leftPanel.collapsed
-                ? "Expand document panel"
-                : "Collapse document panel"
-            }
-            className="hidden size-7 min-[1280px]:inline-flex"
-            aria-controls={
-              shellLayout.leftPanel.collapsed
-                ? undefined
-                : "studio-document-panel"
-            }
-            aria-expanded={!shellLayout.leftPanel.collapsed}
-            onClick={() => toggleShellPanel("left")}
-          >
-            {shellLayout.leftPanel.collapsed ? (
-              <PanelLeftOpen />
-            ) : (
-              <PanelLeftClose />
-            )}
-          </IconButton>
-
           <Separator
-            className="hidden min-[640px]:block"
+            className="hidden min-[1600px]:block"
             orientation="vertical"
           />
           <div className="hidden shrink-0 min-[1600px]:block">
@@ -4898,35 +4921,6 @@ export function StudioShell({
               }}
             />
           </div>
-          <Separator
-            className="hidden min-[860px]:block"
-            orientation="vertical"
-          />
-          <div
-            aria-label="History"
-            className="hidden shrink-0 items-center gap-0.5 min-[860px]:flex"
-            role="group"
-          >
-            <IconButton
-              label="Undo"
-              shortcut="⌘Z"
-              className="size-11 min-[1280px]:size-7"
-              disabled={!commandEnabled("history.undo")}
-              onClick={() => runEditorCommand("history.undo")}
-            >
-              <Undo2 />
-            </IconButton>
-            <IconButton
-              label="Redo"
-              shortcut="⇧⌘Z"
-              className="size-11 min-[1280px]:size-7"
-              disabled={!commandEnabled("history.redo")}
-              onClick={() => runEditorCommand("history.redo")}
-            >
-              <Redo2 />
-            </IconButton>
-          </div>
-
           <div className="flex shrink-0 items-center gap-1 min-[1280px]:ml-auto min-[1280px]:gap-2">
             {pendingQuotationRefresh ? (
               <Button
