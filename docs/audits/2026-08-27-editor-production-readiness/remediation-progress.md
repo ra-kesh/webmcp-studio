@@ -4096,3 +4096,60 @@ Status: **implemented and live-accepted**
 - Focused tests pass 29/29, Studio typecheck and scoped lint pass, and a clean
   first insertion after reload rendered the selected asset while both pages
   remained in the ready state.
+
+## 2026-09-01 — Post-admission interaction ownership repair
+
+Status: **implemented; image-selection and direct-text live acceptance pass on
+the isolated port-3011 worktree**
+
+- Replayed the supplied 7.2-second recording and reproduced the same sequence
+  with the saved Sandstone layer: selecting the existing image showed the
+  route-level `Preparing the editor…` fallback, then returned with the React
+  selection outline, floating actions, and inspector intact while every
+  Fabric page was white. A second live trigger entered direct editing on an
+  existing text layer and produced the same persistent scene loss.
+- The canonical selection path was not a document render invalidation.
+  Selection changed while document object, revision, snapshot ID, operation
+  version, undo/redo state, page identity, and document sync identity remained
+  unchanged. This agrees with OpenPencil's separate graph and selection
+  invalidations and Loora's session-owned selection outside the engine
+  document.
+- The failure was post-admission ownership. `SelectedImageToolbar`,
+  `TextFormattingToolbar`, `ImageCropToolbar`, `TextLinkEditor`, and
+  `EmptyCanvasActions` were lazy components with no nearby boundary. Their
+  first render suspended to the one route-level boundary, which hid the live
+  workspace and disconnected the Fabric mount effect. Adapter cleanup disposed
+  the painted scene while React state survived; reveal therefore restored the
+  outline and inspector around retained but empty canvases without a new
+  document identity that could legitimately request another sync.
+- Commit `d882c77` remains valid and was not reverted. Its abortable document
+  queue and last-good-frame behavior repair canonical document updates; this
+  bug occurs before that queue because an ephemeral interaction suspended the
+  route. Re-syncing on selection or remounting Fabric cosmetically would have
+  violated the established render ownership contract.
+- Added `createLazyEditorInteraction`, which makes every interaction-only lazy
+  surface own a null local `Suspense` fallback below the admitted workspace.
+  Initial route admission still owns the outer boundary. Loading optional
+  chrome can now omit only that chrome; it cannot hide or dispose renderer
+  pixels.
+- A mounted regression holds image and text interaction modules unresolved and
+  proves the route fallback stays absent, the painted scene marker remains
+  connected, adapter mount remains one, unmount remains zero, document sync
+  remains one, selection invalidation still reaches the adapter, the React
+  outline and inspector remain visible, and the delayed control appears after
+  resolution. A separate mounted editor regression proves selection changes
+  create no document or history identity.
+- Real-browser verification added a temporary 1.5-second delay to each image
+  and text interaction import, then removed it. During both delays all Fabric
+  pixels remained visible and `Preparing the editor…` remained absent. Image
+  selection kept the same revision/snapshot/operation identity; direct text
+  editing focused Fabric's hidden `TEXTAREA` immediately and exposed the
+  formatting toolbar when its module resolved.
+- Final verification passes Studio typecheck, scoped lint, the production
+  client/SSR/renderer build, and 30/30 focused renderer, invalidation,
+  multi-artboard, selection-history, and suspension-ownership tests. The full
+  run passed 1,825/1,856 tests under parallel load; rerunning its 15 affected
+  files serially passed 215/217 and isolated the only remaining failures to two
+  unchanged `page-thumbnail-http` expectations that still assert the older
+  four-argument `prepareDocument` call instead of the current five-argument
+  call.

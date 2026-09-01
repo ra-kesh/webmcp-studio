@@ -198,6 +198,7 @@ import type {
   ImageCropFocusSession,
 } from "./editor/image-crop-focus"
 import type { TextLinkEditorResult } from "./editor/text-link-editor"
+import { createLazyEditorInteraction } from "./editor/lazy-editor-interaction"
 import {
   applySelectedImageToolbarCameraProjection,
   resolveSelectedImageToolbarPlacement,
@@ -375,27 +376,27 @@ const CanvasZoomControls = lazy(() =>
     default: module.CanvasZoomControls,
   }))
 )
-const EmptyCanvasActions = lazy(() =>
+const EmptyCanvasActions = createLazyEditorInteraction(() =>
   import("./editor/empty-canvas-actions").then((module) => ({
     default: module.EmptyCanvasActions,
   }))
 )
-const ImageCropToolbar = lazy(() =>
+const ImageCropToolbar = createLazyEditorInteraction(() =>
   import("./editor/image-crop-toolbar").then((module) => ({
     default: module.ImageCropToolbar,
   }))
 )
-const SelectedImageToolbar = lazy(() =>
+const SelectedImageToolbar = createLazyEditorInteraction(() =>
   import("./editor/selected-image-toolbar").then((module) => ({
     default: module.SelectedImageToolbar,
   }))
 )
-const TextFormattingToolbar = lazy(() =>
+const TextFormattingToolbar = createLazyEditorInteraction(() =>
   import("./editor/text-formatting-toolbar").then((module) => ({
     default: module.TextFormattingToolbar,
   }))
 )
-const TextLinkEditor = lazy(() =>
+const TextLinkEditor = createLazyEditorInteraction(() =>
   import("./editor/text-link-editor").then((module) => ({
     default: module.TextLinkEditor,
   }))

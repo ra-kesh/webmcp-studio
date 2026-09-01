@@ -113,6 +113,46 @@ describe("useDocumentEditor history commit observation", () => {
     expect(commits).toHaveLength(1)
   })
 
+  it("keeps selection outside canonical document and history identity", async () => {
+    host = document.createElement("div")
+    document.body.appendChild(host)
+    root = createRoot(host)
+    const captured: { current: Editor | null } = { current: null }
+    const commits: DocumentHistoryCommit[] = []
+
+    await act(async () => {
+      root.render(
+        <StudioPersistenceTestWrapper>
+          <MountedEditor
+            capture={(editor) => {
+              captured.current = editor
+            }}
+            onHistoryCommit={(entry) => commits.push(entry)}
+          />
+        </StudioPersistenceTestWrapper>
+      )
+    })
+
+    const before = captured.current!
+    const documentIdentity = before.document
+    const snapshotId = before.snapshotId
+    const operationVersion = before.operationVersion
+    const canUndo = before.canUndo
+    const canRedo = before.canRedo
+    const page = before.document.pages[0]
+    const selection = { pageId: page.id, nodeIds: [page.nodeIds[0]] }
+
+    await act(async () => before.setSelection(selection))
+
+    expect(captured.current?.selection).toEqual(selection)
+    expect(captured.current?.document).toBe(documentIdentity)
+    expect(captured.current?.snapshotId).toBe(snapshotId)
+    expect(captured.current?.operationVersion).toBe(operationVersion)
+    expect(captured.current?.canUndo).toBe(canUndo)
+    expect(captured.current?.canRedo).toBe(canRedo)
+    expect(commits).toEqual([])
+  })
+
   it("reports the retained history identity across coalesced nudges", async () => {
     host = document.createElement("div")
     document.body.appendChild(host)
