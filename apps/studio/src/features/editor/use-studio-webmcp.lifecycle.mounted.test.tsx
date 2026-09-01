@@ -48,14 +48,16 @@ const services = {
 function MountedWebMcp({
   enabled,
   mutationDisabledReason = null,
+  outputDisabledReason = null,
   capture,
 }: {
   enabled: boolean
   mutationDisabledReason?: string | null
+  outputDisabledReason?: string | null
   capture: (result: ReturnType<typeof useStudioWebMcp>) => void
 }) {
   const result = useStudioWebMcp(
-    { ...services, mutationDisabledReason },
+    { ...services, mutationDisabledReason, outputDisabledReason },
     { enabled }
   )
   useLayoutEffect(() => capture(result))
@@ -227,6 +229,54 @@ describe("useStudioWebMcp lifecycle", () => {
     expect(services.proposeChangeSet).not.toHaveBeenCalled()
     expect(services.publishTemplate).not.toHaveBeenCalled()
     expect(services.runProductCommand).not.toHaveBeenCalled()
+    expect(services.renderTemplate).not.toHaveBeenCalled()
+  })
+
+  it("blocks direct WebMCP publication without disabling unrelated mutations", async () => {
+    const registeredTools = new Map<string, WebMcpTool>()
+    Object.defineProperty(document, "modelContext", {
+      configurable: true,
+      value: {
+        registerTool: async (tool: WebMcpTool) => {
+          registeredTools.set(tool.name, tool)
+          return undefined
+        },
+      } satisfies WebMcpModelContext,
+    })
+    const reason =
+      "Wait for the pending image replacement to finish before exporting or publishing."
+
+    await act(async () => {
+      root.render(
+        <MountedWebMcp
+          enabled
+          outputDisabledReason={reason}
+          capture={() => undefined}
+        />
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const proposal = await registeredTools
+      .get("propose_field_updates")
+      ?.execute({
+        documentId: northstarSeed.id,
+        baseRevision: northstarSeed.revision,
+        baseSnapshotId: services.snapshotId,
+        values: { couple_names: "Output admission remains scoped" },
+      })
+    const publication = await registeredTools.get("publish_template")?.execute({
+      documentId: northstarSeed.id,
+      expectedRevision: northstarSeed.revision,
+      expectedSnapshotId: services.snapshotId,
+    })
+
+    expect(services.proposeChangeSet).toHaveBeenCalledOnce()
+    expect(proposal?.content[0]?.text).not.toContain(reason)
+    expect(publication).toMatchObject({ isError: true })
+    expect(publication?.content[0]?.text).toContain(reason)
+    expect(services.publishTemplate).not.toHaveBeenCalled()
     expect(services.renderTemplate).not.toHaveBeenCalled()
   })
 

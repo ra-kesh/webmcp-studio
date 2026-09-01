@@ -292,6 +292,12 @@ import {
 import { retainReachableHistorySnapshotContexts } from "./history-snapshot-context"
 import { useImageCropSessionController } from "./use-image-crop-session-controller"
 import { useDocumentPreviewProjection } from "./use-document-preview-projection"
+import {
+  assertImageReplacementOutputAdmission,
+  captureImageReplacementOutputAdmission,
+  imageReplacementOutputAdmission,
+} from "./image-replacement-output-admission"
+import type { ImageReplacementOutputAdmissionLease } from "./image-replacement-output-admission"
 
 export const DOCUMENT_TRANSITION_DISABLED_REASON =
   "Wait for the new document to finish opening before editing this one."
@@ -769,10 +775,12 @@ function createNeutralBootstrapDocument(): Document {
 
 async function syncPublishedVersion(
   version: TemplateVersion,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  assertOutputAdmission: () => void = () => undefined
 ) {
   let candidate = version
   for (let ordinalAttempt = 0; ordinalAttempt < 4; ordinalAttempt += 1) {
+    assertOutputAdmission()
     signal?.throwIfAborted()
     const response = await fetch("/v1/studio/templates/", {
       method: "POST",
@@ -786,12 +794,16 @@ async function syncPublishedVersion(
       }),
       signal,
     })
+    assertOutputAdmission()
     if (response.ok) {
-      return templateVersionSchema.parse(await response.json())
+      const payload = await response.json()
+      assertOutputAdmission()
+      return templateVersionSchema.parse(payload)
     }
     const payload = (await response.json().catch(() => null)) as {
       error?: { code?: string; expectedVersion?: number }
     } | null
+    assertOutputAdmission()
     const expectedVersion = payload?.error?.expectedVersion
     if (
       response.status === 409 &&
@@ -1059,6 +1071,41 @@ export function useDocumentEditor({
     useState<Partial<Record<string, LocalMediaRecoveryOperationViewState>>>({})
   const [pendingImageReplacement, setPendingImageReplacement] =
     useState<PendingRendererReplacement | null>(null)
+  const pendingImageReplacementRef = useRef<PendingRendererReplacement | null>(
+    null
+  )
+  const imageReplacementOutputGenerationRef = useRef(0)
+  const publishPendingImageReplacement = useCallback(
+    (pending: PendingRendererReplacement | null) => {
+      imageReplacementOutputGenerationRef.current += 1
+      pendingImageReplacementRef.current = pending
+      setPendingImageReplacement(pending)
+    },
+    []
+  )
+  const getImageReplacementOutputAdmission = useCallback(
+    () =>
+      imageReplacementOutputAdmission(
+        Boolean(pendingImageReplacementRef.current),
+        imageReplacementOutputGenerationRef.current
+      ),
+    []
+  )
+  const captureImageReplacementOutputAdmissionLease = useCallback(
+    () =>
+      captureImageReplacementOutputAdmission(
+        getImageReplacementOutputAdmission()
+      ),
+    [getImageReplacementOutputAdmission]
+  )
+  const assertImageReplacementOutputAdmissionLease = useCallback(
+    (lease: ImageReplacementOutputAdmissionLease) =>
+      assertImageReplacementOutputAdmission(
+        getImageReplacementOutputAdmission(),
+        lease
+      ),
+    [getImageReplacementOutputAdmission]
+  )
   const [documentError, setDocumentError] = useState<string | null>(
     initialRecordWarning
   )
@@ -4161,7 +4208,7 @@ export function useDocumentEditor({
             { label: replacement.payload.historyLabel }
           )
         },
-        onPendingChange: setPendingImageReplacement,
+        onPendingChange: publishPendingImageReplacement,
         onFailure: setAssetError,
         ...(imageReplacementTimeoutMs === undefined
           ? {}
@@ -4864,6 +4911,17 @@ export function useDocumentEditor({
       }>,
       options?: Readonly<{ signal?: AbortSignal }>
     ) => {
+      let outputAdmissionLease: ImageReplacementOutputAdmissionLease
+      const requireOutputAdmission = () => {
+        const admission = getImageReplacementOutputAdmission()
+        if (!admission.admitted) setPublishError(admission.disabledReason)
+        assertImageReplacementOutputAdmission(admission, outputAdmissionLease)
+      }
+      try {
+        outputAdmissionLease = captureImageReplacementOutputAdmissionLease()
+      } catch (error) {
+        return Promise.reject(error)
+      }
       const active = publicationOperationRef.current
       if (active) {
         if (
@@ -4922,6 +4980,7 @@ export function useDocumentEditor({
       const reserveRepositoryStep = <T>(step: () => Promise<T>) => {
         const predecessor = publicationRepositoryTailRef.current
         const pending = predecessor.then(() => {
+          requireOutputAdmission()
           publicationController.signal.throwIfAborted()
           return step()
         })
@@ -4934,6 +4993,7 @@ export function useDocumentEditor({
 
       const run = async () => {
         publicationController.signal.throwIfAborted()
+        requireOutputAdmission()
         if (separateDocumentTransitionRef.current) {
           setPublishError(DOCUMENT_TRANSITION_DISABLED_REASON)
           throw new Error(DOCUMENT_TRANSITION_DISABLED_REASON)
@@ -4961,6 +5021,7 @@ export function useDocumentEditor({
           setPublishError(message)
           throw new Error(message)
         }
+        requireOutputAdmission()
         publicationController.signal.throwIfAborted()
         const controller =
           activePersistenceSessionRef.current?.controller ?? null
@@ -4974,6 +5035,7 @@ export function useDocumentEditor({
         const approvedSnapshotId = historyRef.current.snapshotId
         const sourceSnapshotId = await deriveDocumentSnapshotId(document)
         operation.sourceSnapshotId = sourceSnapshotId
+        requireOutputAdmission()
         publicationController.signal.throwIfAborted()
         if (
           expected &&
@@ -4989,6 +5051,7 @@ export function useDocumentEditor({
         const durableRead = await reserveRepositoryStep(() =>
           draftRepository.get(document.id)
         )
+        requireOutputAdmission()
         publicationController.signal.throwIfAborted()
         if (!durableRead.ok || durableRead.status !== "found") {
           const message = !durableRead.ok
@@ -5003,6 +5066,7 @@ export function useDocumentEditor({
           templateId,
           publicationController.signal
         )
+        requireOutputAdmission()
         const withoutCurrentStream = publishedVersionsRef.current.filter(
           (version) =>
             version.templateId !== templateId ||
@@ -5047,6 +5111,7 @@ export function useDocumentEditor({
               publishedAt: authoritative.publishedAt,
             })
           )
+          requireOutputAdmission()
           if (linked.ok) {
             const currentRecord = activeRecordRef.current
             if (
@@ -5086,10 +5151,13 @@ export function useDocumentEditor({
           for (const version of [...existing].sort(
             (a, b) => a.version - b.version
           )) {
+            requireOutputAdmission()
             const synced = await syncPublishedVersion(
               version,
-              publicationController.signal
+              publicationController.signal,
+              requireOutputAdmission
             )
+            requireOutputAdmission()
             synchronized.push(synced)
             if (version.id === contentMatch.id) authoritative = synced
           }
@@ -5123,10 +5191,13 @@ export function useDocumentEditor({
         for (const candidate of [...existing, version].sort(
           (a, b) => a.version - b.version
         )) {
+          requireOutputAdmission()
           const synced = await syncPublishedVersion(
             candidate,
-            publicationController.signal
+            publicationController.signal,
+            requireOutputAdmission
           )
+          requireOutputAdmission()
           synchronized.push(synced)
           if (candidate.id === version.id) authoritative = synced
         }
@@ -5197,7 +5268,9 @@ export function useDocumentEditor({
     },
     [
       flushActiveDraft,
+      captureImageReplacementOutputAdmissionLease,
       getDraftRepository,
+      getImageReplacementOutputAdmission,
       imageCropController,
       installPublishedVersions,
     ]
@@ -11003,6 +11076,9 @@ export function useDocumentEditor({
     imageCropSession,
     imageCropPreviewStore,
     pendingImageReplacement,
+    getImageReplacementOutputAdmission,
+    captureImageReplacementOutputAdmissionLease,
+    assertImageReplacementOutputAdmissionLease,
     selectedNodes,
     selectedGroupId,
     localSaveState,

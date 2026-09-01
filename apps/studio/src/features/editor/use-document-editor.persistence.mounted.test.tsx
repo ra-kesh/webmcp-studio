@@ -6,6 +6,7 @@ import {
   builtInDesignTemplateRepository,
   createTemplateVersion,
   documentSchema,
+  projectCuratedMediaDetail,
 } from "@webmcp/document"
 import type { ChangeSet, SceneNode, TemplateVersion } from "@webmcp/document"
 import { act, StrictMode, useLayoutEffect } from "react"
@@ -42,6 +43,10 @@ import type {
 } from "../../content/library/library-template-actions"
 import { getStudioLibraryCatalogDetail } from "../../content/library/catalog"
 import { createLibraryTemplateDocument } from "./library-template-create-command"
+import { studioMediaManifest } from "../../content/library/media/manifest"
+import type { VerifiedCuratedMediaContent } from "../../content/library/media/curated-media-content"
+import type { LibraryMediaActionPreparationPorts } from "./library-media-action-preparation"
+import { IMAGE_REPLACEMENT_OUTPUT_STALE_REASON } from "./image-replacement-output-admission"
 
 type Editor = ReturnType<typeof useDocumentEditor>
 
@@ -141,6 +146,55 @@ const cropEnvelope = (): CurrentDraftEnvelope => {
       nodes: [...envelope.document.nodes, cropImage],
     }),
   }
+}
+
+const publicationRaceEnvelope = (): CurrentDraftEnvelope => {
+  const envelope = cropEnvelope()
+  return {
+    ...envelope,
+    document: documentSchema.parse({
+      ...envelope.document,
+      nodes: envelope.document.nodes.map((node) =>
+        node.id === cropImage.id && node.type === "image"
+          ? {
+              ...node,
+              src: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+            }
+          : node
+      ),
+    }),
+  }
+}
+
+const publicationRaceMedia = studioMediaManifest[0]
+const publicationRaceMediaDetail = projectCuratedMediaDetail(
+  publicationRaceMedia,
+  {
+    curatedRank: 0,
+    preferences: { favorite: false, lastUsedAt: null, collectionIds: [] },
+  }
+)
+const publicationRaceMediaContent: VerifiedCuratedMediaContent = {
+  identity: {
+    assetId: publicationRaceMedia.id,
+    version: publicationRaceMedia.version,
+    contentSha256: publicationRaceMedia.contentSha256,
+  },
+  item: publicationRaceMedia,
+  canonicalSource: publicationRaceMedia.resourcePath,
+  bytes: new Uint8Array(publicationRaceMedia.bytes),
+  src: `data:${publicationRaceMedia.mimeType};base64,publication-race`,
+}
+const publicationRaceMediaPorts: LibraryMediaActionPreparationPorts = {
+  getExactDetail: async () => publicationRaceMediaDetail,
+  resolveCurated: async () => publicationRaceMediaContent,
+  getManagedRecord: async () => null,
+  verifyManagedResource: async () => {
+    throw new Error("Managed media is outside this test.")
+  },
+  recheckLocal: async () => {
+    throw new Error("Local media is outside this test.")
+  },
 }
 
 const repository = (sessionId: string) =>
@@ -384,11 +438,13 @@ function MountedEditor({
   capture,
   capturePersistence,
   initialRecord = null,
+  libraryMediaPreparationPorts,
   onInitialRecordInstalled,
 }: {
   capture: (editor: Editor) => void
   capturePersistence: (persistence: StudioPersistenceApi) => void
   initialRecord?: DocumentDraftRecord | null
+  libraryMediaPreparationPorts?: LibraryMediaActionPreparationPorts
   onInitialRecordInstalled?: (record: DocumentDraftRecord) => void
 }) {
   const persistence = useStudioPersistence()
@@ -397,6 +453,7 @@ function MountedEditor({
     onInitialRecordInstalled,
     persistence,
     libraryTemplateDetailPort: mountedLibraryTemplateDetailPort,
+    libraryMediaPreparationPorts,
   })
   useLayoutEffect(() => {
     capture(editor)
@@ -438,6 +495,7 @@ describe.sequential("useDocumentEditor repository persistence", () => {
       repository("hook-default"),
     initialRecord: DocumentDraftRecord | null = null,
     options: Readonly<{
+      libraryMediaPreparationPorts?: LibraryMediaActionPreparationPorts
       onInitialRecordInstalled?: (record: DocumentDraftRecord) => void
       strict?: boolean
     }> = {}
@@ -463,6 +521,7 @@ describe.sequential("useDocumentEditor repository persistence", () => {
               captured.persistence = persistence
             }}
             initialRecord={initialRecord}
+            libraryMediaPreparationPorts={options.libraryMediaPreparationPorts}
             onInitialRecordInstalled={options.onInitialRecordInstalled}
           />
         </StudioPersistenceTestWrapper>
@@ -475,7 +534,10 @@ describe.sequential("useDocumentEditor repository persistence", () => {
   async function openEnvelope(
     envelope: CurrentDraftEnvelope,
     suffix: string,
-    beforeContinue?: (persistence: StudioPersistenceApi) => void
+    beforeContinue?: (persistence: StudioPersistenceApi) => void,
+    mountOptions: Readonly<{
+      libraryMediaPreparationPorts?: LibraryMediaActionPreparationPorts
+    }> = {}
   ) {
     const hookRepository = repository(`hook-${suffix}`)
     const origin = envelope.sourceContext?.quotationSource
@@ -495,7 +557,7 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     )
     if (!created.ok) throw new Error("Expected repository fixture creation")
 
-    const captured = await mount(() => hookRepository)
+    const captured = await mount(() => hookRepository, null, mountOptions)
     await vi.waitFor(() => {
       expect(repositoryLifecycle(captured.current!)).toMatchObject({
         status: "ready",
@@ -2442,6 +2504,125 @@ describe.sequential("useDocumentEditor repository persistence", () => {
       await expect(second).resolves.toEqual(authoritative)
     })
   })
+
+  it("rejects publication when replacement starts and settles during the publish response", async () => {
+    const envelope = publicationRaceEnvelope()
+    const getExactDetail = vi.fn(publicationRaceMediaPorts.getExactDetail)
+    const resolveCurated = vi.fn(publicationRaceMediaPorts.resolveCurated)
+    const { captured, hookRepository } = await openEnvelope(
+      envelope,
+      "publication-image-replacement-race",
+      undefined,
+      {
+        libraryMediaPreparationPorts: {
+          ...publicationRaceMediaPorts,
+          getExactDetail,
+          resolveCurated,
+        },
+      }
+    )
+    await act(async () => {
+      expect(await captured.current!.flushActiveDraft()).toBe(true)
+    })
+    const head = await readRecord(hookRepository, envelope.document.id)
+    const releaseFabric =
+      captured.current!.registerImageReplacementRendererOwner("fabric")
+    const releaseReact =
+      captured.current!.registerImageReplacementRendererOwner("react")
+    const linkPublication = vi.spyOn(hookRepository, "linkPublication")
+    const sourceImage = captured.current!.document.nodes.find(
+      (node) => node.type === "image"
+    )
+    if (sourceImage?.type !== "image") {
+      throw new Error("Expected a publishable image fixture.")
+    }
+    const sourcePage = captured.current!.document.pages.find((page) =>
+      page.nodeIds.includes(sourceImage.id)
+    )
+    if (!sourcePage) throw new Error("Expected the image fixture page.")
+    let resolvePublication!: (response: Response) => void
+    const publicationResponse = new Promise<Response>((resolve) => {
+      resolvePublication = resolve
+    })
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockImplementation((_input, init) =>
+        init?.method === "POST"
+          ? publicationResponse
+          : Promise.resolve(new Response(null, { status: 404 }))
+      )
+    vi.stubGlobal("fetch", fetchMock)
+
+    let publishing!: Promise<TemplateVersion>
+    await act(async () => {
+      publishing = captured.current!.publishTemplate()
+      await vi.waitFor(() =>
+        expect(
+          fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")
+        ).toHaveLength(1)
+      )
+    })
+
+    let replacement!: Promise<"committed" | "no_op" | "rejected">
+    let replacementOutcome: "committed" | "no_op" | "rejected" | undefined
+    await act(async () => {
+      replacement = captured.current!.performLibraryMediaAction({
+        correlationId: "publication-image-replacement-race",
+        detail: publicationRaceMediaDetail,
+        target: {
+          type: "replace",
+          pageId: sourcePage.id,
+          nodeId: sourceImage.id,
+        },
+      })
+      void replacement.then((outcome) => {
+        replacementOutcome = outcome
+      })
+    })
+    await act(async () => {
+      await vi.waitFor(() => expect(getExactDetail).toHaveBeenCalledOnce())
+      await vi.waitFor(() => expect(resolveCurated).toHaveBeenCalledOnce())
+      await vi.waitFor(
+        () =>
+          expect(
+            captured.current!.pendingImageReplacement ?? replacementOutcome
+          ).toBeTruthy(),
+        { timeout: 5_000 }
+      )
+    })
+    expect(replacementOutcome).toBeUndefined()
+    releaseReact()
+    await act(async () => {
+      await expect(replacement).resolves.toBe("rejected")
+    })
+    expect(captured.current!.pendingImageReplacement).toBeNull()
+
+    const publicationCall = fetchMock.mock.calls.find(
+      ([, init]) => init?.method === "POST"
+    )
+    const request = JSON.parse(
+      String(publicationCall?.[1]?.body)
+    ) as PublishRequestBody
+    const authoritative = createTemplateVersion(request.document, {
+      id: request.id,
+      templateId: request.templateId,
+      version: request.version,
+      sourceSnapshotId: head.summary.contentSnapshotId,
+      publishedAt: request.publishedAt,
+    })
+    resolvePublication(
+      new Response(JSON.stringify(authoritative), {
+        status: 201,
+        headers: { "Content-Type": "application/json" },
+      })
+    )
+
+    await expect(publishing).rejects.toThrow(
+      IMAGE_REPLACEMENT_OUTPUT_STALE_REASON
+    )
+    expect(linkPublication).not.toHaveBeenCalled()
+    releaseFabric()
+  }, 15_000)
 
   it("refuses to publish a snapshot changed after exact approval", async () => {
     const envelope = designEnvelope()

@@ -241,6 +241,12 @@ import { useCriticalActionOwner } from "./editor/use-critical-action-owner"
 import { CriticalActionStatus } from "./editor/critical-action-status"
 import type { StudioCriticalAction } from "./editor/critical-action-status"
 import { exportPagePng } from "./editor/export-page-png"
+import { exportOutputPdf } from "./editor/export-output-pdf"
+import {
+  assertImageReplacementOutputAdmission,
+  imageReplacementOutputCommandStates,
+} from "./editor/image-replacement-output-admission"
+import type { ImageReplacementOutputCommandInputs } from "./editor/image-replacement-output-admission"
 import { useRenderHistory } from "./editor/use-render-history"
 import { useStudioWebMcp } from "./editor/use-studio-webmcp"
 import { useDraftReplacement } from "./editor/use-draft-replacement"
@@ -2694,6 +2700,11 @@ export function StudioShell({
   const productCommandContextRef = useRef<ProductCommandRuntimeContext | null>(
     null
   )
+  const outputCommandInputsRef =
+    useRef<ImageReplacementOutputCommandInputs | null>(null)
+  const readLiveProductCommandContextRef = useRef<
+    (() => ProductCommandRuntimeContext | null) | null
+  >(null)
   const productCommandRunnerRef = useRef<
     ((invocation: ProductCommandInvocation) => ProductCommandRunResult) | null
   >(null)
@@ -2708,6 +2719,29 @@ export function StudioShell({
     replacementRunning || routeTransitionPending
       ? DOCUMENT_TRANSITION_DISABLED_REASON
       : null
+  const imageReplacementOutputAdmission =
+    editor.getImageReplacementOutputAdmission()
+  const requireImageReplacementOutputAdmission = () =>
+    assertImageReplacementOutputAdmission(
+      editor.getImageReplacementOutputAdmission()
+    )
+  function readLiveProductCommandContext() {
+    const context = productCommandContextRef.current
+    const outputInputs = outputCommandInputsRef.current
+    if (!context || !outputInputs) return null
+    return {
+      ...context,
+      editor: readLiveEditorCommandContext(),
+      stateByCommandId: {
+        ...context.stateByCommandId,
+        ...imageReplacementOutputCommandStates(
+          editor.getImageReplacementOutputAdmission(),
+          outputInputs
+        ),
+      },
+    }
+  }
+  readLiveProductCommandContextRef.current = readLiveProductCommandContext
   const webMcp = useStudioWebMcp(
     {
       document: editor.document,
@@ -2724,6 +2758,7 @@ export function StudioShell({
       publishedVersion: publishedVersion ?? null,
       renderHistory: renderHistory.records,
       mutationDisabledReason: documentTransitionDisabledReason,
+      outputDisabledReason: imageReplacementOutputAdmission.disabledReason,
       ...(backgroundRemovalEnabled
         ? {
             mediaDerivations: {
@@ -2779,12 +2814,7 @@ export function StudioShell({
             },
           }
         : {}),
-      getProductCommandContext: () => {
-        const context = productCommandContextRef.current
-        return context
-          ? { ...context, editor: readLiveEditorCommandContext() }
-          : null
-      },
+      getProductCommandContext: readLiveProductCommandContext,
       proposeChangeSet: editor.proposeChangeSet,
       proposeDocumentGeneration: editor.proposeDocumentGeneration,
       runProductCommand: (invocation) => {
@@ -2798,12 +2828,14 @@ export function StudioShell({
       },
       publishTemplate: async (expected, options) => {
         options?.signal?.throwIfAborted()
+        requireImageReplacementOutputAdmission()
         if (!commitActiveTextEditing()) {
           throw new Error(
             "Studio could not finish the active text edit before publishing."
           )
         }
         options?.signal?.throwIfAborted()
+        requireImageReplacementOutputAdmission()
         return editor.publishTemplate(expected, options)
       },
       renderTemplate: renderHistory.runRender,
@@ -3400,6 +3432,10 @@ export function StudioShell({
 
   const exportPng = async (signal: AbortSignal) => {
     const requestedPageId = activePage.id
+    const outputAdmissionLease =
+      editor.captureImageReplacementOutputAdmissionLease()
+    const assertOutputAdmission = () =>
+      editor.assertImageReplacementOutputAdmissionLease(outputAdmissionLease)
     if (editor.imageCropSession) {
       throw new Error("Finish or cancel the image crop before exporting PNG.")
     }
@@ -3415,6 +3451,7 @@ export function StudioShell({
         materializeLocalExportNodes(documentSnapshot, signal),
       fetcher: fetch,
       download: (blob, filename) => {
+        assertOutputAdmission()
         signal.throwIfAborted()
         const objectUrl = URL.createObjectURL(blob)
         const link = document.createElement("a")
@@ -3426,6 +3463,7 @@ export function StudioShell({
         link.remove()
         window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
       },
+      assertOutputAdmission,
     })
   }
 
@@ -3433,55 +3471,39 @@ export function StudioShell({
     signal: AbortSignal,
     outputId = activeOutput?.id
   ) => {
+    const outputAdmissionLease =
+      editor.captureImageReplacementOutputAdmissionLease()
+    const assertOutputAdmission = () =>
+      editor.assertImageReplacementOutputAdmissionLease(outputAdmissionLease)
     if (editor.imageCropSession) {
       throw new Error("Finish or cancel the image crop before exporting PDF.")
     }
     if (!commitActiveTextEditing()) {
       throw new Error("Finish text editing before exporting PDF.")
     }
-    signal.throwIfAborted()
-    if (!(await editor.flushActiveDraft(signal))) {
-      throw new Error(
-        "PDF export stopped because the current document is not durably saved."
-      )
-    }
-    signal.throwIfAborted()
-    const documentSnapshot = editor.getCurrentDocumentSnapshot()
-    const exportOutput = documentSnapshot.outputs.find(
-      (output) => output.id === outputId
-    )
-    if (!exportOutput || !exportOutput.exportFormats.includes("pdf")) {
-      throw new Error("The selected output is not available for PDF export.")
-    }
-    const exportNodes = await materializeLocalExportNodes(
-      documentSnapshot,
-      signal
-    )
-    signal.throwIfAborted()
-    const response = await fetch("/v1/studio/export-pdf", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        outputId: exportOutput.id,
-        document: { ...documentSnapshot, nodes: exportNodes },
-      }),
+    return exportOutputPdf({
+      outputId,
       signal,
+      flushActiveDraft: editor.flushActiveDraft,
+      getCurrentDocumentSnapshot: editor.getCurrentDocumentSnapshot,
+      materializeNodes: (documentSnapshot) =>
+        materializeLocalExportNodes(documentSnapshot, signal),
+      fetcher: fetch,
+      download: (blob, filename) => {
+        assertOutputAdmission()
+        signal.throwIfAborted()
+        const objectUrl = URL.createObjectURL(blob)
+        const link = document.createElement("a")
+        link.download = filename
+        link.href = objectUrl
+        link.hidden = true
+        document.body.appendChild(link)
+        link.click()
+        link.remove()
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+      },
+      assertOutputAdmission,
     })
-    if (!response.ok) {
-      throw new Error(`PDF export failed (${response.status}).`)
-    }
-    const blob = await response.blob()
-    signal.throwIfAborted()
-    const objectUrl = URL.createObjectURL(blob)
-    const link = document.createElement("a")
-    link.download = `${exportOutput.name.toLowerCase().replaceAll(" ", "-")}.pdf`
-    link.href = objectUrl
-    link.hidden = true
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
-    return true
   }
 
   const exportDocumentJson = async () => {
@@ -3779,11 +3801,30 @@ export function StudioShell({
       ? "Create or discard the generated document first."
       : "Resolve or discard the review preview first."
   const cropLocked = Boolean(editor.imageCropSession)
-  const outputBusy =
+  const outputBusyWithoutImageReplacement =
     criticalAction !== null ||
     pdfExportState === "exporting" ||
     documentDecisionLocked ||
     cropLocked
+  const outputBusy =
+    outputBusyWithoutImageReplacement ||
+    !imageReplacementOutputAdmission.admitted
+
+  const publishDisabledReason = criticalAction
+    ? "Wait for the current Studio operation to finish."
+    : cropLocked
+      ? "Finish or cancel the active image crop before publishing."
+      : documentDecisionLocked
+        ? documentDecisionReason
+        : null
+  const outputCommandInputs: ImageReplacementOutputCommandInputs = {
+    outputBusy: outputBusyWithoutImageReplacement,
+    publishDisabledReason,
+    pdfLabel: activeOutput
+      ? `${activeOutput.pageIds.length}-page PDF`
+      : "Output PDF",
+  }
+  outputCommandInputsRef.current = outputCommandInputs
 
   const productCommandContext: ProductCommandRuntimeContext = {
     documentId: editor.document.id,
@@ -3913,32 +3954,10 @@ export function StudioShell({
               ? documentDecisionReason
               : null,
       },
-      "output.export-png": {
-        enabled: !outputBusy,
-        disabledReason: outputBusy
-          ? "Finish the active review, crop, or export first."
-          : null,
-      },
-      "document.publish": {
-        enabled:
-          !cropLocked && !documentDecisionLocked && criticalAction === null,
-        disabledReason: criticalAction
-          ? "Wait for the current Studio operation to finish."
-          : cropLocked
-            ? "Finish or cancel the active image crop before publishing."
-            : documentDecisionLocked
-              ? documentDecisionReason
-              : null,
-      },
-      "output.export-pdf": {
-        enabled: !outputBusy,
-        disabledReason: outputBusy
-          ? "Finish the active review, crop, or export first."
-          : null,
-        label: activeOutput
-          ? `${activeOutput.pageIds.length}-page PDF`
-          : "Output PDF",
-      },
+      ...imageReplacementOutputCommandStates(
+        imageReplacementOutputAdmission,
+        outputCommandInputs
+      ),
       "arrange.forward": {
         enabled: editor.selectedNodes.length === 1,
         disabledReason:
@@ -4308,7 +4327,7 @@ export function StudioShell({
     () =>
       createProductCommandRuntime({
         getContext: () => {
-          const context = productCommandContextRef.current
+          const context = readLiveProductCommandContextRef.current?.() ?? null
           if (!context) {
             throw new Error("Canonical command context is not ready yet.")
           }
@@ -4322,6 +4341,9 @@ export function StudioShell({
   productCommandRunnerRef.current = productCommandRuntime.run
   const homeCommand = productCommandRuntime.resolve({
     commandId: "document.home",
+  })
+  const publishCommand = productCommandRuntime.resolve({
+    commandId: "document.publish",
   })
   const productMenus = buildProductAppMenus(productCommandContext)
   const canvasContextMenuGroups = buildCanvasContextMenu(productCommandContext)
@@ -4943,10 +4965,11 @@ export function StudioShell({
               size="sm"
               variant="outline"
               className="hidden h-11 min-[940px]:inline-flex min-[1280px]:h-8"
-              disabled={
-                cropLocked || documentDecisionLocked || criticalAction !== null
+              disabled={!publishCommand.enabled}
+              title={publishCommand.disabledReason ?? publishLabel}
+              onClick={() =>
+                productCommandRuntime.run({ commandId: "document.publish" })
               }
-              onClick={() => setPublishDialogOpen(true)}
             >
               <Send data-icon="inline-start" />
               {publishLabel}
@@ -5019,6 +5042,10 @@ export function StudioShell({
                   className="hidden h-11 min-[768px]:inline-flex min-[1280px]:h-8"
                   size="sm"
                   disabled={outputBusy}
+                  title={
+                    imageReplacementOutputAdmission.disabledReason ??
+                    "Export output"
+                  }
                   aria-label="Export output"
                 >
                   <Download data-icon="inline-start" />
@@ -6760,15 +6787,20 @@ export function StudioShell({
               pendingChangeSet={Boolean(
                 editor.pendingChangeSet || pendingQuotationRefresh
               )}
+              outputDisabledReason={
+                imageReplacementOutputAdmission.disabledReason
+              }
               publishError={editor.publishError}
               publishSyncStatus={editor.publishSyncStatus}
               onCancelPublish={editor.cancelPublication}
               onPublish={async () => {
+                requireImageReplacementOutputAdmission()
                 if (!commitActiveTextEditing()) {
                   throw new Error(
                     "Studio could not finish the active text edit before publishing."
                   )
                 }
+                requireImageReplacementOutputAdmission()
                 return editor.publishTemplate()
               }}
             />

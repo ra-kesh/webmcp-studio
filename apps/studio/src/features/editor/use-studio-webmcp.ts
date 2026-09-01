@@ -63,6 +63,7 @@ type StudioWebMcpServices = Omit<
   assets: readonly StudioAsset[]
   mediaDerivations?: RegisteredStudioWebMcpServices["mediaDerivations"]
   mutationDisabledReason?: string | null
+  outputDisabledReason?: string | null
   getProductCommandContext: () => ProductCommandRuntimeContext | null
   runProductCommand: (
     invocation: ProductCommandInvocation
@@ -99,11 +100,17 @@ const assertMutationEnabled = (services: StudioWebMcpServices) => {
   if (reason) throw new Error(reason)
 }
 
+const assertOutputEnabled = (services: StudioWebMcpServices) => {
+  const reason = services.outputDisabledReason ?? null
+  if (reason) throw new Error(reason)
+}
+
 export function projectStudioWebMcpSnapshot(
   services: StudioWebMcpServices
 ): StudioWebMcpSnapshot {
   const {
     mutationDisabledReason: disabledReason,
+    outputDisabledReason: _outputDisabledReason,
     mediaDerivations: _mediaDerivations,
     getProductCommandContext,
     runProductCommand: _runProductCommand,
@@ -261,6 +268,7 @@ export function useStudioWebMcp(
               publishTemplate: (expected, options) => {
                 controller.signal.throwIfAborted()
                 assertMutationEnabled(servicesRef.current)
+                assertOutputEnabled(servicesRef.current)
                 return servicesRef.current.publishTemplate(expected, options)
               },
               renderTemplate: (version, modifications, selections, options) => {

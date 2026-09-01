@@ -4247,3 +4247,43 @@ findings remain open**
   audit P2s remain, along with non-blocking follow-up coverage for synchronous
   Fabric install fault rollback, retired-object disposal, and a same-tick shell
   predicate seam regression.
+
+## 2026-09-01: Architecture Gate 6 truthful output admission
+
+Status: **the first architecture-audit P2 is closed on main; the StrictMode P2
+remains open**
+
+- Added one image-replacement output admission model with an exact user-facing
+  pending reason and a generation-stamped execution lease. Pending start,
+  commit, and rollback synchronously advance the generation, so work captured
+  before a preview cannot resume against a later canonical state.
+- Projected that state through the product command runtime. Wide Publish,
+  compact and overflow File actions, the command palette, keyboard and direct
+  command execution, the export trigger, and an already-open Publish dialog now
+  show the same denial reason. Settlement restores all surfaces from the same
+  derived state.
+- PNG and PDF capture a lease at invocation, recheck after durable flush and
+  local media materialization, and check again before request and download side
+  effects. Publication uses the same lease around its asynchronous preparation
+  boundaries and immediately before every immutable server synchronization.
+- Direct WebMCP publication consumes the output gate before calling the editor
+  service. The gate remains scoped: unrelated change proposals and rendering
+  are not disabled, and the REST renderer contract remains unchanged because a
+  server request has no authority over an uncommitted browser-only preview.
+- Mounted production-hook coverage proves the exact pending denial, commit and
+  rollback recovery, and stale pre-preview lease rejection. PNG and PDF tests
+  prove stale work creates no export request or download. Dialog, WebMCP, and
+  product-command tests cover visible, direct, compact, palette, and
+  command-time parity.
+- Node 22.23.2 verification passes 127/127 Gate 6 Studio tests across seven
+  files, 22/22 editor command tests, and the 43/43 Gate 1/4/5 regression slice.
+  Studio and Editor typechecks, scoped Studio lint, formatting, and
+  `git diff --check` pass. The large editor hook retains its previously recorded
+  unrelated lint findings; no Gate 6 line introduced a new hook lint error.
+- Independent review first found P1 races after publication responses, inside
+  deferred repository work, in same-tick command context, and after export
+  fetch. Revalidation and live context projection closed each gap. Final
+  re-review reports no remaining P0 or P1 and no Gate 1/4/5 regression.
+- Gate 6 does not repair the StrictMode local-asset restore lifecycle, restore
+  StrictMode, add the Gate 5 hardening items, redesign UI, change rendering
+  authority, start a server or browser, deploy, or touch capture artifacts.

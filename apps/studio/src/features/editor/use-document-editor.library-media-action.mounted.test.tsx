@@ -48,6 +48,10 @@ import {
   runCanvasMutationIfAdmitted,
 } from "./canvas-runtime-admission"
 import { ImageReplacementWorkspace } from "./image-replacement-workspace"
+import {
+  IMAGE_REPLACEMENT_OUTPUT_DISABLED_REASON,
+  IMAGE_REPLACEMENT_OUTPUT_STALE_REASON,
+} from "./image-replacement-output-admission"
 import { MultiArtboardWorkspace } from "./multi-artboard-workspace"
 import { buildMultiArtboardPageSyncIdentities } from "./multi-artboard-page-sync"
 
@@ -1056,6 +1060,8 @@ describe("useDocumentEditor exact library media action", () => {
     if (sourceNode?.type !== "image") throw new Error("Expected source image")
     const beforeSnapshotId = captured.editor!.snapshotId
     const beforeOperationVersion = captured.editor!.operationVersion
+    const preReplacementOutputLease =
+      captured.editor!.captureImageReplacementOutputAdmissionLease()
     let settled: PerformLibraryMediaActionOutcome | undefined
     let replacement!: Promise<PerformLibraryMediaActionOutcome>
 
@@ -1082,6 +1088,15 @@ describe("useDocumentEditor exact library media action", () => {
       )
       expect(settled).toBeUndefined()
       expect(captured.editor!.pendingImageReplacement).not.toBeNull()
+      expect(captured.editor!.getImageReplacementOutputAdmission()).toEqual(
+        expect.objectContaining({
+          admitted: false,
+          disabledReason: IMAGE_REPLACEMENT_OUTPUT_DISABLED_REASON,
+        })
+      )
+      await expect(captured.editor!.publishTemplate()).rejects.toThrow(
+        IMAGE_REPLACEMENT_OUTPUT_DISABLED_REASON
+      )
       await vi.waitFor(() =>
         expect(captured.adapter.getImageSourceReadiness).toHaveBeenCalledWith(
           sourceNode.id
@@ -1138,6 +1153,17 @@ describe("useDocumentEditor exact library media action", () => {
     expect(
       captured.editor!.document.nodes.find((node) => node.id === sourceNode.id)
     ).toMatchObject({ assetId: resultItem.id })
+    expect(captured.editor!.getImageReplacementOutputAdmission().admitted).toBe(
+      true
+    )
+    expect(() =>
+      captured.editor!.assertImageReplacementOutputAdmissionLease(
+        preReplacementOutputLease
+      )
+    ).toThrow(IMAGE_REPLACEMENT_OUTPUT_STALE_REASON)
+    expect(() =>
+      captured.editor!.captureImageReplacementOutputAdmissionLease()
+    ).not.toThrow()
   })
 
   it("rolls the mounted replacement preview back when the React owner rejects the candidate", async () => {
@@ -1161,6 +1187,8 @@ describe("useDocumentEditor exact library media action", () => {
     const beforeDocument = captured.editor!.document
     const beforeSnapshotId = captured.editor!.snapshotId
     const beforeOperationVersion = captured.editor!.operationVersion
+    const preReplacementOutputLease =
+      captured.editor!.captureImageReplacementOutputAdmissionLease()
     let replacement!: Promise<PerformLibraryMediaActionOutcome>
 
     await act(async () => {
@@ -1192,6 +1220,17 @@ describe("useDocumentEditor exact library media action", () => {
     expect(captured.editor!.snapshotId).toBe(beforeSnapshotId)
     expect(captured.editor!.operationVersion).toBe(beforeOperationVersion)
     expect(captured.editor!.pendingImageReplacement).toBeNull()
+    expect(captured.editor!.getImageReplacementOutputAdmission().admitted).toBe(
+      true
+    )
+    expect(() =>
+      captured.editor!.assertImageReplacementOutputAdmissionLease(
+        preReplacementOutputLease
+      )
+    ).toThrow(IMAGE_REPLACEMENT_OUTPUT_STALE_REASON)
+    expect(() =>
+      captured.editor!.captureImageReplacementOutputAdmissionLease()
+    ).not.toThrow()
     expect(captured.events).toEqual([])
     expect(captured.editor!.assetError).toContain("document preview")
   })

@@ -148,6 +148,22 @@ function commands(items: readonly ProductMenuItem[]): string[] {
   )
 }
 
+function findMenuCommand(
+  items: readonly ProductMenuItem[],
+  commandId: ProductCommandInvocation["commandId"]
+) {
+  for (const item of items) {
+    if (item.type === "command" && item.command.definition.id === commandId) {
+      return item.command
+    }
+    if (item.type === "submenu") {
+      const nested = findMenuCommand(item.items, commandId)
+      if (nested) return nested
+    }
+  }
+  return null
+}
+
 describe("product command catalog", () => {
   it("covers every stable editor, structure, and product action ID once", () => {
     expect(Object.keys(productCommandCatalog)).toEqual([...productCommandIds])
@@ -198,6 +214,74 @@ describe("product command catalog", () => {
 })
 
 describe("product command runtime", () => {
+  it("keeps direct, compact, palette, and command-time output admission identical", () => {
+    const reason =
+      "Wait for the pending image replacement to finish before exporting or publishing."
+    let pending = true
+    const currentContext = () =>
+      context({
+        stateByCommandId: pending
+          ? {
+              "document.publish": {
+                enabled: false,
+                disabledReason: reason,
+              },
+              "output.export-png": {
+                enabled: false,
+                disabledReason: reason,
+              },
+              "output.export-pdf": {
+                enabled: false,
+                disabledReason: reason,
+              },
+            }
+          : {},
+      })
+    const execute = vi.fn(() => true)
+    const runtime = createProductCommandRuntime({
+      getContext: currentContext,
+      execute,
+    })
+    const pendingContext = currentContext()
+    const fileMenu = buildProductAppMenus(pendingContext).find(
+      (menu) => menu.id === "file"
+    )!
+    const fileItems = fileMenu.groups.flatMap((group) => group.items)
+
+    for (const commandId of [
+      "document.publish",
+      "output.export-png",
+      "output.export-pdf",
+    ] as const) {
+      const invocation =
+        commandId === "output.export-png"
+          ? { commandId, target: pageTarget() }
+          : commandId === "output.export-pdf"
+            ? { commandId, target: outputTarget() }
+            : { commandId }
+      const direct = runtime.resolve(invocation)
+      const compact = findMenuCommand(fileItems, commandId)
+      const palette = projectProductCommandPalette(pendingContext, "mac").find(
+        (command) => command.definition.id === commandId
+      )
+
+      expect(direct).toMatchObject({ enabled: false, disabledReason: reason })
+      expect(compact).toMatchObject({ enabled: false, disabledReason: reason })
+      expect(palette).toMatchObject({ enabled: false, disabledReason: reason })
+      expect(runtime.run(invocation)).toEqual({
+        status: "disabled",
+        reason,
+      })
+    }
+    expect(execute).not.toHaveBeenCalled()
+
+    pending = false
+    expect(runtime.run({ commandId: "document.publish" })).toEqual({
+      status: "accepted",
+    })
+    expect(execute).toHaveBeenCalledOnce()
+  })
+
   it("keeps mask payloads explicit and shares exact capability reasons", () => {
     const maskEditor = {
       canCreate: true,

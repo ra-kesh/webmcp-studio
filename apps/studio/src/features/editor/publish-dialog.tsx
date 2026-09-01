@@ -25,6 +25,7 @@ export function PublishDialog({
   latestVersion,
   currentSnapshotVersion,
   pendingChangeSet,
+  outputDisabledReason,
   publishError,
   publishSyncStatus,
   onPublish,
@@ -38,6 +39,7 @@ export function PublishDialog({
   latestVersion?: TemplateVersion
   currentSnapshotVersion?: TemplateVersion
   pendingChangeSet: boolean
+  outputDisabledReason?: string | null
   publishError: string | null
   publishSyncStatus:
     "idle" | "syncing" | "cancelling" | "synced" | "status_unknown" | "error"
@@ -83,9 +85,11 @@ export function PublishDialog({
       ? currentSnapshotVersion
       : null)
   const nextVersion = (latestVersion?.version ?? 0) + 1
-  const blockingMessage = pendingChangeSet
-    ? "Resolve the pending agent change set before publishing."
-    : (readiness.blocking[0]?.message ?? studioAssetIssues[0]?.message)
+  const blockingMessage =
+    outputDisabledReason ??
+    (pendingChangeSet
+      ? "Resolve the pending agent change set before publishing."
+      : (readiness.blocking[0]?.message ?? studioAssetIssues[0]?.message))
   const blocked = Boolean(blockingMessage)
   const syncing =
     publishing ||
