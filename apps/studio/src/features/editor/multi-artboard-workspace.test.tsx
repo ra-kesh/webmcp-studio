@@ -7,7 +7,7 @@ import { quotationStarter } from "./quotation-starter"
 import { MultiArtboardWorkspace } from "./multi-artboard-workspace"
 
 const hundredPageDocument = () => {
-  const source = quotationStarter.document.pages[0]!
+  const source = quotationStarter.document.pages[0]
   const pages = Array.from({ length: 100 }, (_, index) => ({
     ...source,
     id: `page-${index + 1}`,
@@ -20,6 +20,33 @@ const hundredPageDocument = () => {
 }
 
 describe("MultiArtboardWorkspace", () => {
+  it("renders the six-page quotation as one ordered vertical workspace", () => {
+    const document = quotationStarter.document
+    const layout = new MultiArtboardLayoutController(document.pages)
+    const pageIds = new Set(document.pages.map((page) => page.id))
+    const markup = renderToStaticMarkup(
+      <MultiArtboardWorkspace
+        document={document}
+        layout={layout}
+        zoom={0.2}
+        activePageId={document.pages[0].id}
+        mountedPageIds={pageIds}
+        interactionPageIds={new Set([document.pages[0].id])}
+        renderArtboard={(page) =>
+          createElement("div", { "data-live-page": page.id })
+        }
+        onActivatePage={vi.fn()}
+        onFocusPage={vi.fn()}
+        onAddPage={vi.fn()}
+      />
+    )
+
+    expect(document.pages).toHaveLength(6)
+    expect(markup.match(/data-page-world-frame=/g)).toHaveLength(6)
+    expect(markup.match(/data-live-page=/g)).toHaveLength(6)
+    for (const page of document.pages) expect(markup).toContain(page.name)
+  })
+
   it("keeps 100 page shells while mounting only the visibility set", () => {
     const document = hundredPageDocument()
     const layout = new MultiArtboardLayoutController(document.pages)

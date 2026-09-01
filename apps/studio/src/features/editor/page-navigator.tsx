@@ -40,7 +40,7 @@ export function PageNavigator({
       <div className="flex h-10 shrink-0 items-center justify-between border-b px-2.5">
         <div>
           <p className="text-xs font-medium">Pages</p>
-          <p className="text-[10px] text-muted-foreground tabular-nums">
+          <p className="text-[11px] text-muted-foreground tabular-nums">
             {document.pages.length} total
           </p>
         </div>
@@ -88,13 +88,13 @@ export function PageNavigator({
                   if (move(event.key)) event.preventDefault()
                 }}
               >
-                <span className="w-5 shrink-0 text-right text-[10px] text-muted-foreground tabular-nums">
+                <span className="w-5 shrink-0 text-right text-[11px] text-muted-foreground tabular-nums">
                   {index + 1}
                 </span>
                 <span className="min-w-0 flex-1 truncate text-xs font-medium">
                   {page.name}
                 </span>
-                <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
+                <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
                   {page.width}×{page.height}
                 </span>
               </button>
