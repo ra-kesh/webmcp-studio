@@ -130,6 +130,39 @@ persistence tests, WebMCP crop tests, and renderer conformance structure checks.
 Record exact commands and results in this document. A failing pre-existing or
 environment-dependent check must be named; it must not be silently waived.
 
+Gate 2 was accepted in commit `e851558`. Gate 3 was accepted in commit
+`b52189b`. The final acceptance run used the repository's bundled Node
+v24.19.0 because the shell default, Node 18, does not satisfy the repository's
+Node requirement and cannot load the current Vitest dependency graph.
+
+Acceptance results:
+
+- Studio focused editor suite: 10 files and 46 tests passed with one worker.
+  This covered the two extracted owners, the render invalidation controller,
+  Fabric artboard unit and lifecycle behavior, crop, history settlement,
+  image-heavy responsiveness, WebMCP crop, and Strict Mode persistence.
+- Full mounted persistence suite: 94 tests passed.
+- Full `@webmcp/editor` suite: 22 files and 376 tests passed.
+- Render-view suite: 34 tests passed.
+- Renderer suite: 3 files and 101 tests passed.
+- TypeScript checks passed for Studio, editor, render-view, and renderer.
+- The render conformance structure check passed for 11 canonical nodes, 3
+  Fabric text projections, and 6 synchronous non-image Fabric objects.
+- The Studio production client, SSR, and renderer builds passed. The build
+  emitted only the existing chunk-size advisory.
+- Scoped ESLint passed for every new architecture file and for the changed
+  `fabric-artboard.tsx` file.
+
+Full-file ESLint still reports 24 `no-unnecessary-condition` findings in
+unchanged local-media sections of `use-document-editor.ts` and one finding in
+the unchanged portion of `fabric-artboard.lifecycle.mounted.test.tsx`. Running
+ESLint against those files as stored at base commit `c8aec74` produces the same
+findings. They are baseline debt rather than regressions from this extraction.
+
+The image-heavy mounted scenario remains under its existing five-second test
+budget. No additional animation-frame loop was introduced: Fabric continues to
+coalesce actual paints through `requestRenderAll()`.
+
 ## Merge overlap risk
 
 The highest conflict risk is `use-document-editor.ts`, followed by
@@ -138,4 +171,3 @@ redesign must not modify the extracted controllers. If it also changes the main
 hook return object or artboard props, merge the architecture branch first, then
 reapply visual work against the unchanged public editor methods. No CSS,
 Inspector component, route shell, or design-system file belongs in this branch.
-
