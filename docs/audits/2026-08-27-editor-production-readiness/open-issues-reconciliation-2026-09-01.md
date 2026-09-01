@@ -4,7 +4,7 @@ Date: 2026-09-01
 
 Updated: 2026-09-02
 
-Code baseline: `bf2cefefb9bfa393c37085ce65204e94409c29f3`
+Code baseline: `db515d772c84697556789c9fe3c07f60a059f935`
 
 This checkpoint reconciles the main conversation with the separate redesign,
 mask, rich-text, component, library, image-architecture, generation, independent
@@ -113,7 +113,15 @@ checkpoint and evidence stay auditable.
    mounted add/edit/autosave/reload browser journey. Evidence:
    `advanced-editor-depth-gate-07-advanced-strokes-review-2026-09-01.md`. No
    capability-item 6 / implementation-Gate 7 gap remains.
-7. Layer effects such as shadows and blur.
+7. **Layer effects — completed as phase-map Gate 8 and independently
+   accepted.** Commit `db515d772c84697556789c9fe3c07f60a059f935`
+   adds strict ordered drop-shadow and layer-blur stacks; renderer resource
+   budgets; deterministic bounds; Canvas 2D/Fabric, React, renderer HTML, mask,
+   and responsive-output parity; component preservation; compact Inspector
+   controls; Review summaries; strict WebMCP admission; and a mounted
+   add/edit/reorder/Undo/Redo/autosave/reload browser journey. Evidence:
+   `advanced-editor-depth-gate-08-layer-effects-review-2026-09-01.md`. No
+   capability-item 7 / implementation-Gate 8 gap remains.
 8. Per-layer export settings.
 9. Additional text layout controls: direction, vertical alignment,
    justification, case transformation, and truncation behavior.
