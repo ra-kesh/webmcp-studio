@@ -122,9 +122,13 @@ WebMCP, and migration work. They are not styling-only tasks.
 
 ## Remaining integration and production work
 
-1. Production is behind this local code baseline by 46 commits. It predates the
-   multi-artboard editor and the latest image, quotation-text, architecture,
-   and guide repairs.
+1. Read-only Wrangler inspection on 2026-09-01 confirms the active Studio and
+   Renderer versions were deployed at 06:57 UTC from the rollout represented by
+   `3ea3e56`. Current main is 53 commits ahead of that production checkpoint.
+   Production therefore predates the multi-artboard editor and the latest
+   image, quotation-text, architecture, guide, bound-Inspector, and Fabric
+   candidate-install repairs. No deployment or remote mutation was performed
+   during this inspection.
 2. Owner-authenticated deployed acceptance remains incomplete: hostile and
    rate/concurrency cases, multipart/R2 lifecycle, Workflow restart/recovery,
    renderer parity/performance, second-principal isolation, artifact expiry,
