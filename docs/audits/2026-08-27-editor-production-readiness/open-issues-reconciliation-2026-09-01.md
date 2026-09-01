@@ -4,7 +4,7 @@ Date: 2026-09-01
 
 Updated: 2026-09-02
 
-Code baseline: `c6a0f005b319f05099542384372dc5c2588ccf9a`
+Code baseline: `ccc5879dcc3d0b410dc5292d20ec10a3f832a302`
 
 This checkpoint reconciles the main conversation with the separate redesign,
 mask, rich-text, component, library, image-architecture, generation, independent
@@ -78,7 +78,18 @@ checkpoint and evidence stay auditable.
    gap remains. Pass-through and Porter-Duff operations stay deliberately
    rejected because they do not have a portable flat-layer meaning across the
    accepted renderers.
-4. Independent corner radii and corner smoothing.
+4. **Independent corner radii and corner smoothing — completed as phase-map
+   Gate 5 and independently accepted.** Commit
+   `ccc5879dcc3d0b410dc5292d20ec10a3f832a302` adds a strict linked/four-corner
+   model; byte-compatible legacy-radius projection; bounded deterministic
+   smoothing and edge-budget clamping; shared centered-stroke geometry;
+   rectangle, frame, image, clip, and mask parity across Fabric, React, HTML,
+   PNG, and PDF; component and responsive scaling; compact Inspector controls;
+   Review; and strict WebMCP schemas. Evidence:
+   `advanced-editor-depth-gate-05-independent-corners-review-2026-09-01.md`.
+   No capability-item 4 / implementation-Gate 5 gap remains. The implementation
+   retains the adapted geometry source's MIT notice and adds no runtime
+   dependency.
 5. Multiple fills and strokes on one layer.
 6. Advanced stroke controls: alignment, per-side strokes, dashes, caps, joins,
    and miter behavior.
