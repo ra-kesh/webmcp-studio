@@ -2,7 +2,7 @@
 
 Date: 2026-09-01
 
-Code baseline: `397aa93`
+Code baseline: `a3fed40`
 
 ## 2026-09-01 current-main hardening continuation
 
@@ -36,6 +36,16 @@ Publication completed locally as immutable version 1. PDF export returned to
 the idle editor without a visible product error, but this run did not retain the
 downloaded artifact or a checksum, so renderer/export artifact conformance is
 not being claimed from this browser journey alone.
+
+`a3fed40` extracts the synchronous canvas-runtime admission owner from
+`studio-shell.tsx`. Runtime reports and owner releases update one controller
+snapshot before React scheduling, while the shell consumes its projected
+registry for rendering. A focused regression proves that page and
+document-wide commit predicates captured while ready close in the same tick as
+a syncing report, and that a document identity change invalidates captured
+work. This closes the named same-tick predicate seam and removes duplicated
+snapshot/ref mutation policy from the shell; broader controller decomposition
+still remains.
 
 This checkpoint reconciles the main conversation with the separate redesign,
 mask, rich-text, component, library, image-architecture, generation, independent
@@ -105,10 +115,10 @@ WebMCP, and migration work. They are not styling-only tasks.
    the completed Vercel/OpenPencil gates. Do not reopen the design foundation,
    Inspector geometry, workspace chrome, or completed interaction controls as
    if they were never implemented.
-4. Add the remaining same-tick shell predicate regression while extracting its
-   admission ownership from `studio-shell.tsx`. Cross-realm File/Blob and
-   AbortSignal harness behavior, retired-Fabric disposal coverage, and injected
-   failure at candidate installation are now closed.
+4. Continue controller decomposition in bounded domains. Canvas admission,
+   same-tick predicates, cross-realm File/Blob and AbortSignal harness behavior,
+   retired-Fabric disposal coverage, and injected failure at candidate
+   installation are now closed.
 
 ## Remaining integration and production work
 
