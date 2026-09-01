@@ -229,10 +229,14 @@ export function deriveInspectorMaskCapabilities({
   else if (anyLocked) createReason = MASK_LOCKED_REASON
   else if (inComponentInstance) createReason = MASK_COMPONENT_REASON
   else if (mixedParents)
-    createReason = "Select top-level layers that share the same parent."
-  else if (nestedParentId && nestedParent?.role !== "mask")
-    createReason = "Nested masks can only be created inside a mask group."
-  else if (nestedParent?.role === "mask" && nestedParent.parentGroupId)
+    createReason = "Select layers that share the same parent."
+  else if (
+    nestedParent?.role === "mask" &&
+    nestedParent.parentGroupId &&
+    document.groups.find(
+      (candidate) => candidate.id === nestedParent.parentGroupId
+    )?.role === "mask"
+  )
     createReason = "A mask can contain only one nested mask level."
   else if (
     nestedParent?.role === "mask" &&
@@ -286,8 +290,7 @@ export function deriveInspectorMaskCapabilities({
       }),
       groups: [
         ...document.groups.map((candidateGroup) =>
-          candidateGroup.id === nestedParent?.id &&
-          candidateGroup.role === "mask"
+          candidateGroup.id === nestedParent?.id
             ? {
                 ...candidateGroup,
                 nodeIds: candidateGroup.nodeIds.filter(
@@ -302,9 +305,7 @@ export function deriveInspectorMaskCapabilities({
           name: "Mask admission preflight",
           role: "mask",
           nodeIds: orderedSelectedNodeIds,
-          ...(nestedParent?.role === "mask"
-            ? { parentGroupId: nestedParent.id }
-            : {}),
+          ...(nestedParent ? { parentGroupId: nestedParent.id } : {}),
           mask: { type: "vector", sourceNodeIds: [createSourceNodeIds[0]!] },
         },
       ],
@@ -420,7 +421,7 @@ export function deriveInspectorMaskCapabilities({
 
   return {
     groupId: maskGroup?.id ?? null,
-    createParentGroupId: nestedParent?.role === "mask" ? nestedParent.id : null,
+    createParentGroupId: nestedParent?.id ?? null,
     type: maskGroup?.mask.type ?? null,
     sourceNodeIds: maskGroup ? [...maskGroup.mask.sourceNodeIds] : [],
     eligibleSourceNodeIds,

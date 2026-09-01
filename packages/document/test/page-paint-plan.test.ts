@@ -97,6 +97,45 @@ describe("shared page paint plan mask oracle", () => {
     })
   })
 
+  it("projects a mask nested directly inside an organize group as a paint root", () => {
+    const document = {
+      pages: [page],
+      nodes,
+      groups: [
+        {
+          id: "organize-parent",
+          role: "organize",
+          pageId: page.id,
+          name: "Organize parent",
+          nodeIds: ["below", "above"],
+        },
+        {
+          id: relation.groupId,
+          role: "mask",
+          parentGroupId: "organize-parent",
+          pageId: page.id,
+          name: "Organized mask",
+          nodeIds: relation.nodeIds,
+          mask: { type: "vector", sourceNodeIds: relation.sourceNodeIds },
+        },
+      ],
+    } as unknown as Document
+
+    expect(projectPagePaintPlan(document, page.id)).toMatchObject({
+      pageId: page.id,
+      entries: [
+        { kind: "node", nodeId: "below" },
+        {
+          kind: "mask_group",
+          groupId: relation.groupId,
+          sourceNodeIds: ["source"],
+          content: [{ kind: "node", nodeId: "content" }],
+        },
+        { kind: "node", nodeId: "above" },
+      ],
+    })
+  })
+
   it("projects canonical luminance masks through the shared paint plan", () => {
     const document = {
       pages: [page],

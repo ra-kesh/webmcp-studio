@@ -645,13 +645,19 @@ export function validateDocument(document: Document): ValidationIssue[] {
       const parent = group.parentGroupId
         ? groups.get(group.parentGroupId)
         : undefined
-      const grandparent = parent?.parentGroupId
-        ? groups.get(parent.parentGroupId)
-        : undefined
+      let maskAncestorCount = 0
+      let ancestor = parent
+      const visitedMaskAncestors = new Set<string>()
+      while (ancestor && !visitedMaskAncestors.has(ancestor.id)) {
+        visitedMaskAncestors.add(ancestor.id)
+        if (ancestor.role === "mask") maskAncestorCount += 1
+        ancestor = ancestor.parentGroupId
+          ? groups.get(ancestor.parentGroupId)
+          : undefined
+      }
       if (
-        (group.parentGroupId && parent?.role !== "mask") ||
         childGroups.some((child) => child.role !== "mask") ||
-        grandparent
+        maskAncestorCount + 1 > initialMaskPaintAdmission.maxNestingDepth
       ) {
         maskIssue(
           "nesting",

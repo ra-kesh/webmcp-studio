@@ -397,6 +397,32 @@ Layers, review, Fabric, React, deterministic HTML, thumbnails, public PNG/PDF,
 and WebMCP. M4C is closed. The explicit depth, source-count, geometry, paint
 budget, component, and organize-wrapper non-goals remain in force.
 
+### Post-M4C usability correction — 2 September 2026
+
+Real template content exposed an overly broad interpretation of the organize-
+wrapper non-goal: Studio rejected `Use as mask` whenever the selected sibling
+layers belonged to an ordinary Layers folder. Since generated templates place
+most editable layers inside organize groups, the accepted mask engine was not
+reachable in normal editing.
+
+The corrected boundary admits a mask group as a direct child of an organize
+group. The organize parent remains structural and contributes no paint or
+composite level; the contained mask is projected as a paint root. Creating the
+mask atomically removes the selected direct nodes from the organize parent's
+`nodeIds`, retains their canonical page order, and assigns the new mask's
+`parentGroupId` to that folder. Releasing the mask restores its direct nodes to
+the organize parent in page order. A mask may still contain only mask children,
+so organize wrappers inside a mask chain remain rejected and the existing
+two-mask-depth limit does not change.
+
+The correction is implemented at the canonical document command, validation,
+paint-plan, and Inspector-capability boundaries. Focused document and editor
+tests cover create, release, preflight, and paint projection. Full editor,
+React render-view, renderer, and WebMCP suites remain green, all affected
+typechecks pass, and a retained Chrome interaction proves `Cover layout` can
+now contain a vector mask whose content is `Sandstone arches` and whose source
+is `Cover accent`.
+
 ## Required focused tests
 
 - Projection: parent/child type combinations, sibling child masks, canonical

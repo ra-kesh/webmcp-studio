@@ -503,6 +503,51 @@ describe("mask command capabilities", () => {
     )
   })
 
+  it("admits a mask inside an ordinary organize group", () => {
+    const document = structuredClone(northstarSeed)
+    document.groups = [
+      {
+        id: "cover-folder",
+        pageId: "cover",
+        name: "Cover folder",
+        role: "organize",
+        nodeIds: ["cover-panel", "cover-title"],
+      },
+    ]
+
+    const capabilities = deriveInspectorMaskCapabilities({
+      document,
+      pageId: "cover",
+      selectedNodeIds: ["cover-title", "cover-panel"],
+    })
+
+    expect(capabilities.create).toEqual({ enabled: true, disabledReason: null })
+    expect(capabilities.createParentGroupId).toBe("cover-folder")
+
+    const created = applyCommand(document, {
+      id: "inspector-organized-create",
+      type: "create_mask_group",
+      actor: "human",
+      at: "2026-09-02T00:00:00.000Z",
+      expectedRevision: document.revision,
+      pageId: "cover",
+      groupId: "organized-mask",
+      parentGroupId: capabilities.createParentGroupId!,
+      name: "Organized mask",
+      nodeIds: ["cover-title", "cover-panel"],
+      sourceNodeIds: ["cover-panel"],
+      maskType: "vector",
+    })
+
+    expect(created.groups).toEqual([
+      expect.objectContaining({ id: "cover-folder", nodeIds: [] }),
+      expect.objectContaining({
+        id: "organized-mask",
+        parentGroupId: "cover-folder",
+      }),
+    ])
+  })
+
   it("admits one exact child mask and keeps nested mutation surfaces enabled", () => {
     const document = structuredClone(northstarSeed)
     const page = document.pages.find((candidate) => candidate.id === "cover")!
@@ -680,7 +725,7 @@ describe("mask command capabilities", () => {
     )
   })
 
-  it("rejects stroked, bound, organize-parent, and component-owned source structure truthfully", () => {
+  it("rejects stroked and bound source structure truthfully", () => {
     const stroked = structuredClone(northstarSeed)
     stroked.groups = []
     const panel = stroked.nodes.find((node) => node.id === "cover-panel")
@@ -709,24 +754,6 @@ describe("mask command capabilities", () => {
         selectedNodeIds: ["cover-panel", "cover-title"],
       }).create.disabledReason
     ).toBe("A field-bound layer cannot be a mask source. Unbind it first.")
-
-    const nested = structuredClone(northstarSeed)
-    nested.groups = [
-      {
-        id: "nested-parent",
-        pageId: "cover",
-        name: "Nested",
-        role: "organize",
-        nodeIds: ["cover-panel", "cover-title"],
-      },
-    ]
-    expect(
-      deriveInspectorMaskCapabilities({
-        document: nested,
-        pageId: "cover",
-        selectedNodeIds: ["cover-panel", "cover-title"],
-      }).create.disabledReason
-    ).toBe("Nested masks can only be created inside a mask group.")
   })
 
   it("rejects mixed parents and both kinds of component ownership", () => {
@@ -746,7 +773,7 @@ describe("mask command capabilities", () => {
         pageId: "cover",
         selectedNodeIds: ["cover-panel", "cover-title"],
       }).create.disabledReason
-    ).toBe("Select top-level layers that share the same parent.")
+    ).toBe("Select layers that share the same parent.")
 
     const componentSource = structuredClone(northstarSeed)
     componentSource.groups = [

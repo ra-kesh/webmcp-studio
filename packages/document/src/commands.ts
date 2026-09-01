@@ -2437,19 +2437,20 @@ function applyParsedCommand(
         : undefined
       if (
         command.parentGroupId &&
-        (!requestedParent ||
-          requestedParent.pageId !== page.id ||
-          requestedParent.role !== "mask")
+        (!requestedParent || requestedParent.pageId !== page.id)
       ) {
         throw new MaskCommandError(
           "MASK_COMMAND_PARENT_MISMATCH",
-          `Mask parent ${command.parentGroupId} is not a mask on page ${page.id}`,
+          `Mask parent ${command.parentGroupId} is not a group on page ${page.id}`,
           maskCommandContext(command, command.nodeIds)
         )
       }
       const maskParent =
         requestedParent?.role === "mask" ? requestedParent : undefined
-      if (maskParent?.parentGroupId) {
+      const maskGrandparent = maskParent?.parentGroupId
+        ? document.groups.find((group) => group.id === maskParent.parentGroupId)
+        : undefined
+      if (maskParent && maskGrandparent?.role === "mask") {
         throw new MaskCommandError(
           "MASK_COMMAND_NESTING_UNSUPPORTED",
           `Mask group ${maskParent.id} is already at the maximum nesting depth`,
@@ -2459,7 +2460,7 @@ function applyParsedCommand(
       assertMaskComponentStructure(
         document,
         command,
-        maskParent ? [maskParent.id] : [],
+        requestedParent ? [requestedParent.id] : [],
         command.nodeIds
       )
       const directParents = command.nodeIds.map(
@@ -2541,7 +2542,7 @@ function applyParsedCommand(
             ),
         groups: [
           ...document.groups.map((group) =>
-            group.id === maskParent?.id && group.role === "mask"
+            group.id === requestedParent?.id
               ? {
                   ...group,
                   nodeIds: group.nodeIds.filter(
@@ -2555,7 +2556,7 @@ function applyParsedCommand(
             pageId: command.pageId,
             name: command.name,
             nodeIds: canonicalNodeIds,
-            ...(maskParent ? { parentGroupId: maskParent.id } : {}),
+            ...(requestedParent ? { parentGroupId: requestedParent.id } : {}),
             role: "mask",
             mask: {
               type: admittedMaskType,

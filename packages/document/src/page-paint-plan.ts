@@ -350,16 +350,18 @@ const projectNestedCanonicalPagePaintPlan = (
   for (const group of maskGroups) {
     if (group.parentGroupId) {
       const parent = allGroupsById.get(group.parentGroupId)
-      if (!parent || parent.role !== "mask" || parent.pageId !== page.id) {
+      if (!parent || parent.pageId !== page.id) {
         throw new PagePaintPlanError(
           "MASK_GROUP_NESTING_UNSUPPORTED",
-          `Mask group ${group.id} must be a direct child of a mask on its page`,
+          `Mask group ${group.id} must belong to a group on its page`,
           { groupId: group.id }
         )
       }
-      const children = childrenByParent.get(parent.id)
-      if (children) children.push(group)
-      else childrenByParent.set(parent.id, [group])
+      if (parent.role === "mask") {
+        const children = childrenByParent.get(parent.id)
+        if (children) children.push(group)
+        else childrenByParent.set(parent.id, [group])
+      }
     }
   }
   for (const group of document.groups) {
@@ -565,7 +567,11 @@ const projectNestedCanonicalPagePaintPlan = (
   }
 
   const roots = maskGroups
-    .filter((group) => !group.parentGroupId)
+    .filter(
+      (group) =>
+        !group.parentGroupId ||
+        allGroupsById.get(group.parentGroupId)?.role !== "mask"
+    )
     .map((group) => projectGroup(group.id, 1))
   if (resolved.size !== maskGroups.length) {
     const unresolved = maskGroups.find((group) => !resolved.has(group.id))!

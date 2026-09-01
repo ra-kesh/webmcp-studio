@@ -214,6 +214,73 @@ describe("canonical document commands", () => {
     )
   })
 
+  it("creates and releases a mask inside an organize group", () => {
+    const before = createMaskCommandFixture()
+    before.groups = [
+      {
+        id: "content-folder",
+        pageId: "mask-conformance-page",
+        name: "Content folder",
+        role: "organize",
+        nodeIds: [
+          "mask-conformance-source",
+          "mask-conformance-content",
+          "mask-conformance-below",
+          "mask-conformance-above",
+        ],
+      },
+    ]
+    const command = {
+      ...createMaskCommand(),
+      parentGroupId: "content-folder",
+    }
+
+    const created = applyCommand(before, command)
+
+    expect(created.pages[0]?.nodeIds).toEqual([
+      "mask-conformance-source",
+      "mask-conformance-content",
+      "mask-conformance-below",
+      "mask-conformance-above",
+    ])
+    expect(created.groups).toEqual([
+      {
+        ...before.groups[0],
+        nodeIds: ["mask-conformance-source", "mask-conformance-content"],
+      },
+      {
+        id: "created-mask",
+        pageId: "mask-conformance-page",
+        parentGroupId: "content-folder",
+        name: "Created mask",
+        nodeIds: ["mask-conformance-below", "mask-conformance-above"],
+        role: "mask",
+        mask: {
+          type: "vector",
+          sourceNodeIds: ["mask-conformance-below"],
+        },
+      },
+    ])
+    expect(validateDocument(created)).toEqual([])
+
+    const released = applyCommand(created, {
+      id: "release-organized-mask",
+      type: "release_mask_group",
+      actor: "human",
+      at: "2026-09-02T00:00:00.000Z",
+      expectedRevision: created.revision,
+      pageId: "mask-conformance-page",
+      groupId: "created-mask",
+    })
+
+    expect(released.groups).toEqual([
+      {
+        ...before.groups[0],
+        nodeIds: created.pages[0]!.nodeIds,
+      },
+    ])
+  })
+
   it("creates and dissolves one nested mask as atomic replay-protected transactions", () => {
     const outer = createNestedMaskFixture()
     const command = createNestedMaskCommand(outer.revision)
