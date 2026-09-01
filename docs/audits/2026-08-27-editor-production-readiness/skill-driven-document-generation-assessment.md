@@ -1,7 +1,7 @@
 # Skill-driven document generation assessment
 
-Date: 31 August 2026
-Status: implemented and locally verified on an isolated branch; committed, not independently accepted, and not merged
+Date: 31 August 2026; integration reconciled 1 September 2026
+Status: accepted, merged, and reverified on `main` at `3226585`
 Roadmap item: `GEN-01`
 
 ## Decision
@@ -693,14 +693,15 @@ JSX remains an authoring convenience, not a second product model or a reason to
 execute third-party code inside Studio. The stricter transaction rule remains:
 compile and validate the whole plan first, then create one candidate.
 
-## GEN-01 implementation checkpoint, 31 August 2026
+## Historical GEN-01 implementation checkpoint, 31 August 2026
 
-Implementation is complete on branch `codex/gen-01-document-generation` in the
-isolated worktree `webmcp-studio-worktrees/gen-01`. The branch starts at exact
-`main` commit `6265561ab4c9aa70c7489c2a90b3dcac6c1179d3`. It has not been merged
-to `main`.
+This checkpoint records the pre-integration branch state. It is superseded by
+the 1 September integration reconciliation below. Implementation was complete
+on branch `codex/gen-01-document-generation` in the isolated worktree
+`webmcp-studio-worktrees/gen-01`, starting at exact `main` commit
+`6265561ab4c9aa70c7489c2a90b3dcac6c1179d3`.
 
-State is recorded precisely:
+State at that checkpoint was:
 
 - **Implemented:** Gates A through D are present in the branch.
 - **Locally verified:** package typechecks, domain and WebMCP suites, focused
@@ -765,9 +766,8 @@ was therefore run with the installed Node v22.23.2 binary. Non-DOM suites were
 also run directly with Bun 1.2.5. This is a verification-environment constraint,
 not a product fallback.
 
-### Integration risks still open
+### First-slice limits and follow-up risks
 
-- Independent review and merge reconciliation have not happened.
 - The generated candidate itself is held in mounted editor memory until the
   human decides; browser reload before approval discards it by design.
 - The first slice does not provide a WebMCP screenshot-inspection tool for a
@@ -794,8 +794,45 @@ source-free contract for image-substitution targets.
 The Node 22 failure in the existing durable blank/template/import/sample
 journey reproduces on current `main`; review classified it as a pre-existing
 failure rather than a GEN-01 regression. GEN-01 does not change that journey.
-The independent-review hold remains open until this public-contract correction
-is re-reviewed.
+The correction was independently re-reviewed with no open P0 or P1 finding and
+merged to `main` as patch-equivalent commit `d632017`.
+
+### Integration reconciliation, 1 September 2026
+
+Gate 2 reverified the reviewed range
+`fb48fc1..a040c676e514f19396243b44babf257b4f825b1d` against current `main` at
+`3226585`. `git cherry main a040c67` marks every reviewed commit with `-`.
+Stable patch IDs map the reviewed commits to these integrated commits:
+
+| Reviewed  | Integrated equivalent |
+| --------- | --------------------- |
+| `fb48fc1` | `6bf4837`             |
+| `a580413` | `bb83291`             |
+| `1deca78` | `1da8e92`             |
+| `9053927` | `eaa4147`             |
+| `0f16f8a` | `d1ae7ef`             |
+| `13cbc17` | `e1e7f32`             |
+| `de1d271` | `4a16ac4`             |
+| `a040c67` | `d632017`             |
+
+A catalog-wide projection probe read all 21 built-in templates and confirmed
+that all 1,136 template nodes appear in `editableNodes`. Every item contains
+only `id`, `pageId`, `name`, `type`, `allowedChanges`, and `fieldBindings`.
+The registered-tool fixture derives exact template identity, public field keys,
+page target, text target, and visibility target from discovery before it calls
+`propose_document_generation`. The image fixture retains the source-free
+substitution projection.
+
+Focused verification passed under Node 22.23.2: WebMCP discovery and
+registration 48/48, document plan and generation 6/6, and Studio Review and
+durable-creation tests 25/25. Document, WebMCP, and Studio typechecks passed.
+Scoped formatting and `git diff --check` passed. The default Node 18 Vitest
+startup failure reproduced the already recorded `node:util.styleText` host
+constraint; the same tests passed with the retained Node 22 runtime.
+
+Independent code review found no remaining P0 or P1 gap. GEN-01 is accepted and
+merged. The first-slice limits above remain product constraints, not integration
+holds.
 
 ## Final assessment
 
