@@ -2125,8 +2125,8 @@ export function StudioShell({
     })
   }, [activePage.id])
 
-  const finishOpenedSession = useCallback(async () => {
-    const openedDocumentId = editor.getActiveDocumentId()
+  const finishOpenedSession = useCallback(async (documentId?: string) => {
+    const openedDocumentId = documentId ?? editor.getActiveDocumentId()
     if (!onSessionOpened || !openedDocumentId) {
       focusWorkspace()
       return
@@ -2143,6 +2143,36 @@ export function StudioShell({
       )
     }
   }, [editor.getActiveDocumentId, focusWorkspace, onSessionOpened])
+
+  const generatedDocumentRouteHandoffRef = useRef<string | null>(null)
+  const createGeneratedDocumentAndOpen = useCallback(async () => {
+    const generatedDocumentId = editor.pendingGeneratedDocument?.candidate.id
+    if (!generatedDocumentId) return false
+    generatedDocumentRouteHandoffRef.current = generatedDocumentId
+    const created = await editor.createGeneratedDocument()
+    if (!created) {
+      if (generatedDocumentRouteHandoffRef.current === generatedDocumentId) {
+        generatedDocumentRouteHandoffRef.current = null
+      }
+      return false
+    }
+    return true
+  }, [
+    editor.createGeneratedDocument,
+    editor.pendingGeneratedDocument,
+  ])
+
+  useEffect(() => {
+    const generatedDocumentId = generatedDocumentRouteHandoffRef.current
+    if (
+      !generatedDocumentId ||
+      editor.sessionMode !== "workspace" ||
+      editor.document.id !== generatedDocumentId
+    )
+      return
+    generatedDocumentRouteHandoffRef.current = null
+    void finishOpenedSession(generatedDocumentId)
+  }, [editor.document.id, editor.sessionMode, finishOpenedSession])
 
   const reloadSavedDocument = useCallback(async () => {
     if (editor.imageCropSession || editor.pendingChangeSet) {
@@ -5847,7 +5877,7 @@ export function StudioShell({
                   onDecideAllChangeOperations={editor.decideAllOperations}
                   onApplyChangeSet={editor.applyChangeSet}
                   onDiscardChangeSet={editor.discardChangeSet}
-                  onCreateGeneratedDocument={editor.createGeneratedDocument}
+                  onCreateGeneratedDocument={createGeneratedDocumentAndOpen}
                   onDiscardGeneratedDocument={editor.discardGeneratedDocument}
                   onFocusReviewTarget={focusReviewTarget}
                   onAlignSelection={guardSelectionCanvasMutation(
@@ -6207,7 +6237,7 @@ export function StudioShell({
                 onDecideAllChangeOperations={editor.decideAllOperations}
                 onApplyChangeSet={editor.applyChangeSet}
                 onDiscardChangeSet={editor.discardChangeSet}
-                onCreateGeneratedDocument={editor.createGeneratedDocument}
+                onCreateGeneratedDocument={createGeneratedDocumentAndOpen}
                 onDiscardGeneratedDocument={editor.discardGeneratedDocument}
                 onFocusReviewTarget={focusReviewTarget}
                 onAlignSelection={guardSelectionCanvasMutation(

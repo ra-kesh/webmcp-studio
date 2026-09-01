@@ -25,4 +25,28 @@ describe("Studio shell multi-document session cutover", () => {
       "cloneTemplateDocument(quotationStarter.document)"
     )
   })
+
+  it("hands an approved generated document to the route owner", () => {
+    expect(shellSource).toContain(
+      "const createGeneratedDocumentAndOpen = useCallback(async () =>"
+    )
+    expect(shellSource).toContain(
+      "const created = await editor.createGeneratedDocument()"
+    )
+    expect(shellSource).toContain(
+      "const generatedDocumentId = editor.pendingGeneratedDocument?.candidate.id"
+    )
+    expect(shellSource).toContain(
+      "generatedDocumentRouteHandoffRef.current = generatedDocumentId"
+    )
+    expect(shellSource).toContain(
+      "void finishOpenedSession(generatedDocumentId)"
+    )
+    expect(shellSource).toContain(
+      "onCreateGeneratedDocument={createGeneratedDocumentAndOpen}"
+    )
+    expect(shellSource).not.toContain(
+      "onCreateGeneratedDocument={editor.createGeneratedDocument}"
+    )
+  })
 })
