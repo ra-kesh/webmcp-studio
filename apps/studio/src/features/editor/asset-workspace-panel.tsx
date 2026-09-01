@@ -27,7 +27,6 @@ export type AssetWorkspacePanelProps = Readonly<{
 
 export function AssetWorkspacePanel({
   mediaBrowserVisible,
-  mediaScope,
   mediaPendingIdentity,
   mediaActionError,
   mediaActionsEnabled,
@@ -42,7 +41,8 @@ export function AssetWorkspacePanel({
       <LibraryMediaBrowser
         visible={mediaBrowserVisible}
         density="compact"
-        scope={mediaScope}
+        simpleLibrary
+        scope={{ kind: "library" }}
         action="insert"
         actionsEnabled={mediaActionsEnabled}
         pendingIdentity={mediaPendingIdentity}

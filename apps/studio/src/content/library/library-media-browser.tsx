@@ -94,6 +94,7 @@ export type LibraryMediaIntent = Readonly<{
 export type LibraryMediaBrowserProps = Readonly<{
   visible?: boolean
   density?: "comfortable" | "compact"
+  simpleLibrary?: boolean
   scope: LibraryMediaScope
   action: "insert" | "replace" | "assign_field"
   targetName?: string
@@ -901,7 +902,12 @@ function StatusNotice({
 
 export function LibraryMediaBrowser(props: LibraryMediaBrowserProps) {
   const visible = props.visible ?? true
-  return visible ? <LibraryMediaBrowserPrepared {...props} visible /> : null
+  const preparedProps: LibraryMediaBrowserProps = props.simpleLibrary
+    ? { ...props, scope: { kind: "library" } }
+    : props
+  return visible ? (
+    <LibraryMediaBrowserPrepared {...preparedProps} visible />
+  ) : null
 }
 
 function LibraryMediaBrowserPrepared({
@@ -950,6 +956,7 @@ function LibraryMediaBrowserPrepared({
 
 function LibraryMediaBrowserContent({
   density = "compact",
+  simpleLibrary = false,
   scope,
   action,
   targetName,
@@ -1438,32 +1445,41 @@ function LibraryMediaBrowserContent({
       data-library-media-browser="true"
       data-media-scope={scopeValue(scope)}
     >
-      <Tabs
-        className="shrink-0 gap-0 border-b"
-        value={scopeValue(scope)}
-        onValueChange={(value) => {
-          const next = tabScopes.find((tab) => tab.value === value)
-          if (next) onScopeChange(next.scope)
-        }}
-      >
-        <TabsList
-          className="w-full justify-start gap-0 p-0 group-data-horizontal/tabs:h-12"
-          variant="line"
+      {!simpleLibrary ? (
+        <Tabs
+          className="shrink-0 gap-0 border-b"
+          value={scopeValue(scope)}
+          onValueChange={(value) => {
+            const next = tabScopes.find((tab) => tab.value === value)
+            if (next) onScopeChange(next.scope)
+          }}
         >
-          {tabScopes.map((tab) => (
-            <TabsTrigger
-              className="h-full min-w-0 flex-1 rounded-none px-1.5 text-xs after:bottom-[-1px]"
-              key={tab.value}
-              value={tab.value}
-            >
-              {tab.label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
+          <TabsList
+            className="w-full justify-start gap-0 p-0 group-data-horizontal/tabs:h-12"
+            variant="line"
+          >
+            {tabScopes.map((tab) => (
+              <TabsTrigger
+                className="h-full min-w-0 flex-1 rounded-none px-1.5 text-xs after:bottom-[-1px]"
+                key={tab.value}
+                value={tab.value}
+              >
+                {tab.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+      ) : null}
 
-      <div className="flex shrink-0 items-center gap-2 border-b p-3">
-        <InputGroup className="h-12 min-w-0 flex-1">
+      <div
+        className={cn(
+          "flex shrink-0 items-center gap-2 border-b",
+          simpleLibrary ? "p-2" : "p-3"
+        )}
+      >
+        <InputGroup
+          className={cn("min-w-0 flex-1", simpleLibrary ? "h-8" : "h-12")}
+        >
           <InputGroupAddon>
             <Search aria-hidden="true" />
           </InputGroupAddon>
@@ -1498,45 +1514,47 @@ function LibraryMediaBrowserContent({
             }}
           />
         </InputGroup>
-        <Sheet>
-          <SheetTrigger asChild>
-            <Button
-              aria-label="Filter media"
-              className="size-12 shrink-0"
-              size="icon"
-              type="button"
-              variant="outline"
-            >
-              <Filter aria-hidden="true" />
-            </Button>
-          </SheetTrigger>
-          <SheetContent
-            className="w-full max-w-full gap-0 overflow-hidden sm:max-w-sm"
-            showCloseButton={false}
-            side="right"
-          >
-            <SheetHeader className="shrink-0 border-b pr-14">
-              <SheetTitle>Media filters</SheetTitle>
-              <SheetDescription>
-                Narrow this source without changing the current document.
-              </SheetDescription>
-            </SheetHeader>
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pt-4">
-              <ScopeFilters />
-            </div>
-            <SheetClose asChild>
+        {!simpleLibrary ? (
+          <Sheet>
+            <SheetTrigger asChild>
               <Button
-                aria-label="Close media filters"
-                className="absolute top-2 right-2 size-11"
+                aria-label="Filter media"
+                className="size-12 shrink-0"
                 size="icon"
                 type="button"
-                variant="ghost"
+                variant="outline"
               >
-                <X aria-hidden="true" />
+                <Filter aria-hidden="true" />
               </Button>
-            </SheetClose>
-          </SheetContent>
-        </Sheet>
+            </SheetTrigger>
+            <SheetContent
+              className="w-full max-w-full gap-0 overflow-hidden sm:max-w-sm"
+              showCloseButton={false}
+              side="right"
+            >
+              <SheetHeader className="shrink-0 border-b pr-14">
+                <SheetTitle>Media filters</SheetTitle>
+                <SheetDescription>
+                  Narrow this source without changing the current document.
+                </SheetDescription>
+              </SheetHeader>
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pt-4">
+                <ScopeFilters />
+              </div>
+              <SheetClose asChild>
+                <Button
+                  aria-label="Close media filters"
+                  className="absolute top-2 right-2 size-11"
+                  size="icon"
+                  type="button"
+                  variant="ghost"
+                >
+                  <X aria-hidden="true" />
+                </Button>
+              </SheetClose>
+            </SheetContent>
+          </Sheet>
+        ) : null}
       </div>
 
       <p aria-atomic="true" aria-live="polite" className="sr-only">

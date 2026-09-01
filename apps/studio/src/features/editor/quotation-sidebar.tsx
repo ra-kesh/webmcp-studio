@@ -321,6 +321,7 @@ export function QuotationSidebar({
               density="compact"
               hasQuotationSource={hasQuotationSource}
               pendingAction={pendingTemplateAction}
+              simpleLibrary
               variant="editor"
               visible={templateBrowserVisible}
               onApply={(intent) => void resolveApplyTemplate(intent)}

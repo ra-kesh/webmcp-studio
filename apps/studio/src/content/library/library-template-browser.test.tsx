@@ -336,6 +336,57 @@ describe("LibraryTemplateBrowser", () => {
     ).toContain("size-8")
   })
 
+  it("shows only compact template search and library content in the editor rail", async () => {
+    const initialState = discoveryState()
+    const controller = staticController(
+      discoveryState({
+        entryPoint: "recent",
+        order: "newest",
+        filters: {
+          ...initialState.filters,
+          categoryIds: ["category-stale"],
+        },
+      })
+    )
+
+    await act(async () => {
+      root.render(
+        <DiscoveryTestRoot controller={controller}>
+          <LibraryTemplateBrowser
+            simpleLibrary
+            hasQuotationSource
+            variant="editor"
+            onCreate={vi.fn()}
+          />
+        </DiscoveryTestRoot>
+      )
+    })
+
+    expect(
+      host.querySelector('nav[aria-label="Template collections"]')
+    ).toBeNull()
+    expect(
+      host.querySelector('button[aria-label="Filter templates"]')
+    ).toBeNull()
+    expect(host.querySelector("#library-template-heading-editor")).toBeNull()
+    const search = host
+      .querySelector('input[aria-label="Search design templates"]')
+      ?.closest('[data-slot="input-group"]')
+    expect(search?.className).toContain("h-8")
+    expect(host.querySelectorAll("[data-template-card]")).toHaveLength(
+      catalogTemplates.length
+    )
+    expect(controller.setEntryPoint).toHaveBeenCalledWith("featured")
+    expect(controller.setOrder).toHaveBeenCalledWith("curated")
+    expect(controller.setFilters).toHaveBeenCalledWith(
+      expect.objectContaining({
+        categoryIds: [],
+        collectionId: null,
+        ownerKinds: [],
+      })
+    )
+  })
+
   it("keeps catalog announcements audible after a persistent action error", async () => {
     const firstState = discoveryState({
       announcement: { id: 1, message: "4 results." },

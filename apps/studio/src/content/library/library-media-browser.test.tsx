@@ -227,6 +227,28 @@ describe("LibraryMediaBrowser", () => {
     })
   })
 
+  it("presents the Studio library as search-only when embedded in the editor rail", async () => {
+    const harness = createMediaBrowserHarness()
+    const onScopeChange = vi.fn()
+    await mount(harness, {
+      simpleLibrary: true,
+      scope: { kind: "recent" },
+      onScopeChange,
+    })
+
+    expect(harness.requests[0]).toMatchObject({
+      ownerKinds: ["studio"],
+      recentOnly: false,
+      favoritesOnly: false,
+    })
+    expect(host.querySelector('[role="tablist"]')).toBeNull()
+    expect(host.querySelector('button[aria-label="Filter media"]')).toBeNull()
+    expect(
+      host.querySelector('input[aria-label="Search media"]')
+    ).not.toBeNull()
+    expect(onScopeChange).not.toHaveBeenCalled()
+  })
+
   it("applies every active controlled scope with one atomic query", async () => {
     const harness = createMediaBrowserHarness({
       server: [managedMediaFixture()],

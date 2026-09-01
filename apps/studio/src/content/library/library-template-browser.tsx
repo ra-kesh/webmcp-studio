@@ -100,6 +100,7 @@ export type LibraryTemplateBrowserProps = Readonly<{
   variant: "start" | "editor"
   density?: "comfortable" | "compact"
   visible?: boolean
+  simpleLibrary?: boolean
   hasQuotationSource: boolean
   actionsEnabled?: boolean
   activeTemplate?: Readonly<{ id: string; version: number }> | null
@@ -1112,6 +1113,7 @@ function LibraryTemplateBrowserContent({
   variant,
   density = variant === "editor" ? "compact" : "comfortable",
   visible = true,
+  simpleLibrary = false,
   hasQuotationSource,
   actionsEnabled = true,
   activeTemplate = null,
@@ -1156,6 +1158,37 @@ function LibraryTemplateBrowserContent({
       return
     commands.setFilters({ itemKinds: ["template"] })
   }, [commands, state.filters.itemKinds, visible])
+
+  useEffect(() => {
+    if (!visible || !simpleLibrary) return
+    if (state.entryPoint !== "featured") commands.setEntryPoint("featured")
+    const filters = state.filters
+    if (
+      filters.categoryIds.length > 0 ||
+      filters.useCaseIds.length > 0 ||
+      filters.formatFamilies.length > 0 ||
+      filters.orientations.length > 0 ||
+      filters.ownerKinds.length > 0 ||
+      filters.collectionId !== null
+    ) {
+      commands.setFilters({
+        categoryIds: [],
+        useCaseIds: [],
+        formatFamilies: [],
+        orientations: [],
+        ownerKinds: [],
+        collectionId: null,
+      })
+    }
+    if (state.order !== "curated") commands.setOrder("curated")
+  }, [
+    commands,
+    simpleLibrary,
+    state.entryPoint,
+    state.filters,
+    state.order,
+    visible,
+  ])
 
   const page = state.confirmedPage ?? state.retainedPage
   const discoveredItems = useMemo(
@@ -1451,7 +1484,10 @@ function LibraryTemplateBrowserContent({
   return (
     <section
       aria-busy={updating || initialLoading || undefined}
-      aria-labelledby={`library-template-heading-${variant}`}
+      aria-label={simpleLibrary ? "Template library" : undefined}
+      aria-labelledby={
+        simpleLibrary ? undefined : `library-template-heading-${variant}`
+      }
       className={cn(
         "min-w-0 bg-background",
         variant === "editor" && "flex h-full min-h-0 flex-col",
@@ -1465,91 +1501,101 @@ function LibraryTemplateBrowserContent({
     >
       <div
         className={cn(
-          "grid gap-3",
-          variant === "start" ? "mb-4" : "shrink-0 border-b p-3"
+          "grid",
+          variant === "start"
+            ? "mb-4 gap-3"
+            : simpleLibrary
+              ? "shrink-0 border-b p-2"
+              : "shrink-0 gap-3 border-b p-3"
         )}
       >
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            {variant === "start" ? (
-              <p className="text-xs font-medium text-muted-foreground">
-                Use a complete visual system
-              </p>
+        {!simpleLibrary ? (
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              {variant === "start" ? (
+                <p className="text-xs font-medium text-muted-foreground">
+                  Use a complete visual system
+                </p>
+              ) : null}
+              <h2
+                className={cn(
+                  "font-semibold tracking-[-0.02em]",
+                  variant === "start" ? "mt-1 text-lg" : "text-sm"
+                )}
+                id={`library-template-heading-${variant}`}
+              >
+                {variant === "start" ? "Start from a template" : "Templates"}
+              </h2>
+            </div>
+            {page ? (
+              <Badge aria-label={`${page.total} templates`} variant="outline">
+                {page.total}
+              </Badge>
             ) : null}
-            <h2
-              className={cn(
-                "font-semibold tracking-[-0.02em]",
-                variant === "start" ? "mt-1 text-lg" : "text-sm"
-              )}
-              id={`library-template-heading-${variant}`}
-            >
-              {variant === "start" ? "Start from a template" : "Templates"}
-            </h2>
           </div>
-          {page ? (
-            <Badge aria-label={`${page.total} templates`} variant="outline">
-              {page.total}
-            </Badge>
-          ) : null}
-        </div>
+        ) : null}
 
-        <nav
-          aria-label="Template collections"
-          className={cn(
-            "flex gap-1",
-            variant === "editor"
-              ? "items-center overflow-visible"
-              : "overflow-x-auto pb-0.5"
-          )}
-        >
-          {entryPoints.map((entry) => (
-            <button
-              aria-current={state.entryPoint === entry.id ? "page" : undefined}
-              className={cn(
-                "shrink-0 font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-studio-accent/45",
-                variant === "editor"
-                  ? "h-8 rounded-[5px] px-1.5 text-[11px]"
-                  : "min-h-11 rounded-md px-3 text-xs",
-                state.entryPoint === entry.id
-                  ? variant === "editor"
-                    ? "bg-studio-accent/12 text-studio-accent hover:bg-studio-accent/16"
-                    : "bg-foreground text-background"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
-              )}
-              data-library-entry-point={entry.id}
-              key={entry.id}
-              type="button"
-              onClick={() => updateEntryPoint(entry.id)}
-            >
-              {entry.label}
-            </button>
-          ))}
-          {variant === "editor" ? (
-            <button
-              aria-label="Manage template collections"
-              className="grid size-8 shrink-0 place-items-center rounded-[5px] text-muted-foreground transition-colors outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-studio-accent/45"
-              data-library-collections-trigger="true"
-              title="Manage collections"
-              type="button"
-              onClick={() =>
-                openCollections("manage", state.filters.collectionId)
-              }
-            >
-              <Folders aria-hidden="true" className="size-3.5" />
-            </button>
-          ) : (
-            <button
-              className="min-h-11 shrink-0 rounded-md px-3 text-xs font-medium text-muted-foreground transition-colors outline-none hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/45"
-              data-library-collections-trigger="true"
-              type="button"
-              onClick={() =>
-                openCollections("manage", state.filters.collectionId)
-              }
-            >
-              Collections
-            </button>
-          )}
-        </nav>
+        {!simpleLibrary ? (
+          <nav
+            aria-label="Template collections"
+            className={cn(
+              "flex gap-1",
+              variant === "editor"
+                ? "items-center overflow-visible"
+                : "overflow-x-auto pb-0.5"
+            )}
+          >
+            {entryPoints.map((entry) => (
+              <button
+                aria-current={
+                  state.entryPoint === entry.id ? "page" : undefined
+                }
+                className={cn(
+                  "shrink-0 font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-studio-accent/45",
+                  variant === "editor"
+                    ? "h-8 rounded-[5px] px-1.5 text-[11px]"
+                    : "min-h-11 rounded-md px-3 text-xs",
+                  state.entryPoint === entry.id
+                    ? variant === "editor"
+                      ? "bg-studio-accent/12 text-studio-accent hover:bg-studio-accent/16"
+                      : "bg-foreground text-background"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                )}
+                data-library-entry-point={entry.id}
+                key={entry.id}
+                type="button"
+                onClick={() => updateEntryPoint(entry.id)}
+              >
+                {entry.label}
+              </button>
+            ))}
+            {variant === "editor" ? (
+              <button
+                aria-label="Manage template collections"
+                className="grid size-8 shrink-0 place-items-center rounded-[5px] text-muted-foreground transition-colors outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-studio-accent/45"
+                data-library-collections-trigger="true"
+                title="Manage collections"
+                type="button"
+                onClick={() =>
+                  openCollections("manage", state.filters.collectionId)
+                }
+              >
+                <Folders aria-hidden="true" className="size-3.5" />
+              </button>
+            ) : (
+              <button
+                className="min-h-11 shrink-0 rounded-md px-3 text-xs font-medium text-muted-foreground transition-colors outline-none hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/45"
+                data-library-collections-trigger="true"
+                type="button"
+                onClick={() =>
+                  openCollections("manage", state.filters.collectionId)
+                }
+              >
+                Collections
+              </button>
+            )}
+          </nav>
+        ) : null}
 
         <div className="flex items-center gap-2">
           <InputGroup
@@ -1585,7 +1631,7 @@ function LibraryTemplateBrowserContent({
               }}
             />
           </InputGroup>
-          {variant === "editor" ? (
+          {variant === "editor" && !simpleLibrary ? (
             <Sheet>
               <SheetTrigger asChild>
                 <Button

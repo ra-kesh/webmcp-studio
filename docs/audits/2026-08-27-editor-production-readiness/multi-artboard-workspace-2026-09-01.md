@@ -111,10 +111,16 @@ follow as insertion libraries. The rail uses the existing shadcn segmented Tabs
 variant instead of a full-width underline navigation row, keeping all three
 choices inside one compact control with a contained keyboard-focus treatment.
 
-The Assets workspace temporarily exposes only the media browser. Removing the
-Media / Components switch leaves one clear level of media scope navigation
-(`Recent`, `Uploads`, `Library`, and `Favorites`) while component-library
-placement is reconsidered.
+The Assets workspace temporarily exposes only the Studio media library. The
+Media / Components switch, media-scope navigation, and filter sheet are absent
+from the editor rail; one compact search field leads directly into curated
+library results. The full scoped browser remains available to dedicated media
+dialogs.
+
+The Templates workspace follows the same rail contract: it opens the curated
+template library directly with one compact search field. Featured/recent/
+favorites navigation, collection controls, and filter UI remain available in
+the full library surface but are not nested inside the editor rail.
 
 Page rows in the File rail now expose the canonical page command menu through
 right-click and `Shift+F10`. Rename, duplicate, add, reorder and delete use the

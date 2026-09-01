@@ -13,25 +13,22 @@ vi.mock("../../content/library/library-media-browser", () => ({
     visible,
     scope,
     actionsEnabled,
-    onScopeChange,
+    simpleLibrary,
   }: {
     visible: boolean
     scope: LibraryMediaScope
     actionsEnabled: boolean
-    onScopeChange: (scope: LibraryMediaScope) => void
+    simpleLibrary?: boolean
   }) =>
     visible ? (
-      <section aria-label="Shared media browser">
+      <section
+        aria-label="Shared media browser"
+        data-simple-library={simpleLibrary || undefined}
+      >
         <span data-testid="media-scope">{scope.kind}</span>
         <span data-testid="media-actions">
           {actionsEnabled ? "enabled" : "disabled"}
         </span>
-        <button
-          type="button"
-          onClick={() => onScopeChange({ kind: "library" })}
-        >
-          Browse Studio library
-        </button>
       </section>
     ) : null,
 }))
@@ -101,7 +98,7 @@ describe("AssetWorkspacePanel", () => {
     host.remove()
   })
 
-  it("keeps media scope without exposing the deferred Components workspace", async () => {
+  it("shows only the Studio media library without exposing the deferred Components workspace", async () => {
     const onInsert = vi.fn()
     let scope: LibraryMediaScope = { kind: "recent" }
     const onScopeChange = vi.fn((next: LibraryMediaScope) => {
@@ -115,10 +112,11 @@ describe("AssetWorkspacePanel", () => {
 
     await renderView("media")
 
-    expect(document.body.textContent).toContain("recent")
-    await act(async () => buttonNamed("Browse Studio library")?.click())
-    await renderView("media")
     expect(document.body.textContent).toContain("library")
+    expect(
+      document.body.querySelector('[data-simple-library="true"]')
+    ).not.toBeNull()
+    expect(onScopeChange).not.toHaveBeenCalled()
 
     await renderView("components")
     expect(document.body.textContent).toContain("library")
