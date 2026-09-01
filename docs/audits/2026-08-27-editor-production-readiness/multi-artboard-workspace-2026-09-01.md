@@ -1,7 +1,7 @@
 # Multi-artboard workspace integration record
 
-Date: 2026-09-01  
-Branch: `codex/multi-artboard-workspace`  
+Date: 2026-09-01
+Branch: `codex/multi-artboard-workspace`
 Base: `bcb5cf9`
 
 ## Delivered commits
