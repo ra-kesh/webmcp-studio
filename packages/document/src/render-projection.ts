@@ -1,13 +1,16 @@
 import type {
   BlendMode,
   CornerRadii,
+  FillPaint,
   ImageFrameMask,
   ImagePlacement,
   Page,
   SceneNode,
+  StrokePaint,
 } from "./schema"
 import { resolveCornerRadii, roundedRectanglePath } from "./corner-geometry"
 import { projectTextLayout, type TextLayoutProjection } from "./text-layout"
+import { nodeFillPaints, nodeStrokePaints } from "./paint-stack"
 
 export type RenderFrameProjection = {
   id: string
@@ -38,6 +41,29 @@ export type RenderCornerGeometry = Readonly<{
   independent: boolean
 }>
 
+export type RenderFillPaint = Omit<FillPaint, "blendMode"> & {
+  blendMode: BlendMode
+}
+export type RenderStrokePaint = Omit<StrokePaint, "blendMode"> & {
+  blendMode: BlendMode
+}
+
+const projectFillPaints = (
+  node: Parameters<typeof nodeFillPaints>[0]
+): RenderFillPaint[] =>
+  nodeFillPaints(node).map((paint) => ({
+    ...paint,
+    blendMode: paint.blendMode ?? "normal",
+  }))
+
+const projectStrokePaints = (
+  node: Parameters<typeof nodeStrokePaints>[0]
+): RenderStrokePaint[] =>
+  nodeStrokePaints(node).map((paint) => ({
+    ...paint,
+    blendMode: paint.blendMode ?? "normal",
+  }))
+
 export type RenderNodeProjection =
   | ProjectedNode<
       "text",
@@ -61,36 +87,51 @@ export type RenderNodeProjection =
       "rect",
       {
         fill: string
+        fills: RenderFillPaint[]
         radius: number
         corners: RenderCornerGeometry
         stroke?: string
         strokeWidth: number
+        strokes: RenderStrokePaint[]
       }
     >
   | ProjectedNode<
       "frame",
       {
         fill: string
+        fills: RenderFillPaint[]
         radius: number
         corners: RenderCornerGeometry
         stroke?: string
         strokeWidth: number
+        strokes: RenderStrokePaint[]
         clipsContent: boolean
       }
     >
   | ProjectedNode<
       "ellipse",
-      { fill: string; stroke?: string; strokeWidth: number }
+      {
+        fill: string
+        fills: RenderFillPaint[]
+        stroke?: string
+        strokeWidth: number
+        strokes: RenderStrokePaint[]
+      }
     >
-  | ProjectedNode<"line", { stroke: string; strokeWidth: number }>
+  | ProjectedNode<
+      "line",
+      { stroke: string; strokeWidth: number; strokes: RenderStrokePaint[] }
+    >
   | ProjectedNode<
       "icon",
       {
         path: string
         viewBox: string
         fill: string
+        fills: RenderFillPaint[]
         stroke?: string
         strokeWidth: number
+        strokes: RenderStrokePaint[]
       }
     >
   | ProjectedNode<
@@ -183,10 +224,12 @@ export function projectNodeForRender(node: SceneNode): RenderNodeProjection {
         frame,
         content: {
           fill: node.fill,
+          fills: projectFillPaints(node),
           radius: node.radius,
           corners: projectCorners(node),
           stroke: node.stroke,
           strokeWidth: node.strokeWidth,
+          strokes: projectStrokePaints(node),
         },
       }
     case "frame":
@@ -195,10 +238,12 @@ export function projectNodeForRender(node: SceneNode): RenderNodeProjection {
         frame,
         content: {
           fill: node.fill,
+          fills: projectFillPaints(node),
           radius: node.radius,
           corners: projectCorners(node),
           stroke: node.stroke,
           strokeWidth: node.strokeWidth,
+          strokes: projectStrokePaints(node),
           clipsContent: node.clipsContent,
         },
       }
@@ -208,15 +253,21 @@ export function projectNodeForRender(node: SceneNode): RenderNodeProjection {
         frame,
         content: {
           fill: node.fill,
+          fills: projectFillPaints(node),
           stroke: node.stroke,
           strokeWidth: node.strokeWidth,
+          strokes: projectStrokePaints(node),
         },
       }
     case "line":
       return {
         type: node.type,
         frame,
-        content: { stroke: node.stroke, strokeWidth: node.strokeWidth },
+        content: {
+          stroke: node.stroke,
+          strokeWidth: node.strokeWidth,
+          strokes: projectStrokePaints(node),
+        },
       }
     case "icon":
       return {
@@ -226,8 +277,10 @@ export function projectNodeForRender(node: SceneNode): RenderNodeProjection {
           path: node.path,
           viewBox: node.viewBox,
           fill: node.fill,
+          fills: projectFillPaints(node),
           stroke: node.stroke,
           strokeWidth: node.strokeWidth,
+          strokes: projectStrokePaints(node),
         },
       }
     case "image":

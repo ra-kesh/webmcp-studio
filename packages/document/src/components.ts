@@ -11,6 +11,7 @@ import {
 } from "./schema"
 import { scaleFrameLayoutGrid } from "./frame-layout-grids"
 import { scaleCornerRadii } from "./corner-geometry"
+import { scaleStrokePaints } from "./paint-stack"
 
 export type ComponentIntegrityIssue = {
   code:
@@ -330,6 +331,9 @@ function transformComponentNode(
         ? { cornerRadii: scaleCornerRadii(node.cornerRadii, scale) }
         : {}),
       strokeWidth: node.strokeWidth * scale,
+      ...(node.strokes
+        ? { strokes: scaleStrokePaints(node.strokes, scale) }
+        : {}),
       ...(node.type === "frame"
         ? {
             children: node.children.map((child) => ({
@@ -360,6 +364,9 @@ function transformComponentNode(
     return sceneNodeSchema.parse({
       ...transformed,
       strokeWidth: node.strokeWidth * scale,
+      ...(node.strokes
+        ? { strokes: scaleStrokePaints(node.strokes, scale) }
+        : {}),
     })
   }
   return sceneNodeSchema.parse(transformed)
@@ -487,6 +494,14 @@ export function rebaseComponentInstanceOverridesForTransform(
         if (typeof next[property] === "number") {
           next[property] *= scaleRatio
         }
+      }
+      if (Array.isArray(next.strokes)) {
+        next.strokes = next.strokes.map((paint) => {
+          if (!paint || typeof paint !== "object") return paint
+          const value = structuredClone(paint) as Record<string, unknown>
+          if (typeof value.width === "number") value.width *= scaleRatio
+          return value
+        })
       }
       if (
         next.cornerRadii &&

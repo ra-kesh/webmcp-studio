@@ -77,6 +77,7 @@ import type {
   FieldDefinition,
   FieldBindingImpact,
   FieldValue,
+  FillPaint,
   GeneratedDocumentPlan,
   ImageFrameMask,
   ImagePlacement,
@@ -84,6 +85,7 @@ import type {
   PaintStyle,
   PaintStylePatch,
   SceneNode,
+  StrokePaint,
   TextParagraphStylePatch,
   TextRunStylePatch,
   TypographyStyle,
@@ -1247,6 +1249,248 @@ function TextSelectionInspector({
           </button>
         ))}
       </div>
+    </div>
+  )
+}
+
+type InspectorPaintNode = Extract<
+  SceneNode,
+  { type: "rect" | "frame" | "ellipse" | "line" | "icon" }
+>
+
+const nextPaintId = (prefix: "fill" | "stroke", ids: readonly string[]) => {
+  let index = ids.length + 1
+  while (ids.includes(`${prefix}-${index}`)) index += 1
+  return `${prefix}-${index}`
+}
+
+function PaintStackControls({
+  node,
+  onUpdate,
+}: {
+  node: InspectorPaintNode
+  onUpdate: (patch: Partial<SceneNode>) => void
+}) {
+  const fills: FillPaint[] =
+    node.type === "line"
+      ? []
+      : (node.fills ?? [
+          {
+            id: "legacy-fill",
+            color: node.fill,
+            opacity: 1,
+            visible: true,
+          },
+        ])
+  const strokes: StrokePaint[] =
+    node.strokes ??
+    (node.stroke && node.strokeWidth > 0
+      ? [
+          {
+            id: "legacy-stroke",
+            color: node.stroke,
+            width: node.strokeWidth,
+            opacity: 1,
+            visible: true,
+          },
+        ]
+      : [])
+  const updateList = (
+    kind: "fills" | "strokes",
+    paints: FillPaint[] | StrokePaint[]
+  ) => onUpdate({ [kind]: paints } as Partial<SceneNode>)
+  const renderList = (
+    kind: "fills" | "strokes",
+    paints: FillPaint[] | StrokePaint[]
+  ) => (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <FieldLabel>{kind === "fills" ? "Fills" : "Strokes"}</FieldLabel>
+        <Button
+          aria-label={`Add ${kind === "fills" ? "fill" : "stroke"}`}
+          disabled={node.locked || paints.length >= 8}
+          size="icon-xs"
+          variant="ghost"
+          onClick={() => {
+            const id = nextPaintId(
+              kind === "fills" ? "fill" : "stroke",
+              paints.map((paint) => paint.id)
+            )
+            updateList(kind, [
+              ...paints,
+              kind === "fills"
+                ? { id, color: "#d9c9b2", opacity: 1, visible: true }
+                : {
+                    id,
+                    color: "#1e2622",
+                    width: 1,
+                    opacity: 1,
+                    visible: true,
+                  },
+            ])
+          }}
+        >
+          <Plus />
+        </Button>
+      </div>
+      {paints.map((paint, index) => (
+        <div
+          className="rounded-md border border-border/70 bg-muted/25 p-2"
+          data-paint-id={paint.id}
+          key={paint.id}
+        >
+          <div className="flex items-center gap-1">
+            <Checkbox
+              aria-label={`${kind} ${index + 1} visible`}
+              checked={paint.visible}
+              disabled={node.locked}
+              onCheckedChange={(checked) =>
+                updateList(
+                  kind,
+                  paints.map((candidate, candidateIndex) =>
+                    candidateIndex === index
+                      ? { ...candidate, visible: checked === true }
+                      : candidate
+                  ) as FillPaint[] | StrokePaint[]
+                )
+              }
+            />
+            <Input
+              aria-label={`${kind} ${index + 1} color`}
+              className="h-7 min-w-0 flex-1 font-mono text-[11px]"
+              disabled={node.locked}
+              value={paint.color}
+              onChange={(event) =>
+                updateList(
+                  kind,
+                  paints.map((candidate, candidateIndex) =>
+                    candidateIndex === index
+                      ? { ...candidate, color: event.target.value }
+                      : candidate
+                  ) as FillPaint[] | StrokePaint[]
+                )
+              }
+            />
+            <Button
+              aria-label={`Move ${kind} ${index + 1} up`}
+              disabled={node.locked || index === 0}
+              size="icon-xs"
+              variant="ghost"
+              onClick={() => {
+                const next = [...paints]
+                ;[next[index - 1], next[index]] = [
+                  next[index]!,
+                  next[index - 1]!,
+                ]
+                updateList(kind, next as FillPaint[] | StrokePaint[])
+              }}
+            >
+              <ChevronUp />
+            </Button>
+            <Button
+              aria-label={`Move ${kind} ${index + 1} down`}
+              disabled={node.locked || index === paints.length - 1}
+              size="icon-xs"
+              variant="ghost"
+              onClick={() => {
+                const next = [...paints]
+                ;[next[index], next[index + 1]] = [
+                  next[index + 1]!,
+                  next[index]!,
+                ]
+                updateList(kind, next as FillPaint[] | StrokePaint[])
+              }}
+            >
+              <ChevronDown />
+            </Button>
+            <Button
+              aria-label={`Remove ${kind} ${index + 1}`}
+              disabled={node.locked}
+              size="icon-xs"
+              variant="ghost"
+              onClick={() =>
+                updateList(
+                  kind,
+                  paints.filter(
+                    (_, candidateIndex) => candidateIndex !== index
+                  ) as FillPaint[] | StrokePaint[]
+                )
+              }
+            >
+              <Trash2 />
+            </Button>
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <InspectorNumberField
+              label="Opacity"
+              value={inspectorValue(paint.opacity * 100)}
+              min={0}
+              max={100}
+              disabled={node.locked}
+              onCommit={(opacity) =>
+                updateList(
+                  kind,
+                  paints.map((candidate, candidateIndex) =>
+                    candidateIndex === index
+                      ? { ...candidate, opacity: opacity / 100 }
+                      : candidate
+                  ) as FillPaint[] | StrokePaint[]
+                )
+              }
+            />
+            {"width" in paint ? (
+              <InspectorNumberField
+                label="Width"
+                value={inspectorValue(paint.width)}
+                min={0}
+                step={0.1}
+                disabled={node.locked}
+                onCommit={(width) =>
+                  updateList(
+                    kind,
+                    paints.map((candidate, candidateIndex) =>
+                      candidateIndex === index
+                        ? { ...candidate, width }
+                        : candidate
+                    ) as StrokePaint[]
+                  )
+                }
+              />
+            ) : null}
+          </div>
+          <Select
+            value={paint.blendMode ?? "normal"}
+            disabled={node.locked}
+            onValueChange={(blendMode: BlendMode) =>
+              updateList(
+                kind,
+                paints.map((candidate, candidateIndex) =>
+                  candidateIndex === index
+                    ? { ...candidate, blendMode }
+                    : candidate
+                ) as FillPaint[] | StrokePaint[]
+              )
+            }
+          >
+            <SelectTrigger aria-label={`${kind} ${index + 1} blend mode`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {BLEND_MODE_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      ))}
+    </div>
+  )
+  return (
+    <div className="space-y-3">
+      {node.type === "line" ? null : renderList("fills", fills)}
+      {renderList("strokes", strokes)}
     </div>
   )
 }
@@ -2724,14 +2968,7 @@ function NodeInspector({
           )}
         >
           {paintStyleControl}
-          <InspectorColorField
-            label="Fill"
-            value={node.fill}
-            disabled={nodeMutationDisabled}
-            onPreview={(fill) => onPreview({ fill })}
-            onPreviewCancel={onCancelPreview}
-            onCommit={(fill) => onUpdate({ fill })}
-          />
+          <PaintStackControls node={node} onUpdate={onUpdate} />
           <InspectorNumberField
             label="Corner radius"
             value={inspectorValue(node.radius)}
@@ -2820,24 +3057,6 @@ function NodeInspector({
               onUpdate({ cornerSmoothing: cornerSmoothing / 100 })
             }
           />
-          <InspectorColorField
-            label="Stroke"
-            value={node.stroke ?? "#1e2622"}
-            disabled={node.locked}
-            onPreview={(stroke) => onPreview({ stroke })}
-            onPreviewCancel={onCancelPreview}
-            onCommit={(stroke) => onUpdate({ stroke })}
-          />
-          <InspectorNumberField
-            label="Stroke width"
-            value={inspectorValue(node.strokeWidth)}
-            min={0}
-            step={0.1}
-            disabled={node.locked}
-            onPreview={(strokeWidth) => onPreview({ strokeWidth })}
-            onPreviewCancel={onCancelPreview}
-            onCommit={(strokeWidth) => onUpdate({ strokeWidth })}
-          />
         </InspectorSection>
       ) : null}
 
@@ -2854,56 +3073,14 @@ function NodeInspector({
           )}
         >
           {paintStyleControl}
-          <InspectorColorField
-            label="Fill"
-            value={node.fill}
-            disabled={node.locked}
-            onPreview={(fill) => onPreview({ fill })}
-            onPreviewCancel={onCancelPreview}
-            onCommit={(fill) => onUpdate({ fill })}
-          />
-          <InspectorColorField
-            label="Stroke"
-            value={node.stroke ?? "#1e2622"}
-            disabled={node.locked}
-            onPreview={(stroke) => onPreview({ stroke })}
-            onPreviewCancel={onCancelPreview}
-            onCommit={(stroke) => onUpdate({ stroke })}
-          />
-          <InspectorNumberField
-            label="Stroke width"
-            value={inspectorValue(node.strokeWidth)}
-            min={0}
-            step={0.1}
-            disabled={node.locked}
-            onPreview={(strokeWidth) => onPreview({ strokeWidth })}
-            onPreviewCancel={onCancelPreview}
-            onCommit={(strokeWidth) => onUpdate({ strokeWidth })}
-          />
+          <PaintStackControls node={node} onUpdate={onUpdate} />
         </InspectorSection>
       ) : null}
 
       {inspector.capabilities.stroke && node.type === "line" ? (
         <InspectorSection title="Appearance">
           {paintStyleControl}
-          <InspectorColorField
-            label="Stroke"
-            value={node.stroke}
-            disabled={node.locked}
-            onPreview={(stroke) => onPreview({ stroke })}
-            onPreviewCancel={onCancelPreview}
-            onCommit={(stroke) => onUpdate({ stroke })}
-          />
-          <InspectorNumberField
-            label="Stroke width"
-            value={inspectorValue(node.strokeWidth)}
-            min={0.1}
-            step={0.1}
-            disabled={node.locked}
-            onPreview={(strokeWidth) => onPreview({ strokeWidth })}
-            onPreviewCancel={onCancelPreview}
-            onCommit={(strokeWidth) => onUpdate({ strokeWidth })}
-          />
+          <PaintStackControls node={node} onUpdate={onUpdate} />
         </InspectorSection>
       ) : null}
 

@@ -2231,29 +2231,33 @@ const publicNodeCanvasPatchProperties: Record<
   ]),
   rect: new Set([
     "fill",
+    "fills",
     "radius",
     "independentCorners",
     "cornerRadii",
     "cornerSmoothing",
     "stroke",
     "strokeWidth",
+    "strokes",
   ]),
   frame: new Set([
     "fill",
+    "fills",
     "radius",
     "independentCorners",
     "cornerRadii",
     "cornerSmoothing",
     "stroke",
     "strokeWidth",
+    "strokes",
     "children",
     "autoLayout",
     "clipsContent",
     "layoutGrids",
   ]),
-  ellipse: new Set(["fill", "stroke", "strokeWidth"]),
-  line: new Set(["stroke", "strokeWidth"]),
-  icon: new Set(["fill", "stroke", "strokeWidth"]),
+  ellipse: new Set(["fill", "fills", "stroke", "strokeWidth", "strokes"]),
+  line: new Set(["stroke", "strokeWidth", "strokes"]),
+  icon: new Set(["fill", "fills", "stroke", "strokeWidth", "strokes"]),
   image: new Set(["placement", "frameMask", "alt", "decorative"]),
 }
 
@@ -2471,6 +2475,63 @@ const commonCanvasPatchInputProperties = {
   },
 } as const
 
+const paintBlendModeInputSchema = {
+  type: "string",
+  enum: [
+    "normal",
+    "darken",
+    "multiply",
+    "color-burn",
+    "lighten",
+    "screen",
+    "color-dodge",
+    "overlay",
+    "soft-light",
+    "hard-light",
+    "difference",
+    "exclusion",
+    "hue",
+    "saturation",
+    "color",
+    "luminosity",
+  ],
+} as const
+
+const fillPaintsInputSchema = {
+  type: "array",
+  maxItems: 8,
+  items: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      id: { type: "string", minLength: 1 },
+      color: { type: "string", minLength: 1 },
+      opacity: { type: "number", minimum: 0, maximum: 1 },
+      visible: { type: "boolean" },
+      blendMode: paintBlendModeInputSchema,
+    },
+    required: ["id", "color", "opacity", "visible"],
+  },
+} as const
+
+const strokePaintsInputSchema = {
+  type: "array",
+  maxItems: 8,
+  items: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      id: { type: "string", minLength: 1 },
+      color: { type: "string", minLength: 1 },
+      width: { type: "number", minimum: 0 },
+      opacity: { type: "number", minimum: 0, maximum: 1 },
+      visible: { type: "boolean" },
+      blendMode: paintBlendModeInputSchema,
+    },
+    required: ["id", "color", "width", "opacity", "visible"],
+  },
+} as const
+
 const frameChildLayoutInputSchema = {
   type: "object",
   additionalProperties: false,
@@ -2574,32 +2635,38 @@ const typedCanvasEditInputSchema = {
         nodeType: "rect",
         patch: {
           fill: { type: "string" },
+          fills: fillPaintsInputSchema,
           radius: { type: "number", minimum: 0 },
           independentCorners: { type: "boolean" },
           cornerRadii: cornerRadiiInputSchema,
           cornerSmoothing: { type: "number", minimum: 0, maximum: 1 },
           stroke: { type: "string" },
           strokeWidth: { type: "number", minimum: 0 },
+          strokes: strokePaintsInputSchema,
         },
       },
       {
         nodeType: "ellipse",
         patch: {
           fill: { type: "string" },
+          fills: fillPaintsInputSchema,
           stroke: { type: "string" },
           strokeWidth: { type: "number", minimum: 0 },
+          strokes: strokePaintsInputSchema,
         },
       },
       {
         nodeType: "frame",
         patch: {
           fill: { type: "string" },
+          fills: fillPaintsInputSchema,
           radius: { type: "number", minimum: 0 },
           independentCorners: { type: "boolean" },
           cornerRadii: cornerRadiiInputSchema,
           cornerSmoothing: { type: "number", minimum: 0, maximum: 1 },
           stroke: { type: "string" },
           strokeWidth: { type: "number", minimum: 0 },
+          strokes: strokePaintsInputSchema,
           children: { type: "array", items: frameChildLayoutInputSchema },
           autoLayout: frameAutoLayoutInputSchema,
           clipsContent: { type: "boolean" },
@@ -2615,14 +2682,17 @@ const typedCanvasEditInputSchema = {
         patch: {
           stroke: { type: "string" },
           strokeWidth: { type: "number", exclusiveMinimum: 0 },
+          strokes: strokePaintsInputSchema,
         },
       },
       {
         nodeType: "icon",
         patch: {
           fill: { type: "string" },
+          fills: fillPaintsInputSchema,
           stroke: { type: "string" },
           strokeWidth: { type: "number", minimum: 0 },
+          strokes: strokePaintsInputSchema,
         },
       },
     ].map(({ nodeType, patch }) => ({
@@ -3001,12 +3071,14 @@ const componentOverridePatchInputSchema = {
       enum: ["auto_width", "auto_height", "fixed"],
     },
     fill: { type: "string" },
+    fills: fillPaintsInputSchema,
     radius: { type: "number", minimum: 0 },
     independentCorners: { type: "boolean" },
     cornerRadii: cornerRadiiInputSchema,
     cornerSmoothing: { type: "number", minimum: 0, maximum: 1 },
     stroke: { type: "string" },
     strokeWidth: { type: "number", minimum: 0 },
+    strokes: strokePaintsInputSchema,
     placement: imagePlacementInputSchema,
     frameMask: imageFrameMaskInputSchema,
     alt: { type: "string" },

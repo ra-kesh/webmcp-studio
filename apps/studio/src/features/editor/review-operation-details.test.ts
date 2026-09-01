@@ -114,6 +114,39 @@ describe("review operation details", () => {
     expect(details.after).toContain("blendMode: Color Burn")
   })
 
+  it("summarizes ordered paint stacks without dumping implementation JSON", () => {
+    const document = quotationStarter.document
+    const node = document.nodes.find((candidate) => candidate.type === "rect")!
+    const operation: ChangeOperation = {
+      id: "paint-stack-operation",
+      status: "pending",
+      summary: "Layer two fills",
+      command: {
+        id: "paint-stack-command",
+        type: "update_node",
+        actor: "agent",
+        at: "2026-09-02T01:05:00.000Z",
+        nodeId: node.id,
+        patch: {
+          fills: [
+            { id: "base", color: "#111", opacity: 1, visible: false },
+            {
+              id: "accent",
+              color: "#eee",
+              opacity: 0.8,
+              visible: true,
+            },
+          ],
+          strokes: [],
+        },
+      },
+    }
+    const details = operationDetails(document, operation)
+    expect(details.after).toContain("fills: 2 fills · 1 visible")
+    expect(details.after).toContain("strokes: 0 strokes · 0 visible")
+    expect(details.after).not.toContain('"color"')
+  })
+
   it("summarizes independent corner geometry", () => {
     const document = quotationStarter.document
     const node = document.nodes.find((candidate) => candidate.type === "rect")!

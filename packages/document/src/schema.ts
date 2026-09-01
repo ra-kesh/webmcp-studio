@@ -66,6 +66,47 @@ export const cornerRadiiSchema = z
 
 export const cornerSmoothingSchema = z.number().min(0).max(1)
 
+const paintBaseSchema = z
+  .object({
+    id,
+    color: z.string().min(1),
+    opacity: z.number().min(0).max(1).default(1),
+    visible: z.boolean().default(true),
+    blendMode: blendModeSchema.optional(),
+  })
+  .strict()
+
+export const fillPaintSchema = paintBaseSchema
+export const strokePaintSchema = paintBaseSchema.extend({
+  width: z.number().nonnegative(),
+})
+
+const uniquePaints = <T extends { id: string }>(
+  paints: readonly T[],
+  context: z.RefinementCtx
+) => {
+  const ids = new Set<string>()
+  paints.forEach((paint, index) => {
+    if (ids.has(paint.id)) {
+      context.addIssue({
+        code: "custom",
+        path: [index, "id"],
+        message: "Paint IDs must be unique within a stack",
+      })
+    }
+    ids.add(paint.id)
+  })
+}
+
+export const fillPaintsSchema = z
+  .array(fillPaintSchema)
+  .max(8)
+  .superRefine(uniquePaints)
+export const strokePaintsSchema = z
+  .array(strokePaintSchema)
+  .max(8)
+  .superRefine(uniquePaints)
+
 const normalizedCornerRadiiSchema = z
   .object({
     topLeft: z.number().min(0).max(0.5),
@@ -270,31 +311,38 @@ export const sceneNodePatchSchema = z
     baseNodePatchSchema.extend({
       paintStyleId: id.optional(),
       fill: z.string().optional(),
+      fills: fillPaintsSchema.optional(),
       radius: z.number().min(0).optional(),
       independentCorners: z.boolean().optional(),
       cornerRadii: cornerRadiiSchema.optional(),
       cornerSmoothing: cornerSmoothingSchema.optional(),
       stroke: z.string().optional(),
       strokeWidth: z.number().nonnegative().optional(),
+      strokes: strokePaintsSchema.optional(),
     }),
     baseNodePatchSchema.extend({
       paintStyleId: id.optional(),
       fill: z.string().optional(),
+      fills: fillPaintsSchema.optional(),
       stroke: z.string().optional(),
       strokeWidth: z.number().nonnegative().optional(),
+      strokes: strokePaintsSchema.optional(),
     }),
     baseNodePatchSchema.extend({
       paintStyleId: id.optional(),
       stroke: z.string().optional(),
       strokeWidth: z.number().positive().optional(),
+      strokes: strokePaintsSchema.optional(),
     }),
     baseNodePatchSchema.extend({
       paintStyleId: id.optional(),
       path: z.string().min(1).optional(),
       viewBox: z.string().min(1).optional(),
       fill: z.string().optional(),
+      fills: fillPaintsSchema.optional(),
       stroke: z.string().optional(),
       strokeWidth: z.number().nonnegative().optional(),
+      strokes: strokePaintsSchema.optional(),
     }),
     baseNodePatchSchema.extend({
       assetId: id.optional(),
@@ -308,12 +356,14 @@ export const sceneNodePatchSchema = z
     baseNodePatchSchema.extend({
       paintStyleId: id.optional(),
       fill: z.string().optional(),
+      fills: fillPaintsSchema.optional(),
       radius: z.number().min(0).optional(),
       independentCorners: z.boolean().optional(),
       cornerRadii: cornerRadiiSchema.optional(),
       cornerSmoothing: cornerSmoothingSchema.optional(),
       stroke: z.string().optional(),
       strokeWidth: z.number().nonnegative().optional(),
+      strokes: strokePaintsSchema.optional(),
       children: z.array(frameChildLayoutSchema).optional(),
       autoLayout: frameAutoLayoutSchema.nullable().optional(),
       clipsContent: z.boolean().optional(),
@@ -349,25 +399,30 @@ export const sceneNodeSchema = z
       type: z.literal("rect"),
       paintStyleId: id.optional(),
       fill: z.string(),
+      fills: fillPaintsSchema.optional(),
       radius: z.number().min(0).default(0),
       independentCorners: z.boolean().optional(),
       cornerRadii: cornerRadiiSchema.optional(),
       cornerSmoothing: cornerSmoothingSchema.optional(),
       stroke: z.string().optional(),
       strokeWidth: z.number().nonnegative().default(0),
+      strokes: strokePaintsSchema.optional(),
     }),
     baseNodeSchema.extend({
       type: z.literal("ellipse"),
       paintStyleId: id.optional(),
       fill: z.string(),
+      fills: fillPaintsSchema.optional(),
       stroke: z.string().optional(),
       strokeWidth: z.number().nonnegative().default(0),
+      strokes: strokePaintsSchema.optional(),
     }),
     baseNodeSchema.extend({
       type: z.literal("line"),
       paintStyleId: id.optional(),
       stroke: z.string(),
       strokeWidth: z.number().positive().default(2),
+      strokes: strokePaintsSchema.optional(),
     }),
     baseNodeSchema.extend({
       type: z.literal("icon"),
@@ -375,8 +430,10 @@ export const sceneNodeSchema = z
       path: z.string().min(1),
       viewBox: z.string().default("0 0 24 24"),
       fill: z.string(),
+      fills: fillPaintsSchema.optional(),
       stroke: z.string().optional(),
       strokeWidth: z.number().nonnegative().default(0),
+      strokes: strokePaintsSchema.optional(),
     }),
     baseNodeSchema.extend({
       type: z.literal("image"),
@@ -392,12 +449,14 @@ export const sceneNodeSchema = z
       type: z.literal("frame"),
       paintStyleId: id.optional(),
       fill: z.string(),
+      fills: fillPaintsSchema.optional(),
       radius: z.number().min(0).default(0),
       independentCorners: z.boolean().optional(),
       cornerRadii: cornerRadiiSchema.optional(),
       cornerSmoothing: cornerSmoothingSchema.optional(),
       stroke: z.string().optional(),
       strokeWidth: z.number().nonnegative().default(0),
+      strokes: strokePaintsSchema.optional(),
       children: z.array(frameChildLayoutSchema),
       autoLayout: frameAutoLayoutSchema.nullable().default(null),
       clipsContent: z.boolean().default(false),
@@ -1020,12 +1079,14 @@ export const componentOverridePropertySchema = z.enum([
   "align",
   "sizingMode",
   "fill",
+  "fills",
   "radius",
   "independentCorners",
   "cornerRadii",
   "cornerSmoothing",
   "stroke",
   "strokeWidth",
+  "strokes",
   "path",
   "viewBox",
   "assetId",
@@ -1777,6 +1838,8 @@ export type TextSizingMode = z.infer<typeof textSizingModeSchema>
 export type ConstraintAxis = z.infer<typeof constraintAxisSchema>
 export type BlendMode = z.infer<typeof blendModeSchema>
 export type CornerRadii = z.infer<typeof cornerRadiiSchema>
+export type FillPaint = z.infer<typeof fillPaintSchema>
+export type StrokePaint = z.infer<typeof strokePaintSchema>
 export type NodeConstraints = z.infer<typeof nodeConstraintsSchema>
 export type FrameChildLayout = z.infer<typeof frameChildLayoutSchema>
 export type FrameAutoLayout = z.infer<typeof frameAutoLayoutSchema>

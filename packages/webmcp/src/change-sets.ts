@@ -267,29 +267,33 @@ const nodeCanvasProperties: Record<SceneNode["type"], Set<string>> = {
   ]),
   rect: new Set([
     "fill",
+    "fills",
     "radius",
     "independentCorners",
     "cornerRadii",
     "cornerSmoothing",
     "stroke",
     "strokeWidth",
+    "strokes",
   ]),
   frame: new Set([
     "fill",
+    "fills",
     "radius",
     "independentCorners",
     "cornerRadii",
     "cornerSmoothing",
     "stroke",
     "strokeWidth",
+    "strokes",
     "children",
     "autoLayout",
     "clipsContent",
     "layoutGrids",
   ]),
-  ellipse: new Set(["fill", "stroke", "strokeWidth"]),
-  line: new Set(["stroke", "strokeWidth"]),
-  icon: new Set(["fill", "stroke", "strokeWidth"]),
+  ellipse: new Set(["fill", "fills", "stroke", "strokeWidth", "strokes"]),
+  line: new Set(["stroke", "strokeWidth", "strokes"]),
+  icon: new Set(["fill", "fills", "stroke", "strokeWidth", "strokes"]),
   image: new Set(["placement", "frameMask", "alt", "decorative"]),
 }
 
@@ -307,6 +311,15 @@ const scaledCornerRadii = (
         bottomLeft: rounded(radii.bottomLeft * scale),
       }
     : undefined
+
+const scaledStrokes = (
+  strokes: Extract<
+    SceneNode,
+    { type: "rect" | "frame" | "ellipse" | "line" | "icon" }
+  >["strokes"],
+  scale: number
+) =>
+  strokes?.map((paint) => ({ ...paint, width: rounded(paint.width * scale) }))
 
 function scaleNode(
   node: SceneNode,
@@ -339,6 +352,9 @@ function scaleNode(
           ? { cornerRadii: scaledCornerRadii(node.cornerRadii, scale) }
           : {}),
         strokeWidth: rounded(node.strokeWidth * scale),
+        ...(node.strokes
+          ? { strokes: scaledStrokes(node.strokes, scale) }
+          : {}),
       }
     case "frame":
       return {
@@ -349,6 +365,9 @@ function scaleNode(
           ? { cornerRadii: scaledCornerRadii(node.cornerRadii, scale) }
           : {}),
         strokeWidth: rounded(node.strokeWidth * scale),
+        ...(node.strokes
+          ? { strokes: scaledStrokes(node.strokes, scale) }
+          : {}),
         children: node.children.map((child) => ({
           ...child,
           offsetX: rounded(child.offsetX * scaleX),
@@ -393,18 +412,27 @@ function scaleNode(
         ...node,
         ...geometry,
         strokeWidth: rounded(node.strokeWidth * scale),
+        ...(node.strokes
+          ? { strokes: scaledStrokes(node.strokes, scale) }
+          : {}),
       }
     case "line":
       return {
         ...node,
         ...geometry,
         strokeWidth: Math.max(0.1, rounded(node.strokeWidth * scale)),
+        ...(node.strokes
+          ? { strokes: scaledStrokes(node.strokes, scale) }
+          : {}),
       }
     case "icon":
       return {
         ...node,
         ...geometry,
         strokeWidth: rounded(node.strokeWidth * scale),
+        ...(node.strokes
+          ? { strokes: scaledStrokes(node.strokes, scale) }
+          : {}),
       }
     case "image":
       return { ...node, ...geometry }

@@ -3302,6 +3302,100 @@ describe("WebMCP registration", () => {
     expect(malformedGrid?.isError).toBe(true)
   })
 
+  it("advertises, persists, and rejects malformed ordered paint stacks", async () => {
+    const document = structuredClone(northstarSeed)
+    const target = document.nodes.find((node) => node.type === "rect")
+    if (!target || target.type !== "rect") throw new Error("Expected rectangle")
+    const state = setup(document)
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+    const tool = state.registered.get("propose_canvas_edits")
+    const schema = JSON.stringify(tool?.inputSchema)
+    expect(schema).toContain('"fills"')
+    expect(schema).toContain('"strokes"')
+    expect(schema).toContain('"maxItems":8')
+
+    const result = await tool?.execute({
+      documentId: document.id,
+      baseRevision: document.revision,
+      baseSnapshotId: "snapshot-seed",
+      edits: [
+        {
+          nodeType: "rect",
+          nodeId: target.id,
+          patch: {
+            fills: [
+              {
+                id: "base",
+                color: "#102030",
+                opacity: 0.4,
+                visible: false,
+                blendMode: "multiply",
+              },
+              {
+                id: "accent",
+                color: "#abcdef",
+                opacity: 1,
+                visible: true,
+              },
+            ],
+            strokes: [
+              {
+                id: "edge",
+                color: "#fedcba",
+                width: 3,
+                opacity: 0.8,
+                visible: true,
+                blendMode: "overlay",
+              },
+            ],
+          },
+        },
+      ],
+    })
+    expect(result?.isError, result?.content[0]?.text).toBeUndefined()
+    expect(state.proposed()?.operations[0]?.command).toMatchObject({
+      type: "update_node",
+      nodeId: target.id,
+      patch: {
+        fills: [{ id: "base" }, { id: "accent" }],
+        strokes: [{ id: "edge" }],
+      },
+    })
+    expect(
+      previewChangeSet(document, state.proposed()!).nodes.find(
+        (node) => node.id === target.id
+      )
+    ).toMatchObject({ fill: "#102030", stroke: "#fedcba", strokeWidth: 3 })
+
+    const malformed = await tool?.execute({
+      documentId: document.id,
+      baseRevision: document.revision,
+      baseSnapshotId: "snapshot-seed",
+      edits: [
+        {
+          nodeType: "rect",
+          nodeId: target.id,
+          patch: {
+            fills: [
+              { id: "same", color: "#000", opacity: 1, visible: true },
+              { id: "same", color: "#fff", opacity: 1, visible: true },
+            ],
+          },
+        },
+      ],
+    })
+    expect(malformed?.isError).toBe(true)
+  })
+
   it("rejects untyped, malformed, legacy, and renderer-private image patches", async () => {
     const document = withImageLayer()
     const state = setup(document)

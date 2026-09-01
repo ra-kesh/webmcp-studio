@@ -28,6 +28,7 @@ import {
   cornerRadiiCss,
   roundedRectanglePath,
   roundedRectanglePaintPath,
+  hasExplicitPaintStack,
   type Document,
   type ImageFrameMask,
   type RenderFrameProjection,
@@ -1801,6 +1802,152 @@ export function renderNodeStyle(
   return frame
 }
 
+type ShapePaintProjection = Extract<
+  RenderNodeProjection,
+  { type: "rect" | "frame" | "ellipse" | "line" | "icon" }
+>
+
+function RenderShapePaintStack({
+  projection,
+  dataAttributes,
+}: {
+  projection: ShapePaintProjection
+  dataAttributes: ReturnType<typeof renderNodeDataAttributes>
+}) {
+  const paintStyle = (paint: {
+    opacity: number
+    visible: boolean
+    blendMode: string
+  }): CSSProperties => ({
+    opacity: paint.opacity,
+    display: paint.visible ? undefined : "none",
+    mixBlendMode: paint.blendMode as CSSProperties["mixBlendMode"],
+  })
+  const frameStyle = {
+    ...renderFrameStyle(projection.frame),
+    overflow: "visible",
+  }
+  if (projection.type === "line") {
+    return (
+      <svg
+        {...dataAttributes}
+        style={frameStyle}
+        viewBox={`0 0 ${projection.frame.width} ${projection.frame.height}`}
+        preserveAspectRatio="none"
+      >
+        {projection.content.strokes.map((paint) => (
+          <line
+            key={paint.id}
+            x1="0"
+            y1="0"
+            x2={projection.frame.width}
+            y2={projection.frame.height}
+            stroke={paint.color}
+            strokeWidth={paint.width}
+            style={paintStyle(paint)}
+            vectorEffect="non-scaling-stroke"
+          />
+        ))}
+      </svg>
+    )
+  }
+  if (projection.type === "icon") {
+    return (
+      <svg
+        {...dataAttributes}
+        style={frameStyle}
+        viewBox={projection.content.viewBox}
+        preserveAspectRatio="xMidYMid meet"
+      >
+        {projection.content.fills.map((paint) => (
+          <path
+            key={`fill:${paint.id}`}
+            d={projection.content.path}
+            fill={paint.color}
+            style={paintStyle(paint)}
+          />
+        ))}
+        {projection.content.strokes.map((paint) => (
+          <path
+            key={`stroke:${paint.id}`}
+            d={projection.content.path}
+            fill="none"
+            stroke={paint.color}
+            strokeWidth={paint.width}
+            style={paintStyle(paint)}
+            vectorEffect="non-scaling-stroke"
+          />
+        ))}
+      </svg>
+    )
+  }
+  const shape = (
+    paint: {
+      id: string
+      color: string
+      opacity: number
+      visible: boolean
+      blendMode: string
+      width?: number
+    },
+    kind: "fill" | "stroke"
+  ) => {
+    const attributes = {
+      key: `${kind}:${paint.id}`,
+      fill: kind === "fill" ? paint.color : "none",
+      stroke: kind === "stroke" ? paint.color : undefined,
+      strokeWidth: kind === "stroke" ? paint.width : undefined,
+      style: paintStyle(paint),
+      vectorEffect: "non-scaling-stroke" as const,
+    }
+    if (projection.type === "ellipse") {
+      return (
+        <ellipse
+          {...attributes}
+          cx={projection.frame.width / 2}
+          cy={projection.frame.height / 2}
+          rx={projection.frame.width / 2}
+          ry={projection.frame.height / 2}
+        />
+      )
+    }
+    const advancedCorners =
+      projection.content.corners.independent ||
+      projection.content.corners.smoothing > 0
+    return advancedCorners ? (
+      <path
+        {...attributes}
+        d={roundedRectanglePaintPath({
+          width: projection.frame.width,
+          height: projection.frame.height,
+          cornerRadii: projection.content.corners.radii,
+          cornerSmoothing: projection.content.corners.smoothing,
+          strokeWidth: kind === "stroke" ? (paint.width ?? 0) : 0,
+        })}
+      />
+    ) : (
+      <rect
+        {...attributes}
+        width={projection.frame.width}
+        height={projection.frame.height}
+        rx={projection.content.radius}
+        ry={projection.content.radius}
+      />
+    )
+  }
+  return (
+    <svg
+      {...dataAttributes}
+      style={frameStyle}
+      viewBox={`0 0 ${projection.frame.width} ${projection.frame.height}`}
+      preserveAspectRatio="none"
+    >
+      {projection.content.fills.map((paint) => shape(paint, "fill"))}
+      {projection.content.strokes.map((paint) => shape(paint, "stroke"))}
+    </svg>
+  )
+}
+
 function RenderNode({
   node,
   imageSemantics,
@@ -1827,6 +1974,23 @@ function RenderNode({
       <div {...dataAttributes} style={style}>
         <RenderTextContent projection={projection} />
       </div>
+    )
+  }
+
+  if (
+    projection.type !== "image" &&
+    hasExplicitPaintStack(
+      node as Extract<
+        SceneNode,
+        { type: "rect" | "frame" | "ellipse" | "line" | "icon" }
+      >
+    )
+  ) {
+    return (
+      <RenderShapePaintStack
+        dataAttributes={dataAttributes}
+        projection={projection}
+      />
     )
   }
 

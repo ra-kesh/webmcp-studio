@@ -63,6 +63,7 @@ import {
   applyFrameAutoLayout,
   reconcileFrameChildPaintOrder,
 } from "./frame-layout"
+import { synchronizeLegacyPaintFields } from "./paint-stack"
 
 type FieldValue = string | number | boolean
 
@@ -1644,6 +1645,15 @@ function applyParsedCommand(
       )
       if (index < 0) throw new Error(`Unknown node: ${command.nodeId}`)
       const current = document.nodes[index]
+      const synchronizedPatch =
+        current &&
+        (current.type === "rect" ||
+          current.type === "frame" ||
+          current.type === "ellipse" ||
+          current.type === "line" ||
+          current.type === "icon")
+          ? synchronizeLegacyPaintFields(current, command.patch)
+          : command.patch
       if (
         current?.type === "image" &&
         ("src" in command.patch || "assetId" in command.patch) &&
@@ -1657,7 +1667,7 @@ function applyParsedCommand(
         )
       }
       const directPatchBase = current
-        ? detachStyleForDirectNodePatch(current, command.patch)
+        ? detachStyleForDirectNodePatch(current, synchronizedPatch)
         : current
       const updated =
         current?.type === "text"
@@ -1665,17 +1675,20 @@ function applyParsedCommand(
               directPatchBase as Extract<SceneNode, { type: "text" }>,
               normalizeTextNodePatch(
                 current,
-                textNodePatchSchema.parse(command.patch)
+                textNodePatchSchema.parse(synchronizedPatch)
               )
             )
-          : current?.type === "image" && "alt" in command.patch
+          : current?.type === "image" && "alt" in synchronizedPatch
             ? {
                 ...current,
-                ...command.patch,
+                ...synchronizedPatch,
                 id: command.nodeId,
-                altProvenance: command.patch.altProvenance ?? "authored",
+                altProvenance:
+                  ("altProvenance" in synchronizedPatch
+                    ? synchronizedPatch.altProvenance
+                    : undefined) ?? "authored",
               }
-            : { ...directPatchBase, ...command.patch, id: command.nodeId }
+            : { ...directPatchBase, ...synchronizedPatch, id: command.nodeId }
       const nodes = [...document.nodes]
       nodes[index] = updated as SceneNode
       next = {
@@ -1684,7 +1697,7 @@ function applyParsedCommand(
         variableBindings: detachVariableBindingsForNodePatch(
           document,
           command.nodeId,
-          command.patch
+          synchronizedPatch
         ),
       }
       break

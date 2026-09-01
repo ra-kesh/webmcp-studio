@@ -42,6 +42,7 @@ import {
   resolveCornerRadii,
   roundedRectanglePath,
   roundedRectanglePaintPath,
+  hasExplicitPaintStack,
   resolveTextSelectionStyle,
   resolveTextSelectionStyleAttachment,
   resolveTextSelectionLink,
@@ -84,6 +85,15 @@ const frameClippedObjects = new WeakSet<FabricObject>()
 const usesCornerPath = (node: Extract<SceneNode, { type: "rect" | "frame" }>) =>
   ((node.independentCorners ?? false) && node.cornerRadii !== undefined) ||
   (node.cornerSmoothing ?? 0) > 0
+
+const usesPaintStack = (node: SceneNode) =>
+  node.type === "rect" ||
+  node.type === "frame" ||
+  node.type === "ellipse" ||
+  node.type === "line" ||
+  node.type === "icon"
+    ? hasExplicitPaintStack(node)
+    : false
 
 export function syncFabricFrameClip(
   object: FabricObject,
@@ -1528,6 +1538,75 @@ function applyFabricTextControlPolicy(
 export function createFabricSyncObject(
   node: Exclude<SceneNode, { type: "image" }>
 ) {
+  if (usesPaintStack(node)) {
+    const projection = projectNodeForRender(node)
+    if (projection.type === "text" || projection.type === "image") {
+      throw new Error(`Paint stacks require shape geometry`)
+    }
+    const legacyStrokeWidth = "strokeWidth" in node ? node.strokeWidth : 0
+    const frame = new Rect({
+      left: 0,
+      top: 0,
+      width: node.width,
+      height: node.height,
+      originX: "left",
+      originY: "top",
+      fill: "rgba(0,0,0,0)",
+      strokeWidth: 0,
+      selectable: false,
+      evented: false,
+    })
+    const children: FabricObject[] = [frame]
+    const addPaint = (
+      paint: {
+        color: string
+        opacity: number
+        visible: boolean
+        blendMode: BlendMode
+        width?: number
+      },
+      kind: "fill" | "stroke"
+    ) => {
+      const synthetic = {
+        ...node,
+        x: 0,
+        y: 0,
+        rotation: 0,
+        flipX: false,
+        flipY: false,
+        opacity: paint.opacity,
+        blendMode: paint.blendMode,
+        visible: paint.visible,
+        fills: undefined,
+        strokes: undefined,
+        ...(node.type === "line"
+          ? {
+              stroke: paint.color,
+              strokeWidth: paint.width ?? legacyStrokeWidth,
+            }
+          : kind === "fill"
+            ? { fill: paint.color, stroke: undefined, strokeWidth: 0 }
+            : {
+                fill: "rgba(0,0,0,0)",
+                stroke: paint.color,
+                strokeWidth: paint.width ?? legacyStrokeWidth,
+              }),
+      } as Exclude<SceneNode, { type: "image" }>
+      const child = createFabricSyncObject(synthetic)
+      child.set({ selectable: false, evented: false })
+      children.push(child)
+    }
+    if (projection.type !== "line") {
+      projection.content.fills.forEach((paint) => addPaint(paint, "fill"))
+    }
+    projection.content.strokes.forEach((paint) => addPaint(paint, "stroke"))
+    return new Group(children, {
+      ...sharedOptions(node),
+      width: node.width,
+      height: node.height,
+      subTargetCheck: false,
+    })
+  }
   if (node.type === "rect" || node.type === "frame") {
     const dimensions = borderedShapeDimensions(node)
     if (usesCornerPath(node)) {
@@ -3459,6 +3538,21 @@ export class FabricCanvasAdapter implements CanvasAdapter {
           stagedObjectByNodeId.set(node.id, {
             object: stagedObject,
             replaces: null,
+          })
+          continue
+        }
+        if (
+          previousNode !== node &&
+          (usesPaintStack(node) ||
+            (previousNode ? usesPaintStack(previousNode) : false))
+        ) {
+          const replacement = createFabricSyncObject(
+            node as Exclude<SceneNode, { type: "image" }>
+          )
+          stagedRegularCandidates.add(replacement)
+          stagedObjectByNodeId.set(node.id, {
+            object: replacement,
+            replaces: object,
           })
           continue
         }

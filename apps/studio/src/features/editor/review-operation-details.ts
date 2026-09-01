@@ -85,6 +85,17 @@ function displayNodeProperty(
   if (key === "layoutGrids" && Array.isArray(value)) {
     return `${value.length} layout guide${value.length === 1 ? "" : "s"}`
   }
+  if ((key === "fills" || key === "strokes") && Array.isArray(value)) {
+    const visible = value.filter(
+      (paint) =>
+        paint &&
+        typeof paint === "object" &&
+        "visible" in paint &&
+        paint.visible
+    ).length
+    const label = key === "fills" ? "fill" : "stroke"
+    return `${value.length} ${label}${value.length === 1 ? "" : "s"} · ${visible} visible`
+  }
   return key === "assetId"
     ? displayAssetId(value, source)
     : displayChangeValue(value)
