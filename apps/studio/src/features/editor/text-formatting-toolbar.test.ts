@@ -1,4 +1,8 @@
+// @vitest-environment jsdom
+
+import { act } from "react"
 import { createElement } from "react"
+import { createRoot } from "react-dom/client"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
 import type { CanvasTextEditingState } from "@webmcp/editor"
@@ -77,5 +81,40 @@ describe("text formatting toolbar", () => {
     expect(html).toContain("[&amp;&gt;*]:shrink-0")
     expect(html).toContain('data-font-weight-cycle="true"')
     expect(html).toContain("Weight</span>")
+  })
+
+  it("keeps repeated formatting clicks out of viewport double-click zoom", async () => {
+    Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+    const host = document.createElement("div")
+    document.body.appendChild(host)
+    const root = createRoot(host)
+    const onViewportDoubleClick = vi.fn()
+
+    await act(async () => {
+      root.render(
+        createElement(
+          "div",
+          { onDoubleClick: onViewportDoubleClick },
+          createElement(TextFormattingToolbar, {
+            state: state(),
+            onApply: vi.fn(),
+            onEditLink: vi.fn(),
+          })
+        )
+      )
+    })
+
+    const increase = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="Increase font size"]'
+    )
+    await act(async () => {
+      increase?.dispatchEvent(
+        new MouseEvent("dblclick", { bubbles: true, cancelable: true })
+      )
+    })
+    expect(onViewportDoubleClick).not.toHaveBeenCalled()
+
+    await act(async () => root.unmount())
+    host.remove()
   })
 })

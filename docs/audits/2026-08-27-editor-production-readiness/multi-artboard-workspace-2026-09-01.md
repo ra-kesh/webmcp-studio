@@ -90,3 +90,8 @@ Page rows in the File rail now expose the canonical page command menu through
 right-click and `Shift+F10`. Rename, duplicate, add, reorder and delete use the
 same validated product-command runtime and confirmation dialogs as the existing
 page/output management surfaces.
+
+Floating editor controls are now isolated from workspace double-click zoom.
+The workspace rejects events originating inside any registered overlay control,
+and the text-formatting toolbar also consumes its own double-clicks. A live
+check held canvas zoom at 32% before and after repeated toolbar interaction.

@@ -5452,6 +5452,14 @@ export function StudioShell({
                   }
                 }}
                 onDoubleClick={(event) => {
+                  if (
+                    event.target instanceof Element &&
+                    event.target.closest(
+                      "[data-editor-overlay-control='true']"
+                    )
+                  ) {
+                    return
+                  }
                   if ((event.target as HTMLElement).closest(".upper-canvas"))
                     return
                   zoomAtPoint(zoom * 1.75, event.clientX, event.clientY)

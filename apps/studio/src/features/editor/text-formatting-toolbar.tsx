@@ -100,6 +100,7 @@ export function TextFormattingToolbar({
           className
         )}
         data-text-formatting-toolbar="true"
+        onDoubleClick={(event) => event.stopPropagation()}
         onMouseDown={keepCanvasFocus}
         role="toolbar"
       >
