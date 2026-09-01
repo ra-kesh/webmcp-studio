@@ -2,7 +2,9 @@
 
 Date: 2026-09-01
 
-Code baseline: `7fa5cdd8b1a5f797348644c6aab15320d7d3d11b`
+Updated: 2026-09-02
+
+Code baseline: `82e7ff456ebeb60e568e5189a198024fccf09439`
 
 This checkpoint reconciles the main conversation with the separate redesign,
 mask, rich-text, component, library, image-architecture, generation, independent
@@ -49,7 +51,20 @@ checkpoint and evidence stay auditable.
    and focused regression coverage. Evidence:
    `advanced-editor-depth-gate-01-constraints-review-2026-09-01.md`. No Gate 1
    gap remains; container-relative reflow begins in Gate 2.
-2. Auto layout and explicit clipping/overflow controls for containers.
+2. **Auto layout and explicit clipping/overflow controls — completed and
+   independently accepted.** Commit
+   `82e7ff456ebeb60e568e5189a198024fccf09439` adds the explicit frame identity,
+   ordered child layout metadata, stable atomic paint-order reconciliation,
+   nested horizontal/vertical layout solver, fixed/fill and fixed/hug sizing,
+   four-side padding, gap and alignment, exact nested clipping across Fabric,
+   React, renderer HTML, thumbnails, PNG and PDF, Layers hierarchy and
+   drag/drop, history, semantic clone and component preservation, Inspector,
+   Review, and a strict WebMCP frame schema. Evidence:
+   `advanced-editor-depth-gate-02-auto-layout-clipping-review-2026-09-01.md`.
+   No Gate 2 gap remains. The accepted boundary rejects rotated owner frames
+   and frame-owned mask sources instead of allowing renderer divergence; a
+   future expansion of either contract must add a new canonical geometry and
+   cross-renderer conformance gate.
 3. Blend modes.
 4. Independent corner radii and corner smoothing.
 5. Multiple fills and strokes on one layer.
