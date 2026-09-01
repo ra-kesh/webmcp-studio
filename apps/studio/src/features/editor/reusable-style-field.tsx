@@ -105,9 +105,9 @@ export function ReusableStyleField({
   }
 
   return (
-    <div className="space-y-2" data-reusable-style-field={label}>
+    <div className="flex flex-col gap-2" data-reusable-style-field={label}>
       <div className="flex items-end gap-1.5">
-        <label className="min-w-0 flex-1 space-y-1.5">
+        <label className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="text-[11px] font-medium text-muted-foreground">
             {label}
           </span>
@@ -120,7 +120,8 @@ export function ReusableStyleField({
             }}
           >
             <SelectTrigger
-              className="min-h-11 min-w-0 min-[1280px]:min-h-8"
+              className="min-h-11 min-w-0 min-[1280px]:min-h-7"
+              size="sm"
               aria-label={label}
             >
               <SelectValue />
@@ -149,9 +150,9 @@ export function ReusableStyleField({
         </label>
         <Button
           type="button"
-          size="icon"
+          size="icon-sm"
           variant="outline"
-          className="size-11 shrink-0 min-[1280px]:size-8"
+          className="size-11 shrink-0 min-[1280px]:size-7"
           aria-label={`Create ${label.toLocaleLowerCase()}`}
           disabled={disabled}
           onClick={openCreate}
@@ -162,9 +163,9 @@ export function ReusableStyleField({
           <DropdownMenuTrigger asChild>
             <Button
               type="button"
-              size="icon"
+              size="icon-sm"
               variant="ghost"
-              className="size-11 shrink-0 min-[1280px]:size-8"
+              className="size-11 shrink-0 min-[1280px]:size-7"
               aria-label={`${label} actions`}
               disabled={disabled || !activeStyle}
             >

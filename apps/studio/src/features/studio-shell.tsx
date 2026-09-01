@@ -37,9 +37,8 @@ import {
   PanelRightClose,
   PanelRightOpen,
   Redo2,
-  Rocket,
+  Send,
   Shapes,
-  Sparkles,
   Square,
   SlidersHorizontal,
   Trash2,
@@ -184,6 +183,7 @@ import {
 } from "./editor/background-removal-client"
 import { studioAssets } from "./editor/asset-catalog"
 import { StudioStartSurface } from "./editor/studio-start-surface"
+import { StudioMark } from "./editor/studio-mark"
 import { useRecentDocumentsVisibility } from "./editor/recent-documents-provider"
 import type {
   FabricArtboardHandle,
@@ -4248,7 +4248,7 @@ export function StudioShell({
             }}
           >
             <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-              <Sparkles className="size-3.5" />
+              <StudioMark className="size-3.5" />
             </div>
             <div className="flex min-w-0 flex-col leading-none">
               <span className="truncate text-sm font-medium">
@@ -4632,7 +4632,7 @@ export function StudioShell({
               }
               onClick={() => setPublishDialogOpen(true)}
             >
-              <Rocket data-icon="inline-start" />
+              <Send data-icon="inline-start" />
               {publishLabel}
             </Button>
             <Button

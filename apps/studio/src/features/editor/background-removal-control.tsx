@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { AlertTriangle, Check, LoaderCircle, Sparkles } from "lucide-react"
+import { AlertTriangle, Check, LoaderCircle, ScanLine } from "lucide-react"
 import { Button } from "@webmcp/ui/components/button"
 import { Checkbox } from "@webmcp/ui/components/checkbox"
 import { managedMediaContentUrl } from "./managed-media-repository"
@@ -41,7 +41,7 @@ export function BackgroundRemovalControl({
   return (
     <div className="space-y-3 rounded-lg border bg-muted/25 p-2.5">
       <div className="flex items-start gap-2">
-        <Sparkles className="mt-0.5 size-3.5 shrink-0 text-studio-accent" />
+        <ScanLine className="mt-0.5 size-3.5 shrink-0 text-studio-accent" />
         <div>
           <p className="text-xs font-medium">Remove background</p>
           <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">

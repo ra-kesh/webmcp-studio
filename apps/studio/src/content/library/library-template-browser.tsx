@@ -2,6 +2,7 @@ import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual"
 import {
   ChevronRight,
   Ellipsis,
+  FilePlus2,
   FileStack,
   Filter,
   FolderPlus,
@@ -10,7 +11,6 @@ import {
   LoaderCircle,
   RefreshCw,
   Search,
-  Sparkles,
   X,
 } from "lucide-react"
 import {
@@ -770,7 +770,7 @@ function TemplateDetails({
               className="animate-spin motion-reduce:animate-none"
             />
           ) : (
-            <Sparkles aria-hidden="true" />
+            <FilePlus2 aria-hidden="true" />
           )}
           Create from template
         </Button>

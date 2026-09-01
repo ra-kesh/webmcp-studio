@@ -273,6 +273,49 @@ dimensions move focus to the exact field and announce the inline error. Both
 mobile widths completed with no console error, warning, browser issue,
 duplicate ID or document-level horizontal overflow.
 
+## Inspector density and visual-language correction
+
+The Inspector was revisited after a live text-layer capture exposed three
+visible regressions from the accepted OpenPencil-derived contract: alignment
+actions had returned to generic 32 px outlined pills, position fields were
+stacked like a settings form instead of editor controls, and the Radix scroll
+viewport allowed controls and focus treatment to occupy the scrollbar edge.
+The same pass found decorative sparkle and rocket symbols being used as
+product branding, generation, review, background-processing and publication
+signifiers.
+
+Before editing, this pass reread this checkpoint, `reference-patterns.md`, the
+full sophistication phase entry, OpenPencil's `control.ts`, `number-field.ts`,
+`segmented-control.ts`, `icon-button.ts`, `panel/section.ts`,
+`panel/field-group.ts`, `panel/grid.ts`, `panel/field.ts`, and the live
+`PositionSection.vue` and `AppearanceSection.vue` compositions. The resulting
+changes stay inside the accepted 24/28/32 px desktop control scale:
+
+- alignment and transform fields now share one **Position** section;
+- align-to-page actions are two quiet 24 px groups, while X, Y, W, H and
+  rotation use 28 px fields with compact internal property labels;
+- text and paint style selectors and their actions resolve to 28 px on the
+  desktop editor rather than generic 32 px form controls;
+- text content is a bounded 64 px editor field instead of a 96 px default
+  textarea;
+- paragraph alignment and list behavior use two compact segmented property
+  rows rather than a full-width button band plus a control pressed against the
+  panel edge;
+- every Inspector tab reserves the 10 px custom-scrollbar lane and 12 px of
+  bottom continuation space, removing the right and lower clipped appearance;
+- the custom Studio document mark replaces decorative product sparkle
+  branding, while file, review, processing and send icons now identify the
+  actual action. Literal Rocket and Sparkles artwork remains available only as
+  user-selectable media-library content.
+
+Live acceptance used the routed quotation sample at a 1,280 x 720 viewport.
+The right Inspector measured 336 px, its tabs 39 px, position actions 24 px,
+number fields 28 px, and content textarea 64 px. The full lower Typography
+section remained inside the reserved scrollbar lane with no document-level
+horizontal overflow and no console error. Studio and UI typechecks pass; the
+focused Inspector control/sidebar suites pass 18/18, and the focused
+background-removal control suite passes 3/3.
+
 ## Acceptance
 
 - the start heading still receives programmatic focus after returning home but

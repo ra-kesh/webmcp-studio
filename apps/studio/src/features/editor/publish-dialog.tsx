@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { Check, CircleAlert, Code2, LoaderCircle, Rocket } from "lucide-react"
+import { Check, CircleAlert, Code2, LoaderCircle, Send } from "lucide-react"
 import { getPublishReadiness } from "@webmcp/document"
 import type { Document, TemplateVersion } from "@webmcp/document"
 import { Badge } from "@webmcp/ui/components/badge"
@@ -147,7 +147,7 @@ export function PublishDialog({
             {currentVersion ? (
               <Check className="size-4" />
             ) : (
-              <Rocket className="size-4" />
+              <Send className="size-4" />
             )}
           </div>
           <DialogTitle>
@@ -255,7 +255,7 @@ export function PublishDialog({
                   data-icon="inline-start"
                 />
               ) : (
-                <Rocket data-icon="inline-start" />
+                <Send data-icon="inline-start" />
               )}
               {publishSyncStatus === "cancelling"
                 ? "Stopping…"

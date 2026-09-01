@@ -4,10 +4,44 @@ import { describe, expect, it } from "vitest"
 
 import {
   CommitPercentSlider,
+  CommitTextarea,
   InspectorColorField,
+  InspectorNumberField,
   nativeInspectorColorValue,
   parseInspectorColorDraft,
 } from "./inspector-controls"
+
+describe("compact Inspector controls", () => {
+  it("keeps geometry labels inside the 28px property field", () => {
+    const markup = renderToStaticMarkup(
+      createElement(InspectorNumberField, {
+        label: "Width",
+        compactLabel: "W",
+        value: { kind: "value", value: 760 },
+        onCommit: () => undefined,
+      })
+    )
+
+    expect(markup).toContain('aria-label="Width"')
+    expect(markup).toMatch(/<label[^>]*\bsr-only\b/)
+    expect(markup).toContain(">W</span>")
+    expect(markup).toContain("h-7")
+    expect(markup).toContain("pl-7")
+  })
+
+  it("bounds long text content without restoring a generic form textarea", () => {
+    const markup = renderToStaticMarkup(
+      createElement(CommitTextarea, {
+        value: "Wedding photography & films",
+        onCommit: () => undefined,
+      })
+    )
+
+    expect(markup).toContain("min-h-16")
+    expect(markup).toContain("max-h-40")
+    expect(markup).toContain("text-[11px]")
+  })
+})
 
 describe("CommitPercentSlider", () => {
   it("pairs the quick slider with a named numeric percentage alternative", () => {

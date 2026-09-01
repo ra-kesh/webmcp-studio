@@ -37,12 +37,12 @@ import {
   Lock,
   Link2,
   List,
+  ListChecks,
   ListOrdered,
   LoaderCircleIcon,
   Plus,
   RefreshCw,
   SendToBack,
-  Sparkles,
   Square,
   Settings2,
   Trash2,
@@ -850,20 +850,30 @@ function AlignmentGrid({
   disabled?: boolean
 }) {
   return (
-    <div className="grid grid-cols-6 gap-1">
-      {alignmentActions.map(([label, alignment, Icon]) => (
-        <Button
-          key={alignment}
-          aria-label={label}
-          title={label}
-          disabled={disabled}
-          size="icon"
-          variant="outline"
-          onClick={() => onAlign(alignment)}
-        >
-          <Icon />
-        </Button>
-      ))}
+    <div
+      aria-label="Align selection to page"
+      className="flex items-center justify-between"
+      role="toolbar"
+    >
+      {[alignmentActions.slice(0, 3), alignmentActions.slice(3)].map(
+        (group, groupIndex) => (
+          <div className="flex items-center gap-0.5" key={groupIndex}>
+            {group.map(([label, alignment, Icon]) => (
+              <Button
+                key={alignment}
+                aria-label={label}
+                title={label}
+                disabled={disabled}
+                size="icon-xs"
+                variant="ghost"
+                onClick={() => onAlign(alignment)}
+              >
+                <Icon />
+              </Button>
+            ))}
+          </div>
+        )
+      )}
     </div>
   )
 }
@@ -1582,29 +1592,29 @@ function NodeInspector({
         ) : null}
       </section>
 
-      <InspectorSection title="Align to page">
+      <InspectorSection title="Position">
         <AlignmentGrid
           onAlign={onAlignToPage}
           disabled={nodeMutationDisabled}
         />
-      </InspectorSection>
-
-      <InspectorSection title="Position & size">
         <div className="grid grid-cols-2 gap-2">
           <InspectorNumberField
             label="X"
+            compactLabel="X"
             value={inspector.values.x}
             disabled={node.locked}
             onCommit={(x) => commitFrameGeometry({ x })}
           />
           <InspectorNumberField
             label="Y"
+            compactLabel="Y"
             value={inspector.values.y}
             disabled={node.locked}
             onCommit={(y) => commitFrameGeometry({ y })}
           />
           <InspectorNumberField
             label="Width"
+            compactLabel="W"
             value={inspector.values.width}
             min={1}
             disabled={node.locked || textWidthIsManaged}
@@ -1612,18 +1622,22 @@ function NodeInspector({
           />
           <InspectorNumberField
             label="Height"
+            compactLabel="H"
             value={inspector.values.height}
             min={1}
             disabled={node.locked || textHeightIsManaged}
             onCommit={(height) => commitFrameGeometry({ height })}
           />
         </div>
-        <InspectorNumberField
-          label="Rotation"
-          value={inspector.values.rotation}
-          disabled={node.locked}
-          onCommit={(rotation) => commitFrameGeometry({ rotation })}
-        />
+        <div className="grid grid-cols-2 gap-2">
+          <InspectorNumberField
+            label="Rotation"
+            compactLabel="°"
+            value={inspector.values.rotation}
+            disabled={node.locked}
+            onCommit={(rotation) => commitFrameGeometry({ rotation })}
+          />
+        </div>
       </InspectorSection>
 
       <InspectorSection title="Opacity">
@@ -1834,52 +1848,62 @@ function NodeInspector({
               onPreviewCancel={onCancelPreview}
               onCommit={(color) => onUpdate({ color })}
             />
-            <div className="space-y-2">
-              <FieldLabel>Paragraph</FieldLabel>
-              <div className="grid grid-cols-3 gap-1 rounded-lg bg-muted p-1">
-                {[
-                  ["left", AlignLeft],
-                  ["center", AlignCenter],
-                  ["right", AlignRight],
-                ].map(([align, Icon]) => (
-                  <Button
-                    key={align as string}
-                    aria-label={`Align text ${align as string}`}
-                    className="min-h-11 min-[1280px]:min-h-0"
-                    size="sm"
-                    disabled={node.locked}
-                    variant={paragraphAlign === align ? "secondary" : "ghost"}
-                    onClick={() => {
-                      const nextAlign = align as "left" | "center" | "right"
-                      if (liveTextEditingState) {
-                        onApplyTextEditingParagraphStyle({ align: nextAlign })
-                        return
-                      }
-                      onUpdate({
-                        align: nextAlign,
-                        paragraphs: applyTextParagraphStyleToRange(
-                          node.text,
-                          node.paragraphs,
-                          { anchor: 0, focus: node.text.length },
-                          { align: nextAlign },
-                          nextAlign
-                        ),
-                      })
-                    }}
-                  >
-                    <Icon />
-                  </Button>
-                ))}
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <FieldLabel>Alignment</FieldLabel>
+                <ToggleGroup
+                  aria-label="Paragraph alignment"
+                  className="shrink-0 bg-muted/55 p-0.5"
+                  type="single"
+                  size="sm"
+                  spacing={0}
+                  value={
+                    paragraphAlign === "left" ||
+                    paragraphAlign === "center" ||
+                    paragraphAlign === "right"
+                      ? paragraphAlign
+                      : ""
+                  }
+                  disabled={node.locked}
+                >
+                  {[
+                    ["left", AlignLeft],
+                    ["center", AlignCenter],
+                    ["right", AlignRight],
+                  ].map(([align, Icon]) => (
+                    <ToggleGroupItem
+                      key={align as string}
+                      aria-label={`Align text ${align as string}`}
+                      className="min-h-11 min-w-11 border-0 min-[1280px]:min-h-6 min-[1280px]:min-w-7"
+                      value={align as string}
+                      onClick={() => {
+                        const nextAlign = align as "left" | "center" | "right"
+                        if (liveTextEditingState) {
+                          onApplyTextEditingParagraphStyle({ align: nextAlign })
+                          return
+                        }
+                        onUpdate({
+                          align: nextAlign,
+                          paragraphs: applyTextParagraphStyleToRange(
+                            node.text,
+                            node.paragraphs,
+                            { anchor: 0, focus: node.text.length },
+                            { align: nextAlign },
+                            nextAlign
+                          ),
+                        })
+                      }}
+                    >
+                      <Icon />
+                    </ToggleGroupItem>
+                  ))}
+                </ToggleGroup>
               </div>
               <div className="flex items-center justify-between gap-3">
-                <span className="text-[11px] leading-4 text-muted-foreground">
-                  {liveTextEditingState
-                    ? "Applies to the selected paragraph. Use Tab to indent."
-                    : "Applies semantic list structure to every paragraph."}
-                </span>
+                <FieldLabel>List</FieldLabel>
                 <ToggleGroup
                   aria-label="Paragraph list style"
-                  className="shrink-0"
+                  className="shrink-0 bg-muted/55 p-0.5"
                   type="single"
                   size="sm"
                   spacing={0}
@@ -1927,20 +1951,25 @@ function NodeInspector({
                 >
                   <ToggleGroupItem
                     aria-label="Bulleted list"
-                    className="min-h-11 min-w-11 min-[1280px]:min-h-0 min-[1280px]:min-w-0"
+                    className="min-h-11 min-w-11 border-0 min-[1280px]:min-h-6 min-[1280px]:min-w-7"
                     value="bulleted"
                   >
                     <List />
                   </ToggleGroupItem>
                   <ToggleGroupItem
                     aria-label="Numbered list"
-                    className="min-h-11 min-w-11 min-[1280px]:min-h-0 min-[1280px]:min-w-0"
+                    className="min-h-11 min-w-11 border-0 min-[1280px]:min-h-6 min-[1280px]:min-w-7"
                     value="numbered"
                   >
                     <ListOrdered />
                   </ToggleGroupItem>
                 </ToggleGroup>
               </div>
+              <p className="text-[11px] leading-4 text-muted-foreground">
+                {liveTextEditingState
+                  ? "Applies to the selected paragraph. Use Tab to indent."
+                  : "Applies to every paragraph in this layer."}
+              </p>
             </div>
           </InspectorSection>
         </>
@@ -3877,7 +3906,7 @@ function ReviewPanel({
       <section className="flex min-w-0 flex-col gap-3 overflow-hidden p-4">
         <div className="flex items-start gap-2.5">
           <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-secondary">
-            <Sparkles className="size-3.5" />
+            <ListChecks className="size-3.5" />
           </div>
           <div>
             <h2 className="text-xs font-medium">Agent change set</h2>
@@ -4231,7 +4260,7 @@ function ReviewPanel({
           </>
         ) : (
           <EditorPanelState
-            icon={<Sparkles />}
+            icon={<ListChecks />}
             title="No changes waiting"
             description={
               webMcpStatus === "ready"
@@ -4715,30 +4744,30 @@ export function InspectorSidebar({
           <TabsTrigger
             value="design"
             disabled={reviewPending}
-            className="flex-none px-2.5 text-xs"
+            className="flex-none px-2 text-[11px]"
           >
             Design
           </TabsTrigger>
           <TabsTrigger
             value="variables"
             disabled={reviewPending}
-            className="flex-none px-2.5 text-xs"
+            className="flex-none px-2 text-[11px]"
           >
             Variables
           </TabsTrigger>
           <TabsTrigger
             value="fields"
             disabled={reviewPending}
-            className="flex-none px-2.5 text-xs"
+            className="flex-none px-2 text-[11px]"
           >
             Fields
           </TabsTrigger>
-          <TabsTrigger value="review" className="flex-none px-2.5 text-xs">
+          <TabsTrigger value="review" className="flex-none px-2 text-[11px]">
             Review
           </TabsTrigger>
         </EditorPanelTabsList>
         <TabsContent value="design" className="min-h-0">
-          <ScrollArea className="h-full">
+          <ScrollArea className="h-full" viewportClassName="pr-2.5 pb-3">
             {componentSelection ? (
               <ComponentInspectorSection
                 context={componentSelection}
@@ -4823,7 +4852,7 @@ export function InspectorSidebar({
           </ScrollArea>
         </TabsContent>
         <TabsContent value="variables" className="min-h-0">
-          <ScrollArea className="h-full">
+          <ScrollArea className="h-full" viewportClassName="pr-2.5 pb-3">
             <DesignVariablesPanel
               document={document}
               selectedNode={selectedNode}
@@ -4841,7 +4870,7 @@ export function InspectorSidebar({
           </ScrollArea>
         </TabsContent>
         <TabsContent value="fields" className="min-h-0">
-          <ScrollArea className="h-full">
+          <ScrollArea className="h-full" viewportClassName="pr-2.5 pb-3">
             <FieldsPanel
               document={document}
               selectedNodes={selectedNodes}
@@ -4869,7 +4898,7 @@ export function InspectorSidebar({
           </ScrollArea>
         </TabsContent>
         <TabsContent value="review" className="min-h-0">
-          <ScrollArea className="h-full">
+          <ScrollArea className="h-full" viewportClassName="pr-2.5 pb-3">
             <ReviewPanel
               document={document}
               navigationDocument={reviewNavigationDocument}

@@ -12,14 +12,12 @@ import {
   Image,
   LoaderCircle,
   ShieldAlert,
-  Sparkles,
 } from "lucide-react"
-import {
-  LibraryTemplateBrowser,
-  type LibraryTemplateIntent,
-} from "../../content/library/library-template-browser"
+import { LibraryTemplateBrowser } from "../../content/library/library-template-browser"
+import type { LibraryTemplateIntent } from "../../content/library/library-template-browser"
 import type { StudioStartIntent, StudioStartModel } from "./studio-start-model"
 import { RecentDocuments } from "./recent-documents"
+import { StudioMark } from "./studio-mark"
 
 type ReadyStartModel = Extract<
   StudioStartModel,
@@ -311,7 +309,7 @@ function QuickStarts({
           {pendingIntent?.kind === "sample" ? (
             <LoaderCircle className="animate-spin" data-icon="inline-start" />
           ) : (
-            <Sparkles data-icon="inline-start" />
+            <FileStack data-icon="inline-start" />
           )}
           Open sample
         </Button>
@@ -356,7 +354,7 @@ export function StudioStartSurface({
             aria-hidden="true"
             className="grid size-8 place-items-center rounded-md bg-foreground text-background"
           >
-            <Sparkles className="size-4" />
+            <StudioMark className="size-4" />
           </span>
           <span>
             <span className="block text-sm font-semibold tracking-tight">

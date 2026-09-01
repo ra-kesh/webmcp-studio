@@ -549,6 +549,10 @@ describe("InspectorSidebar text selection state", () => {
     expect(markup).toContain("Geist Variable")
     expect(markup).toContain('data-reusable-style-field="Text style"')
     expect(markup).toContain('data-reusable-style-field="Paint style"')
+    expect(markup).toContain('aria-label="Align selection to page"')
+    expect(markup).toContain('aria-label="Paragraph alignment"')
+    expect(markup).toContain("pr-2.5")
+    expect(markup).toContain("pb-3")
     expect(markup).toContain("Layer defaults")
     expect(markup).not.toMatch(/<textarea[^>]* disabled=""/)
     expect(markup).not.toContain(

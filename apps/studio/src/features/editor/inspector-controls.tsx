@@ -10,6 +10,7 @@ import { Field, FieldError, FieldLabel } from "@webmcp/ui/components/field"
 import { Input } from "@webmcp/ui/components/input"
 import { Slider } from "@webmcp/ui/components/slider"
 import { Textarea } from "@webmcp/ui/components/textarea"
+import { cn } from "@webmcp/ui/lib/utils"
 
 export function InspectorSectionLabel({
   children,
@@ -81,7 +82,7 @@ export function CommitTextarea({
     <Textarea
       id={id}
       name={id}
-      className="min-h-24 resize-y text-xs leading-relaxed"
+      className="max-h-40 min-h-16 resize-y rounded-[5px] px-2 py-1.5 text-[11px] leading-4"
       value={draft}
       disabled={disabled}
       onChange={(event) => setDraft(event.target.value)}
@@ -229,6 +230,7 @@ export function CommitPercentSlider({
 
 export function InspectorNumberField({
   label,
+  compactLabel,
   value,
   min,
   max,
@@ -238,6 +240,7 @@ export function InspectorNumberField({
   onCommit,
 }: {
   label: string
+  compactLabel?: string
   value: InspectorSharedValue<number>
   min?: number
   max?: number
@@ -287,7 +290,11 @@ export function InspectorNumberField({
     >
       <FieldLabel
         htmlFor={id}
-        className="text-[11px] leading-4 font-medium text-muted-foreground"
+        className={
+          compactLabel
+            ? "sr-only"
+            : "text-[11px] leading-4 font-medium text-muted-foreground"
+        }
       >
         {label}
         {value.kind === "mixed" ? (
@@ -300,6 +307,14 @@ export function InspectorNumberField({
         ) : null}
       </FieldLabel>
       <div className="relative">
+        {compactLabel ? (
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-0 left-2 z-10 flex items-center font-mono text-[10px] text-muted-foreground"
+          >
+            {compactLabel}
+          </span>
+        ) : null}
         <Input
           id={id}
           aria-label={label}
@@ -309,11 +324,11 @@ export function InspectorNumberField({
           disabled={disabled}
           aria-invalid={Boolean(error) || undefined}
           aria-describedby={error ? `${id}-error` : undefined}
-          className={
-            suffix
-              ? "h-7 rounded-[5px] border-transparent bg-muted/55 pr-8 font-mono text-[11px] tabular-nums hover:bg-muted/75 focus-visible:border-studio-accent focus-visible:bg-background focus-visible:ring-2 focus-visible:ring-studio-accent/25 md:text-[11px]"
-              : "h-7 rounded-[5px] border-transparent bg-muted/55 font-mono text-[11px] tabular-nums hover:bg-muted/75 focus-visible:border-studio-accent focus-visible:bg-background focus-visible:ring-2 focus-visible:ring-studio-accent/25 md:text-[11px]"
-          }
+          className={cn(
+            "h-7 rounded-[5px] border-transparent bg-muted/55 font-mono text-[11px] tabular-nums hover:bg-muted/75 focus-visible:border-studio-accent focus-visible:bg-background focus-visible:ring-2 focus-visible:ring-studio-accent/25 md:text-[11px]",
+            compactLabel && "pl-7",
+            suffix && "pr-8"
+          )}
           onChange={(event) => {
             setDraft(event.target.value)
             if (error) setError(null)
