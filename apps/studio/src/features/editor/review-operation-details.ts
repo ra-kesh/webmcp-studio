@@ -96,6 +96,16 @@ function displayNodeProperty(
     const label = key === "fills" ? "fill" : "stroke"
     return `${value.length} ${label}${value.length === 1 ? "" : "s"} · ${visible} visible`
   }
+  if (key === "effects" && Array.isArray(value)) {
+    const visible = value.filter(
+      (effect) =>
+        effect &&
+        typeof effect === "object" &&
+        "visible" in effect &&
+        effect.visible
+    ).length
+    return `${value.length} effect${value.length === 1 ? "" : "s"} · ${visible} visible`
+  }
   return key === "assetId"
     ? displayAssetId(value, source)
     : displayChangeValue(value)

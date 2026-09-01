@@ -534,4 +534,67 @@ describe("output variant proposals", () => {
       )
     ).not.toHaveLength(0)
   })
+
+  it("scales shadow offsets, shadow blur, and layer blur", () => {
+    const document = structuredClone(northstarSeed)
+    const sourcePage = document.pages.find((page) => page.id === "cover")!
+    const sourceNodeId = sourcePage.nodeIds[0]!
+    document.nodes = document.nodes.map((node) =>
+      node.id === sourceNodeId
+        ? {
+            ...node,
+            effects: [
+              {
+                id: "shadow",
+                type: "drop_shadow" as const,
+                color: "#00000040",
+                offsetX: 10,
+                offsetY: 20,
+                blur: 30,
+                visible: true,
+              },
+              {
+                id: "blur",
+                type: "layer_blur" as const,
+                radius: 4,
+                visible: true,
+              },
+            ],
+          }
+        : node
+    )
+    const width = sourcePage.width / 2
+    const height = sourcePage.height / 2
+    const proposal = createOutputVariantChangeSet(
+      document,
+      {
+        documentId: document.id,
+        baseRevision: document.revision,
+        baseSnapshotId: "snapshot-effects",
+        sourcePageId: sourcePage.id,
+        name: "Half size",
+        kind: "custom",
+        width,
+        height,
+        exportFormats: ["png"],
+      },
+      identity()
+    )
+    const preview = previewChangeSet(document, proposal)
+    const targetPage = preview.pages.at(-1)!
+    expect(
+      preview.nodes.find((node) => node.id === targetPage.nodeIds[0])?.effects
+    ).toEqual([
+      {
+        id: "shadow",
+        type: "drop_shadow",
+        color: "#00000040",
+        offsetX: 5,
+        offsetY: 10,
+        blur: 15,
+        visible: true,
+      },
+      { id: "blur", type: "layer_blur", radius: 2, visible: true },
+    ])
+  })
 })

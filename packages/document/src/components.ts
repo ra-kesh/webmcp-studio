@@ -12,6 +12,7 @@ import {
 import { scaleFrameLayoutGrid } from "./frame-layout-grids"
 import { scaleCornerRadii } from "./corner-geometry"
 import { scaleStrokePaints } from "./paint-stack"
+import { scaleLayerEffects } from "./effect-stack"
 
 export type ComponentIntegrityIssue = {
   code:
@@ -302,6 +303,9 @@ function transformComponentNode(
     width,
     height,
     rotation: normalizedRotation(node.rotation + instance.transform.rotation),
+    ...(node.effects
+      ? { effects: scaleLayerEffects(node.effects, instance.transform.scale) }
+      : {}),
   }
   const scale = instance.transform.scale
   if (node.type === "text") {

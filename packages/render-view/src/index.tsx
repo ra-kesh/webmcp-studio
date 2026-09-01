@@ -30,6 +30,7 @@ import {
   roundedRectanglePaintPath,
   hasExplicitPaintStack,
   strokeGeometryInset,
+  layerEffectFilter,
   type Document,
   type ImageFrameMask,
   type RenderFrameProjection,
@@ -114,22 +115,26 @@ export function renderImagePaintStyle(
 
 export const renderFrameStyle = (
   frame: RenderFrameProjection
-): CSSProperties => ({
-  position: "absolute",
-  boxSizing: "border-box",
-  left: frame.x,
-  top: frame.y,
-  width: frame.width,
-  height: frame.height,
-  opacity: frame.opacity,
-  mixBlendMode: frame.blendMode,
-  transform:
-    frame.flipX || frame.flipY
-      ? `rotate(${frame.rotation}deg) translate(${frame.width / 2}px, ${frame.height / 2}px) scale(${frame.flipX ? -1 : 1}, ${frame.flipY ? -1 : 1}) translate(${-frame.width / 2}px, ${-frame.height / 2}px)`
-      : `rotate(${frame.rotation}deg)`,
-  transformOrigin: "top left",
-  display: frame.visible ? undefined : "none",
-})
+): CSSProperties => {
+  const filter = layerEffectFilter(frame.effects)
+  return {
+    position: "absolute",
+    boxSizing: "border-box",
+    left: frame.x,
+    top: frame.y,
+    width: frame.width,
+    height: frame.height,
+    opacity: frame.opacity,
+    mixBlendMode: frame.blendMode,
+    filter: filter || undefined,
+    transform:
+      frame.flipX || frame.flipY
+        ? `rotate(${frame.rotation}deg) translate(${frame.width / 2}px, ${frame.height / 2}px) scale(${frame.flipX ? -1 : 1}, ${frame.flipY ? -1 : 1}) translate(${-frame.width / 2}px, ${-frame.height / 2}px)`
+        : `rotate(${frame.rotation}deg)`,
+    transformOrigin: "top left",
+    display: frame.visible ? undefined : "none",
+  }
+}
 
 function renderSvgFrameTransform(
   frame: Pick<

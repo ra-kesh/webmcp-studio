@@ -2209,6 +2209,7 @@ const publicCommonCanvasPatchProperties = new Set([
   "flipY",
   "opacity",
   "blendMode",
+  "effects",
   "visible",
   "locked",
   "constraints",
@@ -2425,6 +2426,51 @@ const imageFrameMaskInputSchema = {
   ],
 } as const
 
+const layerEffectsInputSchema = {
+  type: "array",
+  maxItems: 8,
+  items: {
+    oneOf: [
+      {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string", minLength: 1 },
+          type: { const: "drop_shadow" },
+          color: {
+            type: "string",
+            pattern: "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$",
+          },
+          offsetX: { type: "number", minimum: -4096, maximum: 4096 },
+          offsetY: { type: "number", minimum: -4096, maximum: 4096 },
+          blur: { type: "number", minimum: 0, maximum: 64 },
+          visible: { type: "boolean" },
+        },
+        required: [
+          "id",
+          "type",
+          "color",
+          "offsetX",
+          "offsetY",
+          "blur",
+          "visible",
+        ],
+      },
+      {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string", minLength: 1 },
+          type: { const: "layer_blur" },
+          radius: { type: "number", minimum: 0, maximum: 64 },
+          visible: { type: "boolean" },
+        },
+        required: ["id", "type", "radius", "visible"],
+      },
+    ],
+  },
+} as const
+
 const commonCanvasPatchInputProperties = {
   name: { type: "string", minLength: 1 },
   x: { type: "number" },
@@ -2456,6 +2502,7 @@ const commonCanvasPatchInputProperties = {
       "luminosity",
     ],
   },
+  effects: layerEffectsInputSchema,
   visible: { type: "boolean" },
   locked: { type: "boolean" },
   constraints: {

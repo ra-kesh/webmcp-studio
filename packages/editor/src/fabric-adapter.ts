@@ -44,6 +44,7 @@ import {
   roundedRectanglePaintPath,
   hasExplicitPaintStack,
   strokeGeometryInset,
+  layerEffectFilter,
   resolveTextSelectionStyle,
   resolveTextSelectionStyleAttachment,
   resolveTextSelectionLink,
@@ -57,6 +58,7 @@ import {
   type Document,
   type BlendMode,
   type ImagePlacement,
+  type LayerEffect,
   type RenderImageAffine,
   type RenderImageClip,
   type ProjectedTextLine,
@@ -1536,9 +1538,68 @@ function applyFabricTextControlPolicy(
   })
 }
 
+class EffectGroup extends Group {
+  effectFilter = ""
+
+  setEffectFilter(effects: readonly LayerEffect[] | undefined) {
+    this.effectFilter = layerEffectFilter(effects)
+    this.dirty = true
+  }
+
+  override _render(context: CanvasRenderingContext2D) {
+    const previousFilter = context.filter
+    context.filter = this.effectFilter || "none"
+    super._render(context)
+    context.filter = previousFilter
+  }
+}
+
+const wrapFabricEffects = <T extends FabricObject>(
+  object: T,
+  node: SceneNode
+): T | EffectGroup => {
+  if (!node.effects?.some((effect) => effect.visible)) return object
+  object.set({
+    left: 0,
+    top: 0,
+    angle: 0,
+    flipX: false,
+    flipY: false,
+    opacity: 1,
+    globalCompositeOperation: "source-over",
+    visible: true,
+    selectable: false,
+    evented: false,
+  })
+  const group = new EffectGroup([object], {
+    ...sharedOptions(node),
+    width: node.width,
+    height: node.height,
+    subTargetCheck: false,
+  })
+  group.setEffectFilter(node.effects)
+  return group
+}
+
 export function createFabricSyncObject(
   node: Exclude<SceneNode, { type: "image" }>
-) {
+): FabricObject {
+  if (node.effects?.some((effect) => effect.visible)) {
+    const inner: FabricObject = createFabricSyncObject({
+      ...node,
+      effects: undefined,
+      x: 0,
+      y: 0,
+      rotation: 0,
+      flipX: false,
+      flipY: false,
+      opacity: 1,
+      blendMode: "normal",
+      visible: true,
+      locked: true,
+    } as Exclude<SceneNode, { type: "image" }>)
+    return wrapFabricEffects(inner, node)
+  }
   if (usesPaintStack(node)) {
     const projection = projectNodeForRender(node)
     if (projection.type === "text" || projection.type === "image") {
@@ -2948,7 +3009,7 @@ export function createFabricImageGroup(
     layoutManager: new LayoutManager(new FixedLayout()),
   })
   syncImageGroup(group, node)
-  return group
+  return wrapFabricEffects(group, node)
 }
 
 function syncImageGroup(
@@ -3602,6 +3663,23 @@ export class FabricCanvasAdapter implements CanvasAdapter {
           stagedObjectByNodeId.set(node.id, {
             object: stagedObject,
             replaces: null,
+          })
+          continue
+        }
+        if (
+          previousNode !== node &&
+          (node.effects?.some((effect) => effect.visible) ||
+            previousNode?.effects?.some((effect) => effect.visible))
+        ) {
+          const replacement = await createFabricObjectForSync(
+            node,
+            loadPreparedImage,
+            signal
+          )
+          stagedRegularCandidates.add(replacement)
+          stagedObjectByNodeId.set(node.id, {
+            object: replacement,
+            replaces: object,
           })
           continue
         }

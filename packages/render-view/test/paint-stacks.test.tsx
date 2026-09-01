@@ -106,4 +106,45 @@ describe("paint-stack render parity", () => {
     expect(markup).toContain('stroke-miterlimit="7"')
     expect(markup).toContain('x1="-4"')
   })
+
+  it("emits ordered drop-shadow and blur filters on the composited layer", () => {
+    const target = northstarSeed.nodes.find((node) => node.type === "rect")
+    if (!target || target.type !== "rect") throw new Error("Expected rectangle")
+    const document: Document = {
+      ...structuredClone(northstarSeed),
+      nodes: northstarSeed.nodes.map((node) =>
+        node.id === target.id
+          ? {
+              ...target,
+              effects: [
+                {
+                  id: "shadow",
+                  type: "drop_shadow" as const,
+                  color: "#00000040",
+                  offsetX: 6,
+                  offsetY: 8,
+                  blur: 10,
+                  visible: true,
+                },
+                {
+                  id: "blur",
+                  type: "layer_blur" as const,
+                  radius: 4,
+                  visible: true,
+                },
+              ],
+            }
+          : node
+      ),
+    }
+    const page = document.pages.find((candidate) =>
+      candidate.nodeIds.includes(target.id)
+    )!
+    const markup = renderToStaticMarkup(
+      createElement(Artboard, { document, pageId: page.id })
+    )
+    expect(markup).toContain(
+      "filter:drop-shadow(6px 8px 10px #00000040) blur(4px)"
+    )
+  })
 })

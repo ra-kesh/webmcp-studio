@@ -81,6 +81,7 @@ import type {
   GeneratedDocumentPlan,
   ImageFrameMask,
   ImagePlacement,
+  LayerEffect,
   NodeConstraints,
   PaintStyle,
   PaintStylePatch,
@@ -1628,6 +1629,196 @@ function PaintStackControls({
     <div className="space-y-3">
       {node.type === "line" ? null : renderList("fills", fills)}
       {renderList("strokes", strokes)}
+    </div>
+  )
+}
+
+const nextEffectId = (
+  prefix: "shadow" | "blur",
+  effects: readonly LayerEffect[]
+) => {
+  let index = effects.length + 1
+  while (effects.some((effect) => effect.id === `${prefix}-${index}`))
+    index += 1
+  return `${prefix}-${index}`
+}
+
+function EffectStackControls({
+  node,
+  onUpdate,
+}: {
+  node: SceneNode
+  onUpdate: (patch: Partial<SceneNode>) => void
+}) {
+  const effects = node.effects ?? []
+  const update = (next: LayerEffect[]) => onUpdate({ effects: next })
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <FieldLabel>Effects</FieldLabel>
+        <div className="flex gap-1">
+          <Button
+            aria-label="Add drop shadow"
+            disabled={node.locked || effects.length >= 8}
+            size="xs"
+            variant="ghost"
+            onClick={() =>
+              update([
+                ...effects,
+                {
+                  id: nextEffectId("shadow", effects),
+                  type: "drop_shadow",
+                  color: "#00000040",
+                  offsetX: 0,
+                  offsetY: 8,
+                  blur: 16,
+                  visible: true,
+                },
+              ])
+            }
+          >
+            Shadow
+          </Button>
+          <Button
+            aria-label="Add layer blur"
+            disabled={node.locked || effects.length >= 8}
+            size="xs"
+            variant="ghost"
+            onClick={() =>
+              update([
+                ...effects,
+                {
+                  id: nextEffectId("blur", effects),
+                  type: "layer_blur",
+                  radius: 4,
+                  visible: true,
+                },
+              ])
+            }
+          >
+            Blur
+          </Button>
+        </div>
+      </div>
+      {effects.map((effect, index) => {
+        const replace = (next: LayerEffect) =>
+          update(
+            effects.map((candidate, candidateIndex) =>
+              candidateIndex === index ? next : candidate
+            )
+          )
+        return (
+          <div
+            className="rounded-md border border-border/70 bg-muted/25 p-2"
+            key={effect.id}
+          >
+            <div className="flex items-center gap-1">
+              <Checkbox
+                aria-label={`Effect ${index + 1} visible`}
+                checked={effect.visible}
+                disabled={node.locked}
+                onCheckedChange={(checked) =>
+                  replace({ ...effect, visible: checked === true })
+                }
+              />
+              <span className="min-w-0 flex-1 text-[11px] text-muted-foreground">
+                {effect.type === "drop_shadow" ? "Drop shadow" : "Layer blur"}
+              </span>
+              <Button
+                aria-label={`Move effect ${index + 1} up`}
+                disabled={node.locked || index === 0}
+                size="icon-xs"
+                variant="ghost"
+                onClick={() => {
+                  const next = [...effects]
+                  ;[next[index - 1], next[index]] = [
+                    next[index]!,
+                    next[index - 1]!,
+                  ]
+                  update(next)
+                }}
+              >
+                <ChevronUp />
+              </Button>
+              <Button
+                aria-label={`Move effect ${index + 1} down`}
+                disabled={node.locked || index === effects.length - 1}
+                size="icon-xs"
+                variant="ghost"
+                onClick={() => {
+                  const next = [...effects]
+                  ;[next[index], next[index + 1]] = [
+                    next[index + 1]!,
+                    next[index]!,
+                  ]
+                  update(next)
+                }}
+              >
+                <ChevronDown />
+              </Button>
+              <Button
+                aria-label={`Remove effect ${index + 1}`}
+                disabled={node.locked}
+                size="icon-xs"
+                variant="ghost"
+                onClick={() =>
+                  update(effects.filter((_, candidate) => candidate !== index))
+                }
+              >
+                <Trash2 />
+              </Button>
+            </div>
+            {effect.type === "drop_shadow" ? (
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <CommitInput
+                  aria-label="Shadow color"
+                  disabled={node.locked}
+                  value={effect.color}
+                  onCommit={(color) => {
+                    if (/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(color))
+                      replace({ ...effect, color })
+                  }}
+                />
+                <InspectorNumberField
+                  label="Blur"
+                  value={inspectorValue(effect.blur)}
+                  min={0}
+                  max={64}
+                  disabled={node.locked}
+                  onCommit={(blur) => replace({ ...effect, blur })}
+                />
+                <InspectorNumberField
+                  label="X"
+                  value={inspectorValue(effect.offsetX)}
+                  min={-4096}
+                  max={4096}
+                  disabled={node.locked}
+                  onCommit={(offsetX) => replace({ ...effect, offsetX })}
+                />
+                <InspectorNumberField
+                  label="Y"
+                  value={inspectorValue(effect.offsetY)}
+                  min={-4096}
+                  max={4096}
+                  disabled={node.locked}
+                  onCommit={(offsetY) => replace({ ...effect, offsetY })}
+                />
+              </div>
+            ) : (
+              <div className="mt-2">
+                <InspectorNumberField
+                  label="Radius"
+                  value={inspectorValue(effect.radius)}
+                  min={0}
+                  max={64}
+                  disabled={node.locked}
+                  onCommit={(radius) => replace({ ...effect, radius })}
+                />
+              </div>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -3220,6 +3411,10 @@ function NodeInspector({
           <PaintStackControls node={node} onUpdate={onUpdate} />
         </InspectorSection>
       ) : null}
+
+      <InspectorSection title="Effects">
+        <EffectStackControls node={node} onUpdate={onUpdate} />
+      </InspectorSection>
 
       {inspector.capabilities.image && node.type === "image" ? (
         <InspectorSection

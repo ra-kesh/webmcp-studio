@@ -147,6 +147,40 @@ describe("review operation details", () => {
     expect(details.after).not.toContain('"color"')
   })
 
+  it("summarizes ordered effects without dumping implementation JSON", () => {
+    const document = quotationStarter.document
+    const node = document.nodes.find((candidate) => candidate.type === "rect")!
+    const operation: ChangeOperation = {
+      id: "effect-operation",
+      status: "pending",
+      summary: "Add effects",
+      command: {
+        id: "effect-command",
+        type: "update_node",
+        actor: "agent",
+        at: "2026-09-02T01:06:00.000Z",
+        nodeId: node.id,
+        patch: {
+          effects: [
+            {
+              id: "shadow",
+              type: "drop_shadow",
+              color: "#00000040",
+              offsetX: 4,
+              offsetY: 8,
+              blur: 12,
+              visible: true,
+            },
+            { id: "blur", type: "layer_blur", radius: 2, visible: false },
+          ],
+        },
+      },
+    }
+    const details = operationDetails(document, operation)
+    expect(details.after).toContain("effects: 2 effects · 1 visible")
+    expect(details.after).not.toContain('"drop_shadow"')
+  })
+
   it("summarizes independent corner geometry", () => {
     const document = quotationStarter.document
     const node = document.nodes.find((candidate) => candidate.type === "rect")!

@@ -248,6 +248,7 @@ const commonCanvasProperties = new Set([
   "flipY",
   "opacity",
   "blendMode",
+  "effects",
   "visible",
   "locked",
   "constraints",
@@ -340,6 +341,20 @@ function scaleNode(
     y: rounded(node.y * scaleY),
     width: Math.max(1, rounded(node.width * scaleX)),
     height: Math.max(1, rounded(node.height * scaleY)),
+    ...(node.effects
+      ? {
+          effects: node.effects.map((effect) =>
+            effect.type === "drop_shadow"
+              ? {
+                  ...effect,
+                  offsetX: rounded(effect.offsetX * scale),
+                  offsetY: rounded(effect.offsetY * scale),
+                  blur: rounded(effect.blur * scale),
+                }
+              : { ...effect, radius: rounded(effect.radius * scale) }
+          ),
+        }
+      : {}),
   }
   switch (node.type) {
     case "text":

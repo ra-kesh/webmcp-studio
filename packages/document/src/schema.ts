@@ -104,6 +104,64 @@ export const strokePaintSchema = paintBaseSchema.extend({
   miterLimit: z.number().min(1).max(100).optional(),
 })
 
+const effectIdSchema = z.string().min(1)
+const effectColorSchema = z
+  .string()
+  .regex(
+    /^#[0-9a-f]{6}([0-9a-f]{2})?$/i,
+    "Effect colors must be hex RGB or RGBA"
+  )
+
+export const layerEffectSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      id: effectIdSchema,
+      type: z.literal("drop_shadow"),
+      color: effectColorSchema,
+      offsetX: z.number().min(-4096).max(4096),
+      offsetY: z.number().min(-4096).max(4096),
+      blur: z.number().min(0).max(64),
+      visible: z.boolean(),
+    })
+    .strict(),
+  z
+    .object({
+      id: effectIdSchema,
+      type: z.literal("layer_blur"),
+      radius: z.number().min(0).max(64),
+      visible: z.boolean(),
+    })
+    .strict(),
+])
+
+export const layerEffectsSchema = z
+  .array(layerEffectSchema)
+  .max(8)
+  .superRefine((effects, context) => {
+    const ids = new Set<string>()
+    let blurBudget = 0
+    effects.forEach((effect, index) => {
+      if (ids.has(effect.id)) {
+        context.addIssue({
+          code: "custom",
+          path: [index, "id"],
+          message: "Effect IDs must be unique within a stack",
+        })
+      }
+      ids.add(effect.id)
+      if (effect.visible) {
+        blurBudget +=
+          effect.type === "drop_shadow" ? effect.blur : effect.radius
+      }
+    })
+    if (blurBudget > 128) {
+      context.addIssue({
+        code: "custom",
+        message: "Visible effect blur budget cannot exceed 128 pixels",
+      })
+    }
+  })
+
 const uniquePaints = <T extends { id: string }>(
   paints: readonly T[],
   context: z.RefinementCtx
@@ -285,6 +343,7 @@ const baseNodeSchema = z
     flipY: z.boolean().optional(),
     opacity: z.number().min(0).max(1).default(1),
     blendMode: blendModeSchema.optional(),
+    effects: layerEffectsSchema.optional(),
     visible: z.boolean().default(true),
     locked: z.boolean().default(false),
     constraints: nodeConstraintsSchema.default(defaultNodeConstraints),
@@ -303,6 +362,7 @@ const baseNodePatchSchema = z
     flipY: z.boolean().optional(),
     opacity: z.number().min(0).max(1).optional(),
     blendMode: blendModeSchema.optional(),
+    effects: layerEffectsSchema.optional(),
     visible: z.boolean().optional(),
     locked: z.boolean().optional(),
     constraints: nodeConstraintsSchema.optional(),
@@ -1110,6 +1170,7 @@ export const componentOverridePropertySchema = z.enum([
   "flipY",
   "opacity",
   "blendMode",
+  "effects",
   "visible",
   "locked",
   "constraints",
@@ -1891,6 +1952,7 @@ export type BlendMode = z.infer<typeof blendModeSchema>
 export type CornerRadii = z.infer<typeof cornerRadiiSchema>
 export type FillPaint = z.infer<typeof fillPaintSchema>
 export type StrokePaint = z.infer<typeof strokePaintSchema>
+export type LayerEffect = z.infer<typeof layerEffectSchema>
 export type NodeConstraints = z.infer<typeof nodeConstraintsSchema>
 export type FrameChildLayout = z.infer<typeof frameChildLayoutSchema>
 export type FrameAutoLayout = z.infer<typeof frameAutoLayoutSchema>

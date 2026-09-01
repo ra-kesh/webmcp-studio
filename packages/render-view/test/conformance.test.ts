@@ -271,7 +271,21 @@ describe("React render-view conformance", () => {
       maskRenderConformanceNodes.map((node) => [
         node.id,
         node.id === "mask-conformance-content"
-          ? { ...node, blendMode: "multiply" as const }
+          ? {
+              ...node,
+              blendMode: "multiply" as const,
+              effects: [
+                {
+                  id: "masked-shadow",
+                  type: "drop_shadow" as const,
+                  color: "#00000040",
+                  offsetX: 4,
+                  offsetY: 6,
+                  blur: 8,
+                  visible: true,
+                },
+              ],
+            }
           : node,
       ])
     )
@@ -280,6 +294,7 @@ describe("React render-view conformance", () => {
     )
 
     expect(markup).toContain("mix-blend-mode:multiply")
+    expect(markup).toContain("filter:drop-shadow(4px 6px 8px #00000040)")
     expect(markup).toContain('data-mask-source-id="mask-conformance-source"')
     expect(markup.match(/mix-blend-mode:multiply/g)).toHaveLength(1)
   })

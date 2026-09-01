@@ -97,4 +97,29 @@ describe("Fabric paint stacks", () => {
       ])
     )
   })
+
+  it("applies the ordered effect filter to one atomic Fabric wrapper", () => {
+    const base = northstarSeed.nodes.find((node) => node.type === "rect")
+    if (!base || base.type !== "rect") throw new Error("Expected rectangle")
+    const object = createFabricSyncObject({
+      ...base,
+      effects: [
+        {
+          id: "shadow",
+          type: "drop_shadow",
+          color: "#00000040",
+          offsetX: 6,
+          offsetY: 8,
+          blur: 10,
+          visible: true,
+        },
+        { id: "blur", type: "layer_blur", radius: 4, visible: true },
+      ],
+    }) as Group & { effectFilter: string }
+    expect(object).toBeInstanceOf(Group)
+    expect(object.effectFilter).toBe(
+      "drop-shadow(6px 8px 10px #00000040) blur(4px)"
+    )
+    expect(object.getObjects()).toHaveLength(1)
+  })
 })

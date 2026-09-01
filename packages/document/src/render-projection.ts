@@ -4,6 +4,7 @@ import type {
   FillPaint,
   ImageFrameMask,
   ImagePlacement,
+  LayerEffect,
   Page,
   SceneNode,
   StrokePaint,
@@ -26,6 +27,7 @@ export type RenderFrameProjection = {
   blendMode: BlendMode
   visible: boolean
   locked: boolean
+  effects: LayerEffect[]
 }
 
 type ProjectedNode<Type extends SceneNode["type"], Content> = {
@@ -184,6 +186,7 @@ const projectFrame = (node: SceneNode): RenderFrameProjection => ({
   blendMode: node.blendMode ?? "normal",
   visible: node.visible,
   locked: node.locked,
+  effects: node.effects ?? [],
 })
 
 const projectCorners = (
