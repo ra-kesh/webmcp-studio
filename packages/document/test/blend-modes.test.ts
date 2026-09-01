@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   blendModeSchema,
+  componentOverridePropertySchema,
   northstarSeed,
   projectNodeForRender,
   sceneNodePatchSchema,
@@ -35,6 +36,9 @@ describe("layer blend modes", () => {
     expect(() =>
       sceneNodePatchSchema.parse({ blendMode: "pass-through" })
     ).toThrow()
+    expect(componentOverridePropertySchema.parse("blendMode")).toBe(
+      "blendMode"
+    )
   })
 
   it("resolves legacy absence to normal and preserves every admitted mode", () => {

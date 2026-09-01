@@ -953,6 +953,7 @@ export const componentOverridePropertySchema = z.enum([
   "flipX",
   "flipY",
   "opacity",
+  "blendMode",
   "visible",
   "locked",
   "constraints",
