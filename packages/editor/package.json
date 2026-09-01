@@ -27,6 +27,7 @@
     "./product-commands": "./src/product-commands.ts",
     "./structure-commands": "./src/structure-commands.ts",
     "./viewport": "./src/viewport.ts",
+    "./multi-artboard": "./src/multi-artboard.ts",
     "./page-guides": "./src/page-guides.ts",
     "./image-crop-session": "./src/image-crop-session.ts",
     "./image-crop-preview-store": "./src/image-crop-preview-store.ts",
