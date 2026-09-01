@@ -4,7 +4,7 @@ Date: 2026-09-01
 
 Updated: 2026-09-02
 
-Code baseline: `ccc5879dcc3d0b410dc5292d20ec10a3f832a302`
+Code baseline: `06125ee1e8a63be1e8c7d8f99be14fbb992b0072`
 
 This checkpoint reconciles the main conversation with the separate redesign,
 mask, rich-text, component, library, image-architecture, generation, independent
@@ -90,7 +90,20 @@ checkpoint and evidence stay auditable.
    No capability-item 4 / implementation-Gate 5 gap remains. The implementation
    retains the adapted geometry source's MIT notice and adds no runtime
    dependency.
-5. Multiple fills and strokes on one layer.
+5. **Multiple fills and strokes on one layer — completed as phase-map Gate 6
+   and independently accepted.** Commit
+   `06125ee1e8a63be1e8c7d8f99be14fbb992b0072` adds strict bounded ordered
+   paint arrays; byte-compatible legacy paint projection; explicit-empty and
+   primary-paint synchronization semantics; per-paint visibility, opacity,
+   blend, and stroke width; Fabric, React, and renderer HTML parity; style,
+   variable, component, and responsive scaling compatibility; compact
+   Inspector list controls; deterministic Review summaries; strict WebMCP
+   proposals; and a mounted add/edit/reorder/toggle/Undo/Redo/autosave/reload
+   browser journey. Evidence:
+   `advanced-editor-depth-gate-06-multiple-paints-review-2026-09-01.md`. No
+   capability-item 5 / implementation-Gate 6 gap remains. Gradients, image
+   paints, patterns, and noise remain outside this solid-paint gate; advanced
+   stroke geometry begins in phase-map Gate 7.
 6. Advanced stroke controls: alignment, per-side strokes, dashes, caps, joins,
    and miter behavior.
 7. Layer effects such as shadows and blur.
