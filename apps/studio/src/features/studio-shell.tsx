@@ -242,6 +242,7 @@ import { CriticalActionStatus } from "./editor/critical-action-status"
 import type { StudioCriticalAction } from "./editor/critical-action-status"
 import { exportPagePng } from "./editor/export-page-png"
 import { exportOutputPdf } from "./editor/export-output-pdf"
+import { documentMediaAdmissionActionModel } from "./editor/document-media-admission-action-model"
 import {
   assertImageReplacementOutputAdmission,
   imageReplacementOutputCommandStates,
@@ -411,18 +412,6 @@ const TextLinkEditor = createLazyEditorInteraction(() =>
     default: module.TextLinkEditor,
   }))
 )
-
-export function documentMediaAdmissionActionModel(
-  restoredAt: string | null,
-  restoreUnavailable: boolean
-) {
-  return {
-    showRestore: restoredAt === null && !restoreUnavailable,
-    showPreservation: restoredAt === null && restoreUnavailable,
-    keepLabel:
-      restoredAt === null ? "Keep recovered images" : "Keep restored version",
-  } as const
-}
 
 const HEART_ICON_PATH =
   "M12 21.35 10.55 20.03C5.4 15.36 2 12.27 2 8.5 2 5.41 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.08C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.41 22 8.5c0 3.77-3.4 6.86-8.55 11.54Z"

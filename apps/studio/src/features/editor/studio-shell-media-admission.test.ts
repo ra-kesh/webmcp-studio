@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { documentMediaAdmissionActionModel } from "../studio-shell"
+import { documentMediaAdmissionActionModel } from "./document-media-admission-action-model"
 
 describe("document media admission banner actions", () => {
   it("shows Restore only for the exact recovered head", () => {
