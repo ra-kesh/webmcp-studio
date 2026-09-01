@@ -136,6 +136,10 @@ WebMCP, and migration work. They are not styling-only tasks.
 3. Live Stuwiz retrieval and reconciliation remain external. Studio still
    needs an authenticated complete-source endpoint, stable source
    revision/fingerprint, authorization, and provenance contract from Stuwiz.
+   A 2026-09-01 read-only check reconfirmed `origin/staging` at `8b79b190`;
+   that remote ref still has no Studio source endpoint. The local Stuwiz
+   checkout contains extensive unrelated in-progress quotation-rendering work
+   and was not modified or used as shipped contract evidence.
 4. Browser-local media is not automatically shared across devices. Promotion,
    relink, and recovery exist, but shared availability and its deployed
    isolation/restart/cleanup/fault behavior still need production evidence.
