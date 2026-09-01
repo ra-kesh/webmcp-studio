@@ -18,6 +18,8 @@ describe("PageNavigator", () => {
     expect(markup).toContain('data-page-navigator="true"')
     expect(markup.match(/role="option"/g)).toHaveLength(document.pages.length)
     expect(markup).toContain('aria-selected="true"')
+    expect(markup).toContain('aria-keyshortcuts="Shift+F10"')
+    expect(markup).toContain("data-page-command-target")
     expect(markup).not.toContain("canvas")
     expect(markup).not.toContain("More actions")
   })

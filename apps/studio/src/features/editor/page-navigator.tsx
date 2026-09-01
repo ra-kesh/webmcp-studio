@@ -1,10 +1,18 @@
 import { useMemo, useRef } from "react"
 import type { Document } from "@webmcp/document"
 import { pageIdForNavigationKey } from "@webmcp/editor/multi-artboard"
+import { buildPageContextMenu } from "@webmcp/editor/product-commands"
+import type { ProductCommandRuntimeContext } from "@webmcp/editor/product-commands"
 import { Button } from "@webmcp/ui/components/button"
 import { ScrollArea } from "@webmcp/ui/components/scroll-area"
 import { cn } from "@webmcp/ui/lib/utils"
 import { Plus } from "lucide-react"
+import {
+  createPageProductCommandTarget,
+  dispatchKeyboardContextMenu,
+} from "./page-output-command-context"
+import { ProductCommandContextMenu } from "./product-command-menu"
+import type { ProductCommandMenuRuntime } from "./product-command-menu"
 
 export function PageNavigator({
   document,
@@ -13,6 +21,8 @@ export function PageNavigator({
   compact = false,
   onSelectPage,
   onAddPage,
+  productCommandContext,
+  productCommandRuntime,
 }: Readonly<{
   document: Document
   activePageId: string
@@ -20,6 +30,8 @@ export function PageNavigator({
   compact?: boolean
   onSelectPage: (pageId: string) => void
   onAddPage: (outputId: string) => void
+  productCommandContext?: ProductCommandRuntimeContext
+  productCommandRuntime?: ProductCommandMenuRuntime
 }>) {
   const pageIds = useMemo(
     () => document.pages.map((page) => page.id),
@@ -69,7 +81,17 @@ export function PageNavigator({
         >
           {document.pages.map((page, index) => {
             const active = page.id === activePage.id
-            return (
+            const commandMenuAvailable =
+              productCommandContext &&
+              typeof productCommandRuntime?.run === "function" &&
+              typeof productCommandRuntime.shortcut === "function"
+            const commandGroups = commandMenuAvailable
+              ? buildPageContextMenu(
+                  productCommandContext,
+                  createPageProductCommandTarget(productCommandContext, page)
+                )
+              : null
+            const pageRow = (
               <button
                 key={page.id}
                 ref={(element) => {
@@ -78,17 +100,27 @@ export function PageNavigator({
                 }}
                 type="button"
                 aria-label={`Center page ${index + 1}: ${page.name}`}
+                aria-keyshortcuts="Shift+F10"
                 aria-selected={active}
                 className={cn(
                   "flex items-center gap-2 rounded-sm px-2.5 text-left outline-none hover:bg-muted/55 focus-visible:ring-2 focus-visible:ring-studio-accent/45 focus-visible:ring-inset",
                   compact ? "min-h-11" : "min-h-9",
                   active && "bg-studio-accent/10 text-studio-accent"
                 )}
+                data-page-command-target={page.id}
                 role="option"
                 tabIndex={active ? 0 : -1}
                 onClick={() => onSelectPage(page.id)}
+                onContextMenu={() => onSelectPage(page.id)}
                 onKeyDown={(event) => {
                   if (move(event.key)) event.preventDefault()
+                  if (
+                    event.key === "ContextMenu" ||
+                    (event.key === "F10" && event.shiftKey)
+                  ) {
+                    onSelectPage(page.id)
+                    dispatchKeyboardContextMenu(event, event.currentTarget)
+                  }
                 }}
               >
                 <span className="w-5 shrink-0 text-right text-[11px] text-muted-foreground tabular-nums">
@@ -101,6 +133,17 @@ export function PageNavigator({
                   {page.width} × {page.height}
                 </span>
               </button>
+            )
+            return commandGroups && productCommandRuntime ? (
+              <ProductCommandContextMenu
+                key={page.id}
+                groups={commandGroups}
+                runtime={productCommandRuntime}
+              >
+                {pageRow}
+              </ProductCommandContextMenu>
+            ) : (
+              pageRow
             )
           })}
         </div>

@@ -85,3 +85,8 @@ The integrated File rail now omits layer search and uses one compact Layers
 header: the canonical layer total sits beside the title while stack order stays
 right-aligned. Standalone layer-tree surfaces retain search for larger,
 dedicated navigation contexts.
+
+Page rows in the File rail now expose the canonical page command menu through
+right-click and `Shift+F10`. Rename, duplicate, add, reorder and delete use the
+same validated product-command runtime and confirmation dialogs as the existing
+page/output management surfaces.

@@ -378,6 +378,8 @@ export function QuotationSidebar({
                 compact={compact}
                 onSelectPage={onSelectPage}
                 onAddPage={onAddPage}
+                productCommandContext={productCommandContext}
+                productCommandRuntime={productCommandRuntime}
               />
             </div>
             <div
