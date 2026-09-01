@@ -2,7 +2,7 @@
 
 Date: 2026-09-01
 
-Code baseline: `10b8aae`
+Code baseline: `7fa5cdd8b1a5f797348644c6aab15320d7d3d11b`
 
 This checkpoint reconciles the main conversation with the separate redesign,
 mask, rich-text, component, library, image-architecture, generation, independent
@@ -35,13 +35,20 @@ superseding commit rather than the original side-task hash:
 
 No completed side-task product feature is waiting for an ordinary merge.
 
-## Capabilities that are genuinely not built
+## Advanced editor-depth capability ledger
 
-These are the concrete editor-depth gaps identified in the separate
-OpenPencil comparison and still absent from the canonical schema, renderer, or
-Inspector:
+These are the concrete editor-depth gaps identified in the separate OpenPencil
+comparison. Accepted gates remain in the numbered ledger so their exact
+checkpoint and evidence stay auditable.
 
-1. Constraints and pinning behavior for responsive resizing.
+1. **Constraints and responsive pinning — completed and independently
+   accepted.** Commit `7fa5cdd8b1a5f797348644c6aab15320d7d3d11b`
+   adds the schema-v6 two-axis constraint model, v1-v5 draft migration,
+   deterministic page-resize transaction, history, component override policy,
+   Inspector, Review, WebMCP, renderer-ownership rule, compatibility hashes,
+   and focused regression coverage. Evidence:
+   `advanced-editor-depth-gate-01-constraints-review-2026-09-01.md`. No Gate 1
+   gap remains; container-relative reflow begins in Gate 2.
 2. Auto layout and explicit clipping/overflow controls for containers.
 3. Blend modes.
 4. Independent corner radii and corner smoothing.
@@ -110,4 +117,3 @@ WebMCP, and migration work. They are not styling-only tasks.
 - Cross-page multi-selection remains out of scope.
 - Collaboration, presence, comments, team libraries, and organization roles
   are explicitly excluded.
-
