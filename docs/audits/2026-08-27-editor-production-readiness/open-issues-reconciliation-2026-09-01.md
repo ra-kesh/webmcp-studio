@@ -4,7 +4,7 @@ Date: 2026-09-01
 
 Updated: 2026-09-02
 
-Code baseline: `06125ee1e8a63be1e8c7d8f99be14fbb992b0072`
+Code baseline: `bf2cefefb9bfa393c37085ce65204e94409c29f3`
 
 This checkpoint reconciles the main conversation with the separate redesign,
 mask, rich-text, component, library, image-architecture, generation, independent
@@ -104,8 +104,15 @@ checkpoint and evidence stay auditable.
    capability-item 5 / implementation-Gate 6 gap remains. Gradients, image
    paints, patterns, and noise remain outside this solid-paint gate; advanced
    stroke geometry begins in phase-map Gate 7.
-6. Advanced stroke controls: alignment, per-side strokes, dashes, caps, joins,
-   and miter behavior.
+6. **Advanced stroke controls — completed as phase-map Gate 7 and
+   independently accepted.** Commit
+   `bf2cefefb9bfa393c37085ce65204e94409c29f3` adds strict alignment,
+   per-side, dash, cap, join, and miter semantics; deterministic visible-stroke
+   bounds; Fabric, React, and renderer HTML parity; component and responsive
+   dash scaling; compact Inspector controls; strict WebMCP schemas; and a
+   mounted add/edit/autosave/reload browser journey. Evidence:
+   `advanced-editor-depth-gate-07-advanced-strokes-review-2026-09-01.md`. No
+   capability-item 6 / implementation-Gate 7 gap remains.
 7. Layer effects such as shadows and blur.
 8. Per-layer export settings.
 9. Additional text layout controls: direction, vertical alignment,
