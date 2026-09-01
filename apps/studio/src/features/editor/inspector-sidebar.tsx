@@ -2212,49 +2212,48 @@ function NodeInspector({
             />
           </div>
           <div className="space-y-2 border-t pt-3">
-            <div className="flex items-center justify-between gap-3">
-              <FieldLabel>Image frame</FieldLabel>
-              <ToggleGroup
-                type="single"
-                size="sm"
-                spacing={0}
-                variant="outline"
-                value={node.frameMask.shape}
-                disabled={imageFrameDisabled}
-                onValueChange={(type) => {
-                  const commandByShape: Partial<
-                    Record<string, EditorImageFrameCommandId>
-                  > = {
-                    rectangle: "image.frame.rectangle",
-                    rounded_rectangle: "image.frame.rounded-rectangle",
-                    ellipse: "image.frame.ellipse",
-                  }
-                  const commandId = commandByShape[type]
-                  if (commandId) onRunImageCommand(commandId)
-                }}
+            <ToggleGroup
+              aria-label="Image frame shape"
+              className="grid w-full grid-cols-3"
+              type="single"
+              size="sm"
+              spacing={0}
+              variant="outline"
+              value={node.frameMask.shape}
+              disabled={imageFrameDisabled}
+              onValueChange={(type) => {
+                const commandByShape: Partial<
+                  Record<string, EditorImageFrameCommandId>
+                > = {
+                  rectangle: "image.frame.rectangle",
+                  rounded_rectangle: "image.frame.rounded-rectangle",
+                  ellipse: "image.frame.ellipse",
+                }
+                const commandId = commandByShape[type]
+                if (commandId) onRunImageCommand(commandId)
+              }}
+            >
+              <ToggleGroupItem
+                value="rectangle"
+                disabled={!isImageCommandEnabled("image.frame.rectangle")}
               >
-                <ToggleGroupItem
-                  value="rectangle"
-                  disabled={!isImageCommandEnabled("image.frame.rectangle")}
-                >
-                  Rectangle
-                </ToggleGroupItem>
-                <ToggleGroupItem
-                  value="rounded_rectangle"
-                  disabled={
-                    !isImageCommandEnabled("image.frame.rounded-rectangle")
-                  }
-                >
-                  Rounded
-                </ToggleGroupItem>
-                <ToggleGroupItem
-                  value="ellipse"
-                  disabled={!isImageCommandEnabled("image.frame.ellipse")}
-                >
-                  Ellipse
-                </ToggleGroupItem>
-              </ToggleGroup>
-            </div>
+                Rectangle
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="rounded_rectangle"
+                disabled={
+                  !isImageCommandEnabled("image.frame.rounded-rectangle")
+                }
+              >
+                Rounded
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="ellipse"
+                disabled={!isImageCommandEnabled("image.frame.ellipse")}
+              >
+                Ellipse
+              </ToggleGroupItem>
+            </ToggleGroup>
             {node.frameMask.shape === "rounded_rectangle" ? (
               <CommitPercentSlider
                 label="Corner radius"
