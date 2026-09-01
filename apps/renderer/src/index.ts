@@ -286,7 +286,7 @@ const prefersMetadataOnly = (request: Request) =>
 const prefersEphemeralArtifact = (request: Request) =>
   request.headers.get("X-Render-Persistence") === "ephemeral"
 
-function ephemeralArtifactResponse({
+async function ephemeralArtifactResponse({
   bytes,
   contentType,
   filename,
@@ -300,6 +300,13 @@ function ephemeralArtifactResponse({
   details: Record<string, string>
 }) {
   const responseBytes = Uint8Array.from(bytes)
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    responseBytes.slice().buffer
+  )
+  const checksum = `sha256-${Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("")}`
   return new Response(responseBytes.buffer, {
     headers: {
       "Cache-Control": "no-store",
@@ -307,6 +314,7 @@ function ephemeralArtifactResponse({
       "Content-Length": String(bytes.byteLength),
       "Content-Type": contentType,
       "X-Bytes": String(bytes.byteLength),
+      "X-Checksum": checksum,
       "X-Render-Id": renderId,
       "X-Render-Mode": "ephemeral-export",
       ...details,
@@ -625,7 +633,7 @@ async function handleRender(request: Request, env: Env): Promise<Response> {
     }
     if (prefersEphemeralArtifact(request)) {
       request.signal.throwIfAborted()
-      return ephemeralArtifactResponse({
+      return await ephemeralArtifactResponse({
         bytes: png,
         contentType: "image/png",
         filename: `${page.id}.png`,
@@ -911,7 +919,7 @@ async function handlePdfRender(request: Request, env: Env): Promise<Response> {
 
     if (prefersEphemeralArtifact(request)) {
       request.signal.throwIfAborted()
-      return ephemeralArtifactResponse({
+      return await ephemeralArtifactResponse({
         bytes: pdfBytes,
         contentType: "application/pdf",
         filename: `${output.id}.pdf`,

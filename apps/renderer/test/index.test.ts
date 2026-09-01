@@ -1395,6 +1395,15 @@ describe("renderer Worker", () => {
       expect(response.headers.get("X-Render-Mode")).toBe("ephemeral-export")
       expect(response.headers.get("X-Render-Id")).toBe("foreground-export")
       expect(response.headers.get("X-Bytes")).toBe(String(bytes.length))
+      const digest = await crypto.subtle.digest(
+        "SHA-256",
+        Uint8Array.from(bytes)
+      )
+      const checksum = `sha256-${Array.from(
+        new Uint8Array(digest),
+        (byte) => byte.toString(16).padStart(2, "0")
+      ).join("")}`
+      expect(response.headers.get("X-Checksum")).toBe(checksum)
       expect(response.headers.get("X-Render-Key")).toBeNull()
       for (const [name, value] of Object.entries(details)) {
         expect(response.headers.get(name)).toBe(value)
