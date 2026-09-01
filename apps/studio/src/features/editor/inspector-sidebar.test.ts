@@ -471,6 +471,60 @@ describe("InspectorSidebar image replacement capability", () => {
 })
 
 describe("InspectorSidebar text selection state", () => {
+  it("places compact text content before position and outside typography", () => {
+    const markup = renderToStaticMarkup(
+      createElement(InspectorSidebar, {
+        document: renderConformanceDocument,
+        selectedNodes: [textNode],
+        pendingChangeSet: null,
+        lastResolvedChangeSet: null,
+        changeSetConflict: null,
+        changeSetError: null,
+        isApplyingChangeSet: false,
+        webMcpStatus: "ready",
+        webMcpError: null,
+        onUpdateNode: vi.fn(),
+        onUpdateSelection: vi.fn(),
+        onUpdateField: vi.fn(),
+        onCreateField: vi.fn(),
+        onUpdateFieldDefinition: vi.fn(),
+        onRemoveField: vi.fn(),
+        onBindField: vi.fn(),
+        onUnbindField: vi.fn(),
+        onFocusNode: vi.fn(),
+        onDecideChangeOperation: vi.fn(),
+        onDecideAllChangeOperations: vi.fn(),
+        onApplyChangeSet: vi.fn(),
+        onDiscardChangeSet: vi.fn(),
+        onAlignSelection: vi.fn(),
+        onAlignSelectionToPage: vi.fn(),
+        onDistributeSelection: vi.fn(),
+        onSetSelectionLocked: vi.fn(),
+        onSetSelectionVisible: vi.fn(),
+        onReorderSelection: vi.fn(),
+        onDuplicateSelection: vi.fn(),
+        onDeleteSelection: vi.fn(),
+        onUpdateImageFrameGeometry: vi.fn(),
+        onSetImagePlacement: vi.fn(),
+        onSetImageFrameMask: vi.fn(),
+        onRunImageCommand: vi.fn(),
+        isImageCommandEnabled: () => true,
+        onRetryImageSource: vi.fn(),
+        onRemoveImageLayer: vi.fn(),
+      })
+    )
+
+    const contentIndex = markup.indexOf(">Content</h3>")
+    const positionIndex = markup.indexOf(">Position</h3>")
+    const typographyIndex = markup.indexOf(">Typography</h3>")
+
+    expect(contentIndex).toBeGreaterThan(-1)
+    expect(contentIndex).toBeLessThan(positionIndex)
+    expect(positionIndex).toBeLessThan(typographyIndex)
+    expect(markup).toContain('aria-label="Text content"')
+    expect(markup).not.toContain("Text shown on the canvas.")
+  })
+
   it("separates live character formatting from layer defaults", () => {
     const markup = renderToStaticMarkup(
       createElement(InspectorSidebar, {

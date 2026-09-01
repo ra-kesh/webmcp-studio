@@ -74,20 +74,26 @@ export function CommitTextarea({
   value,
   disabled = false,
   onCommit,
-}: {
+  className,
+  ...props
+}: Omit<ComponentProps<typeof Textarea>, "value" | "onChange"> & {
   value: string
   disabled?: boolean
   onCommit: (value: string) => void
 }) {
-  const id = useId()
+  const generatedId = useId()
   const [draft, setDraft] = useState(value)
   const cancelBlurRef = useRef(false)
   useEffect(() => setDraft(value), [value])
   return (
     <Textarea
-      id={id}
-      name={id}
-      className="max-h-40 min-h-16 resize-y rounded-sm border-transparent bg-editor-field px-2 py-1.5 text-[11px] leading-4 hover:bg-editor-field-hover focus-visible:bg-background md:text-[11px]"
+      {...props}
+      id={props.id ?? generatedId}
+      name={props.name ?? generatedId}
+      className={cn(
+        "max-h-40 min-h-16 resize-y rounded-sm border-transparent bg-editor-field px-2 py-1.5 text-[11px] leading-4 hover:bg-editor-field-hover focus-visible:border-studio-accent focus-visible:bg-background focus-visible:ring-2 focus-visible:ring-studio-accent/20 md:text-[11px]",
+        className
+      )}
       value={draft}
       disabled={disabled}
       onChange={(event) => setDraft(event.target.value)}

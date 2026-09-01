@@ -1586,6 +1586,28 @@ function NodeInspector({
         ) : null}
       </section>
 
+      {inspector.capabilities.text && node.type === "text" ? (
+        <InspectorSection
+          title="Content"
+          data-inspector-property="text"
+          tabIndex={-1}
+          className={cn(
+            "scroll-mt-2",
+            focusedProperty === "text" &&
+              "bg-accent/70 ring-2 ring-ring ring-inset"
+          )}
+        >
+          <CommitTextarea
+            aria-label="Text content"
+            rows={1}
+            className="h-8 min-h-8 resize-none overflow-y-auto focus:h-20 focus:min-h-20 focus:resize-y"
+            value={node.text}
+            disabled={nodeMutationDisabled}
+            onCommit={(text) => onUpdate({ text })}
+          />
+        </InspectorSection>
+      ) : null}
+
       <InspectorSection title="Position">
         <AlignmentGrid
           onAlign={onAlignToPage}
@@ -1655,16 +1677,7 @@ function NodeInspector({
 
       {inspector.capabilities.text && node.type === "text" ? (
         <>
-          <InspectorSection
-            title="Typography"
-            data-inspector-property="text"
-            tabIndex={-1}
-            className={cn(
-              "scroll-mt-2",
-              focusedProperty === "text" &&
-                "bg-accent/70 ring-2 ring-ring ring-inset"
-            )}
-          >
+          <InspectorSection title="Typography">
             {typographyStyleControl}
             {paintStyleControl}
             {liveTextEditingState ? (
@@ -1675,17 +1688,6 @@ function NodeInspector({
                 onEditLink={onEditTextLink}
               />
             ) : null}
-            <label className="flex flex-col gap-1.5">
-              <FieldLabel>Content</FieldLabel>
-              <span className="text-[11px] text-muted-foreground">
-                Text shown on the canvas.
-              </span>
-              <CommitTextarea
-                value={node.text}
-                disabled={nodeMutationDisabled}
-                onCommit={(text) => onUpdate({ text })}
-              />
-            </label>
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-3">
                 <div>

@@ -44,6 +44,24 @@ describe("compact Inspector controls", () => {
     expect(markup).toContain("max-h-40")
     expect(markup).toContain("text-[11px]")
   })
+
+  it("allows a compact content field to expand only while editing", () => {
+    const markup = renderToStaticMarkup(
+      createElement(CommitTextarea, {
+        "aria-label": "Text content",
+        className:
+          "h-8 min-h-8 resize-none focus:h-20 focus:min-h-20 focus:resize-y",
+        rows: 1,
+        value: "Wedding photography & films",
+        onCommit: () => undefined,
+      })
+    )
+
+    expect(markup).toContain('aria-label="Text content"')
+    expect(markup).toContain('rows="1"')
+    expect(markup).toContain("min-h-8")
+    expect(markup).toContain("focus:min-h-20")
+  })
 })
 
 describe("CommitPercentSlider", () => {
