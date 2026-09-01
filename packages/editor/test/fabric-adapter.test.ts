@@ -1220,6 +1220,23 @@ describe("Fabric document boundary", () => {
     ).toEqual([])
   })
 
+  it("clears transient guides when selection is cleared outside the Fabric canvas", () => {
+    const harness = createTransformHarness()
+    Reflect.set(harness.adapter, "moveSnapLatch", {
+      x: { value: 240, source: "page" },
+    })
+    Reflect.set(harness.adapter, "activeGuides", [
+      { axis: "x", value: 240, source: "page" },
+      { axis: "y", value: 360, source: "page" },
+    ])
+
+    harness.adapter.select(null)
+
+    expect(Reflect.get(harness.adapter, "moveSnapLatch")).toBeNull()
+    expect(Reflect.get(harness.adapter, "activeGuides")).toEqual([])
+    expect(harness.canvas.requestRenderAll).toHaveBeenCalled()
+  })
+
   it("keeps Shift side handles on Fabric's public scale path", () => {
     const target = new Rect({
       left: 50,

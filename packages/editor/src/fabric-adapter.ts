@@ -3829,6 +3829,10 @@ export class FabricCanvasAdapter implements CanvasAdapter {
   select(selection: Selection | null) {
     const canvas = this.canvas
     if (!canvas) return
+    // Selection can be cleared by the React workspace outside Fabric's upper
+    // canvas. In that path Fabric emits no selection:cleared or mouse:up event,
+    // so transient snap/spacing guides must be released explicitly here.
+    this.clearGuides()
     if (
       shouldPreserveTextEditingSelection(
         this.textEditSession?.nodeId ?? null,
