@@ -1598,11 +1598,14 @@ function NodeInspector({
           )}
         >
           <CommitTextarea
+            key={node.id}
             aria-label="Text content"
             rows={1}
             className="h-8 min-h-8 resize-none overflow-y-auto focus:h-20 focus:min-h-20 focus:resize-y"
             value={node.text}
             disabled={nodeMutationDisabled}
+            onPreview={(text) => onPreview({ text })}
+            onPreviewCancel={onCancelPreview}
             onCommit={(text) => onUpdate({ text })}
           />
         </InspectorSection>

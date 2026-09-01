@@ -73,18 +73,77 @@ export function CommitInput({
 export function CommitTextarea({
   value,
   disabled = false,
+  onPreview,
+  onPreviewCancel,
   onCommit,
   className,
   ...props
 }: Omit<ComponentProps<typeof Textarea>, "value" | "onChange"> & {
   value: string
   disabled?: boolean
+  onPreview?: (value: string) => void
+  onPreviewCancel?: () => void
   onCommit: (value: string) => void
 }) {
   const generatedId = useId()
   const [draft, setDraft] = useState(value)
   const cancelBlurRef = useRef(false)
-  useEffect(() => setDraft(value), [value])
+  const previewFrameRef = useRef<number | null>(null)
+  const previewValueRef = useRef(value)
+  const previewActiveRef = useRef(false)
+  const lastPreviewedValueRef = useRef(value)
+  const onPreviewRef = useRef(onPreview)
+  const onPreviewCancelRef = useRef(onPreviewCancel)
+  const onCommitRef = useRef(onCommit)
+  onPreviewRef.current = onPreview
+  onPreviewCancelRef.current = onPreviewCancel
+  onCommitRef.current = onCommit
+
+  const cancelScheduledPreview = () => {
+    if (previewFrameRef.current === null) return
+    globalThis.cancelAnimationFrame(previewFrameRef.current)
+    previewFrameRef.current = null
+  }
+
+  const cancelPreview = () => {
+    cancelScheduledPreview()
+    if (previewActiveRef.current) onPreviewCancelRef.current?.()
+    previewActiveRef.current = false
+  }
+
+  const preview = (next: string) => {
+    lastPreviewedValueRef.current = next
+    previewActiveRef.current = true
+    onPreviewRef.current?.(next)
+  }
+
+  const schedulePreview = (next: string) => {
+    previewValueRef.current = next
+    if (!onPreviewRef.current || previewFrameRef.current !== null) return
+    previewFrameRef.current = globalThis.requestAnimationFrame(() => {
+      previewFrameRef.current = null
+      preview(previewValueRef.current)
+    })
+  }
+
+  useEffect(() => {
+    cancelScheduledPreview()
+    if (previewActiveRef.current) onPreviewCancelRef.current?.()
+    previewActiveRef.current = false
+    previewValueRef.current = value
+    lastPreviewedValueRef.current = value
+    setDraft(value)
+  }, [value])
+
+  useEffect(
+    () => () => {
+      cancelScheduledPreview()
+      if (previewActiveRef.current) onPreviewCancelRef.current?.()
+      previewActiveRef.current = false
+    },
+    []
+  )
+
   return (
     <Textarea
       {...props}
@@ -96,18 +155,38 @@ export function CommitTextarea({
       )}
       value={draft}
       disabled={disabled}
-      onChange={(event) => setDraft(event.target.value)}
+      onChange={(event) => {
+        const next = event.target.value
+        setDraft(next)
+        schedulePreview(next)
+      }}
       onBlur={() => {
         if (cancelBlurRef.current) {
           cancelBlurRef.current = false
           return
         }
-        if (draft !== value) onCommit(draft)
+        cancelScheduledPreview()
+        if (draft !== value) {
+          if (
+            onPreviewRef.current &&
+            (!previewActiveRef.current ||
+              lastPreviewedValueRef.current !== draft)
+          ) {
+            preview(draft)
+          }
+          previewActiveRef.current = false
+          onCommitRef.current(draft)
+          return
+        }
+        cancelPreview()
       }}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
+          event.preventDefault()
+          event.stopPropagation()
           cancelBlurRef.current = true
           setDraft(value)
+          cancelPreview()
           event.currentTarget.blur()
         }
       }}
