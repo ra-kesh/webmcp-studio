@@ -131,7 +131,12 @@ WebMCP, and migration work. They are not styling-only tasks.
    installation are now closed. Commit `35c6584` also moves the document-media
    admission action model out of `studio-shell.tsx`, eliminating its
    non-component Fast Refresh export seam; the focused behavior test,
-   current Studio typecheck, and clean browser reload pass.
+   current Studio typecheck, and clean browser reload pass. Commit `4b9d298`
+   similarly moves image-source freshness/token admission out of
+   `fabric-artboard.tsx` into a framework-independent owner shared by Fabric,
+   replacement readiness, and the shell. Its 17 focused canvas regressions,
+   Studio typecheck, and clean browser reload pass, removing another observed
+   Fast Refresh invalidation seam without changing readiness semantics.
 
 ## Remaining integration and production work
 
