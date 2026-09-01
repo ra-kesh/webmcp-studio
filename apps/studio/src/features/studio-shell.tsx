@@ -13,16 +13,12 @@ import {
   AlertTriangle,
   ArrowRight,
   Check,
-  ClipboardCopy,
-  ClipboardPaste,
   Code2,
   Cloud,
-  CopyPlus,
   Circle,
   Download,
   DatabaseZap,
   FileJson2,
-  Group,
   Heart,
   Hand,
   ImagePlus,
@@ -41,10 +37,8 @@ import {
   Shapes,
   Square,
   SlidersHorizontal,
-  Trash2,
   Type,
   Undo2,
-  Ungroup,
 } from "lucide-react"
 import { applyTextLinkToRange, getGroupNodeIds } from "@webmcp/document"
 import type {
@@ -134,7 +128,6 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@webmcp/ui/components/dropdown-menu"
-import { EditorPanelHeader } from "@webmcp/ui/components/editor-chrome"
 import { Separator } from "@webmcp/ui/components/separator"
 import {
   Sheet,
@@ -4525,6 +4518,41 @@ export function StudioShell({
             </div>
           </button>
 
+          <IconButton
+            label="Open document panel"
+            className="size-11 min-[1280px]:hidden"
+            aria-controls="compact-document-panel"
+            aria-expanded={compactPanel === "document"}
+            onClick={(event) => {
+              compactPanelTriggerRef.current = event.currentTarget
+              setCompactPanel("document")
+            }}
+          >
+            <Layers3 />
+          </IconButton>
+          <IconButton
+            ref={leftPanelToggleRef}
+            label={
+              shellLayout.leftPanel.collapsed
+                ? "Expand document panel"
+                : "Collapse document panel"
+            }
+            className="hidden size-7 min-[1280px]:inline-flex"
+            aria-controls={
+              shellLayout.leftPanel.collapsed
+                ? undefined
+                : "studio-document-panel"
+            }
+            aria-expanded={!shellLayout.leftPanel.collapsed}
+            onClick={() => toggleShellPanel("left")}
+          >
+            {shellLayout.leftPanel.collapsed ? (
+              <PanelLeftOpen />
+            ) : (
+              <PanelLeftClose />
+            )}
+          </IconButton>
+
           <Separator
             className="hidden min-[640px]:block"
             orientation="vertical"
@@ -4632,73 +4660,6 @@ export function StudioShell({
             </IconButton>
           </div>
 
-          {editor.selection?.nodeIds.length ? (
-            <>
-              <Separator
-                className="hidden min-[1280px]:block"
-                orientation="vertical"
-              />
-              <div
-                aria-label="Selection actions"
-                className="hidden items-center gap-0.5 min-[1280px]:flex"
-                role="toolbar"
-              >
-                <IconButton
-                  label="Copy"
-                  shortcut="⌘C"
-                  disabled={!commandEnabled("selection.copy")}
-                  onClick={() => runEditorCommand("selection.copy")}
-                >
-                  <ClipboardCopy />
-                </IconButton>
-                <IconButton
-                  label="Duplicate"
-                  shortcut="⌘D"
-                  disabled={!commandEnabled("object.duplicate")}
-                  onClick={() => runEditorCommand("object.duplicate")}
-                >
-                  <CopyPlus />
-                </IconButton>
-                <IconButton
-                  label="Group selection"
-                  shortcut="⌘G"
-                  disabled={!commandEnabled("object.group")}
-                  onClick={() => runEditorCommand("object.group")}
-                >
-                  <Group />
-                </IconButton>
-                <IconButton
-                  label="Ungroup selection"
-                  shortcut="⇧⌘G"
-                  disabled={!commandEnabled("object.ungroup")}
-                  onClick={() => runEditorCommand("object.ungroup")}
-                >
-                  <Ungroup />
-                </IconButton>
-                <IconButton
-                  label="Delete"
-                  shortcut="⌫"
-                  disabled={!commandEnabled("object.delete")}
-                  onClick={() => runEditorCommand("object.delete")}
-                >
-                  <Trash2 />
-                </IconButton>
-              </div>
-            </>
-          ) : null}
-
-          {editor.canPaste ? (
-            <IconButton
-              label="Paste"
-              shortcut="⌘V"
-              className="hidden min-[1280px]:inline-flex"
-              disabled={!commandEnabled("object.paste")}
-              onClick={() => runEditorCommand("object.paste")}
-            >
-              <ClipboardPaste />
-            </IconButton>
-          ) : null}
-
           <div className="flex shrink-0 items-center gap-1 min-[1280px]:ml-auto min-[1280px]:gap-2">
             {pendingQuotationRefresh ? (
               <Button
@@ -4773,6 +4734,40 @@ export function StudioShell({
                 />
               </DropdownMenuContent>
             </DropdownMenu>
+            <IconButton
+              ref={rightPanelToggleRef}
+              label={
+                shellLayout.rightPanel.collapsed
+                  ? "Expand properties panel"
+                  : "Collapse properties panel"
+              }
+              className="hidden size-7 min-[1280px]:inline-flex"
+              aria-controls={
+                shellLayout.rightPanel.collapsed
+                  ? undefined
+                  : "studio-properties-panel"
+              }
+              aria-expanded={!shellLayout.rightPanel.collapsed}
+              onClick={() => toggleShellPanel("right")}
+            >
+              {shellLayout.rightPanel.collapsed ? (
+                <PanelRightOpen />
+              ) : (
+                <PanelRightClose />
+              )}
+            </IconButton>
+            <IconButton
+              label="Open properties"
+              className="size-11 min-[1280px]:hidden"
+              aria-controls="compact-inspector-panel"
+              aria-expanded={compactPanel === "inspector"}
+              onClick={(event) => {
+                compactPanelTriggerRef.current = event.currentTarget
+                setCompactPanel("inspector")
+              }}
+            >
+              <SlidersHorizontal />
+            </IconButton>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -5175,101 +5170,6 @@ export function StudioShell({
           ) : null}
 
           <section className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-workspace min-[1280px]:min-w-[520px]">
-            <EditorPanelHeader className="bg-editor-panel/92 backdrop-blur-sm">
-              <IconButton
-                label="Open document panel"
-                className="mr-1 size-11 min-[1280px]:hidden"
-                aria-controls="compact-document-panel"
-                aria-expanded={compactPanel === "document"}
-                onClick={(event) => {
-                  compactPanelTriggerRef.current = event.currentTarget
-                  setCompactPanel("document")
-                }}
-              >
-                <Layers3 />
-              </IconButton>
-              <IconButton
-                ref={leftPanelToggleRef}
-                label={
-                  shellLayout.leftPanel.collapsed
-                    ? "Expand document panel"
-                    : "Collapse document panel"
-                }
-                className="mr-1 hidden size-7 min-[1280px]:inline-flex"
-                aria-controls={
-                  shellLayout.leftPanel.collapsed
-                    ? undefined
-                    : "studio-document-panel"
-                }
-                aria-expanded={!shellLayout.leftPanel.collapsed}
-                onClick={() => toggleShellPanel("left")}
-              >
-                {shellLayout.leftPanel.collapsed ? (
-                  <PanelLeftOpen />
-                ) : (
-                  <PanelLeftClose />
-                )}
-              </IconButton>
-              <div className="flex min-w-0 items-center gap-2">
-                <span className="truncate text-xs font-medium">
-                  {activePage.name}
-                </span>
-                <span className="text-[11px] text-muted-foreground">
-                  {activePage.width} × {activePage.height}
-                </span>
-              </div>
-              {editor.selectedNodes.length ? (
-                <div
-                  className="ml-auto hidden min-w-0 items-center gap-1.5 rounded-md bg-studio-accent/8 px-2 py-1 min-[640px]:flex"
-                  role="status"
-                  aria-live="polite"
-                >
-                  <span className="size-1.5 shrink-0 rounded-full bg-studio-accent" />
-                  <span className="max-w-64 truncate text-[11px] font-medium text-foreground">
-                    {editor.selectedNodes.length === 1
-                      ? editor.selectedNodes[0]?.name
-                      : `${editor.selectedNodes.length} layers selected`}
-                  </span>
-                </div>
-              ) : null}
-              <IconButton
-                ref={rightPanelToggleRef}
-                label={
-                  shellLayout.rightPanel.collapsed
-                    ? "Expand properties panel"
-                    : "Collapse properties panel"
-                }
-                className={cn(
-                  "hidden size-7 min-[1280px]:inline-flex",
-                  !editor.selectedNodes.length && "ml-auto"
-                )}
-                aria-controls={
-                  shellLayout.rightPanel.collapsed
-                    ? undefined
-                    : "studio-properties-panel"
-                }
-                aria-expanded={!shellLayout.rightPanel.collapsed}
-                onClick={() => toggleShellPanel("right")}
-              >
-                {shellLayout.rightPanel.collapsed ? (
-                  <PanelRightOpen />
-                ) : (
-                  <PanelRightClose />
-                )}
-              </IconButton>
-              <IconButton
-                label="Open properties"
-                className="ml-auto size-11 min-[1280px]:hidden"
-                aria-controls="compact-inspector-panel"
-                aria-expanded={compactPanel === "inspector"}
-                onClick={(event) => {
-                  compactPanelTriggerRef.current = event.currentTarget
-                  setCompactPanel("inspector")
-                }}
-              >
-                <SlidersHorizontal />
-              </IconButton>
-            </EditorPanelHeader>
             {!editor.imageCropSession &&
             selectedImage &&
             selectedImageToolbarPlacement?.mode === "docked" ? (
@@ -5279,6 +5179,8 @@ export function StudioShell({
                   className="max-w-full shadow-sm"
                   onRunCommand={runEditorCommand}
                   isCommandEnabled={commandEnabled}
+                  deleteDisabled={!commandEnabled("object.delete")}
+                  onDelete={() => runEditorCommand("object.delete")}
                 />
               </div>
             ) : null}
@@ -5563,6 +5465,8 @@ export function StudioShell({
                       className="pointer-events-auto"
                       onRunCommand={runEditorCommand}
                       isCommandEnabled={commandEnabled}
+                      deleteDisabled={!commandEnabled("object.delete")}
+                      onDelete={() => runEditorCommand("object.delete")}
                     />
                   </div>
                 ) : null}

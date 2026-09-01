@@ -10,6 +10,7 @@ import {
   RotateCw,
   Scan,
   Square,
+  Trash2,
 } from "lucide-react"
 import type { ComponentProps, ReactNode } from "react"
 
@@ -107,11 +108,15 @@ export function SelectedImageToolbar({
   image,
   onRunCommand,
   isCommandEnabled,
+  onDelete,
+  deleteDisabled = false,
   className,
 }: {
   image: ImageNode
   onRunCommand: (commandId: EditorImageCommandId) => void
   isCommandEnabled: (commandId: EditorImageCommandId) => boolean
+  onDelete: () => void
+  deleteDisabled?: boolean
   className?: string
 }) {
   const run = (commandId: EditorImageCommandId) => () => onRunCommand(commandId)
@@ -307,6 +312,16 @@ export function SelectedImageToolbar({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        <Separator className="mx-0.5 h-5" orientation="vertical" />
+        <ToolbarIconButton
+          label="Delete image (⌫)"
+          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+          data-command-id="object.delete"
+          disabled={deleteDisabled}
+          onClick={onDelete}
+        >
+          <Trash2 />
+        </ToolbarIconButton>
       </div>
     </TooltipProvider>
   )

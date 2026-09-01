@@ -23,6 +23,7 @@ describe("SelectedImageToolbar", () => {
         image,
         onRunCommand: vi.fn(),
         isCommandEnabled: () => true,
+        onDelete: vi.fn(),
       })
     )
 
@@ -35,6 +36,8 @@ describe("SelectedImageToolbar", () => {
     expect(markup).toContain('aria-label="Flip image horizontally"')
     expect(markup).toContain('aria-label="Flip image vertically"')
     expect(markup).toContain('aria-label="More image actions"')
+    expect(markup).toContain('aria-label="Delete image (⌫)"')
+    expect(markup).toContain('data-command-id="object.delete"')
     expect(markup).toContain('data-command-id="image.crop"')
     expect(markup).toContain('data-command-id="image.replace"')
     expect(markup).toContain("size-11")
@@ -73,6 +76,7 @@ describe("SelectedImageToolbar", () => {
         },
         onRunCommand: vi.fn(),
         isCommandEnabled: () => true,
+        onDelete: vi.fn(),
       })
     )
 
@@ -87,6 +91,7 @@ describe("SelectedImageToolbar", () => {
         image,
         onRunCommand: vi.fn(),
         isCommandEnabled: (commandId) => commandId !== "image.replace",
+        onDelete: vi.fn(),
       })
     )
 
@@ -102,6 +107,7 @@ describe("SelectedImageToolbar", () => {
         },
         onRunCommand: vi.fn(),
         isCommandEnabled: () => true,
+        onDelete: vi.fn(),
       })
     )
 
