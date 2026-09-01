@@ -105,7 +105,12 @@ WebMCP, and migration work. They are not styling-only tasks.
 
 1. Retain the exported PDF/PNG artifacts and checksums from the current-main
    browser journey. The integrated UI path is now exercised together; artifact
-   retention and renderer comparison remain.
+   retention and renderer comparison remain. Commit `2bd072f` closes the
+   missing ephemeral-export checksum contract: foreground PNG and PDF responses
+   now carry a deterministic `X-Checksum: sha256-…` computed from the exact
+   returned bytes. Both in-memory formats are covered by the renderer suite;
+   the real browser-downloaded files still need to be retained beside this
+   audit before visual conformance can be claimed.
 2. Continue architectural decomposition. Render invalidation, crop, preview,
    and lazy-interaction ownership have been extracted, but
    `use-document-editor.ts` remains 11,461 lines and `studio-shell.tsx` remains
@@ -123,7 +128,10 @@ WebMCP, and migration work. They are not styling-only tasks.
 4. Continue controller decomposition in bounded domains. Canvas admission,
    same-tick predicates, cross-realm File/Blob and AbortSignal harness behavior,
    retired-Fabric disposal coverage, and injected failure at candidate
-   installation are now closed.
+   installation are now closed. Commit `35c6584` also moves the document-media
+   admission action model out of `studio-shell.tsx`, eliminating its
+   non-component Fast Refresh export seam; the focused behavior test,
+   current Studio typecheck, and clean browser reload pass.
 
 ## Remaining integration and production work
 
