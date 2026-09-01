@@ -62,14 +62,11 @@ import type { LayerDropIntent, LayerTreeItem } from "@webmcp/editor/layer-tree"
 import {
   applyImageCropSession,
   cancelImageCropSession,
-  createImageCropPreviewStore,
-  reconcileImageCropSession,
   startImageCropSession,
 } from "@webmcp/editor"
 import type {
   CanvasNodeChange,
   CommandDraft,
-  ImageCropPreviewStore,
   ImageCropSession,
   Selection,
 } from "@webmcp/editor"
@@ -132,7 +129,6 @@ import type {
 } from "./local-asset-store"
 import { stageUsableLocalImageSource } from "./local-image-source-stage"
 import type { StagedLocalImageSource } from "./local-image-source-stage"
-import { projectLocalAssetPreviewSources } from "./local-asset-preview"
 import {
   assetMutationMessage,
   captureAddAssetAnchor,
@@ -154,7 +150,6 @@ import type { LibraryPreferenceCommands } from "../../content/library/library-pr
 import {
   getManagedMedia,
   managedMediaContentUrl,
-  managedMediaIdFromSource,
   markManagedMediaUsed,
 } from "./managed-media-repository"
 import { managedAssetIdsInCommands } from "./managed-asset-command-accounting"
@@ -186,10 +181,7 @@ import {
 } from "./local-asset-relink-projection"
 import { verifyManagedBrowserImageResource } from "./managed-image-resource"
 import { validateMediaDimensions, validateMediaFile } from "./media-file-policy"
-import {
-  reusableImageReplacementCommand,
-  reusableImageReplacementPatch,
-} from "./media-selection-model"
+import { reusableImageReplacementCommand } from "./media-selection-model"
 import type { ReusableImageAsset } from "./media-selection-model"
 import { ImageReplacementCoordinator } from "./image-replacement-coordinator"
 import type { PreparedImageReplacement } from "./image-replacement-coordinator"
@@ -285,13 +277,13 @@ import type {
 } from "./template-lifecycle"
 import { createKnownQuotationComposition } from "./quotation-composition-context"
 import type { QuotationCompositionContext } from "./quotation-composition-context"
-import { resolveUnavailableImageCrop } from "./image-crop-unavailable"
-import { imageCropInvalidationMessage } from "./image-crop-invalidation"
 import {
   publishedVersionsForDocument,
   replaceAuthoritativePublishedVersions,
 } from "./published-version-state"
 import { retainReachableHistorySnapshotContexts } from "./history-snapshot-context"
+import { useImageCropSessionController } from "./use-image-crop-session-controller"
+import { useDocumentPreviewProjection } from "./use-document-preview-projection"
 
 export const DOCUMENT_TRANSITION_DISABLED_REASON =
   "Wait for the new document to finish opening before editing this one."
@@ -1018,11 +1010,11 @@ export function useDocumentEditor({
     QuotationCompositionContext | undefined
   >(undefined)
   const [selection, setSelection] = useState<Selection | null>(null)
-  const [imageCropPreviewStore, setImageCropPreviewStore] =
-    useState<ImageCropPreviewStore | null>(null)
-  const imageCropPreviewStoreRef = useRef<ImageCropPreviewStore | null>(null)
-  const imageCropSession = imageCropPreviewStore?.getSnapshot() ?? null
-  const imageCropSessionRef = useRef<ImageCropSession | null>(null)
+  const {
+    controller: imageCropController,
+    previewStore: imageCropPreviewStore,
+    session: imageCropSession,
+  } = useImageCropSessionController()
   const [localSaveState, setLocalSaveState] = useState<LocalSaveState>({
     status: "opening",
   })
@@ -1097,21 +1089,6 @@ export function useDocumentEditor({
   const [publicationHistoryGeneration, setPublicationHistoryGeneration] =
     useState(0)
 
-  const closeImageCropSession = useCallback(() => {
-    imageCropPreviewStoreRef.current?.destroy()
-    imageCropPreviewStoreRef.current = null
-    imageCropSessionRef.current = null
-    setImageCropPreviewStore(null)
-  }, [])
-
-  useEffect(
-    () => () => {
-      imageCropPreviewStoreRef.current?.destroy()
-      imageCropPreviewStoreRef.current = null
-      imageCropSessionRef.current = null
-    },
-    []
-  )
   const [documentSnapshotId, setDocumentSnapshotId] = useState<string | null>(
     null
   )
@@ -3132,7 +3109,7 @@ export function useDocumentEditor({
   )
 
   const returnToStart = useCallback(async () => {
-    if (imageCropSessionRef.current) {
+    if (imageCropController.hasActiveSession) {
       setDocumentError(
         "Finish or cancel the active image crop before going home."
       )
@@ -3168,6 +3145,7 @@ export function useDocumentEditor({
   }, [
     claimSessionTransition,
     flushActiveDraft,
+    imageCropController,
     ownsSessionTransition,
     releaseSessionTransition,
     retirePersistenceSession,
@@ -3922,7 +3900,7 @@ export function useDocumentEditor({
         )
         return false
       }
-      if (imageCropSessionRef.current && !allowActiveImageCrop) {
+      if (imageCropController.hasActiveSession && !allowActiveImageCrop) {
         setDocumentError("Finish or cancel the active image crop first.")
         return false
       }
@@ -3945,7 +3923,11 @@ export function useDocumentEditor({
       setChangeSetError("Resolve or discard the preview before editing.")
       return false
     },
-    [documentMediaAdmission, pendingDocumentImportMediaReview]
+    [
+      documentMediaAdmission,
+      imageCropController,
+      pendingDocumentImportMediaReview,
+    ]
   )
 
   const keepDocumentMediaAdmission = useCallback(async () => {
@@ -4184,11 +4166,11 @@ export function useDocumentEditor({
 
   const settleImageCrop = useCallback(
     (decision: "apply" | "cancel") => {
-      const session = imageCropSessionRef.current
+      const session = imageCropController.currentSession
       if (!session) return true
       if (decision === "cancel") {
         cancelImageCropSession(session)
-        closeImageCropSession()
+        imageCropController.close()
         return true
       }
       const result = applyImageCropSession(
@@ -4197,14 +4179,14 @@ export function useDocumentEditor({
         activePageIdRef.current
       )
       if (result.status === "cancelled") {
-        closeImageCropSession()
+        imageCropController.close()
         setDocumentError(
           "Crop was cancelled because the image changed somewhere else."
         )
         return false
       }
       if (result.status === "unchanged") {
-        closeImageCropSession()
+        imageCropController.close()
         return true
       }
       const committed = commit(
@@ -4213,11 +4195,11 @@ export function useDocumentEditor({
         true
       )
       if (committed) {
-        closeImageCropSession()
+        imageCropController.close()
       }
       return committed
     },
-    [closeImageCropSession, commit]
+    [commit, imageCropController]
   )
 
   const selectPage = useCallback(
@@ -4270,22 +4252,14 @@ export function useDocumentEditor({
 
   const setImageFrameMask = useCallback(
     (nodeId: string, frameMask: ImageFrameMask) => {
-      const current = imageCropSessionRef.current
-      if (current?.target.nodeId === nodeId) {
-        const result = imageCropPreviewStoreRef.current?.preview(
-          current.target,
-          { frameMask }
-        )
-        if (result !== "accepted" && result !== "unchanged") return false
-        imageCropSessionRef.current =
-          imageCropPreviewStoreRef.current?.getLiveSession() ?? current
-        return true
+      if (imageCropController.currentSession?.target.nodeId === nodeId) {
+        return imageCropController.preview(nodeId, { frameMask })
       }
       return commit([{ type: "set_image_frame_mask", nodeId, frameMask }], {
         label: "Change image frame",
       })
     },
-    [commit]
+    [commit, imageCropController]
   )
 
   const setImagePlacement = useCallback(
@@ -4294,22 +4268,14 @@ export function useDocumentEditor({
       placement: Extract<SceneNode, { type: "image" }>["placement"],
       label = "Change image placement"
     ) => {
-      const current = imageCropSessionRef.current
-      if (current?.target.nodeId === nodeId) {
-        const result = imageCropPreviewStoreRef.current?.preview(
-          current.target,
-          { placement }
-        )
-        if (result !== "accepted" && result !== "unchanged") return false
-        imageCropSessionRef.current =
-          imageCropPreviewStoreRef.current?.getLiveSession() ?? current
-        return true
+      if (imageCropController.currentSession?.target.nodeId === nodeId) {
+        return imageCropController.preview(nodeId, { placement })
       }
       return commit([{ type: "set_image_placement", nodeId, placement }], {
         label,
       })
     },
-    [commit]
+    [commit, imageCropController]
   )
 
   const updateSelectionNodes = useCallback(
@@ -4507,15 +4473,11 @@ export function useDocumentEditor({
         pageId: result.session.target.pageId,
         nodeIds: [result.session.target.nodeId],
       })
-      imageCropPreviewStoreRef.current?.destroy()
-      const previewStore = createImageCropPreviewStore(result.session)
-      imageCropPreviewStoreRef.current = previewStore
-      imageCropSessionRef.current = result.session
-      setImageCropPreviewStore(previewStore)
+      imageCropController.open(result.session)
       setDocumentError(null)
       return true
     },
-    [allowMutation]
+    [allowMutation, imageCropController]
   )
 
   const reportImageCropReadiness = useCallback(
@@ -4533,16 +4495,14 @@ export function useDocumentEditor({
   )
 
   const previewImageCrop = useCallback(
-    (patch: Partial<Extract<SceneNode, { type: "image" }>["placement"]>) => {
-      const current = imageCropSessionRef.current
-      const store = imageCropPreviewStoreRef.current
-      if (!current || !store) return false
-      const result = store.preview(current.target, { placement: patch })
-      if (result !== "accepted" && result !== "unchanged") return false
-      imageCropSessionRef.current = store.getLiveSession()
-      return true
-    },
-    []
+    (patch: Partial<Extract<SceneNode, { type: "image" }>["placement"]>) =>
+      imageCropController.currentSession
+        ? imageCropController.preview(
+            imageCropController.currentSession.target.nodeId,
+            { placement: patch }
+          )
+        : false,
+    [imageCropController]
   )
 
   const previewImageCropFrame = useCallback(
@@ -4552,21 +4512,13 @@ export function useDocumentEditor({
       placement: ImageCropSession["draft"]
       frameMask: ImageCropSession["draftFrameMask"]
     }) => {
-      const current = imageCropSessionRef.current
-      const store = imageCropPreviewStoreRef.current
-      if (!current || !store || current.target.nodeId !== preview.nodeId) {
-        return false
-      }
-      const result = store.preview(current.target, {
+      return imageCropController.preview(preview.nodeId, {
         frame: preview.frame,
         placement: preview.placement,
         frameMask: preview.frameMask,
       })
-      if (result !== "accepted" && result !== "unchanged") return false
-      imageCropSessionRef.current = store.getLiveSession()
-      return true
     },
-    []
+    [imageCropController]
   )
 
   const finishImageCrop = useCallback(
@@ -4581,20 +4533,17 @@ export function useDocumentEditor({
 
   const rejectUnavailableImageCrop = useCallback(
     (nodeId: string) => {
-      const current = imageCropSessionRef.current
-      const resolution = resolveUnavailableImageCrop(current, nodeId)
-      if (!resolution.handled || !current) return false
-      cancelImageCropSession(current)
-      closeImageCropSession()
-      setDocumentError(resolution.error)
+      const error = imageCropController.rejectUnavailable(nodeId)
+      if (!error) return false
+      setDocumentError(error)
       return true
     },
-    [closeImageCropSession]
+    [imageCropController]
   )
 
   const setEditorSelection = useCallback(
     (nextSelection: Selection | null) => {
-      const cropTargetId = imageCropSessionRef.current?.target.nodeId
+      const cropTargetId = imageCropController.currentSession?.target.nodeId
       const keepsCropTarget =
         cropTargetId !== undefined &&
         nextSelection?.pageId === activePageIdRef.current &&
@@ -4605,7 +4554,7 @@ export function useDocumentEditor({
       }
       setSelection(nextSelection)
     },
-    [settleImageCrop]
+    [imageCropController, settleImageCrop]
   )
 
   const setCanvasSelection = useCallback(
@@ -4693,7 +4642,7 @@ export function useDocumentEditor({
       if (pendingChangeSetRef.current) {
         throw new Error("Resolve or discard the pending change set first.")
       }
-      if (imageCropSessionRef.current) settleImageCrop("cancel")
+      if (imageCropController.hasActiveSession) settleImageCrop("cancel")
       const changeSet = changeSetSchema.parse(changeSetInput)
       const conflict = getChangeSetConflict(
         historyRef.current.document,
@@ -4725,7 +4674,12 @@ export function useDocumentEditor({
       captureSettledDraft()
       return changeSet
     },
-    [captureSettledDraft, projectReviewJournal, settleImageCrop]
+    [
+      captureSettledDraft,
+      imageCropController,
+      projectReviewJournal,
+      settleImageCrop,
+    ]
   )
 
   const decideOperation = useCallback(
@@ -4951,7 +4905,7 @@ export function useDocumentEditor({
           setPublishError(message)
           throw new Error(message)
         }
-        if (imageCropSessionRef.current) {
+        if (imageCropController.hasActiveSession) {
           const message =
             "Finish or cancel the active image crop before publishing."
           setPublishError(message)
@@ -5197,7 +5151,12 @@ export function useDocumentEditor({
       setPublishSyncStatus("syncing")
       return promise
     },
-    [flushActiveDraft, getDraftRepository, installPublishedVersions]
+    [
+      flushActiveDraft,
+      getDraftRepository,
+      imageCropController,
+      installPublishedVersions,
+    ]
   )
 
   const cancelPublication = useCallback(() => {
@@ -6272,7 +6231,7 @@ export function useDocumentEditor({
                   !activeSessionTransitionRef.current &&
                   conflictRecoveryStateRef.current.status === "inactive" &&
                   !draftRecoveryRef.current &&
-                  !imageCropSessionRef.current &&
+                  !imageCropController.hasActiveSession &&
                   !pendingChangeSetRef.current &&
                   !quotationRefreshJournalRef.current.pending &&
                   session.controller.recordVersion ===
@@ -6652,6 +6611,7 @@ export function useDocumentEditor({
       capturePersistenceSession,
       captureSettledDraft,
       getDraftRepository,
+      imageCropController,
       notifyHistoryCommit,
       pruneTemplateSourceContexts,
     ]
@@ -10597,7 +10557,7 @@ export function useDocumentEditor({
   )
 
   const undo = useCallback(() => {
-    if (imageCropSessionRef.current) {
+    if (imageCropController.hasActiveSession) {
       settleImageCrop("cancel")
       return
     }
@@ -10620,6 +10580,7 @@ export function useDocumentEditor({
   }, [
     allowMutation,
     captureSettledDraft,
+    imageCropController,
     pruneTemplateSourceContexts,
     restoreTemplateSourceForSnapshot,
     settleImageCrop,
@@ -10646,7 +10607,7 @@ export function useDocumentEditor({
   }, [pruneTemplateSourceContexts])
 
   const redo = useCallback(() => {
-    if (imageCropSessionRef.current) {
+    if (imageCropController.hasActiveSession) {
       settleImageCrop("cancel")
       return
     }
@@ -10669,6 +10630,7 @@ export function useDocumentEditor({
   }, [
     allowMutation,
     captureSettledDraft,
+    imageCropController,
     pruneTemplateSourceContexts,
     restoreTemplateSourceForSnapshot,
     settleImageCrop,
@@ -10820,63 +10782,23 @@ export function useDocumentEditor({
   ])
 
   useEffect(() => {
-    const current = imageCropSessionRef.current
-    if (!current) return
-    const result = reconcileImageCropSession(
-      current,
+    const invalidationMessage = imageCropController.reconcile(
       history.document,
       activePageId
     )
-    if (result.status === "active") return
-    closeImageCropSession()
-    setDocumentError(imageCropInvalidationMessage(result.reason))
-  }, [activePageId, closeImageCropSession, history.document])
+    if (invalidationMessage) setDocumentError(invalidationMessage)
+  }, [activePageId, history.document, imageCropController])
 
-  const canonicalPreviewDocument = useMemo(
-    () =>
-      pendingChangeSet && !changeSetConflict
-        ? previewChangeSet(
-            history.document,
-            pendingChangeSet,
-            history.snapshotId
-          )
-        : history.document,
-    [changeSetConflict, history.document, history.snapshotId, pendingChangeSet]
-  )
-  const previewDocument = useMemo(() => {
-    const rendererReplacementPreview = pendingImageReplacement
-      ? {
-          ...canonicalPreviewDocument,
-          nodes: canonicalPreviewDocument.nodes.map((node) =>
-            node.type === "image" && node.id === pendingImageReplacement.nodeId
-              ? {
-                  ...node,
-                  ...reusableImageReplacementPatch(
-                    node,
-                    pendingImageReplacement.payload.asset
-                  ),
-                  src: pendingImageReplacement.previewSrc,
-                }
-              : node
-          ),
-        }
-      : canonicalPreviewDocument
-    const localPreview = projectLocalAssetPreviewSources(
-      rendererReplacementPreview,
-      assetUrlsRef.current
-    )
-    return {
-      ...localPreview,
-      nodes: localPreview.nodes.map((node) => {
-        if (node.type !== "image") return node
-        const managedAssetId = managedMediaIdFromSource(node.src)
-        const previewUrl = managedAssetId
-          ? managedMediaContentUrl(managedAssetId)
-          : null
-        return previewUrl ? { ...node, src: previewUrl } : node
-      }),
-    }
-  }, [assetVersion, canonicalPreviewDocument, pendingImageReplacement])
+  const { canonicalPreviewDocument, previewDocument } =
+    useDocumentPreviewProjection({
+      document: history.document,
+      snapshotId: history.snapshotId,
+      pendingChangeSet,
+      changeSetConflict,
+      pendingImageReplacement,
+      localAssetPreviewUrls: assetUrlsRef.current,
+      assetVersion,
+    })
 
   const conflictRecoveryModel = useMemo(() => {
     const conflict = conflictFromRecoveryState(conflictRecoveryState)
