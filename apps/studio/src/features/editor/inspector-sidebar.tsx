@@ -297,17 +297,17 @@ function InspectorSection({
     <section
       data-slot="inspector-section"
       className={cn(
-        "border-b border-border/80 px-3 pb-2.5 transition-colors outline-none [&_[data-slot=input]]:rounded-[5px] [&_[data-slot=select-trigger]]:rounded-[5px] [&_[data-slot=select-trigger]]:border-transparent [&_[data-slot=select-trigger]]:bg-muted/55 [&_[data-slot=select-trigger]]:hover:bg-muted/75 [&_[data-slot=select-trigger]]:focus-visible:border-studio-accent [&_[data-slot=select-trigger]]:focus-visible:bg-background [&_[data-slot=select-trigger]]:focus-visible:ring-2 [&_[data-slot=select-trigger]]:focus-visible:ring-studio-accent/25",
+        "border-b border-border px-3 pb-3 text-foreground transition-colors outline-none [&_[data-slot=input]]:h-6 [&_[data-slot=input]]:rounded-sm [&_[data-slot=input]]:border-transparent [&_[data-slot=input]]:bg-editor-field [&_[data-slot=input]]:px-2 [&_[data-slot=input]]:text-[11px] [&_[data-slot=input]]:hover:bg-editor-field-hover [&_[data-slot=input]]:focus-visible:border-studio-accent [&_[data-slot=input]]:focus-visible:bg-background [&_[data-slot=input]]:focus-visible:ring-2 [&_[data-slot=input]]:focus-visible:ring-studio-accent/20 [&_[data-slot=select-trigger]]:h-6 [&_[data-slot=select-trigger]]:rounded-sm [&_[data-slot=select-trigger]]:border-transparent [&_[data-slot=select-trigger]]:bg-editor-field [&_[data-slot=select-trigger]]:px-2 [&_[data-slot=select-trigger]]:text-[11px] [&_[data-slot=select-trigger]]:hover:bg-editor-field-hover [&_[data-slot=select-trigger]]:focus-visible:border-studio-accent [&_[data-slot=select-trigger]]:focus-visible:bg-background [&_[data-slot=select-trigger]]:focus-visible:ring-2 [&_[data-slot=select-trigger]]:focus-visible:ring-studio-accent/20",
         className
       )}
       {...props}
     >
       <div className="flex h-8 min-w-0 items-center">
-        <h3 className="truncate text-[11px] leading-4 font-semibold">
+        <h3 className="truncate text-[11px] leading-4 font-semibold tracking-[-0.01em]">
           {title}
         </h3>
       </div>
-      <div className="flex min-w-0 flex-col gap-2.5">{children}</div>
+      <div className="flex min-w-0 flex-col gap-2">{children}</div>
     </section>
   )
 }
@@ -1535,25 +1535,30 @@ function NodeInspector({
         data-inspector-property="visible"
         tabIndex={-1}
         className={cn(
-          "flex scroll-mt-2 flex-col gap-3 border-b border-border/80 px-3 py-3 transition-colors outline-none",
+          "flex scroll-mt-2 flex-col gap-2.5 border-b border-border px-3 py-3 transition-colors outline-none",
           focusedProperty === "visible" &&
             "bg-accent/70 ring-2 ring-ring ring-inset"
         )}
       >
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex min-h-7 items-center justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="truncate text-xs font-semibold">{node.name}</h2>
-            <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
-              Selected {nodeTypeLabel.toLocaleLowerCase()} layer
+            <p className="text-[10px] leading-4 font-medium tracking-[0.06em] text-muted-foreground uppercase">
+              Selection
             </p>
+            <h2 className="truncate text-xs leading-4 font-semibold tracking-[-0.01em]">
+              {node.name}
+            </h2>
           </div>
-          <Badge variant="outline" className="font-normal">
+          <Badge
+            variant="secondary"
+            className="h-5 rounded-sm px-1.5 text-[10px] font-medium text-muted-foreground"
+          >
             {nodeTypeLabel}
           </Badge>
         </div>
-        <div className="flex items-end gap-2">
-          <label className="min-w-0 flex-1 space-y-1.5">
-            <FieldLabel>Name in Layers</FieldLabel>
+        <div className="flex items-end gap-1.5">
+          <label className="min-w-0 flex-1 space-y-1">
+            <FieldLabel>Layer name</FieldLabel>
             <CommitInput
               value={node.name}
               disabled={nodeMutationDisabled}
@@ -1562,8 +1567,9 @@ function NodeInspector({
           </label>
           <Button
             aria-label={node.visible ? "Hide layer" : "Show layer"}
-            size="icon"
-            variant="outline"
+            size="icon-xs"
+            variant="ghost"
+            className="mb-0"
             disabled={imageCropBarOwnsTransforms}
             onClick={() => onUpdate({ visible: !node.visible })}
           >
@@ -1571,18 +1577,15 @@ function NodeInspector({
           </Button>
           <Button
             aria-label={node.locked ? "Unlock layer" : "Lock layer"}
-            size="icon"
-            variant="outline"
+            size="icon-xs"
+            variant="ghost"
+            className="mb-0"
             disabled={imageCropBarOwnsTransforms}
             onClick={() => onUpdate({ locked: !node.locked })}
           >
             {node.locked ? <Lock /> : <Unlock />}
           </Button>
         </div>
-        <p className="text-[11px] leading-4 text-muted-foreground">
-          Identifies this object in Layers only. For text layers, visible copy
-          is edited under Typography.
-        </p>
         {node.locked ? (
           <EditorPanelNotice
             icon={<Lock />}

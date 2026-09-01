@@ -334,7 +334,8 @@ describe("InspectorSidebar image replacement capability", () => {
       })
     )
 
-    expect(markup).toContain("Name in Layers")
+    expect(markup).toContain("Layer name")
+    expect(markup).toContain(">Selection</p>")
     expect(markup).toContain('data-slot="inspector-section"')
     expect(markup).toContain(">Image</h3>")
     expect(markup).toContain(reason)

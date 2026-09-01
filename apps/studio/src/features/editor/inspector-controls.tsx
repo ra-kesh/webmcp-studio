@@ -18,7 +18,7 @@ export function InspectorSectionLabel({
   children: React.ReactNode
 }) {
   return (
-    <span className="text-[11px] leading-4 font-medium text-muted-foreground">
+    <span className="text-[11px] leading-4 font-normal text-muted-foreground">
       {children}
     </span>
   )
@@ -82,7 +82,7 @@ export function CommitTextarea({
     <Textarea
       id={id}
       name={id}
-      className="max-h-40 min-h-16 resize-y rounded-[5px] px-2 py-1.5 text-[11px] leading-4"
+      className="max-h-40 min-h-16 resize-y rounded-sm border-transparent bg-editor-field px-2 py-1.5 text-[11px] leading-4 hover:bg-editor-field-hover focus-visible:bg-background"
       value={draft}
       disabled={disabled}
       onChange={(event) => setDraft(event.target.value)}
@@ -166,7 +166,7 @@ export function CommitPercentSlider({
             disabled={disabled}
             aria-invalid={Boolean(error) || undefined}
             aria-describedby={error ? `${id}-error` : undefined}
-            className="h-7 rounded-[5px] border-transparent bg-muted/55 pr-5 text-right font-mono text-[11px] tabular-nums hover:bg-muted/75 focus-visible:border-studio-accent focus-visible:bg-background focus-visible:ring-2 focus-visible:ring-studio-accent/25 md:text-[11px]"
+            className="h-6 rounded-sm border-transparent bg-editor-field pr-5 text-right font-mono text-[11px] tabular-nums hover:bg-editor-field-hover focus-visible:border-studio-accent focus-visible:bg-background focus-visible:ring-2 focus-visible:ring-studio-accent/20 md:text-[11px]"
             onChange={(event) => {
               setTextDraft(event.target.value)
               if (error) setError(null)
@@ -283,7 +283,7 @@ export function InspectorNumberField({
 
   return (
     <Field
-      className="min-w-0 gap-1.5"
+      className="min-w-0 gap-1"
       data-invalid={Boolean(error) || undefined}
       data-mixed={value.kind === "mixed" || undefined}
       data-disabled={disabled || undefined}
@@ -293,7 +293,7 @@ export function InspectorNumberField({
         className={
           compactLabel
             ? "sr-only"
-            : "text-[11px] leading-4 font-medium text-muted-foreground"
+            : "text-[11px] leading-4 font-normal text-muted-foreground"
         }
       >
         {label}
@@ -325,7 +325,7 @@ export function InspectorNumberField({
           aria-invalid={Boolean(error) || undefined}
           aria-describedby={error ? `${id}-error` : undefined}
           className={cn(
-            "h-7 rounded-[5px] border-transparent bg-muted/55 font-mono text-[11px] tabular-nums hover:bg-muted/75 focus-visible:border-studio-accent focus-visible:bg-background focus-visible:ring-2 focus-visible:ring-studio-accent/25 md:text-[11px]",
+            "h-6 rounded-sm border-transparent bg-editor-field px-2 font-mono text-[11px] tabular-nums hover:bg-editor-field-hover focus-visible:border-studio-accent focus-visible:bg-background focus-visible:ring-2 focus-visible:ring-studio-accent/20 md:text-[11px]",
             compactLabel && "pl-7",
             suffix && "pr-8"
           )}
@@ -508,17 +508,17 @@ export function InspectorColorField({
 
   return (
     <Field
-      className="gap-1.5"
+      className="gap-1"
       data-invalid={Boolean(error) || undefined}
       data-disabled={disabled || undefined}
     >
       <FieldLabel
         htmlFor={id}
-        className="text-[11px] leading-4 font-medium text-muted-foreground"
+        className="text-[11px] leading-4 font-normal text-muted-foreground"
       >
         {label}
       </FieldLabel>
-      <div className="flex h-7 items-center gap-2 rounded-[5px] border border-transparent bg-muted/55 px-2 transition-colors hover:bg-muted/75 has-[:focus-visible]:border-studio-accent has-[:focus-visible]:bg-background has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-studio-accent/25 has-[input[aria-invalid=true]]:border-destructive has-[input[aria-invalid=true]]:ring-2 has-[input[aria-invalid=true]]:ring-destructive/20">
+      <div className="flex h-6 items-center gap-2 rounded-sm border border-transparent bg-editor-field px-1.5 transition-colors hover:bg-editor-field-hover has-[:focus-visible]:border-studio-accent has-[:focus-visible]:bg-background has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-studio-accent/20 has-[input[aria-invalid=true]]:border-destructive has-[input[aria-invalid=true]]:ring-2 has-[input[aria-invalid=true]]:ring-destructive/20">
         <span
           className="relative size-4 shrink-0 overflow-hidden rounded-sm border border-black/10 shadow-[inset_0_0_0_1px_rgb(255_255_255_/_0.16)]"
           style={{ backgroundColor: swatchColor }}

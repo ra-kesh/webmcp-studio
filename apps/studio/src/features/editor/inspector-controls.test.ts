@@ -12,7 +12,7 @@ import {
 } from "./inspector-controls"
 
 describe("compact Inspector controls", () => {
-  it("keeps geometry labels inside the 28px property field", () => {
+  it("keeps geometry labels inside the 24px property field", () => {
     const markup = renderToStaticMarkup(
       createElement(InspectorNumberField, {
         label: "Width",
@@ -25,7 +25,7 @@ describe("compact Inspector controls", () => {
     expect(markup).toContain('aria-label="Width"')
     expect(markup).toMatch(/<label[^>]*\bsr-only\b/)
     expect(markup).toContain(">W</span>")
-    expect(markup).toContain("h-7")
+    expect(markup).toContain("h-6")
     expect(markup).toContain("pl-7")
   })
 
