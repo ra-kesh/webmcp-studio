@@ -124,8 +124,13 @@
   --workspace: var(--vbg-gray-100, oklch(0.961 0 0));
 }
 
-.dark,
+.dark {
+  --workspace: oklch(0.19 0.006 90);
+  color-scheme: dark;
+}
+
 .dark-theme {
+  --workspace: oklch(0.19 0.006 90);
   color-scheme: dark;
 }
 

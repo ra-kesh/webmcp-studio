@@ -516,7 +516,7 @@ export function InspectorNumberField({
         {compactLabel ? (
           <span
             aria-hidden="true"
-            className="pointer-events-none flex h-full shrink-0 items-center justify-center px-[5px] text-[10px] leading-none text-muted-foreground select-none"
+            className="pointer-events-none flex h-full shrink-0 items-center justify-center px-[5px] text-[11px] leading-none text-muted-foreground select-none"
           >
             {compactLabel}
           </span>

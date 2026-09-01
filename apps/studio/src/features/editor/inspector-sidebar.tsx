@@ -1558,7 +1558,7 @@ function NodeInspector({
           <Badge
             variant="secondary"
             aria-label={`Layer type: ${nodeTypeLabel}`}
-            className="h-5 shrink-0 rounded-sm px-1.5 text-[10px] font-medium text-muted-foreground"
+            className="h-5 shrink-0 rounded-sm px-1.5 text-[11px] font-medium text-muted-foreground"
           >
             {nodeTypeLabel}
           </Badge>
