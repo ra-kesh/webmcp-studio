@@ -4287,3 +4287,36 @@ remains open**
 - Gate 6 does not repair the StrictMode local-asset restore lifecycle, restore
   StrictMode, add the Gate 5 hardening items, redesign UI, change rendering
   authority, start a server or browser, deploy, or touch capture artifacts.
+
+## 2026-09-01: P0 existing-text direct-edit persistence repair
+
+Status: **field-bound direct text edits now cross the canonical command and
+draft-persistence boundary; quotation lock policy remains a separate product
+decision**
+
+- Reproduced the user journey in the running Studio app on port 3001. Fabric
+  threw before direct editing because the idle canonical-line projection does
+  not own per-character bounds, while Fabric's draggable-text delegate still
+  requested a character index before checking edit mode.
+- Added the narrow idle hit-test boundary: canonical idle text no longer asks
+  Fabric for missing character bounds, while editing text retains Fabric's
+  normal character hit testing.
+- Reproduced the second failure after entry was repaired. A direct canvas edit
+  of a field-bound title emitted `update_node`; the document engine then
+  reapplied the unchanged shared field and silently restored the old text.
+  Canvas text changes now emit `set_field` for bound text and retain a separate
+  `update_node` only for rich-text metadata.
+- Accepted direct edits now update both Fabric text and node caches before an
+  immediate re-entry, preventing a fast second edit from using the old node as
+  its baseline. Rich direct edits receive one `Edit text` history label.
+- Focused verification passes 115/115 tests across the Fabric adapter, command
+  translation, and canvas history policy. Live browser verification changed an
+  existing bound title, clicked the empty canvas, observed the canonical node
+  and shared field update, waited for `All changes saved`, reloaded the same
+  document route, and observed the exact text again. The sample title and its
+  original `y: 165` geometry were restored and rechecked after reload.
+- The previous text e2e gate missed this because it inserted a new unlocked
+  Body layer before editing and stopped at in-memory inspection; it did not
+  exercise an existing bound layer through blank-canvas exit, autosave, and
+  reload. Generated quotation text is still locked by its composer and needs an
+  explicit content-editability/binding policy rather than a blanket bypass.

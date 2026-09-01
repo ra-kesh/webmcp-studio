@@ -2379,6 +2379,25 @@ describe("Fabric document boundary", () => {
     expect(enterFabricTextEditing(canvas, new Rect())).toBe(false)
   })
 
+  it("does not ask Fabric for missing character bounds before direct editing", () => {
+    const source = renderConformanceDocument.nodes.find(
+      (node) => node.type === "text"
+    )
+    if (!source || source.type !== "text") {
+      throw new Error("Expected conformance text node")
+    }
+    const text = createFabricSyncObject(source)
+    if (!(text instanceof Textbox)) throw new Error("Expected Textbox")
+
+    expect(text.isEditing).toBe(false)
+    expect(
+      text.getSelectionStartFromPointer({
+        clientX: 0,
+        clientY: 0,
+      } as PointerEvent)
+    ).toBe(0)
+  })
+
   it("restores both document and fixed-body scroll after Fabric focuses its textarea", () => {
     const body = {
       scrollLeft: 0,
@@ -2736,6 +2755,48 @@ describe("Fabric document boundary", () => {
     })
     expect(canonicalText.get("text-1")).toBe("After")
     expect(recordTextEdit(canonicalText, "text-1", "After")).toBeNull()
+  })
+
+  it("uses the accepted direct edit as the baseline for an immediate re-entry", () => {
+    const baseline = renderConformanceDocument.nodes.find(
+      (candidate) => candidate.type === "text"
+    )
+    if (!baseline || baseline.type !== "text") {
+      throw new Error("Expected conformance text node")
+    }
+    const draft = {
+      ...baseline,
+      text: "Accepted direct edit",
+      runs: [],
+      paragraphs: [],
+      links: [],
+    }
+    const target = createFabricSyncObject(baseline)
+    if (!(target instanceof Textbox)) throw new Error("Expected Textbox")
+    const adapter = new FabricCanvasAdapter({
+      onSelectionChange: vi.fn(),
+      onNodesChange: vi.fn(() => true),
+    })
+    Reflect.set(adapter, "canvas", { requestRenderAll: vi.fn() })
+    Reflect.get(adapter, "nodeIdByObject").set(target, baseline.id)
+    Reflect.get(adapter, "nodeByNodeId").set(baseline.id, baseline)
+    Reflect.set(adapter, "textEditSession", {
+      nodeId: baseline.id,
+      target,
+      baselineNode: structuredClone(baseline),
+      draftNode: structuredClone(draft),
+      typingOverride: undefined,
+      pasteAsPlainRequested: false,
+      cancelled: false,
+    })
+    target.text = draft.text
+
+    Reflect.get(adapter, "onTextEditingExited")({ target })
+    Reflect.get(adapter, "onTextEditingEntered")({ target })
+
+    expect(Reflect.get(adapter, "textEditSession").baselineNode.text).toBe(
+      draft.text
+    )
   })
 
   it("bridges Fabric grapheme indexes to canonical UTF-16 selections", () => {

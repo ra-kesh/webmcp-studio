@@ -3,6 +3,12 @@ import type { CanvasNodeChange } from "@webmcp/editor"
 import type { HistoryCommitOptions } from "@webmcp/editor/history"
 
 const geometryProperties = new Set(["x", "y", "width", "height", "rotation"])
+const directTextEditProperties = new Set([
+  "text",
+  "runs",
+  "paragraphs",
+  "links",
+])
 
 export function canvasChangeHistoryOptions(
   changes: CanvasNodeChange[],
@@ -14,7 +20,9 @@ export function canvasChangeHistoryOptions(
     const isDirectTextEdit =
       "text" in patch &&
       typeof patch.text === "string" &&
-      Object.keys(patch).every((property) => property === "text")
+      Object.keys(patch).every((property) =>
+        directTextEditProperties.has(property)
+      )
     if (isDirectTextEdit) return { label: "Edit text" }
   }
 

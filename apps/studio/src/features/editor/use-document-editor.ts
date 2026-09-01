@@ -146,6 +146,7 @@ import type {
   AssetMutationState,
 } from "./asset-mutation-transaction"
 import { canvasChangeHistoryOptions } from "./canvas-change-policy"
+import { canvasNodeChangeCommands } from "./canvas-node-change-commands"
 import {
   projectCanvasComponentSelection,
   projectComponentInstanceCanvasTransform,
@@ -4306,11 +4307,7 @@ export function useDocumentEditor({
         )
       }
       return commit(
-        changes.map(({ nodeId, patch }) => ({
-          type: "update_node",
-          nodeId,
-          patch,
-        })),
+        canvasNodeChangeCommands(document, changes),
         canvasChangeHistoryOptions(changes, document.nodes)
       )
     },

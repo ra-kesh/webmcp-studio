@@ -273,6 +273,18 @@ class StudioTextbox<
       : super._getLineLeftOffset(lineIndex)
   }
 
+  override getSelectionStartFromPointer(event: TPointerEvent): number {
+    // Fabric's draggable-text delegate asks every idle Textbox for a character
+    // index before it checks `isEditing`. Idle Studio text is painted from the
+    // canonical line projection, which deliberately does not populate
+    // Fabric's per-character `__charBounds`; delegating in that state therefore
+    // throws before the click can enter editing. Fabric discards this value for
+    // idle text, so use its character hit-testing only after editing restores
+    // the authored string and normal Textbox layout.
+    if (this.studioUsesCanonicalLines && !this.isEditing) return 0
+    return super.getSelectionStartFromPointer(event)
+  }
+
   override getHeightOfLine(lineIndex: number): number {
     const projected =
       this.studioUsesCanonicalLines && !this.isEditing
@@ -5312,6 +5324,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
         {}
       )
     } else {
+      this.nodeByNodeId.set(nodeId, structuredClone(draft))
       const projection = projectFabricTextState(draft)
       setFabricTextboxContent(target, projection.displayText, "canonical", {})
     }

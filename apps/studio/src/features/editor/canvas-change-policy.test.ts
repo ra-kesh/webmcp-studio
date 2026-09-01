@@ -26,6 +26,20 @@ describe("canvas change history policy", () => {
         { nodeId: "copy", patch: { text: "Revised copy" } },
       ])
     ).toEqual({ label: "Edit text" })
+
+    expect(
+      canvasChangeHistoryOptions([
+        {
+          nodeId: "copy",
+          patch: {
+            text: "Revised rich copy",
+            runs: [],
+            paragraphs: [],
+            links: [],
+          },
+        },
+      ])
+    ).toEqual({ label: "Edit text" })
   })
 
   test("does not mislabel geometry changes as text edits", () => {
