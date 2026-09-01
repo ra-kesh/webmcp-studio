@@ -415,7 +415,12 @@ export const textNodePatchSchema = baseNodePatchSchema.extend({
   decoration: textDecorationSchema.optional(),
   lineHeight: z.number().min(0.5).max(3).optional(),
   letterSpacing: z.number().min(-20).max(200).optional(),
-  align: z.enum(["left", "center", "right"]).optional(),
+  align: z.enum(["left", "center", "right", "justify"]).optional(),
+  direction: z.enum(["auto", "ltr", "rtl"]).optional(),
+  verticalAlign: z.enum(["top", "middle", "bottom"]).optional(),
+  textCase: z.enum(["original", "uppercase", "lowercase", "title"]).optional(),
+  truncation: z.enum(["clip", "ellipsis"]).optional(),
+  maxLines: z.number().int().min(1).max(100).nullable().optional(),
   sizingMode: textSizingModeSchema.optional(),
 })
 
@@ -506,7 +511,14 @@ export const sceneNodeSchema = z
       decoration: textDecorationSchema.default("none"),
       lineHeight: z.number().min(0.5).max(3).default(1.18),
       letterSpacing: z.number().min(-20).max(200).default(0),
-      align: z.enum(["left", "center", "right"]).default("left"),
+      align: z.enum(["left", "center", "right", "justify"]).default("left"),
+      direction: z.enum(["auto", "ltr", "rtl"]).optional(),
+      verticalAlign: z.enum(["top", "middle", "bottom"]).optional(),
+      textCase: z
+        .enum(["original", "uppercase", "lowercase", "title"])
+        .optional(),
+      truncation: z.enum(["clip", "ellipsis"]).optional(),
+      maxLines: z.number().int().min(1).max(100).nullable().optional(),
       sizingMode: textSizingModeSchema.default("fixed"),
     }),
     baseNodeSchema.extend({
@@ -1222,6 +1234,11 @@ export const componentOverridePropertySchema = z.enum([
   "letterSpacing",
   "align",
   "sizingMode",
+  "direction",
+  "verticalAlign",
+  "textCase",
+  "truncation",
+  "maxLines",
   "fill",
   "fills",
   "radius",

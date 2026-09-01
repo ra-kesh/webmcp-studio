@@ -2830,6 +2830,31 @@ describe("Fabric document boundary", () => {
     ).toMatchObject({ sizingMode: "auto_height", clipOverflow: false })
   })
 
+  it("projects direction, vertical alignment, case, and ellipsis into Fabric", () => {
+    const node = renderConformanceDocument.nodes.find(
+      (candidate) => candidate.id === "text-typography"
+    )!
+    if (node.type !== "text") throw new Error("Expected text")
+    const state = projectFabricTextState({
+      ...node,
+      text: "שלום עולם ארוך מאוד להצגה",
+      width: 90,
+      height: 160,
+      direction: "auto",
+      verticalAlign: "bottom",
+      textCase: "uppercase",
+      truncation: "ellipsis",
+      maxLines: 1,
+    })
+
+    expect(state.direction).toBe("rtl")
+    expect(state.displayText.endsWith("…")).toBe(true)
+    expect(state.topOffset).toBeGreaterThan(0)
+    expect(fabricTextObjectOptions(node, state)).toMatchObject({
+      direction: "rtl",
+    })
+  })
+
   it("keeps a 1,000-run late-wrap paste inside the Fabric edit budget", async () => {
     const source = createAdverseRichTextConformanceNode()
     const destination = {

@@ -1734,6 +1734,14 @@ export const renderNodeDataAttributes = (projection: RenderNodeProjection) => {
         "data-text-sizing-mode": projection.content.sizingMode,
         "data-text-measurement": projection.content.layout.measurement,
         "data-text-line-count": projection.content.layout.lineCount,
+        "data-text-source-line-count":
+          projection.content.layout.sourceLineCount,
+        "data-text-direction": projection.content.direction,
+        "data-text-vertical-align": projection.content.verticalAlign,
+        "data-text-case": projection.content.textCase,
+        "data-text-truncated": projection.content.layout.truncated
+          ? "true"
+          : "false",
         "data-text-overflow": projection.content.layout.overflow
           ? "true"
           : "false",
@@ -1764,6 +1772,15 @@ export function renderNodeStyle(
       textRendering: "geometricPrecision",
       WebkitFontSmoothing: "antialiased",
       textAlign: text.align,
+      direction: text.direction,
+      display: projection.frame.visible ? "flex" : "none",
+      flexDirection: "column",
+      justifyContent:
+        text.verticalAlign === "middle"
+          ? "center"
+          : text.verticalAlign === "bottom"
+            ? "flex-end"
+            : "flex-start",
       whiteSpace: text.whiteSpace,
       overflowWrap: text.overflowWrap,
       overflow: text.sizingMode === "fixed" ? "hidden" : "visible",

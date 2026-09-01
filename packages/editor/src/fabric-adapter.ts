@@ -1249,11 +1249,25 @@ export function projectFabricTextState(
     underline: node.decoration === "underline",
     linethrough: node.decoration === "line_through",
     textAlign: projection.content.align,
+    direction: projection.content.direction,
     lineHeight:
       projection.content.lineHeight / FABRIC_TEXT_LINE_HEIGHT_MULTIPLIER,
     topOffset:
       ((projection.content.lineHeight - 1) * projection.content.fontSize) / 2 -
-      FABRIC_TEXT_BASELINE_ADJUSTMENT,
+      FABRIC_TEXT_BASELINE_ADJUSTMENT +
+      Math.max(
+        0,
+        projection.frame.height -
+          projection.content.layout.lines.reduce(
+            (sum, line) => sum + line.height,
+            0
+          )
+      ) *
+        (projection.content.verticalAlign === "middle"
+          ? 0.5
+          : projection.content.verticalAlign === "bottom"
+            ? 1
+            : 0),
     charSpacing:
       (projection.content.letterSpacing / projection.content.fontSize) * 1000,
     sizingMode: projection.content.sizingMode,
@@ -1276,6 +1290,10 @@ export function projectFabricTextEditingStyles(
     ...node,
     paragraphs: [],
     sizingMode: "auto_width",
+    textCase: "original",
+    truncation: "clip",
+    maxLines: null,
+    verticalAlign: "top",
   })
   if (projection.type !== "text") {
     throw new Error("Expected editing text projection")
@@ -1306,6 +1324,7 @@ export function fabricTextObjectOptions(
     underline: projection.underline,
     linethrough: projection.linethrough,
     textAlign: projection.textAlign,
+    direction: projection.direction,
     lineHeight: projection.lineHeight,
     charSpacing: projection.charSpacing,
     styles: {},
@@ -3168,6 +3187,7 @@ export function syncFabricObjectFromNode(
       underline: text.underline,
       linethrough: text.linethrough,
       textAlign: text.textAlign,
+      direction: text.direction,
       lineHeight: text.lineHeight,
       charSpacing: text.charSpacing,
       editable: !node.locked,

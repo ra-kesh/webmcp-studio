@@ -541,12 +541,16 @@ export function renderNodeToHtml(node: SceneNode): string {
     "text-rendering:geometricPrecision",
     "-webkit-font-smoothing:antialiased",
     `text-align:${projection.content.align}`,
+    `direction:${projection.content.direction}`,
+    `display:${projection.frame.visible ? "flex" : "none"}`,
+    "flex-direction:column",
+    `justify-content:${projection.content.verticalAlign === "middle" ? "center" : projection.content.verticalAlign === "bottom" ? "flex-end" : "flex-start"}`,
     `white-space:${projection.content.whiteSpace}`,
     `overflow-wrap:${projection.content.overflowWrap}`,
     `overflow:${projection.content.sizingMode === "fixed" ? "hidden" : "visible"}`,
   ].join(";")
   if (node.type !== "text") throw new Error(`Unknown text node: ${node.id}`)
-  const textIdentity = `${identity} data-text-sizing-mode="${projection.content.sizingMode}" data-text-measurement="${projection.content.layout.measurement}" data-text-line-count="${projection.content.layout.lineCount}" data-text-overflow="${projection.content.layout.overflow ? "true" : "false"}" data-text-overflow-x="${projection.content.layout.overflowX ? "true" : "false"}" data-text-overflow-y="${projection.content.layout.overflowY ? "true" : "false"}" data-mask-font-source-node="${escapeHtml(node.id)}" data-mask-font-families="${escapeHtml(JSON.stringify(renderTextFontFamilies(node)))}"`
+  const textIdentity = `${identity} data-text-sizing-mode="${projection.content.sizingMode}" data-text-measurement="${projection.content.layout.measurement}" data-text-line-count="${projection.content.layout.lineCount}" data-text-source-line-count="${projection.content.layout.sourceLineCount}" data-text-direction="${projection.content.direction}" data-text-vertical-align="${projection.content.verticalAlign}" data-text-case="${projection.content.textCase}" data-text-truncated="${projection.content.layout.truncated ? "true" : "false"}" data-text-overflow="${projection.content.layout.overflow ? "true" : "false"}" data-text-overflow-x="${projection.content.layout.overflowX ? "true" : "false"}" data-text-overflow-y="${projection.content.layout.overflowY ? "true" : "false"}" data-mask-font-source-node="${escapeHtml(node.id)}" data-mask-font-families="${escapeHtml(JSON.stringify(renderTextFontFamilies(node)))}"`
   return `<div ${textIdentity} style="${textStyle}">${renderTextMarkup(projection)}</div>`
 }
 

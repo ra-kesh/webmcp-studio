@@ -109,6 +109,21 @@ function displayNodeProperty(
   if (key === "exportSettings" && Array.isArray(value)) {
     return `${value.length} layer export${value.length === 1 ? "" : "s"}`
   }
+  if (key === "maxLines") {
+    return value === null
+      ? "Unlimited lines"
+      : `${displayChangeValue(value)} lines`
+  }
+  if (
+    key === "direction" ||
+    key === "verticalAlign" ||
+    key === "textCase" ||
+    key === "truncation"
+  ) {
+    return String(value)
+      .replaceAll("_", " ")
+      .replace(/^./u, (character) => character.toUpperCase())
+  }
   return key === "assetId"
     ? displayAssetId(value, source)
     : displayChangeValue(value)

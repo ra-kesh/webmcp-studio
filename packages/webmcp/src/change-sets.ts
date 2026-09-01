@@ -265,6 +265,11 @@ const nodeCanvasProperties: Record<SceneNode["type"], Set<string>> = {
     "lineHeight",
     "letterSpacing",
     "align",
+    "direction",
+    "verticalAlign",
+    "textCase",
+    "truncation",
+    "maxLines",
     "sizingMode",
   ]),
   rect: new Set([

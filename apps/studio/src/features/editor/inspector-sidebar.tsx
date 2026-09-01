@@ -45,6 +45,7 @@ import {
   SendToBack,
   Square,
   Settings2,
+  TextAlignJustify,
   Trash2,
   Unlock,
   Unlink,
@@ -3283,7 +3284,8 @@ function NodeInspector({
                   value={
                     paragraphAlign === "left" ||
                     paragraphAlign === "center" ||
-                    paragraphAlign === "right"
+                    paragraphAlign === "right" ||
+                    paragraphAlign === "justify"
                       ? paragraphAlign
                       : ""
                   }
@@ -3293,6 +3295,7 @@ function NodeInspector({
                     ["left", AlignLeft],
                     ["center", AlignCenter],
                     ["right", AlignRight],
+                    ["justify", TextAlignJustify],
                   ].map(([align, Icon]) => (
                     <ToggleGroupItem
                       key={align as string}
@@ -3300,7 +3303,8 @@ function NodeInspector({
                       className="min-h-11 min-w-11 border-0 min-[1280px]:min-h-6 min-[1280px]:min-w-7"
                       value={align as string}
                       onClick={() => {
-                        const nextAlign = align as "left" | "center" | "right"
+                        const nextAlign = align as
+                          "left" | "center" | "right" | "justify"
                         if (liveTextEditingState) {
                           onApplyTextEditingParagraphStyle({ align: nextAlign })
                           return
@@ -3321,6 +3325,120 @@ function NodeInspector({
                     </ToggleGroupItem>
                   ))}
                 </ToggleGroup>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="space-y-1.5">
+                  <FieldLabel>Direction</FieldLabel>
+                  <Select
+                    value={node.direction ?? "auto"}
+                    disabled={node.locked}
+                    onValueChange={(direction) =>
+                      onUpdate({
+                        direction: direction as "auto" | "ltr" | "rtl",
+                      })
+                    }
+                  >
+                    <SelectTrigger aria-label="Text direction">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="auto">Auto</SelectItem>
+                      <SelectItem value="ltr">Left to right</SelectItem>
+                      <SelectItem value="rtl">Right to left</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </label>
+                <label className="space-y-1.5">
+                  <FieldLabel>Vertical align</FieldLabel>
+                  <Select
+                    value={node.verticalAlign ?? "top"}
+                    disabled={node.locked}
+                    onValueChange={(verticalAlign) =>
+                      onUpdate({
+                        verticalAlign: verticalAlign as
+                          "top" | "middle" | "bottom",
+                      })
+                    }
+                  >
+                    <SelectTrigger aria-label="Text vertical alignment">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="top">Top</SelectItem>
+                      <SelectItem value="middle">Middle</SelectItem>
+                      <SelectItem value="bottom">Bottom</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </label>
+                <label className="space-y-1.5">
+                  <FieldLabel>Case</FieldLabel>
+                  <Select
+                    value={node.textCase ?? "original"}
+                    disabled={node.locked}
+                    onValueChange={(textCase) =>
+                      onUpdate({
+                        textCase: textCase as
+                          "original" | "uppercase" | "lowercase" | "title",
+                      })
+                    }
+                  >
+                    <SelectTrigger aria-label="Text case">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="original">Original</SelectItem>
+                      <SelectItem value="uppercase">Uppercase</SelectItem>
+                      <SelectItem value="lowercase">Lowercase</SelectItem>
+                      <SelectItem value="title">Title case</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </label>
+                <label className="space-y-1.5">
+                  <FieldLabel>Overflow</FieldLabel>
+                  <Select
+                    value={node.truncation ?? "clip"}
+                    disabled={node.locked}
+                    onValueChange={(truncation) =>
+                      onUpdate({
+                        truncation: truncation as "clip" | "ellipsis",
+                      })
+                    }
+                  >
+                    <SelectTrigger aria-label="Text truncation">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="clip">Clip</SelectItem>
+                      <SelectItem value="ellipsis">Ellipsis</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </label>
+              </div>
+              <div className="space-y-2 rounded-md border p-2">
+                <label className="flex items-center gap-2 text-xs">
+                  <Checkbox
+                    aria-label="Limit text lines"
+                    checked={node.maxLines != null}
+                    disabled={node.locked}
+                    onCheckedChange={(checked) =>
+                      onUpdate({ maxLines: checked === true ? 3 : null })
+                    }
+                  />
+                  Limit lines
+                </label>
+                {node.maxLines != null ? (
+                  <InspectorNumberField
+                    label="Maximum lines"
+                    value={inspectorValue(node.maxLines)}
+                    min={1}
+                    max={100}
+                    integer
+                    disabled={node.locked}
+                    onPreview={(maxLines) => onPreview({ maxLines })}
+                    onPreviewCancel={onCancelPreview}
+                    onCommit={(maxLines) => onUpdate({ maxLines })}
+                  />
+                ) : null}
               </div>
               <div className="flex items-center justify-between gap-3">
                 <FieldLabel>List</FieldLabel>

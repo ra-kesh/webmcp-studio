@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   applyCommand,
   applyTextLayoutPatch,
+  componentOverridePropertySchema,
   createAdverseRichTextConformanceNode,
   deriveTextGeometryPatch,
   documentSchema,
@@ -9,6 +10,7 @@ import {
   projectTextLayout,
   projectTextLayoutAfterPatch,
   repairTextOverflowPatch,
+  resolveTextDirection,
   type TextNode,
 } from "../src"
 
@@ -162,6 +164,52 @@ describe("canonical text layout", () => {
     })
   })
 
+  it("admits advanced text fields while preserving their legacy absence", () => {
+    const legacy = documentSchema.parse(structuredClone(northstarSeed))
+    const legacyText = legacy.nodes.find((node) => node.type === "text")
+    expect(legacyText).not.toHaveProperty("direction")
+    expect(legacyText).not.toHaveProperty("verticalAlign")
+    expect(legacyText).not.toHaveProperty("textCase")
+    expect(legacyText).not.toHaveProperty("truncation")
+    expect(legacyText).not.toHaveProperty("maxLines")
+
+    const parsed = documentSchema.parse({
+      ...northstarSeed,
+      nodes: northstarSeed.nodes.map((node) =>
+        node.type === "text"
+          ? {
+              ...node,
+              align: "justify",
+              direction: "rtl",
+              verticalAlign: "bottom",
+              textCase: "uppercase",
+              truncation: "ellipsis",
+              maxLines: 2,
+            }
+          : node
+      ),
+    })
+    expect(parsed.nodes.find((node) => node.type === "text")).toMatchObject({
+      align: "justify",
+      direction: "rtl",
+      verticalAlign: "bottom",
+      textCase: "uppercase",
+      truncation: "ellipsis",
+      maxLines: 2,
+    })
+    expect(
+      ["direction", "verticalAlign", "textCase", "truncation", "maxLines"].map(
+        (property) => componentOverridePropertySchema.parse(property)
+      )
+    ).toEqual([
+      "direction",
+      "verticalAlign",
+      "textCase",
+      "truncation",
+      "maxLines",
+    ])
+  })
+
   it("projects managed-font wrapping and preserves explicit whitespace", () => {
     const projection = projectTextLayout(
       textNode({
@@ -173,12 +221,80 @@ describe("canonical text layout", () => {
     )
 
     expect(projection.lines.length).toBeGreaterThan(2)
-    expect(projection.measurement).toBe("managed_font_rich_text_v2")
+    expect(projection.measurement).toBe("managed_font_rich_text_v3")
     expect(projection.displayText).toContain("Hello   ")
     expect(projection.displayText).toContain("\n")
     expect(projection.requiredWidth).toBeLessThanOrEqual(100)
     expect(projection.requiredHeight).toBe(
       projection.lineCount * projection.lineHeightPx
+    )
+  })
+
+  it("projects layer case without losing authored source ranges", () => {
+    const projection = projectTextLayout(
+      textNode({
+        text: "hello WORLD",
+        textCase: "title",
+        sizingMode: "auto_width",
+      })
+    )
+
+    expect(projection.displayText).toBe("Hello World")
+    expect(projection.lines[0]?.segments[0]).toMatchObject({
+      sourceStart: 0,
+      sourceEnd: 11,
+    })
+  })
+
+  it("measures expanding case transforms without inventing source offsets", () => {
+    const projection = projectTextLayout(
+      textNode({
+        text: "straße",
+        textCase: "uppercase",
+        sizingMode: "auto_width",
+      })
+    )
+
+    expect(projection.displayText).toBe("STRASSE")
+    expect(projection.lines[0]?.segments).toEqual([
+      expect.objectContaining({ text: "STRAS", sourceStart: 0, sourceEnd: 5 }),
+      expect.objectContaining({ text: "SE", sourceStart: 4, sourceEnd: 6 }),
+    ])
+    expect(projection.lines[0]?.width).toBeGreaterThan(
+      projectTextLayout(textNode({ text: "STRABE", sizingMode: "auto_width" }))
+        .lines[0]!.width
+    )
+  })
+
+  it("resolves automatic direction from the first strong character", () => {
+    expect(resolveTextDirection(textNode({ text: "שלום Studio" }))).toBe("rtl")
+    expect(resolveTextDirection(textNode({ text: "Studio שלום" }))).toBe("ltr")
+    expect(
+      resolveTextDirection(textNode({ text: "Studio", direction: "rtl" }))
+    ).toBe("rtl")
+  })
+
+  it("keeps full measurements while projecting a bounded ellipsis", () => {
+    const projection = projectTextLayout(
+      textNode({
+        text: "One two three four five six seven eight",
+        width: 90,
+        height: 200,
+        maxLines: 2,
+        truncation: "ellipsis",
+      })
+    )
+
+    expect(projection.sourceLineCount).toBeGreaterThan(2)
+    expect(projection.lineCount).toBe(2)
+    expect(projection.truncated).toBe(true)
+    expect(projection.displayText.endsWith("…")).toBe(true)
+    expect(projection.lines[1]?.segments.at(-1)).toMatchObject({
+      text: "…",
+      synthetic: true,
+    })
+    expect(projection.requiredHeight).toBeGreaterThan(
+      projection.lines.reduce((sum, line) => sum + line.height, 0)
     )
   })
 

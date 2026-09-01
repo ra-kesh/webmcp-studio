@@ -237,6 +237,37 @@ describe("review operation details", () => {
     expect(details.after).toContain("60% smoothing")
   })
 
+  it("summarizes advanced text layout values", () => {
+    const document = quotationStarter.document
+    const node = document.nodes.find((candidate) => candidate.type === "text")!
+    const operation: ChangeOperation = {
+      id: "text-layout-operation",
+      status: "pending",
+      summary: "Refine text layout",
+      command: {
+        id: "text-layout-command",
+        type: "update_node",
+        actor: "agent",
+        at: "2026-09-02T01:08:00.000Z",
+        nodeId: node.id,
+        patch: {
+          direction: "rtl",
+          verticalAlign: "middle",
+          textCase: "uppercase",
+          truncation: "ellipsis",
+          maxLines: 2,
+        },
+      },
+    }
+
+    const details = operationDetails(document, operation)
+    expect(details.after).toContain("direction: Rtl")
+    expect(details.after).toContain("verticalAlign: Middle")
+    expect(details.after).toContain("textCase: Uppercase")
+    expect(details.after).toContain("truncation: Ellipsis")
+    expect(details.after).toContain("maxLines: 2 lines")
+  })
+
   it("summarizes frame flow and overflow changes", () => {
     const document = structuredClone(quotationStarter.document)
     const page = document.pages[0]!

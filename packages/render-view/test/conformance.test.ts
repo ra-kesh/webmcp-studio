@@ -981,7 +981,11 @@ describe("React render-view conformance", () => {
         transformOrigin: "top left",
       })
       expect(renderNodeStyle(projection).display).toBe(
-        node.visible ? undefined : "none"
+        node.visible && node.type === "text"
+          ? "flex"
+          : node.visible
+            ? undefined
+            : "none"
       )
       expect(renderNodeDataAttributes(projection)).toMatchObject({
         "data-node-id": node.id,
@@ -1033,6 +1037,41 @@ describe("React render-view conformance", () => {
       overflowWrap: "normal",
       overflow: "hidden",
     })
+  })
+
+  it("projects advanced text layout through shared React styles and metadata", () => {
+    const source = renderConformanceDocument.nodes.find(
+      (candidate) => candidate.id === "text-typography"
+    )!
+    if (source.type !== "text") throw new Error("Expected text")
+    const projection = projectNodeForRender({
+      ...source,
+      text: "שלום עולם ארוך מאוד להצגה בשורה אחת",
+      width: 100,
+      height: 120,
+      align: "justify",
+      direction: "auto",
+      verticalAlign: "middle",
+      textCase: "original",
+      truncation: "ellipsis",
+      maxLines: 1,
+    })
+    if (projection.type !== "text") throw new Error("Expected text")
+
+    expect(renderNodeStyle(projection)).toMatchObject({
+      display: "flex",
+      flexDirection: "column",
+      justifyContent: "center",
+      direction: "rtl",
+      textAlign: "justify",
+    })
+    expect(renderNodeDataAttributes(projection)).toMatchObject({
+      "data-text-direction": "rtl",
+      "data-text-vertical-align": "middle",
+      "data-text-truncated": "true",
+      "data-text-line-count": 1,
+    })
+    expect(projection.content.displayText.endsWith("…")).toBe(true)
   })
 
   it("maps mixed-run and paragraph projection to explicit React styles", () => {

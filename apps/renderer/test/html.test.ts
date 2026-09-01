@@ -1360,6 +1360,33 @@ describe("renderer HTML", () => {
     expect(html).toContain("data-render-ready")
   })
 
+  it("serializes advanced text layout for the shared PNG and PDF source", () => {
+    const source = renderConformanceDocument.nodes.find(
+      (node) => node.id === "text-typography"
+    )!
+    if (source.type !== "text") throw new Error("Expected text")
+    const html = renderNodeToHtml({
+      ...source,
+      text: "שלום עולם ארוך מאוד",
+      width: 80,
+      align: "justify",
+      direction: "auto",
+      verticalAlign: "middle",
+      textCase: "uppercase",
+      truncation: "ellipsis",
+      maxLines: 1,
+    })
+
+    expect(html).toContain("direction:rtl")
+    expect(html).toContain("display:flex")
+    expect(html).toContain("justify-content:center")
+    expect(html).toContain('data-text-direction="rtl"')
+    expect(html).toContain('data-text-vertical-align="middle"')
+    expect(html).toContain('data-text-case="uppercase"')
+    expect(html).toContain('data-text-truncated="true"')
+    expect(html).toContain("…")
+  })
+
   it("serializes every golden projection without dropping render properties", () => {
     for (const node of renderConformanceDocument.nodes) {
       const markup = renderNodeToHtml(node)
@@ -1383,7 +1410,7 @@ describe("renderer HTML", () => {
     )
     expect(html).toContain("white-space:pre")
     expect(html).toContain('data-text-sizing-mode="fixed"')
-    expect(html).toContain('data-text-measurement="managed_font_rich_text_v2"')
+    expect(html).toContain('data-text-measurement="managed_font_rich_text_v3"')
     expect(html).toMatch(/data-text-line-count="[1-9][0-9]*"/)
     expect(html).toMatch(/data-text-overflow="(?:true|false)"/)
     expect(html).toMatch(/data-text-overflow-x="(?:true|false)"/)

@@ -74,6 +74,27 @@ const renderImageSourceInspector = (selectedImage: typeof image) =>
   renderSelectedInspector(selectedImage)
 
 describe("InspectorSidebar basic property controls", () => {
+  it("exposes canonical advanced text layout controls", () => {
+    if (textNode.type !== "text") throw new Error("Expected text")
+    const markup = renderSelectedInspector({
+      ...textNode,
+      align: "justify",
+      direction: "rtl",
+      verticalAlign: "middle",
+      textCase: "uppercase",
+      truncation: "ellipsis",
+      maxLines: 2,
+    })
+
+    expect(markup).toContain('aria-label="Align text justify"')
+    expect(markup).toContain('aria-label="Text direction"')
+    expect(markup).toContain('aria-label="Text vertical alignment"')
+    expect(markup).toContain('aria-label="Text case"')
+    expect(markup).toContain('aria-label="Text truncation"')
+    expect(markup).toContain('aria-label="Limit text lines"')
+    expect(markup).toContain("Maximum lines")
+  })
+
   it("exposes compact independent image-corner controls", () => {
     if (image.type !== "image") throw new Error("Expected image")
     const markup = renderImageSourceInspector({

@@ -3776,7 +3776,16 @@ describe("WebMCP registration", () => {
         {
           nodeType: "text",
           nodeId: "cover-title",
-          patch: { y: 760, fontSize: 76 },
+          patch: {
+            y: 760,
+            fontSize: 76,
+            align: "justify",
+            direction: "rtl",
+            verticalAlign: "middle",
+            textCase: "uppercase",
+            truncation: "ellipsis",
+            maxLines: 2,
+          },
         },
       ],
     })
@@ -3789,7 +3798,16 @@ describe("WebMCP registration", () => {
           command: {
             type: "update_node",
             nodeId: "cover-title",
-            patch: { y: 760, fontSize: 76 },
+            patch: {
+              y: 760,
+              fontSize: 76,
+              align: "justify",
+              direction: "rtl",
+              verticalAlign: "middle",
+              textCase: "uppercase",
+              truncation: "ellipsis",
+              maxLines: 2,
+            },
           },
         },
       ],

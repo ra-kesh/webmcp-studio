@@ -10,7 +10,11 @@ import type {
   StrokePaint,
 } from "./schema"
 import { resolveCornerRadii, roundedRectanglePath } from "./corner-geometry"
-import { projectTextLayout, type TextLayoutProjection } from "./text-layout"
+import {
+  projectTextLayout,
+  resolveTextDirection,
+  type TextLayoutProjection,
+} from "./text-layout"
 import { nodeFillPaints, nodeStrokePaints } from "./paint-stack"
 
 export type RenderFrameProjection = {
@@ -92,7 +96,12 @@ export type RenderNodeProjection =
         fontWeight: number
         lineHeight: number
         letterSpacing: number
-        align: "left" | "center" | "right"
+        align: "left" | "center" | "right" | "justify"
+        direction: "ltr" | "rtl"
+        verticalAlign: "top" | "middle" | "bottom"
+        textCase: "original" | "uppercase" | "lowercase" | "title"
+        truncation: "clip" | "ellipsis"
+        maxLines: number | null
         whiteSpace: "pre"
         overflowWrap: "normal"
         sizingMode: Extract<SceneNode, { type: "text" }>["sizingMode"]
@@ -229,6 +238,11 @@ export function projectNodeForRender(node: SceneNode): RenderNodeProjection {
           lineHeight: node.lineHeight,
           letterSpacing: node.letterSpacing,
           align: node.align,
+          direction: resolveTextDirection(node),
+          verticalAlign: node.verticalAlign ?? "top",
+          textCase: node.textCase ?? "original",
+          truncation: node.truncation ?? "clip",
+          maxLines: node.maxLines ?? null,
           whiteSpace: "pre",
           overflowWrap: "normal",
           sizingMode: node.sizingMode,

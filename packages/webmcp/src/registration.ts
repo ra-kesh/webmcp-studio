@@ -2229,6 +2229,11 @@ const publicNodeCanvasPatchProperties: Record<
     "lineHeight",
     "letterSpacing",
     "align",
+    "direction",
+    "verticalAlign",
+    "textCase",
+    "truncation",
+    "maxLines",
     "sizingMode",
   ]),
   rect: new Set([
@@ -2711,7 +2716,26 @@ const typedCanvasEditInputSchema = {
             },
             lineHeight: { type: "number", minimum: 0.5, maximum: 3 },
             letterSpacing: { type: "number", minimum: -20, maximum: 200 },
-            align: { type: "string", enum: ["left", "center", "right"] },
+            align: {
+              type: "string",
+              enum: ["left", "center", "right", "justify"],
+            },
+            direction: { type: "string", enum: ["auto", "ltr", "rtl"] },
+            verticalAlign: {
+              type: "string",
+              enum: ["top", "middle", "bottom"],
+            },
+            textCase: {
+              type: "string",
+              enum: ["original", "uppercase", "lowercase", "title"],
+            },
+            truncation: { type: "string", enum: ["clip", "ellipsis"] },
+            maxLines: {
+              oneOf: [
+                { type: "integer", minimum: 1, maximum: 100 },
+                { type: "null" },
+              ],
+            },
             sizingMode: {
               type: "string",
               enum: ["auto_width", "auto_height", "fixed"],
@@ -3157,7 +3181,23 @@ const componentOverridePatchInputSchema = {
     fontWeight: { type: "integer", minimum: 100, maximum: 900 },
     lineHeight: { type: "number", minimum: 0.5, maximum: 3 },
     letterSpacing: { type: "number", minimum: -20, maximum: 200 },
-    align: { type: "string", enum: ["left", "center", "right"] },
+    align: {
+      type: "string",
+      enum: ["left", "center", "right", "justify"],
+    },
+    direction: { type: "string", enum: ["auto", "ltr", "rtl"] },
+    verticalAlign: {
+      type: "string",
+      enum: ["top", "middle", "bottom"],
+    },
+    textCase: {
+      type: "string",
+      enum: ["original", "uppercase", "lowercase", "title"],
+    },
+    truncation: { type: "string", enum: ["clip", "ellipsis"] },
+    maxLines: {
+      oneOf: [{ type: "integer", minimum: 1, maximum: 100 }, { type: "null" }],
+    },
     sizingMode: {
       type: "string",
       enum: ["auto_width", "auto_height", "fixed"],
