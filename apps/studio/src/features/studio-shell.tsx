@@ -244,6 +244,7 @@ import { CriticalActionStatus } from "./editor/critical-action-status"
 import type { StudioCriticalAction } from "./editor/critical-action-status"
 import { exportPagePng } from "./editor/export-page-png"
 import { exportOutputPdf } from "./editor/export-output-pdf"
+import { exportLayer } from "./editor/export-layer"
 import {
   assertImageReplacementOutputAdmission,
   imageReplacementOutputCommandStates,
@@ -3490,6 +3491,44 @@ export function StudioShell({
     })
   }
 
+  const exportSelectedLayer = async (nodeId: string, signal: AbortSignal) => {
+    const outputAdmissionLease =
+      editor.captureImageReplacementOutputAdmissionLease()
+    const assertOutputAdmission = () =>
+      editor.assertImageReplacementOutputAdmissionLease(outputAdmissionLease)
+    if (editor.imageCropSession) {
+      throw new Error(
+        "Finish or cancel the image crop before exporting a layer."
+      )
+    }
+    if (!commitActiveTextEditing()) {
+      throw new Error("Finish text editing before exporting a layer.")
+    }
+    return exportLayer({
+      nodeId,
+      signal,
+      flushActiveDraft: editor.flushActiveDraft,
+      getCurrentDocumentSnapshot: editor.getCurrentDocumentSnapshot,
+      materializeNodes: (documentSnapshot) =>
+        materializeLocalExportNodes(documentSnapshot, signal),
+      fetcher: fetch,
+      download: (blob, filename) => {
+        assertOutputAdmission()
+        signal.throwIfAborted()
+        const objectUrl = URL.createObjectURL(blob)
+        const link = document.createElement("a")
+        link.download = filename
+        link.href = objectUrl
+        link.hidden = true
+        document.body.appendChild(link)
+        link.click()
+        link.remove()
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+      },
+      assertOutputAdmission,
+    })
+  }
+
   const exportPdf = async (
     signal: AbortSignal,
     outputId = activeOutput?.id
@@ -4197,6 +4236,27 @@ export function StudioShell({
         if (editor.selectedNodes.length !== 1) return false
         setRenameLayerTarget({ nodeId: selected.id, name: selected.name })
         return true
+      }
+      case "object.export-layer": {
+        const nodeId =
+          invocation.target?.kind === "node"
+            ? invocation.target.nodeId
+            : invocation.target?.kind === "selection"
+              ? invocation.target.nodeIds[0]
+              : editor.selectedNodes.length === 1
+                ? editor.selectedNodes[0]?.id
+                : undefined
+        if (!nodeId) return false
+        return dispatchCriticalAction(
+          "export-png",
+          ({ signal }) => exportSelectedLayer(nodeId, signal),
+          {
+            cancelable: true,
+            timeoutMs: FOREGROUND_EXPORT_TIMEOUT_MS,
+            timeoutMessage:
+              "Layer export took too long. Nothing was downloaded.",
+          }
+        )
       }
       case "object.visibility.toggle":
         editor.setSelectionVisible(

@@ -106,6 +106,9 @@ function displayNodeProperty(
     ).length
     return `${value.length} effect${value.length === 1 ? "" : "s"} · ${visible} visible`
   }
+  if (key === "exportSettings" && Array.isArray(value)) {
+    return `${value.length} layer export${value.length === 1 ? "" : "s"}`
+  }
   return key === "assetId"
     ? displayAssetId(value, source)
     : displayChangeValue(value)

@@ -82,6 +82,7 @@ import type {
   ImageFrameMask,
   ImagePlacement,
   LayerEffect,
+  LayerExportSetting,
   NodeConstraints,
   PaintStyle,
   PaintStylePatch,
@@ -1823,6 +1824,120 @@ function EffectStackControls({
   )
 }
 
+function LayerExportControls({
+  node,
+  onUpdate,
+}: {
+  node: SceneNode
+  onUpdate: (patch: Partial<SceneNode>) => void
+}) {
+  const settings = node.exportSettings ?? []
+  const update = (next: LayerExportSetting[]) =>
+    onUpdate({ exportSettings: next })
+  const add = (format: "png" | "pdf") => {
+    let index = settings.length + 1
+    while (settings.some((setting) => setting.id === `export-${index}`))
+      index += 1
+    update([
+      ...settings,
+      { id: `export-${index}`, format, scale: 1, suffix: "" },
+    ])
+  }
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <FieldLabel>Layer exports</FieldLabel>
+        <div className="flex gap-1">
+          <Button
+            aria-label="Add PNG layer export"
+            disabled={node.locked || settings.length >= 4}
+            size="xs"
+            variant="ghost"
+            onClick={() => add("png")}
+          >
+            PNG
+          </Button>
+          <Button
+            aria-label="Add PDF layer export"
+            disabled={node.locked || settings.length >= 4}
+            size="xs"
+            variant="ghost"
+            onClick={() => add("pdf")}
+          >
+            PDF
+          </Button>
+        </div>
+      </div>
+      {settings.map((setting, index) => {
+        const replace = (next: LayerExportSetting) =>
+          update(
+            settings.map((candidate, candidateIndex) =>
+              candidateIndex === index ? next : candidate
+            )
+          )
+        return (
+          <div
+            className="grid grid-cols-[5rem_1fr_1fr_auto] gap-1 rounded-md border border-border/70 bg-muted/25 p-2"
+            key={setting.id}
+          >
+            <Select
+              value={setting.format}
+              disabled={node.locked}
+              onValueChange={(format: "png" | "pdf") =>
+                replace({ ...setting, format })
+              }
+            >
+              <SelectTrigger aria-label={`Layer export ${index + 1} format`}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="png">PNG</SelectItem>
+                <SelectItem value="pdf">PDF</SelectItem>
+              </SelectContent>
+            </Select>
+            <InspectorNumberField
+              label="Scale"
+              value={inspectorValue(setting.scale)}
+              min={0.25}
+              max={4}
+              step={0.25}
+              disabled={node.locked}
+              onCommit={(scale) => replace({ ...setting, scale })}
+            />
+            <CommitInput
+              aria-label={`Layer export ${index + 1} suffix`}
+              placeholder="Suffix"
+              value={setting.suffix}
+              disabled={node.locked}
+              onCommit={(suffix) => {
+                if (/^[A-Za-z0-9._-]{0,40}$/.test(suffix))
+                  replace({ ...setting, suffix })
+              }}
+            />
+            <Button
+              aria-label={`Remove layer export ${index + 1}`}
+              disabled={node.locked}
+              size="icon-xs"
+              variant="ghost"
+              onClick={() =>
+                update(settings.filter((_, candidate) => candidate !== index))
+              }
+            >
+              <Trash2 />
+            </Button>
+          </div>
+        )
+      })}
+      {settings.length ? (
+        <p className="text-[10px] leading-4 text-muted-foreground">
+          Use Export layer from the layer menu. Published manifests retain the
+          same page/output route.
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
 function NodeInspector({
   document,
   node,
@@ -3414,6 +3529,10 @@ function NodeInspector({
 
       <InspectorSection title="Effects">
         <EffectStackControls node={node} onUpdate={onUpdate} />
+      </InspectorSection>
+
+      <InspectorSection title="Export">
+        <LayerExportControls node={node} onUpdate={onUpdate} />
       </InspectorSection>
 
       {inspector.capabilities.image && node.type === "image" ? (

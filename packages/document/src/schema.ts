@@ -162,6 +162,35 @@ export const layerEffectsSchema = z
     }
   })
 
+export const layerExportSettingSchema = z
+  .object({
+    id,
+    format: z.enum(["png", "pdf"]),
+    scale: z.number().min(0.25).max(4),
+    suffix: z
+      .string()
+      .max(40)
+      .regex(/^[A-Za-z0-9._-]*$/),
+  })
+  .strict()
+
+export const layerExportSettingsSchema = z
+  .array(layerExportSettingSchema)
+  .max(4)
+  .superRefine((settings, context) => {
+    const ids = new Set<string>()
+    settings.forEach((setting, index) => {
+      if (ids.has(setting.id)) {
+        context.addIssue({
+          code: "custom",
+          path: [index, "id"],
+          message: "Layer export setting IDs must be unique",
+        })
+      }
+      ids.add(setting.id)
+    })
+  })
+
 const uniquePaints = <T extends { id: string }>(
   paints: readonly T[],
   context: z.RefinementCtx
@@ -344,6 +373,7 @@ const baseNodeSchema = z
     opacity: z.number().min(0).max(1).default(1),
     blendMode: blendModeSchema.optional(),
     effects: layerEffectsSchema.optional(),
+    exportSettings: layerExportSettingsSchema.optional(),
     visible: z.boolean().default(true),
     locked: z.boolean().default(false),
     constraints: nodeConstraintsSchema.default(defaultNodeConstraints),
@@ -363,6 +393,7 @@ const baseNodePatchSchema = z
     opacity: z.number().min(0).max(1).optional(),
     blendMode: blendModeSchema.optional(),
     effects: layerEffectsSchema.optional(),
+    exportSettings: layerExportSettingsSchema.optional(),
     visible: z.boolean().optional(),
     locked: z.boolean().optional(),
     constraints: nodeConstraintsSchema.optional(),
@@ -1171,6 +1202,7 @@ export const componentOverridePropertySchema = z.enum([
   "opacity",
   "blendMode",
   "effects",
+  "exportSettings",
   "visible",
   "locked",
   "constraints",
@@ -1909,6 +1941,18 @@ export const templateManifestSchema = z
               })
               .strict()
           ),
+          layerExports: z.array(
+            z
+              .object({
+                nodeId: id,
+                pageId: id,
+                settingId: id,
+                format: z.enum(["png", "pdf"]),
+                scale: z.number().min(0.25).max(4),
+                filename: z.string().min(1),
+              })
+              .strict()
+          ),
         })
         .strict()
     ),
@@ -1953,6 +1997,7 @@ export type CornerRadii = z.infer<typeof cornerRadiiSchema>
 export type FillPaint = z.infer<typeof fillPaintSchema>
 export type StrokePaint = z.infer<typeof strokePaintSchema>
 export type LayerEffect = z.infer<typeof layerEffectSchema>
+export type LayerExportSetting = z.infer<typeof layerExportSettingSchema>
 export type NodeConstraints = z.infer<typeof nodeConstraintsSchema>
 export type FrameChildLayout = z.infer<typeof frameChildLayoutSchema>
 export type FrameAutoLayout = z.infer<typeof frameAutoLayoutSchema>

@@ -249,6 +249,7 @@ const commonCanvasProperties = new Set([
   "opacity",
   "blendMode",
   "effects",
+  "exportSettings",
   "visible",
   "locked",
   "constraints",

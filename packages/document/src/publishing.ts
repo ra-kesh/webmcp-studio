@@ -17,6 +17,7 @@ import {
 import { validateRenderPolicy } from "./render-policy"
 import { parseAssetReference } from "./fields"
 import { curatedAssetIdentityFromSource } from "./media"
+import { resolveLayerExportRoutes } from "./layer-export"
 
 export type PublishReadiness = {
   blocking: ValidationIssue[]
@@ -254,6 +255,16 @@ export function createTemplateManifest(document: Document): TemplateManifest {
             ]
           : []
       }),
+      layerExports: resolveLayerExportRoutes(document)
+        .filter((route) => route.outputId === output.id)
+        .map((route) => ({
+          nodeId: route.nodeId,
+          pageId: route.pageId,
+          settingId: route.setting.id,
+          format: route.setting.format,
+          scale: route.setting.scale,
+          filename: route.filename,
+        })),
     })),
   })
 }

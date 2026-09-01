@@ -181,6 +181,31 @@ describe("review operation details", () => {
     expect(details.after).not.toContain('"drop_shadow"')
   })
 
+  it("summarizes per-layer export presets", () => {
+    const document = quotationStarter.document
+    const node = document.nodes.find((candidate) => candidate.type === "rect")!
+    const operation: ChangeOperation = {
+      id: "layer-export-operation",
+      status: "pending",
+      summary: "Add layer export",
+      command: {
+        id: "layer-export-command",
+        type: "update_node",
+        actor: "agent",
+        at: "2026-09-02T01:07:00.000Z",
+        nodeId: node.id,
+        patch: {
+          exportSettings: [
+            { id: "asset", format: "png", scale: 2, suffix: "-asset" },
+          ],
+        },
+      },
+    }
+    expect(operationDetails(document, operation).after).toContain(
+      "exportSettings: 1 layer export"
+    )
+  })
+
   it("summarizes independent corner geometry", () => {
     const document = quotationStarter.document
     const node = document.nodes.find((candidate) => candidate.type === "rect")!

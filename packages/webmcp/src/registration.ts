@@ -2210,6 +2210,7 @@ const publicCommonCanvasPatchProperties = new Set([
   "opacity",
   "blendMode",
   "effects",
+  "exportSettings",
   "visible",
   "locked",
   "constraints",
@@ -2471,6 +2472,26 @@ const layerEffectsInputSchema = {
   },
 } as const
 
+const layerExportSettingsInputSchema = {
+  type: "array",
+  maxItems: 4,
+  items: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      id: { type: "string", minLength: 1 },
+      format: { type: "string", enum: ["png", "pdf"] },
+      scale: { type: "number", minimum: 0.25, maximum: 4 },
+      suffix: {
+        type: "string",
+        maxLength: 40,
+        pattern: "^[A-Za-z0-9._-]*$",
+      },
+    },
+    required: ["id", "format", "scale", "suffix"],
+  },
+} as const
+
 const commonCanvasPatchInputProperties = {
   name: { type: "string", minLength: 1 },
   x: { type: "number" },
@@ -2503,6 +2524,7 @@ const commonCanvasPatchInputProperties = {
     ],
   },
   effects: layerEffectsInputSchema,
+  exportSettings: layerExportSettingsInputSchema,
   visible: { type: "boolean" },
   locked: { type: "boolean" },
   constraints: {
