@@ -120,6 +120,7 @@ type LayerTreeProps = {
   productCommandContext?: ProductCommandRuntimeContext
   productCommandRuntime?: ProductCommandMenuRuntime
   compact?: boolean
+  integrated?: boolean
 }
 
 function instructionIntent(
@@ -578,6 +579,7 @@ export function LayerTree({
   productCommandContext,
   productCommandRuntime,
   compact = false,
+  integrated = false,
 }: LayerTreeProps) {
   const rowHeight = compact ? COMPACT_ROW_HEIGHT : DESKTOP_ROW_HEIGHT
   const model = useMemo(
@@ -1174,7 +1176,7 @@ export function LayerTree({
 
   return (
     <section className="flex min-h-0 flex-1 flex-col" aria-label="Layers">
-      <div className="border-b border-border p-2">
+      <div className={cn("p-2", !integrated && "border-b border-border")}>
         <div className="flex min-w-0 items-center gap-1">
           <div className="relative min-w-0 flex-1">
             <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />

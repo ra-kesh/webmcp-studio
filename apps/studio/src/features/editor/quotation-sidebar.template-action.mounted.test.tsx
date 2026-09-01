@@ -262,6 +262,9 @@ describe("QuotationSidebar exact template actions", () => {
     expect(pages).not.toBeNull()
     expect(layers).not.toBeNull()
     expect(
+      document.body.querySelectorAll('[data-file-section-divider="true"]')
+    ).toHaveLength(1)
+    expect(
       pages && layers
         ? Boolean(
             pages.compareDocumentPosition(layers) &

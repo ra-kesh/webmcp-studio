@@ -165,6 +165,13 @@ export function QuotationSidebar({
     textEditabilityUpgradeLayerCount !== undefined
   const textEditabilityHasLockedLayers =
     (textEditabilityUpgradeLayerCount ?? 0) > 0
+  const pageRowHeight = compact ? 44 : 36
+  const pagePaneTargetHeight = Math.max(
+    132,
+    56 +
+      document.pages.length * pageRowHeight +
+      Math.max(0, document.pages.length - 1) * 4
+  )
   const wasTemplateBrowserVisible = useRef(templateBrowserVisible)
   const cancelTemplateActionRef = useRef(onCancelTemplateAction)
   cancelTemplateActionRef.current = onCancelTemplateAction
@@ -360,19 +367,29 @@ export function QuotationSidebar({
           value="layers"
           className="flex min-h-0 flex-col overflow-hidden"
         >
-          <div className="grid min-h-0 flex-1 grid-rows-[minmax(8rem,30%)_1px_minmax(12rem,70%)] overflow-hidden">
-            <div className="flex min-h-0 flex-col overflow-hidden">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div
+              className="flex min-h-32 shrink-0 flex-col overflow-hidden"
+              style={{ height: `min(48%, ${pagePaneTargetHeight}px)` }}
+            >
               <PageNavigator
                 document={document}
                 activePageId={activePageId}
                 disabled={reviewPending}
+                compact={compact}
                 onSelectPage={onSelectPage}
                 onAddPage={onAddPage}
               />
             </div>
-            <div aria-hidden="true" className="bg-border" />
-            <div className="flex min-h-0 flex-col overflow-hidden">
-              <EditorPanelSectionHeader>Layers</EditorPanelSectionHeader>
+            <div
+              aria-hidden="true"
+              className="h-px shrink-0 bg-border"
+              data-file-section-divider="true"
+            />
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <EditorPanelSectionHeader className="min-h-10 border-b-0 px-3">
+                Layers
+              </EditorPanelSectionHeader>
               <LayerTree
                 key={`${document.id}:${activePageId}`}
                 document={document}
@@ -390,6 +407,7 @@ export function QuotationSidebar({
                 productCommandContext={productCommandContext}
                 productCommandRuntime={productCommandRuntime}
                 compact={compact}
+                integrated
               />
             </div>
           </div>

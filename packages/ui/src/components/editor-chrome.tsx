@@ -28,7 +28,7 @@ function EditorPanelTabsList({
       <TabsList
         variant="line"
         className={cn(
-          "!h-full w-full justify-start gap-0 rounded-none p-0 px-1.5 [&_[data-slot=tabs-trigger]]:!h-full [&_[data-slot=tabs-trigger]]:rounded-none [&_[data-slot=tabs-trigger]]:px-2.5 [&_[data-slot=tabs-trigger]]:font-normal [&_[data-slot=tabs-trigger]]:text-muted-foreground [&_[data-slot=tabs-trigger]]:after:inset-x-2 [&_[data-slot=tabs-trigger]]:after:bottom-0 [&_[data-slot=tabs-trigger]][data-state=active]:font-semibold [&_[data-slot=tabs-trigger]][data-state=active]:text-foreground [&_[data-slot=tabs-trigger]]:focus-visible:border-studio-accent [&_[data-slot=tabs-trigger]]:focus-visible:ring-studio-accent/30 [&_[data-slot=tabs-trigger]]:focus-visible:ring-inset",
+          "[&_[data-slot=tabs-trigger]][data-state=active]:font-semibold [&_[data-slot=tabs-trigger]][data-state=active]:text-foreground !h-full w-full justify-start gap-0 rounded-none p-0 px-1.5 [&_[data-slot=tabs-trigger]]:!h-full [&_[data-slot=tabs-trigger]]:rounded-none [&_[data-slot=tabs-trigger]]:px-2.5 [&_[data-slot=tabs-trigger]]:font-normal [&_[data-slot=tabs-trigger]]:text-muted-foreground [&_[data-slot=tabs-trigger]]:after:inset-x-2 [&_[data-slot=tabs-trigger]]:after:bottom-0 [&_[data-slot=tabs-trigger]]:focus-visible:border-transparent [&_[data-slot=tabs-trigger]]:focus-visible:ring-1 [&_[data-slot=tabs-trigger]]:focus-visible:ring-studio-accent/50 [&_[data-slot=tabs-trigger]]:focus-visible:ring-inset",
           className
         )}
         {...props}

@@ -69,3 +69,14 @@ catalog and insertion workflows that do not belong to the document tree.
 - Focused mounted evidence passes 4/4, Studio typecheck passes, and a live
   1280×720 check on port 3001 confirmed both regions, their independent bounds,
   and no console errors.
+
+### Vercel rhythm follow-up
+
+The first combined rail overused horizontal rules: tabs, Pages header, the
+section seam, Layers header and search metadata each drew their own boundary.
+The follow-up retains only the workspace-tabs rule and one semantic Pages/Layers
+separator. Headers and search metadata now group through Vercel's 4/8/12 px
+spacing rhythm rather than repeated borders. The Pages pane sizes to its actual
+row count up to 48% of the rail, so the six-page quotation is fully visible at
+1280×720 while larger documents still scroll. The active tab keeps a visible
+one-pixel inset keyboard-focus ring without the previous bordered blue box.

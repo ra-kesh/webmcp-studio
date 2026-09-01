@@ -10,12 +10,14 @@ export function PageNavigator({
   document,
   activePageId,
   disabled = false,
+  compact = false,
   onSelectPage,
   onAddPage,
 }: Readonly<{
   document: Document
   activePageId: string
   disabled?: boolean
+  compact?: boolean
   onSelectPage: (pageId: string) => void
   onAddPage: (outputId: string) => void
 }>) {
@@ -37,10 +39,10 @@ export function PageNavigator({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-page-navigator="true">
-      <div className="flex h-10 shrink-0 items-center justify-between border-b px-2.5">
-        <div>
-          <p className="text-xs font-medium">Pages</p>
-          <p className="text-[11px] text-muted-foreground tabular-nums">
+      <div className="flex h-10 shrink-0 items-center justify-between px-3">
+        <div className="flex min-w-0 items-baseline gap-2">
+          <p className="text-xs font-semibold">Pages</p>
+          <p className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
             {document.pages.length} total
           </p>
         </div>
@@ -62,7 +64,7 @@ export function PageNavigator({
       <ScrollArea className="min-h-0 flex-1">
         <div
           aria-label="Document pages"
-          className="grid gap-0.5 p-1.5"
+          className="grid gap-1 px-2 pb-2"
           role="listbox"
         >
           {document.pages.map((page, index) => {
@@ -78,7 +80,8 @@ export function PageNavigator({
                 aria-label={`Center page ${index + 1}: ${page.name}`}
                 aria-selected={active}
                 className={cn(
-                  "flex min-h-8 items-center gap-2 rounded px-2 text-left outline-none hover:bg-muted/55 focus-visible:ring-2 focus-visible:ring-studio-accent/45 [@media(pointer:coarse)]:min-h-11",
+                  "flex items-center gap-2 rounded-sm px-2.5 text-left outline-none hover:bg-muted/55 focus-visible:ring-2 focus-visible:ring-studio-accent/45 focus-visible:ring-inset",
+                  compact ? "min-h-11" : "min-h-9",
                   active && "bg-studio-accent/10 text-studio-accent"
                 )}
                 role="option"
@@ -95,7 +98,7 @@ export function PageNavigator({
                   {page.name}
                 </span>
                 <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
-                  {page.width}×{page.height}
+                  {page.width} × {page.height}
                 </span>
               </button>
             )
