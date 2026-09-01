@@ -124,6 +124,7 @@ export const FabricArtboard = forwardRef<
   FabricArtboardHandle,
   {
     document: Document
+    documentSyncIdentity?: string
     pageId: string
     selection: Selection | null
     hoveredNodeId?: string | null
@@ -157,6 +158,7 @@ export const FabricArtboard = forwardRef<
 >(function FabricArtboard(
   {
     document,
+    documentSyncIdentity,
     pageId,
     selection,
     hoveredNodeId = null,
@@ -256,6 +258,9 @@ export const FabricArtboard = forwardRef<
     documentRevision: document.revision,
     pageId,
   }
+  const documentRef = useRef(document)
+  documentRef.current = document
+  const effectiveDocumentSyncIdentity = documentSyncIdentity ?? document
   const loadAdapter = runtimeOptions?.loadAdapter ?? loadDefaultFabricAdapter
   const startupTimeoutMs =
     runtimeOptions?.startupTimeoutMs ?? DEFAULT_CANVAS_STARTUP_TIMEOUT_MS
@@ -625,13 +630,18 @@ export const FabricArtboard = forwardRef<
     if (mountedAttempt !== runtime.attempt) return
     const adapter = adapterRef.current
     if (!adapter) return
+    const syncDocument = documentRef.current
+    const syncPage = syncDocument.pages.find(
+      (candidate) => candidate.id === pageId
+    )
+    if (!syncPage) return
     settleCanvasInteractivity(adapter, interactive)
     let active = true
     const isActive = () => active
     const attempt = runtime.attempt
     const identity = {
-      documentId: document.id,
-      documentRevision: document.revision,
+      documentId: syncDocument.id,
+      documentRevision: syncDocument.revision,
       pageId,
     }
     const controller = new AbortController()
@@ -639,8 +649,8 @@ export const FabricArtboard = forwardRef<
       () => controller.abort(canvasTimeoutReason("sync")),
       syncTimeoutMs
     )
-    const imageSources = document.nodes.flatMap((node) =>
-      node.type === "image" && page?.nodeIds.includes(node.id)
+    const imageSources = syncDocument.nodes.flatMap((node) =>
+      node.type === "image" && syncPage.nodeIds.includes(node.id)
         ? [
             {
               nodeId: node.id,
@@ -671,13 +681,13 @@ export const FabricArtboard = forwardRef<
       .then(async () => {
         if (!isActive()) return
         await waitForCanvasDocumentFonts(
-          document,
+          syncDocument,
           pageId,
           undefined,
           controller.signal
         )
         if (!isActive()) return
-        await adapter.sync(document, pageId, controller.signal)
+        await adapter.sync(syncDocument, pageId, controller.signal)
       })
       .then(async () => {
         if (!isActive() || adapterRef.current !== adapter) return
@@ -738,10 +748,9 @@ export const FabricArtboard = forwardRef<
     }
   }, [
     applyImageCropMode,
-    document,
+    effectiveDocumentSyncIdentity,
     interactive,
     pageId,
-    page,
     mountedAttempt,
     reportImageSourceState,
     runtime.attempt,
