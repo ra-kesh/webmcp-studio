@@ -1534,42 +1534,33 @@ function NodeInspector({
       <section
         data-inspector-property="visible"
         tabIndex={-1}
+        aria-label={`${nodeTypeLabel} layer`}
         className={cn(
-          "flex scroll-mt-2 flex-col gap-2.5 border-b border-border px-3 py-3 transition-colors outline-none",
+          "scroll-mt-2 border-b border-border px-3 py-2 transition-colors outline-none",
           focusedProperty === "visible" &&
             "bg-accent/70 ring-2 ring-ring ring-inset"
         )}
       >
-        <div className="flex min-h-7 items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-[10px] leading-4 font-medium tracking-[0.06em] text-muted-foreground uppercase">
-              Selection
-            </p>
-            <h2 className="truncate text-xs leading-4 font-semibold tracking-[-0.01em]">
-              {node.name}
-            </h2>
-          </div>
+        <div className="flex min-h-7 min-w-0 items-center gap-1.5">
+          <CommitInput
+            aria-label="Layer name"
+            className="min-w-0 flex-1"
+            value={node.name}
+            disabled={nodeMutationDisabled}
+            onCommit={(name) => name.trim() && onUpdate({ name })}
+          />
           <Badge
             variant="secondary"
-            className="h-5 rounded-sm px-1.5 text-[10px] font-medium text-muted-foreground"
+            aria-label={`Layer type: ${nodeTypeLabel}`}
+            className="h-5 shrink-0 rounded-sm px-1.5 text-[10px] font-medium text-muted-foreground"
           >
             {nodeTypeLabel}
           </Badge>
-        </div>
-        <div className="flex items-end gap-1.5">
-          <label className="min-w-0 flex-1 space-y-1">
-            <FieldLabel>Layer name</FieldLabel>
-            <CommitInput
-              value={node.name}
-              disabled={nodeMutationDisabled}
-              onCommit={(name) => name.trim() && onUpdate({ name })}
-            />
-          </label>
           <Button
             aria-label={node.visible ? "Hide layer" : "Show layer"}
             size="icon-xs"
             variant="ghost"
-            className="mb-0"
+            className="shrink-0"
             disabled={imageCropBarOwnsTransforms}
             onClick={() => onUpdate({ visible: !node.visible })}
           >
@@ -1579,7 +1570,7 @@ function NodeInspector({
             aria-label={node.locked ? "Unlock layer" : "Lock layer"}
             size="icon-xs"
             variant="ghost"
-            className="mb-0"
+            className="shrink-0"
             disabled={imageCropBarOwnsTransforms}
             onClick={() => onUpdate({ locked: !node.locked })}
           >
