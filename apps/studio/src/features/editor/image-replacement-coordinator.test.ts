@@ -255,6 +255,47 @@ describe("renderer-acknowledged image replacement coordinator", () => {
     )
   })
 
+  it("rejects a ready replacement when commit admission closes before the final acknowledgement", async () => {
+    let admitted = true
+    const commit = vi.fn(() => true)
+    const failures: string[] = []
+    const coordinator = new ConnectedImageReplacementCoordinator<Payload>({
+      validate: () => null,
+      commit,
+      onPendingChange: vi.fn(),
+      onFailure: (message) => failures.push(message),
+    })
+    const completion = coordinator.start({
+      ...candidate(),
+      commitAdmission: () =>
+        admitted ? null : "The canvas became stale before commit.",
+    })
+
+    coordinator.report({
+      token: "replacement-token",
+      nodeId: "replacement-image",
+      src: "https://assets.example.test/replacement.png",
+      renderer: "fabric",
+      readiness: "ready",
+      naturalSize: { width: 1600, height: 900 },
+    })
+    admitted = false
+    expect(
+      coordinator.report({
+        token: "replacement-token",
+        nodeId: "replacement-image",
+        src: "https://assets.example.test/replacement.png",
+        renderer: "react",
+        readiness: "ready",
+        naturalSize: { width: 1600, height: 900 },
+      })
+    ).toBe("rejected")
+
+    await expect(completion).resolves.toBe(false)
+    expect(commit).not.toHaveBeenCalled()
+    expect(failures).toEqual(["The canvas became stale before commit."])
+  })
+
   it("ignores a stale token and revalidates the target before commit", async () => {
     let valid = true
     let commits = 0

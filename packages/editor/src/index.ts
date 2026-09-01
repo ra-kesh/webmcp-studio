@@ -81,6 +81,12 @@ export interface CanvasAdapter {
   mount(element: HTMLCanvasElement): void
   unmount(): Promise<void>
   requestRender(): void
+  /** Controls whether renderer-originated edits may reach canonical state. */
+  setMutationAdmission(admitted: boolean): void
+  /**
+   * Installs one page atomically. A rejection or abort must leave the prior
+   * successfully applied visual and renderer caches unchanged.
+   */
   sync(document: Document, pageId: string, signal?: AbortSignal): Promise<void>
   setViewportZoom(zoom: number): void
   setSnapTargets(pageId: string, targets: readonly AlignmentSnapTarget[]): void

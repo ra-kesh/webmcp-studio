@@ -1065,6 +1065,7 @@ function createTransformHarness(options?: {
   Reflect.get(adapter, "objectByNodeId").set(node.id, object)
   Reflect.get(adapter, "nodeByNodeId").set(node.id, node)
   Reflect.get(adapter, "nodeIdByObject").set(object, node.id)
+  adapter.setMutationAdmission(true)
 
   const begin = (action = "drag") =>
     Reflect.get(
@@ -1095,6 +1096,68 @@ function setFabricPreviewRect(
 }
 
 describe("Fabric document boundary", () => {
+  it("restores attempted transforms and rejects editing while mutation admission is closed", () => {
+    const harness = createTransformHarness()
+    const baseline = fabricObjectToNodePatch(harness.object)
+    harness.begin("drag")
+    harness.object.set({ left: harness.node.x + 48, top: harness.node.y + 24 })
+
+    harness.adapter.setMutationAdmission(false)
+
+    expect(fabricObjectToNodePatch(harness.object)).toEqual(baseline)
+    expect(harness.object).toMatchObject({
+      selectable: false,
+      evented: false,
+      hasControls: false,
+    })
+    expect(harness.canvas).toMatchObject({
+      selection: false,
+      skipTargetFind: true,
+    })
+
+    harness.begin("drag")
+    harness.object.set({ left: harness.node.x + 64 })
+    Reflect.get(harness.adapter, "onObjectMoving")({ target: harness.object })
+    expect(fabricObjectToNodePatch(harness.object)).toEqual(baseline)
+
+    harness.object.set({ scaleX: 1.8, scaleY: 1.4 })
+    Reflect.get(
+      harness.adapter,
+      "onObjectTransformPreview"
+    )({
+      target: harness.object,
+      transform: { action: "scale", target: harness.object },
+    })
+    expect(fabricObjectToNodePatch(harness.object)).toEqual(baseline)
+
+    harness.object.set({ angle: 37 })
+    harness.finish()
+    expect(fabricObjectToNodePatch(harness.object)).toEqual(baseline)
+    expect(harness.onNodesChange).not.toHaveBeenCalled()
+    expect(harness.adapter.enterTextEditing(harness.node.id)).toBe(false)
+    expect(
+      harness.adapter.previewNodePatch(harness.node.id, { opacity: 0.2 })
+    ).toBe(false)
+  })
+
+  it("keeps document event suppression nested across selection projection", () => {
+    const harness = createTransformHarness()
+    const onSelectionChange = vi.fn()
+    Reflect.set(harness.adapter, "events", {
+      onSelectionChange,
+      onNodesChange: harness.onNodesChange,
+    })
+    Reflect.set(harness.adapter, "eventSuppressionDepth", 1)
+
+    harness.adapter.select({
+      pageId: harness.page.id,
+      nodeIds: [harness.node.id],
+    })
+
+    expect(Reflect.get(harness.adapter, "eventSuppressionDepth")).toBe(1)
+    expect(onSelectionChange).not.toHaveBeenCalled()
+  })
+
   it("projects every component semantic case through ordinary Fabric objects", () => {
     const nodesById = new Map(
       componentRenderConformanceDocument.nodes.map((node) => [node.id, node])
@@ -3830,6 +3893,119 @@ describe("Fabric document boundary", () => {
       width: imageNode.width,
       height: imageNode.height,
     })
+    fromUrl.mockRestore()
+  })
+
+  it("keeps the exact applied scene untouched when staged incremental sync aborts", async () => {
+    const imageNode = renderConformanceDocument.nodes.find(
+      (candidate) => candidate.id === "image-cover"
+    )!
+    const rectNode = renderConformanceDocument.nodes.find(
+      (candidate) => candidate.id === "rect-stroke-radius"
+    )!
+    const sourcePage = renderConformanceDocument.pages.find(
+      (page) =>
+        page.nodeIds.includes(imageNode.id) &&
+        page.nodeIds.includes(rectNode.id)
+    )!
+    if (imageNode.type !== "image" || rectNode.type !== "rect") {
+      throw new Error("Expected image and rectangle fixtures")
+    }
+    const documentWith = (
+      image: typeof imageNode,
+      rect: typeof rectNode,
+      background: string
+    ) => ({
+      ...renderConformanceDocument,
+      nodes: [rect, image],
+      pages: [
+        {
+          ...sourcePage,
+          background,
+          nodeIds: [rect.id, image.id],
+        },
+      ],
+      groups: [],
+    })
+    const objects: FabricObject[] = []
+    const fakeCanvas = {
+      backgroundColor: "",
+      add: vi.fn((object: FabricObject) => objects.push(object)),
+      clear: vi.fn(() => objects.splice(0)),
+      discardActiveObject: vi.fn(),
+      getActiveObjects: vi.fn(() => []),
+      getObjects: vi.fn(() => objects),
+      moveObjectTo: vi.fn((object: FabricObject, index: number) => {
+        const current = objects.indexOf(object)
+        if (current >= 0) objects.splice(current, 1)
+        objects.splice(index, 0, object)
+      }),
+      remove: vi.fn((object: FabricObject) => {
+        const index = objects.indexOf(object)
+        if (index >= 0) objects.splice(index, 1)
+      }),
+      requestRenderAll: vi.fn(),
+      setActiveObject: vi.fn(),
+      setDimensions: vi.fn(),
+    }
+    const adapter = new FabricCanvasAdapter({
+      onNodesChange: vi.fn(),
+      onSelectionChange: vi.fn(),
+    })
+    Reflect.set(adapter, "canvas", fakeCanvas)
+    let resolveReplacement!: (image: FabricImage) => void
+    const replacementDecode = new Promise<FabricImage>((resolve) => {
+      resolveReplacement = resolve
+    })
+    const fromUrl = vi
+      .spyOn(FabricImage, "fromURL")
+      .mockResolvedValueOnce(decodedFabricImage(imageNode.src, imageNode))
+      .mockImplementationOnce(() => replacementDecode)
+    const initialDocument = documentWith(imageNode, rectNode, "#ffffff")
+    await adapter.sync(initialDocument, sourcePage.id)
+    const initialObjects = [...objects]
+    const initialRect = Reflect.get(adapter, "objectByNodeId").get(rectNode.id)
+    const initialRectLeft = initialRect.left
+    const initialNode = Reflect.get(adapter, "nodeByNodeId").get(rectNode.id)
+    fakeCanvas.add.mockClear()
+    fakeCanvas.clear.mockClear()
+    fakeCanvas.moveObjectTo.mockClear()
+    fakeCanvas.remove.mockClear()
+    fakeCanvas.setDimensions.mockClear()
+
+    const replacementImage = {
+      ...imageNode,
+      src: "https://cdn.example.com/atomic-abort.jpg",
+    }
+    const replacementRect = { ...rectNode, x: rectNode.x + 140 }
+    const controller = new AbortController()
+    const pending = adapter.sync(
+      documentWith(replacementImage, replacementRect, "#101820"),
+      sourcePage.id,
+      controller.signal
+    )
+    await Promise.resolve()
+
+    expect(objects).toEqual(initialObjects)
+    expect(fakeCanvas.backgroundColor).toBe("#ffffff")
+    expect(fakeCanvas.add).not.toHaveBeenCalled()
+    expect(fakeCanvas.remove).not.toHaveBeenCalled()
+    expect(initialRect.left).toBe(initialRectLeft)
+
+    controller.abort(new DOMException("Superseded", "AbortError"))
+    resolveReplacement(decodedFabricImage(replacementImage.src, imageNode))
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" })
+
+    expect(objects).toEqual(initialObjects)
+    expect(fakeCanvas.backgroundColor).toBe("#ffffff")
+    expect(fakeCanvas.setDimensions).not.toHaveBeenCalled()
+    expect(fakeCanvas.clear).not.toHaveBeenCalled()
+    expect(fakeCanvas.add).not.toHaveBeenCalled()
+    expect(fakeCanvas.remove).not.toHaveBeenCalled()
+    expect(initialRect.left).toBe(initialRectLeft)
+    expect(Reflect.get(adapter, "nodeByNodeId").get(rectNode.id)).toBe(
+      initialNode
+    )
     fromUrl.mockRestore()
   })
 

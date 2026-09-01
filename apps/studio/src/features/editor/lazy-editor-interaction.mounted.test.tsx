@@ -76,6 +76,7 @@ const fakeAdapter = (sceneMarker: HTMLElement): CanvasAdapter => ({
     sceneMarker.remove()
   }),
   requestRender: vi.fn(),
+  setMutationAdmission: vi.fn(),
   sync: vi.fn(async () => undefined),
   setViewportZoom: vi.fn(),
   previewNodePatch: vi.fn(() => false),

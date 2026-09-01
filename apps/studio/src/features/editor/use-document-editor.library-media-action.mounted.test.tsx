@@ -41,6 +41,12 @@ import type { LocalAssetRecord } from "./local-asset-store"
 import { useDocumentEditor } from "./use-document-editor"
 import type { PerformLibraryMediaActionOutcome } from "./use-document-editor"
 import { FabricArtboard } from "./fabric-artboard"
+import type { CanvasRuntimeReport } from "./fabric-artboard"
+import {
+  canvasPageMutationAdmitted,
+  reduceCanvasRuntimeAdmission,
+  runCanvasMutationIfAdmitted,
+} from "./canvas-runtime-admission"
 import { ImageReplacementWorkspace } from "./image-replacement-workspace"
 import { MultiArtboardWorkspace } from "./multi-artboard-workspace"
 import { buildMultiArtboardPageSyncIdentities } from "./multi-artboard-page-sync"
@@ -174,6 +180,7 @@ const fakeAdapter = (
   mount: vi.fn(),
   unmount: vi.fn(async () => undefined),
   requestRender: vi.fn(),
+  setMutationAdmission: vi.fn(),
   sync: vi.fn(async () => undefined),
   setViewportZoom: vi.fn(),
   previewNodePatch: vi.fn(() => false),
@@ -567,6 +574,132 @@ describe("useDocumentEditor exact library media action", () => {
     expect(captured.editor!.document.pages[0].nodeIds).toEqual(beforeNodeIds)
     expect(recordUsed).not.toHaveBeenCalled()
     expect(captured.editor!.isImportingAsset).toBe(false)
+  })
+
+  it("keeps canonical history unchanged while the shell page runtime is stale", async () => {
+    const events: string[] = []
+    const captured = await mount(events)
+    await act(async () => captured.editor!.addRectangle())
+    const rectangle = captured.editor!.document.nodes.find(
+      (node) => node.type === "rect"
+    )
+    if (!rectangle) throw new Error("Expected a rectangle fixture")
+    events.length = 0
+    const pageId = captured.editor!.activePageId
+    const documentSyncIdentity = buildMultiArtboardPageSyncIdentities(
+      captured.editor!.previewDocument
+    ).get(pageId)
+    if (!documentSyncIdentity) throw new Error("Expected a page sync identity")
+    const requestedIdentity = {
+      documentId: captured.editor!.previewDocument.id,
+      documentRevision: captured.editor!.previewDocument.revision,
+      pageId,
+      documentSyncIdentity,
+    }
+    const runtimeReport = (
+      status: CanvasRuntimeReport["status"],
+      syncGeneration: number
+    ): CanvasRuntimeReport => ({
+      runtimeOwnerId: "mounted-editor-runtime",
+      status,
+      attempt: 0,
+      ...requestedIdentity,
+      syncGeneration,
+      requestedIdentity,
+      appliedIdentity: { ...requestedIdentity, syncGeneration },
+      stage: status === "stale_error" ? "sync" : null,
+    })
+    let registry = reduceCanvasRuntimeAdmission(
+      new Map(),
+      runtimeReport("stale_error", 1)
+    )
+    const beforeDocument = JSON.stringify(captured.editor!.document)
+    const beforeOperationVersion = captured.editor!.operationVersion
+    const beforeSnapshotId = captured.editor!.snapshotId
+
+    let staleResult: boolean | undefined
+    await act(async () => {
+      staleResult = runCanvasMutationIfAdmitted(
+        canvasPageMutationAdmitted(registry, requestedIdentity),
+        () =>
+          captured.editor!.updateNode(rectangle.id, {
+            x: rectangle.x + 80,
+          })
+      )
+    })
+
+    expect(staleResult).toBeUndefined()
+    expect(JSON.stringify(captured.editor!.document)).toBe(beforeDocument)
+    expect(captured.editor!.operationVersion).toBe(beforeOperationVersion)
+    expect(captured.editor!.snapshotId).toBe(beforeSnapshotId)
+    expect(events).toEqual([])
+
+    registry = reduceCanvasRuntimeAdmission(registry, runtimeReport("ready", 2))
+    let readyResult: boolean | undefined
+    await act(async () => {
+      readyResult = runCanvasMutationIfAdmitted(
+        canvasPageMutationAdmitted(registry, requestedIdentity),
+        () =>
+          captured.editor!.updateNode(rectangle.id, {
+            x: rectangle.x + 80,
+          })
+      )
+    })
+
+    expect(readyResult).toBe(true)
+    expect(
+      captured.editor!.document.nodes.find((node) => node.id === rectangle.id)
+        ?.x
+    ).toBe(rectangle.x + 80)
+    expect(captured.editor!.operationVersion).toBeGreaterThan(
+      beforeOperationVersion
+    )
+    expect(events).toEqual(["commit"])
+  })
+
+  it("rejects an insert that finishes preparing after canvas admission closes", async () => {
+    const events: string[] = []
+    const captured = await mount(events)
+    const exactDetail = detail()
+    const detailGate = deferred<typeof exactDetail>()
+    const getExactDetail = vi.fn(async () => detailGate.promise)
+    captured.setPreparationPorts({
+      getExactDetail,
+      resolveCurated: vi.fn(async () => content()),
+      getManagedRecord: vi.fn(async () => null),
+      verifyManagedResource: vi.fn(async () => {
+        throw new Error("Managed media is outside this test")
+      }),
+      recheckLocal: vi.fn(async () => {
+        throw new Error("Local media is outside this test")
+      }),
+    })
+    const pageId = captured.editor!.activePageId
+    const beforeDocument = captured.editor!.document
+    const beforeSnapshotId = captured.editor!.snapshotId
+    const beforeOperationVersion = captured.editor!.operationVersion
+    let admitted = true
+    let action!: Promise<PerformLibraryMediaActionOutcome>
+
+    await act(async () => {
+      action = captured.editor!.performLibraryMediaAction(
+        {
+          correlationId: "media-action-runtime-closed-before-commit",
+          detail: exactDetail,
+          target: { type: "insert", pageId },
+        },
+        { admitCommit: () => admitted }
+      )
+      await vi.waitFor(() => expect(getExactDetail).toHaveBeenCalledOnce())
+      admitted = false
+      detailGate.resolve(exactDetail)
+      await expect(action).resolves.toBe("rejected")
+    })
+
+    expect(captured.editor!.document).toBe(beforeDocument)
+    expect(captured.editor!.snapshotId).toBe(beforeSnapshotId)
+    expect(captured.editor!.operationVersion).toBe(beforeOperationVersion)
+    expect(events).toEqual([])
   })
 
   it("rejects a prepared insert when its target changes before anchor capture", async () => {

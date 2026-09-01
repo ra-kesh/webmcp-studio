@@ -2960,6 +2960,37 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     })
   })
 
+  it("rejects a template apply when canvas admission closes during confirmation", async () => {
+    const envelope = quotationEnvelope()
+    const { captured } = await openEnvelope(
+      envelope,
+      "library-action-runtime-admission"
+    )
+    const before = captured.current!.document
+    const beforeSnapshotId = captured.current!.snapshotId
+    const beforeOperationVersion = captured.current!.operationVersion
+    const resolved = await captured.current!.resolveApplyLibraryTemplate({
+      itemKind: "template",
+      id: "bold-square-announcement",
+      version: 1,
+    })
+    expect(resolved).not.toBeNull()
+    let admitted = true
+    let confirmation!: Promise<boolean>
+
+    await act(async () => {
+      confirmation = captured.current!.confirmApplyLibraryTemplate(resolved!, {
+        admitCommit: () => admitted,
+      })
+      admitted = false
+      await expect(confirmation).resolves.toBe(false)
+    })
+
+    expect(captured.current!.document).toBe(before)
+    expect(captured.current!.snapshotId).toBe(beforeSnapshotId)
+    expect(captured.current!.operationVersion).toBe(beforeOperationVersion)
+  })
+
   it("records Recent once after the exact created document becomes durable and active", async () => {
     const envelope = quotationEnvelope()
     const { captured, hookRepository } = await openEnvelope(

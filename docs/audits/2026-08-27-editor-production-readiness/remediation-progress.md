@@ -4212,3 +4212,38 @@ open**
   event policy were left untouched. No P1 repair, GEN-01 work, Library work,
   redesign, deployment, server startup, or capture-directory mutation was
   included.
+
+## 2026-09-01: Architecture Gate 5 Fabric authority and stale-runtime repair
+
+Status: **both architecture-audit P1 findings closed on main; the two P2
+findings remain open**
+
+- Split last-good pixel availability from mutation authority. Fabric keeps a
+  same-owner last-applied frame visible during sync or failure, but the adapter
+  cancels transient transform/text/crop state, disables selection and hit
+  testing, and rejects every mutation path until the exact requested identity
+  installs.
+- Made Fabric document installation atomic across font/image preparation,
+  object replacement, ordering, background, and cache identity. Aborted or
+  rejected sync leaves the prior applied scene and cache unchanged.
+- Added explicit `preparing`, `syncing`, `ready`, `stale_error`, and hard-error
+  states with exact requested/applied document, page, page-sync, revision, and
+  generation identity. Incremental failure keeps inert pixels with Retry;
+  cross-document page-ID reuse cannot retain prior pixels.
+- Added an owner-aware shell registry. Artboards deny admission before paint,
+  release only their own entry on virtualization cull/remount, and document-wide
+  admission considers only mounted artboards. An unchanged mounted page stays
+  ready when another page-local identity changes.
+- Applied the runtime gate to Inspector, commands, page/output/layer/guide and
+  Quotation surfaces. Media insertion/replacement, background-removal results,
+  and template application also recheck captured exact admission immediately
+  before canonical commit, so deferred work cannot write history after the
+  runtime becomes stale.
+- Node 22.23.2 verification passes the Fabric adapter suite (107/107), eight
+  focused Studio files (167/167), both affected package typechecks, scoped
+  Studio lint, and `git diff --check`. No server, browser, deployment, port 3000,
+  or capture directory was used or changed.
+- Final independent read-only re-review reports no remaining P0 or P1. The two
+  audit P2s remain, along with non-blocking follow-up coverage for synchronous
+  Fabric install fault rollback, retired-object disposal, and a same-tick shell
+  predicate seam regression.

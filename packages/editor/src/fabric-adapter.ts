@@ -1642,7 +1642,16 @@ function disposeFabricObjectForest(objects: Iterable<FabricObject>) {
     // Fabric Group.dispose() recursively owns its children. Dispose only roots
     // in this candidate forest so every retained object receives one cleanup.
     if (object.group && owned.has(object.group)) continue
-    object.dispose()
+    if (typeof document === "undefined") {
+      try {
+        object.dispose()
+      } catch {
+        // Fabric image disposal reaches the browser document. Headless unit
+        // fixtures have no DOM resource to release.
+      }
+    } else {
+      object.dispose()
+    }
   }
 }
 
@@ -2807,6 +2816,12 @@ type CropInteractionSnapshot = {
   moveCursor: string | null
 }
 
+type MutationAdmissionSnapshot = Pick<
+  FabricObject,
+  "selectable" | "evented" | "hasControls"
+> &
+  Readonly<{ node: SceneNode | undefined }>
+
 type ImageCropDrag = {
   nodeId: string
   startPoint: { x: number; y: number }
@@ -2845,7 +2860,12 @@ export class FabricCanvasAdapter implements CanvasAdapter {
   private pageBackground: string | null = null
   private pageNodeOrder: string[] = []
   private generation = 0
-  private syncing = false
+  private eventSuppressionDepth = 0
+  private mutationAdmitted = true
+  private readonly mutationAdmissionSnapshots = new Map<
+    FabricObject,
+    MutationAdmissionSnapshot
+  >()
   private activeGuides: SnapGuide[] = []
   private snapTargets: AlignmentSnapTarget[] = []
   private snapTargetPageId: string | null = null
@@ -2967,6 +2987,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
       "Interactive design canvas"
     )
     this.canvas.upperCanvasEl.setAttribute("role", "application")
+    this.setMutationAdmission(false)
   }
 
   async unmount() {
@@ -2994,6 +3015,9 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     this.maskPaintObjectBySourceNodeId.clear()
     this.maskCompositeByGroupId.clear()
     this.transformTextPreviewNodeIds.clear()
+    this.mutationAdmissionSnapshots.clear()
+    this.mutationAdmitted = false
+    this.eventSuppressionDepth = 0
     this.clearTextEditSession()
     if (!canvas) return
     canvas.off("selection:created", this.onSelection)
@@ -3043,6 +3067,45 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     this.canvas?.requestRenderAll()
   }
 
+  setMutationAdmission(admitted: boolean) {
+    const canvas = this.canvas
+    if (!canvas) {
+      this.mutationAdmitted = admitted
+      return
+    }
+    if (!admitted) {
+      if (this.mutationAdmitted) {
+        this.cancelTextEditing()
+        this.cancelTransform()
+        this.setImageCropMode(null)
+      }
+      this.mutationAdmitted = false
+      this.withEventSuppression(() => canvas.discardActiveObject())
+      canvas.selection = false
+      canvas.skipTargetFind = true
+      this.applyMutationAdmissionPolicy()
+      canvas.requestRenderAll()
+      return
+    }
+    this.mutationAdmitted = true
+    canvas.selection = true
+    canvas.skipTargetFind = false
+    for (const [object, snapshot] of this.mutationAdmissionSnapshots) {
+      const nodeId = this.nodeIdByObject.get(object)
+      if (!nodeId || this.objectByNodeId.get(nodeId) !== object) {
+        continue
+      }
+      object.set({
+        selectable: snapshot.selectable,
+        evented: snapshot.evented,
+        hasControls: snapshot.hasControls,
+      })
+      object.setCoords()
+    }
+    this.mutationAdmissionSnapshots.clear()
+    canvas.requestRenderAll()
+  }
+
   async sync(document: Document, pageId: string, signal?: AbortSignal) {
     signal?.throwIfAborted()
     const canvas = this.canvas
@@ -3061,37 +3124,16 @@ export class FabricCanvasAdapter implements CanvasAdapter {
       this.finalizeTextEditing("page_change")
       this.imageCropDrag = null
     }
-    this.documentId = document.id
     const generation = ++this.generation
-    const previousSelection = this.getSelection()?.nodeIds ?? []
-    this.syncing = true
+    const pageChanged = this.pageId !== pageId
+    const previousSelection = pageChanged
+      ? []
+      : (this.getSelection()?.nodeIds ?? [])
+    this.eventSuppressionDepth += 1
     this.activeGuides = []
+    let abandonedRegularCandidates: Set<FabricObject> | null = null
 
     try {
-      if (this.pageId !== pageId) {
-        this.restoreCropInteractionPolicy()
-        canvas.discardActiveObject()
-        canvas.clear()
-        this.objectByNodeId.clear()
-        this.textByNodeId.clear()
-        this.textSizingModeByNodeId.clear()
-        this.nodeByNodeId.clear()
-        this.paintPlanMode = false
-        this.paintPlanIdentity = null
-        this.maskEntryByContentNodeId.clear()
-        this.maskSourceNodeIds.clear()
-        this.maskEntryBySourceNodeId.clear()
-        this.maskPaintObjectBySourceNodeId.clear()
-        this.maskCompositeByGroupId.clear()
-        this.transformTextPreviewNodeIds.clear()
-        this.clearTextEditSession()
-        this.pageId = pageId
-        this.pageWidth = null
-        this.pageHeight = null
-        this.pageBackground = null
-        this.pageNodeOrder = []
-      }
-
       const applyPagePresentation = () => {
         if (this.pageWidth !== page.width || this.pageHeight !== page.height) {
           canvas.setDimensions({ width: page.width, height: page.height })
@@ -3114,13 +3156,16 @@ export class FabricCanvasAdapter implements CanvasAdapter {
       if (hasMaskPaint) {
         const nextPaintPlanIdentity = pagePaintPlanIdentity(paintPlan)
         if (
+          !pageChanged &&
           this.paintPlanMode &&
           this.paintPlanIdentity === nextPaintPlanIdentity &&
           this.canIncrementallySyncPaintPlan(page, nodesById)
         ) {
-          this.syncCanonicalPaintPlanNodes(page, nodesById)
           signal?.throwIfAborted()
+          this.syncCanonicalPaintPlanNodes(page, nodesById)
           applyPagePresentation()
+          this.documentId = document.id
+          this.pageId = pageId
           canvas.requestRenderAll()
           return
         }
@@ -3132,28 +3177,12 @@ export class FabricCanvasAdapter implements CanvasAdapter {
           generation,
           signal
         )
-        signal?.throwIfAborted()
         if (generation !== this.generation || !this.canvas) return
         applyPagePresentation()
+        this.documentId = document.id
+        this.pageId = pageId
         canvas.requestRenderAll()
         return
-      }
-      applyPagePresentation()
-      if (this.paintPlanMode) {
-        canvas.discardActiveObject()
-        canvas.remove(...canvas.getObjects())
-        this.objectByNodeId.clear()
-        this.textByNodeId.clear()
-        this.textSizingModeByNodeId.clear()
-        this.nodeByNodeId.clear()
-        this.maskEntryByContentNodeId.clear()
-        this.maskSourceNodeIds.clear()
-        this.maskEntryBySourceNodeId.clear()
-        this.maskPaintObjectBySourceNodeId.clear()
-        this.maskCompositeByGroupId.clear()
-        this.paintPlanMode = false
-        this.paintPlanIdentity = null
-        this.pageNodeOrder = []
       }
       const wanted = new Set(page.nodeIds)
       const orderChanged =
@@ -3161,19 +3190,10 @@ export class FabricCanvasAdapter implements CanvasAdapter {
         page.nodeIds.some(
           (nodeId, index) => this.pageNodeOrder[index] !== nodeId
         )
-      for (const [nodeId, object] of this.objectByNodeId) {
-        if (!wanted.has(nodeId)) {
-          canvas.remove(object)
-          this.objectByNodeId.delete(nodeId)
-          this.textByNodeId.delete(nodeId)
-          this.textSizingModeByNodeId.delete(nodeId)
-          this.nodeByNodeId.delete(nodeId)
-        }
-      }
-
       const imagesToPrepare = page.nodeIds.flatMap((nodeId) => {
         const node = nodesById.get(nodeId)
         if (node?.type !== "image") return []
+        if (pageChanged || this.paintPlanMode) return [node]
         const object = this.objectByNodeId.get(nodeId)
         if (!object) return [node]
         if (this.nodeByNodeId.get(nodeId) === node) return []
@@ -3194,61 +3214,122 @@ export class FabricCanvasAdapter implements CanvasAdapter {
         preparedImages.get(node.id) ??
         createImageObjectWithinDeadline(node, signal)
 
-      for (const [index, nodeId] of page.nodeIds.entries()) {
+      type StagedRegularObject = Readonly<{
+        object: FabricObject
+        replaces: FabricObject | null
+      }>
+      const stagedObjectByNodeId = new Map<string, StagedRegularObject>()
+      const stagedRegularCandidates = new Set<FabricObject>()
+      abandonedRegularCandidates = stagedRegularCandidates
+      for (const nodeId of page.nodeIds) {
         signal?.throwIfAborted()
+        const node = nodesById.get(nodeId)
+        if (!node) continue
+        const previousNode =
+          pageChanged || this.paintPlanMode
+            ? undefined
+            : this.nodeByNodeId.get(node.id)
+        const object =
+          pageChanged || this.paintPlanMode
+            ? undefined
+            : this.objectByNodeId.get(nodeId)
+        if (!object) {
+          const stagedObject = await createFabricObjectForSync(
+            node,
+            loadPreparedImage,
+            signal
+          )
+          stagedRegularCandidates.add(stagedObject)
+          stagedObjectByNodeId.set(node.id, {
+            object: stagedObject,
+            replaces: null,
+          })
+          continue
+        }
+        if (node.type !== "image" || previousNode === node) continue
+        const image =
+          object instanceof Group
+            ? object
+                .getObjects()
+                .find(
+                  (child): child is FabricImage => child instanceof FabricImage
+                )
+            : undefined
+        if (!image || !equivalentImageSources(image.getSrc(), node.src)) {
+          const replacement = await createFabricObjectForSync(
+            node,
+            loadPreparedImage,
+            signal
+          )
+          if (!isMissingImagePlaceholder(replacement)) {
+            stagedRegularCandidates.add(replacement)
+            stagedObjectByNodeId.set(node.id, {
+              object: replacement,
+              replaces: object,
+            })
+          } else {
+            replacement.dispose()
+          }
+        }
+      }
+
+      // This is the regular-scene admission barrier. Nothing mounted is
+      // changed until every asynchronous image decode has settled and the
+      // request still owns the adapter generation.
+      await Promise.allSettled(preparedImages.values())
+      signal?.throwIfAborted()
+      if (generation !== this.generation || this.canvas !== canvas) return
+
+      if (pageChanged || this.paintPlanMode) {
+        this.restoreCropInteractionPolicy()
+        canvas.discardActiveObject()
+        if (pageChanged) canvas.clear()
+        else canvas.remove(...canvas.getObjects())
+        this.objectByNodeId.clear()
+        this.textByNodeId.clear()
+        this.textSizingModeByNodeId.clear()
+        this.nodeByNodeId.clear()
+        this.maskEntryByContentNodeId.clear()
+        this.maskSourceNodeIds.clear()
+        this.maskEntryBySourceNodeId.clear()
+        this.maskPaintObjectBySourceNodeId.clear()
+        this.maskCompositeByGroupId.clear()
+        this.paintPlanMode = false
+        this.paintPlanIdentity = null
+        this.transformTextPreviewNodeIds.clear()
+        this.clearTextEditSession()
+        this.pageNodeOrder = []
+      }
+      applyPagePresentation()
+      for (const [nodeId, object] of this.objectByNodeId) {
+        if (!wanted.has(nodeId)) {
+          canvas.remove(object)
+          this.objectByNodeId.delete(nodeId)
+          this.textByNodeId.delete(nodeId)
+          this.textSizingModeByNodeId.delete(nodeId)
+          this.nodeByNodeId.delete(nodeId)
+        }
+      }
+
+      for (const [index, nodeId] of page.nodeIds.entries()) {
         const node = nodesById.get(nodeId)
         if (!node) continue
         const previousNode = this.nodeByNodeId.get(node.id)
         let object = this.objectByNodeId.get(nodeId)
         let objectNeedsPlacement = false
-
-        if (object && node.type === "image" && previousNode !== node) {
-          const image =
-            object instanceof Group
-              ? object
-                  .getObjects()
-                  .find(
-                    (child): child is FabricImage =>
-                      child instanceof FabricImage
-                  )
-              : undefined
-          if (!image || !equivalentImageSources(image.getSrc(), node.src)) {
-            const previousObject = object
-            const replacement = await createFabricObjectForSync(
-              node,
-              loadPreparedImage,
-              signal
-            )
-            signal?.throwIfAborted()
-            if (generation !== this.generation || !this.canvas) return
-            // A replacement is a staged visual swap. Keep the last decoded
-            // pixels mounted until the requested source can be installed.
-            if (!isMissingImagePlaceholder(replacement)) {
-              canvas.remove(previousObject)
-              this.objectByNodeId.set(node.id, replacement)
-              this.nodeIdByObject.set(replacement, node.id)
-              canvas.add(replacement)
-              object = replacement
-              objectNeedsPlacement = true
-            }
-          }
-        }
-
-        if (!object) {
-          object = await createFabricObjectForSync(
-            node,
-            loadPreparedImage,
-            signal
-          )
-          signal?.throwIfAborted()
-          if (generation !== this.generation || !this.canvas) return
+        const staged = stagedObjectByNodeId.get(node.id)
+        if (staged) {
+          if (staged.replaces) canvas.remove(staged.replaces)
+          object = staged.object
           this.objectByNodeId.set(node.id, object)
           this.nodeIdByObject.set(object, node.id)
           canvas.add(object)
           objectNeedsPlacement = true
         } else if (previousNode !== node) {
+          if (!object) continue
           syncFabricObjectFromNode(object, node)
         }
+        if (!object) continue
         // Commit the applied identity only after every awaited visual update
         // survives the generation guard. A superseding sync must still see
         // the old identity and finish installing the requested image source.
@@ -3280,10 +3361,16 @@ export class FabricCanvasAdapter implements CanvasAdapter {
         }
       }
       this.applyImageCropInteractionPolicy()
-      signal?.throwIfAborted()
+      this.documentId = document.id
+      this.pageId = pageId
+      abandonedRegularCandidates = null
       canvas.requestRenderAll()
     } finally {
-      if (generation === this.generation) this.syncing = false
+      if (abandonedRegularCandidates) {
+        disposeFabricObjectForest(abandonedRegularCandidates)
+      }
+      this.applyMutationAdmissionPolicy()
+      this.eventSuppressionDepth = Math.max(0, this.eventSuppressionDepth - 1)
     }
   }
 
@@ -3658,6 +3745,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
         const built = await buildEntry(entry)
         candidateRoots.push(...built.objects)
       }
+      await Promise.allSettled(preparedImages.values())
       signal?.throwIfAborted()
       if (isStale()) return
 
@@ -3720,7 +3808,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
       this.applyImageCropInteractionPolicy()
       installed = true
     } finally {
-      await Promise.allSettled(preparedImages.values())
+      if (!installed) await Promise.allSettled(preparedImages.values())
       disposePreparedLuminance()
       if (!installed) disposeCandidates()
     }
@@ -3731,6 +3819,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
   }
 
   previewNodePatch(nodeId: string, patch: Partial<SceneNode>): boolean {
+    if (!this.mutationAdmitted) return false
     const canvas = this.canvas
     const object = this.objectByNodeId.get(nodeId)
     const node = this.nodeByNodeId.get(nodeId)
@@ -3833,6 +3922,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     // canvas. In that path Fabric emits no selection:cleared or mouse:up event,
     // so transient snap/spacing guides must be released explicitly here.
     this.clearGuides()
+    if (!this.mutationAdmitted) return
     if (
       shouldPreserveTextEditingSelection(
         this.textEditSession?.nodeId ?? null,
@@ -3846,8 +3936,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
       this.cancelTransform()
     }
     this.finalizeTextEditing("select")
-    this.syncing = true
-    try {
+    this.withEventSuppression(() => {
       canvas.discardActiveObject()
       const objects = (selection?.nodeIds ?? [])
         .map((nodeId) => this.objectByNodeId.get(nodeId))
@@ -3858,9 +3947,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
         canvas.setActiveObject(this.createActiveSelection(objects))
       }
       canvas.requestRenderAll()
-    } finally {
-      this.syncing = false
-    }
+    })
   }
 
   getSelection(): Selection | null {
@@ -3873,6 +3960,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
   }
 
   enterTextEditing(nodeId: string, selection?: TextSelection): boolean {
+    if (!this.mutationAdmitted) return false
     const canvas = this.canvas
     const object = this.objectByNodeId.get(nodeId)
     if (!canvas || !(object instanceof Textbox)) return false
@@ -3897,6 +3985,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
   }
 
   commitTextEditing(): boolean {
+    if (!this.mutationAdmitted) return false
     const session = this.textEditSession
     if (!session) return false
     session.target.exitEditing()
@@ -3925,6 +4014,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
   }
 
   applyTextEditingStyle(patch: TextRunStylePatch): boolean {
+    if (!this.mutationAdmitted) return false
     const session = this.textEditSession
     if (!session || session.cancelled) return false
     const selection = fabricTextSelection(session.target)
@@ -3955,6 +4045,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
   }
 
   applyTextEditingParagraphStyle(patch: TextParagraphStylePatch): boolean {
+    if (!this.mutationAdmitted) return false
     const session = this.textEditSession
     if (!session || session.cancelled) return false
     const selection = fabricTextSelection(session.target)
@@ -4011,14 +4102,15 @@ export class FabricCanvasAdapter implements CanvasAdapter {
       }
       this.restoreCropInteractionPolicy()
       if (this.canvas && previousTarget) {
-        const wasSyncing = this.syncing
-        this.syncing = true
-        this.canvas.setActiveObject(previousTarget)
-        this.syncing = wasSyncing
+        this.withEventSuppression(() =>
+          this.canvas?.setActiveObject(previousTarget)
+        )
       }
       this.canvas?.requestRenderAll()
       return true
     }
+
+    if (!this.mutationAdmitted) return false
 
     const requestedNode = this.nodeByNodeId.get(mode.nodeId)
     const requestedObject = this.objectByNodeId.get(mode.nodeId)
@@ -4066,6 +4158,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
   }
 
   previewImageCropDraft(draft: CanvasImageCropDraft): boolean {
+    if (!this.mutationAdmitted) return false
     const mode = this.imageCropMode
     const node = this.nodeByNodeId.get(draft.nodeId)
     const object = this.objectByNodeId.get(draft.nodeId)
@@ -4097,6 +4190,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     screenDelta: { x: number; y: number },
     cameraZoom: number
   ): boolean {
+    if (!this.mutationAdmitted) return false
     const mode = this.imageCropMode
     if (!mode) return false
     const node = this.activeImageCropNode(mode.nodeId)
@@ -4152,6 +4246,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
   }
 
   async retryImageSource(nodeId: string, signal?: AbortSignal) {
+    if (!this.mutationAdmitted) return null
     signal?.throwIfAborted()
     const canvas = this.canvas
     const node = this.nodeByNodeId.get(nodeId)
@@ -4190,6 +4285,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     if (index >= 0) canvas.moveObjectTo(replacement, index)
     if (wasSelected) canvas.setActiveObject(replacement)
     this.applyImageCropInteractionPolicy()
+    this.applyMutationAdmissionPolicy()
     canvas.requestRenderAll()
     return "ready" as const
   }
@@ -4290,6 +4386,38 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     this.cropInteractionSnapshots.clear()
   }
 
+  private get eventsSuppressed() {
+    return this.eventSuppressionDepth > 0
+  }
+
+  private withEventSuppression<T>(operation: () => T): T {
+    this.eventSuppressionDepth += 1
+    try {
+      return operation()
+    } finally {
+      this.eventSuppressionDepth = Math.max(0, this.eventSuppressionDepth - 1)
+    }
+  }
+
+  private applyMutationAdmissionPolicy() {
+    if (this.mutationAdmitted) return
+    for (const object of this.objectByNodeId.values()) {
+      const nodeId = this.nodeIdByObject.get(object)
+      const node = nodeId ? this.nodeByNodeId.get(nodeId) : undefined
+      const previous = this.mutationAdmissionSnapshots.get(object)
+      if (!previous || previous.node !== node) {
+        this.mutationAdmissionSnapshots.set(object, {
+          selectable: object.selectable,
+          evented: object.evented,
+          hasControls: object.hasControls,
+          node,
+        })
+      }
+      object.set({ selectable: false, evented: false, hasControls: false })
+      object.setCoords()
+    }
+  }
+
   private finalizeTextEditing(transition: TextEditTransition): boolean {
     return textEditFinalizationPolicy(transition) === "commit"
       ? this.commitTextEditing()
@@ -4297,6 +4425,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
   }
 
   exportPng() {
+    if (!this.mutationAdmitted) return null
     return (
       this.canvas?.toDataURL({
         format: "png",
@@ -4307,6 +4436,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
   }
 
   private onSelection = () => {
+    if (!this.mutationAdmitted) return
     if (this.imageCropMode) return
     const activeObject = this.canvas?.getActiveObject()
     if (activeObject instanceof ActiveSelection) {
@@ -4314,19 +4444,22 @@ export class FabricCanvasAdapter implements CanvasAdapter {
       activeObject.setCoords()
       this.canvas?.requestRenderAll()
     }
-    if (!this.syncing) this.events.onSelectionChange(this.getSelection())
+    if (!this.eventsSuppressed)
+      this.events.onSelectionChange(this.getSelection())
   }
 
   private onSelectionCleared = () => {
     this.clearGuides()
+    if (!this.mutationAdmitted) return
     if (this.imageCropMode) return
-    if (!this.syncing) this.events.onSelectionChange(null)
+    if (!this.eventsSuppressed) this.events.onSelectionChange(null)
   }
 
   private onMouseDoubleClick = ({
     e,
     target,
   }: TPointerEventInfo<TPointerEvent>) => {
+    if (!this.mutationAdmitted) return
     if (target instanceof Textbox) {
       const nodeId = this.nodeIdByObject.get(target)
       if (nodeId) this.events.onNodeDoubleClick?.(nodeId)
@@ -4355,6 +4488,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     e,
     target,
   }: TPointerEventInfo<TPointerEvent>) => {
+    if (!this.mutationAdmitted) return
     if (!("button" in e) || e.button !== 2) return
     this.events.onContextMenu?.({
       clientX: e.clientX,
@@ -4364,6 +4498,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
   }
 
   private onImageCropTouchStart = (event: TouchEvent) => {
+    if (!this.mutationAdmitted) return
     if (this.suppressCropTouchUntilRelease) {
       event.preventDefault()
       event.stopImmediatePropagation()
@@ -4405,6 +4540,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
   }
 
   private onImageCropTouchMove = (event: TouchEvent) => {
+    if (!this.mutationAdmitted) return
     if (this.suppressCropTouchUntilRelease) {
       event.preventDefault()
       event.stopImmediatePropagation()
@@ -4443,6 +4579,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
   }
 
   private onImageCropTouchEnd = (event: TouchEvent) => {
+    if (!this.mutationAdmitted) return
     if (!this.imageCropPinch && !this.suppressCropTouchUntilRelease) return
     const nodeId = this.imageCropPinch?.nodeId
     this.imageCropPinch = null
@@ -4460,6 +4597,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     target,
     scenePoint,
   }: TPointerEventInfo<TPointerEvent>) => {
+    if (!this.mutationAdmitted) return
     const mode = this.imageCropMode
     if (!mode || !target || this.nodeIdByObject.get(target) !== mode.nodeId) {
       return
@@ -4487,6 +4625,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     e,
     scenePoint,
   }: TPointerEventInfo<TPointerEvent>) => {
+    if (!this.mutationAdmitted) return
     const drag = this.imageCropDrag
     const mode = this.imageCropMode
     if (!drag || !mode || mode.nodeId !== drag.nodeId) return
@@ -4525,6 +4664,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
   }
 
   private onImageCropPointerUp = ({ e }: TPointerEventInfo<TPointerEvent>) => {
+    if (!this.mutationAdmitted) return
     const drag = this.imageCropDrag
     if (!drag) return
     this.imageCropDrag = null
@@ -4583,11 +4723,22 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     return target instanceof ActiveSelection ? target.getObjects() : [target]
   }
 
+  private restoreCanonicalMutationTarget(target: FabricObject) {
+    for (const object of this.transformObjects(target)) {
+      const nodeId = this.nodeIdByObject.get(object)
+      const node = nodeId ? this.nodeByNodeId.get(nodeId) : undefined
+      if (node) syncFabricObjectFromNode(object, node)
+    }
+    target.setCoords()
+    this.canvas?.requestRenderAll()
+  }
+
   private onBeforeTransform = ({ transform }: { transform: Transform }) => {
     const context = this.transformContext()
     const kind = fabricTransformKind(transform.action)
     if (
-      this.syncing ||
+      !this.mutationAdmitted ||
+      this.eventsSuppressed ||
       this.imageCropMode ||
       this.textEditSession ||
       !context ||
@@ -4655,6 +4806,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
   }
 
   private onTransformPointerUp = () => {
+    if (!this.mutationAdmitted) return
     const session = this.transformSessions.active
     if (!session || session.phase === "cancelled") return
     // Fabric emits object:modified before mouse:up when a transform changed.
@@ -4674,6 +4826,12 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     target?: FabricObject
     transform?: Transform
   }) => {
+    if (!target) return
+    if (!this.mutationAdmitted) {
+      this.restoreCanonicalMutationTarget(target)
+      return
+    }
+    if (this.eventsSuppressed) return
     const session = this.transformSessions.active
     if (session?.phase === "cancelled") {
       this.restoreTransformBaseline(session)
@@ -4800,9 +4958,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
   private restoreTransformBaseline(session: CanvasTransformSession) {
     const canvas = this.canvas
     if (!canvas) return
-    const previousSyncing = this.syncing
-    this.syncing = true
-    try {
+    this.withEventSuppression(() => {
       // Discarding an ActiveSelection applies its public group transform back
       // into its children. Canonical geometry can then be restored in the
       // canvas plane before rebuilding the exact same selection.
@@ -4821,9 +4977,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
       } else if (selectionObjects.length > 1) {
         canvas.setActiveObject(this.createActiveSelection(selectionObjects))
       }
-    } finally {
-      this.syncing = previousSyncing
-    }
+    })
     this.activeGuides = []
     this.rotationSnapLatch = null
     this.resizeSnapLatch = null
@@ -4868,7 +5022,12 @@ export class FabricCanvasAdapter implements CanvasAdapter {
 
   private onObjectMoving = ({ target }: { target?: FabricObject }) => {
     const canvas = this.canvas
-    if (this.syncing || !canvas || !target) return
+    if (!canvas || !target) return
+    if (!this.mutationAdmitted) {
+      this.restoreCanonicalMutationTarget(target)
+      return
+    }
+    if (this.eventsSuppressed) return
     const transformSession = this.transformSessions.active
     if (transformSession?.phase === "cancelled") {
       this.restoreTransformBaseline(transformSession)
@@ -4993,7 +5152,12 @@ export class FabricCanvasAdapter implements CanvasAdapter {
 
   private onObjectModified = ({ target }: ModifiedEvent) => {
     this.clearGuides()
-    if (this.syncing || !target) return
+    if (!target) return
+    if (!this.mutationAdmitted) {
+      this.restoreCanonicalMutationTarget(target)
+      return
+    }
+    if (this.eventsSuppressed) return
     const context = this.transformContext()
     const transformSession = this.transformSessions.active
     if (transformSession?.phase === "cancelled") {
@@ -5087,7 +5251,12 @@ export class FabricCanvasAdapter implements CanvasAdapter {
   }
 
   private onTextEditingExited = ({ target }: { target: FabricObject }) => {
-    if (this.syncing || !(target instanceof Textbox)) return
+    if (
+      !this.mutationAdmitted ||
+      this.eventsSuppressed ||
+      !(target instanceof Textbox)
+    )
+      return
     const nodeId = this.nodeIdByObject.get(target)
     if (!nodeId) return
     const session =
@@ -5151,6 +5320,17 @@ export class FabricCanvasAdapter implements CanvasAdapter {
   }
 
   private onTextEditingEntered = ({ target }: { target: FabricObject }) => {
+    if (!this.mutationAdmitted) {
+      if (target instanceof Textbox) {
+        const nodeId = this.nodeIdByObject.get(target)
+        const node = nodeId ? this.nodeByNodeId.get(nodeId) : undefined
+        cancelFabricTextEditing(
+          target,
+          node?.type === "text" ? node.text : target.text
+        )
+      }
+      return
+    }
     if (!(target instanceof Textbox)) return
     const nodeId = this.nodeIdByObject.get(target)
     if (!nodeId) return
@@ -5212,6 +5392,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
   }
 
   private onTextChanged = ({ target }: { target: FabricObject }) => {
+    if (!this.mutationAdmitted) return
     if (!(target instanceof Textbox)) return
     const session = this.textEditSession
     if (!session || session.target !== target || session.cancelled) return
@@ -5220,6 +5401,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
   }
 
   private onTextSelectionChanged = ({ target }: { target: FabricObject }) => {
+    if (!this.mutationAdmitted) return
     if (!(target instanceof Textbox)) return
     const session = this.textEditSession
     if (!session || session.target !== target || session.cancelled) return

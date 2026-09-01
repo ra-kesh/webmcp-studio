@@ -382,6 +382,11 @@ export type PerformLibraryMediaActionOptions = Readonly<{
   refreshLocal?: () => Promise<unknown>
   onUsageWarning?: (warning: LibraryMediaUsageWarning) => void
   historyLabel?: string
+  admitCommit?: () => boolean
+}>
+
+export type ApplyLibraryTemplateOptions = Readonly<{
+  admitCommit?: () => boolean
 }>
 
 export type PerformLibraryMediaActionOutcome =
@@ -5607,6 +5612,10 @@ export function useDocumentEditor({
               asset: prepared.asset,
               historyLabel: options.historyLabel ?? "Replace image",
             },
+            commitAdmission: () =>
+              options.admitCommit?.() === false
+                ? "The editor canvas changed before the image was ready. The original image was kept."
+                : null,
             ...(mutableAdmission ? { finalAdmission: mutableAdmission } : {}),
           })
         } else {
@@ -5634,6 +5643,7 @@ export function useDocumentEditor({
             return "no_op" as const
           }
           controller.signal.throwIfAborted()
+          if (options.admitCommit?.() === false) return "rejected" as const
           committed = commit([preparedCommand.command], {
             label:
               prepared.target.type === "insert"
@@ -10212,10 +10222,14 @@ export function useDocumentEditor({
   )
 
   const confirmApplyLibraryTemplate = useCallback(
-    async (resolved: ResolvedTemplateAction) => {
+    async (
+      resolved: ResolvedTemplateAction,
+      options: ApplyLibraryTemplateOptions = {}
+    ) => {
       if (!allowMutation()) return false
       try {
         const mutation = await libraryTemplateActions.confirmApply(resolved)
+        if (options.admitCommit?.() === false) return false
         return installAppliedTemplateMutation(mutation)
       } catch (error) {
         reportTemplateActionFailure(

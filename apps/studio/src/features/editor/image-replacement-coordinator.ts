@@ -17,6 +17,7 @@ export type PreparedImageReplacement<TPayload> = Readonly<{
   naturalSize: Readonly<{ width: number; height: number }>
   payload: TPayload
   finalAdmission?: (signal: AbortSignal) => Promise<string | null | undefined>
+  commitAdmission?: () => string | null | undefined
 }>
 
 type ActiveImageReplacement<TPayload> = {
@@ -176,6 +177,11 @@ export class ImageReplacementCoordinator<TPayload> {
   }
 
   private commit(current: ActiveImageReplacement<TPayload>) {
+    const invalidReason = current.candidate.commitAdmission?.()
+    if (invalidReason) {
+      this.finish(current, false, invalidReason)
+      return "rejected" as const
+    }
     let committed = false
     try {
       committed = this.options.commit(current.candidate)

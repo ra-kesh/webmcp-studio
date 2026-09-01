@@ -175,9 +175,20 @@ import { StudioStartSurface } from "./editor/studio-start-surface"
 import { StudioMark } from "./editor/studio-mark"
 import { useRecentDocumentsVisibility } from "./editor/recent-documents-provider"
 import type {
+  CanvasDocumentSyncIdentity,
+  CanvasRuntimeReport,
   FabricArtboardHandle,
   ImageSourceStateChange,
 } from "./editor/fabric-artboard"
+import {
+  canvasMountedDocumentMutationAdmitted,
+  canvasPageMutationAdmitted,
+  canvasPagesMutationAdmitted,
+  reduceCanvasRuntimeAdmission,
+  releaseCanvasRuntimeAdmission,
+  runCanvasMutationIfAdmitted,
+} from "./editor/canvas-runtime-admission"
+import type { CanvasRuntimeAdmissionRegistry } from "./editor/canvas-runtime-admission"
 import { buildMultiArtboardPageSyncIdentities } from "./editor/multi-artboard-page-sync"
 import { handleEditorEscape } from "./editor/editor-escape"
 import {
@@ -443,6 +454,23 @@ export type MediaPickerState = MediaPickerActionState | MediaPickerRecoveryState
 export const mediaPickerUsesDialog = (state: MediaPickerState | null) =>
   state !== null &&
   (state.kind === "recover-local" || state.presentation === "dialog")
+
+export const mediaPickerCanvasMutationAdmission = ({
+  state,
+  activePageAdmitted,
+  allMountedAdmitted,
+  pageAdmitted,
+}: Readonly<{
+  state: MediaPickerState | null
+  activePageAdmitted: boolean
+  allMountedAdmitted: boolean
+  pageAdmitted: (pageId: string) => boolean
+}>) =>
+  state?.kind === "action"
+    ? state.target.type === "assign_field"
+      ? allMountedAdmitted
+      : pageAdmitted(state.target.pageId)
+    : activePageAdmitted
 
 export type MediaPickerUsageNotice = Readonly<{
   id: string
@@ -1102,9 +1130,62 @@ export function StudioShell({
     useState<RenameLayerTarget | null>(null)
   const [structureCommandDialog, setStructureCommandDialog] =
     useState<StructureCommandDialogState | null>(null)
+  const canvasRuntimeAdmissionSnapshotRef =
+    useRef<CanvasRuntimeAdmissionRegistry>(new Map())
+  const canvasRequestSnapshotRef = useRef<
+    ReadonlyMap<string, CanvasDocumentSyncIdentity>
+  >(new Map())
+  const canvasDocumentIdSnapshotRef = useRef(editor.previewDocument.id)
+  const captureCanvasCommitAdmission = useCallback((pageId?: string) => {
+    const documentId = canvasDocumentIdSnapshotRef.current
+    const requested = pageId
+      ? canvasRequestSnapshotRef.current.get(pageId)
+      : null
+    return () => {
+      if (canvasDocumentIdSnapshotRef.current !== documentId) return false
+      if (!pageId) {
+        return canvasMountedDocumentMutationAdmitted(
+          canvasRuntimeAdmissionSnapshotRef.current,
+          documentId,
+          canvasRequestSnapshotRef.current
+        )
+      }
+      const current = canvasRequestSnapshotRef.current.get(pageId)
+      return Boolean(
+        requested &&
+        current &&
+        current.documentId === requested.documentId &&
+        current.documentRevision === requested.documentRevision &&
+        current.pageId === requested.pageId &&
+        current.documentSyncIdentity === requested.documentSyncIdentity &&
+        canvasPageMutationAdmitted(
+          canvasRuntimeAdmissionSnapshotRef.current,
+          requested
+        )
+      )
+    }
+  }, [])
+  const performCanvasAdmittedLibraryMediaAction = useCallback(
+    (
+      request: LibraryMediaActionPreparationRequest,
+      options?: PerformLibraryMediaActionOptions
+    ) => {
+      const runtimeAdmission = captureCanvasCommitAdmission(
+        request.target.type === "assign_field"
+          ? undefined
+          : request.target.pageId
+      )
+      return editor.performLibraryMediaAction(request, {
+        ...options,
+        admitCommit: () =>
+          runtimeAdmission() && (options?.admitCommit?.() ?? true),
+      })
+    },
+    [captureCanvasCommitAdmission, editor.performLibraryMediaAction]
+  )
   const mediaPickerSession = useLibraryMediaPickerSession({
     documentId: editor.document.id,
-    performLibraryMediaAction: editor.performLibraryMediaAction,
+    performLibraryMediaAction: performCanvasAdmittedLibraryMediaAction,
     recordUsed: libraryPreferenceCommands.recordUsed,
   })
   const mediaPicker = mediaPickerSession.state
@@ -1324,6 +1405,116 @@ export function StudioShell({
   const pageSyncIdentities = useMemo(
     () => buildMultiArtboardPageSyncIdentities(editor.previewDocument),
     [editor.previewDocument]
+  )
+  const [canvasRuntimeAdmission, setCanvasRuntimeAdmission] =
+    useState<CanvasRuntimeAdmissionRegistry>(() => new Map())
+  const reportCanvasRuntimeState = useCallback(
+    (report: CanvasRuntimeReport) => {
+      const next = reduceCanvasRuntimeAdmission(
+        canvasRuntimeAdmissionSnapshotRef.current,
+        report
+      )
+      canvasRuntimeAdmissionSnapshotRef.current = next
+      setCanvasRuntimeAdmission(next)
+    },
+    []
+  )
+  const releaseCanvasRuntimeOwner = useCallback(
+    (owner: Parameters<typeof releaseCanvasRuntimeAdmission>[1]) => {
+      const next = releaseCanvasRuntimeAdmission(
+        canvasRuntimeAdmissionSnapshotRef.current,
+        owner
+      )
+      canvasRuntimeAdmissionSnapshotRef.current = next
+      setCanvasRuntimeAdmission(next)
+    },
+    []
+  )
+  const canvasRequestsByPageId = useMemo(
+    () =>
+      new Map(
+        editor.previewDocument.pages.flatMap((page) => {
+          const documentSyncIdentity = pageSyncIdentities.get(page.id)
+          return documentSyncIdentity
+            ? [
+                [
+                  page.id,
+                  {
+                    documentId: editor.previewDocument.id,
+                    documentRevision: editor.previewDocument.revision,
+                    pageId: page.id,
+                    documentSyncIdentity,
+                  },
+                ] as const,
+              ]
+            : []
+        })
+      ),
+    [editor.previewDocument, pageSyncIdentities]
+  )
+  const canvasRequestForPage = useCallback(
+    (pageId: string): CanvasDocumentSyncIdentity | null =>
+      canvasRequestsByPageId.get(pageId) ?? null,
+    [canvasRequestsByPageId]
+  )
+  canvasRuntimeAdmissionSnapshotRef.current = canvasRuntimeAdmission
+  canvasRequestSnapshotRef.current = canvasRequestsByPageId
+  canvasDocumentIdSnapshotRef.current = editor.previewDocument.id
+  const canvasMutationAdmittedForPage = useCallback(
+    (pageId: string) => {
+      const request = canvasRequestForPage(pageId)
+      return Boolean(
+        request && canvasPageMutationAdmitted(canvasRuntimeAdmission, request)
+      )
+    },
+    [canvasRequestForPage, canvasRuntimeAdmission]
+  )
+  const selectionMutationPageId = editor.selection?.pageId ?? activePage.id
+  const selectionCanvasMutationAdmitted = canvasMutationAdmittedForPage(
+    selectionMutationPageId
+  )
+  const activeCanvasMutationAdmitted = canvasMutationAdmittedForPage(
+    activePage.id
+  )
+  const allCanvasMutationsAdmitted = canvasMountedDocumentMutationAdmitted(
+    canvasRuntimeAdmission,
+    editor.previewDocument.id,
+    canvasRequestsByPageId
+  )
+  const activeCanvasMutationAdmittedRef = useRef(activeCanvasMutationAdmitted)
+  activeCanvasMutationAdmittedRef.current = activeCanvasMutationAdmitted
+  const selectionCanvasMutationAdmittedRef = useRef(
+    selectionCanvasMutationAdmitted
+  )
+  selectionCanvasMutationAdmittedRef.current = selectionCanvasMutationAdmitted
+  const allCanvasMutationsAdmittedRef = useRef(allCanvasMutationsAdmitted)
+  allCanvasMutationsAdmittedRef.current = allCanvasMutationsAdmitted
+  const guardSelectionCanvasMutation = useCallback(
+    <TArgs extends unknown[], TResult>(mutation: (...args: TArgs) => TResult) =>
+      (...args: TArgs): TResult =>
+        runCanvasMutationIfAdmitted(
+          selectionCanvasMutationAdmittedRef.current,
+          () => mutation(...args)
+        ) as TResult,
+    []
+  )
+  const guardAllCanvasMutation = useCallback(
+    <TArgs extends unknown[], TResult>(mutation: (...args: TArgs) => TResult) =>
+      (...args: TArgs): TResult =>
+        runCanvasMutationIfAdmitted(allCanvasMutationsAdmittedRef.current, () =>
+          mutation(...args)
+        ) as TResult,
+    []
+  )
+  const guardPageCanvasMutation = useCallback(
+    <TArgs extends unknown[], TResult>(
+      mutation: (pageId: string, ...args: TArgs) => TResult
+    ) =>
+      (pageId: string, ...args: TArgs): TResult =>
+        runCanvasMutationIfAdmitted(canvasMutationAdmittedForPage(pageId), () =>
+          mutation(pageId, ...args)
+        ) as TResult,
+    [canvasMutationAdmittedForPage]
   )
   const activeOutput = editor.previewDocument.outputs.find(
     (output) => output.id === activePage.outputId
@@ -1653,6 +1844,7 @@ export function StudioShell({
   )
 
   const openTextLinkEditor = useCallback(() => {
+    if (!selectionCanvasMutationAdmittedRef.current) return
     const state = textEditingState
     if (!state) return
     if (
@@ -1681,6 +1873,7 @@ export function StudioShell({
 
   const applyTextLinkEditor = useCallback(
     (value: TextLinkEditorResult) => {
+      if (!selectionCanvasMutationAdmittedRef.current) return
       const session = textLinkEditor
       if (!session) return
       const node = editor.document.nodes.find(
@@ -1703,6 +1896,7 @@ export function StudioShell({
 
   const applyActiveTextEditingStyle = useCallback(
     (patch: TextRunStylePatch) => {
+      if (!selectionCanvasMutationAdmittedRef.current) return
       artboardRef.current?.applyTextEditingStyle(patch)
     },
     []
@@ -1710,6 +1904,7 @@ export function StudioShell({
 
   const applyActiveTextEditingParagraphStyle = useCallback(
     (patch: TextParagraphStylePatch) => {
+      if (!selectionCanvasMutationAdmittedRef.current) return
       artboardRef.current?.applyTextEditingParagraphStyle(patch)
     },
     []
@@ -1790,6 +1985,7 @@ export function StudioShell({
         options?.source ??
         (isImageCropCanvasFocus(activeElement) ? "canvas" : "control")
       const focusSession = captureImageCropFocusSession(source, activeElement)
+      if (!selectionCanvasMutationAdmittedRef.current) return false
       artboardRef.current?.commitTextEditing()
       setTextEditingNodeId(null)
       const started = editor.beginImageCrop(nodeId)
@@ -2288,6 +2484,7 @@ export function StudioShell({
 
   const addPageAndFocus = useCallback(
     (outputId: string) => {
+      if (!activeCanvasMutationAdmittedRef.current) return
       setAutoFit(true)
       editor.addPage(outputId)
     },
@@ -2318,6 +2515,7 @@ export function StudioShell({
 
   const inspectorCapabilityContext = {
     documentEditable:
+      selectionCanvasMutationAdmitted &&
       !editor.pendingChangeSet &&
       !editor.pendingGeneratedDocument &&
       !pendingQuotationRefresh,
@@ -2362,6 +2560,7 @@ export function StudioShell({
       focusReturnTarget?: HTMLElement | null,
       targetName?: string
     ) => {
+      if (!activeCanvasMutationAdmittedRef.current) return
       const target = targetNodeId
         ? editor.document.nodes.find((node) => node.id === targetNodeId)
         : null
@@ -2379,6 +2578,7 @@ export function StudioShell({
 
   const openFieldMediaPicker = useCallback(
     (fieldId: string, opener: HTMLButtonElement) => {
+      if (!allCanvasMutationsAdmittedRef.current) return
       const field = editor.document.fields.find(
         (candidate) => candidate.id === fieldId
       )
@@ -2396,6 +2596,7 @@ export function StudioShell({
     selectedNodes: editor.selectedNodes,
     inspectorCapabilities: imageSelectionCapabilities,
     documentEditable:
+      selectionCanvasMutationAdmitted &&
       !editor.pendingChangeSet &&
       !editor.pendingGeneratedDocument &&
       !pendingQuotationRefresh,
@@ -2414,6 +2615,7 @@ export function StudioShell({
     selectedNodeIds: editor.selection?.nodeIds ?? [],
     selectedGroupId: editor.selectedGroupId,
     documentEditable:
+      selectionCanvasMutationAdmitted &&
       !editor.pendingChangeSet &&
       !editor.pendingGeneratedDocument &&
       !pendingQuotationRefresh,
@@ -2435,6 +2637,7 @@ export function StudioShell({
   }
   const commandContext: EditorCommandContext = {
     reviewPending: Boolean(
+      !selectionCanvasMutationAdmitted ||
       editor.pendingChangeSet ||
       editor.pendingGeneratedDocument ||
       pendingQuotationRefresh
@@ -2473,7 +2676,10 @@ export function StudioShell({
       image: deriveEditorImageCommandCapabilities({
         selectedNodes: editor.selectedNodes,
         inspectorCapabilities: imageSelectionCapabilities,
-        documentEditable: !editor.pendingChangeSet && !pendingQuotationRefresh,
+        documentEditable:
+          selectionCanvasMutationAdmitted &&
+          !editor.pendingChangeSet &&
+          !pendingQuotationRefresh,
         imageCropActive: true,
         imageCropDraftChanged: imageCropSessionHasChanges(cropSession),
         cropFrameMaskDraftSupported: true,
@@ -2620,7 +2826,9 @@ export function StudioShell({
         editor.imageCropSession
       const context: EditorCommandContext = {
         reviewPending: Boolean(
-          editor.pendingChangeSet || pendingQuotationRefresh
+          !selectionCanvasMutationAdmittedRef.current ||
+          editor.pendingChangeSet ||
+          pendingQuotationRefresh
         ),
         hasSelection: Boolean(editor.selection?.nodeIds.length),
         selectedNodeCount: editor.selectedNodes.length,
@@ -2645,7 +2853,9 @@ export function StudioShell({
             inspectorCapabilityContext
           ).capabilities,
           documentEditable:
-            !editor.pendingChangeSet && !pendingQuotationRefresh,
+            selectionCanvasMutationAdmittedRef.current &&
+            !editor.pendingChangeSet &&
+            !pendingQuotationRefresh,
           imageCropActive: Boolean(cropSession),
           imageCropDraftChanged: cropSession
             ? imageCropSessionHasChanges(cropSession)
@@ -2959,7 +3169,9 @@ export function StudioShell({
         !textEditingNodeId
       ) {
         event.preventDefault()
-        removeWorkspaceGuide(guideWorkspace.selectedGuideId)
+        if (activeCanvasMutationAdmittedRef.current) {
+          removeWorkspaceGuide(guideWorkspace.selectedGuideId)
+        }
         return
       }
       const commandId = resolveEditorShortcut(event, commandContext)
@@ -3318,6 +3530,7 @@ export function StudioShell({
 
   const insertMediaFromAssets = useCallback(
     (intent: LibraryMediaIntent) => {
+      if (!activeCanvasMutationAdmittedRef.current) return
       mediaPickerSession.openAction({
         target: { type: "insert", pageId: activePage.id },
         presentation: "inline",
@@ -3337,10 +3550,17 @@ export function StudioShell({
       : null
   const inlineMediaBrowserVisible =
     assetMediaBrowserVisibility.desktop || assetMediaBrowserVisibility.compact
+  const mediaPickerCanvasMutationAdmitted = mediaPickerCanvasMutationAdmission({
+    state: mediaPicker,
+    activePageAdmitted: activeCanvasMutationAdmitted,
+    allMountedAdmitted: allCanvasMutationsAdmitted,
+    pageAdmitted: canvasMutationAdmittedForPage,
+  })
   const inlineMediaActionsEnabled =
     !editor.pendingChangeSet &&
     !editor.pendingGeneratedDocument &&
     !pendingQuotationRefresh &&
+    mediaPickerCanvasMutationAdmitted &&
     !inlineMediaActionState?.pendingIdentity
 
   useEffect(() => {
@@ -3374,6 +3594,8 @@ export function StudioShell({
 
   const applyBackgroundRemovalOutput = useCallback(
     async (nodeId: string, outputAssetId: string) => {
+      const admitCommit = captureCanvasCommitAdmission(activePage.id)
+      if (!admitCommit()) return false
       const asset = await getManagedMedia(outputAssetId)
       if (!asset || asset.status !== "ready" || !asset.selectable) return false
       const resolved = await resolveManagedMediaCatalogUpload(
@@ -3387,11 +3609,15 @@ export function StudioShell({
           detail: resolved.detail,
           target: { type: "replace", pageId: activePage.id, nodeId },
         },
-        { historyLabel: "Remove background" }
+        { admitCommit, historyLabel: "Remove background" }
       )
       return outcome === "committed"
     },
-    [activePage.id, editor.performLibraryMediaAction]
+    [
+      activePage.id,
+      captureCanvasCommitAdmission,
+      editor.performLibraryMediaAction,
+    ]
   )
   const selectedBackgroundRemovalImage =
     editor.selectedNodes.length === 1 &&
@@ -3604,7 +3830,8 @@ export function StudioShell({
         return [
           page.id,
           {
-            reviewPending: documentDecisionLocked,
+            reviewPending:
+              documentDecisionLocked || !canvasMutationAdmittedForPage(page.id),
             outputCount: editor.document.outputs.length,
             outputPageCount: output?.pageIds.length ?? 0,
             pageIndex: output?.pageIds.indexOf(page.id),
@@ -3616,7 +3843,15 @@ export function StudioShell({
           [
             output.id,
             {
-              reviewPending: documentDecisionLocked,
+              reviewPending:
+                documentDecisionLocked ||
+                !canvasPagesMutationAdmitted(
+                  canvasRuntimeAdmission,
+                  output.pageIds.flatMap((pageId) => {
+                    const request = canvasRequestForPage(pageId)
+                    return request ? [request] : []
+                  })
+                ),
               outputCount: editor.document.outputs.length,
               outputPageCount: output.pageIds.length,
             },
@@ -3728,6 +3963,45 @@ export function StudioShell({
   const executeProductCommand = (
     invocation: ProductCommandInvocation
   ): boolean => {
+    const canvasMutationCommand =
+      invocation.commandId.startsWith("object.") ||
+      invocation.commandId.startsWith("arrange.") ||
+      invocation.commandId.startsWith("mask.") ||
+      invocation.commandId.startsWith("page.") ||
+      invocation.commandId === "output.add" ||
+      invocation.commandId === "output.update" ||
+      invocation.commandId === "output.remove"
+    if (canvasMutationCommand) {
+      const target = invocation.target
+      if (
+        target?.kind === "page" &&
+        !canvasMutationAdmittedForPage(target.pageId)
+      ) {
+        return false
+      }
+      if (target?.kind === "output") {
+        const output = editor.document.outputs.find(
+          (candidate) => candidate.id === target.outputId
+        )
+        if (!output || !output.pageIds.every(canvasMutationAdmittedForPage)) {
+          return false
+        }
+      }
+      if (
+        invocation.commandId === "output.add" &&
+        !allCanvasMutationsAdmittedRef.current
+      ) {
+        return false
+      }
+      if (
+        target?.kind !== "page" &&
+        target?.kind !== "output" &&
+        invocation.commandId !== "output.add" &&
+        !selectionCanvasMutationAdmittedRef.current
+      ) {
+        return false
+      }
+    }
     if (invocation.commandId === "mask.create") {
       if (
         invocation.target?.kind !== "selection" ||
@@ -4388,15 +4662,18 @@ export function StudioShell({
             <DropdownMenuItem
               className="min-h-11 min-[1280px]:min-h-0"
               disabled={Boolean(
-                editor.pendingChangeSet || pendingQuotationRefresh
+                editor.pendingChangeSet ||
+                pendingQuotationRefresh ||
+                !selectionCanvasMutationAdmitted
               )}
-              onSelect={() =>
+              onSelect={() => {
+                if (!selectionCanvasMutationAdmittedRef.current) return
                 editor.addIcon({
                   name: "Heart icon",
                   path: HEART_ICON_PATH,
                   viewBox: "0 0 24 24",
                 })
-              }
+              }}
             >
               <Heart />
               Heart icon
@@ -4405,7 +4682,11 @@ export function StudioShell({
               className="min-h-11 min-[1280px]:min-h-0"
               disabled={
                 editor.isImportingAsset ||
-                Boolean(editor.pendingChangeSet || pendingQuotationRefresh)
+                Boolean(
+                  editor.pendingChangeSet ||
+                  pendingQuotationRefresh ||
+                  !activeCanvasMutationAdmitted
+                )
               }
               onSelect={() =>
                 openMediaPicker(
@@ -5044,12 +5325,15 @@ export function StudioShell({
                     editor.quotationGroupOrganization.status === "available"
                   }
                   reviewPending={Boolean(
-                    editor.pendingChangeSet || pendingQuotationRefresh
+                    editor.pendingChangeSet ||
+                    pendingQuotationRefresh ||
+                    !allCanvasMutationsAdmitted
                   )}
                   activePanel={documentPanelTab}
                   onActivePanelChange={setDocumentPanelTab}
                   templateBrowserVisible={templateBrowserVisibility.desktop}
                   onLayerOrganizationUpgrade={() => {
+                    if (!allCanvasMutationsAdmittedRef.current) return
                     if (!commitActiveTextEditing()) return
                     if (editor.upgradeQuotationLayerOrganization()) {
                       setDocumentPanelTab("layers")
@@ -5067,12 +5351,20 @@ export function StudioShell({
                     )) !== false
                   }
                   onResolveApplyTemplate={async (template) => {
+                    const admitCommit = captureCanvasCommitAdmission()
+                    if (!admitCommit()) return null
                     if (!commitActiveTextEditing()) return null
-                    return editor.resolveApplyLibraryTemplate(template)
+                    const resolved =
+                      await editor.resolveApplyLibraryTemplate(template)
+                    return admitCommit() ? resolved : null
                   }}
                   onConfirmApplyTemplate={async (resolved) => {
-                    const applied =
-                      await editor.confirmApplyLibraryTemplate(resolved)
+                    const admitCommit = captureCanvasCommitAdmission()
+                    if (!admitCommit()) return false
+                    const applied = await editor.confirmApplyLibraryTemplate(
+                      resolved,
+                      { admitCommit }
+                    )
                     if (applied) {
                       setAutoFit(true)
                     }
@@ -5082,16 +5374,28 @@ export function StudioShell({
                   onSelectionChange={editor.setLayerSelection}
                   onFocusNode={focusNode}
                   onHoverNode={setHoveredNodeId}
-                  onRenameNode={editor.renameLayerNode}
-                  onRenameGroup={editor.updateGroup}
-                  onUpdateLayerNodes={editor.updateLayerNodes}
-                  onMoveLayer={editor.moveLayer}
-                  onDeleteLayerNodes={editor.deleteLayerNodes}
+                  onRenameNode={guardSelectionCanvasMutation(
+                    editor.renameLayerNode
+                  )}
+                  onRenameGroup={guardSelectionCanvasMutation(
+                    editor.updateGroup
+                  )}
+                  onUpdateLayerNodes={guardSelectionCanvasMutation(
+                    editor.updateLayerNodes
+                  )}
+                  onMoveLayer={guardSelectionCanvasMutation(editor.moveLayer)}
+                  onDeleteLayerNodes={guardSelectionCanvasMutation(
+                    editor.deleteLayerNodes
+                  )}
                   canCreateComponentFromSelection={Boolean(
                     editor.selectedGroupId || editor.selectedNodes.length >= 2
                   )}
-                  onCreateComponentFromSelection={createComponentFromSelection}
-                  onInsertComponent={insertComponent}
+                  onCreateComponentFromSelection={guardSelectionCanvasMutation(
+                    createComponentFromSelection
+                  )}
+                  onInsertComponent={guardSelectionCanvasMutation(
+                    insertComponent
+                  )}
                   onFocusComponentSource={focusComponentSource}
                   assetWorkspaceView={assetWorkspaceView}
                   mediaBrowserVisible={assetMediaBrowserVisibility.desktop}
@@ -5103,18 +5407,22 @@ export function StudioShell({
                   mediaActionsEnabled={inlineMediaActionsEnabled}
                   onAssetWorkspaceViewChange={setAssetWorkspaceView}
                   onMediaScopeChange={setAssetMediaScope}
-                  onMediaSelect={insertMediaFromAssets}
+                  onMediaSelect={guardSelectionCanvasMutation(
+                    insertMediaFromAssets
+                  )}
                   productCommandContext={productCommandContext}
                   productCommandRuntime={productMenuRuntime}
                   onSelectPage={focusPage}
                   onAddPage={addPageAndFocus}
-                  onDuplicatePage={editor.duplicatePage}
-                  onUpdatePage={editor.updatePage}
-                  onRemovePage={editor.removePage}
-                  onReorderPage={editor.reorderPage}
-                  onAddOutput={editor.addOutput}
-                  onUpdateOutput={editor.updateOutput}
-                  onRemoveOutput={editor.removeOutput}
+                  onDuplicatePage={guardPageCanvasMutation(
+                    editor.duplicatePage
+                  )}
+                  onUpdatePage={guardPageCanvasMutation(editor.updatePage)}
+                  onRemovePage={guardPageCanvasMutation(editor.removePage)}
+                  onReorderPage={guardPageCanvasMutation(editor.reorderPage)}
+                  onAddOutput={guardAllCanvasMutation(editor.addOutput)}
+                  onUpdateOutput={guardAllCanvasMutation(editor.updateOutput)}
+                  onRemoveOutput={guardAllCanvasMutation(editor.removeOutput)}
                 />
               </div>
               <EditorPanelSplitter
@@ -5242,6 +5550,8 @@ export function StudioShell({
                         document={editor.previewDocument}
                         documentSyncIdentity={pageSyncIdentities.get(page.id)}
                         pageId={page.id}
+                        onRuntimeOwnerRelease={releaseCanvasRuntimeOwner}
+                        onRuntimeStateChange={reportCanvasRuntimeState}
                         selection={
                           editor.selection?.pageId === page.id
                             ? editor.selection
@@ -5340,6 +5650,7 @@ export function StudioShell({
                       !editor.imageCropSession ? (
                         <EmptyCanvasActions
                           disabled={Boolean(
+                            !activeCanvasMutationAdmitted ||
                             editor.pendingChangeSet ||
                             pendingQuotationRefresh ||
                             editor.draftRecovery
@@ -5386,6 +5697,7 @@ export function StudioShell({
                   selectionBounds={rulerSelectionBounds}
                   selectedGuideId={guideWorkspace.selectedGuideId}
                   interactive={
+                    activeCanvasMutationAdmitted &&
                     !editor.pendingChangeSet &&
                     !pendingQuotationRefresh &&
                     !editor.imageCropSession &&
@@ -5394,16 +5706,24 @@ export function StudioShell({
                   onGuideSelectionChange={selectWorkspaceGuide}
                   onGuideHoverChange={guideWorkspace.setHoveredGuideId}
                   onAddGuide={(guide) => {
-                    addWorkspaceGuide(guide)
+                    if (activeCanvasMutationAdmittedRef.current) {
+                      addWorkspaceGuide(guide)
+                    }
                   }}
                   onMoveGuide={(guideId, position) => {
-                    moveWorkspaceGuide(guideId, position)
+                    if (activeCanvasMutationAdmittedRef.current) {
+                      moveWorkspaceGuide(guideId, position)
+                    }
                   }}
                   onDuplicateGuide={(guideId, position) => {
-                    duplicateWorkspaceGuide(guideId, position)
+                    if (activeCanvasMutationAdmittedRef.current) {
+                      duplicateWorkspaceGuide(guideId, position)
+                    }
                   }}
                   onRemoveGuide={(guideId) => {
-                    removeWorkspaceGuide(guideId)
+                    if (activeCanvasMutationAdmittedRef.current) {
+                      removeWorkspaceGuide(guideId)
+                    }
                   }}
                 />
                 {!editor.imageCropSession &&
@@ -5483,7 +5803,9 @@ export function StudioShell({
                     ? "top-24 bottom-auto min-[1280px]:top-24 min-[1280px]:bottom-auto"
                     : "bottom-4"
                 }
-                onPreview={editor.previewImageCrop}
+                onPreview={guardSelectionCanvasMutation(
+                  editor.previewImageCrop
+                )}
                 onRunCommand={runEditorCommand}
                 isCommandEnabled={commandEnabled}
                 onCancel={() => runEditorCommand("image.crop.cancel")}
@@ -5553,22 +5875,28 @@ export function StudioShell({
                   isApplyingChangeSet={editor.isApplyingChangeSet}
                   webMcpStatus={webMcp.status}
                   webMcpError={webMcp.error}
-                  onUpdateNode={updateNode}
+                  onUpdateNode={guardSelectionCanvasMutation(updateNode)}
                   onPreviewNodePatch={(nodeId, patch) =>
                     artboardRef.current?.previewNodePatch(nodeId, patch)
                   }
                   onCancelNodePreview={(nodeId) =>
                     artboardRef.current?.restoreNodePreview(nodeId)
                   }
-                  onUpdateSelection={editor.updateSelectionNodes}
-                  onTransformSelection={editor.transformSelectionNodes}
-                  onUpdateField={editor.updateField}
+                  onUpdateSelection={guardSelectionCanvasMutation(
+                    editor.updateSelectionNodes
+                  )}
+                  onTransformSelection={guardSelectionCanvasMutation(
+                    editor.transformSelectionNodes
+                  )}
+                  onUpdateField={guardAllCanvasMutation(editor.updateField)}
                   onChooseFieldAsset={openFieldMediaPicker}
-                  onCreateField={editor.createField}
-                  onUpdateFieldDefinition={editor.updateFieldDefinition}
-                  onRemoveField={editor.removeField}
-                  onBindField={editor.bindField}
-                  onUnbindField={editor.unbindField}
+                  onCreateField={guardAllCanvasMutation(editor.createField)}
+                  onUpdateFieldDefinition={guardAllCanvasMutation(
+                    editor.updateFieldDefinition
+                  )}
+                  onRemoveField={guardAllCanvasMutation(editor.removeField)}
+                  onBindField={guardAllCanvasMutation(editor.bindField)}
+                  onUnbindField={guardAllCanvasMutation(editor.unbindField)}
                   onFocusNode={focusNode}
                   onDecideChangeOperation={editor.decideOperation}
                   onDecideAllChangeOperations={editor.decideAllOperations}
@@ -5577,23 +5905,47 @@ export function StudioShell({
                   onCreateGeneratedDocument={editor.createGeneratedDocument}
                   onDiscardGeneratedDocument={editor.discardGeneratedDocument}
                   onFocusReviewTarget={focusReviewTarget}
-                  onAlignSelection={editor.alignSelection}
-                  onAlignSelectionToPage={editor.alignSelectionToPage}
-                  onDistributeSelection={editor.distributeSelection}
-                  onSetSelectionLocked={editor.setSelectionLocked}
-                  onSetSelectionVisible={editor.setSelectionVisible}
-                  onReorderSelection={editor.reorderSelection}
-                  onDuplicateSelection={editor.duplicateSelection}
-                  onDeleteSelection={editor.deleteSelection}
-                  onUpdateImageFrameGeometry={updateImageCropFrameGeometry}
-                  onSetImagePlacement={editor.setImagePlacement}
-                  onSetImageFrameMask={editor.setImageFrameMask}
+                  onAlignSelection={guardSelectionCanvasMutation(
+                    editor.alignSelection
+                  )}
+                  onAlignSelectionToPage={guardSelectionCanvasMutation(
+                    editor.alignSelectionToPage
+                  )}
+                  onDistributeSelection={guardSelectionCanvasMutation(
+                    editor.distributeSelection
+                  )}
+                  onSetSelectionLocked={guardSelectionCanvasMutation(
+                    editor.setSelectionLocked
+                  )}
+                  onSetSelectionVisible={guardSelectionCanvasMutation(
+                    editor.setSelectionVisible
+                  )}
+                  onReorderSelection={guardSelectionCanvasMutation(
+                    editor.reorderSelection
+                  )}
+                  onDuplicateSelection={guardSelectionCanvasMutation(
+                    editor.duplicateSelection
+                  )}
+                  onDeleteSelection={guardSelectionCanvasMutation(
+                    editor.deleteSelection
+                  )}
+                  onUpdateImageFrameGeometry={guardSelectionCanvasMutation(
+                    updateImageCropFrameGeometry
+                  )}
+                  onSetImagePlacement={guardSelectionCanvasMutation(
+                    editor.setImagePlacement
+                  )}
+                  onSetImageFrameMask={guardSelectionCanvasMutation(
+                    editor.setImageFrameMask
+                  )}
                   onRunImageCommand={runEditorCommand}
                   isImageCommandEnabled={commandEnabled}
                   onRetryImageSource={(nodeId) =>
                     artboardRef.current?.retryImageSource(nodeId)
                   }
-                  onRemoveImageLayer={editor.deleteSelection}
+                  onRemoveImageLayer={guardSelectionCanvasMutation(
+                    editor.deleteSelection
+                  )}
                   onReviewDocumentImage={(localAssetId) =>
                     mediaPickerSession.openRecovery({
                       localAssetId,
@@ -5608,45 +5960,71 @@ export function StudioShell({
                     applyActiveTextEditingParagraphStyle
                   }
                   onEditTextLink={openTextLinkEditor}
-                  onCreateTypographyStyle={(style, nodeId) =>
-                    editor.createTypographyStyle(
-                      style,
-                      nodeId ? [{ nodeId }] : []
-                    )
-                  }
-                  onUpdateTypographyStyle={editor.updateTypographyStyle}
-                  onDeleteTypographyStyle={editor.deleteTypographyStyle}
-                  onApplyTypographyStyle={(styleId, nodeId) =>
-                    editor.applyTypographyStyle(styleId, [{ nodeId }])
-                  }
-                  onDetachTypographyStyle={(nodeId) =>
-                    editor.detachTypographyStyle([{ nodeId }])
-                  }
-                  onCreatePaintStyle={(style, nodeId) =>
-                    editor.createPaintStyle(style, nodeId ? [{ nodeId }] : [])
-                  }
-                  onUpdatePaintStyle={editor.updatePaintStyle}
-                  onDeletePaintStyle={editor.deletePaintStyle}
-                  onApplyPaintStyle={(styleId, nodeId) =>
-                    editor.applyPaintStyle(styleId, [{ nodeId }])
-                  }
-                  onDetachPaintStyle={(nodeId) =>
+                  onCreateTypographyStyle={guardAllCanvasMutation(
+                    (style, nodeId?: string) =>
+                      editor.createTypographyStyle(
+                        style,
+                        nodeId ? [{ nodeId }] : []
+                      )
+                  )}
+                  onUpdateTypographyStyle={guardAllCanvasMutation(
+                    editor.updateTypographyStyle
+                  )}
+                  onDeleteTypographyStyle={guardAllCanvasMutation(
+                    editor.deleteTypographyStyle
+                  )}
+                  onApplyTypographyStyle={guardSelectionCanvasMutation(
+                    (styleId, nodeId) =>
+                      editor.applyTypographyStyle(styleId, [{ nodeId }])
+                  )}
+                  onDetachTypographyStyle={guardSelectionCanvasMutation(
+                    (nodeId) => editor.detachTypographyStyle([{ nodeId }])
+                  )}
+                  onCreatePaintStyle={guardAllCanvasMutation(
+                    (style, nodeId?: string) =>
+                      editor.createPaintStyle(style, nodeId ? [{ nodeId }] : [])
+                  )}
+                  onUpdatePaintStyle={guardAllCanvasMutation(
+                    editor.updatePaintStyle
+                  )}
+                  onDeletePaintStyle={guardAllCanvasMutation(
+                    editor.deletePaintStyle
+                  )}
+                  onApplyPaintStyle={guardSelectionCanvasMutation(
+                    (styleId, nodeId) =>
+                      editor.applyPaintStyle(styleId, [{ nodeId }])
+                  )}
+                  onDetachPaintStyle={guardSelectionCanvasMutation((nodeId) =>
                     editor.detachPaintStyle([{ nodeId }])
-                  }
-                  onCreateVariable={editor.createVariable}
-                  onUpdateVariable={editor.updateVariable}
-                  onDeleteVariable={editor.deleteVariable}
-                  onBindVariable={editor.bindVariable}
-                  onUnbindVariable={editor.unbindVariable}
-                  onUpdateComponent={editor.updateComponent}
-                  onSwitchComponentVariant={editor.switchComponentVariant}
-                  onResetComponentLayerOverrides={
+                  )}
+                  onCreateVariable={guardAllCanvasMutation(
+                    editor.createVariable
+                  )}
+                  onUpdateVariable={guardAllCanvasMutation(
+                    editor.updateVariable
+                  )}
+                  onDeleteVariable={guardAllCanvasMutation(
+                    editor.deleteVariable
+                  )}
+                  onBindVariable={guardAllCanvasMutation(editor.bindVariable)}
+                  onUnbindVariable={guardAllCanvasMutation(
+                    editor.unbindVariable
+                  )}
+                  onUpdateComponent={guardAllCanvasMutation(
+                    editor.updateComponent
+                  )}
+                  onSwitchComponentVariant={guardSelectionCanvasMutation(
+                    editor.switchComponentVariant
+                  )}
+                  onResetComponentLayerOverrides={guardSelectionCanvasMutation(
                     editor.resetComponentLayerOverrides
-                  }
-                  onResetAllComponentOverrides={
+                  )}
+                  onResetAllComponentOverrides={guardSelectionCanvasMutation(
                     editor.resetAllComponentOverrides
-                  }
-                  onDetachComponentInstance={editor.detachComponentInstance}
+                  )}
+                  onDetachComponentInstance={guardSelectionCanvasMutation(
+                    editor.detachComponentInstance
+                  )}
                   onFocusComponentSource={focusComponentSource}
                 />
               </div>
@@ -5720,12 +6098,15 @@ export function StudioShell({
                   editor.quotationGroupOrganization.status === "available"
                 }
                 reviewPending={Boolean(
-                  editor.pendingChangeSet || pendingQuotationRefresh
+                  editor.pendingChangeSet ||
+                  pendingQuotationRefresh ||
+                  !allCanvasMutationsAdmitted
                 )}
                 activePanel={documentPanelTab}
                 onActivePanelChange={setDocumentPanelTab}
                 templateBrowserVisible={templateBrowserVisibility.compact}
                 onLayerOrganizationUpgrade={() => {
+                  if (!allCanvasMutationsAdmittedRef.current) return
                   if (!commitActiveTextEditing()) return
                   if (editor.upgradeQuotationLayerOrganization()) {
                     setDocumentPanelTab("layers")
@@ -5743,12 +6124,20 @@ export function StudioShell({
                   )) !== false
                 }
                 onResolveApplyTemplate={async (template) => {
+                  const admitCommit = captureCanvasCommitAdmission()
+                  if (!admitCommit()) return null
                   if (!commitActiveTextEditing()) return null
-                  return editor.resolveApplyLibraryTemplate(template)
+                  const resolved =
+                    await editor.resolveApplyLibraryTemplate(template)
+                  return admitCommit() ? resolved : null
                 }}
                 onConfirmApplyTemplate={async (resolved) => {
-                  const applied =
-                    await editor.confirmApplyLibraryTemplate(resolved)
+                  const admitCommit = captureCanvasCommitAdmission()
+                  if (!admitCommit()) return false
+                  const applied = await editor.confirmApplyLibraryTemplate(
+                    resolved,
+                    { admitCommit }
+                  )
                   if (applied) {
                     setAutoFit(true)
                     setCompactPanel(null)
@@ -5759,16 +6148,26 @@ export function StudioShell({
                 onSelectionChange={editor.setLayerSelection}
                 onFocusNode={focusNode}
                 onHoverNode={setHoveredNodeId}
-                onRenameNode={editor.renameLayerNode}
-                onRenameGroup={editor.updateGroup}
-                onUpdateLayerNodes={editor.updateLayerNodes}
-                onMoveLayer={editor.moveLayer}
-                onDeleteLayerNodes={editor.deleteLayerNodes}
+                onRenameNode={guardSelectionCanvasMutation(
+                  editor.renameLayerNode
+                )}
+                onRenameGroup={guardSelectionCanvasMutation(editor.updateGroup)}
+                onUpdateLayerNodes={guardSelectionCanvasMutation(
+                  editor.updateLayerNodes
+                )}
+                onMoveLayer={guardSelectionCanvasMutation(editor.moveLayer)}
+                onDeleteLayerNodes={guardSelectionCanvasMutation(
+                  editor.deleteLayerNodes
+                )}
                 canCreateComponentFromSelection={Boolean(
                   editor.selectedGroupId || editor.selectedNodes.length >= 2
                 )}
-                onCreateComponentFromSelection={createComponentFromSelection}
-                onInsertComponent={insertComponent}
+                onCreateComponentFromSelection={guardSelectionCanvasMutation(
+                  createComponentFromSelection
+                )}
+                onInsertComponent={guardSelectionCanvasMutation(
+                  insertComponent
+                )}
                 onFocusComponentSource={focusComponentSource}
                 assetWorkspaceView={assetWorkspaceView}
                 mediaBrowserVisible={assetMediaBrowserVisibility.compact}
@@ -5780,7 +6179,9 @@ export function StudioShell({
                 mediaActionsEnabled={inlineMediaActionsEnabled}
                 onAssetWorkspaceViewChange={setAssetWorkspaceView}
                 onMediaScopeChange={setAssetMediaScope}
-                onMediaSelect={insertMediaFromAssets}
+                onMediaSelect={guardSelectionCanvasMutation(
+                  insertMediaFromAssets
+                )}
                 productCommandContext={productCommandContext}
                 productCommandRuntime={productMenuRuntime}
                 onSelectPage={(pageId) => {
@@ -5791,13 +6192,13 @@ export function StudioShell({
                   addPageAndFocus(outputId)
                   setCompactPanel(null)
                 }}
-                onDuplicatePage={editor.duplicatePage}
-                onUpdatePage={editor.updatePage}
-                onRemovePage={editor.removePage}
-                onReorderPage={editor.reorderPage}
-                onAddOutput={editor.addOutput}
-                onUpdateOutput={editor.updateOutput}
-                onRemoveOutput={editor.removeOutput}
+                onDuplicatePage={guardPageCanvasMutation(editor.duplicatePage)}
+                onUpdatePage={guardPageCanvasMutation(editor.updatePage)}
+                onRemovePage={guardPageCanvasMutation(editor.removePage)}
+                onReorderPage={guardPageCanvasMutation(editor.reorderPage)}
+                onAddOutput={guardAllCanvasMutation(editor.addOutput)}
+                onUpdateOutput={guardAllCanvasMutation(editor.updateOutput)}
+                onRemoveOutput={guardAllCanvasMutation(editor.removeOutput)}
               />
             ) : (
               <InspectorSidebar
@@ -5823,22 +6224,28 @@ export function StudioShell({
                 isApplyingChangeSet={editor.isApplyingChangeSet}
                 webMcpStatus={webMcp.status}
                 webMcpError={webMcp.error}
-                onUpdateNode={updateNode}
+                onUpdateNode={guardSelectionCanvasMutation(updateNode)}
                 onPreviewNodePatch={(nodeId, patch) =>
                   artboardRef.current?.previewNodePatch(nodeId, patch)
                 }
                 onCancelNodePreview={(nodeId) =>
                   artboardRef.current?.restoreNodePreview(nodeId)
                 }
-                onUpdateSelection={editor.updateSelectionNodes}
-                onTransformSelection={editor.transformSelectionNodes}
-                onUpdateField={editor.updateField}
+                onUpdateSelection={guardSelectionCanvasMutation(
+                  editor.updateSelectionNodes
+                )}
+                onTransformSelection={guardSelectionCanvasMutation(
+                  editor.transformSelectionNodes
+                )}
+                onUpdateField={guardAllCanvasMutation(editor.updateField)}
                 onChooseFieldAsset={openFieldMediaPicker}
-                onCreateField={editor.createField}
-                onUpdateFieldDefinition={editor.updateFieldDefinition}
-                onRemoveField={editor.removeField}
-                onBindField={editor.bindField}
-                onUnbindField={editor.unbindField}
+                onCreateField={guardAllCanvasMutation(editor.createField)}
+                onUpdateFieldDefinition={guardAllCanvasMutation(
+                  editor.updateFieldDefinition
+                )}
+                onRemoveField={guardAllCanvasMutation(editor.removeField)}
+                onBindField={guardAllCanvasMutation(editor.bindField)}
+                onUnbindField={guardAllCanvasMutation(editor.unbindField)}
                 onFocusNode={focusNode}
                 onDecideChangeOperation={editor.decideOperation}
                 onDecideAllChangeOperations={editor.decideAllOperations}
@@ -5847,17 +6254,39 @@ export function StudioShell({
                 onCreateGeneratedDocument={editor.createGeneratedDocument}
                 onDiscardGeneratedDocument={editor.discardGeneratedDocument}
                 onFocusReviewTarget={focusReviewTarget}
-                onAlignSelection={editor.alignSelection}
-                onAlignSelectionToPage={editor.alignSelectionToPage}
-                onDistributeSelection={editor.distributeSelection}
-                onSetSelectionLocked={editor.setSelectionLocked}
-                onSetSelectionVisible={editor.setSelectionVisible}
-                onReorderSelection={editor.reorderSelection}
-                onDuplicateSelection={editor.duplicateSelection}
-                onDeleteSelection={editor.deleteSelection}
-                onUpdateImageFrameGeometry={updateImageCropFrameGeometry}
-                onSetImagePlacement={editor.setImagePlacement}
-                onSetImageFrameMask={editor.setImageFrameMask}
+                onAlignSelection={guardSelectionCanvasMutation(
+                  editor.alignSelection
+                )}
+                onAlignSelectionToPage={guardSelectionCanvasMutation(
+                  editor.alignSelectionToPage
+                )}
+                onDistributeSelection={guardSelectionCanvasMutation(
+                  editor.distributeSelection
+                )}
+                onSetSelectionLocked={guardSelectionCanvasMutation(
+                  editor.setSelectionLocked
+                )}
+                onSetSelectionVisible={guardSelectionCanvasMutation(
+                  editor.setSelectionVisible
+                )}
+                onReorderSelection={guardSelectionCanvasMutation(
+                  editor.reorderSelection
+                )}
+                onDuplicateSelection={guardSelectionCanvasMutation(
+                  editor.duplicateSelection
+                )}
+                onDeleteSelection={guardSelectionCanvasMutation(
+                  editor.deleteSelection
+                )}
+                onUpdateImageFrameGeometry={guardSelectionCanvasMutation(
+                  updateImageCropFrameGeometry
+                )}
+                onSetImagePlacement={guardSelectionCanvasMutation(
+                  editor.setImagePlacement
+                )}
+                onSetImageFrameMask={guardSelectionCanvasMutation(
+                  editor.setImageFrameMask
+                )}
                 onRunImageCommand={(commandId) => {
                   if (commandId !== "image.crop") {
                     runEditorCommand(commandId)
@@ -5878,7 +6307,9 @@ export function StudioShell({
                 backgroundRemoval={
                   backgroundRemovalEnabled ? backgroundRemoval : undefined
                 }
-                onRemoveImageLayer={editor.deleteSelection}
+                onRemoveImageLayer={guardSelectionCanvasMutation(
+                  editor.deleteSelection
+                )}
                 onReviewDocumentImage={(localAssetId) =>
                   mediaPickerSession.openRecovery({
                     localAssetId,
@@ -5890,43 +6321,63 @@ export function StudioShell({
                   applyActiveTextEditingParagraphStyle
                 }
                 onEditTextLink={openTextLinkEditor}
-                onCreateTypographyStyle={(style, nodeId) =>
-                  editor.createTypographyStyle(
-                    style,
-                    nodeId ? [{ nodeId }] : []
-                  )
-                }
-                onUpdateTypographyStyle={editor.updateTypographyStyle}
-                onDeleteTypographyStyle={editor.deleteTypographyStyle}
-                onApplyTypographyStyle={(styleId, nodeId) =>
-                  editor.applyTypographyStyle(styleId, [{ nodeId }])
-                }
-                onDetachTypographyStyle={(nodeId) =>
-                  editor.detachTypographyStyle([{ nodeId }])
-                }
-                onCreatePaintStyle={(style, nodeId) =>
-                  editor.createPaintStyle(style, nodeId ? [{ nodeId }] : [])
-                }
-                onUpdatePaintStyle={editor.updatePaintStyle}
-                onDeletePaintStyle={editor.deletePaintStyle}
-                onApplyPaintStyle={(styleId, nodeId) =>
-                  editor.applyPaintStyle(styleId, [{ nodeId }])
-                }
-                onDetachPaintStyle={(nodeId) =>
+                onCreateTypographyStyle={guardAllCanvasMutation(
+                  (style, nodeId?: string) =>
+                    editor.createTypographyStyle(
+                      style,
+                      nodeId ? [{ nodeId }] : []
+                    )
+                )}
+                onUpdateTypographyStyle={guardAllCanvasMutation(
+                  editor.updateTypographyStyle
+                )}
+                onDeleteTypographyStyle={guardAllCanvasMutation(
+                  editor.deleteTypographyStyle
+                )}
+                onApplyTypographyStyle={guardSelectionCanvasMutation(
+                  (styleId, nodeId) =>
+                    editor.applyTypographyStyle(styleId, [{ nodeId }])
+                )}
+                onDetachTypographyStyle={guardSelectionCanvasMutation(
+                  (nodeId) => editor.detachTypographyStyle([{ nodeId }])
+                )}
+                onCreatePaintStyle={guardAllCanvasMutation(
+                  (style, nodeId?: string) =>
+                    editor.createPaintStyle(style, nodeId ? [{ nodeId }] : [])
+                )}
+                onUpdatePaintStyle={guardAllCanvasMutation(
+                  editor.updatePaintStyle
+                )}
+                onDeletePaintStyle={guardAllCanvasMutation(
+                  editor.deletePaintStyle
+                )}
+                onApplyPaintStyle={guardSelectionCanvasMutation(
+                  (styleId, nodeId) =>
+                    editor.applyPaintStyle(styleId, [{ nodeId }])
+                )}
+                onDetachPaintStyle={guardSelectionCanvasMutation((nodeId) =>
                   editor.detachPaintStyle([{ nodeId }])
-                }
-                onCreateVariable={editor.createVariable}
-                onUpdateVariable={editor.updateVariable}
-                onDeleteVariable={editor.deleteVariable}
-                onBindVariable={editor.bindVariable}
-                onUnbindVariable={editor.unbindVariable}
-                onUpdateComponent={editor.updateComponent}
-                onSwitchComponentVariant={editor.switchComponentVariant}
-                onResetComponentLayerOverrides={
+                )}
+                onCreateVariable={guardAllCanvasMutation(editor.createVariable)}
+                onUpdateVariable={guardAllCanvasMutation(editor.updateVariable)}
+                onDeleteVariable={guardAllCanvasMutation(editor.deleteVariable)}
+                onBindVariable={guardAllCanvasMutation(editor.bindVariable)}
+                onUnbindVariable={guardAllCanvasMutation(editor.unbindVariable)}
+                onUpdateComponent={guardAllCanvasMutation(
+                  editor.updateComponent
+                )}
+                onSwitchComponentVariant={guardSelectionCanvasMutation(
+                  editor.switchComponentVariant
+                )}
+                onResetComponentLayerOverrides={guardSelectionCanvasMutation(
                   editor.resetComponentLayerOverrides
-                }
-                onResetAllComponentOverrides={editor.resetAllComponentOverrides}
-                onDetachComponentInstance={editor.detachComponentInstance}
+                )}
+                onResetAllComponentOverrides={guardSelectionCanvasMutation(
+                  editor.resetAllComponentOverrides
+                )}
+                onDetachComponentInstance={guardSelectionCanvasMutation(
+                  editor.detachComponentInstance
+                )}
                 onFocusComponentSource={focusComponentSource}
               />
             )}
@@ -6022,7 +6473,9 @@ export function StudioShell({
                 mediaPicker?.kind === "action" ? mediaPicker.actionError : null
               }
               actionsEnabled={
-                mediaPicker?.kind === "action" && !mediaPicker.pendingIdentity
+                mediaPicker?.kind === "action" &&
+                mediaPickerCanvasMutationAdmitted &&
+                !mediaPicker.pendingIdentity
               }
               onMediaScopeChange={mediaPickerSession.setScope}
               onMediaSelect={selectExactMedia}
@@ -6365,13 +6818,19 @@ export function StudioShell({
               }}
               guides={guideWorkspace.activeGuides}
               onAddGuide={(guide) => {
-                addWorkspaceGuide(guide)
+                if (activeCanvasMutationAdmittedRef.current) {
+                  addWorkspaceGuide(guide)
+                }
               }}
               onMoveGuide={(guideId, position) => {
-                moveWorkspaceGuide(guideId, position)
+                if (activeCanvasMutationAdmittedRef.current) {
+                  moveWorkspaceGuide(guideId, position)
+                }
               }}
               onRemoveGuide={(guideId) => {
-                removeWorkspaceGuide(guideId)
+                if (activeCanvasMutationAdmittedRef.current) {
+                  removeWorkspaceGuide(guideId)
+                }
               }}
               returnFocusRef={guideManagerTriggerRef}
             />
@@ -6384,7 +6843,7 @@ export function StudioShell({
               onOpenChange={(open) => {
                 if (!open) setRenameLayerTarget(null)
               }}
-              onRename={editor.renameLayerNode}
+              onRename={guardSelectionCanvasMutation(editor.renameLayerNode)}
             />
           </Suspense>
         ) : null}
@@ -6395,13 +6854,13 @@ export function StudioShell({
               onOpenChange={(open) => {
                 if (!open) setStructureCommandDialog(null)
               }}
-              onRenamePage={(pageId, name) =>
+              onRenamePage={guardPageCanvasMutation((pageId, name) =>
                 editor.updatePage(pageId, { name })
-              }
-              onRenameOutput={editor.updateOutput}
-              onAddOutput={editor.addOutput}
-              onDeletePage={editor.removePage}
-              onDeleteOutput={editor.removeOutput}
+              )}
+              onRenameOutput={guardAllCanvasMutation(editor.updateOutput)}
+              onAddOutput={guardAllCanvasMutation(editor.addOutput)}
+              onDeletePage={guardPageCanvasMutation(editor.removePage)}
+              onDeleteOutput={guardAllCanvasMutation(editor.removeOutput)}
             />
           </Suspense>
         ) : null}

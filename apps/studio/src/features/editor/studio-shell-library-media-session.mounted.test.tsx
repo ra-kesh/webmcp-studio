@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { projectCuratedMediaDetail } from "@webmcp/document"
 import { studioMediaManifest } from "../../content/library/media/manifest"
 import {
+  mediaPickerCanvasMutationAdmission,
   mediaPickerUsesDialog,
   useLibraryMediaPickerSession,
 } from "../studio-shell"
@@ -96,6 +97,25 @@ describe("Studio shell exact media picker session", () => {
       )
     })
   }
+
+  it("keeps initial Assets selection enabled when the active canvas is ready", () => {
+    expect(
+      mediaPickerCanvasMutationAdmission({
+        state: null,
+        activePageAdmitted: true,
+        allMountedAdmitted: true,
+        pageAdmitted: () => false,
+      })
+    ).toBe(true)
+    expect(
+      mediaPickerCanvasMutationAdmission({
+        state: null,
+        activePageAdmitted: false,
+        allMountedAdmitted: true,
+        pageAdmitted: () => true,
+      })
+    ).toBe(false)
+  })
 
   it("routes one captured target and strict detail through one executor", async () => {
     const selected = detail()

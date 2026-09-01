@@ -98,7 +98,7 @@ describe("FabricArtboard crop preview", () => {
       ...renderConformanceDocument,
       pages: [
         {
-          ...renderConformanceDocument.pages[0]!,
+          ...renderConformanceDocument.pages[0],
           id: "font-request-page",
           nodeIds: [node.id],
         },
@@ -209,17 +209,35 @@ describe("FabricArtboard crop preview", () => {
 
   it("contains canvas startup and sync failures in a retryable runtime state", () => {
     const initial = createCanvasRuntimeState()
+    const requestedIdentity = {
+      documentId: "document-current",
+      documentRevision: 2,
+      pageId: "page-current",
+      documentSyncIdentity: "page-current-v2",
+    }
+    const appliedIdentity = {
+      ...requestedIdentity,
+      documentRevision: 1,
+      documentSyncIdentity: "page-current-v1",
+      syncGeneration: 1,
+    }
     const failed = reduceCanvasRuntimeState(initial, {
       type: "failed",
       attempt: 0,
       stage: "sync",
+      requestedIdentity,
+      appliedIdentity,
+      syncGeneration: 2,
     })
 
     expect(failed).toEqual({
-      status: "error",
+      status: "stale_error",
       attempt: 0,
       userRetried: false,
       stage: "sync",
+      requestedIdentity,
+      appliedIdentity,
+      syncGeneration: 2,
     })
     expect(canvasRuntimeFailureMessage("sync")).toContain(
       "document is unchanged"
@@ -231,7 +249,11 @@ describe("FabricArtboard crop preview", () => {
       attempt: 1,
       userRetried: true,
       stage: null,
+      requestedIdentity,
+      appliedIdentity: null,
+      syncGeneration: 2,
     })
+    const readyIdentity = { ...requestedIdentity, syncGeneration: 3 }
     expect(
       reduceCanvasRuntimeState(
         {
@@ -239,15 +261,27 @@ describe("FabricArtboard crop preview", () => {
           attempt: 1,
           userRetried: true,
           stage: null,
+          requestedIdentity,
+          appliedIdentity: readyIdentity,
+          syncGeneration: 3,
         },
-        { type: "preparing", attempt: 1 }
+        {
+          type: "preparing",
+          attempt: 1,
+          requestedIdentity,
+          appliedIdentity: null,
+          syncGeneration: 4,
+        }
       )
-    ).toEqual(retrying)
+    ).toEqual({ ...retrying, syncGeneration: 4 })
     expect(
       reduceCanvasRuntimeState(retrying, {
         type: "failed",
         attempt: 0,
         stage: "startup",
+        requestedIdentity,
+        appliedIdentity: null,
+        syncGeneration: 3,
       })
     ).toBe(retrying)
     expect(
@@ -255,12 +289,18 @@ describe("FabricArtboard crop preview", () => {
         type: "failed",
         attempt: 1,
         stage: "startup",
+        requestedIdentity,
+        appliedIdentity: null,
+        syncGeneration: 3,
       })
     ).toEqual({
       status: "error",
       attempt: 1,
       userRetried: true,
       stage: "startup",
+      requestedIdentity,
+      appliedIdentity: null,
+      syncGeneration: 3,
     })
   })
 
@@ -278,6 +318,9 @@ describe("FabricArtboard crop preview", () => {
           attempt: 1,
           userRetried: true,
           stage: "sync",
+          requestedIdentity: null,
+          appliedIdentity: null,
+          syncGeneration: 1,
         },
         onRetry: vi.fn(),
       })
@@ -289,6 +332,9 @@ describe("FabricArtboard crop preview", () => {
           attempt: 1,
           userRetried: true,
           stage: "cleanup",
+          requestedIdentity: null,
+          appliedIdentity: null,
+          syncGeneration: 1,
         },
         onRetry: vi.fn(),
       })

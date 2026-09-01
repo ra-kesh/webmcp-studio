@@ -13,8 +13,8 @@ The review found one P0, two P1s, and two P2s:
 | Priority | Status                                                       | Finding                                                                                                                                                                |
 | -------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | P0       | Closed by the 2026-09-01 Gate 4 repair                       | The multi-artboard merge removed the only production React image-readiness owner, so every mounted Studio replacement flow waits 15 seconds and rejects the candidate. |
-| P1       | Confirmed control-flow defect                                | The last-good Fabric frame remains mutable during document synchronization while Fabric suppresses the events that would commit that mutation.                         |
-| P1       | Confirmed control-flow defect                                | A failed incremental Fabric synchronization leaves the old frame in `ready` indefinitely, with no visible error, retry, or complete applied identity.                  |
+| P1       | Closed by the 2026-09-01 Gate 5 repair                       | The last-good Fabric frame remains mutable during document synchronization while Fabric suppresses the events that would commit that mutation.                         |
+| P1       | Closed by the 2026-09-01 Gate 5 repair                       | A failed incremental Fabric synchronization leaves the old frame in `ready` indefinitely, with no visible error, retry, or complete applied identity.                  |
 | P2       | Confirmed behavior                                           | Export and publish remain enabled while a replacement preview is non-canonical, so the visible candidate and exported/published source can disagree.                   |
 | P2       | Confirmed in React StrictMode; production exposure is a risk | Local-asset restore permanently deactivates its lifecycle ref during StrictMode effect replay and can discard the only pending restore.                                |
 
@@ -140,7 +140,7 @@ chrome, and reverted canvas event policy were not modified.
 
 ### P1 — Separate last-good pixel availability from Fabric mutation admission
 
-Status: confirmed control-flow defect; the missing end-to-end interaction test is the reason it escaped.
+Status: closed by the 2026-09-01 Gate 5 repair. The evidence below remains the reproduction record for the reviewed commit.
 
 #### Trigger
 
@@ -172,7 +172,7 @@ With the real adapter or a behaviorally complete fake, defer the second document
 
 ### P1 — Represent incremental sync failure as stale, not ready
 
-Status: confirmed control-flow defect.
+Status: closed by the 2026-09-01 Gate 5 repair. The evidence below remains the reproduction record for the reviewed commit.
 
 #### Trigger
 
@@ -200,6 +200,68 @@ The P1 repair should unify this with the mutation-admission state above: visible
 #### Required regression test
 
 Succeed the first sync, reject and separately time out the second, and assert that pixels remain visible but runtime is stale, Retry is visible, and mutations are disabled. Retry must use the current exact identity, not the failed closure. Only successful installation may return to `ready`. Repeat with a different document that reuses the page ID.
+
+#### Gate 5 remediation evidence
+
+The bounded Gate 5 repair closes both P1 findings without changing Gate 1's
+lazy ownership, Gate 4's replacement owners and pending-page pin, or the
+workspace camera boundary:
+
+- `FabricArtboard` now distinguishes `preparing`, `syncing`, `ready`,
+  `stale_error`, and hard `error`. Requested and applied state carry document,
+  page, page-sync identity, document revision, and sync generation. A
+  same-owner incremental failure retains visible last-applied pixels only as
+  `stale_error`, makes the inner canvas inert, and exposes a bounded in-place
+  Retry. A different document reusing the page ID clears applied ownership and
+  shows the opaque hard-error surface.
+- The adapter contract now requires atomic page installation. The regular
+  Fabric path stages every new or replacement object and waits for all image
+  decodes before page presentation, removals, object projection, ordering, or
+  cache identity changes. The masked full-build path also settles its prepared
+  resources before its existing synchronous install. An abort regression
+  proves background, object identity/order, geometry, and `nodeByNodeId` remain
+  exactly at the prior applied scene.
+- Mutation admission is explicit and separate from pixel availability.
+  Closing admission cancels transient transform/text/crop work, discards Fabric
+  selection, disables hit testing and controls, and rejects adapter-originated
+  move, scale, rotate, text, crop, preview, retry, selection, and export paths.
+  Event suppression is nesting-safe, so selection projection cannot reopen a
+  document sync. Reopening admission reprojects the canonical selection.
+- `StudioShell` owns an exact per-page runtime registry and consumes it in
+  Inspector capabilities, keyboard/editor command contexts, product commands,
+  layer/page/output callbacks, guides, media insertion, and direct Inspector
+  mutation callbacks. Each mounted artboard has an owner identity, publishes a
+  denying state before paint, and releases only its own registry entry on cull
+  or remount. Missing, preparing, syncing, stale, hard-error, or mismatched
+  identity denies canonical/history mutation for the affected mounted page;
+  absent lazy pages do not permanently disable document-wide actions. Camera
+  pan, zoom, focus, and page activation remain available.
+- Quotation layer/template surfaces use the same runtime admission. Media
+  insertion/replacement, background-removal application, and template apply
+  capture exact admission at invocation and recheck it immediately before the
+  canonical commit. Deferred preparation or confirmation that settles after a
+  canvas becomes stale is rejected without changing document, snapshot,
+  operation version, or history.
+- Regressions cover real-adapter geometry admission, nested event suppression,
+  incremental rejection and timeout, retry without remount, current-identity
+  retry, cross-document same-page reuse, page-local multi-artboard isolation,
+  canonical snapshot/operation-version/history denial, owner-safe cull/remount
+  closure, two-mounted-page lazy admission, initial ready Assets availability,
+  and deferred media/template settlement after admission closes.
+- Node `v22.23.2` verification passes the Fabric adapter suite (107/107) and an
+  eight-file focused Studio matrix (167/167), both package typechecks, scoped
+  Studio lint, and `git diff --check`. No server,
+  browser session, deployment, port-3000 process, or capture directory was
+  used.
+- Final independent read-only re-review reports no remaining P0 or P1. It
+  retains the two assigned P2s below and records two additional non-blocking
+  Fabric hardening items: synchronous post-barrier install lacks injected-fault
+  rollback coverage, and regular successful object retirement lacks explicit
+  disposal/leak coverage. A same-tick shell predicate regression would also
+  strengthen the already-synchronous registry-ref boundary.
+
+Gate 5 closes the audit's two P1 findings. The two P2 findings below remain
+open and were not expanded into this gate.
 
 ### P2 — Gate export and publish while a replacement preview is pending
 
@@ -267,7 +329,9 @@ Mount the real hook under StrictMode with a deferred `loadLocalAsset`. Resolve a
 | StrictMode persistence  | Repository/controller lease survives replay                           | Local `asset:local` restoration survives replay                                                  |
 | Export                  | Canonical snapshot is flushed and used                                | Command admission while a non-canonical replacement preview is visible                           |
 
-Green local tests do not cover those cross-owner assertions.
+The Gate 4 and Gate 5 regressions now cover the replacement-owner,
+multi-artboard, and last-good Fabric rows above. The StrictMode restore and
+export/publication rows remain assigned to the two open P2 findings.
 
 ## Reviewed areas without an additional P0–P2 finding
 
@@ -333,7 +397,7 @@ No dev server, port 3000/3001 process, browser capture, capture directory, deplo
 ## Repair order and release gates
 
 1. Closed on 2026-09-01: explicit React replacement ownership and the real mounted composition regression now cover the P0.
-2. Add per-artboard applied identity plus `syncing/stale_error` mutation admission. Replace the boolean sync mutex and add transform-during-sync and failure-after-last-good tests. These close both P1s.
+2. Closed on 2026-09-01: per-artboard applied identity, owner-aware mounted admission, `syncing/stale_error`, atomic adapter installation, and commit-time async admission close both P1s.
 3. Gate export, publish, and conflicting asset actions while replacement admission is pending.
 4. Replace the local-asset lifecycle boolean with a replay-safe generation/lease and add the StrictMode restore test.
 5. Rerun focused suites, all-workspace typecheck, serial performance-sensitive suites, and the existing healthy-host cross-renderer/browser evidence. Do not label renderer parity complete from unit tests alone.

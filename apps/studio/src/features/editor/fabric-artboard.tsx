@@ -59,13 +59,56 @@ export type FabricArtboardHandle = {
 }
 
 export type CanvasRuntimeReport = Readonly<{
-  status: "preparing" | "ready" | "error"
+  runtimeOwnerId: string
+  status: "preparing" | "syncing" | "ready" | "stale_error" | "error"
   attempt: number
   documentId: string
   documentRevision: number
   pageId: string
+  documentSyncIdentity: string
+  syncGeneration: number
+  requestedIdentity: CanvasDocumentSyncIdentity
+  appliedIdentity: CanvasAppliedIdentity | null
   stage: CanvasRuntimeFailureStage | null
 }>
+
+export type CanvasRuntimeOwnerRelease = Readonly<{
+  documentId: string
+  pageId: string
+  runtimeOwnerId: string
+}>
+
+export type CanvasDocumentSyncIdentity = Readonly<{
+  documentId: string
+  documentRevision: number
+  pageId: string
+  documentSyncIdentity: string
+}>
+
+export type CanvasAppliedIdentity = CanvasDocumentSyncIdentity &
+  Readonly<{ syncGeneration: number }>
+
+export function canvasSyncIdentityMatches(
+  applied: CanvasAppliedIdentity | null,
+  requested: CanvasDocumentSyncIdentity
+) {
+  return Boolean(
+    applied &&
+    applied.documentId === requested.documentId &&
+    applied.pageId === requested.pageId &&
+    applied.documentSyncIdentity === requested.documentSyncIdentity
+  )
+}
+
+const canvasSyncOwnerMatches = (
+  applied: CanvasAppliedIdentity | null,
+  requested: CanvasDocumentSyncIdentity
+) =>
+  Boolean(
+    applied &&
+    applied.documentId === requested.documentId &&
+    applied.pageId === requested.pageId
+  )
 
 type FabricAdapterModule = Readonly<{
   FabricCanvasAdapter: new (events: CanvasAdapterEvents) => CanvasAdapter
@@ -152,6 +195,7 @@ export const FabricArtboard = forwardRef<
     onImageSourceStateChange?: (state: ImageSourceStateChange) => void
     registerImageReplacementOwner?: () => () => void
     onRuntimeStateChange?: (state: CanvasRuntimeReport) => void
+    onRuntimeOwnerRelease?: (owner: CanvasRuntimeOwnerRelease) => void
     runtimeOptions?: FabricArtboardRuntimeOptions
     onTextEditingStart?: (nodeId: string) => void
     onTextEditingChange?: (state: CanvasTextEditingState | null) => void
@@ -183,6 +227,7 @@ export const FabricArtboard = forwardRef<
     onImageSourceStateChange,
     registerImageReplacementOwner,
     onRuntimeStateChange,
+    onRuntimeOwnerRelease,
     runtimeOptions,
     onTextEditingStart,
     onTextEditingChange,
@@ -214,6 +259,7 @@ export const FabricArtboard = forwardRef<
     onImageCropUnavailable,
     onImageSourceStateChange,
     onRuntimeStateChange,
+    onRuntimeOwnerRelease,
     onTextEditingStart,
     onTextEditingChange,
     onSelectionChange,
@@ -233,14 +279,15 @@ export const FabricArtboard = forwardRef<
   const [runtime, setRuntime] = useState<CanvasRuntimeState>(() =>
     createCanvasRuntimeState()
   )
-  const [readyPageId, setReadyPageId] = useState<string | null>(null)
-  const lastGoodFramePageIdRef = useRef<string | null>(null)
+  const appliedIdentityRef = useRef<CanvasAppliedIdentity | null>(null)
+  const syncGenerationRef = useRef(0)
+  const [syncRetryNonce, setSyncRetryNonce] = useState(0)
   const [activeTextEditingNodeId, setActiveTextEditingNodeId] = useState<
     string | null
   >(null)
   const [mountedAttempt, setMountedAttempt] = useState<number | null>(null)
-  const ready = runtime.status === "ready"
   const canvasInstructionsId = `canvas-instructions-${useId().replaceAll(":", "")}`
+  const runtimeOwnerId = canvasInstructionsId
   const reportedUnavailableCropRef = useRef<string | null>(null)
   callbacksRef.current = {
     onCanvasDoubleClick,
@@ -252,6 +299,7 @@ export const FabricArtboard = forwardRef<
     onImageCropUnavailable,
     onImageSourceStateChange,
     onRuntimeStateChange,
+    onRuntimeOwnerRelease,
     onTextEditingStart,
     onTextEditingChange,
     onSelectionChange,
@@ -261,24 +309,92 @@ export const FabricArtboard = forwardRef<
     interactive,
     selection,
   }
-  const runtimeIdentityRef = useRef({
+  const effectiveDocumentSyncIdentity =
+    documentSyncIdentity ??
+    JSON.stringify({
+      documentId: document.id,
+      documentRevision: document.revision,
+      pageId,
+    })
+  const requestedIdentity: CanvasDocumentSyncIdentity = {
     documentId: document.id,
     documentRevision: document.revision,
     pageId,
-  })
-  runtimeIdentityRef.current = {
-    documentId: document.id,
-    documentRevision: document.revision,
-    pageId,
+    documentSyncIdentity: effectiveDocumentSyncIdentity,
   }
+  const runtimeIdentityRef = useRef(requestedIdentity)
+  runtimeIdentityRef.current = requestedIdentity
+  const ready =
+    runtime.status === "ready" &&
+    canvasSyncIdentityMatches(runtime.appliedIdentity, requestedIdentity)
+  const visibleLastGoodFrame = canvasSyncOwnerMatches(
+    runtime.appliedIdentity,
+    requestedIdentity
+  )
+  const displayedRuntime: CanvasRuntimeState =
+    runtime.status !== "ready" || ready
+      ? runtime
+      : visibleLastGoodFrame
+        ? {
+            status: "syncing",
+            attempt: runtime.attempt,
+            userRetried: false,
+            stage: null,
+            requestedIdentity,
+            appliedIdentity: runtime.appliedIdentity,
+            syncGeneration: runtime.syncGeneration,
+          }
+        : {
+            status: "preparing",
+            attempt: runtime.attempt,
+            userRetried: false,
+            stage: null,
+            requestedIdentity,
+            appliedIdentity: null,
+            syncGeneration: runtime.syncGeneration,
+          }
+  const mutationAdmitted = interactive && ready
+  const mutationAdmittedRef = useRef(mutationAdmitted)
+  mutationAdmittedRef.current = mutationAdmitted
   const documentRef = useRef(document)
   documentRef.current = document
-  const effectiveDocumentSyncIdentity = documentSyncIdentity ?? document
   const loadAdapter = runtimeOptions?.loadAdapter ?? loadDefaultFabricAdapter
   const startupTimeoutMs =
     runtimeOptions?.startupTimeoutMs ?? DEFAULT_CANVAS_STARTUP_TIMEOUT_MS
   const syncTimeoutMs =
     runtimeOptions?.syncTimeoutMs ?? DEFAULT_CANVAS_SYNC_TIMEOUT_MS
+
+  useLayoutEffect(() => {
+    const identity: CanvasDocumentSyncIdentity = {
+      documentId: document.id,
+      documentRevision: document.revision,
+      pageId,
+      documentSyncIdentity: effectiveDocumentSyncIdentity,
+    }
+    callbacksRef.current.onRuntimeStateChange?.({
+      runtimeOwnerId,
+      status: "preparing",
+      attempt: runtime.attempt,
+      ...identity,
+      syncGeneration: syncGenerationRef.current,
+      requestedIdentity: identity,
+      appliedIdentity: null,
+      stage: null,
+    })
+    return () => {
+      callbacksRef.current.onRuntimeOwnerRelease?.({
+        documentId: identity.documentId,
+        pageId: identity.pageId,
+        runtimeOwnerId,
+      })
+    }
+  }, [
+    document.id,
+    effectiveDocumentSyncIdentity,
+    pageId,
+    runtime.attempt,
+    runtimeOwnerId,
+  ])
 
   useEffect(
     () => registerImageReplacementOwner?.(),
@@ -413,15 +529,31 @@ export const FabricArtboard = forwardRef<
   const retryImageSources = useCallback(() => {
     reportedImageSourceStateRef.current.clear()
     reportAllCurrentImageSources("loading")
-    lastGoodFramePageIdRef.current = null
-    setReadyPageId(null)
+    appliedIdentityRef.current = null
     setRuntime((current) =>
       reduceCanvasRuntimeState(current, { type: "retry" })
     )
   }, [reportAllCurrentImageSources])
 
+  const retryCanvasSync = useCallback(() => {
+    reportedImageSourceStateRef.current.clear()
+    reportAllCurrentImageSources("loading")
+    setRuntime((current) =>
+      current.status === "stale_error"
+        ? {
+            ...current,
+            status: "syncing",
+            userRetried: true,
+            stage: null,
+          }
+        : current
+    )
+    setSyncRetryNonce((current) => current + 1)
+  }, [reportAllCurrentImageSources])
+
   const retryImageSource = useCallback(
     (nodeId: string) => {
+      if (!mutationAdmittedRef.current) return
       const src = currentImageSourceByNodeIdRef.current.get(nodeId)
       const resourceToken =
         currentImageResourceTokenByNodeIdRef.current.get(nodeId)
@@ -505,18 +637,29 @@ export const FabricArtboard = forwardRef<
       retryImageSources,
       retryImageSource,
       enterTextEditing: (nodeId, nextSelection) =>
-        renderController.adapter?.enterTextEditing(nodeId, nextSelection) ??
-        false,
+        mutationAdmittedRef.current
+          ? (renderController.adapter?.enterTextEditing(
+              nodeId,
+              nextSelection
+            ) ?? false)
+          : false,
       commitTextEditing: () =>
-        renderController.adapter?.commitTextEditing() ?? false,
+        mutationAdmittedRef.current
+          ? (renderController.adapter?.commitTextEditing() ?? false)
+          : false,
       cancelTextEditing: () =>
         renderController.adapter?.cancelTextEditing() ?? false,
       applyTextEditingStyle: (patch) =>
-        renderController.adapter?.applyTextEditingStyle(patch) ?? false,
+        mutationAdmittedRef.current
+          ? (renderController.adapter?.applyTextEditingStyle(patch) ?? false)
+          : false,
       applyTextEditingParagraphStyle: (patch) =>
-        renderController.adapter?.applyTextEditingParagraphStyle(patch) ??
-        false,
+        mutationAdmittedRef.current
+          ? (renderController.adapter?.applyTextEditingParagraphStyle(patch) ??
+            false)
+          : false,
       previewNodePatch: (nodeId, patch) =>
+        mutationAdmittedRef.current &&
         renderController.invalidatePreview({
           kind: "node_patch",
           nodeId,
@@ -527,10 +670,16 @@ export const FabricArtboard = forwardRef<
       cancelTransform: () =>
         renderController.adapter?.cancelTransform() ?? false,
       getImageNaturalSize: (nodeId) =>
-        renderController.adapter?.getImageNaturalSize(nodeId) ?? null,
+        mutationAdmittedRef.current
+          ? (renderController.adapter?.getImageNaturalSize(nodeId) ?? null)
+          : null,
       nudgeImageCrop: (screenDelta, cameraZoom) =>
-        renderController.adapter?.nudgeImageCrop(screenDelta, cameraZoom) ??
-        false,
+        mutationAdmittedRef.current
+          ? (renderController.adapter?.nudgeImageCrop(
+              screenDelta,
+              cameraZoom
+            ) ?? false)
+          : false,
     }),
     [renderController, retryImageSource, retryImageSources]
   )
@@ -560,10 +709,14 @@ export const FabricArtboard = forwardRef<
         )
         if (!isActive()) return
         const nextAdapter = new FabricCanvasAdapter({
-          onSelectionChange: (nextSelection) =>
-            callbacksRef.current.onSelectionChange(nextSelection),
-          onNodesChange: (changes) =>
-            callbacksRef.current.onNodesChange(changes),
+          onSelectionChange: (nextSelection) => {
+            if (!mutationAdmittedRef.current) return
+            callbacksRef.current.onSelectionChange(nextSelection)
+          },
+          onNodesChange: (changes) => {
+            if (!mutationAdmittedRef.current) return false
+            return callbacksRef.current.onNodesChange(changes)
+          },
           onCanvasDoubleClick: (point) =>
             callbacksRef.current.onCanvasDoubleClick?.(point),
           onNodeDoubleClick: (nodeId) =>
@@ -605,9 +758,13 @@ export const FabricArtboard = forwardRef<
         if (!isActive()) return
         setMountedAttempt((current) => (current === attempt ? null : current))
         callbacksRef.current.onRuntimeStateChange?.({
+          runtimeOwnerId,
           status: "error",
           attempt,
           ...runtimeIdentityRef.current,
+          syncGeneration: syncGenerationRef.current,
+          requestedIdentity: runtimeIdentityRef.current,
+          appliedIdentity: null,
           stage,
         })
         setRuntime((current) =>
@@ -615,6 +772,9 @@ export const FabricArtboard = forwardRef<
             type: "failed",
             attempt,
             stage,
+            requestedIdentity: runtimeIdentityRef.current,
+            appliedIdentity: null,
+            syncGeneration: syncGenerationRef.current,
           })
         )
       })
@@ -680,11 +840,13 @@ export const FabricArtboard = forwardRef<
     })
   }, [pageId, ready, renderController, snapTargets])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const adapter = renderController.adapter
     if (!adapter) return
-    settleCanvasInteractivity(adapter, interactive)
-  }, [interactive, mountedAttempt, renderController])
+    adapter.setMutationAdmission(mutationAdmitted)
+    settleCanvasInteractivity(adapter, mutationAdmitted)
+    if (mutationAdmitted) renderController.invalidateSelection(selection)
+  }, [mountedAttempt, mutationAdmitted, renderController, selection])
 
   useEffect(() => {
     if (mountedAttempt !== runtime.attempt) return
@@ -698,11 +860,15 @@ export const FabricArtboard = forwardRef<
     let active = true
     const isActive = () => active
     const attempt = runtime.attempt
-    const identity = {
-      documentId: syncDocument.id,
-      documentRevision: syncDocument.revision,
-      pageId,
+    const identity = runtimeIdentityRef.current
+    const syncGeneration = ++syncGenerationRef.current
+    let appliedIdentity = appliedIdentityRef.current
+    if (!canvasSyncOwnerMatches(appliedIdentity, identity)) {
+      appliedIdentity = null
+      appliedIdentityRef.current = null
     }
+    adapter.setMutationAdmission(false)
+    settleCanvasInteractivity(adapter, false)
     const controller = new AbortController()
     const timeout = globalThis.setTimeout(
       () => controller.abort(canvasTimeoutReason("sync")),
@@ -725,18 +891,34 @@ export const FabricArtboard = forwardRef<
         reportImageSourceState({ ...state, readiness: "loading" })
       }
     }
-    const hasLastGoodFrame = lastGoodFramePageIdRef.current === identity.pageId
-    if (!hasLastGoodFrame) {
-      callbacksRef.current.onRuntimeStateChange?.({
-        status: "preparing",
-        attempt,
-        ...identity,
-        stage: null,
-      })
-      setRuntime((current) =>
-        reduceCanvasRuntimeState(current, { type: "preparing", attempt })
-      )
-    }
+    const pendingStatus = appliedIdentity ? "syncing" : "preparing"
+    callbacksRef.current.onRuntimeStateChange?.({
+      runtimeOwnerId,
+      status: pendingStatus,
+      attempt,
+      ...identity,
+      syncGeneration,
+      requestedIdentity: identity,
+      appliedIdentity,
+      stage: null,
+    })
+    setRuntime((current) =>
+      appliedIdentity
+        ? reduceCanvasRuntimeState(current, {
+            type: "syncing",
+            attempt,
+            requestedIdentity: identity,
+            appliedIdentity,
+            syncGeneration,
+          })
+        : reduceCanvasRuntimeState(current, {
+            type: "preparing",
+            attempt,
+            requestedIdentity: identity,
+            appliedIdentity: null,
+            syncGeneration,
+          })
+    )
     void renderController
       .invalidateDocument({
         document: syncDocument,
@@ -771,45 +953,60 @@ export const FabricArtboard = forwardRef<
                 : null,
           })
         }
-        applyImageCropMode(
-          callbacksRef.current.interactive
-            ? callbacksRef.current.imageCropMode
-            : null
-        )
-        renderController.invalidateSelection(
-          callbacksRef.current.interactive
-            ? callbacksRef.current.selection
-            : null
-        )
+        const installedIdentity: CanvasAppliedIdentity = {
+          ...identity,
+          syncGeneration,
+        }
+        appliedIdentityRef.current = installedIdentity
         callbacksRef.current.onRuntimeStateChange?.({
+          runtimeOwnerId,
           status: "ready",
           attempt,
           ...identity,
+          syncGeneration,
+          requestedIdentity: identity,
+          appliedIdentity: installedIdentity,
           stage: null,
         })
-        lastGoodFramePageIdRef.current = identity.pageId
-        setReadyPageId(identity.pageId)
         setRuntime((current) =>
-          reduceCanvasRuntimeState(current, { type: "ready", attempt })
+          reduceCanvasRuntimeState(current, {
+            type: "ready",
+            attempt,
+            requestedIdentity: identity,
+            appliedIdentity: installedIdentity,
+            syncGeneration,
+          })
         )
       })
       .catch(() => {
         if (!isActive()) return
+        const retainedIdentity = canvasSyncOwnerMatches(
+          appliedIdentityRef.current,
+          identity
+        )
+          ? appliedIdentityRef.current
+          : null
+        const failureStatus = retainedIdentity ? "stale_error" : "error"
         callbacksRef.current.onRuntimeStateChange?.({
-          status: "error",
+          runtimeOwnerId,
+          status: failureStatus,
           attempt,
           ...identity,
+          syncGeneration,
+          requestedIdentity: identity,
+          appliedIdentity: retainedIdentity,
           stage: "sync",
         })
-        if (!hasLastGoodFrame) {
-          setRuntime((current) =>
-            reduceCanvasRuntimeState(current, {
-              type: "failed",
-              attempt,
-              stage: "sync",
-            })
-          )
-        }
+        setRuntime((current) =>
+          reduceCanvasRuntimeState(current, {
+            type: "failed",
+            attempt,
+            stage: "sync",
+            requestedIdentity: identity,
+            appliedIdentity: retainedIdentity,
+            syncGeneration,
+          })
+        )
       })
       .finally(() => globalThis.clearTimeout(timeout))
     return () => {
@@ -818,13 +1015,14 @@ export const FabricArtboard = forwardRef<
       globalThis.clearTimeout(timeout)
     }
   }, [
-    applyImageCropMode,
+    mountedAttempt,
+    document.id,
     effectiveDocumentSyncIdentity,
     pageId,
-    mountedAttempt,
     reportImageSourceState,
     renderController,
     runtime.attempt,
+    syncRetryNonce,
     syncTimeoutMs,
   ])
 
@@ -845,6 +1043,7 @@ export const FabricArtboard = forwardRef<
       if (
         !active ||
         renderController.adapter !== adapter ||
+        !mutationAdmittedRef.current ||
         !callbacksRef.current.interactive ||
         callbacksRef.current.textEditingNodeId !== requestedNodeId
       ) {
@@ -865,26 +1064,31 @@ export const FabricArtboard = forwardRef<
     textEditingSelection,
   ])
 
-  useEffect(() => {
-    if (!ready) return
-    renderController.invalidateSelection(selection)
-  }, [ready, renderController, selection])
-
   if (!page) return null
 
   return (
     <div
       ref={artboardChromeRef}
       data-canvas-page-id={page.id}
-      data-canvas-ready-page-id={readyPageId ?? undefined}
-      data-canvas-runtime-state={runtime.status}
+      data-canvas-ready-page-id={ready ? page.id : undefined}
+      data-canvas-runtime-state={displayedRuntime.status}
+      data-canvas-applied-document-id={
+        displayedRuntime.appliedIdentity?.documentId
+      }
+      data-canvas-applied-page-id={displayedRuntime.appliedIdentity?.pageId}
+      data-canvas-applied-sync-generation={
+        displayedRuntime.appliedIdentity?.syncGeneration
+      }
+      data-canvas-requested-document-id={requestedIdentity.documentId}
+      data-canvas-requested-page-id={requestedIdentity.pageId}
+      data-canvas-mutation-admitted={mutationAdmitted}
       className="relative shrink-0 shadow-[0_24px_70px_rgba(35,31,25,0.18)] ring-1 ring-black/10"
       style={{ width: page.width * zoom, height: page.height * zoom }}
     >
       <div
         aria-hidden={!ready}
-        inert={!ready}
-        className={`absolute top-0 left-0 origin-top-left bg-white ${interactive && ready ? "" : "pointer-events-none"}`}
+        inert={!mutationAdmitted}
+        className={`absolute top-0 left-0 origin-top-left bg-white ${mutationAdmitted ? "" : "pointer-events-none"}`}
         style={{
           width: page.width,
           height: page.height,
@@ -942,10 +1146,14 @@ export const FabricArtboard = forwardRef<
         <NodeOutline kind="selection" nodes={selectedNodes} zoom={zoom} />
       ) : null}
       <CanvasRuntimeOverlay
-        runtime={runtime}
+        runtime={displayedRuntime}
         onRetry={() => {
           retryOwnedFocusRef.current = true
-          retryImageSources()
+          if (displayedRuntime.status === "stale_error") {
+            retryCanvasSync()
+          } else {
+            retryImageSources()
+          }
         }}
       />
     </div>
@@ -1152,28 +1360,77 @@ export type CanvasRuntimeState = Readonly<
       attempt: number
       userRetried: boolean
       stage: null
+      requestedIdentity: CanvasDocumentSyncIdentity | null
+      appliedIdentity: CanvasAppliedIdentity | null
+      syncGeneration: number
+    }
+  | {
+      status: "syncing"
+      attempt: number
+      userRetried: boolean
+      stage: null
+      requestedIdentity: CanvasDocumentSyncIdentity
+      appliedIdentity: CanvasAppliedIdentity
+      syncGeneration: number
     }
   | {
       status: "ready"
       attempt: number
       userRetried: boolean
       stage: null
+      requestedIdentity: CanvasDocumentSyncIdentity
+      appliedIdentity: CanvasAppliedIdentity
+      syncGeneration: number
+    }
+  | {
+      status: "stale_error"
+      attempt: number
+      userRetried: boolean
+      stage: "sync"
+      requestedIdentity: CanvasDocumentSyncIdentity
+      appliedIdentity: CanvasAppliedIdentity
+      syncGeneration: number
     }
   | {
       status: "error"
       attempt: number
       userRetried: boolean
       stage: CanvasRuntimeFailureStage
+      requestedIdentity: CanvasDocumentSyncIdentity | null
+      appliedIdentity: null
+      syncGeneration: number
     }
 >
 
 export type CanvasRuntimeEvent =
-  | Readonly<{ type: "preparing"; attempt: number }>
-  | Readonly<{ type: "ready"; attempt: number }>
+  | Readonly<{
+      type: "preparing"
+      attempt: number
+      requestedIdentity: CanvasDocumentSyncIdentity
+      appliedIdentity: null
+      syncGeneration: number
+    }>
+  | Readonly<{
+      type: "syncing"
+      attempt: number
+      requestedIdentity: CanvasDocumentSyncIdentity
+      appliedIdentity: CanvasAppliedIdentity
+      syncGeneration: number
+    }>
+  | Readonly<{
+      type: "ready"
+      attempt: number
+      requestedIdentity: CanvasDocumentSyncIdentity
+      appliedIdentity: CanvasAppliedIdentity
+      syncGeneration: number
+    }>
   | Readonly<{
       type: "failed"
       attempt: number
       stage: CanvasRuntimeFailureStage
+      requestedIdentity: CanvasDocumentSyncIdentity | null
+      appliedIdentity: CanvasAppliedIdentity | null
+      syncGeneration: number
     }>
   | Readonly<{ type: "retry" }>
 
@@ -1183,6 +1440,9 @@ export function createCanvasRuntimeState(): CanvasRuntimeState {
     attempt: 0,
     userRetried: false,
     stage: null,
+    requestedIdentity: null,
+    appliedIdentity: null,
+    syncGeneration: 0,
   }
 }
 
@@ -1196,6 +1456,9 @@ export function reduceCanvasRuntimeState(
       attempt: state.attempt + 1,
       userRetried: true,
       stage: null,
+      requestedIdentity: state.requestedIdentity,
+      appliedIdentity: null,
+      syncGeneration: state.syncGeneration,
     }
   }
   if (event.attempt !== state.attempt) return state
@@ -1205,14 +1468,42 @@ export function reduceCanvasRuntimeState(
       attempt: state.attempt,
       userRetried: state.userRetried,
       stage: null,
+      requestedIdentity: event.requestedIdentity,
+      appliedIdentity: event.appliedIdentity,
+      syncGeneration: event.syncGeneration,
+    }
+  }
+  if (event.type === "syncing") {
+    return {
+      status: "syncing",
+      attempt: state.attempt,
+      userRetried: state.userRetried,
+      stage: null,
+      requestedIdentity: event.requestedIdentity,
+      appliedIdentity: event.appliedIdentity,
+      syncGeneration: event.syncGeneration,
     }
   }
   if (event.type === "failed") {
+    if (event.stage === "sync" && event.appliedIdentity) {
+      return {
+        status: "stale_error",
+        attempt: state.attempt,
+        userRetried: state.userRetried,
+        stage: "sync",
+        requestedIdentity: event.requestedIdentity ?? event.appliedIdentity,
+        appliedIdentity: event.appliedIdentity,
+        syncGeneration: event.syncGeneration,
+      }
+    }
     return {
       status: "error",
       attempt: state.attempt,
       userRetried: state.userRetried,
       stage: event.stage,
+      requestedIdentity: event.requestedIdentity,
+      appliedIdentity: null,
+      syncGeneration: event.syncGeneration,
     }
   }
   return {
@@ -1220,6 +1511,9 @@ export function reduceCanvasRuntimeState(
     attempt: state.attempt,
     userRetried: state.userRetried,
     stage: null,
+    requestedIdentity: event.requestedIdentity,
+    appliedIdentity: event.appliedIdentity,
+    syncGeneration: event.syncGeneration,
   }
 }
 
@@ -1248,6 +1542,41 @@ export function CanvasRuntimeOverlay({
         className="absolute inset-0 z-30 flex items-center justify-center bg-white text-xs text-muted-foreground"
       >
         {runtime.userRetried ? "Retrying canvas…" : "Preparing canvas…"}
+      </div>
+    )
+  }
+  if (runtime.status === "syncing") {
+    return (
+      <div className="pointer-events-none absolute inset-x-3 bottom-3 z-30 flex justify-center">
+        <div
+          role="status"
+          className="rounded-md border border-border bg-editor-panel/95 px-3 py-2 text-xs text-muted-foreground shadow-sm backdrop-blur"
+        >
+          {runtime.userRetried ? "Retrying canvas update…" : "Updating canvas…"}
+        </div>
+      </div>
+    )
+  }
+  if (runtime.status === "stale_error") {
+    return (
+      <div className="pointer-events-none absolute inset-x-3 bottom-3 z-30 flex justify-center">
+        <div
+          role="alert"
+          className="pointer-events-auto flex max-w-md items-center gap-3 rounded-md border border-destructive/30 bg-editor-panel/95 px-3 py-2 shadow-sm backdrop-blur"
+        >
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-foreground">
+              Canvas is out of date
+            </p>
+            <p className="text-xs leading-5 text-muted-foreground">
+              The last applied view is visible, but editing is paused until the
+              current document update succeeds.
+            </p>
+          </div>
+          <Button size="sm" variant="outline" onClick={onRetry} autoFocus>
+            Retry update
+          </Button>
+        </div>
       </div>
     )
   }

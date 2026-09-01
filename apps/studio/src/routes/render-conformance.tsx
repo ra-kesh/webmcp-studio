@@ -4,8 +4,8 @@ import {
   componentRenderConformanceDocument,
   createTextDesignSystemConformanceVersion,
   renderConformanceDocument,
-  type Document,
 } from "@webmcp/document"
+import type { Document } from "@webmcp/document"
 import {
   alphaImageMaskRenderConformanceDocument,
   alphaImageMaskRenderConformanceHiddenSourceDocument,
@@ -269,7 +269,11 @@ function RenderConformancePair({
           onNodesChange={() => false}
           onRuntimeStateChange={(state) => {
             if (state.status !== "ready") {
-              setFabricState(state.status)
+              setFabricState(
+                state.status === "preparing" || state.status === "syncing"
+                  ? "preparing"
+                  : "error"
+              )
               return
             }
             void waitForPaintedFrame()
