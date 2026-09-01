@@ -4,7 +4,7 @@ Date: 2026-09-01
 
 Updated: 2026-09-02
 
-Code baseline: `c5cb1cf6360691cb6329dcac5d6cf72e3e8a6766`
+Code baseline: `e1fffda87d0a6445aaa651d51a448c9939ccbcc2`
 
 This checkpoint reconciles the main conversation with the separate redesign,
 mask, rich-text, component, library, image-architecture, generation, independent
@@ -132,8 +132,17 @@ checkpoint and evidence stay auditable.
    Evidence:
    `advanced-editor-depth-gate-09-layer-export-review-2026-09-01.md`. No
    capability-item 8 / implementation-Gate 9 gap remains.
-9. Additional text layout controls: direction, vertical alignment,
-   justification, case transformation, and truncation behavior.
+9. **Additional text layout controls — completed as phase-map Gate 10 and
+   independently accepted.** Commit
+   `e1fffda87d0a6445aaa651d51a448c9939ccbcc2` adds strict optional direction,
+   vertical-alignment, case, truncation, and maximum-line fields; paragraph
+   justification; managed-font v3 measurement with source-range preservation;
+   deterministic overflow and synthetic ellipsis rules; Fabric, React,
+   renderer HTML, PNG, and PDF parity; direct-edit isolation; component,
+   design-plan, Review, and WebMCP preservation; compact Inspector controls;
+   and mounted configure/Undo/Redo/autosave/reload evidence. Evidence:
+   `advanced-editor-depth-gate-10-text-layout-review-2026-09-01.md`. No
+   capability-item 9 / implementation-Gate 10 gap remains.
 10. **Frame/layout-guide settings — completed as phase-map Gate 3 and
     independently accepted.** Commit
     `88e7b52a1e5a128757139efee141d9ec139023ee` adds strict per-frame column,
