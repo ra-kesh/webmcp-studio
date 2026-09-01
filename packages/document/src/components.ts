@@ -320,11 +320,32 @@ function transformComponentNode(
       })),
     })
   }
-  if (node.type === "rect") {
+  if (node.type === "rect" || node.type === "frame") {
     return sceneNodeSchema.parse({
       ...transformed,
       radius: node.radius * scale,
       strokeWidth: node.strokeWidth * scale,
+      ...(node.type === "frame"
+        ? {
+            children: node.children.map((child) => ({
+              ...child,
+              offsetX: child.offsetX * scale,
+              offsetY: child.offsetY * scale,
+            })),
+            autoLayout: node.autoLayout
+              ? {
+                  ...node.autoLayout,
+                  gap: node.autoLayout.gap * scale,
+                  padding: {
+                    top: node.autoLayout.padding.top * scale,
+                    right: node.autoLayout.padding.right * scale,
+                    bottom: node.autoLayout.padding.bottom * scale,
+                    left: node.autoLayout.padding.left * scale,
+                  },
+                }
+              : null,
+          }
+        : {}),
     })
   }
   if (node.type === "ellipse" || node.type === "line" || node.type === "icon") {
@@ -379,7 +400,18 @@ export function resolveComponentInstanceNodes(
       instance.overrides[sourceNode.id],
       instance.removedProperties?.[sourceNode.id]
     )
-    return [{ ...resolved, id: instanceNodeId }]
+    return [
+      resolved.type === "frame"
+        ? {
+            ...resolved,
+            id: instanceNodeId,
+            children: resolved.children.map((child) => ({
+              ...child,
+              nodeId: mapping.get(child.nodeId) ?? child.nodeId,
+            })),
+          }
+        : { ...resolved, id: instanceNodeId },
+    ]
   })
 }
 

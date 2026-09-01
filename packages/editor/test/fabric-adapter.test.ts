@@ -22,6 +22,7 @@ import {
   imageRenderParityInput,
   imageRenderParityNode,
   imageRenderParityPixelRatios,
+  northstarSeed,
   projectImagePaint,
   projectNodeForRender,
   renderConformanceDocument,
@@ -72,6 +73,7 @@ import {
   settleTextEditCache,
   shouldPreserveTextEditingSelection,
   syncFabricObjectFromNode,
+  syncFabricFrameClip,
   textEditPatch,
   textEditFinalizationPolicy,
   writeTextEditingClipboardData,
@@ -1098,6 +1100,163 @@ function setFabricPreviewRect(
 }
 
 describe("Fabric document boundary", () => {
+  it("installs the canonical ancestor-frame clip on a child object", () => {
+    const document = structuredClone(northstarSeed)
+    const page = document.pages.find((candidate) => candidate.id === "cover")!
+    const child = document.nodes.find(
+      (candidate) => candidate.id === "cover-panel"
+    )!
+    page.nodeIds = [
+      "fabric-outer-frame",
+      "fabric-layout-frame",
+      child.id,
+      ...page.nodeIds.filter((nodeId) => nodeId !== child.id),
+    ]
+    document.nodes.push({
+      id: "fabric-outer-frame",
+      type: "frame",
+      name: "Fabric outer frame",
+      x: 80,
+      y: 60,
+      width: 360,
+      height: 200,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
+      fill: "transparent",
+      radius: 26,
+      strokeWidth: 0,
+      children: [
+        {
+          nodeId: "fabric-layout-frame",
+          positioning: "absolute",
+          horizontalSizing: "fixed",
+          verticalSizing: "fixed",
+          offsetX: 20,
+          offsetY: 20,
+          grow: 0,
+        },
+      ],
+      autoLayout: null,
+      clipsContent: true,
+    })
+    document.nodes.push({
+      id: "fabric-layout-frame",
+      type: "frame",
+      name: "Fabric layout frame",
+      x: 100,
+      y: 80,
+      width: 320,
+      height: 160,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
+      fill: "#fff",
+      radius: 18,
+      strokeWidth: 0,
+      children: [
+        {
+          nodeId: child.id,
+          positioning: "absolute",
+          horizontalSizing: "fixed",
+          verticalSizing: "fixed",
+          offsetX: -20,
+          offsetY: -10,
+          grow: 0,
+        },
+      ],
+      autoLayout: null,
+      clipsContent: true,
+    })
+    const object = new FabricObject()
+
+    syncFabricFrameClip(object, child, document)
+
+    expect(object.clipPath).toBeInstanceOf(Rect)
+    expect(object.clipPath).toMatchObject({
+      left: 100,
+      top: 80,
+      width: 320,
+      height: 160,
+      rx: 18,
+      absolutePositioned: true,
+    })
+    expect(object.clipPath?.clipPath).toMatchObject({
+      left: 80,
+      top: 60,
+      width: 360,
+      height: 200,
+      rx: 26,
+      absolutePositioned: true,
+    })
+  })
+
+  it("restores a fixed text layer's intrinsic clip when frame clipping stops", () => {
+    const document = structuredClone(northstarSeed)
+    const page = document.pages.find((candidate) => candidate.id === "cover")!
+    const child = document.nodes.find(
+      (candidate): candidate is Extract<SceneNode, { type: "text" }> =>
+        candidate.id === "cover-title" && candidate.type === "text"
+    )!
+    page.nodeIds = [
+      "fabric-text-frame",
+      child.id,
+      ...page.nodeIds.filter((nodeId) => nodeId !== child.id),
+    ]
+    document.nodes.push({
+      id: "fabric-text-frame",
+      type: "frame",
+      name: "Fabric text frame",
+      x: 100,
+      y: 80,
+      width: 320,
+      height: 160,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
+      fill: "#fff",
+      radius: 18,
+      strokeWidth: 0,
+      children: [
+        {
+          nodeId: child.id,
+          positioning: "absolute",
+          horizontalSizing: "fixed",
+          verticalSizing: "fixed",
+          offsetX: 0,
+          offsetY: 0,
+          grow: 0,
+        },
+      ],
+      autoLayout: null,
+      clipsContent: true,
+    })
+    const object = new FabricObject()
+
+    syncFabricFrameClip(object, child, document)
+    const frame = document.nodes.find(
+      (node): node is Extract<SceneNode, { type: "frame" }> =>
+        node.id === "fabric-text-frame" && node.type === "frame"
+    )!
+    frame.clipsContent = false
+    syncFabricFrameClip(object, child, document)
+
+    expect(object.clipPath).toBeInstanceOf(Rect)
+    expect(object.clipPath).toMatchObject({
+      left: 0,
+      top: 0,
+      width: child.width,
+      height: child.height,
+      absolutePositioned: false,
+    })
+  })
+
   it("restores attempted transforms and rejects editing while mutation admission is closed", () => {
     const harness = createTransformHarness()
     const baseline = fabricObjectToNodePatch(harness.object)

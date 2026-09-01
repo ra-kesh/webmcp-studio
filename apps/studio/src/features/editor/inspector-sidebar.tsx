@@ -1234,6 +1234,7 @@ function NodeInspector({
   textEditingState,
   focusedProperty,
   onUpdate,
+  onUpdateRelatedNode,
   onPreview,
   onCancelPreview,
   onAlignToPage,
@@ -1267,6 +1268,7 @@ function NodeInspector({
   textEditingState?: CanvasTextEditingState | null
   focusedProperty?: BindableProperty
   onUpdate: (patch: Partial<SceneNode>) => void
+  onUpdateRelatedNode: (nodeId: string, patch: Partial<SceneNode>) => void
   onPreview: (patch: Partial<SceneNode>) => void
   onCancelPreview: () => void
   onAlignToPage: (alignment: Alignment) => void
@@ -1311,6 +1313,24 @@ function NodeInspector({
     () => createInspectorSelectionModel([node], capabilityContext),
     [capabilityContext, node]
   )
+  const owningFrame = document.nodes.find(
+    (candidate): candidate is Extract<SceneNode, { type: "frame" }> =>
+      candidate.type === "frame" &&
+      candidate.children.some((child) => child.nodeId === node.id)
+  )
+  const frameChildLayout = owningFrame?.children.find(
+    (child) => child.nodeId === node.id
+  )
+  const updateFrameChildLayout = (
+    patch: Partial<NonNullable<typeof frameChildLayout>>
+  ) => {
+    if (!owningFrame || !frameChildLayout) return
+    onUpdateRelatedNode(owningFrame.id, {
+      children: owningFrame.children.map((child) =>
+        child.nodeId === node.id ? { ...child, ...patch } : child
+      ),
+    })
+  }
   const decorativeCheckboxId = useId()
   const imageReplacementReasonId = useId()
   const nodeTypeLabel =
@@ -1320,11 +1340,13 @@ function NodeInspector({
         ? "Image"
         : node.type === "rect"
           ? "Rectangle"
-          : node.type === "ellipse"
-            ? "Ellipse"
-            : node.type === "line"
-              ? "Line"
-              : "Icon"
+          : node.type === "frame"
+            ? "Frame"
+            : node.type === "ellipse"
+              ? "Ellipse"
+              : node.type === "line"
+                ? "Line"
+                : "Icon"
   const textLayout = node.type === "text" ? projectTextLayout(node) : null
   const textWidthIsManaged =
     node.type === "text" && node.sizingMode === "auto_width"
@@ -1419,6 +1441,7 @@ function NodeInspector({
     if (node.type === "line") return node.stroke
     if (
       node.type === "rect" ||
+      node.type === "frame" ||
       node.type === "ellipse" ||
       node.type === "icon"
     ) {
@@ -1779,6 +1802,311 @@ function NodeInspector({
           Controls how this layer responds when its page is resized.
         </p>
       </InspectorSection>
+
+      {owningFrame && frameChildLayout ? (
+        <InspectorSection
+          title="Frame child"
+          data-inspector-property="frameChildLayout"
+        >
+          <p className="text-[11px] text-muted-foreground">
+            Layout inside {owningFrame.name}
+          </p>
+          <div className="grid grid-cols-3 gap-1">
+            <Select
+              value={frameChildLayout.positioning}
+              disabled={nodeMutationDisabled}
+              onValueChange={(positioning) =>
+                updateFrameChildLayout({
+                  positioning: positioning as "auto" | "absolute",
+                })
+              }
+            >
+              <SelectTrigger
+                aria-label="Frame child positioning"
+                className="h-8 text-[11px]"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">Auto</SelectItem>
+                <SelectItem value="absolute">Absolute</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={frameChildLayout.horizontalSizing}
+              disabled={nodeMutationDisabled}
+              onValueChange={(horizontalSizing) =>
+                updateFrameChildLayout({
+                  horizontalSizing: horizontalSizing as "fixed" | "fill",
+                })
+              }
+            >
+              <SelectTrigger
+                aria-label="Frame child horizontal sizing"
+                className="h-8 text-[11px]"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="fixed">Width: fixed</SelectItem>
+                <SelectItem value="fill">Width: fill</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={frameChildLayout.verticalSizing}
+              disabled={nodeMutationDisabled}
+              onValueChange={(verticalSizing) =>
+                updateFrameChildLayout({
+                  verticalSizing: verticalSizing as "fixed" | "fill",
+                })
+              }
+            >
+              <SelectTrigger
+                aria-label="Frame child vertical sizing"
+                className="h-8 text-[11px]"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="fixed">Height: fixed</SelectItem>
+                <SelectItem value="fill">Height: fill</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {frameChildLayout.positioning === "absolute" ? (
+            <div className="grid grid-cols-2 gap-2">
+              <InspectorNumberField
+                label="Frame offset X"
+                compactLabel="X"
+                value={{ kind: "value", value: frameChildLayout.offsetX }}
+                disabled={nodeMutationDisabled}
+                onCommit={(offsetX) => updateFrameChildLayout({ offsetX })}
+              />
+              <InspectorNumberField
+                label="Frame offset Y"
+                compactLabel="Y"
+                value={{ kind: "value", value: frameChildLayout.offsetY }}
+                disabled={nodeMutationDisabled}
+                onCommit={(offsetY) => updateFrameChildLayout({ offsetY })}
+              />
+            </div>
+          ) : (
+            <InspectorNumberField
+              label="Frame child grow"
+              compactLabel="Grow"
+              min={0}
+              value={{ kind: "value", value: frameChildLayout.grow }}
+              disabled={nodeMutationDisabled}
+              onCommit={(grow) => updateFrameChildLayout({ grow })}
+            />
+          )}
+        </InspectorSection>
+      ) : null}
+
+      {node.type === "frame" ? (
+        <InspectorSection
+          title="Auto layout"
+          data-inspector-property="autoLayout"
+        >
+          <div className="grid grid-cols-2 gap-2">
+            <Select
+              value={node.autoLayout?.direction ?? "none"}
+              disabled={nodeMutationDisabled}
+              onValueChange={(direction) =>
+                onUpdate({
+                  autoLayout:
+                    direction === "none"
+                      ? null
+                      : node.autoLayout
+                        ? {
+                            ...node.autoLayout,
+                            direction: direction as "horizontal" | "vertical",
+                          }
+                        : {
+                            direction: direction as "horizontal" | "vertical",
+                            horizontalSizing: "fixed",
+                            verticalSizing: "fixed",
+                            gap: 0,
+                            padding: { top: 0, right: 0, bottom: 0, left: 0 },
+                            primaryAlign: "start",
+                            counterAlign: "start",
+                          },
+                })
+              }
+            >
+              <SelectTrigger
+                aria-label="Frame layout direction"
+                className="h-8 text-[11px]"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Freeform</SelectItem>
+                <SelectItem value="horizontal">Horizontal</SelectItem>
+                <SelectItem value="vertical">Vertical</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              variant={node.clipsContent ? "secondary" : "outline"}
+              className="h-8 text-[11px]"
+              disabled={nodeMutationDisabled}
+              aria-pressed={node.clipsContent}
+              onClick={() => onUpdate({ clipsContent: !node.clipsContent })}
+            >
+              Clip content
+            </Button>
+          </div>
+          {node.autoLayout ? (
+            <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                <Select
+                  value={node.autoLayout.horizontalSizing}
+                  disabled={nodeMutationDisabled}
+                  onValueChange={(horizontalSizing) =>
+                    onUpdate({
+                      autoLayout: {
+                        ...node.autoLayout!,
+                        horizontalSizing: horizontalSizing as "fixed" | "hug",
+                      },
+                    })
+                  }
+                >
+                  <SelectTrigger
+                    aria-label="Frame horizontal sizing"
+                    className="h-8 text-[11px]"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="fixed">Width: fixed</SelectItem>
+                    <SelectItem value="hug">Width: hug</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={node.autoLayout.verticalSizing}
+                  disabled={nodeMutationDisabled}
+                  onValueChange={(verticalSizing) =>
+                    onUpdate({
+                      autoLayout: {
+                        ...node.autoLayout!,
+                        verticalSizing: verticalSizing as "fixed" | "hug",
+                      },
+                    })
+                  }
+                >
+                  <SelectTrigger
+                    aria-label="Frame vertical sizing"
+                    className="h-8 text-[11px]"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="fixed">Height: fixed</SelectItem>
+                    <SelectItem value="hug">Height: hug</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Select
+                  value={node.autoLayout.primaryAlign}
+                  disabled={nodeMutationDisabled}
+                  onValueChange={(primaryAlign) =>
+                    onUpdate({
+                      autoLayout: {
+                        ...node.autoLayout!,
+                        primaryAlign:
+                          primaryAlign as typeof node.autoLayout.primaryAlign,
+                      },
+                    })
+                  }
+                >
+                  <SelectTrigger
+                    aria-label="Frame primary alignment"
+                    className="h-8 text-[11px]"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="start">Pack: start</SelectItem>
+                    <SelectItem value="center">Pack: center</SelectItem>
+                    <SelectItem value="end">Pack: end</SelectItem>
+                    <SelectItem value="space_between">Space between</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={node.autoLayout.counterAlign}
+                  disabled={nodeMutationDisabled}
+                  onValueChange={(counterAlign) =>
+                    onUpdate({
+                      autoLayout: {
+                        ...node.autoLayout!,
+                        counterAlign:
+                          counterAlign as typeof node.autoLayout.counterAlign,
+                      },
+                    })
+                  }
+                >
+                  <SelectTrigger
+                    aria-label="Frame counter alignment"
+                    className="h-8 text-[11px]"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="start">Align: start</SelectItem>
+                    <SelectItem value="center">Align: center</SelectItem>
+                    <SelectItem value="end">Align: end</SelectItem>
+                    <SelectItem value="stretch">Stretch</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <InspectorNumberField
+                  label="Gap"
+                  compactLabel="Gap"
+                  min={0}
+                  value={{ kind: "value", value: node.autoLayout.gap }}
+                  disabled={nodeMutationDisabled}
+                  onCommit={(gap) =>
+                    onUpdate({ autoLayout: { ...node.autoLayout!, gap } })
+                  }
+                />
+                <p className="self-center text-[11px] text-muted-foreground">
+                  {node.children.length} child
+                  {node.children.length === 1 ? "" : "ren"}
+                </p>
+              </div>
+              <div className="grid grid-cols-4 gap-1">
+                {(["top", "right", "bottom", "left"] as const).map((side) => (
+                  <InspectorNumberField
+                    key={side}
+                    label={`Padding ${side}`}
+                    compactLabel={side[0]!.toUpperCase()}
+                    min={0}
+                    value={{
+                      kind: "value",
+                      value: node.autoLayout!.padding[side],
+                    }}
+                    disabled={nodeMutationDisabled}
+                    onCommit={(value) =>
+                      onUpdate({
+                        autoLayout: {
+                          ...node.autoLayout!,
+                          padding: {
+                            ...node.autoLayout!.padding,
+                            [side]: value,
+                          },
+                        },
+                      })
+                    }
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </InspectorSection>
+      ) : null}
 
       <InspectorSection title="Opacity">
         <CommitPercentSlider
@@ -4947,6 +5275,7 @@ export function InspectorSidebar({
                     : undefined
                 }
                 onUpdate={(patch) => onUpdateNode(selectedNode.id, patch)}
+                onUpdateRelatedNode={onUpdateNode}
                 onPreview={(patch) =>
                   onPreviewNodePatch(selectedNode.id, patch)
                 }

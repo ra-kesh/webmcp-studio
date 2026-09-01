@@ -51,6 +51,16 @@ export type RenderNodeProjection =
       }
     >
   | ProjectedNode<
+      "frame",
+      {
+        fill: string
+        radius: number
+        stroke?: string
+        strokeWidth: number
+        clipsContent: boolean
+      }
+    >
+  | ProjectedNode<
       "ellipse",
       { fill: string; stroke?: string; strokeWidth: number }
     >
@@ -135,6 +145,18 @@ export function projectNodeForRender(node: SceneNode): RenderNodeProjection {
           radius: node.radius,
           stroke: node.stroke,
           strokeWidth: node.strokeWidth,
+        },
+      }
+    case "frame":
+      return {
+        type: node.type,
+        frame,
+        content: {
+          fill: node.fill,
+          radius: node.radius,
+          stroke: node.stroke,
+          strokeWidth: node.strokeWidth,
+          clipsContent: node.clipsContent,
         },
       }
     case "ellipse":

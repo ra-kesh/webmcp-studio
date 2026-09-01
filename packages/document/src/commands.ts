@@ -59,6 +59,10 @@ import {
 } from "./page-paint-plan"
 import { sha256 } from "@noble/hashes/sha2.js"
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js"
+import {
+  applyFrameAutoLayout,
+  reconcileFrameChildPaintOrder,
+} from "./frame-layout"
 
 type FieldValue = string | number | boolean
 
@@ -2846,7 +2850,19 @@ function applyParsedCommand(
       assertMaskNodeCanLeave(document, command.nodeId)
       next = {
         ...document,
-        nodes: document.nodes.filter((node) => node.id !== command.nodeId),
+        nodes: document.nodes
+          .filter((node) => node.id !== command.nodeId)
+          .map((node) =>
+            node.type === "frame" &&
+            node.children.some((child) => child.nodeId === command.nodeId)
+              ? {
+                  ...node,
+                  children: node.children.filter(
+                    (child) => child.nodeId !== command.nodeId
+                  ),
+                }
+              : node
+          ),
         pages: document.pages.map((page) => ({
           ...page,
           nodeIds: page.nodeIds.filter((nodeId) => nodeId !== command.nodeId),
@@ -3308,7 +3324,16 @@ function applyParsedCommand(
         throw new Error(`Unknown page: ${command.pageId}`)
       }
       const updatedPage = { ...page, ...command.patch }
-      const resizedNodeIds = new Set(page.nodeIds)
+      const frameChildIds = new Set(
+        document.nodes.flatMap((node) =>
+          node.type === "frame"
+            ? node.children.map((child) => child.nodeId)
+            : []
+        )
+      )
+      const resizedNodeIds = new Set(
+        page.nodeIds.filter((nodeId) => !frameChildIds.has(nodeId))
+      )
       next = {
         ...document,
         pages: document.pages.map((page) =>
@@ -3500,10 +3525,12 @@ function applyParsedCommand(
 
   const projected = applyFieldValues(next)
   const reconciled = reconcileOrdinaryComponentMutations(document, projected)
+  const ordered = reconcileFrameChildPaintOrder(reconciled)
+  const laidOut = applyFrameAutoLayout(ordered)
   const receipted =
     maskCommand && maskFingerprint
-      ? appendMaskCommandReceipt(reconciled, maskCommand, maskFingerprint)
-      : reconciled
+      ? appendMaskCommandReceipt(laidOut, maskCommand, maskFingerprint)
+      : laidOut
   return validateResult(
     applyFieldValues({
       ...receipted,

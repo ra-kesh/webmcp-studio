@@ -1,6 +1,6 @@
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
-import { renderConformanceDocument } from "@webmcp/document"
+import { renderConformanceDocument, type SceneNode } from "@webmcp/document"
 import { maskRenderConformanceDocument } from "@webmcp/document/internal/mask-render-conformance"
 import type { ProductCommandRuntimeContext } from "@webmcp/editor/product-commands"
 import { describe, expect, it, vi } from "vitest"
@@ -18,16 +18,19 @@ const rectangleNode = renderConformanceDocument.nodes.find(
   (node) => node.type === "rect"
 )!
 
-const renderImageSourceInspector = (selectedImage: typeof image) =>
+const renderSelectedInspector = (
+  selectedNode: SceneNode,
+  sourceDocument = renderConformanceDocument
+) =>
   renderToStaticMarkup(
     createElement(InspectorSidebar, {
       document: {
-        ...renderConformanceDocument,
-        nodes: renderConformanceDocument.nodes.map((node) =>
-          node.id === selectedImage.id ? selectedImage : node
+        ...sourceDocument,
+        nodes: sourceDocument.nodes.map((node) =>
+          node.id === selectedNode.id ? selectedNode : node
         ),
       },
-      selectedNodes: [selectedImage],
+      selectedNodes: [selectedNode],
       pendingChangeSet: null,
       lastResolvedChangeSet: null,
       changeSetConflict: null,
@@ -67,7 +70,101 @@ const renderImageSourceInspector = (selectedImage: typeof image) =>
     })
   )
 
+const renderImageSourceInspector = (selectedImage: typeof image) =>
+  renderSelectedInspector(selectedImage)
+
 describe("InspectorSidebar basic property controls", () => {
+  it("exposes frame flow and clipping controls", () => {
+    const markup = renderSelectedInspector({
+      id: "inspector-frame",
+      type: "frame",
+      name: "Inspector frame",
+      x: 0,
+      y: 0,
+      width: 300,
+      height: 200,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
+      fill: "#ffffff",
+      radius: 12,
+      strokeWidth: 0,
+      children: [],
+      autoLayout: {
+        direction: "vertical",
+        horizontalSizing: "fixed",
+        verticalSizing: "hug",
+        gap: 12,
+        padding: { top: 8, right: 16, bottom: 8, left: 16 },
+        primaryAlign: "center",
+        counterAlign: "stretch",
+      },
+      clipsContent: true,
+    })
+
+    expect(markup).toContain('data-inspector-property="autoLayout"')
+    expect(markup).toContain('aria-label="Frame layout direction"')
+    expect(markup).toContain('aria-label="Frame horizontal sizing"')
+    expect(markup).toContain('aria-label="Frame vertical sizing"')
+    expect(markup).toContain('aria-label="Frame primary alignment"')
+    expect(markup).toContain('aria-label="Frame counter alignment"')
+    expect(markup).toContain('aria-label="Padding top"')
+    expect(markup).toContain("Clip content")
+  })
+
+  it("exposes positioning and sizing for a selected frame child", () => {
+    const document = structuredClone(renderConformanceDocument)
+    const child = document.nodes.find((node) => node.type === "text")!
+    const page = document.pages.find((candidate) =>
+      candidate.nodeIds.includes(child.id)
+    )!
+    page.nodeIds = [
+      "inspector-child-frame",
+      child.id,
+      ...page.nodeIds.filter((nodeId) => nodeId !== child.id),
+    ]
+    document.nodes.push({
+      id: "inspector-child-frame",
+      type: "frame",
+      name: "Inspector child frame",
+      x: 0,
+      y: 0,
+      width: 300,
+      height: 200,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
+      fill: "#ffffff",
+      radius: 0,
+      strokeWidth: 0,
+      children: [
+        {
+          nodeId: child.id,
+          positioning: "auto",
+          horizontalSizing: "fill",
+          verticalSizing: "fixed",
+          offsetX: 0,
+          offsetY: 0,
+          grow: 1,
+        },
+      ],
+      autoLayout: null,
+      clipsContent: false,
+    })
+
+    const markup = renderSelectedInspector(child, document)
+
+    expect(markup).toContain('data-inspector-property="frameChildLayout"')
+    expect(markup).toContain('aria-label="Frame child positioning"')
+    expect(markup).toContain('aria-label="Frame child horizontal sizing"')
+    expect(markup).toContain('aria-label="Frame child vertical sizing"')
+    expect(markup).toContain('aria-label="Frame child grow"')
+  })
+
   it("exposes both page-resize constraint axes for a selected layer", () => {
     const markup = renderImageSourceInspector({
       ...image,

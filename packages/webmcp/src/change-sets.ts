@@ -265,6 +265,15 @@ const nodeCanvasProperties: Record<SceneNode["type"], Set<string>> = {
     "sizingMode",
   ]),
   rect: new Set(["fill", "radius", "stroke", "strokeWidth"]),
+  frame: new Set([
+    "fill",
+    "radius",
+    "stroke",
+    "strokeWidth",
+    "children",
+    "autoLayout",
+    "clipsContent",
+  ]),
   ellipse: new Set(["fill", "stroke", "strokeWidth"]),
   line: new Set(["stroke", "strokeWidth"]),
   icon: new Set(["fill", "stroke", "strokeWidth"]),
@@ -301,6 +310,30 @@ function scaleNode(
         ...geometry,
         radius: rounded(node.radius * scale),
         strokeWidth: rounded(node.strokeWidth * scale),
+      }
+    case "frame":
+      return {
+        ...node,
+        ...geometry,
+        radius: rounded(node.radius * scale),
+        strokeWidth: rounded(node.strokeWidth * scale),
+        children: node.children.map((child) => ({
+          ...child,
+          offsetX: rounded(child.offsetX * scaleX),
+          offsetY: rounded(child.offsetY * scaleY),
+        })),
+        autoLayout: node.autoLayout
+          ? {
+              ...node.autoLayout,
+              gap: rounded(node.autoLayout.gap * scale),
+              padding: {
+                top: rounded(node.autoLayout.padding.top * scaleY),
+                right: rounded(node.autoLayout.padding.right * scaleX),
+                bottom: rounded(node.autoLayout.padding.bottom * scaleY),
+                left: rounded(node.autoLayout.padding.left * scaleX),
+              },
+            }
+          : null,
       }
     case "ellipse":
       return {

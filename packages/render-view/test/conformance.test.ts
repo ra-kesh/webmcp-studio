@@ -9,10 +9,12 @@ import {
   imageRenderParityInput,
   imageRenderParityNode,
   imageRenderParityPixelRatios,
+  northstarSeed,
   projectImagePaint,
   projectNodeForRender,
   renderConformanceDocument,
   textDesignSystemConformanceDocument,
+  type Document,
   type SceneNode,
 } from "@webmcp/document"
 import {
@@ -28,6 +30,7 @@ import {
 import { projectPagePaintPlan } from "@webmcp/document/internal/page-paint-plan"
 import {
   createAlphaImageMaskCommitState,
+  Artboard,
   createImageResourceLoadState,
   alphaMaskGroupRenderModel,
   luminanceMaskGroupRenderModel,
@@ -120,6 +123,98 @@ function nestedMaskDocument(options: { hiddenChildSource?: boolean } = {}) {
 }
 
 describe("React render-view conformance", () => {
+  it("wraps clipped frame children at canonical page-space bounds", () => {
+    const document = structuredClone(northstarSeed)
+    const page = document.pages.find((candidate) => candidate.id === "cover")!
+    const childId = "cover-title"
+    page.nodeIds = [
+      "react-layout-frame",
+      childId,
+      ...page.nodeIds.filter((nodeId) => nodeId !== childId),
+    ]
+    document.nodes.push({
+      id: "react-layout-frame",
+      type: "frame",
+      name: "React layout frame",
+      x: 90,
+      y: 70,
+      width: 300,
+      height: 150,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
+      fill: "#fff",
+      radius: 14,
+      strokeWidth: 0,
+      children: [
+        {
+          nodeId: childId,
+          positioning: "absolute",
+          horizontalSizing: "fixed",
+          verticalSizing: "fixed",
+          offsetX: -20,
+          offsetY: -10,
+          grow: 0,
+        },
+      ],
+      autoLayout: null,
+      clipsContent: true,
+    })
+
+    const markup = renderToStaticMarkup(
+      createElement(Artboard, { document, pageId: page.id })
+    )
+
+    expect(markup).toContain(`data-frame-clip-node-id="${childId}"`)
+    expect(markup).toContain("overflow:hidden")
+    expect(markup).toContain("border-radius:14px")
+  })
+
+  it("preserves frame clipping inside a retained mask subtree", () => {
+    const document = structuredClone(nestedMaskDocument()) as Document
+    const page = document.pages[0]!
+    page.nodeIds.unshift("masked-content-frame")
+    document.nodes.push({
+      id: "masked-content-frame",
+      type: "frame",
+      name: "Masked content frame",
+      x: 110,
+      y: 0,
+      width: 24,
+      height: 24,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
+      fill: "transparent",
+      radius: 4,
+      strokeWidth: 0,
+      children: [
+        {
+          nodeId: "child-content",
+          positioning: "absolute",
+          horizontalSizing: "fixed",
+          verticalSizing: "fixed",
+          offsetX: 10,
+          offsetY: 10,
+          grow: 0,
+        },
+      ],
+      autoLayout: null,
+      clipsContent: true,
+    })
+
+    const markup = renderToStaticMarkup(
+      createElement(Artboard, { document, pageId: page.id })
+    )
+
+    expect(markup).toContain('data-mask-group-id="child-mask"')
+    expect(markup).toContain('data-frame-clip-node-id="child-content"')
+  })
+
   it("caps a 3x host at the shared 2x mask ratio", () => {
     vi.stubGlobal("devicePixelRatio", 3)
     expect(renderViewDevicePixelRatio()).toBe(2)

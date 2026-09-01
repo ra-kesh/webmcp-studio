@@ -52,6 +52,7 @@ const applyNodePalette = (
         })),
       }
     case "rect":
+    case "frame":
     case "ellipse":
       return {
         ...node,
@@ -76,6 +77,7 @@ const nodePaints = (node: SceneNode) => {
     case "text":
       return [node.color]
     case "rect":
+    case "frame":
     case "ellipse":
     case "icon":
       return [node.fill, node.stroke].filter(

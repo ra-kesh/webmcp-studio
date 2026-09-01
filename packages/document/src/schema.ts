@@ -46,6 +46,37 @@ export const nodeConstraintsSchema = z
 export const defaultNodeConstraints = () =>
   nodeConstraintsSchema.parse({ horizontal: "min", vertical: "min" })
 
+export const frameChildLayoutSchema = z
+  .object({
+    nodeId: id,
+    positioning: z.enum(["auto", "absolute"]),
+    horizontalSizing: z.enum(["fixed", "fill"]),
+    verticalSizing: z.enum(["fixed", "fill"]),
+    offsetX: z.number(),
+    offsetY: z.number(),
+    grow: z.number().nonnegative().default(0),
+  })
+  .strict()
+
+export const frameAutoLayoutSchema = z
+  .object({
+    direction: z.enum(["horizontal", "vertical"]),
+    horizontalSizing: z.enum(["fixed", "hug"]),
+    verticalSizing: z.enum(["fixed", "hug"]),
+    gap: z.number().nonnegative(),
+    padding: z
+      .object({
+        top: z.number().nonnegative(),
+        right: z.number().nonnegative(),
+        bottom: z.number().nonnegative(),
+        left: z.number().nonnegative(),
+      })
+      .strict(),
+    primaryAlign: z.enum(["start", "center", "end", "space_between"]),
+    counterAlign: z.enum(["start", "center", "end", "stretch"]),
+  })
+  .strict()
+
 /**
  * Image placement is deliberately expressed as product-level controls rather
  * than a serialized renderer matrix. The render projection owns the affine
@@ -184,6 +215,16 @@ export const sceneNodePatchSchema = z
       altProvenance: z.enum(["generated", "authored"]).optional(),
       decorative: z.boolean().optional(),
     }),
+    baseNodePatchSchema.extend({
+      paintStyleId: id.optional(),
+      fill: z.string().optional(),
+      radius: z.number().min(0).optional(),
+      stroke: z.string().optional(),
+      strokeWidth: z.number().nonnegative().optional(),
+      children: z.array(frameChildLayoutSchema).optional(),
+      autoLayout: frameAutoLayoutSchema.nullable().optional(),
+      clipsContent: z.boolean().optional(),
+    }),
   ])
   .refine((patch) => Object.keys(patch).length > 0, {
     message: "A node update must change at least one property",
@@ -249,6 +290,17 @@ export const sceneNodeSchema = z
       alt: z.string().default(""),
       altProvenance: z.enum(["generated", "authored"]).optional(),
       decorative: z.boolean().default(false),
+    }),
+    baseNodeSchema.extend({
+      type: z.literal("frame"),
+      paintStyleId: id.optional(),
+      fill: z.string(),
+      radius: z.number().min(0).default(0),
+      stroke: z.string().optional(),
+      strokeWidth: z.number().nonnegative().default(0),
+      children: z.array(frameChildLayoutSchema),
+      autoLayout: frameAutoLayoutSchema.nullable().default(null),
+      clipsContent: z.boolean().default(false),
     }),
   ])
   .superRefine((node, context) => {
@@ -867,6 +919,9 @@ export const componentOverridePropertySchema = z.enum([
   "alt",
   "altProvenance",
   "decorative",
+  "children",
+  "autoLayout",
+  "clipsContent",
 ])
 
 export const typographyStyleSchema = z
@@ -1605,6 +1660,8 @@ export type TextNodePatch = z.infer<typeof textNodePatchSchema>
 export type TextSizingMode = z.infer<typeof textSizingModeSchema>
 export type ConstraintAxis = z.infer<typeof constraintAxisSchema>
 export type NodeConstraints = z.infer<typeof nodeConstraintsSchema>
+export type FrameChildLayout = z.infer<typeof frameChildLayoutSchema>
+export type FrameAutoLayout = z.infer<typeof frameAutoLayoutSchema>
 export type ImagePlacement = z.infer<typeof imagePlacementSchema>
 export type ImageFrameMask = z.infer<typeof imageFrameMaskSchema>
 export type Page = z.infer<typeof pageSchema>

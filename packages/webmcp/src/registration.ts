@@ -973,7 +973,7 @@ function parseCanvasProposalInput(input: unknown): CanvasEditProposalInput {
     }
     if (!isSceneNodeType(edit.nodeType)) {
       throw new Error(
-        `edits[${index}].nodeType must be text, rect, ellipse, line, icon, or image.`
+        `edits[${index}].nodeType must be text, rect, frame, ellipse, line, icon, or image.`
       )
     }
     const replacementOnly =
@@ -1430,6 +1430,7 @@ function parseComponentProposalInput(
 const sceneNodeTypes = new Set<SceneNode["type"]>([
   "text",
   "rect",
+  "frame",
   "ellipse",
   "line",
   "icon",
@@ -2228,6 +2229,15 @@ const publicNodeCanvasPatchProperties: Record<
     "sizingMode",
   ]),
   rect: new Set(["fill", "radius", "stroke", "strokeWidth"]),
+  frame: new Set([
+    "fill",
+    "radius",
+    "stroke",
+    "strokeWidth",
+    "children",
+    "autoLayout",
+    "clipsContent",
+  ]),
   ellipse: new Set(["fill", "stroke", "strokeWidth"]),
   line: new Set(["stroke", "strokeWidth"]),
   icon: new Set(["fill", "stroke", "strokeWidth"]),
@@ -2345,6 +2355,68 @@ const commonCanvasPatchInputProperties = {
   },
 } as const
 
+const frameChildLayoutInputSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    nodeId: { type: "string", minLength: 1 },
+    positioning: { type: "string", enum: ["auto", "absolute"] },
+    horizontalSizing: { type: "string", enum: ["fixed", "fill"] },
+    verticalSizing: { type: "string", enum: ["fixed", "fill"] },
+    offsetX: { type: "number" },
+    offsetY: { type: "number" },
+    grow: { type: "number", minimum: 0 },
+  },
+  required: [
+    "nodeId",
+    "positioning",
+    "horizontalSizing",
+    "verticalSizing",
+    "offsetX",
+    "offsetY",
+    "grow",
+  ],
+} as const
+
+const frameAutoLayoutInputSchema = {
+  type: ["object", "null"],
+  additionalProperties: false,
+  properties: {
+    direction: { type: "string", enum: ["horizontal", "vertical"] },
+    horizontalSizing: { type: "string", enum: ["fixed", "hug"] },
+    verticalSizing: { type: "string", enum: ["fixed", "hug"] },
+    gap: { type: "number", minimum: 0 },
+    padding: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        top: { type: "number", minimum: 0 },
+        right: { type: "number", minimum: 0 },
+        bottom: { type: "number", minimum: 0 },
+        left: { type: "number", minimum: 0 },
+      },
+      required: ["top", "right", "bottom", "left"],
+    },
+    primaryAlign: {
+      type: "string",
+      enum: ["start", "center", "end", "space_between"],
+    },
+    counterAlign: {
+      type: "string",
+      enum: ["start", "center", "end", "stretch"],
+    },
+  },
+  required: [
+    "direction",
+    "horizontalSizing",
+    "verticalSizing",
+    "gap",
+    "padding",
+    "primaryAlign",
+    "counterAlign",
+  ],
+} as const
+
 const typedCanvasEditInputSchema = {
   oneOf: [
     {
@@ -2397,6 +2469,18 @@ const typedCanvasEditInputSchema = {
           fill: { type: "string" },
           stroke: { type: "string" },
           strokeWidth: { type: "number", minimum: 0 },
+        },
+      },
+      {
+        nodeType: "frame",
+        patch: {
+          fill: { type: "string" },
+          radius: { type: "number", minimum: 0 },
+          stroke: { type: "string" },
+          strokeWidth: { type: "number", minimum: 0 },
+          children: { type: "array", items: frameChildLayoutInputSchema },
+          autoLayout: frameAutoLayoutInputSchema,
+          clipsContent: { type: "boolean" },
         },
       },
       {

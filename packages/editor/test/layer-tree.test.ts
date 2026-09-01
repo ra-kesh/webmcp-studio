@@ -161,6 +161,114 @@ function componentLayerDocument() {
 }
 
 describe("layer tree model", () => {
+  it("nests frame-owned layers once in explicit paint order", () => {
+    const document = structuredClone(northstarSeed)
+    const page = document.pages.find((candidate) => candidate.id === "cover")!
+    page.nodeIds.splice(1, 0, "cover-frame")
+    document.nodes.push({
+      id: "cover-frame",
+      type: "frame",
+      name: "Cover copy frame",
+      x: 70,
+      y: 450,
+      width: 560,
+      height: 420,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
+      fill: "transparent",
+      radius: 0,
+      strokeWidth: 0,
+      children: [
+        {
+          nodeId: "cover-eyebrow",
+          positioning: "auto",
+          horizontalSizing: "fixed",
+          verticalSizing: "fixed",
+          offsetX: 0,
+          offsetY: 0,
+          grow: 0,
+        },
+        {
+          nodeId: "cover-title",
+          positioning: "auto",
+          horizontalSizing: "fill",
+          verticalSizing: "fixed",
+          offsetX: 0,
+          offsetY: 0,
+          grow: 0,
+        },
+      ],
+      autoLayout: null,
+      clipsContent: true,
+    })
+
+    const model = buildLayerTreeModel(document, "cover")
+    const frame = model.byKey.get(layerKey("node", "cover-frame"))
+    expect(frame?.children.map((child) => child.id)).toEqual([
+      "cover-title",
+      "cover-eyebrow",
+    ])
+    expect(
+      model.items.flatMap((item) => [
+        item.id,
+        ...item.children.map((child) => child.id),
+      ])
+    ).toEqual(
+      expect.arrayContaining(["cover-frame", "cover-title", "cover-eyebrow"])
+    )
+    expect(model.items.filter((item) => item.id === "cover-title")).toEqual([])
+
+    const source = model.byKey.get(layerKey("node", "cover-eyebrow"))!
+    const target = model.byKey.get(layerKey("node", "cover-title"))!
+    const drafts = layerDropCommands(document, "cover", source, target, "above")
+    expect(drafts).toEqual([
+      expect.objectContaining({
+        type: "update_node",
+        nodeId: "cover-frame",
+      }),
+    ])
+    const reordered = executeLayerDrop(document, drafts)
+    expect(
+      reordered.nodes.find(
+        (node) => node.id === "cover-frame" && node.type === "frame"
+      )
+    ).toMatchObject({
+      children: [{ nodeId: "cover-title" }, { nodeId: "cover-eyebrow" }],
+    })
+    expect(pageNodeIds(reordered).slice(1, 4)).toEqual([
+      "cover-frame",
+      "cover-title",
+      "cover-eyebrow",
+    ])
+
+    const reorderedModel = buildLayerTreeModel(reordered, "cover")
+    const insertDrafts = layerDropCommands(
+      reordered,
+      "cover",
+      reorderedModel.byKey.get(layerKey("node", "cover-date"))!,
+      reorderedModel.byKey.get(layerKey("node", "cover-frame"))!,
+      "inside"
+    )
+    const inserted = executeLayerDrop(reordered, insertDrafts)
+    expect(
+      inserted.nodes.find(
+        (node) => node.id === "cover-frame" && node.type === "frame"
+      )
+    ).toMatchObject({
+      children: [
+        { nodeId: "cover-title" },
+        { nodeId: "cover-eyebrow" },
+        {
+          nodeId: "cover-date",
+          positioning: "absolute",
+        },
+      ],
+    })
+  })
+
   it("labels mask groups, sources, and content from explicit identities", () => {
     const document = structuredClone(northstarSeed)
     document.groups = [

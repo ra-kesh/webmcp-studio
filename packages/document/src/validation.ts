@@ -49,6 +49,7 @@ export type ValidationIssue = {
     | "invalid_rich_text"
     | "invalid_style"
     | "invalid_component"
+    | "invalid_layout"
   message: string
   pageId?: string
   nodeId?: string
@@ -485,6 +486,91 @@ export function validateDocument(document: Document): ValidationIssue[] {
         message: `${node.name} is not included on a page`,
         nodeId: node.id,
       })
+    }
+  }
+
+  const frameOwnerByChild = new Map<string, string>()
+  const maskSourceNodeIds = new Set(
+    document.groups.flatMap((group) =>
+      group.role === "mask" ? group.mask.sourceNodeIds : []
+    )
+  )
+  for (const frame of document.nodes) {
+    if (frame.type !== "frame") continue
+    const framePageId = nodeOwner.get(frame.id)
+    const framePageIndexes = framePageId
+      ? pageNodeIndexes.get(framePageId)
+      : undefined
+    const frameIndex = framePageIndexes?.get(frame.id) ?? -1
+    const localChildren = new Set<string>()
+    let previousIndex = -1
+    for (const child of frame.children) {
+      const childNode = nodes.get(child.nodeId)
+      const childPageId = nodeOwner.get(child.nodeId)
+      const childIndex = framePageIndexes?.get(child.nodeId) ?? -1
+      const existingOwner = frameOwnerByChild.get(child.nodeId)
+      if (maskSourceNodeIds.has(child.nodeId)) {
+        issues.push({
+          id: `frame:${frame.id}:mask-source:${child.nodeId}`,
+          severity: "error",
+          code: "invalid_layout",
+          message: `${frame.name} cannot own mask source ${child.nodeId}; release it from the mask before adding it to a frame`,
+          pageId: framePageId,
+          nodeId: frame.id,
+        })
+      }
+      if (
+        !childNode ||
+        child.nodeId === frame.id ||
+        !framePageId ||
+        childPageId !== framePageId ||
+        localChildren.has(child.nodeId) ||
+        (existingOwner !== undefined && existingOwner !== frame.id) ||
+        childIndex <= frameIndex ||
+        childIndex <= previousIndex
+      ) {
+        issues.push({
+          id: `frame:${frame.id}:child:${child.nodeId}`,
+          severity: "error",
+          code: "invalid_layout",
+          message: `${frame.name} has an invalid, duplicated, cross-page, or out-of-order child ${child.nodeId}`,
+          pageId: framePageId,
+          nodeId: frame.id,
+        })
+      }
+      localChildren.add(child.nodeId)
+      frameOwnerByChild.set(child.nodeId, frame.id)
+      previousIndex = childIndex
+    }
+    if (frame.children.length > 0 && frame.rotation !== 0) {
+      issues.push({
+        id: `frame:${frame.id}:rotation`,
+        severity: "error",
+        code: "invalid_layout",
+        message: `${frame.name} must use zero rotation while it owns child layers`,
+        pageId: framePageId,
+        nodeId: frame.id,
+      })
+    }
+  }
+  for (const frame of document.nodes) {
+    if (frame.type !== "frame") continue
+    const seen = new Set<string>([frame.id])
+    let ownerId = frameOwnerByChild.get(frame.id)
+    while (ownerId) {
+      if (seen.has(ownerId)) {
+        issues.push({
+          id: `frame:${frame.id}:cycle`,
+          severity: "error",
+          code: "invalid_layout",
+          message: `${frame.name} participates in a frame ownership cycle`,
+          pageId: nodeOwner.get(frame.id),
+          nodeId: frame.id,
+        })
+        break
+      }
+      seen.add(ownerId)
+      ownerId = frameOwnerByChild.get(ownerId)
     }
   }
 

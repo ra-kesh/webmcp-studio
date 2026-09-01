@@ -20,6 +20,7 @@ import {
   ImageIcon,
   Lock,
   Minus,
+  PanelsTopLeft,
   Search,
   Shapes,
   Square,
@@ -86,6 +87,7 @@ const nodeIcon = {
   line: Minus,
   icon: Shapes,
   image: ImageIcon,
+  frame: PanelsTopLeft,
   group: Folder,
 } as const
 

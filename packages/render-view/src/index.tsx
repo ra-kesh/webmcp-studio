@@ -4,7 +4,9 @@ import {
   useId,
   useMemo,
   useReducer,
+  type ComponentProps,
   type CSSProperties,
+  type ReactNode,
   type SyntheticEvent,
 } from "react"
 import type {
@@ -19,6 +21,7 @@ import {
   supportedMaskPaintPixelRatio,
 } from "@webmcp/document/internal/page-paint-plan"
 import {
+  projectFrameClipStack,
   projectImagePaint,
   projectNodeForRender,
   projectPageForRender,
@@ -570,6 +573,7 @@ function RenderVectorMaskSource({
 }
 
 function RenderMaskGroupContent({
+  document,
   content,
   nodesById,
   imageSemantics,
@@ -578,6 +582,7 @@ function RenderMaskGroupContent({
   showImageRecoveryActions,
   onImageResourceStateChange,
 }: {
+  document?: Document
   content: readonly PagePaintPlanEntry[]
   nodesById: ReadonlyMap<string, SceneNode>
   imageSemantics: "content" | "thumbnail"
@@ -599,6 +604,7 @@ function RenderMaskGroupContent({
           return (
             <MaskGroupPaintEntry
               key={contentEntry.groupId}
+              document={document}
               atomicBoundary={false}
               entry={contentEntry}
               nodesById={nodesById}
@@ -612,16 +618,22 @@ function RenderMaskGroupContent({
         }
         const node = nodesById.get(contentEntry.nodeId)
         if (!node) return null
-        return (
-          <RenderNode
+        const renderProps = {
+          imageSemantics,
+          imageResourceRevision: imageResourceRevisions?.[node.id],
+          imageResourceToken: imageResourceTokens?.[node.id],
+          showImageRecoveryActions,
+          onImageResourceStateChange,
+        }
+        return document ? (
+          <FrameClippedRenderNode
+            {...renderProps}
             key={node.id}
-            imageSemantics={imageSemantics}
+            document={document}
             node={node}
-            imageResourceRevision={imageResourceRevisions?.[node.id]}
-            imageResourceToken={imageResourceTokens?.[node.id]}
-            showImageRecoveryActions={showImageRecoveryActions}
-            onImageResourceStateChange={onImageResourceStateChange}
           />
+        ) : (
+          <RenderNode {...renderProps} key={node.id} node={node} />
         )
       })}
     </div>
@@ -632,6 +644,7 @@ function RenderMaskGroupContent({
  * Renders one schema-backed vector-mask entry from the canonical paint plan.
  */
 type MaskGroupPaintEntryProps = Readonly<{
+  document?: Document
   entry: PagePaintPlanEntry
   nodesById: ReadonlyMap<string, SceneNode>
   imageSemantics?: "content" | "thumbnail"
@@ -1287,6 +1300,7 @@ function RenderCoverageMaskSource({
 }
 
 function ResolvedMaskGroupPaintEntry({
+  document,
   model,
   imageSemantics = "content",
   imageResourceRevisions,
@@ -1313,6 +1327,7 @@ function ResolvedMaskGroupPaintEntry({
       : []
   const wrapperStyle = renderMaskGroupWrapperStyle(maskEntry.bounds)
   const contentProps = {
+    document,
     content,
     nodesById: model.nodesById,
     imageSemantics,
@@ -1449,12 +1464,14 @@ function ResolvedMaskGroupPaintEntry({
 
 /** Shared page consumer used by production Artboards and conformance views. */
 export function PagePaintPlanView({
+  document,
   plan,
   nodesById,
   width,
   height,
   background,
 }: {
+  document?: Document
   plan: PagePaintPlan
   nodesById: ReadonlyMap<string, SceneNode>
   width: number
@@ -1477,6 +1494,7 @@ export function PagePaintPlanView({
           return (
             <MaskGroupPaintEntry
               key={entry.groupId}
+              document={document}
               entry={entry}
               nodesById={nodesById}
               showImageRecoveryActions={false}
@@ -1484,14 +1502,18 @@ export function PagePaintPlanView({
           )
         }
         const node = nodesById.get(entry.nodeId)
-        return node ? (
-          <RenderNode
-            key={node.id}
-            imageSemantics="content"
-            node={node}
-            showImageRecoveryActions={false}
-          />
-        ) : null
+        if (!node) return null
+        const props = {
+          key: node.id,
+          imageSemantics: "content" as const,
+          node,
+          showImageRecoveryActions: false,
+        }
+        return document ? (
+          <FrameClippedRenderNode {...props} document={document} />
+        ) : (
+          <RenderNode {...props} />
+        )
       })}
     </div>
   )
@@ -1619,7 +1641,7 @@ export function renderNodeStyle(
       overflow: text.sizingMode === "fixed" ? "hidden" : "visible",
     }
   }
-  if (projection.type === "rect") {
+  if (projection.type === "rect" || projection.type === "frame") {
     const rect = projection.content
     return {
       ...frame,
@@ -1682,7 +1704,7 @@ function RenderNode({
     )
   }
 
-  if (projection.type === "rect") {
+  if (projection.type === "rect" || projection.type === "frame") {
     return <div {...dataAttributes} style={style} />
   }
 
@@ -1741,6 +1763,40 @@ function RenderNode({
       projection={projection}
       style={style}
     />
+  )
+}
+
+function FrameClippedRenderNode({
+  document,
+  node,
+  ...props
+}: Omit<ComponentProps<typeof RenderNode>, "node"> & {
+  document: Document
+  node: SceneNode
+}) {
+  const clips = projectFrameClipStack(document, node.id)
+  return clips.reduce<ReactNode>(
+    (content, clip, index) => (
+      <div
+        key={`${node.id}:frame-clip:${index}`}
+        data-frame-clip-node-id={node.id}
+        data-frame-clip-depth={index}
+        style={{
+          position: "absolute",
+          left: clip.x,
+          top: clip.y,
+          width: clip.width,
+          height: clip.height,
+          overflow: "hidden",
+          borderRadius: clip.radius,
+        }}
+      >
+        <div style={{ position: "absolute", left: -clip.x, top: -clip.y }}>
+          {content}
+        </div>
+      </div>
+    ),
+    <RenderNode {...props} node={node} />
   )
 }
 
@@ -2208,6 +2264,7 @@ export function Artboard({
             return (
               <MaskGroupPaintEntry
                 key={entry.groupId}
+                document={document}
                 entry={entry}
                 nodesById={nodesById}
                 imageSemantics={imageSemantics}
@@ -2220,8 +2277,9 @@ export function Artboard({
           }
           const node = nodesById.get(entry.nodeId)
           return node ? (
-            <RenderNode
+            <FrameClippedRenderNode
               key={node.id}
+              document={document}
               imageSemantics={imageSemantics}
               node={node}
               imageResourceRevision={imageResourceRevisions?.[node.id]}

@@ -93,6 +93,62 @@ describe("review operation details", () => {
     expect(details.after).toContain("Horizontal: max · Vertical: stretch")
   })
 
+  it("summarizes frame flow and overflow changes", () => {
+    const document = structuredClone(quotationStarter.document)
+    const page = document.pages[0]!
+    page.nodeIds.unshift("review-frame")
+    document.nodes.push({
+      id: "review-frame",
+      type: "frame",
+      name: "Review frame",
+      x: 0,
+      y: 0,
+      width: 300,
+      height: 200,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
+      fill: "#ffffff",
+      radius: 8,
+      strokeWidth: 0,
+      children: [],
+      autoLayout: null,
+      clipsContent: false,
+    })
+    const operation: ChangeOperation = {
+      id: "frame-operation",
+      status: "pending",
+      summary: "Enable frame layout",
+      command: {
+        id: "frame-command",
+        type: "update_node",
+        actor: "agent",
+        at: "2026-09-01T10:20:00.000Z",
+        nodeId: "review-frame",
+        patch: {
+          clipsContent: true,
+          autoLayout: {
+            direction: "vertical",
+            horizontalSizing: "fixed",
+            verticalSizing: "fixed",
+            gap: 12,
+            padding: { top: 8, right: 8, bottom: 8, left: 8 },
+            primaryAlign: "start",
+            counterAlign: "stretch",
+          },
+        },
+      },
+    }
+
+    const details = operationDetails(document, operation)
+
+    expect(details.before).toContain("Show overflow")
+    expect(details.after).toContain("Clip content")
+    expect(details.after).toContain("vertical · Gap 12")
+  })
+
   it("omits private image sources and names the approved catalog asset", () => {
     const document = documentWithImage()
     const image = document.nodes.find((node) => node.type === "image")

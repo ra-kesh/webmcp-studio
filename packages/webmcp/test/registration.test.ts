@@ -3078,6 +3078,88 @@ describe("WebMCP registration", () => {
     expect(malformed?.content[0]?.text).toContain("patch is invalid")
   })
 
+  it("advertises and proposes strict frame layout and clipping", async () => {
+    const document = structuredClone(withImageLayer())
+    const page = document.pages[0]!
+    page.nodeIds.unshift("contract-frame")
+    document.nodes.push({
+      id: "contract-frame",
+      type: "frame",
+      name: "Contract frame",
+      x: 0,
+      y: 0,
+      width: 400,
+      height: 240,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
+      fill: "#ffffff",
+      radius: 12,
+      strokeWidth: 0,
+      children: [],
+      autoLayout: null,
+      clipsContent: false,
+    })
+    const state = setup(document)
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+    const tool = state.registered.get("propose_canvas_edits")
+    expect(JSON.stringify(tool?.inputSchema)).toContain('"autoLayout"')
+    const result = await tool?.execute({
+      documentId: document.id,
+      baseRevision: document.revision,
+      baseSnapshotId: "snapshot-seed",
+      edits: [
+        {
+          nodeType: "frame",
+          nodeId: "contract-frame",
+          patch: {
+            clipsContent: true,
+            autoLayout: {
+              direction: "vertical",
+              horizontalSizing: "fixed",
+              verticalSizing: "hug",
+              gap: 12,
+              padding: { top: 8, right: 8, bottom: 8, left: 8 },
+              primaryAlign: "start",
+              counterAlign: "stretch",
+            },
+          },
+        },
+      ],
+    })
+    expect(result?.isError, result?.content[0]?.text).toBeUndefined()
+    expect(state.proposed()?.operations[0]?.command).toMatchObject({
+      type: "update_node",
+      nodeId: "contract-frame",
+      patch: { clipsContent: true },
+    })
+
+    const malformed = await tool?.execute({
+      documentId: document.id,
+      baseRevision: document.revision,
+      baseSnapshotId: "snapshot-seed",
+      edits: [
+        {
+          nodeType: "frame",
+          nodeId: "contract-frame",
+          patch: { autoLayout: { direction: "vertical" } },
+        },
+      ],
+    })
+    expect(malformed?.isError).toBe(true)
+  })
+
   it("rejects untyped, malformed, legacy, and renderer-private image patches", async () => {
     const document = withImageLayer()
     const state = setup(document)

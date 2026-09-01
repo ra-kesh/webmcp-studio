@@ -55,6 +55,17 @@ function displayNodeProperty(
     }
     return `Horizontal: ${displayChangeValue(constraints.horizontal)} · Vertical: ${displayChangeValue(constraints.vertical)}`
   }
+  if (key === "autoLayout") {
+    if (value === null) return "Freeform"
+    if (value && typeof value === "object" && "direction" in value) {
+      const layout = value as { direction: unknown; gap?: unknown }
+      return `${displayChangeValue(layout.direction)} · Gap ${displayChangeValue(layout.gap ?? 0)}`
+    }
+  }
+  if (key === "children" && Array.isArray(value)) {
+    return `${value.length} layout child${value.length === 1 ? "" : "ren"}`
+  }
+  if (key === "clipsContent") return value ? "Clip content" : "Show overflow"
   return key === "assetId"
     ? displayAssetId(value, source)
     : displayChangeValue(value)

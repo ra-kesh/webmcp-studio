@@ -2,6 +2,7 @@ import {
   assertPageThumbnailSize,
   pageThumbnailScale,
   projectNodeForRender,
+  projectFrameClipStack,
   projectPageForRender,
   serializeImagePaintProjector,
   type Document,
@@ -435,7 +436,7 @@ export function renderNodeToHtml(node: SceneNode): string {
   ].join(";")
   const identity = `data-node-id="${escapeHtml(frame.id)}" data-node-locked="${frame.locked ? "true" : "false"}"`
 
-  if (projection.type === "rect") {
+  if (projection.type === "rect" || projection.type === "frame") {
     const border = projection.content.stroke
       ? `;border:${projection.content.strokeWidth}px solid ${escapeHtml(projection.content.stroke)}`
       : ""
@@ -613,16 +614,23 @@ const renderLuminanceVectorMaskSource = (
  */
 export function renderPagePaintPlanEntryToHtml(
   entry: PagePaintPlanEntry,
-  nodesById: ReadonlyMap<string, SceneNode>
+  nodesById: ReadonlyMap<string, SceneNode>,
+  document?: Document
 ): string {
   if (entry.kind === "node") {
     const node = nodesById.get(entry.nodeId)
     if (!node) throw new Error(`Unknown paint-plan node: ${entry.nodeId}`)
-    return renderNodeToHtml(node)
+    const markup = renderNodeToHtml(node)
+    const clips = document ? projectFrameClipStack(document, node.id) : []
+    return clips.reduce(
+      (content, clip, index) =>
+        `<div data-frame-clip-node-id="${escapeHtml(node.id)}" data-frame-clip-depth="${index}" style="position:absolute;left:${clip.x}px;top:${clip.y}px;width:${clip.width}px;height:${clip.height}px;overflow:hidden;border-radius:${clip.radius}px"><div style="position:absolute;left:${-clip.x}px;top:${-clip.y}px">${content}</div></div>`,
+      markup
+    )
   }
 
   const content = entry.content
-    .map((child) => renderPagePaintPlanEntryToHtml(child, nodesById))
+    .map((child) => renderPagePaintPlanEntryToHtml(child, nodesById, document))
     .join("")
   const { bounds } = entry
   const groupId = escapeHtml(entry.groupId)
@@ -721,7 +729,9 @@ function pageNodesMarkup(document: Document, pageId: string): string {
   if (!page) throw new Error(`Unknown page: ${pageId}`)
   const nodesById = new Map(document.nodes.map((node) => [node.id, node]))
   return projectPagePaintPlan(document, page.id)
-    .entries.map((entry) => renderPagePaintPlanEntryToHtml(entry, nodesById))
+    .entries.map((entry) =>
+      renderPagePaintPlanEntryToHtml(entry, nodesById, document)
+    )
     .join("")
 }
 

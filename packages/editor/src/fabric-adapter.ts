@@ -35,6 +35,7 @@ import {
   patchTextRunStyle,
   pasteParsedTextClipboardPayload,
   projectImagePaint,
+  projectFrameClipStack,
   projectNodeForRender,
   projectSvgViewport,
   replaceRichTextRange,
@@ -73,6 +74,62 @@ import {
   projectPagePaintPlan,
   supportedMaskPaintPixelRatio,
 } from "@webmcp/document/internal/page-paint-plan"
+
+const frameClippedObjects = new WeakSet<FabricObject>()
+
+export function syncFabricFrameClip(
+  object: FabricObject,
+  node: SceneNode,
+  document: Document
+) {
+  const clips = projectFrameClipStack(document, node.id)
+  if (clips.length === 0) {
+    if (frameClippedObjects.has(object)) {
+      object.set({
+        clipPath:
+          node.type === "text" && node.sizingMode === "fixed"
+            ? fixedTextClip(node)
+            : undefined,
+      })
+      frameClippedObjects.delete(object)
+    }
+    return
+  }
+  const effectiveClips =
+    node.type === "text" && node.sizingMode === "fixed"
+      ? [
+          {
+            x: node.x,
+            y: node.y,
+            width: node.width,
+            height: node.height,
+            radius: 0,
+          },
+          ...clips,
+        ]
+      : clips
+  const clipPaths = effectiveClips.map(
+    (clip) =>
+      new Rect({
+        left: clip.x,
+        top: clip.y,
+        width: clip.width,
+        height: clip.height,
+        rx: clip.radius,
+        ry: clip.radius,
+        originX: "left",
+        originY: "top",
+        absolutePositioned: true,
+      })
+  )
+  for (let index = 0; index < clipPaths.length - 1; index += 1) {
+    clipPaths[index]!.set({ clipPath: clipPaths[index + 1] })
+  }
+  object.set({
+    clipPath: clipPaths[0],
+  })
+  frameClippedObjects.add(object)
+}
 import type {
   CanvasAdapter,
   CanvasAdapterEvents,
@@ -1038,7 +1095,7 @@ function sharedOptions(
 }
 
 function borderedShapeDimensions(
-  node: Extract<SceneNode, { type: "rect" | "ellipse" }>
+  node: Extract<SceneNode, { type: "rect" | "ellipse" | "frame" }>
 ) {
   const strokeWidth = node.stroke ? node.strokeWidth : 0
   return {
@@ -1421,7 +1478,7 @@ function applyFabricTextControlPolicy(
 export function createFabricSyncObject(
   node: Exclude<SceneNode, { type: "image" }>
 ) {
-  if (node.type === "rect") {
+  if (node.type === "rect" || node.type === "frame") {
     const dimensions = borderedShapeDimensions(node)
     return new Rect({
       ...sharedOptions(node),
@@ -3194,7 +3251,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
           this.canIncrementallySyncPaintPlan(page, nodesById)
         ) {
           signal?.throwIfAborted()
-          this.syncCanonicalPaintPlanNodes(page, nodesById)
+          this.syncCanonicalPaintPlanNodes(document, page, nodesById)
           applyPagePresentation()
           this.documentId = document.id
           this.pageId = pageId
@@ -3202,6 +3259,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
           return
         }
         await this.syncCanonicalPaintPlan(
+          document,
           page,
           paintPlan,
           nodesById,
@@ -3362,6 +3420,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
           syncFabricObjectFromNode(object, node)
         }
         if (!object) continue
+        syncFabricFrameClip(object, node, document)
         // Commit the applied identity only after every awaited visual update
         // survives the generation guard. A superseding sync must still see
         // the old identity and finish installing the requested image source.
@@ -3434,6 +3493,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
   }
 
   private syncCanonicalPaintPlanNodes(
+    document: Document,
     page: Document["pages"][number],
     nodesById: ReadonlyMap<string, SceneNode>
   ) {
@@ -3441,8 +3501,13 @@ export class FabricCanvasAdapter implements CanvasAdapter {
       const previous = this.nodeByNodeId.get(nodeId)
       const node = nodesById.get(nodeId)
       const object = this.objectByNodeId.get(nodeId)
-      if (!node || !object || previous === node) continue
+      if (!node || !object) continue
+      if (previous === node) {
+        syncFabricFrameClip(object, node, document)
+        continue
+      }
       syncFabricObjectFromNode(object, node)
+      syncFabricFrameClip(object, node, document)
       if (this.maskSourceNodeIds.has(nodeId)) {
         object.set({ opacity: 0, evented: false })
         const maskObject = this.maskPaintObjectBySourceNodeId.get(nodeId)
@@ -3483,6 +3548,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
   }
 
   private async syncCanonicalPaintPlan(
+    document: Document,
     page: Document["pages"][number],
     plan: PagePaintPlan,
     nodesById: ReadonlyMap<string, SceneNode>,
@@ -3654,6 +3720,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
           const node = nodesById.get(entry.nodeId)
           if (!node) throw new Error(`Paint node ${entry.nodeId} is missing`)
           const object = await createObject(node)
+          syncFabricFrameClip(object, node, document)
           candidateObjectByNodeId.set(node.id, object)
           return {
             objects: [object],

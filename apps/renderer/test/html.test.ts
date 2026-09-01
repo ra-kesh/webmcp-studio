@@ -232,6 +232,88 @@ function nestedMaskDocument(
 }
 
 describe("renderer HTML", () => {
+  it("clips frame children through the canonical ancestor bounds", () => {
+    const document = structuredClone(northstarSeed)
+    const page = document.pages.find((candidate) => candidate.id === "cover")!
+    const childId = "cover-title"
+    page.nodeIds = [
+      "renderer-outer-frame",
+      "renderer-layout-frame",
+      childId,
+      ...page.nodeIds.filter((nodeId) => nodeId !== childId),
+    ]
+    document.nodes.push({
+      id: "renderer-outer-frame",
+      type: "frame",
+      name: "Renderer outer frame",
+      x: 80,
+      y: 60,
+      width: 360,
+      height: 200,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
+      fill: "transparent",
+      radius: 26,
+      strokeWidth: 0,
+      children: [
+        {
+          nodeId: "renderer-layout-frame",
+          positioning: "absolute",
+          horizontalSizing: "fixed",
+          verticalSizing: "fixed",
+          offsetX: 20,
+          offsetY: 20,
+          grow: 0,
+        },
+      ],
+      autoLayout: null,
+      clipsContent: true,
+    } satisfies SceneNode)
+    document.nodes.push({
+      id: "renderer-layout-frame",
+      type: "frame",
+      name: "Renderer layout frame",
+      x: 100,
+      y: 80,
+      width: 320,
+      height: 160,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
+      fill: "#ffffff",
+      radius: 18,
+      strokeWidth: 0,
+      children: [
+        {
+          nodeId: childId,
+          positioning: "absolute",
+          horizontalSizing: "fixed",
+          verticalSizing: "fixed",
+          offsetX: -40,
+          offsetY: -30,
+          grow: 0,
+        },
+      ],
+      autoLayout: null,
+      clipsContent: true,
+    } satisfies SceneNode)
+
+    const html = renderDocumentToHtml(document, page.id)
+
+    expect(html).toContain(`data-frame-clip-node-id="${childId}"`)
+    expect(html).toContain('data-frame-clip-depth="0"')
+    expect(html).toContain('data-frame-clip-depth="1"')
+    expect(html).toContain("left:100px;top:80px;width:320px;height:160px")
+    expect(html).toContain("overflow:hidden;border-radius:18px")
+    expect(html).toContain("left:80px;top:60px;width:360px;height:200px")
+    expect(html).toContain("overflow:hidden;border-radius:26px")
+  })
+
   it("uses the canonical paint plan in document, thumbnail, and output HTML", () => {
     const pageId = "mask-conformance-page"
     const outputs = [
