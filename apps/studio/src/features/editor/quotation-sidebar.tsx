@@ -32,8 +32,8 @@ import { LayerTree } from "./layer-tree"
 import { AssetWorkspacePanel } from "./asset-workspace-panel"
 import type { AssetWorkspaceView } from "./asset-workspace-panel"
 import type { ProductCommandMenuRuntime } from "./product-command-menu"
-import { PageOutputPanel } from "./page-output-panel"
 import type { PageOutputPanelProps } from "./page-output-panel"
+import { PageNavigator } from "./page-navigator"
 import { templateImpactRows } from "./template-catalog-model"
 import type { TemplateCatalogIdentity } from "./template-catalog-model"
 
@@ -82,13 +82,6 @@ export function QuotationSidebar({
   templateBrowserVisible = true,
   onSelectPage,
   onAddPage,
-  onDuplicatePage,
-  onUpdatePage,
-  onRemovePage,
-  onReorderPage,
-  onAddOutput,
-  onUpdateOutput,
-  onRemoveOutput,
   className,
 }: {
   document: Document
@@ -235,10 +228,16 @@ export function QuotationSidebar({
         className="min-h-0 flex-1 gap-0 overflow-hidden"
       >
         <EditorPanelTabsList aria-label="Editor panels">
-          <TabsTrigger value="templates" className="flex-none px-2.5 text-[11px]">
+          <TabsTrigger
+            value="templates"
+            className="flex-none px-2.5 text-[11px]"
+          >
             Templates
           </TabsTrigger>
-          <TabsTrigger value="components" className="flex-none px-2.5 text-[11px]">
+          <TabsTrigger
+            value="components"
+            className="flex-none px-2.5 text-[11px]"
+          >
             Assets
           </TabsTrigger>
           <TabsTrigger value="pages" className="flex-none px-2.5 text-[11px]">
@@ -317,21 +316,12 @@ export function QuotationSidebar({
           value="pages"
           className="flex min-h-0 flex-col overflow-hidden"
         >
-          <PageOutputPanel
+          <PageNavigator
             document={document}
             activePageId={activePageId}
-            reviewPending={reviewPending}
-            productCommandContext={productCommandContext}
-            productCommandRuntime={productCommandRuntime}
+            disabled={reviewPending}
             onSelectPage={onSelectPage}
             onAddPage={onAddPage}
-            onDuplicatePage={onDuplicatePage}
-            onUpdatePage={onUpdatePage}
-            onRemovePage={onRemovePage}
-            onReorderPage={onReorderPage}
-            onAddOutput={onAddOutput}
-            onUpdateOutput={onUpdateOutput}
-            onRemoveOutput={onRemoveOutput}
           />
         </TabsContent>
         <TabsContent
