@@ -5545,6 +5545,7 @@ export function StudioShell({
                     artboardRef.current?.restoreNodePreview(nodeId)
                   }
                   onUpdateSelection={editor.updateSelectionNodes}
+                  onTransformSelection={editor.transformSelectionNodes}
                   onUpdateField={editor.updateField}
                   onChooseFieldAsset={openFieldMediaPicker}
                   onCreateField={editor.createField}
@@ -5811,6 +5812,7 @@ export function StudioShell({
                   artboardRef.current?.restoreNodePreview(nodeId)
                 }
                 onUpdateSelection={editor.updateSelectionNodes}
+                onTransformSelection={editor.transformSelectionNodes}
                 onUpdateField={editor.updateField}
                 onChooseFieldAsset={openFieldMediaPicker}
                 onCreateField={editor.createField}

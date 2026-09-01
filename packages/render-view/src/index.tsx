@@ -74,10 +74,34 @@ export const renderFrameStyle = (
   width: frame.width,
   height: frame.height,
   opacity: frame.opacity,
-  transform: `rotate(${frame.rotation}deg)`,
+  transform:
+    frame.flipX || frame.flipY
+      ? `rotate(${frame.rotation}deg) translate(${frame.width / 2}px, ${frame.height / 2}px) scale(${frame.flipX ? -1 : 1}, ${frame.flipY ? -1 : 1}) translate(${-frame.width / 2}px, ${-frame.height / 2}px)`
+      : `rotate(${frame.rotation}deg)`,
   transformOrigin: "top left",
   display: frame.visible ? undefined : "none",
 })
+
+function renderSvgFrameTransform(
+  frame: Pick<
+    RenderFrameProjection,
+    "width" | "height" | "rotation" | "flipX" | "flipY"
+  >,
+  x: number,
+  y: number
+) {
+  const rotation = `rotate(${frame.rotation} ${x} ${y})`
+  if (!frame.flipX && !frame.flipY) return rotation
+  const centerX = x + frame.width / 2
+  const centerY = y + frame.height / 2
+  return `${rotation} translate(${centerX} ${centerY}) scale(${frame.flipX ? -1 : 1} ${frame.flipY ? -1 : 1}) translate(${-centerX} ${-centerY})`
+}
+
+function renderLocalSvgFrameTransform(frame: RenderFrameProjection) {
+  const transform = `translate(${frame.x} ${frame.y}) rotate(${frame.rotation} 0 0)`
+  if (!frame.flipX && !frame.flipY) return transform
+  return `${transform} translate(${frame.width / 2} ${frame.height / 2}) scale(${frame.flipX ? -1 : 1} ${frame.flipY ? -1 : 1}) translate(${-frame.width / 2} ${-frame.height / 2})`
+}
 
 export function renderMaskGroupWrapperStyle(
   bounds: PagePaintBounds
@@ -104,7 +128,11 @@ export function renderVectorMaskSourceAttributes(
     opacity: source.opacity,
     rx: source.type === "rect" ? source.radius : source.width / 2,
     ry: source.type === "rect" ? source.radius : source.height / 2,
-    transform: `rotate(${source.rotation} ${x} ${y})`,
+    transform: renderSvgFrameTransform(
+      projectNodeForRender(source).frame,
+      x,
+      y
+    ),
     width: source.width,
     x,
     y,
@@ -492,7 +520,11 @@ function RenderVectorMaskSource({
 }) {
   const x = source.x - bounds.x
   const y = source.y - bounds.y
-  const transform = `rotate(${source.rotation} ${x} ${y})`
+  const transform = renderSvgFrameTransform(
+    projectNodeForRender(source).frame,
+    x,
+    y
+  )
   if (source.type === "icon") {
     return (
       <svg
@@ -1039,7 +1071,7 @@ function RenderCoverageMaskSource({
     const projection = projectNodeForRender(source)
     const frameX = projection.frame.x - bounds.x
     const frameY = projection.frame.y - bounds.y
-    const transform = `rotate(${projection.frame.rotation} ${frameX} ${frameY})`
+    const transform = renderSvgFrameTransform(projection.frame, frameX, frameY)
     if (projection.type === "rect") {
       return (
         <rect
@@ -1127,7 +1159,11 @@ function RenderCoverageMaskSource({
         clipPath={`url(#${clipId})`}
         data-mask-source-id={source.id}
         opacity={source.opacity}
-        transform={`translate(${frameX} ${frameY}) rotate(${source.rotation} 0 0)`}
+        transform={renderLocalSvgFrameTransform({
+          ...projectNodeForRender(source).frame,
+          x: frameX,
+          y: frameY,
+        })}
       >
         <defs>
           <clipPath id={clipId} clipPathUnits="userSpaceOnUse">
@@ -1187,7 +1223,11 @@ function RenderCoverageMaskSource({
         }
         data-mask-source-id={source.id}
         opacity={source.opacity}
-        transform={`translate(${frameX} ${frameY}) rotate(${source.rotation} 0 0)`}
+        transform={renderLocalSvgFrameTransform({
+          ...projection.frame,
+          x: frameX,
+          y: frameY,
+        })}
       >
         <defs>
           <clipPath id={clipId}>

@@ -1299,7 +1299,7 @@ describe("Fabric document boundary", () => {
     expect(onContextMenu).toHaveBeenCalledTimes(2)
   })
 
-  it("prevents single-object scale flips that canonical geometry cannot store", () => {
+  it("keeps resize handles from toggling explicit layer flips", () => {
     const node = renderConformanceDocument.nodes.find(
       (candidate) => candidate.id === "ellipse-stroke"
     )!
@@ -1310,6 +1310,29 @@ describe("Fabric document boundary", () => {
     object.set({ lockScalingFlip: false })
     syncFabricObjectFromNode(object, node)
     expect(object.lockScalingFlip).toBe(true)
+  })
+
+  it("projects explicit layer flips without changing the canonical frame", () => {
+    const seed = renderConformanceDocument.nodes.find(
+      (candidate) => candidate.id === "ellipse-stroke"
+    )!
+    const node = { ...seed, rotation: 0, flipX: true, flipY: true }
+    const object = createFabricSyncObject(node)
+
+    expect(object.flipX).toBe(true)
+    expect(object.flipY).toBe(true)
+    expect(object.getBoundingRect()).toMatchObject({
+      left: node.x,
+      top: node.y,
+      width: node.width,
+      height: node.height,
+    })
+    expect(fabricObjectToNodePatch(object)).toMatchObject({
+      x: node.x,
+      y: node.y,
+      width: node.width,
+      height: node.height,
+    })
   })
 
   it("normalizes Fabric transforms into canonical top-left geometry", () => {

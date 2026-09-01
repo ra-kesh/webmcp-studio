@@ -9,6 +9,8 @@ export type RenderFrameProjection = {
   width: number
   height: number
   rotation: number
+  flipX: boolean
+  flipY: boolean
   opacity: number
   visible: boolean
   locked: boolean
@@ -93,6 +95,8 @@ const projectFrame = (node: SceneNode): RenderFrameProjection => ({
   width: node.width,
   height: node.height,
   rotation: node.rotation,
+  flipX: node.flipX ?? false,
+  flipY: node.flipY ?? false,
   opacity: node.opacity,
   visible: node.visible,
   locked: node.locked,

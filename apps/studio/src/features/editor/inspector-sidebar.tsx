@@ -199,6 +199,11 @@ import {
 import { ReusableStyleField } from "./reusable-style-field"
 import { DesignVariablesPanel } from "./design-variables-panel"
 import type { ProductCommandMenuRuntime } from "./product-command-menu"
+import { PositionTransformControls } from "./position-transform-controls"
+import {
+  positionTransformPatch,
+  type PositionTransformAction,
+} from "./position-transform"
 
 const DEMO_AGENT_BRIEF =
   "Inspect and validate the open design. Adapt it for Mira & Dev, 14 February 2027 in Udaipur, using The Moonlit Weekend package at ₹4,25,000, valid until 30 November 2026. Search the approved asset library for warm sandstone architecture. Then create one coordinated human-reviewed proposal that updates those shared fields and inserts the best asset on the Cover at x 620, y 120, width 540, height 900 with cover fit. Do not apply or publish anything. Summarize the affected outputs and wait for my review."
@@ -209,6 +214,7 @@ const ignoreNodeId = (_nodeId: string) => undefined
 const ignoreNodePatch = (_nodeId: string, _patch: Partial<SceneNode>) =>
   undefined
 const ignoreNodePreviewCancel = (_nodeId: string) => undefined
+const ignorePositionTransform = (_action: PositionTransformAction) => undefined
 const ignoreTextStylePatch = (_patch: TextRunStylePatch) => undefined
 const ignoreTextParagraphStylePatch = (_patch: TextParagraphStylePatch) =>
   undefined
@@ -1666,6 +1672,14 @@ function NodeInspector({
             onPreviewCancel={onCancelPreview}
             onCommit={(rotation) => commitFrameGeometry({ rotation })}
           />
+          <PositionTransformControls
+            disabled={nodeMutationDisabled}
+            flipX={node.flipX ?? false}
+            flipY={node.flipY ?? false}
+            onTransform={(action) =>
+              onUpdate(positionTransformPatch(node, action))
+            }
+          />
         </div>
       </InspectorSection>
 
@@ -2497,6 +2511,7 @@ function NodeInspector({
 function MultiSelectionInspector({
   nodes,
   onUpdateSelection,
+  onTransformSelection,
   onAlign,
   onAlignToPage,
   onDistribute,
@@ -2508,6 +2523,7 @@ function MultiSelectionInspector({
 }: {
   nodes: SceneNode[]
   onUpdateSelection: (patch: Partial<SceneNode>) => void
+  onTransformSelection: (action: PositionTransformAction) => void
   onAlign: (alignment: Alignment) => void
   onAlignToPage: (alignment: Alignment) => void
   onDistribute: (distribution: "horizontal" | "vertical") => void
@@ -2623,6 +2639,10 @@ function MultiSelectionInspector({
             value={inspector.values.rotation}
             disabled={!movableCount}
             onCommit={(rotation) => onUpdateSelection({ rotation })}
+          />
+          <PositionTransformControls
+            disabled={!movableCount}
+            onTransform={onTransformSelection}
           />
           <InspectorNumberField
             label="Opacity"
@@ -4471,6 +4491,7 @@ export function InspectorSidebar({
   onPreviewNodePatch = ignoreNodePatch,
   onCancelNodePreview = ignoreNodePreviewCancel,
   onUpdateSelection,
+  onTransformSelection = ignorePositionTransform,
   onUpdateField,
   onChooseFieldAsset,
   onCreateField,
@@ -4554,6 +4575,7 @@ export function InspectorSidebar({
   onPreviewNodePatch?: (nodeId: string, patch: Partial<SceneNode>) => void
   onCancelNodePreview?: (nodeId: string) => void
   onUpdateSelection: (patch: Partial<SceneNode>) => void
+  onTransformSelection?: (action: PositionTransformAction) => void
   onUpdateField: (fieldId: string, value: string | number | boolean) => void
   onChooseFieldAsset?: (fieldId: string, opener: HTMLButtonElement) => void
   onCreateField: (field: Omit<FieldDefinition, "id">) => void
@@ -4864,6 +4886,7 @@ export function InspectorSidebar({
               <MultiSelectionInspector
                 nodes={selectedNodes}
                 onUpdateSelection={onUpdateSelection}
+                onTransformSelection={onTransformSelection}
                 onAlign={onAlignSelection}
                 onAlignToPage={onAlignSelectionToPage}
                 onDistribute={onDistributeSelection}
