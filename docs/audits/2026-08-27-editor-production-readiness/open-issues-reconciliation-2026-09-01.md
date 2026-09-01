@@ -108,9 +108,14 @@ WebMCP, and migration work. They are not styling-only tasks.
    retention and renderer comparison remain.
 2. Continue architectural decomposition. Render invalidation, crop, preview,
    and lazy-interaction ownership have been extracted, but
-   `use-document-editor.ts` remains 11,479 lines and `studio-shell.tsx` remains
-   6,959 lines. This is maintenance and regression risk, not a reason to replace
-   Fabric immediately.
+   `use-document-editor.ts` remains 11,461 lines and `studio-shell.tsx` remains
+   6,917 lines. Commit `741ce07` also extracts canonical canvas-node mutation
+   ownership into `CanvasNodeMutationController`: Inspector and canvas changes
+   now share binding-aware command projection, component-instance transforms,
+   and history labeling. Its focused regression proves a bound Signal title
+   edit becomes `set_field`, and a clean current-main browser reload proves the
+   extraction does not leave the editor in a stale HMR-only hook state. This is
+   maintenance and regression risk, not a reason to replace Fabric immediately.
 3. Review only newly observed visual regressions and editor areas not covered by
    the completed Vercel/OpenPencil gates. Do not reopen the design foundation,
    Inspector geometry, workspace chrome, or completed interaction controls as
