@@ -136,7 +136,11 @@ WebMCP, and migration work. They are not styling-only tasks.
    `fabric-artboard.tsx` into a framework-independent owner shared by Fabric,
    replacement readiness, and the shell. Its 17 focused canvas regressions,
    Studio typecheck, and clean browser reload pass, removing another observed
-   Fast Refresh invalidation seam without changing readiness semantics.
+   Fast Refresh invalidation seam without changing readiness semantics. Commit
+   `1af12da` removes the remaining clean-load Vite warning by bundling the exact
+   published preview manifest under `src` while keeping the public copy in
+   lockstep through generation and verification; all 21 preview artifacts and
+   the two manifest copies are now verified together.
 
 ## Remaining integration and production work
 
