@@ -381,11 +381,89 @@ describe("FabricArtboard lifecycle", () => {
     expect(onTextEditingStart).toHaveBeenCalledWith(textNode.id)
   })
 
+  it("keeps the last good frame visible while an incremental document sync settles", async () => {
+    const textNode = quotationStarter.document.nodes.find(
+      (node) => node.type === "text"
+    )
+    if (!textNode) throw new Error("Expected a text node fixture")
+    const updateSync = deferred<void>()
+    let syncCount = 0
+    const adapter = fakeAdapter({
+      sync: vi.fn(async () => {
+        syncCount += 1
+        if (syncCount === 2) await updateSync.promise
+      }),
+    })
+    const loadAdapter = async () => adapterModule(() => adapter)
+
+    await act(async () => {
+      root.render(
+        <FabricArtboard {...baseProps} runtimeOptions={{ loadAdapter }} />
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    expect(
+      host.querySelector('[data-canvas-runtime-state="ready"]')
+    ).not.toBeNull()
+
+    await act(async () => {
+      root.render(
+        <FabricArtboard
+          {...baseProps}
+          interactive={false}
+          runtimeOptions={{ loadAdapter }}
+        />
+      )
+      await Promise.resolve()
+    })
+    expect(adapter.sync).toHaveBeenCalledTimes(1)
+    expect(adapter.cancelTextEditing).toHaveBeenCalled()
+    expect(adapter.cancelTransform).toHaveBeenCalled()
+
+    const selection = {
+      pageId: quotationStarter.document.pages[0].id,
+      nodeIds: [textNode.id],
+    }
+    await act(async () => {
+      root.render(
+        <FabricArtboard
+          {...baseProps}
+          document={{
+            ...quotationStarter.document,
+            revision: quotationStarter.document.revision + 1,
+          }}
+          selection={selection}
+          interactive
+          runtimeOptions={{ loadAdapter }}
+        />
+      )
+      await Promise.resolve()
+    })
+
+    expect(adapter.sync).toHaveBeenCalledTimes(2)
+    expect(
+      host.querySelector('[data-canvas-runtime-state="ready"]')
+    ).not.toBeNull()
+    expect(host.querySelector('[role="status"]')).toBeNull()
+
+    await act(async () => {
+      updateSync.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(adapter.select).toHaveBeenLastCalledWith(selection)
+    expect(host.querySelector('[data-node-outline="selection"]')).not.toBeNull()
+  })
+
   it("removes duplicate selection chrome while direct text editing is active", async () => {
     const textNode = quotationStarter.document.nodes.find(
       (node) => node.type === "text"
     )
-    if (!textNode || textNode.type !== "text") {
+    if (!textNode) {
       throw new Error("Expected an editable text node fixture")
     }
     let adapterEvents: CanvasAdapterEvents | undefined

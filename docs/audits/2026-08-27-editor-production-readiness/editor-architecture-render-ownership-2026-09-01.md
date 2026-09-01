@@ -341,3 +341,39 @@ hook return object or artboard props, merge the architecture branch first, then
 reapply visual work against the unchanged public editor methods. No CSS,
 Inspector component, route shell, page-filmstrip, page-workspace UI, or
 design-system file belongs in this branch.
+
+## 2026-09-01 post-integration image-sync incident
+
+Status: repaired and live-verified
+
+The first insertion of a curated image exposed two gaps in the accepted render
+ownership contract. A document invalidation waited on the controller's prior
+promise even after its caller had aborted, so one non-cooperative or delayed
+adapter operation could keep every later update for that page queued. At the
+same time, `FabricArtboard` discarded its ready identity and covered the last
+good frame with a white blocking `Preparing canvas…` surface for every normal
+incremental document edit. Undo or redo could appear to repair the image only
+because it entered a later queue generation.
+
+The repair makes abort settlement part of the controller contract around both
+font preparation and adapter synchronization, allowing queued work to advance
+even if the abandoned operation does not settle itself. The artboard now keeps
+its last good frame interactive during an incremental sync, reserves the
+blocking preparation surface for startup and explicit retry, reapplies the
+latest selection after synchronization, and no longer treats changes to
+interactivity or resource-token metadata as reasons to resynchronize the
+document. Interactivity remains a separate named adapter concern.
+
+Regression evidence:
+
+- controller coverage proves an aborted adapter promise that never settles
+  cannot strand the next document invalidation;
+- mounted artboard coverage proves an incremental update preserves the ready
+  frame and reapplies the exact selection after synchronization;
+- the focused controller, lifecycle, library-media action, and picker-session
+  suites pass 29/29 under the supported bundled Node runtime;
+- Studio typecheck, scoped ESLint, Prettier, and `git diff --check` pass;
+- a clean live run on port 3001 removed all prior test images, reloaded the
+  persisted two-page document, inserted `Sandstone arches` as a new action,
+  and confirmed that both artboards remained ready while the decoded image and
+  its selected frame appeared on the active page.

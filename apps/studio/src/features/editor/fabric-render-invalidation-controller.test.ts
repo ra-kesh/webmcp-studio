@@ -97,6 +97,36 @@ describe("FabricRenderInvalidationController", () => {
     expect(controller.getSnapshot().attached).toBe(false)
   })
 
+  it("releases queued document work when an adapter ignores cancellation", async () => {
+    const controller = new FabricRenderInvalidationController()
+    const firstNeverSettles = new Promise<void>(() => undefined)
+    const sync = vi
+      .fn<CanvasAdapter["sync"]>()
+      .mockImplementationOnce(() => firstNeverSettles)
+      .mockResolvedValueOnce(undefined)
+    const { adapter } = adapterMock()
+    adapter.sync = sync
+    controller.attach(adapter)
+    const firstController = new AbortController()
+
+    const first = controller.invalidateDocument({
+      document: renderConformanceDocument,
+      pageId: renderConformanceDocument.pages[0].id,
+      signal: firstController.signal,
+    })
+    const second = controller.invalidateDocument({
+      document: renderConformanceDocument,
+      pageId: renderConformanceDocument.pages[0].id,
+    })
+
+    await Promise.resolve()
+    firstController.abort(new DOMException("Superseded", "AbortError"))
+
+    await expect(first).rejects.toMatchObject({ name: "AbortError" })
+    await expect(second).resolves.toBe(true)
+    expect(sync).toHaveBeenCalledTimes(2)
+  })
+
   it("does not let an old adapter detach its replacement", () => {
     const controller = new FabricRenderInvalidationController()
     const first = adapterMock().adapter

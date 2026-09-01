@@ -219,6 +219,7 @@ export const FabricArtboard = forwardRef<
     textEditingNodeId,
     imageCropMode,
     interactive,
+    selection,
   })
   const currentImageSourceByNodeIdRef = useRef(new Map<string, string>())
   const currentImageResourceTokenByNodeIdRef = useRef(
@@ -231,6 +232,7 @@ export const FabricArtboard = forwardRef<
     createCanvasRuntimeState()
   )
   const [readyPageId, setReadyPageId] = useState<string | null>(null)
+  const lastGoodFramePageIdRef = useRef<string | null>(null)
   const [activeTextEditingNodeId, setActiveTextEditingNodeId] = useState<
     string | null
   >(null)
@@ -255,6 +257,7 @@ export const FabricArtboard = forwardRef<
     textEditingNodeId,
     imageCropMode,
     interactive,
+    selection,
   }
   const runtimeIdentityRef = useRef({
     documentId: document.id,
@@ -403,6 +406,8 @@ export const FabricArtboard = forwardRef<
   const retryImageSources = useCallback(() => {
     reportedImageSourceStateRef.current.clear()
     reportAllCurrentImageSources("loading")
+    lastGoodFramePageIdRef.current = null
+    setReadyPageId(null)
     setRuntime((current) =>
       reduceCanvasRuntimeState(current, { type: "retry" })
     )
@@ -669,6 +674,12 @@ export const FabricArtboard = forwardRef<
   }, [pageId, ready, renderController, snapTargets])
 
   useEffect(() => {
+    const adapter = renderController.adapter
+    if (!adapter) return
+    settleCanvasInteractivity(adapter, interactive)
+  }, [interactive, mountedAttempt, renderController])
+
+  useEffect(() => {
     if (mountedAttempt !== runtime.attempt) return
     const adapter = renderController.adapter
     if (!adapter) return
@@ -677,7 +688,6 @@ export const FabricArtboard = forwardRef<
       (candidate) => candidate.id === pageId
     )
     if (!syncPage) return
-    settleCanvasInteractivity(adapter, interactive)
     let active = true
     const isActive = () => active
     const attempt = runtime.attempt
@@ -708,16 +718,18 @@ export const FabricArtboard = forwardRef<
         reportImageSourceState({ ...state, readiness: "loading" })
       }
     }
-    callbacksRef.current.onRuntimeStateChange?.({
-      status: "preparing",
-      attempt,
-      ...identity,
-      stage: null,
-    })
-    setReadyPageId(null)
-    setRuntime((current) =>
-      reduceCanvasRuntimeState(current, { type: "preparing", attempt })
-    )
+    const hasLastGoodFrame = lastGoodFramePageIdRef.current === identity.pageId
+    if (!hasLastGoodFrame) {
+      callbacksRef.current.onRuntimeStateChange?.({
+        status: "preparing",
+        attempt,
+        ...identity,
+        stage: null,
+      })
+      setRuntime((current) =>
+        reduceCanvasRuntimeState(current, { type: "preparing", attempt })
+      )
+    }
     void renderController
       .invalidateDocument({
         document: syncDocument,
@@ -757,12 +769,18 @@ export const FabricArtboard = forwardRef<
             ? callbacksRef.current.imageCropMode
             : null
         )
+        renderController.invalidateSelection(
+          callbacksRef.current.interactive
+            ? callbacksRef.current.selection
+            : null
+        )
         callbacksRef.current.onRuntimeStateChange?.({
           status: "ready",
           attempt,
           ...identity,
           stage: null,
         })
+        lastGoodFramePageIdRef.current = identity.pageId
         setReadyPageId(identity.pageId)
         setRuntime((current) =>
           reduceCanvasRuntimeState(current, { type: "ready", attempt })
@@ -776,13 +794,15 @@ export const FabricArtboard = forwardRef<
           ...identity,
           stage: "sync",
         })
-        setRuntime((current) =>
-          reduceCanvasRuntimeState(current, {
-            type: "failed",
-            attempt,
-            stage: "sync",
-          })
-        )
+        if (!hasLastGoodFrame) {
+          setRuntime((current) =>
+            reduceCanvasRuntimeState(current, {
+              type: "failed",
+              attempt,
+              stage: "sync",
+            })
+          )
+        }
       })
       .finally(() => globalThis.clearTimeout(timeout))
     return () => {
@@ -793,13 +813,11 @@ export const FabricArtboard = forwardRef<
   }, [
     applyImageCropMode,
     effectiveDocumentSyncIdentity,
-    interactive,
     pageId,
     mountedAttempt,
     reportImageSourceState,
     renderController,
     runtime.attempt,
-    imageResourceTokens,
     syncTimeoutMs,
   ])
 

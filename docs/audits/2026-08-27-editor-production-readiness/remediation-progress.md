@@ -4077,3 +4077,22 @@ Status: **implemented and locally accepted**
 - The focused template and Recent-document suites pass 52/52 and Studio
   typecheck passes. A cache-free 375 px Lighthouse snapshot now reports 100 in
   all four audited categories with zero failed audits.
+
+## 2026-09-01 — First-image render queue repair
+
+Status: **implemented and live-accepted**
+
+- Reproduced the production symptom on port 3001: the first curated-image
+  insertion could leave only the active page under `Preparing canvas…`, while
+  undo/redo of the same command reached a later successful render.
+- The page render controller now races both preparation and adapter sync
+  against the owning abort signal, so abandoned work releases the serialized
+  queue. A regression uses an intentionally non-settling adapter operation and
+  proves that the next document invalidation still completes.
+- Incremental document edits retain the last good Fabric frame instead of
+  clearing readiness and mounting a blocking white overlay. Selection is
+  reapplied after the new frame settles, and interactivity changes no longer
+  cause document synchronization.
+- Focused tests pass 29/29, Studio typecheck and scoped lint pass, and a clean
+  first insertion after reload rendered the selected asset while both pages
+  remained in the ready state.

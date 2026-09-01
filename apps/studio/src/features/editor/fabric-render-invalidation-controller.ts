@@ -35,6 +35,29 @@ const emptyCounts = (): Record<FabricRenderInvalidationKind, number> => ({
   repaint: 0,
 })
 
+const settleWithAbort = <T>(operation: Promise<T>, signal?: AbortSignal) => {
+  if (!signal) return operation
+  signal.throwIfAborted()
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener("abort", onAbort)
+      reject(signal.reason)
+    }
+    const cleanUp = () => signal.removeEventListener("abort", onAbort)
+    signal.addEventListener("abort", onAbort, { once: true })
+    void operation.then(
+      (value) => {
+        cleanUp()
+        if (!signal.aborted) resolve(value)
+      },
+      (error: unknown) => {
+        cleanUp()
+        if (!signal.aborted) reject(error)
+      }
+    )
+  })
+}
+
 export class FabricRenderInvalidationController {
   #adapter: CanvasAdapter | null = null
   #attachment = 0
@@ -85,12 +108,12 @@ export class FabricRenderInvalidationController {
       if (this.#adapter !== adapter || this.#attachment !== attachment) {
         return false
       }
-      await prepare?.()
+      if (prepare) await settleWithAbort(prepare(), signal)
       signal?.throwIfAborted()
       if (this.#adapter !== adapter || this.#attachment !== attachment) {
         return false
       }
-      await adapter.sync(document, pageId, signal)
+      await settleWithAbort(adapter.sync(document, pageId, signal), signal)
       return this.#adapter === adapter && this.#attachment === attachment
     })
     this.#documentTail = pending.then(
