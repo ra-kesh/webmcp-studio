@@ -4,6 +4,8 @@ import type {
   CanvasRuntimeReport,
 } from "./fabric-artboard"
 import {
+  assertCanvasReplacementMutationAdmission,
+  captureCanvasReplacementMutationAdmission,
   canvasMountedDocumentMutationAdmitted,
   canvasPageMutationAdmitted,
   canvasPagesMutationAdmitted,
@@ -69,6 +71,36 @@ describe("canvas runtime mutation admission", () => {
       report(expected, "stale_error", 3)
     )
     expect(canvasPageMutationAdmitted(registry, expected)).toBe(false)
+  })
+
+  it("leases a ready replacement start without retaining the superseded render identity", () => {
+    const original = request("page-1", "page-1:original")
+    const replacementPreview = request("page-1", "page-1:replacement")
+    const originalRegistry = reduceCanvasRuntimeAdmission(
+      new Map(),
+      report(original, "ready", 2)
+    )
+    const lease = captureCanvasReplacementMutationAdmission(
+      originalRegistry,
+      original
+    )
+    const replacementRegistry = reduceCanvasRuntimeAdmission(
+      originalRegistry,
+      report(replacementPreview, "ready", 3)
+    )
+
+    expect(canvasPageMutationAdmitted(replacementRegistry, original)).toBe(
+      false
+    )
+    expect(
+      assertCanvasReplacementMutationAdmission(lease, original.documentId)
+    ).toBe(true)
+    expect(assertCanvasReplacementMutationAdmission(lease, "document-2")).toBe(
+      false
+    )
+    expect(
+      captureCanvasReplacementMutationAdmission(replacementRegistry, original)
+    ).toBeNull()
   })
 
   it("closes an old ready admission when the same page remounts at generation one", () => {

@@ -4349,3 +4349,30 @@ from the async editor architecture review are closed**
   outside Gate 7 lines.
 - Gate 7 started no server, browser, deployment, or port 3000 process. It did
   not modify or stage `studio-shell.tsx` or any capture artifact.
+
+## 2026-09-01: P0 image-replacement self-admission repair
+
+Status: **curated image replacement commits through the real canvas without
+blanking or rejecting its own preview**
+
+- Reproduced replacement through the selected-image toolbar and real media
+  picker on port 3001. Selection stayed rendered, but choosing `Olive
+  botanical` failed with `The editor canvas changed before the image was
+  ready` even though both preview renderers had completed.
+- The shell captured the pre-preview Fabric sync identity and demanded that
+  same identity again at commit. Replacement intentionally installs a new
+  preview identity, so the generic edit admission invalidated its own valid
+  operation.
+- Added a replacement-specific canvas admission lease. The canvas must be
+  exact-ready when replacement begins; after that, the existing replacement
+  coordinator owns Fabric and React readiness, while the canonical asset
+  anchor continues to reject real document, page, revision, and target drift.
+  Ordinary editor mutations retain the stricter exact-identity admission.
+- Background-removal output uses the same replacement lease because it enters
+  the identical renderer-preview and canonical replacement boundary.
+- Focused canvas-runtime tests pass 5/5 and the three changed files pass scoped
+  ESLint, Prettier, and `git diff --check`. Live verification replaced the
+  selected image, closed the picker, advanced revision 23 to 24, settled
+  `All changes saved`, retained both canvases with no preparing/blank state,
+  and produced no new console warning or error. Undo restored the original
+  source and revision 23.

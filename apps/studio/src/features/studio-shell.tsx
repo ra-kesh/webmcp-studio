@@ -181,6 +181,8 @@ import type {
   ImageSourceStateChange,
 } from "./editor/fabric-artboard"
 import {
+  assertCanvasReplacementMutationAdmission,
+  captureCanvasReplacementMutationAdmission,
   canvasMountedDocumentMutationAdmitted,
   canvasPageMutationAdmitted,
   canvasPagesMutationAdmitted,
@@ -1171,23 +1173,44 @@ export function StudioShell({
       )
     }
   }, [])
+  const captureCanvasReplacementCommitAdmission = useCallback(
+    (pageId: string) => {
+      const lease = captureCanvasReplacementMutationAdmission(
+        canvasRuntimeAdmissionSnapshotRef.current,
+        canvasRequestSnapshotRef.current.get(pageId)
+      )
+      return () =>
+        assertCanvasReplacementMutationAdmission(
+          lease,
+          canvasDocumentIdSnapshotRef.current
+        )
+    },
+    []
+  )
   const performCanvasAdmittedLibraryMediaAction = useCallback(
     (
       request: LibraryMediaActionPreparationRequest,
       options?: PerformLibraryMediaActionOptions
     ) => {
-      const runtimeAdmission = captureCanvasCommitAdmission(
-        request.target.type === "assign_field"
-          ? undefined
-          : request.target.pageId
-      )
+      const runtimeAdmission =
+        request.target.type === "replace"
+          ? captureCanvasReplacementCommitAdmission(request.target.pageId)
+          : captureCanvasCommitAdmission(
+              request.target.type === "assign_field"
+                ? undefined
+                : request.target.pageId
+            )
       return editor.performLibraryMediaAction(request, {
         ...options,
         admitCommit: () =>
           runtimeAdmission() && (options?.admitCommit?.() ?? true),
       })
     },
-    [captureCanvasCommitAdmission, editor.performLibraryMediaAction]
+    [
+      captureCanvasCommitAdmission,
+      captureCanvasReplacementCommitAdmission,
+      editor.performLibraryMediaAction,
+    ]
   )
   const mediaPickerSession = useLibraryMediaPickerSession({
     documentId: editor.document.id,
@@ -3616,7 +3639,7 @@ export function StudioShell({
 
   const applyBackgroundRemovalOutput = useCallback(
     async (nodeId: string, outputAssetId: string) => {
-      const admitCommit = captureCanvasCommitAdmission(activePage.id)
+      const admitCommit = captureCanvasReplacementCommitAdmission(activePage.id)
       if (!admitCommit()) return false
       const asset = await getManagedMedia(outputAssetId)
       if (!asset || asset.status !== "ready" || !asset.selectable) return false
@@ -3637,7 +3660,7 @@ export function StudioShell({
     },
     [
       activePage.id,
-      captureCanvasCommitAdmission,
+      captureCanvasReplacementCommitAdmission,
       editor.performLibraryMediaAction,
     ]
   )

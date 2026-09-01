@@ -56,6 +56,24 @@ export const canvasPageMutationAdmitted = (
   )
 }
 
+export type CanvasReplacementMutationAdmissionLease = Readonly<{
+  documentId: string
+  pageId: string
+}>
+
+export const captureCanvasReplacementMutationAdmission = (
+  registry: CanvasRuntimeAdmissionRegistry,
+  requested: CanvasDocumentSyncIdentity | undefined
+): CanvasReplacementMutationAdmissionLease | null =>
+  requested && canvasPageMutationAdmitted(registry, requested)
+    ? { documentId: requested.documentId, pageId: requested.pageId }
+    : null
+
+export const assertCanvasReplacementMutationAdmission = (
+  lease: CanvasReplacementMutationAdmissionLease | null,
+  currentDocumentId: string
+) => Boolean(lease && lease.documentId === currentDocumentId)
+
 export const canvasPagesMutationAdmitted = (
   registry: CanvasRuntimeAdmissionRegistry,
   requests: readonly CanvasDocumentSyncIdentity[]
