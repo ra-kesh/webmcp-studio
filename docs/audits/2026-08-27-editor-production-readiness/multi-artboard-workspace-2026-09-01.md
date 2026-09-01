@@ -50,3 +50,22 @@ Preserve concurrent Inspector prop/API changes around both `InspectorSidebar` ca
 - Render conformance structure passes for 11 canonical nodes, 3 Fabric text projections, and 6 synchronous non-image Fabric objects.
 
 The package-wide Studio run completed with 1814 passing and 21 failing tests. The failures are outside this feature surface and include timing-sensitive persistence/virtualization/asset tests plus known baseline visual-contract and thumbnail-server assertions. The package-wide editor run completed with 378 passing and five timing failures; all five passed when rerun serially without concurrent package load. No deployment was performed.
+
+## 2026-09-02 File rail consolidation
+
+Studio's document rail now follows OpenPencil's current `LayersPanel.vue`
+ownership model: page navigation and the layer tree are persistent vertical
+regions in one File workspace instead of mutually exclusive Pages and Layers
+tabs. Templates and Assets remain separate Studio workspaces because they own
+catalog and insertion workflows that do not belong to the document tree.
+
+- The File workspace uses the reference's 30/70 default split, with Pages above
+  Layers and independent scrolling in both regions.
+- Existing page centering, add-page, keyboard navigation, virtualized layer
+  tree, selection, search, rename, lock/visibility and reorder behavior remain
+  on their existing components.
+- A legacy in-memory `pages` tab value maps to File during hot reload, avoiding
+  a blank panel during the cutover.
+- Focused mounted evidence passes 4/4, Studio typecheck passes, and a live
+  1280×720 check on port 3001 confirmed both regions, their independent bounds,
+  and no console errors.

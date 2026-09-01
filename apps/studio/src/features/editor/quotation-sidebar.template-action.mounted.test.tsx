@@ -238,4 +238,36 @@ describe("QuotationSidebar exact template actions", () => {
     await act(async () => confirmation?.click())
     expect(onTextEditabilityUpgrade).toHaveBeenCalledOnce()
   })
+
+  it("stacks Pages above Layers in one File workspace", async () => {
+    await act(async () => {
+      root.render(<QuotationSidebar {...props({ activePanel: "layers" })} />)
+    })
+
+    const tabs = [
+      ...document.body.querySelectorAll<HTMLElement>('[role="tab"]'),
+    ]
+    expect(tabs.map((tab) => tab.textContent?.trim())).toEqual([
+      "Templates",
+      "Assets",
+      "File",
+    ])
+
+    const pages = document.body.querySelector<HTMLElement>(
+      '[data-page-navigator="true"]'
+    )
+    const layers = document.body.querySelector<HTMLElement>(
+      'section[aria-label="Layers"]'
+    )
+    expect(pages).not.toBeNull()
+    expect(layers).not.toBeNull()
+    expect(
+      pages && layers
+        ? Boolean(
+            pages.compareDocumentPosition(layers) &
+            Node.DOCUMENT_POSITION_FOLLOWING
+          )
+        : false
+    ).toBe(true)
+  })
 })

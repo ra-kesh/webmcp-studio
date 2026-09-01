@@ -16,6 +16,7 @@ import {
 import { Button } from "@webmcp/ui/components/button"
 import {
   EditorPanelNotice,
+  EditorPanelSectionHeader,
   EditorPanelTabsList,
 } from "@webmcp/ui/components/editor-chrome"
 import { Tabs, TabsContent, TabsTrigger } from "@webmcp/ui/components/tabs"
@@ -158,6 +159,7 @@ export function QuotationSidebar({
     useState<ResolvedTemplateAction | null>(null)
   const [textEditabilityConfirmationOpen, setTextEditabilityConfirmationOpen] =
     useState(false)
+  const visiblePanel = activePanel === "pages" ? "layers" : activePanel
   const textEditabilityUpgradeAvailable =
     textEditabilityUpgradeLayerCount !== null &&
     textEditabilityUpgradeLayerCount !== undefined
@@ -232,7 +234,7 @@ export function QuotationSidebar({
       )}
     >
       <Tabs
-        value={activePanel}
+        value={visiblePanel}
         onValueChange={(value) =>
           onActivePanelChange(value as DocumentPanelTab)
         }
@@ -251,11 +253,8 @@ export function QuotationSidebar({
           >
             Assets
           </TabsTrigger>
-          <TabsTrigger value="pages" className="flex-none px-2.5 text-[11px]">
-            Pages
-          </TabsTrigger>
           <TabsTrigger value="layers" className="flex-none px-2.5 text-[11px]">
-            Layers
+            File
           </TabsTrigger>
         </EditorPanelTabsList>
         <TabsContent
@@ -358,39 +357,42 @@ export function QuotationSidebar({
           />
         </TabsContent>
         <TabsContent
-          value="pages"
-          className="flex min-h-0 flex-col overflow-hidden"
-        >
-          <PageNavigator
-            document={document}
-            activePageId={activePageId}
-            disabled={reviewPending}
-            onSelectPage={onSelectPage}
-            onAddPage={onAddPage}
-          />
-        </TabsContent>
-        <TabsContent
           value="layers"
           className="flex min-h-0 flex-col overflow-hidden"
         >
-          <LayerTree
-            key={`${document.id}:${activePageId}`}
-            document={document}
-            activePageId={activePageId}
-            selection={selection}
-            reviewPending={reviewPending}
-            onSelectionChange={onSelectionChange}
-            onFocusNode={onFocusNode}
-            onHoverNode={onHoverNode}
-            onRenameNode={onRenameNode}
-            onRenameGroup={onRenameGroup}
-            onUpdateNodes={onUpdateLayerNodes}
-            onMoveLayer={onMoveLayer}
-            onDeleteNodes={onDeleteLayerNodes}
-            productCommandContext={productCommandContext}
-            productCommandRuntime={productCommandRuntime}
-            compact={compact}
-          />
+          <div className="grid min-h-0 flex-1 grid-rows-[minmax(8rem,30%)_1px_minmax(12rem,70%)] overflow-hidden">
+            <div className="flex min-h-0 flex-col overflow-hidden">
+              <PageNavigator
+                document={document}
+                activePageId={activePageId}
+                disabled={reviewPending}
+                onSelectPage={onSelectPage}
+                onAddPage={onAddPage}
+              />
+            </div>
+            <div aria-hidden="true" className="bg-border" />
+            <div className="flex min-h-0 flex-col overflow-hidden">
+              <EditorPanelSectionHeader>Layers</EditorPanelSectionHeader>
+              <LayerTree
+                key={`${document.id}:${activePageId}`}
+                document={document}
+                activePageId={activePageId}
+                selection={selection}
+                reviewPending={reviewPending}
+                onSelectionChange={onSelectionChange}
+                onFocusNode={onFocusNode}
+                onHoverNode={onHoverNode}
+                onRenameNode={onRenameNode}
+                onRenameGroup={onRenameGroup}
+                onUpdateNodes={onUpdateLayerNodes}
+                onMoveLayer={onMoveLayer}
+                onDeleteNodes={onDeleteLayerNodes}
+                productCommandContext={productCommandContext}
+                productCommandRuntime={productCommandRuntime}
+                compact={compact}
+              />
+            </div>
+          </div>
         </TabsContent>
       </Tabs>
 
