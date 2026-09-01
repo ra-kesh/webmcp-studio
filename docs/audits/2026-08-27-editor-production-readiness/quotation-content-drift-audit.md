@@ -123,3 +123,54 @@ scoped ESLint passes, and `git diff --check` passes.
 - Move browser-local uploaded-image bytes to shared persistence.
 - Add separate semantic content migrations for later composer changes; schema
   defaults alone must never be treated as proof of compatibility.
+
+## Explicit quotation text editability — completed 2026-09-01
+
+- Quotation composer `4` emits editable text layers while keeping rectangles,
+  dividers, and other structural layers locked. New quotations therefore use
+  the same direct canvas text-editing path as user-created text.
+- Immutable quotation template/composer version `3` remains resolvable for
+  persisted documents and is retired from new creation. The meaning of the
+  historical identity was not changed in place.
+- Known composer-3 quotations receive an explicit **Enable text editing**
+  offer with the exact number of affected text layers. Nothing changes during
+  decode, load, preview, or analysis; the user must confirm the operation.
+- Eligibility is anchored to document ID and revision and requires the expected
+  quotation structure. The migration unlocks only composer-owned text targets,
+  preserves custom locks and structural locks, and fails closed when the
+  document no longer matches the analyzed revision.
+- Confirmation updates the document and its composition/template provenance as
+  one source-aware history transaction. Undo restores the exact prior document
+  and source context; Redo reapplies it; normal draft persistence stores the
+  upgraded identity and content.
+- Catalog preview identity advanced with the immutable v4 template versions.
+  Because the visual output is byte-equivalent (only editability metadata
+  changed), the verified v3 PNG bytes were retained under a new immutable
+  generation instead of inventing a visual difference.
+
+Focused evidence: document composer/migration coverage passes **46/46**, the
+Studio confirmation and mounted history/persistence slice passes **99/99**,
+both affected package typechecks pass, preview-manifest verification covers all
+**21/21** templates, and `git diff --check` passes.
+
+### Direct-edit atomicity evidence — completed 2026-09-01
+
+- The real generated quotation title is editable through Fabric's direct canvas
+  textarea, not only through the inspector or a synthetic inserted-text case.
+- A direct edit is one canonical operation. `text:editing:exited` owns the
+  content patch; an unowned trailing Fabric `object:modified` event may not
+  publish intrinsic Textbox geometry as a second history entry.
+- Genuine Textbox moves, resizes, and rotations remain admitted through an
+  explicit `before:transform` session, so suppressing renderer leakage does not
+  disable normal geometry editing.
+- The browser regression proves the bound quotation field and canvas text node
+  change together, `operationVersion` advances by exactly one, one Undo restores
+  both, Redo reapplies both, IndexedDB stores both, and the same document URL
+  reloads with the edited value available for direct editing again.
+
+Final focused evidence: editor adapter coverage passes **110/110**, quotation
+document coverage passes **41/41**, the Studio mounted confirmation and
+history/persistence slice passes **101/101**, the exact Playwright
+edit/save/Undo/Redo/reload journey passes **1/1**, all three affected package
+typechecks pass, preview-manifest verification covers **21/21** templates, and
+`git diff --check` passes.

@@ -5191,6 +5191,13 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     if (this.eventsSuppressed) return
     const context = this.transformContext()
     const transformSession = this.transformSessions.active
+    // Fabric emits object:modified when a Textbox leaves editing after its
+    // intrinsic dimensions have changed. Direct text editing is already owned
+    // by onTextEditingExited, which emits one content patch (and lets the host
+    // translate a field binding plus rich-text metadata into one transaction).
+    // Only a real before:transform session may publish Textbox geometry here;
+    // otherwise the exit would create a second history entry for one edit.
+    if (target instanceof Textbox && !transformSession) return
     if (transformSession?.phase === "cancelled") {
       // cancelTransform owns restoration after endCurrentTransform returns.
       return

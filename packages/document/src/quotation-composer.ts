@@ -5,7 +5,9 @@ import {
   type QuotationRenderPayloadV1,
 } from "./quotation-contract"
 
-export const QUOTATION_COMPOSER_VERSION = 3
+export const QUOTATION_COMPOSER_V3_VERSION = 3
+export const QUOTATION_COMPOSER_V4_VERSION = 4
+export const QUOTATION_COMPOSER_VERSION = QUOTATION_COMPOSER_V4_VERSION
 
 const PAGE_WIDTH = 1240
 const PAGE_HEIGHT = 1754
@@ -164,7 +166,8 @@ class QuotationCanvasWriter {
 
   constructor(
     readonly payload: QuotationRenderPayloadV1,
-    readonly template: QuotationTemplate
+    readonly template: QuotationTemplate,
+    readonly defaultTextLocked: boolean
   ) {}
 
   private id(prefix: string) {
@@ -288,7 +291,7 @@ class QuotationCanvasWriter {
       rotation: 0,
       opacity: 1,
       visible: true,
-      locked: options.locked ?? true,
+      locked: options.locked ?? this.defaultTextLocked,
       text,
       runs: [],
       paragraphs: [],
@@ -729,7 +732,10 @@ class QuotationCanvasWriter {
   }
 }
 
-function buildQuotation(writer: QuotationCanvasWriter) {
+// Composer 3 and 4 share this exact structural builder. Composer 4 changed only
+// the default text lock. Later structural composer versions must add a new
+// versioned builder instead of changing the meaning of this one.
+function buildQuotationV3V4(writer: QuotationCanvasWriter) {
   const { payload } = writer
   const { document } = payload
   const eventByKey = new Map(document.events.map((event) => [event.key, event]))
@@ -899,17 +905,23 @@ function buildQuotation(writer: QuotationCanvasWriter) {
   return cover
 }
 
-export function composeTracedQuotationDocument(
+function composeTracedQuotationDocumentV3V4(
   input: QuotationRenderPayloadV1,
-  templateId: QuotationTemplateId = "editorial-olive"
+  templateId: QuotationTemplateId,
+  composerVersion:
+    typeof QUOTATION_COMPOSER_V3_VERSION | typeof QUOTATION_COMPOSER_V4_VERSION
 ): TracedQuotationDocument {
   const payload = quotationRenderPayloadV1Schema.parse(input)
   const template =
     quotationTemplates.find((candidate) => candidate.id === templateId) ??
     quotationTemplates[0]
   if (!template) throw new Error("No quotation templates are registered.")
-  const writer = new QuotationCanvasWriter(payload, template)
-  const cover = buildQuotation(writer)
+  const writer = new QuotationCanvasWriter(
+    payload,
+    template,
+    composerVersion === QUOTATION_COMPOSER_V3_VERSION
+  )
+  const cover = buildQuotationV3V4(writer)
   const now = payload.quote.createdAt
   const document = assertValidDocument({
     schemaVersion: 5,
@@ -965,9 +977,59 @@ export function composeTracedQuotationDocument(
   }
 }
 
+export function composeTracedQuotationDocumentV4(
+  input: QuotationRenderPayloadV1,
+  templateId: QuotationTemplateId = "editorial-olive"
+): TracedQuotationDocument {
+  return composeTracedQuotationDocumentV3V4(
+    input,
+    templateId,
+    QUOTATION_COMPOSER_V4_VERSION
+  )
+}
+
+export function composeQuotationDocumentV3(
+  input: QuotationRenderPayloadV1,
+  templateId: QuotationTemplateId = "editorial-olive"
+): Document {
+  return composeTracedQuotationDocumentV3V4(
+    input,
+    templateId,
+    QUOTATION_COMPOSER_V3_VERSION
+  ).document
+}
+
+export function composeQuotationDocumentV4(
+  input: QuotationRenderPayloadV1,
+  templateId: QuotationTemplateId = "editorial-olive"
+): Document {
+  return composeTracedQuotationDocumentV4(input, templateId).document
+}
+
+export function composeQuotationDocumentForVersion(
+  input: QuotationRenderPayloadV1,
+  templateId: QuotationTemplateId,
+  composerVersion: number
+): Document | null {
+  if (composerVersion === QUOTATION_COMPOSER_V3_VERSION) {
+    return composeQuotationDocumentV3(input, templateId)
+  }
+  if (composerVersion === QUOTATION_COMPOSER_V4_VERSION) {
+    return composeQuotationDocumentV4(input, templateId)
+  }
+  return null
+}
+
+export function composeTracedQuotationDocument(
+  input: QuotationRenderPayloadV1,
+  templateId: QuotationTemplateId = "editorial-olive"
+): TracedQuotationDocument {
+  return composeTracedQuotationDocumentV4(input, templateId)
+}
+
 export function composeQuotationDocument(
   input: QuotationRenderPayloadV1,
   templateId: QuotationTemplateId = "editorial-olive"
 ): Document {
-  return composeTracedQuotationDocument(input, templateId).document
+  return composeQuotationDocumentV4(input, templateId)
 }

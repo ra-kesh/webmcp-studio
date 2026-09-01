@@ -31,6 +31,7 @@ import type {
 } from "./document-draft-repository"
 import { DocumentDraftSaveController } from "./document-draft-save-controller"
 import { quotationStarter } from "./quotation-starter"
+import { createKnownQuotationComposition } from "./quotation-composition-context"
 import {
   StudioPersistenceTestWrapper,
   useStudioPersistence,
@@ -3186,7 +3187,7 @@ describe.sequential("useDocumentEditor repository persistence", () => {
         {
           itemKind: "template",
           id: "quotation-midnight-film",
-          version: 3,
+          version: 4,
         },
         {
           resolve: captured.current!.resolveCreateFromLibraryTemplate,
@@ -3208,7 +3209,7 @@ describe.sequential("useDocumentEditor repository persistence", () => {
       {
         itemKind: "template",
         id: "quotation-midnight-film",
-        version: 3,
+        version: 4,
       },
       "Midnight Film",
       "create",
@@ -3277,7 +3278,7 @@ describe.sequential("useDocumentEditor repository persistence", () => {
         {
           itemKind: "template",
           id: "quotation-midnight-film",
-          version: 3,
+          version: 4,
         },
         {
           resolve: captured.current!.resolveCreateFromLibraryTemplate,
@@ -3356,7 +3357,7 @@ describe.sequential("useDocumentEditor repository persistence", () => {
       resolved = await captured.current!.resolveCreateFromLibraryTemplate({
         itemKind: "template",
         id: "quotation-midnight-film",
-        version: 3,
+        version: 4,
       })
     })
     expect(resolved).not.toBeNull()
@@ -3415,7 +3416,7 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     expect(captured.current!.document.id).not.toBe(envelope.document.id)
     expect(captured.current!.activeDesignTemplate).toEqual({
       id: "quotation-midnight-film",
-      version: 3,
+      version: 4,
     })
   })
 
@@ -4371,7 +4372,7 @@ describe.sequential("useDocumentEditor repository persistence", () => {
         await applyExactLibraryTemplate(
           captured.current!,
           "quotation-midnight-film",
-          3
+          4
         )
       ).toBe(true)
       expect(await captured.current!.flushActiveDraft()).toBe(true)
@@ -4575,6 +4576,152 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     expect(captured.current?.quotationGroupOrganization.status).toBe(
       "already_current"
     )
+    await act(async () => {
+      expect(await captured.current?.flushActiveDraft()).toBe(true)
+    })
+    const durable = await readRecord(hookRepository, envelope.document.id)
+    expect(durable.summary.recordVersion).toBe(
+      created.summary.recordVersion + 1
+    )
+    expect(durable.envelope).toEqual(upgraded)
+  })
+
+  it("explicitly unlocks composer-v3 quotation text as one undoable durable change", async () => {
+    const envelope = quotationEnvelope()
+    if (!envelope.sourceContext) {
+      throw new Error("Expected quotation source context fixture")
+    }
+    envelope.document = {
+      ...structuredClone(envelope.document),
+      nodes: envelope.document.nodes.map((node) =>
+        node.type === "text" ? { ...node, locked: true } : node
+      ),
+    }
+    envelope.sourceContext.designTemplate = {
+      id: "quotation-editorial-olive",
+      version: 3,
+    }
+    envelope.sourceContext.composition = await createKnownQuotationComposition(
+      quotationStarter.source,
+      { id: "quotation-editorial-olive", version: 3 },
+      3
+    )
+    const { captured, created, hookRepository } = await openEnvelope(
+      envelope,
+      "quotation-text-editability"
+    )
+    expect(captured.current?.quotationTextEditability).toMatchObject({
+      status: "available",
+      impact: { unlockTextLayerCount: expect.any(Number) },
+    })
+    const before = currentEnvelope(captured.current!)
+
+    await act(async () => {
+      expect(captured.current?.upgradeQuotationTextEditability()).toBe(true)
+    })
+
+    const upgraded = currentEnvelope(captured.current!)
+    expect(
+      upgraded.document.nodes.filter((node) => node.type === "text")
+    ).not.toHaveLength(0)
+    expect(
+      upgraded.document.nodes
+        .filter((node) => node.type === "text")
+        .every((node) => !node.locked)
+    ).toBe(true)
+    expect(
+      upgraded.document.nodes
+        .filter((node) => node.type !== "text")
+        .every((node) => node.locked)
+    ).toBe(true)
+    expect(upgraded.sourceContext?.composition).toMatchObject({
+      status: "known",
+      composerVersion: 4,
+      template: { id: "quotation-editorial-olive", version: 4 },
+    })
+    expect(upgraded.sourceContext?.designTemplate).toEqual({
+      id: "quotation-editorial-olive",
+      version: 4,
+    })
+
+    await act(async () => captured.current?.undo())
+    expect(currentEnvelope(captured.current!)).toEqual(before)
+    expect(captured.current?.quotationTextEditability.status).toBe("available")
+
+    await act(async () => captured.current?.redo())
+    expect(currentEnvelope(captured.current!)).toEqual(upgraded)
+    expect(captured.current?.quotationTextEditability.status).toBe(
+      "already_current"
+    )
+    await act(async () => {
+      expect(await captured.current?.flushActiveDraft()).toBe(true)
+    })
+    const durable = await readRecord(hookRepository, envelope.document.id)
+    expect(durable.summary.recordVersion).toBe(
+      created.summary.recordVersion + 1
+    )
+    expect(durable.envelope).toEqual(upgraded)
+  })
+
+  it("explicitly records composer-v4 provenance when composer-v3 text is already editable", async () => {
+    const envelope = quotationEnvelope()
+    if (!envelope.sourceContext) {
+      throw new Error("Expected quotation source context fixture")
+    }
+    envelope.document = {
+      ...structuredClone(envelope.document),
+      nodes: envelope.document.nodes.map((node) =>
+        node.type === "text" ? { ...node, locked: false } : node
+      ),
+    }
+    envelope.sourceContext.designTemplate = {
+      id: "quotation-editorial-olive",
+      version: 3,
+    }
+    envelope.sourceContext.composition = await createKnownQuotationComposition(
+      quotationStarter.source,
+      { id: "quotation-editorial-olive", version: 3 },
+      3
+    )
+    const { captured, created, hookRepository } = await openEnvelope(
+      envelope,
+      "quotation-text-editability-zero-target"
+    )
+    expect(captured.current?.quotationTextEditability).toMatchObject({
+      status: "available",
+      targets: [],
+      impact: { unlockTextLayerCount: 0 },
+    })
+    const before = currentEnvelope(captured.current!)
+    const beforeLocks = before.document.nodes.map((node) => ({
+      id: node.id,
+      locked: node.locked,
+    }))
+
+    await act(async () => {
+      expect(captured.current?.upgradeQuotationTextEditability()).toBe(true)
+    })
+
+    const upgraded = currentEnvelope(captured.current!)
+    expect(
+      upgraded.document.nodes.map((node) => ({
+        id: node.id,
+        locked: node.locked,
+      }))
+    ).toEqual(beforeLocks)
+    expect(upgraded.sourceContext?.composition).toMatchObject({
+      status: "known",
+      composerVersion: 4,
+      template: { id: "quotation-editorial-olive", version: 4 },
+    })
+    expect(upgraded.sourceContext?.designTemplate).toEqual({
+      id: "quotation-editorial-olive",
+      version: 4,
+    })
+    await act(async () => captured.current?.undo())
+    expect(currentEnvelope(captured.current!)).toEqual(before)
+    await act(async () => captured.current?.redo())
+    expect(currentEnvelope(captured.current!)).toEqual(upgraded)
     await act(async () => {
       expect(await captured.current?.flushActiveDraft()).toBe(true)
     })

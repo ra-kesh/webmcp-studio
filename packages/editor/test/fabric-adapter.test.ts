@@ -2772,7 +2772,8 @@ describe("Fabric document boundary", () => {
     expect(recordTextEdit(canonicalText, "text-1", "After")).toBeNull()
   })
 
-  it("uses the accepted direct edit as the baseline for an immediate re-entry", () => {
+  it("owns a direct edit through one exit patch and ignores Fabric's trailing modified event", () => {
+    setEnv(getNodeFabricEnv())
     const baseline = renderConformanceDocument.nodes.find(
       (candidate) => candidate.type === "text"
     )
@@ -2788,9 +2789,10 @@ describe("Fabric document boundary", () => {
     }
     const target = createFabricSyncObject(baseline)
     if (!(target instanceof Textbox)) throw new Error("Expected Textbox")
+    const onNodesChange = vi.fn(() => true)
     const adapter = new FabricCanvasAdapter({
       onSelectionChange: vi.fn(),
-      onNodesChange: vi.fn(() => true),
+      onNodesChange,
     })
     Reflect.set(adapter, "canvas", { requestRenderAll: vi.fn() })
     Reflect.get(adapter, "nodeIdByObject").set(target, baseline.id)
@@ -2807,6 +2809,11 @@ describe("Fabric document boundary", () => {
     target.text = draft.text
 
     Reflect.get(adapter, "onTextEditingExited")({ target })
+    expect(onNodesChange).toHaveBeenCalledOnce()
+    target.set({ height: target.height + 20 })
+    Reflect.get(adapter, "onObjectModified")({ target })
+    expect(onNodesChange).toHaveBeenCalledOnce()
+
     Reflect.get(adapter, "onTextEditingEntered")({ target })
 
     expect(Reflect.get(adapter, "textEditSession").baselineNode.text).toBe(

@@ -5368,6 +5368,12 @@ export function StudioShell({
                   layerOrganizationUpgradeAvailable={
                     editor.quotationGroupOrganization.status === "available"
                   }
+                  textEditabilityUpgradeLayerCount={
+                    editor.quotationTextEditability.status === "available"
+                      ? editor.quotationTextEditability.impact
+                          .unlockTextLayerCount
+                      : null
+                  }
                   reviewPending={Boolean(
                     editor.pendingChangeSet ||
                     pendingQuotationRefresh ||
@@ -5382,6 +5388,11 @@ export function StudioShell({
                     if (editor.upgradeQuotationLayerOrganization()) {
                       setDocumentPanelTab("layers")
                     }
+                  }}
+                  onTextEditabilityUpgrade={() => {
+                    if (!allCanvasMutationsAdmittedRef.current) return
+                    if (!commitActiveTextEditing()) return
+                    editor.upgradeQuotationTextEditability()
                   }}
                   onCreateFromTemplate={async (template) =>
                     (await requestNewDraft(
@@ -6141,6 +6152,12 @@ export function StudioShell({
                 layerOrganizationUpgradeAvailable={
                   editor.quotationGroupOrganization.status === "available"
                 }
+                textEditabilityUpgradeLayerCount={
+                  editor.quotationTextEditability.status === "available"
+                    ? editor.quotationTextEditability.impact
+                        .unlockTextLayerCount
+                    : null
+                }
                 reviewPending={Boolean(
                   editor.pendingChangeSet ||
                   pendingQuotationRefresh ||
@@ -6155,6 +6172,11 @@ export function StudioShell({
                   if (editor.upgradeQuotationLayerOrganization()) {
                     setDocumentPanelTab("layers")
                   }
+                }}
+                onTextEditabilityUpgrade={() => {
+                  if (!allCanvasMutationsAdmittedRef.current) return
+                  if (!commitActiveTextEditing()) return
+                  editor.upgradeQuotationTextEditability()
                 }}
                 onCreateFromTemplate={async (template) =>
                   (await requestNewDraft(

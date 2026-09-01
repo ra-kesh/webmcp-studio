@@ -88,6 +88,25 @@ describe("quotation composition", () => {
     expect(validateDocument(document)).toEqual([])
   })
 
+  it("keeps generated quotation text editable and structural decoration locked", () => {
+    const document = composeQuotationDocument(northstarQuotationPayload)
+    const textNodes = document.nodes.filter((node) => node.type === "text")
+    const structuralNodes = document.nodes.filter(
+      (node) => node.type === "rect" || node.type === "line"
+    )
+
+    expect(textNodes.length).toBeGreaterThan(0)
+    expect(textNodes.every((node) => node.locked === false)).toBe(true)
+    expect(structuralNodes.length).toBeGreaterThan(0)
+    expect(structuralNodes.every((node) => node.locked === true)).toBe(true)
+    expect(document.bindings).toContainEqual({
+      id: "binding-quotation-title",
+      fieldId: "field-quotation-title",
+      nodeId: "text-4",
+      property: "text",
+    })
+  })
+
   it("composes semantic layer groups instead of a flat quotation node list", () => {
     const document = composeQuotationDocument(northstarQuotationPayload)
     const coverGroups = document.groups.filter(

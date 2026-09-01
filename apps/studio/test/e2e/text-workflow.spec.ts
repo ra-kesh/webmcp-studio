@@ -40,6 +40,24 @@ type Inspection = {
   }>
 }
 
+type StoredDraft = {
+  document: {
+    id: string
+    fieldValues: Record<string, string | number | boolean>
+    fields: Array<{ id: string; key: string }>
+    nodes: Array<{
+      id: string
+      type: string
+      text?: string
+    }>
+  }
+}
+
+const documentDatabaseName = "webmcp-studio-documents"
+const documentBodyStore = "draft-body"
+
+test.describe.configure({ timeout: 90_000 })
+
 declare global {
   interface Window {
     __studioTestTools?: Map<string, TestWebMcpTool>
@@ -47,7 +65,9 @@ declare global {
 }
 
 async function waitForEditor(page: Page) {
-  await expect(page.locator("canvas.upper-canvas")).toBeVisible()
+  await expect(
+    page.locator('section[data-active="true"] canvas.upper-canvas')
+  ).toBeVisible({ timeout: 30_000 })
   await expect
     .poll(() =>
       page.evaluate(() => window.__studioTestTools?.has("inspect_design"))
@@ -61,6 +81,33 @@ async function inspect(page: Page) {
   )
   expect(result?.isError).not.toBe(true)
   return result?.structuredContent as Inspection
+}
+
+async function readStoredDraft(page: Page, documentId: string) {
+  return page.evaluate(
+    async ({ databaseName, storeName, id }) => {
+      const database = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open(databaseName)
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () =>
+          reject(request.error ?? new Error("Document database did not open"))
+      })
+      return new Promise<StoredDraft | undefined>((resolve, reject) => {
+        const request = database
+          .transaction(storeName)
+          .objectStore(storeName)
+          .get(id)
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () =>
+          reject(request.error ?? new Error("Document draft did not load"))
+      }).finally(() => database.close())
+    },
+    {
+      databaseName: documentDatabaseName,
+      storeName: documentBodyStore,
+      id: documentId,
+    }
+  )
 }
 
 async function insertTextPreset(
@@ -92,7 +139,9 @@ async function canvasPointForNode(page: Page, nodeId: string) {
   const node = current.activePageNodes.find(
     (candidate) => candidate.id === nodeId
   )
-  const canvas = page.locator("canvas.upper-canvas")
+  const canvas = page.locator(
+    `[data-canvas-page-id="${activePage?.id}"] canvas.upper-canvas`
+  )
   const bounds = await canvas.boundingBox()
   if (!activePage || !node || !bounds) {
     throw new Error(`Canvas coordinates are unavailable for ${nodeId}`)
@@ -108,7 +157,9 @@ async function canvasPointForNode(page: Page, nodeId: string) {
 async function blankCanvasPoint(page: Page) {
   const current = await inspect(page)
   const activePage = current.activePage
-  const canvas = page.locator("canvas.upper-canvas")
+  const canvas = page.locator(
+    `[data-canvas-page-id="${activePage?.id}"] canvas.upper-canvas`
+  )
   const bounds = await canvas.boundingBox()
   if (!activePage || !bounds) throw new Error("Canvas bounds are unavailable")
 
@@ -247,6 +298,122 @@ test("existing text double-click edits while blank-canvas double-click zooms", a
   await page.mouse.dblclick(blankPoint.x, blankPoint.y)
   await expectTextEditingInactive(page)
   await expect(zoomDisplay).not.toHaveText(zoomBeforeBlank ?? "")
+})
+
+test("generated quotation text persists through blank-canvas commit and route reload", async ({
+  page,
+}) => {
+  const before = await inspect(page)
+  const titleBefore = before.activePageNodes.find(
+    (node) => node.name === "Quotation title" && node.type === "text"
+  )
+  const titleFieldBefore = before.fields.find(
+    (field) => field.key === "quotation_title"
+  )
+  if (!titleBefore?.text) {
+    throw new Error("Expected the generated quotation title")
+  }
+  if (!titleFieldBefore) {
+    throw new Error("Expected the generated quotation title field binding")
+  }
+  expect(titleBefore.locked).toBe(false)
+
+  const editedText = `${titleBefore.text} — Persisted`
+  const titlePoint = await canvasPointForNode(page, titleBefore.id)
+  const blankPoint = await blankCanvasPoint(page)
+  const hiddenTextarea = page.locator('textarea[data-fabric="textarea"]')
+  await page.mouse.dblclick(titlePoint.x, titlePoint.y)
+  await expect(hiddenTextarea).toBeFocused()
+  await expect(hiddenTextarea).toHaveValue(titleBefore.text)
+  await hiddenTextarea.press("ControlOrMeta+A")
+  await hiddenTextarea.fill(editedText)
+
+  await page.mouse.click(blankPoint.x, blankPoint.y)
+  await expectTextEditingInactive(page)
+  await expect
+    .poll(async () => {
+      return (await inspect(page)).activePageNodes.find(
+        (node) => node.id === titleBefore.id
+      )?.text
+    })
+    .toBe(editedText)
+
+  const afterCommit = await inspect(page)
+  expect(afterCommit.document.operationVersion).toBe(
+    before.document.operationVersion + 1
+  )
+  expect(
+    afterCommit.fields.find((field) => field.key === "quotation_title")?.value
+  ).toBe(editedText)
+
+  await page.getByRole("button", { name: "Undo", exact: true }).click()
+  await expect
+    .poll(async () => {
+      const current = await inspect(page)
+      return {
+        field: current.fields.find((field) => field.key === "quotation_title")
+          ?.value,
+        text: current.activePageNodes.find((node) => node.id === titleBefore.id)
+          ?.text,
+      }
+    })
+    .toEqual({ field: titleFieldBefore.value, text: titleBefore.text })
+  await page.getByRole("button", { name: "Redo", exact: true }).click()
+  await expect
+    .poll(async () => {
+      const current = await inspect(page)
+      return {
+        field: current.fields.find((field) => field.key === "quotation_title")
+          ?.value,
+        text: current.activePageNodes.find((node) => node.id === titleBefore.id)
+          ?.text,
+      }
+    })
+    .toEqual({ field: editedText, text: editedText })
+
+  await expect(
+    page.getByText("All changes saved", { exact: true })
+  ).toBeVisible()
+  await expect
+    .poll(async () => {
+      const stored = await readStoredDraft(page, before.document.id)
+      const storedTitleFieldId = stored?.document.fields.find(
+        (field) => field.key === "quotation_title"
+      )?.id
+      return {
+        field: storedTitleFieldId
+          ? stored?.document.fieldValues[storedTitleFieldId]
+          : undefined,
+        text: stored?.document.nodes.find((node) => node.id === titleBefore.id)
+          ?.text,
+      }
+    })
+    .toEqual({ field: editedText, text: editedText })
+
+  const documentUrl = page.url()
+  await page.reload()
+  await expect(page).toHaveURL(documentUrl)
+  await waitForEditor(page)
+  await expect
+    .poll(async () => {
+      const current = await inspect(page)
+      return {
+        field: current.fields.find((field) => field.key === "quotation_title")
+          ?.value,
+        text: current.activePageNodes.find((node) => node.id === titleBefore.id)
+          ?.text,
+      }
+    })
+    .toEqual({ field: editedText, text: editedText })
+
+  const reloadedTitle = (await inspect(page)).activePageNodes.find(
+    (node) => node.id === titleBefore.id
+  )
+  if (!reloadedTitle) throw new Error("Reloaded quotation title was not found")
+  const reloadedPoint = await canvasPointForNode(page, reloadedTitle.id)
+  await page.mouse.dblclick(reloadedPoint.x, reloadedPoint.y)
+  await expect(hiddenTextarea).toBeFocused()
+  await expect(hiddenTextarea).toHaveValue(editedText)
 })
 
 test("all text sizing modes own the documented geometry axes", async ({

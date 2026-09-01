@@ -5,6 +5,7 @@ import {
 import { northstarQuotationPayload } from "./quotation-fixture"
 import {
   composeQuotationDocument,
+  composeQuotationDocumentV3,
   QUOTATION_COMPOSER_VERSION,
 } from "./quotation-composer"
 import { documentSchema, type Document, type SceneNode } from "./schema"
@@ -440,10 +441,10 @@ export const builtInDesignTemplateDefinitions: DesignTemplateDefinition[] = [
   ).flatMap((template): DesignTemplateDefinition[] => [
     {
       schemaVersion: 1,
-      version: 3,
+      version: 4,
       kind: "quotation_style",
       composerVersion: QUOTATION_COMPOSER_VERSION,
-      createdAt: "2026-08-29T00:00:00.000Z",
+      createdAt: "2026-09-01T00:00:00.000Z",
       source: {
         name: "Studio originals",
         license: "Studio original template",
@@ -456,6 +457,40 @@ export const builtInDesignTemplateDefinitions: DesignTemplateDefinition[] = [
         useCaseIds: ["quotation", "proposal", "wedding"],
         job: "Restyle a source-backed wedding quotation without changing its commercial content.",
         previewDocument: composeQuotationDocument(
+          northstarQuotationPayload,
+          template.quotationTemplateId
+        ),
+        contentSha256: {
+          "quotation-editorial-olive":
+            "1aa22f515c84ff248f12ec403d7df3b4596eaac3ca9615c7fefb852bb905e5a3",
+          "quotation-warm-paper":
+            "fee55cebf7258ae2bf4cb28d8f886f17c4d009c3a5689821070a98757d9be82a",
+          "quotation-midnight-film":
+            "ace0fa920d47bc68ea1c8efc92a247c782f15f67741be170a5b1c23355197d2c",
+        }[template.id],
+      }),
+      ...template,
+      tags: [...template.tags],
+    },
+    {
+      schemaVersion: 1,
+      version: 3,
+      kind: "quotation_style",
+      composerVersion: 3,
+      catalogStatus: "retired",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      source: {
+        name: "Studio originals",
+        license: "Studio original template",
+      },
+      manifest: createStudioQuotationStyleManifest({
+        id: template.id,
+        quotationTemplateId: template.quotationTemplateId,
+        composerVersion: 3,
+        formatFamily: "quotation-proposal",
+        useCaseIds: ["quotation", "proposal", "wedding"],
+        job: "Restyle a source-backed wedding quotation without changing its commercial content.",
+        previewDocument: composeQuotationDocumentV3(
           northstarQuotationPayload,
           template.quotationTemplateId
         ),

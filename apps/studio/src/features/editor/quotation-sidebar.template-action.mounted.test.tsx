@@ -176,4 +176,66 @@ describe("QuotationSidebar exact template actions", () => {
     expect(onConfirmApplyTemplate).toHaveBeenCalledTimes(1)
     expect(onConfirmApplyTemplate).toHaveBeenCalledWith(resolved)
   })
+
+  it("confirms the exact quotation text unlock impact before applying it", async () => {
+    const onTextEditabilityUpgrade = vi.fn()
+    await act(async () => {
+      root.render(
+        <QuotationSidebar
+          {...props({
+            textEditabilityUpgradeLayerCount: 12,
+            onTextEditabilityUpgrade,
+          })}
+        />
+      )
+    })
+
+    expect(document.body.textContent).toContain(
+      "Unlock 12 generated text layers"
+    )
+    await act(async () => buttonNamed("Enable editing")?.click())
+    expect(onTextEditabilityUpgrade).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain(
+      "Enable direct quotation editing?"
+    )
+    const confirmation = [
+      ...document.body.querySelectorAll<HTMLButtonElement>("button"),
+    ]
+      .filter((button) => button.textContent.includes("Enable editing"))
+      .at(-1)
+    await act(async () => confirmation?.click())
+    expect(onTextEditabilityUpgrade).toHaveBeenCalledOnce()
+  })
+
+  it("keeps a zero-target composer-v3 identity update explicitly actionable", async () => {
+    const onTextEditabilityUpgrade = vi.fn()
+    await act(async () => {
+      root.render(
+        <QuotationSidebar
+          {...props({
+            textEditabilityUpgradeLayerCount: 0,
+            onTextEditabilityUpgrade,
+          })}
+        />
+      )
+    })
+
+    expect(document.body.textContent).toContain(
+      "Generated quotation text is already editable"
+    )
+    await act(async () => buttonNamed("Complete update")?.click())
+    expect(onTextEditabilityUpgrade).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain(
+      "Complete the quotation text update?"
+    )
+    expect(buttonNamed("Not now")).not.toBeNull()
+    expect(buttonNamed("Keep text locked")).toBeUndefined()
+    const confirmation = [
+      ...document.body.querySelectorAll<HTMLButtonElement>("button"),
+    ]
+      .filter((button) => button.textContent.includes("Complete update"))
+      .at(-1)
+    await act(async () => confirmation?.click())
+    expect(onTextEditabilityUpgrade).toHaveBeenCalledOnce()
+  })
 })

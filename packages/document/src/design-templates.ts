@@ -1,6 +1,7 @@
 import { z } from "zod"
 import {
   composeQuotationDocument,
+  composeQuotationDocumentForVersion,
   QUOTATION_COMPOSER_VERSION,
 } from "./quotation-composer"
 import type { QuotationTemplateId } from "./quotation-composer"
@@ -126,7 +127,10 @@ const deepFreeze = <T>(value: T): T => {
   return value
 }
 
-const immutableDefinition = (definition: DesignTemplateDefinition) => {
+const immutableDefinition = (
+  definition: DesignTemplateDefinition,
+  previewQuotation: QuotationRenderPayloadV1
+) => {
   const parsed = designTemplateDefinitionSchema.parse(
     structuredClone(definition)
   )
@@ -134,11 +138,35 @@ const immutableDefinition = (definition: DesignTemplateDefinition) => {
     assertValidDocument(parsed.document)
     assertTemplateManifestMatchesDocument(parsed.manifest, parsed.document)
   } else if (parsed.catalogStatus === "retired") {
-    assertTemplateManifestMatchesQuotationIdentity(
-      parsed.manifest,
-      parsed.quotationTemplateId,
-      parsed.composerVersion
-    )
+    if (parsed.manifest.contentIdentity.kind !== "quotation_style") {
+      throw new Error(
+        `Quotation template ${parsed.id}@${parsed.version} must use a quotation-style content identity.`
+      )
+    }
+    if (parsed.manifest.contentIdentity.preview === "canonical") {
+      const historicalPreview = composeQuotationDocumentForVersion(
+        previewQuotation,
+        parsed.quotationTemplateId,
+        parsed.composerVersion
+      )
+      if (!historicalPreview) {
+        throw new Error(
+          `Retired quotation template ${parsed.id}@${parsed.version} requires an unavailable historical composer ${parsed.composerVersion}.`
+        )
+      }
+      assertTemplateManifestMatchesQuotationStyle(
+        parsed.manifest,
+        parsed.quotationTemplateId,
+        parsed.composerVersion,
+        historicalPreview
+      )
+    } else {
+      assertTemplateManifestMatchesQuotationIdentity(
+        parsed.manifest,
+        parsed.quotationTemplateId,
+        parsed.composerVersion
+      )
+    }
   }
   if (
     parsed.manifest.provenance.sourceName !== parsed.source.name ||
@@ -471,7 +499,7 @@ export class DesignTemplateRepository {
   ) {
     const unique = new Set<string>()
     this.#definitions = definitions
-      .map(immutableDefinition)
+      .map((definition) => immutableDefinition(definition, previewQuotation))
       .sort(
         (left, right) =>
           left.category.localeCompare(right.category) ||

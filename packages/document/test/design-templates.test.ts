@@ -3,12 +3,15 @@ import {
   builtInDesignTemplateDefinitions,
   builtInDesignTemplateRepository,
   cloneTemplateDocument,
+  composeQuotationDocumentV3,
   DesignTemplateRepository,
   designTemplateDefinitionSchema,
   materializeComponentInstances,
   northstarQuotationPayload,
   QUOTATION_COMPOSER_VERSION,
   quotationSourceFingerprint,
+  quotationStyleContent,
+  templateContentSha256,
   templateApplicationImpact,
   validateDocument,
 } from "../src"
@@ -103,9 +106,9 @@ describe("design template repository", () => {
         .filter((item) => item.kind === "quotation_style")
         .map((item) => [item.version, item.composerVersion])
     ).toEqual([
-      [3, QUOTATION_COMPOSER_VERSION],
-      [3, QUOTATION_COMPOSER_VERSION],
-      [3, QUOTATION_COMPOSER_VERSION],
+      [4, QUOTATION_COMPOSER_VERSION],
+      [4, QUOTATION_COMPOSER_VERSION],
+      [4, QUOTATION_COMPOSER_VERSION],
     ])
     expect(builtInDesignTemplateRepository.categories()).toEqual([
       "Briefs",
@@ -266,16 +269,16 @@ describe("design template repository", () => {
 
   it("requires source data for quotation styles and supports canonical apply identity", () => {
     expect(() =>
-      builtInDesignTemplateRepository.materialize("quotation-midnight-film", 3)
+      builtInDesignTemplateRepository.materialize("quotation-midnight-film", 4)
     ).toThrow("requires quotation source data")
     const canonical = builtInDesignTemplateRepository.materialize(
       "quotation-midnight-film",
-      3,
+      4,
       { quotation: northstarQuotationPayload, identity: "canonical" }
     )
     const fresh = builtInDesignTemplateRepository.materialize(
       "quotation-midnight-film",
-      3,
+      4,
       { quotation: northstarQuotationPayload }
     )
     expect(canonical.pages[0]?.id).toBe("quotation-page-1")
@@ -284,6 +287,63 @@ describe("design template repository", () => {
   })
 
   it("retains legacy identity without silently invoking the current composer", () => {
+    const historicalChecksums = {
+      "quotation-editorial-olive":
+        "bf053bd31da14a50dd28bef67996086b0beeabf74cc7e82f2978cb389711856a",
+      "quotation-warm-paper":
+        "1e49119fa6e7070872ed5f3ddfa762350ca44e8e4871b3968f59e38f022c7b5e",
+      "quotation-midnight-film":
+        "e20ba6d14f33b1ee7f34761cb9b8d06a02585db42148bb139b2c02afffae7641",
+    } as const
+    for (const [id, checksum] of Object.entries(historicalChecksums)) {
+      const definition = builtInDesignTemplateRepository.get(id, 3)
+      if (definition.kind !== "quotation_style") {
+        throw new Error("Expected quotation style")
+      }
+      const preview = composeQuotationDocumentV3(
+        northstarQuotationPayload,
+        definition.quotationTemplateId
+      )
+      expect(definition.manifest.provenance.contentSha256).toBe(checksum)
+      expect(definition.manifest.provenance.contentSha256).toBe(
+        templateContentSha256(
+          quotationStyleContent(
+            definition.quotationTemplateId,
+            definition.composerVersion,
+            preview
+          )
+        )
+      )
+    }
+    const composerV3 = builtInDesignTemplateRepository.get(
+      "quotation-editorial-olive",
+      3
+    )
+    expect(composerV3).toMatchObject({
+      version: 3,
+      composerVersion: 3,
+      catalogStatus: "retired",
+    })
+    if (composerV3.kind !== "quotation_style") {
+      throw new Error("Expected quotation style")
+    }
+    const historicalPreview = composeQuotationDocumentV3(
+      northstarQuotationPayload,
+      composerV3.quotationTemplateId
+    )
+    expect(composerV3.manifest.contentIdentity).toMatchObject({
+      kind: "quotation_style",
+      composerVersion: 3,
+      preview: "canonical",
+    })
+    expect(historicalPreview.nodes.every((node) => node.locked)).toBe(true)
+    expect(() =>
+      builtInDesignTemplateRepository.materialize(
+        "quotation-editorial-olive",
+        3,
+        { quotation: northstarQuotationPayload }
+      )
+    ).toThrow("requires retired quotation composer 3")
     expect(
       builtInDesignTemplateRepository.get("quotation-editorial-olive", 1)
     ).toMatchObject({
@@ -361,7 +421,7 @@ describe("template application impact", () => {
   it("reports structural and source-link transitions before replacement", () => {
     const current = builtInDesignTemplateRepository.materialize(
       "quotation-editorial-olive",
-      3,
+      4,
       { quotation: northstarQuotationPayload, identity: "canonical" }
     )
     const next = builtInDesignTemplateRepository.materialize(

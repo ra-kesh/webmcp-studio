@@ -239,7 +239,7 @@ describe("document generation request", () => {
       ...minimalBlankRequest(),
       start: {
         kind: "template",
-        template: { id: "quotation-editorial-olive", version: 3 },
+        template: { id: "quotation-editorial-olive", version: 4 },
       },
     }
     expect(() => compileDocumentGenerationRequest(quotation, options)).toThrow(

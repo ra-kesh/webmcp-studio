@@ -8,7 +8,9 @@ import {
   cloneSemanticFragment,
   componentSourceSubtree,
   analyzeQuotationGroupOrganization,
+  analyzeQuotationTextEditability,
   applyQuotationGroupOrganization,
+  applyQuotationTextEditability,
   createTemplateVersion,
   deriveDocumentSnapshotId,
   assetReferenceKeysForSource,
@@ -27,6 +29,7 @@ import {
   previewChangeSet,
   quotationCompositionRequestV1Schema,
   QUOTATION_GROUP_ORGANIZATION_MIGRATION_ID,
+  QUOTATION_TEXT_EDITABILITY_TARGET_TEMPLATE_VERSION,
   quotationRenderPayloadV1Schema,
   quotationTemplates,
   managedAssetSource,
@@ -48,6 +51,7 @@ import type {
   PaintStylePatch,
   QuotationRenderPayloadV1,
   QuotationGroupOrganizationAnalysis,
+  QuotationTextEditabilityAnalysis,
   QuotationTemplateId,
   SceneNode,
   SemanticFragment,
@@ -1181,6 +1185,33 @@ export function useDocumentEditor({
       history.document,
       quotationSource,
     ])
+  const quotationTextEditability =
+    useMemo<QuotationTextEditabilityAnalysis>(() => {
+      if (activeQuotationComposition?.status !== "known" || !quotationSource) {
+        return {
+          status: "not_applicable",
+          reason:
+            "This document does not have a known quotation composition to upgrade.",
+        }
+      }
+      const compositionTemplate = builtInDesignTemplateRepository.get(
+        activeQuotationComposition.template.id,
+        activeQuotationComposition.template.version
+      )
+      if (compositionTemplate.kind !== "quotation_style") {
+        return {
+          status: "blocked",
+          reason:
+            "The saved quotation composition does not reference a quotation style.",
+        }
+      }
+      return analyzeQuotationTextEditability(
+        history.document,
+        quotationSource,
+        compositionTemplate.quotationTemplateId,
+        activeQuotationComposition.composerVersion
+      )
+    }, [activeQuotationComposition, history.document, quotationSource])
   const [startModel, setStartModel] = useState<StudioStartModel>({
     status: "opening",
   })
@@ -10453,6 +10484,144 @@ export function useDocumentEditor({
     pruneTemplateSourceContexts,
   ])
 
+  const upgradeQuotationTextEditability = useCallback(() => {
+    if (!allowMutation()) return false
+    const currentSourceContext = templateSourceContextRef.current
+    const composition = currentSourceContext.composition
+    if (
+      !currentSourceContext.quotationSource ||
+      composition?.status !== "known"
+    ) {
+      setTemplateActionError(
+        "This quotation does not have a known text-editability update."
+      )
+      return false
+    }
+
+    try {
+      const compositionTemplate = builtInDesignTemplateRepository.get(
+        composition.template.id,
+        composition.template.version
+      )
+      if (compositionTemplate.kind !== "quotation_style") {
+        throw new Error(
+          "The saved quotation composition does not reference a quotation style."
+        )
+      }
+      const analysis = analyzeQuotationTextEditability(
+        historyRef.current.document,
+        currentSourceContext.quotationSource,
+        compositionTemplate.quotationTemplateId,
+        composition.composerVersion
+      )
+      if (analysis.status !== "available") {
+        setTemplateActionError(
+          analysis.status === "blocked"
+            ? analysis.reason
+            : "This quotation does not need the text-editability update."
+        )
+        return false
+      }
+
+      const nextCompositionTemplate = builtInDesignTemplateRepository.get(
+        composition.template.id,
+        QUOTATION_TEXT_EDITABILITY_TARGET_TEMPLATE_VERSION
+      )
+      if (
+        nextCompositionTemplate.kind !== "quotation_style" ||
+        nextCompositionTemplate.composerVersion !== analysis.toComposerVersion
+      ) {
+        throw new Error(
+          "The current quotation template cannot accept the text-editability update."
+        )
+      }
+
+      let nextDesignTemplate = currentSourceContext.designTemplate
+      if (nextDesignTemplate) {
+        const currentDesignTemplate = builtInDesignTemplateRepository.get(
+          nextDesignTemplate.id,
+          nextDesignTemplate.version
+        )
+        if (
+          currentDesignTemplate.kind === "quotation_style" &&
+          currentDesignTemplate.composerVersion === analysis.fromComposerVersion
+        ) {
+          const currentDesignTemplateVersion =
+            builtInDesignTemplateRepository.get(
+              nextDesignTemplate.id,
+              QUOTATION_TEXT_EDITABILITY_TARGET_TEMPLATE_VERSION
+            )
+          if (
+            currentDesignTemplateVersion.kind !== "quotation_style" ||
+            currentDesignTemplateVersion.composerVersion !==
+              analysis.toComposerVersion
+          ) {
+            throw new Error(
+              "The active quotation appearance cannot accept the text-editability update."
+            )
+          }
+          nextDesignTemplate = {
+            id: currentDesignTemplateVersion.id,
+            version: currentDesignTemplateVersion.version,
+          }
+        }
+      }
+
+      templateSourceBySnapshotRef.current.set(
+        historyRef.current.snapshotId,
+        currentSourceContext
+      )
+      const document = applyQuotationTextEditability(
+        historyRef.current.document,
+        analysis
+      )
+      const sourceContext: TemplateSourceContext = {
+        ...currentSourceContext,
+        designTemplate: nextDesignTemplate,
+        composition: {
+          ...composition,
+          composerVersion: analysis.toComposerVersion,
+          template: {
+            id: nextCompositionTemplate.id,
+            version: nextCompositionTemplate.version,
+          },
+        },
+      }
+      const result = replaceDocumentWithResult(historyRef.current, document, {
+        label: "Enable quotation text editing",
+      })
+      const nextHistory = result.history
+      historyRef.current = nextHistory
+      templateSourceBySnapshotRef.current.set(
+        nextHistory.snapshotId,
+        sourceContext
+      )
+      setHistory(nextHistory)
+      pruneTemplateSourceContexts(nextHistory)
+      notifyHistoryCommit(result.commit)
+      installTemplateSourceContext(sourceContext)
+      setSelection((current) => reconcileSelection(current, document))
+      setTemplateActionError(null)
+      setDocumentError(null)
+      captureSettledDraft()
+      return true
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Studio could not enable quotation text editing."
+      setTemplateActionError(message)
+      setDocumentError(message)
+      return false
+    }
+  }, [
+    allowMutation,
+    captureSettledDraft,
+    installTemplateSourceContext,
+    notifyHistoryCommit,
+    pruneTemplateSourceContexts,
+  ])
+
   const createBlankDocument = useCallback(
     async (input: NewDocumentInput) => {
       if (!allowMutation(false, true)) return false
@@ -11155,6 +11324,7 @@ export function useDocumentEditor({
     activeDesignTemplate,
     activeQuotationComposition,
     quotationGroupOrganization,
+    quotationTextEditability,
     publishError,
     publishSyncStatus,
     selectPage,
@@ -11280,6 +11450,7 @@ export function useDocumentEditor({
     cancelLibraryTemplateAction,
     createDocumentFromTemplate,
     upgradeQuotationLayerOrganization,
+    upgradeQuotationTextEditability,
     restoreDemoDocument,
     openStoredDocument,
     continueSessionDocument,

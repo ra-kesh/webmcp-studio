@@ -20,7 +20,7 @@ import {
 } from "@webmcp/ui/components/editor-chrome"
 import { Tabs, TabsContent, TabsTrigger } from "@webmcp/ui/components/tabs"
 import { cn } from "@webmcp/ui/lib/utils"
-import { FileWarning, FolderTree, Link2 } from "lucide-react"
+import { FileWarning, FolderTree, Link2, LockOpen } from "lucide-react"
 import { LibraryTemplateBrowser } from "../../content/library/library-template-browser"
 import type { LibraryTemplateIntent } from "../../content/library/library-template-browser"
 import type {
@@ -55,6 +55,8 @@ export function QuotationSidebar({
   onCancelTemplateAction,
   layerOrganizationUpgradeAvailable,
   onLayerOrganizationUpgrade,
+  textEditabilityUpgradeLayerCount,
+  onTextEditabilityUpgrade,
   onSelectionChange,
   onFocusNode,
   onHoverNode,
@@ -105,6 +107,8 @@ export function QuotationSidebar({
   onCancelTemplateAction: () => void
   layerOrganizationUpgradeAvailable?: boolean
   onLayerOrganizationUpgrade?: () => void
+  textEditabilityUpgradeLayerCount?: number | null
+  onTextEditabilityUpgrade?: () => void
   onSelectionChange: (nodeIds: string[]) => void
   onFocusNode: (nodeId: string) => void
   onHoverNode: (nodeId: string | null) => void
@@ -152,6 +156,13 @@ export function QuotationSidebar({
   >(null)
   const [applyConfirmation, setApplyConfirmation] =
     useState<ResolvedTemplateAction | null>(null)
+  const [textEditabilityConfirmationOpen, setTextEditabilityConfirmationOpen] =
+    useState(false)
+  const textEditabilityUpgradeAvailable =
+    textEditabilityUpgradeLayerCount !== null &&
+    textEditabilityUpgradeLayerCount !== undefined
+  const textEditabilityHasLockedLayers =
+    (textEditabilityUpgradeLayerCount ?? 0) > 0
   const wasTemplateBrowserVisible = useRef(templateBrowserVisible)
   const cancelTemplateActionRef = useRef(onCancelTemplateAction)
   cancelTemplateActionRef.current = onCancelTemplateAction
@@ -268,6 +279,40 @@ export function QuotationSidebar({
                 >
                   <FolderTree data-icon="inline-start" />
                   Organize layers
+                </Button>
+                {reviewPending ? (
+                  <p className="basis-full text-muted-foreground">
+                    Finish or discard the pending review first.
+                  </p>
+                ) : null}
+              </EditorPanelNotice>
+            ) : null}
+            {textEditabilityUpgradeAvailable ? (
+              <EditorPanelNotice
+                aria-label="Quotation text editing update"
+                className="m-2.5 mb-0"
+                icon={<LockOpen />}
+                title={
+                  textEditabilityHasLockedLayers
+                    ? "Edit quotation text directly"
+                    : "Finish quotation text update"
+                }
+                description={
+                  textEditabilityHasLockedLayers
+                    ? `Unlock ${textEditabilityUpgradeLayerCount} generated text ${textEditabilityUpgradeLayerCount === 1 ? "layer" : "layers"}. Layout shapes and dividers stay locked.`
+                    : "Generated quotation text is already editable. Record the version 4 editability identity so later document updates remain available."
+                }
+              >
+                <Button
+                  disabled={reviewPending}
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setTextEditabilityConfirmationOpen(true)}
+                >
+                  <LockOpen data-icon="inline-start" />
+                  {textEditabilityHasLockedLayers
+                    ? "Enable editing"
+                    : "Complete update"}
                 </Button>
                 {reviewPending ? (
                   <p className="basis-full text-muted-foreground">
@@ -401,6 +446,47 @@ export function QuotationSidebar({
               }}
             >
               Apply template
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={textEditabilityConfirmationOpen}
+        onOpenChange={setTextEditabilityConfirmationOpen}
+      >
+        <AlertDialogContent className="sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogMedia>
+              <LockOpen />
+            </AlertDialogMedia>
+            <AlertDialogTitle>
+              {textEditabilityHasLockedLayers
+                ? "Enable direct quotation editing?"
+                : "Complete the quotation text update?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {textEditabilityHasLockedLayers
+                ? `This unlocks ${textEditabilityUpgradeLayerCount ?? 0} generated text layers so they can be edited on the canvas. It preserves copy, layout, styling, custom layers, and structural locks.`
+                : "The generated text is already editable. This records the exact version 4 composition identity without changing any layer lock, copy, layout, or styling."}{" "}
+              One Undo restores the previous document and quotation identity.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>
+              {textEditabilityHasLockedLayers ? "Keep text locked" : "Not now"}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={reviewPending}
+              onClick={(event) => {
+                event.preventDefault()
+                onTextEditabilityUpgrade?.()
+                setTextEditabilityConfirmationOpen(false)
+              }}
+            >
+              {textEditabilityHasLockedLayers
+                ? "Enable editing"
+                : "Complete update"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
