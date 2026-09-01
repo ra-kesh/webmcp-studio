@@ -297,7 +297,7 @@ function InspectorSection({
     <section
       data-slot="inspector-section"
       className={cn(
-        "border-b border-border px-3 pb-3 text-foreground transition-colors outline-none [&_[data-slot=input]]:h-6 [&_[data-slot=input]]:rounded-sm [&_[data-slot=input]]:border-transparent [&_[data-slot=input]]:bg-editor-field [&_[data-slot=input]]:px-2 [&_[data-slot=input]]:text-[11px] [&_[data-slot=input]]:hover:bg-editor-field-hover [&_[data-slot=input]]:focus-visible:border-studio-accent [&_[data-slot=input]]:focus-visible:bg-background [&_[data-slot=input]]:focus-visible:ring-2 [&_[data-slot=input]]:focus-visible:ring-studio-accent/20 [&_[data-slot=select-trigger]]:h-6 [&_[data-slot=select-trigger]]:rounded-sm [&_[data-slot=select-trigger]]:border-transparent [&_[data-slot=select-trigger]]:bg-editor-field [&_[data-slot=select-trigger]]:px-2 [&_[data-slot=select-trigger]]:text-[11px] [&_[data-slot=select-trigger]]:hover:bg-editor-field-hover [&_[data-slot=select-trigger]]:focus-visible:border-studio-accent [&_[data-slot=select-trigger]]:focus-visible:bg-background [&_[data-slot=select-trigger]]:focus-visible:ring-2 [&_[data-slot=select-trigger]]:focus-visible:ring-studio-accent/20",
+        "border-b border-border px-3 pb-3 text-foreground transition-colors outline-none [&_[data-slot=select-trigger]]:h-6 [&_[data-slot=select-trigger]]:rounded-sm [&_[data-slot=select-trigger]]:border-transparent [&_[data-slot=select-trigger]]:bg-editor-field [&_[data-slot=select-trigger]]:px-2 [&_[data-slot=select-trigger]]:text-[11px] [&_[data-slot=select-trigger]]:hover:bg-editor-field-hover [&_[data-slot=select-trigger]]:focus-visible:border-studio-accent [&_[data-slot=select-trigger]]:focus-visible:bg-background [&_[data-slot=select-trigger]]:focus-visible:ring-2 [&_[data-slot=select-trigger]]:focus-visible:ring-studio-accent/20",
         className
       )}
       {...props}
@@ -1606,6 +1606,8 @@ function NodeInspector({
             compactLabel="X"
             value={inspector.values.x}
             disabled={node.locked}
+            onPreview={(x) => onPreview({ x })}
+            onPreviewCancel={onCancelPreview}
             onCommit={(x) => commitFrameGeometry({ x })}
           />
           <InspectorNumberField
@@ -1613,6 +1615,8 @@ function NodeInspector({
             compactLabel="Y"
             value={inspector.values.y}
             disabled={node.locked}
+            onPreview={(y) => onPreview({ y })}
+            onPreviewCancel={onCancelPreview}
             onCommit={(y) => commitFrameGeometry({ y })}
           />
           <InspectorNumberField
@@ -1621,6 +1625,8 @@ function NodeInspector({
             value={inspector.values.width}
             min={1}
             disabled={node.locked || textWidthIsManaged}
+            onPreview={(width) => onPreview({ width })}
+            onPreviewCancel={onCancelPreview}
             onCommit={(width) => commitFrameGeometry({ width })}
           />
           <InspectorNumberField
@@ -1629,6 +1635,8 @@ function NodeInspector({
             value={inspector.values.height}
             min={1}
             disabled={node.locked || textHeightIsManaged}
+            onPreview={(height) => onPreview({ height })}
+            onPreviewCancel={onCancelPreview}
             onCommit={(height) => commitFrameGeometry({ height })}
           />
         </div>
@@ -1638,6 +1646,8 @@ function NodeInspector({
             compactLabel="°"
             value={inspector.values.rotation}
             disabled={node.locked}
+            onPreview={(rotation) => onPreview({ rotation })}
+            onPreviewCancel={onCancelPreview}
             onCommit={(rotation) => commitFrameGeometry({ rotation })}
           />
         </div>
@@ -1815,6 +1825,8 @@ function NodeInspector({
                 value={inspectorValue(node.fontSize)}
                 min={0.1}
                 disabled={node.locked}
+                onPreview={(fontSize) => onPreview({ fontSize })}
+                onPreviewCancel={onCancelPreview}
                 onCommit={(fontSize) => onUpdate({ fontSize })}
               />
               <InspectorNumberField
@@ -1823,7 +1835,10 @@ function NodeInspector({
                 min={100}
                 max={900}
                 integer
+                step={10}
                 disabled={node.locked}
+                onPreview={(fontWeight) => onPreview({ fontWeight })}
+                onPreviewCancel={onCancelPreview}
                 onCommit={(fontWeight) => onUpdate({ fontWeight })}
               />
               <InspectorNumberField
@@ -1831,7 +1846,10 @@ function NodeInspector({
                 value={inspectorValue(node.lineHeight)}
                 min={0.5}
                 max={3}
+                step={0.01}
                 disabled={node.locked}
+                onPreview={(lineHeight) => onPreview({ lineHeight })}
+                onPreviewCancel={onCancelPreview}
                 onCommit={(lineHeight) => onUpdate({ lineHeight })}
               />
               <InspectorNumberField
@@ -1839,7 +1857,10 @@ function NodeInspector({
                 value={inspectorValue(node.letterSpacing)}
                 min={-20}
                 max={200}
+                step={0.1}
                 disabled={node.locked}
+                onPreview={(letterSpacing) => onPreview({ letterSpacing })}
+                onPreviewCancel={onCancelPreview}
                 onCommit={(letterSpacing) => onUpdate({ letterSpacing })}
               />
             </div>
@@ -2003,6 +2024,8 @@ function NodeInspector({
             value={inspectorValue(node.radius)}
             min={0}
             disabled={node.locked}
+            onPreview={(radius) => onPreview({ radius })}
+            onPreviewCancel={onCancelPreview}
             onCommit={(radius) => onUpdate({ radius })}
           />
           <InspectorColorField
@@ -2017,7 +2040,10 @@ function NodeInspector({
             label="Stroke width"
             value={inspectorValue(node.strokeWidth)}
             min={0}
+            step={0.1}
             disabled={node.locked}
+            onPreview={(strokeWidth) => onPreview({ strokeWidth })}
+            onPreviewCancel={onCancelPreview}
             onCommit={(strokeWidth) => onUpdate({ strokeWidth })}
           />
         </InspectorSection>
@@ -2056,7 +2082,10 @@ function NodeInspector({
             label="Stroke width"
             value={inspectorValue(node.strokeWidth)}
             min={0}
+            step={0.1}
             disabled={node.locked}
+            onPreview={(strokeWidth) => onPreview({ strokeWidth })}
+            onPreviewCancel={onCancelPreview}
             onCommit={(strokeWidth) => onUpdate({ strokeWidth })}
           />
         </InspectorSection>
@@ -2077,7 +2106,10 @@ function NodeInspector({
             label="Stroke width"
             value={inspectorValue(node.strokeWidth)}
             min={0.1}
+            step={0.1}
             disabled={node.locked}
+            onPreview={(strokeWidth) => onPreview({ strokeWidth })}
+            onPreviewCancel={onCancelPreview}
             onCommit={(strokeWidth) => onUpdate({ strokeWidth })}
           />
         </InspectorSection>

@@ -10,10 +10,11 @@ The application loads the published stylesheet unchanged at the root. The
 shared UI package maps its semantic colors, type, spacing, radii, focus states,
 and control dimensions to the public `--vbg-*` tokens.
 
-The published file also contains standalone report composition rules. Studio
-reverts those element-level rules at its product boundary so they do not resize
-editor headings, tabs, or controls. The public token contract and root font
-rendering remain active; shared product components own their compact geometry.
+The published file also contains opt-in report composition rules under the
+`vbg-report` class. Studio intentionally does not put that class on the product
+root: doing so would restyle every button, input, select, and textarea as report
+content. The public `:root` token contract remains active, while shared product
+components own their compact geometry and interaction states.
 
 Studio remains an interaction-dense editor. Compact toolbar and inspector
 sizes are a product-specific density layer built from the Vercel spacing and

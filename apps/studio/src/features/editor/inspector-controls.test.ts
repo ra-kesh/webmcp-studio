@@ -26,7 +26,10 @@ describe("compact Inspector controls", () => {
     expect(markup).toMatch(/<label[^>]*\bsr-only\b/)
     expect(markup).toContain(">W</span>")
     expect(markup).toContain("h-6")
-    expect(markup).toContain("pl-7")
+    expect(markup).toContain('data-slot="inspector-number-field"')
+    expect(markup).toContain("cursor-ew-resize")
+    expect(markup).toContain("px-[5px]")
+    expect(markup).not.toContain("absolute inset-y-0 left-2")
   })
 
   it("bounds long text content without restoring a generic form textarea", () => {
@@ -54,8 +57,9 @@ describe("CommitPercentSlider", () => {
     )
 
     expect(markup).toContain('aria-label="Horizontal focus percentage"')
-    expect(markup).toContain('inputMode="decimal"')
-    expect(markup).toContain('value="37.5"')
+    expect(markup).toContain('role="spinbutton"')
+    expect(markup).toContain('aria-valuenow="37.5"')
+    expect(markup).toContain("cursor-ew-resize")
     expect(markup).toContain('aria-label="Horizontal focus"')
     expect(markup).toContain('aria-valuetext="37.5%"')
   })
@@ -70,9 +74,9 @@ describe("CommitPercentSlider", () => {
       })
     )
 
-    expect(markup).toContain('data-disabled="true"')
+    expect(markup).toContain('aria-label="Opacity percentage"')
     expect(markup).toContain('aria-disabled="true"')
-    expect(markup.match(/disabled=""/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
+    expect(markup).toContain('data-disabled="true"')
   })
 })
 

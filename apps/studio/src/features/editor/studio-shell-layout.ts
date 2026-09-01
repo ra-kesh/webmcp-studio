@@ -5,7 +5,7 @@ export const STUDIO_SHELL_LAYOUT_QUARANTINE_KEY_PREFIX =
 
 export const STUDIO_SHELL_LAYOUT_LIMITS = Object.freeze({
   leftPanel: Object.freeze({ minimum: 208, default: 264, maximum: 360 }),
-  rightPanel: Object.freeze({ minimum: 280, default: 336, maximum: 440 }),
+  rightPanel: Object.freeze({ minimum: 256, default: 288, maximum: 400 }),
   canvas: Object.freeze({ minimum: 520 }),
   splitter: Object.freeze({ width: 12 }),
   filmstrip: Object.freeze({ compact: 96, comfortable: 120 }),

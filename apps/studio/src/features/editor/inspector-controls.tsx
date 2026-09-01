@@ -27,6 +27,7 @@ export function InspectorSectionLabel({
 export function CommitInput({
   value,
   onCommit,
+  className,
   ...props
 }: Omit<ComponentProps<typeof Input>, "value" | "onChange"> & {
   value: string | number
@@ -44,6 +45,10 @@ export function CommitInput({
       {...props}
       id={props.id ?? generatedId}
       name={props.name ?? generatedId}
+      className={cn(
+        "h-6 rounded-sm border-transparent bg-editor-field px-2 text-[11px] hover:bg-editor-field-hover focus-visible:border-studio-accent focus-visible:bg-background focus-visible:ring-2 focus-visible:ring-studio-accent/20 md:text-[11px]",
+        className
+      )}
       value={draft}
       onChange={(event) => setDraft(event.target.value)}
       onBlur={() => {
@@ -82,7 +87,7 @@ export function CommitTextarea({
     <Textarea
       id={id}
       name={id}
-      className="max-h-40 min-h-16 resize-y rounded-sm border-transparent bg-editor-field px-2 py-1.5 text-[11px] leading-4 hover:bg-editor-field-hover focus-visible:bg-background"
+      className="max-h-40 min-h-16 resize-y rounded-sm border-transparent bg-editor-field px-2 py-1.5 text-[11px] leading-4 hover:bg-editor-field-hover focus-visible:bg-background md:text-[11px]"
       value={draft}
       disabled={disabled}
       onChange={(event) => setDraft(event.target.value)}
@@ -115,115 +120,47 @@ export function CommitPercentSlider({
   disabled?: boolean
   onCommit: (value: number) => void
 }) {
-  const id = useId()
   const [draft, setDraft] = useState(value)
-  const [textDraft, setTextDraft] = useState(formatInspectorNumber(value))
-  const [error, setError] = useState<string | null>(null)
-  const cancelBlurRef = useRef(false)
 
-  useEffect(() => {
-    setDraft(value)
-    setTextDraft(formatInspectorNumber(value))
-    setError(null)
-  }, [value])
-
-  const commitTextDraft = () => {
-    const result = parseInspectorNumber(textDraft, value, {
-      label,
-      min: 0,
-      max: 100,
-    })
-    if (!result.ok) {
-      setError(result.message)
-      return false
-    }
-    setError(null)
-    setDraft(result.value)
-    setTextDraft(formatInspectorNumber(result.value))
-    if (result.value !== value) onCommit(result.value)
-    return true
-  }
+  useEffect(() => setDraft(value), [value])
 
   return (
-    <Field
-      className="gap-3"
-      data-disabled={disabled || undefined}
-      data-invalid={Boolean(error) || undefined}
-    >
+    <Field className="gap-3" data-disabled={disabled || undefined}>
       <div className="flex items-center justify-between gap-3">
-        <FieldLabel
-          htmlFor={id}
-          className="text-[11px] leading-4 font-medium text-muted-foreground"
-        >
+        <FieldLabel className="text-[11px] leading-4 font-normal text-muted-foreground">
           {label}
         </FieldLabel>
-        <div className="relative w-16">
-          <Input
-            id={id}
-            aria-label={`${label} percentage`}
-            inputMode="decimal"
-            value={textDraft}
+        <div className="w-16">
+          <InspectorNumberField
+            label={`${label} percentage`}
+            hideLabel
+            value={{ kind: "value", value }}
+            min={0}
+            max={100}
+            suffix="%"
             disabled={disabled}
-            aria-invalid={Boolean(error) || undefined}
-            aria-describedby={error ? `${id}-error` : undefined}
-            className="h-6 rounded-sm border-transparent bg-editor-field pr-5 text-right font-mono text-[11px] tabular-nums hover:bg-editor-field-hover focus-visible:border-studio-accent focus-visible:bg-background focus-visible:ring-2 focus-visible:ring-studio-accent/20 md:text-[11px]"
-            onChange={(event) => {
-              setTextDraft(event.target.value)
-              if (error) setError(null)
-            }}
-            onBlur={() => {
-              if (cancelBlurRef.current) {
-                cancelBlurRef.current = false
-                return
-              }
-              commitTextDraft()
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault()
-                if (commitTextDraft()) {
-                  cancelBlurRef.current = true
-                  event.currentTarget.blur()
-                }
-                return
-              }
-              if (event.key === "Escape") {
-                cancelBlurRef.current = true
-                setDraft(value)
-                setTextDraft(formatInspectorNumber(value))
-                setError(null)
-                event.currentTarget.blur()
-              }
+            onPreview={(next) => setDraft(next)}
+            onPreviewCancel={() => setDraft(value)}
+            onCommit={(next) => {
+              setDraft(next)
+              if (next !== value) onCommit(next)
             }}
           />
-          <span
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-y-0 right-2 flex items-center font-mono text-[11px] text-muted-foreground"
-          >
-            %
-          </span>
         </div>
       </div>
       <Slider
         aria-label={label}
         aria-valuetext={`${formatInspectorNumber(draft)}%`}
-        aria-describedby={error ? `${id}-error` : undefined}
         value={[draft]}
         disabled={disabled}
         max={100}
         step={1}
-        onValueChange={([next]) => {
-          setDraft(next)
-          setTextDraft(formatInspectorNumber(next))
-          if (error) setError(null)
-        }}
+        onValueChange={([next]) => setDraft(next)}
         onValueCommit={([next]) => {
           setDraft(next)
-          setTextDraft(formatInspectorNumber(next))
           if (next !== value) onCommit(next)
         }}
       />
-      {error ? <FieldError id={`${id}-error`}>{error}</FieldError> : null}
     </Field>
   )
 }
@@ -231,22 +168,32 @@ export function CommitPercentSlider({
 export function InspectorNumberField({
   label,
   compactLabel,
+  hideLabel = false,
   value,
   min,
   max,
+  step = 1,
+  sensitivity = 1,
   integer = false,
   disabled = false,
   suffix,
+  onPreview,
+  onPreviewCancel,
   onCommit,
 }: {
   label: string
   compactLabel?: string
+  hideLabel?: boolean
   value: InspectorSharedValue<number>
   min?: number
   max?: number
+  step?: number
+  sensitivity?: number
   integer?: boolean
   disabled?: boolean
   suffix?: string
+  onPreview?: (value: number) => void
+  onPreviewCancel?: () => void
   onCommit: (value: number) => void
 }) {
   const id = useId()
@@ -255,12 +202,74 @@ export function InspectorNumberField({
     canonical === undefined ? "" : formatInspectorNumber(canonical)
   const [draft, setDraft] = useState(canonicalDraft)
   const [error, setError] = useState<string | null>(null)
+  const [editing, setEditing] = useState(false)
+  const [scrubbing, setScrubbing] = useState(false)
   const cancelBlurRef = useRef(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const previewFrameRef = useRef<number | null>(null)
+  const previewValueRef = useRef(canonical ?? 0)
+  const onPreviewRef = useRef(onPreview)
+  const onPreviewCancelRef = useRef(onPreviewCancel)
+  const onCommitRef = useRef(onCommit)
+  const interactionRef = useRef<{
+    pointerId: number
+    startX: number
+    lastX: number
+    startValue: number
+    value: number
+    moved: boolean
+    previewed: boolean
+  } | null>(null)
+  onPreviewRef.current = onPreview
+  onPreviewCancelRef.current = onPreviewCancel
+  onCommitRef.current = onCommit
+
+  const cancelScheduledPreview = () => {
+    if (previewFrameRef.current === null) return
+    globalThis.cancelAnimationFrame(previewFrameRef.current)
+    previewFrameRef.current = null
+  }
+
+  const flushPreview = () => {
+    cancelScheduledPreview()
+    onPreviewRef.current?.(previewValueRef.current)
+  }
+
+  const schedulePreview = (next: number) => {
+    previewValueRef.current = next
+    if (!onPreviewRef.current || previewFrameRef.current !== null) return
+    previewFrameRef.current = globalThis.requestAnimationFrame(() => {
+      previewFrameRef.current = null
+      onPreviewRef.current?.(previewValueRef.current)
+    })
+  }
+
+  const normalizedScrubValue = (next: number) => {
+    const clamped = Math.min(max ?? Infinity, Math.max(min ?? -Infinity, next))
+    if (integer) return Math.round(clamped)
+    return Number(clamped.toFixed(6))
+  }
 
   useEffect(() => {
+    if (editing || interactionRef.current) return
     setDraft(canonicalDraft)
     setError(null)
-  }, [canonicalDraft, value.kind])
+  }, [canonicalDraft, editing, value.kind])
+
+  useEffect(() => {
+    if (!editing) return
+    inputRef.current?.focus()
+    inputRef.current?.select()
+  }, [editing])
+
+  useEffect(
+    () => () => {
+      cancelScheduledPreview()
+      if (interactionRef.current?.previewed) onPreviewCancelRef.current?.()
+      interactionRef.current = null
+    },
+    []
+  )
 
   const commit = () => {
     const result = parseInspectorNumber(draft, canonical, {
@@ -281,6 +290,42 @@ export function InspectorNumberField({
     return true
   }
 
+  const startEditing = () => {
+    if (disabled) return
+    setEditing(true)
+  }
+
+  const finishScrub = (
+    target: HTMLDivElement,
+    pointerId: number,
+    cancelled: boolean
+  ) => {
+    const interaction = interactionRef.current
+    if (!interaction || interaction.pointerId !== pointerId) return
+    if (target.hasPointerCapture(pointerId))
+      target.releasePointerCapture(pointerId)
+    interactionRef.current = null
+    setScrubbing(false)
+
+    if (cancelled) {
+      cancelScheduledPreview()
+      setDraft(canonicalDraft)
+      setError(null)
+      if (interaction.previewed) onPreviewCancelRef.current?.()
+      return
+    }
+
+    if (!interaction.moved) {
+      startEditing()
+      return
+    }
+
+    if (interaction.previewed) flushPreview()
+    if (interaction.value !== interaction.startValue) {
+      onCommitRef.current(interaction.value)
+    }
+  }
+
   return (
     <Field
       className="min-w-0 gap-1"
@@ -291,7 +336,7 @@ export function InspectorNumberField({
       <FieldLabel
         htmlFor={id}
         className={
-          compactLabel
+          compactLabel || hideLabel
             ? "sr-only"
             : "text-[11px] leading-4 font-normal text-muted-foreground"
         }
@@ -306,74 +351,165 @@ export function InspectorNumberField({
           </span>
         ) : null}
       </FieldLabel>
-      <div className="relative">
+      <div
+        aria-disabled={disabled || undefined}
+        aria-label={label}
+        aria-valuemax={max}
+        aria-valuemin={min}
+        aria-valuenow={canonical}
+        data-disabled={disabled || undefined}
+        data-editing={editing || undefined}
+        data-invalid={Boolean(error) || undefined}
+        data-mixed={value.kind === "mixed" || undefined}
+        data-scrubbing={scrubbing || undefined}
+        data-slot="inspector-number-field"
+        role={editing ? undefined : "spinbutton"}
+        tabIndex={editing || disabled ? -1 : 0}
+        className={cn(
+          "group flex h-6 min-w-0 items-center overflow-hidden rounded-sm border border-transparent bg-editor-field font-mono text-[11px] tabular-nums transition-[background-color,border-color,box-shadow] outline-none hover:bg-editor-field-hover focus-visible:border-studio-accent focus-visible:bg-background focus-visible:ring-2 focus-visible:ring-studio-accent/20 data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50 data-[invalid]:border-destructive data-[invalid]:ring-2 data-[invalid]:ring-destructive/20 data-[scrubbing]:cursor-ew-resize data-[scrubbing]:select-none",
+          !editing && !disabled && "cursor-ew-resize touch-none"
+        )}
+        onFocus={() => {
+          if (!editing) setError(null)
+        }}
+        onKeyDown={(event) => {
+          if (editing || disabled) return
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault()
+            startEditing()
+            return
+          }
+          if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return
+          event.preventDefault()
+          const multiplier = event.shiftKey ? 10 : event.altKey ? 0.1 : 1
+          const direction = event.key === "ArrowUp" ? 1 : -1
+          const next = normalizedScrubValue(
+            (canonical ?? 0) + direction * step * multiplier
+          )
+          setDraft(formatInspectorNumber(next))
+          onCommitRef.current(next)
+        }}
+        onPointerDown={(event) => {
+          if (editing || disabled || event.button !== 0) return
+          event.preventDefault()
+          event.currentTarget.focus({ preventScroll: true })
+          interactionRef.current = {
+            pointerId: event.pointerId,
+            startX: event.clientX,
+            lastX: event.clientX,
+            startValue: canonical ?? 0,
+            value: canonical ?? 0,
+            moved: false,
+            previewed: false,
+          }
+          event.currentTarget.setPointerCapture(event.pointerId)
+        }}
+        onPointerMove={(event) => {
+          const interaction = interactionRef.current
+          if (!interaction || interaction.pointerId !== event.pointerId) return
+          const totalDelta = event.clientX - interaction.startX
+          if (!interaction.moved && Math.abs(totalDelta) <= 2) return
+          interaction.moved = true
+          setScrubbing(true)
+          const delta = event.clientX - interaction.lastX
+          interaction.lastX = event.clientX
+          interaction.value = normalizedScrubValue(
+            interaction.value + delta * step * sensitivity
+          )
+          interaction.previewed = true
+          setDraft(formatInspectorNumber(interaction.value))
+          setError(null)
+          schedulePreview(interaction.value)
+        }}
+        onPointerUp={(event) =>
+          finishScrub(event.currentTarget, event.pointerId, false)
+        }
+        onPointerCancel={(event) =>
+          finishScrub(event.currentTarget, event.pointerId, true)
+        }
+      >
         {compactLabel ? (
           <span
             aria-hidden="true"
-            className="pointer-events-none absolute inset-y-0 left-2 z-10 flex items-center font-mono text-[10px] text-muted-foreground"
+            className="pointer-events-none flex h-full shrink-0 items-center justify-center px-[5px] text-[10px] leading-none text-muted-foreground select-none"
           >
             {compactLabel}
           </span>
         ) : null}
-        <Input
-          id={id}
-          aria-label={label}
-          inputMode="decimal"
-          value={draft}
-          placeholder={value.kind === "mixed" ? "Mixed" : undefined}
-          disabled={disabled}
-          aria-invalid={Boolean(error) || undefined}
-          aria-describedby={error ? `${id}-error` : undefined}
-          className={cn(
-            "h-6 rounded-sm border-transparent bg-editor-field px-2 font-mono text-[11px] tabular-nums hover:bg-editor-field-hover focus-visible:border-studio-accent focus-visible:bg-background focus-visible:ring-2 focus-visible:ring-studio-accent/20 md:text-[11px]",
-            compactLabel && "pl-7",
-            suffix && "pr-8"
-          )}
-          onChange={(event) => {
-            setDraft(event.target.value)
-            if (error) setError(null)
-          }}
-          onBlur={() => {
-            if (cancelBlurRef.current) {
-              cancelBlurRef.current = false
-              return
-            }
-            commit()
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault()
-              if (commit()) {
-                cancelBlurRef.current = true
-                event.currentTarget.blur()
+        {editing ? (
+          <Input
+            ref={inputRef}
+            id={id}
+            aria-label={label}
+            inputMode="decimal"
+            value={draft}
+            placeholder={value.kind === "mixed" ? "Mixed" : undefined}
+            disabled={disabled}
+            aria-invalid={Boolean(error) || undefined}
+            aria-describedby={error ? `${id}-error` : undefined}
+            className={cn(
+              "h-full w-0 min-w-0 flex-1 cursor-text rounded-none border-0 bg-transparent px-0 pr-1.5 font-mono text-[11px] shadow-none ring-0 outline-none hover:bg-transparent focus-visible:border-0 focus-visible:bg-transparent focus-visible:ring-0 md:text-[11px]",
+              !compactLabel && "pl-1.5"
+            )}
+            onChange={(event) => {
+              setDraft(event.target.value)
+              if (error) setError(null)
+            }}
+            onBlur={() => {
+              if (cancelBlurRef.current) {
+                cancelBlurRef.current = false
+                return
               }
-              return
-            }
-            if (event.key === "Escape") {
-              cancelBlurRef.current = true
-              setDraft(canonicalDraft)
+              if (commit()) setEditing(false)
+            }}
+            onKeyDown={(event) => {
+              event.stopPropagation()
+              if (event.key === "Enter") {
+                event.preventDefault()
+                if (commit()) {
+                  cancelBlurRef.current = true
+                  setEditing(false)
+                }
+                return
+              }
+              if (event.key === "Escape") {
+                event.preventDefault()
+                cancelBlurRef.current = true
+                setDraft(canonicalDraft)
+                setError(null)
+                setEditing(false)
+                return
+              }
+              if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return
+              event.preventDefault()
+              const parsed = parseInspectorNumber(draft, canonical, {
+                label,
+                min,
+                max,
+                integer,
+              })
+              const base = parsed.ok ? parsed.value : (canonical ?? 0)
+              const multiplier = event.shiftKey ? 10 : event.altKey ? 0.1 : 1
+              const direction = event.key === "ArrowUp" ? 1 : -1
+              const next = normalizedScrubValue(
+                base + direction * step * multiplier
+              )
+              setDraft(formatInspectorNumber(next))
               setError(null)
-              event.currentTarget.blur()
-              return
-            }
-            if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return
-            event.preventDefault()
-            const parsed = parseInspectorNumber(draft, canonical, {
-              label,
-              min,
-              max,
-              integer,
-            })
-            const base = parsed.ok ? parsed.value : (canonical ?? 0)
-            const multiplier = event.shiftKey ? 10 : event.altKey ? 0.1 : 1
-            const direction = event.key === "ArrowUp" ? 1 : -1
-            const next = base + direction * multiplier
-            setDraft(formatInspectorNumber(next))
-            setError(null)
-          }}
-        />
+            }}
+          />
+        ) : (
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate pr-1.5 text-foreground select-none",
+              !compactLabel && "pl-1.5"
+            )}
+          >
+            {value.kind === "mixed" ? "Mixed" : draft}
+          </span>
+        )}
         {suffix ? (
-          <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center font-mono text-[11px] text-muted-foreground">
+          <span className="pointer-events-none shrink-0 pr-1.5 text-[11px] text-muted-foreground select-none">
             {suffix}
           </span>
         ) : null}

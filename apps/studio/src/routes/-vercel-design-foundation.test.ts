@@ -20,9 +20,8 @@ const foundationNotes = readFileSync(
 describe("Vercel editor design foundation", () => {
   it("loads the published foundation unchanged at the application root", () => {
     expect(rootSource).toContain('"https://vercel.com/geist/vercel-brand.css"')
-    expect(rootSource).toContain(
-      'className="vbg-report light-theme studio-vbg-root"'
-    )
+    expect(rootSource).toContain('className="studio-vbg-root"')
+    expect(rootSource).not.toContain('className="vbg-report')
     expect(rootSource).toContain('data-studio-density="compact"')
   })
 
@@ -34,7 +33,7 @@ describe("Vercel editor design foundation", () => {
       "--background: var(--vbg-surface-primary, oklch(1 0 0))"
     )
     expect(globalStyles).toContain("--radius: var(--vbg-radius, 0.5rem)")
-    expect(globalStyles).toContain("all: revert-layer")
+    expect(globalStyles).not.toContain("all: revert-layer")
   })
 
   it("records both authoritative Vercel sources", () => {

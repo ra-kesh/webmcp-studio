@@ -50,10 +50,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       <head>
         <HeadContent />
       </head>
-      <body
-        className="vbg-report light-theme studio-vbg-root"
-        data-studio-density="compact"
-      >
+      <body className="studio-vbg-root" data-studio-density="compact">
         <TooltipProvider>{children}</TooltipProvider>
         <Scripts />
       </body>
