@@ -551,3 +551,28 @@ the document and viewport remain 1440 px wide, and browser diagnostics contain
 no warnings or errors. The two focused suites pass 12/12, Studio typecheck
 passes, the edited files pass Prettier, and `git diff --check` passes. The known
 package-wide ESLint backlog remains outside this bounded refinement.
+
+## Follow-up canvas-control dock checkpoint: 2026-09-01
+
+Before this slice, the retained editor-polish audit, OpenPencil toolbar
+references, and the live integrated multi-artboard editor were revisited. The
+Select, Hand, Text, and Shape tools still occupied permanent document-header
+space even though they act only on the canvas.
+
+Implemented:
+
+- canvas creation and navigation tools now share the bottom floating control
+  surface with zoom and page-fit actions;
+- the dock retains separate semantic toolbars for editing and viewport
+  controls, separated visually inside one surface;
+- the document header now contains document, history, selection, publish, API,
+  and export actions only;
+- text and shape menus retain their commands, shortcuts, disabled states,
+  focus restoration, and upward menu placement;
+- compact widths retain the existing zoom-only behavior below 640 px.
+
+Live acceptance on port 3001 confirmed that the header is clear, the combined
+dock stays centered, the Text menu opens above it without clipping, and browser
+diagnostics contain no errors. The focused shell, visual-contract, and zoom
+suite passes 23/23, Studio typecheck, scoped ESLint, and the whitespace check
+pass.

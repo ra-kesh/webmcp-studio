@@ -4329,6 +4329,158 @@ export function StudioShell({
     )
   }
 
+  const canvasToolControls = (
+    <div
+      aria-label="Canvas tools"
+      className="hidden shrink-0 items-center gap-0.5 min-[640px]:flex"
+      role="toolbar"
+    >
+      <IconButton
+        label="Select"
+        shortcut="V"
+        aria-pressed={tool === "select"}
+        className="size-11 aria-pressed:bg-primary aria-pressed:text-primary-foreground aria-pressed:hover:bg-primary/85 min-[1280px]:size-7"
+        disabled={!commandEnabled("tool.select")}
+        variant="ghost"
+        onClick={() => runEditorCommand("tool.select")}
+      >
+        <MousePointer2 />
+      </IconButton>
+      <IconButton
+        label="Hand tool"
+        shortcut="H"
+        aria-pressed={tool === "hand"}
+        className="size-11 aria-pressed:bg-primary aria-pressed:text-primary-foreground aria-pressed:hover:bg-primary/85 min-[1280px]:size-7"
+        disabled={!commandEnabled("tool.hand")}
+        variant="ghost"
+        onClick={() => runEditorCommand("tool.hand")}
+      >
+        <Hand />
+      </IconButton>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            aria-label="Add text"
+            title="Add text (T inserts body text)"
+            className="size-11 min-[1280px]:size-7"
+            size="icon-sm"
+            variant="ghost"
+            disabled={!commandEnabled("object.add-text")}
+          >
+            <Type />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          className="w-72"
+          onCloseAutoFocus={restoreTextEditingAfterMenuClose}
+        >
+          <DropdownMenuLabel>Text styles</DropdownMenuLabel>
+          <DropdownMenuGroup>
+            <TextPresetMenuItems
+              disabled={!commandEnabled("object.add-text")}
+              onSelect={(presetId) =>
+                insertTextPreset(presetId, {
+                  deferEditingUntilMenuClose: true,
+                })
+              }
+            />
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            ref={insertShapeTriggerRef}
+            aria-label="Insert shape"
+            title="Insert shape"
+            className="size-11 min-[1280px]:size-7"
+            size="icon-sm"
+            variant="ghost"
+            disabled={!commandEnabled("object.add-rectangle")}
+          >
+            <Shapes />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent className="w-52">
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>Add to canvas</DropdownMenuLabel>
+            <DropdownMenuItem
+              className="min-h-11 min-[1280px]:min-h-0"
+              onSelect={() => runEditorCommand("object.add-rectangle")}
+            >
+              <Square />
+              Rectangle
+              <DropdownMenuShortcut>R</DropdownMenuShortcut>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="min-h-11 min-[1280px]:min-h-0"
+              onSelect={() => runEditorCommand("object.add-ellipse")}
+            >
+              <Circle />
+              Ellipse
+              <DropdownMenuShortcut>O</DropdownMenuShortcut>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="min-h-11 min-[1280px]:min-h-0"
+              onSelect={() => runEditorCommand("object.add-line")}
+            >
+              <Minus />
+              Line
+              <DropdownMenuShortcut>L</DropdownMenuShortcut>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="min-h-11 min-[1280px]:min-h-0"
+              disabled={Boolean(
+                editor.pendingChangeSet || pendingQuotationRefresh
+              )}
+              onSelect={() =>
+                editor.addIcon({
+                  name: "Heart icon",
+                  path: HEART_ICON_PATH,
+                  viewBox: "0 0 24 24",
+                })
+              }
+            >
+              <Heart />
+              Heart icon
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="min-h-11 min-[1280px]:min-h-0"
+              disabled={
+                editor.isImportingAsset ||
+                Boolean(editor.pendingChangeSet || pendingQuotationRefresh)
+              }
+              onSelect={() =>
+                openMediaPicker(
+                  "uploads",
+                  undefined,
+                  insertShapeTriggerRef.current
+                )
+              }
+            >
+              <ImagePlus />
+              {editor.isImportingAsset ? "Adding image…" : "Upload image…"}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="min-h-11 min-[1280px]:min-h-0"
+              disabled={Boolean(editor.pendingChangeSet)}
+              onSelect={() =>
+                openMediaPicker(
+                  "library",
+                  undefined,
+                  insertShapeTriggerRef.current
+                )
+              }
+            >
+              <Images />
+              Asset library…
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  )
+
   const workspace = (
     <Sheet
       open={compactPanel !== null}
@@ -4383,162 +4535,7 @@ export function StudioShell({
               runtime={productMenuRuntime}
             />
           </div>
-          <Separator
-            className="hidden min-[1600px]:block"
-            orientation="vertical"
-          />
-          <div
-            aria-label="Canvas tools"
-            className="hidden shrink-0 items-center gap-0.5 min-[640px]:flex"
-            role="toolbar"
-          >
-            <IconButton
-              label="Select"
-              shortcut="V"
-              aria-pressed={tool === "select"}
-              className="size-11 aria-pressed:bg-primary aria-pressed:text-primary-foreground aria-pressed:hover:bg-primary/85 min-[1280px]:size-7"
-              disabled={!commandEnabled("tool.select")}
-              variant="ghost"
-              onClick={() => runEditorCommand("tool.select")}
-            >
-              <MousePointer2 />
-            </IconButton>
-            <IconButton
-              label="Hand tool"
-              shortcut="H"
-              aria-pressed={tool === "hand"}
-              className="size-11 aria-pressed:bg-primary aria-pressed:text-primary-foreground aria-pressed:hover:bg-primary/85 min-[1280px]:size-7"
-              disabled={!commandEnabled("tool.hand")}
-              variant="ghost"
-              onClick={() => runEditorCommand("tool.hand")}
-            >
-              <Hand />
-            </IconButton>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  aria-label="Add text"
-                  title="Add text (T inserts body text)"
-                  className="size-11 min-[1280px]:size-7"
-                  size="icon-sm"
-                  variant="ghost"
-                  disabled={!commandEnabled("object.add-text")}
-                >
-                  <Type />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                className="w-72"
-                onCloseAutoFocus={restoreTextEditingAfterMenuClose}
-              >
-                <DropdownMenuLabel>Text styles</DropdownMenuLabel>
-                <DropdownMenuGroup>
-                  <TextPresetMenuItems
-                    disabled={!commandEnabled("object.add-text")}
-                    onSelect={(presetId) =>
-                      insertTextPreset(presetId, {
-                        deferEditingUntilMenuClose: true,
-                      })
-                    }
-                  />
-                </DropdownMenuGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  ref={insertShapeTriggerRef}
-                  aria-label="Insert shape"
-                  title="Insert shape"
-                  className="size-11 min-[1280px]:size-7"
-                  size="icon-sm"
-                  variant="ghost"
-                  disabled={!commandEnabled("object.add-rectangle")}
-                >
-                  <Shapes />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-52">
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel>Add to canvas</DropdownMenuLabel>
-                  <DropdownMenuItem
-                    className="min-h-11 min-[1280px]:min-h-0"
-                    onSelect={() => runEditorCommand("object.add-rectangle")}
-                  >
-                    <Square />
-                    Rectangle
-                    <DropdownMenuShortcut>R</DropdownMenuShortcut>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    className="min-h-11 min-[1280px]:min-h-0"
-                    onSelect={() => runEditorCommand("object.add-ellipse")}
-                  >
-                    <Circle />
-                    Ellipse
-                    <DropdownMenuShortcut>O</DropdownMenuShortcut>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    className="min-h-11 min-[1280px]:min-h-0"
-                    onSelect={() => runEditorCommand("object.add-line")}
-                  >
-                    <Minus />
-                    Line
-                    <DropdownMenuShortcut>L</DropdownMenuShortcut>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    className="min-h-11 min-[1280px]:min-h-0"
-                    disabled={Boolean(
-                      editor.pendingChangeSet || pendingQuotationRefresh
-                    )}
-                    onSelect={() =>
-                      editor.addIcon({
-                        name: "Heart icon",
-                        path: HEART_ICON_PATH,
-                        viewBox: "0 0 24 24",
-                      })
-                    }
-                  >
-                    <Heart />
-                    Heart icon
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    className="min-h-11 min-[1280px]:min-h-0"
-                    disabled={
-                      editor.isImportingAsset ||
-                      Boolean(
-                        editor.pendingChangeSet || pendingQuotationRefresh
-                      )
-                    }
-                    onSelect={() =>
-                      openMediaPicker(
-                        "uploads",
-                        undefined,
-                        insertShapeTriggerRef.current
-                      )
-                    }
-                  >
-                    <ImagePlus />
-                    {editor.isImportingAsset
-                      ? "Adding image…"
-                      : "Upload image…"}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    className="min-h-11 min-[1280px]:min-h-0"
-                    disabled={Boolean(editor.pendingChangeSet)}
-                    onSelect={() =>
-                      openMediaPicker(
-                        "library",
-                        undefined,
-                        insertShapeTriggerRef.current
-                      )
-                    }
-                  >
-                    <Images />
-                    Asset library…
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
+          <div className="hidden">
             <input
               ref={documentInputRef}
               aria-hidden="true"
@@ -5635,6 +5632,7 @@ export function StudioShell({
                 className="absolute bottom-4 left-1/2 -translate-x-1/2"
                 zoom={zoom}
                 hasSelection={editor.selectedNodes.length > 0}
+                canvasTools={canvasToolControls}
                 onZoomChange={setManualZoom}
                 onFit={() => {
                   setAutoFit(true)
