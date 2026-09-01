@@ -4,7 +4,7 @@ Date: 2026-09-01
 
 Updated: 2026-09-02
 
-Code baseline: `88e7b52a1e5a128757139efee141d9ec139023ee`
+Code baseline: `9372b7a43fa83cef272f3a1f1545542b07f450c2`
 
 This checkpoint reconciles the main conversation with the separate redesign,
 mask, rich-text, component, library, image-architecture, generation, independent
@@ -65,7 +65,17 @@ checkpoint and evidence stay auditable.
    and frame-owned mask sources instead of allowing renderer divergence; a
    future expansion of either contract must add a new canonical geometry and
    cross-renderer conformance gate.
-3. Blend modes.
+3. **Blend modes — completed as phase-map Gate 4 and independently
+   accepted.** Commit `9372b7a43fa83cef272f3a1f1545542b07f450c2`
+   adds a strict 16-mode portable blend vocabulary; canonical projection;
+   Fabric canvas and React/CSS/renderer mappings; explicit opacity, clipping,
+   and retained-mask ordering; Inspector and Review controls; strict WebMCP
+   admission; legacy schema-v6 compatibility; and focused cross-renderer
+   regression coverage. Evidence:
+   `advanced-editor-depth-gate-04-blend-modes-review-2026-09-01.md`. No Gate 4
+   gap remains. Pass-through and Porter-Duff operations stay deliberately
+   rejected because they do not have a portable flat-layer meaning across the
+   accepted renderers.
 4. Independent corner radii and corner smoothing.
 5. Multiple fills and strokes on one layer.
 6. Advanced stroke controls: alignment, per-side strokes, dashes, caps, joins,
