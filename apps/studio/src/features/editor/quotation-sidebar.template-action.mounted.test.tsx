@@ -248,9 +248,9 @@ describe("QuotationSidebar exact template actions", () => {
       ...document.body.querySelectorAll<HTMLElement>('[role="tab"]'),
     ]
     expect(tabs.map((tab) => tab.textContent?.trim())).toEqual([
+      "File",
       "Templates",
       "Assets",
-      "File",
     ])
 
     const pages = document.body.querySelector<HTMLElement>(

@@ -1245,7 +1245,7 @@ export function StudioShell({
     }
   }, [editor.sessionMode])
   const [documentPanelTab, setDocumentPanelTab] =
-    useState<DocumentPanelTab>("templates")
+    useState<DocumentPanelTab>("layers")
   const [assetWorkspaceView, setAssetWorkspaceView] =
     useState<AssetWorkspaceView>("media")
   const [assetMediaScope, setAssetMediaScope] = useState<LibraryMediaScope>({
@@ -1272,15 +1272,11 @@ export function StudioShell({
     compactDocumentPanelOpen: compactPanel === "document",
   })
   const assetMediaBrowserVisibility = {
-    desktop:
-      desktopPresentation &&
-      documentPanelTab === "components" &&
-      assetWorkspaceView === "media",
+    desktop: desktopPresentation && documentPanelTab === "components",
     compact:
       !desktopPresentation &&
       compactPanel === "document" &&
-      documentPanelTab === "components" &&
-      assetWorkspaceView === "media",
+      documentPanelTab === "components",
   }
   const [imageSourceStateByNodeId, setImageSourceStateByNodeId] = useState<
     Partial<Record<string, InspectorImageSourceState>>

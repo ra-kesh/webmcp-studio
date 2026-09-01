@@ -20,15 +20,21 @@ function EditorPanelHeader({
 }
 
 function EditorPanelTabsList({
+  appearance = "line",
   className,
   ...props
-}: React.ComponentProps<typeof TabsList>) {
+}: React.ComponentProps<typeof TabsList> & {
+  appearance?: "line" | "segmented"
+}) {
+  const segmented = appearance === "segmented"
   return (
-    <EditorPanelHeader className="p-0">
+    <EditorPanelHeader className={segmented ? "px-2" : "p-0"}>
       <TabsList
-        variant="line"
+        variant={segmented ? "default" : "line"}
         className={cn(
-          "[&_[data-slot=tabs-trigger]][data-state=active]:font-semibold [&_[data-slot=tabs-trigger]][data-state=active]:text-foreground !h-full w-full justify-start gap-0 rounded-none p-0 px-1.5 [&_[data-slot=tabs-trigger]]:!h-full [&_[data-slot=tabs-trigger]]:rounded-none [&_[data-slot=tabs-trigger]]:px-2.5 [&_[data-slot=tabs-trigger]]:font-normal [&_[data-slot=tabs-trigger]]:text-muted-foreground [&_[data-slot=tabs-trigger]]:after:inset-x-2 [&_[data-slot=tabs-trigger]]:after:bottom-0 [&_[data-slot=tabs-trigger]]:focus-visible:border-transparent [&_[data-slot=tabs-trigger]]:focus-visible:ring-1 [&_[data-slot=tabs-trigger]]:focus-visible:ring-studio-accent/50 [&_[data-slot=tabs-trigger]]:focus-visible:ring-inset",
+          segmented
+            ? "[&_[data-slot=tabs-trigger]][data-state=active]:font-medium !h-8 w-full gap-0 rounded-md p-[3px] [&_[data-slot=tabs-trigger]]:!h-full [&_[data-slot=tabs-trigger]]:rounded-sm [&_[data-slot=tabs-trigger]]:px-2 [&_[data-slot=tabs-trigger]]:text-[11px] [&_[data-slot=tabs-trigger]]:font-normal [&_[data-slot=tabs-trigger]]:focus-visible:border-transparent [&_[data-slot=tabs-trigger]]:focus-visible:ring-1 [&_[data-slot=tabs-trigger]]:focus-visible:ring-ring/20 [&_[data-slot=tabs-trigger]]:focus-visible:ring-inset"
+            : "[&_[data-slot=tabs-trigger]][data-state=active]:font-semibold [&_[data-slot=tabs-trigger]][data-state=active]:text-foreground !h-full w-full justify-start gap-0 rounded-none p-0 px-1.5 [&_[data-slot=tabs-trigger]]:!h-full [&_[data-slot=tabs-trigger]]:rounded-none [&_[data-slot=tabs-trigger]]:px-2.5 [&_[data-slot=tabs-trigger]]:font-normal [&_[data-slot=tabs-trigger]]:text-muted-foreground [&_[data-slot=tabs-trigger]]:after:inset-x-2 [&_[data-slot=tabs-trigger]]:after:bottom-0 [&_[data-slot=tabs-trigger]]:focus-visible:border-transparent [&_[data-slot=tabs-trigger]]:focus-visible:ring-1 [&_[data-slot=tabs-trigger]]:focus-visible:ring-studio-accent/50 [&_[data-slot=tabs-trigger]]:focus-visible:ring-inset",
           className
         )}
         {...props}

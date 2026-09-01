@@ -246,22 +246,10 @@ export function QuotationSidebar({
         }
         className="min-h-0 flex-1 gap-0 overflow-hidden"
       >
-        <EditorPanelTabsList aria-label="Editor panels">
-          <TabsTrigger
-            value="templates"
-            className="flex-none px-2.5 text-[11px]"
-          >
-            Templates
-          </TabsTrigger>
-          <TabsTrigger
-            value="components"
-            className="flex-none px-2.5 text-[11px]"
-          >
-            Assets
-          </TabsTrigger>
-          <TabsTrigger value="layers" className="flex-none px-2.5 text-[11px]">
-            File
-          </TabsTrigger>
+        <EditorPanelTabsList appearance="segmented" aria-label="Editor panels">
+          <TabsTrigger value="layers">File</TabsTrigger>
+          <TabsTrigger value="templates">Templates</TabsTrigger>
+          <TabsTrigger value="components">Assets</TabsTrigger>
         </EditorPanelTabsList>
         <TabsContent
           value="templates"

@@ -65,7 +65,7 @@ function panel({
     <AssetWorkspacePanel
       document={renderConformanceDocument}
       activeView={view}
-      mediaBrowserVisible={view === "media"}
+      mediaBrowserVisible
       mediaScope={scope}
       mediaActionsEnabled
       canCreateComponentFromSelection={false}
@@ -101,7 +101,7 @@ describe("AssetWorkspacePanel", () => {
     host.remove()
   })
 
-  it("keeps media scope while switching between Media and Components", async () => {
+  it("keeps media scope without exposing the deferred Components workspace", async () => {
     const onInsert = vi.fn()
     let scope: LibraryMediaScope = { kind: "recent" }
     const onScopeChange = vi.fn((next: LibraryMediaScope) => {
@@ -121,12 +121,9 @@ describe("AssetWorkspacePanel", () => {
     expect(document.body.textContent).toContain("library")
 
     await renderView("components")
-    expect(document.body.textContent).toContain("Insert component")
-    await act(async () => buttonNamed("Insert component")?.click())
-    expect(onInsert).toHaveBeenCalledWith("component-card")
-
-    await renderView("media")
     expect(document.body.textContent).toContain("library")
     expect(document.body.textContent).toContain("enabled")
+    expect(buttonNamed("Insert component")).toBeUndefined()
+    expect(onInsert).not.toHaveBeenCalled()
   })
 })

@@ -106,6 +106,16 @@ header: the canonical layer total sits beside the title while stack order stays
 right-aligned. Standalone layer-tree surfaces retain search for larger,
 dedicated navigation contexts.
 
+File is now the first and default document-rail workspace. Templates and Assets
+follow as insertion libraries. The rail uses the existing shadcn segmented Tabs
+variant instead of a full-width underline navigation row, keeping all three
+choices inside one compact control with a contained keyboard-focus treatment.
+
+The Assets workspace temporarily exposes only the media browser. Removing the
+Media / Components switch leaves one clear level of media scope navigation
+(`Recent`, `Uploads`, `Library`, and `Favorites`) while component-library
+placement is reconsidered.
+
 Page rows in the File rail now expose the canonical page command menu through
 right-click and `Shift+F10`. Rename, duplicate, add, reorder and delete use the
 same validated product-command runtime and confirmation dialogs as the existing
