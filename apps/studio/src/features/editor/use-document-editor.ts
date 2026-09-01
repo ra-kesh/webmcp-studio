@@ -4374,8 +4374,10 @@ export function useDocumentEditor({
   )
 
   const updateNode = useCallback(
-    (nodeId: string, patch: Partial<SceneNode>) =>
-      commit([{ type: "update_node", nodeId, patch }]),
+    (nodeId: string, patch: Partial<SceneNode>) => {
+      const document = historyRef.current.document
+      return commit(canvasNodeChangeCommands(document, [{ nodeId, patch }]))
+    },
     [commit]
   )
 

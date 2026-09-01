@@ -104,6 +104,20 @@ const designEnvelope = (): CurrentDraftEnvelope => ({
   },
 })
 
+const signalBriefEnvelope = (): CurrentDraftEnvelope => ({
+  schemaVersion: 1,
+  document: builtInDesignTemplateRepository.materialize(
+    "signal-creative-brief",
+    1,
+    { identity: "canonical" }
+  ),
+  sourceContext: {
+    quotationSource: null,
+    quotationTemplateId: quotationStarter.templateId,
+    designTemplate: { id: "signal-creative-brief", version: 1 },
+  },
+})
+
 const cropImage: Extract<SceneNode, { type: "image" }> = {
   id: "persistence-race-image",
   type: "image",
@@ -591,6 +605,41 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     }
     return result.record
   }
+
+  it("persists inspector edits to field-bound text through the canonical field", async () => {
+    const envelope = signalBriefEnvelope()
+    const { captured, hookRepository } = await openEnvelope(
+      envelope,
+      "field-bound-inspector-text"
+    )
+    const title = captured.current!.document.nodes.find(
+      (node) => node.type === "text" && node.name === "Title"
+    )
+    if (!title || title.type !== "text") {
+      throw new Error("Expected the field-bound Signal title")
+    }
+    const binding = captured.current!.document.bindings.find(
+      (candidate) =>
+        candidate.nodeId === title.id && candidate.property === "text"
+    )
+    if (!binding) throw new Error("Expected the Signal title field binding")
+
+    const replacement = "Make the useful choice feel inevitable."
+    await act(async () => {
+      expect(captured.current!.updateNode(title.id, { text: replacement })).toBe(
+        true
+      )
+      expect(await captured.current!.flushActiveDraft()).toBe(true)
+    })
+
+    const durable = await readRecord(hookRepository, envelope.document.id)
+    expect(durable.envelope.document.fieldValues[binding.fieldId]).toBe(
+      replacement
+    )
+    expect(
+      durable.envelope.document.nodes.find((node) => node.id === title.id)
+    ).toMatchObject({ text: replacement })
+  })
 
   const seedStoredStaleConflict = async (suffix: string) => {
     const envelope = designEnvelope()
