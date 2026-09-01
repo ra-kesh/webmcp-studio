@@ -1,5 +1,9 @@
 # Editor production-readiness audit
 
+The current editor architecture extraction and Fabric invalidation ownership
+gate is tracked in
+[editor-architecture-render-ownership-2026-09-01.md](./editor-architecture-render-ownership-2026-09-01.md).
+
 Audit date: 2026-08-27
 Repository: `/Users/rakesh/Developer/webmcp-studio`
 Scope: current working tree, including uncommitted changes

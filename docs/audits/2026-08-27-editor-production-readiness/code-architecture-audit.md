@@ -1,5 +1,9 @@
 # Code architecture audit
 
+Implementation follow-up: the bounded ownership map and extraction gates for
+the editor hook and Fabric invalidation boundary are recorded in
+[editor-architecture-render-ownership-2026-09-01.md](./editor-architecture-render-ownership-2026-09-01.md).
+
 ## Architectural verdict
 
 The repository has a promising separation on paper:
