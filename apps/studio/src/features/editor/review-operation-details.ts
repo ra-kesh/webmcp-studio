@@ -42,6 +42,19 @@ function displayNodeProperty(
   value: unknown,
   source?: unknown
 ): string {
+  if (
+    key === "constraints" &&
+    value &&
+    typeof value === "object" &&
+    "horizontal" in value &&
+    "vertical" in value
+  ) {
+    const constraints = value as {
+      horizontal: unknown
+      vertical: unknown
+    }
+    return `Horizontal: ${displayChangeValue(constraints.horizontal)} · Vertical: ${displayChangeValue(constraints.vertical)}`
+  }
   return key === "assetId"
     ? displayAssetId(value, source)
     : displayChangeValue(value)

@@ -29,6 +29,7 @@ const text = (
   opacity: 1,
   visible: true,
   locked: false,
+  constraints: { horizontal: "min", vertical: "min" },
   color,
   fontFamily: "Geist Variable",
   fontSize,
@@ -62,6 +63,7 @@ const rect = (
   opacity: 1,
   visible: true,
   locked: false,
+  constraints: { horizontal: "min", vertical: "min" },
   fill,
   radius,
   strokeWidth: 0,
@@ -386,7 +388,7 @@ const nodes: SceneNode[] = [
 ]
 
 export const northstarSeed: Document = documentSchema.parse({
-  schemaVersion: 5,
+  schemaVersion: 6,
   id: "doc-northstar-aditi-kabir",
   name: "Aditi & Kabir proposal pack",
   revision: 3,

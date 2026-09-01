@@ -2209,6 +2209,7 @@ const publicCommonCanvasPatchProperties = new Set([
   "opacity",
   "visible",
   "locked",
+  "constraints",
 ])
 
 const publicNodeCanvasPatchProperties: Record<
@@ -2327,6 +2328,21 @@ const commonCanvasPatchInputProperties = {
   opacity: { type: "number", minimum: 0, maximum: 1 },
   visible: { type: "boolean" },
   locked: { type: "boolean" },
+  constraints: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      horizontal: {
+        type: "string",
+        enum: ["min", "center", "max", "stretch", "scale"],
+      },
+      vertical: {
+        type: "string",
+        enum: ["min", "center", "max", "stretch", "scale"],
+      },
+    },
+    required: ["horizontal", "vertical"],
+  },
 } as const
 
 const typedCanvasEditInputSchema = {

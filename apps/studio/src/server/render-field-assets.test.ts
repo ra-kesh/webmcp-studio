@@ -128,6 +128,7 @@ describe("render field asset resolution", () => {
       opacity: 1,
       visible: true,
       locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
       assetId: item.id,
       src: item.resourcePath,
       placement: {
@@ -370,6 +371,7 @@ describe("render field asset resolution", () => {
       opacity: 1,
       visible: true,
       locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
       assetId,
       src: managed,
       placement: {
@@ -454,6 +456,7 @@ describe("render field asset resolution", () => {
       opacity: 1,
       visible: true,
       locked: false,
+      constraints: { horizontal: "min" as const, vertical: "min" as const },
       placement: {
         mode: "fill" as const,
         focalX: 0.5,
@@ -516,6 +519,7 @@ describe("render field asset resolution", () => {
       opacity: 1,
       visible: true,
       locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
       assetId: "asset-aaaaaaaaaa",
       src: "asset:managed/asset-bbbbbbbbbb",
       placement: {
@@ -564,6 +568,7 @@ describe("render field asset resolution", () => {
       opacity: 1,
       visible: true,
       locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
       assetId,
       src: managed,
       placement: {
@@ -612,6 +617,7 @@ describe("render field asset resolution", () => {
       opacity: 1,
       visible: true,
       locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
       assetId,
       src: `asset:managed/${assetId}`,
       placement: {

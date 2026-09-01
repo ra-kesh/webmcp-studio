@@ -1326,6 +1326,78 @@ const appendMaskCommandReceipt = (
   ].slice(-128),
 })
 
+type ConstraintAxis = SceneNode["constraints"]["horizontal"]
+
+function resizeConstrainedAxis(
+  position: number,
+  size: number,
+  previousParentSize: number,
+  nextParentSize: number,
+  constraint: ConstraintAxis,
+  nodeName: string,
+  axisName: "horizontal" | "vertical"
+) {
+  const delta = nextParentSize - previousParentSize
+  if (delta === 0 || constraint === "min") return { position, size }
+  if (constraint === "center") {
+    return { position: position + delta / 2, size }
+  }
+  if (constraint === "max") {
+    return { position: position + delta, size }
+  }
+  if (constraint === "scale") {
+    const ratio = nextParentSize / previousParentSize
+    return { position: position * ratio, size: size * ratio }
+  }
+  const stretchedSize = size + delta
+  if (stretchedSize <= 0) {
+    throw new Error(
+      `${nodeName}'s ${axisName} stretch constraint would collapse the layer`
+    )
+  }
+  return { position, size: stretchedSize }
+}
+
+function resizeNodeForPage(
+  node: SceneNode,
+  previousPage: { width: number; height: number },
+  nextPage: { width: number; height: number }
+): SceneNode {
+  const horizontal = resizeConstrainedAxis(
+    node.x,
+    node.width,
+    previousPage.width,
+    nextPage.width,
+    node.constraints.horizontal,
+    node.name,
+    "horizontal"
+  )
+  const vertical = resizeConstrainedAxis(
+    node.y,
+    node.height,
+    previousPage.height,
+    nextPage.height,
+    node.constraints.vertical,
+    node.name,
+    "vertical"
+  )
+  if (
+    horizontal.position === node.x &&
+    horizontal.size === node.width &&
+    vertical.position === node.y &&
+    vertical.size === node.height
+  ) {
+    return node
+  }
+  return {
+    ...node,
+    x: horizontal.position,
+    width: horizontal.size,
+    y: vertical.position,
+    height: vertical.size,
+  }
+}
+
 function applyParsedCommand(
   document: Document,
   command: DocumentCommand,
@@ -3229,14 +3301,27 @@ function applyParsedCommand(
       break
     }
     case "update_page": {
-      if (!document.pages.some((page) => page.id === command.pageId)) {
+      const page = document.pages.find(
+        (candidate) => candidate.id === command.pageId
+      )
+      if (!page) {
         throw new Error(`Unknown page: ${command.pageId}`)
       }
+      const updatedPage = { ...page, ...command.patch }
+      const resizedNodeIds = new Set(page.nodeIds)
       next = {
         ...document,
         pages: document.pages.map((page) =>
-          page.id === command.pageId ? { ...page, ...command.patch } : page
+          page.id === command.pageId ? updatedPage : page
         ),
+        nodes:
+          updatedPage.width === page.width && updatedPage.height === page.height
+            ? document.nodes
+            : document.nodes.map((node) =>
+                resizedNodeIds.has(node.id)
+                  ? resizeNodeForPage(node, page, updatedPage)
+                  : node
+              ),
       }
       break
     }

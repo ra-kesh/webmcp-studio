@@ -35,6 +35,48 @@ const updateTitleX = (id: string, x: number) => ({
 })
 
 describe("document history", () => {
+  it("undoes and redoes constraint metadata with its page-resize geometry", () => {
+    const before = structuredClone(northstarSeed)
+    const page = before.pages.find((candidate) => candidate.id === "cover")!
+    const node = before.nodes.find(
+      (candidate) => candidate.id === "cover-title"
+    )!
+    const initialX = node.x
+    const history = createDocumentHistory(before, "constraints-before")
+    const changed = commitCommands(history, [
+      {
+        id: "history-pin-cover-title-right",
+        type: "update_node",
+        actor: "human",
+        at: "2026-09-01T09:10:00.000Z",
+        nodeId: node.id,
+        patch: {
+          constraints: { horizontal: "max", vertical: "min" },
+        },
+      },
+      {
+        id: "history-resize-cover-page",
+        type: "update_page",
+        actor: "human",
+        at: "2026-09-01T09:10:01.000Z",
+        pageId: page.id,
+        patch: { width: page.width + 120 },
+      },
+    ])
+    const changedNode = changed.document.nodes.find(
+      (candidate) => candidate.id === node.id
+    )!
+
+    expect(changedNode.constraints).toEqual({
+      horizontal: "max",
+      vertical: "min",
+    })
+    expect(changedNode.x).toBe(initialX + 120)
+    const undone = undoDocument(changed)
+    expect(undone.document).toEqual(before)
+    expect(redoDocument(undone).document).toEqual(changed.document)
+  })
+
   it("creates and releases a mask as exact single history steps", () => {
     const before = {
       ...structuredClone(maskRenderConformanceDocument),

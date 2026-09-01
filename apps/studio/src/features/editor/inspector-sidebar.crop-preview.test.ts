@@ -18,6 +18,7 @@ const image = {
   opacity: 1,
   visible: true,
   locked: false,
+  constraints: { horizontal: "min", vertical: "min" },
   assetId: "inspector-crop-asset",
   src: "https://example.com/inspector-crop.jpg",
   placement: defaultImagePlacement(),

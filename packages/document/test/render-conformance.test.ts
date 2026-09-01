@@ -39,6 +39,16 @@ const parityFingerprint = (
 })
 
 describe("render conformance corpus", () => {
+  it("keeps constraint metadata out of the render projection", () => {
+    const node = renderConformanceDocument.nodes[0]!
+    expect(
+      projectNodeForRender({
+        ...node,
+        constraints: { horizontal: "scale", vertical: "stretch" },
+      })
+    ).toEqual(projectNodeForRender(node))
+  })
+
   it("retains default, variant, overridden, nested and canonically detached component cases", () => {
     const document = componentRenderConformanceDocument
     expect(

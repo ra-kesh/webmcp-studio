@@ -98,6 +98,7 @@ const imageNode = (
   opacity: 1,
   visible: true,
   locked: false,
+  constraints: { horizontal: "min", vertical: "min" },
 })
 
 function crossBrowserFixture(documentId: string, localAssetId: string) {
@@ -454,10 +455,9 @@ async function holdLegacyLocalAssetDatabase(
         request.onupgradeneeded = () => {
           const upgradeDatabase = request.result
           upgradeDatabase.createObjectStore("assets", { keyPath: "id" })
-          const metadata = upgradeDatabase.createObjectStore(
-            "asset-metadata",
-            { keyPath: "id" }
-          )
+          const metadata = upgradeDatabase.createObjectStore("asset-metadata", {
+            keyPath: "id",
+          })
           metadata.createIndex("createdAt", "createdAt")
           metadata.createIndex("lastUsedAt", "lastUsedAt")
           upgradeDatabase.createObjectStore("asset-blobs")
@@ -1293,9 +1293,9 @@ test("two tabs share promotion discovery without silently mutating the mounted s
     )
     expect(siblingBeforeChoice).toContain("unavailable-local-asset")
     expect(siblingBeforeChoice).not.toContain(mapping.assetId!)
-    expect(ownerRequests.promotionUploads + siblingRequests.promotionUploads).toBe(
-      1
-    )
+    expect(
+      ownerRequests.promotionUploads + siblingRequests.promotionUploads
+    ).toBe(1)
 
     await siblingDialog
       .getByRole("button", { name: "Close media library" })
@@ -1335,7 +1335,9 @@ test("two tabs share promotion discovery without silently mutating the mounted s
       siblingPage,
       siblingDocumentId
     )
-    expect(sourceOccurrences(siblingAfterChoice.document!, managedSource)).toBe(6)
+    expect(sourceOccurrences(siblingAfterChoice.document!, managedSource)).toBe(
+      6
+    )
     expect(
       ownerRequests.promotionUploads + siblingRequests.promotionUploads
     ).toBe(1)
@@ -1362,11 +1364,7 @@ test("a blocked v4 asset database upgrade preserves media and succeeds after the
     const legacyPage = await context.newPage()
     await openOriginPage(legacyPage)
     expect(
-      await holdLegacyLocalAssetDatabase(
-        legacyPage,
-        localAssetId,
-        fileName
-      )
+      await holdLegacyLocalAssetDatabase(legacyPage, localAssetId, fileName)
     ).toBe(4)
 
     await installDocumentBootstrap(context, fixture)

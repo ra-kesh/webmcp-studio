@@ -738,7 +738,7 @@ type MountedLocalAssetPromotionReservation = Readonly<{
 
 function createNeutralBootstrapDocument(): Document {
   return documentSchema.parse({
-    schemaVersion: 5,
+    schemaVersion: 6,
     id: "private-bootstrap-document",
     name: "Untitled document",
     revision: 0,
@@ -5412,6 +5412,7 @@ export function useDocumentEditor({
       opacity: 1,
       visible: true,
       locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
       fill: "#d9c9b2",
       radius: 24,
       strokeWidth: 0,
@@ -5439,6 +5440,7 @@ export function useDocumentEditor({
       opacity: 1,
       visible: true,
       locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
       fill: "#d9c9b2",
       strokeWidth: 0,
     }
@@ -5465,6 +5467,7 @@ export function useDocumentEditor({
       opacity: 1,
       visible: true,
       locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
       stroke: "#1e2622",
       strokeWidth: 4,
     }
@@ -5502,6 +5505,7 @@ export function useDocumentEditor({
         opacity: 1,
         visible: true,
         locked: false,
+        constraints: { horizontal: "min", vertical: "min" },
         fill: "#8a5d38",
         strokeWidth: 0,
       }
@@ -5587,6 +5591,7 @@ export function useDocumentEditor({
               opacity: 1,
               visible: true,
               locked: false,
+              constraints: { horizontal: "min", vertical: "min" },
             }
             return commit([{ type: "add_node", pageId: page.id, node }])
           },
@@ -10638,7 +10643,7 @@ export function useDocumentEditor({
       const outputId = `output-${crypto.randomUUID()}`
       const pageId = `page-${crypto.randomUUID()}`
       const document = documentSchema.parse({
-        schemaVersion: 5,
+        schemaVersion: 6,
         id: `document-${crypto.randomUUID()}`,
         name: options.name,
         revision: 0,

@@ -168,6 +168,7 @@ function imageComponentFixture(): Document {
           opacity: source.opacity,
           visible: source.visible,
           locked: source.locked,
+          constraints: source.constraints,
         }
       : node
   )

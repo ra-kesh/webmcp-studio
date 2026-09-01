@@ -13,7 +13,7 @@ const at = "2026-08-28T01:00:00.000Z"
 
 function semanticFixture(): Document {
   return documentSchema.parse({
-    schemaVersion: 5,
+    schemaVersion: 6,
     id: "semantic-document",
     name: "Semantic clone fixture",
     revision: 1,

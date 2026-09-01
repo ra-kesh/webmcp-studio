@@ -61,7 +61,8 @@ render path without relying on Fabric serialization.
 ## Cross-cutting rules
 
 - Increase the document schema version only when the decoder can upgrade every
-  schema-v5 draft and published template without changing its rendered result.
+  schema-v5 draft without changing its rendered result. Published template
+  versions remain immutable and cross the boundary through republication.
 - Define defaults in the schema and constructors. Do not let Fabric or CSS
   defaults become document behavior.
 - Use typed document commands for every mutation. Preview state may be

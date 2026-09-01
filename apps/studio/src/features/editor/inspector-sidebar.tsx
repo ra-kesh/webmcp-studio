@@ -79,6 +79,7 @@ import type {
   GeneratedDocumentPlan,
   ImageFrameMask,
   ImagePlacement,
+  NodeConstraints,
   PaintStyle,
   PaintStylePatch,
   SceneNode,
@@ -292,6 +293,73 @@ export function reviewTargetExists(
 }
 
 const FieldLabel = InspectorSectionLabel
+
+const constraintAxisValues = [
+  "min",
+  "center",
+  "max",
+  "stretch",
+  "scale",
+] as const
+
+function ConstraintAxisControl({
+  axis,
+  value,
+  disabled,
+  onChange,
+}: {
+  axis: "horizontal" | "vertical"
+  value: NodeConstraints["horizontal"]
+  disabled: boolean
+  onChange: (value: NodeConstraints["horizontal"]) => void
+}) {
+  const labels =
+    axis === "horizontal"
+      ? {
+          min: "Left",
+          center: "Center",
+          max: "Right",
+          stretch: "Left and right",
+          scale: "Scale",
+        }
+      : {
+          min: "Top",
+          center: "Center",
+          max: "Bottom",
+          stretch: "Top and bottom",
+          scale: "Scale",
+        }
+  return (
+    <div className="space-y-1">
+      <FieldLabel>
+        {axis === "horizontal" ? "Horizontal" : "Vertical"}
+      </FieldLabel>
+      <Select
+        value={value}
+        disabled={disabled}
+        onValueChange={(next) =>
+          onChange(next as NodeConstraints["horizontal"])
+        }
+      >
+        <SelectTrigger
+          aria-label={`${axis === "horizontal" ? "Horizontal" : "Vertical"} constraint`}
+          className="h-8 text-[11px]"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            {constraintAxisValues.map((option) => (
+              <SelectItem key={option} value={option}>
+                {labels[option]}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+    </div>
+  )
+}
 
 function InspectorSection({
   title,
@@ -1681,6 +1749,35 @@ function NodeInspector({
             }
           />
         </div>
+      </InspectorSection>
+
+      <InspectorSection
+        title="Constraints"
+        data-inspector-property="constraints"
+      >
+        <div className="grid grid-cols-2 gap-2">
+          <ConstraintAxisControl
+            axis="horizontal"
+            value={node.constraints.horizontal}
+            disabled={nodeMutationDisabled}
+            onChange={(horizontal) =>
+              onUpdate({
+                constraints: { ...node.constraints, horizontal },
+              })
+            }
+          />
+          <ConstraintAxisControl
+            axis="vertical"
+            value={node.constraints.vertical}
+            disabled={nodeMutationDisabled}
+            onChange={(vertical) =>
+              onUpdate({ constraints: { ...node.constraints, vertical } })
+            }
+          />
+        </div>
+        <p className="text-[11px] leading-4 text-muted-foreground">
+          Controls how this layer responds when its page is resized.
+        </p>
       </InspectorSection>
 
       <InspectorSection title="Opacity">

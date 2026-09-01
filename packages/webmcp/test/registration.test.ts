@@ -3022,6 +3022,62 @@ describe("WebMCP registration", () => {
     })
   })
 
+  it("advertises and proposes strict canonical layer constraints", async () => {
+    const document = withImageLayer()
+    const state = setup(document)
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+    const tool = state.registered.get("propose_canvas_edits")
+    expect(JSON.stringify(tool?.inputSchema)).toContain('"constraints"')
+
+    const result = await tool?.execute({
+      documentId: document.id,
+      baseRevision: document.revision,
+      baseSnapshotId: "snapshot-seed",
+      edits: [
+        {
+          nodeType: "image",
+          nodeId: "contract-image",
+          patch: {
+            constraints: { horizontal: "stretch", vertical: "center" },
+          },
+        },
+      ],
+    })
+
+    expect(result?.isError).toBeUndefined()
+    expect(state.proposed()?.operations[0]?.command).toMatchObject({
+      type: "update_node",
+      nodeId: "contract-image",
+      patch: {
+        constraints: { horizontal: "stretch", vertical: "center" },
+      },
+    })
+
+    const malformed = await tool?.execute({
+      documentId: document.id,
+      baseRevision: document.revision,
+      baseSnapshotId: "snapshot-seed",
+      edits: [
+        {
+          nodeType: "image",
+          nodeId: "contract-image",
+          patch: { constraints: { horizontal: "stretch" } },
+        },
+      ],
+    })
+    expect(malformed?.isError).toBe(true)
+    expect(malformed?.content[0]?.text).toContain("patch is invalid")
+  })
+
   it("rejects untyped, malformed, legacy, and renderer-private image patches", async () => {
     const document = withImageLayer()
     const state = setup(document)

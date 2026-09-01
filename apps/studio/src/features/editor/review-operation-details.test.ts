@@ -27,6 +27,7 @@ function documentWithImage() {
       opacity: 1,
       visible: true,
       locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
       assetId: `library-${asset.id}`,
       src: asset.src,
       placement: {
@@ -66,6 +67,31 @@ describe("review operation details", () => {
       expected: "Device-local image (local-review-image-1)",
     },
   ] as const
+
+  it("names both axes of a constraint proposal", () => {
+    const document = quotationStarter.document
+    const node = document.nodes[0]!
+    const operation: ChangeOperation = {
+      id: "constraint-operation",
+      status: "pending",
+      summary: "Pin the layer",
+      command: {
+        id: "constraint-command",
+        type: "update_node",
+        actor: "agent",
+        at: "2026-09-01T09:20:00.000Z",
+        nodeId: node.id,
+        patch: {
+          constraints: { horizontal: "max", vertical: "stretch" },
+        },
+      },
+    }
+
+    const details = operationDetails(document, operation)
+
+    expect(details.before).toContain("Horizontal: min · Vertical: min")
+    expect(details.after).toContain("Horizontal: max · Vertical: stretch")
+  })
 
   it("omits private image sources and names the approved catalog asset", () => {
     const document = documentWithImage()

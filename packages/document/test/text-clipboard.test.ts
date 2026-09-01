@@ -23,6 +23,7 @@ const textNode = (overrides: Partial<TextNode> = {}): TextNode => ({
   opacity: 1,
   visible: true,
   locked: false,
+  constraints: { horizontal: "min", vertical: "min" },
   text: "Alpha\nBeta",
   color: "#111827",
   fontFamily: "Geist Variable",

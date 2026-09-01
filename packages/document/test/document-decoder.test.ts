@@ -44,13 +44,42 @@ function legacyDocument(document = northstarSeed): Record<string, unknown> {
 }
 
 describe("persisted document compatibility decoding", () => {
-  it("requires explicit strict v5 group roles and nonempty mask sources", () => {
+  it("migrates schemaVersion 5 layers to explicit top and left constraints", () => {
+    const persisted = structuredClone(northstarSeed) as any
+    persisted.schemaVersion = 5
+    persisted.nodes.forEach((node: any) => delete node.constraints)
+    const before = structuredClone(persisted)
+
+    const decoded = decodeDocument(persisted)
+
+    expect(persisted).toEqual(before)
+    expect(decoded.document.schemaVersion).toBe(6)
+    expect(
+      decoded.document.nodes.every(
+        (node) =>
+          node.constraints.horizontal === "min" &&
+          node.constraints.vertical === "min"
+      )
+    ).toBe(true)
+    expect(decoded.migrations).toEqual([
+      {
+        code: "legacy_constraints_initialized",
+        message: `${persisted.nodes.length} legacy layers received top and left pinning`,
+      },
+      {
+        code: "document_schema_upgraded",
+        message: "Document schema was upgraded from version 5 to version 6",
+      },
+    ])
+  })
+
+  it("requires explicit strict v6 group roles and nonempty mask sources", () => {
     const current = structuredClone(decodeDocument(northstarSeed).document)
     current.groups.push({
-      id: "strict-v5-group",
+      id: "strict-v6-group",
       role: "organize",
       pageId: "cover",
-      name: "Strict v5 group",
+      name: "Strict v6 group",
       nodeIds: ["cover-panel", "cover-eyebrow"],
     })
     const group = current.groups[0]
@@ -115,7 +144,7 @@ describe("persisted document compatibility decoding", () => {
     const decoded = decodeDocument(persisted)
 
     expect(persisted).toEqual(before)
-    expect(decoded.document.schemaVersion).toBe(5)
+    expect(decoded.document.schemaVersion).toBe(6)
     expect(decoded.document.groups).toEqual(
       persisted.groups.map((group: any) => ({ ...group, role: "organize" }))
     )
@@ -127,7 +156,7 @@ describe("persisted document compatibility decoding", () => {
       },
       {
         code: "document_schema_upgraded",
-        message: "Document schema was upgraded from version 4 to version 5",
+        message: "Document schema was upgraded from version 4 to version 6",
       },
     ])
   })
@@ -147,7 +176,7 @@ describe("persisted document compatibility decoding", () => {
 
     expect(persisted).toEqual(before)
     expect(decoded.document).toMatchObject({
-      schemaVersion: 5,
+      schemaVersion: 6,
       typographyStyles: [],
       paintStyles: [],
       variables: [],
@@ -184,7 +213,7 @@ describe("persisted document compatibility decoding", () => {
     const decoded = decodeDocument(persisted)
 
     expect(persisted).toEqual(before)
-    expect(decoded.document.schemaVersion).toBe(5)
+    expect(decoded.document.schemaVersion).toBe(6)
     expect(
       decoded.document.nodes
         .filter((node) => node.type === "text")
@@ -271,7 +300,7 @@ describe("persisted document compatibility decoding", () => {
       sourceSnapshotId: `sha256-${"5".repeat(64)}`,
       publishedAt: "2026-08-28T12:00:00.000Z",
     })
-    expect(republished.version.document.schemaVersion).toBe(5)
+    expect(republished.version.document.schemaVersion).toBe(6)
     expect(
       republished.version.document.groups.every(
         (group) => group.role === "organize"
@@ -360,7 +389,7 @@ describe("persisted document compatibility decoding", () => {
     const decoded = decodeDocument(persisted)
 
     expect(persisted).toEqual(before)
-    expect(decoded.document.schemaVersion).toBe(5)
+    expect(decoded.document.schemaVersion).toBe(6)
     expect(
       decoded.document.nodes.find((node) => node.id === "legacy-cover-image")
     ).toMatchObject({
@@ -534,6 +563,7 @@ describe("persisted document compatibility decoding", () => {
         opacity: 1,
         visible: true,
         locked: false,
+        constraints: { horizontal: "min", vertical: "min" },
         assetId: "legacy-image",
         src: "https://assets.example.test/image.png",
         placement: {

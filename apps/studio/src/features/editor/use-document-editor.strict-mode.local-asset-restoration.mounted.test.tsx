@@ -70,6 +70,7 @@ function localAssetDocument(...assetIds: string[]): Document {
       opacity: 1,
       visible: true,
       locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
     })
     firstPage.nodeIds.push(nodeId)
   }

@@ -808,6 +808,7 @@ export function compileStudioDesignPlan(
       opacity: node.opacity,
       visible: node.visible,
       locked: node.locked,
+      constraints: { horizontal: "min" as const, vertical: "min" as const },
     }
     if (node.type === "text") {
       return {
@@ -919,7 +920,7 @@ export function compileStudioDesignPlan(
   })
 
   const document = assertValidDocument({
-    schemaVersion: 5,
+    schemaVersion: 6,
     id: createId("document", "root"),
     name: plan.documentName,
     revision: 0,

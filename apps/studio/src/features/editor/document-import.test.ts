@@ -54,6 +54,7 @@ const withImage = (source: string) => {
     opacity: 1,
     visible: true,
     locked: false,
+    constraints: { horizontal: "min", vertical: "min" },
     assetId:
       source.startsWith("asset:managed/") || source.startsWith("asset:local/")
         ? source.slice(source.indexOf("/") + 1)
@@ -463,7 +464,7 @@ describe("document JSON import admission", () => {
 
     expect(result).toMatchObject({
       ok: true,
-      document: { schemaVersion: 5 },
+      document: { schemaVersion: 6 },
       migrations: expect.arrayContaining([
         expect.objectContaining({ code: "document_schema_upgraded" }),
       ]),

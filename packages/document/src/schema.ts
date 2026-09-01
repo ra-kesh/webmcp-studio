@@ -28,6 +28,24 @@ export const textSizingModeSchema = z.enum([
   "fixed",
 ])
 
+export const constraintAxisSchema = z.enum([
+  "min",
+  "center",
+  "max",
+  "stretch",
+  "scale",
+])
+
+export const nodeConstraintsSchema = z
+  .object({
+    horizontal: constraintAxisSchema,
+    vertical: constraintAxisSchema,
+  })
+  .strict()
+
+export const defaultNodeConstraints = () =>
+  nodeConstraintsSchema.parse({ horizontal: "min", vertical: "min" })
+
 /**
  * Image placement is deliberately expressed as product-level controls rather
  * than a serialized renderer matrix. The render projection owns the affine
@@ -88,6 +106,7 @@ const baseNodeSchema = z
     opacity: z.number().min(0).max(1).default(1),
     visible: z.boolean().default(true),
     locked: z.boolean().default(false),
+    constraints: nodeConstraintsSchema.default(defaultNodeConstraints),
   })
   .strict()
 
@@ -104,6 +123,7 @@ const baseNodePatchSchema = z
     opacity: z.number().min(0).max(1).optional(),
     visible: z.boolean().optional(),
     locked: z.boolean().optional(),
+    constraints: nodeConstraintsSchema.optional(),
   })
   .strict()
 
@@ -817,6 +837,7 @@ export const componentOverridePropertySchema = z.enum([
   "opacity",
   "visible",
   "locked",
+  "constraints",
   "text",
   "runs",
   "paragraphs",
@@ -1042,7 +1063,7 @@ export const variableBindingSchema = z
 
 export const documentSchema = z
   .object({
-    schemaVersion: z.literal(5),
+    schemaVersion: z.literal(6),
     id,
     name: z.string().min(1),
     revision: z.number().int().nonnegative(),
@@ -1063,7 +1084,7 @@ export const documentSchema = z
     bindings: z.array(fieldBindingSchema),
     /**
      * A bounded replay ledger for externally addressable structural commands.
-     * It is optional so existing schema-v5 documents retain byte-for-byte
+     * It is optional so existing schema-v6 documents retain byte-for-byte
      * meaning until the first replay-protected command is applied.
      */
     commandReceipts: z
@@ -1582,6 +1603,8 @@ export type SceneNode = z.infer<typeof sceneNodeSchema>
 export type TextNode = Extract<SceneNode, { type: "text" }>
 export type TextNodePatch = z.infer<typeof textNodePatchSchema>
 export type TextSizingMode = z.infer<typeof textSizingModeSchema>
+export type ConstraintAxis = z.infer<typeof constraintAxisSchema>
+export type NodeConstraints = z.infer<typeof nodeConstraintsSchema>
 export type ImagePlacement = z.infer<typeof imagePlacementSchema>
 export type ImageFrameMask = z.infer<typeof imageFrameMaskSchema>
 export type Page = z.infer<typeof pageSchema>

@@ -56,7 +56,7 @@ export const builtInTemplateManifestSchema = z
         .object({
           kind: z.literal("document"),
           documentId: z.string().min(1),
-          schemaVersion: z.literal(5),
+          schemaVersion: z.literal(6),
         })
         .strict(),
       z
@@ -360,9 +360,23 @@ export function quotationStyleContent(
   composerVersion: number,
   previewDocument: Document | null
 ): string {
+  const serializedPreview =
+    previewDocument && composerVersion === 3
+      ? {
+          ...previewDocument,
+          schemaVersion: 5,
+          nodes: previewDocument.nodes.map(
+            ({ constraints: _constraints, ...node }) => node
+          ),
+        }
+      : previewDocument
   return JSON.stringify(
-    previewDocument
-      ? { quotationTemplateId, composerVersion, previewDocument }
+    serializedPreview
+      ? {
+          quotationTemplateId,
+          composerVersion,
+          previewDocument: serializedPreview,
+        }
       : { quotationTemplateId, composerVersion }
   )
 }

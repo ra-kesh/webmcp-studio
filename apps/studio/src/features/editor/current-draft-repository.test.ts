@@ -279,7 +279,7 @@ describe("current browser draft repository", () => {
       status: "current",
       envelope: {
         document: {
-          schemaVersion: 5,
+          schemaVersion: 6,
           components: [
             {
               id: "persisted-component",
@@ -332,7 +332,7 @@ describe("current browser draft repository", () => {
       status: "current",
       source: "envelope",
       migrated: true,
-      envelope: { document: { schemaVersion: 5 }, sourceContext: null },
+      envelope: { document: { schemaVersion: 6 }, sourceContext: null },
     })
     expect(storage.writes.map(({ key }) => key)).toEqual([
       CURRENT_DRAFT_STORAGE_KEY,

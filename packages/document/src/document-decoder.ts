@@ -51,6 +51,10 @@ const legacyDocumentSchema = documentSchema.extend({
   fieldValues: z.record(z.string(), fieldValueSchema),
 })
 
+const schemaVersion5DocumentSchema = documentSchema.extend({
+  schemaVersion: z.literal(5),
+})
+
 const templateVersionEnvelopeSchema = templateVersionSchema
   .omit({ document: true })
   .extend({ document: z.unknown() })
@@ -68,6 +72,7 @@ export type DocumentMigration = {
     | "legacy_variable_bindings_initialized"
     | "legacy_components_initialized"
     | "legacy_group_roles_initialized"
+    | "legacy_constraints_initialized"
     | "document_schema_upgraded"
     | "legacy_field_preserved_as_text"
     | "legacy_fill_promoted_to_color"
@@ -75,6 +80,42 @@ export type DocumentMigration = {
   message: string
   fieldId?: string
   nodeId?: string
+}
+
+function normalizeLegacyConstraintsModel(input: unknown): {
+  input: unknown
+  migrations: DocumentMigration[]
+} {
+  const normalized = structuredClone(input)
+  if (!normalized || typeof normalized !== "object") {
+    return { input: normalized, migrations: [] }
+  }
+  const document = normalized as Record<string, unknown>
+  if (![1, 2, 3, 4, 5].includes(document.schemaVersion as number)) {
+    return { input: normalized, migrations: [] }
+  }
+  const nodes = document.nodes
+  if (!Array.isArray(nodes)) return { input: normalized, migrations: [] }
+  let initialized = 0
+  for (const candidate of nodes) {
+    if (!candidate || typeof candidate !== "object") continue
+    const node = candidate as Record<string, unknown>
+    if (node.constraints !== undefined) continue
+    node.constraints = { horizontal: "min", vertical: "min" }
+    initialized += 1
+  }
+  return {
+    input: normalized,
+    migrations:
+      initialized === 0
+        ? []
+        : [
+            {
+              code: "legacy_constraints_initialized",
+              message: `${initialized} legacy layer${initialized === 1 ? "" : "s"} received top and left pinning`,
+            },
+          ],
+  }
 }
 
 function normalizeLegacyImageModel(input: unknown): {
@@ -356,6 +397,20 @@ function valuesForField(
 }
 
 function migrateLegacyDocument(input: unknown): DecodedDocument {
+  const version = (input as { schemaVersion?: unknown } | null)?.schemaVersion
+  if (version === 5) {
+    const legacy = schemaVersion5DocumentSchema.parse(structuredClone(input))
+    const document = documentSchema.parse({ ...legacy, schemaVersion: 6 })
+    return {
+      document: assertValidDocument(applyFieldValues(document)),
+      migrations: [
+        {
+          code: "document_schema_upgraded",
+          message: "Document schema was upgraded from version 5 to version 6",
+        },
+      ],
+    }
+  }
   const legacy = legacyDocumentSchema.parse(structuredClone(input))
   const migrations: DocumentMigration[] = []
   const fields = legacy.fields.map((legacyField) => {
@@ -512,7 +567,7 @@ function migrateLegacyDocument(input: unknown): DecodedDocument {
 
   const migrated = documentSchema.parse({
     ...legacy,
-    schemaVersion: 5,
+    schemaVersion: 6,
     groups: legacy.groups.map((group) => ({ ...group, role: "organize" })),
     fields: legacy.fields.map((field) => fieldsById.get(field.id)),
   })
@@ -526,14 +581,15 @@ function migrateLegacyDocument(input: unknown): DecodedDocument {
       },
       {
         code: "document_schema_upgraded",
-        message: `Document schema was upgraded from version ${legacy.schemaVersion} to version 5`,
+        message: `Document schema was upgraded from version ${legacy.schemaVersion} to version 6`,
       },
     ],
   }
 }
 
 export function decodeDocument(input: unknown): DecodedDocument {
-  const imageModel = normalizeLegacyImageModel(input)
+  const constraints = normalizeLegacyConstraintsModel(input)
+  const imageModel = normalizeLegacyImageModel(constraints.input)
   const normalized = normalizeLegacyManagedImageIdentities(imageModel.input)
   const richText = normalizeLegacyRichTextModel(normalized.input)
   const current = documentSchema.safeParse(richText.input)
@@ -542,6 +598,7 @@ export function decodeDocument(input: unknown): DecodedDocument {
     return {
       document: migrated.document,
       migrations: [
+        ...constraints.migrations,
         ...imageModel.migrations,
         ...normalized.migrations,
         ...richText.migrations,
@@ -576,6 +633,7 @@ export function decodeDocument(input: unknown): DecodedDocument {
     return {
       document: migrated.document,
       migrations: [
+        ...constraints.migrations,
         ...imageModel.migrations,
         ...normalized.migrations,
         ...richText.migrations,
@@ -586,6 +644,7 @@ export function decodeDocument(input: unknown): DecodedDocument {
   return {
     document: assertValidDocument(current.data),
     migrations: [
+      ...constraints.migrations,
       ...imageModel.migrations,
       ...normalized.migrations,
       ...richText.migrations,
@@ -602,7 +661,8 @@ export function decodeTemplateVersion(input: unknown): DecodedTemplateVersion {
     documentVersion === 1 ||
     documentVersion === 2 ||
     documentVersion === 3 ||
-    documentVersion === 4
+    documentVersion === 4 ||
+    documentVersion === 5
   ) {
     throw new DocumentMigrationError(
       `Published schemaVersion ${documentVersion} template versions are immutable and cannot be migrated in place. Republish the source document under a new version identity.`

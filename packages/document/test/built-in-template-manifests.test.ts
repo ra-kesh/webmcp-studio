@@ -3,7 +3,7 @@ import {
   builtInDesignTemplateDefinitions,
   builtInDesignTemplateRepository,
   builtInTemplateManifestSchema,
-  composeQuotationDocument,
+  composeQuotationDocumentForVersion,
   DesignTemplateRepository,
   northstarQuotationPayload,
   quotationStyleContent,
@@ -60,12 +60,14 @@ describe("built-in template manifests", () => {
           : quotationStyleContent(
               definition.quotationTemplateId,
               definition.composerVersion,
-              definition.catalogStatus === "retired"
-                ? null
-                : composeQuotationDocument(
+              definition.manifest.contentIdentity.kind === "quotation_style" &&
+                definition.manifest.contentIdentity.preview === "canonical"
+                ? (composeQuotationDocumentForVersion(
                     northstarQuotationPayload,
-                    definition.quotationTemplateId
-                  )
+                    definition.quotationTemplateId,
+                    definition.composerVersion
+                  ) ?? null)
+                : null
             )
       await expect(
         verifyTemplateManifestChecksum(definition.manifest, content),

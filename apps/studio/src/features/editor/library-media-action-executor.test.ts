@@ -87,6 +87,7 @@ const fixture = () => {
     opacity: 1,
     visible: true,
     locked: false,
+    constraints: { horizontal: "min", vertical: "min" },
   }
   document.nodes.push(image)
   page.nodeIds.push(image.id)
@@ -203,10 +204,7 @@ describe("library media action executor contracts", () => {
       () => "unused"
     ).command
     expect(
-      libraryMediaCommandIsNoOp(
-        replacementCommand,
-        replacementFixture.state
-      )
+      libraryMediaCommandIsNoOp(replacementCommand, replacementFixture.state)
     ).toBe(true)
 
     const fieldFixture = fixture()

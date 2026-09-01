@@ -24,6 +24,7 @@ const textNode = (patch: Partial<TextNode> = {}): TextNode => ({
   opacity: 1,
   visible: true,
   locked: false,
+  constraints: { horizontal: "min", vertical: "min" },
   text: "Hello world from Studio",
   runs: [],
   paragraphs: [],

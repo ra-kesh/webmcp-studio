@@ -136,7 +136,7 @@ describe("document generation request", () => {
       validation: [],
       warnings: [],
     })
-    expect(first.candidate.schemaVersion).toBe(5)
+    expect(first.candidate.schemaVersion).toBe(6)
   })
 
   it("clones and adapts one exact template through bounded canonical changes", () => {

@@ -68,6 +68,20 @@ const renderImageSourceInspector = (selectedImage: typeof image) =>
   )
 
 describe("InspectorSidebar basic property controls", () => {
+  it("exposes both page-resize constraint axes for a selected layer", () => {
+    const markup = renderImageSourceInspector({
+      ...image,
+      constraints: { horizontal: "max", vertical: "stretch" },
+    })
+
+    expect(markup).toContain('data-inspector-property="constraints"')
+    expect(markup).toContain('aria-label="Horizontal constraint"')
+    expect(markup).toContain('aria-label="Vertical constraint"')
+    expect(markup).toContain(
+      "Controls how this layer responds when its page is resized."
+    )
+  })
+
   it("keeps Fill editable for an unlocked rectangle", () => {
     const unlockedRectangle = { ...rectangleNode, locked: false }
     const markup = renderToStaticMarkup(

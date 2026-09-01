@@ -699,7 +699,7 @@ export function projectPagePaintPlan(
  * Builds the shared structural paint plan without depending on Fabric, DOM,
  * decoded resources, or provider URLs. Geometry follows the top-left rotation
  * origin shared by Fabric, React, and renderer HTML. Gate M0 passes relations explicitly;
- * schema v5 will derive the same input from canonical document groups.
+ * schema v6 will derive the same input from canonical document groups.
  */
 export function projectPagePaintPlanFromRelations(
   page: Page,

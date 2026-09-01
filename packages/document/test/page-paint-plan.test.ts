@@ -37,6 +37,7 @@ const rect = (
   opacity: 1,
   visible: true,
   locked: false,
+  constraints: { horizontal: "min", vertical: "min" },
   fill: "#000000",
   radius: 0,
   strokeWidth: 0,
@@ -59,7 +60,7 @@ const relation: MaskPaintRelation = {
 }
 
 describe("shared page paint plan mask oracle", () => {
-  it("derives mask paint from canonical v5 groups while organize groups stay flat", () => {
+  it("derives mask paint from canonical v6 groups while organize groups stay flat", () => {
     const document = {
       pages: [page],
       nodes,
@@ -137,6 +138,7 @@ describe("shared page paint plan mask oracle", () => {
       opacity: 0.75,
       visible: true,
       locked: false,
+      constraints: { horizontal: "min" as const, vertical: "min" as const },
       assetId: "alpha-image-asset",
       src: "https://cdn.example.com/alpha.png",
       placement: {

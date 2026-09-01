@@ -1024,6 +1024,7 @@ describe("renderer HTML", () => {
         opacity: 1,
         visible: true,
         locked: false,
+        constraints: { horizontal: "min", vertical: "min" },
         fill: "#d9c9b2",
         stroke: "#1e2622",
         strokeWidth: 3,
@@ -1040,6 +1041,7 @@ describe("renderer HTML", () => {
         opacity: 1,
         visible: true,
         locked: false,
+        constraints: { horizontal: "min", vertical: "min" },
         stroke: "#1e2622",
         strokeWidth: 4,
       },
@@ -1055,6 +1057,7 @@ describe("renderer HTML", () => {
         opacity: 1,
         visible: true,
         locked: false,
+        constraints: { horizontal: "min", vertical: "min" },
         path: "M12 21 3 12 12 3 21 12Z",
         viewBox: "0 0 24 24",
         fill: "#8a5d38",
@@ -1117,6 +1120,7 @@ describe("renderer HTML", () => {
         opacity: 1,
         visible: true,
         locked: false,
+        constraints: { horizontal: "min", vertical: "min" },
       },
     })
 

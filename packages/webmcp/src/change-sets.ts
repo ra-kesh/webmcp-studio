@@ -249,6 +249,7 @@ const commonCanvasProperties = new Set([
   "opacity",
   "visible",
   "locked",
+  "constraints",
 ])
 
 const nodeCanvasProperties: Record<SceneNode["type"], Set<string>> = {
@@ -522,6 +523,7 @@ export function createAssetInsertionChangeSet(
     opacity: 1,
     visible: true,
     locked: false,
+    constraints: { horizontal: "min", vertical: "min" },
   }
   const at = identity.now()
   const fieldOperations = input.values

@@ -42,6 +42,7 @@ describe("curated media identity", () => {
       opacity: 1,
       visible: true,
       locked: false,
+      constraints: { horizontal: "min" as const, vertical: "min" as const },
       assetId: "star",
       src: source,
       placement: {
@@ -84,6 +85,7 @@ describe("curated media identity", () => {
       opacity: 1,
       visible: true,
       locked: false,
+      constraints: { horizontal: "min" as const, vertical: "min" as const },
       assetId: "previous",
       src: "data:image/png;base64,iVBORw0KGgo=",
       placement: {

@@ -37,6 +37,7 @@ const image: ImageNode = {
   opacity: 1,
   visible: true,
   locked: false,
+  constraints: { horizontal: "min", vertical: "min" },
   assetId: "asset-image-1",
   src: "https://example.com/image-1.png",
   placement,

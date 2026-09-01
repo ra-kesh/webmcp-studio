@@ -75,6 +75,7 @@ const replaceCreateFixtureSource = (
     opacity: current.opacity,
     visible: current.visible,
     locked: current.locked,
+    constraints: current.constraints,
   }
   const source: SceneNode =
     type === "ellipse"
@@ -1184,6 +1185,7 @@ describe("canonical document commands", () => {
     })
 
     expect(image).toMatchObject({
+      constraints: { horizontal: "min", vertical: "min" },
       placement: {
         mode: "fill",
         focalX: 0.5,
@@ -1197,6 +1199,31 @@ describe("canonical document commands", () => {
       alt: "",
       decorative: false,
     })
+  })
+
+  it("requires complete strict constraint axes when a layer patch supplies them", () => {
+    expect(
+      documentCommandSchema.safeParse({
+        id: "cmd-invalid-partial-constraints",
+        type: "update_node",
+        actor: "human",
+        at: "2026-09-01T09:02:00.000Z",
+        nodeId: "cover-title",
+        patch: { constraints: { horizontal: "center" } },
+      }).success
+    ).toBe(false)
+    expect(
+      documentCommandSchema.safeParse({
+        id: "cmd-valid-constraints",
+        type: "update_node",
+        actor: "human",
+        at: "2026-09-01T09:02:00.000Z",
+        nodeId: "cover-title",
+        patch: {
+          constraints: { horizontal: "center", vertical: "stretch" },
+        },
+      }).success
+    ).toBe(true)
   })
 
   it("updates a bound managed image source and public asset ID atomically", () => {
@@ -1215,6 +1242,7 @@ describe("canonical document commands", () => {
       opacity: 1,
       visible: true,
       locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
       placement: {
         mode: "fill",
         focalX: 0.5,
@@ -1701,6 +1729,7 @@ describe("canonical document commands", () => {
         opacity: 1,
         visible: true,
         locked: false,
+        constraints: { horizontal: "min" as const, vertical: "min" as const },
         fill: "#d9c9b2",
         stroke: "#1e2622",
         strokeWidth: 3,
@@ -1717,6 +1746,7 @@ describe("canonical document commands", () => {
         opacity: 1,
         visible: true,
         locked: false,
+        constraints: { horizontal: "min" as const, vertical: "min" as const },
         stroke: "#1e2622",
         strokeWidth: 4,
       },
@@ -1732,6 +1762,7 @@ describe("canonical document commands", () => {
         opacity: 1,
         visible: true,
         locked: false,
+        constraints: { horizontal: "min" as const, vertical: "min" as const },
         path: "M12 21 3 12 12 3 21 12Z",
         viewBox: "0 0 24 24",
         fill: "#8a5d38",
@@ -2098,6 +2129,78 @@ describe("canonical document commands", () => {
     )
   })
 
+  it("resizes page layers through every horizontal and vertical constraint mode", () => {
+    const document = structuredClone(northstarSeed)
+    const page = document.pages.find((candidate) => candidate.id === "cover")!
+    const otherPageNodeId = document.pages.find(
+      (candidate) => candidate.id !== page.id
+    )!.nodeIds[0]!
+    const otherPageNodeBefore = structuredClone(
+      document.nodes.find((candidate) => candidate.id === otherPageNodeId)!
+    )
+    const modes = ["min", "center", "max", "stretch", "scale"] as const
+    const nodeIds = page.nodeIds.slice(0, modes.length)
+    nodeIds.forEach((nodeId, index) => {
+      const node = document.nodes.find((candidate) => candidate.id === nodeId)!
+      node.x = 10
+      node.y = 20
+      node.width = 40
+      node.height = 50
+      node.constraints = { horizontal: modes[index]!, vertical: modes[index]! }
+    })
+
+    const resized = applyCommand(document, {
+      id: "cmd-resize-page-with-constraints",
+      type: "update_page",
+      actor: "human",
+      at: "2026-09-01T09:00:00.000Z",
+      pageId: page.id,
+      patch: { width: page.width + 100, height: page.height + 200 },
+    })
+    const nodes = nodeIds.map((nodeId) =>
+      resized.nodes.find((candidate) => candidate.id === nodeId)
+    )
+
+    expect(nodes).toMatchObject([
+      { x: 10, y: 20, width: 40, height: 50 },
+      { x: 60, y: 120, width: 40, height: 50 },
+      { x: 110, y: 220, width: 40, height: 50 },
+      { x: 10, y: 20, width: 140, height: 250 },
+      {
+        x: 10 * ((page.width + 100) / page.width),
+        y: 20 * ((page.height + 200) / page.height),
+        width: 40 * ((page.width + 100) / page.width),
+        height: 50 * ((page.height + 200) / page.height),
+      },
+    ])
+    expect(
+      resized.nodes.find((candidate) => candidate.id === otherPageNodeId)
+    ).toEqual(otherPageNodeBefore)
+  })
+
+  it("rejects a page resize that would collapse a stretched layer", () => {
+    const document = structuredClone(northstarSeed)
+    const page = document.pages.find((candidate) => candidate.id === "cover")!
+    const node = document.nodes.find(
+      (candidate) => candidate.id === page.nodeIds[0]
+    )!
+    node.width = 20
+    node.constraints = { horizontal: "stretch", vertical: "min" }
+    const before = structuredClone(document)
+
+    expect(() =>
+      applyCommand(document, {
+        id: "cmd-collapse-stretched-layer",
+        type: "update_page",
+        actor: "human",
+        at: "2026-09-01T09:01:00.000Z",
+        pageId: page.id,
+        patch: { width: page.width - 40 },
+      })
+    ).toThrow("stretch constraint would collapse the layer")
+    expect(document).toEqual(before)
+  })
+
   it("adds and removes a named output with its first page", () => {
     const added = applyCommand(northstarSeed, {
       id: "cmd-add-output",
@@ -2175,6 +2278,7 @@ describe("canonical document commands", () => {
           opacity: 1,
           visible: true,
           locked: false,
+          constraints: { horizontal: "min", vertical: "min" },
           color: "#111111",
           fontFamily: "Geist Variable",
           fontSize: 64,
