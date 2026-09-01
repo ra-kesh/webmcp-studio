@@ -161,6 +161,7 @@ import {
 } from "./editor/studio-shell-layout"
 import {
   createStudioPageThumbnailRasterProducer,
+  rendererBackedPageThumbnailsEnabled,
   studioPageThumbnailRendererRevision,
 } from "./editor/page-thumbnail-raster-producer"
 import type { PageThumbnailDocumentSnapshot } from "./editor/page-thumbnail-raster-producer"
@@ -1132,17 +1133,17 @@ export function StudioShell({
       pageThumbnailSnapshotId,
     ]
   )
-  // Ordinary development keeps filmstrip pages on the live Artboard fallback.
-  // PERF-01 can opt into the deployed renderer path against Wrangler's local,
-  // cost-free Browser Run simulation without changing production behavior.
-  const useLiveThumbnailFallback =
-    import.meta.env.DEV &&
-    import.meta.env.VITE_STUDIO_RENDERER_THUMBNAILS !== "true"
+  // Filmstrip browsing must not spend remote Browser Run time or inherit its
+  // new-session rate limit. Renderer-backed thumbnails remain an explicit
+  // conformance/profile mode; ordinary editing uses the bounded local path.
+  const useRendererBackedPageThumbnails = rendererBackedPageThumbnailsEnabled(
+    import.meta.env.VITE_STUDIO_RENDERER_THUMBNAILS
+  )
   const backgroundRemovalEnabled =
     import.meta.env.VITE_STUDIO_BACKGROUND_REMOVAL === "true"
-  const pageThumbnailRaster = useLiveThumbnailFallback
-    ? undefined
-    : rendererBackedPageThumbnailRaster
+  const pageThumbnailRaster = useRendererBackedPageThumbnails
+    ? rendererBackedPageThumbnailRaster
+    : undefined
   const publishedVersion =
     editor.publishSyncStatus === "synced"
       ? editor.latestPublishedVersion

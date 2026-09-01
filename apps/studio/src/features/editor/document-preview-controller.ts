@@ -74,7 +74,7 @@ export type DocumentPreviewControllerDependencies = Readonly<{
       }>
   >
   produce?: typeof produceStudioPageThumbnailRaster
-  development?: boolean
+  liveFallback?: boolean
   createObjectURL?: (blob: Blob) => string
   revokeObjectURL?: (url: string) => void
   scheduleMicrotask?: (callback: () => void) => void
@@ -426,7 +426,7 @@ export class DocumentPreviewController {
       const hasLocalAsset = thumbnailDocument.nodes.some(
         (node) => node.type === "image" && node.src.startsWith("asset:local/")
       )
-      if (this.#dependencies.development || hasLocalAsset) {
+      if (this.#dependencies.liveFallback || hasLocalAsset) {
         const previewUrls = new Map<string, string>()
         const fallbackUrls: string[] = []
         entry.fallbackUrls = fallbackUrls

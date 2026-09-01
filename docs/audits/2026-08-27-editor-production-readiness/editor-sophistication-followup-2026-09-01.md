@@ -97,11 +97,23 @@ renderer production build passed.
 That production-preview document also made the configured remote Browser
 Rendering binding exercise real page-thumbnail requests. Parallel browser
 creation exceeded the account's current Browser Rendering new-browser rate
-limit and returned 429 errors through the local thumbnail endpoint. This is
+limit and returned 429 errors through the local thumbnail endpoint. This was
 not a code-splitting failure: the interactive editor and lazy surfaces mounted
-correctly, while the renderer-backed thumbnail producer retried/fell back. It
-is retained as a separate reliability finding for bounded thumbnail
-concurrency/session reuse; no deployment or remote data mutation occurred.
+correctly. It did expose a product-policy error: production editing enabled
+remote thumbnails implicitly, while only development used the existing local
+fallback.
+
+Renderer-backed filmstrip and recent-document previews now require the exact
+`VITE_STUDIO_RENDERER_THUMBNAILS=true` opt-in. Ordinary development and
+production use the viewport-bounded local preview path, so opening the library
+or a six-page document makes no page-thumbnail request and consumes no Browser
+Run time. A rebuilt production preview proved the start card and all six
+filmstrip pages remained visible, the editor stayed console-clean, and the
+complete fetch/XHR inventory contained no `POST /v1/studio/page-thumbnail`.
+The focused preview/producer suites pass 14/14 and Studio typecheck plus the
+full production build pass. The server-rendered path remains available for
+deliberate conformance evidence; no deployment or remote data mutation
+occurred.
 
 ## Core interaction recertification
 

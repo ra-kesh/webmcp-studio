@@ -11,12 +11,23 @@ import {
   createStudioPageThumbnailRasterProducer,
   pageThumbnailRasterRetryDelay,
   produceStudioPageThumbnailRaster,
+  rendererBackedPageThumbnailsEnabled,
 } from "./page-thumbnail-raster-producer"
 import type { PageThumbnailRasterKey } from "./page-thumbnail-raster-cache"
 
 const fixture = createImageHeavyPerformanceFixture({
   pageCount: 2,
   imagesPerPage: 1,
+})
+
+describe("renderer-backed page thumbnail mode", () => {
+  it("requires an explicit opt-in before using the remote renderer", () => {
+    expect(rendererBackedPageThumbnailsEnabled(undefined)).toBe(false)
+    expect(rendererBackedPageThumbnailsEnabled("")).toBe(false)
+    expect(rendererBackedPageThumbnailsEnabled("false")).toBe(false)
+    expect(rendererBackedPageThumbnailsEnabled("TRUE")).toBe(false)
+    expect(rendererBackedPageThumbnailsEnabled("true")).toBe(true)
+  })
 })
 
 const key = (overrides: Partial<PageThumbnailRasterKey> = {}) => ({

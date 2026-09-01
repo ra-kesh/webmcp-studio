@@ -125,7 +125,7 @@ describe("DocumentPreviewController", () => {
       })),
       putPreview,
       produce,
-      development: true,
+      liveFallback: true,
     })
 
     controller.retain(identity)
@@ -293,7 +293,7 @@ describe("DocumentPreviewController", () => {
         record,
       })),
       putPreview: vi.fn(),
-      development: true,
+      liveFallback: true,
       loadLocalAsset: vi.fn(async () => new Blob(["local"])),
       createObjectURL: vi.fn(() => "blob:local-preview"),
       revokeObjectURL,

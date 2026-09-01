@@ -5,6 +5,7 @@ import { DocumentPreviewController } from "./document-preview-controller"
 import type { DocumentPreviewState } from "./document-preview-controller"
 import type { DocumentPreviewIdentity } from "./document-preview-contract"
 import { loadLocalAsset } from "./local-asset-store"
+import { rendererBackedPageThumbnailsEnabled } from "./page-thumbnail-raster-producer"
 
 type DocumentPreviewControllerPort = Pick<
   DocumentPreviewController,
@@ -47,7 +48,9 @@ export function DocumentPreviewProvider({
         putPreview: (preview) =>
           persistenceRef.current.repository.putPreview(preview),
         loadLocalAsset,
-        development: import.meta.env.DEV,
+        liveFallback: !rendererBackedPageThumbnailsEnabled(
+          import.meta.env.VITE_STUDIO_RENDERER_THUMBNAILS
+        ),
       })
   )
   const lifecycleRef = useRef(0)

@@ -12,6 +12,12 @@ import type {
 export const studioPageThumbnailEndpoint = "/v1/studio/page-thumbnail"
 export const studioPageThumbnailRendererRevision = "renderer-thumbnail-v1"
 
+export function rendererBackedPageThumbnailsEnabled(
+  configuredValue: string | undefined
+): boolean {
+  return configuredValue === "true"
+}
+
 export type PageThumbnailDocumentSnapshot = Readonly<{
   document: Document
   snapshotId: string

@@ -167,9 +167,13 @@ Renderer admission now waits until the horizontal filmstrip has been still for
 300 ms. Scrolling resets the quiet window; pages leaving the preload margin
 still cancel immediately. IntersectionObserver visibility updates are React
 transitions, so a newer viewport can supersede obsolete 100-item parent work.
-Ordinary development retains the live fallback; setting
-`VITE_STUDIO_RENDERER_THUMBNAILS=true` profiles the deployed raster path through
-Wrangler's local Browser Run simulation without remote usage.
+Ordinary development and production editing retain the viewport-bounded live
+fallback. Setting `VITE_STUDIO_RENDERER_THUMBNAILS=true` explicitly profiles
+the remote raster path through Wrangler's Browser Run binding. That binding is
+not a cost-free local simulation: it consumes the connected account's Browser
+Run allowance and inherits its new-browser rate limits. Keep it limited to
+deliberate conformance/performance runs until a reusable-session or durable
+pool owns interactive thumbnail rendering.
 
 The selected machine-readable profile is
 `artifacts/perf-01-scale-profile.json`. On macOS HeadlessChrome 152 at
