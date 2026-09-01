@@ -2,7 +2,40 @@
 
 Date: 2026-09-01
 
-Code baseline: `10b8aae`
+Code baseline: `397aa93`
+
+## 2026-09-01 current-main hardening continuation
+
+The first current-main integrated browser journey used a fresh two-page Signal
+creative brief on port 3001 and exercised continuous multi-artboard navigation,
+Layers selection, Inspector text editing, image insertion, crop, Undo/Redo,
+autosave/reload, image replacement, immutable publication, and PDF export
+dispatch. It found one real P0 integration defect: Inspector edits to
+field-bound text bypassed the binding-aware command path, so the UI reported a
+saved revision while reload reapplied the old field value. `0e96f4e` routes the
+Inspector through the same canonical command projection as canvas edits and
+adds a mounted durable-reload regression. The repaired value survived a real
+full-page reload.
+
+The same browser journey did not reproduce the previously reported blank canvas
+during current-main curated image insertion, selection, crop, replacement, or
+reload. It did expose the remaining architectural fault-injection gap in code:
+the canonical Fabric paint-plan installer removed and disposed the last valid
+scene before `canvas.add` had accepted the candidate scene. `397aa93` installs
+the candidates first, removes partial candidates on synchronous failure, and
+keeps the last-valid scene and node map untouched. The focused Fabric, local
+asset, and thumbnail suites pass 167/167, and Studio/Editor typechecks pass.
+
+`397aa93` also closes the disclosed test-harness debt for structured-cloned
+File/Blob values and cross-realm AbortSignal values by asserting their public
+contracts instead of realm-specific constructor identity. The affected tests
+pass 52/52. Successful retired-object disposal already had explicit coverage;
+it was stale backlog wording, not an open implementation gap.
+
+Publication completed locally as immutable version 1. PDF export returned to
+the idle editor without a visible product error, but this run did not retain the
+downloaded artifact or a checksum, so renderer/export artifact conformance is
+not being claimed from this browser journey alone.
 
 This checkpoint reconciles the main conversation with the separate redesign,
 mask, rich-text, component, library, image-architecture, generation, independent
@@ -60,11 +93,9 @@ WebMCP, and migration work. They are not styling-only tasks.
 
 ## Remaining local quality work
 
-1. Retain one integrated real-browser journey on the current code that combines
-   multi-artboard navigation, transforms, direct text, image
-   insert/replace/crop, Undo/Redo, autosave/reload, publish, and export. The
-   separate tasks provide focused evidence, but no single post-integration run
-   proves all of these systems together.
+1. Retain the exported PDF/PNG artifacts and checksums from the current-main
+   browser journey. The integrated UI path is now exercised together; artifact
+   retention and renderer comparison remain.
 2. Continue architectural decomposition. Render invalidation, crop, preview,
    and lazy-interaction ownership have been extracted, but
    `use-document-editor.ts` remains 11,479 lines and `studio-shell.tsx` remains
@@ -74,10 +105,10 @@ WebMCP, and migration work. They are not styling-only tasks.
    the completed Vercel/OpenPencil gates. Do not reopen the design foundation,
    Inspector geometry, workspace chrome, or completed interaction controls as
    if they were never implemented.
-4. Resolve the remaining low-level hardening evidence from the async
-   architecture review: isolated cross-realm File/Blob and AbortSignal harness
-   behavior, explicit retired-Fabric disposal coverage, injected failure after
-   the synchronous install barrier, and same-tick shell predicate coverage.
+4. Add the remaining same-tick shell predicate regression while extracting its
+   admission ownership from `studio-shell.tsx`. Cross-realm File/Blob and
+   AbortSignal harness behavior, retired-Fabric disposal coverage, and injected
+   failure at candidate installation are now closed.
 
 ## Remaining integration and production work
 
@@ -110,4 +141,3 @@ WebMCP, and migration work. They are not styling-only tasks.
 - Cross-page multi-selection remains out of scope.
 - Collaboration, presence, comments, team libraries, and organization roles
   are explicitly excluded.
-
