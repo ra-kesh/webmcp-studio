@@ -2,7 +2,7 @@
 
 Date: 2026-09-01
 
-Status: independently accepted on the task branch; not merged
+Status: independently accepted and integrated into `main`
 
 Branch: `codex/library-02-gate8`
 
@@ -13,6 +13,8 @@ Implementation checkpoint: `1f3cff5983af3fc80ea53b8ed8c3f87aadf541eb`
 Accepted evidence checkpoint: `fa3b74a1085c5dc69aaaeb14f31c9882de9c86ca`
 
 Independent re-review: ACCEPT with no remaining P0 or P1 findings
+
+Main integration: `c123cc9`, `eefbc84` and `220ce3a`
 
 This checkpoint closes the final acceptance boundary only. Gates 1 through 6E
 and the Gate 7 Assets workspace were already merged before this work began.
@@ -130,11 +132,8 @@ the focused Gate 8 result.
 
 ## Integration state
 
-The implementation is committed and independently accepted on the task branch;
-it is not merged. The first independent review placed Gate 8 on hold for the
-two evidence defects described above. Re-review of `fa3b74a` confirmed both
-closed and returned ACCEPT with no remaining P0 or P1 finding. Current main
-advanced after the branch base, including edits to the shared product and
-workstream ledgers. Integrators must preserve those later entries and apply the
-Gate 8 ledger reconciliation deliberately. Branch acceptance must not be
-reported as a main-branch merge.
+Gate 8 is integrated into `main` as `c123cc9`, `eefbc84` and `220ce3a`.
+Their stable patch IDs exactly match `1f3cff5`, `fa3b74a` and `6cb4d4b`.
+Re-review of `fa3b74a` returned ACCEPT with no remaining P0 or P1 finding.
+A current-main audit confirmed that the accepted code and retained artifacts
+remain present after later editor and accessibility changes.

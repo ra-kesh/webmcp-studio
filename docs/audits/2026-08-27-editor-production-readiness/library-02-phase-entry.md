@@ -2,7 +2,12 @@
 
 Date: 2026-08-31
 
-Status: Gates 1–4 closed; Gate 5 preferences and collections is active
+Status: Gates 1 through 8 are closed, independently accepted and merged
+
+Gate 8 acceptance and retained evidence are recorded in
+[`library-02-gate8-closure.md`](./library-02-gate8-closure.md). Current main
+contains the accepted changes as `c123cc9`, `eefbc84` and `220ce3a`, with no
+remaining P0 or P1 finding.
 
 ## Purpose
 

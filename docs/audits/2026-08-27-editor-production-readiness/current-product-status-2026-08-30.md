@@ -6,6 +6,9 @@ Status: authoritative short-form continuation ledger
 
 Production evidence reconciled: 2026-08-31 at `aa3a020`.
 
+LIBRARY-02 Gate 8 reconciled: 2026-09-01 at `c123cc9`, `eefbc84` and
+`220ce3a`.
+
 This page exists to prevent the long audit history or a conversation compaction
 from obscuring current truth. Detailed evidence remains in
 `remediation-progress.md` and each named phase entry.
@@ -32,6 +35,10 @@ from obscuring current truth. Detailed evidence remains in
 - Complete-document WebMCP queries, capability discovery, reviewed proposals
   and direct execution policy using the same canonical command boundaries as
   the visible editor.
+- The accepted LIBRARY-02 catalog contains 21 templates and 37 curated media
+  items with desktop and compact discovery, durable preferences and
+  collections, exact media actions, integrated Assets navigation, provenance,
+  preview, failure-state and measured scale evidence.
 
 These are not README-only claims: the repository contains more than 120
 committed slices through independently accepted TEXT-02 and COMPONENT-01,
@@ -45,16 +52,9 @@ artifacts.
    the formerly freezing color picker. Broader recipe consolidation and the
    compact/dark/coarse-pointer visual matrix remain open; this is improved,
    not full visual parity.
-2. **LIBRARY-02:** the compact catalog, compatibility/ownership contracts, 21
-   active template entries, 37-item curated media manifest, all 21 immutable
-   Renderer-backed template previews, shared discovery/mutation authority and
-   the single production Start/editor template browser are independently
-   accepted. Durable preferences/collections, media materialization and
-   integrated Assets navigation remain active and still sit below Canva's
-   product depth.
-3. **ASSET-02 depth:** placement, crop and frame masks are real; general masks
+2. **ASSET-02 depth:** placement, crop and frame masks are real; general masks
    and a production background-removal workflow are not built.
-4. **Environment proof:** the local manifest records the current filenames and
+3. **Environment proof:** the local manifest records the current filenames and
    digests of 17 migrations, and focused local harnesses verify migrations
    `0012` through `0017`. The static verifier rejects disagreement between the
    current SQL files and manifest. It cannot detect a coordinated change to both,
@@ -71,13 +71,10 @@ artifacts.
 
 ## No-bounce execution order
 
-1. Continue LIBRARY-02 from accepted catalog content/provenance and raster
-   previews into discovery, preferences and Assets integration without putting
-   full documents or media bytes in list records.
-2. Run one bounded OpenPencil comparison and visual-sophistication pass without
+1. Run one bounded OpenPencil comparison and visual-sophistication pass without
    reopening already accepted command semantics.
-3. Build remaining ASSET-02 mask/background-removal depth.
-4. Perform authorized deployed evidence/migrations separately from local
+2. Build remaining ASSET-02 mask/background-removal depth.
+3. Perform authorized deployed evidence/migrations separately from local
    product development.
 
 Do not reopen a completed phase merely because a later phase shares its code.

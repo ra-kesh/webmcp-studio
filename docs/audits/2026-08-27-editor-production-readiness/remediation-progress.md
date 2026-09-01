@@ -4142,3 +4142,25 @@ Status: **integrated on main and accepted for this bounded gate**
 - This gate does not close the independent architecture audit's separate
   renderer-admission and stale-Fabric findings. Its original one P0, two P1s,
   and two P2s remain open for their assigned sequential gates.
+
+## 2026-09-01: LIBRARY-02 Gate 8 main integration reconciliation
+
+Status: **closed, independently accepted and integrated into main**
+
+- Current main contains `c123cc9`, `eefbc84` and `220ce3a`. Their stable patch
+  IDs exactly match the accepted task-branch commits `1f3cff5`, `fa3b74a` and
+  `6cb4d4b`.
+- The retained scale profile comes from one timestamped run. It contains seven
+  raw samples for browser search, the 500-item local catalog and the running
+  local Worker. Recomputed medians and p95 exactly match the stored values.
+- The 1,000-item mounted-card result is counted from the rendered Assets
+  workspace after its accessibility set becomes visible. The retained count is
+  5 against a limit of 32.
+- The capture waits for decoded Olive botanical and Sandstone arches images
+  with positive `naturalWidth`. Both retained desktop and compact Assets PNGs
+  visibly contain the named previews, and all four PNGs remain byte-identical
+  to the accepted evidence checkpoint.
+- Current-main validation under Node 22.23.2 passes the five focused library,
+  curated-content and HTTP files with 58 tests, plus Studio typecheck. The
+  independent acceptance review and this integration audit report no remaining
+  P0 or P1 finding.
