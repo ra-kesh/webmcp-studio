@@ -149,12 +149,8 @@ import type {
   AssetMutationAnchor,
   AssetMutationState,
 } from "./asset-mutation-transaction"
-import { canvasChangeHistoryOptions } from "./canvas-change-policy"
-import { canvasNodeChangeCommands } from "./canvas-node-change-commands"
-import {
-  projectCanvasComponentSelection,
-  projectComponentInstanceCanvasTransform,
-} from "./component-canvas-interaction"
+import { CanvasNodeMutationController } from "./canvas-node-mutation-controller"
+import { projectCanvasComponentSelection } from "./component-canvas-interaction"
 import { resolveStudioAssetContent } from "./asset-catalog"
 import type { LibraryPreferenceCommands } from "../../content/library/library-preference-provider"
 import {
@@ -4346,39 +4342,23 @@ export function useDocumentEditor({
     [settleImageCrop]
   )
 
-  const updateNodes = useCallback(
-    (changes: CanvasNodeChange[]) => {
-      const document = historyRef.current.document
-      const instanceTransform = projectComponentInstanceCanvasTransform(
-        document,
-        changes
-      )
-      if (instanceTransform) {
-        return commit(
-          [
-            {
-              type: "update_component_instance_metadata",
-              instanceId: instanceTransform.instanceId,
-              patch: { transform: instanceTransform.transform },
-            },
-          ],
-          canvasChangeHistoryOptions(changes, document.nodes)
-        )
-      }
-      return commit(
-        canvasNodeChangeCommands(document, changes),
-        canvasChangeHistoryOptions(changes, document.nodes)
-      )
-    },
+  const canvasNodeMutationController = useMemo(
+    () =>
+      new CanvasNodeMutationController(
+        () => historyRef.current.document,
+        commit
+      ),
     [commit]
   )
-
+  const updateNodes = useCallback(
+    (changes: CanvasNodeChange[]) =>
+      canvasNodeMutationController.updateNodes(changes),
+    [canvasNodeMutationController]
+  )
   const updateNode = useCallback(
-    (nodeId: string, patch: Partial<SceneNode>) => {
-      const document = historyRef.current.document
-      return commit(canvasNodeChangeCommands(document, [{ nodeId, patch }]))
-    },
-    [commit]
+    (nodeId: string, patch: Partial<SceneNode>) =>
+      canvasNodeMutationController.updateNode(nodeId, patch),
+    [canvasNodeMutationController]
   )
 
   const setImageFrameMask = useCallback(
