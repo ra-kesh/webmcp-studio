@@ -95,6 +95,7 @@ export function CanvasZoomControls({
           className
         )}
         data-canvas-zoom-controls="true"
+        data-editor-overlay-control="true"
         role="group"
       >
         {canvasTools ? (

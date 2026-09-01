@@ -22,6 +22,7 @@ describe("CanvasZoomControls", () => {
     )
 
     expect(markup).toContain('data-canvas-zoom-controls="true"')
+    expect(markup).toContain('data-editor-overlay-control="true"')
     expect(markup).toContain('aria-label="Canvas controls"')
     expect(markup).toContain('aria-label="Canvas tools"')
     expect(markup).toContain('aria-label="Canvas zoom controls"')
