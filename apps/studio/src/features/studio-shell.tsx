@@ -93,7 +93,6 @@ import type { InspectorImageSourceState } from "@webmcp/editor/inspector"
 import { getNodeBounds, getSelectionBounds } from "@webmcp/editor/geometry"
 import type { NodeBounds } from "@webmcp/editor/geometry"
 import {
-  deriveActivePageId,
   MultiArtboardLayoutController,
   WorkspaceCameraController,
 } from "@webmcp/editor/multi-artboard"
@@ -210,6 +209,7 @@ import { projectNumericImageCropFrameEdit } from "./editor/image-crop-frame-nume
 import type { ImageCropArrowKey } from "./editor/image-crop-keyboard"
 import { imageReplacementConstraintsByNodeId } from "./editor/image-replacement-binding"
 import { ImageReplacementWorkspace } from "./editor/image-replacement-workspace"
+import type { ImageReplacementWorkspaceHandle } from "./editor/image-replacement-workspace"
 import {
   DOCUMENT_TRANSITION_DISABLED_REASON,
   useDocumentEditor,
@@ -1099,7 +1099,6 @@ export function StudioShell({
   const renderHistory = useRenderHistory(publishedVersion)
   const [zoom, setZoom] = useState(0.34)
   const [autoFit, setAutoFitState] = useState(true)
-  const [cameraPosition, setCameraPosition] = useState({ x: 0, y: 0 })
   const [workspaceSize, setWorkspaceSize] = useState({ width: 0, height: 0 })
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null)
   const [tool, setTool] = useState<"select" | "hand">("select")
@@ -1288,6 +1287,8 @@ export function StudioShell({
   >({})
   const workspaceRef = useRef<HTMLDivElement>(null)
   const cameraTransformRef = useRef<HTMLDivElement>(null)
+  const imageReplacementWorkspaceRef =
+    useRef<ImageReplacementWorkspaceHandle>(null)
   const selectedImageToolbarOverlayRef = useRef<HTMLDivElement>(null)
   const textFormattingToolbarOverlayRef = useRef<HTMLDivElement>(null)
   const cameraSettlementTimerRef = useRef<number | null>(null)
@@ -1309,8 +1310,6 @@ export function StudioShell({
     zoom: 0.34,
   })
   const cameraRef = useRef<CanvasCamera>(cameraControllerRef.current.camera)
-  const explicitPageFocusRef = useRef<string | null>(null)
-  const selectionPageIdRef = useRef<string | null>(null)
   const artboardHandlesRef = useRef(new Map<string, FabricArtboardHandle>())
   const committedZoomRef = useRef(zoom)
   committedZoomRef.current = zoom
@@ -1365,11 +1364,8 @@ export function StudioShell({
   const activePageFrame = artboardLayout.getFrame(activePage.id)
   const activePageFrameRef = useRef(activePageFrame)
   activePageFrameRef.current = activePageFrame
-  selectionPageIdRef.current = editor.selection?.pageId ?? null
   const activePageIdRef = useRef(editor.activePageId)
   activePageIdRef.current = editor.activePageId
-  const selectPageRef = useRef(editor.selectPage)
-  selectPageRef.current = editor.selectPage
   const pageSyncIdentities = useMemo(
     () => buildMultiArtboardPageSyncIdentities(editor.previewDocument),
     [editor.previewDocument]
@@ -1696,7 +1692,7 @@ export function StudioShell({
   const selectedImageToolbarPlacement = selectedImageBounds
     ? (() => {
         const camera = cameraForPage(
-          { ...cameraPosition, zoom },
+          cameraRef.current,
           editor.selection?.pageId ?? null
         )
         return resolveSelectedImageToolbarPlacement({
@@ -1744,7 +1740,7 @@ export function StudioShell({
   const textFormattingToolbarPlacement = textEditingBounds
     ? (() => {
         const camera = cameraForPage(
-          { ...cameraPosition, zoom },
+          cameraRef.current,
           editor.selection?.pageId ?? null
         )
         return resolveSelectedImageToolbarPlacement({
@@ -1771,7 +1767,7 @@ export function StudioShell({
   const cropToolbarEdge = cropImageBounds
     ? (() => {
         const camera = cameraForPage(
-          { ...cameraPosition, zoom },
+          cameraRef.current,
           editor.imageCropSession?.target.pageId ?? null
         )
         return resolveImageCropToolbarEdge({
@@ -2043,33 +2039,20 @@ export function StudioShell({
     textEditingNodeId,
   ])
 
-  const settleCameraState = useCallback(
-    (camera: CanvasCamera) => {
-      if (cameraSettlementTimerRef.current !== null) {
-        window.clearTimeout(cameraSettlementTimerRef.current)
-        cameraSettlementTimerRef.current = null
-      }
-      const settled = cameraControllerRef.current?.set(camera) ?? camera
-      cameraRef.current = settled
-      committedZoomRef.current = settled.zoom
-      setZoom(settled.zoom)
-      setCameraPosition({ x: settled.x, y: settled.y })
-      if (cameraTransformRef.current) {
-        cameraTransformRef.current.style.transform = `translate3d(${settled.x}px, ${settled.y}px, 0) scale(1)`
-      }
-      const derivedPageId = deriveActivePageId(artboardLayout, {
-        selectionPageId: selectionPageIdRef.current,
-        focusedPageId: explicitPageFocusRef.current,
-        camera: settled,
-        viewport: workspaceSizeRef.current,
-      })
-      explicitPageFocusRef.current = null
-      if (derivedPageId && derivedPageId !== activePageIdRef.current) {
-        selectPageRef.current(derivedPageId)
-      }
-    },
-    [artboardLayout]
-  )
+  const settleCameraState = useCallback((camera: CanvasCamera) => {
+    if (cameraSettlementTimerRef.current !== null) {
+      window.clearTimeout(cameraSettlementTimerRef.current)
+      cameraSettlementTimerRef.current = null
+    }
+    const settled = cameraControllerRef.current?.set(camera) ?? camera
+    cameraRef.current = settled
+    committedZoomRef.current = settled.zoom
+    setZoom(settled.zoom)
+    imageReplacementWorkspaceRef.current?.updateCamera(settled)
+    if (cameraTransformRef.current) {
+      cameraTransformRef.current.style.transform = `translate3d(${settled.x}px, ${settled.y}px, 0) scale(1)`
+    }
+  }, [])
 
   const applyCamera = useCallback(
     (camera: CanvasCamera) => {
@@ -2114,7 +2097,6 @@ export function StudioShell({
   const fitCanvas = useCallback(() => {
     const workspace = workspaceRef.current
     if (!workspace) return
-    explicitPageFocusRef.current = activePage.id
     const camera = cameraControllerRef.current?.zoomToPage(
       artboardLayout,
       activePage.id,
@@ -2386,7 +2368,6 @@ export function StudioShell({
       if (!workspace) return
       const worldBounds = artboardLayout.pageBoundsToWorld(pageId, bounds)
       if (!worldBounds) return
-      explicitPageFocusRef.current = pageId
       const camera = cameraControllerRef.current?.zoomToBounds(
         worldBounds,
         { width: workspace.clientWidth, height: workspace.clientHeight },
@@ -2416,7 +2397,6 @@ export function StudioShell({
     (pageId: string) => {
       const workspace = workspaceRef.current
       if (!workspace || !artboardLayout.getFrame(pageId)) return
-      explicitPageFocusRef.current = pageId
       setAutoFit(true)
       editor.selectPage(pageId)
       const camera = cameraControllerRef.current?.zoomToPage(
@@ -2437,7 +2417,6 @@ export function StudioShell({
       ) {
         return
       }
-      explicitPageFocusRef.current = null
       setAutoFit(false)
       editor.selectPage(pageId)
     },
@@ -2502,7 +2481,7 @@ export function StudioShell({
         const previous = current[state.nodeId]
         if (
           previous?.src === state.src &&
-          previous?.readiness === state.readiness
+          previous.readiness === state.readiness
         ) {
           return current
         }
@@ -3065,7 +3044,6 @@ export function StudioShell({
       }
       if (next.width <= 0 || next.height <= 0) return
       if (autoFitRef.current) {
-        explicitPageFocusRef.current = activePage.id
         const camera = cameraControllerRef.current?.zoomToPage(
           artboardLayout,
           activePage.id,
@@ -5396,7 +5374,7 @@ export function StudioShell({
               data-canvas-document-identity="true"
             >
               <p
-                className="flex min-w-0 max-w-full items-baseline gap-1.5 text-[11px] leading-none"
+                className="flex max-w-full min-w-0 items-baseline gap-1.5 text-[11px] leading-none"
                 title={`${editor.document.name} / ${activePage.name}`}
               >
                 <span className="max-w-[60%] truncate font-medium text-foreground">
@@ -5469,9 +5447,7 @@ export function StudioShell({
                 onDoubleClick={(event) => {
                   if (
                     event.target instanceof Element &&
-                    event.target.closest(
-                      "[data-editor-overlay-control='true']"
-                    )
+                    event.target.closest("[data-editor-overlay-control='true']")
                   ) {
                     return
                   }
@@ -5499,13 +5475,14 @@ export function StudioShell({
                   }}
                 >
                   <ImageReplacementWorkspace
+                    ref={imageReplacementWorkspaceRef}
                     workspaceComponent={MultiArtboardWorkspace}
                     document={editor.previewDocument}
                     layout={artboardLayout}
                     zoom={zoom}
                     activePageId={activePage.id}
                     baseInteractionPageIds={baseInteractionPageIds}
-                    camera={{ ...cameraPosition, zoom }}
+                    camera={cameraRef.current}
                     viewport={workspaceSize}
                     overscanScreens={desktopPresentation ? 1 : 0.5}
                     pending={editor.pendingImageReplacement}
@@ -5659,10 +5636,7 @@ export function StudioShell({
                 <CanvasRulerGuideOverlay
                   ref={rulerGuideOverlayRef}
                   pageId={activePage.id}
-                  camera={cameraForPage(
-                    { ...cameraPosition, zoom },
-                    activePage.id
-                  )}
+                  camera={cameraForPage(cameraRef.current, activePage.id)}
                   viewport={workspaceSize}
                   pageSize={{
                     width: activePage.width,

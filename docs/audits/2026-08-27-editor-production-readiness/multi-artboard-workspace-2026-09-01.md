@@ -51,6 +51,26 @@ Preserve concurrent Inspector prop/API changes around both `InspectorSidebar` ca
 
 The package-wide Studio run completed with 1814 passing and 21 failing tests. The failures are outside this feature surface and include timing-sensitive persistence/virtualization/asset tests plus known baseline visual-contract and thumbnail-server assertions. The package-wide editor run completed with 378 passing and five timing failures; all five passed when rerun serially without concurrent package load. No deployment was performed.
 
+### Camera settlement and short-document warming
+
+Canvas pan and wheel previews remain imperative and frame-batched. Settled
+camera coordinates now update only the virtualized artboard workspace rather
+than writing an `{x, y}` object into `StudioShell` state and reconciling both
+sidebars, the application header and the inspector after every pan.
+
+Documents with up to eight pages keep their editable Fabric canvases mounted.
+This removes first-scroll canvas initialization hitches from the common Studio
+document size. Documents above that threshold continue to mount only the
+visible overscan set plus interaction-pinned pages, preserving bounded memory
+for the 100-page contract.
+
+Camera navigation no longer changes the document's active page merely because
+an artboard crosses the viewport center. That coupling caused the page rail to
+scroll its active row and made the File rail, inspector and other shell regions
+reconcile during ordinary canvas scrolling. Page activation is now explicit:
+click a page row, click an artboard, or select content on that page. Wheel and
+pan gestures own camera position only.
+
 ## 2026-09-02 File rail consolidation
 
 Studio's document rail now follows OpenPencil's current `LayersPanel.vue`

@@ -1,4 +1,12 @@
-import { cloneElement, useCallback, useMemo } from "react"
+import {
+  cloneElement,
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useState,
+} from "react"
 import type { ComponentType, ReactElement, ReactNode } from "react"
 import type { Document, Page } from "@webmcp/document"
 import { visiblePageIds } from "@webmcp/editor/multi-artboard"
@@ -20,64 +28,101 @@ type ReplacementAwareFabricProps = Readonly<{
   registerImageReplacementOwner?: () => () => void
 }>
 
-export function ImageReplacementWorkspace({
-  activePageId,
-  baseInteractionPageIds,
-  camera,
-  document,
-  layout,
-  mutationDisabled,
-  onActivatePage,
-  onAddPage,
-  onFocusPage,
-  onImageSourceStateChange,
-  overscanScreens,
-  pending,
-  reactOwnerEnabled = true,
-  registerOwner,
-  renderFabricArtboard,
-  renderPageOverlay,
-  reportState,
-  viewport,
-  workspaceComponent: Workspace,
-  zoom,
-}: Readonly<{
-  activePageId: string
-  baseInteractionPageIds: ReadonlySet<string>
-  camera: CanvasCamera
-  document: Document
-  layout: MultiArtboardLayoutController
-  mutationDisabled?: boolean
-  onActivatePage: (pageId: string) => void
-  onAddPage: (outputId: string) => void
-  onFocusPage: (pageId: string) => void
-  onImageSourceStateChange?: (state: ImageSourceStateChange) => void
-  overscanScreens: number
-  pending: PendingRendererReplacement | null
-  reactOwnerEnabled?: boolean
-  registerOwner: (renderer: ImageReplacementRenderer) => () => void
-  renderFabricArtboard: (
-    page: Page
-  ) => ReactElement<ReplacementAwareFabricProps>
-  renderPageOverlay?: (page: Page) => ReactNode
-  reportState: (state: ImageReplacementRendererEvent) => unknown
-  viewport: ViewportSize
-  workspaceComponent: ComponentType<MultiArtboardWorkspaceProps>
-  zoom: number
-}>) {
+const EAGER_EDITABLE_PAGE_LIMIT = 8
+
+export type ImageReplacementWorkspaceHandle = Readonly<{
+  updateCamera: (camera: CanvasCamera) => void
+}>
+
+export const ImageReplacementWorkspace = forwardRef<
+  ImageReplacementWorkspaceHandle,
+  Readonly<{
+    activePageId: string
+    baseInteractionPageIds: ReadonlySet<string>
+    camera: CanvasCamera
+    document: Document
+    layout: MultiArtboardLayoutController
+    mutationDisabled?: boolean
+    onActivatePage: (pageId: string) => void
+    onAddPage: (outputId: string) => void
+    onFocusPage: (pageId: string) => void
+    onImageSourceStateChange?: (state: ImageSourceStateChange) => void
+    overscanScreens: number
+    pending: PendingRendererReplacement | null
+    reactOwnerEnabled?: boolean
+    registerOwner: (renderer: ImageReplacementRenderer) => () => void
+    renderFabricArtboard: (
+      page: Page
+    ) => ReactElement<ReplacementAwareFabricProps>
+    renderPageOverlay?: (page: Page) => ReactNode
+    reportState: (state: ImageReplacementRendererEvent) => unknown
+    viewport: ViewportSize
+    workspaceComponent: ComponentType<MultiArtboardWorkspaceProps>
+    zoom: number
+  }>
+>(function ImageReplacementWorkspace(
+  {
+    activePageId,
+    baseInteractionPageIds,
+    camera: cameraInput,
+    document,
+    layout,
+    mutationDisabled,
+    onActivatePage,
+    onAddPage,
+    onFocusPage,
+    onImageSourceStateChange,
+    overscanScreens,
+    pending,
+    reactOwnerEnabled = true,
+    registerOwner,
+    renderFabricArtboard,
+    renderPageOverlay,
+    reportState,
+    viewport,
+    workspaceComponent: Workspace,
+    zoom,
+  },
+  ref
+) {
+  const [camera, setCamera] = useState(cameraInput)
+  const updateCamera = useCallback((nextCamera: CanvasCamera) => {
+    setCamera((currentCamera) =>
+      currentCamera.x === nextCamera.x &&
+      currentCamera.y === nextCamera.y &&
+      currentCamera.zoom === nextCamera.zoom
+        ? currentCamera
+        : nextCamera
+    )
+  }, [])
+  useImperativeHandle(ref, () => ({ updateCamera }), [updateCamera])
+  useEffect(() => updateCamera(cameraInput), [cameraInput, updateCamera])
+
   const interactionPageIds = useMemo(() => {
     const pageIds = new Set(baseInteractionPageIds)
     if (pending?.pageId) pageIds.add(pending.pageId)
     return pageIds
   }, [baseInteractionPageIds, pending?.pageId])
-  const mountedPageIds = useMemo(
-    () =>
-      visiblePageIds(layout, camera, viewport, {
-        overscanScreens,
-        pinnedPageIds: interactionPageIds,
-      }),
-    [camera, interactionPageIds, layout, overscanScreens, viewport]
-  )
+  const mountedPageIds = useMemo(() => {
+    // Normal Studio documents are short enough to keep their editable
+    // canvases warm. This avoids a Fabric initialization hitch when a user
+    // scrolls onto the next page. Larger documents retain viewport
+    // virtualization and its bounded memory behavior.
+    if (document.pages.length <= EAGER_EDITABLE_PAGE_LIMIT) {
+      return new Set(document.pages.map((page) => page.id))
+    }
+    return visiblePageIds(layout, camera, viewport, {
+      overscanScreens,
+      pinnedPageIds: interactionPageIds,
+    })
+  }, [
+    camera,
+    document.pages,
+    interactionPageIds,
+    layout,
+    overscanScreens,
+    viewport,
+  ])
   const imageResourceTokens = useMemo(
     () => (pending ? { [pending.nodeId]: pending.token } : undefined),
     [pending?.nodeId, pending?.token]
@@ -142,4 +187,4 @@ export function ImageReplacementWorkspace({
       />
     </>
   )
-}
+})
