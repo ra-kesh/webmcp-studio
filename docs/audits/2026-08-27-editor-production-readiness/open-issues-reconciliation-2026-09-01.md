@@ -103,6 +103,22 @@ WebMCP, and migration work. They are not styling-only tasks.
 
 ## Remaining local quality work
 
+### Acceptance rule and protected visual contract
+
+Automated tests are regression support, not proof that an editor capability is
+usable. Every remaining editor-depth gate must be exercised through the real
+running Studio UI on port 3001 before acceptance. The retained evidence must
+cover the actual Inspector workflow, immediate canvas feedback, Undo/Redo,
+save/reload persistence, and the relevant preview/publish/export path, with
+console output and visual artifacts recorded. A green test suite without this
+browser journey does not close a gate.
+
+The current Inspector visual styling is an intentional, accepted product
+contract. Do not start a generic shadcn-to-Studio style-system migration, alter
+its visual language, or reopen its geometry. New functional controls must reuse
+the existing Inspector patterns. Only a newly reproduced, user-approved visual
+defect authorizes a narrowly scoped styling change.
+
 1. Retain the exported PDF/PNG artifacts and checksums from the current-main
    browser journey. The integrated UI path is now exercised together; artifact
    retention and renderer comparison remain. Commit `2bd072f` closes the
