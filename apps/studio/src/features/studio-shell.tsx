@@ -234,10 +234,6 @@ import { useStudioWebMcp } from "./editor/use-studio-webmcp"
 import { useDraftReplacement } from "./editor/use-draft-replacement"
 import { useDocumentRouteNavigationGuard } from "./editor/use-document-route-navigation-guard"
 import { useCanvasGestureNavigation } from "./editor/use-canvas-gesture-navigation"
-import {
-  isCanvasInteractionIsland,
-  shouldZoomFromViewportDoubleClick,
-} from "./editor/canvas-viewport-event-policy"
 import type { CanvasRulerGuideOverlayHandle } from "./editor/canvas-ruler-guide-overlay"
 import { useEditorWorkspaceGuides } from "./editor/use-editor-workspace-guides"
 import { projectVisibleGuideSnapTargets } from "./editor/guide-snap-targets"
@@ -3458,7 +3454,12 @@ export function StudioShell({
 
   const startPanning = (event: React.PointerEvent<HTMLDivElement>) => {
     if (editor.imageCropSession) return
-    if (isCanvasInteractionIsland(event.target)) return
+    if (
+      event.target instanceof Element &&
+      event.target.closest("[data-editor-overlay-control='true']")
+    ) {
+      return
+    }
     const shouldPan = tool === "hand" || spacePressed || event.button === 1
     if (!shouldPan) return
     event.preventDefault()
@@ -5226,7 +5227,8 @@ export function StudioShell({
                   }
                 }}
                 onDoubleClick={(event) => {
-                  if (!shouldZoomFromViewportDoubleClick(event.target)) return
+                  if ((event.target as HTMLElement).closest(".upper-canvas"))
+                    return
                   zoomAtPoint(zoom * 1.75, event.clientX, event.clientY)
                 }}
               >
