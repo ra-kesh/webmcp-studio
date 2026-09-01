@@ -55,4 +55,46 @@ describe("Fabric paint stacks", () => {
     expect(paints[2]?.stroke).toBe("#fedcba")
     expect(paints[2]?.strokeWidth).toBe(5)
   })
+
+  it("projects partial outside strokes as dashed Fabric line children", () => {
+    const base = northstarSeed.nodes.find((node) => node.type === "rect")
+    if (!base || base.type !== "rect") throw new Error("Expected rectangle")
+    const object = createFabricSyncObject({
+      ...base,
+      fills: [],
+      strokes: [
+        {
+          id: "partial",
+          color: "#13579b",
+          width: 8,
+          opacity: 0.6,
+          visible: true,
+          alignment: "outside",
+          sides: { top: true, right: false, bottom: true, left: false },
+          dash: [12, 4],
+          cap: "round",
+          join: "bevel",
+          miterLimit: 7,
+        },
+      ],
+    }) as Group
+    const children = object.getObjects()
+    expect(children).toHaveLength(3)
+    expect(children.slice(1).map((child) => child.type)).toEqual([
+      "line",
+      "line",
+    ])
+    expect(children.slice(1)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          stroke: "#13579b",
+          strokeWidth: 8,
+          strokeDashArray: [12, 4],
+          strokeLineCap: "round",
+          strokeLineJoin: "bevel",
+          strokeMiterLimit: 7,
+        }),
+      ])
+    )
+  })
 })

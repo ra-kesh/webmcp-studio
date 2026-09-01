@@ -29,6 +29,7 @@ import {
   roundedRectanglePath,
   roundedRectanglePaintPath,
   hasExplicitPaintStack,
+  strokeGeometryInset,
   type Document,
   type ImageFrameMask,
   type RenderFrameProjection,
@@ -1827,6 +1828,17 @@ function RenderShapePaintStack({
     ...renderFrameStyle(projection.frame),
     overflow: "visible",
   }
+  const strokeAttributes = (paint: {
+    dash: number[]
+    cap: "butt" | "round" | "square"
+    join: "miter" | "round" | "bevel"
+    miterLimit: number
+  }) => ({
+    strokeDasharray: paint.dash.length ? paint.dash.join(" ") : undefined,
+    strokeLinecap: paint.cap,
+    strokeLinejoin: paint.join,
+    strokeMiterlimit: paint.miterLimit,
+  })
   if (projection.type === "line") {
     return (
       <svg
@@ -1844,6 +1856,7 @@ function RenderShapePaintStack({
             y2={projection.frame.height}
             stroke={paint.color}
             strokeWidth={paint.width}
+            {...strokeAttributes(paint)}
             style={paintStyle(paint)}
             vectorEffect="non-scaling-stroke"
           />
@@ -1874,6 +1887,7 @@ function RenderShapePaintStack({
             fill="none"
             stroke={paint.color}
             strokeWidth={paint.width}
+            {...strokeAttributes(paint)}
             style={paintStyle(paint)}
             vectorEffect="non-scaling-stroke"
           />
@@ -1889,6 +1903,12 @@ function RenderShapePaintStack({
       visible: boolean
       blendMode: string
       width?: number
+      alignment?: "inside" | "center" | "outside"
+      sides?: { top: boolean; right: boolean; bottom: boolean; left: boolean }
+      dash?: number[]
+      cap?: "butt" | "round" | "square"
+      join?: "miter" | "round" | "bevel"
+      miterLimit?: number
     },
     kind: "fill" | "stroke"
   ) => {
@@ -1899,37 +1919,81 @@ function RenderShapePaintStack({
       strokeWidth: kind === "stroke" ? paint.width : undefined,
       style: paintStyle(paint),
       vectorEffect: "non-scaling-stroke" as const,
+      ...(kind === "stroke"
+        ? strokeAttributes({
+            dash: paint.dash ?? [],
+            cap: paint.cap ?? "butt",
+            join: paint.join ?? "miter",
+            miterLimit: paint.miterLimit ?? 4,
+          })
+        : {}),
     }
+    const inset =
+      kind === "stroke"
+        ? strokeGeometryInset({
+            width: paint.width ?? 0,
+            alignment: paint.alignment,
+          })
+        : 0
     if (projection.type === "ellipse") {
       return (
         <ellipse
           {...attributes}
           cx={projection.frame.width / 2}
           cy={projection.frame.height / 2}
-          rx={projection.frame.width / 2}
-          ry={projection.frame.height / 2}
+          rx={Math.max(0, projection.frame.width / 2 - inset)}
+          ry={Math.max(0, projection.frame.height / 2 - inset)}
         />
       )
     }
     const advancedCorners =
       projection.content.corners.independent ||
       projection.content.corners.smoothing > 0
+    if (
+      kind === "stroke" &&
+      paint.sides &&
+      !Object.values(paint.sides).every(Boolean)
+    ) {
+      const x1 = inset
+      const y1 = inset
+      const x2 = projection.frame.width - inset
+      const y2 = projection.frame.height - inset
+      return (
+        <g key={`${kind}:${paint.id}`} style={paintStyle(paint)}>
+          {paint.sides.top ? (
+            <line {...attributes} x1={x1} y1={y1} x2={x2} y2={y1} />
+          ) : null}
+          {paint.sides.right ? (
+            <line {...attributes} x1={x2} y1={y1} x2={x2} y2={y2} />
+          ) : null}
+          {paint.sides.bottom ? (
+            <line {...attributes} x1={x2} y1={y2} x2={x1} y2={y2} />
+          ) : null}
+          {paint.sides.left ? (
+            <line {...attributes} x1={x1} y1={y2} x2={x1} y2={y1} />
+          ) : null}
+        </g>
+      )
+    }
     return advancedCorners ? (
       <path
         {...attributes}
         d={roundedRectanglePaintPath({
-          width: projection.frame.width,
-          height: projection.frame.height,
+          width: Math.max(0, projection.frame.width - inset * 2),
+          height: Math.max(0, projection.frame.height - inset * 2),
           cornerRadii: projection.content.corners.radii,
           cornerSmoothing: projection.content.corners.smoothing,
           strokeWidth: kind === "stroke" ? (paint.width ?? 0) : 0,
         })}
+        transform={inset ? `translate(${inset} ${inset})` : undefined}
       />
     ) : (
       <rect
         {...attributes}
-        width={projection.frame.width}
-        height={projection.frame.height}
+        x={inset}
+        y={inset}
+        width={Math.max(0, projection.frame.width - inset * 2)}
+        height={Math.max(0, projection.frame.height - inset * 2)}
         rx={projection.content.radius}
         ry={projection.content.radius}
       />

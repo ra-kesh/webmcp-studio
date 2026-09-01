@@ -43,6 +43,7 @@ import {
   roundedRectanglePath,
   roundedRectanglePaintPath,
   hasExplicitPaintStack,
+  strokeGeometryInset,
   resolveTextSelectionStyle,
   resolveTextSelectionStyleAttachment,
   resolveTextSelectionLink,
@@ -1564,13 +1565,65 @@ export function createFabricSyncObject(
         visible: boolean
         blendMode: BlendMode
         width?: number
+        alignment?: "inside" | "center" | "outside"
+        sides?: { top: boolean; right: boolean; bottom: boolean; left: boolean }
+        dash?: number[]
+        cap?: "butt" | "round" | "square"
+        join?: "miter" | "round" | "bevel"
+        miterLimit?: number
       },
       kind: "fill" | "stroke"
     ) => {
+      const strokeWidth = paint.width ?? legacyStrokeWidth
+      if (
+        kind === "stroke" &&
+        (node.type === "rect" || node.type === "frame") &&
+        paint.sides &&
+        !Object.values(paint.sides).every(Boolean)
+      ) {
+        const inset = strokeGeometryInset({
+          width: strokeWidth,
+          alignment: paint.alignment,
+        })
+        const x1 = inset
+        const y1 = inset
+        const x2 = node.width - inset
+        const y2 = node.height - inset
+        const options = {
+          stroke: paint.color,
+          strokeWidth,
+          opacity: paint.opacity,
+          visible: paint.visible,
+          globalCompositeOperation: fabricBlendMode(paint.blendMode),
+          strokeDashArray: paint.dash,
+          strokeLineCap: paint.cap,
+          strokeLineJoin: paint.join,
+          strokeMiterLimit: paint.miterLimit,
+          selectable: false,
+          evented: false,
+        }
+        if (paint.sides.top) children.push(new Line([x1, y1, x2, y1], options))
+        if (paint.sides.right)
+          children.push(new Line([x2, y1, x2, y2], options))
+        if (paint.sides.bottom)
+          children.push(new Line([x2, y2, x1, y2], options))
+        if (paint.sides.left) children.push(new Line([x1, y2, x1, y1], options))
+        return
+      }
+      const geometryOffset =
+        kind === "stroke" && node.type !== "line" && node.type !== "icon"
+          ? strokeGeometryInset({
+              width: strokeWidth,
+              alignment: paint.alignment,
+            }) -
+            strokeWidth / 2
+          : 0
       const synthetic = {
         ...node,
-        x: 0,
-        y: 0,
+        x: geometryOffset,
+        y: geometryOffset,
+        width: node.width - geometryOffset * 2,
+        height: node.height - geometryOffset * 2,
         rotation: 0,
         flipX: false,
         flipY: false,
@@ -1582,18 +1635,29 @@ export function createFabricSyncObject(
         ...(node.type === "line"
           ? {
               stroke: paint.color,
-              strokeWidth: paint.width ?? legacyStrokeWidth,
+              strokeWidth,
             }
           : kind === "fill"
             ? { fill: paint.color, stroke: undefined, strokeWidth: 0 }
             : {
                 fill: "rgba(0,0,0,0)",
                 stroke: paint.color,
-                strokeWidth: paint.width ?? legacyStrokeWidth,
+                strokeWidth,
               }),
       } as Exclude<SceneNode, { type: "image" }>
       const child = createFabricSyncObject(synthetic)
-      child.set({ selectable: false, evented: false })
+      child.set({
+        selectable: false,
+        evented: false,
+        ...(kind === "stroke"
+          ? {
+              strokeDashArray: paint.dash,
+              strokeLineCap: paint.cap,
+              strokeLineJoin: paint.join,
+              strokeMiterLimit: paint.miterLimit,
+            }
+          : {}),
+      })
       children.push(child)
     }
     if (projection.type !== "line") {

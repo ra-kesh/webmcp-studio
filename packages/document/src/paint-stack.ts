@@ -92,5 +92,9 @@ export function scaleStrokePaints(
   paints: readonly StrokePaint[] | undefined,
   scale: number
 ): readonly StrokePaint[] | undefined {
-  return paints?.map((paint) => ({ ...paint, width: paint.width * scale }))
+  return paints?.map((paint) => ({
+    ...paint,
+    width: paint.width * scale,
+    ...(paint.dash ? { dash: paint.dash.map((value) => value * scale) } : {}),
+  }))
 }

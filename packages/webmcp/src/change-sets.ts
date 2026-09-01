@@ -319,7 +319,13 @@ const scaledStrokes = (
   >["strokes"],
   scale: number
 ) =>
-  strokes?.map((paint) => ({ ...paint, width: rounded(paint.width * scale) }))
+  strokes?.map((paint) => ({
+    ...paint,
+    width: rounded(paint.width * scale),
+    ...(paint.dash
+      ? { dash: paint.dash.map((value) => rounded(value * scale)) }
+      : {}),
+  }))
 
 function scaleNode(
   node: SceneNode,

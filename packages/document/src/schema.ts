@@ -79,6 +79,29 @@ const paintBaseSchema = z
 export const fillPaintSchema = paintBaseSchema
 export const strokePaintSchema = paintBaseSchema.extend({
   width: z.number().nonnegative(),
+  alignment: z.enum(["inside", "center", "outside"]).optional(),
+  sides: z
+    .object({
+      top: z.boolean(),
+      right: z.boolean(),
+      bottom: z.boolean(),
+      left: z.boolean(),
+    })
+    .strict()
+    .optional(),
+  dash: z
+    .array(z.number().nonnegative())
+    .max(16)
+    .refine(
+      (values) => values.length === 0 || values.some((value) => value > 0),
+      {
+        message: "A dash pattern must contain a positive segment",
+      }
+    )
+    .optional(),
+  cap: z.enum(["butt", "round", "square"]).optional(),
+  join: z.enum(["miter", "round", "bevel"]).optional(),
+  miterLimit: z.number().min(1).max(100).optional(),
 })
 
 const uniquePaints = <T extends { id: string }>(
@@ -473,6 +496,34 @@ export const sceneNodeSchema = z
         code: "custom",
         path: ["cornerRadii"],
         message: "Independent corners require all four corner radii",
+      })
+    }
+    if ("strokes" in node && node.strokes) {
+      node.strokes.forEach((stroke, index) => {
+        const sides = stroke.sides
+        if (
+          sides &&
+          node.type !== "rect" &&
+          node.type !== "frame" &&
+          !Object.values(sides).every(Boolean)
+        ) {
+          context.addIssue({
+            code: "custom",
+            path: ["strokes", index, "sides"],
+            message: "Independent stroke sides require rect or frame geometry",
+          })
+        }
+        if (
+          (node.type === "line" || node.type === "icon") &&
+          stroke.alignment &&
+          stroke.alignment !== "center"
+        ) {
+          context.addIssue({
+            code: "custom",
+            path: ["strokes", index, "alignment"],
+            message: "Open-path strokes require center alignment",
+          })
+        }
       })
     }
     if (node.type !== "image") return

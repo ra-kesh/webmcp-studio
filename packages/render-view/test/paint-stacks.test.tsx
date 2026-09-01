@@ -59,4 +59,51 @@ describe("paint-stack render parity", () => {
     expect(markup).toContain("mix-blend-mode:overlay")
     expect(markup).toContain('stroke-width="3"')
   })
+
+  it("emits aligned, dashed, side-specific SVG stroke geometry", () => {
+    const target = northstarSeed.nodes.find((node) => node.type === "rect")
+    if (!target || target.type !== "rect") throw new Error("Expected rectangle")
+    const document: Document = {
+      ...structuredClone(northstarSeed),
+      nodes: northstarSeed.nodes.map((node) =>
+        node.id === target.id
+          ? {
+              ...target,
+              strokes: [
+                {
+                  id: "advanced-edge",
+                  color: "#13579b",
+                  width: 8,
+                  opacity: 1,
+                  visible: true,
+                  alignment: "outside" as const,
+                  sides: {
+                    top: true,
+                    right: false,
+                    bottom: true,
+                    left: false,
+                  },
+                  dash: [12, 4],
+                  cap: "round" as const,
+                  join: "bevel" as const,
+                  miterLimit: 7,
+                },
+              ],
+            }
+          : node
+      ),
+    }
+    const page = document.pages.find((candidate) =>
+      candidate.nodeIds.includes(target.id)
+    )!
+    const markup = renderToStaticMarkup(
+      createElement(Artboard, { document, pageId: page.id })
+    )
+    expect(markup.match(/stroke="#13579b"/g)).toHaveLength(2)
+    expect(markup).toContain('stroke-dasharray="12 4"')
+    expect(markup).toContain('stroke-linecap="round"')
+    expect(markup).toContain('stroke-linejoin="bevel"')
+    expect(markup).toContain('stroke-miterlimit="7"')
+    expect(markup).toContain('x1="-4"')
+  })
 })

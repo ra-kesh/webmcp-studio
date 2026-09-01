@@ -1264,6 +1264,129 @@ const nextPaintId = (prefix: "fill" | "stroke", ids: readonly string[]) => {
   return `${prefix}-${index}`
 }
 
+function StrokeAdvancedControls({
+  node,
+  paint,
+  onChange,
+}: {
+  node: InspectorPaintNode
+  paint: StrokePaint
+  onChange: (paint: StrokePaint) => void
+}) {
+  const openPath = node.type === "line" || node.type === "icon"
+  const sides = paint.sides ?? {
+    top: true,
+    right: true,
+    bottom: true,
+    left: true,
+  }
+  return (
+    <div className="mt-2 space-y-2">
+      <div className="grid grid-cols-3 gap-2">
+        <Select
+          value={paint.alignment ?? (openPath ? "center" : "inside")}
+          disabled={node.locked || openPath}
+          onValueChange={(alignment: "inside" | "center" | "outside") =>
+            onChange({ ...paint, alignment })
+          }
+        >
+          <SelectTrigger aria-label="Stroke alignment">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="inside">Inside</SelectItem>
+            <SelectItem value="center">Center</SelectItem>
+            <SelectItem value="outside">Outside</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select
+          value={paint.cap ?? "butt"}
+          disabled={node.locked}
+          onValueChange={(cap: "butt" | "round" | "square") =>
+            onChange({ ...paint, cap })
+          }
+        >
+          <SelectTrigger aria-label="Stroke cap">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="butt">Butt</SelectItem>
+            <SelectItem value="round">Round</SelectItem>
+            <SelectItem value="square">Square</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select
+          value={paint.join ?? "miter"}
+          disabled={node.locked}
+          onValueChange={(join: "miter" | "round" | "bevel") =>
+            onChange({ ...paint, join })
+          }
+        >
+          <SelectTrigger aria-label="Stroke join">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="miter">Miter</SelectItem>
+            <SelectItem value="round">Round</SelectItem>
+            <SelectItem value="bevel">Bevel</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <CommitInput
+          aria-label="Stroke dash pattern"
+          disabled={node.locked}
+          placeholder="Solid"
+          value={(paint.dash ?? []).join(" ")}
+          onCommit={(value) => {
+            const dash = value
+              .trim()
+              .split(/[\s,]+/)
+              .filter(Boolean)
+              .map(Number)
+              .filter((segment) => Number.isFinite(segment) && segment >= 0)
+              .slice(0, 16)
+            if (dash.length === 0 || dash.some((segment) => segment > 0)) {
+              onChange({ ...paint, dash })
+            }
+          }}
+        />
+        <InspectorNumberField
+          label="Miter"
+          value={inspectorValue(paint.miterLimit ?? 4)}
+          min={1}
+          max={100}
+          disabled={node.locked || (paint.join ?? "miter") !== "miter"}
+          onCommit={(miterLimit) => onChange({ ...paint, miterLimit })}
+        />
+      </div>
+      {node.type === "rect" || node.type === "frame" ? (
+        <div className="grid grid-cols-4 gap-1" aria-label="Stroke sides">
+          {(["top", "right", "bottom", "left"] as const).map((side) => (
+            <label
+              className="flex items-center gap-1 text-[10px] text-muted-foreground"
+              key={side}
+            >
+              <Checkbox
+                aria-label={`${side} stroke side`}
+                checked={sides[side]}
+                disabled={node.locked}
+                onCheckedChange={(checked) =>
+                  onChange({
+                    ...paint,
+                    sides: { ...sides, [side]: checked === true },
+                  })
+                }
+              />
+              {side[0]?.toUpperCase()}
+            </label>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function PaintStackControls({
   node,
   onUpdate,
@@ -1458,6 +1581,20 @@ function PaintStackControls({
               />
             ) : null}
           </div>
+          {"width" in paint ? (
+            <StrokeAdvancedControls
+              node={node}
+              paint={paint}
+              onChange={(nextPaint) =>
+                updateList(
+                  kind,
+                  paints.map((candidate, candidateIndex) =>
+                    candidateIndex === index ? nextPaint : candidate
+                  ) as StrokePaint[]
+                )
+              }
+            />
+          ) : null}
           <Select
             value={paint.blendMode ?? "normal"}
             disabled={node.locked}

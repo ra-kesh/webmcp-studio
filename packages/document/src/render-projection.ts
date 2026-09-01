@@ -46,6 +46,12 @@ export type RenderFillPaint = Omit<FillPaint, "blendMode"> & {
 }
 export type RenderStrokePaint = Omit<StrokePaint, "blendMode"> & {
   blendMode: BlendMode
+  alignment: "inside" | "center" | "outside"
+  sides: { top: boolean; right: boolean; bottom: boolean; left: boolean }
+  dash: number[]
+  cap: "butt" | "round" | "square"
+  join: "miter" | "round" | "bevel"
+  miterLimit: number
 }
 
 const projectFillPaints = (
@@ -62,6 +68,14 @@ const projectStrokePaints = (
   nodeStrokePaints(node).map((paint) => ({
     ...paint,
     blendMode: paint.blendMode ?? "normal",
+    alignment:
+      paint.alignment ??
+      (node.type === "line" || node.type === "icon" ? "center" : "inside"),
+    sides: paint.sides ?? { top: true, right: true, bottom: true, left: true },
+    dash: paint.dash ?? [],
+    cap: paint.cap ?? "butt",
+    join: paint.join ?? "miter",
+    miterLimit: paint.miterLimit ?? 4,
   }))
 
 export type RenderNodeProjection =
