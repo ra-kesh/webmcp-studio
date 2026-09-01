@@ -4046,3 +4046,21 @@ remains open**
   component-journey manifests, and returned **ACCEPT**.
 - The integration is implemented, committed, and independently accepted. It is
   not merged.
+
+## 2026-09-01 — Live editor accessibility and interaction checkpoint
+
+Status: **implemented and locally accepted**
+
+- Replayed the current saved quotation in the running Studio rather than using
+  static markup: the canonical group tree rendered, locked-state guidance was
+  explicit, unlock enabled the inspector, text color changed immediately, undo
+  restored the prior value, and the browser console remained clean.
+- The live audit found one invalid slider accessibility contract. The shared
+  Radix wrapper forwarded `aria-valuetext` to its non-slider root instead of the
+  interactive thumb, affecting opacity, crop zoom, and canvas zoom controls.
+  The wrapper now places the value text on the thumb while preserving its
+  existing labels and public API.
+- The focused inspector suite passes 5/5, the UI package typecheck passes, and
+  `git diff --check` passes. A fresh desktop Lighthouse snapshot of the selected
+  and editable inspector state now reports 100 Accessibility, 100 Best
+  Practices, 100 SEO, 100 Agentic Browsing, and zero failed audits.
