@@ -123,6 +123,7 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@webmcp/ui/components/dropdown-menu"
+import { EditorPanelHeader } from "@webmcp/ui/components/editor-chrome"
 import { Separator } from "@webmcp/ui/components/separator"
 import {
   Sheet,
@@ -4752,28 +4753,30 @@ export function StudioShell({
           {shellLayoutError ?? ""}
         </p>
         <header className="flex h-(--studio-topbar-height) min-w-0 shrink-0 items-center gap-1 border-b border-border bg-editor-panel px-2 min-[1280px]:gap-2 min-[1280px]:px-3">
-          <button
-            aria-label="Go to Studio home"
-            className="flex min-w-0 flex-1 items-center gap-2 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/30 min-[1280px]:w-60 min-[1280px]:flex-none min-[1280px]:gap-2.5"
-            disabled={!homeCommand.enabled}
-            title={homeCommand.disabledReason ?? "Studio home"}
-            type="button"
-            onClick={() => {
-              productCommandRuntime.run({ commandId: "document.home" })
-            }}
-          >
-            <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
+          <div className="flex min-w-0 flex-1 items-center gap-1">
+            <button
+              aria-label="Go to Studio home"
+              className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+              disabled={!homeCommand.enabled}
+              title={
+                homeCommand.disabledReason ??
+                `${editor.document.name} · Revision ${editor.document.revision}`
+              }
+              type="button"
+              onClick={() => {
+                productCommandRuntime.run({ commandId: "document.home" })
+              }}
+            >
               <StudioMark className="size-3.5" />
+            </button>
+
+            <div className="hidden min-w-0 shrink-0 min-[1280px]:block">
+              <ProductCommandMenubar
+                menus={productMenus}
+                runtime={productMenuRuntime}
+              />
             </div>
-            <div className="flex min-w-0 flex-col leading-none">
-              <span className="truncate text-sm font-medium">
-                {editor.document.name}
-              </span>
-              <span className="mt-1 truncate text-[11px] leading-none text-muted-foreground">
-                Template · Revision {editor.document.revision}
-              </span>
-            </div>
-          </button>
+          </div>
 
           <IconButton
             label="Open document panel"
@@ -4787,16 +4790,6 @@ export function StudioShell({
           >
             <Layers3 />
           </IconButton>
-          <Separator
-            className="hidden min-[1600px]:block"
-            orientation="vertical"
-          />
-          <div className="hidden shrink-0 min-[1600px]:block">
-            <ProductCommandMenubar
-              menus={productMenus}
-              runtime={productMenuRuntime}
-            />
-          </div>
           <div className="hidden">
             <input
               ref={documentInputRef}
@@ -5082,7 +5075,7 @@ export function StudioShell({
                     </DropdownMenuItem>
                   </>
                 ) : null}
-                <DropdownMenuSeparator />
+                <DropdownMenuSeparator className="min-[1280px]:hidden" />
                 <DropdownMenuLabel className="min-[640px]:hidden">
                   Text styles
                 </DropdownMenuLabel>
@@ -5098,10 +5091,12 @@ export function StudioShell({
                   />
                   <DropdownMenuSeparator />
                 </div>
-                <ResponsiveProductCommandDropdownGroups
-                  menus={productMenus}
-                  runtime={productMenuRuntime}
-                />
+                <div className="min-[1280px]:hidden">
+                  <ResponsiveProductCommandDropdownGroups
+                    menus={productMenus}
+                    runtime={productMenuRuntime}
+                  />
+                </div>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -5395,6 +5390,26 @@ export function StudioShell({
           ) : null}
 
           <section className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-workspace min-[1280px]:min-w-[520px]">
+            <EditorPanelHeader
+              aria-label="Current document and page"
+              className="min-w-0 justify-center px-4"
+              data-canvas-document-identity="true"
+            >
+              <p
+                className="flex min-w-0 max-w-full items-baseline gap-1.5 text-[11px] leading-none"
+                title={`${editor.document.name} / ${activePage.name}`}
+              >
+                <span className="max-w-[60%] truncate font-medium text-foreground">
+                  {editor.document.name}
+                </span>
+                <span aria-hidden="true" className="text-muted-foreground/60">
+                  /
+                </span>
+                <span className="min-w-0 truncate text-muted-foreground">
+                  {activePage.name}
+                </span>
+              </p>
+            </EditorPanelHeader>
             {!editor.imageCropSession &&
             selectedImage &&
             selectedImageToolbarPlacement?.mode === "docked" ? (

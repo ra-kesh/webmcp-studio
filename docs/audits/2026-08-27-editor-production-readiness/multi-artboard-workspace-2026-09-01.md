@@ -95,3 +95,17 @@ Floating editor controls are now isolated from workspace double-click zoom.
 The workspace rejects events originating inside any registered overlay control,
 and the text-formatting toolbar also consumes its own double-clicks. A live
 check held canvas zoom at 32% before and after repeated toolbar interaction.
+
+### Application header hierarchy
+
+The desktop application menus now occupy the primary top-left position beside
+the Studio home control. They continue to use the canonical product-command
+runtime, including command availability, shortcuts and checked states; the
+far-right overflow exposes the same menus only as a narrow-screen fallback.
+
+Document identity moved out of the application-command region. A centered
+context header above the canvas now pairs the document name with the active
+page name and uses the same height, border and surface tokens as the left and
+right panel headers. The canvas ruler begins below this shared header line, so
+application navigation, document context and canvas measurement each have one
+clear level without introducing another command path.
