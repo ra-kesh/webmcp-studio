@@ -4,7 +4,7 @@ Date: 2026-09-01
 
 Updated: 2026-09-02
 
-Code baseline: `db515d772c84697556789c9fe3c07f60a059f935`
+Code baseline: `c5cb1cf6360691cb6329dcac5d6cf72e3e8a6766`
 
 This checkpoint reconciles the main conversation with the separate redesign,
 mask, rich-text, component, library, image-architecture, generation, independent
@@ -122,7 +122,16 @@ checkpoint and evidence stay auditable.
    add/edit/reorder/Undo/Redo/autosave/reload browser journey. Evidence:
    `advanced-editor-depth-gate-08-layer-effects-review-2026-09-01.md`. No
    capability-item 7 / implementation-Gate 8 gap remains.
-8. Per-layer export settings.
+8. **Per-layer export settings — completed as phase-map Gate 9 and
+   independently accepted.** Commit
+   `c5cb1cf6360691cb6329dcac5d6cf72e3e8a6766` adds strict PNG/PDF presets;
+   deterministic page/output routing, bounds, scaling, and filenames; direct
+   layer-menu export through existing renderer endpoints; immutable published
+   manifest routes; component, Review, and WebMCP preservation; compact
+   Inspector controls; and mounted configure/menu/autosave/reload evidence.
+   Evidence:
+   `advanced-editor-depth-gate-09-layer-export-review-2026-09-01.md`. No
+   capability-item 8 / implementation-Gate 9 gap remains.
 9. Additional text layout controls: direction, vertical alignment,
    justification, case transformation, and truncation behavior.
 10. **Frame/layout-guide settings — completed as phase-map Gate 3 and
