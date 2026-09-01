@@ -4320,3 +4320,32 @@ decision**
   exercise an existing bound layer through blank-canvas exit, autosave, and
   reload. Generated quotation text is still locked by its composer and needs an
   explicit content-editability/binding policy rather than a blanket bypass.
+
+## 2026-09-01: Architecture Gate 7 StrictMode local-asset restoration
+
+Status: **the final architecture-audit P2 is closed locally; all five findings
+from the async editor architecture review are closed**
+
+- Replaced the monotonic mounted boolean with an effect-owned lifecycle
+  generation. StrictMode replay installs a fresh active generation, and cleanup
+  can invalidate only the generation it owns.
+- Retained one read per local asset while allowing both StrictMode setup passes
+  to consume it. A completion may install an object URL or report failure only
+  when its generation is active and the canonical preview still references the
+  asset. This follows the reference architecture's exact async-target identity
+  and stale-result rejection pattern.
+- Final unmount clears the active reference set and revokes installed object
+  URLs. A late Blob completion cannot create a URL or update hook state. The
+  existing visible `assetError` messages remain authoritative for missing and
+  rejected local reads.
+- The mounted production-hook regression covers delayed success after
+  setup-cleanup-setup replay, missing bytes, rejected storage reads and delayed
+  success after final unmount. It proves one underlying read and no duplicate
+  installation.
+- Node 22.23.2 verification passes 4/4 Gate 7 cases, the combined 5/5
+  StrictMode restoration and persistence slice, and Studio typecheck. The new
+  test passes scoped ESLint; both changed source files pass Prettier and
+  `git diff --check`. Full-file hook lint retains 25 baseline findings, all
+  outside Gate 7 lines.
+- Gate 7 started no server, browser, deployment, or port 3000 process. It did
+  not modify or stage `studio-shell.tsx` or any capture artifact.

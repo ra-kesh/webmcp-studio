@@ -8,17 +8,16 @@
 
 Do not release the reviewed commit as production-ready.
 
-The review initially found one P0, two P1s, and two P2s. Gates 4 through 6
-close the P0, both P1s, and the output-admission P2. The StrictMode restore P2
-remains open:
+The review initially found one P0, two P1s, and two P2s. Gates 4 through 7
+close all five findings:
 
-| Priority | Status                                                       | Finding                                                                                                                                                                |
-| -------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| P0       | Closed by the 2026-09-01 Gate 4 repair                       | The multi-artboard merge removed the only production React image-readiness owner, so every mounted Studio replacement flow waits 15 seconds and rejects the candidate. |
-| P1       | Closed by the 2026-09-01 Gate 5 repair                       | The last-good Fabric frame remains mutable during document synchronization while Fabric suppresses the events that would commit that mutation.                         |
-| P1       | Closed by the 2026-09-01 Gate 5 repair                       | A failed incremental Fabric synchronization leaves the old frame in `ready` indefinitely, with no visible error, retry, or complete applied identity.                  |
-| P2       | Closed by the 2026-09-01 Gate 6 repair                       | Export and publish remain enabled while a replacement preview is non-canonical, so the visible candidate and exported/published source can disagree.                   |
-| P2       | Confirmed in React StrictMode; production exposure is a risk | Local-asset restore permanently deactivates its lifecycle ref during StrictMode effect replay and can discard the only pending restore.                                |
+| Priority | Status                                 | Finding                                                                                                                                                                |
+| -------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P0       | Closed by the 2026-09-01 Gate 4 repair | The multi-artboard merge removed the only production React image-readiness owner, so every mounted Studio replacement flow waits 15 seconds and rejects the candidate. |
+| P1       | Closed by the 2026-09-01 Gate 5 repair | The last-good Fabric frame remains mutable during document synchronization while Fabric suppresses the events that would commit that mutation.                         |
+| P1       | Closed by the 2026-09-01 Gate 5 repair | A failed incremental Fabric synchronization leaves the old frame in `ready` indefinitely, with no visible error, retry, or complete applied identity.                  |
+| P2       | Closed by the 2026-09-01 Gate 6 repair | Export and publish remain enabled while a replacement preview is non-canonical, so the visible candidate and exported/published source can disagree.                   |
+| P2       | Closed by the 2026-09-01 Gate 7 repair | Local-asset restore permanently deactivates its lifecycle ref during StrictMode effect replay and can discard the only pending restore.                                |
 
 Here, P0 means a deterministic release-blocking failure of a primary product workflow, even when rollback prevents data loss. P1 means a credible canonical/render authority split or an unrecoverable editor state. P2 means bounded reliability, lifecycle, or truthfulness debt that should not block the P0/P1 repair.
 
@@ -325,7 +324,7 @@ Project a pending candidate and assert PNG, PDF, publish, and conflicting asset 
 
 ### P2 — Repair local-asset restore lifecycle for StrictMode replay
 
-Status: confirmed under React StrictMode semantics; current production exposure is a risk because the application entry does not explicitly mount `StrictMode`.
+Status: closed by the 2026-09-01 Gate 7 repair.
 
 #### Trigger
 
@@ -351,6 +350,28 @@ Set lifecycle activity in effect setup and use a generation/lease or `AbortContr
 
 Mount the real hook under StrictMode with a deferred `loadLocalAsset`. Resolve after setup/cleanup replay and assert one live object URL is projected, the installed URL was not revoked, and no duplicate load or state update occurs after final unmount. Cover missing and rejected loads as well.
 
+#### Gate 7 remediation evidence
+
+The local-asset lifecycle now assigns a generation during effect setup and
+invalidates only that active generation during cleanup. One retained in-flight
+read can have consumers from both StrictMode setup passes; only the currently
+active generation may install its Blob URL or report a restore failure. Final
+unmount clears referenced identities and revokes installed URLs, while a late
+completion cannot create a URL or publish state.
+
+The mounted production-hook regression resolves a deferred Blob after the
+setup-cleanup-setup replay and proves one read, one installed URL, and no
+revocation of that live URL. Separate cases cover a missing Blob, a rejected
+read, and settlement after final unmount. Missing and rejected reads retain the
+existing visible `assetError` contract rather than introducing a second hidden
+failure owner.
+
+Node 22.23.2 verification passes the four Gate 7 mounted cases, the combined
+five-test StrictMode local-asset and persistence slice, and Studio typecheck.
+The new test passes scoped ESLint and both changed files pass Prettier and
+`git diff --check`. Full-file hook lint reports only the 25 previously recorded
+findings outside the Gate 7 lines.
+
 ## Existing-test blind spots
 
 | Boundary                | Existing evidence                                                                                                | Missing assertion                                                                                |
@@ -359,12 +380,12 @@ Mount the real hook under StrictMode with a deferred `loadLocalAsset`. Resolve a
 | Library media hook      | Manually reports Fabric and React, then proves one history entry                                                 | Actual React/Fabric wiring and timeout-free mounted picker completion                            |
 | Multi-artboard shell    | Page layout, culling, page-local sync identities, and handle registry                                            | Renderer-owner preservation when the filmstrip is removed                                        |
 | Last-good Fabric frame  | Frame stays `ready`; latest selection is reapplied after success                                                 | Transform/selection/crop/text attempts during deferred sync; incremental failure after last good |
-| StrictMode persistence  | Repository/controller lease survives replay                                                                      | Local `asset:local` restoration survives replay                                                  |
+| StrictMode persistence  | Gate 7 proves repository/controller leasing and local `asset:local` restoration survive replay                   | No remaining assertion assigned to this P2                                                       |
 | Export and publication  | Gate 6 covers wide, compact, palette, command-time, dialog, and WebMCP admission plus stale invocation rejection | No remaining assertion assigned to this P2                                                       |
 
 The Gate 4 and Gate 5 regressions cover the replacement-owner, multi-artboard,
-and last-good Fabric rows above. Gate 6 covers export and publication. Only the
-StrictMode restore row remains assigned to an open P2 finding.
+and last-good Fabric rows above. Gate 6 covers export and publication. Gate 7
+covers the final StrictMode restore row.
 
 ## Reviewed areas without an additional P0–P2 finding
 
@@ -374,7 +395,7 @@ These are supported strengths, not a claim of deployed or pixel-perfect completi
 - Fit, fill, manual crop, focal travel, frame resize, React render view, Fabric, and HTML renderer consume the canonical `projectImagePaint` implementation. Fabric calls it for layout and crop projection (`packages/editor/src/fabric-adapter.ts:2270-2315`), React calls it (`packages/render-view/src/index.tsx:1148`, `packages/render-view/src/index.tsx:1968`), and the renderer serializes the same projector (`apps/renderer/src/html.ts:359`). Replacement preserves authored frame geometry, placement, mask, and explicit alt text (`apps/studio/src/features/editor/media-selection-model.ts:54-82`).
 - Image placement commands centralize fit/fill/flip/rotation/reset and emit typed `set_image_placement` drafts (`packages/editor/src/commands.ts:117-210`). Inspector capability modeling is canonical enough that no additional selection/Inspector P0–P2 was found beyond the async Fabric authority defects above.
 - Template actions capture document, operation, source, and review generations (`apps/studio/src/features/editor/use-document-editor.ts:1303-1313`) and revalidate them before a created document installs (`apps/studio/src/features/editor/use-document-editor.ts:9988-10050`). Applied templates replace history through a named document transition and reconcile selection (`apps/studio/src/features/editor/use-document-editor.ts:10062-10096`).
-- Draft persistence/recovery has explicit repository, save-controller, quarantine, conflict, and route-admission boundaries. The serial 94-test mounted persistence file passed. The StrictMode local-asset lifecycle above is a narrower hook-level exception.
+- Draft persistence/recovery has explicit repository, save-controller, quarantine, conflict, and route-admission boundaries. The serial 94-test mounted persistence file passed. Gate 7 closes the narrower hook-level StrictMode local-asset exception.
 - Server rendering does not trust interactive readiness. It materializes a transient clone, verifies managed content identity and dimensions, and admits exact node/resource expectations before Browser Rendering, as recorded in `asset-02-server-render-admission.md:7-31`. PNG/PDF export reads canonical state after a durable flush; the P2 is command-time truthfulness while preview state is pending, not export authority.
 
 ## Reference implementation comparison
@@ -432,7 +453,7 @@ No dev server, port 3000/3001 process, browser capture, capture directory, deplo
 1. Closed on 2026-09-01: explicit React replacement ownership and the real mounted composition regression now cover the P0.
 2. Closed on 2026-09-01: per-artboard applied identity, owner-aware mounted admission, `syncing/stale_error`, atomic adapter installation, and commit-time async admission close both P1s.
 3. Closed on 2026-09-01: one shared generation-stamped admission rule gates export and publication while replacement admission is pending, revalidates final execution, and rejects stale invocations after commit or rollback.
-4. Replace the local-asset lifecycle boolean with a replay-safe generation/lease and add the StrictMode restore test.
+4. Closed on 2026-09-01: a replay-safe local-asset generation and shared in-flight read preserve restoration, visible failure, and final-unmount cleanup under StrictMode.
 5. Rerun focused suites, all-workspace typecheck, serial performance-sensitive suites, and the existing healthy-host cross-renderer/browser evidence. Do not label renderer parity complete from unit tests alone.
 
 Acceptance requires no synthetic renderer acknowledgements, no Fabric mutation while its applied identity is pending or stale, a visible retry for incremental sync failure, and exact agreement among visible preview, canonical document, persistence, Inspector, and export at every admitted command boundary.

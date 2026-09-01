@@ -1246,9 +1246,18 @@ export function useDocumentEditor({
   draftRecoveryRef.current = draftRecovery
   const clipboardRef = useRef<SemanticFragment | null>(null)
   const assetUrlsRef = useRef(new Map<string, string>())
-  const assetLoadPromisesRef = useRef(new Map<string, Promise<void>>())
+  const assetLoadPromisesRef = useRef(
+    new Map<
+      string,
+      {
+        promise: Promise<Blob | null>
+        consumerGenerations: Set<number>
+      }
+    >()
+  )
   const referencedLocalAssetIdsRef = useRef(new Set<string>())
-  const assetLifecycleActiveRef = useRef(true)
+  const assetLifecycleGenerationRef = useRef(0)
+  const activeAssetLifecycleGenerationRef = useRef<number | null>(null)
   const attemptedVersionSyncRef = useRef(new Set<string>())
   const historyRef = useRef(history)
   historyRef.current = history
@@ -3796,6 +3805,21 @@ export function useDocumentEditor({
     : null
 
   useEffect(() => {
+    const generation = assetLifecycleGenerationRef.current + 1
+    assetLifecycleGenerationRef.current = generation
+    activeAssetLifecycleGenerationRef.current = generation
+    return () => {
+      if (activeAssetLifecycleGenerationRef.current !== generation) return
+      activeAssetLifecycleGenerationRef.current = null
+      referencedLocalAssetIdsRef.current.clear()
+      for (const url of assetUrlsRef.current.values()) URL.revokeObjectURL(url)
+      assetUrlsRef.current.clear()
+    }
+  }, [])
+
+  useEffect(() => {
+    const lifecycleGeneration = activeAssetLifecycleGenerationRef.current
+    if (lifecycleGeneration === null) return
     const sourceDocument =
       pendingChangeSet && !changeSetConflict
         ? previewChangeSet(
@@ -3825,67 +3849,71 @@ export function useDocumentEditor({
     const missingAssetIds = sourceDocument.nodes.flatMap((node) => {
       if (node.type !== "image") return []
       const assetId = localAssetIdFromSource(node.src)
-      return assetId &&
-        !assetUrlsRef.current.has(assetId) &&
-        !assetLoadPromisesRef.current.has(assetId)
-        ? [assetId]
-        : []
+      return assetId && !assetUrlsRef.current.has(assetId) ? [assetId] : []
     })
     if (!missingAssetIds.length) return
     const uniqueAssetIds = [...new Set(missingAssetIds)]
     for (const assetId of uniqueAssetIds) {
-      const loadPromise = loadLocalAsset(assetId)
-        .then((blob) => {
-          if (!blob) {
-            if (
-              assetLifecycleActiveRef.current &&
-              referencedLocalAssetIdsRef.current.has(assetId)
-            ) {
-              setAssetError("A saved image is missing on this device.")
-              setAssetVersion((current) => current + 1)
+      let load = assetLoadPromisesRef.current.get(assetId)
+      if (!load) {
+        load = {
+          promise: Promise.resolve().then(() => loadLocalAsset(assetId)),
+          consumerGenerations: new Set<number>(),
+        }
+        assetLoadPromisesRef.current.set(assetId, load)
+        void load.promise.then(
+          () => {
+            if (assetLoadPromisesRef.current.get(assetId) === load) {
+              assetLoadPromisesRef.current.delete(assetId)
             }
-            return
+          },
+          () => {
+            if (assetLoadPromisesRef.current.get(assetId) === load) {
+              assetLoadPromisesRef.current.delete(assetId)
+            }
           }
+        )
+      }
+      if (load.consumerGenerations.has(lifecycleGeneration)) continue
+      load.consumerGenerations.add(lifecycleGeneration)
+      void load.promise.then(
+        (blob) => {
           if (
-            !assetLifecycleActiveRef.current ||
+            activeAssetLifecycleGenerationRef.current !== lifecycleGeneration ||
             !referencedLocalAssetIdsRef.current.has(assetId)
           ) {
             return
           }
+          if (!blob) {
+            setAssetError("A saved image is missing on this device.")
+            setAssetVersion((current) => current + 1)
+            return
+          }
+          if (assetUrlsRef.current.has(assetId)) return
           const url = URL.createObjectURL(blob)
-          if (assetUrlsRef.current.has(assetId)) {
+          if (
+            activeAssetLifecycleGenerationRef.current !== lifecycleGeneration ||
+            !referencedLocalAssetIdsRef.current.has(assetId) ||
+            assetUrlsRef.current.has(assetId)
+          ) {
             URL.revokeObjectURL(url)
             return
           }
           assetUrlsRef.current.set(assetId, url)
           setAssetVersion((current) => current + 1)
-        })
-        .catch(() => {
+        },
+        () => {
           if (
-            assetLifecycleActiveRef.current &&
-            referencedLocalAssetIdsRef.current.has(assetId)
+            activeAssetLifecycleGenerationRef.current !== lifecycleGeneration ||
+            !referencedLocalAssetIdsRef.current.has(assetId)
           ) {
-            setAssetError("A saved image could not be restored on this device.")
+            return
           }
-        })
-        .finally(() => {
-          if (assetLoadPromisesRef.current.get(assetId) === loadPromise) {
-            assetLoadPromisesRef.current.delete(assetId)
-          }
-        })
-      assetLoadPromisesRef.current.set(assetId, loadPromise)
+          setAssetError("A saved image could not be restored on this device.")
+        }
+      )
     }
   }, [changeSetConflict, history.document, pendingChangeSet])
-
-  useEffect(
-    () => () => {
-      assetLifecycleActiveRef.current = false
-      referencedLocalAssetIdsRef.current.clear()
-      for (const url of assetUrlsRef.current.values()) URL.revokeObjectURL(url)
-      assetUrlsRef.current.clear()
-    },
-    []
-  )
 
   const allowMutation = useCallback(
     (
