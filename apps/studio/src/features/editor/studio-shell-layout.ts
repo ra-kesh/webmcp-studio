@@ -338,6 +338,18 @@ export function toggleStudioShellPanel(
   return setStudioShellPanelCollapsed(layout, panel, !layout[key].collapsed)
 }
 
+export function toggleStudioShellCleanMode(
+  layout: StudioShellLayoutV1
+): StudioShellLayoutV1 {
+  const cleanModeActive =
+    layout.leftPanel.collapsed && layout.rightPanel.collapsed
+  return {
+    ...layout,
+    leftPanel: { ...layout.leftPanel, collapsed: !cleanModeActive },
+    rightPanel: { ...layout.rightPanel, collapsed: !cleanModeActive },
+  }
+}
+
 export function setStudioShellFilmstripDensity(
   layout: StudioShellLayoutV1,
   density: unknown

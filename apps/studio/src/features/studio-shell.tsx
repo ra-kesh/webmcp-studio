@@ -28,10 +28,6 @@ import {
   Minus,
   MoreHorizontal,
   MousePointer2,
-  PanelLeftClose,
-  PanelLeftOpen,
-  PanelRightClose,
-  PanelRightOpen,
   Redo2,
   Send,
   Shapes,
@@ -151,6 +147,7 @@ import {
   getStudioShellPanelResizeBounds,
   resizeStudioShellPanelAtWidth,
   resolveStudioShellLayout,
+  toggleStudioShellCleanMode,
   toggleStudioShellPanel,
 } from "./editor/studio-shell-layout"
 import type { DocumentPanelTab } from "./editor/quotation-sidebar"
@@ -983,8 +980,6 @@ export function StudioShell({
     },
     []
   )
-  const leftPanelToggleRef = useRef<HTMLButtonElement>(null)
-  const rightPanelToggleRef = useRef<HTMLButtonElement>(null)
   const installShellLayout = useCallback(
     (next: ReturnType<typeof createDefaultStudioShellLayout>) => {
       shellLayoutRef.current = next
@@ -1031,17 +1026,8 @@ export function StudioShell({
     [persistShellLayout, shellAvailableWidth]
   )
   const toggleShellPanel = useCallback(
-    (panel: "left" | "right", restoreFocus = false) => {
+    (panel: "left" | "right") => {
       persistShellLayout(toggleStudioShellPanel(shellLayoutRef.current, panel))
-      if (restoreFocus) {
-        window.requestAnimationFrame(() => {
-          const toggle =
-            panel === "left"
-              ? leftPanelToggleRef.current
-              : rightPanelToggleRef.current
-          toggle?.focus()
-        })
-      }
     },
     [persistShellLayout]
   )
@@ -1128,11 +1114,10 @@ export function StudioShell({
   const canvasRuntimeAdmissionControllerRef =
     useRef<CanvasRuntimeAdmissionController | null>(null)
   const canvasRuntimeAdmissionController =
-    canvasRuntimeAdmissionControllerRef.current ??=
-      new CanvasRuntimeAdmissionController()
+    (canvasRuntimeAdmissionControllerRef.current ??=
+      new CanvasRuntimeAdmissionController())
   const captureCanvasCommitAdmission = useCallback(
-    (pageId?: string) =>
-      canvasRuntimeAdmissionController.captureCommit(pageId),
+    (pageId?: string) => canvasRuntimeAdmissionController.captureCommit(pageId),
     [canvasRuntimeAdmissionController]
   )
   const captureCanvasReplacementCommitAdmission = useCallback(
@@ -2708,6 +2693,16 @@ export function StudioShell({
           editor.getImageReplacementOutputAdmission(),
           outputInputs
         ),
+        "view.clean-mode.toggle": {
+          checked:
+            shellLayoutRef.current.leftPanel.collapsed &&
+            shellLayoutRef.current.rightPanel.collapsed,
+          label:
+            shellLayoutRef.current.leftPanel.collapsed &&
+            shellLayoutRef.current.rightPanel.collapsed
+              ? "Exit clean mode"
+              : "Enter clean mode",
+        },
       },
     }
   }
@@ -4132,6 +4127,9 @@ export function StudioShell({
       case "developer.api-playground":
         setApiPlaygroundOpen(true)
         return true
+      case "view.clean-mode.toggle":
+        persistShellLayout(toggleStudioShellCleanMode(shellLayoutRef.current))
+        return true
       case "command.search":
         if (commandPaletteOpen) return false
         setCommandPaletteOpen(true)
@@ -4559,30 +4557,6 @@ export function StudioShell({
       role="toolbar"
     >
       <IconButton
-        ref={leftPanelToggleRef}
-        label={
-          shellLayout.leftPanel.collapsed
-            ? "Expand document panel"
-            : "Collapse document panel"
-        }
-        className="hidden size-7 min-[1280px]:inline-flex"
-        aria-controls={
-          shellLayout.leftPanel.collapsed ? undefined : "studio-document-panel"
-        }
-        aria-expanded={!shellLayout.leftPanel.collapsed}
-        onClick={() => toggleShellPanel("left")}
-      >
-        {shellLayout.leftPanel.collapsed ? (
-          <PanelLeftOpen />
-        ) : (
-          <PanelLeftClose />
-        )}
-      </IconButton>
-      <Separator
-        className="mx-0.5 hidden h-4 min-[1280px]:block"
-        orientation="vertical"
-      />
-      <IconButton
         label="Select"
         shortcut="V"
         aria-pressed={tool === "select"}
@@ -4966,28 +4940,6 @@ export function StudioShell({
                 />
               </DropdownMenuContent>
             </DropdownMenu>
-            <IconButton
-              ref={rightPanelToggleRef}
-              label={
-                shellLayout.rightPanel.collapsed
-                  ? "Expand properties panel"
-                  : "Collapse properties panel"
-              }
-              className="hidden size-7 min-[1280px]:inline-flex"
-              aria-controls={
-                shellLayout.rightPanel.collapsed
-                  ? undefined
-                  : "studio-properties-panel"
-              }
-              aria-expanded={!shellLayout.rightPanel.collapsed}
-              onClick={() => toggleShellPanel("right")}
-            >
-              {shellLayout.rightPanel.collapsed ? (
-                <PanelRightOpen />
-              ) : (
-                <PanelRightClose />
-              )}
-            </IconButton>
             <IconButton
               label="Open properties"
               className="size-11 min-[1280px]:hidden"
@@ -5438,7 +5390,6 @@ export function StudioShell({
                 resizeDirection="right"
                 onResize={(width) => previewShellPanelWidth("left", width)}
                 onResizeEnd={(width) => commitShellPanelWidth("left", width)}
-                onToggleCollapse={() => toggleShellPanel("left", true)}
               />
             </>
           ) : null}
@@ -5845,7 +5796,6 @@ export function StudioShell({
                 resizeDirection="left"
                 onResize={(width) => previewShellPanelWidth("right", width)}
                 onResizeEnd={(width) => commitShellPanelWidth("right", width)}
-                onToggleCollapse={() => toggleShellPanel("right", true)}
               />
               <div
                 id="studio-properties-panel"

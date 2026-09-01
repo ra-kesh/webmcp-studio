@@ -30,6 +30,7 @@ export const productActionCommandIds = [
   "output.export-png",
   "output.export-pdf",
   "developer.api-playground",
+  "view.clean-mode.toggle",
   "canvas.rulers.toggle",
   "canvas.guides.toggle",
   "canvas.guides.manage",
@@ -653,6 +654,18 @@ const actionDefinitions: Record<
     scope: "global",
     mutating: false,
     icon: "api",
+  }),
+  "view.clean-mode.toggle": definition({
+    id: "view.clean-mode.toggle",
+    label: "Enter clean mode",
+    category: "view",
+    subgroup: "workspace",
+    keywords: ["hide", "panels", "sidebar", "focus", "canvas"],
+    alternateNames: ["Hide interface", "Show interface"],
+    scope: "global",
+    mutating: false,
+    icon: "visibility",
+    shortcuts: [{ code: "Backslash", primary: true }],
   }),
   "canvas.rulers.toggle": definition({
     id: "canvas.rulers.toggle",
@@ -1630,6 +1643,10 @@ export function buildProductAppMenus(
       label: "File",
       groups: [
         {
+          id: "workspace",
+          items: [itemFor("view.clean-mode.toggle", context)],
+        },
+        {
           id: "document",
           items: [
             itemFor("document.home", context),
@@ -1896,6 +1913,8 @@ export function buildCanvasContextMenu(
         id: "view",
         items: [
           submenu("canvas-view", "View", [
+            itemFor("view.clean-mode.toggle", context),
+            separator(),
             itemFor("canvas.fit", context),
             itemFor("canvas.zoom-in", context),
             itemFor("canvas.zoom-out", context),

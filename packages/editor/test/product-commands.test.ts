@@ -721,6 +721,7 @@ describe("pure product menu models", () => {
       "object.add-rectangle",
       "object.add-ellipse",
       "object.add-line",
+      "view.clean-mode.toggle",
       "canvas.fit",
       "canvas.zoom-in",
       "canvas.zoom-out",

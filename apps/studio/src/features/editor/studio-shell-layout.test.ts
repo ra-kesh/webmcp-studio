@@ -15,6 +15,7 @@ import {
   setStudioShellPanelCollapsed,
   setStudioShellPanelWidth,
   toggleStudioShellPanel,
+  toggleStudioShellCleanMode,
 } from "./studio-shell-layout"
 import type { StudioShellLayoutV1 } from "./studio-shell-layout"
 
@@ -143,6 +144,21 @@ describe("studio shell layout preferences", () => {
     expect(
       setStudioShellPanelCollapsed(collapsed, "left", true).leftPanel
     ).toEqual({ width: 344, collapsed: true })
+  })
+
+  test("toggles both panels as one clean mode without changing their widths", () => {
+    const layout = {
+      ...createDefaultStudioShellLayout(),
+      leftPanel: { width: 344, collapsed: false },
+      rightPanel: { width: 312, collapsed: true },
+    }
+    const clean = toggleStudioShellCleanMode(layout)
+    expect(clean.leftPanel).toEqual({ width: 344, collapsed: true })
+    expect(clean.rightPanel).toEqual({ width: 312, collapsed: true })
+    expect(toggleStudioShellCleanMode(clean)).toMatchObject({
+      leftPanel: { width: 344, collapsed: false },
+      rightPanel: { width: 312, collapsed: false },
+    })
   })
 
   test("clamps direct panel updates and ignores non-finite input", () => {
