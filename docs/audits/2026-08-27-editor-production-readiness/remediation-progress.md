@@ -4376,3 +4376,8 @@ blanking or rejecting its own preview**
   `All changes saved`, retained both canvases with no preparing/blank state,
   and produced no new console warning or error. Undo restored the original
   source and revision 23.
+- The adjacent user-reported paths were replayed separately: selecting the
+  existing image kept both canvases rendered and exposed its inspector, while
+  inserting a curated image from Assets created and selected one canonical
+  node, saved revision 24, and emitted no console warning or error. Undo
+  removed the insertion and restored revision 23.
