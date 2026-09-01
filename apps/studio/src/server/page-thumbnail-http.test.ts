@@ -169,7 +169,8 @@ describe("page thumbnail Studio boundary", () => {
       {},
       principal,
       createPageThumbnailDocument(northstarSeed, "cover"),
-      expect.any(AbortSignal)
+      expect.objectContaining({ aborted: false }),
+      "https://studio.test/v1/studio/page-thumbnail"
     )
     expect(fixture.reserveCapacity).toHaveBeenCalledOnce()
   })
@@ -336,7 +337,8 @@ describe("page thumbnail Studio boundary", () => {
       {},
       principal,
       createPageThumbnailDocument(largeDocument, page.id),
-      expect.any(AbortSignal)
+      expect.objectContaining({ aborted: false }),
+      "https://studio.test/v1/studio/page-thumbnail"
     )
     expect(fixture.reserveCapacity).toHaveBeenCalledWith({}, principal, {
       outputId: output.id,

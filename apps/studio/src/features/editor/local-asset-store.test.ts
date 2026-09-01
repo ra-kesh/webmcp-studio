@@ -202,10 +202,15 @@ describe("local asset store", () => {
 
     expect(selected).toMatchObject({
       status: "ready",
-      record: { id: "asset-metadata-only", blob: file },
+      record: {
+        id: "asset-metadata-only",
+        blob: expect.objectContaining({ size: file.size, type: file.type }),
+      },
     })
     expect(verifyBlob).toHaveBeenCalledOnce()
-    expect(verifyBlob).toHaveBeenCalledWith(file)
+    expect(verifyBlob).toHaveBeenCalledWith(
+      expect.objectContaining({ size: file.size, type: file.type })
+    )
     expect(createObjectUrl).not.toHaveBeenCalled()
     expect(
       transactions.mock.calls.flatMap(([names]) =>
@@ -407,7 +412,10 @@ describe("local asset store", () => {
       { status: "absent" },
       {
         status: "ready",
-        record: expect.objectContaining({ id: "asset-first", blob: first }),
+        record: expect.objectContaining({
+          id: "asset-first",
+          blob: expect.objectContaining({ size: first.size, type: first.type }),
+        }),
       },
       {
         status: "missing_bytes",
@@ -422,7 +430,9 @@ describe("local asset store", () => {
       },
     ])
     expect(verifyBlob).toHaveBeenCalledTimes(1)
-    expect(verifyBlob).toHaveBeenCalledWith(first)
+    expect(verifyBlob).toHaveBeenCalledWith(
+      expect.objectContaining({ size: first.size, type: first.type })
+    )
     expect(getAll).toHaveBeenCalledTimes(3)
     expect(getAll.mock.calls.every((call) => call[1] === 101)).toBe(true)
   })

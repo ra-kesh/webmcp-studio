@@ -3782,6 +3782,24 @@ export class FabricCanvasAdapter implements CanvasAdapter {
       if (isStale()) return
 
       const previousObjects = [...canvas.getObjects()]
+      const nextCanvasObjects = [
+        ...candidateRoots,
+        ...candidateSelectionProxies,
+      ]
+      try {
+        // Keep the last valid scene mounted until Fabric has accepted every
+        // candidate root. A synchronous add failure must not strand the canvas
+        // after the previous objects have already been destroyed.
+        canvas.add(...nextCanvasObjects)
+      } catch (error) {
+        const partiallyAddedCandidates = canvas
+          .getObjects()
+          .filter((object) => candidateObjects.has(object))
+        if (partiallyAddedCandidates.length > 0) {
+          canvas.remove(...partiallyAddedCandidates)
+        }
+        throw error
+      }
       canvas.discardActiveObject()
       canvas.remove(...previousObjects)
       disposeFabricObjectForest(previousObjects)
@@ -3826,7 +3844,6 @@ export class FabricCanvasAdapter implements CanvasAdapter {
       for (const [groupId, object] of candidateMaskCompositeByGroupId) {
         this.maskCompositeByGroupId.set(groupId, object)
       }
-      canvas.add(...candidateRoots, ...candidateSelectionProxies)
       this.pageNodeOrder = [...page.nodeIds]
       this.paintPlanIdentity = pagePaintPlanIdentity(plan)
       const selectionObjects = previousSelection

@@ -499,6 +499,61 @@ describe("Fabric vector mask paint consumer", () => {
     for (const dispose of disposals) expect(dispose).toHaveBeenCalledOnce()
   })
 
+  it("keeps the last valid scene when Fabric rejects candidate installation", async () => {
+    const objects: FabricObject[] = []
+    const fakeCanvas = {
+      backgroundColor: "",
+      add: vi.fn((...added: FabricObject[]) => objects.push(...added)),
+      clear: vi.fn(() => objects.splice(0)),
+      discardActiveObject: vi.fn(),
+      getActiveObjects: vi.fn(() => []),
+      getObjects: vi.fn(() => objects),
+      remove: vi.fn((...removed: FabricObject[]) => {
+        for (const object of removed) {
+          const index = objects.indexOf(object)
+          if (index >= 0) objects.splice(index, 1)
+        }
+      }),
+      requestRenderAll: vi.fn(),
+      setActiveObject: vi.fn(),
+      setDimensions: vi.fn(),
+    }
+    const adapter = new FabricCanvasAdapter({
+      onNodesChange: vi.fn(),
+      onSelectionChange: vi.fn(),
+    })
+    Reflect.set(adapter, "canvas", fakeCanvas)
+    const initial = nestedMaskDocument()
+    await adapter.sync(initial, initial.pages[0]!.id)
+    const lastValidObjects = [...objects]
+    const lastValidByNodeId = new Map(
+      Reflect.get(adapter, "objectByNodeId") as Map<string, FabricObject>
+    )
+    const lastValidDisposals = lastValidObjects.map((object) =>
+      vi.spyOn(object, "dispose")
+    )
+    fakeCanvas.remove.mockClear()
+    fakeCanvas.add.mockImplementationOnce(() => {
+      throw new Error("candidate install failed")
+    })
+
+    await expect(
+      adapter.sync(
+        nestedMaskDocument({ hiddenChildSource: true }),
+        initial.pages[0]!.id
+      )
+    ).rejects.toThrow("candidate install failed")
+
+    expect(objects).toEqual(lastValidObjects)
+    expect(fakeCanvas.remove).not.toHaveBeenCalled()
+    expect(
+      Reflect.get(adapter, "objectByNodeId") as Map<string, FabricObject>
+    ).toEqual(lastValidByNodeId)
+    for (const dispose of lastValidDisposals) {
+      expect(dispose).not.toHaveBeenCalled()
+    }
+  })
+
   it("installs a precomputed luminance mask without retaining stale source paint objects", async () => {
     setEnv(getNodeFabricEnv())
     const objects: FabricObject[] = []
