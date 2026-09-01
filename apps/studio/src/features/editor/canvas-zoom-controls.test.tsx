@@ -11,6 +11,7 @@ describe("CanvasZoomControls", () => {
         hasSelection={false}
         onZoomChange={vi.fn()}
         onFit={vi.fn()}
+        onFitAll={vi.fn()}
         onZoomToSelection={vi.fn()}
       />
     )
@@ -20,6 +21,7 @@ describe("CanvasZoomControls", () => {
     expect(markup).toContain('aria-label="Zoom out"')
     expect(markup).toContain('aria-label="Zoom in"')
     expect(markup).toContain('aria-label="Fit page"')
+    expect(markup).toContain("Fit all pages")
     expect(markup).toContain('aria-label="Zoom to selection"')
     expect(markup).toContain("disabled")
   })

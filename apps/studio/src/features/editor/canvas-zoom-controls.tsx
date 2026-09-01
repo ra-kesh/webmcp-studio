@@ -1,6 +1,13 @@
 "use client"
 
-import { Check, Focus, Scan, ZoomIn, ZoomOut } from "lucide-react"
+import {
+  Check,
+  Focus,
+  GalleryVerticalEnd,
+  Scan,
+  ZoomIn,
+  ZoomOut,
+} from "lucide-react"
 
 import { Button } from "@webmcp/ui/components/button"
 import {
@@ -63,6 +70,7 @@ export function CanvasZoomControls({
   hasSelection,
   onZoomChange,
   onFit,
+  onFitAll,
   onZoomToSelection,
   className,
 }: {
@@ -70,6 +78,7 @@ export function CanvasZoomControls({
   hasSelection: boolean
   onZoomChange: (zoom: number) => void
   onFit: () => void
+  onFitAll?: () => void
   onZoomToSelection: () => void
   className?: string
 }) {
@@ -145,6 +154,12 @@ export function CanvasZoomControls({
               Fit page
               <DropdownMenuShortcut>⇧1</DropdownMenuShortcut>
             </DropdownMenuItem>
+            {onFitAll ? (
+              <DropdownMenuItem onSelect={onFitAll}>
+                <GalleryVerticalEnd />
+                Fit all pages
+              </DropdownMenuItem>
+            ) : null}
             <DropdownMenuItem
               disabled={!hasSelection}
               onSelect={onZoomToSelection}
@@ -182,6 +197,15 @@ export function CanvasZoomControls({
         <ZoomIconButton label="Fit page" shortcut="⇧1" onClick={onFit}>
           <Scan />
         </ZoomIconButton>
+        {onFitAll ? (
+          <ZoomIconButton
+            label="Fit all pages"
+            className="hidden min-[640px]:inline-flex"
+            onClick={onFitAll}
+          >
+            <GalleryVerticalEnd />
+          </ZoomIconButton>
+        ) : null}
         <ZoomIconButton
           label="Zoom to selection"
           shortcut="⇧2"
