@@ -2,92 +2,112 @@
 
 Date: 2026-09-01
 
-Baseline: `10b8aae`
+Code baseline: `10b8aae`
 
-This is the current continuation checkpoint after reconciling the main product
-conversation, repository history, the original audit, later gate reports, and
-an independent read-only review. Historical audit prose that conflicts with
-this checkpoint is not an active backlog.
+This checkpoint reconciles the main conversation with the separate redesign,
+mask, rich-text, component, library, image-architecture, generation, independent
+review, and production tasks. Historical audit prose that conflicts with this
+checkpoint is not an active backlog.
 
-## Open local product work
+## Side-task work already integrated
 
-1. Run one integrated real-browser acceptance journey on the current HEAD. It
-   must cover multi-artboard navigation, selection and transforms, direct text
-   editing, image insert/replace/crop, Undo/Redo, autosave/reload, publish, and
-   export in one retained run. Focused gates exist, but not one post-fix
-   journey proving these systems together.
-2. Complete a cohesive, user-approved editor redesign and cleanliness pass.
-   The earlier sophistication gate implemented many OpenPencil-derived details,
-   but later user feedback explicitly rejected the overall result. Treat
-   spacing, hierarchy, density, contextual chrome, empty/loading/error states,
-   and cross-surface consistency as open until accepted in the live product.
-3. Rework and recertify action discoverability after moving editor controls to
-   the bottom dock. Delete and contextual commands exist, but their placement
-   and visibility have not received a dedicated post-move acceptance gate.
-4. Continue architectural decomposition. Render invalidation, crop, and preview
-   ownership have been extracted, but `use-document-editor.ts` remains 11,479
-   lines and `studio-shell.tsx` remains 6,959 lines. This is regression and
-   maintenance debt, not a reason to replace Fabric immediately.
-5. Close the remaining hardening seams recorded by the async architecture
-   review: isolated cross-realm File/Blob and AbortSignal harness failures,
-   injected-failure rollback after the synchronous Fabric install barrier,
-   explicit disposal coverage for retired Fabric objects, and same-tick shell
-   predicate seam coverage. These are not currently reproduced user-facing
-   outages, but current-HEAD full-suite cleanliness is not yet proven.
+The following work is complete in `main`, sometimes through an integration or
+superseding commit rather than the original side-task hash:
 
-## Open integration and production work
+- the exact Vercel brand stylesheet and `design.md` foundation;
+- compact OpenPencil-derived Inspector controls, 288 px default width, number
+  scrubbing, condensed identity, separate Content section, general flip and
+  rotate controls, live text preview/commit, 11 px metadata floor, and an
+  explicit dark workspace token;
+- continuous multi-artboard editing and removal of the bottom page filmstrip;
+- rich-text conformance P1 closure, reusable text/paint styles, and variables;
+- components, instances, variants, overrides, and Component Gate 5 evidence;
+- vector, alpha, luminance, and nested masks including retained output and
+  negative-path evidence;
+- the persistent Assets workspace plus the 21-template/37-media catalog;
+- skill-driven blank/exact-template document generation through WebMCP, Review,
+  and editable canonical documents;
+- image-selection suspension, output admission, replacement, and StrictMode
+  local-asset restoration fixes;
+- quotation direct editing and semantic legacy migration;
+- Layers hierarchy and transient-guide lifecycle fixes;
+- the business-beta migration-lineage work and the guarded production rollout.
 
-6. Production is 46 commits behind this baseline. It predates the
-   multi-artboard editor and the latest image, direct-text, architecture, and
-   transient-guide repairs.
-7. Owner-authenticated deployed acceptance remains incomplete: hostile and
+No completed side-task product feature is waiting for an ordinary merge.
+
+## Capabilities that are genuinely not built
+
+These are the concrete editor-depth gaps identified in the separate
+OpenPencil comparison and still absent from the canonical schema, renderer, or
+Inspector:
+
+1. Constraints and pinning behavior for responsive resizing.
+2. Auto layout and explicit clipping/overflow controls for containers.
+3. Blend modes.
+4. Independent corner radii and corner smoothing.
+5. Multiple fills and strokes on one layer.
+6. Advanced stroke controls: alignment, per-side strokes, dashes, caps, joins,
+   and miter behavior.
+7. Layer effects such as shadows and blur.
+8. Per-layer export settings.
+9. Additional text layout controls: direction, vertical alignment,
+   justification, case transformation, and truncation behavior.
+10. Frame/layout-guide settings beyond the existing canvas rulers, snapping,
+    and persistent ruler guides.
+
+These require document-model, command, renderer/export, history, Inspector,
+WebMCP, and migration work. They are not styling-only tasks.
+
+## Remaining local quality work
+
+1. Retain one integrated real-browser journey on the current code that combines
+   multi-artboard navigation, transforms, direct text, image
+   insert/replace/crop, Undo/Redo, autosave/reload, publish, and export. The
+   separate tasks provide focused evidence, but no single post-integration run
+   proves all of these systems together.
+2. Continue architectural decomposition. Render invalidation, crop, preview,
+   and lazy-interaction ownership have been extracted, but
+   `use-document-editor.ts` remains 11,479 lines and `studio-shell.tsx` remains
+   6,959 lines. This is maintenance and regression risk, not a reason to replace
+   Fabric immediately.
+3. Review only newly observed visual regressions and editor areas not covered by
+   the completed Vercel/OpenPencil gates. Do not reopen the design foundation,
+   Inspector geometry, workspace chrome, or completed interaction controls as
+   if they were never implemented.
+4. Resolve the remaining low-level hardening evidence from the async
+   architecture review: isolated cross-realm File/Blob and AbortSignal harness
+   behavior, explicit retired-Fabric disposal coverage, injected failure after
+   the synchronous install barrier, and same-tick shell predicate coverage.
+
+## Remaining integration and production work
+
+1. Production is behind this local code baseline by 46 commits. It predates the
+   multi-artboard editor and the latest image, quotation-text, architecture,
+   and guide repairs.
+2. Owner-authenticated deployed acceptance remains incomplete: hostile and
    rate/concurrency cases, multipart/R2 lifecycle, Workflow restart/recovery,
    renderer parity/performance, second-principal isolation, artifact expiry,
    and audit-retention evidence.
-8. Public API documentation and a possible production session-token audit
-   identity edge need reconciliation with the implemented durable job/error
-   behavior.
-9. Live Stuwiz retrieval and reconciliation remain external. Studio has a
-   versioned local refresh/conflict model, but still needs an authenticated
-   complete-source endpoint, stable source revision/fingerprint, authorization,
-   and provenance contract from Stuwiz.
-10. Browser-local media is not inherently shared across devices. Promotion,
-    relink, and recovery exist locally, but shared availability depends on
-    successful managed promotion and still needs deployed owner/isolation,
-    restart, cleanup, and fault evidence.
+3. Live Stuwiz retrieval and reconciliation remain external. Studio still
+   needs an authenticated complete-source endpoint, stable source
+   revision/fingerprint, authorization, and provenance contract from Stuwiz.
+4. Browser-local media is not automatically shared across devices. Promotion,
+   relink, and recovery exist, but shared availability and its deployed
+   isolation/restart/cleanup/fault behavior still need production evidence.
+5. Public API documentation and the production session-token denial audit
+   identity need reconciliation with the implemented durable job/error model.
 
 ## Deliberately deferred or optional
 
-- Background removal is implemented behind a boundary but disabled by default.
-  No paid provider is configured and no local/on-device inference provider is
-  implemented. This is not a blocker unless the feature is enabled.
-- Skill-driven WebMCP generation is accepted, but an unapproved generated
-  candidate is memory-only, GPT has no screenshot-inspect/correct loop, and an
-  actual ChatGPT session consuming an arbitrary GitHub `SKILL.md` has not been
-  retained as production evidence.
-- The catalog has 21 templates and 37 curated media items. Its product
-  mechanics are complete; Canva-scale content breadth is optional expansion,
-  not an unfinished Gate 8.
-- Cross-page multi-selection is currently out of scope.
+- Background removal remains disabled by default. The service boundary exists,
+  but no paid provider or local/on-device inference provider is configured.
+- Skill-driven generation does not yet persist an unapproved candidate across
+  reload and has no screenshot-inspect-correct loop. A retained real ChatGPT
+  session consuming an arbitrary GitHub `SKILL.md` is still host evidence, not
+  a missing document-generation foundation.
+- The library mechanics are complete; Canva-scale content volume beyond 21
+  templates and 37 media items is optional catalog expansion.
+- Cross-page multi-selection remains out of scope.
 - Collaboration, presence, comments, team libraries, and organization roles
-  are explicitly excluded from this product plan.
-
-## Closed work that must not re-enter the backlog
-
-- Continuous multi-artboard workspace and page navigation.
-- Hierarchical Layers tree, search, reorder, reparent, lock, and visibility.
-- Inspector color preview/commit performance and the reported freeze.
-- Moving canvas tools, Undo/Redo, and panel controls out of the top bar.
-- Direct persisted text editing, including generated quotation text and legacy
-  quotation migration.
-- Curated/local image selection, insertion, replacement, StrictMode restoration,
-  and the reported blank-editor crashes.
-- Crop, fit/fill, flip, and image frames.
-- Transient snapping-line cleanup, including blank selection and interrupted
-  transforms. Persistent ruler guides remain intentional.
-- Rich text, reusable typography/paint styles, and variables.
-- Components, instances, variants, and overrides.
-- General vector, alpha, luminance, and nested masks.
-- Template/media Library Gate 8.
-- Bounded blank/template document generation through WebMCP and Review.
+  are explicitly excluded.
 
