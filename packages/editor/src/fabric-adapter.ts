@@ -3039,6 +3039,10 @@ export class FabricCanvasAdapter implements CanvasAdapter {
     await canvas.dispose()
   }
 
+  requestRender() {
+    this.canvas?.requestRenderAll()
+  }
+
   async sync(document: Document, pageId: string, signal?: AbortSignal) {
     signal?.throwIfAborted()
     const canvas = this.canvas

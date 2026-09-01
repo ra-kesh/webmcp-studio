@@ -31,6 +31,7 @@ import type {
 import type { ImageCropPreviewStore } from "@webmcp/editor/image-crop-preview-store"
 import { getNodeBounds, getSelectionBounds } from "@webmcp/editor/geometry"
 import { Button } from "@webmcp/ui/components/button"
+import { FabricRenderInvalidationController } from "./fabric-render-invalidation-controller"
 import { ImageCropFrameOverlay } from "./image-crop-frame-overlay"
 import type { ImageCropFramePreview } from "./image-crop-frame-overlay"
 
@@ -187,9 +188,14 @@ export const FabricArtboard = forwardRef<
 ) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const artboardChromeRef = useRef<HTMLDivElement>(null)
-  const adapterRef = useRef<CanvasAdapter | null>(null)
+  const renderControllerRef = useRef<FabricRenderInvalidationController | null>(
+    null
+  )
+  if (!renderControllerRef.current) {
+    renderControllerRef.current = new FabricRenderInvalidationController()
+  }
+  const renderController = renderControllerRef.current
   const adapterLifecycleTailRef = useRef<Promise<void>>(Promise.resolve())
-  const syncTailRef = useRef<Promise<void>>(Promise.resolve())
   const imageRetryControllersRef = useRef(new Map<string, AbortController>())
   const retryOwnedFocusRef = useRef(false)
   const callbacksRef = useRef({
@@ -352,30 +358,39 @@ export const FabricArtboard = forwardRef<
   )
 
   const applyImageCropMode = useCallback(
-    (
-      adapter: Pick<CanvasAdapter, "setImageCropMode">,
-      mode: CanvasImageCropMode | null
-    ) => {
-      const applied = applyImageCropModeOrReport(adapter, mode, (failure) => {
-        if (reportedUnavailableCropRef.current === failure.nodeId) return
-        reportedUnavailableCropRef.current = failure.nodeId
-        callbacksRef.current.onImageCropUnavailable?.(failure)
+    (mode: CanvasImageCropMode | null) => {
+      const applied = renderController.invalidatePreview({
+        kind: "crop_mode",
+        mode,
       })
+      if (!applied && mode) {
+        const failure: ImageCropUnavailable = {
+          nodeId: mode.nodeId,
+          reason: "image_unavailable",
+        }
+        if (reportedUnavailableCropRef.current !== failure.nodeId) {
+          reportedUnavailableCropRef.current = failure.nodeId
+          callbacksRef.current.onImageCropUnavailable?.(failure)
+        }
+      }
       if (applied || !mode) reportedUnavailableCropRef.current = null
       return applied
     },
-    []
+    [renderController]
   )
 
   const applyImageCropPreview = useCallback(
     (session: ReturnType<ImageCropPreviewStore["getSnapshot"]>) =>
-      adapterRef.current?.previewImageCropDraft({
-        nodeId: session.target.nodeId,
-        placement: session.draft,
-        frame: session.draftFrame,
-        frameMask: session.draftFrameMask,
-      }) ?? false,
-    []
+      renderController.invalidatePreview({
+        kind: "crop_draft",
+        draft: {
+          nodeId: session.target.nodeId,
+          placement: session.draft,
+          frame: session.draftFrame,
+          frameMask: session.draftFrameMask,
+        },
+      }),
+    [renderController]
   )
 
   const retryImageSources = useCallback(() => {
@@ -391,7 +406,7 @@ export const FabricArtboard = forwardRef<
       const src = currentImageSourceByNodeIdRef.current.get(nodeId)
       const resourceToken =
         currentImageResourceTokenByNodeIdRef.current.get(nodeId)
-      const adapter = adapterRef.current
+      const adapter = renderController.adapter
       if (!src || !adapter) return
       imageRetryControllersRef.current
         .get(nodeId)
@@ -435,7 +450,7 @@ export const FabricArtboard = forwardRef<
           }
         })
     },
-    [reportImageSourceState]
+    [renderController, reportImageSourceState]
   )
 
   useEffect(
@@ -451,7 +466,7 @@ export const FabricArtboard = forwardRef<
   useImperativeHandle(
     ref,
     () => ({
-      exportPng: () => adapterRef.current?.exportPng() ?? null,
+      exportPng: () => renderController.adapter?.exportPng() ?? null,
       previewViewportZoom: (nextZoom, committedZoom) => {
         const chrome = artboardChromeRef.current
         if (!chrome || committedZoom <= 0) return
@@ -460,25 +475,35 @@ export const FabricArtboard = forwardRef<
       },
       retryImageSources,
       retryImageSource,
-      enterTextEditing: (nodeId, selection) =>
-        adapterRef.current?.enterTextEditing(nodeId, selection) ?? false,
-      commitTextEditing: () => adapterRef.current?.commitTextEditing() ?? false,
-      cancelTextEditing: () => adapterRef.current?.cancelTextEditing() ?? false,
+      enterTextEditing: (nodeId, nextSelection) =>
+        renderController.adapter?.enterTextEditing(nodeId, nextSelection) ??
+        false,
+      commitTextEditing: () =>
+        renderController.adapter?.commitTextEditing() ?? false,
+      cancelTextEditing: () =>
+        renderController.adapter?.cancelTextEditing() ?? false,
       applyTextEditingStyle: (patch) =>
-        adapterRef.current?.applyTextEditingStyle(patch) ?? false,
+        renderController.adapter?.applyTextEditingStyle(patch) ?? false,
       applyTextEditingParagraphStyle: (patch) =>
-        adapterRef.current?.applyTextEditingParagraphStyle(patch) ?? false,
+        renderController.adapter?.applyTextEditingParagraphStyle(patch) ??
+        false,
       previewNodePatch: (nodeId, patch) =>
-        adapterRef.current?.previewNodePatch(nodeId, patch) ?? false,
+        renderController.invalidatePreview({
+          kind: "node_patch",
+          nodeId,
+          patch,
+        }),
       restoreNodePreview: (nodeId) =>
-        adapterRef.current?.restoreNodePreview(nodeId) ?? false,
-      cancelTransform: () => adapterRef.current?.cancelTransform() ?? false,
+        renderController.invalidatePreview({ kind: "node_restore", nodeId }),
+      cancelTransform: () =>
+        renderController.adapter?.cancelTransform() ?? false,
       getImageNaturalSize: (nodeId) =>
-        adapterRef.current?.getImageNaturalSize(nodeId) ?? null,
+        renderController.adapter?.getImageNaturalSize(nodeId) ?? null,
       nudgeImageCrop: (screenDelta, cameraZoom) =>
-        adapterRef.current?.nudgeImageCrop(screenDelta, cameraZoom) ?? false,
+        renderController.adapter?.nudgeImageCrop(screenDelta, cameraZoom) ??
+        false,
     }),
-    [retryImageSource, retryImageSources]
+    [renderController, retryImageSource, retryImageSources]
   )
 
   useEffect(() => {
@@ -495,7 +520,7 @@ export const FabricArtboard = forwardRef<
     )
     const predecessor = Promise.all([
       adapterLifecycleTailRef.current,
-      syncTailRef.current,
+      renderController.whenDocumentSettled(),
     ])
     const startup = predecessor
       .then(async () => {
@@ -533,14 +558,14 @@ export const FabricArtboard = forwardRef<
           adapter = null
           return
         }
-        adapterRef.current = nextAdapter
+        renderController.attach(nextAdapter)
         setMountedAttempt(attempt)
       })
       .catch(async (error: unknown) => {
         let stage: CanvasRuntimeFailureStage =
           error instanceof CanvasCleanupError ? "cleanup" : "startup"
         if (adapter) {
-          if (adapterRef.current === adapter) adapterRef.current = null
+          renderController.detach(adapter)
           try {
             await adapter.unmount()
           } catch {
@@ -574,10 +599,10 @@ export const FabricArtboard = forwardRef<
       active = false
       controller.abort(new DOMException("Canvas attempt ended", "AbortError"))
       globalThis.clearTimeout(timeout)
-      if (adapterRef.current === adapter) adapterRef.current = null
+      if (adapter) renderController.detach(adapter)
       const teardown = Promise.all([
         adapterLifecycleTailRef.current,
-        syncTailRef.current,
+        renderController.whenDocumentSettled(),
       ]).then(async () => {
         if (!adapter) return
         try {
@@ -594,14 +619,15 @@ export const FabricArtboard = forwardRef<
     canvasInstructionsId,
     loadAdapter,
     reportAllCurrentImageSources,
+    renderController,
     runtime.attempt,
     startupTimeoutMs,
   ])
 
   useEffect(() => {
     if (!ready) return
-    adapterRef.current?.setViewportZoom(zoom)
-  }, [ready, zoom])
+    renderController.invalidateViewport({ kind: "zoom", zoom })
+  }, [ready, renderController, zoom])
 
   useEffect(() => {
     if (!ready || !retryOwnedFocusRef.current) return
@@ -618,12 +644,16 @@ export const FabricArtboard = forwardRef<
 
   useEffect(() => {
     if (!ready) return
-    adapterRef.current?.setSnapTargets(pageId, snapTargets)
-  }, [pageId, ready, snapTargets])
+    renderController.invalidateViewport({
+      kind: "snap_targets",
+      pageId,
+      targets: snapTargets,
+    })
+  }, [pageId, ready, renderController, snapTargets])
 
   useEffect(() => {
     if (mountedAttempt !== runtime.attempt) return
-    const adapter = adapterRef.current
+    const adapter = renderController.adapter
     if (!adapter) return
     settleCanvasInteractivity(adapter, interactive)
     let active = true
@@ -666,21 +696,28 @@ export const FabricArtboard = forwardRef<
     setRuntime((current) =>
       reduceCanvasRuntimeState(current, { type: "preparing", attempt })
     )
-    const predecessor = syncTailRef.current
-    const syncing = predecessor
-      .then(async () => {
-        if (!isActive()) return
-        await waitForCanvasDocumentFonts(
-          document,
-          pageId,
-          undefined,
-          controller.signal
-        )
-        if (!isActive()) return
-        await adapter.sync(document, pageId, controller.signal)
+    void renderController
+      .invalidateDocument({
+        document,
+        pageId,
+        signal: controller.signal,
+        prepare: async () => {
+          if (!isActive()) return
+          await waitForCanvasDocumentFonts(
+            document,
+            pageId,
+            undefined,
+            controller.signal
+          )
+        },
       })
-      .then(async () => {
-        if (!isActive() || adapterRef.current !== adapter) return
+      .then(async (synchronized) => {
+        if (
+          !synchronized ||
+          !isActive() ||
+          renderController.adapter !== adapter
+        )
+          return
         controller.signal.throwIfAborted()
         for (const state of imageSources) {
           const readiness = adapter.getImageSourceReadiness(state.nodeId)
@@ -694,7 +731,6 @@ export const FabricArtboard = forwardRef<
           })
         }
         applyImageCropMode(
-          adapter,
           callbacksRef.current.interactive
             ? callbacksRef.current.imageCropMode
             : null
@@ -727,10 +763,6 @@ export const FabricArtboard = forwardRef<
         )
       })
       .finally(() => globalThis.clearTimeout(timeout))
-    syncTailRef.current = syncing.then(
-      () => undefined,
-      () => undefined
-    )
     return () => {
       active = false
       controller.abort(new DOMException("Canvas update ended", "AbortError"))
@@ -744,6 +776,7 @@ export const FabricArtboard = forwardRef<
     page,
     mountedAttempt,
     reportImageSourceState,
+    renderController,
     runtime.attempt,
     imageResourceTokens,
     syncTimeoutMs,
@@ -751,23 +784,21 @@ export const FabricArtboard = forwardRef<
 
   useEffect(() => {
     if (!ready) return
-    const adapter = adapterRef.current
-    if (adapter) {
-      applyImageCropMode(adapter, interactive ? imageCropMode : null)
-    }
-  }, [applyImageCropMode, imageCropMode, interactive, ready])
+    const adapter = renderController.adapter
+    if (adapter) applyImageCropMode(interactive ? imageCropMode : null)
+  }, [applyImageCropMode, imageCropMode, interactive, ready, renderController])
 
   useEffect(() => {
     if (!ready || !interactive || !textEditingNodeId) return
-    const adapter = adapterRef.current
+    const adapter = renderController.adapter
     if (!adapter) return
     let active = true
     const requestedNodeId = textEditingNodeId
     const requestedSelection = textEditingSelection ?? undefined
-    void syncTailRef.current.then(() => {
+    void renderController.whenDocumentSettled().then(() => {
       if (
         !active ||
-        adapterRef.current !== adapter ||
+        renderController.adapter !== adapter ||
         !callbacksRef.current.interactive ||
         callbacksRef.current.textEditingNodeId !== requestedNodeId
       ) {
@@ -780,12 +811,18 @@ export const FabricArtboard = forwardRef<
     return () => {
       active = false
     }
-  }, [interactive, ready, textEditingNodeId, textEditingSelection])
+  }, [
+    interactive,
+    ready,
+    renderController,
+    textEditingNodeId,
+    textEditingSelection,
+  ])
 
   useEffect(() => {
     if (!ready) return
-    adapterRef.current?.select(selection)
-  }, [ready, selection])
+    renderController.invalidateSelection(selection)
+  }, [ready, renderController, selection])
 
   if (!page) return null
 
@@ -831,7 +868,7 @@ export const FabricArtboard = forwardRef<
           previewStore={imageCropPreviewStore}
           applyPreview={applyImageCropPreview}
           getNaturalSize={() =>
-            adapterRef.current?.getImageNaturalSize(cropNode.id) ?? null
+            renderController.adapter?.getImageNaturalSize(cropNode.id) ?? null
           }
           onFramePreview={(preview) =>
             callbacksRef.current.onImageCropFramePreview?.(preview)
@@ -846,7 +883,8 @@ export const FabricArtboard = forwardRef<
               node={cropNode}
               zoom={zoom}
               getNaturalSize={() =>
-                adapterRef.current?.getImageNaturalSize(cropNode.id) ?? null
+                renderController.adapter?.getImageNaturalSize(cropNode.id) ??
+                null
               }
               onPreview={(preview) =>
                 callbacksRef.current.onImageCropFramePreview?.(preview)

@@ -33,6 +33,7 @@ const fakeAdapter = (
 ): CanvasAdapter => ({
   mount: vi.fn(),
   unmount: vi.fn(async () => undefined),
+  requestRender: vi.fn(),
   sync: vi.fn(async () => undefined),
   setViewportZoom: vi.fn(),
   previewNodePatch: vi.fn(() => false),

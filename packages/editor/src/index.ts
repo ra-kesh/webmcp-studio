@@ -80,6 +80,7 @@ export type CanvasNodeChange = {
 export interface CanvasAdapter {
   mount(element: HTMLCanvasElement): void
   unmount(): Promise<void>
+  requestRender(): void
   sync(document: Document, pageId: string, signal?: AbortSignal): Promise<void>
   setViewportZoom(zoom: number): void
   setSnapTargets(pageId: string, targets: readonly AlignmentSnapTarget[]): void
