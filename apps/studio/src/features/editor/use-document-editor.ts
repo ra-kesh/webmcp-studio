@@ -35,6 +35,7 @@ import {
   quotationTemplates,
   managedAssetSource,
   sceneTransactionSchema,
+  studioGenerationLimits,
   templateVersionSchema,
 } from "@webmcp/document"
 import type {
@@ -1132,7 +1133,6 @@ export function useDocumentEditor({
   const [pendingGeneratedDocument, setPendingGeneratedDocument] =
     useState<GeneratedDocumentPlan | null>(null)
   const pendingGeneratedDocumentRef = useRef<GeneratedDocumentPlan | null>(null)
-  const generationReplacementConsumedRef = useRef(false)
   const generationApprovalInFlightRef = useRef(false)
   const [generatedDocumentError, setGeneratedDocumentError] = useState<
     string | null
@@ -10774,22 +10774,29 @@ export function useDocumentEditor({
       if (current) {
         if (plan.replacementForRequestId !== current.requestId) {
           throw new Error(
-            "A generated document is already waiting in Review. Discard it or submit one explicit replacement."
+            "A generated document is already waiting in Review. Inspect it or submit a replacement linked to its exact request ID."
           )
         }
-        if (generationReplacementConsumedRef.current) {
+        if (
+          current.attempt >=
+          studioGenerationLimits.maxCandidateReplacements + 1
+        ) {
           throw new Error(
-            "This generated document has already been replaced once. Review or discard the replacement."
+            "This generated document has reached the three-attempt limit. Review or discard the current candidate."
           )
         }
-        generationReplacementConsumedRef.current = true
-      } else {
-        generationReplacementConsumedRef.current = false
       }
-      pendingGeneratedDocumentRef.current = plan
-      setPendingGeneratedDocument(plan)
+      const admittedPlan: GeneratedDocumentPlan = current
+        ? {
+            ...plan,
+            rootRequestId: current.rootRequestId,
+            attempt: current.attempt + 1,
+          }
+        : plan
+      pendingGeneratedDocumentRef.current = admittedPlan
+      setPendingGeneratedDocument(admittedPlan)
       setGeneratedDocumentError(null)
-      return plan
+      return admittedPlan
     },
     []
   )
@@ -10797,7 +10804,6 @@ export function useDocumentEditor({
   const discardGeneratedDocument = useCallback(() => {
     if (generationApprovalInFlightRef.current) return false
     pendingGeneratedDocumentRef.current = null
-    generationReplacementConsumedRef.current = false
     setPendingGeneratedDocument(null)
     setGeneratedDocumentError(null)
     return true
@@ -10853,7 +10859,6 @@ export function useDocumentEditor({
         pendingGeneratedDocumentRef.current?.requestHash === plan.requestHash
       ) {
         pendingGeneratedDocumentRef.current = null
-        generationReplacementConsumedRef.current = false
         setPendingGeneratedDocument(null)
       }
       return true

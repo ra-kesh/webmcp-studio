@@ -1,6 +1,7 @@
 export * from "./change-sets"
 export * from "./design-queries"
 export * from "./generation-discovery"
+export * from "./generation-inspection"
 export * from "./registration"
 export * from "./product-command-proposals"
 
@@ -13,6 +14,7 @@ export const toolNames = [
   "read_canvas_schema",
   "transact_canvas",
   "propose_document_generation",
+  "inspect_document_generation_candidate",
   "propose_document_pages",
   "inspect_design",
   "read_design_tree",
@@ -107,6 +109,14 @@ export const toolCatalog: readonly ToolDescriptor[] = [
       "Compile one isolated candidate and open document creation Review.",
     mutates: false,
     requiresHumanReview: true,
+    routes: ["editor", "review"],
+  },
+  {
+    name: "inspect_document_generation_candidate",
+    description:
+      "Inspect exact renderer-backed PNGs and composition metrics for the pending generation candidate.",
+    mutates: false,
+    requiresHumanReview: false,
     routes: ["editor", "review"],
   },
   {

@@ -449,7 +449,7 @@ describe("WebMCP registration", () => {
       state.controller.signal
     )
 
-    expect(count).toBe(33)
+    expect(count).toBe(34)
     expect([...state.registered.keys()]).toEqual([
       "read_canvas_schema",
       "transact_canvas",
@@ -459,6 +459,7 @@ describe("WebMCP registration", () => {
       "read_blank_document_presets",
       "read_design_plan_schema",
       "propose_document_generation",
+      "inspect_document_generation_candidate",
       "propose_document_pages",
       "inspect_design",
       "read_design_tree",
@@ -1306,7 +1307,7 @@ describe("WebMCP registration", () => {
       state.services,
       state.controller.signal
     )
-    expect(state.registered.size).toBe(29)
+    expect(state.registered.size).toBe(30)
 
     const descriptors = [...state.registered.values()].map((tool) => ({
       name: tool.name,

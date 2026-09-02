@@ -19,6 +19,7 @@ import {
   sceneNodeImageReferences,
   sceneNodePatchSchema,
   sceneTransactionSchema,
+  studioGenerationLimits,
   typographyStylePatchSchema,
   typographyStyleSchema,
   designStyleTargetSchema,
@@ -99,9 +100,21 @@ import {
   readGenerationTemplate,
   searchGenerationTemplates,
 } from "./generation-discovery"
+import { analyzeGeneratedCandidatePage } from "./generation-inspection"
+
+const MAX_GENERATION_ATTEMPTS =
+  studioGenerationLimits.maxCandidateReplacements + 1
 
 export type WebMcpToolResult = {
-  content: Array<{ type: "text"; text: string }>
+  content: Array<
+    | { type: "text"; text: string }
+    | {
+        type: "image"
+        data: string
+        mimeType: "image/png"
+        text?: never
+      }
+  >
   structuredContent?: unknown
   isError?: boolean
 }
@@ -461,6 +474,26 @@ export type StudioWebMcpServices = {
     plan: GeneratedDocumentPlan,
     provenance: StudioWebMcpProposalProvenance
   ): GeneratedDocumentPlan
+  inspectDocumentGenerationCandidate?(
+    identity: Readonly<{
+      requestId: string
+      candidateId: string
+      candidateSnapshotId: string
+      pageIds?: readonly string[]
+    }>,
+    signal?: AbortSignal
+  ): Promise<
+    Readonly<{
+      plan: GeneratedDocumentPlan
+      pages: readonly Readonly<{
+        pageId: string
+        width: number
+        height: number
+        bytes: number
+        pngBase64: string
+      }>[]
+    }>
+  >
   runProductCommand?(
     invocation: import("@webmcp/editor/product-commands").ProductCommandInvocation
   ): ProductCommandRunResult
@@ -4288,6 +4321,9 @@ export function studioWebMcpTools(
 
   const publicGeneratedDocumentPlan = async (plan: GeneratedDocumentPlan) => ({
     requestId: plan.requestId,
+    rootRequestId: plan.rootRequestId,
+    attempt: plan.attempt,
+    maxAttempts: MAX_GENERATION_ATTEMPTS,
     replacementForRequestId: plan.replacementForRequestId,
     idempotencyKey: plan.idempotencyKey,
     requestHash: plan.requestHash,
@@ -4306,8 +4342,117 @@ export function studioWebMcpTools(
       status: "pending",
       action: "Create editable document",
       currentDocumentMutated: false,
+      nextAction:
+        "Call inspect_document_generation_candidate with this exact request, candidate, and snapshot identity before asking for approval.",
     },
   })
+
+  const executeGeneratedCandidateInspection = async (
+    input: unknown,
+    signal?: AbortSignal
+  ): Promise<WebMcpToolResult> => {
+    try {
+      if (!services.inspectDocumentGenerationCandidate) {
+        throw new DesignQueryError(
+          "review_unavailable",
+          "Generated candidate inspection is unavailable on this Studio route."
+        )
+      }
+      const value = queryObject(input)
+      assertQueryKeys(value, [
+        "requestId",
+        "candidateId",
+        "candidateSnapshotId",
+        "pageIds",
+      ])
+      for (const key of [
+        "requestId",
+        "candidateId",
+        "candidateSnapshotId",
+      ] as const) {
+        if (typeof value[key] !== "string" || !value[key]) {
+          throw new Error(`${key} is required.`)
+        }
+      }
+      if (
+        value.pageIds !== undefined &&
+        (!Array.isArray(value.pageIds) ||
+          value.pageIds.length > 20 ||
+          value.pageIds.some((pageId) => typeof pageId !== "string" || !pageId))
+      ) {
+        throw new Error("pageIds must contain at most 20 page IDs.")
+      }
+      signal?.throwIfAborted()
+      const inspected = await services.inspectDocumentGenerationCandidate(
+        {
+          requestId: value.requestId as string,
+          candidateId: value.candidateId as string,
+          candidateSnapshotId: value.candidateSnapshotId as string,
+          ...(value.pageIds ? { pageIds: value.pageIds as string[] } : {}),
+        },
+        signal
+      )
+      const snapshotId = await generatedDocumentSnapshotId(inspected.plan)
+      signal?.throwIfAborted()
+      const pages = inspected.pages.map((page, index) => ({
+        requestId: inspected.plan.requestId,
+        candidateId: inspected.plan.candidate.id,
+        candidateSnapshotId: snapshotId,
+        pageId: page.pageId,
+        render: {
+          contentIndex: index + 1,
+          mediaType: "image/png" as const,
+          width: page.width,
+          height: page.height,
+          bytes: page.bytes,
+          source: "canonical-page-thumbnail-renderer" as const,
+        },
+        ...analyzeGeneratedCandidatePage(inspected.plan.candidate, page.pageId),
+      }))
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Inspected ${pages.length} canonical candidate page render${pages.length === 1 ? "" : "s"}. Critique the attached PNGs with the supplied skill, then either stop in Review or submit a replacement linked to request ${inspected.plan.requestId}.`,
+          },
+          ...inspected.pages.map((page) => ({
+            type: "image" as const,
+            data: page.pngBase64,
+            mimeType: "image/png" as const,
+          })),
+        ],
+        structuredContent: {
+          requestId: inspected.plan.requestId,
+          rootRequestId: inspected.plan.rootRequestId,
+          attempt: inspected.plan.attempt,
+          maxAttempts: MAX_GENERATION_ATTEMPTS,
+          candidateId: inspected.plan.candidate.id,
+          candidateSnapshotId: snapshotId,
+          pages,
+          replacement:
+            inspected.plan.attempt < MAX_GENERATION_ATTEMPTS
+              ? {
+                  allowed: true,
+                  replacementForRequestId: inspected.plan.requestId,
+                  attemptsRemaining:
+                    MAX_GENERATION_ATTEMPTS - inspected.plan.attempt,
+                  semantics:
+                    "Submit a complete targeted replacement plan. Studio replaces only this isolated Review candidate and does not mutate the current document.",
+                }
+              : {
+                  allowed: false,
+                  attemptsRemaining: 0,
+                  reason:
+                    "The three-attempt generation limit has been reached.",
+                },
+          expiry:
+            "The candidate exists only in this mounted Studio session. Reload or discard removes it.",
+        },
+      }
+    } catch (error) {
+      return errorResult(error)
+    }
+  }
 
   const executeDocumentGenerationRequest = async (
     input: unknown,
@@ -5002,6 +5147,36 @@ export function studioWebMcpTools(
           return errorResult(error)
         }
       },
+    },
+    {
+      name: "inspect_document_generation_candidate",
+      title: "Inspect generated document candidate",
+      description:
+        "Render and inspect the exact pending document-generation candidate through Studio's canonical page-thumbnail renderer. Requires the exact identity returned by propose_document_generation and returns PNG image content plus composition metrics. This never mutates the current document or candidate.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["requestId", "candidateId", "candidateSnapshotId"],
+        properties: {
+          requestId: { type: "string", minLength: 1, maxLength: 200 },
+          candidateId: { type: "string", minLength: 1 },
+          candidateSnapshotId: { type: "string", minLength: 1 },
+          pageIds: {
+            type: "array",
+            maxItems: 20,
+            items: { type: "string", minLength: 1 },
+          },
+        },
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+        untrustedContentHint: true,
+      },
+      execute: (input, execution) =>
+        executeGeneratedCandidateInspection(input, execution?.signal),
     },
     {
       name: "propose_document_pages",

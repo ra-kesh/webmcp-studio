@@ -248,6 +248,8 @@ export type GenerationReference =
 
 export type GeneratedDocumentPlan = Readonly<{
   requestId: string
+  rootRequestId: string
+  attempt: number
   replacementForRequestId?: string
   idempotencyKey: string
   requestHash: string
@@ -709,6 +711,8 @@ export function compileDocumentGenerationRequest(
   ]
   return {
     requestId: request.requestId,
+    rootRequestId: request.replacementForRequestId ?? request.requestId,
+    attempt: 1,
     ...(request.replacementForRequestId
       ? { replacementForRequestId: request.replacementForRequestId }
       : {}),

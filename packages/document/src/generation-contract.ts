@@ -27,7 +27,9 @@ export const studioGenerationLimits = Object.freeze({
   maxPrinciplesPerGuide: 24,
   maxPrincipleCharacters: 500,
   maxIdempotencyKeyCharacters: 128,
-  maxCandidateReplacements: 1,
+  // Three complete candidates are enough for propose, inspect, and two focused
+  // repair passes without allowing an unbounded renderer or Review loop.
+  maxCandidateReplacements: 2,
   maxPageDimension: renderPolicyLimits.maxPageDimension,
   maxPagePixelArea: renderPolicyLimits.maxPagePixelArea,
 })

@@ -35,7 +35,13 @@ import {
   Type,
   Undo2,
 } from "lucide-react"
-import { applyTextLinkToRange, getGroupNodeIds } from "@webmcp/document"
+import {
+  applyTextLinkToRange,
+  createPageThumbnailRevision,
+  fitPageThumbnailSize,
+  generatedDocumentSnapshotId,
+  getGroupNodeIds,
+} from "@webmcp/document"
 import type {
   LibraryMediaDetail,
   Page,
@@ -170,6 +176,10 @@ import { studioAssets } from "./editor/asset-catalog"
 import { StudioStartSurface } from "./editor/studio-start-surface"
 import { StudioMark } from "./editor/studio-mark"
 import { useRecentDocumentsVisibility } from "./editor/recent-documents-provider"
+import {
+  produceStudioPageThumbnailRaster,
+  studioPageThumbnailRendererRevision,
+} from "./editor/page-thumbnail-raster-producer"
 import type {
   CanvasDocumentSyncIdentity,
   CanvasRuntimeOwnerRelease,
@@ -860,6 +870,16 @@ function TextPresetMenuItems({
 
 const FOREGROUND_EXPORT_TIMEOUT_MS = 60_000
 const FOREGROUND_IMPORT_TIMEOUT_MS = 45_000
+
+const blobToBase64 = async (blob: Blob) => {
+  const bytes = new Uint8Array(await blob.arrayBuffer())
+  let binary = ""
+  const chunkSize = 0x8000
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize))
+  }
+  return btoa(binary)
+}
 
 function IconButton({
   label,
@@ -2789,6 +2809,84 @@ export function StudioShell({
       proposeChangeSet: editor.proposeChangeSet,
       runSceneTransaction: editor.runSceneTransaction,
       proposeDocumentGeneration: editor.proposeDocumentGeneration,
+      inspectDocumentGenerationCandidate: async (identity, signal) => {
+        signal?.throwIfAborted()
+        const plan = editor.pendingGeneratedDocument
+        if (!plan) {
+          throw new Error(
+            "No generated document is pending in this mounted Studio session. Propose a new candidate after a reload or discard."
+          )
+        }
+        const snapshotId = await generatedDocumentSnapshotId(plan)
+        if (
+          identity.requestId !== plan.requestId ||
+          identity.candidateId !== plan.candidate.id ||
+          identity.candidateSnapshotId !== snapshotId
+        ) {
+          throw new Error(
+            "The generated candidate identity is stale or does not match the candidate currently waiting in Review."
+          )
+        }
+        const requestedPageIds = identity.pageIds?.length
+          ? [...new Set(identity.pageIds)]
+          : plan.summary.pages.map((page) => page.id)
+        const pages = requestedPageIds.map((pageId) => {
+          const page = plan.candidate.pages.find(
+            (candidate) => candidate.id === pageId
+          )
+          if (!page) {
+            throw new Error(
+              `Page ${pageId} does not belong to the exact pending generation candidate.`
+            )
+          }
+          return page
+        })
+        const rendered = []
+        for (const page of pages) {
+          signal?.throwIfAborted()
+          if (
+            editor.pendingGeneratedDocument?.requestHash !== plan.requestHash
+          ) {
+            throw new Error(
+              "The generated candidate changed while Studio was rendering it. Inspect the latest candidate identity."
+            )
+          }
+          const size = fitPageThumbnailSize(page, {
+            maxWidth: 512,
+            maxHeight: 512,
+          })
+          const blob = await produceStudioPageThumbnailRaster({
+            key: {
+              documentId: plan.candidate.id,
+              documentRevision: plan.candidate.revision,
+              documentSnapshotId: snapshotId,
+              pageId: page.id,
+              pageRevision: createPageThumbnailRevision(
+                plan.candidate,
+                page.id
+              ),
+              rendererRevision: studioPageThumbnailRendererRevision,
+              pixelWidth: size.width,
+              pixelHeight: size.height,
+            },
+            snapshot: { document: plan.candidate, snapshotId },
+            signal: signal ?? new AbortController().signal,
+          })
+          rendered.push({
+            pageId: page.id,
+            width: size.width,
+            height: size.height,
+            bytes: blob.size,
+            pngBase64: await blobToBase64(blob),
+          })
+        }
+        if (editor.pendingGeneratedDocument?.requestHash !== plan.requestHash) {
+          throw new Error(
+            "The generated candidate changed while Studio was rendering it. Inspect the latest candidate identity."
+          )
+        }
+        return { plan, pages: rendered }
+      },
       runProductCommand: (invocation) => {
         const runner = productCommandRunnerRef.current
         return runner

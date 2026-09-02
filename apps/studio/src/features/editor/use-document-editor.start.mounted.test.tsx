@@ -542,6 +542,8 @@ describe("useDocumentEditor start session", () => {
     }
     const plan: GeneratedDocumentPlan = {
       requestId: "generated-review-request",
+      rootRequestId: "generated-review-request",
+      attempt: 1,
       idempotencyKey: "generated-review-key",
       requestHash: "generated-review-hash",
       createdAt: "2026-08-31T08:00:00.000Z",
@@ -595,16 +597,34 @@ describe("useDocumentEditor start session", () => {
       }
       expect(
         captured.current?.editor.proposeDocumentGeneration(replacement)
-      ).toBe(replacement)
+      ).toMatchObject({
+        requestId: replacement.requestId,
+        rootRequestId: plan.requestId,
+        attempt: 2,
+      })
+      const secondReplacement = {
+        ...replacement,
+        requestId: "generated-review-second-replacement",
+        idempotencyKey: "generated-review-second-replacement-key",
+        requestHash: "generated-review-second-replacement-hash",
+        replacementForRequestId: replacement.requestId,
+      }
+      expect(
+        captured.current?.editor.proposeDocumentGeneration(secondReplacement)
+      ).toMatchObject({
+        requestId: secondReplacement.requestId,
+        rootRequestId: plan.requestId,
+        attempt: 3,
+      })
       expect(() =>
         captured.current?.editor.proposeDocumentGeneration({
-          ...replacement,
-          requestId: "generated-review-second-replacement",
-          idempotencyKey: "generated-review-second-replacement-key",
-          requestHash: "generated-review-second-replacement-hash",
-          replacementForRequestId: replacement.requestId,
+          ...secondReplacement,
+          requestId: "generated-review-third-replacement",
+          idempotencyKey: "generated-review-third-replacement-key",
+          requestHash: "generated-review-third-replacement-hash",
+          replacementForRequestId: secondReplacement.requestId,
         })
-      ).toThrow(/already been replaced once/)
+      ).toThrow(/three-attempt limit/)
       expect(captured.current?.editor.discardGeneratedDocument()).toBe(true)
     })
     expect(create).not.toHaveBeenCalled()

@@ -848,6 +848,8 @@ describe("Generated document Review", () => {
         selectedNodes: [],
         pendingGeneratedDocument: {
           requestId: "request-review-preview",
+          rootRequestId: "request-review-preview",
+          attempt: 1,
           idempotencyKey: "key-review-preview",
           requestHash: "hash-review-preview",
           createdAt: "2026-08-31T08:00:00.000Z",

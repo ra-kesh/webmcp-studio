@@ -35,7 +35,20 @@ Record the skill, normalized design-guide decisions, analysis-only references,
 and approved asset identities. Include canonical URLs and content hashes when
 available. A replacement uses a new request ID and idempotency key plus
 `replacementForRequestId` naming the pending candidate. Studio admits no more
-than one replacement.
+than two replacements, for three candidates total. Each replacement is a
+complete isolated candidate. It does not patch or mutate the open document.
+
+After every proposal, call `inspect_document_generation_candidate` with the
+exact `requestId`, `candidate.id`, and `candidate.snapshotId` from that
+proposal. The tool returns canonical renderer-backed PNG content and a
+composition analysis for each page. Treat the pixels as authority for clipping,
+text layout, effects, and overlap. Use the metrics to reason about normalized
+anchors, page regions, hierarchy, negative space, z-order, palette, typography
+scale, and density. Critique the render against the supplied skill before
+deciding to stop or replace it.
+
+The pending candidate is session-bound. Reload and discard remove it. A stale
+request, candidate, snapshot, or page identity is rejected.
 
 The proposal result is not a saved document. Do not claim creation succeeded
 until the human approves it in Studio Review.

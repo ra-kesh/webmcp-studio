@@ -26,10 +26,17 @@ rendering.
 6. Submit one `propose_document_generation` request. Do not draw the document
    through a long sequence of live mutations and do not send JSX, HTML, CSS,
    scripts, canonical IDs, source URLs, or renderer-private fields.
-7. Inspect Studio's validation result, structure summary, provenance, and
-   rendered page thumbnails. If a material defect remains, submit at most one
-   explicit replacement linked to the first request.
-8. Stop with the candidate in Studio Review. The human decides whether to
+7. Call `inspect_document_generation_candidate` with the exact request,
+   candidate, and snapshot identity returned by the proposal. Inspect every
+   attached canonical PNG at full and thumbnail scale. Use the composition
+   metrics to check regions, anchors, hierarchy, negative space, overlaps,
+   z-order, palette, type scale, and density against the supplied skill.
+8. If a material defect remains, submit a complete targeted replacement with a
+   new request ID and idempotency key. Set `replacementForRequestId` to the
+   request ID of the candidate just inspected. Inspect the replacement before
+   continuing. Studio allows three candidates total, the initial proposal and
+   two repairs.
+9. Stop with the best candidate in Studio Review. The human decides whether to
    choose **Create editable document** or discard it.
 
 Use stable request-local IDs inside blank plans. Refer to templates, template

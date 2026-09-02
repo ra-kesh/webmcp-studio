@@ -78,6 +78,7 @@ type StudioWebMcpServices = Omit<
     plan: GeneratedDocumentPlan,
     provenance: StudioWebMcpProposalProvenance
   ) => GeneratedDocumentPlan
+  inspectDocumentGenerationCandidate?: RegisteredStudioWebMcpServices["inspectDocumentGenerationCandidate"]
   publishTemplate: (
     expected: {
       documentId: string
@@ -162,6 +163,7 @@ export function projectStudioWebMcpSnapshot(
     runSceneTransaction: _runSceneTransaction,
     proposeChangeSet: _proposeChangeSet,
     proposeDocumentGeneration: _proposeDocumentGeneration,
+    inspectDocumentGenerationCandidate: _inspectDocumentGenerationCandidate,
     publishTemplate: _publishTemplate,
     renderTemplate: _renderTemplate,
     ...current
@@ -329,6 +331,15 @@ export function useStudioWebMcp(
                         plan,
                         provenance
                       )
+                    },
+                  }
+                : {}),
+              ...(servicesRef.current.inspectDocumentGenerationCandidate
+                ? {
+                    inspectDocumentGenerationCandidate: (identity, signal) => {
+                      controller.signal.throwIfAborted()
+                      return servicesRef.current
+                        .inspectDocumentGenerationCandidate!(identity, signal)
                     },
                   }
                 : {}),
