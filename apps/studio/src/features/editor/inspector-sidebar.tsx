@@ -358,7 +358,7 @@ function ConstraintAxisControl({
           scale: "Scale",
         }
   return (
-    <div className="space-y-1">
+    <div className="min-w-0 space-y-1">
       <FieldLabel>
         {axis === "horizontal" ? "Horizontal" : "Vertical"}
       </FieldLabel>
@@ -399,7 +399,7 @@ function InspectorSection({
     <section
       data-slot="inspector-section"
       className={cn(
-        "border-b border-border px-3 pb-3 text-foreground transition-colors outline-none [&_[data-slot=select-trigger]]:h-6 [&_[data-slot=select-trigger]]:rounded-sm [&_[data-slot=select-trigger]]:border-transparent [&_[data-slot=select-trigger]]:bg-editor-field [&_[data-slot=select-trigger]]:px-2 [&_[data-slot=select-trigger]]:text-[11px] [&_[data-slot=select-trigger]]:hover:bg-editor-field-hover [&_[data-slot=select-trigger]]:focus-visible:border-studio-accent [&_[data-slot=select-trigger]]:focus-visible:bg-background [&_[data-slot=select-trigger]]:focus-visible:ring-2 [&_[data-slot=select-trigger]]:focus-visible:ring-studio-accent/20",
+        "border-b border-border px-3 pb-3 text-foreground transition-colors outline-none [&_[data-slot=select-trigger]]:h-6 [&_[data-slot=select-trigger]]:w-full [&_[data-slot=select-trigger]]:min-w-0 [&_[data-slot=select-trigger]]:rounded-sm [&_[data-slot=select-trigger]]:border-transparent [&_[data-slot=select-trigger]]:bg-editor-field [&_[data-slot=select-trigger]]:px-2 [&_[data-slot=select-trigger]]:text-[11px] [&_[data-slot=select-trigger]]:hover:bg-editor-field-hover [&_[data-slot=select-trigger]]:focus-visible:border-studio-accent [&_[data-slot=select-trigger]]:focus-visible:bg-background [&_[data-slot=select-trigger]]:focus-visible:ring-2 [&_[data-slot=select-trigger]]:focus-visible:ring-studio-accent/20",
         className
       )}
       {...props}
