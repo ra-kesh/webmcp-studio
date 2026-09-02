@@ -28,7 +28,6 @@ import {
   CopyPlus,
   Crop,
   Crosshair,
-  Database,
   Eye,
   EyeOff,
   ImageUp,
@@ -142,6 +141,7 @@ import {
 } from "@webmcp/ui/components/dialog"
 import {
   EditorPanelNotice,
+  EditorPanelSectionHeader,
   EditorPanelState,
   EditorPanelTabsList,
 } from "@webmcp/ui/components/editor-chrome"
@@ -5017,8 +5017,7 @@ function FieldDeletionDialog({
       <AlertDialogTrigger asChild>
         <Button
           aria-label={`Delete ${field.label}`}
-          size="icon"
-          className="size-8 shrink-0"
+          size="icon-sm"
           variant="ghost"
         >
           <Trash2 />
@@ -5150,20 +5149,18 @@ function FieldsPanel({
   )
   return (
     <div className="flex w-full max-w-full min-w-0 flex-col overflow-x-hidden">
-      <section className="flex min-w-0 flex-col gap-4 p-4">
-        <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0 flex-[1_1_9rem]">
-            <h2 className="text-xs font-medium">Content fields</h2>
-            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-              Reuse document content across layers and outputs.
-            </p>
-          </div>
+      <EditorPanelSectionHeader>
+        <span>Content fields</span>
+        <span className="font-normal text-muted-foreground">
+          {document.fields.length}
+        </span>
+        <div className="ml-auto">
           <FieldDefinitionDialog
             document={document}
             fields={document.fields}
             controlIdPrefix={controlIdPrefix}
             trigger={
-              <Button className="h-8 shrink-0" size="sm" variant="outline">
+              <Button size="xs" variant="ghost">
                 <Plus data-icon="inline-start" />
                 New
               </Button>
@@ -5171,29 +5168,34 @@ function FieldsPanel({
             onSave={onCreateField}
           />
         </div>
+      </EditorPanelSectionHeader>
 
-        {document.fields.length ? (
-          <div className="flex min-w-0 flex-col gap-2">
-            {document.fields.map((field) => {
-              const bindings = document.bindings.filter(
-                (binding) => binding.fieldId === field.id
-              )
-              const impact = analyzeFieldDeletion(document, field.id)
-              return (
-                <div
-                  key={field.id}
-                  className="w-full min-w-0 overflow-hidden rounded-lg border"
-                  data-inspector-field-id={field.id}
-                  tabIndex={-1}
-                >
-                  <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-2 p-2.5">
+      {document.fields.length ? (
+        <div className="flex min-w-0 flex-col">
+          {document.fields.map((field, index) => {
+            const bindings = document.bindings.filter(
+              (binding) => binding.fieldId === field.id
+            )
+            const impact = analyzeFieldDeletion(document, field.id)
+            return (
+              <div
+                key={field.id}
+                className="w-full min-w-0"
+                data-inspector-field-id={field.id}
+                tabIndex={-1}
+              >
+                <div className="flex min-w-0 flex-col gap-2.5 px-3 py-3">
+                  <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
                     <div className="min-w-0 flex-1">
-                      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                      <div className="flex min-w-0 items-center gap-1.5">
                         <p className="truncate text-xs font-medium">
                           {field.label}
                         </p>
                         {field.required ? (
-                          <Badge className="shrink-0" variant="secondary">
+                          <Badge
+                            className="h-5 shrink-0 px-1.5 text-[10px] font-normal"
+                            variant="secondary"
+                          >
                             Required
                           </Badge>
                         ) : null}
@@ -5211,8 +5213,7 @@ function FieldsPanel({
                         trigger={
                           <Button
                             aria-label={`Edit ${field.label}`}
-                            size="icon"
-                            className="size-8 shrink-0"
+                            size="icon-sm"
                             variant="ghost"
                           >
                             <Settings2 />
@@ -5231,103 +5232,84 @@ function FieldsPanel({
                       />
                     </div>
                   </div>
-                  <Separator />
-                  <div className="flex min-w-0 flex-col gap-2 p-2.5">
-                    <FieldValueEditor
-                      field={field}
-                      hasBindings={bindings.length > 0}
-                      controlIdPrefix={controlIdPrefix}
-                      value={
-                        document.fieldValues[field.id] ?? field.defaultValue
-                      }
-                      onCommit={(value) => onUpdateField(field.id, value)}
-                      onChooseAsset={
-                        onChooseFieldAsset
-                          ? (opener) => onChooseFieldAsset(field.id, opener)
-                          : undefined
-                      }
-                    />
-                    <p className="text-[11px] text-muted-foreground">
-                      {bindings.length} layer{bindings.length === 1 ? "" : "s"}
-                      {impact.outputCount
-                        ? ` across ${impact.outputCount} output${impact.outputCount === 1 ? "" : "s"}`
-                        : ""}
-                    </p>
-                    {bindings.length ? (
-                      <div
-                        aria-label={`${field.label} bindings`}
-                        className="flex flex-col gap-1"
-                      >
-                        {bindings.map((binding) => {
-                          const node = document.nodes.find(
-                            (candidate) => candidate.id === binding.nodeId
-                          )
-                          const page = document.pages.find((candidate) =>
-                            candidate.nodeIds.includes(binding.nodeId)
-                          )
-                          if (!node || !page) return null
-                          return (
-                            <button
-                              key={binding.id}
-                              type="button"
-                              className="group flex min-h-11 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                              onClick={() => onFocusBinding(binding)}
-                            >
-                              <Link2 className="size-3 shrink-0 text-muted-foreground group-hover:text-foreground" />
-                              <span className="min-w-0 flex-1">
-                                <span className="block truncate text-[11px] font-medium">
-                                  {node.name}
-                                </span>
-                                <span className="block truncate text-[11px] text-muted-foreground">
-                                  {page.name} ·{" "}
-                                  {bindingPropertyLabels[binding.property]}
-                                </span>
+                  <FieldValueEditor
+                    field={field}
+                    hasBindings={bindings.length > 0}
+                    controlIdPrefix={controlIdPrefix}
+                    value={document.fieldValues[field.id] ?? field.defaultValue}
+                    onCommit={(value) => onUpdateField(field.id, value)}
+                    onChooseAsset={
+                      onChooseFieldAsset
+                        ? (opener) => onChooseFieldAsset(field.id, opener)
+                        : undefined
+                    }
+                  />
+                  <p className="text-[11px] leading-4 text-muted-foreground">
+                    {bindings.length} layer{bindings.length === 1 ? "" : "s"}
+                    {impact.outputCount
+                      ? ` · ${impact.outputCount} output${impact.outputCount === 1 ? "" : "s"}`
+                      : ""}
+                  </p>
+                  {bindings.length ? (
+                    <div
+                      aria-label={`${field.label} bindings`}
+                      className="flex flex-col gap-1"
+                    >
+                      {bindings.map((binding) => {
+                        const node = document.nodes.find(
+                          (candidate) => candidate.id === binding.nodeId
+                        )
+                        const page = document.pages.find((candidate) =>
+                          candidate.nodeIds.includes(binding.nodeId)
+                        )
+                        if (!node || !page) return null
+                        return (
+                          <button
+                            key={binding.id}
+                            type="button"
+                            className="group flex min-h-8 w-full min-w-0 items-center gap-2 rounded-sm px-2 text-left hover:bg-editor-field-hover focus-visible:ring-2 focus-visible:ring-studio-accent/20 focus-visible:outline-none"
+                            onClick={() => onFocusBinding(binding)}
+                          >
+                            <Link2 className="size-3 shrink-0 text-muted-foreground group-hover:text-foreground" />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-[11px] font-medium">
+                                {node.name}
                               </span>
-                            </button>
-                          )
-                        })}
-                      </div>
-                    ) : null}
-                  </div>
+                              <span className="block truncate text-[11px] text-muted-foreground">
+                                {page.name} ·{" "}
+                                {bindingPropertyLabels[binding.property]}
+                              </span>
+                            </span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  ) : null}
                 </div>
-              )
-            })}
-          </div>
-        ) : (
-          <EditorPanelState
-            icon={<Database />}
-            title="No shared fields"
-            description="Create a field for content that repeats across outputs."
-          >
-            <FieldDefinitionDialog
-              document={document}
-              fields={document.fields}
-              controlIdPrefix={controlIdPrefix}
-              trigger={
-                <Button size="sm">
-                  <Plus data-icon="inline-start" />
-                  Create field
-                </Button>
-              }
-              onSave={onCreateField}
-            />
-          </EditorPanelState>
-        )}
-      </section>
+                {index < document.fields.length - 1 ? <Separator /> : null}
+              </div>
+            )
+          })}
+        </div>
+      ) : (
+        <EditorPanelNotice
+          className="m-3"
+          icon={<Plus />}
+          title="No content fields"
+          description="Create a field for content reused across the document."
+        />
+      )}
 
       <Separator />
 
-      <section className="flex min-w-0 flex-col gap-3 px-3 py-3.5">
-        <div>
-          <h2 className="text-xs font-medium">Selected layer bindings</h2>
-          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-            {selectedNode
-              ? `Connect ${selectedNode.name} to a shared value.`
-              : "Select one layer to manage its field connections."}
-          </p>
-        </div>
-
-        {selectedNode ? (
+      {selectedNode ? (
+        <section className="flex min-w-0 flex-col gap-3 px-3 py-3">
+          <div>
+            <h2 className="text-[11px] font-semibold">Bind selection</h2>
+            <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+              {selectedNode.name}
+            </p>
+          </div>
           <>
             {selectedBindings.length ? (
               <div className="flex flex-col gap-1.5">
@@ -5451,14 +5433,15 @@ function FieldsPanel({
               Bind property
             </Button>
           </>
-        ) : (
-          <EditorPanelNotice
-            icon={<Link2 />}
-            title="No layer selected"
-            description="Select one layer on the canvas or in Layers to connect it to a content field."
-          />
-        )}
-      </section>
+        </section>
+      ) : (
+        <EditorPanelNotice
+          className="m-3"
+          icon={<Link2 />}
+          title="Select a layer to bind"
+          description="Choose one layer to connect its content or visibility."
+        />
+      )}
     </div>
   )
 }

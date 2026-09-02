@@ -30,6 +30,10 @@ import {
 import { Badge } from "@webmcp/ui/components/badge"
 import { Button } from "@webmcp/ui/components/button"
 import {
+  EditorPanelNotice,
+  EditorPanelSectionHeader,
+} from "@webmcp/ui/components/editor-chrome"
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -389,15 +393,11 @@ function StyleVariableBindingSection({
   }
 
   return (
-    <section className="border-b px-3 py-3">
-      <div className="mb-2">
-        <h3 className="text-[11px] font-semibold">Bind reusable styles</h3>
-        <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
-          Let one variable control a property used by an attached text or paint
-          style.
-        </p>
+    <section className="border-b">
+      <div className="flex min-h-8 items-center px-3 text-[11px] font-semibold">
+        Reusable style bindings
       </div>
-      <div className="grid gap-2">
+      <div className="grid gap-2 px-3 pb-3">
         <Select value={variableId} onValueChange={setVariableId}>
           <SelectTrigger aria-label="Style variable">
             <SelectValue placeholder="Choose variable" />
@@ -441,39 +441,43 @@ function StyleVariableBindingSection({
             properties are available.
           </p>
         ) : null}
-      </div>
-      {bindings.length ? (
-        <div className="mt-3 grid gap-1.5">
-          {bindings.map((binding) => {
-            const boundVariable = document.variables.find(
-              (candidate) => candidate.id === binding.variableId
-            )
-            return (
-              <div
-                key={binding.id}
-                className="flex items-center gap-2 rounded-md border px-2.5 py-2 text-[11px]"
-              >
-                <Braces
-                  className="size-3.5 text-muted-foreground"
-                  aria-hidden="true"
-                />
-                <span className="min-w-0 flex-1 truncate">
-                  {bindingLabel(binding)} ·{" "}
-                  {boundVariable?.name ?? "Missing variable"}
-                </span>
-                <Button
-                  size="icon-sm"
-                  variant="ghost"
-                  aria-label={`Unbind ${boundVariable?.name ?? "variable"}`}
-                  onClick={() => onUnbind(binding.id)}
+        {bindings.length ? (
+          <div className="mt-1 border-y">
+            {bindings.map((binding, index) => {
+              const boundVariable = document.variables.find(
+                (candidate) => candidate.id === binding.variableId
+              )
+              return (
+                <div
+                  key={binding.id}
+                  className={
+                    index < bindings.length - 1
+                      ? "flex min-h-8 items-center gap-2 border-b px-2 text-[11px]"
+                      : "flex min-h-8 items-center gap-2 px-2 text-[11px]"
+                  }
                 >
-                  <Unlink />
-                </Button>
-              </div>
-            )
-          })}
-        </div>
-      ) : null}
+                  <Braces
+                    className="size-3.5 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                  <span className="min-w-0 flex-1 truncate">
+                    {bindingLabel(binding)} ·{" "}
+                    {boundVariable?.name ?? "Missing variable"}
+                  </span>
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label={`Unbind ${boundVariable?.name ?? "variable"}`}
+                    onClick={() => onUnbind(binding.id)}
+                  >
+                    <Unlink />
+                  </Button>
+                </div>
+              )
+            })}
+          </div>
+        ) : null}
+      </div>
     </section>
   )
 }
@@ -592,29 +596,16 @@ export function DesignVariablesPanel({
 
   return (
     <div className="flex w-full max-w-full min-w-0 flex-col overflow-x-hidden">
-      <section className="border-b px-3 py-3">
-        <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0 flex-[1_1_9rem]">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <h2 className="text-xs font-semibold">Design variables</h2>
-              <Badge className="shrink-0" variant="outline">
-                Advanced
-              </Badge>
-            </div>
-            <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-              Reuse controlled style values without hiding the resolved design.
-            </p>
-          </div>
-          <Button
-            className="h-8 shrink-0"
-            size="sm"
-            variant="outline"
-            onClick={() => setCreateOpen(true)}
-          >
-            <Plus data-icon="inline-start" /> New
-          </Button>
-        </div>
-      </section>
+      <EditorPanelSectionHeader>
+        <span>Design variables</span>
+        <span className="font-normal text-muted-foreground">Advanced</span>
+        <span className="ml-auto font-normal text-muted-foreground">
+          {document.variables.length}
+        </span>
+        <Button size="xs" variant="ghost" onClick={() => setCreateOpen(true)}>
+          <Plus data-icon="inline-start" /> New
+        </Button>
+      </EditorPanelSectionHeader>
 
       {selectedNode ? (
         <section className="border-b px-3 py-3">
@@ -751,108 +742,112 @@ export function DesignVariablesPanel({
         onUnbind={onUnbind}
       />
 
-      <section className="grid gap-2 px-3 py-3">
-        <div className="flex items-center justify-between gap-2">
-          <h3 className="text-[11px] font-semibold">Document variables</h3>
-          <Badge variant="outline">{document.variables.length}</Badge>
+      <section className="grid">
+        <div className="flex min-h-8 items-center px-3 text-[11px] font-semibold">
+          Document variables
         </div>
         {document.variables.length === 0 ? (
-          <div className="rounded-lg border border-dashed px-3 py-5 text-center">
-            <p className="text-xs font-medium">No variables yet</p>
-            <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-              Start with a brand color, spacing number, reusable phrase, or font
-              family.
-            </p>
-          </div>
+          <EditorPanelNotice
+            className="mx-3 mb-3"
+            icon={<Braces />}
+            title="No variables"
+            description="Create a color, number, phrase, or font family."
+          />
         ) : (
-          document.variables.map((variable) => {
-            const usage = variableUsage(document, variable.id)
-            return (
-              <article
-                key={variable.id}
-                className="rounded-lg border bg-background px-3 py-2.5"
-              >
-                <div className="flex items-start gap-2">
-                  <span
-                    className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-md border bg-muted/40"
-                    style={
-                      variable.type === "color"
-                        ? { backgroundColor: variable.value }
-                        : undefined
-                    }
-                  >
-                    {variable.type === "color" ? null : (
-                      <Braces className="size-3.5" aria-hidden="true" />
-                    )}
-                  </span>
-                  <button
-                    type="button"
-                    className="min-w-0 flex-1 text-left"
-                    onClick={() => setEditingId(variable.id)}
-                  >
-                    <span className="block truncate text-xs font-medium">
-                      {variable.name}
-                    </span>
-                    <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
-                      {variableTypeLabels[variable.type]} ·{" "}
-                      {String(variable.value)}
-                    </span>
-                  </button>
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button
-                        size="icon-sm"
-                        variant="ghost"
-                        aria-label={`Delete ${variable.name}`}
-                        disabled={usage.totalBindingCount > 0}
-                      >
-                        <Trash2 />
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>
-                          Delete {variable.name}?
-                        </AlertDialogTitle>
-                        <AlertDialogDescription>
-                          The resolved values stay on the design. This removes
-                          only the reusable variable.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction
-                          onClick={() => onDelete(variable.id)}
-                        >
-                          Delete variable
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                </div>
-                <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-                  <span>
-                    {usage.totalBindingCount}{" "}
-                    {usage.totalBindingCount === 1 ? "binding" : "bindings"}
-                  </span>
-                  {usage.nodeIds[0] ? (
-                    <Button
-                      size="xs"
-                      variant="ghost"
-                      onClick={() => onFocusNode(usage.nodeIds[0]!)}
+          <div className="border-y">
+            {document.variables.map((variable, index) => {
+              const usage = variableUsage(document, variable.id)
+              return (
+                <article
+                  key={variable.id}
+                  className={
+                    index < document.variables.length - 1
+                      ? "border-b px-3 py-2.5"
+                      : "px-3 py-2.5"
+                  }
+                >
+                  <div className="flex items-start gap-2">
+                    <span
+                      className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-sm bg-editor-field"
+                      style={
+                        variable.type === "color"
+                          ? { backgroundColor: variable.value }
+                          : undefined
+                      }
                     >
-                      Show layer
-                    </Button>
+                      {variable.type === "color" ? null : (
+                        <Braces className="size-3.5" aria-hidden="true" />
+                      )}
+                    </span>
+                    <button
+                      type="button"
+                      className="min-w-0 flex-1 text-left"
+                      onClick={() => setEditingId(variable.id)}
+                    >
+                      <span className="block truncate text-xs font-medium">
+                        {variable.name}
+                      </span>
+                      <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
+                        {variableTypeLabels[variable.type]} ·{" "}
+                        {String(variable.value)}
+                      </span>
+                    </button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
+                          aria-label={`Delete ${variable.name}`}
+                          disabled={usage.totalBindingCount > 0}
+                        >
+                          <Trash2 />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>
+                            Delete {variable.name}?
+                          </AlertDialogTitle>
+                          <AlertDialogDescription>
+                            The resolved values stay on the design. This removes
+                            only the reusable variable.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => onDelete(variable.id)}
+                          >
+                            Delete variable
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                    <span>
+                      {usage.totalBindingCount}{" "}
+                      {usage.totalBindingCount === 1 ? "binding" : "bindings"}
+                    </span>
+                    {usage.nodeIds[0] ? (
+                      <Button
+                        size="xs"
+                        variant="ghost"
+                        onClick={() => onFocusNode(usage.nodeIds[0]!)}
+                      >
+                        Show layer
+                      </Button>
+                    ) : null}
+                  </div>
+                  {usage.totalBindingCount > 0 ? (
+                    <p className="mt-1.5 text-[11px] leading-4 text-muted-foreground">
+                      Unbind every use before deleting this variable.
+                    </p>
                   ) : null}
-                </div>
-                {usage.totalBindingCount > 0 ? (
-                  <p className="mt-1.5 text-[11px] leading-4 text-muted-foreground">
-                    Unbind every use before deleting this variable.
-                  </p>
-                ) : null}
-              </article>
-            )
-          })
+                </article>
+              )
+            })}
+          </div>
         )}
       </section>
 
