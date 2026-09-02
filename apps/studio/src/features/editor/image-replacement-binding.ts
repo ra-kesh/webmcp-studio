@@ -41,7 +41,7 @@ export function imageReplacementBindingImpact(
     nodeId,
     nodeName: node.name,
     affectedNodeIds,
-    message: `“${node.name}” gets its image from the “${fieldLabel}” shared asset field (${linkedLayerCopy}). Change the field value in Fields to update every linked layer, or unbind Source to replace only this layer.`,
+    message: `“${node.name}” gets its image from the “${fieldLabel}” shared asset field (${linkedLayerCopy}). Change the field value in Data to update every linked layer, or unbind Source to replace only this layer.`,
   }
 }
 

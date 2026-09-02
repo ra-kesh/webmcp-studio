@@ -5149,13 +5149,13 @@ function FieldsPanel({
     selectedBindings.map((binding) => binding.property)
   )
   return (
-    <div className="flex flex-col">
-      <section className="flex flex-col gap-4 p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-xs font-medium">Shared fields</h2>
+    <div className="flex min-w-0 flex-col overflow-x-hidden">
+      <section className="flex min-w-0 flex-col gap-4 p-4">
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
+          <div className="min-w-0">
+            <h2 className="text-xs font-medium">Content fields</h2>
             <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-              Change one value and every bound output stays in sync.
+              Reuse document content across layers and outputs.
             </p>
           </div>
           <FieldDefinitionDialog
@@ -5163,7 +5163,7 @@ function FieldsPanel({
             fields={document.fields}
             controlIdPrefix={controlIdPrefix}
             trigger={
-              <Button className="h-11" variant="outline">
+              <Button className="h-11 shrink-0" variant="outline">
                 <Plus data-icon="inline-start" />
                 New
               </Button>
@@ -5173,7 +5173,7 @@ function FieldsPanel({
         </div>
 
         {document.fields.length ? (
-          <div className="flex flex-col gap-2">
+          <div className="flex min-w-0 flex-col gap-2">
             {document.fields.map((field) => {
               const bindings = document.bindings.filter(
                 (binding) => binding.fieldId === field.id
@@ -5182,18 +5182,20 @@ function FieldsPanel({
               return (
                 <div
                   key={field.id}
-                  className="rounded-lg border"
+                  className="w-full min-w-0 overflow-hidden rounded-lg border"
                   data-inspector-field-id={field.id}
                   tabIndex={-1}
                 >
-                  <div className="flex items-start gap-2 p-2.5">
+                  <div className="flex min-w-0 items-start gap-2 p-2.5">
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex min-w-0 items-center gap-1.5">
                         <p className="truncate text-xs font-medium">
                           {field.label}
                         </p>
                         {field.required ? (
-                          <Badge variant="secondary">Required</Badge>
+                          <Badge className="shrink-0" variant="secondary">
+                            Required
+                          </Badge>
                         ) : null}
                       </div>
                       <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">
@@ -5209,7 +5211,7 @@ function FieldsPanel({
                         <Button
                           aria-label={`Edit ${field.label}`}
                           size="icon"
-                          className="size-11"
+                          className="size-11 shrink-0"
                           variant="ghost"
                         >
                           <Settings2 />
@@ -5228,7 +5230,7 @@ function FieldsPanel({
                     />
                   </div>
                   <Separator />
-                  <div className="flex flex-col gap-2 p-2.5">
+                  <div className="flex min-w-0 flex-col gap-2 p-2.5">
                     <FieldValueEditor
                       field={field}
                       hasBindings={bindings.length > 0}
@@ -5266,7 +5268,7 @@ function FieldsPanel({
                             <button
                               key={binding.id}
                               type="button"
-                              className="group flex min-h-11 w-full items-center gap-2 rounded-md px-2 text-left hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                              className="group flex min-h-11 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                               onClick={() => onFocusBinding(binding)}
                             >
                               <Link2 className="size-3 shrink-0 text-muted-foreground group-hover:text-foreground" />
@@ -5313,7 +5315,7 @@ function FieldsPanel({
 
       <Separator />
 
-      <section className="flex flex-col gap-3 px-3 py-3.5">
+      <section className="flex min-w-0 flex-col gap-3 px-3 py-3.5">
         <div>
           <h2 className="text-xs font-medium">Selected layer bindings</h2>
           <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
@@ -5448,10 +5450,10 @@ function FieldsPanel({
             </Button>
           </>
         ) : (
-          <EditorPanelState
+          <EditorPanelNotice
             icon={<Link2 />}
             title="No layer selected"
-            description="Select one layer on the canvas or in Layers."
+            description="Select one layer on the canvas or in Layers to connect it to a content field."
           />
         )}
       </section>
@@ -6296,7 +6298,7 @@ export function InspectorSidebar({
 
   useEffect(() => {
     if (!focusFieldId || pendingChangeSet || pendingGeneratedDocument) return
-    setActiveTab("fields")
+    setActiveTab("data")
     const frame = requestAnimationFrame(() => {
       const target = inspectorRootRef.current?.querySelector<HTMLElement>(
         `[data-inspector-field-id="${CSS.escape(focusFieldId)}"]`
@@ -6349,7 +6351,7 @@ export function InspectorSidebar({
     <aside
       ref={inspectorRootRef}
       className={cn(
-        "flex min-h-0 flex-col border-l bg-editor-panel",
+        "flex min-h-0 min-w-0 flex-col overflow-hidden border-l bg-editor-panel",
         className
       )}
     >
@@ -6359,7 +6361,7 @@ export function InspectorSidebar({
           setActiveTab(value)
           if (value !== "design") setFocusedBinding(null)
         }}
-        className="min-h-0 flex-1 gap-0"
+        className="min-h-0 min-w-0 flex-1 gap-0 overflow-hidden"
       >
         <EditorPanelTabsList aria-label="Inspector panels">
           <TabsTrigger
@@ -6370,18 +6372,11 @@ export function InspectorSidebar({
             Design
           </TabsTrigger>
           <TabsTrigger
-            value="variables"
+            value="data"
             disabled={reviewPending}
             className="flex-none px-2 text-[11px]"
           >
-            Variables
-          </TabsTrigger>
-          <TabsTrigger
-            value="fields"
-            disabled={reviewPending}
-            className="flex-none px-2 text-[11px]"
-          >
-            Fields
+            Data
           </TabsTrigger>
           <TabsTrigger value="review" className="flex-none px-2 text-[11px]">
             Review
@@ -6474,50 +6469,52 @@ export function InspectorSidebar({
             )}
           </ScrollArea>
         </TabsContent>
-        <TabsContent value="variables" className="min-h-0">
-          <ScrollArea className="h-full" viewportClassName="pr-2.5 pb-3">
-            <DesignVariablesPanel
-              document={document}
-              selectedNode={selectedNode}
-              textEditingState={textEditingState}
-              onCreate={onCreateVariable}
-              onUpdate={onUpdateVariable}
-              onDelete={onDeleteVariable}
-              onBind={onBindVariable}
-              onUnbind={onUnbindVariable}
-              onFocusNode={(nodeId) => {
-                onFocusNode(nodeId)
-                setActiveTab("design")
-              }}
-            />
-          </ScrollArea>
-        </TabsContent>
-        <TabsContent value="fields" className="min-h-0">
-          <ScrollArea className="h-full" viewportClassName="pr-2.5 pb-3">
-            <FieldsPanel
-              document={document}
-              selectedNodes={selectedNodes}
-              controlIdPrefix={controlIdPrefix}
-              onUpdateField={onUpdateField}
-              onChooseFieldAsset={
-                capabilityContext?.documentEditable === false
-                  ? undefined
-                  : onChooseFieldAsset
-              }
-              onCreateField={onCreateField}
-              onUpdateFieldDefinition={onUpdateFieldDefinition}
-              onRemoveField={onRemoveField}
-              onBindField={onBindField}
-              onUnbindField={onUnbindField}
-              onFocusBinding={(binding) => {
-                setFocusedBinding({
-                  nodeId: binding.nodeId,
-                  property: binding.property,
-                })
-                onFocusNode(binding.nodeId)
-                setActiveTab("design")
-              }}
-            />
+        <TabsContent value="data" className="min-h-0 min-w-0 overflow-hidden">
+          <ScrollArea
+            className="h-full min-w-0"
+            viewportClassName="min-w-0 overflow-x-hidden pr-2.5 pb-3"
+          >
+            <div className="min-w-0 overflow-x-hidden">
+              <FieldsPanel
+                document={document}
+                selectedNodes={selectedNodes}
+                controlIdPrefix={controlIdPrefix}
+                onUpdateField={onUpdateField}
+                onChooseFieldAsset={
+                  capabilityContext?.documentEditable === false
+                    ? undefined
+                    : onChooseFieldAsset
+                }
+                onCreateField={onCreateField}
+                onUpdateFieldDefinition={onUpdateFieldDefinition}
+                onRemoveField={onRemoveField}
+                onBindField={onBindField}
+                onUnbindField={onUnbindField}
+                onFocusBinding={(binding) => {
+                  setFocusedBinding({
+                    nodeId: binding.nodeId,
+                    property: binding.property,
+                  })
+                  onFocusNode(binding.nodeId)
+                  setActiveTab("design")
+                }}
+              />
+              <Separator />
+              <DesignVariablesPanel
+                document={document}
+                selectedNode={selectedNode}
+                textEditingState={textEditingState}
+                onCreate={onCreateVariable}
+                onUpdate={onUpdateVariable}
+                onDelete={onDeleteVariable}
+                onBind={onBindVariable}
+                onUnbind={onUnbindVariable}
+                onFocusNode={(nodeId) => {
+                  onFocusNode(nodeId)
+                  setActiveTab("design")
+                }}
+              />
+            </div>
           </ScrollArea>
         </TabsContent>
         <TabsContent value="review" className="min-h-0">

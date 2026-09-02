@@ -469,7 +469,7 @@ describe("InspectorSidebar image replacement capability", () => {
 
   it("disables Replace and explains the host-projected source binding", () => {
     const reason =
-      "“Cover image” gets its image from the “Client portrait” shared asset field. Change the field value in Fields or unbind Source."
+      "“Cover image” gets its image from the “Client portrait” shared asset field. Change the field value in Data or unbind Source."
     const markup = renderToStaticMarkup(
       createElement(InspectorSidebar, {
         document: renderConformanceDocument,

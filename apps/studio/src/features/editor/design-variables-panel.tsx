@@ -591,16 +591,25 @@ export function DesignVariablesPanel({
   )
 
   return (
-    <div className="flex min-h-full flex-col">
+    <div className="flex min-w-0 flex-col overflow-x-hidden">
       <section className="border-b px-3 py-3">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-xs font-semibold">Variables</h2>
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-2">
+              <h2 className="text-xs font-semibold">Design variables</h2>
+              <Badge className="shrink-0" variant="outline">
+                Advanced
+              </Badge>
+            </div>
             <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-              Reuse controlled values without hiding the resolved design.
+              Reuse controlled style values without hiding the resolved design.
             </p>
           </div>
-          <Button size="sm" onClick={() => setCreateOpen(true)}>
+          <Button
+            className="h-11 shrink-0"
+            variant="outline"
+            onClick={() => setCreateOpen(true)}
+          >
             <Plus data-icon="inline-start" /> New
           </Button>
         </div>
@@ -660,8 +669,8 @@ export function DesignVariablesPanel({
             </Select>
             {fieldConflict ? (
               <p className="text-[11px] leading-4 text-muted-foreground">
-                This property is controlled by a shared field. Unbind it in
-                Fields first.
+                This property is controlled by a content field. Unbind it in
+                Data first.
               </p>
             ) : selectedNode.locked ? (
               <p className="text-[11px] leading-4 text-muted-foreground">

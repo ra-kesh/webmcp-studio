@@ -140,7 +140,7 @@ describe("binding-aware image replacement", () => {
       nodeName: originalImage.name,
       affectedNodeIds: [originalImage.id, "image-secondary"],
       message:
-        "“Primary portrait” gets its image from the “Client portrait” shared asset field (2 linked layers). Change the field value in Fields to update every linked layer, or unbind Source to replace only this layer.",
+        "“Primary portrait” gets its image from the “Client portrait” shared asset field (2 linked layers). Change the field value in Data to update every linked layer, or unbind Source to replace only this layer.",
     })
   })
 
@@ -155,11 +155,11 @@ describe("binding-aware image replacement", () => {
     ).toEqual({
       [originalImage.id]: {
         reason:
-          "“Primary portrait” gets its image from the “Client portrait” shared asset field (2 linked layers). Change the field value in Fields to update every linked layer, or unbind Source to replace only this layer.",
+          "“Primary portrait” gets its image from the “Client portrait” shared asset field (2 linked layers). Change the field value in Data to update every linked layer, or unbind Source to replace only this layer.",
       },
       "image-secondary": {
         reason:
-          "“Secondary portrait” gets its image from the “Client portrait” shared asset field (2 linked layers). Change the field value in Fields to update every linked layer, or unbind Source to replace only this layer.",
+          "“Secondary portrait” gets its image from the “Client portrait” shared asset field (2 linked layers). Change the field value in Data to update every linked layer, or unbind Source to replace only this layer.",
       },
     })
   })
