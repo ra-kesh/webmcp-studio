@@ -4793,6 +4793,105 @@ export function StudioShell({
     </div>
   )
 
+  const renderDocumentStatusMenu = (responsiveCommands = false) => (
+    <DropdownMenuContent
+      align="end"
+      className="w-[min(18rem,calc(100vw-1rem))]"
+      onCloseAutoFocus={restoreTextEditingAfterMenuClose}
+    >
+      <DropdownMenuLabel>Document status</DropdownMenuLabel>
+      <div
+        className="space-y-1 px-1.5 py-1.5 text-xs text-muted-foreground"
+        role="status"
+        aria-live="polite"
+      >
+        <div className="flex items-center gap-2">
+          {studioErrors.length ||
+          saveNeedsAttention ||
+          saveHasWarning ||
+          pdfExportState === "error" ? (
+            <AlertTriangle className="size-3.5 shrink-0 text-destructive" />
+          ) : saveInProgress ? (
+            <Cloud className="size-3.5 shrink-0" />
+          ) : (
+            <Check className="size-3.5 shrink-0" />
+          )}
+          <span>{saveStatusLabel}</span>
+        </div>
+        {editor.localSaveState.status === "failed" ||
+        editor.localSaveState.status === "session_only" ? (
+          <p className="break-words">{editor.localSaveState.message}</p>
+        ) : editor.localSaveState.status === "conflict" ? (
+          <p className="break-words">
+            Download your version before choosing which copy to keep.
+          </p>
+        ) : editor.localSaveState.status === "external_change" ? (
+          <p className="break-words">
+            Your open version is unchanged. Download it before reloading or
+            editing if you need to preserve this copy.
+          </p>
+        ) : null}
+        {studioErrors.map((message) => (
+          <p key={message} className="break-words text-destructive">
+            {message}
+          </p>
+        ))}
+        {pdfExportState === "error" ? (
+          <p className="text-destructive">
+            Export failed. Check the document assets and try again.
+          </p>
+        ) : null}
+      </div>
+      {editor.localSaveState.status === "failed" &&
+      editor.localSaveState.retryable ? (
+        <>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => void editor.retryActiveDraftSave()}>
+            Retry local save
+          </DropdownMenuItem>
+        </>
+      ) : null}
+      {saveNeedsAttention || saveHasWarning ? (
+        <>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onSelect={() => {
+              if (commitActiveTextEditing()) {
+                editor.downloadCurrentVersion()
+              }
+            }}
+          >
+            Download my version
+          </DropdownMenuItem>
+        </>
+      ) : null}
+      {responsiveCommands ? (
+        <>
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel className="min-[640px]:hidden">
+            Text styles
+          </DropdownMenuLabel>
+          <div className="min-[640px]:hidden">
+            <TextPresetMenuItems
+              compactTargets
+              disabled={!commandEnabled("object.add-text")}
+              onSelect={(presetId) =>
+                insertTextPreset(presetId, {
+                  deferEditingUntilMenuClose: true,
+                })
+              }
+            />
+            <DropdownMenuSeparator />
+          </div>
+          <ResponsiveProductCommandDropdownGroups
+            menus={productMenus}
+            runtime={productMenuRuntime}
+          />
+        </>
+      ) : null}
+    </DropdownMenuContent>
+  )
+
   const workspace = (
     <Sheet
       open={compactPanel !== null}
@@ -4938,21 +5037,6 @@ export function StudioShell({
                 </Badge>
               </Button>
             ) : null}
-            <Badge
-              variant={saveNeedsAttention ? "destructive" : "outline"}
-              className="hidden max-w-40 truncate font-normal text-muted-foreground min-[1280px]:inline-flex"
-              role="status"
-              aria-live="polite"
-            >
-              {saveNeedsAttention || saveHasWarning ? (
-                <AlertTriangle data-icon="inline-start" />
-              ) : saveInProgress ? (
-                <Cloud data-icon="inline-start" />
-              ) : (
-                <Check data-icon="inline-start" />
-              )}
-              {saveStatusLabel}
-            </Badge>
             <Button
               size="sm"
               variant="outline"
@@ -5029,7 +5113,7 @@ export function StudioShell({
                       ? "More studio actions, attention required"
                       : "More studio actions"
                   }
-                  className="relative size-11 min-[1280px]:size-8"
+                  className="relative size-11 min-[1280px]:hidden"
                   size="icon-sm"
                   variant="outline"
                 >
@@ -5042,104 +5126,7 @@ export function StudioShell({
                   ) : null}
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
-                className="w-[min(18rem,calc(100vw-1rem))]"
-                onCloseAutoFocus={restoreTextEditingAfterMenuClose}
-              >
-                <DropdownMenuLabel>Document status</DropdownMenuLabel>
-                <div
-                  className="space-y-1 px-1.5 py-1.5 text-xs text-muted-foreground"
-                  role="status"
-                  aria-live="polite"
-                >
-                  <div className="flex items-center gap-2">
-                    {studioErrors.length ||
-                    saveNeedsAttention ||
-                    saveHasWarning ||
-                    pdfExportState === "error" ? (
-                      <AlertTriangle className="size-3.5 shrink-0 text-destructive" />
-                    ) : saveInProgress ? (
-                      <Cloud className="size-3.5 shrink-0" />
-                    ) : (
-                      <Check className="size-3.5 shrink-0" />
-                    )}
-                    <span>{saveStatusLabel}</span>
-                  </div>
-                  {editor.localSaveState.status === "failed" ||
-                  editor.localSaveState.status === "session_only" ? (
-                    <p className="break-words">
-                      {editor.localSaveState.message}
-                    </p>
-                  ) : editor.localSaveState.status === "conflict" ? (
-                    <p className="break-words">
-                      Download your version before choosing which copy to keep.
-                    </p>
-                  ) : editor.localSaveState.status === "external_change" ? (
-                    <p className="break-words">
-                      Your open version is unchanged. Download it before
-                      reloading or editing if you need to preserve this copy.
-                    </p>
-                  ) : null}
-                  {studioErrors.map((message) => (
-                    <p key={message} className="break-words text-destructive">
-                      {message}
-                    </p>
-                  ))}
-                  {pdfExportState === "error" ? (
-                    <p className="text-destructive">
-                      Export failed. Check the document assets and try again.
-                    </p>
-                  ) : null}
-                </div>
-                {editor.localSaveState.status === "failed" &&
-                editor.localSaveState.retryable ? (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onSelect={() => void editor.retryActiveDraftSave()}
-                    >
-                      Retry local save
-                    </DropdownMenuItem>
-                  </>
-                ) : null}
-                {saveNeedsAttention || saveHasWarning ? (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onSelect={() => {
-                        if (commitActiveTextEditing()) {
-                          editor.downloadCurrentVersion()
-                        }
-                      }}
-                    >
-                      Download my version
-                    </DropdownMenuItem>
-                  </>
-                ) : null}
-                <DropdownMenuSeparator className="min-[1280px]:hidden" />
-                <DropdownMenuLabel className="min-[640px]:hidden">
-                  Text styles
-                </DropdownMenuLabel>
-                <div className="min-[640px]:hidden">
-                  <TextPresetMenuItems
-                    compactTargets
-                    disabled={!commandEnabled("object.add-text")}
-                    onSelect={(presetId) =>
-                      insertTextPreset(presetId, {
-                        deferEditingUntilMenuClose: true,
-                      })
-                    }
-                  />
-                  <DropdownMenuSeparator />
-                </div>
-                <div className="min-[1280px]:hidden">
-                  <ResponsiveProductCommandDropdownGroups
-                    menus={productMenus}
-                    runtime={productMenuRuntime}
-                  />
-                </div>
-              </DropdownMenuContent>
+              {renderDocumentStatusMenu(true)}
             </DropdownMenu>
           </div>
         </header>
@@ -5434,11 +5421,11 @@ export function StudioShell({
           <section className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-workspace min-[1280px]:min-w-[520px]">
             <EditorPanelHeader
               aria-label="Current document and page"
-              className="min-w-0 justify-center px-4"
+              className="grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,auto)_minmax(0,1fr)] px-3"
               data-canvas-document-identity="true"
             >
               <p
-                className="flex max-w-full min-w-0 items-baseline gap-1.5 text-[11px] leading-none"
+                className="col-start-2 row-start-1 flex max-w-full min-w-0 items-baseline gap-1.5 text-[11px] leading-none"
                 title={`${editor.document.name} / ${activePage.name}`}
               >
                 <span className="max-w-[60%] truncate font-medium text-foreground">
@@ -5451,6 +5438,37 @@ export function StudioShell({
                   {activePage.name}
                 </span>
               </p>
+              <div className="col-start-3 row-start-1 hidden min-w-0 justify-end min-[1280px]:flex">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={`${saveStatusLabel}. Open document status`}
+                      className={cn(
+                        "flex h-7 max-w-full min-w-0 items-center gap-1.5 rounded-sm px-1.5 text-[11px] text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring/30",
+                        (studioErrors.length ||
+                          saveNeedsAttention ||
+                          saveHasWarning ||
+                          pdfExportState === "error") &&
+                          "text-destructive"
+                      )}
+                    >
+                      {studioErrors.length ||
+                      saveNeedsAttention ||
+                      saveHasWarning ||
+                      pdfExportState === "error" ? (
+                        <AlertTriangle className="size-3.5 shrink-0" />
+                      ) : saveInProgress ? (
+                        <Cloud className="size-3.5 shrink-0" />
+                      ) : (
+                        <Check className="size-3.5 shrink-0" />
+                      )}
+                      <span className="truncate">{saveStatusLabel}</span>
+                    </button>
+                  </DropdownMenuTrigger>
+                  {renderDocumentStatusMenu()}
+                </DropdownMenu>
+              </div>
             </EditorPanelHeader>
             {!editor.imageCropSession &&
             selectedImage &&
