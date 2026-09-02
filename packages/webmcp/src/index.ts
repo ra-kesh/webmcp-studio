@@ -11,6 +11,7 @@ export const toolNames = [
   "read_blank_document_presets",
   "read_design_plan_schema",
   "propose_document_generation",
+  "propose_document_pages",
   "inspect_design",
   "read_design_tree",
   "get_capabilities",
@@ -87,6 +88,14 @@ export const toolCatalog: readonly ToolDescriptor[] = [
     name: "propose_document_generation",
     description:
       "Compile one isolated candidate and open document creation Review.",
+    mutates: false,
+    requiresHumanReview: true,
+    routes: ["editor", "review"],
+  },
+  {
+    name: "propose_document_pages",
+    description:
+      "Compile generated pages and append them to an existing output through Review.",
     mutates: false,
     requiresHumanReview: true,
     routes: ["editor", "review"],

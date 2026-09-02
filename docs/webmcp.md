@@ -54,6 +54,10 @@ Creates a pending change set from typed field values. Input includes document ID
 
 Creates a pending change set of validated updates to existing layers. It supports geometry, visibility, typography, shape styling, image fit/crop, and replacement by an approved ID from `search_assets`. Bound content is rejected and routed through `propose_field_updates`; arbitrary asset URLs and raw Fabric properties are not accepted.
 
+### `propose_document_pages`
+
+Compiles the same bounded Studio Design Plan used for isolated document generation, then appends its complete editable pages to one inspected output through Review. The request pins the destination document, revision, snapshot, and output. Studio rejects stale destinations, identifier collisions, unavailable approved assets, conflicting shared-field keys, and generated component instances that cannot yet be merged safely. Page nodes, groups, field bindings, reusable styles, variables, and variable bindings remain canonical document operations; the current document is unchanged until the Review is applied.
+
 ### `propose_output_variant`
 
 Adapts one inspected source page into a fixed output size as a single atomic proposal. Geometry scales deterministically while layer order, groups, asset references, and shared-field bindings are cloned with fresh stable IDs. The tool does not claim unconstrained responsive design.
@@ -72,13 +76,13 @@ Read-only. Returns recent persisted render jobs, request selections, status, dim
 
 ## Route map
 
-| Route state        | Tools                                                                                                                                                                                                                                                                    |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Library            | `search_assets`                                                                                                                                                                                                                                                          |
-| Editor             | `inspect_design`, `get_capabilities`, `execute_product_command`, `read_design_tree`, `read_design_node`, `search_design_nodes`, `search_assets`, `validate_design`, `propose_asset_insertion`, `propose_field_updates`, `propose_canvas_edits`, `propose_output_variant` |
-| Review             | Editor read tools; acceptance and rejection remain human-only in the Review panel                                                                                                                                                                                        |
-| Published template | `validate_design`, `publish_template`, `render_template`, `inspect_render_history`                                                                                                                                                                                       |
-| Render history     | `render_template`, `inspect_render_history`                                                                                                                                                                                                                              |
+| Route state        | Tools                                                                                                                                                                                                                                                                                              |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Library            | `search_assets`                                                                                                                                                                                                                                                                                    |
+| Editor             | `inspect_design`, `get_capabilities`, `execute_product_command`, `read_design_tree`, `read_design_node`, `search_design_nodes`, `search_assets`, `validate_design`, `propose_asset_insertion`, `propose_field_updates`, `propose_canvas_edits`, `propose_document_pages`, `propose_output_variant` |
+| Review             | Editor read tools; acceptance and rejection remain human-only in the Review panel                                                                                                                                                                                                                  |
+| Published template | `validate_design`, `publish_template`, `render_template`, `inspect_render_history`                                                                                                                                                                                                                 |
+| Render history     | `render_template`, `inspect_render_history`                                                                                                                                                                                                                                                        |
 
 Registration cleans up with the Studio surface and remains safe under React Strict Mode. Tool handlers capture current services through stable references rather than stale render closures.
 

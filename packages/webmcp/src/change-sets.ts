@@ -13,6 +13,7 @@ import {
   type DesignVariablePatch,
   type Document,
   type DocumentCommand,
+  type GeneratedDocumentPlan,
   type ImageFrameMask,
   type ImagePlacement,
   type PaintStyle,
@@ -66,6 +67,15 @@ export type OutputVariantProposalInput = {
   height: number
   exportFormats: Array<"png" | "pdf">
   reason?: string
+}
+
+export type GeneratedPageAppendProposalInput = {
+  documentId: string
+  baseRevision: number
+  baseSnapshotId: string
+  outputId: string
+  reason?: string
+  plan: GeneratedDocumentPlan
 }
 
 export type AssetInsertionProposalInput = {
@@ -156,6 +166,9 @@ type CommandOf<Type extends DocumentCommand["type"]> = Extract<
   DocumentCommand,
   { type: Type }
 >
+
+type DocumentCommandDraft<Command extends DocumentCommand = DocumentCommand> =
+  Command extends DocumentCommand ? Omit<Command, "id" | "actor" | "at"> : never
 
 export type ComponentProposalChange =
   | {
@@ -330,6 +343,192 @@ function checkedChangeSet(document: Document, changeSet: ChangeSet) {
   if (conflict) throw new Error(conflict.message)
   previewChangeSet(document, parsed)
   return parsed
+}
+
+export function createGeneratedPageAppendChangeSet(
+  document: Document,
+  input: GeneratedPageAppendProposalInput,
+  identity: ChangeSetIdentityFactory
+): ChangeSet {
+  if (input.documentId !== document.id) {
+    throw new Error(`Document identity changed. Inspect the design again.`)
+  }
+  const output = document.outputs.find(
+    (candidate) => candidate.id === input.outputId
+  )
+  if (!output) throw new Error(`Unknown output: ${input.outputId}`)
+  if (
+    input.plan.candidate.components.length ||
+    input.plan.candidate.componentInstances.length
+  ) {
+    throw new Error(
+      "Appending generated pages with components is not supported yet. Generate editable layers and groups instead."
+    )
+  }
+
+  const candidate = input.plan.candidate
+  const occupiedIds = new Set([
+    ...document.pages.map((page) => page.id),
+    ...document.nodes.map((node) => node.id),
+    ...document.groups.map((group) => group.id),
+    ...document.componentInstances.map((instance) => instance.id),
+    ...document.typographyStyles.map((style) => style.id),
+    ...document.paintStyles.map((style) => style.id),
+    ...document.variables.map((variable) => variable.id),
+    ...document.fields.map((field) => field.id),
+    ...document.bindings.map((binding) => binding.id),
+    ...document.variableBindings.map((binding) => binding.id),
+  ])
+  const candidateIds = [
+    ...candidate.pages.map((page) => page.id),
+    ...candidate.nodes.map((node) => node.id),
+    ...candidate.groups.map((group) => group.id),
+    ...candidate.componentInstances.map((instance) => instance.id),
+    ...candidate.typographyStyles.map((style) => style.id),
+    ...candidate.paintStyles.map((style) => style.id),
+    ...candidate.variables.map((variable) => variable.id),
+    ...candidate.fields.map((field) => field.id),
+    ...candidate.bindings.map((binding) => binding.id),
+    ...candidate.variableBindings.map((binding) => binding.id),
+  ]
+  const conflictingId = candidateIds.find((id) => occupiedIds.has(id))
+  if (conflictingId) {
+    throw new Error(
+      `Generated content conflicts with existing identifier ${conflictingId}. Use a new requestId and idempotencyKey.`
+    )
+  }
+  const existingFieldKeys = new Set(document.fields.map((field) => field.key))
+  const conflictingField = candidate.fields.find((field) =>
+    existingFieldKeys.has(field.key)
+  )
+  if (conflictingField) {
+    throw new Error(
+      `Generated field key ${conflictingField.key} already exists in this document.`
+    )
+  }
+
+  const operation = (
+    summary: string,
+    command: DocumentCommandDraft
+  ): ChangeSet["operations"][number] => ({
+    id: `operation-${identity.id()}`,
+    status: "pending",
+    summary,
+    command: {
+      ...command,
+      id: `command-${identity.id()}`,
+      actor: "agent",
+      at: identity.now(),
+    } as DocumentCommand,
+  })
+
+  const operations: ChangeSet["operations"] = []
+  for (const style of candidate.typographyStyles) {
+    operations.push(
+      operation(`Create typography style ${style.name}`, {
+        type: "create_typography_style",
+        style,
+      })
+    )
+  }
+  for (const style of candidate.paintStyles) {
+    operations.push(
+      operation(`Create paint style ${style.name}`, {
+        type: "create_paint_style",
+        style,
+      })
+    )
+  }
+  for (const variable of candidate.variables) {
+    operations.push(
+      operation(`Create variable ${variable.name}`, {
+        type: "create_variable",
+        variable,
+      })
+    )
+  }
+  for (const field of candidate.fields) {
+    operations.push(
+      operation(`Create shared field ${field.label}`, {
+        type: "add_field",
+        field,
+      })
+    )
+    const value = candidate.fieldValues[field.id]
+    if (value !== undefined) {
+      operations.push(
+        operation(`Set shared field ${field.label}`, {
+          type: "set_field",
+          fieldId: field.id,
+          value,
+        })
+      )
+    }
+  }
+
+  const nodesById = new Map(candidate.nodes.map((node) => [node.id, node]))
+  const pageIdByNodeId = new Map(
+    candidate.pages.flatMap((page) =>
+      page.nodeIds.map((nodeId) => [nodeId, page.id] as const)
+    )
+  )
+  for (const page of candidate.pages) {
+    const pageNodeIds = new Set(page.nodeIds)
+    operations.push(
+      operation(`Append generated page ${page.name}`, {
+        type: "duplicate_page",
+        outputId: output.id,
+        page: { ...page, outputId: output.id },
+        nodes: page.nodeIds.map((nodeId) => {
+          const node = nodesById.get(nodeId)
+          if (!node)
+            throw new Error(`Generated page references unknown node ${nodeId}.`)
+          return node
+        }),
+        groups: candidate.groups.filter((group) => group.pageId === page.id),
+        componentInstances: [],
+        bindings: candidate.bindings.filter((binding) =>
+          pageNodeIds.has(binding.nodeId)
+        ),
+        variableBindings: candidate.variableBindings.filter((binding) => {
+          const target = binding.target
+          return (
+            (target.kind === "node" || target.kind === "text_range") &&
+            pageNodeIds.has(target.nodeId)
+          )
+        }),
+      })
+    )
+  }
+  for (const binding of candidate.variableBindings) {
+    const target = binding.target
+    if (
+      (target.kind === "node" || target.kind === "text_range") &&
+      pageIdByNodeId.has(target.nodeId)
+    ) {
+      continue
+    }
+    operations.push(
+      operation(`Bind generated variable ${binding.variableId}`, {
+        type: "bind_variable",
+        binding,
+      })
+    )
+  }
+
+  return checkedChangeSet(document, {
+    id: `change-set-${identity.id()}`,
+    documentId: input.documentId,
+    baseRevision: input.baseRevision,
+    baseSnapshotId: input.baseSnapshotId,
+    title:
+      input.reason?.trim() ||
+      `Append ${candidate.pages.length} generated pages`,
+    createdAt: identity.now(),
+    createdBy: "agent",
+    status: "pending",
+    operations,
+  })
 }
 
 export function createFieldUpdateChangeSet(

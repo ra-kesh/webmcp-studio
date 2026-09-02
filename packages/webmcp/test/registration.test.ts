@@ -435,7 +435,7 @@ describe("WebMCP registration", () => {
       state.controller.signal
     )
 
-    expect(count).toBe(29)
+    expect(count).toBe(30)
     expect([...state.registered.keys()]).toEqual([
       "search_templates",
       "read_template",
@@ -443,6 +443,7 @@ describe("WebMCP registration", () => {
       "read_blank_document_presets",
       "read_design_plan_schema",
       "propose_document_generation",
+      "propose_document_pages",
       "inspect_design",
       "read_design_tree",
       "get_capabilities",
@@ -707,6 +708,68 @@ describe("WebMCP registration", () => {
       isError: true,
       structuredContent: { code: "idempotency_key_reused" },
     })
+  })
+
+  it("compiles generated pages into the current output through Review", async () => {
+    const state = setup()
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+    const outputId = northstarSeed.outputs[0]!.id
+    const request = {
+      ...blankExternalSkillRequest,
+      requestId: "append-pages-request-1",
+      idempotencyKey: "append-pages-key-1",
+      destination: {
+        documentId: northstarSeed.id,
+        baseRevision: northstarSeed.revision,
+        baseSnapshotId: "snapshot-seed",
+        outputId,
+      },
+    }
+    const tool = state.registered.get("propose_document_pages")!
+    const first = await tool.execute(request)
+    const replay = await tool.execute(request)
+
+    expect(first.isError).not.toBe(true)
+    expect(state.proposed()?.operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          command: expect.objectContaining({
+            type: "duplicate_page",
+            outputId,
+          }),
+        }),
+      ])
+    )
+    expect(
+      state
+        .proposed()
+        ?.operations.filter(
+          (operation) => operation.command.type === "duplicate_page"
+        )
+    ).toHaveLength(5)
+    expect(state.proposedProvenance()).toMatchObject({
+      toolName: "propose_document_pages",
+      requestId: "append-pages-request-1",
+    })
+    expect(first.structuredContent).toMatchObject({
+      destination: {
+        documentId: northstarSeed.id,
+        outputId,
+      },
+      candidate: { pageCount: 5 },
+      review: { status: "pending", currentDocumentMutated: false },
+      replayed: false,
+    })
+    expect(replay.structuredContent).toMatchObject({ replayed: true })
   })
 
   it("accepts blank and template plans from an external skill through public WebMCP tools", async () => {

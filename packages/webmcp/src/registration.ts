@@ -54,6 +54,7 @@ import {
   createDesignStyleChangeSet,
   createDesignVariableChangeSet,
   createFieldUpdateChangeSet,
+  createGeneratedPageAppendChangeSet,
   createOutputVariantChangeSet,
   type CanvasEditProposalInput,
   type ComponentProposalChange,
@@ -63,6 +64,7 @@ import {
   type DesignVariableProposalChange,
   type DesignVariableProposalInput,
   type FieldUpdateProposalInput,
+  type GeneratedPageAppendProposalInput,
   type OutputVariantProposalInput,
 } from "./change-sets"
 import {
@@ -3372,6 +3374,14 @@ export function studioWebMcpTools(
       state: "pending" | "settled"
     }
   >()
+  const pageGenerationReceipts = new Map<
+    string,
+    {
+      requestHash: string
+      result: Promise<WebMcpToolResult>
+      state: "pending" | "settled"
+    }
+  >()
 
   const executeProductCommandRequest = async (
     input: ExecuteProductCommandInput,
@@ -3856,6 +3866,227 @@ export function studioWebMcpTools(
     return result
   }
 
+  const parseGeneratedPageAppendRequest = (input: unknown) => {
+    const value = queryObject(input)
+    const destinationValue = queryObject(value.destination)
+    assertQueryKeys(destinationValue, [
+      "documentId",
+      "baseRevision",
+      "baseSnapshotId",
+      "outputId",
+    ])
+    const stringValue = (key: string) => {
+      const candidate = destinationValue[key]
+      if (typeof candidate !== "string" || !candidate) {
+        throw new Error(`destination.${key} is required.`)
+      }
+      return candidate
+    }
+    const baseRevision = destinationValue.baseRevision
+    if (
+      typeof baseRevision !== "number" ||
+      !Number.isInteger(baseRevision) ||
+      baseRevision < 0
+    ) {
+      throw new Error(
+        "destination.baseRevision must be a non-negative integer."
+      )
+    }
+    const { destination: _destination, ...generationInput } = value
+    return {
+      request: documentGenerationRequestSchema.parse(generationInput),
+      destination: {
+        documentId: stringValue("documentId"),
+        baseRevision,
+        baseSnapshotId: stringValue("baseSnapshotId"),
+        outputId: stringValue("outputId"),
+      },
+    }
+  }
+
+  const executeGeneratedPageAppendRequest = async (
+    input: unknown,
+    signal?: AbortSignal
+  ): Promise<WebMcpToolResult> => {
+    try {
+      signal?.throwIfAborted()
+      const { request, destination } = parseGeneratedPageAppendRequest(input)
+      const current = services.getSnapshot()
+      if (
+        current.document.id !== destination.documentId ||
+        current.document.revision !== destination.baseRevision ||
+        current.snapshotId !== destination.baseSnapshotId
+      ) {
+        throw new DesignQueryError(
+          "stale_context",
+          "The document changed. Inspect the design again before appending generated pages."
+        )
+      }
+      const requestedAssetIds = new Set<string>(
+        request.references.flatMap((reference) =>
+          reference.kind === "asset" ? [reference.assetId] : []
+        )
+      )
+      if (request.start.kind === "blank") {
+        for (const node of request.start.plan.nodes) {
+          if (node.type === "image") requestedAssetIds.add(node.assetId)
+        }
+        for (const field of request.start.plan.fields) {
+          if (
+            field.type === "asset" &&
+            typeof field.defaultValue === "string" &&
+            field.defaultValue
+          ) {
+            requestedAssetIds.add(field.defaultValue)
+          }
+        }
+      } else {
+        for (const substitution of request.start.assetSubstitutions ?? []) {
+          requestedAssetIds.add(substitution.assetId)
+        }
+        for (const command of request.start.commands ?? []) {
+          if (command.type === "insert_image") {
+            requestedAssetIds.add(command.assetId)
+          }
+        }
+      }
+      const approvedAssets = new Map<
+        string,
+        { id: string; src: string; selectable: boolean }
+      >()
+      for (const assetId of requestedAssetIds) {
+        signal?.throwIfAborted()
+        const asset = await services.resolveAsset(assetId, signal)
+        if (!asset || !asset.selectable) {
+          throw new Error(
+            `Unknown or unavailable approved asset: ${assetId}. Use search_assets first.`
+          )
+        }
+        approvedAssets.set(asset.id, {
+          id: asset.id,
+          src: asset.src,
+          selectable: asset.selectable,
+        })
+      }
+      const plan = compileDocumentGenerationRequest(request, {
+        now: services.now(),
+        approvedAssets,
+      })
+      const changeSet = createGeneratedPageAppendChangeSet(
+        current.document,
+        {
+          documentId: destination.documentId,
+          baseRevision: destination.baseRevision,
+          baseSnapshotId: destination.baseSnapshotId,
+          outputId: destination.outputId,
+          reason: request.prompt,
+          plan,
+        } satisfies GeneratedPageAppendProposalInput,
+        { id: services.id, now: services.now }
+      )
+      signal?.throwIfAborted()
+      services.proposeChangeSet(
+        changeSet,
+        webMcpProposalProvenance(
+          "propose_document_pages",
+          request.prompt,
+          request.requestId
+        )
+      )
+      return textResult(
+        `Previewing ${plan.candidate.pages.length} generated page${plan.candidate.pages.length === 1 ? "" : "s"} in ${current.document.name}. Nothing has been applied; ask the user to review the Review panel.`,
+        {
+          requestId: plan.requestId,
+          idempotencyKey: plan.idempotencyKey,
+          requestHash: plan.requestHash,
+          candidate: {
+            name: plan.candidate.name,
+            pageCount: plan.candidate.pages.length,
+            nodeCount: plan.candidate.nodes.length,
+          },
+          destination,
+          proposal: publicChangeSet(
+            changeSet,
+            current.document,
+            current.assets
+          ),
+          review: {
+            changeSetId: changeSet.id,
+            operationIds: changeSet.operations.map((operation) => operation.id),
+            status: "pending",
+            currentDocumentMutated: false,
+          },
+          replayed: false,
+        }
+      )
+    } catch (error) {
+      return errorResult(error)
+    }
+  }
+
+  const runIdempotentGeneratedPageAppend = async (
+    input: unknown,
+    signal?: AbortSignal
+  ) => {
+    const { request, destination } = parseGeneratedPageAppendRequest(input)
+    const requestHash = await commandRequestDigest(input)
+    const receiptKey = `${destination.documentId}:${request.idempotencyKey}`
+    const existing = pageGenerationReceipts.get(receiptKey)
+    if (existing) {
+      if (existing.requestHash !== requestHash) {
+        return errorResult(
+          new DesignQueryError(
+            "idempotency_key_reused",
+            "That idempotency key was already used for a different generated-page request."
+          )
+        )
+      }
+      const replayed = await existing.result
+      return {
+        ...replayed,
+        ...(replayed.structuredContent &&
+        typeof replayed.structuredContent === "object" &&
+        !Array.isArray(replayed.structuredContent)
+          ? {
+              structuredContent: {
+                ...(replayed.structuredContent as Record<string, unknown>),
+                replayed: true,
+              },
+            }
+          : {}),
+      }
+    }
+    if (pageGenerationReceipts.size >= 32) {
+      const settledKey = [...pageGenerationReceipts].find(
+        ([, receipt]) => receipt.state === "settled"
+      )?.[0]
+      if (!settledKey) {
+        return errorResult(
+          new DesignQueryError(
+            "request_in_progress",
+            "Too many generated-page requests are still in progress."
+          )
+        )
+      }
+      pageGenerationReceipts.delete(settledKey)
+    }
+    let resolveResult!: (result: WebMcpToolResult) => void
+    const result = new Promise<WebMcpToolResult>((resolve) => {
+      resolveResult = resolve
+    })
+    const receipt = {
+      requestHash,
+      result,
+      state: "pending" as "pending" | "settled",
+    }
+    pageGenerationReceipts.set(receiptKey, receipt)
+    void executeGeneratedPageAppendRequest(input, signal).then((value) => {
+      receipt.state = "settled"
+      resolveResult(value)
+    })
+    return result
+  }
+
   const tools: WebMcpTool[] = [
     {
       name: "search_templates",
@@ -4036,6 +4267,68 @@ export function studioWebMcpTools(
       execute: async (input, execution) => {
         try {
           return await runIdempotentDocumentGeneration(input, execution?.signal)
+        } catch (error) {
+          return errorResult(error)
+        }
+      },
+    },
+    {
+      name: "propose_document_pages",
+      title: "Propose generated document pages",
+      description:
+        "Compile one bounded blank Design Plan or exact template adaptation, then append its complete editable pages to an existing output through a separate human Review. This never mutates the current document before approval.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: true,
+        required: [
+          "requestId",
+          "idempotencyKey",
+          "prompt",
+          "skill",
+          "start",
+          "references",
+          "destination",
+        ],
+        properties: {
+          requestId: { type: "string", minLength: 1, maxLength: 200 },
+          idempotencyKey: { type: "string", minLength: 1, maxLength: 128 },
+          prompt: { type: "string", minLength: 1, maxLength: 16_000 },
+          skill: { type: "object" },
+          start: { type: "object" },
+          designGuides: { type: "array", maxItems: 4 },
+          references: { type: "array", maxItems: 4 },
+          requestedName: { type: "string", minLength: 1, maxLength: 80 },
+          destination: {
+            type: "object",
+            additionalProperties: false,
+            required: [
+              "documentId",
+              "baseRevision",
+              "baseSnapshotId",
+              "outputId",
+            ],
+            properties: {
+              documentId: { type: "string", minLength: 1 },
+              baseRevision: { type: "integer", minimum: 0 },
+              baseSnapshotId: { type: "string", minLength: 1 },
+              outputId: { type: "string", minLength: 1 },
+            },
+          },
+        },
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+        untrustedContentHint: true,
+      },
+      execute: async (input, execution) => {
+        try {
+          return await runIdempotentGeneratedPageAppend(
+            input,
+            execution?.signal
+          )
         } catch (error) {
           return errorResult(error)
         }
