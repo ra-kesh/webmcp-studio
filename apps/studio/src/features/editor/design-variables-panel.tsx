@@ -591,11 +591,11 @@ export function DesignVariablesPanel({
   )
 
   return (
-    <div className="flex min-w-0 flex-col overflow-x-hidden">
+    <div className="flex w-full max-w-full min-w-0 flex-col overflow-x-hidden">
       <section className="border-b px-3 py-3">
-        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
-          <div className="min-w-0">
-            <div className="flex min-w-0 items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-[1_1_9rem]">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
               <h2 className="text-xs font-semibold">Design variables</h2>
               <Badge className="shrink-0" variant="outline">
                 Advanced
@@ -606,7 +606,8 @@ export function DesignVariablesPanel({
             </p>
           </div>
           <Button
-            className="h-11 shrink-0"
+            className="h-8 shrink-0"
+            size="sm"
             variant="outline"
             onClick={() => setCreateOpen(true)}
           >

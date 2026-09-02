@@ -5018,7 +5018,7 @@ function FieldDeletionDialog({
         <Button
           aria-label={`Delete ${field.label}`}
           size="icon"
-          className="size-11"
+          className="size-8 shrink-0"
           variant="ghost"
         >
           <Trash2 />
@@ -5149,10 +5149,10 @@ function FieldsPanel({
     selectedBindings.map((binding) => binding.property)
   )
   return (
-    <div className="flex min-w-0 flex-col overflow-x-hidden">
+    <div className="flex w-full max-w-full min-w-0 flex-col overflow-x-hidden">
       <section className="flex min-w-0 flex-col gap-4 p-4">
-        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
-          <div className="min-w-0">
+        <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-[1_1_9rem]">
             <h2 className="text-xs font-medium">Content fields</h2>
             <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
               Reuse document content across layers and outputs.
@@ -5163,7 +5163,7 @@ function FieldsPanel({
             fields={document.fields}
             controlIdPrefix={controlIdPrefix}
             trigger={
-              <Button className="h-11 shrink-0" variant="outline">
+              <Button className="h-8 shrink-0" size="sm" variant="outline">
                 <Plus data-icon="inline-start" />
                 New
               </Button>
@@ -5186,9 +5186,9 @@ function FieldsPanel({
                   data-inspector-field-id={field.id}
                   tabIndex={-1}
                 >
-                  <div className="flex min-w-0 items-start gap-2 p-2.5">
+                  <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-2 p-2.5">
                     <div className="min-w-0 flex-1">
-                      <div className="flex min-w-0 items-center gap-1.5">
+                      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                         <p className="truncate text-xs font-medium">
                           {field.label}
                         </p>
@@ -5202,32 +5202,34 @@ function FieldsPanel({
                         {field.key} · {field.type}
                       </p>
                     </div>
-                    <FieldDefinitionDialog
-                      field={field}
-                      document={document}
-                      fields={document.fields}
-                      controlIdPrefix={controlIdPrefix}
-                      trigger={
-                        <Button
-                          aria-label={`Edit ${field.label}`}
-                          size="icon"
-                          className="size-11 shrink-0"
-                          variant="ghost"
-                        >
-                          <Settings2 />
-                        </Button>
-                      }
-                      onSave={(updated) =>
-                        onUpdateFieldDefinition(field.id, updated)
-                      }
-                      onFocusBinding={onFocusBinding}
-                    />
-                    <FieldDeletionDialog
-                      field={field}
-                      impact={impact}
-                      onFocusBinding={onFocusBinding}
-                      onRemove={() => onRemoveField(field.id)}
-                    />
+                    <div className="flex shrink-0 items-center gap-1">
+                      <FieldDefinitionDialog
+                        field={field}
+                        document={document}
+                        fields={document.fields}
+                        controlIdPrefix={controlIdPrefix}
+                        trigger={
+                          <Button
+                            aria-label={`Edit ${field.label}`}
+                            size="icon"
+                            className="size-8 shrink-0"
+                            variant="ghost"
+                          >
+                            <Settings2 />
+                          </Button>
+                        }
+                        onSave={(updated) =>
+                          onUpdateFieldDefinition(field.id, updated)
+                        }
+                        onFocusBinding={onFocusBinding}
+                      />
+                      <FieldDeletionDialog
+                        field={field}
+                        impact={impact}
+                        onFocusBinding={onFocusBinding}
+                        onRemove={() => onRemoveField(field.id)}
+                      />
+                    </div>
                   </div>
                   <Separator />
                   <div className="flex min-w-0 flex-col gap-2 p-2.5">
@@ -6363,24 +6365,17 @@ export function InspectorSidebar({
         }}
         className="min-h-0 min-w-0 flex-1 gap-0 overflow-hidden"
       >
-        <EditorPanelTabsList aria-label="Inspector panels">
-          <TabsTrigger
-            value="design"
-            disabled={reviewPending}
-            className="flex-none px-2 text-[11px]"
-          >
+        <EditorPanelTabsList
+          appearance="segmented"
+          aria-label="Inspector panels"
+        >
+          <TabsTrigger value="design" disabled={reviewPending}>
             Design
           </TabsTrigger>
-          <TabsTrigger
-            value="data"
-            disabled={reviewPending}
-            className="flex-none px-2 text-[11px]"
-          >
+          <TabsTrigger value="data" disabled={reviewPending}>
             Data
           </TabsTrigger>
-          <TabsTrigger value="review" className="flex-none px-2 text-[11px]">
-            Review
-          </TabsTrigger>
+          <TabsTrigger value="review">Review</TabsTrigger>
         </EditorPanelTabsList>
         <TabsContent value="design" className="min-h-0">
           <ScrollArea className="h-full" viewportClassName="pr-2.5 pb-3">
@@ -6472,9 +6467,9 @@ export function InspectorSidebar({
         <TabsContent value="data" className="min-h-0 min-w-0 overflow-hidden">
           <ScrollArea
             className="h-full min-w-0"
-            viewportClassName="min-w-0 overflow-x-hidden pr-2.5 pb-3"
+            viewportClassName="min-w-0 overflow-x-hidden pb-3"
           >
-            <div className="min-w-0 overflow-x-hidden">
+            <div className="w-full max-w-full min-w-0 overflow-x-hidden">
               <FieldsPanel
                 document={document}
                 selectedNodes={selectedNodes}
