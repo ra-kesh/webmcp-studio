@@ -2694,170 +2694,85 @@ const frameAutoLayoutInputSchema = {
 } as const
 
 const typedCanvasEditInputSchema = {
-  oneOf: [
-    {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        nodeType: { const: "text" },
-        nodeId: { type: "string", minLength: 1 },
-        patch: {
-          type: "object",
-          additionalProperties: false,
-          minProperties: 1,
-          properties: {
-            ...commonCanvasPatchInputProperties,
-            text: { type: "string" },
-            color: { type: "string" },
-            fontFamily: { type: "string", minLength: 1 },
-            fontSize: { type: "number", exclusiveMinimum: 0 },
-            fontWeight: {
-              type: "integer",
-              minimum: 100,
-              maximum: 900,
-            },
-            lineHeight: { type: "number", minimum: 0.5, maximum: 3 },
-            letterSpacing: { type: "number", minimum: -20, maximum: 200 },
-            align: {
-              type: "string",
-              enum: ["left", "center", "right", "justify"],
-            },
-            direction: { type: "string", enum: ["auto", "ltr", "rtl"] },
-            verticalAlign: {
-              type: "string",
-              enum: ["top", "middle", "bottom"],
-            },
-            textCase: {
-              type: "string",
-              enum: ["original", "uppercase", "lowercase", "title"],
-            },
-            truncation: { type: "string", enum: ["clip", "ellipsis"] },
-            maxLines: {
-              oneOf: [
-                { type: "integer", minimum: 1, maximum: 100 },
-                { type: "null" },
-              ],
-            },
-            sizingMode: {
-              type: "string",
-              enum: ["auto_width", "auto_height", "fixed"],
-            },
-          },
-        },
-        summary: { type: "string" },
-      },
-      required: ["nodeType", "nodeId", "patch"],
+  type: "object",
+  additionalProperties: false,
+  description:
+    "The server validates patch fields against nodeType. assetId is valid only for image nodes and comes from search_assets.",
+  properties: {
+    nodeType: {
+      type: "string",
+      enum: ["text", "rect", "ellipse", "frame", "line", "icon", "image"],
     },
-    ...[
-      {
-        nodeType: "rect",
-        patch: {
-          fill: { type: "string" },
-          fills: fillPaintsInputSchema,
-          radius: { type: "number", minimum: 0 },
-          independentCorners: { type: "boolean" },
-          cornerRadii: cornerRadiiInputSchema,
-          cornerSmoothing: { type: "number", minimum: 0, maximum: 1 },
-          stroke: { type: "string" },
-          strokeWidth: { type: "number", minimum: 0 },
-          strokes: strokePaintsInputSchema,
-        },
-      },
-      {
-        nodeType: "ellipse",
-        patch: {
-          fill: { type: "string" },
-          fills: fillPaintsInputSchema,
-          stroke: { type: "string" },
-          strokeWidth: { type: "number", minimum: 0 },
-          strokes: strokePaintsInputSchema,
-        },
-      },
-      {
-        nodeType: "frame",
-        patch: {
-          fill: { type: "string" },
-          fills: fillPaintsInputSchema,
-          radius: { type: "number", minimum: 0 },
-          independentCorners: { type: "boolean" },
-          cornerRadii: cornerRadiiInputSchema,
-          cornerSmoothing: { type: "number", minimum: 0, maximum: 1 },
-          stroke: { type: "string" },
-          strokeWidth: { type: "number", minimum: 0 },
-          strokes: strokePaintsInputSchema,
-          children: { type: "array", items: frameChildLayoutInputSchema },
-          autoLayout: frameAutoLayoutInputSchema,
-          clipsContent: { type: "boolean" },
-          layoutGrids: {
-            type: "array",
-            maxItems: 8,
-            items: frameLayoutGridInputSchema,
-          },
-        },
-      },
-      {
-        nodeType: "line",
-        patch: {
-          stroke: { type: "string" },
-          strokeWidth: { type: "number", exclusiveMinimum: 0 },
-          strokes: strokePaintsInputSchema,
-        },
-      },
-      {
-        nodeType: "icon",
-        patch: {
-          fill: { type: "string" },
-          fills: fillPaintsInputSchema,
-          stroke: { type: "string" },
-          strokeWidth: { type: "number", minimum: 0 },
-          strokes: strokePaintsInputSchema,
-        },
-      },
-    ].map(({ nodeType, patch }) => ({
+    nodeId: { type: "string", minLength: 1 },
+    patch: {
       type: "object",
       additionalProperties: false,
+      minProperties: 1,
       properties: {
-        nodeType: { const: nodeType },
-        nodeId: { type: "string", minLength: 1 },
-        patch: {
-          type: "object",
-          additionalProperties: false,
-          minProperties: 1,
-          properties: { ...commonCanvasPatchInputProperties, ...patch },
-        },
-        summary: { type: "string" },
-      },
-      required: ["nodeType", "nodeId", "patch"],
-    })),
-    {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        nodeType: { const: "image" },
-        nodeId: { type: "string", minLength: 1 },
-        patch: {
-          type: "object",
-          additionalProperties: false,
-          minProperties: 1,
-          properties: {
-            ...commonCanvasPatchInputProperties,
-            placement: imagePlacementInputSchema,
-            frameMask: imageFrameMaskInputSchema,
-            alt: { type: "string" },
-            decorative: { type: "boolean" },
-          },
-        },
-        assetId: {
+        ...commonCanvasPatchInputProperties,
+        text: { type: "string" },
+        color: { type: "string" },
+        fontFamily: { type: "string", minLength: 1 },
+        fontSize: { type: "number", exclusiveMinimum: 0 },
+        fontWeight: { type: "integer", minimum: 100, maximum: 900 },
+        lineHeight: { type: "number", minimum: 0.5, maximum: 3 },
+        letterSpacing: { type: "number", minimum: -20, maximum: 200 },
+        align: {
           type: "string",
-          description:
-            "Approved asset ID returned by search_assets. Replaces the source while preserving placement, frame mask, alt text, and decorative state unless patch explicitly changes them.",
+          enum: ["left", "center", "right", "justify"],
         },
-        summary: { type: "string" },
+        direction: { type: "string", enum: ["auto", "ltr", "rtl"] },
+        verticalAlign: {
+          type: "string",
+          enum: ["top", "middle", "bottom"],
+        },
+        textCase: {
+          type: "string",
+          enum: ["original", "uppercase", "lowercase", "title"],
+        },
+        truncation: { type: "string", enum: ["clip", "ellipsis"] },
+        maxLines: {
+          oneOf: [
+            { type: "integer", minimum: 1, maximum: 100 },
+            { type: "null" },
+          ],
+        },
+        sizingMode: {
+          type: "string",
+          enum: ["auto_width", "auto_height", "fixed"],
+        },
+        fill: { type: "string" },
+        fills: fillPaintsInputSchema,
+        radius: { type: "number", minimum: 0 },
+        independentCorners: { type: "boolean" },
+        cornerRadii: cornerRadiiInputSchema,
+        cornerSmoothing: { type: "number", minimum: 0, maximum: 1 },
+        stroke: { type: "string" },
+        strokeWidth: { type: "number", minimum: 0 },
+        strokes: strokePaintsInputSchema,
+        children: { type: "array", items: frameChildLayoutInputSchema },
+        autoLayout: frameAutoLayoutInputSchema,
+        clipsContent: { type: "boolean" },
+        layoutGrids: {
+          type: "array",
+          maxItems: 8,
+          items: frameLayoutGridInputSchema,
+        },
+        placement: imagePlacementInputSchema,
+        frameMask: imageFrameMaskInputSchema,
+        alt: { type: "string" },
+        decorative: { type: "boolean" },
       },
-      anyOf: [{ required: ["patch"] }, { required: ["assetId"] }],
-      required: ["nodeType", "nodeId"],
     },
-  ],
+    assetId: {
+      type: "string",
+      description:
+        "Approved asset ID returned by search_assets. Replaces an image source while preserving placement, mask, and accessibility fields unless patch changes them.",
+    },
+    summary: { type: "string" },
+  },
+  anyOf: [{ required: ["patch"] }, { required: ["assetId"] }],
+  required: ["nodeType", "nodeId"],
 } as const
 
 const designStyleTargetInputSchema = {

@@ -622,6 +622,48 @@ describe("WebMCP registration", () => {
     expect(staleBranch?.content[0]?.text).toContain("branch changed")
   })
 
+  it("keeps the public WebMCP descriptors within the browser budget", async () => {
+    const state = setup()
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const descriptors = [...state.registered.values()].map((tool) => ({
+      name: tool.name,
+      registration_id: `studio:${tool.name}`,
+      title: tool.title,
+      description: tool.description,
+      input_schema: tool.inputSchema ?? null,
+      annotations: tool.annotations,
+      origin: "http://localhost:3001",
+      pageUrl: "http://localhost:3001/documents/document-budget-check",
+    }))
+    const descriptorBytes = new TextEncoder().encode(
+      JSON.stringify(descriptors)
+    ).byteLength
+    const largestDescriptors = descriptors
+      .map((descriptor) => ({
+        name: descriptor.name,
+        bytes: new TextEncoder().encode(JSON.stringify(descriptor)).byteLength,
+      }))
+      .sort((left, right) => right.bytes - left.bytes)
+      .slice(0, 5)
+
+    expect(
+      descriptorBytes,
+      `WebMCP descriptor budget exceeded. Largest descriptors: ${largestDescriptors
+        .map(({ name, bytes }) => `${name}=${bytes}`)
+        .join(", ")}`
+    ).toBeLessThan(60 * 1024)
+  })
+
   it("compiles one idempotent isolated document candidate for Review", async () => {
     const state = setup()
     await registerStudioWebMcpTools(
@@ -3023,7 +3065,7 @@ describe("WebMCP registration", () => {
     )
   })
 
-  it("advertises and accepts a discriminated canonical image patch", async () => {
+  it("advertises and accepts the canonical image patch vocabulary", async () => {
     const document = withImageLayer()
     const state = setup(document)
     await registerStudioWebMcpTools(
@@ -3038,8 +3080,9 @@ describe("WebMCP registration", () => {
     )
     const tool = state.registered.get("propose_canvas_edits")
     const schema = JSON.stringify(tool?.inputSchema)
-    expect(schema).toContain('"oneOf"')
-    expect(schema).toContain('"nodeType":{"const":"image"}')
+    expect(schema).toContain(
+      '"enum":["text","rect","ellipse","frame","line","icon","image"]'
+    )
     expect(schema).toContain('"placement"')
     expect(schema).toContain('"frameMask"')
     expect(schema).not.toContain('"additionalProperties":true')
