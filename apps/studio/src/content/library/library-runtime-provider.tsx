@@ -17,7 +17,7 @@ import type { LibraryPreferenceFetch } from "./library-preference-client"
 
 type ProviderPropsWithoutChildren<TProps> = Omit<TProps, "children">
 
-export const LIBRARY_PREFERENCE_BOOTSTRAP_TIMEOUT_MS = 5_000
+export const LIBRARY_PREFERENCE_BOOTSTRAP_TIMEOUT_MS = 12_000
 
 const defaultPreferenceFetch: LibraryPreferenceFetch = (input, init) =>
   globalThis.fetch(input, init)
