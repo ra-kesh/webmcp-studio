@@ -319,6 +319,27 @@ describe("Studio library discovery adapter", () => {
     })
   })
 
+  it("accepts a Cloudflare weak response tag for the canonical revision", async () => {
+    const page = studioLibraryCatalogIndex.list({
+      generation: "adapter-weak-etag",
+      limit: 1,
+    })
+    const adapter = createStudioLibraryDiscoveryAdapter({
+      fetchRequest: async () =>
+        jsonResponse(
+          { schemaVersion: 1, workspaceRevision: 7, page },
+          { etag: 'W/"library-workspace-revision-7"' }
+        ),
+    })
+
+    await expect(
+      adapter.list(
+        { generation: "adapter-weak-etag", limit: 1 },
+        new AbortController().signal
+      )
+    ).resolves.toMatchObject({ workspaceRevision: 7 })
+  })
+
   it("rejects a schema-valid page for a different normalized query", async () => {
     const query = { generation: "adapter-wrong-query", search: "proposal" }
     const page = studioLibraryCatalogIndex.list({

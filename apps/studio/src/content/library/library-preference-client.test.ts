@@ -66,6 +66,20 @@ describe("library preference HTTP client", () => {
     )
   })
 
+  it("accepts a Cloudflare weak response tag and returns the canonical strong tag", async () => {
+    const fetchRequest = vi.fn<LibraryPreferenceFetch>(async () =>
+      response(
+        { schemaVersion: 1, snapshot: snapshot() },
+        { etag: 'W/"library-workspace-revision-4"' }
+      )
+    )
+    const client = createLibraryPreferenceClient(fetchRequest)
+
+    await expect(client.readSnapshot()).resolves.toMatchObject({
+      etag: '"library-workspace-revision-4"',
+    })
+  })
+
   it("sends exact favorite precondition, idempotency, identity, and body data", async () => {
     const receipt = {
       schemaVersion: 1 as const,

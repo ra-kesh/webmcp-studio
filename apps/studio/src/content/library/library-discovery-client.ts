@@ -16,6 +16,7 @@ import type {
   LibraryItemIdentity,
   LibraryMediaDetail,
 } from "@webmcp/document"
+import { matchesCanonicalEtag } from "./library-etag"
 
 const requestIdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/)
 const errorCodeSchema = z.string().regex(/^[a-z][a-z0-9_]{0,95}$/)
@@ -283,8 +284,10 @@ export function createLibraryDiscoveryClient(
       throw invalidResponse(response.status, requestId, validationMessage)
     }
     if (
-      response.headers.get("ETag") !==
-      (input.etag?.(parsed.data) ?? workspaceEtag(input.revision(parsed.data)))
+      !matchesCanonicalEtag(
+        response.headers.get("ETag"),
+        input.etag?.(parsed.data) ?? workspaceEtag(input.revision(parsed.data))
+      )
     ) {
       throw invalidResponse(
         response.status,

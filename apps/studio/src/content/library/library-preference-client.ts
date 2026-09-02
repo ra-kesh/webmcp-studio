@@ -25,6 +25,7 @@ import type {
   LibraryPreferenceMutationReceipt,
   LibraryPreferenceSnapshot,
 } from "@webmcp/document"
+import { matchesCanonicalEtag } from "./library-etag"
 
 const requestIdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/)
 const idempotencyKeySchema = z
@@ -281,7 +282,7 @@ const validateEtag = (
   mutationDispatched: boolean
 ) => {
   const etag = response.headers.get("ETag")
-  if (etag !== expected) {
+  if (!matchesCanonicalEtag(etag, expected)) {
     throw invalidResponse(
       response.status,
       requestId,
@@ -289,7 +290,7 @@ const validateEtag = (
       mutationDispatched ? "unknown" : "known"
     )
   }
-  return etag
+  return expected
 }
 
 const preconditionHeaders = (
