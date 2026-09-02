@@ -18,7 +18,6 @@ import {
   Circle,
   Download,
   DatabaseZap,
-  FileJson2,
   Heart,
   Hand,
   ImagePlus,
@@ -4381,8 +4380,6 @@ export function StudioShell({
   const productMenus = buildProductAppMenus(productCommandContext)
   const canvasContextMenuGroups = buildCanvasContextMenu(productCommandContext)
   const productFileMenu = productMenus.find((menu) => menu.id === "file")
-  const productDocumentMenuGroups =
-    productFileMenu?.groups.filter((group) => group.id === "document") ?? []
   const productExportMenuGroups =
     productFileMenu?.groups
       .filter((group) => group.id === "export")
@@ -4978,25 +4975,6 @@ export function StudioShell({
               <Code2 data-icon="inline-start" />
               API playground
             </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  aria-label="Document file actions"
-                  className="hidden min-[1280px]:inline-flex"
-                  size="icon-sm"
-                  variant="outline"
-                >
-                  <FileJson2 />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuLabel>Studio document</DropdownMenuLabel>
-                <ProductCommandDropdownItems
-                  groups={productDocumentMenuGroups}
-                  runtime={productMenuRuntime}
-                />
-              </DropdownMenuContent>
-            </DropdownMenu>
             <IconButton
               label="Open properties"
               className="size-11 min-[1280px]:hidden"
