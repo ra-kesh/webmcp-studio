@@ -302,10 +302,8 @@ describe("InspectorSidebar basic property controls", () => {
       })
     )
 
-    expect(markup).toContain('aria-label="Fill color picker"')
-    expect(markup).not.toContain(
-      'aria-label="Fill color picker" type="color" disabled=""'
-    )
+    expect(markup).toContain('aria-label="fills 1 color"')
+    expect(markup).not.toContain('aria-label="fills 1 color" disabled=""')
   })
 })
 
