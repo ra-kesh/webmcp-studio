@@ -1,16 +1,19 @@
 import {
   ActiveSelection,
   Canvas,
+  Color,
   config,
   controlsUtils,
   Ellipse,
   FabricImage,
   FabricObject,
   FixedLayout,
+  Gradient,
   Group,
   LayoutManager,
   Line,
   Path,
+  Pattern,
   Point,
   Rect,
   Textbox,
@@ -37,6 +40,7 @@ import {
   projectImagePaint,
   projectFrameClipStack,
   projectNodeForRender,
+  parseSvgViewBox,
   projectSvgViewport,
   replaceRichTextRange,
   resolveCornerRadii,
@@ -61,6 +65,9 @@ import {
   type LayerEffect,
   type RenderImageAffine,
   type RenderImageClip,
+  type RenderFillPaint,
+  type RenderImageFillPaint,
+  type RenderStrokePaint,
   type ProjectedTextLine,
   type ProjectedTextSegment,
   type SceneNode,
@@ -92,9 +99,14 @@ const usesCornerPath = (node: Extract<SceneNode, { type: "rect" | "frame" }>) =>
 const usesPaintStack = (node: SceneNode) =>
   node.type === "rect" ||
   node.type === "frame" ||
+  node.type === "section" ||
   node.type === "ellipse" ||
   node.type === "line" ||
-  node.type === "icon"
+  node.type === "icon" ||
+  node.type === "polygon" ||
+  node.type === "star" ||
+  node.type === "vector" ||
+  node.type === "boolean_result"
     ? hasExplicitPaintStack(node)
     : false
 
@@ -1158,7 +1170,7 @@ export function fabricBlendMode(
 }
 
 function borderedShapeDimensions(
-  node: Extract<SceneNode, { type: "rect" | "ellipse" | "frame" }>
+  node: Extract<SceneNode, { type: "rect" | "ellipse" | "frame" | "section" }>
 ) {
   const strokeWidth = node.stroke ? node.strokeWidth : 0
   return {
@@ -1166,6 +1178,106 @@ function borderedShapeDimensions(
     height: Math.max(1, node.height - strokeWidth),
     strokeWidth,
   }
+}
+
+type FabricImagePaintSource = Readonly<{
+  element: CanvasImageSource
+  width: number
+  height: number
+}>
+
+type FabricImagePaintSources = ReadonlyMap<string, FabricImagePaintSource>
+
+const imagePaintSourceKey = (paint: RenderImageFillPaint) =>
+  `${paint.assetId}\u0000${paint.src}`
+
+const fabricColorWithOpacity = (color: string, opacity: number) =>
+  opacity === 1 ? color : new Color(color).setAlpha(opacity).toRgba()
+
+function fabricFillForPaint(
+  paint: RenderFillPaint,
+  bounds: Readonly<{ width: number; height: number }>,
+  imagePaintSources?: FabricImagePaintSources
+) {
+  if (!paint.type || paint.type === "solid") return paint.color
+  if (paint.type === "linear_gradient") {
+    const colorStops = paint.stops.map((stop) => ({
+      offset: stop.position,
+      color: fabricColorWithOpacity(stop.color, stop.opacity),
+    }))
+    return new Gradient<"linear">({
+      type: "linear",
+      gradientUnits: "percentage",
+      coords: {
+        x1: paint.from.x,
+        y1: paint.from.y,
+        x2: paint.to.x,
+        y2: paint.to.y,
+      },
+      colorStops,
+    })
+  }
+  if (paint.type === "radial_gradient") {
+    const colorStops = paint.stops.map((stop) => ({
+      offset: stop.position,
+      color: fabricColorWithOpacity(stop.color, stop.opacity),
+    }))
+    const radians = (paint.rotation * Math.PI) / 180
+    const cosine = Math.cos(radians)
+    const sine = Math.sin(radians)
+    return new Gradient<"radial">({
+      type: "radial",
+      gradientUnits: "percentage",
+      coords: { x1: 0, y1: 0, x2: 0, y2: 0, r1: 0, r2: 1 },
+      gradientTransform: [
+        cosine * paint.radiusX,
+        sine * paint.radiusX,
+        -sine * paint.radiusY,
+        cosine * paint.radiusY,
+        paint.center.x,
+        paint.center.y,
+      ],
+      colorStops,
+    })
+  }
+  if (paint.type !== "image") return paint.color
+  const source = imagePaintSources?.get(imagePaintSourceKey(paint))
+  if (!source) return "rgba(0,0,0,0)"
+  const { a, b, c, d, e, f } = paint.transform
+  return new Pattern({
+    source: source.element,
+    repeat: "no-repeat",
+    crossOrigin: "anonymous",
+    patternTransform: [
+      (bounds.width * a) / source.width,
+      (bounds.height * b) / source.width,
+      (bounds.width * c) / source.height,
+      (bounds.height * d) / source.height,
+      bounds.width * e,
+      bounds.height * f,
+    ],
+  })
+}
+
+function setFabricObjectFill(
+  object: FabricObject,
+  paint: RenderFillPaint,
+  imagePaintSources?: FabricImagePaintSources
+) {
+  const target =
+    object instanceof Group
+      ? object
+          .getObjects()
+          .find((child): child is Path => child instanceof Path)
+      : object
+  if (!target) return
+  target.set({
+    fill: fabricFillForPaint(
+      paint,
+      { width: target.width, height: target.height },
+      imagePaintSources
+    ),
+  })
 }
 
 function positionFabricLineFrame(
@@ -1601,22 +1713,26 @@ const wrapFabricEffects = <T extends FabricObject>(
 }
 
 export function createFabricSyncObject(
-  node: Exclude<SceneNode, { type: "image" }>
+  node: Exclude<SceneNode, { type: "image" }>,
+  imagePaintSources?: FabricImagePaintSources
 ): FabricObject {
   if (node.effects?.some((effect) => effect.visible)) {
-    const inner: FabricObject = createFabricSyncObject({
-      ...node,
-      effects: undefined,
-      x: 0,
-      y: 0,
-      rotation: 0,
-      flipX: false,
-      flipY: false,
-      opacity: 1,
-      blendMode: "normal",
-      visible: true,
-      locked: true,
-    } as Exclude<SceneNode, { type: "image" }>)
+    const inner: FabricObject = createFabricSyncObject(
+      {
+        ...node,
+        effects: undefined,
+        x: 0,
+        y: 0,
+        rotation: 0,
+        flipX: false,
+        flipY: false,
+        opacity: 1,
+        blendMode: "normal",
+        visible: true,
+        locked: true,
+      } as Exclude<SceneNode, { type: "image" }>,
+      imagePaintSources
+    )
     return wrapFabricEffects(inner, node)
   }
   if (usesPaintStack(node)) {
@@ -1639,62 +1755,60 @@ export function createFabricSyncObject(
     })
     const children: FabricObject[] = [frame]
     const addPaint = (
-      paint: {
-        color: string
-        opacity: number
-        visible: boolean
-        blendMode: BlendMode
-        width?: number
-        alignment?: "inside" | "center" | "outside"
-        sides?: { top: boolean; right: boolean; bottom: boolean; left: boolean }
-        dash?: number[]
-        cap?: "butt" | "round" | "square"
-        join?: "miter" | "round" | "bevel"
-        miterLimit?: number
-      },
+      paint: RenderFillPaint | RenderStrokePaint,
       kind: "fill" | "stroke"
     ) => {
-      const strokeWidth = paint.width ?? legacyStrokeWidth
+      const strokePaint =
+        kind === "stroke" ? (paint as RenderStrokePaint) : null
+      const solidColor = "color" in paint ? paint.color : "rgba(0,0,0,0)"
+      const strokeWidth = strokePaint?.width ?? legacyStrokeWidth
       if (
-        kind === "stroke" &&
-        (node.type === "rect" || node.type === "frame") &&
-        paint.sides &&
-        !Object.values(paint.sides).every(Boolean)
+        strokePaint &&
+        (node.type === "rect" ||
+          node.type === "frame" ||
+          node.type === "section") &&
+        !Object.values(strokePaint.sides).every(Boolean)
       ) {
         const inset = strokeGeometryInset({
           width: strokeWidth,
-          alignment: paint.alignment,
+          alignment: strokePaint.alignment,
         })
         const x1 = inset
         const y1 = inset
         const x2 = node.width - inset
         const y2 = node.height - inset
         const options = {
-          stroke: paint.color,
+          stroke: strokePaint.color,
           strokeWidth,
           opacity: paint.opacity,
           visible: paint.visible,
           globalCompositeOperation: fabricBlendMode(paint.blendMode),
-          strokeDashArray: paint.dash,
-          strokeLineCap: paint.cap,
-          strokeLineJoin: paint.join,
-          strokeMiterLimit: paint.miterLimit,
+          strokeDashArray: strokePaint.dash,
+          strokeLineCap: strokePaint.cap,
+          strokeLineJoin: strokePaint.join,
+          strokeMiterLimit: strokePaint.miterLimit,
           selectable: false,
           evented: false,
         }
-        if (paint.sides.top) children.push(new Line([x1, y1, x2, y1], options))
-        if (paint.sides.right)
+        if (strokePaint.sides.top)
+          children.push(new Line([x1, y1, x2, y1], options))
+        if (strokePaint.sides.right)
           children.push(new Line([x2, y1, x2, y2], options))
-        if (paint.sides.bottom)
+        if (strokePaint.sides.bottom)
           children.push(new Line([x2, y2, x1, y2], options))
-        if (paint.sides.left) children.push(new Line([x1, y2, x1, y1], options))
+        if (strokePaint.sides.left)
+          children.push(new Line([x1, y2, x1, y1], options))
         return
       }
       const geometryOffset =
-        kind === "stroke" && node.type !== "line" && node.type !== "icon"
+        strokePaint &&
+        (node.type === "rect" ||
+          node.type === "frame" ||
+          node.type === "section" ||
+          node.type === "ellipse")
           ? strokeGeometryInset({
               width: strokeWidth,
-              alignment: paint.alignment,
+              alignment: strokePaint.alignment,
             }) -
             strokeWidth / 2
           : 0
@@ -1714,27 +1828,30 @@ export function createFabricSyncObject(
         strokes: undefined,
         ...(node.type === "line"
           ? {
-              stroke: paint.color,
+              stroke: solidColor,
               strokeWidth,
             }
           : kind === "fill"
-            ? { fill: paint.color, stroke: undefined, strokeWidth: 0 }
+            ? { fill: solidColor, stroke: undefined, strokeWidth: 0 }
             : {
                 fill: "rgba(0,0,0,0)",
-                stroke: paint.color,
+                stroke: solidColor,
                 strokeWidth,
               }),
       } as Exclude<SceneNode, { type: "image" }>
-      const child = createFabricSyncObject(synthetic)
+      const child = createFabricSyncObject(synthetic, imagePaintSources)
+      if (kind === "fill") {
+        setFabricObjectFill(child, paint as RenderFillPaint, imagePaintSources)
+      }
       child.set({
         selectable: false,
         evented: false,
         ...(kind === "stroke"
           ? {
-              strokeDashArray: paint.dash,
-              strokeLineCap: paint.cap,
-              strokeLineJoin: paint.join,
-              strokeMiterLimit: paint.miterLimit,
+              strokeDashArray: strokePaint?.dash,
+              strokeLineCap: strokePaint?.cap,
+              strokeLineJoin: strokePaint?.join,
+              strokeMiterLimit: strokePaint?.miterLimit,
             }
           : {}),
       })
@@ -1751,9 +1868,13 @@ export function createFabricSyncObject(
       subTargetCheck: false,
     })
   }
-  if (node.type === "rect" || node.type === "frame") {
+  if (
+    node.type === "rect" ||
+    node.type === "frame" ||
+    node.type === "section"
+  ) {
     const dimensions = borderedShapeDimensions(node)
-    if (usesCornerPath(node)) {
+    if (node.type !== "section" && usesCornerPath(node)) {
       const radii = resolveCornerRadii(
         node.radius,
         node.independentCorners ? node.cornerRadii : undefined
@@ -1833,6 +1954,31 @@ export function createFabricSyncObject(
     })
   }
 
+  if (
+    node.type === "polygon" ||
+    node.type === "star" ||
+    node.type === "vector" ||
+    node.type === "boolean_result"
+  ) {
+    const projection = projectNodeForRender(node)
+    if (
+      projection.type !== "polygon" &&
+      projection.type !== "star" &&
+      projection.type !== "vector" &&
+      projection.type !== "boolean_result"
+    ) {
+      throw new Error("Expected vector shape projection")
+    }
+    return createFabricVectorShape(node, {
+      path: projection.content.path,
+      viewBox: projection.content.viewBox,
+      fillRule: projection.content.fillRule,
+    })
+  }
+
+  if (node.type !== "text") {
+    throw new Error("Unsupported Fabric node type")
+  }
   const projection = projectFabricTextState(node)
   const textOptions = fabricTextObjectOptions(node, projection)
   const text = new StudioTextbox(
@@ -2433,6 +2579,57 @@ function createMissingImagePlaceholder(
 export const isMissingImagePlaceholder = (object: FabricObject) =>
   missingImagePlaceholders.has(object)
 
+function imageFillPaintsForNode(node: SceneNode): RenderImageFillPaint[] {
+  const projection = projectNodeForRender(node)
+  if (
+    projection.type === "text" ||
+    projection.type === "image" ||
+    projection.type === "line"
+  ) {
+    return []
+  }
+  return projection.content.fills.filter(
+    (paint): paint is RenderImageFillPaint => paint.type === "image"
+  )
+}
+
+async function loadFabricImagePaintSource(
+  paint: RenderImageFillPaint,
+  signal?: AbortSignal
+): Promise<FabricImagePaintSource> {
+  signal?.throwIfAborted()
+  const image = await FabricImage.fromURL(paint.src, {
+    crossOrigin: "anonymous",
+    signal,
+  })
+  signal?.throwIfAborted()
+  const { width, height } = image.getOriginalSize()
+  if (width <= 0 || height <= 0) {
+    throw new Error("Decoded image paint must have positive natural dimensions")
+  }
+  return { element: image.getElement(), width, height }
+}
+
+async function prepareFabricImagePaintSources(
+  node: SceneNode,
+  signal?: AbortSignal
+) {
+  const sources = new Map<string, FabricImagePaintSource>()
+  await Promise.all(
+    imageFillPaintsForNode(node).map(async (paint) => {
+      try {
+        sources.set(
+          imagePaintSourceKey(paint),
+          await loadFabricImagePaintSource(paint, signal)
+        )
+      } catch {
+        signal?.throwIfAborted()
+      }
+    })
+  )
+  return sources
+}
+
 export async function createFabricObjectForSync(
   node: SceneNode,
   loadImage: (
@@ -2442,7 +2639,11 @@ export async function createFabricObjectForSync(
   signal?: AbortSignal
 ) {
   signal?.throwIfAborted()
-  if (node.type !== "image") return createFabricSyncObject(node)
+  if (node.type !== "image") {
+    const imagePaintSources = await prepareFabricImagePaintSources(node, signal)
+    signal?.throwIfAborted()
+    return createFabricSyncObject(node, imagePaintSources)
+  }
   try {
     const image = await loadImage(node, signal)
     signal?.throwIfAborted()
@@ -2517,7 +2718,7 @@ function imageFrame(node: Extract<SceneNode, { type: "image" }>) {
   })
 }
 
-function vectorFrame(node: Extract<SceneNode, { type: "icon" }>) {
+function vectorFrame(node: Readonly<{ width: number; height: number }>) {
   return new Rect({
     left: 0,
     top: 0,
@@ -2529,6 +2730,75 @@ function vectorFrame(node: Extract<SceneNode, { type: "icon" }>) {
     strokeWidth: 0,
     selectable: false,
     evented: false,
+  })
+}
+
+type FabricVectorShapeNode = Extract<
+  SceneNode,
+  { type: "polygon" | "star" | "vector" | "boolean_result" }
+>
+
+function layoutVectorShape(
+  path: Path,
+  node: FabricVectorShapeNode,
+  viewBoxValue: string,
+  fillRule: "nonzero" | "evenodd",
+  relativeToGroup = false
+) {
+  const viewBox = parseSvgViewBox(viewBoxValue)
+  const scaleX = node.width / viewBox.width
+  const scaleY = node.height / viewBox.height
+  const sourceMinX = path.pathOffset.x - path.width / 2
+  const sourceMinY = path.pathOffset.y - path.height / 2
+  const strokeInsetX = node.stroke ? node.strokeWidth / 2 : 0
+  const strokeInsetY = node.stroke ? node.strokeWidth / 2 : 0
+  const groupOffsetX = relativeToGroup ? node.width / 2 : 0
+  const groupOffsetY = relativeToGroup ? node.height / 2 : 0
+  path.set({
+    left: (sourceMinX - viewBox.minX) * scaleX - groupOffsetX - strokeInsetX,
+    top: (sourceMinY - viewBox.minY) * scaleY - groupOffsetY - strokeInsetY,
+    scaleX,
+    scaleY,
+    fill: node.fill,
+    fillRule,
+    stroke: node.stroke,
+    strokeWidth: node.strokeWidth,
+    strokeUniform: true,
+    originX: "left",
+    originY: "top",
+    selectable: false,
+    evented: false,
+  })
+  path.setCoords()
+}
+
+function createFabricVectorShape(
+  node: FabricVectorShapeNode,
+  geometry: Readonly<{
+    path: string
+    viewBox: string
+    fillRule: "nonzero" | "evenodd"
+  }>
+) {
+  const { width: _width, height: _height, ...options } = sharedOptions(node)
+  const path = new Path(geometry.path, {
+    left: 0,
+    top: 0,
+    originX: "left",
+    originY: "top",
+    fill: node.fill,
+    fillRule: geometry.fillRule,
+    stroke: node.stroke,
+    strokeWidth: node.strokeWidth,
+    selectable: false,
+    evented: false,
+  })
+  layoutVectorShape(path, node, geometry.viewBox, geometry.fillRule)
+  return new Group([vectorFrame(node), path], {
+    ...options,
+    scaleX: 1,
+    scaleY: 1,
+    subTargetCheck: false,
   })
 }
 
@@ -3090,7 +3360,9 @@ export function syncFabricObjectFromNode(
       strokeWidth: node.stroke ? node.strokeWidth : 0,
     })
   } else if (
-    (node.type === "rect" || node.type === "frame") &&
+    (node.type === "rect" ||
+      node.type === "frame" ||
+      node.type === "section") &&
     object instanceof Rect
   ) {
     const dimensions = borderedShapeDimensions(node)
@@ -3139,6 +3411,65 @@ export function syncFabricObjectFromNode(
       height: node.height,
     })
     layoutIcon(path, node, true)
+    const {
+      width: _width,
+      height: _height,
+      ...groupOptions
+    } = sharedOptions(node)
+    object.set({
+      ...groupOptions,
+      width: node.width,
+      height: node.height,
+      scaleX: 1,
+      scaleY: 1,
+      subTargetCheck: false,
+    })
+    object.setCoords()
+    return
+  } else if (
+    (node.type === "polygon" ||
+      node.type === "star" ||
+      node.type === "vector" ||
+      node.type === "boolean_result") &&
+    object instanceof Group
+  ) {
+    const projection = projectNodeForRender(node)
+    if (
+      projection.type !== "polygon" &&
+      projection.type !== "star" &&
+      projection.type !== "vector" &&
+      projection.type !== "boolean_result"
+    ) {
+      return
+    }
+    const frame = object
+      .getObjects()
+      .find((child): child is Rect => child instanceof Rect)
+    const path = object
+      .getObjects()
+      .find((child): child is Path => child instanceof Path)
+    if (!frame || !path) return
+    frame.set({
+      left: -node.width / 2,
+      top: -node.height / 2,
+      width: node.width,
+      height: node.height,
+    })
+    const nextPath = new Path(projection.content.path)
+    path.set({
+      path: nextPath.path,
+      width: nextPath.width,
+      height: nextPath.height,
+      pathOffset: nextPath.pathOffset,
+    })
+    nextPath.dispose()
+    layoutVectorShape(
+      path,
+      node,
+      projection.content.viewBox,
+      projection.content.fillRule,
+      true
+    )
     const {
       width: _width,
       height: _height,
@@ -3708,8 +4039,10 @@ export class FabricCanvasAdapter implements CanvasAdapter {
           (usesPaintStack(node) ||
             (previousNode ? usesPaintStack(previousNode) : false))
         ) {
-          const replacement = createFabricSyncObject(
-            node as Exclude<SceneNode, { type: "image" }>
+          const replacement = await createFabricObjectForSync(
+            node,
+            loadPreparedImage,
+            signal
           )
           stagedRegularCandidates.add(replacement)
           stagedObjectByNodeId.set(node.id, {

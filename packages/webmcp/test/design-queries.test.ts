@@ -152,6 +152,30 @@ describe("design queries", () => {
     expect(publicDesignNode(image)).not.toHaveProperty("src")
   })
 
+  it("never exposes private image-fill sources", () => {
+    const shape = structuredClone(
+      northstarSeed.nodes.find((node) => node.type === "rect")
+    )
+    if (!shape || shape.type !== "rect") throw new Error("Rect fixture missing")
+    shape.fills = [
+      {
+        id: "private-fill",
+        type: "image",
+        assetId: "legacy-private-fill-id",
+        src: "asset:managed/asset-privatefill01",
+        opacity: 1,
+        visible: true,
+        transform: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 },
+      },
+    ]
+
+    const publicNode = publicDesignNode(shape)
+    const publicFill = "fills" in publicNode ? publicNode.fills?.[0] : undefined
+
+    expect(publicFill).toMatchObject({ assetId: "asset-privatefill01" })
+    expect(publicFill).not.toHaveProperty("src")
+  })
+
   it("reads component relationships and capabilities without private override values", () => {
     const document = componentDocumentFixture()
     const result = readDesignComponents(document, identity, "component-hero")

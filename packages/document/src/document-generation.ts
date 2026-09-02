@@ -19,6 +19,7 @@ import {
   type Document,
 } from "./schema"
 import { deriveDocumentSnapshotId } from "./publishing"
+import { sceneNodeImageReferences } from "./media"
 import { validateDocument, type ValidationIssue } from "./validation"
 
 const requestIdSchema = z
@@ -622,7 +623,7 @@ const summarizeCandidate = (
   assets: [
     ...new Set(
       candidate.nodes.flatMap((node) =>
-        node.type === "image" ? [node.assetId] : []
+        sceneNodeImageReferences(node).map((reference) => reference.assetId)
       )
     ),
   ].sort(),

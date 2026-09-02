@@ -74,6 +74,39 @@ describe("local image preview integrity", () => {
     expect(JSON.stringify(canonical)).not.toContain("blob:device-preview")
   })
 
+  it("projects local image-fill sources without mutating canonical paint", () => {
+    const canonical = localDocument()
+    const shape = canonical.nodes.find((node) => node.type === "rect")
+    if (!shape) throw new Error("Rect fixture missing")
+    shape.fills = [
+      {
+        id: "local-fill",
+        type: "image",
+        assetId: "asset-local-fill",
+        src: "asset:local/asset-local-fill",
+        opacity: 1,
+        visible: true,
+        transform: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 },
+      },
+    ]
+
+    const preview = projectLocalAssetPreviewSources(
+      canonical,
+      new Map([["asset-local-fill", "blob:fill-preview"]])
+    )
+    const previewShape = preview.nodes.find((node) => node.id === shape.id)
+    const previewFill =
+      previewShape && "fills" in previewShape
+        ? previewShape.fills?.[0]
+        : undefined
+    const canonicalFill = shape.fills[0]
+
+    expect(previewFill).toMatchObject({ src: "blob:fill-preview" })
+    expect(canonicalFill).toMatchObject({
+      src: "asset:local/asset-local-fill",
+    })
+  })
+
   it("decodes authoritative bytes on every reuse instead of trusting cached dimensions", async () => {
     const decode = vi.fn().mockResolvedValue({ width: 640, height: 480 })
 

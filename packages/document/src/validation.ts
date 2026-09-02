@@ -7,6 +7,8 @@ import {
 } from "./fields"
 import {
   curatedAssetIdentityFromSource,
+  curatedImageAssetIdentity,
+  localImageAssetIdentity,
   managedImageAssetIdentity,
 } from "./media"
 import { projectTextLayout } from "./text-layout"
@@ -445,7 +447,16 @@ export function validateDocument(document: Document): ValidationIssue[] {
       }
       if (node.type === "image") {
         const identity = managedImageAssetIdentity(node.assetId, node.src)
-        if (identity.managed && !identity.coherent) {
+        const localIdentity = localImageAssetIdentity(node.assetId, node.src)
+        const curatedIdentity = curatedImageAssetIdentity(
+          node.assetId,
+          node.src
+        )
+        if (
+          (identity.managed && !identity.coherent) ||
+          (localIdentity.local && !localIdentity.coherent) ||
+          (curatedIdentity.curated && !curatedIdentity.coherent)
+        ) {
           issues.push({
             id: `node:${node.id}:managed-asset-identity`,
             severity: "error",
@@ -474,6 +485,57 @@ export function validateDocument(document: Document): ValidationIssue[] {
           nodeId: node.id,
         })
       }
+      if (
+        node.type !== "text" &&
+        node.type !== "image" &&
+        node.type !== "line"
+      ) {
+        for (const paint of node.fills ?? []) {
+          if (paint.type !== "image") continue
+          const managedIdentity = managedImageAssetIdentity(
+            paint.assetId,
+            paint.src
+          )
+          const localIdentity = localImageAssetIdentity(
+            paint.assetId,
+            paint.src
+          )
+          const curatedIdentity = curatedImageAssetIdentity(
+            paint.assetId,
+            paint.src
+          )
+          if (
+            (managedIdentity.managed && !managedIdentity.coherent) ||
+            (localIdentity.local && !localIdentity.coherent) ||
+            (curatedIdentity.curated && !curatedIdentity.coherent)
+          ) {
+            issues.push({
+              id: `node:${node.id}:fill:${paint.id}:asset-identity`,
+              severity: "error",
+              code: "invalid_asset",
+              message: `${node.name} has a mismatched image-fill asset identity`,
+              pageId: page.id,
+              nodeId: node.id,
+            })
+          }
+          if (
+            !paint.src.startsWith("asset:local/") &&
+            !paint.src.startsWith("asset:managed/") &&
+            !curatedAssetIdentityFromSource(paint.src) &&
+            !paint.src.startsWith("data:image/") &&
+            !paint.src.startsWith("https://")
+          ) {
+            issues.push({
+              id: `node:${node.id}:fill:${paint.id}:asset-policy`,
+              severity: "error",
+              code: "invalid_asset",
+              message: `${node.name} uses an unsupported image-fill source`,
+              pageId: page.id,
+              nodeId: node.id,
+            })
+          }
+        }
+      }
     }
   }
 
@@ -489,7 +551,7 @@ export function validateDocument(document: Document): ValidationIssue[] {
     }
   }
 
-  const frameOwnerByChild = new Map<string, string>()
+  const containerOwnerByChild = new Map<string, string>()
   const maskSourceNodeIds = new Set(
     document.groups.flatMap((group) =>
       group.role === "mask" ? group.mask.sourceNodeIds : []
@@ -508,7 +570,7 @@ export function validateDocument(document: Document): ValidationIssue[] {
       const childNode = nodes.get(child.nodeId)
       const childPageId = nodeOwner.get(child.nodeId)
       const childIndex = framePageIndexes?.get(child.nodeId) ?? -1
-      const existingOwner = frameOwnerByChild.get(child.nodeId)
+      const existingOwner = containerOwnerByChild.get(child.nodeId)
       if (maskSourceNodeIds.has(child.nodeId)) {
         issues.push({
           id: `frame:${frame.id}:mask-source:${child.nodeId}`,
@@ -539,7 +601,7 @@ export function validateDocument(document: Document): ValidationIssue[] {
         })
       }
       localChildren.add(child.nodeId)
-      frameOwnerByChild.set(child.nodeId, frame.id)
+      containerOwnerByChild.set(child.nodeId, frame.id)
       previousIndex = childIndex
     }
     if (frame.children.length > 0 && frame.rotation !== 0) {
@@ -553,24 +615,66 @@ export function validateDocument(document: Document): ValidationIssue[] {
       })
     }
   }
-  for (const frame of document.nodes) {
-    if (frame.type !== "frame") continue
-    const seen = new Set<string>([frame.id])
-    let ownerId = frameOwnerByChild.get(frame.id)
+
+  for (const section of document.nodes) {
+    if (section.type !== "section") continue
+    const sectionPageId = nodeOwner.get(section.id)
+    const sectionPageIndexes = sectionPageId
+      ? pageNodeIndexes.get(sectionPageId)
+      : undefined
+    const sectionIndex = sectionPageIndexes?.get(section.id) ?? -1
+    for (const childNodeId of section.childNodeIds) {
+      const childPageId = nodeOwner.get(childNodeId)
+      const childIndex = sectionPageIndexes?.get(childNodeId) ?? -1
+      const existingOwner = containerOwnerByChild.get(childNodeId)
+      if (
+        !nodes.has(childNodeId) ||
+        childNodeId === section.id ||
+        !sectionPageId ||
+        childPageId !== sectionPageId ||
+        childIndex <= sectionIndex ||
+        (existingOwner !== undefined && existingOwner !== section.id)
+      ) {
+        issues.push({
+          id: `section:${section.id}:child:${childNodeId}`,
+          severity: "error",
+          code: "invalid_layout",
+          message: `${section.name} has an invalid, cross-page, out-of-order, or multiply owned child ${childNodeId}`,
+          pageId: sectionPageId,
+          nodeId: section.id,
+        })
+      }
+      containerOwnerByChild.set(childNodeId, section.id)
+    }
+    if (section.childNodeIds.length > 0 && section.rotation !== 0) {
+      issues.push({
+        id: `section:${section.id}:rotation`,
+        severity: "error",
+        code: "invalid_layout",
+        message: `${section.name} must use zero rotation while it owns child layers`,
+        pageId: sectionPageId,
+        nodeId: section.id,
+      })
+    }
+  }
+  for (const container of document.nodes) {
+    if (container.type !== "frame" && container.type !== "section") continue
+    const seen = new Set<string>([container.id])
+    let ownerId = containerOwnerByChild.get(container.id)
     while (ownerId) {
       if (seen.has(ownerId)) {
         issues.push({
-          id: `frame:${frame.id}:cycle`,
+          id: `container:${container.id}:cycle`,
           severity: "error",
           code: "invalid_layout",
-          message: `${frame.name} participates in a frame ownership cycle`,
-          pageId: nodeOwner.get(frame.id),
-          nodeId: frame.id,
+          message: `${container.name} participates in a container ownership cycle`,
+          pageId: nodeOwner.get(container.id),
+          nodeId: container.id,
         })
         break
       }
       seen.add(ownerId)
-      ownerId = frameOwnerByChild.get(ownerId)
+      ownerId = containerOwnerByChild.get(ownerId)
     }
   }
 

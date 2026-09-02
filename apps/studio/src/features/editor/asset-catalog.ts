@@ -1,4 +1,7 @@
-import { validateAssetFieldPublicationIdentities } from "@webmcp/document"
+import {
+  sceneNodeImageReferences,
+  validateAssetFieldPublicationIdentities,
+} from "@webmcp/document"
 import type { Document, ValidationIssue } from "@webmcp/document"
 import { studioMediaManifest } from "../../content/library/media/manifest"
 import type { StudioMediaManifestItem } from "../../content/library/media/manifest"
@@ -184,19 +187,20 @@ export function studioAssetFieldPublicationIssues(
     message: issue.message.replace("approved asset", "approved Studio asset"),
   }))
   const curatedNodeIssues: ValidationIssue[] = document.nodes.flatMap((node) =>
-    node.type === "image" &&
-    node.src.startsWith("/library/media/") &&
-    !curatedMediaManifestItemForValue(node.src)
-      ? [
-          {
-            id: `node:${node.id}:unknown-curated-asset`,
-            severity: "error" as const,
-            code: "unmanaged_asset" as const,
-            message: `${node.name} does not use an exact approved Studio asset version`,
-            nodeId: node.id,
-          },
-        ]
-      : []
+    sceneNodeImageReferences(node).flatMap((reference) =>
+      reference.src.startsWith("/library/media/") &&
+      !curatedMediaManifestItemForValue(reference.src)
+        ? [
+            {
+              id: `node:${node.id}:${reference.paintId ?? "image"}:unknown-curated-asset`,
+              severity: "error" as const,
+              code: "unmanaged_asset" as const,
+              message: `${node.name} does not use an exact approved Studio asset version`,
+              nodeId: node.id,
+            },
+          ]
+        : []
+    )
   )
   return [...fieldIssues, ...curatedNodeIssues]
 }

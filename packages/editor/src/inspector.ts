@@ -581,7 +581,12 @@ export const capabilitiesForNodes = (
           node.type === "rect" ||
           node.type === "frame" ||
           node.type === "ellipse" ||
-          node.type === "icon"
+          node.type === "icon" ||
+          node.type === "section" ||
+          node.type === "polygon" ||
+          node.type === "star" ||
+          node.type === "vector" ||
+          node.type === "boolean_result"
       ),
     stroke:
       hasSelection &&
@@ -591,11 +596,21 @@ export const capabilitiesForNodes = (
           node.type === "frame" ||
           node.type === "ellipse" ||
           node.type === "line" ||
-          node.type === "icon"
+          node.type === "icon" ||
+          node.type === "section" ||
+          node.type === "polygon" ||
+          node.type === "star" ||
+          node.type === "vector" ||
+          node.type === "boolean_result"
       ),
     cornerRadius:
       hasSelection &&
-      nodes.every((node) => node.type === "rect" || node.type === "frame"),
+      nodes.every(
+        (node) =>
+          node.type === "rect" ||
+          node.type === "frame" ||
+          node.type === "section"
+      ),
     image: allImages,
     canEnterCrop:
       singleImage &&

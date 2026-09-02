@@ -180,7 +180,12 @@ const applyVariableToNode = (
     node.type === "frame" ||
     node.type === "ellipse" ||
     node.type === "line" ||
-    node.type === "icon"
+    node.type === "icon" ||
+    node.type === "section" ||
+    node.type === "polygon" ||
+    node.type === "star" ||
+    node.type === "vector" ||
+    node.type === "boolean_result"
       ? synchronizeLegacyPaintFields(node, rawPatch)
       : rawPatch
   const detached = detachStyleForDirectNodePatch(node, patch)

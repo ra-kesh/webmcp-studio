@@ -3,6 +3,7 @@ import {
   documentCommandSchema,
   documentSchema,
   fieldDefinitionSchema,
+  sceneNodeSchema,
   sceneNodePatchSchema,
   textNodePatchSchema,
   type Document,
@@ -23,6 +24,7 @@ import {
   curatedAssetIdentityFromSource,
   localAssetIdFromSource,
   managedAssetIdFromSource,
+  sceneNodeImageReferences,
 } from "./media"
 import { applyTextLayoutPatch } from "./text-layout"
 import { normalizeRichTextContent } from "./rich-text"
@@ -64,6 +66,8 @@ import {
   reconcileFrameChildPaintOrder,
 } from "./frame-layout"
 import { synchronizeLegacyPaintFields } from "./paint-stack"
+import { resolveCornerRadii, roundedRectanglePath } from "./corner-geometry"
+import { regularPolygonPath, regularStarPath } from "./vector-geometry"
 
 type FieldValue = string | number | boolean
 
@@ -641,6 +645,18 @@ function relinkAssetReferences(
       .map((binding) => [binding.nodeId, binding] as const)
   )
   for (const node of document.nodes) {
+    if (node.type !== "text" && node.type !== "image" && node.type !== "line") {
+      for (const paint of node.fills ?? []) {
+        if (paint.type !== "image") continue
+        const sourceMatches = paint.src === command.from
+        const identityMatches = paint.assetId === localAssetId
+        if (sourceMatches !== identityMatches) {
+          throw new Error(
+            `Image fill ${node.id}/${paint.id} has an incoherent local identity`
+          )
+        }
+      }
+    }
     if (node.type !== "image") continue
     const binding = sourceBindingByNodeId.get(node.id)
     const boundValue = binding
@@ -681,12 +697,28 @@ function relinkAssetReferences(
     }
   }
   const nodes = document.nodes.map((node) => {
-    if (node.type !== "image" || node.src !== command.from) return node
-    if (sourceBindingByNodeId.has(node.id)) return node
+    if (node.type === "image") {
+      if (node.src !== command.from || sourceBindingByNodeId.has(node.id)) {
+        return node
+      }
+      return {
+        ...node,
+        assetId: command.toAssetId,
+        src: command.toSource,
+      }
+    }
+    if (node.type === "text" || node.type === "line" || !node.fills) return node
     return {
       ...node,
-      assetId: command.toAssetId,
-      src: command.toSource,
+      fills: node.fills.map((paint) =>
+        paint.type === "image" && paint.src === command.from
+          ? {
+              ...paint,
+              assetId: command.toAssetId,
+              src: command.toSource,
+            }
+          : paint
+      ),
     }
   })
   return { ...document, fields, fieldValues, nodes }
@@ -1639,6 +1671,242 @@ function applyParsedCommand(
       }
       break
     }
+    case "convert_node_to_vector": {
+      const source = document.nodes.find((node) => node.id === command.nodeId)
+      if (!source) throw new Error(`Unknown node: ${command.nodeId}`)
+      assertComponentStructureEditable(document, { nodeIds: [source.id] })
+      if (
+        source.type !== "rect" &&
+        source.type !== "ellipse" &&
+        source.type !== "line" &&
+        source.type !== "polygon" &&
+        source.type !== "star" &&
+        source.type !== "vector" &&
+        source.type !== "boolean_result"
+      ) {
+        throw new Error(`${source.name} cannot be converted to vector geometry`)
+      }
+      if (
+        document.groups.some(
+          (group) =>
+            group.role === "mask" &&
+            group.mask.sourceNodeIds.includes(source.id)
+        )
+      ) {
+        throw new Error(
+          "Release a mask source before converting it to a vector"
+        )
+      }
+      const path =
+        source.type === "rect"
+          ? roundedRectanglePath({
+              width: source.width,
+              height: source.height,
+              cornerRadii: resolveCornerRadii(
+                source.radius,
+                source.independentCorners ? source.cornerRadii : undefined
+              ),
+              cornerSmoothing: source.cornerSmoothing ?? 0,
+            })
+          : source.type === "ellipse"
+            ? `M ${source.width} ${source.height / 2} A ${source.width / 2} ${source.height / 2} 0 1 1 0 ${source.height / 2} A ${source.width / 2} ${source.height / 2} 0 1 1 ${source.width} ${source.height / 2} Z`
+            : source.type === "line"
+              ? `M 0 0 L ${source.width} ${source.height}`
+              : source.type === "polygon"
+                ? regularPolygonPath(
+                    source.width,
+                    source.height,
+                    source.pointCount
+                  )
+                : source.type === "star"
+                  ? regularStarPath(
+                      source.width,
+                      source.height,
+                      source.pointCount,
+                      source.innerRadius
+                    )
+                  : source.path
+      const viewBox =
+        source.type === "vector" || source.type === "boolean_result"
+          ? source.viewBox
+          : `0 0 ${source.width} ${source.height}`
+      const fillRule =
+        source.type === "vector" || source.type === "boolean_result"
+          ? source.fillRule
+          : "nonzero"
+      const vector = sceneNodeSchema.parse({
+        type: "vector",
+        id: source.id,
+        name: source.name,
+        x: source.x,
+        y: source.y,
+        width: source.width,
+        height: source.height,
+        rotation: source.rotation,
+        flipX: source.flipX,
+        flipY: source.flipY,
+        opacity: source.opacity,
+        blendMode: source.blendMode,
+        effects: source.effects,
+        exportSettings: source.exportSettings,
+        visible: source.visible,
+        locked: source.locked,
+        constraints: source.constraints,
+        paintStyleId: source.paintStyleId,
+        path,
+        viewBox,
+        fillRule,
+        fill: source.type === "line" ? "transparent" : source.fill,
+        fills: source.type === "line" ? [] : source.fills,
+        stroke: source.stroke,
+        strokeWidth: source.strokeWidth,
+        strokes: source.strokes,
+      })
+      const convertedDocument = {
+        ...document,
+        nodes: document.nodes.map((node) =>
+          node.id === source.id ? vector : node
+        ),
+      }
+      for (const binding of convertedDocument.variableBindings) {
+        const target = binding.target
+        if (
+          (target.kind === "node" || target.kind === "text_range") &&
+          target.nodeId === source.id
+        ) {
+          assertVariableBindingCompatible(convertedDocument, binding)
+        }
+      }
+      next = {
+        ...convertedDocument,
+      }
+      break
+    }
+    case "create_boolean_result": {
+      const page = document.pages.find(
+        (candidate) => candidate.id === command.pageId
+      )
+      if (!page) throw new Error(`Unknown page: ${command.pageId}`)
+      if (document.nodes.some((node) => node.id === command.result.id)) {
+        throw new Error(`Node already exists: ${command.result.id}`)
+      }
+      const sourceIds = new Set(command.sourceNodeIds)
+      const sources = command.sourceNodeIds.map((nodeId) => {
+        const node = document.nodes.find((candidate) => candidate.id === nodeId)
+        if (!node || !page.nodeIds.includes(nodeId)) {
+          throw new Error(`Boolean source ${nodeId} is not on page ${page.id}`)
+        }
+        if (
+          node.type !== "rect" &&
+          node.type !== "ellipse" &&
+          node.type !== "polygon" &&
+          node.type !== "star" &&
+          node.type !== "vector" &&
+          node.type !== "boolean_result" &&
+          node.type !== "icon"
+        ) {
+          throw new Error(
+            `Boolean source ${nodeId} is not closed vector geometry`
+          )
+        }
+        return node
+      })
+      if (
+        command.result.sourceNodeIds.length !== command.sourceNodeIds.length ||
+        command.result.sourceNodeIds.some(
+          (nodeId, index) => nodeId !== command.sourceNodeIds[index]
+        )
+      ) {
+        throw new Error(
+          "Boolean result sourceNodeIds must match the command source order"
+        )
+      }
+      if (command.sourceDisposition === "remove") {
+        assertComponentStructureEditable(document, {
+          nodeIds: command.sourceNodeIds,
+        })
+        for (const source of sources)
+          assertMaskNodeCanLeave(document, source.id)
+      }
+      const sourceIndexes = command.sourceNodeIds.map((nodeId) =>
+        page.nodeIds.indexOf(nodeId)
+      )
+      const resultIndex = Math.max(...sourceIndexes) + 1
+      const retainedPageNodeIds =
+        command.sourceDisposition === "remove"
+          ? page.nodeIds.filter((nodeId) => !sourceIds.has(nodeId))
+          : [...page.nodeIds]
+      const retainedBeforeResult = retainedPageNodeIds.filter(
+        (nodeId) => page.nodeIds.indexOf(nodeId) < resultIndex
+      ).length
+      retainedPageNodeIds.splice(retainedBeforeResult, 0, command.result.id)
+      const retainedNodes =
+        command.sourceDisposition === "remove"
+          ? document.nodes.filter((node) => !sourceIds.has(node.id))
+          : command.sourceDisposition === "hide"
+            ? document.nodes.map((node) =>
+                sourceIds.has(node.id) ? { ...node, visible: false } : node
+              )
+            : document.nodes
+      next = {
+        ...document,
+        nodes: [
+          ...(command.sourceDisposition === "remove"
+            ? retainedNodes.map((node) =>
+                node.type === "frame"
+                  ? {
+                      ...node,
+                      children: node.children.filter(
+                        (child) => !sourceIds.has(child.nodeId)
+                      ),
+                    }
+                  : node.type === "section"
+                    ? {
+                        ...node,
+                        childNodeIds: node.childNodeIds.filter(
+                          (nodeId) => !sourceIds.has(nodeId)
+                        ),
+                      }
+                    : node
+              )
+            : retainedNodes),
+          command.result,
+        ],
+        pages: document.pages.map((candidate) =>
+          candidate.id === page.id
+            ? { ...candidate, nodeIds: retainedPageNodeIds }
+            : candidate
+        ),
+        bindings:
+          command.sourceDisposition === "remove"
+            ? document.bindings.filter(
+                (binding) => !sourceIds.has(binding.nodeId)
+              )
+            : document.bindings,
+        variableBindings:
+          command.sourceDisposition === "remove"
+            ? document.variableBindings.filter((binding) => {
+                const target = binding.target
+                return !(
+                  (target.kind === "node" || target.kind === "text_range") &&
+                  sourceIds.has(target.nodeId)
+                )
+              })
+            : document.variableBindings,
+        groups:
+          command.sourceDisposition === "remove"
+            ? pruneEmptyGroups(
+                document.groups.map((group) => ({
+                  ...group,
+                  nodeIds: group.nodeIds.filter(
+                    (nodeId) => !sourceIds.has(nodeId)
+                  ),
+                }))
+              )
+            : document.groups,
+      }
+      break
+    }
     case "update_node": {
       const index = document.nodes.findIndex(
         (node) => node.id === command.nodeId
@@ -1651,7 +1919,12 @@ function applyParsedCommand(
           current.type === "frame" ||
           current.type === "ellipse" ||
           current.type === "line" ||
-          current.type === "icon")
+          current.type === "icon" ||
+          current.type === "section" ||
+          current.type === "polygon" ||
+          current.type === "star" ||
+          current.type === "vector" ||
+          current.type === "boolean_result")
           ? synchronizeLegacyPaintFields(current, command.patch)
           : command.patch
       if (
@@ -2847,8 +3120,10 @@ function applyParsedCommand(
       }
       if (
         assetReferenceKeysForSource(document, command.toSource).length > 0 ||
-        document.nodes.some(
-          (node) => node.type === "image" && node.assetId === command.toAssetId
+        document.nodes.some((node) =>
+          sceneNodeImageReferences(node).some(
+            (reference) => reference.assetId === command.toAssetId
+          )
         )
       ) {
         throw new Error("The new local asset identity is already in use")
@@ -2875,7 +3150,15 @@ function applyParsedCommand(
                     (child) => child.nodeId !== command.nodeId
                   ),
                 }
-              : node
+              : node.type === "section" &&
+                  node.childNodeIds.includes(command.nodeId)
+                ? {
+                    ...node,
+                    childNodeIds: node.childNodeIds.filter(
+                      (nodeId) => nodeId !== command.nodeId
+                    ),
+                  }
+                : node
           ),
         pages: document.pages.map((page) => ({
           ...page,

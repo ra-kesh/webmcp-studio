@@ -1,3 +1,4 @@
+import { sceneNodeImageReferences } from "@webmcp/document"
 import type { Document } from "@webmcp/document"
 import { localAssetIdFromSource } from "./local-asset-store"
 
@@ -14,9 +15,10 @@ export function localAssetUsage(
   assetId: string
 ): LocalAssetUsage {
   const nodeIds = document.nodes
-    .filter(
-      (node) =>
-        node.type === "image" && localAssetIdFromSource(node.src) === assetId
+    .filter((node) =>
+      sceneNodeImageReferences(node).some(
+        (reference) => localAssetIdFromSource(reference.src) === assetId
+      )
     )
     .map((node) => node.id)
   const nodeIdSet = new Set(nodeIds)

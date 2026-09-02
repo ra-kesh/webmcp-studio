@@ -263,11 +263,16 @@ export function buildLayerTreeModel(
   }
 
   const zIndex = new Map(page.nodeIds.map((nodeId, index) => [nodeId, index]))
-  const frameOwnerByChildId = new Map<string, string>()
+  const containerOwnerByChildId = new Map<string, string>()
   for (const node of nodeById.values()) {
-    if (node.type !== "frame") continue
-    for (const child of node.children) {
-      frameOwnerByChildId.set(child.nodeId, node.id)
+    const childNodeIds =
+      node.type === "frame"
+        ? node.children.map((child) => child.nodeId)
+        : node.type === "section"
+          ? node.childNodeIds
+          : []
+    for (const childNodeId of childNodeIds) {
+      containerOwnerByChildId.set(childNodeId, node.id)
     }
   }
   const byKey = new Map<string, LayerTreeItem>()
@@ -276,21 +281,26 @@ export function buildLayerTreeModel(
   const nodeItem = (
     node: SceneNode,
     parentGroupId: string | null,
-    frameAncestors = new Set<string>()
+    containerAncestors = new Set<string>()
   ) => {
     const maskGroup = maskGroupByDirectNodeId.get(node.id)
-    const nextFrameAncestors = new Set(frameAncestors).add(node.id)
-    const children =
-      node.type === "frame" && !frameAncestors.has(node.id)
-        ? node.children.flatMap(({ nodeId }) => {
-            const child = nodeById.get(nodeId)
-            const childGroupId = directMembership.get(nodeId) ?? null
-            return child &&
-              (childGroupId === null || childGroupId === parentGroupId)
-              ? [nodeItem(child, parentGroupId, nextFrameAncestors)]
-              : []
-          })
-        : []
+    const nextContainerAncestors = new Set(containerAncestors).add(node.id)
+    const childNodeIds =
+      node.type === "frame"
+        ? node.children.map((child) => child.nodeId)
+        : node.type === "section"
+          ? node.childNodeIds
+          : []
+    const children = !containerAncestors.has(node.id)
+      ? childNodeIds.flatMap((nodeId) => {
+          const child = nodeById.get(nodeId)
+          const childGroupId = directMembership.get(nodeId) ?? null
+          return child &&
+            (childGroupId === null || childGroupId === parentGroupId)
+            ? [nodeItem(child, parentGroupId, nextContainerAncestors)]
+            : []
+        })
+      : []
     sortFrontToBack(children)
     const item: LayerTreeItem = {
       key: layerKey("node", node.id),
@@ -345,7 +355,7 @@ export function buildLayerTreeModel(
     const children = [
       ...group.nodeIds.flatMap((nodeId) => {
         const node = nodeById.get(nodeId)
-        const ownerId = frameOwnerByChildId.get(nodeId)
+        const ownerId = containerOwnerByChildId.get(nodeId)
         return node && (!ownerId || directMembership.get(ownerId) !== group.id)
           ? [nodeItem(node, group.id)]
           : []
@@ -402,7 +412,7 @@ export function buildLayerTreeModel(
   const items = [
     ...page.nodeIds.flatMap((nodeId) => {
       if (directMembership.has(nodeId)) return []
-      if (frameOwnerByChildId.has(nodeId)) return []
+      if (containerOwnerByChildId.has(nodeId)) return []
       const node = nodeById.get(nodeId)
       return node ? [nodeItem(node, null)] : []
     }),

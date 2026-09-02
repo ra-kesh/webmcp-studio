@@ -69,6 +69,28 @@ describe("local asset model", () => {
     expect(localAssetUsageLabel(usage)).toBe("Used by 1 layer and 1 field")
   })
 
+  it("finds local image-fill references before deletion", () => {
+    const document = structuredClone(northstarSeed)
+    const shape = document.nodes.find((node) => node.type === "rect")
+    if (!shape) throw new Error("Rect fixture missing")
+    shape.fills = [
+      {
+        id: "personal-fill",
+        type: "image",
+        assetId: "asset-personal-fill",
+        src: "asset:local/asset-personal-fill",
+        opacity: 1,
+        visible: true,
+        transform: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 },
+      },
+    ]
+
+    expect(localAssetUsage(document, "asset-personal-fill")).toMatchObject({
+      nodeIds: [shape.id],
+      referenceCount: 1,
+    })
+  })
+
   it("formats repository sizes for compact UI", () => {
     expect(formatAssetBytes(0)).toBe("0 B")
     expect(formatAssetBytes(1536)).toBe("1.5 KB")

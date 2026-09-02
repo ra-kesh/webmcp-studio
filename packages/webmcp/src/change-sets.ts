@@ -314,6 +314,54 @@ const nodeCanvasProperties: Record<SceneNode["type"], Set<string>> = {
   ellipse: new Set(["fill", "fills", "stroke", "strokeWidth", "strokes"]),
   line: new Set(["stroke", "strokeWidth", "strokes"]),
   icon: new Set(["fill", "fills", "stroke", "strokeWidth", "strokes"]),
+  section: new Set([
+    "fill",
+    "fills",
+    "radius",
+    "stroke",
+    "strokeWidth",
+    "strokes",
+    "childNodeIds",
+  ]),
+  polygon: new Set([
+    "fill",
+    "fills",
+    "stroke",
+    "strokeWidth",
+    "strokes",
+    "pointCount",
+  ]),
+  star: new Set([
+    "fill",
+    "fills",
+    "stroke",
+    "strokeWidth",
+    "strokes",
+    "pointCount",
+    "innerRadius",
+  ]),
+  vector: new Set([
+    "fill",
+    "fills",
+    "stroke",
+    "strokeWidth",
+    "strokes",
+    "path",
+    "viewBox",
+    "fillRule",
+  ]),
+  boolean_result: new Set([
+    "fill",
+    "fills",
+    "stroke",
+    "strokeWidth",
+    "strokes",
+    "path",
+    "viewBox",
+    "fillRule",
+    "operation",
+    "sourceNodeIds",
+  ]),
   image: new Set(["placement", "frameMask", "alt", "decorative"]),
 }
 
@@ -335,7 +383,19 @@ const scaledCornerRadii = (
 const scaledStrokes = (
   strokes: Extract<
     SceneNode,
-    { type: "rect" | "frame" | "ellipse" | "line" | "icon" }
+    {
+      type:
+        | "rect"
+        | "frame"
+        | "ellipse"
+        | "line"
+        | "icon"
+        | "section"
+        | "polygon"
+        | "star"
+        | "vector"
+        | "boolean_result"
+    }
   >["strokes"],
   scale: number
 ) =>
@@ -466,9 +526,23 @@ function scaleNode(
           : {}),
       }
     case "icon":
+    case "polygon":
+    case "star":
+    case "vector":
+    case "boolean_result":
       return {
         ...node,
         ...geometry,
+        strokeWidth: rounded(node.strokeWidth * scale),
+        ...(node.strokes
+          ? { strokes: scaledStrokes(node.strokes, scale) }
+          : {}),
+      }
+    case "section":
+      return {
+        ...node,
+        ...geometry,
+        radius: rounded(node.radius * scale),
         strokeWidth: rounded(node.strokeWidth * scale),
         ...(node.strokes
           ? { strokes: scaledStrokes(node.strokes, scale) }

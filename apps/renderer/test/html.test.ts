@@ -14,6 +14,7 @@ import {
   projectImagePaint,
   projectNodeForRender,
   renderConformanceDocument,
+  sceneNodeSchema,
   textDesignSystemConformanceDocument,
   serializeImagePaintProjector,
   type Document,
@@ -274,6 +275,61 @@ describe("renderer HTML", () => {
       cornerSmoothing: 0.55,
     }
     expect(renderNodeToHtml(image)).toContain("data-image-frame-clip-path=")
+  })
+
+  it("serializes gradient and affine image paints for expanded vector nodes", () => {
+    const vector = sceneNodeSchema.parse({
+      id: "html-expanded-vector",
+      type: "vector",
+      name: "HTML expanded vector",
+      x: 20,
+      y: 30,
+      width: 240,
+      height: 160,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
+      path: "M 0 0 H 100 V 100 H 0 Z",
+      viewBox: "0 0 100 100",
+      fillRule: "evenodd",
+      fill: "#111827",
+      strokeWidth: 0,
+      fills: [
+        {
+          id: "linear",
+          type: "linear_gradient",
+          from: { x: 0, y: 0.5 },
+          to: { x: 1, y: 0.5 },
+          stops: [
+            { position: 0, color: "#0ea5e9", opacity: 1 },
+            { position: 1, color: "#312e81", opacity: 0.6 },
+          ],
+          opacity: 1,
+          visible: true,
+        },
+        {
+          id: "image",
+          type: "image",
+          assetId: "inline-pattern",
+          src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'/%3E",
+          transform: { a: 0.8, b: 0.1, c: -0.1, d: 0.8, e: 0.1, f: 0.05 },
+          opacity: 0.9,
+          visible: true,
+        },
+      ],
+    })
+    const html = renderNodeToHtml(vector)
+
+    expect(html).toContain("<linearGradient")
+    expect(html).toContain('stop-opacity="0.6"')
+    expect(html).toContain("<pattern")
+    expect(html).toContain("matrix(0.8 0.1 -0.1 0.8 0.1 0.05)")
+    expect(html).toContain('fill-rule="evenodd"')
+    expect(html).toContain('data-image-paint-preload="true"')
+    expect(html).toContain('data-image-paint-id="image"')
+    expect(html).toContain('data-node-id="html-expanded-vector"')
   })
 
   it("keeps frame layout-guide metadata out of export HTML", () => {

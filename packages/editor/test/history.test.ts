@@ -36,6 +36,111 @@ const updateTitleX = (id: string, x: number) => ({
 })
 
 describe("document history", () => {
+  it("undoes an expanded scene transaction as one canonical step", () => {
+    const history = createDocumentHistory(
+      northstarSeed,
+      "expanded-scene-before"
+    )
+    const baseNode = {
+      x: 80,
+      y: 80,
+      width: 160,
+      height: 120,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+      constraints: { horizontal: "min" as const, vertical: "min" as const },
+      fill: "#f3efe7",
+      strokeWidth: 0,
+    }
+    const changed = commitCommands(history, [
+      {
+        id: "history-add-section",
+        type: "add_node",
+        actor: "agent",
+        at: "2026-09-02T13:00:00.000Z",
+        pageId: "cover",
+        node: {
+          ...baseNode,
+          id: "history-section",
+          type: "section",
+          name: "History section",
+          width: 420,
+          height: 320,
+          radius: 16,
+          childNodeIds: [],
+        },
+      },
+      {
+        id: "history-add-polygon",
+        type: "add_node",
+        actor: "agent",
+        at: "2026-09-02T13:00:01.000Z",
+        pageId: "cover",
+        node: {
+          ...baseNode,
+          id: "history-polygon",
+          type: "polygon",
+          name: "History polygon",
+          pointCount: 6,
+          fills: [
+            {
+              id: "history-gradient",
+              type: "linear_gradient",
+              opacity: 1,
+              visible: true,
+              from: { x: 0, y: 0 },
+              to: { x: 1, y: 1 },
+              stops: [
+                { position: 0, color: "#f4a261", opacity: 1 },
+                { position: 1, color: "#264653", opacity: 1 },
+              ],
+            },
+          ],
+        },
+      },
+      {
+        id: "history-add-star",
+        type: "add_node",
+        actor: "agent",
+        at: "2026-09-02T13:00:02.000Z",
+        pageId: "cover",
+        node: {
+          ...baseNode,
+          id: "history-star",
+          type: "star",
+          name: "History star",
+          x: 270,
+          pointCount: 5,
+          innerRadius: 0.42,
+        },
+      },
+      {
+        id: "history-populate-section",
+        type: "update_node",
+        actor: "agent",
+        at: "2026-09-02T13:00:03.000Z",
+        nodeId: "history-section",
+        patch: { childNodeIds: ["history-polygon", "history-star"] },
+      },
+    ])
+
+    expect(changed.past).toHaveLength(1)
+    expect(changed.past[0]?.label).toBe("Update document")
+    expect(changed.document.nodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "history-section", type: "section" }),
+        expect.objectContaining({ id: "history-polygon", type: "polygon" }),
+        expect.objectContaining({ id: "history-star", type: "star" }),
+      ])
+    )
+    expect(undoDocument(changed).document).toEqual(northstarSeed)
+    expect(redoDocument(undoDocument(changed)).document).toEqual(
+      changed.document
+    )
+  })
+
   it("undoes and redoes frame layout and clipping as one canonical step", () => {
     const before = structuredClone(northstarSeed)
     const page = before.pages.find((candidate) => candidate.id === "cover")!

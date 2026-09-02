@@ -45,21 +45,35 @@ export async function materializeLocalExportNodes(
   const siblingController = new AbortController()
   let primaryFailure: unknown
   const operationSignal = AbortSignal.any([signal, siblingController.signal])
+  const materializeSource = async (source: string, nodeName: string) => {
+    const localAssetId = localAssetIdFromSource(source)
+    if (!localAssetId) return source
+    const blob = await dependencies.loadAsset(localAssetId, operationSignal)
+    operationSignal.throwIfAborted()
+    if (!blob) {
+      throw new Error(`The local image “${nodeName}” is unavailable.`)
+    }
+    return dependencies.encodeBlob(blob, operationSignal)
+  }
   const operations = document.nodes.map(async (node) => {
     try {
       operationSignal.throwIfAborted()
-      if (node.type !== "image") return node
-      const localAssetId = localAssetIdFromSource(node.src)
-      if (!localAssetId) return node
-      const blob = await dependencies.loadAsset(localAssetId, operationSignal)
-      operationSignal.throwIfAborted()
-      if (!blob) {
-        throw new Error(`The local image “${node.name}” is unavailable.`)
+      if (node.type === "image") {
+        const src = await materializeSource(node.src, node.name)
+        return src === node.src ? node : { ...node, src }
       }
-      return {
-        ...node,
-        src: await dependencies.encodeBlob(blob, operationSignal),
-      }
+      if (!("fills" in node) || !node.fills) return node
+      const fills = await Promise.all(
+        node.fills.map(async (paint) =>
+          paint.type === "image"
+            ? {
+                ...paint,
+                src: await materializeSource(paint.src, node.name),
+              }
+            : paint
+        )
+      )
+      return { ...node, fills }
     } catch (error) {
       if (!siblingController.signal.aborted) {
         primaryFailure = error

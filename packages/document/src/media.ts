@@ -1,5 +1,5 @@
 import { z } from "zod"
-import type { Document } from "./schema"
+import type { Document, SceneNode } from "./schema"
 
 export const MANAGED_ASSET_PREFIX = "asset:managed/"
 export const LOCAL_ASSET_PREFIX = "asset:local/"
@@ -121,11 +121,51 @@ export const curatedImageAssetIdentity = (assetId: string, source: string) => {
   }
 }
 
+export type SceneNodeImageReference = Readonly<{
+  assetId: string
+  src: string
+  location: "node" | "fill"
+  paintId: string | null
+}>
+
+/**
+ * Returns every image resource rendered by a scene node. Image fills share the
+ * same canonical asset identity rules as standalone image layers, so asset
+ * accounting must not treat them as decorative paint metadata.
+ */
+export function sceneNodeImageReferences(
+  node: SceneNode
+): SceneNodeImageReference[] {
+  if (node.type === "image") {
+    return [
+      {
+        assetId: node.assetId,
+        src: node.src,
+        location: "node",
+        paintId: null,
+      },
+    ]
+  }
+  if (!("fills" in node) || !node.fills) return []
+  return node.fills.flatMap((paint) =>
+    paint.type === "image"
+      ? [
+          {
+            assetId: paint.assetId,
+            src: paint.src,
+            location: "fill" as const,
+            paintId: paint.id,
+          },
+        ]
+      : []
+  )
+}
+
 export type InternalAssetReference = Readonly<{
   key: string
   source: string
   identity: "local" | "managed"
-  location: "node" | "field_default" | "field_current"
+  location: "node" | "node_fill" | "field_default" | "field_current"
   nodeId: string | null
   fieldId: string | null
   assetId: string | null
@@ -182,29 +222,52 @@ export function extractAssetReferences(
   const references: InternalAssetReference[] = []
 
   for (const node of document.nodes) {
-    if (node.type !== "image") continue
-    const identity = internalAssetIdentity(node.src)
-    if (!identity) continue
     const pageIds = [...(pageIdsByNodeId.get(node.id) ?? [])].sort()
     const outputIds = [
       ...new Set(
         pageIds.flatMap((pageId) => outputIdsByPageId.get(pageId) ?? [])
       ),
     ].sort()
-    references.push({
-      key: `node/${node.id}/src`,
-      source: node.src,
-      identity: identity.identity,
-      location: "node",
-      nodeId: node.id,
-      fieldId: sourceBindingByNodeId.get(node.id)?.fieldId ?? null,
-      assetId: node.assetId,
-      pageIds,
-      outputIds,
-      projectedByBindingId: sourceBindingByNodeId.get(node.id)?.id ?? null,
-      projectedNodeIds: [],
-      projectionBindingIds: [],
-    })
+    if (node.type === "image") {
+      const identity = internalAssetIdentity(node.src)
+      if (identity) {
+        references.push({
+          key: `node/${node.id}/src`,
+          source: node.src,
+          identity: identity.identity,
+          location: "node",
+          nodeId: node.id,
+          fieldId: sourceBindingByNodeId.get(node.id)?.fieldId ?? null,
+          assetId: node.assetId,
+          pageIds,
+          outputIds,
+          projectedByBindingId: sourceBindingByNodeId.get(node.id)?.id ?? null,
+          projectedNodeIds: [],
+          projectionBindingIds: [],
+        })
+      }
+      continue
+    }
+    if (node.type === "text" || node.type === "line") continue
+    for (const paint of node.fills ?? []) {
+      if (paint.type !== "image") continue
+      const identity = internalAssetIdentity(paint.src)
+      if (!identity) continue
+      references.push({
+        key: `node/${node.id}/fills/${paint.id}/src`,
+        source: paint.src,
+        identity: identity.identity,
+        location: "node_fill",
+        nodeId: node.id,
+        fieldId: null,
+        assetId: paint.assetId,
+        pageIds,
+        outputIds,
+        projectedByBindingId: null,
+        projectedNodeIds: [],
+        projectionBindingIds: [],
+      })
+    }
   }
 
   for (const field of document.fields) {

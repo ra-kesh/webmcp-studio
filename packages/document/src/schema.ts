@@ -66,43 +66,159 @@ export const cornerRadiiSchema = z
 
 export const cornerSmoothingSchema = z.number().min(0).max(1)
 
-const paintBaseSchema = z
+const paintMetadataShape = {
+  id,
+  opacity: z.number().min(0).max(1).default(1),
+  visible: z.boolean().default(true),
+  blendMode: blendModeSchema.optional(),
+}
+
+export const gradientStopSchema = z
   .object({
-    id,
+    position: z.number().min(0).max(1),
     color: z.string().min(1),
     opacity: z.number().min(0).max(1).default(1),
-    visible: z.boolean().default(true),
-    blendMode: blendModeSchema.optional(),
   })
   .strict()
 
-export const fillPaintSchema = paintBaseSchema
-export const strokePaintSchema = paintBaseSchema.extend({
-  width: z.number().nonnegative(),
-  alignment: z.enum(["inside", "center", "outside"]).optional(),
-  sides: z
-    .object({
-      top: z.boolean(),
-      right: z.boolean(),
-      bottom: z.boolean(),
-      left: z.boolean(),
-    })
-    .strict()
-    .optional(),
-  dash: z
-    .array(z.number().nonnegative())
-    .max(16)
-    .refine(
-      (values) => values.length === 0 || values.some((value) => value > 0),
-      {
-        message: "A dash pattern must contain a positive segment",
-      }
+const gradientStopsSchema = z
+  .array(gradientStopSchema)
+  .min(2)
+  .max(16)
+  .refine(
+    (stops) =>
+      stops.every(
+        (stop, index) =>
+          index === 0 || stop.position >= stops[index - 1]!.position
+      ),
+    "Gradient stops must be ordered by position"
+  )
+
+const normalizedPointSchema = z
+  .object({
+    x: z.number().min(0).max(1),
+    y: z.number().min(0).max(1),
+  })
+  .strict()
+
+const svgViewBoxSchema = z
+  .string()
+  .min(1)
+  .refine((value) => {
+    const parts = value
+      .trim()
+      .split(/[\s,]+/)
+      .map(Number)
+    return (
+      parts.length === 4 &&
+      parts.every(Number.isFinite) &&
+      parts[2]! > 0 &&
+      parts[3]! > 0
     )
-    .optional(),
-  cap: z.enum(["butt", "round", "square"]).optional(),
-  join: z.enum(["miter", "round", "bevel"]).optional(),
-  miterLimit: z.number().min(1).max(100).optional(),
-})
+  }, "SVG viewBox must contain four finite numbers with positive width and height")
+
+export const normalizedAffineTransformSchema = z
+  .object({
+    a: z.number().min(-64).max(64),
+    b: z.number().min(-64).max(64),
+    c: z.number().min(-64).max(64),
+    d: z.number().min(-64).max(64),
+    e: z.number().min(-64).max(64),
+    f: z.number().min(-64).max(64),
+  })
+  .strict()
+  .refine(
+    (transform) =>
+      Math.abs(transform.a * transform.d - transform.b * transform.c) > 1e-6,
+    "Image paint transforms must be invertible"
+  )
+
+export const defaultNormalizedAffineTransform = () =>
+  normalizedAffineTransformSchema.parse({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 })
+
+export const solidFillPaintSchema = z
+  .object({
+    ...paintMetadataShape,
+    type: z.literal("solid").optional(),
+    color: z.string().min(1),
+  })
+  .strict()
+
+export const linearGradientPaintSchema = z
+  .object({
+    ...paintMetadataShape,
+    type: z.literal("linear_gradient"),
+    from: normalizedPointSchema,
+    to: normalizedPointSchema,
+    stops: gradientStopsSchema,
+  })
+  .strict()
+  .refine(
+    (paint) => paint.from.x !== paint.to.x || paint.from.y !== paint.to.y,
+    "Linear gradient endpoints must be distinct"
+  )
+
+export const radialGradientPaintSchema = z
+  .object({
+    ...paintMetadataShape,
+    type: z.literal("radial_gradient"),
+    center: normalizedPointSchema,
+    radiusX: z.number().positive().max(8),
+    radiusY: z.number().positive().max(8),
+    rotation: z.number().min(-180).max(180).default(0),
+    stops: gradientStopsSchema,
+  })
+  .strict()
+
+export const imageFillPaintSchema = z
+  .object({
+    ...paintMetadataShape,
+    type: z.literal("image"),
+    assetId: id,
+    src: z.string().min(1),
+    transform: normalizedAffineTransformSchema.default(
+      defaultNormalizedAffineTransform
+    ),
+  })
+  .strict()
+
+export const fillPaintSchema = z.union([
+  solidFillPaintSchema,
+  linearGradientPaintSchema,
+  radialGradientPaintSchema,
+  imageFillPaintSchema,
+])
+
+export const strokePaintSchema = z
+  .object({
+    ...paintMetadataShape,
+    color: z.string().min(1),
+    width: z.number().nonnegative(),
+    alignment: z.enum(["inside", "center", "outside"]).optional(),
+    sides: z
+      .object({
+        top: z.boolean(),
+        right: z.boolean(),
+        bottom: z.boolean(),
+        left: z.boolean(),
+      })
+      .strict()
+      .optional(),
+    dash: z
+      .array(z.number().nonnegative())
+      .max(16)
+      .refine(
+        (values) => values.length === 0 || values.some((value) => value > 0),
+        {
+          message: "A dash pattern must contain a positive segment",
+        }
+      )
+      .optional(),
+    cap: z.enum(["butt", "round", "square"]).optional(),
+    join: z.enum(["miter", "round", "bevel"]).optional(),
+    miterLimit: z.number().min(1).max(100).optional(),
+  })
+  .strict()
 
 const effectIdSchema = z.string().min(1)
 const effectColorSchema = z
@@ -456,12 +572,48 @@ export const sceneNodePatchSchema = z
     baseNodePatchSchema.extend({
       paintStyleId: id.optional(),
       path: z.string().min(1).optional(),
-      viewBox: z.string().min(1).optional(),
+      viewBox: svgViewBoxSchema.optional(),
+      fillRule: z.enum(["nonzero", "evenodd"]).optional(),
       fill: z.string().optional(),
       fills: fillPaintsSchema.optional(),
       stroke: z.string().optional(),
       strokeWidth: z.number().nonnegative().optional(),
       strokes: strokePaintsSchema.optional(),
+    }),
+    baseNodePatchSchema.extend({
+      paintStyleId: id.optional(),
+      fill: z.string().optional(),
+      fills: fillPaintsSchema.optional(),
+      stroke: z.string().optional(),
+      strokeWidth: z.number().nonnegative().optional(),
+      strokes: strokePaintsSchema.optional(),
+      childNodeIds: z.array(id).optional(),
+      radius: z.number().min(0).optional(),
+    }),
+    baseNodePatchSchema.extend({
+      paintStyleId: id.optional(),
+      fill: z.string().optional(),
+      fills: fillPaintsSchema.optional(),
+      stroke: z.string().optional(),
+      strokeWidth: z.number().nonnegative().optional(),
+      strokes: strokePaintsSchema.optional(),
+      pointCount: z.number().int().min(3).max(64).optional(),
+      innerRadius: z.number().min(0.01).max(0.99).optional(),
+    }),
+    baseNodePatchSchema.extend({
+      paintStyleId: id.optional(),
+      path: z.string().min(1).optional(),
+      viewBox: svgViewBoxSchema.optional(),
+      fillRule: z.enum(["nonzero", "evenodd"]).optional(),
+      fill: z.string().optional(),
+      fills: fillPaintsSchema.optional(),
+      stroke: z.string().optional(),
+      strokeWidth: z.number().nonnegative().optional(),
+      strokes: strokePaintsSchema.optional(),
+      operation: z
+        .enum(["union", "subtract", "intersect", "exclude"])
+        .optional(),
+      sourceNodeIds: z.array(id).optional(),
     }),
     baseNodePatchSchema.extend({
       assetId: id.optional(),
@@ -492,6 +644,96 @@ export const sceneNodePatchSchema = z
   .refine((patch) => Object.keys(patch).length > 0, {
     message: "A node update must change at least one property",
   })
+
+const shapePaintNodeShape = {
+  paintStyleId: id.optional(),
+  fill: z.string(),
+  fills: fillPaintsSchema.optional(),
+  stroke: z.string().optional(),
+  strokeWidth: z.number().nonnegative().default(0),
+  strokes: strokePaintsSchema.optional(),
+}
+
+export const sectionNodeSchema = baseNodeSchema.extend({
+  type: z.literal("section"),
+  ...shapePaintNodeShape,
+  radius: z.number().min(0).default(0),
+  childNodeIds: z.array(id).default([]),
+})
+
+export const polygonNodeSchema = baseNodeSchema.extend({
+  type: z.literal("polygon"),
+  ...shapePaintNodeShape,
+  pointCount: z.number().int().min(3).max(64).default(3),
+})
+
+export const starNodeSchema = baseNodeSchema.extend({
+  type: z.literal("star"),
+  ...shapePaintNodeShape,
+  pointCount: z.number().int().min(3).max(64).default(5),
+  innerRadius: z.number().min(0.01).max(0.99).default(0.45),
+})
+
+export const vectorNodeSchema = baseNodeSchema.extend({
+  type: z.literal("vector"),
+  ...shapePaintNodeShape,
+  path: z.string().min(1),
+  viewBox: svgViewBoxSchema.default("0 0 100 100"),
+  fillRule: z.enum(["nonzero", "evenodd"]).default("nonzero"),
+})
+
+export const booleanResultNodeSchema = baseNodeSchema.extend({
+  type: z.literal("boolean_result"),
+  ...shapePaintNodeShape,
+  operation: z.enum(["union", "subtract", "intersect", "exclude"]),
+  sourceNodeIds: z.array(id).min(2).max(64),
+  path: z.string().min(1),
+  viewBox: svgViewBoxSchema.default("0 0 100 100"),
+  fillRule: z.enum(["nonzero", "evenodd"]).default("nonzero"),
+})
+
+const validateImageSourceIdentity = (
+  value: { assetId: string; src: string },
+  context: z.RefinementCtx,
+  path: PropertyKey[] = []
+) => {
+  const identity = managedImageAssetIdentity(value.assetId, value.src)
+  const localIdentity = localImageAssetIdentity(value.assetId, value.src)
+  const curatedIdentity = curatedImageAssetIdentity(value.assetId, value.src)
+  if (
+    (value.src.startsWith(LOCAL_ASSET_PREFIX) && !localIdentity.local) ||
+    (value.src.startsWith(MANAGED_ASSET_PREFIX) && !identity.managed) ||
+    (value.src.startsWith(CURATED_ASSET_PATH_PREFIX) &&
+      !curatedIdentity.curated)
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: [...path, "src"],
+      message: "Image asset source identity is malformed",
+    })
+  }
+  if (localIdentity.local && !localIdentity.coherent) {
+    context.addIssue({
+      code: "custom",
+      path: [...path, "assetId"],
+      message: `Local image assetId must match ${localIdentity.assetId}`,
+    })
+  }
+  if (identity.managed && !identity.coherent) {
+    context.addIssue({
+      code: "custom",
+      path: [...path, "assetId"],
+      message: `Managed image assetId must match ${identity.assetId}`,
+    })
+  }
+  if (curatedIdentity.curated && !curatedIdentity.coherent) {
+    context.addIssue({
+      code: "custom",
+      path: [...path, "assetId"],
+      message: `Curated image assetId must match ${curatedIdentity.assetId}`,
+    })
+  }
+}
 
 export const sceneNodeSchema = z
   .discriminatedUnion("type", [
@@ -554,7 +796,7 @@ export const sceneNodeSchema = z
       type: z.literal("icon"),
       paintStyleId: id.optional(),
       path: z.string().min(1),
-      viewBox: z.string().default("0 0 24 24"),
+      viewBox: svgViewBoxSchema.default("0 0 24 24"),
       fill: z.string(),
       fills: fillPaintsSchema.optional(),
       stroke: z.string().optional(),
@@ -588,6 +830,11 @@ export const sceneNodeSchema = z
       clipsContent: z.boolean().default(false),
       layoutGrids: frameLayoutGridsSchema.optional(),
     }),
+    sectionNodeSchema,
+    polygonNodeSchema,
+    starNodeSchema,
+    vectorNodeSchema,
+    booleanResultNodeSchema,
   ])
   .superRefine((node, context) => {
     if (
@@ -608,6 +855,7 @@ export const sceneNodeSchema = z
           sides &&
           node.type !== "rect" &&
           node.type !== "frame" &&
+          node.type !== "section" &&
           !Object.values(sides).every(Boolean)
         ) {
           context.addIssue({
@@ -617,17 +865,63 @@ export const sceneNodeSchema = z
           })
         }
         if (
-          (node.type === "line" || node.type === "icon") &&
+          (node.type === "line" ||
+            node.type === "icon" ||
+            node.type === "polygon" ||
+            node.type === "star" ||
+            node.type === "vector" ||
+            node.type === "boolean_result") &&
           stroke.alignment &&
           stroke.alignment !== "center"
         ) {
           context.addIssue({
             code: "custom",
             path: ["strokes", index, "alignment"],
-            message: "Open-path strokes require center alignment",
+            message: "Path strokes require center alignment",
           })
         }
       })
+    }
+    if ("fills" in node && node.fills) {
+      node.fills.forEach((paint, index) => {
+        if (paint.type === "image") {
+          validateImageSourceIdentity(paint, context, ["fills", index])
+        }
+      })
+    }
+    if (node.type === "section") {
+      const childNodeIds = new Set(node.childNodeIds)
+      if (childNodeIds.size !== node.childNodeIds.length) {
+        context.addIssue({
+          code: "custom",
+          path: ["childNodeIds"],
+          message: "Section child node IDs must be unique",
+        })
+      }
+      if (childNodeIds.has(node.id)) {
+        context.addIssue({
+          code: "custom",
+          path: ["childNodeIds"],
+          message: "A section cannot contain itself",
+        })
+      }
+    }
+    if (node.type === "boolean_result") {
+      const sourceNodeIds = new Set(node.sourceNodeIds)
+      if (sourceNodeIds.size !== node.sourceNodeIds.length) {
+        context.addIssue({
+          code: "custom",
+          path: ["sourceNodeIds"],
+          message: "Boolean source node IDs must be unique",
+        })
+      }
+      if (sourceNodeIds.has(node.id)) {
+        context.addIssue({
+          code: "custom",
+          path: ["sourceNodeIds"],
+          message: "A boolean result cannot reference itself as a source",
+        })
+      }
     }
     if (node.type !== "image") return
     if (node.decorative && node.alt !== "") {
@@ -637,42 +931,7 @@ export const sceneNodeSchema = z
         message: "Decorative images must use an empty alternative description",
       })
     }
-    const identity = managedImageAssetIdentity(node.assetId, node.src)
-    const localIdentity = localImageAssetIdentity(node.assetId, node.src)
-    const curatedIdentity = curatedImageAssetIdentity(node.assetId, node.src)
-    if (
-      (node.src.startsWith(LOCAL_ASSET_PREFIX) && !localIdentity.local) ||
-      (node.src.startsWith(MANAGED_ASSET_PREFIX) && !identity.managed) ||
-      (node.src.startsWith(CURATED_ASSET_PATH_PREFIX) &&
-        !curatedIdentity.curated)
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["src"],
-        message: "Image asset source identity is malformed",
-      })
-    }
-    if (localIdentity.local && !localIdentity.coherent) {
-      context.addIssue({
-        code: "custom",
-        path: ["assetId"],
-        message: `Local image assetId must match ${localIdentity.assetId}`,
-      })
-    }
-    if (identity.managed && !identity.coherent) {
-      context.addIssue({
-        code: "custom",
-        path: ["assetId"],
-        message: `Managed image assetId must match ${identity.assetId}`,
-      })
-    }
-    if (curatedIdentity.curated && !curatedIdentity.coherent) {
-      context.addIssue({
-        code: "custom",
-        path: ["assetId"],
-        message: `Curated image assetId must match ${curatedIdentity.assetId}`,
-      })
-    }
+    validateImageSourceIdentity(node, context)
   })
 
 export const pageSchema = z
@@ -1250,6 +1509,12 @@ export const componentOverridePropertySchema = z.enum([
   "strokes",
   "path",
   "viewBox",
+  "fillRule",
+  "childNodeIds",
+  "pointCount",
+  "innerRadius",
+  "operation",
+  "sourceNodeIds",
   "assetId",
   "src",
   "placement",
@@ -1584,6 +1849,24 @@ export const documentCommandSchema = z.discriminatedUnion("type", [
     type: z.literal("add_node"),
     pageId: id,
     node: sceneNodeSchema,
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("convert_node_to_vector"),
+    nodeId: id,
+  }),
+  commandBaseSchema.extend({
+    type: z.literal("create_boolean_result"),
+    pageId: id,
+    sourceNodeIds: z
+      .array(id)
+      .min(2)
+      .max(64)
+      .refine(
+        (sourceNodeIds) => new Set(sourceNodeIds).size === sourceNodeIds.length,
+        "Boolean source node IDs must be unique"
+      ),
+    sourceDisposition: z.enum(["remove", "hide", "preserve"]).default("remove"),
+    result: booleanResultNodeSchema,
   }),
   commandBaseSchema.extend({
     type: z.literal("update_node"),
@@ -2044,6 +2327,14 @@ export type ConstraintAxis = z.infer<typeof constraintAxisSchema>
 export type BlendMode = z.infer<typeof blendModeSchema>
 export type CornerRadii = z.infer<typeof cornerRadiiSchema>
 export type FillPaint = z.infer<typeof fillPaintSchema>
+export type SolidFillPaint = z.infer<typeof solidFillPaintSchema>
+export type LinearGradientPaint = z.infer<typeof linearGradientPaintSchema>
+export type RadialGradientPaint = z.infer<typeof radialGradientPaintSchema>
+export type ImageFillPaint = z.infer<typeof imageFillPaintSchema>
+export type GradientStop = z.infer<typeof gradientStopSchema>
+export type NormalizedAffineTransform = z.infer<
+  typeof normalizedAffineTransformSchema
+>
 export type StrokePaint = z.infer<typeof strokePaintSchema>
 export type LayerEffect = z.infer<typeof layerEffectSchema>
 export type LayerExportSetting = z.infer<typeof layerExportSettingSchema>
@@ -2052,6 +2343,11 @@ export type FrameChildLayout = z.infer<typeof frameChildLayoutSchema>
 export type FrameAutoLayout = z.infer<typeof frameAutoLayoutSchema>
 export type ImagePlacement = z.infer<typeof imagePlacementSchema>
 export type ImageFrameMask = z.infer<typeof imageFrameMaskSchema>
+export type SectionNode = z.infer<typeof sectionNodeSchema>
+export type PolygonNode = z.infer<typeof polygonNodeSchema>
+export type StarNode = z.infer<typeof starNodeSchema>
+export type VectorNode = z.infer<typeof vectorNodeSchema>
+export type BooleanResultNode = z.infer<typeof booleanResultNodeSchema>
 export type Page = z.infer<typeof pageSchema>
 export type OutputVariant = z.infer<typeof outputVariantSchema>
 export type FieldType = z.infer<typeof fieldTypeSchema>

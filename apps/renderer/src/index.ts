@@ -164,11 +164,16 @@ export async function waitForRenderResources(
         }
       ).document
       const images = Array.from(document.querySelectorAll("img[data-node-id]"))
-      const imageByNodeId = new Map(
-        images.map((image) => [image.getAttribute("data-node-id"), image])
+      const imageByReference = new Map(
+        images.map((image) => [
+          `${image.getAttribute("data-node-id")}\u0000${image.getAttribute("data-image-paint-id") ?? ""}`,
+          image,
+        ])
       )
       const mismatch = expectations.find((expectation) => {
-        const image = imageByNodeId.get(expectation.nodeId)
+        const image = imageByReference.get(
+          `${expectation.nodeId}\u0000${expectation.paintId ?? ""}`
+        )
         return (
           !image ||
           image.naturalWidth !== expectation.width ||

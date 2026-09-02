@@ -316,15 +316,34 @@ function normalizeLegacyManagedImageIdentities(input: unknown): {
   for (const candidate of nodes) {
     if (!candidate || typeof candidate !== "object") continue
     const node = candidate as Record<string, unknown>
-    if (node.type !== "image" || typeof node.src !== "string") continue
-    const assetId = managedAssetIdFromSource(node.src)
-    if (!assetId || node.assetId === assetId) continue
-    node.assetId = assetId
-    migrations.push({
-      code: "legacy_managed_image_identity_normalized",
-      ...(typeof node.id === "string" ? { nodeId: node.id } : {}),
-      message: `Managed image ${typeof node.name === "string" ? node.name : (node.id ?? "layer")} was normalized to its canonical asset identity`,
-    })
+    const normalizeIdentity = (value: Record<string, unknown>) => {
+      if (typeof value.src !== "string") return false
+      const assetId = managedAssetIdFromSource(value.src)
+      if (!assetId || value.assetId === assetId) return false
+      value.assetId = assetId
+      return true
+    }
+    let normalizedIdentity = node.type === "image" && normalizeIdentity(node)
+    if (Array.isArray(node.fills)) {
+      for (const candidatePaint of node.fills) {
+        if (
+          candidatePaint &&
+          typeof candidatePaint === "object" &&
+          (candidatePaint as Record<string, unknown>).type === "image"
+        ) {
+          normalizedIdentity =
+            normalizeIdentity(candidatePaint as Record<string, unknown>) ||
+            normalizedIdentity
+        }
+      }
+    }
+    if (normalizedIdentity) {
+      migrations.push({
+        code: "legacy_managed_image_identity_normalized",
+        ...(typeof node.id === "string" ? { nodeId: node.id } : {}),
+        message: `Managed image ${typeof node.name === "string" ? node.name : (node.id ?? "layer")} was normalized to its canonical asset identity`,
+      })
+    }
   }
   return { input: normalized, migrations }
 }

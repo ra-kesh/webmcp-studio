@@ -82,6 +82,33 @@ describe("render image resource admission", () => {
     ).resolves.toBeUndefined()
   })
 
+  it("admits an exact image-fill resource by node and paint identity", async () => {
+    const document = structuredClone(northstarSeed)
+    const shape = document.nodes.find((node) => node.type === "rect")
+    if (!shape || shape.type !== "rect") throw new Error("Rect fixture missing")
+    shape.fills = [
+      {
+        id: "managed-fill",
+        type: "image",
+        assetId: "asset-abcdefghij",
+        src: source,
+        opacity: 1,
+        visible: true,
+        transform: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 },
+      },
+    ]
+
+    await expect(
+      assertRenderImageResourceAdmission(document, [
+        {
+          ...(await expectation()),
+          nodeId: shape.id,
+          paintId: "managed-fill",
+        },
+      ])
+    ).resolves.toBeUndefined()
+  })
+
   it.each([
     [
       "image_resource_node_missing",

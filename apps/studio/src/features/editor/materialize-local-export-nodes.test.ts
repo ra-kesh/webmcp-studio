@@ -67,6 +67,50 @@ const documentWithLocalImages = (): Document => ({
 })
 
 describe("materializeLocalExportNodes", () => {
+  it("materializes browser-local image fills for export", async () => {
+    const document = structuredClone(quotationStarter.document)
+    const shape = document.nodes.find((node) => node.type === "rect")
+    if (!shape) throw new Error("Rect fixture missing")
+    shape.fills = [
+      {
+        id: "local-fill",
+        type: "image",
+        assetId: "asset-fill",
+        src: "asset:local/asset-fill",
+        opacity: 1,
+        visible: true,
+        transform: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 },
+      },
+    ]
+    const loadAsset = vi.fn(async () => new Blob(["fill"]))
+    const encodeBlob = vi.fn(async () => "data:image/png;base64,ZmlsbA==")
+
+    const nodes = await materializeLocalExportNodes(
+      document,
+      new AbortController().signal,
+      { loadAsset, encodeBlob }
+    )
+    const exported = nodes.find((node) => node.id === shape.id)
+
+    expect(loadAsset).toHaveBeenCalledWith(
+      "asset-fill",
+      expect.any(AbortSignal)
+    )
+    expect(exported).toMatchObject({
+      fills: [
+        {
+          id: "local-fill",
+          src: "data:image/png;base64,ZmlsbA==",
+        },
+      ],
+    })
+    const canonicalFill = shape.fills[0]
+    if (canonicalFill.type !== "image") {
+      throw new Error("Image fill fixture missing")
+    }
+    expect(canonicalFill.src).toBe("asset:local/asset-fill")
+  })
+
   it("aborts and joins sibling image work before reporting the first failure", async () => {
     const firstFailure = new Error("Asset A failed")
     let siblingSignal: AbortSignal | undefined

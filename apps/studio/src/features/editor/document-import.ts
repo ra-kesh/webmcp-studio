@@ -5,10 +5,12 @@ import {
   applyLocalMediaAdmissionPlan,
   decodeDocument,
   extractAssetReferences,
+  isRenderSafeImageSource,
   localAssetPromotionResolveResponseSchema,
   managedAssetSource,
   mediaRequestIdSchema,
   planLocalMediaAdmission,
+  sceneNodeImageReferences,
   validateDocument,
   validateRenderPolicy,
 } from "@webmcp/document"
@@ -345,19 +347,27 @@ const assetReferenceFromSource = (
 const isRepositoryImageIssue = (document: Document, issue: ValidationIssue) => {
   if (issue.code !== "unmanaged_asset" || !issue.nodeId) return false
   const node = document.nodes.find((candidate) => candidate.id === issue.nodeId)
+  if (!node) return false
+  const unsafeReferences = sceneNodeImageReferences(node).filter(
+    (reference) => !isRenderSafeImageSource(reference.src)
+  )
   return (
-    node?.type === "image" &&
-    (localAssetIdFromSource(node.src) !== null ||
-      assetReferenceFromSource(node.src) !== null)
+    unsafeReferences.length > 0 &&
+    unsafeReferences.every(
+      (reference) =>
+        localAssetIdFromSource(reference.src) !== null ||
+        assetReferenceFromSource(reference.src) !== null
+    )
   )
 }
 
 const referencedDocumentAssets = (document: Document) => {
   const references: DocumentAssetReference[] = []
   for (const node of document.nodes) {
-    if (node.type !== "image") continue
-    const reference = assetReferenceFromSource(node.src, node.id)
-    if (reference) references.push(reference)
+    for (const imageReference of sceneNodeImageReferences(node)) {
+      const reference = assetReferenceFromSource(imageReference.src, node.id)
+      if (reference) references.push(reference)
+    }
   }
   for (const field of document.fields) {
     if (field.type !== "asset") continue

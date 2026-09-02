@@ -327,11 +327,15 @@ function transformComponentNode(
       })),
     })
   }
-  if (node.type === "rect" || node.type === "frame") {
+  if (
+    node.type === "rect" ||
+    node.type === "frame" ||
+    node.type === "section"
+  ) {
     return sceneNodeSchema.parse({
       ...transformed,
       radius: node.radius * scale,
-      ...(node.cornerRadii
+      ...(node.type !== "section" && node.cornerRadii
         ? { cornerRadii: scaleCornerRadii(node.cornerRadii, scale) }
         : {}),
       strokeWidth: node.strokeWidth * scale,
@@ -364,7 +368,15 @@ function transformComponentNode(
         : {}),
     })
   }
-  if (node.type === "ellipse" || node.type === "line" || node.type === "icon") {
+  if (
+    node.type === "ellipse" ||
+    node.type === "line" ||
+    node.type === "icon" ||
+    node.type === "polygon" ||
+    node.type === "star" ||
+    node.type === "vector" ||
+    node.type === "boolean_result"
+  ) {
     return sceneNodeSchema.parse({
       ...transformed,
       strokeWidth: node.strokeWidth * scale,
@@ -429,7 +441,23 @@ export function resolveComponentInstanceNodes(
               nodeId: mapping.get(child.nodeId) ?? child.nodeId,
             })),
           }
-        : { ...resolved, id: instanceNodeId },
+        : resolved.type === "section"
+          ? {
+              ...resolved,
+              id: instanceNodeId,
+              childNodeIds: resolved.childNodeIds.map(
+                (nodeId) => mapping.get(nodeId) ?? nodeId
+              ),
+            }
+          : resolved.type === "boolean_result"
+            ? {
+                ...resolved,
+                id: instanceNodeId,
+                sourceNodeIds: resolved.sourceNodeIds.map(
+                  (nodeId) => mapping.get(nodeId) ?? nodeId
+                ),
+              }
+            : { ...resolved, id: instanceNodeId },
     ]
   })
 }

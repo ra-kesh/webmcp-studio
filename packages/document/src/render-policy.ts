@@ -59,10 +59,31 @@ export const isRenderSafeCssColor = (value: string): boolean =>
 
 const nodeColors = (node: SceneNode): string[] => {
   if (node.type === "text") return [node.color]
-  if (node.type === "line") return [node.stroke]
   if (node.type === "image") return []
-  return [node.fill, ...(node.stroke ? [node.stroke] : [])]
+  const fillColors =
+    node.type === "line"
+      ? []
+      : (node.fills ?? []).flatMap((paint) =>
+          paint.type === "linear_gradient" || paint.type === "radial_gradient"
+            ? paint.stops.map((stop) => stop.color)
+            : paint.type === "image"
+              ? []
+              : [paint.color]
+        )
+  return [
+    ...(node.type === "line" ? [] : [node.fill]),
+    ...(node.stroke ? [node.stroke] : []),
+    ...fillColors,
+    ...(node.strokes ?? []).map((paint) => paint.color),
+  ]
 }
+
+const nodeImagePaintSources = (node: SceneNode) =>
+  node.type === "text" || node.type === "image" || node.type === "line"
+    ? []
+    : (node.fills ?? []).flatMap((paint) =>
+        paint.type === "image" ? [paint.src] : []
+      )
 
 export function validateRenderPolicy(document: Document): ValidationIssue[] {
   const issues: ValidationIssue[] = []
@@ -207,7 +228,9 @@ export function validateRenderPolicy(document: Document): ValidationIssue[] {
     }
 
     if (
-      node.type === "icon" &&
+      (node.type === "icon" ||
+        node.type === "vector" ||
+        node.type === "boolean_result") &&
       node.path.length > limits.maxSvgPathCharacters
     ) {
       issues.push(
@@ -228,12 +251,33 @@ export function validateRenderPolicy(document: Document): ValidationIssue[] {
         )
       )
     }
+    for (const source of nodeImagePaintSources(node)) {
+      if (!isRenderSafeImageSource(source)) {
+        issues.push(
+          issue(
+            "unmanaged_asset",
+            `${node.name} must use an inline, network-isolated managed image fill`,
+            { nodeId: node.id }
+          )
+        )
+      }
+    }
     if (node.type === "image" && node.src.startsWith("data:image/")) {
       const pageId = pageIdByNodeId.get(node.id)
       if (pageId) {
         inlineImageCharactersByPage.set(
           pageId,
           (inlineImageCharactersByPage.get(pageId) ?? 0) + node.src.length
+        )
+      }
+    }
+    for (const source of nodeImagePaintSources(node)) {
+      if (!source.startsWith("data:image/")) continue
+      const pageId = pageIdByNodeId.get(node.id)
+      if (pageId) {
+        inlineImageCharactersByPage.set(
+          pageId,
+          (inlineImageCharactersByPage.get(pageId) ?? 0) + source.length
         )
       }
     }

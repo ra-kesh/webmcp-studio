@@ -323,6 +323,77 @@ describe("DocumentPreviewController", () => {
     )
   })
 
+  it("materializes local and managed image-fill aliases for the live fallback", async () => {
+    const fixture = recordFixture("document-fallback-image-fills")
+    const document = structuredClone(fixture.record.envelope.document)
+    const shape = document.nodes.find((node) => node.type === "rect")
+    if (!shape) throw new Error("Rect fixture missing")
+    shape.fills = [
+      {
+        id: "local-fill",
+        type: "image",
+        assetId: "local-fill-asset",
+        src: "asset:local/local-fill-asset",
+        opacity: 1,
+        visible: true,
+        transform: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 },
+      },
+      {
+        id: "managed-fill",
+        type: "image",
+        assetId: "asset-managedfill01",
+        src: "asset:managed/asset-managedfill01",
+        opacity: 1,
+        visible: true,
+        transform: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 },
+      },
+    ]
+    const record = {
+      ...fixture.record,
+      envelope: { ...fixture.record.envelope, document },
+    }
+    const loadLocalAsset = vi.fn(async () => new Blob(["fill"] as BlobPart[]))
+    const controller = new DocumentPreviewController({
+      readPreview: vi.fn(async () => ({
+        ok: true as const,
+        status: "missing" as const,
+      })),
+      getDocument: vi.fn(async () => ({
+        ok: true as const,
+        status: "found" as const,
+        record,
+      })),
+      putPreview: vi.fn(),
+      liveFallback: true,
+      loadLocalAsset,
+      createObjectURL: vi.fn(() => "blob:local-fill-preview"),
+      revokeObjectURL: vi.fn(),
+    })
+
+    controller.retain(fixture.identity)
+    await vi.waitFor(() => {
+      expect(controller.getSnapshot(fixture.identity).status).toBe(
+        "live_fallback"
+      )
+    })
+    const state = controller.getSnapshot(fixture.identity)
+    if (state.status !== "live_fallback") throw new Error("Expected fallback")
+    const previewShape = state.document.nodes.find(
+      (node) => node.id === shape.id
+    )
+    const fills =
+      previewShape && "fills" in previewShape ? previewShape.fills : undefined
+
+    expect(loadLocalAsset).toHaveBeenCalledExactlyOnceWith("local-fill-asset")
+    expect(fills).toEqual([
+      expect.objectContaining({ src: "blob:local-fill-preview" }),
+      expect.objectContaining({
+        src: "/v1/studio/assets/asset-managedfill01/content",
+      }),
+    ])
+    controller.dispose()
+  })
+
   it("deduplicates consumers and admits at most three exact preview jobs", async () => {
     const identities = Array.from(
       { length: 4 },

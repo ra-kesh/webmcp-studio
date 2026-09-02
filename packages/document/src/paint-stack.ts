@@ -2,8 +2,33 @@ import type { FillPaint, SceneNode, StrokePaint } from "./schema"
 
 export type PaintStackNode = Extract<
   SceneNode,
-  { type: "rect" | "frame" | "ellipse" | "line" | "icon" }
+  {
+    type:
+      | "rect"
+      | "frame"
+      | "ellipse"
+      | "line"
+      | "icon"
+      | "section"
+      | "polygon"
+      | "star"
+      | "vector"
+      | "boolean_result"
+  }
 >
+
+export const isSolidFillPaint = (
+  paint: FillPaint
+): paint is Extract<FillPaint, { color: string }> =>
+  paint.type === undefined || paint.type === "solid"
+
+const availablePaintId = (paints: readonly FillPaint[], requested: string) => {
+  const ids = new Set(paints.map((paint) => paint.id))
+  if (!ids.has(requested)) return requested
+  let suffix = 2
+  while (ids.has(`${requested}-${suffix}`)) suffix += 1
+  return `${requested}-${suffix}`
+}
 
 export const nodeFillPaints = (node: PaintStackNode): readonly FillPaint[] => {
   if (node.type === "line") return []
@@ -53,13 +78,23 @@ export function synchronizeLegacyPaintFields(
   const next = { ...patch }
   if (node.type !== "line") {
     if (Array.isArray(next.fills)) {
-      const first = next.fills[0] as FillPaint | undefined
-      if (first) next.fill = first.color
+      const firstSolid = (next.fills as FillPaint[]).find(isSolidFillPaint)
+      if (firstSolid) next.fill = firstSolid.color
     } else if (typeof next.fill === "string" && node.fills?.[0]) {
-      next.fills = [
-        { ...node.fills[0], color: next.fill },
-        ...node.fills.slice(1),
-      ]
+      const first = node.fills[0]
+      next.fills =
+        first && isSolidFillPaint(first)
+          ? [{ ...first, color: next.fill }, ...node.fills.slice(1)]
+          : [
+              {
+                id: availablePaintId(node.fills ?? [], "direct-fill"),
+                type: "solid",
+                color: next.fill,
+                opacity: 1,
+                visible: true,
+              },
+              ...(node.fills ?? []),
+            ]
     }
   }
   if (Array.isArray(next.strokes)) {

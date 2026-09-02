@@ -1,6 +1,7 @@
 import {
   assertPageThumbnailSize,
   cornerRadiiCss,
+  hasExplicitPaintStack,
   pageThumbnailScale,
   projectNodeForRender,
   projectFrameClipStack,
@@ -8,9 +9,11 @@ import {
   roundedRectanglePath,
   roundedRectanglePaintPath,
   serializeImagePaintProjector,
+  strokeGeometryInset,
   type Document,
   type ImagePaintProjectionInput,
   type RenderImagePaintProjection,
+  type RenderFillPaint,
   type RenderNodeProjection,
   type SceneNode,
 } from "@webmcp/document"
@@ -58,6 +61,7 @@ type RenderImage = {
     imageFrameMask?: string
     imageFrameWidth?: string
     imagePlacement?: string
+    imagePaintPreload?: string
     nodeId?: string
   }
   decode(): Promise<unknown>
@@ -173,6 +177,8 @@ export async function markRenderResourcesReady(input: {
         fail("image_decode_failed", image.dataset.nodeId)
         return
       }
+
+      if (image.dataset.imagePaintPreload === "true") continue
 
       try {
         const frameWidth = Number(image.dataset.imageFrameWidth)
@@ -373,6 +379,208 @@ const escapeHtml = (value: string): string =>
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;")
 
+type HtmlShapeProjection = Extract<
+  RenderNodeProjection,
+  {
+    type:
+      | "rect"
+      | "frame"
+      | "ellipse"
+      | "line"
+      | "icon"
+      | "section"
+      | "polygon"
+      | "star"
+      | "vector"
+      | "boolean_result"
+  }
+>
+
+const svgPaintIdentifier = (nodeId: string, paintId: string) =>
+  `studio-paint-${Array.from(`${nodeId}\u0000${paintId}`, (character) =>
+    character.codePointAt(0)?.toString(16)
+  ).join("-")}`
+
+const paintStyle = (paint: {
+  opacity: number
+  visible: boolean
+  blendMode: string
+}) =>
+  `opacity:${paint.opacity};display:${paint.visible ? "block" : "none"};mix-blend-mode:${paint.blendMode}`
+
+const renderFillDefinition = (
+  nodeId: string,
+  paint: Exclude<RenderFillPaint, { type?: "solid" }>
+) => {
+  const id = svgPaintIdentifier(nodeId, paint.id)
+  if (paint.type === "linear_gradient") {
+    const stops = paint.stops
+      .map(
+        (stop) =>
+          `<stop offset="${stop.position}" stop-color="${escapeHtml(stop.color)}" stop-opacity="${stop.opacity}" />`
+      )
+      .join("")
+    return `<linearGradient id="${id}" x1="${paint.from.x}" y1="${paint.from.y}" x2="${paint.to.x}" y2="${paint.to.y}">${stops}</linearGradient>`
+  }
+  if (paint.type === "radial_gradient") {
+    const stops = paint.stops
+      .map(
+        (stop) =>
+          `<stop offset="${stop.position}" stop-color="${escapeHtml(stop.color)}" stop-opacity="${stop.opacity}" />`
+      )
+      .join("")
+    return `<radialGradient id="${id}" cx="0" cy="0" r="1" gradientTransform="translate(${paint.center.x} ${paint.center.y}) rotate(${paint.rotation}) scale(${paint.radiusX} ${paint.radiusY})">${stops}</radialGradient>`
+  }
+  const { a, b, c, d, e, f } = paint.transform
+  return `<pattern id="${id}" width="1" height="1" patternContentUnits="objectBoundingBox" patternUnits="objectBoundingBox"><image data-image-paint-node-id="${escapeHtml(nodeId)}" href="${escapeHtml(paint.src)}" width="1" height="1" preserveAspectRatio="none" transform="matrix(${a} ${b} ${c} ${d} ${e} ${f})" /></pattern>`
+}
+
+const renderFillValue = (nodeId: string, paint: RenderFillPaint) =>
+  !paint.type || paint.type === "solid"
+    ? escapeHtml(paint.color)
+    : `url(#${svgPaintIdentifier(nodeId, paint.id)})`
+
+const renderStrokeAttributes = (
+  paint: HtmlShapeProjection["content"]["strokes"][number]
+) =>
+  [
+    `stroke="${escapeHtml(paint.color)}"`,
+    `stroke-width="${paint.width}"`,
+    paint.dash.length ? `stroke-dasharray="${paint.dash.join(" ")}"` : "",
+    `stroke-linecap="${paint.cap}"`,
+    `stroke-linejoin="${paint.join}"`,
+    `stroke-miterlimit="${paint.miterLimit}"`,
+    'vector-effect="non-scaling-stroke"',
+  ]
+    .filter(Boolean)
+    .join(" ")
+
+const renderPaintedShapeToHtml = (
+  projection: HtmlShapeProjection,
+  identity: string,
+  common: string
+) => {
+  const nodeId = projection.frame.id
+  if (projection.type === "line") {
+    const strokes = projection.content.strokes
+      .map(
+        (paint) =>
+          `<line x1="0" y1="0" x2="${projection.frame.width}" y2="${projection.frame.height}" fill="none" ${renderStrokeAttributes(paint)} style="${paintStyle(paint)}" />`
+      )
+      .join("")
+    return `<svg ${identity} viewBox="0 0 ${projection.frame.width} ${projection.frame.height}" preserveAspectRatio="none" style="${common};overflow:visible">${strokes}</svg>`
+  }
+
+  const definitions = projection.content.fills
+    .filter((paint): paint is Exclude<RenderFillPaint, { type?: "solid" }> =>
+      Boolean(paint.type && paint.type !== "solid")
+    )
+    .map((paint) => renderFillDefinition(nodeId, paint))
+    .join("")
+  const imagePreloads = projection.content.fills
+    .filter(
+      (paint): paint is Extract<RenderFillPaint, { type: "image" }> =>
+        paint.type === "image"
+    )
+    .map(
+      (paint) =>
+        `<img data-image-paint-preload="true" data-node-id="${escapeHtml(nodeId)}" data-image-paint-id="${escapeHtml(paint.id)}" src="${escapeHtml(paint.src)}" alt="" aria-hidden="true" style="position:fixed;left:-100000px;top:0;width:1px;height:1px;visibility:hidden;pointer-events:none" />`
+    )
+    .join("")
+  const fillMarkup = projection.content.fills.map((paint) => ({
+    paint,
+    attributes: `fill="${renderFillValue(nodeId, paint)}" stroke="none" style="${paintStyle(paint)}"`,
+  }))
+  const strokeMarkup = projection.content.strokes.map((paint) => ({
+    paint,
+    attributes: `fill="none" ${renderStrokeAttributes(paint)} style="${paintStyle(paint)}"`,
+  }))
+
+  const pathProjection =
+    projection.type === "icon" ||
+    projection.type === "polygon" ||
+    projection.type === "star" ||
+    projection.type === "vector" ||
+    projection.type === "boolean_result"
+      ? projection
+      : null
+  const shape = (
+    entry: (typeof fillMarkup)[number] | (typeof strokeMarkup)[number],
+    kind: "fill" | "stroke"
+  ) => {
+    if (pathProjection) {
+      const fillRule =
+        pathProjection.type === "icon"
+          ? "nonzero"
+          : pathProjection.content.fillRule
+      return `<path d="${escapeHtml(pathProjection.content.path)}" fill-rule="${fillRule}" ${entry.attributes} />`
+    }
+    const inset =
+      kind === "stroke" && "width" in entry.paint
+        ? strokeGeometryInset({
+            width: entry.paint.width,
+            alignment: entry.paint.alignment,
+          })
+        : 0
+    if (projection.type === "ellipse") {
+      return `<ellipse cx="${projection.frame.width / 2}" cy="${projection.frame.height / 2}" rx="${Math.max(0, projection.frame.width / 2 - inset)}" ry="${Math.max(0, projection.frame.height / 2 - inset)}" ${entry.attributes} />`
+    }
+    if (
+      kind === "stroke" &&
+      "sides" in entry.paint &&
+      !Object.values(entry.paint.sides).every(Boolean)
+    ) {
+      const x1 = inset
+      const y1 = inset
+      const x2 = projection.frame.width - inset
+      const y2 = projection.frame.height - inset
+      return [
+        entry.paint.sides.top
+          ? `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y1}" ${entry.attributes} />`
+          : "",
+        entry.paint.sides.right
+          ? `<line x1="${x2}" y1="${y1}" x2="${x2}" y2="${y2}" ${entry.attributes} />`
+          : "",
+        entry.paint.sides.bottom
+          ? `<line x1="${x2}" y1="${y2}" x2="${x1}" y2="${y2}" ${entry.attributes} />`
+          : "",
+        entry.paint.sides.left
+          ? `<line x1="${x1}" y1="${y2}" x2="${x1}" y2="${y1}" ${entry.attributes} />`
+          : "",
+      ].join("")
+    }
+    if (
+      (projection.type === "rect" || projection.type === "frame") &&
+      (projection.content.corners.independent ||
+        projection.content.corners.smoothing > 0)
+    ) {
+      return `<path d="${escapeHtml(
+        roundedRectanglePaintPath({
+          width: Math.max(0, projection.frame.width - inset * 2),
+          height: Math.max(0, projection.frame.height - inset * 2),
+          cornerRadii: projection.content.corners.radii,
+          cornerSmoothing: projection.content.corners.smoothing,
+          strokeWidth:
+            kind === "stroke" && "width" in entry.paint ? entry.paint.width : 0,
+        })
+      )}"${inset ? ` transform="translate(${inset} ${inset})"` : ""} ${entry.attributes} />`
+    }
+    const radius =
+      "radius" in projection.content ? projection.content.radius : 0
+    return `<rect x="${inset}" y="${inset}" width="${Math.max(0, projection.frame.width - inset * 2)}" height="${Math.max(0, projection.frame.height - inset * 2)}" rx="${radius}" ry="${radius}" ${entry.attributes} />`
+  }
+  const viewBox = pathProjection
+    ? pathProjection.content.viewBox
+    : `0 0 ${projection.frame.width} ${projection.frame.height}`
+  const preserveAspectRatio =
+    pathProjection?.type === "icon" ? "xMidYMid meet" : "none"
+  const shapes = [
+    ...fillMarkup.map((entry) => shape(entry, "fill")),
+    ...strokeMarkup.map((entry) => shape(entry, "stroke")),
+  ].join("")
+  return `<svg ${identity} viewBox="${escapeHtml(viewBox)}" preserveAspectRatio="${preserveAspectRatio}" style="${common};overflow:visible"><defs>${definitions}</defs>${shapes}</svg>${imagePreloads}`
+}
+
 function renderTextMarkup(
   projection: Extract<RenderNodeProjection, { type: "text" }>
 ) {
@@ -442,6 +650,21 @@ export function renderNodeToHtml(node: SceneNode): string {
     `display:${frame.visible ? "block" : "none"}`,
   ].join(";")
   const identity = `data-node-id="${escapeHtml(frame.id)}" data-node-locked="${frame.locked ? "true" : "false"}"`
+
+  if (
+    projection.type !== "text" &&
+    projection.type !== "image" &&
+    (hasExplicitPaintStack(
+      node as Parameters<typeof hasExplicitPaintStack>[0]
+    ) ||
+      projection.type === "section" ||
+      projection.type === "polygon" ||
+      projection.type === "star" ||
+      projection.type === "vector" ||
+      projection.type === "boolean_result")
+  ) {
+    return renderPaintedShapeToHtml(projection, identity, common)
+  }
 
   if (projection.type === "rect" || projection.type === "frame") {
     if (

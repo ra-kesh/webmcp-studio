@@ -14,9 +14,13 @@ import {
   validateDocument,
   type ValidationIssue,
 } from "./validation"
-import { validateRenderPolicy } from "./render-policy"
+import { isRenderSafeImageSource, validateRenderPolicy } from "./render-policy"
 import { parseAssetReference } from "./fields"
-import { curatedAssetIdentityFromSource } from "./media"
+import {
+  curatedAssetIdentityFromSource,
+  managedAssetIdFromSource,
+  sceneNodeImageReferences,
+} from "./media"
 import { resolveLayerExportRoutes } from "./layer-export"
 
 export type PublishReadiness = {
@@ -97,19 +101,20 @@ export async function deriveDocumentSnapshotId(
 
 export function getPublishReadiness(document: Document): PublishReadiness {
   const issues = validateDocument(document)
-  const managedAssetNodeIds = new Set(
-    document.nodes.flatMap((node) =>
-      node.type === "image" && node.src.startsWith("asset:managed/")
+  const resolvedAssetNodeIds = new Set(
+    document.nodes.flatMap((node) => {
+      const unsafeReferences = sceneNodeImageReferences(node).filter(
+        (reference) => !isRenderSafeImageSource(reference.src)
+      )
+      if (!unsafeReferences.length) return []
+      return unsafeReferences.every(
+        (reference) =>
+          managedAssetIdFromSource(reference.src) !== null ||
+          curatedAssetIdentityFromSource(reference.src) !== null
+      )
         ? [node.id]
         : []
-    )
-  )
-  const curatedAssetNodeIds = new Set(
-    document.nodes.flatMap((node) =>
-      node.type === "image" && curatedAssetIdentityFromSource(node.src)
-        ? [node.id]
-        : []
-    )
+    })
   )
   // Workspace-managed IDs are the canonical persisted publication identity.
   // They are resolved by the authenticated server immediately before render;
@@ -119,12 +124,13 @@ export function getPublishReadiness(document: Document): PublishReadiness {
       !(
         issue.code === "unmanaged_asset" &&
         issue.nodeId &&
-        (managedAssetNodeIds.has(issue.nodeId) ||
-          curatedAssetNodeIds.has(issue.nodeId))
+        resolvedAssetNodeIds.has(issue.nodeId)
       )
   )
   const localAssetNodeIds = document.nodes.flatMap((node) =>
-    node.type === "image" && node.src.startsWith("asset:local/")
+    sceneNodeImageReferences(node).some((reference) =>
+      reference.src.startsWith("asset:local/")
+    )
       ? [node.id]
       : []
   )

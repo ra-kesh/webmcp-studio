@@ -26,15 +26,32 @@ export function projectLocalAssetPreviewSources(
   return {
     ...document,
     nodes: document.nodes.map((node) => {
-      if (node.type !== "image") return node
-      const assetId = localAssetIdFromSource(node.src)
-      if (!assetId) return node
+      if (node.type === "image") {
+        const assetId = localAssetIdFromSource(node.src)
+        if (!assetId) return node
+        return {
+          ...node,
+          src:
+            previewUrls.get(assetId) ?? LOCAL_ASSET_UNAVAILABLE_PREVIEW_SOURCE,
+          alt: previewUrls.has(assetId)
+            ? node.alt
+            : `${node.alt || node.name}. File missing on this device.`,
+        }
+      }
+      if (!("fills" in node) || !node.fills) return node
       return {
         ...node,
-        src: previewUrls.get(assetId) ?? LOCAL_ASSET_UNAVAILABLE_PREVIEW_SOURCE,
-        alt: previewUrls.has(assetId)
-          ? node.alt
-          : `${node.alt || node.name}. File missing on this device.`,
+        fills: node.fills.map((paint) => {
+          if (paint.type !== "image") return paint
+          const assetId = localAssetIdFromSource(paint.src)
+          if (!assetId) return paint
+          return {
+            ...paint,
+            src:
+              previewUrls.get(assetId) ??
+              LOCAL_ASSET_UNAVAILABLE_PREVIEW_SOURCE,
+          }
+        }),
       }
     }),
   }

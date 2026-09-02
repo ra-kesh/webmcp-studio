@@ -10,6 +10,7 @@ import { applyTextStyleToRange } from "./text-range-editing"
 import { applyTextLayoutPatch } from "./text-layout"
 import type { TextRun, TextRunStyle } from "./rich-text"
 import { normalizeTextRuns } from "./rich-text"
+import { isSolidFillPaint, synchronizeLegacyPaintFields } from "./paint-stack"
 
 export type DesignStyleKind = "typography" | "paint"
 
@@ -130,11 +131,51 @@ function paintPropertyForNode(node: SceneNode): "color" | "fill" | "stroke" {
     node.type === "rect" ||
     node.type === "frame" ||
     node.type === "ellipse" ||
-    node.type === "icon"
+    node.type === "icon" ||
+    node.type === "section" ||
+    node.type === "polygon" ||
+    node.type === "star" ||
+    node.type === "vector" ||
+    node.type === "boolean_result"
   ) {
     return "fill"
   }
   throw new Error(`Paint styles are not available for image layers`)
+}
+
+const paintStackPatch = (
+  node: Exclude<SceneNode, { type: "image" | "text" }>,
+  property: "fill" | "stroke",
+  style: PaintStyle
+) => {
+  if (property === "fill" && node.type !== "line") {
+    const synchronized = synchronizeLegacyPaintFields(node, {
+      fill: style.color,
+    })
+    const fills = synchronized.fills
+    if (!Array.isArray(fills)) return {}
+    let updated = false
+    return {
+      fills: fills.map((paint) => {
+        if (updated || !isSolidFillPaint(paint)) return paint
+        updated = true
+        return { ...paint, opacity: style.opacity }
+      }),
+    }
+  }
+  if (property === "stroke" && node.strokes?.[0]) {
+    return {
+      strokes: [
+        {
+          ...node.strokes[0],
+          color: style.color,
+          opacity: style.opacity,
+        },
+        ...node.strokes.slice(1),
+      ],
+    }
+  }
+  return {}
 }
 
 export function applyPaintStyleToTarget(
@@ -157,27 +198,14 @@ export function applyPaintStyleToTarget(
       ),
     }
   }
+  if (node.type === "image") {
+    throw new Error(`Paint styles are not available for image layers`)
+  }
   const property = paintPropertyForNode(node)
   const paintPatch =
-    property === "fill" && "fills" in node && node.fills?.[0]
-      ? {
-          fills: [
-            { ...node.fills[0], color: style.color, opacity: style.opacity },
-            ...node.fills.slice(1),
-          ],
-        }
-      : property === "stroke" && "strokes" in node && node.strokes?.[0]
-        ? {
-            strokes: [
-              {
-                ...node.strokes[0],
-                color: style.color,
-                opacity: style.opacity,
-              },
-              ...node.strokes.slice(1),
-            ],
-          }
-        : {}
+    node.type === "text"
+      ? {}
+      : paintStackPatch(node, property as "fill" | "stroke", style)
   return {
     ...node,
     paintStyleId: style.id,
@@ -254,26 +282,7 @@ export function propagatePaintStyle(
   }
   if (node.paintStyleId !== style.id) return node
   const property = paintPropertyForNode(node)
-  const paintPatch =
-    property === "fill" && "fills" in node && node.fills?.[0]
-      ? {
-          fills: [
-            { ...node.fills[0], color: style.color, opacity: style.opacity },
-            ...node.fills.slice(1),
-          ],
-        }
-      : property === "stroke" && "strokes" in node && node.strokes?.[0]
-        ? {
-            strokes: [
-              {
-                ...node.strokes[0],
-                color: style.color,
-                opacity: style.opacity,
-              },
-              ...node.strokes.slice(1),
-            ],
-          }
-        : {}
+  const paintPatch = paintStackPatch(node, property as "fill" | "stroke", style)
   return {
     ...node,
     [property]: style.color,
@@ -312,7 +321,12 @@ export function detachStyleForDirectNodePatch(
         ? "stroke"
         : node.type === "rect" ||
             node.type === "ellipse" ||
-            node.type === "icon"
+            node.type === "icon" ||
+            node.type === "section" ||
+            node.type === "polygon" ||
+            node.type === "star" ||
+            node.type === "vector" ||
+            node.type === "boolean_result"
           ? "fill"
           : node.type === "frame"
             ? "fill"

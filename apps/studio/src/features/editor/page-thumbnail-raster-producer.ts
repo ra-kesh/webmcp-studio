@@ -2,6 +2,7 @@ import {
   assertPageThumbnailSize,
   createPageThumbnailDocument,
   createPageThumbnailRevision,
+  sceneNodeImageReferences,
 } from "@webmcp/document"
 import type { Document } from "@webmcp/document"
 import type {
@@ -172,8 +173,10 @@ export async function produceStudioPageThumbnailRaster({
     key.pageId
   )
   if (
-    thumbnailDocument.nodes.some(
-      (node) => node.type === "image" && node.src.startsWith("asset:local/")
+    thumbnailDocument.nodes.some((node) =>
+      sceneNodeImageReferences(node).some((reference) =>
+        reference.src.startsWith("asset:local/")
+      )
     )
   ) {
     throw new StudioPageThumbnailRasterError(

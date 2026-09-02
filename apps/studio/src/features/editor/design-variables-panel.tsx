@@ -121,10 +121,17 @@ const propertiesForNode = (
       ...geometryProperties,
     ]
   }
-  if (node.type === "rect") {
+  if (node.type === "rect" || node.type === "section") {
     return ["fill", "stroke", "strokeWidth", "radius", ...geometryProperties]
   }
-  if (node.type === "ellipse" || node.type === "icon") {
+  if (
+    node.type === "ellipse" ||
+    node.type === "icon" ||
+    node.type === "polygon" ||
+    node.type === "star" ||
+    node.type === "vector" ||
+    node.type === "boolean_result"
+  ) {
     return ["fill", "stroke", "strokeWidth", ...geometryProperties]
   }
   if (node.type === "line") {
@@ -840,7 +847,7 @@ export function DesignVariablesPanel({
                       <Button
                         size="xs"
                         variant="ghost"
-                        onClick={() => onFocusNode(usage.nodeIds[0]!)}
+                        onClick={() => onFocusNode(usage.nodeIds[0])}
                       >
                         Show layer
                       </Button>

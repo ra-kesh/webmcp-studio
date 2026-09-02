@@ -3,7 +3,7 @@ import {
   type QuotationTemplate,
   type QuotationTemplateId,
 } from "./quotation-composer"
-import type { Document, SceneNode } from "./schema"
+import type { Document, FillPaint, SceneNode } from "./schema"
 import { propagatePaintStyle } from "./design-styles"
 import { assertValidDocument } from "./validation"
 import { applyVariableToBinding } from "./variables"
@@ -32,6 +32,23 @@ const createPaletteMap = (
 const replacePaint = (value: string, palette: Map<string, string>) =>
   palette.get(value.toLowerCase()) ?? value
 
+const applyFillPalette = (
+  paint: FillPaint,
+  palette: Map<string, string>
+): FillPaint => {
+  if (paint.type === "image") return paint
+  if (paint.type === "linear_gradient" || paint.type === "radial_gradient") {
+    return {
+      ...paint,
+      stops: paint.stops.map((stop) => ({
+        ...stop,
+        color: replacePaint(stop.color, palette),
+      })),
+    }
+  }
+  return { ...paint, color: replacePaint(paint.color, palette) }
+}
+
 const applyNodePalette = (
   node: SceneNode,
   palette: Map<string, string>
@@ -54,18 +71,40 @@ const applyNodePalette = (
     case "rect":
     case "frame":
     case "ellipse":
+    case "section":
+    case "polygon":
+    case "star":
+    case "vector":
+    case "boolean_result":
       return {
         ...node,
         fill: replacePaint(node.fill, palette),
+        fills: node.fills?.map((paint) => applyFillPalette(paint, palette)),
         stroke: node.stroke ? replacePaint(node.stroke, palette) : node.stroke,
+        strokes: node.strokes?.map((paint) => ({
+          ...paint,
+          color: replacePaint(paint.color, palette),
+        })),
       }
     case "line":
-      return { ...node, stroke: replacePaint(node.stroke, palette) }
+      return {
+        ...node,
+        stroke: replacePaint(node.stroke, palette),
+        strokes: node.strokes?.map((paint) => ({
+          ...paint,
+          color: replacePaint(paint.color, palette),
+        })),
+      }
     case "icon":
       return {
         ...node,
         fill: replacePaint(node.fill, palette),
+        fills: node.fills?.map((paint) => applyFillPalette(paint, palette)),
         stroke: node.stroke ? replacePaint(node.stroke, palette) : node.stroke,
+        strokes: node.strokes?.map((paint) => ({
+          ...paint,
+          color: replacePaint(paint.color, palette),
+        })),
       }
     case "image":
       return { ...node }
@@ -80,11 +119,28 @@ const nodePaints = (node: SceneNode) => {
     case "frame":
     case "ellipse":
     case "icon":
-      return [node.fill, node.stroke].filter(
-        (paint): paint is string => paint !== undefined
-      )
+    case "section":
+    case "polygon":
+    case "star":
+    case "vector":
+    case "boolean_result":
+      return [
+        node.fill,
+        node.stroke,
+        ...(node.fills ?? []).flatMap((paint) => {
+          if (paint.type === "image") return []
+          if (
+            paint.type === "linear_gradient" ||
+            paint.type === "radial_gradient"
+          ) {
+            return paint.stops.map((stop) => stop.color)
+          }
+          return [paint.color]
+        }),
+        ...(node.strokes ?? []).map((paint) => paint.color),
+      ].filter((paint): paint is string => paint !== undefined)
     case "line":
-      return [node.stroke]
+      return [node.stroke, ...(node.strokes ?? []).map((paint) => paint.color)]
     case "image":
       return []
   }

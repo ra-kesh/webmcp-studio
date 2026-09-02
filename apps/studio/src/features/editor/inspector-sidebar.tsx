@@ -52,11 +52,14 @@ import {
   analyzeFieldDeletion,
   applyTextParagraphStyleToRange,
   bindingPropertiesForNode,
+  curatedAssetIdentityFromSource,
   defaultFieldValue,
   designStyleUsage,
   fieldDefinitionSchema,
   fieldDefinitionValidationMessage,
   isManagedRendererFont,
+  localAssetIdFromSource,
+  managedAssetIdFromSource,
   managedRendererFonts,
   fieldCanBindToProperty,
   parseCurrencyValue,
@@ -207,10 +210,8 @@ import { ReusableStyleField } from "./reusable-style-field"
 import { DesignVariablesPanel } from "./design-variables-panel"
 import type { ProductCommandMenuRuntime } from "./product-command-menu"
 import { PositionTransformControls } from "./position-transform-controls"
-import {
-  positionTransformPatch,
-  type PositionTransformAction,
-} from "./position-transform"
+import { positionTransformPatch } from "./position-transform"
+import type { PositionTransformAction } from "./position-transform"
 
 const DEMO_AGENT_BRIEF =
   "Inspect and validate the open design. Adapt it for Mira & Dev, 14 February 2027 in Udaipur, using The Moonlit Weekend package at ₹4,25,000, valid until 30 November 2026. Search the approved asset library for warm sandstone architecture. Then create one coordinated human-reviewed proposal that updates those shared fields and inserts the best asset on the Cover at x 620, y 120, width 540, height 900 with cover fit. Do not apply or publish anything. Summarize the affected outputs and wait for my review."
@@ -628,8 +629,8 @@ function MaskInspectorSection({
                         onClick={() => {
                           const next = [...capabilities.sourceNodeIds]
                           ;[next[sourceIndex - 1], next[sourceIndex]] = [
-                            next[sourceIndex]!,
-                            next[sourceIndex - 1]!,
+                            next[sourceIndex],
+                            next[sourceIndex - 1],
                           ]
                           setOrderedSources(next)
                         }}
@@ -647,8 +648,8 @@ function MaskInspectorSection({
                         onClick={() => {
                           const next = [...capabilities.sourceNodeIds]
                           ;[next[sourceIndex], next[sourceIndex + 1]] = [
-                            next[sourceIndex + 1]!,
-                            next[sourceIndex]!,
+                            next[sourceIndex + 1],
+                            next[sourceIndex],
                           ]
                           setOrderedSources(next)
                         }}
@@ -672,7 +673,7 @@ function MaskInspectorSection({
                     const cannotAdd =
                       capabilities.sourceNodeIds.length >= 4 ||
                       capabilities.sourceNodeIds.length + 1 >=
-                        (group?.nodeIds.length ?? 0)
+                        group.nodeIds.length
                     return (
                       <div
                         key={node.id}
@@ -1251,7 +1252,19 @@ function TextSelectionInspector({
 
 type InspectorPaintNode = Extract<
   SceneNode,
-  { type: "rect" | "frame" | "ellipse" | "line" | "icon" }
+  {
+    type:
+      | "rect"
+      | "frame"
+      | "ellipse"
+      | "line"
+      | "icon"
+      | "section"
+      | "polygon"
+      | "star"
+      | "vector"
+      | "boolean_result"
+  }
 >
 
 const nextPaintId = (prefix: "fill" | "stroke", ids: readonly string[]) => {
@@ -1269,7 +1282,13 @@ function StrokeAdvancedControls({
   paint: StrokePaint
   onChange: (paint: StrokePaint) => void
 }) {
-  const openPath = node.type === "line" || node.type === "icon"
+  const openPath =
+    node.type === "line" ||
+    node.type === "icon" ||
+    node.type === "polygon" ||
+    node.type === "star" ||
+    node.type === "vector" ||
+    node.type === "boolean_result"
   const sides = paint.sides ?? {
     top: true,
     right: true,
@@ -1356,11 +1375,13 @@ function StrokeAdvancedControls({
           onCommit={(miterLimit) => onChange({ ...paint, miterLimit })}
         />
       </div>
-      {node.type === "rect" || node.type === "frame" ? (
+      {node.type === "rect" ||
+      node.type === "frame" ||
+      node.type === "section" ? (
         <div className="grid grid-cols-4 gap-1" aria-label="Stroke sides">
           {(["top", "right", "bottom", "left"] as const).map((side) => (
             <label
-              className="flex items-center gap-1 text-[10px] text-muted-foreground"
+              className="flex items-center gap-1 text-[11px] text-muted-foreground"
               key={side}
             >
               <Checkbox
@@ -1374,9 +1395,273 @@ function StrokeAdvancedControls({
                   })
                 }
               />
-              {side[0]?.toUpperCase()}
+              {side[0].toUpperCase()}
             </label>
           ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+const transparentImagePaintSource =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'/%3E"
+
+const fillPaintKind = (paint: FillPaint) => paint.type ?? "solid"
+
+function convertedFillPaint(
+  paint: FillPaint,
+  type: "solid" | "linear_gradient" | "radial_gradient" | "image"
+): FillPaint {
+  const common = {
+    id: paint.id,
+    opacity: paint.opacity,
+    visible: paint.visible,
+    ...(paint.blendMode ? { blendMode: paint.blendMode } : {}),
+  }
+  const fallbackColor =
+    "color" in paint
+      ? paint.color
+      : "stops" in paint
+        ? (paint.stops[0]?.color ?? "#d9c9b2")
+        : "#d9c9b2"
+  if (type === "solid")
+    return { ...common, type: "solid", color: fallbackColor }
+  if (type === "linear_gradient") {
+    return {
+      ...common,
+      type,
+      from: { x: 0, y: 0.5 },
+      to: { x: 1, y: 0.5 },
+      stops:
+        "stops" in paint
+          ? paint.stops
+          : [
+              { position: 0, color: fallbackColor, opacity: 1 },
+              { position: 1, color: "#1e2622", opacity: 1 },
+            ],
+    }
+  }
+  if (type === "radial_gradient") {
+    return {
+      ...common,
+      type,
+      center: { x: 0.5, y: 0.5 },
+      radiusX: 0.5,
+      radiusY: 0.5,
+      rotation: 0,
+      stops:
+        "stops" in paint
+          ? paint.stops
+          : [
+              { position: 0, color: fallbackColor, opacity: 1 },
+              { position: 1, color: "#1e2622", opacity: 1 },
+            ],
+    }
+  }
+  return {
+    ...common,
+    type,
+    assetId: "image-paint-asset",
+    src: transparentImagePaintSource,
+    transform: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 },
+  }
+}
+
+function FillPaintSpecificControls({
+  paint,
+  disabled,
+  onChange,
+}: {
+  paint: FillPaint
+  disabled: boolean
+  onChange: (paint: FillPaint) => void
+}) {
+  const kind = fillPaintKind(paint)
+  return (
+    <div className="mt-2 space-y-2">
+      <Select
+        value={kind}
+        disabled={disabled}
+        onValueChange={(type: typeof kind) =>
+          onChange(convertedFillPaint(paint, type))
+        }
+      >
+        <SelectTrigger aria-label="Fill type">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="solid">Solid</SelectItem>
+          <SelectItem value="linear_gradient">Linear gradient</SelectItem>
+          <SelectItem value="radial_gradient">Radial gradient</SelectItem>
+          <SelectItem value="image">Image</SelectItem>
+        </SelectContent>
+      </Select>
+      {paint.type === "linear_gradient" ? (
+        <div className="grid grid-cols-4 gap-2">
+          {(
+            [
+              ["From X", "from", "x"],
+              ["From Y", "from", "y"],
+              ["To X", "to", "x"],
+              ["To Y", "to", "y"],
+            ] as const
+          ).map(([label, point, axis]) => (
+            <InspectorNumberField
+              key={`${point}-${axis}`}
+              label={label}
+              value={inspectorValue(paint[point][axis])}
+              min={0}
+              max={1}
+              step={0.01}
+              disabled={disabled}
+              onCommit={(value) =>
+                onChange({
+                  ...paint,
+                  [point]: { ...paint[point], [axis]: value },
+                })
+              }
+            />
+          ))}
+        </div>
+      ) : null}
+      {paint.type === "radial_gradient" ? (
+        <div className="grid grid-cols-3 gap-2">
+          {(
+            [
+              ["Center X", "centerX", paint.center.x, 0, 1],
+              ["Center Y", "centerY", paint.center.y, 0, 1],
+              ["Radius X", "radiusX", paint.radiusX, 0.01, 8],
+              ["Radius Y", "radiusY", paint.radiusY, 0.01, 8],
+              ["Rotation", "rotation", paint.rotation, -180, 180],
+            ] as const
+          ).map(([label, property, value, min, max]) => (
+            <InspectorNumberField
+              key={property}
+              label={label}
+              value={inspectorValue(value)}
+              min={min}
+              max={max}
+              step={0.01}
+              disabled={disabled}
+              onCommit={(nextValue) =>
+                onChange(
+                  property === "centerX" || property === "centerY"
+                    ? {
+                        ...paint,
+                        center: {
+                          ...paint.center,
+                          [property === "centerX" ? "x" : "y"]: nextValue,
+                        },
+                      }
+                    : { ...paint, [property]: nextValue }
+                )
+              }
+            />
+          ))}
+        </div>
+      ) : null}
+      {paint.type === "linear_gradient" || paint.type === "radial_gradient" ? (
+        <div className="space-y-1.5" aria-label="Gradient stops">
+          {paint.stops.map((stop, stopIndex) => (
+            <div
+              className="grid grid-cols-[1fr_72px_72px] gap-2"
+              key={stopIndex}
+            >
+              <CommitInput
+                aria-label={`Gradient stop ${stopIndex + 1} color`}
+                className="h-7 font-mono text-[11px]"
+                disabled={disabled}
+                value={stop.color}
+                onCommit={(color) =>
+                  onChange({
+                    ...paint,
+                    stops: paint.stops.map((candidate, candidateIndex) =>
+                      candidateIndex === stopIndex
+                        ? { ...candidate, color }
+                        : candidate
+                    ),
+                  })
+                }
+              />
+              <InspectorNumberField
+                label="Position"
+                value={inspectorValue(stop.position)}
+                min={paint.stops[stopIndex - 1]?.position ?? 0}
+                max={paint.stops[stopIndex + 1]?.position ?? 1}
+                step={0.01}
+                disabled={disabled}
+                onCommit={(position) =>
+                  onChange({
+                    ...paint,
+                    stops: paint.stops.map((candidate, candidateIndex) =>
+                      candidateIndex === stopIndex
+                        ? { ...candidate, position }
+                        : candidate
+                    ),
+                  })
+                }
+              />
+              <InspectorNumberField
+                label="Opacity"
+                value={inspectorValue(stop.opacity * 100)}
+                min={0}
+                max={100}
+                disabled={disabled}
+                onCommit={(opacity) =>
+                  onChange({
+                    ...paint,
+                    stops: paint.stops.map((candidate, candidateIndex) =>
+                      candidateIndex === stopIndex
+                        ? { ...candidate, opacity: opacity / 100 }
+                        : candidate
+                    ),
+                  })
+                }
+              />
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {paint.type === "image" ? (
+        <div className="space-y-2">
+          <CommitInput
+            aria-label="Image fill asset ID"
+            disabled={disabled}
+            value={paint.assetId}
+            onCommit={(assetId) => onChange({ ...paint, assetId })}
+          />
+          <CommitInput
+            aria-label="Image fill source"
+            disabled={disabled}
+            value={paint.src}
+            onCommit={(src) => {
+              const assetId =
+                managedAssetIdFromSource(src) ??
+                localAssetIdFromSource(src) ??
+                curatedAssetIdentityFromSource(src)?.assetId
+              onChange({ ...paint, src, ...(assetId ? { assetId } : {}) })
+            }}
+          />
+          <div className="grid grid-cols-3 gap-2">
+            {(["a", "b", "c", "d", "e", "f"] as const).map((property) => (
+              <InspectorNumberField
+                key={property}
+                label={property.toUpperCase()}
+                value={inspectorValue(paint.transform[property])}
+                min={-64}
+                max={64}
+                step={0.01}
+                disabled={disabled}
+                onCommit={(value) =>
+                  onChange({
+                    ...paint,
+                    transform: { ...paint.transform, [property]: value },
+                  })
+                }
+              />
+            ))}
+          </div>
         </div>
       ) : null}
     </div>
@@ -1417,7 +1702,7 @@ function PaintStackControls({
   const updateList = (
     kind: "fills" | "strokes",
     paints: FillPaint[] | StrokePaint[]
-  ) => onUpdate({ [kind]: paints } as Partial<SceneNode>)
+  ) => onUpdate({ [kind]: paints })
   const renderList = (
     kind: "fills" | "strokes",
     paints: FillPaint[] | StrokePaint[]
@@ -1470,26 +1755,32 @@ function PaintStackControls({
                     candidateIndex === index
                       ? { ...candidate, visible: checked === true }
                       : candidate
-                  ) as FillPaint[] | StrokePaint[]
+                  )
                 )
               }
             />
-            <Input
-              aria-label={`${kind} ${index + 1} color`}
-              className="h-7 min-w-0 flex-1 font-mono text-[11px]"
-              disabled={node.locked}
-              value={paint.color}
-              onChange={(event) =>
-                updateList(
-                  kind,
-                  paints.map((candidate, candidateIndex) =>
-                    candidateIndex === index
-                      ? { ...candidate, color: event.target.value }
-                      : candidate
-                  ) as FillPaint[] | StrokePaint[]
-                )
-              }
-            />
+            {"color" in paint ? (
+              <Input
+                aria-label={`${kind} ${index + 1} color`}
+                className="h-7 min-w-0 flex-1 font-mono text-[11px]"
+                disabled={node.locked}
+                value={paint.color}
+                onChange={(event) =>
+                  updateList(
+                    kind,
+                    paints.map((candidate, candidateIndex) =>
+                      candidateIndex === index
+                        ? { ...candidate, color: event.target.value }
+                        : candidate
+                    )
+                  )
+                }
+              />
+            ) : (
+              <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
+                {paint.type.replaceAll("_", " ")}
+              </span>
+            )}
             <Button
               aria-label={`Move ${kind} ${index + 1} up`}
               disabled={node.locked || index === 0}
@@ -1497,11 +1788,8 @@ function PaintStackControls({
               variant="ghost"
               onClick={() => {
                 const next = [...paints]
-                ;[next[index - 1], next[index]] = [
-                  next[index]!,
-                  next[index - 1]!,
-                ]
-                updateList(kind, next as FillPaint[] | StrokePaint[])
+                ;[next[index - 1], next[index]] = [next[index], next[index - 1]]
+                updateList(kind, next)
               }}
             >
               <ChevronUp />
@@ -1513,11 +1801,8 @@ function PaintStackControls({
               variant="ghost"
               onClick={() => {
                 const next = [...paints]
-                ;[next[index], next[index + 1]] = [
-                  next[index + 1]!,
-                  next[index]!,
-                ]
-                updateList(kind, next as FillPaint[] | StrokePaint[])
+                ;[next[index], next[index + 1]] = [next[index + 1], next[index]]
+                updateList(kind, next)
               }}
             >
               <ChevronDown />
@@ -1530,15 +1815,27 @@ function PaintStackControls({
               onClick={() =>
                 updateList(
                   kind,
-                  paints.filter(
-                    (_, candidateIndex) => candidateIndex !== index
-                  ) as FillPaint[] | StrokePaint[]
+                  paints.filter((_, candidateIndex) => candidateIndex !== index)
                 )
               }
             >
               <Trash2 />
             </Button>
           </div>
+          {kind === "fills" && !("width" in paint) ? (
+            <FillPaintSpecificControls
+              paint={paint}
+              disabled={node.locked}
+              onChange={(nextPaint) =>
+                updateList(
+                  kind,
+                  paints.map((candidate, candidateIndex) =>
+                    candidateIndex === index ? nextPaint : candidate
+                  )
+                )
+              }
+            />
+          ) : null}
           <div className="mt-2 grid grid-cols-2 gap-2">
             <InspectorNumberField
               label="Opacity"
@@ -1553,7 +1850,7 @@ function PaintStackControls({
                     candidateIndex === index
                       ? { ...candidate, opacity: opacity / 100 }
                       : candidate
-                  ) as FillPaint[] | StrokePaint[]
+                  )
                 )
               }
             />
@@ -1571,7 +1868,7 @@ function PaintStackControls({
                       candidateIndex === index
                         ? { ...candidate, width }
                         : candidate
-                    ) as StrokePaint[]
+                    )
                   )
                 }
               />
@@ -1586,7 +1883,7 @@ function PaintStackControls({
                   kind,
                   paints.map((candidate, candidateIndex) =>
                     candidateIndex === index ? nextPaint : candidate
-                  ) as StrokePaint[]
+                  )
                 )
               }
             />
@@ -1601,7 +1898,7 @@ function PaintStackControls({
                   candidateIndex === index
                     ? { ...candidate, blendMode }
                     : candidate
-                ) as FillPaint[] | StrokePaint[]
+                )
               )
             }
           >
@@ -1727,8 +2024,8 @@ function EffectStackControls({
                 onClick={() => {
                   const next = [...effects]
                   ;[next[index - 1], next[index]] = [
-                    next[index]!,
-                    next[index - 1]!,
+                    next[index],
+                    next[index - 1],
                   ]
                   update(next)
                 }}
@@ -1743,8 +2040,8 @@ function EffectStackControls({
                 onClick={() => {
                   const next = [...effects]
                   ;[next[index], next[index + 1]] = [
-                    next[index + 1]!,
-                    next[index]!,
+                    next[index + 1],
+                    next[index],
                   ]
                   update(next)
                 }}
@@ -1923,7 +2220,7 @@ function LayerExportControls({
         )
       })}
       {settings.length ? (
-        <p className="text-[10px] leading-4 text-muted-foreground">
+        <p className="text-[11px] leading-4 text-muted-foreground">
           Use Export layer from the layer menu. Published manifests retain the
           same page/output route.
         </p>
@@ -2037,20 +2334,22 @@ function NodeInspector({
   }
   const decorativeCheckboxId = useId()
   const imageReplacementReasonId = useId()
-  const nodeTypeLabel =
-    node.type === "text"
-      ? "Text"
-      : node.type === "image"
-        ? "Image"
-        : node.type === "rect"
-          ? "Rectangle"
-          : node.type === "frame"
-            ? "Frame"
-            : node.type === "ellipse"
-              ? "Ellipse"
-              : node.type === "line"
-                ? "Line"
-                : "Icon"
+  const nodeTypeLabel = (
+    {
+      text: "Text",
+      image: "Image",
+      rect: "Rectangle",
+      frame: "Frame",
+      ellipse: "Ellipse",
+      line: "Line",
+      icon: "Icon",
+      section: "Section",
+      polygon: "Polygon",
+      star: "Star",
+      vector: "Vector",
+      boolean_result: "Boolean result",
+    } as const satisfies Record<SceneNode["type"], string>
+  )[node.type]
   const textLayout = node.type === "text" ? projectTextLayout(node) : null
   const textWidthIsManaged =
     node.type === "text" && node.sizingMode === "auto_width"
@@ -2147,7 +2446,12 @@ function NodeInspector({
       node.type === "rect" ||
       node.type === "frame" ||
       node.type === "ellipse" ||
-      node.type === "icon"
+      node.type === "icon" ||
+      node.type === "section" ||
+      node.type === "polygon" ||
+      node.type === "star" ||
+      node.type === "vector" ||
+      node.type === "boolean_result"
     ) {
       return node.fill
     }
@@ -2786,7 +3090,7 @@ function NodeInspector({
                   <InspectorNumberField
                     key={side}
                     label={`Padding ${side}`}
-                    compactLabel={side[0]!.toUpperCase()}
+                    compactLabel={side[0].toUpperCase()}
                     min={0}
                     value={{
                       kind: "value",
@@ -3509,8 +3813,134 @@ function NodeInspector({
         </>
       ) : null}
 
+      {node.type === "section" ? (
+        <InspectorSection title="Section">
+          <CommitInput
+            aria-label="Section child layer IDs"
+            disabled={node.locked}
+            value={node.childNodeIds.join(", ")}
+            onCommit={(value) =>
+              onUpdate({
+                childNodeIds: [
+                  ...new Set(
+                    value
+                      .split(",")
+                      .map((nodeId) => nodeId.trim())
+                      .filter(Boolean)
+                  ),
+                ],
+              })
+            }
+          />
+        </InspectorSection>
+      ) : null}
+
+      {node.type === "polygon" || node.type === "star" ? (
+        <InspectorSection title="Shape">
+          <InspectorNumberField
+            label="Points"
+            value={inspectorValue(node.pointCount)}
+            min={3}
+            max={64}
+            step={1}
+            integer
+            disabled={node.locked}
+            onPreview={(pointCount) => onPreview({ pointCount })}
+            onPreviewCancel={onCancelPreview}
+            onCommit={(pointCount) => onUpdate({ pointCount })}
+          />
+          {node.type === "star" ? (
+            <CommitPercentSlider
+              label="Inner radius"
+              value={node.innerRadius * 100}
+              disabled={node.locked}
+              onCommit={(innerRadius) =>
+                onUpdate({ innerRadius: innerRadius / 100 })
+              }
+            />
+          ) : null}
+        </InspectorSection>
+      ) : null}
+
+      {node.type === "vector" || node.type === "boolean_result" ? (
+        <InspectorSection title={node.type === "vector" ? "Vector" : "Boolean"}>
+          {node.type === "boolean_result" ? (
+            <>
+              <Select
+                value={node.operation}
+                disabled={node.locked}
+                onValueChange={(
+                  operation: "union" | "subtract" | "intersect" | "exclude"
+                ) => onUpdate({ operation })}
+              >
+                <SelectTrigger aria-label="Boolean operation">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="union">Union</SelectItem>
+                  <SelectItem value="subtract">Subtract</SelectItem>
+                  <SelectItem value="intersect">Intersect</SelectItem>
+                  <SelectItem value="exclude">Exclude</SelectItem>
+                </SelectContent>
+              </Select>
+              <CommitInput
+                aria-label="Boolean source layer IDs"
+                disabled={node.locked}
+                value={node.sourceNodeIds.join(", ")}
+                onCommit={(value) => {
+                  const sourceNodeIds = [
+                    ...new Set(
+                      value
+                        .split(",")
+                        .map((nodeId) => nodeId.trim())
+                        .filter(Boolean)
+                    ),
+                  ]
+                  if (sourceNodeIds.length >= 2) onUpdate({ sourceNodeIds })
+                }}
+              />
+            </>
+          ) : null}
+          <CommitInput
+            aria-label="Vector path"
+            disabled={node.locked}
+            value={node.path}
+            onCommit={(path) => {
+              if (path.trim()) onUpdate({ path })
+            }}
+          />
+          <div className="grid grid-cols-[1fr_120px] gap-2">
+            <CommitInput
+              aria-label="Vector view box"
+              disabled={node.locked}
+              value={node.viewBox}
+              onCommit={(viewBox) => {
+                if (viewBox.trim()) onUpdate({ viewBox })
+              }}
+            />
+            <Select
+              value={node.fillRule}
+              disabled={node.locked}
+              onValueChange={(fillRule: "nonzero" | "evenodd") =>
+                onUpdate({ fillRule })
+              }
+            >
+              <SelectTrigger aria-label="Vector fill rule">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="nonzero">Nonzero</SelectItem>
+                <SelectItem value="evenodd">Even-odd</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </InspectorSection>
+      ) : null}
+
       {inspector.capabilities.cornerRadius &&
-      (node.type === "rect" || node.type === "frame") ? (
+      (node.type === "rect" ||
+        node.type === "frame" ||
+        node.type === "section") ? (
         <InspectorSection
           title="Appearance"
           data-inspector-property="fill"
@@ -3532,31 +3962,33 @@ function NodeInspector({
             onPreviewCancel={onCancelPreview}
             onCommit={(radius) => onUpdate({ radius })}
           />
-          <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
-            <Checkbox
-              aria-label="Independent corners"
-              checked={node.independentCorners ?? false}
-              disabled={node.locked}
-              onCheckedChange={(checked) =>
-                checked === true
-                  ? onUpdate({
-                      independentCorners: true,
-                      cornerRadii: node.cornerRadii ?? {
-                        topLeft: node.radius,
-                        topRight: node.radius,
-                        bottomRight: node.radius,
-                        bottomLeft: node.radius,
-                      },
-                    })
-                  : onUpdate({
-                      independentCorners: false,
-                      radius: node.cornerRadii?.topLeft ?? node.radius,
-                    })
-              }
-            />
-            Independent corners
-          </label>
-          {node.independentCorners ? (
+          {node.type !== "section" ? (
+            <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+              <Checkbox
+                aria-label="Independent corners"
+                checked={node.independentCorners ?? false}
+                disabled={node.locked}
+                onCheckedChange={(checked) =>
+                  checked === true
+                    ? onUpdate({
+                        independentCorners: true,
+                        cornerRadii: node.cornerRadii ?? {
+                          topLeft: node.radius,
+                          topRight: node.radius,
+                          bottomRight: node.radius,
+                          bottomLeft: node.radius,
+                        },
+                      })
+                    : onUpdate({
+                        independentCorners: false,
+                        radius: node.cornerRadii?.topLeft ?? node.radius,
+                      })
+                }
+              />
+              Independent corners
+            </label>
+          ) : null}
+          {node.type !== "section" && node.independentCorners ? (
             <div className="grid grid-cols-2 gap-2">
               {(
                 [
@@ -3603,19 +4035,26 @@ function NodeInspector({
               ))}
             </div>
           ) : null}
-          <CommitPercentSlider
-            label="Corner smoothing"
-            value={(node.cornerSmoothing ?? 0) * 100}
-            disabled={node.locked}
-            onCommit={(cornerSmoothing) =>
-              onUpdate({ cornerSmoothing: cornerSmoothing / 100 })
-            }
-          />
+          {node.type !== "section" ? (
+            <CommitPercentSlider
+              label="Corner smoothing"
+              value={(node.cornerSmoothing ?? 0) * 100}
+              disabled={node.locked}
+              onCommit={(cornerSmoothing) =>
+                onUpdate({ cornerSmoothing: cornerSmoothing / 100 })
+              }
+            />
+          ) : null}
         </InspectorSection>
       ) : null}
 
       {inspector.capabilities.fill &&
-      (node.type === "ellipse" || node.type === "icon") ? (
+      (node.type === "ellipse" ||
+        node.type === "icon" ||
+        node.type === "polygon" ||
+        node.type === "star" ||
+        node.type === "vector" ||
+        node.type === "boolean_result") ? (
         <InspectorSection
           title="Appearance"
           data-inspector-property="fill"
@@ -5196,7 +5635,7 @@ function FieldsPanel({
                         </p>
                         {field.required ? (
                           <Badge
-                            className="h-5 shrink-0 px-1.5 text-[10px] font-normal"
+                            className="h-5 shrink-0 px-1.5 text-[11px] font-normal"
                             variant="secondary"
                           >
                             Required
@@ -6251,8 +6690,7 @@ export function InspectorSidebar({
           document.pages.find((page) =>
             selectedNodes.some((node) => page.nodeIds.includes(node.id))
           )?.id ??
-          document.pages[0]?.id ??
-          "missing-page",
+          document.pages[0].id,
         selectedNodeIds: selectedNodes.map((node) => node.id),
         selectedGroupId,
         documentEditable: capabilityContext?.documentEditable ?? true,

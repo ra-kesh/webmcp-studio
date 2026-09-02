@@ -3,6 +3,7 @@ import {
   managedAssetIdFromSource,
   variableUsage,
   type Document,
+  type FillPaint,
   type SceneNode,
 } from "@webmcp/document"
 import {
@@ -247,14 +248,30 @@ const groupAncestry = (document: Document, groupId: string | null) => {
 }
 
 export const publicDesignNode = (node: SceneNode) => {
-  if (node.type !== "image") return node
-  const { src: _privateSource, ...publicNode } = node
-  const managedAssetId = managedAssetIdFromSource(node.src)
+  if (node.type === "image") {
+    const { src: _privateSource, ...publicNode } = node
+    const managedAssetId = managedAssetIdFromSource(node.src)
+    return {
+      ...publicNode,
+      assetId: node.src.startsWith("asset:local/")
+        ? "unavailable-local-asset"
+        : (managedAssetId ?? node.assetId),
+    }
+  }
+  if (!("fills" in node) || !node.fills) return node
   return {
-    ...publicNode,
-    assetId: node.src.startsWith("asset:local/")
-      ? "unavailable-local-asset"
-      : (managedAssetId ?? node.assetId),
+    ...node,
+    fills: node.fills.map((paint: FillPaint) => {
+      if (paint.type !== "image") return paint
+      const { src: _privateSource, ...publicPaint } = paint
+      const managedAssetId = managedAssetIdFromSource(paint.src)
+      return {
+        ...publicPaint,
+        assetId: paint.src.startsWith("asset:local/")
+          ? "unavailable-local-asset"
+          : (managedAssetId ?? paint.assetId),
+      }
+    }),
   }
 }
 

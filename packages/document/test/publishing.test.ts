@@ -301,6 +301,72 @@ describe("template publishing", () => {
     ).toThrow("Upload local images")
   })
 
+  it("treats browser-local image fills as publish-blocking asset references", () => {
+    const document = structuredClone(northstarSeed)
+    const shape = document.nodes.find((node) => node.type === "rect")
+    if (!shape || shape.type !== "rect") throw new Error("Rect fixture missing")
+    shape.fills = [
+      {
+        id: "local-image-fill",
+        type: "image",
+        assetId: "asset-local-fill",
+        src: "asset:local/asset-local-fill",
+        opacity: 1,
+        visible: true,
+        transform: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 },
+      },
+    ]
+
+    const readiness = getPublishReadiness(document)
+    expect(readiness.localAssetNodeIds).toEqual([shape.id])
+    expect(readiness.blocking).toContainEqual(
+      expect.objectContaining({
+        code: "missing_asset",
+        nodeId: shape.id,
+      })
+    )
+  })
+
+  it("accepts resolved image fills without hiding an unresolved sibling fill", () => {
+    const document = structuredClone(northstarSeed)
+    const shape = document.nodes.find((node) => node.type === "rect")
+    if (!shape || shape.type !== "rect") throw new Error("Rect fixture missing")
+    shape.fills = [
+      {
+        id: "managed-image-fill",
+        type: "image",
+        assetId: "asset-managedfill01",
+        src: "asset:managed/asset-managedfill01",
+        opacity: 1,
+        visible: true,
+        transform: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 },
+      },
+    ]
+
+    expect(getPublishReadiness(document).blocking).not.toContainEqual(
+      expect.objectContaining({
+        code: "unmanaged_asset",
+        nodeId: shape.id,
+      })
+    )
+
+    shape.fills.push({
+      id: "external-image-fill",
+      type: "image",
+      assetId: "external-image-fill",
+      src: "https://assets.example.test/unapproved.png",
+      opacity: 1,
+      visible: true,
+      transform: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 },
+    })
+    expect(getPublishReadiness(document).blocking).toContainEqual(
+      expect.objectContaining({
+        code: "unmanaged_asset",
+        nodeId: shape.id,
+      })
+    )
+  })
+
   it("blocks fonts that the deterministic renderer cannot load", () => {
     const document = structuredClone(northstarSeed)
     const text = document.nodes.find((node) => node.type === "text")

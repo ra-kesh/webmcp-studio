@@ -670,6 +670,20 @@ describe("WebMCP registration", () => {
     })
     const serializedSchema = JSON.stringify(schema?.structuredContent)
     expect(serializedSchema).toContain('"add_node"')
+    for (const nodeType of [
+      "section",
+      "polygon",
+      "star",
+      "vector",
+      "boolean_result",
+    ]) {
+      expect(serializedSchema).toContain(`"${nodeType}"`)
+    }
+    for (const paintType of ["linear_gradient", "radial_gradient", "image"]) {
+      expect(serializedSchema).toContain(`"${paintType}"`)
+    }
+    expect(serializedSchema).toContain('"convert_node_to_vector"')
+    expect(serializedSchema).toContain('"create_boolean_result"')
     expect(schema?.structuredContent).toMatchObject({
       mutationFamilies: canonicalCanvasMutationFamilies,
     })
@@ -719,6 +733,233 @@ describe("WebMCP registration", () => {
     expect(
       previewedDocument?.nodes.find((node) => node.id === sourceNode.id)
     ).toEqual(sourceNode)
+
+    const expandedResult = await state.registered
+      .get("transact_canvas")
+      ?.execute({
+        version: 1,
+        id: "transaction-webmcp-expanded-scene",
+        idempotencyKey: "webmcp-expanded-scene",
+        title: "Create expanded canonical scene",
+        mode: "preview",
+        expected: {
+          documentId: northstarSeed.id,
+          revision: northstarSeed.revision,
+          snapshotId: "snapshot-seed",
+          operationVersion: 0,
+        },
+        commands: [
+          {
+            id: "command-webmcp-section",
+            type: "add_node",
+            actor: "agent",
+            at: "2026-09-02T08:01:00.000Z",
+            pageId: "cover",
+            node: {
+              id: "webmcp-section",
+              type: "section",
+              name: "WebMCP section",
+              x: 40,
+              y: 40,
+              width: 560,
+              height: 240,
+              rotation: 0,
+              opacity: 1,
+              visible: true,
+              locked: false,
+              constraints: { horizontal: "min", vertical: "min" },
+              fill: "transparent",
+              strokeWidth: 0,
+              radius: 16,
+              childNodeIds: [],
+            },
+          },
+          {
+            id: "command-webmcp-polygon",
+            type: "add_node",
+            actor: "agent",
+            at: "2026-09-02T08:01:01.000Z",
+            pageId: "cover",
+            node: {
+              id: "webmcp-polygon",
+              type: "polygon",
+              name: "WebMCP polygon",
+              x: 80,
+              y: 80,
+              width: 120,
+              height: 100,
+              rotation: 0,
+              opacity: 1,
+              visible: true,
+              locked: false,
+              constraints: { horizontal: "min", vertical: "min" },
+              fill: "#0ea5e9",
+              strokeWidth: 0,
+              pointCount: 6,
+              fills: [
+                {
+                  id: "webmcp-linear",
+                  type: "linear_gradient",
+                  from: { x: 0, y: 0 },
+                  to: { x: 1, y: 1 },
+                  stops: [
+                    { position: 0, color: "#0ea5e9", opacity: 1 },
+                    { position: 1, color: "#312e81", opacity: 1 },
+                  ],
+                  opacity: 1,
+                  visible: true,
+                },
+              ],
+            },
+          },
+          {
+            id: "command-webmcp-star",
+            type: "add_node",
+            actor: "agent",
+            at: "2026-09-02T08:01:02.000Z",
+            pageId: "cover",
+            node: {
+              id: "webmcp-star",
+              type: "star",
+              name: "WebMCP star",
+              x: 240,
+              y: 80,
+              width: 120,
+              height: 100,
+              rotation: 0,
+              opacity: 1,
+              visible: true,
+              locked: false,
+              constraints: { horizontal: "min", vertical: "min" },
+              fill: "#f97316",
+              strokeWidth: 0,
+              pointCount: 5,
+              innerRadius: 0.44,
+              fills: [
+                {
+                  id: "webmcp-radial",
+                  type: "radial_gradient",
+                  center: { x: 0.5, y: 0.5 },
+                  radiusX: 0.6,
+                  radiusY: 0.5,
+                  rotation: 20,
+                  stops: [
+                    { position: 0, color: "#fef3c7", opacity: 1 },
+                    { position: 1, color: "#dc2626", opacity: 1 },
+                  ],
+                  opacity: 1,
+                  visible: true,
+                },
+              ],
+            },
+          },
+          {
+            id: "command-webmcp-vector",
+            type: "add_node",
+            actor: "agent",
+            at: "2026-09-02T08:01:03.000Z",
+            pageId: "cover",
+            node: {
+              id: "webmcp-vector",
+              type: "vector",
+              name: "WebMCP vector",
+              x: 400,
+              y: 80,
+              width: 120,
+              height: 100,
+              rotation: 0,
+              opacity: 1,
+              visible: true,
+              locked: false,
+              constraints: { horizontal: "min", vertical: "min" },
+              fill: "#ffffff",
+              strokeWidth: 0,
+              path: "M 0 0 H 100 V 100 H 0 Z",
+              viewBox: "0 0 100 100",
+              fillRule: "nonzero",
+              fills: [
+                {
+                  id: "webmcp-image-fill",
+                  type: "image",
+                  assetId: "webmcp-inline-pattern",
+                  src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='2' height='2'%3E%3Cpath fill='%23264653' d='M0 0h2v2H0z'/%3E%3C/svg%3E",
+                  transform: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 },
+                  opacity: 1,
+                  visible: true,
+                },
+              ],
+            },
+          },
+          {
+            id: "command-webmcp-section-children",
+            type: "update_node",
+            actor: "agent",
+            at: "2026-09-02T08:01:04.000Z",
+            nodeId: "webmcp-section",
+            patch: {
+              childNodeIds: ["webmcp-polygon", "webmcp-star", "webmcp-vector"],
+            },
+          },
+          {
+            id: "command-webmcp-convert-star",
+            type: "convert_node_to_vector",
+            actor: "agent",
+            at: "2026-09-02T08:01:05.000Z",
+            nodeId: "webmcp-star",
+          },
+          {
+            id: "command-webmcp-boolean",
+            type: "create_boolean_result",
+            actor: "agent",
+            at: "2026-09-02T08:01:06.000Z",
+            pageId: "cover",
+            sourceNodeIds: ["webmcp-polygon", "webmcp-star"],
+            sourceDisposition: "preserve",
+            result: {
+              id: "webmcp-boolean",
+              type: "boolean_result",
+              name: "WebMCP boolean result",
+              x: 540,
+              y: 80,
+              width: 120,
+              height: 100,
+              rotation: 0,
+              opacity: 1,
+              visible: true,
+              locked: false,
+              constraints: { horizontal: "min", vertical: "min" },
+              fill: "#14b8a6",
+              strokeWidth: 0,
+              operation: "exclude",
+              sourceNodeIds: ["webmcp-polygon", "webmcp-star"],
+              path: "M 0 0 H 100 V 100 H 0 Z M 25 25 H 75 V 75 H 25 Z",
+              viewBox: "0 0 100 100",
+              fillRule: "evenodd",
+            },
+          },
+        ],
+      })
+
+    expect(expandedResult?.isError).not.toBe(true)
+    expect(expandedResult?.structuredContent).toMatchObject({
+      ok: true,
+      status: "preview_ready",
+      commandCount: 7,
+      changed: true,
+    })
+    expect(
+      previewedDocument?.nodes
+        .filter((node) => node.id.startsWith("webmcp-"))
+        .map((node) => [node.id, node.type])
+    ).toEqual(
+      expect.arrayContaining([
+        ["webmcp-section", "section"],
+        ["webmcp-polygon", "polygon"],
+        ["webmcp-star", "vector"],
+        ["webmcp-vector", "vector"],
+        ["webmcp-boolean", "boolean_result"],
+      ])
+    )
   })
 
   it("suppresses only mutation tools covered by the canonical registration", async () => {
@@ -2840,6 +3081,56 @@ describe("WebMCP registration", () => {
         expect.objectContaining({
           code: "unmanaged_asset",
           nodeId: imageNode.id,
+        }),
+      ]),
+    })
+  })
+
+  it("resolves and redacts managed image fills during inspection and validation", async () => {
+    const document = structuredClone(northstarSeed)
+    const shape = document.nodes.find(
+      (node) =>
+        node.type === "rect" && document.pages[0]?.nodeIds.includes(node.id)
+    )
+    if (!shape || shape.type !== "rect") throw new Error("Rect fixture missing")
+    shape.fills = [
+      {
+        id: "managed-inspection-fill",
+        type: "image",
+        assetId: archivedManagedAsset.id,
+        src: archivedManagedAsset.src,
+        opacity: 1,
+        visible: true,
+        transform: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 },
+      },
+    ]
+    const state = setup(document, northstarSeed, [
+      ...assets,
+      archivedManagedAsset,
+    ])
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const inspected = await state.registered.get("inspect_design")?.execute({})
+    const serialized = JSON.stringify(inspected?.structuredContent)
+    expect(serialized).toContain(archivedManagedAsset.id)
+    expect(serialized).not.toContain(archivedManagedAsset.src)
+    const validation = await state.registered
+      .get("validate_design")
+      ?.execute({})
+    expect(validation?.structuredContent).toMatchObject({
+      errors: expect.not.arrayContaining([
+        expect.objectContaining({
+          code: "unmanaged_asset",
+          nodeId: shape.id,
         }),
       ]),
     })

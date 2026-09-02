@@ -88,6 +88,11 @@ const nodeIcon = {
   icon: Shapes,
   image: ImageIcon,
   frame: PanelsTopLeft,
+  section: Folder,
+  polygon: Shapes,
+  star: Shapes,
+  vector: Shapes,
+  boolean_result: Shapes,
   group: Folder,
 } as const
 
@@ -1184,7 +1189,7 @@ export function LayerTree({
           data-layer-tree-header="true"
         >
           <span className="font-semibold text-foreground">Layers</span>
-          <span className="tabular-nums text-muted-foreground">
+          <span className="text-muted-foreground tabular-nums">
             {model.byKey.size} total
           </span>
           <span className="ml-auto text-muted-foreground">Front to back</span>

@@ -1,6 +1,7 @@
 import {
   createPageThumbnailDocument,
   createPageThumbnailRevision,
+  sceneNodeImageReferences,
 } from "@webmcp/document"
 import type { Document } from "@webmcp/document"
 import type {
@@ -423,8 +424,10 @@ export class DocumentPreviewController {
         current.record.envelope.document,
         entry.key.pageId
       )
-      const hasLocalAsset = thumbnailDocument.nodes.some(
-        (node) => node.type === "image" && node.src.startsWith("asset:local/")
+      const hasLocalAsset = thumbnailDocument.nodes.some((node) =>
+        sceneNodeImageReferences(node).some((reference) =>
+          reference.src.startsWith("asset:local/")
+        )
       )
       if (this.#dependencies.liveFallback || hasLocalAsset) {
         const previewUrls = new Map<string, string>()
@@ -434,9 +437,10 @@ export class DocumentPreviewController {
           const assetIds = [
             ...new Set(
               thumbnailDocument.nodes.flatMap((node) => {
-                if (node.type !== "image") return []
-                const assetId = localAssetIdFromSource(node.src)
-                return assetId ? [assetId] : []
+                return sceneNodeImageReferences(node).flatMap((reference) => {
+                  const assetId = localAssetIdFromSource(reference.src)
+                  return assetId ? [assetId] : []
+                })
               })
             ),
           ]
@@ -458,11 +462,23 @@ export class DocumentPreviewController {
         const materializedDocument = {
           ...liveDocument,
           nodes: liveDocument.nodes.map((node) => {
-            if (node.type !== "image") return node
-            const assetId = managedMediaIdFromSource(node.src)
-            return assetId
-              ? { ...node, src: managedMediaContentUrl(assetId) }
-              : node
+            if (node.type === "image") {
+              const assetId = managedMediaIdFromSource(node.src)
+              return assetId
+                ? { ...node, src: managedMediaContentUrl(assetId) }
+                : node
+            }
+            if (!("fills" in node) || !node.fills) return node
+            return {
+              ...node,
+              fills: node.fills.map((paint) => {
+                if (paint.type !== "image") return paint
+                const assetId = managedMediaIdFromSource(paint.src)
+                return assetId
+                  ? { ...paint, src: managedMediaContentUrl(assetId) }
+                  : paint
+              }),
+            }
           }),
         }
         this.#publish(

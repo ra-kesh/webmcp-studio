@@ -1598,7 +1598,8 @@ const exactMigrationEnvelope = (
       if (
         before?.source !== localSource ||
         after?.source !== alias.managedSource ||
-        (after.location === "node" && after.assetId !== alias.managedAssetId)
+        ((after.location === "node" || after.location === "node_fill") &&
+          after.assetId !== alias.managedAssetId)
       ) {
         return false
       }
@@ -1615,6 +1616,16 @@ const exactMigrationEnvelope = (
       if (node.type === "image" && node.src === localSource) {
         node.src = alias.managedSource
         node.assetId = alias.managedAssetId
+      } else if ("fills" in node && node.fills) {
+        node.fills = node.fills.map((paint) =>
+          paint.type === "image" && paint.src === localSource
+            ? {
+                ...paint,
+                src: alias.managedSource,
+                assetId: alias.managedAssetId,
+              }
+            : paint
+        )
       }
     }
   }

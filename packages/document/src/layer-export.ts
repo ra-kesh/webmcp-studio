@@ -151,6 +151,13 @@ const scaleNode = (
       layoutGrids: [],
     })
   }
+  if (node.type === "section") {
+    return sceneNodeSchema.parse({
+      ...painted,
+      radius: node.radius * scale,
+      childNodeIds: [],
+    })
+  }
   return sceneNodeSchema.parse(painted)
 }
 

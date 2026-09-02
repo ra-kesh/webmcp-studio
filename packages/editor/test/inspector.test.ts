@@ -1,6 +1,7 @@
 import {
   applyCommand,
   northstarSeed,
+  sceneNodeSchema,
   type Document,
   type SceneNode,
 } from "@webmcp/document"
@@ -161,6 +162,70 @@ describe("inspector selection model", () => {
         locked: { kind: "mixed" },
       },
     })
+  })
+
+  it("exposes paint and shape controls for every expanded vector type", () => {
+    const common = {
+      name: "Expanded inspector shape",
+      x: 20,
+      y: 30,
+      width: 120,
+      height: 100,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
+      fill: "#111827",
+      strokeWidth: 0,
+    }
+    const nodes = [
+      sceneNodeSchema.parse({
+        ...common,
+        id: "inspector-section",
+        type: "section",
+        radius: 8,
+        childNodeIds: [],
+      }),
+      sceneNodeSchema.parse({
+        ...common,
+        id: "inspector-polygon",
+        type: "polygon",
+        pointCount: 6,
+      }),
+      sceneNodeSchema.parse({
+        ...common,
+        id: "inspector-star",
+        type: "star",
+        pointCount: 5,
+        innerRadius: 0.45,
+      }),
+      sceneNodeSchema.parse({
+        ...common,
+        id: "inspector-vector",
+        type: "vector",
+        path: "M0 0H100V100H0Z",
+        viewBox: "0 0 100 100",
+        fillRule: "nonzero",
+      }),
+      sceneNodeSchema.parse({
+        ...common,
+        id: "inspector-boolean",
+        type: "boolean_result",
+        operation: "union",
+        sourceNodeIds: ["source-a", "source-b"],
+        path: "M0 0H100V100H0Z",
+        viewBox: "0 0 100 100",
+        fillRule: "nonzero",
+      }),
+    ]
+    for (const node of nodes) {
+      expect(capabilitiesForNodes([node])).toMatchObject({
+        fill: true,
+        stroke: true,
+        cornerRadius: node.type === "section",
+      })
+    }
   })
 
   it("derives only properties shared by every selected type", () => {

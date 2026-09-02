@@ -309,6 +309,60 @@ describe("Studio page thumbnail raster producer", () => {
     expect(fetcher).not.toHaveBeenCalled()
   })
 
+  it("uses the live fallback for a browser-local image fill", async () => {
+    const localDocument = structuredClone(fixture.document)
+    const shape = {
+      id: "local-fill-shape",
+      type: "rect" as const,
+      name: "Local fill shape",
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+      constraints: { horizontal: "min" as const, vertical: "min" as const },
+      fill: "#ffffff",
+      radius: 0,
+      strokeWidth: 0,
+      fills: [
+        {
+          id: "local-thumbnail-fill",
+          type: "image" as const,
+          assetId: "asset-local-fill01",
+          src: "asset:local/asset-local-fill01",
+          opacity: 1,
+          visible: true,
+          transform: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 },
+        },
+      ],
+    }
+    localDocument.nodes.push(shape)
+    localDocument.pages[0].nodeIds.push(shape.id)
+    const fetcher = vi.fn()
+    const producer = createStudioPageThumbnailRasterProducer({
+      getSnapshot: () => ({
+        document: localDocument,
+        snapshotId: "snapshot-local-fill",
+      }),
+      fetcher,
+    })
+    const requestKey = key({
+      documentSnapshotId: "snapshot-local-fill",
+      pageRevision: createPageThumbnailRevision(
+        localDocument,
+        localDocument.pages[0].id
+      ),
+    })
+
+    await expect(
+      producer(requestKey, new AbortController().signal)
+    ).rejects.toMatchObject({ code: "local_asset_requires_live_preview" })
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+
   it("rejects status failures and renderer identity mismatches", async () => {
     const requestKey = key()
     const getSnapshot = () => ({

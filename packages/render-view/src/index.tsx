@@ -34,6 +34,7 @@ import {
   type Document,
   type ImageFrameMask,
   type RenderFrameProjection,
+  type RenderFillPaint,
   type RenderImagePaintProjection,
   type RenderNodeProjection,
   type ProjectedTextLine,
@@ -1827,8 +1828,99 @@ export function renderNodeStyle(
 
 type ShapePaintProjection = Extract<
   RenderNodeProjection,
-  { type: "rect" | "frame" | "ellipse" | "line" | "icon" }
+  {
+    type:
+      | "rect"
+      | "frame"
+      | "ellipse"
+      | "line"
+      | "icon"
+      | "section"
+      | "polygon"
+      | "star"
+      | "vector"
+      | "boolean_result"
+  }
 >
+
+const svgPaintIdentifier = (nodeId: string, paintId: string) =>
+  `studio-paint-${Array.from(`${nodeId}\u0000${paintId}`, (character) =>
+    character.codePointAt(0)?.toString(16)
+  ).join("-")}`
+
+function RenderFillPaintDefinition({
+  nodeId,
+  paint,
+}: {
+  nodeId: string
+  paint: Exclude<RenderFillPaint, { type?: "solid" }>
+}) {
+  const id = svgPaintIdentifier(nodeId, paint.id)
+  if (paint.type === "linear_gradient") {
+    return (
+      <linearGradient
+        id={id}
+        x1={paint.from.x}
+        y1={paint.from.y}
+        x2={paint.to.x}
+        y2={paint.to.y}
+      >
+        {paint.stops.map((stop, index) => (
+          <stop
+            key={`${stop.position}:${index}`}
+            offset={stop.position}
+            stopColor={stop.color}
+            stopOpacity={stop.opacity}
+          />
+        ))}
+      </linearGradient>
+    )
+  }
+  if (paint.type === "radial_gradient") {
+    return (
+      <radialGradient
+        id={id}
+        cx="0"
+        cy="0"
+        r="1"
+        gradientTransform={`translate(${paint.center.x} ${paint.center.y}) rotate(${paint.rotation}) scale(${paint.radiusX} ${paint.radiusY})`}
+      >
+        {paint.stops.map((stop, index) => (
+          <stop
+            key={`${stop.position}:${index}`}
+            offset={stop.position}
+            stopColor={stop.color}
+            stopOpacity={stop.opacity}
+          />
+        ))}
+      </radialGradient>
+    )
+  }
+  const { a, b, c, d, e, f } = paint.transform
+  return (
+    <pattern
+      id={id}
+      width="1"
+      height="1"
+      patternContentUnits="objectBoundingBox"
+      patternUnits="objectBoundingBox"
+    >
+      <image
+        data-image-paint-node-id={nodeId}
+        href={paint.src}
+        width="1"
+        height="1"
+        preserveAspectRatio="none"
+        transform={`matrix(${a} ${b} ${c} ${d} ${e} ${f})`}
+      />
+    </pattern>
+  )
+}
+
+const svgFillValue = (nodeId: string, paint: RenderFillPaint) =>
+  !paint.type || paint.type === "solid"
+    ? paint.color
+    : `url(#${svgPaintIdentifier(nodeId, paint.id)})`
 
 function RenderShapePaintStack({
   projection,
@@ -1886,80 +1978,41 @@ function RenderShapePaintStack({
       </svg>
     )
   }
-  if (projection.type === "icon") {
-    return (
-      <svg
-        {...dataAttributes}
-        style={frameStyle}
-        viewBox={projection.content.viewBox}
-        preserveAspectRatio="xMidYMid meet"
-      >
-        {projection.content.fills.map((paint) => (
-          <path
-            key={`fill:${paint.id}`}
-            d={projection.content.path}
-            fill={paint.color}
-            style={paintStyle(paint)}
-          />
-        ))}
-        {projection.content.strokes.map((paint) => (
-          <path
-            key={`stroke:${paint.id}`}
-            d={projection.content.path}
-            fill="none"
-            stroke={paint.color}
-            strokeWidth={paint.width}
-            {...strokeAttributes(paint)}
-            style={paintStyle(paint)}
-            vectorEffect="non-scaling-stroke"
-          />
-        ))}
-      </svg>
-    )
-  }
   const shape = (
-    paint: {
-      id: string
-      color: string
-      opacity: number
-      visible: boolean
-      blendMode: string
-      width?: number
-      alignment?: "inside" | "center" | "outside"
-      sides?: { top: boolean; right: boolean; bottom: boolean; left: boolean }
-      dash?: number[]
-      cap?: "butt" | "round" | "square"
-      join?: "miter" | "round" | "bevel"
-      miterLimit?: number
-    },
+    paint: RenderFillPaint | ShapePaintProjection["content"]["strokes"][number],
     kind: "fill" | "stroke"
   ) => {
+    const paintKey = `${kind}:${paint.id}`
     const attributes = {
-      key: `${kind}:${paint.id}`,
-      fill: kind === "fill" ? paint.color : "none",
-      stroke: kind === "stroke" ? paint.color : undefined,
-      strokeWidth: kind === "stroke" ? paint.width : undefined,
+      fill:
+        kind === "fill"
+          ? svgFillValue(projection.frame.id, paint as RenderFillPaint)
+          : "none",
+      stroke: kind === "stroke" && "color" in paint ? paint.color : undefined,
+      strokeWidth:
+        kind === "stroke" && "width" in paint ? paint.width : undefined,
       style: paintStyle(paint),
       vectorEffect: "non-scaling-stroke" as const,
       ...(kind === "stroke"
         ? strokeAttributes({
-            dash: paint.dash ?? [],
-            cap: paint.cap ?? "butt",
-            join: paint.join ?? "miter",
-            miterLimit: paint.miterLimit ?? 4,
+            dash: "dash" in paint ? (paint.dash ?? []) : [],
+            cap: "cap" in paint ? (paint.cap ?? "butt") : "butt",
+            join: "join" in paint ? (paint.join ?? "miter") : "miter",
+            miterLimit: "miterLimit" in paint ? (paint.miterLimit ?? 4) : 4,
           })
         : {}),
     }
     const inset =
-      kind === "stroke"
+      kind === "stroke" && "width" in paint
         ? strokeGeometryInset({
-            width: paint.width ?? 0,
+            width: paint.width,
             alignment: paint.alignment,
           })
         : 0
     if (projection.type === "ellipse") {
       return (
         <ellipse
+          key={paintKey}
           {...attributes}
           cx={projection.frame.width / 2}
           cy={projection.frame.height / 2}
@@ -1968,11 +2021,31 @@ function RenderShapePaintStack({
         />
       )
     }
+    if (
+      projection.type === "icon" ||
+      projection.type === "polygon" ||
+      projection.type === "star" ||
+      projection.type === "vector" ||
+      projection.type === "boolean_result"
+    ) {
+      return (
+        <path
+          key={paintKey}
+          {...attributes}
+          d={projection.content.path}
+          fillRule={
+            projection.type === "icon" ? "nonzero" : projection.content.fillRule
+          }
+        />
+      )
+    }
     const advancedCorners =
-      projection.content.corners.independent ||
-      projection.content.corners.smoothing > 0
+      (projection.type === "rect" || projection.type === "frame") &&
+      (projection.content.corners.independent ||
+        projection.content.corners.smoothing > 0)
     if (
       kind === "stroke" &&
+      "sides" in paint &&
       paint.sides &&
       !Object.values(paint.sides).every(Boolean)
     ) {
@@ -1981,7 +2054,7 @@ function RenderShapePaintStack({
       const x2 = projection.frame.width - inset
       const y2 = projection.frame.height - inset
       return (
-        <g key={`${kind}:${paint.id}`} style={paintStyle(paint)}>
+        <g key={paintKey} style={paintStyle(paint)}>
           {paint.sides.top ? (
             <line {...attributes} x1={x1} y1={y1} x2={x2} y2={y1} />
           ) : null}
@@ -1999,18 +2072,20 @@ function RenderShapePaintStack({
     }
     return advancedCorners ? (
       <path
+        key={paintKey}
         {...attributes}
         d={roundedRectanglePaintPath({
           width: Math.max(0, projection.frame.width - inset * 2),
           height: Math.max(0, projection.frame.height - inset * 2),
           cornerRadii: projection.content.corners.radii,
           cornerSmoothing: projection.content.corners.smoothing,
-          strokeWidth: kind === "stroke" ? (paint.width ?? 0) : 0,
+          strokeWidth: kind === "stroke" && "width" in paint ? paint.width : 0,
         })}
         transform={inset ? `translate(${inset} ${inset})` : undefined}
       />
     ) : (
       <rect
+        key={paintKey}
         {...attributes}
         x={inset}
         y={inset}
@@ -2025,9 +2100,33 @@ function RenderShapePaintStack({
     <svg
       {...dataAttributes}
       style={frameStyle}
-      viewBox={`0 0 ${projection.frame.width} ${projection.frame.height}`}
-      preserveAspectRatio="none"
+      viewBox={
+        projection.type === "icon" ||
+        projection.type === "polygon" ||
+        projection.type === "star" ||
+        projection.type === "vector" ||
+        projection.type === "boolean_result"
+          ? projection.content.viewBox
+          : `0 0 ${projection.frame.width} ${projection.frame.height}`
+      }
+      preserveAspectRatio={
+        projection.type === "icon" ? "xMidYMid meet" : "none"
+      }
     >
+      <defs>
+        {projection.content.fills
+          .filter(
+            (paint): paint is Exclude<RenderFillPaint, { type?: "solid" }> =>
+              Boolean(paint.type && paint.type !== "solid")
+          )
+          .map((paint) => (
+            <RenderFillPaintDefinition
+              key={paint.id}
+              nodeId={projection.frame.id}
+              paint={paint}
+            />
+          ))}
+      </defs>
       {projection.content.fills.map((paint) => shape(paint, "fill"))}
       {projection.content.strokes.map((paint) => shape(paint, "stroke"))}
     </svg>
@@ -2065,12 +2164,29 @@ function RenderNode({
 
   if (
     projection.type !== "image" &&
-    hasExplicitPaintStack(
+    (hasExplicitPaintStack(
       node as Extract<
         SceneNode,
-        { type: "rect" | "frame" | "ellipse" | "line" | "icon" }
+        {
+          type:
+            | "rect"
+            | "frame"
+            | "ellipse"
+            | "line"
+            | "icon"
+            | "section"
+            | "polygon"
+            | "star"
+            | "vector"
+            | "boolean_result"
+        }
       >
-    )
+    ) ||
+      projection.type === "section" ||
+      projection.type === "polygon" ||
+      projection.type === "star" ||
+      projection.type === "vector" ||
+      projection.type === "boolean_result")
   ) {
     return (
       <RenderShapePaintStack

@@ -2,11 +2,15 @@ import type {
   BlendMode,
   CornerRadii,
   FillPaint,
+  ImageFillPaint,
   ImageFrameMask,
   ImagePlacement,
   LayerEffect,
+  LinearGradientPaint,
   Page,
+  RadialGradientPaint,
   SceneNode,
+  SolidFillPaint,
   StrokePaint,
 } from "./schema"
 import { resolveCornerRadii, roundedRectanglePath } from "./corner-geometry"
@@ -16,6 +20,7 @@ import {
   type TextLayoutProjection,
 } from "./text-layout"
 import { nodeFillPaints, nodeStrokePaints } from "./paint-stack"
+import { regularPolygonPath, regularStarPath } from "./vector-geometry"
 
 export type RenderFrameProjection = {
   id: string
@@ -34,11 +39,16 @@ export type RenderFrameProjection = {
   effects: LayerEffect[]
 }
 
-type ProjectedNode<Type extends SceneNode["type"], Content> = {
-  type: Type
-  frame: RenderFrameProjection
-  content: Content
-}
+type ProjectedNode<
+  Type extends SceneNode["type"],
+  Content,
+> = Type extends SceneNode["type"]
+  ? {
+      type: Type
+      frame: RenderFrameProjection
+      content: Content
+    }
+  : never
 
 export type RenderCornerGeometry = Readonly<{
   radii: CornerRadii
@@ -47,9 +57,19 @@ export type RenderCornerGeometry = Readonly<{
   independent: boolean
 }>
 
-export type RenderFillPaint = Omit<FillPaint, "blendMode"> & {
+type ProjectedFillPaint<Paint extends FillPaint> = Omit<Paint, "blendMode"> & {
   blendMode: BlendMode
 }
+
+export type RenderSolidFillPaint = ProjectedFillPaint<SolidFillPaint>
+export type RenderLinearGradientPaint = ProjectedFillPaint<LinearGradientPaint>
+export type RenderRadialGradientPaint = ProjectedFillPaint<RadialGradientPaint>
+export type RenderImageFillPaint = ProjectedFillPaint<ImageFillPaint>
+export type RenderFillPaint =
+  | RenderSolidFillPaint
+  | RenderLinearGradientPaint
+  | RenderRadialGradientPaint
+  | RenderImageFillPaint
 export type RenderStrokePaint = Omit<StrokePaint, "blendMode"> & {
   blendMode: BlendMode
   alignment: "inside" | "center" | "outside"
@@ -63,10 +83,21 @@ export type RenderStrokePaint = Omit<StrokePaint, "blendMode"> & {
 const projectFillPaints = (
   node: Parameters<typeof nodeFillPaints>[0]
 ): RenderFillPaint[] =>
-  nodeFillPaints(node).map((paint) => ({
-    ...paint,
-    blendMode: paint.blendMode ?? "normal",
-  }))
+  nodeFillPaints(node).map((paint) => {
+    if (paint.type === "linear_gradient") {
+      return { ...paint, blendMode: paint.blendMode ?? "normal" }
+    }
+    if (paint.type === "radial_gradient") {
+      return { ...paint, blendMode: paint.blendMode ?? "normal" }
+    }
+    if (paint.type === "image") {
+      return { ...paint, blendMode: paint.blendMode ?? "normal" }
+    }
+    return {
+      ...paint,
+      blendMode: paint.blendMode ?? "normal",
+    }
+  })
 
 const projectStrokePaints = (
   node: Parameters<typeof nodeStrokePaints>[0]
@@ -76,7 +107,14 @@ const projectStrokePaints = (
     blendMode: paint.blendMode ?? "normal",
     alignment:
       paint.alignment ??
-      (node.type === "line" || node.type === "icon" ? "center" : "inside"),
+      (node.type === "line" ||
+      node.type === "icon" ||
+      node.type === "polygon" ||
+      node.type === "star" ||
+      node.type === "vector" ||
+      node.type === "boolean_result"
+        ? "center"
+        : "inside"),
     sides: paint.sides ?? { top: true, right: true, bottom: true, left: true },
     dash: paint.dash ?? [],
     cap: paint.cap ?? "butt",
@@ -141,6 +179,34 @@ export type RenderNodeProjection =
         stroke?: string
         strokeWidth: number
         strokes: RenderStrokePaint[]
+      }
+    >
+  | ProjectedNode<
+      "section",
+      {
+        fill: string
+        fills: RenderFillPaint[]
+        radius: number
+        stroke?: string
+        strokeWidth: number
+        strokes: RenderStrokePaint[]
+        childNodeIds: string[]
+      }
+    >
+  | ProjectedNode<
+      "polygon" | "star" | "vector" | "boolean_result",
+      {
+        path: string
+        viewBox: string
+        preserveAspectRatio: "none"
+        fillRule: "nonzero" | "evenodd"
+        fill: string
+        fills: RenderFillPaint[]
+        stroke?: string
+        strokeWidth: number
+        strokes: RenderStrokePaint[]
+        operation?: "union" | "subtract" | "intersect" | "exclude"
+        sourceNodeIds?: string[]
       }
     >
   | ProjectedNode<
@@ -288,6 +354,91 @@ export function projectNodeForRender(node: SceneNode): RenderNodeProjection {
           stroke: node.stroke,
           strokeWidth: node.strokeWidth,
           strokes: projectStrokePaints(node),
+        },
+      }
+    case "section":
+      return {
+        type: node.type,
+        frame,
+        content: {
+          fill: node.fill,
+          fills: projectFillPaints(node),
+          radius: node.radius,
+          stroke: node.stroke,
+          strokeWidth: node.strokeWidth,
+          strokes: projectStrokePaints(node),
+          childNodeIds: [...node.childNodeIds],
+        },
+      }
+    case "polygon":
+      return {
+        type: node.type,
+        frame,
+        content: {
+          path: regularPolygonPath(node.width, node.height, node.pointCount),
+          viewBox: `0 0 ${node.width} ${node.height}`,
+          preserveAspectRatio: "none",
+          fillRule: "nonzero",
+          fill: node.fill,
+          fills: projectFillPaints(node),
+          stroke: node.stroke,
+          strokeWidth: node.strokeWidth,
+          strokes: projectStrokePaints(node),
+        },
+      }
+    case "star":
+      return {
+        type: node.type,
+        frame,
+        content: {
+          path: regularStarPath(
+            node.width,
+            node.height,
+            node.pointCount,
+            node.innerRadius
+          ),
+          viewBox: `0 0 ${node.width} ${node.height}`,
+          preserveAspectRatio: "none",
+          fillRule: "nonzero",
+          fill: node.fill,
+          fills: projectFillPaints(node),
+          stroke: node.stroke,
+          strokeWidth: node.strokeWidth,
+          strokes: projectStrokePaints(node),
+        },
+      }
+    case "vector":
+      return {
+        type: node.type,
+        frame,
+        content: {
+          path: node.path,
+          viewBox: node.viewBox,
+          preserveAspectRatio: "none",
+          fillRule: node.fillRule,
+          fill: node.fill,
+          fills: projectFillPaints(node),
+          stroke: node.stroke,
+          strokeWidth: node.strokeWidth,
+          strokes: projectStrokePaints(node),
+        },
+      }
+    case "boolean_result":
+      return {
+        type: node.type,
+        frame,
+        content: {
+          path: node.path,
+          viewBox: node.viewBox,
+          preserveAspectRatio: "none",
+          fillRule: node.fillRule,
+          fill: node.fill,
+          fills: projectFillPaints(node),
+          stroke: node.stroke,
+          strokeWidth: node.strokeWidth,
+          strokes: projectStrokePaints(node),
+          operation: node.operation,
+          sourceNodeIds: [...node.sourceNodeIds],
         },
       }
     case "line":

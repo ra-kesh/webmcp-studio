@@ -19,7 +19,16 @@ export const bindingPropertiesForNode = (
 ): BindableProperty[] => {
   if (node.type === "text") return ["text", "visible"]
   if (node.type === "image") return ["src", "visible"]
-  if (node.type === "rect" || node.type === "ellipse" || node.type === "icon") {
+  if (
+    node.type === "rect" ||
+    node.type === "ellipse" ||
+    node.type === "icon" ||
+    node.type === "section" ||
+    node.type === "polygon" ||
+    node.type === "star" ||
+    node.type === "vector" ||
+    node.type === "boolean_result"
+  ) {
     return ["fill", "visible"]
   }
   return ["visible"]

@@ -161,6 +161,53 @@ function componentLayerDocument() {
 }
 
 describe("layer tree model", () => {
+  it("nests section-owned layers once in explicit paint order", () => {
+    const document = structuredClone(northstarSeed)
+    const page = document.pages.find((candidate) => candidate.id === "cover")!
+    page.nodeIds = ["cover-section", ...page.nodeIds]
+    document.nodes.push({
+      id: "cover-section",
+      type: "section",
+      name: "Cover section",
+      x: 40,
+      y: 420,
+      width: 620,
+      height: 500,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
+      fill: "transparent",
+      radius: 12,
+      strokeWidth: 0,
+      childNodeIds: ["cover-eyebrow", "cover-title"],
+    })
+
+    const model = buildLayerTreeModel(assertValidDocument(document), "cover")
+    const section = model.byKey.get(layerKey("node", "cover-section"))
+    expect(section?.children.map((child) => child.id)).toEqual([
+      "cover-title",
+      "cover-eyebrow",
+    ])
+    expect(model.items.filter((item) => item.id === "cover-title")).toEqual([])
+    expect(model.items.filter((item) => item.id === "cover-eyebrow")).toEqual(
+      []
+    )
+    expect(
+      visibleLayerRows(model.items, new Set([section!.key])).map((row) => [
+        row.item.id,
+        row.depth,
+      ])
+    ).toEqual(
+      expect.arrayContaining([
+        ["cover-section", 1],
+        ["cover-title", 2],
+        ["cover-eyebrow", 2],
+      ])
+    )
+  })
+
   it("nests frame-owned layers once in explicit paint order", () => {
     const document = structuredClone(northstarSeed)
     const page = document.pages.find((candidate) => candidate.id === "cover")!

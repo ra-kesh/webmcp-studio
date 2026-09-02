@@ -264,6 +264,58 @@ describe("ordered fill and stroke stacks", () => {
     })
   })
 
+  it("adds a solid style paint without corrupting an existing gradient stack", () => {
+    let document = update({
+      fills: [
+        {
+          id: "direct-fill",
+          type: "linear_gradient",
+          from: { x: 0, y: 0 },
+          to: { x: 1, y: 1 },
+          stops: [
+            { position: 0, color: "#0ea5e9", opacity: 1 },
+            { position: 1, color: "#312e81", opacity: 1 },
+          ],
+          opacity: 1,
+          visible: true,
+        },
+      ],
+    })
+    document = applyCommand(document, {
+      id: "create-gradient-stack-style",
+      at: "2026-09-02T00:06:30.000Z",
+      actor: "human",
+      type: "create_paint_style",
+      style: {
+        id: "gradient-stack-style",
+        name: "Gradient stack solid",
+        color: "#f97316",
+        opacity: 0.65,
+      },
+    })
+    document = applyCommand(document, {
+      id: "apply-gradient-stack-style",
+      at: "2026-09-02T00:06:31.000Z",
+      actor: "human",
+      type: "apply_paint_style",
+      styleId: "gradient-stack-style",
+      targets: [{ nodeId: rect().id }],
+    })
+
+    expect(document.nodes.find((node) => node.id === rect().id)).toMatchObject({
+      fill: "#f97316",
+      fills: [
+        {
+          id: "direct-fill-2",
+          type: "solid",
+          color: "#f97316",
+          opacity: 0.65,
+        },
+        { id: "direct-fill", type: "linear_gradient" },
+      ],
+    })
+  })
+
   it("preserves ordered stacks through component instance overrides", () => {
     const journey = buildComponentPublicationJourney()
     const instance = journey.instanceCreated.componentInstances[0]!

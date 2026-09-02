@@ -441,6 +441,88 @@ describe("render field asset resolution", () => {
     expect(resolve).not.toHaveBeenCalled()
   })
 
+  it("accounts for and materializes managed image fills by paint identity", async () => {
+    const assetId = "asset-managedfill01"
+    const managed = `asset:managed/${assetId}`
+    const document = structuredClone(northstarSeed)
+    const shape = document.nodes.find((node) => node.type === "rect")
+    if (!shape) throw new Error("Rect fixture missing")
+    shape.fills = [
+      {
+        id: "managed-fill",
+        type: "image",
+        assetId,
+        src: managed,
+        opacity: 1,
+        visible: true,
+        transform: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 },
+      },
+    ]
+    const inlineSource =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+    const bytes = Uint8Array.from(
+      atob(inlineSource.slice(inlineSource.indexOf(",") + 1)),
+      (character) => character.charCodeAt(0)
+    )
+    const contentHash = Array.from(
+      new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
+      (byte) => byte.toString(16).padStart(2, "0")
+    ).join("")
+
+    expect(
+      collectManagedDocumentAssetReferences(
+        document,
+        "current_document",
+        document.id
+      )
+    ).toContainEqual(
+      expect.objectContaining({
+        assetId,
+        nodeId: shape.id,
+        property: "fills.managed-fill.src",
+      })
+    )
+
+    const materialized = await materializeManagedDocumentAssets(
+      document,
+      async () => ({
+        assetId,
+        src: inlineSource,
+        width: 1,
+        height: 1,
+        contentHash,
+        revision: 1,
+      })
+    )
+    const materializedShape = materialized.document.nodes.find(
+      (node) => node.id === shape.id
+    )
+    const materializedFill =
+      materializedShape && "fills" in materializedShape
+        ? materializedShape.fills?.[0]
+        : undefined
+
+    expect(materializedFill).toMatchObject({ src: inlineSource })
+    expect(materialized.resources).toEqual([
+      {
+        nodeId: shape.id,
+        paintId: "managed-fill",
+        assetId,
+        width: 1,
+        height: 1,
+        contentHash,
+        revision: 1,
+      },
+    ])
+    await expect(
+      assertRenderImageResourceAdmission(
+        materialized.document,
+        materialized.resources
+      )
+    ).resolves.toBeUndefined()
+    expect(shape.fills[0]).toMatchObject({ src: managed })
+  })
+
   it("keeps node expectations exact when distinct managed assets have identical bytes", async () => {
     const document = structuredClone(northstarSeed)
     const firstAssetId = "asset-aaaaaaaaaa"

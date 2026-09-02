@@ -8,6 +8,7 @@ import {
   curatedAssetIdentityFromSource,
   curatedImageAssetIdentity,
   managedImageAssetIdentity,
+  sceneNodeImageReferences,
   validateAssetFieldPublicationIdentities,
 } from "@webmcp/document"
 import {
@@ -330,26 +331,34 @@ export function collectManagedDocumentAssetReferences(
     )
   )
   for (const node of document.nodes) {
-    if (node.type !== "image") continue
-    const identity = managedImageAssetIdentity(node.assetId, node.src)
-    if (identity.managed && !identity.coherent) {
-      throw new Error(
-        `Managed image ${node.name} has mismatched assetId and src identities`
+    for (const imageReference of sceneNodeImageReferences(node)) {
+      const identity = managedImageAssetIdentity(
+        imageReference.assetId,
+        imageReference.src
       )
+      if (identity.managed && !identity.coherent) {
+        throw new Error(
+          `Managed image ${node.name} has mismatched assetId and src identities`
+        )
+      }
+      const assetId = managedAssetIdFromSource(imageReference.src)
+      if (!assetId) continue
+      const property =
+        imageReference.location === "fill"
+          ? `fills.${imageReference.paintId}.src`
+          : "src"
+      references.push({
+        assetId,
+        referenceKind,
+        sourceId,
+        referenceKey: `node:${node.id}:${property}`,
+        documentId: document.id,
+        pageId: pageByNode.get(node.id) ?? null,
+        nodeId: node.id,
+        fieldId: null,
+        property,
+      })
     }
-    const assetId = managedAssetIdFromSource(node.src)
-    if (!assetId) continue
-    references.push({
-      assetId,
-      referenceKind,
-      sourceId,
-      referenceKey: `node:${node.id}:src`,
-      documentId: document.id,
-      pageId: pageByNode.get(node.id) ?? null,
-      nodeId: node.id,
-      fieldId: null,
-      property: "src",
-    })
   }
 
   for (const field of document.fields) {
@@ -477,41 +486,59 @@ export async function materializeManagedDocumentAssets(
   }
   for (const node of document.nodes) {
     signal?.throwIfAborted()
-    if (node.type !== "image") continue
-    const identity = managedImageAssetIdentity(node.assetId, node.src)
-    const curatedIdentity = curatedImageAssetIdentity(node.assetId, node.src)
-    if (identity.managed && !identity.coherent) {
-      throw new Error(
-        `Managed image ${node.name} has mismatched assetId and src identities`
+    for (const imageReference of sceneNodeImageReferences(node)) {
+      const identity = managedImageAssetIdentity(
+        imageReference.assetId,
+        imageReference.src
       )
-    }
-    if (curatedIdentity.curated && !curatedIdentity.coherent) {
-      throw new Error(
-        `Curated image ${node.name} has mismatched assetId and src identities`
+      const curatedIdentity = curatedImageAssetIdentity(
+        imageReference.assetId,
+        imageReference.src
       )
-    }
-    const assetId =
-      managedAssetIdFromSource(node.src) ??
-      (curatedIdentity.curated ? curatedIdentity.assetId : null)
-    if (!assetId) continue
-    try {
-      const resource = await resolveSource(node.src)
-      if (!resource) continue
-      node.src = resource.src
-      resources.push({
-        nodeId: node.id,
-        assetId: resource.assetId,
-        width: resource.width,
-        height: resource.height,
-        contentHash: resource.contentHash,
-        revision: resource.revision,
-      })
-    } catch (error) {
-      signal?.throwIfAborted()
-      if (curatedIdentity.curated) {
-        throw new CuratedAssetMaterializationError(assetId, node.id, error)
+      if (identity.managed && !identity.coherent) {
+        throw new Error(
+          `Managed image ${node.name} has mismatched assetId and src identities`
+        )
       }
-      throw new ManagedAssetMaterializationError(assetId, node.id, error)
+      if (curatedIdentity.curated && !curatedIdentity.coherent) {
+        throw new Error(
+          `Curated image ${node.name} has mismatched assetId and src identities`
+        )
+      }
+      const assetId =
+        managedAssetIdFromSource(imageReference.src) ??
+        (curatedIdentity.curated ? curatedIdentity.assetId : null)
+      if (!assetId) continue
+      try {
+        const resource = await resolveSource(imageReference.src)
+        if (!resource) continue
+        if (imageReference.location === "node" && node.type === "image") {
+          node.src = resource.src
+        } else if ("fills" in node && node.fills) {
+          node.fills = node.fills.map((paint) =>
+            paint.type === "image" && paint.id === imageReference.paintId
+              ? { ...paint, src: resource.src }
+              : paint
+          )
+        }
+        resources.push({
+          nodeId: node.id,
+          ...(imageReference.paintId
+            ? { paintId: imageReference.paintId }
+            : {}),
+          assetId: resource.assetId,
+          width: resource.width,
+          height: resource.height,
+          contentHash: resource.contentHash,
+          revision: resource.revision,
+        })
+      } catch (error) {
+        signal?.throwIfAborted()
+        if (curatedIdentity.curated) {
+          throw new CuratedAssetMaterializationError(assetId, node.id, error)
+        }
+        throw new ManagedAssetMaterializationError(assetId, node.id, error)
+      }
     }
   }
   const resolveFieldSource = async (
@@ -574,19 +601,20 @@ export const catalogAssetFieldIssues = (document: Document) => {
       (typeof value === "string" && managedAssetIdFromSource(value) !== null)
   )
   const curatedNodeIssues = document.nodes.flatMap((node) =>
-    node.type === "image" &&
-    node.src.startsWith("/library/media/") &&
-    !studioAssetIdentityForValue(node.src)
-      ? [
-          {
-            id: `node:${node.id}:unknown-curated-asset`,
-            severity: "error" as const,
-            code: "unmanaged_asset" as const,
-            message: `${node.name} does not use an exact approved Studio asset version`,
-            nodeId: node.id,
-          },
-        ]
-      : []
+    sceneNodeImageReferences(node).flatMap((reference) =>
+      reference.src.startsWith("/library/media/") &&
+      !studioAssetIdentityForValue(reference.src)
+        ? [
+            {
+              id: `node:${node.id}:${reference.paintId ?? "image"}:unknown-curated-asset`,
+              severity: "error" as const,
+              code: "unmanaged_asset" as const,
+              message: `${node.name} does not use an exact approved Studio asset version`,
+              nodeId: node.id,
+            },
+          ]
+        : []
+    )
   )
   return [...fieldIssues, ...curatedNodeIssues]
 }
@@ -596,8 +624,18 @@ export function publicTemplateVersion(
 ): TemplateVersion {
   const document = structuredClone(version.document)
   for (const node of document.nodes) {
-    if (node.type !== "image") continue
-    node.src = studioCompatibilityAssetPathForValue(node.src) ?? node.src
+    if (node.type === "image") {
+      node.src = studioCompatibilityAssetPathForValue(node.src) ?? node.src
+    } else if ("fills" in node && node.fills) {
+      node.fills = node.fills.map((paint) =>
+        paint.type === "image"
+          ? {
+              ...paint,
+              src: studioCompatibilityAssetPathForValue(paint.src) ?? paint.src,
+            }
+          : paint
+      )
+    }
   }
   for (const field of document.fields) {
     if (field.type !== "asset") continue

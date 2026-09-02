@@ -63,6 +63,10 @@ export const historyCommandLabel = (commands: DocumentCommand[]) => {
   switch (commands[0]?.type) {
     case "add_node":
       return "Add layer"
+    case "convert_node_to_vector":
+      return "Convert layer to vector"
+    case "create_boolean_result":
+      return "Create boolean result"
     case "update_node":
       return "Update layer"
     case "create_component":

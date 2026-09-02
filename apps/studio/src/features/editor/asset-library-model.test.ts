@@ -165,6 +165,34 @@ describe("asset library model", () => {
     ).toEqual(["missing"])
   })
 
+  it("includes image fills in local usage, recovery, and missing-byte checks", () => {
+    const document = structuredClone(northstarSeed)
+    const shape = document.nodes.find((node) => node.type === "rect")
+    if (!shape) throw new Error("Rect fixture missing")
+    shape.fills = [
+      {
+        id: "local-fill",
+        type: "image",
+        assetId: "asset-fill",
+        src: "asset:local/asset-fill",
+        opacity: 1,
+        visible: true,
+        transform: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 },
+      },
+    ]
+
+    expect(assetReferenceUsage(document, "local", "asset-fill")).toMatchObject({
+      nodeIds: [shape.id],
+      referenceCount: 1,
+    })
+    expect(missingLocalAssetIds(document, [])).toContain("asset-fill")
+    expect(localMediaRecoveryImpact(document, "asset-fill")).toMatchObject({
+      referenceKeys: [`node/${shape.id}/fills/local-fill/src`],
+      directNodeIds: [shape.id],
+      referenceCount: 1,
+    })
+  })
+
   it("projects every alias use instead of stopping at the first image node", () => {
     const source = "asset:local/missing"
     const page = northstarSeed.pages[0]

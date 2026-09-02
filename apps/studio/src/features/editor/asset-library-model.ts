@@ -1,4 +1,8 @@
-import { extractAssetReferences, localAssetSource } from "@webmcp/document"
+import {
+  extractAssetReferences,
+  localAssetSource,
+  sceneNodeImageReferences,
+} from "@webmcp/document"
 import type { Document, PublicMediaAsset } from "@webmcp/document"
 import { localAssetIdFromSource } from "./local-asset-store"
 import { managedMediaIdFromSource } from "./managed-media-repository"
@@ -123,7 +127,8 @@ function localMediaRecoveryImpactFromReferences(
 ): LocalMediaRecoveryImpact {
   const directNodeIds = sortedUnique(
     references.flatMap((reference) =>
-      reference.location === "node" && reference.nodeId
+      (reference.location === "node" || reference.location === "node_fill") &&
+      reference.nodeId
         ? [reference.nodeId]
         : []
     )
@@ -204,11 +209,12 @@ export function assetReferenceUsage(
   assetId: string
 ): AssetReferenceUsage {
   const nodeIds = document.nodes
-    .filter(
-      (node) =>
-        node.type === "image" &&
-        (node.assetId === assetId ||
-          assetIdFromSource(kind, node.src) === assetId)
+    .filter((node) =>
+      sceneNodeImageReferences(node).some(
+        (reference) =>
+          reference.assetId === assetId ||
+          assetIdFromSource(kind, reference.src) === assetId
+      )
     )
     .map((node) => node.id)
   const nodeIdSet = new Set(nodeIds)
@@ -243,9 +249,10 @@ export function missingLocalAssetIds(
   const referenced = new Set<string>()
 
   for (const node of document.nodes) {
-    if (node.type !== "image") continue
-    const assetId = localAssetIdFromSource(node.src)
-    if (assetId) referenced.add(assetId)
+    for (const reference of sceneNodeImageReferences(node)) {
+      const assetId = localAssetIdFromSource(reference.src)
+      if (assetId) referenced.add(assetId)
+    }
   }
   for (const field of document.fields) {
     if (field.type !== "asset") continue

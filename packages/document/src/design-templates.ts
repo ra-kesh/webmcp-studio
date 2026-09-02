@@ -8,6 +8,7 @@ import type { QuotationTemplateId } from "./quotation-composer"
 import type { QuotationRenderPayloadV1 } from "./quotation-contract"
 import { documentSchema } from "./schema"
 import type { Document } from "./schema"
+import { sceneNodeImageReferences } from "./media"
 import { assertValidDocument } from "./validation"
 import {
   assertTemplateManifestMatchesDocument,
@@ -461,7 +462,7 @@ export function cloneTemplateDocument(
 const imageAssetCount = (document: Document) =>
   new Set(
     document.nodes.flatMap((node) =>
-      node.type === "image" ? [node.assetId] : []
+      sceneNodeImageReferences(node).map((reference) => reference.assetId)
     )
   ).size
 

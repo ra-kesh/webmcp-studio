@@ -75,11 +75,13 @@ export function captureSemanticFragment(
   })
   for (const node of nodes) {
     if (
-      node.type === "frame" &&
-      node.children.some((child) => !requested.has(child.nodeId))
+      (node.type === "frame" &&
+        node.children.some((child) => !requested.has(child.nodeId))) ||
+      (node.type === "section" &&
+        node.childNodeIds.some((nodeId) => !requested.has(nodeId)))
     ) {
       throw new Error(
-        `Semantic frame ${node.id} requires its complete child subtree`
+        `Semantic container ${node.id} requires its complete child subtree`
       )
     }
   }
@@ -208,7 +210,21 @@ export function cloneSemanticFragment(
             nodeId: nodeIdMap.get(child.nodeId)!,
           })),
         }
-      : cloned
+      : source.type === "section"
+        ? {
+            ...cloned,
+            childNodeIds: source.childNodeIds.map((nodeId) =>
+              nodeIdMap.get(nodeId)!
+            ),
+          }
+        : source.type === "boolean_result"
+          ? {
+              ...cloned,
+              sourceNodeIds: source.sourceNodeIds.map(
+                (nodeId) => nodeIdMap.get(nodeId) ?? nodeId
+              ),
+            }
+          : cloned
   })
 
   const groups = fragment.groups.map((source) => {

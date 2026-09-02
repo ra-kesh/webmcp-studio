@@ -8,6 +8,7 @@ import {
   formatFieldValueForText,
   imageFrameMaskSchema,
   imagePlacementSchema,
+  isRenderSafeImageSource,
   managedAssetIdFromSource,
   managedImageAssetIdentity,
   materializeTemplateVersion,
@@ -15,6 +16,7 @@ import {
   paintStylePatchSchema,
   paintStyleSchema,
   readPublicSceneSchema,
+  sceneNodeImageReferences,
   sceneNodePatchSchema,
   sceneTransactionSchema,
   typographyStylePatchSchema,
@@ -31,6 +33,7 @@ import {
   type ChangeSet,
   type GeneratedDocumentPlan,
   type Document,
+  type FillPaint,
   type TemplateModifications,
   type TemplateVersion,
   type SceneNode,
@@ -133,6 +136,8 @@ export const canonicalCanvasMutationFamilies = [
     legacyTool: "execute_product_command",
     commandTypes: [
       "add_node",
+      "convert_node_to_vector",
+      "create_boolean_result",
       "remove_node",
       "duplicate_nodes",
       "reorder_nodes",
@@ -650,16 +655,35 @@ const publicAssetValue = (
   return "unresolved-managed-asset"
 }
 
+const publicFillPaints = (fills: readonly FillPaint[]) =>
+  fills.map((paint) => {
+    if (paint.type !== "image") return paint
+    const { src: _privateRendererSource, ...publicPaint } = paint
+    const managedAssetId = managedAssetIdFromSource(paint.src)
+    return {
+      ...publicPaint,
+      assetId: paint.src.startsWith("asset:local/")
+        ? "unavailable-local-asset"
+        : (managedAssetId ?? paint.assetId),
+    }
+  })
+
 const publicSceneNode = (node: Document["nodes"][number]) => {
-  if (node.type !== "image") return node
-  const { src: _privateRendererSource, ...publicNode } = node
-  if (node.src.startsWith("asset:local/")) {
-    return { ...publicNode, assetId: "unavailable-local-asset" }
+  if (node.type === "image") {
+    const { src: _privateRendererSource, ...publicNode } = node
+    if (node.src.startsWith("asset:local/")) {
+      return { ...publicNode, assetId: "unavailable-local-asset" }
+    }
+    const identity = managedImageAssetIdentity(node.assetId, node.src)
+    return identity.managed
+      ? { ...publicNode, assetId: identity.assetId }
+      : publicNode
   }
-  const identity = managedImageAssetIdentity(node.assetId, node.src)
-  return identity.managed
-    ? { ...publicNode, assetId: identity.assetId }
-    : publicNode
+  if (!("fills" in node) || !node.fills) return node
+  return {
+    ...node,
+    fills: publicFillPaints(node.fills),
+  }
 }
 
 const publicChangeSet = (
@@ -702,7 +726,14 @@ const publicChangeSet = (
           type: command.type,
           nodeId: command.nodeId,
           patch: Object.fromEntries(
-            Object.entries(command.patch).filter(([key]) => key !== "src")
+            Object.entries(command.patch)
+              .filter(([key]) => key !== "src")
+              .map(([key, value]) => [
+                key,
+                key === "fills" && Array.isArray(value)
+                  ? publicFillPaints(value as FillPaint[])
+                  : value,
+              ])
           ),
         },
       }
@@ -1561,8 +1592,13 @@ const sceneNodeTypes = new Set<SceneNode["type"]>([
   "text",
   "rect",
   "frame",
+  "section",
   "ellipse",
   "line",
+  "polygon",
+  "star",
+  "vector",
+  "boolean_result",
   "icon",
   "image",
 ])
@@ -2395,6 +2431,54 @@ const publicNodeCanvasPatchProperties: Record<
   ellipse: new Set(["fill", "fills", "stroke", "strokeWidth", "strokes"]),
   line: new Set(["stroke", "strokeWidth", "strokes"]),
   icon: new Set(["fill", "fills", "stroke", "strokeWidth", "strokes"]),
+  section: new Set([
+    "fill",
+    "fills",
+    "radius",
+    "stroke",
+    "strokeWidth",
+    "strokes",
+    "childNodeIds",
+  ]),
+  polygon: new Set([
+    "fill",
+    "fills",
+    "stroke",
+    "strokeWidth",
+    "strokes",
+    "pointCount",
+  ]),
+  star: new Set([
+    "fill",
+    "fills",
+    "stroke",
+    "strokeWidth",
+    "strokes",
+    "pointCount",
+    "innerRadius",
+  ]),
+  vector: new Set([
+    "fill",
+    "fills",
+    "stroke",
+    "strokeWidth",
+    "strokes",
+    "path",
+    "viewBox",
+    "fillRule",
+  ]),
+  boolean_result: new Set([
+    "fill",
+    "fills",
+    "stroke",
+    "strokeWidth",
+    "strokes",
+    "path",
+    "viewBox",
+    "fillRule",
+    "operation",
+    "sourceNodeIds",
+  ]),
   image: new Set(["placement", "frameMask", "alt", "decorative"]),
 }
 
@@ -3652,9 +3736,10 @@ async function resolveDocumentAssets(
     }
   }
   for (const node of document.nodes) {
-    if (node.type !== "image") continue
-    values.add(node.assetId)
-    values.add(node.src)
+    for (const reference of sceneNodeImageReferences(node)) {
+      values.add(reference.assetId)
+      values.add(reference.src)
+    }
   }
   const resolved = await Promise.all(
     [...values].map(async (value) => {
@@ -5833,21 +5918,22 @@ export function studioWebMcpTools(
             resolvedAssets.map((asset) => asset.id)
           )
           const managedNodeIssues = document.nodes.flatMap((node) => {
-            if (node.type !== "image") return []
-            const managedId = managedAssetIdFromSource(node.src)
-            if (!managedId || approvedAssetIds.has(managedId)) return []
             const page = document.pages.find((candidate) =>
               candidate.nodeIds.includes(node.id)
             )
-            return [
-              {
-                code: "unmanaged_asset",
-                severity: "error" as const,
-                message: `Image layer ${node.name} references an unknown workspace asset`,
-                pageId: page?.id,
-                nodeId: node.id,
-              },
-            ]
+            return sceneNodeImageReferences(node).flatMap((reference) => {
+              const managedId = managedAssetIdFromSource(reference.src)
+              if (!managedId || approvedAssetIds.has(managedId)) return []
+              return [
+                {
+                  code: "unmanaged_asset",
+                  severity: "error" as const,
+                  message: `${reference.location === "fill" ? "Image fill on" : "Image layer"} ${node.name} references an unknown workspace asset`,
+                  pageId: page?.id,
+                  nodeId: node.id,
+                },
+              ]
+            })
           })
           const renderPolicyIssues = validateRenderPolicy(document).filter(
             (issue) => {
@@ -5855,9 +5941,19 @@ export function studioWebMcpTools(
               const node = document.nodes.find(
                 (candidate) => candidate.id === issue.nodeId
               )
-              if (node?.type !== "image") return true
-              const managedId = managedAssetIdFromSource(node.src)
-              return !managedId || !approvedAssetIds.has(managedId)
+              if (!node) return true
+              const unsafeReferences = sceneNodeImageReferences(node).filter(
+                (reference) => !isRenderSafeImageSource(reference.src)
+              )
+              return unsafeReferences.some(
+                (reference) =>
+                  !resolvedAssets.some(
+                    (asset) =>
+                      asset.id === reference.assetId ||
+                      asset.id === managedAssetIdFromSource(reference.src) ||
+                      asset.src === reference.src
+                  )
+              )
             }
           )
           const issues = [
