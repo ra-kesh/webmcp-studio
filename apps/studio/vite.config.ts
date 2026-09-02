@@ -18,6 +18,7 @@ const config = defineConfig(({ command }) => ({
             command === "serve"
               ? "../renderer/wrangler.local.jsonc"
               : "../renderer/wrangler.jsonc",
+          devOnly: command !== "serve",
         },
       ],
     }),

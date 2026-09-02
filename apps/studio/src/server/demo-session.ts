@@ -35,7 +35,7 @@ export type DemoSession = {
   respond: (response: Response) => Response
 }
 
-async function createDemoSession(
+export async function createDemoSession(
   db: D1Database,
   request: Request
 ): Promise<DemoSession> {
@@ -72,33 +72,41 @@ async function createDemoSession(
   }
 }
 
-export async function resolveDemoSession(
+export async function readDemoSession(
   db: D1Database,
   request: Request
-): Promise<DemoSession> {
+): Promise<DemoSession | null> {
   const cookieId = cookieValue(request, COOKIE_NAME)
   const existingId =
     (cookieId && SESSION_ID_PATTERN.test(cookieId) ? cookieId : null) ??
     bearerValue(request)
-  if (existingId) {
-    const existing = await db
-      .prepare(
-        `SELECT id, workspace_id, expires_at
-         FROM demo_sessions
-         WHERE id = ?1 AND expires_at > ?2`
-      )
-      .bind(existingId, new Date().toISOString())
-      .first<{ id: string; workspace_id: string; expires_at: string }>()
-    if (existing) {
-      return {
-        id: existing.id,
-        workspaceId: existing.workspace_id,
-        expiresAt: existing.expires_at,
-        isNew: false,
-        respond: (response) => response,
-      }
-    }
+  if (!existingId) return null
+
+  const existing = await db
+    .prepare(
+      `SELECT id, workspace_id, expires_at
+       FROM demo_sessions
+       WHERE id = ?1 AND expires_at > ?2`
+    )
+    .bind(existingId, new Date().toISOString())
+    .first<{ id: string; workspace_id: string; expires_at: string }>()
+  if (!existing) return null
+
+  return {
+    id: existing.id,
+    workspaceId: existing.workspace_id,
+    expiresAt: existing.expires_at,
+    isNew: false,
+    respond: (response) => response,
   }
+}
+
+export async function resolveDemoSession(
+  db: D1Database,
+  request: Request
+): Promise<DemoSession> {
+  const existing = await readDemoSession(db, request)
+  if (existing) return existing
   return createDemoSession(db, request)
 }
 

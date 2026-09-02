@@ -6,9 +6,12 @@
   "scripts": {
     "dev": "vite dev --port 3001",
     "build": "vite build",
+    "build:demo": "CLOUDFLARE_ENV=demo vite build",
     "build:worker": "bun run build && wrangler deploy --dry-run --outdir dist/worker-dry-run",
+    "build:worker:demo": "bun run build:demo && wrangler deploy --env demo --dry-run --outdir dist/demo-worker-dry-run",
     "preview": "vite preview",
     "deploy": "bun run build && wrangler deploy",
+    "deploy:demo": "bun run build:demo && wrangler deploy --env demo",
     "cf-typegen": "wrangler types",
     "lint": "eslint",
     "format": "prettier --write \"**/*.{ts,tsx}\"",

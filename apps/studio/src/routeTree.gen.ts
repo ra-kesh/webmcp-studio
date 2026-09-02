@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as StudioRouteRouteImport } from './routes/_studio/route'
+import { Route as DemoRouteImport } from './routes/demo'
 import { Route as RenderConformanceRouteImport } from './routes/render-conformance'
 import { Route as StudioIndexRouteImport } from './routes/_studio/index'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
@@ -26,6 +27,7 @@ import { Route as V1StudioLibraryPreferencesRouteImport } from './routes/v1/stud
 import { Route as V1StudioMediaDerivationsJobIdRouteImport } from './routes/v1/studio/media-derivations/$jobId'
 import { Route as V1StudioMediaDerivationsPolicyRouteImport } from './routes/v1/studio/media-derivations/policy'
 import { Route as V1StudioRendersIndexRouteImport } from './routes/v1/studio/renders/index'
+import { Route as V1StudioSessionDemoRouteImport } from './routes/v1/studio/session/demo'
 import { Route as V1StudioSessionResetRouteImport } from './routes/v1/studio/session/reset'
 import { Route as V1StudioSessionTokenRouteImport } from './routes/v1/studio/session/token'
 import { Route as V1StudioTemplatesIndexRouteImport } from './routes/v1/studio/templates/index'
@@ -54,6 +56,11 @@ import { Route as V1StudioLibraryCollectionsCollectionIdItemsItemKindItemIdVersi
 
 const StudioRouteRoute = StudioRouteRouteImport.update({
   id: '/_studio',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DemoRoute = DemoRouteImport.update({
+  id: '/demo',
+  path: '/demo',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RenderConformanceRoute = RenderConformanceRouteImport.update({
@@ -139,6 +146,11 @@ const V1StudioMediaDerivationsPolicyRoute =
 const V1StudioRendersIndexRoute = V1StudioRendersIndexRouteImport.update({
   id: '/v1/studio/renders/',
   path: '/v1/studio/renders/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const V1StudioSessionDemoRoute = V1StudioSessionDemoRouteImport.update({
+  id: '/v1/studio/session/demo',
+  path: '/v1/studio/session/demo',
   getParentRoute: () => rootRouteImport,
 } as any)
 const V1StudioSessionResetRoute = V1StudioSessionResetRouteImport.update({
@@ -295,6 +307,7 @@ const V1StudioLibraryCollectionsCollectionIdItemsItemKindItemIdVersionsVersionRo
 
 export interface FileRoutesByFullPath {
   '/': typeof StudioIndexRoute
+  '/demo': typeof DemoRoute
   '/render-conformance': typeof RenderConformanceRoute
   '/api/health': typeof ApiHealthRoute
   '/documents/$documentId': typeof StudioDocumentsDocumentIdRoute
@@ -308,6 +321,7 @@ export interface FileRoutesByFullPath {
   '/v1/studio/library/preferences': typeof V1StudioLibraryPreferencesRoute
   '/v1/studio/media-derivations/$jobId': typeof V1StudioMediaDerivationsJobIdRouteWithChildren
   '/v1/studio/media-derivations/policy': typeof V1StudioMediaDerivationsPolicyRoute
+  '/v1/studio/session/demo': typeof V1StudioSessionDemoRoute
   '/v1/studio/session/reset': typeof V1StudioSessionResetRoute
   '/v1/studio/session/token': typeof V1StudioSessionTokenRoute
   '/v1/studio/templates/$templateId': typeof V1StudioTemplatesTemplateIdRoute
@@ -337,6 +351,7 @@ export interface FileRoutesByFullPath {
   '/v1/studio/library/collections/$collectionId/items/$itemKind/$itemId/versions/$version': typeof V1StudioLibraryCollectionsCollectionIdItemsItemKindItemIdVersionsVersionRoute
 }
 export interface FileRoutesByTo {
+  '/demo': typeof DemoRoute
   '/render-conformance': typeof RenderConformanceRoute
   '/api/health': typeof ApiHealthRoute
   '/': typeof StudioIndexRoute
@@ -351,6 +366,7 @@ export interface FileRoutesByTo {
   '/v1/studio/library/preferences': typeof V1StudioLibraryPreferencesRoute
   '/v1/studio/media-derivations/$jobId': typeof V1StudioMediaDerivationsJobIdRouteWithChildren
   '/v1/studio/media-derivations/policy': typeof V1StudioMediaDerivationsPolicyRoute
+  '/v1/studio/session/demo': typeof V1StudioSessionDemoRoute
   '/v1/studio/session/reset': typeof V1StudioSessionResetRoute
   '/v1/studio/session/token': typeof V1StudioSessionTokenRoute
   '/v1/studio/templates/$templateId': typeof V1StudioTemplatesTemplateIdRoute
@@ -382,6 +398,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_studio': typeof StudioRouteRouteWithChildren
+  '/demo': typeof DemoRoute
   '/render-conformance': typeof RenderConformanceRoute
   '/api/health': typeof ApiHealthRoute
   '/_studio/': typeof StudioIndexRoute
@@ -396,6 +413,7 @@ export interface FileRoutesById {
   '/v1/studio/library/preferences': typeof V1StudioLibraryPreferencesRoute
   '/v1/studio/media-derivations/$jobId': typeof V1StudioMediaDerivationsJobIdRouteWithChildren
   '/v1/studio/media-derivations/policy': typeof V1StudioMediaDerivationsPolicyRoute
+  '/v1/studio/session/demo': typeof V1StudioSessionDemoRoute
   '/v1/studio/session/reset': typeof V1StudioSessionResetRoute
   '/v1/studio/session/token': typeof V1StudioSessionTokenRoute
   '/v1/studio/templates/$templateId': typeof V1StudioTemplatesTemplateIdRoute
@@ -428,6 +446,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/demo'
     | '/render-conformance'
     | '/api/health'
     | '/documents/$documentId'
@@ -441,6 +460,7 @@ export interface FileRouteTypes {
     | '/v1/studio/library/preferences'
     | '/v1/studio/media-derivations/$jobId'
     | '/v1/studio/media-derivations/policy'
+    | '/v1/studio/session/demo'
     | '/v1/studio/session/reset'
     | '/v1/studio/session/token'
     | '/v1/studio/templates/$templateId'
@@ -470,6 +490,7 @@ export interface FileRouteTypes {
     | '/v1/studio/library/collections/$collectionId/items/$itemKind/$itemId/versions/$version'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/demo'
     | '/render-conformance'
     | '/api/health'
     | '/'
@@ -484,6 +505,7 @@ export interface FileRouteTypes {
     | '/v1/studio/library/preferences'
     | '/v1/studio/media-derivations/$jobId'
     | '/v1/studio/media-derivations/policy'
+    | '/v1/studio/session/demo'
     | '/v1/studio/session/reset'
     | '/v1/studio/session/token'
     | '/v1/studio/templates/$templateId'
@@ -514,6 +536,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/_studio'
+    | '/demo'
     | '/render-conformance'
     | '/api/health'
     | '/_studio/'
@@ -528,6 +551,7 @@ export interface FileRouteTypes {
     | '/v1/studio/library/preferences'
     | '/v1/studio/media-derivations/$jobId'
     | '/v1/studio/media-derivations/policy'
+    | '/v1/studio/session/demo'
     | '/v1/studio/session/reset'
     | '/v1/studio/session/token'
     | '/v1/studio/templates/$templateId'
@@ -559,6 +583,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   StudioRouteRoute: typeof StudioRouteRouteWithChildren
+  DemoRoute: typeof DemoRoute
   RenderConformanceRoute: typeof RenderConformanceRoute
   ApiHealthRoute: typeof ApiHealthRoute
   V1RendersRenderIdRoute: typeof V1RendersRenderIdRouteWithChildren
@@ -571,6 +596,7 @@ export interface RootRouteChildren {
   V1StudioLibraryPreferencesRoute: typeof V1StudioLibraryPreferencesRoute
   V1StudioMediaDerivationsJobIdRoute: typeof V1StudioMediaDerivationsJobIdRouteWithChildren
   V1StudioMediaDerivationsPolicyRoute: typeof V1StudioMediaDerivationsPolicyRoute
+  V1StudioSessionDemoRoute: typeof V1StudioSessionDemoRoute
   V1StudioSessionResetRoute: typeof V1StudioSessionResetRoute
   V1StudioSessionTokenRoute: typeof V1StudioSessionTokenRoute
   V1StudioTemplatesTemplateIdRoute: typeof V1StudioTemplatesTemplateIdRoute
@@ -595,6 +621,13 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof StudioRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/demo': {
+      id: '/demo'
+      path: '/demo'
+      fullPath: '/demo'
+      preLoaderRoute: typeof DemoRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/render-conformance': {
@@ -707,6 +740,13 @@ declare module '@tanstack/react-router' {
       path: '/v1/studio/renders'
       fullPath: '/v1/studio/renders/'
       preLoaderRoute: typeof V1StudioRendersIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/v1/studio/session/demo': {
+      id: '/v1/studio/session/demo'
+      path: '/v1/studio/session/demo'
+      fullPath: '/v1/studio/session/demo'
+      preLoaderRoute: typeof V1StudioSessionDemoRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/v1/studio/session/reset': {
@@ -991,6 +1031,7 @@ const V1StudioLibraryItemsItemKindItemIdVersionsVersionRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   StudioRouteRoute: StudioRouteRouteWithChildren,
+  DemoRoute: DemoRoute,
   RenderConformanceRoute: RenderConformanceRoute,
   ApiHealthRoute: ApiHealthRoute,
   V1RendersRenderIdRoute: V1RendersRenderIdRouteWithChildren,
@@ -1004,6 +1045,7 @@ const rootRouteChildren: RootRouteChildren = {
   V1StudioMediaDerivationsJobIdRoute:
     V1StudioMediaDerivationsJobIdRouteWithChildren,
   V1StudioMediaDerivationsPolicyRoute: V1StudioMediaDerivationsPolicyRoute,
+  V1StudioSessionDemoRoute: V1StudioSessionDemoRoute,
   V1StudioSessionResetRoute: V1StudioSessionResetRoute,
   V1StudioSessionTokenRoute: V1StudioSessionTokenRoute,
   V1StudioTemplatesTemplateIdRoute: V1StudioTemplatesTemplateIdRoute,

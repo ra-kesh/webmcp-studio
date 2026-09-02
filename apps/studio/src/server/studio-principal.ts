@@ -1,13 +1,13 @@
 import { createRemoteJWKSet, jwtVerify } from "jose"
 import { withApiPrincipalAudit } from "./api-boundary"
-import { resolveDemoSession } from "./demo-session"
+import { readDemoSession, resolveDemoSession } from "./demo-session"
 
 export type StudioPrincipal = {
   id: string
   budgetKey: string
   workspaceId: string
   expiresAt: string
-  mode: "local_demo" | "cloudflare_access"
+  mode: "local_demo" | "public_demo" | "cloudflare_access"
   respond: (response: Response) => Response
 }
 
@@ -38,6 +38,20 @@ export class StudioAccessError extends Error {
 const API_RATE_WINDOW_MS = 60_000
 const API_PRINCIPAL_REQUESTS_PER_WINDOW = 300
 const API_ADDRESS_REQUESTS_PER_WINDOW = 600
+const DEMO_SESSION_RATE_WINDOW_MS = 60 * 60_000
+const DEMO_SESSIONS_PER_ADDRESS_WINDOW = 12
+
+type StudioAccessEnvironment = {
+  STUDIO_ACCESS_MODE?: string
+  ACCESS_TEAM_DOMAIN?: string
+  ACCESS_POLICY_AUD?: string
+}
+
+export const studioAccessMode = (env: Env) =>
+  (env as unknown as StudioAccessEnvironment).STUDIO_ACCESS_MODE
+
+export const isPublicDemoMode = (env: Env) =>
+  studioAccessMode(env) === "public_demo"
 
 const enforceApiRate = async (
   env: Env,
@@ -61,6 +75,28 @@ const enforceApiRate = async (
   }
 }
 
+export const admitPublicDemoSessionCreation = async (
+  env: Env,
+  request: Request
+) => {
+  const address = request.headers.get("CF-Connecting-IP") ?? "unknown"
+  const decision = await env.RENDER_ADMISSION.getByName(
+    `demo-session:${address}`
+  ).admitApiRequest({
+    now: Date.now(),
+    limit: DEMO_SESSIONS_PER_ADDRESS_WINDOW,
+    windowMs: DEMO_SESSION_RATE_WINDOW_MS,
+  })
+  if (!decision.admitted) {
+    throw new StudioAccessError(
+      "studio_rate_limited",
+      429,
+      "Too many demo sessions were started from this address",
+      decision.retryAfterSeconds
+    )
+  }
+}
+
 export const isLocalStudioRequest = (request: Request) => {
   const hostname = new URL(request.url).hostname
   return (
@@ -79,8 +115,11 @@ const sha256Hex = async (value: string) => {
 }
 
 const accessConfig = (env: Env) => {
-  const teamDomain = env.ACCESS_TEAM_DOMAIN.trim().replace(/\/$/, "")
-  const audience = env.ACCESS_POLICY_AUD.trim()
+  const studioEnv = env as unknown as StudioAccessEnvironment
+  const teamDomain = (studioEnv.ACCESS_TEAM_DOMAIN ?? "")
+    .trim()
+    .replace(/\/$/, "")
+  const audience = (studioEnv.ACCESS_POLICY_AUD ?? "").trim()
   if (
     !teamDomain ||
     !audience ||
@@ -127,8 +166,35 @@ export async function resolveStudioPrincipal(
     API_ADDRESS_REQUESTS_PER_WINDOW
   )
 
-  const accessMode = (env as unknown as { STUDIO_ACCESS_MODE?: string })
-    .STUDIO_ACCESS_MODE
+  const accessMode = studioAccessMode(env)
+  if (accessMode === "public_demo") {
+    const session = await readDemoSession(env.DB, request)
+    if (!session) {
+      throw new StudioAccessError(
+        "studio_authentication_required",
+        401,
+        "Start a demo session to use this Studio deployment"
+      )
+    }
+    await enforceApiRate(
+      env,
+      `principal:${session.workspaceId}`,
+      API_PRINCIPAL_REQUESTS_PER_WINDOW
+    )
+    return {
+      id: session.id,
+      budgetKey: session.workspaceId,
+      workspaceId: session.workspaceId,
+      expiresAt: session.expiresAt,
+      mode: "public_demo",
+      respond: (response) =>
+        withApiPrincipalAudit(
+          session.respond(response),
+          session.id,
+          session.workspaceId
+        ),
+    }
+  }
   if (accessMode !== "cloudflare_access") {
     throw new StudioAccessError(
       "studio_access_closed",

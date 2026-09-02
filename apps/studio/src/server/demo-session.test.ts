@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   databaseDocumentId,
   databaseTemplateId,
+  readDemoSession,
   resolveDemoSession,
 } from "./demo-session"
 
@@ -63,6 +64,16 @@ describe("demo sessions", () => {
     expect(cookie).toContain("SameSite=Lax")
     expect(cookie).not.toContain("Secure")
     expect(prepared).toHaveLength(2)
+  })
+
+  it("does not create a session while checking demo admission", async () => {
+    const { db, prepared } = fakeDatabase()
+    const request = new Request("https://studio.example/", {
+      headers: { Cookie: "unrelated=value" },
+    })
+
+    await expect(readDemoSession(db, request)).resolves.toBeNull()
+    expect(prepared).toHaveLength(0)
   })
 
   it("reuses a live session without replacing its cookie", async () => {

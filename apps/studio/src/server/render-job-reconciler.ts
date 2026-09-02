@@ -224,6 +224,22 @@ async function reconcileAdmissionSettlements(env: Env) {
   }
 }
 
+async function expireDemoWorkspaces(env: Env) {
+  const now = new Date().toISOString()
+  await env.DB.prepare(
+    `DELETE FROM workspaces
+     WHERE id IN (
+       SELECT workspace_id FROM demo_sessions
+       WHERE expires_at <= ?1
+       ORDER BY expires_at
+       LIMIT 100
+     )
+       AND kind = 'demo'`
+  )
+    .bind(now)
+    .run()
+}
+
 async function deleteFailedRenderPrefix(env: Env, renderId: string) {
   let cursor: string | undefined
   do {
@@ -243,4 +259,5 @@ export async function reconcileRenderJobs(env: Env) {
   await reconcileStaleExecutions(env)
   await reconcileAdmissionSettlements(env)
   await expireArtifacts(env)
+  await expireDemoWorkspaces(env)
 }

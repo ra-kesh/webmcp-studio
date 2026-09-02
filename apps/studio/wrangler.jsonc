@@ -74,4 +74,66 @@
       "bucket_name": "webmcp-studio-renders",
     },
   ],
+  "env": {
+    "demo": {
+      "name": "webmcp-studio-demo",
+      "workers_dev": true,
+      "preview_urls": false,
+      "assets": {
+        "binding": "CURATED_MEDIA",
+      },
+      "triggers": {
+        "crons": [],
+      },
+      "services": [
+        {
+          "binding": "RENDERER",
+          "service": "webmcp-studio-renderer",
+        },
+      ],
+      "workflows": [
+        {
+          "binding": "RENDER_JOBS",
+          "name": "webmcp-studio-demo-render-jobs",
+          "class_name": "RenderJobWorkflow",
+        },
+        {
+          "binding": "MEDIA_DERIVATION_JOBS",
+          "name": "webmcp-studio-demo-media-derivation-jobs",
+          "class_name": "MediaDerivationJobWorkflow",
+        },
+      ],
+      "vars": {
+        "STUDIO_ACCESS_MODE": "public_demo",
+        "ACCESS_TEAM_DOMAIN": "",
+        "ACCESS_POLICY_AUD": "",
+      },
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "RENDER_ADMISSION",
+            "class_name": "RenderAdmission",
+          },
+        ],
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "webmcp-studio",
+          "database_id": "ee2118ee-9730-4cc2-a804-592895603f42",
+          "migrations_dir": "../../migrations",
+        },
+      ],
+      "r2_buckets": [
+        {
+          "binding": "ASSETS",
+          "bucket_name": "webmcp-studio-assets",
+        },
+        {
+          "binding": "RENDERS",
+          "bucket_name": "webmcp-studio-renders",
+        },
+      ],
+    },
+  },
 }

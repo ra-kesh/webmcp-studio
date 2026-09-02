@@ -6,6 +6,8 @@ import {
   withApiRequestId,
 } from "./server/api-boundary"
 import { reconcileRenderJobs } from "./server/render-job-reconciler"
+import { readDemoSession } from "./server/demo-session"
+import { isPublicDemoMode } from "./server/studio-principal"
 
 export { RenderAdmission } from "./server/render-admission"
 export { RenderJobWorkflow } from "./server/render-job-workflow"
@@ -37,6 +39,21 @@ const studioServerEntry: ExportedHandler<Env> = {
   async fetch(request, workerEnv, executionContext) {
     const pathname = new URL(request.url).pathname
     if (!pathname.startsWith("/v1/")) {
+      if (
+        isPublicDemoMode(workerEnv) &&
+        (pathname === "/" || pathname.startsWith("/documents/"))
+      ) {
+        const session = await readDemoSession(workerEnv.DB, request)
+        if (!session) {
+          return Response.redirect(new URL("/demo", request.url), 302)
+        }
+      }
+      if (isPublicDemoMode(workerEnv) && pathname === "/demo") {
+        const session = await readDemoSession(workerEnv.DB, request)
+        if (session) {
+          return Response.redirect(new URL("/", request.url), 302)
+        }
+      }
       return startServerEntry.fetch(request, {
         context: { workerEnv },
       })

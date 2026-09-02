@@ -8,7 +8,7 @@ export const Route = createFileRoute("/v1/studio/session/token")({
       GET: async ({ request }) => {
         const session = await requireStudioPrincipal(env, request)
         if (session instanceof Response) return session
-        if (session.mode !== "local_demo") {
+        if (session.mode === "cloudflare_access") {
           return Response.json(
             {
               error: {
