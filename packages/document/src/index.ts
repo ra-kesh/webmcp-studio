@@ -1,6 +1,7 @@
 export { applyCommand, applyFieldValues, MaskCommandError } from "./commands"
 export type { MaskCommandErrorCode } from "./commands"
 export * from "./change-sets"
+export * from "./scene-transactions"
 export * from "./fields"
 export * from "./groups"
 export * from "./media"

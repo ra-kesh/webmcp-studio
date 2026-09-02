@@ -21,6 +21,7 @@
     "./fabric": "./src/fabric-adapter.ts",
     "./geometry": "./src/geometry.ts",
     "./history": "./src/history.ts",
+    "./scene-transactions": "./src/scene-transactions.ts",
     "./inspector": "./src/inspector.ts",
     "./text-lists": "./src/text-lists.ts",
     "./commands": "./src/commands.ts",
