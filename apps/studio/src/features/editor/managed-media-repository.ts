@@ -1,4 +1,5 @@
 import {
+  isRenderSafeImageSource,
   managedAssetIdFromSource,
   managedAssetSource,
   MANAGED_ASSET_PREFIX,
@@ -215,6 +216,44 @@ export async function getManagedMedia(assetId: string, signal?: AbortSignal) {
 
 export const managedMediaContentUrl = (assetId: string) =>
   `/v1/studio/assets/${encodeURIComponent(mediaAssetIdSchema.parse(assetId))}/content`
+
+export async function getManagedMediaRenderSource(
+  assetId: string,
+  signal?: AbortSignal
+) {
+  const response = await fetch(managedMediaContentUrl(assetId), { signal })
+  if (!response.ok) throw await readError(response)
+  const mediaType = response.headers
+    .get("content-type")
+    ?.split(";", 1)[0]
+    ?.trim()
+    .toLowerCase()
+  if (
+    mediaType !== "image/png" &&
+    mediaType !== "image/jpeg" &&
+    mediaType !== "image/webp"
+  ) {
+    throw new ManagedMediaError(
+      "unsupported_media_type",
+      415,
+      "Only PNG, JPEG, and WebP images can be used for generation."
+    )
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer())
+  let binary = ""
+  for (let offset = 0; offset < bytes.length; offset += 32_768) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 32_768))
+  }
+  const source = `data:${mediaType};base64,${btoa(binary)}`
+  if (!isRenderSafeImageSource(source)) {
+    throw new ManagedMediaError(
+      "asset_not_renderable",
+      422,
+      "The image exceeds Studio's network-isolated render budget."
+    )
+  }
+  return source
+}
 
 export const MANAGED_MEDIA_UPLOAD_TIMEOUT_MS = 60_000
 

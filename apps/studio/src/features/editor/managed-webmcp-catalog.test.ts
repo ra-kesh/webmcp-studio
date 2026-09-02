@@ -5,10 +5,12 @@ import { createManagedWebMcpCatalog } from "./managed-webmcp-catalog"
 const media = vi.hoisted(() => ({
   get: vi.fn(),
   list: vi.fn(),
+  renderSource: vi.fn(),
 }))
 
 vi.mock("./managed-media-repository", () => ({
   getManagedMedia: media.get,
+  getManagedMediaRenderSource: media.renderSource,
   listManagedMedia: media.list,
 }))
 
@@ -30,6 +32,7 @@ const readyManaged = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  media.renderSource.mockResolvedValue("data:image/jpeg;base64,aGVsbG8=")
 })
 
 describe("managed WebMCP catalog", () => {
@@ -108,6 +111,21 @@ describe("managed WebMCP catalog", () => {
       selectable: false,
       src: `asset:managed/${readyManaged.id}`,
     })
+    expect(media.renderSource).not.toHaveBeenCalled()
+    catalog.dispose()
+  })
+
+  it("resolves selectable workspace assets to a network-isolated render source", async () => {
+    media.get.mockResolvedValue(readyManaged)
+    const catalog = createManagedWebMcpCatalog(builtIns)
+
+    await expect(catalog.resolve(readyManaged.id)).resolves.toMatchObject({
+      id: readyManaged.id,
+      ownership: "workspace",
+      selectable: true,
+      src: "data:image/jpeg;base64,aGVsbG8=",
+    })
+    expect(media.renderSource).toHaveBeenCalledWith(readyManaged.id, undefined)
     catalog.dispose()
   })
 

@@ -6,7 +6,11 @@ import type {
   StudioWebMcpAssetSearchPage,
 } from "@webmcp/webmcp"
 import type { StudioAsset } from "./asset-catalog"
-import { getManagedMedia, listManagedMedia } from "./managed-media-repository"
+import {
+  getManagedMedia,
+  getManagedMediaRenderSource,
+  listManagedMedia,
+} from "./managed-media-repository"
 
 type CatalogCursor = {
   version: 1
@@ -64,7 +68,10 @@ const builtInAsset = (asset: StudioAsset): StudioWebMcpAsset => ({
   selectable: true,
 })
 
-const workspaceAsset = (asset: MediaAssetLookup): StudioWebMcpAsset => ({
+const workspaceAsset = (
+  asset: MediaAssetLookup,
+  src: string = managedAssetSource(asset.id)
+): StudioWebMcpAsset => ({
   id: asset.id,
   name: asset.name,
   tags: [],
@@ -72,7 +79,7 @@ const workspaceAsset = (asset: MediaAssetLookup): StudioWebMcpAsset => ({
   height: asset.height,
   ownership: "workspace",
   selectable: asset.selectable,
-  src: managedAssetSource(asset.id),
+  src,
 })
 
 const readyWorkspaceAsset = (
@@ -215,7 +222,11 @@ export function createManagedWebMcpCatalog(
       if (!mediaAssetIdSchema.safeParse(assetId).success) return null
       const managed = await getManagedMedia(assetId, signal)
       signal?.throwIfAborted()
-      return managed ? workspaceAsset(managed) : null
+      if (!managed) return null
+      if (!managed.selectable) return workspaceAsset(managed)
+      const source = await getManagedMediaRenderSource(assetId, signal)
+      signal?.throwIfAborted()
+      return workspaceAsset(managed, source)
     },
 
     dispose() {},

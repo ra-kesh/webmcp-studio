@@ -22,6 +22,7 @@ import type {
 import type { StudioAsset } from "./asset-catalog"
 import { createManagedWebMcpCatalog } from "./managed-webmcp-catalog"
 import type { ManagedWebMcpCatalog } from "./managed-webmcp-catalog"
+import { uploadManagedMedia } from "./managed-media-repository"
 
 declare global {
   interface Document {
@@ -103,6 +104,49 @@ const assertMutationEnabled = (services: StudioWebMcpServices) => {
 const assertOutputEnabled = (services: StudioWebMcpServices) => {
   const reason = services.outputDisabledReason ?? null
   if (reason) throw new Error(reason)
+}
+
+const fileExtensionFor = (
+  mediaType: "image/png" | "image/jpeg" | "image/webp"
+) =>
+  mediaType === "image/png"
+    ? "png"
+    : mediaType === "image/jpeg"
+      ? "jpg"
+      : "webp"
+
+const uploadWorkspaceAsset = async (
+  input: Parameters<
+    NonNullable<RegisteredStudioWebMcpServices["uploadAsset"]>
+  >[0],
+  signal?: AbortSignal
+) => {
+  signal?.throwIfAborted()
+  const binary = atob(input.contentBase64)
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index)
+  }
+  const safeName =
+    input.name
+      .replace(/\.[A-Za-z0-9]{1,8}$/, "")
+      .replace(/[^A-Za-z0-9._ -]+/g, "-")
+      .trim() || "workspace-image"
+  const file = new File(
+    [bytes],
+    `${safeName}.${fileExtensionFor(input.mediaType)}`,
+    { type: input.mediaType }
+  )
+  const upload = uploadManagedMedia(file, {
+    idempotencyKey: input.idempotencyKey,
+  })
+  const abort = () => upload.cancel()
+  signal?.addEventListener("abort", abort, { once: true })
+  try {
+    return await upload.promise
+  } finally {
+    signal?.removeEventListener("abort", abort)
+  }
 }
 
 export function projectStudioWebMcpSnapshot(
@@ -237,6 +281,21 @@ export function useStudioWebMcp(
                 registeredCatalog.search(input, signal),
               resolveAsset: (assetId, signal) =>
                 registeredCatalog.resolve(assetId, signal),
+              uploadAsset: async (input, signal) => {
+                controller.signal.throwIfAborted()
+                assertMutationEnabled(servicesRef.current)
+                const uploaded = await uploadWorkspaceAsset(input, signal)
+                const asset = await registeredCatalog.resolve(
+                  uploaded.id,
+                  signal
+                )
+                if (!asset) {
+                  throw new Error(
+                    "The uploaded workspace asset could not be resolved."
+                  )
+                }
+                return asset
+              },
               mediaDerivations: servicesRef.current.mediaDerivations,
               proposeChangeSet: (changeSet, provenance) => {
                 controller.signal.throwIfAborted()

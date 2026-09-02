@@ -312,6 +312,16 @@ function setup(
     },
     resolveAsset: async (assetId: string) =>
       catalogAssets.find((asset) => asset.id === assetId) ?? null,
+    uploadAsset: vi.fn(async (input) => ({
+      id: "asset-uploaded01",
+      name: input.name,
+      tags: [],
+      width: 1086,
+      height: 1448,
+      ownership: "workspace" as const,
+      selectable: true,
+      src: "asset:managed/asset-uploaded01",
+    })),
     mediaDerivations: {
       inspect: vi.fn(
         async (
@@ -435,7 +445,7 @@ describe("WebMCP registration", () => {
       state.controller.signal
     )
 
-    expect(count).toBe(30)
+    expect(count).toBe(31)
     expect([...state.registered.keys()]).toEqual([
       "search_templates",
       "read_template",
@@ -453,6 +463,7 @@ describe("WebMCP registration", () => {
       "read_design_variables",
       "read_design_components",
       "search_design_nodes",
+      "upload_workspace_asset",
       "search_assets",
       "inspect_background_removal",
       "manage_background_removal",
@@ -812,6 +823,42 @@ describe("WebMCP registration", () => {
       replayed: false,
     })
     expect(replay.structuredContent).toMatchObject({ replayed: true })
+  })
+
+  it("keeps a long generation prompt while bounding Review display text", async () => {
+    const state = setup()
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+    const prompt = `Five-paragraph external skill prompt. ${"material detail ".repeat(120)}`
+    const result = await state.registered
+      .get("propose_document_pages")
+      ?.execute({
+        ...blankExternalSkillRequest,
+        requestId: "append-pages-long-prompt",
+        idempotencyKey: "append-pages-long-prompt",
+        prompt,
+        destination: {
+          documentId: northstarSeed.id,
+          baseRevision: northstarSeed.revision,
+          baseSnapshotId: "snapshot-seed",
+          outputId: northstarSeed.outputs[0]!.id,
+        },
+      })
+
+    expect(result?.isError).not.toBe(true)
+    expect(state.proposed()?.title.length).toBeLessThanOrEqual(1_000)
+    expect(state.proposedProvenance()?.reason?.length).toBeLessThanOrEqual(
+      1_000
+    )
+    expect(state.proposedProvenance()?.reason).toMatch(/\.\.\.$/)
   })
 
   it("accepts blank and template plans from an external skill through public WebMCP tools", async () => {
@@ -1984,6 +2031,91 @@ describe("WebMCP registration", () => {
     expect(JSON.stringify(result?.structuredContent)).not.toContain(
       "data:image"
     )
+  })
+
+  it("uploads raster source material without exposing its bytes or private source", async () => {
+    const state = setup()
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+
+    const input = {
+      name: "Cycling halftone source",
+      mediaType: "image/png" as const,
+      contentBase64: "aGVsbG8=",
+      idempotencyKey: "mono-color-cycling-source-v1",
+    }
+    const result = await state.registered
+      .get("upload_workspace_asset")
+      ?.execute(input)
+
+    expect(state.services.uploadAsset).toHaveBeenCalledWith(
+      input,
+      expect.any(AbortSignal)
+    )
+    expect(result?.structuredContent).toEqual({
+      asset: {
+        id: "asset-uploaded01",
+        name: "Cycling halftone source",
+        tags: [],
+        width: 1086,
+        height: 1448,
+        orientation: "portrait",
+        ownership: "workspace",
+      },
+    })
+    const serialized = JSON.stringify(result?.structuredContent)
+    expect(serialized).not.toContain("contentBase64")
+    expect(serialized).not.toContain("asset:managed/")
+    expect(serialized).not.toContain("aGVsbG8=")
+  })
+
+  it("rejects malformed raster uploads before calling the workspace service", async () => {
+    const state = setup()
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+    const upload = state.registered.get("upload_workspace_asset")
+
+    for (const input of [
+      {
+        name: "Cycling source",
+        mediaType: "image/gif",
+        contentBase64: "aGVsbG8=",
+        idempotencyKey: "mono-color-cycling-source-v1",
+      },
+      {
+        name: "Cycling source",
+        mediaType: "image/png",
+        contentBase64: "not-base64",
+        idempotencyKey: "mono-color-cycling-source-v1",
+      },
+      {
+        name: "Cycling source",
+        mediaType: "image/png",
+        contentBase64: "aGVsbG8=",
+        idempotencyKey: "contains spaces",
+      },
+    ]) {
+      const result = await upload?.execute(input)
+      expect(result?.isError).toBe(true)
+    }
+
+    expect(state.services.uploadAsset).not.toHaveBeenCalled()
   })
 
   it("searches workspace-owned assets without inventing a license or exposing private sources", async () => {

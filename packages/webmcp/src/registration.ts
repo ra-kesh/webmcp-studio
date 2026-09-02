@@ -199,6 +199,13 @@ export type StudioWebMcpAssetSearchPage = {
   nextCursor: string | null
 }
 
+export type StudioWebMcpAssetUploadInput = {
+  name: string
+  mediaType: "image/png" | "image/jpeg" | "image/webp"
+  contentBase64: string
+  idempotencyKey: string
+}
+
 export type StudioWebMcpRenderSelection = {
   outputId: string
   format: "png" | "pdf"
@@ -315,6 +322,10 @@ export type StudioWebMcpServices = {
     assetId: string,
     signal?: AbortSignal
   ): Promise<StudioWebMcpAsset | null>
+  uploadAsset?(
+    input: StudioWebMcpAssetUploadInput,
+    signal?: AbortSignal
+  ): Promise<StudioWebMcpAsset>
   mediaDerivations?: Readonly<{
     inspect: (
       input:
@@ -366,6 +377,15 @@ export type StudioWebMcpProposalProvenance = Readonly<{
   requestId: string | null
 }>
 
+const MAX_REVIEW_REASON_CHARACTERS = 1_000
+
+const reviewReason = (reason: string | null) => {
+  const normalized = reason?.trim()
+  if (!normalized) return null
+  if (normalized.length <= MAX_REVIEW_REASON_CHARACTERS) return normalized
+  return `${normalized.slice(0, MAX_REVIEW_REASON_CHARACTERS - 3).trimEnd()}...`
+}
+
 const webMcpProposalProvenance = (
   toolName: string,
   reason: string | null = null,
@@ -374,7 +394,7 @@ const webMcpProposalProvenance = (
   source: "webmcp",
   actorLabel: "WebMCP agent",
   toolName,
-  reason,
+  reason: reviewReason(reason),
   requestId,
 })
 
@@ -3306,6 +3326,50 @@ function parseAssetSearchInput(input: unknown): StudioWebMcpAssetSearchInput {
   return { query, orientation, tags, limit, cursor }
 }
 
+function parseAssetUploadInput(input: unknown): StudioWebMcpAssetUploadInput {
+  const value = queryObject(input)
+  assertQueryKeys(value, [
+    "name",
+    "mediaType",
+    "contentBase64",
+    "idempotencyKey",
+  ])
+  const name = typeof value.name === "string" ? value.name.trim() : ""
+  if (!name || name.length > 255) {
+    throw new Error("name must contain 1 to 255 characters.")
+  }
+  const mediaType = value.mediaType
+  if (
+    mediaType !== "image/png" &&
+    mediaType !== "image/jpeg" &&
+    mediaType !== "image/webp"
+  ) {
+    throw new Error("mediaType must be image/png, image/jpeg, or image/webp.")
+  }
+  const contentBase64 = value.contentBase64
+  if (
+    typeof contentBase64 !== "string" ||
+    contentBase64.length < 4 ||
+    contentBase64.length > 34_000_000 ||
+    contentBase64.length % 4 !== 0 ||
+    !/^[A-Za-z0-9+/]+={0,2}$/.test(contentBase64)
+  ) {
+    throw new Error(
+      "contentBase64 must contain valid base64 image bytes within the upload limit."
+    )
+  }
+  const idempotencyKey = value.idempotencyKey
+  if (
+    typeof idempotencyKey !== "string" ||
+    idempotencyKey.length < 1 ||
+    idempotencyKey.length > 128 ||
+    !/^[A-Za-z0-9._:-]+$/.test(idempotencyKey)
+  ) {
+    throw new Error("A valid idempotencyKey is required.")
+  }
+  return { name, mediaType, contentBase64, idempotencyKey }
+}
+
 const publicAssetSearchResult = (asset: StudioWebMcpAsset) => ({
   id: asset.id,
   name: asset.name,
@@ -4328,7 +4392,7 @@ export function studioWebMcpTools(
           baseRevision: destination.baseRevision,
           baseSnapshotId: destination.baseSnapshotId,
           outputId: destination.outputId,
-          reason: request.prompt,
+          reason: reviewReason(request.prompt) ?? undefined,
           plan,
         } satisfies GeneratedPageAppendProposalInput,
         { id: services.id, now: services.now }
@@ -5307,6 +5371,61 @@ export function studioWebMcpTools(
           return textResult(
             `Found ${result.matches.length} matching layer${result.matches.length === 1 ? "" : "s"}.`,
             result
+          )
+        } catch (error) {
+          return errorResult(error)
+        }
+      },
+    },
+    {
+      name: "upload_workspace_asset",
+      title: "Upload workspace image",
+      description:
+        "Upload one PNG, JPEG, or WebP into the current Studio workspace and return its approved asset ID. Use this for user-provided or generated raster source material before document generation. The upload is idempotent and does not insert the asset into a page.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          name: { type: "string", minLength: 1, maxLength: 255 },
+          mediaType: {
+            type: "string",
+            enum: ["image/png", "image/jpeg", "image/webp"],
+          },
+          contentBase64: {
+            type: "string",
+            minLength: 4,
+            maxLength: 34_000_000,
+            description: "Base64 image bytes without a data URL prefix.",
+          },
+          idempotencyKey: {
+            type: "string",
+            minLength: 1,
+            maxLength: 128,
+            pattern: "^[A-Za-z0-9._:-]+$",
+          },
+        },
+        required: ["name", "mediaType", "contentBase64", "idempotencyKey"],
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+        untrustedContentHint: true,
+      },
+      execute: async (input, execution) => {
+        try {
+          const uploadAsset = services.uploadAsset
+          if (!uploadAsset) {
+            throw new Error("Workspace asset upload is unavailable.")
+          }
+          const asset = await uploadAsset(
+            parseAssetUploadInput(input),
+            execution?.signal
+          )
+          return textResult(
+            `Uploaded ${asset.name}. Use asset ID ${asset.id} with document generation or asset insertion.`,
+            { asset: publicAssetSearchResult(asset) }
           )
         } catch (error) {
           return errorResult(error)
@@ -6333,7 +6452,10 @@ export function studioWebMcpTools(
           tool.name !== "inspect_background_removal" &&
           tool.name !== "manage_background_removal"
       )
-  return enabledTools.map((tool) =>
+  const availableTools = services.uploadAsset
+    ? enabledTools
+    : enabledTools.filter((tool) => tool.name !== "upload_workspace_asset")
+  return availableTools.map((tool) =>
     ownWebMcpToolExecution(tool, registrationSignal)
   )
 }

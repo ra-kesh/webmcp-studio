@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   archiveManagedMedia,
   getManagedMedia,
+  getManagedMediaRenderSource,
   getManagedMediaDeletionImpact,
   listManagedMedia,
   MANAGED_MEDIA_UPLOAD_TIMEOUT_MS,
@@ -143,6 +144,39 @@ describe("managed media repository", () => {
       `/v1/studio/assets/${asset.id}/content`
     )
     expect(() => managedMediaContentUrl("../private")).toThrow()
+  })
+
+  it("converts managed bytes into a renderer-safe inline source", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(new Uint8Array([104, 101, 108, 108, 111]), {
+        headers: { "content-type": "image/png" },
+      })
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(getManagedMediaRenderSource(asset.id)).resolves.toBe(
+      "data:image/png;base64,aGVsbG8="
+    )
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/v1/studio/assets/${asset.id}/content`,
+      { signal: undefined }
+    )
+  })
+
+  it("rejects non-raster managed content before generation", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response("<svg/>", {
+          headers: { "content-type": "image/svg+xml" },
+        })
+      )
+    )
+
+    await expect(getManagedMediaRenderSource(asset.id)).rejects.toMatchObject({
+      code: "unsupported_media_type",
+      status: 415,
+    })
   })
   beforeEach(() => {
     MockXMLHttpRequest.instances = []
