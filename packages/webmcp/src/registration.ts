@@ -14,7 +14,9 @@ import {
   mediaAssetIdSchema,
   paintStylePatchSchema,
   paintStyleSchema,
+  readPublicSceneSchema,
   sceneNodePatchSchema,
+  sceneTransactionSchema,
   typographyStylePatchSchema,
   typographyStyleSchema,
   designStyleTargetSchema,
@@ -32,6 +34,8 @@ import {
   type TemplateModifications,
   type TemplateVersion,
   type SceneNode,
+  type SceneTransaction,
+  type SceneTransactionResult,
 } from "@webmcp/document"
 import {
   productCommandArgumentContract,
@@ -123,6 +127,103 @@ export type WebMcpModelContext = {
     options?: { signal?: AbortSignal; exposedTo?: string[] }
   ): Promise<undefined>
 }
+
+export const canonicalCanvasMutationFamilies = [
+  {
+    legacyTool: "execute_product_command",
+    commandTypes: [
+      "add_node",
+      "remove_node",
+      "duplicate_nodes",
+      "reorder_nodes",
+      "group_nodes",
+      "ungroup_nodes",
+      "create_mask_group",
+      "release_mask_group",
+      "set_mask_type",
+      "set_mask_sources",
+      "add_page",
+      "duplicate_page",
+      "remove_page",
+    ],
+  },
+  {
+    legacyTool: "propose_asset_insertion",
+    commandTypes: ["add_node", "set_field"],
+  },
+  {
+    legacyTool: "propose_field_updates",
+    commandTypes: ["set_field"],
+  },
+  {
+    legacyTool: "propose_canvas_edits",
+    commandTypes: ["update_node", "replace_image_source"],
+  },
+  {
+    legacyTool: "propose_design_style_changes",
+    commandTypes: [
+      "create_typography_style",
+      "update_typography_style",
+      "delete_typography_style",
+      "apply_typography_style",
+      "detach_typography_style",
+      "create_paint_style",
+      "update_paint_style",
+      "delete_paint_style",
+      "apply_paint_style",
+      "detach_paint_style",
+    ],
+  },
+  {
+    legacyTool: "propose_design_variable_changes",
+    commandTypes: [
+      "create_variable",
+      "update_variable",
+      "delete_variable",
+      "bind_variable",
+      "unbind_variable",
+    ],
+  },
+  {
+    legacyTool: "propose_component_changes",
+    commandTypes: [
+      "create_component",
+      "update_component",
+      "delete_component",
+      "create_component_variant",
+      "update_component_variant",
+      "delete_component_variant",
+      "create_component_instance",
+      "switch_component_variant",
+      "update_component_instance",
+      "update_component_instance_metadata",
+      "reset_component_override",
+      "reset_all_component_overrides",
+      "detach_component_instance",
+      "synchronize_component_instances",
+    ],
+  },
+  {
+    legacyTool: "propose_output_variant",
+    commandTypes: ["add_output_variant", "add_output", "update_output"],
+  },
+] as const
+
+/**
+ * Product commands retain non-scene application actions. Asset insertion,
+ * asset-valued fields, and image replacement still need private asset-source
+ * resolution. Keep those public tools until the later canonical asset slice.
+ */
+export const suppressedCanvasMutationTools: readonly string[] =
+  canonicalCanvasMutationFamilies
+    .map((family) => family.legacyTool)
+    .filter(
+      (toolName) =>
+        toolName !== "execute_product_command" &&
+        toolName !== "propose_asset_insertion" &&
+        toolName !== "propose_field_updates" &&
+        toolName !== "propose_canvas_edits"
+    )
 
 export type StudioWebMcpSnapshot = {
   document: Document
@@ -344,6 +445,13 @@ export type StudioWebMcpServices = {
     changeSet: ChangeSet,
     provenance: StudioWebMcpProposalProvenance
   ): ChangeSet
+  runSceneTransaction?(
+    transaction: SceneTransaction,
+    provenance: StudioWebMcpProposalProvenance
+  ): Readonly<{
+    transaction: SceneTransactionResult
+    changeSet?: ChangeSet
+  }>
   proposeDocumentGeneration?(
     plan: GeneratedDocumentPlan,
     provenance: StudioWebMcpProposalProvenance
@@ -4502,6 +4610,131 @@ export function studioWebMcpTools(
 
   const tools: WebMcpTool[] = [
     {
+      name: "read_canvas_schema",
+      title: "Read canonical canvas schema",
+      description:
+        "Read one exact JSON Schema generated from Studio's canonical transaction, command, node, or document runtime schema. Use this on demand before transact_canvas instead of relying on a reduced copied contract.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["name"],
+        properties: {
+          name: {
+            type: "string",
+            enum: ["transaction", "command", "node", "document"],
+          },
+        },
+      },
+      annotations: { readOnlyHint: true, untrustedContentHint: true },
+      execute: (input) => {
+        try {
+          const value = queryObject(input)
+          assertQueryKeys(value, ["name"])
+          if (
+            value.name !== "transaction" &&
+            value.name !== "command" &&
+            value.name !== "node" &&
+            value.name !== "document"
+          ) {
+            throw new Error(
+              "name must be transaction, command, node, or document."
+            )
+          }
+          const result = {
+            ...readPublicSceneSchema(value.name),
+            mutationFamilies: canonicalCanvasMutationFamilies,
+          }
+          return textResult(`Read canonical ${value.name} schema.`, result)
+        } catch (error) {
+          return errorResult(error)
+        }
+      },
+    },
+    {
+      name: "transact_canvas",
+      title: "Run canonical canvas transaction",
+      description:
+        "Preflight, preview, submit for Review, or commit one bounded batch of canonical DocumentCommands against an exact document, revision, snapshot, and operation identity. Call read_canvas_schema for the full command contract.",
+      inputSchema: {
+        type: "object",
+        description:
+          "SceneTransaction v1. Call read_canvas_schema with name=transaction for the exact schema.",
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        untrustedContentHint: true,
+      },
+      execute: (input) => {
+        try {
+          const transaction = sceneTransactionSchema.parse(input)
+          if (!services.runSceneTransaction) {
+            throw new Error("Canonical canvas transactions are unavailable.")
+          }
+          const outcome = services.runSceneTransaction(
+            transaction,
+            webMcpProposalProvenance(
+              "transact_canvas",
+              transaction.title,
+              transaction.id
+            )
+          )
+          const result = outcome.transaction
+          const structured = {
+            ok: result.ok,
+            status: result.status,
+            transactionId: result.transactionId,
+            idempotencyKey: result.idempotencyKey,
+            requestHash: result.requestHash,
+            mode: result.mode,
+            base: result.base,
+            replayed: result.replayed,
+            ...(result.ok
+              ? {
+                  result: result.result,
+                  commandCount: result.commandCount,
+                  changed: result.changed,
+                  warnings: result.warnings,
+                }
+              : { error: result.error }),
+            ...(outcome.changeSet
+              ? {
+                  review: {
+                    id: outcome.changeSet.id,
+                    title: outcome.changeSet.title,
+                    status: outcome.changeSet.status,
+                    operations: outcome.changeSet.operations.map(
+                      (operation) => ({
+                        id: operation.id,
+                        type: operation.command.type,
+                        summary: operation.summary,
+                        status: operation.status,
+                      })
+                    ),
+                  },
+                }
+              : {}),
+          }
+          if (!result.ok) {
+            return {
+              content: [{ type: "text", text: result.error.message }],
+              structuredContent: structured,
+              isError: true,
+            }
+          }
+          return textResult(
+            result.mode === "review"
+              ? `Transaction ${result.transactionId} is ready in Review.`
+              : `Transaction ${result.transactionId} ${result.status}.`,
+            structured
+          )
+        } catch (error) {
+          return errorResult(error)
+        }
+      },
+    },
+    {
       name: "search_templates",
       title: "Search generation templates",
       description:
@@ -5881,7 +6114,7 @@ export function studioWebMcpTools(
       name: "propose_canvas_edits",
       title: "Propose canvas edits",
       description:
-        "Create a non-destructive visual preview of precise layout, style, crop, and approved asset-replacement edits to existing layers on the inspected document revision. Bound content must be changed with propose_field_updates. A human reviews every layer operation before applying it.",
+        "Preview reviewed edits to existing layers. Use transact_canvas for the canonical create, update, and structural contract.",
       inputSchema: {
         type: "object",
         additionalProperties: false,
@@ -5955,7 +6188,7 @@ export function studioWebMcpTools(
       name: "propose_design_style_changes",
       title: "Propose reusable design style changes",
       description:
-        "Create a non-destructive reviewed proposal to create, update, apply, detach, or delete document typography and paint styles. Call read_design_styles first and use exact layer IDs and UTF-16 text ranges.",
+        "Preview reviewed typography or paint-style changes using inspected IDs and ranges.",
       inputSchema: {
         type: "object",
         additionalProperties: false,
@@ -6004,7 +6237,7 @@ export function studioWebMcpTools(
       name: "propose_design_variable_changes",
       title: "Propose design variable changes",
       description:
-        "Create a reviewed proposal to create, update, bind, unbind, or delete typed document variables. Call read_design_variables first and use exact target IDs and ranges.",
+        "Preview reviewed variable and binding changes using inspected IDs.",
       inputSchema: {
         type: "object",
         additionalProperties: false,
@@ -6053,7 +6286,7 @@ export function studioWebMcpTools(
       name: "propose_component_changes",
       title: "Propose component changes",
       description:
-        "Create a non-destructive reviewed proposal to insert component instances, switch variants, update instance metadata, set or reset controlled layer overrides, or detach instances. Call read_design_components first and use exact component, instance, page, and source-layer IDs.",
+        "Preview reviewed component, instance, variant, metadata, override, reset, or detach changes.",
       inputSchema: {
         type: "object",
         additionalProperties: false,
@@ -6455,7 +6688,12 @@ export function studioWebMcpTools(
   const availableTools = services.uploadAsset
     ? enabledTools
     : enabledTools.filter((tool) => tool.name !== "upload_workspace_asset")
-  return availableTools.map((tool) =>
+  const publicTools = services.runSceneTransaction
+    ? availableTools.filter(
+        (tool) => !suppressedCanvasMutationTools.includes(tool.name)
+      )
+    : availableTools
+  return publicTools.map((tool) =>
     ownWebMcpToolExecution(tool, registrationSignal)
   )
 }

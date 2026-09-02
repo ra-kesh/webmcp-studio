@@ -69,6 +69,7 @@ type StudioWebMcpServices = Omit<
   runProductCommand: (
     invocation: ProductCommandInvocation
   ) => ProductCommandRunResult
+  runSceneTransaction?: RegisteredStudioWebMcpServices["runSceneTransaction"]
   proposeChangeSet: (
     changeSet: ChangeSet,
     provenance: StudioWebMcpProposalProvenance
@@ -158,6 +159,7 @@ export function projectStudioWebMcpSnapshot(
     mediaDerivations: _mediaDerivations,
     getProductCommandContext,
     runProductCommand: _runProductCommand,
+    runSceneTransaction: _runSceneTransaction,
     proposeChangeSet: _proposeChangeSet,
     proposeDocumentGeneration: _proposeDocumentGeneration,
     publishTemplate: _publishTemplate,
@@ -304,6 +306,19 @@ export function useStudioWebMcp(
                   changeSet,
                   provenance
                 )
+              },
+              runSceneTransaction: (transaction, provenance) => {
+                controller.signal.throwIfAborted()
+                if (transaction.mode === "commit") {
+                  assertMutationEnabled(servicesRef.current)
+                }
+                const runner = servicesRef.current.runSceneTransaction
+                if (!runner) {
+                  throw new Error(
+                    "Canonical canvas transactions are unavailable."
+                  )
+                }
+                return runner(transaction, provenance)
               },
               ...(servicesRef.current.proposeDocumentGeneration
                 ? {

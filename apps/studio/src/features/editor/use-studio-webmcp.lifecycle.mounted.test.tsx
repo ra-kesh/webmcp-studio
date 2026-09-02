@@ -14,7 +14,7 @@ import {
   it,
   vi,
 } from "vitest"
-import { toolNames } from "@webmcp/webmcp"
+import { suppressedCanvasMutationTools, toolNames } from "@webmcp/webmcp"
 import type { WebMcpModelContext, WebMcpTool } from "@webmcp/webmcp"
 import { studioAssets } from "./asset-catalog"
 import {
@@ -25,7 +25,8 @@ import {
 const defaultToolNames = toolNames.filter(
   (name) =>
     name !== "inspect_background_removal" &&
-    name !== "manage_background_removal"
+    name !== "manage_background_removal" &&
+    !suppressedCanvasMutationTools.includes(name)
 )
 
 const services = {

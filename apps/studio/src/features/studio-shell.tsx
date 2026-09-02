@@ -2787,6 +2787,7 @@ export function StudioShell({
         : {}),
       getProductCommandContext: readLiveProductCommandContext,
       proposeChangeSet: editor.proposeChangeSet,
+      runSceneTransaction: editor.runSceneTransaction,
       proposeDocumentGeneration: editor.proposeDocumentGeneration,
       runProductCommand: (invocation) => {
         const runner = productCommandRunnerRef.current

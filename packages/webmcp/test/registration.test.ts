@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs"
 import {
   applyCommand,
   createTemplateVersion,
+  documentCommandSchema,
+  executeSceneTransaction,
   northstarSeed,
   previewChangeSet,
   type ChangeSet,
@@ -13,7 +15,9 @@ import {
 import { productCommandIds } from "@webmcp/editor/product-commands"
 import type { ProductCommandRuntimeContext } from "@webmcp/editor/product-commands"
 import {
+  canonicalCanvasMutationFamilies,
   registerStudioWebMcpTools,
+  suppressedCanvasMutationTools,
   type StudioWebMcpProposalProvenance,
   type StudioWebMcpMediaDerivationInspection,
   type StudioWebMcpMediaDerivationJob,
@@ -263,7 +267,7 @@ function setup(
         selections: StudioWebMcpRenderSelection[]
       }
     | undefined
-  const services = {
+  const services: StudioWebMcpServices = {
     getSnapshot: () => ({
       document,
       snapshotId: "snapshot-seed",
@@ -445,8 +449,10 @@ describe("WebMCP registration", () => {
       state.controller.signal
     )
 
-    expect(count).toBe(31)
+    expect(count).toBe(33)
     expect([...state.registered.keys()]).toEqual([
+      "read_canvas_schema",
+      "transact_canvas",
       "search_templates",
       "read_template",
       "read_generation_capabilities",
@@ -633,8 +639,21 @@ describe("WebMCP registration", () => {
     expect(staleBranch?.content[0]?.text).toContain("branch changed")
   })
 
-  it("keeps the public WebMCP descriptors within the browser budget", async () => {
+  it("exposes canonical schemas on demand and accepts node creation without a reduced edit contract", async () => {
     const state = setup()
+    let previewedDocument: Document | null = null
+    state.services.runSceneTransaction = (transaction) => {
+      const result = executeSceneTransaction(
+        {
+          document: northstarSeed,
+          snapshotId: "snapshot-seed",
+          operationVersion: 0,
+        },
+        transaction
+      )
+      if (result.ok) previewedDocument = result.document
+      return { transaction: result }
+    }
     await registerStudioWebMcpTools(
       {
         registerTool: async (tool) => {
@@ -645,6 +664,408 @@ describe("WebMCP registration", () => {
       state.services,
       state.controller.signal
     )
+
+    const schema = await state.registered.get("read_canvas_schema")?.execute({
+      name: "command",
+    })
+    const serializedSchema = JSON.stringify(schema?.structuredContent)
+    expect(serializedSchema).toContain('"add_node"')
+    expect(schema?.structuredContent).toMatchObject({
+      mutationFamilies: canonicalCanvasMutationFamilies,
+    })
+    for (const family of canonicalCanvasMutationFamilies) {
+      for (const commandType of family.commandTypes) {
+        expect(
+          serializedSchema,
+          `${family.legacyTool}:${commandType}`
+        ).toContain(`"${commandType}"`)
+      }
+    }
+
+    const sourceNode = structuredClone(northstarSeed.nodes[0]!)
+    sourceNode.id = "webmcp-created-node"
+    sourceNode.name = "WebMCP-created node"
+    const result = await state.registered.get("transact_canvas")?.execute({
+      version: 1,
+      id: "transaction-webmcp-create",
+      idempotencyKey: "webmcp-create",
+      title: "Create a canonical node",
+      mode: "preview",
+      expected: {
+        documentId: northstarSeed.id,
+        revision: northstarSeed.revision,
+        snapshotId: "snapshot-seed",
+        operationVersion: 0,
+      },
+      commands: [
+        {
+          id: "command-webmcp-create",
+          type: "add_node",
+          actor: "agent",
+          at: "2026-09-02T08:00:00.000Z",
+          pageId: "cover",
+          node: sourceNode,
+        },
+      ],
+    })
+
+    expect(result?.isError).not.toBe(true)
+    expect(result?.structuredContent).toMatchObject({
+      ok: true,
+      status: "preview_ready",
+      commandCount: 1,
+      changed: true,
+    })
+    expect(
+      previewedDocument?.nodes.find((node) => node.id === sourceNode.id)
+    ).toEqual(sourceNode)
+  })
+
+  it("suppresses only mutation tools covered by the canonical registration", async () => {
+    const fallback = setup()
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          fallback.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      fallback.services,
+      fallback.controller.signal
+    )
+
+    const cutover = setup()
+    cutover.services.runSceneTransaction = (transaction) => ({
+      transaction: executeSceneTransaction(
+        {
+          document: northstarSeed,
+          snapshotId: "snapshot-seed",
+          operationVersion: 0,
+        },
+        transaction
+      ),
+    })
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          cutover.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      cutover.services,
+      cutover.controller.signal
+    )
+
+    const removed = [...fallback.registered.keys()].filter(
+      (name) => !cutover.registered.has(name)
+    )
+    expect(removed.sort()).toEqual([...suppressedCanvasMutationTools].sort())
+    expect(cutover.registered.has("execute_product_command")).toBe(true)
+    expect(cutover.registered.has("propose_asset_insertion")).toBe(true)
+    expect(cutover.registered.has("propose_field_updates")).toBe(true)
+    expect(cutover.registered.has("propose_canvas_edits")).toBe(true)
+    expect(cutover.registered.has("transact_canvas")).toBe(true)
+
+    const schema = await cutover.registered.get("read_canvas_schema")?.execute({
+      name: "command",
+    })
+    const serializedSchema = JSON.stringify(schema?.structuredContent)
+    for (const toolName of removed) {
+      const mapping = canonicalCanvasMutationFamilies.find(
+        (family) => family.legacyTool === toolName
+      )
+      expect(mapping, toolName).toBeDefined()
+      expect(mapping?.commandTypes.length, toolName).toBeGreaterThan(0)
+      for (const commandType of mapping?.commandTypes ?? []) {
+        expect(serializedSchema, `${toolName}:${commandType}`).toContain(
+          `"${commandType}"`
+        )
+      }
+    }
+  })
+
+  it("matches every legacy mutation family with canonical transaction behavior", async () => {
+    const compare = async ({
+      document,
+      legacyTool,
+      input,
+      context = null,
+      catalog = assets,
+    }: {
+      document: Document
+      legacyTool: string
+      input: unknown
+      context?: ProductCommandRuntimeContext | null
+      catalog?: typeof assets
+    }) => {
+      const state = setup(document, document, catalog, [], context)
+      await registerStudioWebMcpTools(
+        {
+          registerTool: async (tool) => {
+            state.registered.set(tool.name, tool)
+            return undefined
+          },
+        },
+        state.services,
+        state.controller.signal
+      )
+      const legacy = await state.registered.get(legacyTool)?.execute(input)
+      expect(legacy?.isError, legacyTool).not.toBe(true)
+      const proposed = state.proposed()
+      if (!proposed) throw new Error(`${legacyTool} did not create a proposal`)
+      const legacyCandidate = previewChangeSet(
+        document,
+        proposed,
+        "snapshot-seed"
+      )
+      let canonicalCandidate: Document | null = null
+      state.services.runSceneTransaction = (transaction) => {
+        const result = executeSceneTransaction(
+          {
+            document,
+            snapshotId: "snapshot-seed",
+            operationVersion: 0,
+          },
+          transaction
+        )
+        if (result.ok) canonicalCandidate = result.document
+        return { transaction: result }
+      }
+      const canonical = await state.registered.get("transact_canvas")?.execute({
+        version: 1,
+        id: `transaction-parity-${legacyTool}`,
+        idempotencyKey: `parity-${legacyTool}`,
+        title: proposed.title,
+        mode: "preview",
+        expected: {
+          documentId: document.id,
+          revision: document.revision,
+          snapshotId: "snapshot-seed",
+          operationVersion: 0,
+        },
+        commands: proposed.operations.map((operation) => operation.command),
+      })
+      expect(canonical?.isError, legacyTool).not.toBe(true)
+      for (const operation of proposed.operations) {
+        expect(
+          documentCommandSchema.safeParse(operation.command).success,
+          `${legacyTool}:${operation.command.type}`
+        ).toBe(true)
+      }
+      expect(canonicalCandidate, legacyTool).toEqual(legacyCandidate)
+    }
+
+    await compare({
+      document: northstarSeed,
+      legacyTool: "propose_field_updates",
+      input: {
+        documentId: northstarSeed.id,
+        baseRevision: northstarSeed.revision,
+        baseSnapshotId: "snapshot-seed",
+        values: { package_name: "Canonical parity package" },
+      },
+    })
+    await compare({
+      document: northstarSeed,
+      legacyTool: "propose_canvas_edits",
+      input: {
+        documentId: northstarSeed.id,
+        baseRevision: northstarSeed.revision,
+        baseSnapshotId: "snapshot-seed",
+        edits: [
+          {
+            nodeType: "text",
+            nodeId: "cover-title",
+            patch: { x: 190, textCase: "uppercase" },
+          },
+        ],
+      },
+    })
+    await compare({
+      document: northstarSeed,
+      legacyTool: "propose_asset_insertion",
+      input: {
+        documentId: northstarSeed.id,
+        baseRevision: northstarSeed.revision,
+        baseSnapshotId: "snapshot-seed",
+        pageId: "cover",
+        assetId: assets[0]!.id,
+        x: 20,
+        y: 20,
+        width: 240,
+        height: 180,
+        placement: fillPlacement,
+      },
+    })
+
+    const typographyStyle = {
+      id: "typography-parity",
+      name: "Parity typography",
+      fontFamily: "Geist Variable",
+      fontSize: 70,
+      fontWeight: 600,
+      italic: false,
+      decoration: "none" as const,
+      lineHeight: 1.05,
+      letterSpacing: -1,
+    }
+    const styleDocument: Document = {
+      ...northstarSeed,
+      typographyStyles: [typographyStyle],
+    }
+    await compare({
+      document: styleDocument,
+      legacyTool: "propose_design_style_changes",
+      input: {
+        documentId: styleDocument.id,
+        baseRevision: styleDocument.revision,
+        baseSnapshotId: "snapshot-seed",
+        changes: [
+          {
+            kind: "typography",
+            action: "apply",
+            styleId: typographyStyle.id,
+            targets: [{ nodeId: "cover-title" }],
+          },
+        ],
+      },
+    })
+
+    const variableDocument: Document = {
+      ...northstarSeed,
+      variables: [
+        {
+          id: "variable-parity",
+          name: "Parity color",
+          type: "color",
+          value: "#335C4A",
+        },
+      ],
+      variableBindings: [
+        {
+          id: "binding-parity",
+          variableId: "variable-parity",
+          target: { kind: "node", nodeId: "cover-panel", property: "fill" },
+        },
+      ],
+    }
+    await compare({
+      document: variableDocument,
+      legacyTool: "propose_design_variable_changes",
+      input: {
+        documentId: variableDocument.id,
+        baseRevision: variableDocument.revision,
+        baseSnapshotId: "snapshot-seed",
+        changes: [
+          {
+            action: "update",
+            variableId: "variable-parity",
+            patch: { value: "#B45309" },
+          },
+        ],
+      },
+    })
+
+    const componentDocument = componentDocumentFixture()
+    await compare({
+      document: componentDocument,
+      legacyTool: "propose_component_changes",
+      input: {
+        documentId: componentDocument.id,
+        baseRevision: componentDocument.revision,
+        baseSnapshotId: "snapshot-seed",
+        changes: [
+          {
+            action: "set_override",
+            instanceId: "instance-hero",
+            sourceNodeId: "cover-eyebrow",
+            patch: { text: "Canonical parity" },
+          },
+        ],
+      },
+    })
+    await compare({
+      document: northstarSeed,
+      legacyTool: "propose_output_variant",
+      input: {
+        documentId: northstarSeed.id,
+        baseRevision: northstarSeed.revision,
+        baseSnapshotId: "snapshot-seed",
+        sourcePageId: "cover",
+        name: "Canonical portrait",
+        kind: "whatsapp_portrait",
+        width: 1080,
+        height: 1350,
+        exportFormats: ["png"],
+      },
+    })
+
+    const productContext = productCommandContext(northstarSeed)
+    const selectedContext: ProductCommandRuntimeContext = {
+      ...productContext,
+      selection: {
+        pageId: "cover",
+        nodeIds: ["cover-title"],
+        nodeTypes: ["text"],
+        groupId: null,
+        anyLocked: false,
+        allLocked: false,
+        allVisible: true,
+        allHidden: false,
+      },
+      editor: {
+        ...productContext.editor,
+        hasSelection: true,
+        selectedNodeCount: 1,
+      },
+    }
+    await compare({
+      document: northstarSeed,
+      legacyTool: "execute_product_command",
+      context: selectedContext,
+      input: {
+        capabilityId: "object.duplicate",
+        mode: "proposal",
+        expected: {
+          documentId: northstarSeed.id,
+          revision: northstarSeed.revision,
+          snapshotId: "snapshot-seed",
+          operationVersion: 0,
+          activePageId: "cover",
+          selection: {
+            pageId: "cover",
+            nodeIds: ["cover-title"],
+            groupId: null,
+          },
+        },
+        idempotencyKey: "parity-product-command",
+      },
+    })
+  })
+
+  it("keeps the public WebMCP descriptors within the browser budget", async () => {
+    const state = setup()
+    state.services.runSceneTransaction = (transaction) => ({
+      transaction: executeSceneTransaction(
+        {
+          document: northstarSeed,
+          snapshotId: "snapshot-seed",
+          operationVersion: 0,
+        },
+        transaction
+      ),
+    })
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+    expect(state.registered.size).toBe(29)
 
     const descriptors = [...state.registered.values()].map((tool) => ({
       name: tool.name,

@@ -32,41 +32,41 @@ Review proposals check document revision and snapshot. Product commands also che
 | Slice | Scope                                                                                       | State                                                   |
 | ----- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
 | 1     | Canonical bounded transaction envelope and editor history adapter                           | Committed as `6455e6d2a945a7f4f2d044e3c2a125e7e9c09133` |
-| 2     | Durable receipts, editor and Review routing, clone/import identity rules, persistence gates | Current reviewable commit                               |
-| 3     | Public schema projection and WebMCP registration cutover                                    | Isolated from Slice 2; not committed                    |
+| 2     | Durable receipts, editor and Review routing, clone/import identity rules, persistence gates | Committed as `61f9425978889b4d9a8e3f43427828650e2d539f` |
+| 3     | Public schema projection and WebMCP registration cutover                                    | Current reviewable commit                               |
 | 4     | Scene-model and renderer expansion                                                          | Not started in this commit series                       |
 
 ## Parity matrix
 
 The status values are `yes`, `partial`, and `no`. A row reaches parity only when all six behavior columns are `yes` and browser evidence is recorded.
 
-| Action family                                      | Canonical command                             | WebMCP                                    | Undo             | Persistence    | Renderer          | Review                    | Current status |
-| -------------------------------------------------- | --------------------------------------------- | ----------------------------------------- | ---------------- | -------------- | ----------------- | ------------------------- | -------------- |
-| Create existing node types                         | `add_node`                                    | Restricted generation and image insertion | yes              | yes            | yes               | partial                   | partial        |
-| Update node properties                             | `update_node` and image commands              | Existing layers only                      | yes              | yes            | yes               | yes                       | partial        |
-| Delete nodes                                       | `remove_node`                                 | Product capability only                   | yes              | yes            | yes               | yes                       | partial        |
-| Clone nodes                                        | `duplicate_nodes`                             | Product capability only                   | yes              | yes            | yes               | yes                       | partial        |
-| Reorder nodes                                      | `reorder_node`, `reorder_nodes`               | Product capability only                   | yes              | yes            | yes               | yes                       | partial        |
-| Reparent nodes and groups                          | `reparent_node`, `reparent_group`             | Product capability only                   | yes              | yes            | yes               | yes                       | partial        |
-| Group and ungroup                                  | `group_nodes`, `ungroup_nodes`                | Product capability only                   | yes              | yes            | yes               | yes                       | partial        |
-| Mask and release                                   | mask command family                           | Product capability only                   | yes              | yes            | yes               | yes                       | partial        |
-| Boolean operations                                 | no                                            | no                                        | no               | no             | no                | no                        | no             |
-| Components and instances                           | component command family                      | Separate proposal tool                    | yes              | yes            | yes               | yes                       | partial        |
-| Variants                                           | variant command family                        | Separate proposal tool                    | yes              | yes            | yes               | yes                       | partial        |
-| Variables and bindings                             | variable command family                       | Separate proposal tool                    | yes              | yes            | yes               | yes                       | partial        |
-| Typography and paint styles                        | style command family                          | Separate proposal tool                    | yes              | yes            | yes               | yes                       | partial        |
-| Frames and auto layout                             | `add_node`, `update_node`                     | Update only                               | yes              | yes            | yes               | yes                       | partial        |
-| Rich text                                          | `add_node`, `update_node`                     | Basic text creation, partial editing      | yes              | yes            | yes               | yes                       | partial        |
-| Polygon, star, general vector, section             | no                                            | no                                        | no               | no             | no                | no                        | no             |
-| Gradient and image paints                          | no                                            | no                                        | no               | no             | no                | no                        | no             |
-| Asset upload and insertion                         | Separate media transaction plus node commands | Separate tools                            | partial          | partial        | yes               | partial                   | partial        |
-| Asset crop and transform                           | Image placement commands                      | Existing images only                      | yes              | yes            | yes               | yes                       | partial        |
-| Asset derivatives                                  | Separate job and repository                   | Separate tools                            | no document undo | separate       | output image only | separate                  | partial        |
-| Page and output operations                         | page and output command families              | Split generation and product tools        | yes              | yes            | yes               | yes                       | partial        |
-| Declarative scene render                           | Restricted `StudioDesignPlan` direct compiler | Separate generation tools                 | partial          | partial        | yes               | separate candidate review | partial        |
-| Inspect tree and bounds                            | read-only queries                             | several tools                             | not applicable   | not applicable | partial           | partial                   | partial        |
-| Verify overflow and assets                         | validation issues                             | `validate_design`                         | not applicable   | not applicable | partial           | yes                       | partial        |
-| Verify overlap, clipping, fonts, bounds comparison | no unified operation                          | no                                        | not applicable   | not applicable | partial           | no                        | no             |
+| Action family                                      | Canonical command                             | WebMCP                    | Undo             | Persistence    | Renderer          | Review                    | Current status |
+| -------------------------------------------------- | --------------------------------------------- | ------------------------- | ---------------- | -------------- | ----------------- | ------------------------- | -------------- |
+| Create existing node types                         | `add_node`                                    | `transact_canvas`         | yes              | yes            | yes               | yes                       | yes            |
+| Update node properties                             | `update_node` and image commands              | `transact_canvas`         | yes              | yes            | yes               | yes                       | yes            |
+| Delete nodes                                       | `remove_node`                                 | `transact_canvas`         | yes              | yes            | yes               | yes                       | yes            |
+| Clone nodes                                        | `duplicate_nodes`                             | `transact_canvas`         | yes              | yes            | yes               | yes                       | yes            |
+| Reorder nodes                                      | `reorder_node`, `reorder_nodes`               | `transact_canvas`         | yes              | yes            | yes               | yes                       | yes            |
+| Reparent nodes and groups                          | `reparent_node`, `reparent_group`             | `transact_canvas`         | yes              | yes            | yes               | yes                       | yes            |
+| Group and ungroup                                  | `group_nodes`, `ungroup_nodes`                | `transact_canvas`         | yes              | yes            | yes               | yes                       | yes            |
+| Mask and release                                   | mask command family                           | `transact_canvas`         | yes              | yes            | yes               | yes                       | yes            |
+| Boolean operations                                 | no                                            | no                        | no               | no             | no                | no                        | no             |
+| Components and instances                           | component command family                      | `transact_canvas`         | yes              | yes            | yes               | yes                       | yes            |
+| Variants                                           | variant command family                        | `transact_canvas`         | yes              | yes            | yes               | yes                       | yes            |
+| Variables and bindings                             | variable command family                       | `transact_canvas`         | yes              | yes            | yes               | yes                       | yes            |
+| Typography and paint styles                        | style command family                          | `transact_canvas`         | yes              | yes            | yes               | yes                       | yes            |
+| Frames and auto layout                             | `add_node`, `update_node`                     | `transact_canvas`         | yes              | yes            | yes               | yes                       | yes            |
+| Rich text                                          | `add_node`, `update_node`                     | `transact_canvas`         | yes              | yes            | yes               | yes                       | yes            |
+| Polygon, star, general vector, section             | no                                            | no                        | no               | no             | no                | no                        | no             |
+| Gradient and image paints                          | no                                            | no                        | no               | no             | no                | no                        | no             |
+| Asset upload and insertion                         | Separate media transaction plus node commands | Separate tools            | partial          | partial        | yes               | partial                   | partial        |
+| Asset crop and transform                           | Image placement commands                      | `transact_canvas`         | yes              | yes            | yes               | yes                       | yes            |
+| Asset derivatives                                  | Separate job and repository                   | Separate tools            | no document undo | separate       | output image only | separate                  | partial        |
+| Page and output operations                         | page and output command families              | `transact_canvas`         | yes              | yes            | yes               | yes                       | yes            |
+| Declarative scene render                           | Restricted `StudioDesignPlan` direct compiler | Separate generation tools | partial          | partial        | yes               | separate candidate review | partial        |
+| Inspect tree and bounds                            | read-only queries                             | several tools             | not applicable   | not applicable | partial           | partial                   | partial        |
+| Verify overflow and assets                         | validation issues                             | `validate_design`         | not applicable   | not applicable | partial           | yes                       | partial        |
+| Verify overlap, clipping, fonts, bounds comparison | no unified operation                          | no                        | not applicable   | not applicable | partial           | no                        | no             |
 
 ## Slice 1 acceptance
 
@@ -108,3 +108,31 @@ Verified on 2 September 2026 in the real Studio editor at `http://localhost:3002
 3. Renamed that exact node to `Browser transaction rectangle` in the human inspector. The document advanced once to revision 34.
 4. Ran Undo once and observed the exact node revert to `Rectangle` at revision 33. Ran Redo once and observed the same node ID return to the renamed state at revision 34.
 5. Reloaded the document route. Studio reported `All changes saved`, restored the six pages and 17 layers, rendered the scene, and returned the same node ID, geometry, fill, and renamed value at revision 34 with no pending Review.
+
+## Slice 3 public schema and registration cutover
+
+`read_canvas_schema` returns JSON Schema generated directly from the canonical runtime transaction, command, node, or document schema. `transact_canvas` deliberately keeps only a compact envelope description in its browser registration and points callers to the on-demand schema. No reduced scene-edit contract is copied into the new public API.
+
+Registration-level coverage compares the fallback and cutover tool lists. Every removed tool must have a non-empty mapping to command types present in the generated canonical command schema. Side-by-side tests run one legacy proposal and the equivalent canonical transaction for product commands, asset insertion, field updates, canvas edits, styles, variables, components, and output variants, then assert equal candidate documents.
+
+The safe cutover removes these fully represented proposal tools:
+
+- `propose_design_style_changes`
+- `propose_design_variable_changes`
+- `propose_component_changes`
+- `propose_output_variant`
+
+`execute_product_command` remains because it also owns non-scene application actions. `propose_asset_insertion`, `propose_field_updates`, and `propose_canvas_edits` remain until the canonical asset slice can privately resolve catalog IDs into renderer-safe sources, including asset-valued fields and image replacement. This prevents descriptor consolidation from dropping a production capability.
+
+The worst-case registration fixture contains 29 tools and serializes to 40,094 compact UTF-8 bytes, below the 60 KiB gate. The real local browser registered 27 tools and measured 37,049 compact UTF-8 bytes. Its largest descriptor was the retained asset-aware `propose_canvas_edits` at 10,307 bytes.
+
+## Slice 3 browser evidence
+
+Verified on 2 September 2026 at `http://localhost:3002`; port 3000 was not used.
+
+1. Before suppression, used `transact_canvas` in preview mode for one command from all eight mapped families: `duplicate_nodes`, managed-image `add_node`, `set_field`, `update_node`, `create_typography_style`, `create_variable`, `create_component`, and `add_output`. A stale snapshot was rejected, and all eight succeeded after a fresh inspection.
+2. Reloaded after the safe cutover and rediscovered the live registration. The four removed tools were absent; the product-command and three asset-aware tools remained.
+3. Committed one six-command transaction spanning every removed family: typography style creation, variable creation and binding, component creation, output/page creation, and a styled text node on that page. Revision advanced from 39 to 45 with no warnings.
+4. One Undo removed the output, page, node, style, variable, binding, and component and returned revision 39. No earlier undo entry remained. One Redo restored the complete revision-45 state.
+5. Reloaded and visibly opened page 7, `Canonical cutover`, showing the editable `CANONICAL CUTOVER` text layer. Inspection confirmed the output, style, variable binding, component, and exact text node all persisted.
+6. Replayed the original stale-identity request after reload. The durable receipt returned `replayed: true`, `changed: false`, at revision 45. Reusing its key with a changed title was rejected as `idempotency_key_reused`.
