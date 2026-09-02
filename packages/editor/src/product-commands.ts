@@ -37,6 +37,7 @@ export const productActionCommandIds = [
   "command.search",
   "help.shortcuts",
   "object.rename",
+  "object.export-layer",
   "object.visibility.toggle",
   "object.lock.toggle",
   "arrange.front",
@@ -729,6 +730,17 @@ const actionDefinitions: Record<
     mutating: true,
     icon: "edit",
   }),
+  "object.export-layer": definition({
+    id: "object.export-layer",
+    label: "Export layer",
+    category: "file",
+    subgroup: "export",
+    keywords: ["download", "png", "pdf", "preset"],
+    scope: "selection",
+    mutating: false,
+    appMenu: false,
+    icon: "download",
+  }),
   "object.visibility.toggle": definition({
     id: "object.visibility.toggle",
     label: "Hide selection",
@@ -1157,6 +1169,8 @@ function baseEnabled(
       return false
   }
   if (commandId === "object.rename")
+    return context.selection?.nodeIds.length === 1
+  if (commandId === "object.export-layer")
     return context.selection?.nodeIds.length === 1
   if (commandId === "arrange.align")
     return Boolean(context.selection?.nodeIds.length)
@@ -1970,7 +1984,10 @@ export function buildLayerContextMenu(
   const targetItem = (id: ProductCommandId, args?: ProductCommandArguments) =>
     commandItem(id, context, capturedTarget, args)
   return [
-    { id: "identity", items: [targetItem("object.rename")] },
+    {
+      id: "identity",
+      items: [targetItem("object.rename"), targetItem("object.export-layer")],
+    },
     {
       id: "edit",
       items: [

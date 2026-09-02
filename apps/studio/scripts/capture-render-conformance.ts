@@ -1129,7 +1129,7 @@ async function buildCaptureReport() {
                   })),
               scope: directOnly
                 ? "Host-blocked: browser-route and public endpoint capture require the local app server; direct deterministic HTML PNG evidence ran without a server."
-                : "Canonical schema-v5 vector, alpha, and coefficient-sensitive luminance mask documents rendered through the public Studio PNG, thumbnail, and PDF endpoints.",
+                : "Canonical schema-v6 vector, alpha, and coefficient-sensitive luminance mask documents rendered through the public Studio PNG, thumbnail, and PDF endpoints.",
             },
           },
         }

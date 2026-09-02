@@ -36,6 +36,7 @@ const rect = (
   opacity: 1,
   visible: true,
   locked: false,
+  constraints: { horizontal: "min", vertical: "min" },
   fill,
   radius: 0,
   strokeWidth: 0,
@@ -115,6 +116,7 @@ export const alphaImageMaskRenderConformanceNodes = [
     opacity: 0.78,
     visible: true,
     locked: false,
+    constraints: { horizontal: "min", vertical: "min" },
     assetId: "asset-alpha-mask-conformance",
     src: alphaImageSource,
     placement: {
@@ -153,6 +155,7 @@ export const alphaTextMaskRenderConformanceNodes = [
     opacity: 0.72,
     visible: true,
     locked: false,
+    constraints: { horizontal: "min", vertical: "min" },
     text: "ALPHA",
     runs: [],
     paragraphs: [],
@@ -194,9 +197,9 @@ const alphaMaskDocument = (
     ],
   })
 
-/** Canonical schema-v5 carrier for the retained renderer fixture. */
+/** Canonical schema-v6 carrier for the retained renderer fixture. */
 export const maskRenderConformanceDocument = documentSchema.parse({
-  schemaVersion: 5,
+  schemaVersion: 6,
   id: "mask-render-conformance-v1",
   name: "Mask renderer conformance carrier",
   revision: 1,
@@ -511,6 +514,7 @@ const nestedRichText = (id: string, name: string): SceneNode => ({
   opacity: 0.9,
   visible: true,
   locked: false,
+  constraints: { horizontal: "min", vertical: "min" },
   text: "NESTED\nMASK",
   runs: [
     {

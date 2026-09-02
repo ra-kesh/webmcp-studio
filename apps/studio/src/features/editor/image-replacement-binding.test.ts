@@ -31,12 +31,13 @@ const originalImage: Extract<SceneNode, { type: "image" }> = {
   opacity: 0.75,
   visible: true,
   locked: false,
+  constraints: { horizontal: "min", vertical: "min" },
   decorative: false,
 }
 
 function fixture(bound: boolean): Document {
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
     id: "binding-replacement-document",
     name: "Binding replacement fixture",
     revision: 0,

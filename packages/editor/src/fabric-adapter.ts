@@ -35,9 +35,16 @@ import {
   patchTextRunStyle,
   pasteParsedTextClipboardPayload,
   projectImagePaint,
+  projectFrameClipStack,
   projectNodeForRender,
   projectSvgViewport,
   replaceRichTextRange,
+  resolveCornerRadii,
+  roundedRectanglePath,
+  roundedRectanglePaintPath,
+  hasExplicitPaintStack,
+  strokeGeometryInset,
+  layerEffectFilter,
   resolveTextSelectionStyle,
   resolveTextSelectionStyleAttachment,
   resolveTextSelectionLink,
@@ -49,7 +56,9 @@ import {
   textNodeBaseStyle,
   textRunOverrideAtCaret,
   type Document,
+  type BlendMode,
   type ImagePlacement,
+  type LayerEffect,
   type RenderImageAffine,
   type RenderImageClip,
   type ProjectedTextLine,
@@ -73,6 +82,110 @@ import {
   projectPagePaintPlan,
   supportedMaskPaintPixelRatio,
 } from "@webmcp/document/internal/page-paint-plan"
+
+const frameClippedObjects = new WeakSet<FabricObject>()
+
+const usesCornerPath = (node: Extract<SceneNode, { type: "rect" | "frame" }>) =>
+  ((node.independentCorners ?? false) && node.cornerRadii !== undefined) ||
+  (node.cornerSmoothing ?? 0) > 0
+
+const usesPaintStack = (node: SceneNode) =>
+  node.type === "rect" ||
+  node.type === "frame" ||
+  node.type === "ellipse" ||
+  node.type === "line" ||
+  node.type === "icon"
+    ? hasExplicitPaintStack(node)
+    : false
+
+export function syncFabricFrameClip(
+  object: FabricObject,
+  node: SceneNode,
+  document: Document
+) {
+  const clips = projectFrameClipStack(document, node.id)
+  if (clips.length === 0) {
+    if (frameClippedObjects.has(object)) {
+      object.set({
+        clipPath:
+          node.type === "text" && node.sizingMode === "fixed"
+            ? fixedTextClip(node)
+            : undefined,
+      })
+      frameClippedObjects.delete(object)
+    }
+    return
+  }
+  const effectiveClips =
+    node.type === "text" && node.sizingMode === "fixed"
+      ? [
+          {
+            x: node.x,
+            y: node.y,
+            width: node.width,
+            height: node.height,
+            radius: 0,
+            cornerRadii: {
+              topLeft: 0,
+              topRight: 0,
+              bottomRight: 0,
+              bottomLeft: 0,
+            },
+            cornerSmoothing: 0,
+            path: roundedRectanglePath({
+              width: node.width,
+              height: node.height,
+            }),
+          },
+          ...clips,
+        ]
+      : clips
+  const clipPaths = effectiveClips.map((clip) => {
+    const cornerRadii = clip.cornerRadii ?? {
+      topLeft: clip.radius,
+      topRight: clip.radius,
+      bottomRight: clip.radius,
+      bottomLeft: clip.radius,
+    }
+    const cornerSmoothing = clip.cornerSmoothing ?? 0
+    const shared = {
+      left: clip.x,
+      top: clip.y,
+      originX: "left",
+      originY: "top",
+      absolutePositioned: true,
+      fill: "#000000",
+      strokeWidth: 0,
+      selectable: false,
+      evented: false,
+    } as const
+    return cornerSmoothing > 0 || new Set(Object.values(cornerRadii)).size > 1
+      ? new Path(
+          clip.path ??
+            roundedRectanglePath({
+              width: clip.width,
+              height: clip.height,
+              cornerRadii,
+              cornerSmoothing,
+            }),
+          shared
+        )
+      : new Rect({
+          ...shared,
+          width: clip.width,
+          height: clip.height,
+          rx: clip.radius,
+          ry: clip.radius,
+        })
+  })
+  for (let index = 0; index < clipPaths.length - 1; index += 1) {
+    clipPaths[index]!.set({ clipPath: clipPaths[index + 1] })
+  }
+  object.set({
+    clipPath: clipPaths[0],
+  })
+  frameClippedObjects.add(object)
+}
 import type {
   CanvasAdapter,
   CanvasAdapterEvents,
@@ -1013,6 +1126,7 @@ function sharedOptions(
     flipX: node.flipX ?? false,
     flipY: node.flipY ?? false,
     opacity: frame.opacity,
+    globalCompositeOperation: fabricBlendMode(frame.blendMode),
     visible: frame.visible,
     originX: "left" as const,
     originY: "top" as const,
@@ -1037,8 +1151,14 @@ function sharedOptions(
   }
 }
 
+export function fabricBlendMode(
+  blendMode: BlendMode
+): GlobalCompositeOperation {
+  return blendMode === "normal" ? "source-over" : blendMode
+}
+
 function borderedShapeDimensions(
-  node: Extract<SceneNode, { type: "rect" | "ellipse" }>
+  node: Extract<SceneNode, { type: "rect" | "ellipse" | "frame" }>
 ) {
   const strokeWidth = node.stroke ? node.strokeWidth : 0
   return {
@@ -1129,11 +1249,25 @@ export function projectFabricTextState(
     underline: node.decoration === "underline",
     linethrough: node.decoration === "line_through",
     textAlign: projection.content.align,
+    direction: projection.content.direction,
     lineHeight:
       projection.content.lineHeight / FABRIC_TEXT_LINE_HEIGHT_MULTIPLIER,
     topOffset:
       ((projection.content.lineHeight - 1) * projection.content.fontSize) / 2 -
-      FABRIC_TEXT_BASELINE_ADJUSTMENT,
+      FABRIC_TEXT_BASELINE_ADJUSTMENT +
+      Math.max(
+        0,
+        projection.frame.height -
+          projection.content.layout.lines.reduce(
+            (sum, line) => sum + line.height,
+            0
+          )
+      ) *
+        (projection.content.verticalAlign === "middle"
+          ? 0.5
+          : projection.content.verticalAlign === "bottom"
+            ? 1
+            : 0),
     charSpacing:
       (projection.content.letterSpacing / projection.content.fontSize) * 1000,
     sizingMode: projection.content.sizingMode,
@@ -1156,6 +1290,10 @@ export function projectFabricTextEditingStyles(
     ...node,
     paragraphs: [],
     sizingMode: "auto_width",
+    textCase: "original",
+    truncation: "clip",
+    maxLines: null,
+    verticalAlign: "top",
   })
   if (projection.type !== "text") {
     throw new Error("Expected editing text projection")
@@ -1186,6 +1324,7 @@ export function fabricTextObjectOptions(
     underline: projection.underline,
     linethrough: projection.linethrough,
     textAlign: projection.textAlign,
+    direction: projection.direction,
     lineHeight: projection.lineHeight,
     charSpacing: projection.charSpacing,
     styles: {},
@@ -1418,11 +1557,223 @@ function applyFabricTextControlPolicy(
   })
 }
 
+class EffectGroup extends Group {
+  effectFilter = ""
+
+  setEffectFilter(effects: readonly LayerEffect[] | undefined) {
+    this.effectFilter = layerEffectFilter(effects)
+    this.dirty = true
+  }
+
+  override _render(context: CanvasRenderingContext2D) {
+    const previousFilter = context.filter
+    context.filter = this.effectFilter || "none"
+    super._render(context)
+    context.filter = previousFilter
+  }
+}
+
+const wrapFabricEffects = <T extends FabricObject>(
+  object: T,
+  node: SceneNode
+): T | EffectGroup => {
+  if (!node.effects?.some((effect) => effect.visible)) return object
+  object.set({
+    left: 0,
+    top: 0,
+    angle: 0,
+    flipX: false,
+    flipY: false,
+    opacity: 1,
+    globalCompositeOperation: "source-over",
+    visible: true,
+    selectable: false,
+    evented: false,
+  })
+  const group = new EffectGroup([object], {
+    ...sharedOptions(node),
+    width: node.width,
+    height: node.height,
+    subTargetCheck: false,
+  })
+  group.setEffectFilter(node.effects)
+  return group
+}
+
 export function createFabricSyncObject(
   node: Exclude<SceneNode, { type: "image" }>
-) {
-  if (node.type === "rect") {
+): FabricObject {
+  if (node.effects?.some((effect) => effect.visible)) {
+    const inner: FabricObject = createFabricSyncObject({
+      ...node,
+      effects: undefined,
+      x: 0,
+      y: 0,
+      rotation: 0,
+      flipX: false,
+      flipY: false,
+      opacity: 1,
+      blendMode: "normal",
+      visible: true,
+      locked: true,
+    } as Exclude<SceneNode, { type: "image" }>)
+    return wrapFabricEffects(inner, node)
+  }
+  if (usesPaintStack(node)) {
+    const projection = projectNodeForRender(node)
+    if (projection.type === "text" || projection.type === "image") {
+      throw new Error(`Paint stacks require shape geometry`)
+    }
+    const legacyStrokeWidth = "strokeWidth" in node ? node.strokeWidth : 0
+    const frame = new Rect({
+      left: 0,
+      top: 0,
+      width: node.width,
+      height: node.height,
+      originX: "left",
+      originY: "top",
+      fill: "rgba(0,0,0,0)",
+      strokeWidth: 0,
+      selectable: false,
+      evented: false,
+    })
+    const children: FabricObject[] = [frame]
+    const addPaint = (
+      paint: {
+        color: string
+        opacity: number
+        visible: boolean
+        blendMode: BlendMode
+        width?: number
+        alignment?: "inside" | "center" | "outside"
+        sides?: { top: boolean; right: boolean; bottom: boolean; left: boolean }
+        dash?: number[]
+        cap?: "butt" | "round" | "square"
+        join?: "miter" | "round" | "bevel"
+        miterLimit?: number
+      },
+      kind: "fill" | "stroke"
+    ) => {
+      const strokeWidth = paint.width ?? legacyStrokeWidth
+      if (
+        kind === "stroke" &&
+        (node.type === "rect" || node.type === "frame") &&
+        paint.sides &&
+        !Object.values(paint.sides).every(Boolean)
+      ) {
+        const inset = strokeGeometryInset({
+          width: strokeWidth,
+          alignment: paint.alignment,
+        })
+        const x1 = inset
+        const y1 = inset
+        const x2 = node.width - inset
+        const y2 = node.height - inset
+        const options = {
+          stroke: paint.color,
+          strokeWidth,
+          opacity: paint.opacity,
+          visible: paint.visible,
+          globalCompositeOperation: fabricBlendMode(paint.blendMode),
+          strokeDashArray: paint.dash,
+          strokeLineCap: paint.cap,
+          strokeLineJoin: paint.join,
+          strokeMiterLimit: paint.miterLimit,
+          selectable: false,
+          evented: false,
+        }
+        if (paint.sides.top) children.push(new Line([x1, y1, x2, y1], options))
+        if (paint.sides.right)
+          children.push(new Line([x2, y1, x2, y2], options))
+        if (paint.sides.bottom)
+          children.push(new Line([x2, y2, x1, y2], options))
+        if (paint.sides.left) children.push(new Line([x1, y2, x1, y1], options))
+        return
+      }
+      const geometryOffset =
+        kind === "stroke" && node.type !== "line" && node.type !== "icon"
+          ? strokeGeometryInset({
+              width: strokeWidth,
+              alignment: paint.alignment,
+            }) -
+            strokeWidth / 2
+          : 0
+      const synthetic = {
+        ...node,
+        x: geometryOffset,
+        y: geometryOffset,
+        width: node.width - geometryOffset * 2,
+        height: node.height - geometryOffset * 2,
+        rotation: 0,
+        flipX: false,
+        flipY: false,
+        opacity: paint.opacity,
+        blendMode: paint.blendMode,
+        visible: paint.visible,
+        fills: undefined,
+        strokes: undefined,
+        ...(node.type === "line"
+          ? {
+              stroke: paint.color,
+              strokeWidth,
+            }
+          : kind === "fill"
+            ? { fill: paint.color, stroke: undefined, strokeWidth: 0 }
+            : {
+                fill: "rgba(0,0,0,0)",
+                stroke: paint.color,
+                strokeWidth,
+              }),
+      } as Exclude<SceneNode, { type: "image" }>
+      const child = createFabricSyncObject(synthetic)
+      child.set({
+        selectable: false,
+        evented: false,
+        ...(kind === "stroke"
+          ? {
+              strokeDashArray: paint.dash,
+              strokeLineCap: paint.cap,
+              strokeLineJoin: paint.join,
+              strokeMiterLimit: paint.miterLimit,
+            }
+          : {}),
+      })
+      children.push(child)
+    }
+    if (projection.type !== "line") {
+      projection.content.fills.forEach((paint) => addPaint(paint, "fill"))
+    }
+    projection.content.strokes.forEach((paint) => addPaint(paint, "stroke"))
+    return new Group(children, {
+      ...sharedOptions(node),
+      width: node.width,
+      height: node.height,
+      subTargetCheck: false,
+    })
+  }
+  if (node.type === "rect" || node.type === "frame") {
     const dimensions = borderedShapeDimensions(node)
+    if (usesCornerPath(node)) {
+      const radii = resolveCornerRadii(
+        node.radius,
+        node.independentCorners ? node.cornerRadii : undefined
+      )
+      return new Path(
+        roundedRectanglePaintPath({
+          width: node.width,
+          height: node.height,
+          cornerRadii: radii,
+          cornerSmoothing: node.cornerSmoothing ?? 0,
+          strokeWidth: dimensions.strokeWidth,
+        }),
+        {
+          ...sharedOptions(node),
+          fill: node.fill,
+          stroke: node.stroke,
+          strokeWidth: dimensions.strokeWidth,
+        }
+      )
+    }
     return new Rect({
       ...sharedOptions(node),
       width: dimensions.width,
@@ -1549,7 +1900,11 @@ function applyFabricVectorMaskSourcePaint(
   object: FabricObject,
   source: Extract<SceneNode, { type: "rect" | "ellipse" | "icon" }>
 ) {
-  if (object instanceof Rect || object instanceof Ellipse) {
+  if (
+    object instanceof Rect ||
+    object instanceof Ellipse ||
+    object instanceof Path
+  ) {
     object.set({ fill: "#000000", stroke: undefined, strokeWidth: 0 })
   } else if (object instanceof Group) {
     for (const child of object.getObjects()) {
@@ -2532,7 +2887,23 @@ export function isPagePointInsideImageFrame(
     const normalizedY = (y - node.height / 2) / (node.height / 2)
     return normalizedX * normalizedX + normalizedY * normalizedY <= 1
   }
-  const radius = Math.min(node.width, node.height) * node.frameMask.radius
+  const shorterEdge = Math.min(node.width, node.height)
+  const normalizedRadii = node.frameMask.cornerRadii ?? {
+    topLeft: node.frameMask.radius,
+    topRight: node.frameMask.radius,
+    bottomRight: node.frameMask.radius,
+    bottomLeft: node.frameMask.radius,
+  }
+  const left = x < node.width / 2
+  const top = y < node.height / 2
+  const radius =
+    (top
+      ? left
+        ? normalizedRadii.topLeft
+        : normalizedRadii.topRight
+      : left
+        ? normalizedRadii.bottomLeft
+        : normalizedRadii.bottomRight) * shorterEdge
   if (
     (x >= radius && x <= node.width - radius) ||
     (y >= radius && y <= node.height - radius)
@@ -2579,6 +2950,22 @@ function createImageFrameClip(clip: RenderImageClip) {
       rx: clip.radiusX,
       ry: clip.radiusY,
     })
+  }
+  if (
+    clip.shape === "rounded_rectangle" &&
+    clip.cornerRadii &&
+    ((clip.cornerSmoothing ?? 0) > 0 ||
+      new Set(Object.values(clip.cornerRadii)).size > 1)
+  ) {
+    return new Path(
+      roundedRectanglePath({
+        width: clip.width,
+        height: clip.height,
+        cornerRadii: clip.cornerRadii,
+        cornerSmoothing: clip.cornerSmoothing ?? 0,
+      }),
+      shared
+    )
   }
   return new Rect({
     ...shared,
@@ -2641,7 +3028,7 @@ export function createFabricImageGroup(
     layoutManager: new LayoutManager(new FixedLayout()),
   })
   syncImageGroup(group, node)
-  return group
+  return wrapFabricEffects(group, node)
 }
 
 function syncImageGroup(
@@ -2686,7 +3073,26 @@ export function syncFabricObjectFromNode(
     scaleY: 1,
   }
 
-  if (node.type === "rect" && object instanceof Rect) {
+  if (
+    (node.type === "rect" || node.type === "frame") &&
+    object instanceof Path &&
+    usesCornerPath(node)
+  ) {
+    const replacement = createFabricSyncObject(node)
+    if (!(replacement instanceof Path)) return
+    Object.assign(options, {
+      path: replacement.path,
+      pathOffset: replacement.pathOffset,
+      width: replacement.width,
+      height: replacement.height,
+      fill: node.fill,
+      stroke: node.stroke,
+      strokeWidth: node.stroke ? node.strokeWidth : 0,
+    })
+  } else if (
+    (node.type === "rect" || node.type === "frame") &&
+    object instanceof Rect
+  ) {
     const dimensions = borderedShapeDimensions(node)
     Object.assign(options, {
       width: dimensions.width,
@@ -2781,6 +3187,7 @@ export function syncFabricObjectFromNode(
       underline: text.underline,
       linethrough: text.linethrough,
       textAlign: text.textAlign,
+      direction: text.direction,
       lineHeight: text.lineHeight,
       charSpacing: text.charSpacing,
       editable: !node.locked,
@@ -3194,7 +3601,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
           this.canIncrementallySyncPaintPlan(page, nodesById)
         ) {
           signal?.throwIfAborted()
-          this.syncCanonicalPaintPlanNodes(page, nodesById)
+          this.syncCanonicalPaintPlanNodes(document, page, nodesById)
           applyPagePresentation()
           this.documentId = document.id
           this.pageId = pageId
@@ -3202,6 +3609,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
           return
         }
         await this.syncCanonicalPaintPlan(
+          document,
           page,
           paintPlan,
           nodesById,
@@ -3275,6 +3683,51 @@ export class FabricCanvasAdapter implements CanvasAdapter {
           stagedObjectByNodeId.set(node.id, {
             object: stagedObject,
             replaces: null,
+          })
+          continue
+        }
+        if (
+          previousNode !== node &&
+          (node.effects?.some((effect) => effect.visible) ||
+            previousNode?.effects?.some((effect) => effect.visible))
+        ) {
+          const replacement = await createFabricObjectForSync(
+            node,
+            loadPreparedImage,
+            signal
+          )
+          stagedRegularCandidates.add(replacement)
+          stagedObjectByNodeId.set(node.id, {
+            object: replacement,
+            replaces: object,
+          })
+          continue
+        }
+        if (
+          previousNode !== node &&
+          (usesPaintStack(node) ||
+            (previousNode ? usesPaintStack(previousNode) : false))
+        ) {
+          const replacement = createFabricSyncObject(
+            node as Exclude<SceneNode, { type: "image" }>
+          )
+          stagedRegularCandidates.add(replacement)
+          stagedObjectByNodeId.set(node.id, {
+            object: replacement,
+            replaces: object,
+          })
+          continue
+        }
+        if (
+          (node.type === "rect" || node.type === "frame") &&
+          previousNode !== node &&
+          usesCornerPath(node) !== object instanceof Path
+        ) {
+          const replacement = createFabricSyncObject(node)
+          stagedRegularCandidates.add(replacement)
+          stagedObjectByNodeId.set(node.id, {
+            object: replacement,
+            replaces: object,
           })
           continue
         }
@@ -3362,6 +3815,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
           syncFabricObjectFromNode(object, node)
         }
         if (!object) continue
+        syncFabricFrameClip(object, node, document)
         // Commit the applied identity only after every awaited visual update
         // survives the generation guard. A superseding sync must still see
         // the old identity and finish installing the requested image source.
@@ -3434,6 +3888,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
   }
 
   private syncCanonicalPaintPlanNodes(
+    document: Document,
     page: Document["pages"][number],
     nodesById: ReadonlyMap<string, SceneNode>
   ) {
@@ -3441,8 +3896,13 @@ export class FabricCanvasAdapter implements CanvasAdapter {
       const previous = this.nodeByNodeId.get(nodeId)
       const node = nodesById.get(nodeId)
       const object = this.objectByNodeId.get(nodeId)
-      if (!node || !object || previous === node) continue
+      if (!node || !object) continue
+      if (previous === node) {
+        syncFabricFrameClip(object, node, document)
+        continue
+      }
       syncFabricObjectFromNode(object, node)
+      syncFabricFrameClip(object, node, document)
       if (this.maskSourceNodeIds.has(nodeId)) {
         object.set({ opacity: 0, evented: false })
         const maskObject = this.maskPaintObjectBySourceNodeId.get(nodeId)
@@ -3483,6 +3943,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
   }
 
   private async syncCanonicalPaintPlan(
+    document: Document,
     page: Document["pages"][number],
     plan: PagePaintPlan,
     nodesById: ReadonlyMap<string, SceneNode>,
@@ -3654,6 +4115,7 @@ export class FabricCanvasAdapter implements CanvasAdapter {
           const node = nodesById.get(entry.nodeId)
           if (!node) throw new Error(`Paint node ${entry.nodeId} is missing`)
           const object = await createObject(node)
+          syncFabricFrameClip(object, node, document)
           candidateObjectByNodeId.set(node.id, object)
           return {
             objects: [object],

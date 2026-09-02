@@ -93,6 +93,7 @@ describe("asset library model", () => {
           opacity: 1,
           visible: true,
           locked: false,
+          constraints: { horizontal: "min" as const, vertical: "min" as const },
         },
       ],
       fields: [
@@ -152,6 +153,7 @@ describe("asset library model", () => {
           opacity: 1,
           visible: true,
           locked: false,
+          constraints: { horizontal: "min" as const, vertical: "min" as const },
         },
       ],
     }
@@ -192,6 +194,7 @@ describe("asset library model", () => {
       opacity: 1,
       visible: true,
       locked,
+      constraints: { horizontal: "min" as const, vertical: "min" as const },
     })
     const document = {
       ...northstarSeed,

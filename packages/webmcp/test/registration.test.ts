@@ -3063,7 +3063,17 @@ describe("WebMCP registration", () => {
               rotation: 18,
               flipX: true,
             },
-            frameMask: { shape: "rounded_rectangle", radius: 0.16 },
+            frameMask: {
+              shape: "rounded_rectangle",
+              radius: 0.16,
+              cornerRadii: {
+                topLeft: 0.04,
+                topRight: 0.08,
+                bottomRight: 0.12,
+                bottomLeft: 0.16,
+              },
+              cornerSmoothing: 0.5,
+            },
           },
         },
       ],
@@ -3080,9 +3090,373 @@ describe("WebMCP registration", () => {
           rotation: 18,
           flipX: true,
         },
-        frameMask: { shape: "rounded_rectangle", radius: 0.16 },
+        frameMask: {
+          shape: "rounded_rectangle",
+          radius: 0.16,
+          cornerRadii: {
+            topLeft: 0.04,
+            topRight: 0.08,
+            bottomRight: 0.12,
+            bottomLeft: 0.16,
+          },
+          cornerSmoothing: 0.5,
+        },
       },
     })
+  })
+
+  it("advertises and proposes strict canonical layer constraints", async () => {
+    const document = withImageLayer()
+    const state = setup(document)
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+    const tool = state.registered.get("propose_canvas_edits")
+    expect(JSON.stringify(tool?.inputSchema)).toContain('"constraints"')
+
+    const result = await tool?.execute({
+      documentId: document.id,
+      baseRevision: document.revision,
+      baseSnapshotId: "snapshot-seed",
+      edits: [
+        {
+          nodeType: "image",
+          nodeId: "contract-image",
+          patch: {
+            constraints: { horizontal: "stretch", vertical: "center" },
+            blendMode: "multiply",
+          },
+        },
+      ],
+    })
+
+    expect(result?.isError).toBeUndefined()
+    expect(state.proposed()?.operations[0]?.command).toMatchObject({
+      type: "update_node",
+      nodeId: "contract-image",
+      patch: {
+        constraints: { horizontal: "stretch", vertical: "center" },
+        blendMode: "multiply",
+      },
+    })
+
+    const malformed = await tool?.execute({
+      documentId: document.id,
+      baseRevision: document.revision,
+      baseSnapshotId: "snapshot-seed",
+      edits: [
+        {
+          nodeType: "image",
+          nodeId: "contract-image",
+          patch: { constraints: { horizontal: "stretch" } },
+        },
+      ],
+    })
+    expect(malformed?.isError).toBe(true)
+    expect(malformed?.content[0]?.text).toContain("patch is invalid")
+
+    const malformedBlend = await tool?.execute({
+      documentId: document.id,
+      baseRevision: document.revision,
+      baseSnapshotId: "snapshot-seed",
+      edits: [
+        {
+          nodeType: "image",
+          nodeId: "contract-image",
+          patch: { blendMode: "source-in" },
+        },
+      ],
+    })
+    expect(malformedBlend?.isError).toBe(true)
+  })
+
+  it("advertises and proposes strict independent corner geometry", async () => {
+    const document = withImageLayer()
+    const rect = document.nodes.find((node) => node.type === "rect")!
+    const state = setup(document)
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+    const tool = state.registered.get("propose_canvas_edits")
+    const schema = JSON.stringify(tool?.inputSchema)
+    expect(schema).toContain('"independentCorners"')
+    expect(schema).toContain('"cornerSmoothing"')
+
+    const result = await tool?.execute({
+      documentId: document.id,
+      baseRevision: document.revision,
+      baseSnapshotId: "snapshot-seed",
+      edits: [
+        {
+          nodeType: "rect",
+          nodeId: rect.id,
+          patch: {
+            independentCorners: true,
+            cornerRadii: {
+              topLeft: 4,
+              topRight: 8,
+              bottomRight: 12,
+              bottomLeft: 16,
+            },
+            cornerSmoothing: 0.65,
+          },
+        },
+      ],
+    })
+    expect(result?.isError).toBeUndefined()
+    expect(state.proposed()?.operations[0]?.command).toMatchObject({
+      type: "update_node",
+      nodeId: rect.id,
+      patch: {
+        independentCorners: true,
+        cornerRadii: {
+          topLeft: 4,
+          topRight: 8,
+          bottomRight: 12,
+          bottomLeft: 16,
+        },
+        cornerSmoothing: 0.65,
+      },
+    })
+  })
+
+  it("advertises and proposes strict frame layout and clipping", async () => {
+    const document = structuredClone(withImageLayer())
+    const page = document.pages[0]!
+    page.nodeIds.unshift("contract-frame")
+    document.nodes.push({
+      id: "contract-frame",
+      type: "frame",
+      name: "Contract frame",
+      x: 0,
+      y: 0,
+      width: 400,
+      height: 240,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
+      fill: "#ffffff",
+      radius: 12,
+      strokeWidth: 0,
+      children: [],
+      autoLayout: null,
+      clipsContent: false,
+    })
+    const state = setup(document)
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+    const tool = state.registered.get("propose_canvas_edits")
+    expect(JSON.stringify(tool?.inputSchema)).toContain('"autoLayout"')
+    expect(JSON.stringify(tool?.inputSchema)).toContain('"layoutGrids"')
+    const result = await tool?.execute({
+      documentId: document.id,
+      baseRevision: document.revision,
+      baseSnapshotId: "snapshot-seed",
+      edits: [
+        {
+          nodeType: "frame",
+          nodeId: "contract-frame",
+          patch: {
+            clipsContent: true,
+            layoutGrids: [
+              {
+                id: "contract-columns",
+                pattern: "columns",
+                visible: true,
+                color: "#2563eb",
+                opacity: 0.12,
+                alignment: "stretch",
+                count: 12,
+                offset: 24,
+                sectionSize: 1,
+                gutter: 16,
+              },
+            ],
+            autoLayout: {
+              direction: "vertical",
+              horizontalSizing: "fixed",
+              verticalSizing: "hug",
+              gap: 12,
+              padding: { top: 8, right: 8, bottom: 8, left: 8 },
+              primaryAlign: "start",
+              counterAlign: "stretch",
+            },
+          },
+        },
+      ],
+    })
+    expect(result?.isError, result?.content[0]?.text).toBeUndefined()
+    expect(state.proposed()?.operations[0]?.command).toMatchObject({
+      type: "update_node",
+      nodeId: "contract-frame",
+      patch: { clipsContent: true },
+    })
+    expect(state.proposed()?.operations[0]?.command).toMatchObject({
+      patch: {
+        layoutGrids: [{ id: "contract-columns", pattern: "columns" }],
+      },
+    })
+
+    const malformed = await tool?.execute({
+      documentId: document.id,
+      baseRevision: document.revision,
+      baseSnapshotId: "snapshot-seed",
+      edits: [
+        {
+          nodeType: "frame",
+          nodeId: "contract-frame",
+          patch: { autoLayout: { direction: "vertical" } },
+        },
+      ],
+    })
+    expect(malformed?.isError).toBe(true)
+
+    const malformedGrid = await tool?.execute({
+      documentId: document.id,
+      baseRevision: document.revision,
+      baseSnapshotId: "snapshot-seed",
+      edits: [
+        {
+          nodeType: "frame",
+          nodeId: "contract-frame",
+          patch: {
+            layoutGrids: [
+              {
+                id: "unbounded-grid",
+                pattern: "columns",
+                visible: true,
+                color: "#2563eb",
+                opacity: 0.12,
+                alignment: "stretch",
+                count: 65,
+                offset: 24,
+                sectionSize: 1,
+                gutter: 16,
+              },
+            ],
+          },
+        },
+      ],
+    })
+    expect(malformedGrid?.isError).toBe(true)
+  })
+
+  it("advertises, persists, and rejects malformed ordered paint stacks", async () => {
+    const document = structuredClone(northstarSeed)
+    const target = document.nodes.find((node) => node.type === "rect")
+    if (!target || target.type !== "rect") throw new Error("Expected rectangle")
+    const state = setup(document)
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+    const tool = state.registered.get("propose_canvas_edits")
+    const schema = JSON.stringify(tool?.inputSchema)
+    expect(schema).toContain('"fills"')
+    expect(schema).toContain('"strokes"')
+    expect(schema).toContain('"maxItems":8')
+
+    const result = await tool?.execute({
+      documentId: document.id,
+      baseRevision: document.revision,
+      baseSnapshotId: "snapshot-seed",
+      edits: [
+        {
+          nodeType: "rect",
+          nodeId: target.id,
+          patch: {
+            fills: [
+              {
+                id: "base",
+                color: "#102030",
+                opacity: 0.4,
+                visible: false,
+                blendMode: "multiply",
+              },
+              {
+                id: "accent",
+                color: "#abcdef",
+                opacity: 1,
+                visible: true,
+              },
+            ],
+            strokes: [
+              {
+                id: "edge",
+                color: "#fedcba",
+                width: 3,
+                opacity: 0.8,
+                visible: true,
+                blendMode: "overlay",
+              },
+            ],
+          },
+        },
+      ],
+    })
+    expect(result?.isError, result?.content[0]?.text).toBeUndefined()
+    expect(state.proposed()?.operations[0]?.command).toMatchObject({
+      type: "update_node",
+      nodeId: target.id,
+      patch: {
+        fills: [{ id: "base" }, { id: "accent" }],
+        strokes: [{ id: "edge" }],
+      },
+    })
+    expect(
+      previewChangeSet(document, state.proposed()!).nodes.find(
+        (node) => node.id === target.id
+      )
+    ).toMatchObject({ fill: "#102030", stroke: "#fedcba", strokeWidth: 3 })
+
+    const malformed = await tool?.execute({
+      documentId: document.id,
+      baseRevision: document.revision,
+      baseSnapshotId: "snapshot-seed",
+      edits: [
+        {
+          nodeType: "rect",
+          nodeId: target.id,
+          patch: {
+            fills: [
+              { id: "same", color: "#000", opacity: 1, visible: true },
+              { id: "same", color: "#fff", opacity: 1, visible: true },
+            ],
+          },
+        },
+      ],
+    })
+    expect(malformed?.isError).toBe(true)
   })
 
   it("rejects untyped, malformed, legacy, and renderer-private image patches", async () => {
@@ -3465,7 +3839,16 @@ describe("WebMCP registration", () => {
         {
           nodeType: "text",
           nodeId: "cover-title",
-          patch: { y: 760, fontSize: 76 },
+          patch: {
+            y: 760,
+            fontSize: 76,
+            align: "justify",
+            direction: "rtl",
+            verticalAlign: "middle",
+            textCase: "uppercase",
+            truncation: "ellipsis",
+            maxLines: 2,
+          },
         },
       ],
     })
@@ -3478,7 +3861,16 @@ describe("WebMCP registration", () => {
           command: {
             type: "update_node",
             nodeId: "cover-title",
-            patch: { y: 760, fontSize: 76 },
+            patch: {
+              y: 760,
+              fontSize: 76,
+              align: "justify",
+              direction: "rtl",
+              verticalAlign: "middle",
+              textCase: "uppercase",
+              truncation: "ellipsis",
+              maxLines: 2,
+            },
           },
         },
       ],

@@ -9,10 +9,12 @@ import {
   imageRenderParityInput,
   imageRenderParityNode,
   imageRenderParityPixelRatios,
+  northstarSeed,
   projectImagePaint,
   projectNodeForRender,
   renderConformanceDocument,
   textDesignSystemConformanceDocument,
+  type Document,
   type SceneNode,
 } from "@webmcp/document"
 import {
@@ -28,6 +30,7 @@ import {
 import { projectPagePaintPlan } from "@webmcp/document/internal/page-paint-plan"
 import {
   createAlphaImageMaskCommitState,
+  Artboard,
   createImageResourceLoadState,
   alphaMaskGroupRenderModel,
   luminanceMaskGroupRenderModel,
@@ -120,6 +123,98 @@ function nestedMaskDocument(options: { hiddenChildSource?: boolean } = {}) {
 }
 
 describe("React render-view conformance", () => {
+  it("wraps clipped frame children at canonical page-space bounds", () => {
+    const document = structuredClone(northstarSeed)
+    const page = document.pages.find((candidate) => candidate.id === "cover")!
+    const childId = "cover-title"
+    page.nodeIds = [
+      "react-layout-frame",
+      childId,
+      ...page.nodeIds.filter((nodeId) => nodeId !== childId),
+    ]
+    document.nodes.push({
+      id: "react-layout-frame",
+      type: "frame",
+      name: "React layout frame",
+      x: 90,
+      y: 70,
+      width: 300,
+      height: 150,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
+      fill: "#fff",
+      radius: 14,
+      strokeWidth: 0,
+      children: [
+        {
+          nodeId: childId,
+          positioning: "absolute",
+          horizontalSizing: "fixed",
+          verticalSizing: "fixed",
+          offsetX: -20,
+          offsetY: -10,
+          grow: 0,
+        },
+      ],
+      autoLayout: null,
+      clipsContent: true,
+    })
+
+    const markup = renderToStaticMarkup(
+      createElement(Artboard, { document, pageId: page.id })
+    )
+
+    expect(markup).toContain(`data-frame-clip-node-id="${childId}"`)
+    expect(markup).toContain("overflow:hidden")
+    expect(markup).toContain("border-radius:14px")
+  })
+
+  it("preserves frame clipping inside a retained mask subtree", () => {
+    const document = structuredClone(nestedMaskDocument()) as Document
+    const page = document.pages[0]!
+    page.nodeIds.unshift("masked-content-frame")
+    document.nodes.push({
+      id: "masked-content-frame",
+      type: "frame",
+      name: "Masked content frame",
+      x: 110,
+      y: 0,
+      width: 24,
+      height: 24,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
+      fill: "transparent",
+      radius: 4,
+      strokeWidth: 0,
+      children: [
+        {
+          nodeId: "child-content",
+          positioning: "absolute",
+          horizontalSizing: "fixed",
+          verticalSizing: "fixed",
+          offsetX: 10,
+          offsetY: 10,
+          grow: 0,
+        },
+      ],
+      autoLayout: null,
+      clipsContent: true,
+    })
+
+    const markup = renderToStaticMarkup(
+      createElement(Artboard, { document, pageId: page.id })
+    )
+
+    expect(markup).toContain('data-mask-group-id="child-mask"')
+    expect(markup).toContain('data-frame-clip-node-id="child-content"')
+  })
+
   it("caps a 3x host at the shared 2x mask ratio", () => {
     vi.stubGlobal("devicePixelRatio", 3)
     expect(renderViewDevicePixelRatio()).toBe(2)
@@ -167,6 +262,41 @@ describe("React render-view conformance", () => {
       transform: `rotate(${model.source.rotation} ${model.source.x - model.entry.bounds.x} ${model.source.y - model.entry.bounds.y})`,
     })
     expect(shouldCompositeMaskGroup(entry)).toBe(true)
+  })
+
+  it("blends retained mask content before the vector mask is applied", () => {
+    const entry = maskRenderConformancePlan.entries[1]!
+    if (entry.kind !== "mask_group") throw new Error("Missing mask entry")
+    const nodesById = new Map(
+      maskRenderConformanceNodes.map((node) => [
+        node.id,
+        node.id === "mask-conformance-content"
+          ? {
+              ...node,
+              blendMode: "multiply" as const,
+              effects: [
+                {
+                  id: "masked-shadow",
+                  type: "drop_shadow" as const,
+                  color: "#00000040",
+                  offsetX: 4,
+                  offsetY: 6,
+                  blur: 8,
+                  visible: true,
+                },
+              ],
+            }
+          : node,
+      ])
+    )
+    const markup = renderToStaticMarkup(
+      createElement(MaskGroupPaintEntry, { entry, nodesById })
+    )
+
+    expect(markup).toContain("mix-blend-mode:multiply")
+    expect(markup).toContain("filter:drop-shadow(4px 6px 8px #00000040)")
+    expect(markup).toContain('data-mask-source-id="mask-conformance-source"')
+    expect(markup.match(/mix-blend-mode:multiply/g)).toHaveLength(1)
   })
 
   it("falls through to ordinary bounded content when the shared source is hidden", () => {
@@ -846,17 +976,34 @@ describe("React render-view conformance", () => {
         width: node.width,
         height: node.height,
         opacity: node.opacity,
+        mixBlendMode: node.blendMode ?? "normal",
         transform: `rotate(${node.rotation}deg)`,
         transformOrigin: "top left",
       })
       expect(renderNodeStyle(projection).display).toBe(
-        node.visible ? undefined : "none"
+        node.visible && node.type === "text"
+          ? "flex"
+          : node.visible
+            ? undefined
+            : "none"
       )
       expect(renderNodeDataAttributes(projection)).toMatchObject({
         "data-node-id": node.id,
         "data-node-locked": node.locked ? "true" : "false",
       })
     }
+  })
+
+  it("applies blend mode to the final node frame after opacity", () => {
+    const node = {
+      ...renderConformanceDocument.nodes[0]!,
+      blendMode: "multiply" as const,
+    }
+    const style = renderFrameStyle(projectNodeForRender(node).frame)
+    expect(style).toMatchObject({
+      opacity: node.opacity,
+      mixBlendMode: "multiply",
+    })
   })
 
   it("mirrors a layer around its own center without moving its frame", () => {
@@ -890,6 +1037,41 @@ describe("React render-view conformance", () => {
       overflowWrap: "normal",
       overflow: "hidden",
     })
+  })
+
+  it("projects advanced text layout through shared React styles and metadata", () => {
+    const source = renderConformanceDocument.nodes.find(
+      (candidate) => candidate.id === "text-typography"
+    )!
+    if (source.type !== "text") throw new Error("Expected text")
+    const projection = projectNodeForRender({
+      ...source,
+      text: "שלום עולם ארוך מאוד להצגה בשורה אחת",
+      width: 100,
+      height: 120,
+      align: "justify",
+      direction: "auto",
+      verticalAlign: "middle",
+      textCase: "original",
+      truncation: "ellipsis",
+      maxLines: 1,
+    })
+    if (projection.type !== "text") throw new Error("Expected text")
+
+    expect(renderNodeStyle(projection)).toMatchObject({
+      display: "flex",
+      flexDirection: "column",
+      justifyContent: "center",
+      direction: "rtl",
+      textAlign: "justify",
+    })
+    expect(renderNodeDataAttributes(projection)).toMatchObject({
+      "data-text-direction": "rtl",
+      "data-text-vertical-align": "middle",
+      "data-text-truncated": "true",
+      "data-text-line-count": 1,
+    })
+    expect(projection.content.displayText.endsWith("…")).toBe(true)
   })
 
   it("maps mixed-run and paragraph projection to explicit React styles", () => {
@@ -1014,6 +1196,44 @@ describe("React render-view conformance", () => {
       borderRadius: "50%",
       boxSizing: "border-box",
     })
+  })
+
+  it("renders independent smooth corners from the canonical path", () => {
+    const rect = renderConformanceDocument.nodes.find(
+      (node) => node.id === "rect-stroke-radius"
+    )!
+    if (rect.type !== "rect") throw new Error("Expected rectangle")
+    const advanced = {
+      ...rect,
+      independentCorners: true,
+      cornerRadii: {
+        topLeft: 8,
+        topRight: 16,
+        bottomRight: 24,
+        bottomLeft: 32,
+      },
+      cornerSmoothing: 0.6,
+    }
+    const projection = projectNodeForRender(advanced)
+    if (projection.type !== "rect") throw new Error("Expected rectangle")
+    expect(renderNodeStyle(projection)).toMatchObject({
+      borderRadius: "8px 16px 24px 32px",
+    })
+    expect(renderNodeStyle(projection).clipPath).toContain("path('")
+
+    const document = structuredClone(renderConformanceDocument)
+    document.nodes = document.nodes.map((node) =>
+      node.id === advanced.id ? advanced : node
+    )
+    const markup = renderToStaticMarkup(
+      createElement(Artboard, {
+        document,
+        pageId: document.pages.find((page) =>
+          page.nodeIds.includes(advanced.id)
+        )!.id,
+      })
+    )
+    expect(markup).toContain("<path d=")
   })
 
   it("projects canonical placement and clips through an overflow-safe frame", () => {

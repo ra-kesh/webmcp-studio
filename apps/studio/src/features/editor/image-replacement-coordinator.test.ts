@@ -71,6 +71,7 @@ function fixture() {
     opacity: 0.8,
     visible: true,
     locked: false,
+    constraints: { horizontal: "min", vertical: "min" },
   }
   document.nodes.push(image)
   page.nodeIds.push(image.id)

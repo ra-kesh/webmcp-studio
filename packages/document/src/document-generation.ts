@@ -521,6 +521,7 @@ const compileTemplateCandidate = (
           opacity: change.opacity,
           visible: change.visible,
           locked: change.locked,
+          constraints: { horizontal: "min", vertical: "min" },
           assetId: asset.id,
           src: asset.src,
           placement: change.placement,

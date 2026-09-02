@@ -126,7 +126,12 @@ export function detachTypographyStyleFromTarget(
 function paintPropertyForNode(node: SceneNode): "color" | "fill" | "stroke" {
   if (node.type === "text") return "color"
   if (node.type === "line") return "stroke"
-  if (node.type === "rect" || node.type === "ellipse" || node.type === "icon") {
+  if (
+    node.type === "rect" ||
+    node.type === "frame" ||
+    node.type === "ellipse" ||
+    node.type === "icon"
+  ) {
     return "fill"
   }
   throw new Error(`Paint styles are not available for image layers`)
@@ -153,11 +158,32 @@ export function applyPaintStyleToTarget(
     }
   }
   const property = paintPropertyForNode(node)
+  const paintPatch =
+    property === "fill" && "fills" in node && node.fills?.[0]
+      ? {
+          fills: [
+            { ...node.fills[0], color: style.color, opacity: style.opacity },
+            ...node.fills.slice(1),
+          ],
+        }
+      : property === "stroke" && "strokes" in node && node.strokes?.[0]
+        ? {
+            strokes: [
+              {
+                ...node.strokes[0],
+                color: style.color,
+                opacity: style.opacity,
+              },
+              ...node.strokes.slice(1),
+            ],
+          }
+        : {}
   return {
     ...node,
     paintStyleId: style.id,
     [property]: style.color,
     opacity: style.opacity,
+    ...paintPatch,
   } as SceneNode
 }
 
@@ -228,10 +254,31 @@ export function propagatePaintStyle(
   }
   if (node.paintStyleId !== style.id) return node
   const property = paintPropertyForNode(node)
+  const paintPatch =
+    property === "fill" && "fills" in node && node.fills?.[0]
+      ? {
+          fills: [
+            { ...node.fills[0], color: style.color, opacity: style.opacity },
+            ...node.fills.slice(1),
+          ],
+        }
+      : property === "stroke" && "strokes" in node && node.strokes?.[0]
+        ? {
+            strokes: [
+              {
+                ...node.strokes[0],
+                color: style.color,
+                opacity: style.opacity,
+              },
+              ...node.strokes.slice(1),
+            ],
+          }
+        : {}
   return {
     ...node,
     [property]: style.color,
     opacity: style.opacity,
+    ...paintPatch,
   } as SceneNode
 }
 
@@ -267,11 +314,15 @@ export function detachStyleForDirectNodePatch(
             node.type === "ellipse" ||
             node.type === "icon"
           ? "fill"
-          : null
+          : node.type === "frame"
+            ? "fill"
+            : null
   if (
     node.type !== "image" &&
     node.paintStyleId &&
     ((paintProperty !== null && paintProperty in patch) ||
+      "fills" in patch ||
+      "strokes" in patch ||
       "opacity" in patch) &&
     !("paintStyleId" in patch)
   ) {

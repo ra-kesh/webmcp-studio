@@ -22,6 +22,7 @@ import {
   imageRenderParityInput,
   imageRenderParityNode,
   imageRenderParityPixelRatios,
+  northstarSeed,
   projectImagePaint,
   projectNodeForRender,
   renderConformanceDocument,
@@ -57,6 +58,7 @@ import {
   fabricTextControlVisibility,
   fabricObjectToNodePatch,
   fabricComparableNodeGeometry,
+  fabricBlendMode,
   fabricTransformKind,
   FabricCanvasAdapter,
   fabricTextObjectOptions,
@@ -72,6 +74,7 @@ import {
   settleTextEditCache,
   shouldPreserveTextEditingSelection,
   syncFabricObjectFromNode,
+  syncFabricFrameClip,
   textEditPatch,
   textEditFinalizationPolicy,
   writeTextEditingClipboardData,
@@ -694,8 +697,15 @@ describe("Fabric vector mask paint consumer", () => {
 
   it("uses an absolute top-left rotated source clip on a bounded composite", () => {
     const entry = maskGroupEntry(maskRenderConformancePlan)
+    const content = maskRenderConformanceNodes.find(
+      (node) => node.id === "mask-conformance-content"
+    )!
+    const blendedContent = { ...content, blendMode: "multiply" as const }
     const nodesById = new Map(
-      maskRenderConformanceNodes.map((node) => [node.id, node])
+      maskRenderConformanceNodes.map((node) => [
+        node.id,
+        node.id === blendedContent.id ? blendedContent : node,
+      ])
     )
     const result = createFabricVectorMaskPaint(
       entry,
@@ -708,11 +718,8 @@ describe("Fabric vector mask paint consumer", () => {
     const source = maskRenderConformanceNodes.find(
       (node) => node.id === "mask-conformance-source"
     )!
-    const content = maskRenderConformanceNodes.find(
-      (node) => node.id === "mask-conformance-content"
-    )!
     const sourceObject = createFabricSyncObject(source)
-    const expectedContent = createFabricSyncObject(content)
+    const expectedContent = createFabricSyncObject(blendedContent)
 
     expect(result.object).toMatchObject({
       left: entry.bounds.x,
@@ -747,6 +754,8 @@ describe("Fabric vector mask paint consumer", () => {
       )
 
     const groupedContent = result.object.getObjects()[0]!
+    expect(groupedContent.globalCompositeOperation).toBe("multiply")
+    expect(result.maskObject.globalCompositeOperation).toBe("destination-in")
     groupedContent
       .calcTransformMatrix()
       .forEach((value, index) =>
@@ -1153,6 +1162,177 @@ function setFabricPreviewRect(
 }
 
 describe("Fabric document boundary", () => {
+  it("maps normal to source-over and preserves admitted canvas blend modes", () => {
+    expect(fabricBlendMode("normal")).toBe("source-over")
+    expect(fabricBlendMode("multiply")).toBe("multiply")
+    expect(fabricBlendMode("luminosity")).toBe("luminosity")
+    const node = {
+      ...northstarSeed.nodes.find((candidate) => candidate.type === "rect")!,
+      blendMode: "screen" as const,
+      opacity: 0.6,
+    }
+    const object = createFabricSyncObject(node)
+    expect(object.globalCompositeOperation).toBe("screen")
+    expect(object.opacity).toBe(0.6)
+  })
+
+  it("installs the canonical ancestor-frame clip on a child object", () => {
+    const document = structuredClone(northstarSeed)
+    const page = document.pages.find((candidate) => candidate.id === "cover")!
+    const child = document.nodes.find(
+      (candidate) => candidate.id === "cover-panel"
+    )!
+    page.nodeIds = [
+      "fabric-outer-frame",
+      "fabric-layout-frame",
+      child.id,
+      ...page.nodeIds.filter((nodeId) => nodeId !== child.id),
+    ]
+    document.nodes.push({
+      id: "fabric-outer-frame",
+      type: "frame",
+      name: "Fabric outer frame",
+      x: 80,
+      y: 60,
+      width: 360,
+      height: 200,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
+      fill: "transparent",
+      radius: 26,
+      strokeWidth: 0,
+      children: [
+        {
+          nodeId: "fabric-layout-frame",
+          positioning: "absolute",
+          horizontalSizing: "fixed",
+          verticalSizing: "fixed",
+          offsetX: 20,
+          offsetY: 20,
+          grow: 0,
+        },
+      ],
+      autoLayout: null,
+      clipsContent: true,
+    })
+    document.nodes.push({
+      id: "fabric-layout-frame",
+      type: "frame",
+      name: "Fabric layout frame",
+      x: 100,
+      y: 80,
+      width: 320,
+      height: 160,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
+      fill: "#fff",
+      radius: 18,
+      strokeWidth: 0,
+      children: [
+        {
+          nodeId: child.id,
+          positioning: "absolute",
+          horizontalSizing: "fixed",
+          verticalSizing: "fixed",
+          offsetX: -20,
+          offsetY: -10,
+          grow: 0,
+        },
+      ],
+      autoLayout: null,
+      clipsContent: true,
+    })
+    const object = new FabricObject()
+
+    syncFabricFrameClip(object, child, document)
+
+    expect(object.clipPath).toBeInstanceOf(Rect)
+    expect(object.clipPath).toMatchObject({
+      left: 100,
+      top: 80,
+      width: 320,
+      height: 160,
+      rx: 18,
+      absolutePositioned: true,
+    })
+    expect(object.clipPath?.clipPath).toMatchObject({
+      left: 80,
+      top: 60,
+      width: 360,
+      height: 200,
+      rx: 26,
+      absolutePositioned: true,
+    })
+  })
+
+  it("restores a fixed text layer's intrinsic clip when frame clipping stops", () => {
+    const document = structuredClone(northstarSeed)
+    const page = document.pages.find((candidate) => candidate.id === "cover")!
+    const child = document.nodes.find(
+      (candidate): candidate is Extract<SceneNode, { type: "text" }> =>
+        candidate.id === "cover-title" && candidate.type === "text"
+    )!
+    page.nodeIds = [
+      "fabric-text-frame",
+      child.id,
+      ...page.nodeIds.filter((nodeId) => nodeId !== child.id),
+    ]
+    document.nodes.push({
+      id: "fabric-text-frame",
+      type: "frame",
+      name: "Fabric text frame",
+      x: 100,
+      y: 80,
+      width: 320,
+      height: 160,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
+      fill: "#fff",
+      radius: 18,
+      strokeWidth: 0,
+      children: [
+        {
+          nodeId: child.id,
+          positioning: "absolute",
+          horizontalSizing: "fixed",
+          verticalSizing: "fixed",
+          offsetX: 0,
+          offsetY: 0,
+          grow: 0,
+        },
+      ],
+      autoLayout: null,
+      clipsContent: true,
+    })
+    const object = new FabricObject()
+
+    syncFabricFrameClip(object, child, document)
+    const frame = document.nodes.find(
+      (node): node is Extract<SceneNode, { type: "frame" }> =>
+        node.id === "fabric-text-frame" && node.type === "frame"
+    )!
+    frame.clipsContent = false
+    syncFabricFrameClip(object, child, document)
+
+    expect(object.clipPath).toBeInstanceOf(Rect)
+    expect(object.clipPath).toMatchObject({
+      left: 0,
+      top: 0,
+      width: child.width,
+      height: child.height,
+      absolutePositioned: false,
+    })
+  })
+
   it("restores attempted transforms and rejects editing while mutation admission is closed", () => {
     const harness = createTransformHarness()
     const baseline = fabricObjectToNodePatch(harness.object)
@@ -1237,6 +1417,34 @@ describe("Fabric document boundary", () => {
         ).toEqual(fabricComparableNodeGeometry(node))
       }
     }
+  })
+
+  it("uses the canonical smooth four-corner path for advanced rectangles", () => {
+    const seed = northstarSeed.nodes.find((node) => node.type === "rect")!
+    if (seed.type !== "rect") throw new Error("Missing rectangle")
+    const object = createFabricSyncObject({
+      ...seed,
+      independentCorners: true,
+      cornerRadii: {
+        topLeft: 8,
+        topRight: 16,
+        bottomRight: 24,
+        bottomLeft: 32,
+      },
+      cornerSmoothing: 0.65,
+    })
+
+    expect(object).toBeInstanceOf(Path)
+    expect(object).toMatchObject({
+      fill: seed.fill,
+      opacity: seed.opacity,
+      stroke: seed.stroke,
+      strokeWidth: seed.strokeWidth,
+    })
+    expect((object as Path).path.length).toBeGreaterThan(8)
+    expect(
+      fabricComparableNodeGeometry(fabricObjectToNodePatch(object))
+    ).toEqual(fabricComparableNodeGeometry(seed))
   })
 
   it("uses canonical resolved resource values for Fabric objects and text", () => {
@@ -2677,6 +2885,31 @@ describe("Fabric document boundary", () => {
     ).toMatchObject({ sizingMode: "auto_height", clipOverflow: false })
   })
 
+  it("projects direction, vertical alignment, case, and ellipsis into Fabric", () => {
+    const node = renderConformanceDocument.nodes.find(
+      (candidate) => candidate.id === "text-typography"
+    )!
+    if (node.type !== "text") throw new Error("Expected text")
+    const state = projectFabricTextState({
+      ...node,
+      text: "שלום עולם ארוך מאוד להצגה",
+      width: 90,
+      height: 160,
+      direction: "auto",
+      verticalAlign: "bottom",
+      textCase: "uppercase",
+      truncation: "ellipsis",
+      maxLines: 1,
+    })
+
+    expect(state.direction).toBe("rtl")
+    expect(state.displayText.endsWith("…")).toBe(true)
+    expect(state.topOffset).toBeGreaterThan(0)
+    expect(fabricTextObjectOptions(node, state)).toMatchObject({
+      direction: "rtl",
+    })
+  })
+
   it("keeps a 1,000-run late-wrap paste inside the Fabric edit budget", async () => {
     const source = createAdverseRichTextConformanceNode()
     const destination = {
@@ -3724,6 +3957,22 @@ describe("Fabric document boundary", () => {
       width: updated.width,
       height: updated.height,
     })
+
+    syncFabricObjectFromNode(group, {
+      ...updated,
+      frameMask: {
+        shape: "rounded_rectangle",
+        radius: 0.2,
+        cornerRadii: {
+          topLeft: 0.05,
+          topRight: 0.1,
+          bottomRight: 0.15,
+          bottomLeft: 0.2,
+        },
+        cornerSmoothing: 0.6,
+      },
+    })
+    expect(group.clipPath).toBeInstanceOf(Path)
   })
 
   it("rejects decoded images without usable natural dimensions", () => {

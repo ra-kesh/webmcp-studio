@@ -4,7 +4,9 @@ import {
   useId,
   useMemo,
   useReducer,
+  type ComponentProps,
   type CSSProperties,
+  type ReactNode,
   type SyntheticEvent,
 } from "react"
 import type {
@@ -19,9 +21,16 @@ import {
   supportedMaskPaintPixelRatio,
 } from "@webmcp/document/internal/page-paint-plan"
 import {
+  projectFrameClipStack,
   projectImagePaint,
   projectNodeForRender,
   projectPageForRender,
+  cornerRadiiCss,
+  roundedRectanglePath,
+  roundedRectanglePaintPath,
+  hasExplicitPaintStack,
+  strokeGeometryInset,
+  layerEffectFilter,
   type Document,
   type ImageFrameMask,
   type RenderFrameProjection,
@@ -42,8 +51,48 @@ export function renderImageFrameMaskStyle(
       mask.shape === "ellipse"
         ? "50%"
         : mask.shape === "rounded_rectangle"
-          ? mask.radius * Math.min(frame.width, frame.height)
+          ? mask.cornerRadii
+            ? cornerRadiiCss({
+                topLeft:
+                  mask.cornerRadii.topLeft *
+                  Math.min(frame.width, frame.height),
+                topRight:
+                  mask.cornerRadii.topRight *
+                  Math.min(frame.width, frame.height),
+                bottomRight:
+                  mask.cornerRadii.bottomRight *
+                  Math.min(frame.width, frame.height),
+                bottomLeft:
+                  mask.cornerRadii.bottomLeft *
+                  Math.min(frame.width, frame.height),
+              })
+            : mask.radius * Math.min(frame.width, frame.height)
           : undefined,
+    clipPath:
+      mask.shape === "rounded_rectangle" && (mask.cornerSmoothing ?? 0) > 0
+        ? `path('${roundedRectanglePath({
+            width: frame.width,
+            height: frame.height,
+            cornerRadii: mask.cornerRadii
+              ? {
+                  topLeft:
+                    mask.cornerRadii.topLeft *
+                    Math.min(frame.width, frame.height),
+                  topRight:
+                    mask.cornerRadii.topRight *
+                    Math.min(frame.width, frame.height),
+                  bottomRight:
+                    mask.cornerRadii.bottomRight *
+                    Math.min(frame.width, frame.height),
+                  bottomLeft:
+                    mask.cornerRadii.bottomLeft *
+                    Math.min(frame.width, frame.height),
+                }
+              : undefined,
+            radius: mask.radius * Math.min(frame.width, frame.height),
+            cornerSmoothing: mask.cornerSmoothing,
+          })}')`
+        : undefined,
   }
 }
 
@@ -66,21 +115,26 @@ export function renderImagePaintStyle(
 
 export const renderFrameStyle = (
   frame: RenderFrameProjection
-): CSSProperties => ({
-  position: "absolute",
-  boxSizing: "border-box",
-  left: frame.x,
-  top: frame.y,
-  width: frame.width,
-  height: frame.height,
-  opacity: frame.opacity,
-  transform:
-    frame.flipX || frame.flipY
-      ? `rotate(${frame.rotation}deg) translate(${frame.width / 2}px, ${frame.height / 2}px) scale(${frame.flipX ? -1 : 1}, ${frame.flipY ? -1 : 1}) translate(${-frame.width / 2}px, ${-frame.height / 2}px)`
-      : `rotate(${frame.rotation}deg)`,
-  transformOrigin: "top left",
-  display: frame.visible ? undefined : "none",
-})
+): CSSProperties => {
+  const filter = layerEffectFilter(frame.effects)
+  return {
+    position: "absolute",
+    boxSizing: "border-box",
+    left: frame.x,
+    top: frame.y,
+    width: frame.width,
+    height: frame.height,
+    opacity: frame.opacity,
+    mixBlendMode: frame.blendMode,
+    filter: filter || undefined,
+    transform:
+      frame.flipX || frame.flipY
+        ? `rotate(${frame.rotation}deg) translate(${frame.width / 2}px, ${frame.height / 2}px) scale(${frame.flipX ? -1 : 1}, ${frame.flipY ? -1 : 1}) translate(${-frame.width / 2}px, ${-frame.height / 2}px)`
+        : `rotate(${frame.rotation}deg)`,
+    transformOrigin: "top left",
+    display: frame.visible ? undefined : "none",
+  }
+}
 
 function renderSvgFrameTransform(
   frame: Pick<
@@ -548,6 +602,40 @@ function RenderVectorMaskSource({
       </svg>
     )
   }
+  if (
+    source.type === "rect" &&
+    (((source.independentCorners ?? false) &&
+      source.cornerRadii !== undefined) ||
+      (source.cornerSmoothing ?? 0) > 0)
+  ) {
+    const projection = projectNodeForRender(source)
+    if (projection.type !== "rect") {
+      throw new Error(`Mask source ${source.id} did not project as a rectangle`)
+    }
+    return (
+      <path
+        d={roundedRectanglePaintPath({
+          width: projection.frame.width,
+          height: projection.frame.height,
+          cornerRadii: projection.content.corners.radii,
+          cornerSmoothing: projection.content.corners.smoothing,
+          strokeWidth: projection.content.stroke
+            ? projection.content.strokeWidth
+            : 0,
+        })}
+        data-mask-source-id={source.id}
+        fill="white"
+        opacity={source.opacity}
+        stroke={source.stroke ? "white" : undefined}
+        strokeWidth={source.strokeWidth}
+        transform={renderLocalSvgFrameTransform({
+          ...projection.frame,
+          x,
+          y,
+        })}
+      />
+    )
+  }
   const attributes = renderVectorMaskSourceAttributes(source, bounds)
   const shared = {
     ...attributes,
@@ -570,6 +658,7 @@ function RenderVectorMaskSource({
 }
 
 function RenderMaskGroupContent({
+  document,
   content,
   nodesById,
   imageSemantics,
@@ -578,6 +667,7 @@ function RenderMaskGroupContent({
   showImageRecoveryActions,
   onImageResourceStateChange,
 }: {
+  document?: Document
   content: readonly PagePaintPlanEntry[]
   nodesById: ReadonlyMap<string, SceneNode>
   imageSemantics: "content" | "thumbnail"
@@ -599,6 +689,7 @@ function RenderMaskGroupContent({
           return (
             <MaskGroupPaintEntry
               key={contentEntry.groupId}
+              document={document}
               atomicBoundary={false}
               entry={contentEntry}
               nodesById={nodesById}
@@ -612,16 +703,22 @@ function RenderMaskGroupContent({
         }
         const node = nodesById.get(contentEntry.nodeId)
         if (!node) return null
-        return (
-          <RenderNode
+        const renderProps = {
+          imageSemantics,
+          imageResourceRevision: imageResourceRevisions?.[node.id],
+          imageResourceToken: imageResourceTokens?.[node.id],
+          showImageRecoveryActions,
+          onImageResourceStateChange,
+        }
+        return document ? (
+          <FrameClippedRenderNode
+            {...renderProps}
             key={node.id}
-            imageSemantics={imageSemantics}
+            document={document}
             node={node}
-            imageResourceRevision={imageResourceRevisions?.[node.id]}
-            imageResourceToken={imageResourceTokens?.[node.id]}
-            showImageRecoveryActions={showImageRecoveryActions}
-            onImageResourceStateChange={onImageResourceStateChange}
           />
+        ) : (
+          <RenderNode {...renderProps} key={node.id} node={node} />
         )
       })}
     </div>
@@ -632,6 +729,7 @@ function RenderMaskGroupContent({
  * Renders one schema-backed vector-mask entry from the canonical paint plan.
  */
 type MaskGroupPaintEntryProps = Readonly<{
+  document?: Document
   entry: PagePaintPlanEntry
   nodesById: ReadonlyMap<string, SceneNode>
   imageSemantics?: "content" | "thumbnail"
@@ -1073,6 +1171,37 @@ function RenderCoverageMaskSource({
     const frameY = projection.frame.y - bounds.y
     const transform = renderSvgFrameTransform(projection.frame, frameX, frameY)
     if (projection.type === "rect") {
+      if (
+        projection.content.corners.independent ||
+        projection.content.corners.smoothing > 0
+      ) {
+        return (
+          <path
+            d={roundedRectanglePaintPath({
+              width: projection.frame.width,
+              height: projection.frame.height,
+              cornerRadii: projection.content.corners.radii,
+              cornerSmoothing: projection.content.corners.smoothing,
+              strokeWidth: projection.content.stroke
+                ? projection.content.strokeWidth
+                : 0,
+            })}
+            data-mask-source-id={source.id}
+            fill={projection.content.fill}
+            fillOpacity={projection.frame.opacity}
+            stroke={projection.content.stroke ?? undefined}
+            strokeOpacity={
+              projection.content.stroke ? projection.frame.opacity : undefined
+            }
+            strokeWidth={projection.content.strokeWidth}
+            transform={renderLocalSvgFrameTransform({
+              ...projection.frame,
+              x: frameX,
+              y: frameY,
+            })}
+          />
+        )
+      }
       return (
         <rect
           data-mask-source-id={source.id}
@@ -1173,6 +1302,18 @@ function RenderCoverageMaskSource({
                 cy={paint.clip.centerY}
                 rx={paint.clip.radiusX}
                 ry={paint.clip.radiusY}
+              />
+            ) : paint.clip.shape === "rounded_rectangle" &&
+              paint.clip.cornerRadii &&
+              ((paint.clip.cornerSmoothing ?? 0) > 0 ||
+                new Set(Object.values(paint.clip.cornerRadii)).size > 1) ? (
+              <path
+                d={roundedRectanglePath({
+                  width: paint.clip.width,
+                  height: paint.clip.height,
+                  cornerRadii: paint.clip.cornerRadii,
+                  cornerSmoothing: paint.clip.cornerSmoothing ?? 0,
+                })}
               />
             ) : (
               <rect
@@ -1287,6 +1428,7 @@ function RenderCoverageMaskSource({
 }
 
 function ResolvedMaskGroupPaintEntry({
+  document,
   model,
   imageSemantics = "content",
   imageResourceRevisions,
@@ -1313,6 +1455,7 @@ function ResolvedMaskGroupPaintEntry({
       : []
   const wrapperStyle = renderMaskGroupWrapperStyle(maskEntry.bounds)
   const contentProps = {
+    document,
     content,
     nodesById: model.nodesById,
     imageSemantics,
@@ -1449,12 +1592,14 @@ function ResolvedMaskGroupPaintEntry({
 
 /** Shared page consumer used by production Artboards and conformance views. */
 export function PagePaintPlanView({
+  document,
   plan,
   nodesById,
   width,
   height,
   background,
 }: {
+  document?: Document
   plan: PagePaintPlan
   nodesById: ReadonlyMap<string, SceneNode>
   width: number
@@ -1477,6 +1622,7 @@ export function PagePaintPlanView({
           return (
             <MaskGroupPaintEntry
               key={entry.groupId}
+              document={document}
               entry={entry}
               nodesById={nodesById}
               showImageRecoveryActions={false}
@@ -1484,14 +1630,18 @@ export function PagePaintPlanView({
           )
         }
         const node = nodesById.get(entry.nodeId)
-        return node ? (
-          <RenderNode
-            key={node.id}
-            imageSemantics="content"
-            node={node}
-            showImageRecoveryActions={false}
-          />
-        ) : null
+        if (!node) return null
+        const props = {
+          key: node.id,
+          imageSemantics: "content" as const,
+          node,
+          showImageRecoveryActions: false,
+        }
+        return document ? (
+          <FrameClippedRenderNode {...props} document={document} />
+        ) : (
+          <RenderNode {...props} />
+        )
       })}
     </div>
   )
@@ -1584,6 +1734,14 @@ export const renderNodeDataAttributes = (projection: RenderNodeProjection) => {
         "data-text-sizing-mode": projection.content.sizingMode,
         "data-text-measurement": projection.content.layout.measurement,
         "data-text-line-count": projection.content.layout.lineCount,
+        "data-text-source-line-count":
+          projection.content.layout.sourceLineCount,
+        "data-text-direction": projection.content.direction,
+        "data-text-vertical-align": projection.content.verticalAlign,
+        "data-text-case": projection.content.textCase,
+        "data-text-truncated": projection.content.layout.truncated
+          ? "true"
+          : "false",
         "data-text-overflow": projection.content.layout.overflow
           ? "true"
           : "false",
@@ -1614,12 +1772,21 @@ export function renderNodeStyle(
       textRendering: "geometricPrecision",
       WebkitFontSmoothing: "antialiased",
       textAlign: text.align,
+      direction: text.direction,
+      display: projection.frame.visible ? "flex" : "none",
+      flexDirection: "column",
+      justifyContent:
+        text.verticalAlign === "middle"
+          ? "center"
+          : text.verticalAlign === "bottom"
+            ? "flex-end"
+            : "flex-start",
       whiteSpace: text.whiteSpace,
       overflowWrap: text.overflowWrap,
       overflow: text.sizingMode === "fixed" ? "hidden" : "visible",
     }
   }
-  if (projection.type === "rect") {
+  if (projection.type === "rect" || projection.type === "frame") {
     const rect = projection.content
     return {
       ...frame,
@@ -1628,6 +1795,11 @@ export function renderNodeStyle(
         ? `${rect.strokeWidth}px solid ${rect.stroke}`
         : undefined,
       borderRadius: rect.radius,
+      ...(rect.corners.independent
+        ? { borderRadius: cornerRadiiCss(rect.corners.radii) }
+        : {}),
+      clipPath:
+        rect.corners.smoothing > 0 ? `path('${rect.corners.path}')` : undefined,
     }
   }
   if (projection.type === "ellipse") {
@@ -1651,6 +1823,215 @@ export function renderNodeStyle(
     }
   }
   return frame
+}
+
+type ShapePaintProjection = Extract<
+  RenderNodeProjection,
+  { type: "rect" | "frame" | "ellipse" | "line" | "icon" }
+>
+
+function RenderShapePaintStack({
+  projection,
+  dataAttributes,
+}: {
+  projection: ShapePaintProjection
+  dataAttributes: ReturnType<typeof renderNodeDataAttributes>
+}) {
+  const paintStyle = (paint: {
+    opacity: number
+    visible: boolean
+    blendMode: string
+  }): CSSProperties => ({
+    opacity: paint.opacity,
+    display: paint.visible ? undefined : "none",
+    mixBlendMode: paint.blendMode as CSSProperties["mixBlendMode"],
+  })
+  const frameStyle = {
+    ...renderFrameStyle(projection.frame),
+    overflow: "visible",
+  }
+  const strokeAttributes = (paint: {
+    dash: number[]
+    cap: "butt" | "round" | "square"
+    join: "miter" | "round" | "bevel"
+    miterLimit: number
+  }) => ({
+    strokeDasharray: paint.dash.length ? paint.dash.join(" ") : undefined,
+    strokeLinecap: paint.cap,
+    strokeLinejoin: paint.join,
+    strokeMiterlimit: paint.miterLimit,
+  })
+  if (projection.type === "line") {
+    return (
+      <svg
+        {...dataAttributes}
+        style={frameStyle}
+        viewBox={`0 0 ${projection.frame.width} ${projection.frame.height}`}
+        preserveAspectRatio="none"
+      >
+        {projection.content.strokes.map((paint) => (
+          <line
+            key={paint.id}
+            x1="0"
+            y1="0"
+            x2={projection.frame.width}
+            y2={projection.frame.height}
+            stroke={paint.color}
+            strokeWidth={paint.width}
+            {...strokeAttributes(paint)}
+            style={paintStyle(paint)}
+            vectorEffect="non-scaling-stroke"
+          />
+        ))}
+      </svg>
+    )
+  }
+  if (projection.type === "icon") {
+    return (
+      <svg
+        {...dataAttributes}
+        style={frameStyle}
+        viewBox={projection.content.viewBox}
+        preserveAspectRatio="xMidYMid meet"
+      >
+        {projection.content.fills.map((paint) => (
+          <path
+            key={`fill:${paint.id}`}
+            d={projection.content.path}
+            fill={paint.color}
+            style={paintStyle(paint)}
+          />
+        ))}
+        {projection.content.strokes.map((paint) => (
+          <path
+            key={`stroke:${paint.id}`}
+            d={projection.content.path}
+            fill="none"
+            stroke={paint.color}
+            strokeWidth={paint.width}
+            {...strokeAttributes(paint)}
+            style={paintStyle(paint)}
+            vectorEffect="non-scaling-stroke"
+          />
+        ))}
+      </svg>
+    )
+  }
+  const shape = (
+    paint: {
+      id: string
+      color: string
+      opacity: number
+      visible: boolean
+      blendMode: string
+      width?: number
+      alignment?: "inside" | "center" | "outside"
+      sides?: { top: boolean; right: boolean; bottom: boolean; left: boolean }
+      dash?: number[]
+      cap?: "butt" | "round" | "square"
+      join?: "miter" | "round" | "bevel"
+      miterLimit?: number
+    },
+    kind: "fill" | "stroke"
+  ) => {
+    const attributes = {
+      key: `${kind}:${paint.id}`,
+      fill: kind === "fill" ? paint.color : "none",
+      stroke: kind === "stroke" ? paint.color : undefined,
+      strokeWidth: kind === "stroke" ? paint.width : undefined,
+      style: paintStyle(paint),
+      vectorEffect: "non-scaling-stroke" as const,
+      ...(kind === "stroke"
+        ? strokeAttributes({
+            dash: paint.dash ?? [],
+            cap: paint.cap ?? "butt",
+            join: paint.join ?? "miter",
+            miterLimit: paint.miterLimit ?? 4,
+          })
+        : {}),
+    }
+    const inset =
+      kind === "stroke"
+        ? strokeGeometryInset({
+            width: paint.width ?? 0,
+            alignment: paint.alignment,
+          })
+        : 0
+    if (projection.type === "ellipse") {
+      return (
+        <ellipse
+          {...attributes}
+          cx={projection.frame.width / 2}
+          cy={projection.frame.height / 2}
+          rx={Math.max(0, projection.frame.width / 2 - inset)}
+          ry={Math.max(0, projection.frame.height / 2 - inset)}
+        />
+      )
+    }
+    const advancedCorners =
+      projection.content.corners.independent ||
+      projection.content.corners.smoothing > 0
+    if (
+      kind === "stroke" &&
+      paint.sides &&
+      !Object.values(paint.sides).every(Boolean)
+    ) {
+      const x1 = inset
+      const y1 = inset
+      const x2 = projection.frame.width - inset
+      const y2 = projection.frame.height - inset
+      return (
+        <g key={`${kind}:${paint.id}`} style={paintStyle(paint)}>
+          {paint.sides.top ? (
+            <line {...attributes} x1={x1} y1={y1} x2={x2} y2={y1} />
+          ) : null}
+          {paint.sides.right ? (
+            <line {...attributes} x1={x2} y1={y1} x2={x2} y2={y2} />
+          ) : null}
+          {paint.sides.bottom ? (
+            <line {...attributes} x1={x2} y1={y2} x2={x1} y2={y2} />
+          ) : null}
+          {paint.sides.left ? (
+            <line {...attributes} x1={x1} y1={y2} x2={x1} y2={y1} />
+          ) : null}
+        </g>
+      )
+    }
+    return advancedCorners ? (
+      <path
+        {...attributes}
+        d={roundedRectanglePaintPath({
+          width: Math.max(0, projection.frame.width - inset * 2),
+          height: Math.max(0, projection.frame.height - inset * 2),
+          cornerRadii: projection.content.corners.radii,
+          cornerSmoothing: projection.content.corners.smoothing,
+          strokeWidth: kind === "stroke" ? (paint.width ?? 0) : 0,
+        })}
+        transform={inset ? `translate(${inset} ${inset})` : undefined}
+      />
+    ) : (
+      <rect
+        {...attributes}
+        x={inset}
+        y={inset}
+        width={Math.max(0, projection.frame.width - inset * 2)}
+        height={Math.max(0, projection.frame.height - inset * 2)}
+        rx={projection.content.radius}
+        ry={projection.content.radius}
+      />
+    )
+  }
+  return (
+    <svg
+      {...dataAttributes}
+      style={frameStyle}
+      viewBox={`0 0 ${projection.frame.width} ${projection.frame.height}`}
+      preserveAspectRatio="none"
+    >
+      {projection.content.fills.map((paint) => shape(paint, "fill"))}
+      {projection.content.strokes.map((paint) => shape(paint, "stroke"))}
+    </svg>
+  )
 }
 
 function RenderNode({
@@ -1682,7 +2063,53 @@ function RenderNode({
     )
   }
 
-  if (projection.type === "rect") {
+  if (
+    projection.type !== "image" &&
+    hasExplicitPaintStack(
+      node as Extract<
+        SceneNode,
+        { type: "rect" | "frame" | "ellipse" | "line" | "icon" }
+      >
+    )
+  ) {
+    return (
+      <RenderShapePaintStack
+        dataAttributes={dataAttributes}
+        projection={projection}
+      />
+    )
+  }
+
+  if (projection.type === "rect" || projection.type === "frame") {
+    if (
+      projection.content.corners.independent ||
+      projection.content.corners.smoothing > 0
+    ) {
+      return (
+        <svg
+          {...dataAttributes}
+          style={{ ...renderFrameStyle(projection.frame), overflow: "visible" }}
+          viewBox={`0 0 ${projection.frame.width} ${projection.frame.height}`}
+          preserveAspectRatio="none"
+        >
+          <path
+            d={roundedRectanglePaintPath({
+              width: projection.frame.width,
+              height: projection.frame.height,
+              cornerRadii: projection.content.corners.radii,
+              cornerSmoothing: projection.content.corners.smoothing,
+              strokeWidth: projection.content.stroke
+                ? projection.content.strokeWidth
+                : 0,
+            })}
+            fill={projection.content.fill}
+            stroke={projection.content.stroke}
+            strokeWidth={projection.content.strokeWidth}
+            vectorEffect="non-scaling-stroke"
+          />
+        </svg>
+      )
+    }
     return <div {...dataAttributes} style={style} />
   }
 
@@ -1741,6 +2168,46 @@ function RenderNode({
       projection={projection}
       style={style}
     />
+  )
+}
+
+function FrameClippedRenderNode({
+  document,
+  node,
+  ...props
+}: Omit<ComponentProps<typeof RenderNode>, "node"> & {
+  document: Document
+  node: SceneNode
+}) {
+  const clips = projectFrameClipStack(document, node.id)
+  return clips.reduce<ReactNode>(
+    (content, clip, index) => (
+      <div
+        key={`${node.id}:frame-clip:${index}`}
+        data-frame-clip-node-id={node.id}
+        data-frame-clip-depth={index}
+        style={{
+          position: "absolute",
+          left: clip.x,
+          top: clip.y,
+          width: clip.width,
+          height: clip.height,
+          overflow: "hidden",
+          borderRadius: clip.cornerRadii
+            ? cornerRadiiCss(clip.cornerRadii)
+            : clip.radius,
+          clipPath:
+            (clip.cornerSmoothing ?? 0) > 0 && clip.path
+              ? `path('${clip.path}')`
+              : undefined,
+        }}
+      >
+        <div style={{ position: "absolute", left: -clip.x, top: -clip.y }}>
+          {content}
+        </div>
+      </div>
+    ),
+    <RenderNode {...props} node={node} />
   )
 }
 
@@ -2208,6 +2675,7 @@ export function Artboard({
             return (
               <MaskGroupPaintEntry
                 key={entry.groupId}
+                document={document}
                 entry={entry}
                 nodesById={nodesById}
                 imageSemantics={imageSemantics}
@@ -2220,8 +2688,9 @@ export function Artboard({
           }
           const node = nodesById.get(entry.nodeId)
           return node ? (
-            <RenderNode
+            <FrameClippedRenderNode
               key={node.id}
+              document={document}
               imageSemantics={imageSemantics}
               node={node}
               imageResourceRevision={imageResourceRevisions?.[node.id]}

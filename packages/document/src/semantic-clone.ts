@@ -73,6 +73,16 @@ export function captureSemanticFragment(
     if (!node) throw new Error(`Missing semantic fragment layer: ${nodeId}`)
     return copy(node)
   })
+  for (const node of nodes) {
+    if (
+      node.type === "frame" &&
+      node.children.some((child) => !requested.has(child.nodeId))
+    ) {
+      throw new Error(
+        `Semantic frame ${node.id} requires its complete child subtree`
+      )
+    }
+  }
 
   const includedGroups = document.groups.filter((group) => {
     if (group.pageId !== page.id) return false
@@ -181,7 +191,7 @@ export function cloneSemanticFragment(
     if (!source || !id) {
       throw new Error(`Incomplete semantic fragment layer: ${sourceNodeId}`)
     }
-    return {
+    const cloned = {
       ...copy(source),
       id,
       name: options.nameSuffix
@@ -190,6 +200,15 @@ export function cloneSemanticFragment(
       x: source.x + offsetX,
       y: source.y + offsetY,
     }
+    return source.type === "frame"
+      ? {
+          ...cloned,
+          children: source.children.map((child) => ({
+            ...child,
+            nodeId: nodeIdMap.get(child.nodeId)!,
+          })),
+        }
+      : cloned
   })
 
   const groups = fragment.groups.map((source) => {

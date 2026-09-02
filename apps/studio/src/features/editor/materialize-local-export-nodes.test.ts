@@ -19,6 +19,7 @@ const documentWithLocalImages = (): Document => ({
       opacity: 1,
       visible: true,
       locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
       assetId: "asset-a",
       src: "asset:local/asset-a",
       placement: {
@@ -46,6 +47,7 @@ const documentWithLocalImages = (): Document => ({
       opacity: 1,
       visible: true,
       locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
       assetId: "asset-b",
       src: "asset:local/asset-b",
       placement: {

@@ -272,7 +272,7 @@ export function createStarterDocument(plan: StarterDocumentPlan): Document {
   ].filter((variable) => paintStyleIds.has(variable.styleId))
 
   return documentSchema.parse({
-    schemaVersion: 5,
+    schemaVersion: 6,
     id: `${plan.id}-template-document`,
     name: plan.name,
     revision: 0,
@@ -326,6 +326,7 @@ function blockToNode(
     opacity: 1,
     visible: true,
     locked: false,
+    constraints: { horizontal: "min" as const, vertical: "min" as const },
   }
   if (block.kind === "text") {
     const defaults = roleDefaults[block.role]

@@ -207,6 +207,7 @@ export function createStudioTextNode(
     opacity: 1,
     visible: true,
     locked: false,
+    constraints: { horizontal: "min", vertical: "min" },
     color: textColorForPageBackground(page.background, options.preferredColors),
     fontFamily: "Geist Variable",
     fontSize: placement.fontSize,

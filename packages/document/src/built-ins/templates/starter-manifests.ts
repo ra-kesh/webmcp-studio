@@ -22,37 +22,37 @@ const starterPlans: readonly StarterCatalogPlan[] = [
 
 const starterContentHashes: Readonly<Record<string, string>> = {
   "editorial-proposal":
-    "c61087a1e3f599f4f3581baf318405a400ab92223095fdfdee901fee053e4671",
+    "67b7cdb2e98108d0f6095729264c015ed0b5ca790769e6e80eead78493615db7",
   "modular-service-proposal":
-    "8f5c48a0eb507a48610137fab2bfac4f55ef3f22de0a1cbb7c17dfe1bf4b823f",
+    "5e64a63389c54e207d4c34f72ee417999efd0eedbcb3021322de75d7c7eba139",
   "signal-creative-brief":
-    "d02b3e2c79dbc00cbe6db14e9239099fbefd3242b6bc4251a187557622ea3628",
+    "34ef0b0b8321599ebe664eb49f75d0d9aece6404e56aa929d67b120dfbd6181a",
   "workshop-alignment-brief":
-    "9e46c67e3b2bcf75fcde4eedcc1fe6c16b9fbc48b594b5e3f3ff41514cb6bcb8",
+    "2b9d10c485e274fc8a84e37e1e28d9ea3a4fbb84219ceba11114ed5cbdf7ce2e",
   "field-notes-report":
-    "e5c94f91d7dd742146c3ba11e065b83d418ca2ed0f0142811844edd145020ed3",
+    "059d3cb32add58a68a06f74eba6ac7139c3e2e21786e30dc46f99f3e8a7bef30",
   "annual-snapshot-report":
-    "6c481c85547717b3a98731616fb13899681fa4e4f20ec78b3cefe5b7a5c5b85a",
+    "f82a52cf3bbb222e85f99dd4ef1d4cc0947c40467f381434cfdd13a51a18571c",
   "press-room-media-kit":
-    "f32c45c48c6c8b4076eae4040f5e675726b20d6bbe86aa7b99cbd40a7825cad6",
+    "9ad056f0e04152baa0aba4363a6ebf70f9c0af7f276495b10c2938bcfa3a9487",
   "venture-pitch-deck":
-    "db892c988eb3430a102055db0189a77886851c9a8f9e8f9d19c8b80929e002ae",
+    "0cd94119a57c97bb960b884a716d388233a5161fe3bcc18765f9a49690c5ae87",
   "product-demo-deck":
-    "ebd2bd5a4c88865aba93ffb1e7952648f88f4ba1f0a45b574738d2b227db1c99",
+    "84a51ff213919cb2a72e0da12a5bfcbac796a7ec21e22aa046c13a2255e662ea",
   "garden-wedding-invitation":
-    "dd5eae3dd7771399da4f4920daa493be64802ada802c15e6c26a1ee8daf0b10b",
+    "4a2c0e9e906b2d3012d0cb5cb200852b3ff14a7dacb4349298d2382b7c19920b",
   "gallery-opening-invitation":
-    "518752f8f060d408ce546aa07bd6daa3f83f73abd5d6494b1272cd08a3314bd8",
+    "c5d41c6223396870775f39d9faf9a63cd1e766d37241cb1ec660858242187a28",
   "quiet-quote-post":
-    "cf5eaabee4214df279704b98aae47616c04bb3e2199581415d722fece239f9ca",
+    "2ce3309f2be5ae7d2ff9ec7d319429eb11de65ea6cb5603681d46ebf2999465d",
   "event-countdown-story":
-    "bcb1bb06f613a0f86b77e304930046d89259450a4f5d89c4c82b3c4dc2141d76",
+    "89ced8d965d8371e30160678ad29b576e20c2f82a8754856a0d938ee49b351d2",
   "how-to-carousel":
-    "f66454a0213ba346159dd7a0e2a91b681260640ceae088735f71498bfe124af2",
+    "6fecccdec7574ead851d470d9e00b46b5c6d0ffd5c4bd6c15ab2c65b13eded6e",
   "case-study-carousel":
-    "109b37b42fc313abfbef9714a333b91db0115d795b4e8d5409993bf24e691326",
+    "4e49c860422b4391b77071a7caf3187f5e324f443f0c794b0427cf9c3e303a80",
   "program-overview-one-pager":
-    "d49afac5ff3960652d7a3fdc2f687743e2ec4bea0fcc9981540db75ca64a2f33",
+    "a5800766355013872f603c9dc35b61ad33aac83b57d9946a35ea61670f0d19ec",
 }
 
 export const builtInDocumentStarterDefinitions: DesignTemplateDefinition[] =

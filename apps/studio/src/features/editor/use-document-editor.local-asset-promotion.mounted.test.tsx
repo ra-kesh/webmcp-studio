@@ -143,6 +143,7 @@ const imageNode = (src: string, assetId = localAssetId): SceneNode => ({
   opacity: 1,
   visible: true,
   locked: false,
+  constraints: { horizontal: "min", vertical: "min" },
   assetId,
   src,
   placement: {
@@ -199,6 +200,7 @@ const documentWithImage = (
     opacity: 1,
     visible: true,
     locked: false,
+    constraints: { horizontal: "min", vertical: "min" },
     fill: "#ff0000",
     radius: 0,
     strokeWidth: 0,

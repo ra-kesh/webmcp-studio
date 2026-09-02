@@ -91,6 +91,7 @@ const managedDocument = (): Document => {
     opacity: 1,
     visible: true,
     locked: false,
+    constraints: { horizontal: "min", vertical: "min" },
     assetId,
     src: managed,
     placement: {

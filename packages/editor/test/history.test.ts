@@ -8,6 +8,7 @@ import {
   northstarSeed,
   northstarQuotationPayload,
   renderConformanceDocument,
+  type SceneNode,
 } from "@webmcp/document"
 import { maskRenderConformanceDocument } from "@webmcp/document/internal/mask-render-conformance"
 import { describe, expect, it } from "vitest"
@@ -35,6 +36,125 @@ const updateTitleX = (id: string, x: number) => ({
 })
 
 describe("document history", () => {
+  it("undoes and redoes frame layout and clipping as one canonical step", () => {
+    const before = structuredClone(northstarSeed)
+    const page = before.pages.find((candidate) => candidate.id === "cover")!
+    const child = before.nodes.find(
+      (candidate) => candidate.id === "cover-title"
+    )!
+    page.nodeIds = [
+      "history-layout-frame",
+      child.id,
+      ...page.nodeIds.filter((nodeId) => nodeId !== child.id),
+    ]
+    before.nodes.push({
+      id: "history-layout-frame",
+      type: "frame",
+      name: "History layout frame",
+      x: 40,
+      y: 50,
+      width: 500,
+      height: 180,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
+      fill: "#ffffff",
+      radius: 12,
+      strokeWidth: 0,
+      children: [
+        {
+          nodeId: child.id,
+          positioning: "auto",
+          horizontalSizing: "fill",
+          verticalSizing: "fill",
+          offsetX: 0,
+          offsetY: 0,
+          grow: 1,
+        },
+      ],
+      autoLayout: null,
+      clipsContent: false,
+    } satisfies SceneNode)
+    const history = createDocumentHistory(before, "frame-before")
+    const changed = commitCommands(history, [
+      {
+        id: "history-enable-frame-layout",
+        type: "update_node",
+        actor: "human",
+        at: "2026-09-01T10:00:00.000Z",
+        nodeId: "history-layout-frame",
+        patch: {
+          clipsContent: true,
+          autoLayout: {
+            direction: "horizontal",
+            horizontalSizing: "fixed",
+            verticalSizing: "fixed",
+            gap: 0,
+            padding: { top: 10, right: 20, bottom: 10, left: 20 },
+            primaryAlign: "start",
+            counterAlign: "stretch",
+          },
+        },
+      },
+    ])
+    expect(
+      changed.document.nodes.find((node) => node.id === child.id)
+    ).toMatchObject({
+      x: 60,
+      y: 60,
+      width: 460,
+      height: 160,
+    })
+    expect(undoDocument(changed).document).toEqual(before)
+    expect(redoDocument(undoDocument(changed)).document).toEqual(
+      changed.document
+    )
+  })
+
+  it("undoes and redoes constraint metadata with its page-resize geometry", () => {
+    const before = structuredClone(northstarSeed)
+    const page = before.pages.find((candidate) => candidate.id === "cover")!
+    const node = before.nodes.find(
+      (candidate) => candidate.id === "cover-title"
+    )!
+    const initialX = node.x
+    const history = createDocumentHistory(before, "constraints-before")
+    const changed = commitCommands(history, [
+      {
+        id: "history-pin-cover-title-right",
+        type: "update_node",
+        actor: "human",
+        at: "2026-09-01T09:10:00.000Z",
+        nodeId: node.id,
+        patch: {
+          constraints: { horizontal: "max", vertical: "min" },
+        },
+      },
+      {
+        id: "history-resize-cover-page",
+        type: "update_page",
+        actor: "human",
+        at: "2026-09-01T09:10:01.000Z",
+        pageId: page.id,
+        patch: { width: page.width + 120 },
+      },
+    ])
+    const changedNode = changed.document.nodes.find(
+      (candidate) => candidate.id === node.id
+    )!
+
+    expect(changedNode.constraints).toEqual({
+      horizontal: "max",
+      vertical: "min",
+    })
+    expect(changedNode.x).toBe(initialX + 120)
+    const undone = undoDocument(changed)
+    expect(undone.document).toEqual(before)
+    expect(redoDocument(undone).document).toEqual(changed.document)
+  })
+
   it("creates and releases a mask as exact single history steps", () => {
     const before = {
       ...structuredClone(maskRenderConformanceDocument),

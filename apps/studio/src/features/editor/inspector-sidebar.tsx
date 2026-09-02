@@ -43,6 +43,7 @@ import {
   SendToBack,
   Square,
   Settings2,
+  TextAlignJustify,
   Trash2,
   Unlock,
   Unlink,
@@ -66,6 +67,7 @@ import {
 } from "@webmcp/document"
 import type {
   BindableProperty,
+  BlendMode,
   ChangeOperation,
   ChangeSet,
   Document,
@@ -74,12 +76,17 @@ import type {
   FieldDefinition,
   FieldBindingImpact,
   FieldValue,
+  FillPaint,
   GeneratedDocumentPlan,
   ImageFrameMask,
   ImagePlacement,
+  LayerEffect,
+  LayerExportSetting,
+  NodeConstraints,
   PaintStyle,
   PaintStylePatch,
   SceneNode,
+  StrokePaint,
   TextParagraphStylePatch,
   TextRunStylePatch,
   TypographyStyle,
@@ -206,6 +213,28 @@ import {
 const DEMO_AGENT_BRIEF =
   "Inspect and validate the open design. Adapt it for Mira & Dev, 14 February 2027 in Udaipur, using The Moonlit Weekend package at ₹4,25,000, valid until 30 November 2026. Search the approved asset library for warm sandstone architecture. Then create one coordinated human-reviewed proposal that updates those shared fields and inserts the best asset on the Cover at x 620, y 120, width 540, height 900 with cover fit. Do not apply or publish anything. Summarize the affected outputs and wait for my review."
 
+const BLEND_MODE_OPTIONS: readonly Readonly<{
+  value: BlendMode
+  label: string
+}>[] = [
+  { value: "normal", label: "Normal" },
+  { value: "darken", label: "Darken" },
+  { value: "multiply", label: "Multiply" },
+  { value: "color-burn", label: "Color burn" },
+  { value: "lighten", label: "Lighten" },
+  { value: "screen", label: "Screen" },
+  { value: "color-dodge", label: "Color dodge" },
+  { value: "overlay", label: "Overlay" },
+  { value: "soft-light", label: "Soft light" },
+  { value: "hard-light", label: "Hard light" },
+  { value: "difference", label: "Difference" },
+  { value: "exclusion", label: "Exclusion" },
+  { value: "hue", label: "Hue" },
+  { value: "saturation", label: "Saturation" },
+  { value: "color", label: "Color" },
+  { value: "luminosity", label: "Luminosity" },
+]
+
 const EMPTY_REVIEW_JOURNAL = createEmptyReviewJournal()
 const ignoreReviewTarget = () => undefined
 const ignoreNodeId = (_nodeId: string) => undefined
@@ -290,6 +319,73 @@ export function reviewTargetExists(
 }
 
 const FieldLabel = InspectorSectionLabel
+
+const constraintAxisValues = [
+  "min",
+  "center",
+  "max",
+  "stretch",
+  "scale",
+] as const
+
+function ConstraintAxisControl({
+  axis,
+  value,
+  disabled,
+  onChange,
+}: {
+  axis: "horizontal" | "vertical"
+  value: NodeConstraints["horizontal"]
+  disabled: boolean
+  onChange: (value: NodeConstraints["horizontal"]) => void
+}) {
+  const labels =
+    axis === "horizontal"
+      ? {
+          min: "Left",
+          center: "Center",
+          max: "Right",
+          stretch: "Left and right",
+          scale: "Scale",
+        }
+      : {
+          min: "Top",
+          center: "Center",
+          max: "Bottom",
+          stretch: "Top and bottom",
+          scale: "Scale",
+        }
+  return (
+    <div className="space-y-1">
+      <FieldLabel>
+        {axis === "horizontal" ? "Horizontal" : "Vertical"}
+      </FieldLabel>
+      <Select
+        value={value}
+        disabled={disabled}
+        onValueChange={(next) =>
+          onChange(next as NodeConstraints["horizontal"])
+        }
+      >
+        <SelectTrigger
+          aria-label={`${axis === "horizontal" ? "Horizontal" : "Vertical"} constraint`}
+          className="h-8 text-[11px]"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            {constraintAxisValues.map((option) => (
+              <SelectItem key={option} value={option}>
+                {labels[option]}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+    </div>
+  )
+}
 
 function InspectorSection({
   title,
@@ -1151,12 +1247,696 @@ function TextSelectionInspector({
   )
 }
 
+type InspectorPaintNode = Extract<
+  SceneNode,
+  { type: "rect" | "frame" | "ellipse" | "line" | "icon" }
+>
+
+const nextPaintId = (prefix: "fill" | "stroke", ids: readonly string[]) => {
+  let index = ids.length + 1
+  while (ids.includes(`${prefix}-${index}`)) index += 1
+  return `${prefix}-${index}`
+}
+
+function StrokeAdvancedControls({
+  node,
+  paint,
+  onChange,
+}: {
+  node: InspectorPaintNode
+  paint: StrokePaint
+  onChange: (paint: StrokePaint) => void
+}) {
+  const openPath = node.type === "line" || node.type === "icon"
+  const sides = paint.sides ?? {
+    top: true,
+    right: true,
+    bottom: true,
+    left: true,
+  }
+  return (
+    <div className="mt-2 space-y-2">
+      <div className="grid grid-cols-3 gap-2">
+        <Select
+          value={paint.alignment ?? (openPath ? "center" : "inside")}
+          disabled={node.locked || openPath}
+          onValueChange={(alignment: "inside" | "center" | "outside") =>
+            onChange({ ...paint, alignment })
+          }
+        >
+          <SelectTrigger aria-label="Stroke alignment">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="inside">Inside</SelectItem>
+            <SelectItem value="center">Center</SelectItem>
+            <SelectItem value="outside">Outside</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select
+          value={paint.cap ?? "butt"}
+          disabled={node.locked}
+          onValueChange={(cap: "butt" | "round" | "square") =>
+            onChange({ ...paint, cap })
+          }
+        >
+          <SelectTrigger aria-label="Stroke cap">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="butt">Butt</SelectItem>
+            <SelectItem value="round">Round</SelectItem>
+            <SelectItem value="square">Square</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select
+          value={paint.join ?? "miter"}
+          disabled={node.locked}
+          onValueChange={(join: "miter" | "round" | "bevel") =>
+            onChange({ ...paint, join })
+          }
+        >
+          <SelectTrigger aria-label="Stroke join">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="miter">Miter</SelectItem>
+            <SelectItem value="round">Round</SelectItem>
+            <SelectItem value="bevel">Bevel</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <CommitInput
+          aria-label="Stroke dash pattern"
+          disabled={node.locked}
+          placeholder="Solid"
+          value={(paint.dash ?? []).join(" ")}
+          onCommit={(value) => {
+            const dash = value
+              .trim()
+              .split(/[\s,]+/)
+              .filter(Boolean)
+              .map(Number)
+              .filter((segment) => Number.isFinite(segment) && segment >= 0)
+              .slice(0, 16)
+            if (dash.length === 0 || dash.some((segment) => segment > 0)) {
+              onChange({ ...paint, dash })
+            }
+          }}
+        />
+        <InspectorNumberField
+          label="Miter"
+          value={inspectorValue(paint.miterLimit ?? 4)}
+          min={1}
+          max={100}
+          disabled={node.locked || (paint.join ?? "miter") !== "miter"}
+          onCommit={(miterLimit) => onChange({ ...paint, miterLimit })}
+        />
+      </div>
+      {node.type === "rect" || node.type === "frame" ? (
+        <div className="grid grid-cols-4 gap-1" aria-label="Stroke sides">
+          {(["top", "right", "bottom", "left"] as const).map((side) => (
+            <label
+              className="flex items-center gap-1 text-[10px] text-muted-foreground"
+              key={side}
+            >
+              <Checkbox
+                aria-label={`${side} stroke side`}
+                checked={sides[side]}
+                disabled={node.locked}
+                onCheckedChange={(checked) =>
+                  onChange({
+                    ...paint,
+                    sides: { ...sides, [side]: checked === true },
+                  })
+                }
+              />
+              {side[0]?.toUpperCase()}
+            </label>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function PaintStackControls({
+  node,
+  onUpdate,
+}: {
+  node: InspectorPaintNode
+  onUpdate: (patch: Partial<SceneNode>) => void
+}) {
+  const fills: FillPaint[] =
+    node.type === "line"
+      ? []
+      : (node.fills ?? [
+          {
+            id: "legacy-fill",
+            color: node.fill,
+            opacity: 1,
+            visible: true,
+          },
+        ])
+  const strokes: StrokePaint[] =
+    node.strokes ??
+    (node.stroke && node.strokeWidth > 0
+      ? [
+          {
+            id: "legacy-stroke",
+            color: node.stroke,
+            width: node.strokeWidth,
+            opacity: 1,
+            visible: true,
+          },
+        ]
+      : [])
+  const updateList = (
+    kind: "fills" | "strokes",
+    paints: FillPaint[] | StrokePaint[]
+  ) => onUpdate({ [kind]: paints } as Partial<SceneNode>)
+  const renderList = (
+    kind: "fills" | "strokes",
+    paints: FillPaint[] | StrokePaint[]
+  ) => (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <FieldLabel>{kind === "fills" ? "Fills" : "Strokes"}</FieldLabel>
+        <Button
+          aria-label={`Add ${kind === "fills" ? "fill" : "stroke"}`}
+          disabled={node.locked || paints.length >= 8}
+          size="icon-xs"
+          variant="ghost"
+          onClick={() => {
+            const id = nextPaintId(
+              kind === "fills" ? "fill" : "stroke",
+              paints.map((paint) => paint.id)
+            )
+            updateList(kind, [
+              ...paints,
+              kind === "fills"
+                ? { id, color: "#d9c9b2", opacity: 1, visible: true }
+                : {
+                    id,
+                    color: "#1e2622",
+                    width: 1,
+                    opacity: 1,
+                    visible: true,
+                  },
+            ])
+          }}
+        >
+          <Plus />
+        </Button>
+      </div>
+      {paints.map((paint, index) => (
+        <div
+          className="rounded-md border border-border/70 bg-muted/25 p-2"
+          data-paint-id={paint.id}
+          key={paint.id}
+        >
+          <div className="flex items-center gap-1">
+            <Checkbox
+              aria-label={`${kind} ${index + 1} visible`}
+              checked={paint.visible}
+              disabled={node.locked}
+              onCheckedChange={(checked) =>
+                updateList(
+                  kind,
+                  paints.map((candidate, candidateIndex) =>
+                    candidateIndex === index
+                      ? { ...candidate, visible: checked === true }
+                      : candidate
+                  ) as FillPaint[] | StrokePaint[]
+                )
+              }
+            />
+            <Input
+              aria-label={`${kind} ${index + 1} color`}
+              className="h-7 min-w-0 flex-1 font-mono text-[11px]"
+              disabled={node.locked}
+              value={paint.color}
+              onChange={(event) =>
+                updateList(
+                  kind,
+                  paints.map((candidate, candidateIndex) =>
+                    candidateIndex === index
+                      ? { ...candidate, color: event.target.value }
+                      : candidate
+                  ) as FillPaint[] | StrokePaint[]
+                )
+              }
+            />
+            <Button
+              aria-label={`Move ${kind} ${index + 1} up`}
+              disabled={node.locked || index === 0}
+              size="icon-xs"
+              variant="ghost"
+              onClick={() => {
+                const next = [...paints]
+                ;[next[index - 1], next[index]] = [
+                  next[index]!,
+                  next[index - 1]!,
+                ]
+                updateList(kind, next as FillPaint[] | StrokePaint[])
+              }}
+            >
+              <ChevronUp />
+            </Button>
+            <Button
+              aria-label={`Move ${kind} ${index + 1} down`}
+              disabled={node.locked || index === paints.length - 1}
+              size="icon-xs"
+              variant="ghost"
+              onClick={() => {
+                const next = [...paints]
+                ;[next[index], next[index + 1]] = [
+                  next[index + 1]!,
+                  next[index]!,
+                ]
+                updateList(kind, next as FillPaint[] | StrokePaint[])
+              }}
+            >
+              <ChevronDown />
+            </Button>
+            <Button
+              aria-label={`Remove ${kind} ${index + 1}`}
+              disabled={node.locked}
+              size="icon-xs"
+              variant="ghost"
+              onClick={() =>
+                updateList(
+                  kind,
+                  paints.filter(
+                    (_, candidateIndex) => candidateIndex !== index
+                  ) as FillPaint[] | StrokePaint[]
+                )
+              }
+            >
+              <Trash2 />
+            </Button>
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <InspectorNumberField
+              label="Opacity"
+              value={inspectorValue(paint.opacity * 100)}
+              min={0}
+              max={100}
+              disabled={node.locked}
+              onCommit={(opacity) =>
+                updateList(
+                  kind,
+                  paints.map((candidate, candidateIndex) =>
+                    candidateIndex === index
+                      ? { ...candidate, opacity: opacity / 100 }
+                      : candidate
+                  ) as FillPaint[] | StrokePaint[]
+                )
+              }
+            />
+            {"width" in paint ? (
+              <InspectorNumberField
+                label="Width"
+                value={inspectorValue(paint.width)}
+                min={0}
+                step={0.1}
+                disabled={node.locked}
+                onCommit={(width) =>
+                  updateList(
+                    kind,
+                    paints.map((candidate, candidateIndex) =>
+                      candidateIndex === index
+                        ? { ...candidate, width }
+                        : candidate
+                    ) as StrokePaint[]
+                  )
+                }
+              />
+            ) : null}
+          </div>
+          {"width" in paint ? (
+            <StrokeAdvancedControls
+              node={node}
+              paint={paint}
+              onChange={(nextPaint) =>
+                updateList(
+                  kind,
+                  paints.map((candidate, candidateIndex) =>
+                    candidateIndex === index ? nextPaint : candidate
+                  ) as StrokePaint[]
+                )
+              }
+            />
+          ) : null}
+          <Select
+            value={paint.blendMode ?? "normal"}
+            disabled={node.locked}
+            onValueChange={(blendMode: BlendMode) =>
+              updateList(
+                kind,
+                paints.map((candidate, candidateIndex) =>
+                  candidateIndex === index
+                    ? { ...candidate, blendMode }
+                    : candidate
+                ) as FillPaint[] | StrokePaint[]
+              )
+            }
+          >
+            <SelectTrigger aria-label={`${kind} ${index + 1} blend mode`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {BLEND_MODE_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      ))}
+    </div>
+  )
+  return (
+    <div className="space-y-3">
+      {node.type === "line" ? null : renderList("fills", fills)}
+      {renderList("strokes", strokes)}
+    </div>
+  )
+}
+
+const nextEffectId = (
+  prefix: "shadow" | "blur",
+  effects: readonly LayerEffect[]
+) => {
+  let index = effects.length + 1
+  while (effects.some((effect) => effect.id === `${prefix}-${index}`))
+    index += 1
+  return `${prefix}-${index}`
+}
+
+function EffectStackControls({
+  node,
+  onUpdate,
+}: {
+  node: SceneNode
+  onUpdate: (patch: Partial<SceneNode>) => void
+}) {
+  const effects = node.effects ?? []
+  const update = (next: LayerEffect[]) => onUpdate({ effects: next })
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <FieldLabel>Effects</FieldLabel>
+        <div className="flex gap-1">
+          <Button
+            aria-label="Add drop shadow"
+            disabled={node.locked || effects.length >= 8}
+            size="xs"
+            variant="ghost"
+            onClick={() =>
+              update([
+                ...effects,
+                {
+                  id: nextEffectId("shadow", effects),
+                  type: "drop_shadow",
+                  color: "#00000040",
+                  offsetX: 0,
+                  offsetY: 8,
+                  blur: 16,
+                  visible: true,
+                },
+              ])
+            }
+          >
+            Shadow
+          </Button>
+          <Button
+            aria-label="Add layer blur"
+            disabled={node.locked || effects.length >= 8}
+            size="xs"
+            variant="ghost"
+            onClick={() =>
+              update([
+                ...effects,
+                {
+                  id: nextEffectId("blur", effects),
+                  type: "layer_blur",
+                  radius: 4,
+                  visible: true,
+                },
+              ])
+            }
+          >
+            Blur
+          </Button>
+        </div>
+      </div>
+      {effects.map((effect, index) => {
+        const replace = (next: LayerEffect) =>
+          update(
+            effects.map((candidate, candidateIndex) =>
+              candidateIndex === index ? next : candidate
+            )
+          )
+        return (
+          <div
+            className="rounded-md border border-border/70 bg-muted/25 p-2"
+            key={effect.id}
+          >
+            <div className="flex items-center gap-1">
+              <Checkbox
+                aria-label={`Effect ${index + 1} visible`}
+                checked={effect.visible}
+                disabled={node.locked}
+                onCheckedChange={(checked) =>
+                  replace({ ...effect, visible: checked === true })
+                }
+              />
+              <span className="min-w-0 flex-1 text-[11px] text-muted-foreground">
+                {effect.type === "drop_shadow" ? "Drop shadow" : "Layer blur"}
+              </span>
+              <Button
+                aria-label={`Move effect ${index + 1} up`}
+                disabled={node.locked || index === 0}
+                size="icon-xs"
+                variant="ghost"
+                onClick={() => {
+                  const next = [...effects]
+                  ;[next[index - 1], next[index]] = [
+                    next[index]!,
+                    next[index - 1]!,
+                  ]
+                  update(next)
+                }}
+              >
+                <ChevronUp />
+              </Button>
+              <Button
+                aria-label={`Move effect ${index + 1} down`}
+                disabled={node.locked || index === effects.length - 1}
+                size="icon-xs"
+                variant="ghost"
+                onClick={() => {
+                  const next = [...effects]
+                  ;[next[index], next[index + 1]] = [
+                    next[index + 1]!,
+                    next[index]!,
+                  ]
+                  update(next)
+                }}
+              >
+                <ChevronDown />
+              </Button>
+              <Button
+                aria-label={`Remove effect ${index + 1}`}
+                disabled={node.locked}
+                size="icon-xs"
+                variant="ghost"
+                onClick={() =>
+                  update(effects.filter((_, candidate) => candidate !== index))
+                }
+              >
+                <Trash2 />
+              </Button>
+            </div>
+            {effect.type === "drop_shadow" ? (
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <CommitInput
+                  aria-label="Shadow color"
+                  disabled={node.locked}
+                  value={effect.color}
+                  onCommit={(color) => {
+                    if (/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(color))
+                      replace({ ...effect, color })
+                  }}
+                />
+                <InspectorNumberField
+                  label="Blur"
+                  value={inspectorValue(effect.blur)}
+                  min={0}
+                  max={64}
+                  disabled={node.locked}
+                  onCommit={(blur) => replace({ ...effect, blur })}
+                />
+                <InspectorNumberField
+                  label="X"
+                  value={inspectorValue(effect.offsetX)}
+                  min={-4096}
+                  max={4096}
+                  disabled={node.locked}
+                  onCommit={(offsetX) => replace({ ...effect, offsetX })}
+                />
+                <InspectorNumberField
+                  label="Y"
+                  value={inspectorValue(effect.offsetY)}
+                  min={-4096}
+                  max={4096}
+                  disabled={node.locked}
+                  onCommit={(offsetY) => replace({ ...effect, offsetY })}
+                />
+              </div>
+            ) : (
+              <div className="mt-2">
+                <InspectorNumberField
+                  label="Radius"
+                  value={inspectorValue(effect.radius)}
+                  min={0}
+                  max={64}
+                  disabled={node.locked}
+                  onCommit={(radius) => replace({ ...effect, radius })}
+                />
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function LayerExportControls({
+  node,
+  onUpdate,
+}: {
+  node: SceneNode
+  onUpdate: (patch: Partial<SceneNode>) => void
+}) {
+  const settings = node.exportSettings ?? []
+  const update = (next: LayerExportSetting[]) =>
+    onUpdate({ exportSettings: next })
+  const add = (format: "png" | "pdf") => {
+    let index = settings.length + 1
+    while (settings.some((setting) => setting.id === `export-${index}`))
+      index += 1
+    update([
+      ...settings,
+      { id: `export-${index}`, format, scale: 1, suffix: "" },
+    ])
+  }
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <FieldLabel>Layer exports</FieldLabel>
+        <div className="flex gap-1">
+          <Button
+            aria-label="Add PNG layer export"
+            disabled={node.locked || settings.length >= 4}
+            size="xs"
+            variant="ghost"
+            onClick={() => add("png")}
+          >
+            PNG
+          </Button>
+          <Button
+            aria-label="Add PDF layer export"
+            disabled={node.locked || settings.length >= 4}
+            size="xs"
+            variant="ghost"
+            onClick={() => add("pdf")}
+          >
+            PDF
+          </Button>
+        </div>
+      </div>
+      {settings.map((setting, index) => {
+        const replace = (next: LayerExportSetting) =>
+          update(
+            settings.map((candidate, candidateIndex) =>
+              candidateIndex === index ? next : candidate
+            )
+          )
+        return (
+          <div
+            className="grid grid-cols-[5rem_1fr_1fr_auto] gap-1 rounded-md border border-border/70 bg-muted/25 p-2"
+            key={setting.id}
+          >
+            <Select
+              value={setting.format}
+              disabled={node.locked}
+              onValueChange={(format: "png" | "pdf") =>
+                replace({ ...setting, format })
+              }
+            >
+              <SelectTrigger aria-label={`Layer export ${index + 1} format`}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="png">PNG</SelectItem>
+                <SelectItem value="pdf">PDF</SelectItem>
+              </SelectContent>
+            </Select>
+            <InspectorNumberField
+              label="Scale"
+              value={inspectorValue(setting.scale)}
+              min={0.25}
+              max={4}
+              step={0.25}
+              disabled={node.locked}
+              onCommit={(scale) => replace({ ...setting, scale })}
+            />
+            <CommitInput
+              aria-label={`Layer export ${index + 1} suffix`}
+              placeholder="Suffix"
+              value={setting.suffix}
+              disabled={node.locked}
+              onCommit={(suffix) => {
+                if (/^[A-Za-z0-9._-]{0,40}$/.test(suffix))
+                  replace({ ...setting, suffix })
+              }}
+            />
+            <Button
+              aria-label={`Remove layer export ${index + 1}`}
+              disabled={node.locked}
+              size="icon-xs"
+              variant="ghost"
+              onClick={() =>
+                update(settings.filter((_, candidate) => candidate !== index))
+              }
+            >
+              <Trash2 />
+            </Button>
+          </div>
+        )
+      })}
+      {settings.length ? (
+        <p className="text-[10px] leading-4 text-muted-foreground">
+          Use Export layer from the layer menu. Published manifests retain the
+          same page/output route.
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
 function NodeInspector({
   document,
   node,
   textEditingState,
   focusedProperty,
   onUpdate,
+  onUpdateRelatedNode,
   onPreview,
   onCancelPreview,
   onAlignToPage,
@@ -1190,6 +1970,7 @@ function NodeInspector({
   textEditingState?: CanvasTextEditingState | null
   focusedProperty?: BindableProperty
   onUpdate: (patch: Partial<SceneNode>) => void
+  onUpdateRelatedNode: (nodeId: string, patch: Partial<SceneNode>) => void
   onPreview: (patch: Partial<SceneNode>) => void
   onCancelPreview: () => void
   onAlignToPage: (alignment: Alignment) => void
@@ -1234,6 +2015,24 @@ function NodeInspector({
     () => createInspectorSelectionModel([node], capabilityContext),
     [capabilityContext, node]
   )
+  const owningFrame = document.nodes.find(
+    (candidate): candidate is Extract<SceneNode, { type: "frame" }> =>
+      candidate.type === "frame" &&
+      candidate.children.some((child) => child.nodeId === node.id)
+  )
+  const frameChildLayout = owningFrame?.children.find(
+    (child) => child.nodeId === node.id
+  )
+  const updateFrameChildLayout = (
+    patch: Partial<NonNullable<typeof frameChildLayout>>
+  ) => {
+    if (!owningFrame || !frameChildLayout) return
+    onUpdateRelatedNode(owningFrame.id, {
+      children: owningFrame.children.map((child) =>
+        child.nodeId === node.id ? { ...child, ...patch } : child
+      ),
+    })
+  }
   const decorativeCheckboxId = useId()
   const imageReplacementReasonId = useId()
   const nodeTypeLabel =
@@ -1243,11 +2042,13 @@ function NodeInspector({
         ? "Image"
         : node.type === "rect"
           ? "Rectangle"
-          : node.type === "ellipse"
-            ? "Ellipse"
-            : node.type === "line"
-              ? "Line"
-              : "Icon"
+          : node.type === "frame"
+            ? "Frame"
+            : node.type === "ellipse"
+              ? "Ellipse"
+              : node.type === "line"
+                ? "Line"
+                : "Icon"
   const textLayout = node.type === "text" ? projectTextLayout(node) : null
   const textWidthIsManaged =
     node.type === "text" && node.sizingMode === "auto_width"
@@ -1342,6 +2143,7 @@ function NodeInspector({
     if (node.type === "line") return node.stroke
     if (
       node.type === "rect" ||
+      node.type === "frame" ||
       node.type === "ellipse" ||
       node.type === "icon"
     ) {
@@ -1674,6 +2476,574 @@ function NodeInspector({
         </div>
       </InspectorSection>
 
+      <InspectorSection
+        title="Constraints"
+        data-inspector-property="constraints"
+      >
+        <div className="grid grid-cols-2 gap-2">
+          <ConstraintAxisControl
+            axis="horizontal"
+            value={node.constraints.horizontal}
+            disabled={nodeMutationDisabled}
+            onChange={(horizontal) =>
+              onUpdate({
+                constraints: { ...node.constraints, horizontal },
+              })
+            }
+          />
+          <ConstraintAxisControl
+            axis="vertical"
+            value={node.constraints.vertical}
+            disabled={nodeMutationDisabled}
+            onChange={(vertical) =>
+              onUpdate({ constraints: { ...node.constraints, vertical } })
+            }
+          />
+        </div>
+        <p className="text-[11px] leading-4 text-muted-foreground">
+          Controls how this layer responds when its page is resized.
+        </p>
+      </InspectorSection>
+
+      {owningFrame && frameChildLayout ? (
+        <InspectorSection
+          title="Frame child"
+          data-inspector-property="frameChildLayout"
+        >
+          <p className="text-[11px] text-muted-foreground">
+            Layout inside {owningFrame.name}
+          </p>
+          <div className="grid grid-cols-3 gap-1">
+            <Select
+              value={frameChildLayout.positioning}
+              disabled={nodeMutationDisabled}
+              onValueChange={(positioning) =>
+                updateFrameChildLayout({
+                  positioning: positioning as "auto" | "absolute",
+                })
+              }
+            >
+              <SelectTrigger
+                aria-label="Frame child positioning"
+                className="h-8 text-[11px]"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">Auto</SelectItem>
+                <SelectItem value="absolute">Absolute</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={frameChildLayout.horizontalSizing}
+              disabled={nodeMutationDisabled}
+              onValueChange={(horizontalSizing) =>
+                updateFrameChildLayout({
+                  horizontalSizing: horizontalSizing as "fixed" | "fill",
+                })
+              }
+            >
+              <SelectTrigger
+                aria-label="Frame child horizontal sizing"
+                className="h-8 text-[11px]"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="fixed">Width: fixed</SelectItem>
+                <SelectItem value="fill">Width: fill</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={frameChildLayout.verticalSizing}
+              disabled={nodeMutationDisabled}
+              onValueChange={(verticalSizing) =>
+                updateFrameChildLayout({
+                  verticalSizing: verticalSizing as "fixed" | "fill",
+                })
+              }
+            >
+              <SelectTrigger
+                aria-label="Frame child vertical sizing"
+                className="h-8 text-[11px]"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="fixed">Height: fixed</SelectItem>
+                <SelectItem value="fill">Height: fill</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {frameChildLayout.positioning === "absolute" ? (
+            <div className="grid grid-cols-2 gap-2">
+              <InspectorNumberField
+                label="Frame offset X"
+                compactLabel="X"
+                value={{ kind: "value", value: frameChildLayout.offsetX }}
+                disabled={nodeMutationDisabled}
+                onCommit={(offsetX) => updateFrameChildLayout({ offsetX })}
+              />
+              <InspectorNumberField
+                label="Frame offset Y"
+                compactLabel="Y"
+                value={{ kind: "value", value: frameChildLayout.offsetY }}
+                disabled={nodeMutationDisabled}
+                onCommit={(offsetY) => updateFrameChildLayout({ offsetY })}
+              />
+            </div>
+          ) : (
+            <InspectorNumberField
+              label="Frame child grow"
+              compactLabel="Grow"
+              min={0}
+              value={{ kind: "value", value: frameChildLayout.grow }}
+              disabled={nodeMutationDisabled}
+              onCommit={(grow) => updateFrameChildLayout({ grow })}
+            />
+          )}
+        </InspectorSection>
+      ) : null}
+
+      {node.type === "frame" ? (
+        <InspectorSection
+          title="Auto layout"
+          data-inspector-property="autoLayout"
+        >
+          <div className="grid grid-cols-2 gap-2">
+            <Select
+              value={node.autoLayout?.direction ?? "none"}
+              disabled={nodeMutationDisabled}
+              onValueChange={(direction) =>
+                onUpdate({
+                  autoLayout:
+                    direction === "none"
+                      ? null
+                      : node.autoLayout
+                        ? {
+                            ...node.autoLayout,
+                            direction: direction as "horizontal" | "vertical",
+                          }
+                        : {
+                            direction: direction as "horizontal" | "vertical",
+                            horizontalSizing: "fixed",
+                            verticalSizing: "fixed",
+                            gap: 0,
+                            padding: { top: 0, right: 0, bottom: 0, left: 0 },
+                            primaryAlign: "start",
+                            counterAlign: "start",
+                          },
+                })
+              }
+            >
+              <SelectTrigger
+                aria-label="Frame layout direction"
+                className="h-8 text-[11px]"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Freeform</SelectItem>
+                <SelectItem value="horizontal">Horizontal</SelectItem>
+                <SelectItem value="vertical">Vertical</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              variant={node.clipsContent ? "secondary" : "outline"}
+              className="h-8 text-[11px]"
+              disabled={nodeMutationDisabled}
+              aria-pressed={node.clipsContent}
+              onClick={() => onUpdate({ clipsContent: !node.clipsContent })}
+            >
+              Clip content
+            </Button>
+          </div>
+          {node.autoLayout ? (
+            <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                <Select
+                  value={node.autoLayout.horizontalSizing}
+                  disabled={nodeMutationDisabled}
+                  onValueChange={(horizontalSizing) =>
+                    onUpdate({
+                      autoLayout: {
+                        ...node.autoLayout!,
+                        horizontalSizing: horizontalSizing as "fixed" | "hug",
+                      },
+                    })
+                  }
+                >
+                  <SelectTrigger
+                    aria-label="Frame horizontal sizing"
+                    className="h-8 text-[11px]"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="fixed">Width: fixed</SelectItem>
+                    <SelectItem value="hug">Width: hug</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={node.autoLayout.verticalSizing}
+                  disabled={nodeMutationDisabled}
+                  onValueChange={(verticalSizing) =>
+                    onUpdate({
+                      autoLayout: {
+                        ...node.autoLayout!,
+                        verticalSizing: verticalSizing as "fixed" | "hug",
+                      },
+                    })
+                  }
+                >
+                  <SelectTrigger
+                    aria-label="Frame vertical sizing"
+                    className="h-8 text-[11px]"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="fixed">Height: fixed</SelectItem>
+                    <SelectItem value="hug">Height: hug</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Select
+                  value={node.autoLayout.primaryAlign}
+                  disabled={nodeMutationDisabled}
+                  onValueChange={(primaryAlign) =>
+                    onUpdate({
+                      autoLayout: {
+                        ...node.autoLayout!,
+                        primaryAlign:
+                          primaryAlign as typeof node.autoLayout.primaryAlign,
+                      },
+                    })
+                  }
+                >
+                  <SelectTrigger
+                    aria-label="Frame primary alignment"
+                    className="h-8 text-[11px]"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="start">Pack: start</SelectItem>
+                    <SelectItem value="center">Pack: center</SelectItem>
+                    <SelectItem value="end">Pack: end</SelectItem>
+                    <SelectItem value="space_between">Space between</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={node.autoLayout.counterAlign}
+                  disabled={nodeMutationDisabled}
+                  onValueChange={(counterAlign) =>
+                    onUpdate({
+                      autoLayout: {
+                        ...node.autoLayout!,
+                        counterAlign:
+                          counterAlign as typeof node.autoLayout.counterAlign,
+                      },
+                    })
+                  }
+                >
+                  <SelectTrigger
+                    aria-label="Frame counter alignment"
+                    className="h-8 text-[11px]"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="start">Align: start</SelectItem>
+                    <SelectItem value="center">Align: center</SelectItem>
+                    <SelectItem value="end">Align: end</SelectItem>
+                    <SelectItem value="stretch">Stretch</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <InspectorNumberField
+                  label="Gap"
+                  compactLabel="Gap"
+                  min={0}
+                  value={{ kind: "value", value: node.autoLayout.gap }}
+                  disabled={nodeMutationDisabled}
+                  onCommit={(gap) =>
+                    onUpdate({ autoLayout: { ...node.autoLayout!, gap } })
+                  }
+                />
+                <p className="self-center text-[11px] text-muted-foreground">
+                  {node.children.length} child
+                  {node.children.length === 1 ? "" : "ren"}
+                </p>
+              </div>
+              <div className="grid grid-cols-4 gap-1">
+                {(["top", "right", "bottom", "left"] as const).map((side) => (
+                  <InspectorNumberField
+                    key={side}
+                    label={`Padding ${side}`}
+                    compactLabel={side[0]!.toUpperCase()}
+                    min={0}
+                    value={{
+                      kind: "value",
+                      value: node.autoLayout!.padding[side],
+                    }}
+                    disabled={nodeMutationDisabled}
+                    onCommit={(value) =>
+                      onUpdate({
+                        autoLayout: {
+                          ...node.autoLayout!,
+                          padding: {
+                            ...node.autoLayout!.padding,
+                            [side]: value,
+                          },
+                        },
+                      })
+                    }
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </InspectorSection>
+      ) : null}
+
+      {node.type === "frame" ? (
+        <InspectorSection
+          title="Layout guides"
+          data-inspector-property="layoutGrids"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[11px] leading-4 text-muted-foreground">
+              Editor-only columns, rows, and square grids.
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={
+                nodeMutationDisabled || (node.layoutGrids ?? []).length >= 8
+              }
+              onClick={() =>
+                onUpdate({
+                  layoutGrids: [
+                    ...(node.layoutGrids ?? []),
+                    {
+                      id: `grid-${node.id}-${Date.now()}`,
+                      pattern: "columns",
+                      visible: true,
+                      color: "#2563eb",
+                      opacity: 0.12,
+                      alignment: "stretch",
+                      count: 12,
+                      offset: 24,
+                      sectionSize: 1,
+                      gutter: 16,
+                    },
+                  ],
+                })
+              }
+            >
+              <Plus data-icon="inline-start" />
+              Add
+            </Button>
+          </div>
+          {(node.layoutGrids ?? []).length === 0 ? (
+            <p className="rounded-md border border-dashed px-2 py-3 text-center text-[11px] text-muted-foreground">
+              No layout guides on this frame.
+            </p>
+          ) : null}
+          {(node.layoutGrids ?? []).map((grid, gridIndex) => {
+            const replaceGrid = (
+              next: NonNullable<typeof node.layoutGrids>[number]
+            ) =>
+              onUpdate({
+                layoutGrids: (node.layoutGrids ?? []).map((candidate, index) =>
+                  index === gridIndex ? next : candidate
+                ),
+              })
+            return (
+              <div
+                key={grid.id}
+                className="space-y-2 rounded-md border p-2"
+                data-layout-grid-inspector-id={grid.id}
+              >
+                <div className="flex items-center gap-1.5">
+                  <Select
+                    value={grid.pattern}
+                    disabled={nodeMutationDisabled}
+                    onValueChange={(pattern) =>
+                      replaceGrid(
+                        pattern === "grid"
+                          ? {
+                              id: grid.id,
+                              pattern: "grid",
+                              visible: grid.visible,
+                              color: grid.color,
+                              opacity: grid.opacity,
+                              offset: grid.offset,
+                              size: 8,
+                            }
+                          : {
+                              id: grid.id,
+                              pattern: pattern as "columns" | "rows",
+                              visible: grid.visible,
+                              color: grid.color,
+                              opacity: grid.opacity,
+                              alignment: "stretch",
+                              count: 12,
+                              offset: grid.offset,
+                              sectionSize: 1,
+                              gutter: 16,
+                            }
+                      )
+                    }
+                  >
+                    <SelectTrigger
+                      aria-label={`Layout guide ${gridIndex + 1} pattern`}
+                      className="h-8 min-w-0 flex-1 text-[11px]"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="columns">Columns</SelectItem>
+                      <SelectItem value="rows">Rows</SelectItem>
+                      <SelectItem value="grid">Square grid</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    type="button"
+                    size="icon-xs"
+                    variant="ghost"
+                    disabled={nodeMutationDisabled}
+                    aria-label={
+                      grid.visible ? "Hide layout guide" : "Show layout guide"
+                    }
+                    onClick={() =>
+                      replaceGrid({ ...grid, visible: !grid.visible })
+                    }
+                  >
+                    {grid.visible ? <Eye /> : <EyeOff />}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon-xs"
+                    variant="ghost"
+                    disabled={nodeMutationDisabled}
+                    aria-label="Remove layout guide"
+                    onClick={() =>
+                      onUpdate({
+                        layoutGrids: (node.layoutGrids ?? []).filter(
+                          (_, index) => index !== gridIndex
+                        ),
+                      })
+                    }
+                  >
+                    <Trash2 />
+                  </Button>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {grid.pattern === "grid" ? (
+                    <InspectorNumberField
+                      label="Grid size"
+                      compactLabel="Size"
+                      min={0.1}
+                      value={inspectorValue(grid.size)}
+                      disabled={nodeMutationDisabled}
+                      onCommit={(size) => replaceGrid({ ...grid, size })}
+                    />
+                  ) : (
+                    <>
+                      <InspectorNumberField
+                        label="Section count"
+                        compactLabel="Count"
+                        min={1}
+                        max={64}
+                        integer
+                        value={inspectorValue(grid.count)}
+                        disabled={nodeMutationDisabled}
+                        onCommit={(count) => replaceGrid({ ...grid, count })}
+                      />
+                      <InspectorNumberField
+                        label="Gutter"
+                        compactLabel="Gutter"
+                        min={0}
+                        value={inspectorValue(grid.gutter)}
+                        disabled={nodeMutationDisabled}
+                        onCommit={(gutter) => replaceGrid({ ...grid, gutter })}
+                      />
+                      <Select
+                        value={grid.alignment}
+                        disabled={nodeMutationDisabled}
+                        onValueChange={(alignment) =>
+                          replaceGrid({
+                            ...grid,
+                            alignment: alignment as typeof grid.alignment,
+                          })
+                        }
+                      >
+                        <SelectTrigger
+                          aria-label="Layout guide alignment"
+                          className="h-8 text-[11px]"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="min">Start</SelectItem>
+                          <SelectItem value="center">Center</SelectItem>
+                          <SelectItem value="max">End</SelectItem>
+                          <SelectItem value="stretch">Stretch</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {grid.alignment !== "stretch" ? (
+                        <InspectorNumberField
+                          label="Section size"
+                          compactLabel="Size"
+                          min={0.1}
+                          value={inspectorValue(grid.sectionSize)}
+                          disabled={nodeMutationDisabled}
+                          onCommit={(sectionSize) =>
+                            replaceGrid({ ...grid, sectionSize })
+                          }
+                        />
+                      ) : null}
+                    </>
+                  )}
+                  <InspectorNumberField
+                    label="Guide offset"
+                    compactLabel="Offset"
+                    min={0}
+                    value={inspectorValue(grid.offset)}
+                    disabled={nodeMutationDisabled}
+                    onCommit={(offset) => replaceGrid({ ...grid, offset })}
+                  />
+                  <InspectorNumberField
+                    label="Guide opacity"
+                    compactLabel="Opacity"
+                    min={0}
+                    max={100}
+                    suffix="%"
+                    value={inspectorValue(grid.opacity * 100)}
+                    disabled={nodeMutationDisabled}
+                    onCommit={(opacity) =>
+                      replaceGrid({ ...grid, opacity: opacity / 100 })
+                    }
+                  />
+                </div>
+                <InspectorColorField
+                  label="Guide color"
+                  value={grid.color}
+                  disabled={nodeMutationDisabled}
+                  onCommit={(color) => replaceGrid({ ...grid, color })}
+                />
+              </div>
+            )
+          })}
+        </InspectorSection>
+      ) : null}
+
       <InspectorSection title="Opacity">
         <CommitPercentSlider
           label="Opacity"
@@ -1681,6 +3051,26 @@ function NodeInspector({
           disabled={nodeMutationDisabled}
           onCommit={(opacity) => onUpdate({ opacity: opacity / 100 })}
         />
+        <Select
+          value={node.blendMode ?? "normal"}
+          disabled={nodeMutationDisabled}
+          onValueChange={(blendMode) =>
+            onUpdate({ blendMode: blendMode as BlendMode })
+          }
+        >
+          <SelectTrigger aria-label="Blend mode" className="h-8 text-[11px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {BLEND_MODE_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
       </InspectorSection>
 
       {inspector.capabilities.text && node.type === "text" ? (
@@ -1885,7 +3275,8 @@ function NodeInspector({
                   value={
                     paragraphAlign === "left" ||
                     paragraphAlign === "center" ||
-                    paragraphAlign === "right"
+                    paragraphAlign === "right" ||
+                    paragraphAlign === "justify"
                       ? paragraphAlign
                       : ""
                   }
@@ -1895,6 +3286,7 @@ function NodeInspector({
                     ["left", AlignLeft],
                     ["center", AlignCenter],
                     ["right", AlignRight],
+                    ["justify", TextAlignJustify],
                   ].map(([align, Icon]) => (
                     <ToggleGroupItem
                       key={align as string}
@@ -1902,7 +3294,8 @@ function NodeInspector({
                       className="min-h-11 min-w-11 border-0 min-[1280px]:min-h-6 min-[1280px]:min-w-7"
                       value={align as string}
                       onClick={() => {
-                        const nextAlign = align as "left" | "center" | "right"
+                        const nextAlign = align as
+                          "left" | "center" | "right" | "justify"
                         if (liveTextEditingState) {
                           onApplyTextEditingParagraphStyle({ align: nextAlign })
                           return
@@ -1923,6 +3316,120 @@ function NodeInspector({
                     </ToggleGroupItem>
                   ))}
                 </ToggleGroup>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="space-y-1.5">
+                  <FieldLabel>Direction</FieldLabel>
+                  <Select
+                    value={node.direction ?? "auto"}
+                    disabled={node.locked}
+                    onValueChange={(direction) =>
+                      onUpdate({
+                        direction: direction as "auto" | "ltr" | "rtl",
+                      })
+                    }
+                  >
+                    <SelectTrigger aria-label="Text direction">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="auto">Auto</SelectItem>
+                      <SelectItem value="ltr">Left to right</SelectItem>
+                      <SelectItem value="rtl">Right to left</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </label>
+                <label className="space-y-1.5">
+                  <FieldLabel>Vertical align</FieldLabel>
+                  <Select
+                    value={node.verticalAlign ?? "top"}
+                    disabled={node.locked}
+                    onValueChange={(verticalAlign) =>
+                      onUpdate({
+                        verticalAlign: verticalAlign as
+                          "top" | "middle" | "bottom",
+                      })
+                    }
+                  >
+                    <SelectTrigger aria-label="Text vertical alignment">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="top">Top</SelectItem>
+                      <SelectItem value="middle">Middle</SelectItem>
+                      <SelectItem value="bottom">Bottom</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </label>
+                <label className="space-y-1.5">
+                  <FieldLabel>Case</FieldLabel>
+                  <Select
+                    value={node.textCase ?? "original"}
+                    disabled={node.locked}
+                    onValueChange={(textCase) =>
+                      onUpdate({
+                        textCase: textCase as
+                          "original" | "uppercase" | "lowercase" | "title",
+                      })
+                    }
+                  >
+                    <SelectTrigger aria-label="Text case">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="original">Original</SelectItem>
+                      <SelectItem value="uppercase">Uppercase</SelectItem>
+                      <SelectItem value="lowercase">Lowercase</SelectItem>
+                      <SelectItem value="title">Title case</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </label>
+                <label className="space-y-1.5">
+                  <FieldLabel>Overflow</FieldLabel>
+                  <Select
+                    value={node.truncation ?? "clip"}
+                    disabled={node.locked}
+                    onValueChange={(truncation) =>
+                      onUpdate({
+                        truncation: truncation as "clip" | "ellipsis",
+                      })
+                    }
+                  >
+                    <SelectTrigger aria-label="Text truncation">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="clip">Clip</SelectItem>
+                      <SelectItem value="ellipsis">Ellipsis</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </label>
+              </div>
+              <div className="space-y-2 rounded-md border p-2">
+                <label className="flex items-center gap-2 text-xs">
+                  <Checkbox
+                    aria-label="Limit text lines"
+                    checked={node.maxLines != null}
+                    disabled={node.locked}
+                    onCheckedChange={(checked) =>
+                      onUpdate({ maxLines: checked === true ? 3 : null })
+                    }
+                  />
+                  Limit lines
+                </label>
+                {node.maxLines != null ? (
+                  <InspectorNumberField
+                    label="Maximum lines"
+                    value={inspectorValue(node.maxLines)}
+                    min={1}
+                    max={100}
+                    integer
+                    disabled={node.locked}
+                    onPreview={(maxLines) => onPreview({ maxLines })}
+                    onPreviewCancel={onCancelPreview}
+                    onCommit={(maxLines) => onUpdate({ maxLines })}
+                  />
+                ) : null}
               </div>
               <div className="flex items-center justify-between gap-3">
                 <FieldLabel>List</FieldLabel>
@@ -2000,7 +3507,8 @@ function NodeInspector({
         </>
       ) : null}
 
-      {inspector.capabilities.cornerRadius && node.type === "rect" ? (
+      {inspector.capabilities.cornerRadius &&
+      (node.type === "rect" || node.type === "frame") ? (
         <InspectorSection
           title="Appearance"
           data-inspector-property="fill"
@@ -2012,14 +3520,7 @@ function NodeInspector({
           )}
         >
           {paintStyleControl}
-          <InspectorColorField
-            label="Fill"
-            value={node.fill}
-            disabled={nodeMutationDisabled}
-            onPreview={(fill) => onPreview({ fill })}
-            onPreviewCancel={onCancelPreview}
-            onCommit={(fill) => onUpdate({ fill })}
-          />
+          <PaintStackControls node={node} onUpdate={onUpdate} />
           <InspectorNumberField
             label="Corner radius"
             value={inspectorValue(node.radius)}
@@ -2029,23 +3530,84 @@ function NodeInspector({
             onPreviewCancel={onCancelPreview}
             onCommit={(radius) => onUpdate({ radius })}
           />
-          <InspectorColorField
-            label="Stroke"
-            value={node.stroke ?? "#1e2622"}
+          <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+            <Checkbox
+              aria-label="Independent corners"
+              checked={node.independentCorners ?? false}
+              disabled={node.locked}
+              onCheckedChange={(checked) =>
+                checked === true
+                  ? onUpdate({
+                      independentCorners: true,
+                      cornerRadii: node.cornerRadii ?? {
+                        topLeft: node.radius,
+                        topRight: node.radius,
+                        bottomRight: node.radius,
+                        bottomLeft: node.radius,
+                      },
+                    })
+                  : onUpdate({
+                      independentCorners: false,
+                      radius: node.cornerRadii?.topLeft ?? node.radius,
+                    })
+              }
+            />
+            Independent corners
+          </label>
+          {node.independentCorners ? (
+            <div className="grid grid-cols-2 gap-2">
+              {(
+                [
+                  ["Top left", "topLeft"],
+                  ["Top right", "topRight"],
+                  ["Bottom left", "bottomLeft"],
+                  ["Bottom right", "bottomRight"],
+                ] as const
+              ).map(([label, property]) => (
+                <InspectorNumberField
+                  key={property}
+                  label={label}
+                  value={inspectorValue(
+                    node.cornerRadii?.[property] ?? node.radius
+                  )}
+                  min={0}
+                  disabled={node.locked}
+                  onPreview={(value) =>
+                    onPreview({
+                      cornerRadii: {
+                        topLeft: node.cornerRadii?.topLeft ?? node.radius,
+                        topRight: node.cornerRadii?.topRight ?? node.radius,
+                        bottomRight:
+                          node.cornerRadii?.bottomRight ?? node.radius,
+                        bottomLeft: node.cornerRadii?.bottomLeft ?? node.radius,
+                        [property]: value,
+                      },
+                    })
+                  }
+                  onPreviewCancel={onCancelPreview}
+                  onCommit={(value) =>
+                    onUpdate({
+                      cornerRadii: {
+                        topLeft: node.cornerRadii?.topLeft ?? node.radius,
+                        topRight: node.cornerRadii?.topRight ?? node.radius,
+                        bottomRight:
+                          node.cornerRadii?.bottomRight ?? node.radius,
+                        bottomLeft: node.cornerRadii?.bottomLeft ?? node.radius,
+                        [property]: value,
+                      },
+                    })
+                  }
+                />
+              ))}
+            </div>
+          ) : null}
+          <CommitPercentSlider
+            label="Corner smoothing"
+            value={(node.cornerSmoothing ?? 0) * 100}
             disabled={node.locked}
-            onPreview={(stroke) => onPreview({ stroke })}
-            onPreviewCancel={onCancelPreview}
-            onCommit={(stroke) => onUpdate({ stroke })}
-          />
-          <InspectorNumberField
-            label="Stroke width"
-            value={inspectorValue(node.strokeWidth)}
-            min={0}
-            step={0.1}
-            disabled={node.locked}
-            onPreview={(strokeWidth) => onPreview({ strokeWidth })}
-            onPreviewCancel={onCancelPreview}
-            onCommit={(strokeWidth) => onUpdate({ strokeWidth })}
+            onCommit={(cornerSmoothing) =>
+              onUpdate({ cornerSmoothing: cornerSmoothing / 100 })
+            }
           />
         </InspectorSection>
       ) : null}
@@ -2063,58 +3625,24 @@ function NodeInspector({
           )}
         >
           {paintStyleControl}
-          <InspectorColorField
-            label="Fill"
-            value={node.fill}
-            disabled={node.locked}
-            onPreview={(fill) => onPreview({ fill })}
-            onPreviewCancel={onCancelPreview}
-            onCommit={(fill) => onUpdate({ fill })}
-          />
-          <InspectorColorField
-            label="Stroke"
-            value={node.stroke ?? "#1e2622"}
-            disabled={node.locked}
-            onPreview={(stroke) => onPreview({ stroke })}
-            onPreviewCancel={onCancelPreview}
-            onCommit={(stroke) => onUpdate({ stroke })}
-          />
-          <InspectorNumberField
-            label="Stroke width"
-            value={inspectorValue(node.strokeWidth)}
-            min={0}
-            step={0.1}
-            disabled={node.locked}
-            onPreview={(strokeWidth) => onPreview({ strokeWidth })}
-            onPreviewCancel={onCancelPreview}
-            onCommit={(strokeWidth) => onUpdate({ strokeWidth })}
-          />
+          <PaintStackControls node={node} onUpdate={onUpdate} />
         </InspectorSection>
       ) : null}
 
       {inspector.capabilities.stroke && node.type === "line" ? (
         <InspectorSection title="Appearance">
           {paintStyleControl}
-          <InspectorColorField
-            label="Stroke"
-            value={node.stroke}
-            disabled={node.locked}
-            onPreview={(stroke) => onPreview({ stroke })}
-            onPreviewCancel={onCancelPreview}
-            onCommit={(stroke) => onUpdate({ stroke })}
-          />
-          <InspectorNumberField
-            label="Stroke width"
-            value={inspectorValue(node.strokeWidth)}
-            min={0.1}
-            step={0.1}
-            disabled={node.locked}
-            onPreview={(strokeWidth) => onPreview({ strokeWidth })}
-            onPreviewCancel={onCancelPreview}
-            onCommit={(strokeWidth) => onUpdate({ strokeWidth })}
-          />
+          <PaintStackControls node={node} onUpdate={onUpdate} />
         </InspectorSection>
       ) : null}
+
+      <InspectorSection title="Effects">
+        <EffectStackControls node={node} onUpdate={onUpdate} />
+      </InspectorSection>
+
+      <InspectorSection title="Export">
+        <LayerExportControls node={node} onUpdate={onUpdate} />
+      </InspectorSection>
 
       {inspector.capabilities.image && node.type === "image" ? (
         <InspectorSection
@@ -2254,19 +3782,108 @@ function NodeInspector({
                 Ellipse
               </ToggleGroupItem>
             </ToggleGroup>
-            {node.frameMask.shape === "rounded_rectangle" ? (
-              <CommitPercentSlider
-                label="Corner radius"
-                value={node.frameMask.radius * 200}
-                disabled={imageFrameDisabled}
-                onCommit={(radius) =>
-                  onSetImageFrameMask(node.id, {
-                    shape: "rounded_rectangle",
-                    radius: radius / 200,
-                  })
-                }
-              />
-            ) : null}
+            {node.frameMask.shape === "rounded_rectangle"
+              ? (() => {
+                  const roundedMask = node.frameMask
+                  return (
+                    <div className="space-y-2">
+                      <CommitPercentSlider
+                        label="Corner radius"
+                        value={roundedMask.radius * 200}
+                        disabled={imageFrameDisabled}
+                        onCommit={(radius) =>
+                          onSetImageFrameMask(node.id, {
+                            ...roundedMask,
+                            radius: radius / 200,
+                          })
+                        }
+                      />
+                      <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                        <Checkbox
+                          aria-label="Independent image corners"
+                          checked={roundedMask.cornerRadii !== undefined}
+                          disabled={imageFrameDisabled}
+                          onCheckedChange={(checked) =>
+                            onSetImageFrameMask(
+                              node.id,
+                              checked === true
+                                ? {
+                                    ...roundedMask,
+                                    cornerRadii: {
+                                      topLeft: roundedMask.radius,
+                                      topRight: roundedMask.radius,
+                                      bottomRight: roundedMask.radius,
+                                      bottomLeft: roundedMask.radius,
+                                    },
+                                  }
+                                : {
+                                    shape: "rounded_rectangle",
+                                    radius: roundedMask.radius,
+                                    ...(roundedMask.cornerSmoothing !==
+                                    undefined
+                                      ? {
+                                          cornerSmoothing:
+                                            roundedMask.cornerSmoothing,
+                                        }
+                                      : {}),
+                                  }
+                            )
+                          }
+                        />
+                        Independent corners
+                      </label>
+                      {roundedMask.cornerRadii
+                        ? (() => {
+                            const independentRadii = roundedMask.cornerRadii
+                            return (
+                              <div className="grid grid-cols-2 gap-2">
+                                {(
+                                  [
+                                    ["Top left", "topLeft"],
+                                    ["Top right", "topRight"],
+                                    ["Bottom left", "bottomLeft"],
+                                    ["Bottom right", "bottomRight"],
+                                  ] as const
+                                ).map(([label, property]) => (
+                                  <InspectorNumberField
+                                    key={property}
+                                    label={label}
+                                    value={inspectorValue(
+                                      independentRadii[property] * 200
+                                    )}
+                                    min={0}
+                                    max={100}
+                                    disabled={imageFrameDisabled}
+                                    onCommit={(value) =>
+                                      onSetImageFrameMask(node.id, {
+                                        ...roundedMask,
+                                        cornerRadii: {
+                                          ...independentRadii,
+                                          [property]: value / 200,
+                                        },
+                                      })
+                                    }
+                                  />
+                                ))}
+                              </div>
+                            )
+                          })()
+                        : null}
+                      <CommitPercentSlider
+                        label="Corner smoothing"
+                        value={(roundedMask.cornerSmoothing ?? 0) * 100}
+                        disabled={imageFrameDisabled}
+                        onCommit={(cornerSmoothing) =>
+                          onSetImageFrameMask(node.id, {
+                            ...roundedMask,
+                            cornerSmoothing: cornerSmoothing / 100,
+                          })
+                        }
+                      />
+                    </div>
+                  )
+                })()
+              : null}
           </div>
           <div className="space-y-2 border-t pt-3">
             <div className="flex items-start gap-2.5 text-xs">
@@ -4801,6 +6418,7 @@ export function InspectorSidebar({
                     : undefined
                 }
                 onUpdate={(patch) => onUpdateNode(selectedNode.id, patch)}
+                onUpdateRelatedNode={onUpdateNode}
                 onPreview={(patch) =>
                   onPreviewNodePatch(selectedNode.id, patch)
                 }

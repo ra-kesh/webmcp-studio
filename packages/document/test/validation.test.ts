@@ -249,6 +249,7 @@ describe("strict document validation", () => {
       opacity: 1,
       visible: true,
       locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
       assetId: "unsafe-image-asset",
       src: "file:///etc/passwd",
       placement: {
@@ -285,6 +286,7 @@ describe("strict document validation", () => {
       opacity: 1,
       visible: true,
       locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
       assetId: "asset-aaaaaaaaaa",
       src: "asset:managed/asset-bbbbbbbbbb",
       placement: {

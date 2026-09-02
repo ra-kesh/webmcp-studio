@@ -42,6 +42,7 @@ describe("local asset model", () => {
           opacity: 1,
           visible: true,
           locked: false,
+          constraints: { horizontal: "min" as const, vertical: "min" as const },
         },
       ],
       fields: [

@@ -27,6 +27,7 @@ function documentWithImage() {
       opacity: 1,
       visible: true,
       locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
       assetId: `library-${asset.id}`,
       src: asset.src,
       placement: {
@@ -66,6 +67,277 @@ describe("review operation details", () => {
       expected: "Device-local image (local-review-image-1)",
     },
   ] as const
+
+  it("names both axes of a constraint proposal", () => {
+    const document = quotationStarter.document
+    const node = document.nodes[0]!
+    const operation: ChangeOperation = {
+      id: "constraint-operation",
+      status: "pending",
+      summary: "Pin the layer",
+      command: {
+        id: "constraint-command",
+        type: "update_node",
+        actor: "agent",
+        at: "2026-09-01T09:20:00.000Z",
+        nodeId: node.id,
+        patch: {
+          constraints: { horizontal: "max", vertical: "stretch" },
+        },
+      },
+    }
+
+    const details = operationDetails(document, operation)
+
+    expect(details.before).toContain("Horizontal: min · Vertical: min")
+    expect(details.after).toContain("Horizontal: max · Vertical: stretch")
+  })
+
+  it("names a layer blend-mode change", () => {
+    const document = quotationStarter.document
+    const node = document.nodes[0]!
+    const operation: ChangeOperation = {
+      id: "blend-operation",
+      status: "pending",
+      summary: "Blend the layer",
+      command: {
+        id: "blend-command",
+        type: "update_node",
+        actor: "agent",
+        at: "2026-09-02T01:00:00.000Z",
+        nodeId: node.id,
+        patch: { blendMode: "color-burn" },
+      },
+    }
+    const details = operationDetails(document, operation)
+    expect(details.before).toContain("blendMode: Normal")
+    expect(details.after).toContain("blendMode: Color Burn")
+  })
+
+  it("summarizes ordered paint stacks without dumping implementation JSON", () => {
+    const document = quotationStarter.document
+    const node = document.nodes.find((candidate) => candidate.type === "rect")!
+    const operation: ChangeOperation = {
+      id: "paint-stack-operation",
+      status: "pending",
+      summary: "Layer two fills",
+      command: {
+        id: "paint-stack-command",
+        type: "update_node",
+        actor: "agent",
+        at: "2026-09-02T01:05:00.000Z",
+        nodeId: node.id,
+        patch: {
+          fills: [
+            { id: "base", color: "#111", opacity: 1, visible: false },
+            {
+              id: "accent",
+              color: "#eee",
+              opacity: 0.8,
+              visible: true,
+            },
+          ],
+          strokes: [],
+        },
+      },
+    }
+    const details = operationDetails(document, operation)
+    expect(details.after).toContain("fills: 2 fills · 1 visible")
+    expect(details.after).toContain("strokes: 0 strokes · 0 visible")
+    expect(details.after).not.toContain('"color"')
+  })
+
+  it("summarizes ordered effects without dumping implementation JSON", () => {
+    const document = quotationStarter.document
+    const node = document.nodes.find((candidate) => candidate.type === "rect")!
+    const operation: ChangeOperation = {
+      id: "effect-operation",
+      status: "pending",
+      summary: "Add effects",
+      command: {
+        id: "effect-command",
+        type: "update_node",
+        actor: "agent",
+        at: "2026-09-02T01:06:00.000Z",
+        nodeId: node.id,
+        patch: {
+          effects: [
+            {
+              id: "shadow",
+              type: "drop_shadow",
+              color: "#00000040",
+              offsetX: 4,
+              offsetY: 8,
+              blur: 12,
+              visible: true,
+            },
+            { id: "blur", type: "layer_blur", radius: 2, visible: false },
+          ],
+        },
+      },
+    }
+    const details = operationDetails(document, operation)
+    expect(details.after).toContain("effects: 2 effects · 1 visible")
+    expect(details.after).not.toContain('"drop_shadow"')
+  })
+
+  it("summarizes per-layer export presets", () => {
+    const document = quotationStarter.document
+    const node = document.nodes.find((candidate) => candidate.type === "rect")!
+    const operation: ChangeOperation = {
+      id: "layer-export-operation",
+      status: "pending",
+      summary: "Add layer export",
+      command: {
+        id: "layer-export-command",
+        type: "update_node",
+        actor: "agent",
+        at: "2026-09-02T01:07:00.000Z",
+        nodeId: node.id,
+        patch: {
+          exportSettings: [
+            { id: "asset", format: "png", scale: 2, suffix: "-asset" },
+          ],
+        },
+      },
+    }
+    expect(operationDetails(document, operation).after).toContain(
+      "exportSettings: 1 layer export"
+    )
+  })
+
+  it("summarizes independent corner geometry", () => {
+    const document = quotationStarter.document
+    const node = document.nodes.find((candidate) => candidate.type === "rect")!
+    const operation: ChangeOperation = {
+      id: "corner-operation",
+      status: "pending",
+      summary: "Shape the corners",
+      command: {
+        id: "corner-command",
+        type: "update_node",
+        actor: "agent",
+        at: "2026-09-02T01:00:00.000Z",
+        nodeId: node.id,
+        patch: {
+          independentCorners: true,
+          cornerRadii: {
+            topLeft: 4,
+            topRight: 8,
+            bottomRight: 12,
+            bottomLeft: 16,
+          },
+          cornerSmoothing: 0.6,
+        },
+      },
+    }
+    const details = operationDetails(document, operation)
+    expect(details.after).toContain("Independent corners")
+    expect(details.after).toContain("TL 4 · TR 8 · BR 12 · BL 16")
+    expect(details.after).toContain("60% smoothing")
+  })
+
+  it("summarizes advanced text layout values", () => {
+    const document = quotationStarter.document
+    const node = document.nodes.find((candidate) => candidate.type === "text")!
+    const operation: ChangeOperation = {
+      id: "text-layout-operation",
+      status: "pending",
+      summary: "Refine text layout",
+      command: {
+        id: "text-layout-command",
+        type: "update_node",
+        actor: "agent",
+        at: "2026-09-02T01:08:00.000Z",
+        nodeId: node.id,
+        patch: {
+          direction: "rtl",
+          verticalAlign: "middle",
+          textCase: "uppercase",
+          truncation: "ellipsis",
+          maxLines: 2,
+        },
+      },
+    }
+
+    const details = operationDetails(document, operation)
+    expect(details.after).toContain("direction: Rtl")
+    expect(details.after).toContain("verticalAlign: Middle")
+    expect(details.after).toContain("textCase: Uppercase")
+    expect(details.after).toContain("truncation: Ellipsis")
+    expect(details.after).toContain("maxLines: 2 lines")
+  })
+
+  it("summarizes frame flow and overflow changes", () => {
+    const document = structuredClone(quotationStarter.document)
+    const page = document.pages[0]!
+    page.nodeIds.unshift("review-frame")
+    document.nodes.push({
+      id: "review-frame",
+      type: "frame",
+      name: "Review frame",
+      x: 0,
+      y: 0,
+      width: 300,
+      height: 200,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
+      fill: "#ffffff",
+      radius: 8,
+      strokeWidth: 0,
+      children: [],
+      autoLayout: null,
+      clipsContent: false,
+    })
+    const operation: ChangeOperation = {
+      id: "frame-operation",
+      status: "pending",
+      summary: "Enable frame layout",
+      command: {
+        id: "frame-command",
+        type: "update_node",
+        actor: "agent",
+        at: "2026-09-01T10:20:00.000Z",
+        nodeId: "review-frame",
+        patch: {
+          clipsContent: true,
+          layoutGrids: [
+            {
+              id: "review-columns",
+              pattern: "columns",
+              visible: true,
+              color: "#2563eb",
+              opacity: 0.12,
+              alignment: "stretch",
+              count: 12,
+              offset: 24,
+              sectionSize: 1,
+              gutter: 16,
+            },
+          ],
+          autoLayout: {
+            direction: "vertical",
+            horizontalSizing: "fixed",
+            verticalSizing: "fixed",
+            gap: 12,
+            padding: { top: 8, right: 8, bottom: 8, left: 8 },
+            primaryAlign: "start",
+            counterAlign: "stretch",
+          },
+        },
+      },
+    }
+
+    const details = operationDetails(document, operation)
+
+    expect(details.before).toContain("Show overflow")
+    expect(details.after).toContain("Clip content")
+    expect(details.after).toContain("1 layout guide")
+    expect(details.after).toContain("vertical · Gap 12")
+  })
 
   it("omits private image sources and names the approved catalog asset", () => {
     const document = documentWithImage()

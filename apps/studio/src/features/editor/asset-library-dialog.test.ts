@@ -23,7 +23,7 @@ const managedSource = managedAssetSource(managedAssetId)
 
 const documentFor = (id: string, source: string, assetId: string) =>
   documentSchema.parse({
-    schemaVersion: 5,
+    schemaVersion: 6,
     id,
     name: "Promotion projection",
     revision: 1,

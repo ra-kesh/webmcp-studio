@@ -28,6 +28,7 @@ const customRect = (id: string, name: string) =>
     opacity: 1,
     visible: true,
     locked: false,
+    constraints: { horizontal: "min", vertical: "min" },
     fill: "#ff00ff",
     radius: 8,
     strokeWidth: 0,

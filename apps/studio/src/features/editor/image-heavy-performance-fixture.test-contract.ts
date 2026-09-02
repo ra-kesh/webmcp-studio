@@ -79,6 +79,7 @@ export function createImageHeavyPerformanceFixture(
         opacity: 1,
         visible: true,
         locked: false,
+        constraints: { horizontal: "min", vertical: "min" },
         assetId: `performance-asset-${pageNumber}-${imageNumber}`,
         src: `https://images.example.test/performance/page-${pageNumber}/image-${imageNumber}.webp`,
         placement: placementFor(imageIndex),
@@ -102,7 +103,7 @@ export function createImageHeavyPerformanceFixture(
   }
 
   const document = documentSchema.parse({
-    schemaVersion: 5,
+    schemaVersion: 6,
     id: `image-heavy-performance-document-${pageCount}-${imagesPerPage}`,
     name: `${pageCount}-page image-heavy performance fixture`,
     revision: 0,

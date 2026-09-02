@@ -975,7 +975,7 @@ function parseCanvasProposalInput(input: unknown): CanvasEditProposalInput {
     }
     if (!isSceneNodeType(edit.nodeType)) {
       throw new Error(
-        `edits[${index}].nodeType must be text, rect, ellipse, line, icon, or image.`
+        `edits[${index}].nodeType must be text, rect, frame, ellipse, line, icon, or image.`
       )
     }
     const replacementOnly =
@@ -1432,6 +1432,7 @@ function parseComponentProposalInput(
 const sceneNodeTypes = new Set<SceneNode["type"]>([
   "text",
   "rect",
+  "frame",
   "ellipse",
   "line",
   "icon",
@@ -2209,8 +2210,12 @@ const publicCommonCanvasPatchProperties = new Set([
   "flipX",
   "flipY",
   "opacity",
+  "blendMode",
+  "effects",
+  "exportSettings",
   "visible",
   "locked",
+  "constraints",
 ])
 
 const publicNodeCanvasPatchProperties: Record<
@@ -2226,12 +2231,42 @@ const publicNodeCanvasPatchProperties: Record<
     "lineHeight",
     "letterSpacing",
     "align",
+    "direction",
+    "verticalAlign",
+    "textCase",
+    "truncation",
+    "maxLines",
     "sizingMode",
   ]),
-  rect: new Set(["fill", "radius", "stroke", "strokeWidth"]),
-  ellipse: new Set(["fill", "stroke", "strokeWidth"]),
-  line: new Set(["stroke", "strokeWidth"]),
-  icon: new Set(["fill", "stroke", "strokeWidth"]),
+  rect: new Set([
+    "fill",
+    "fills",
+    "radius",
+    "independentCorners",
+    "cornerRadii",
+    "cornerSmoothing",
+    "stroke",
+    "strokeWidth",
+    "strokes",
+  ]),
+  frame: new Set([
+    "fill",
+    "fills",
+    "radius",
+    "independentCorners",
+    "cornerRadii",
+    "cornerSmoothing",
+    "stroke",
+    "strokeWidth",
+    "strokes",
+    "children",
+    "autoLayout",
+    "clipsContent",
+    "layoutGrids",
+  ]),
+  ellipse: new Set(["fill", "fills", "stroke", "strokeWidth", "strokes"]),
+  line: new Set(["stroke", "strokeWidth", "strokes"]),
+  icon: new Set(["fill", "fills", "stroke", "strokeWidth", "strokes"]),
   image: new Set(["placement", "frameMask", "alt", "decorative"]),
 }
 
@@ -2291,6 +2326,86 @@ const imagePlacementInputSchema = {
   required: ["mode", "focalX", "focalY", "zoom", "rotation", "flipX", "flipY"],
 } as const
 
+const frameLayoutGridInputSchema = {
+  oneOf: [
+    {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        id: { type: "string", minLength: 1 },
+        pattern: { type: "string", enum: ["columns", "rows"] },
+        visible: { type: "boolean" },
+        color: { type: "string", minLength: 1 },
+        opacity: { type: "number", minimum: 0, maximum: 1 },
+        alignment: {
+          type: "string",
+          enum: ["min", "center", "max", "stretch"],
+        },
+        count: { type: "integer", minimum: 1, maximum: 64 },
+        offset: { type: "number", minimum: 0 },
+        sectionSize: { type: "number", exclusiveMinimum: 0 },
+        gutter: { type: "number", minimum: 0 },
+      },
+      required: [
+        "id",
+        "pattern",
+        "visible",
+        "color",
+        "opacity",
+        "alignment",
+        "count",
+        "offset",
+        "sectionSize",
+        "gutter",
+      ],
+    },
+    {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        id: { type: "string", minLength: 1 },
+        pattern: { const: "grid" },
+        visible: { type: "boolean" },
+        color: { type: "string", minLength: 1 },
+        opacity: { type: "number", minimum: 0, maximum: 1 },
+        offset: { type: "number", minimum: 0 },
+        size: { type: "number", exclusiveMinimum: 0 },
+      },
+      required: [
+        "id",
+        "pattern",
+        "visible",
+        "color",
+        "opacity",
+        "offset",
+        "size",
+      ],
+    },
+  ],
+} as const
+
+const cornerRadiiInputSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    topLeft: { type: "number", minimum: 0 },
+    topRight: { type: "number", minimum: 0 },
+    bottomRight: { type: "number", minimum: 0 },
+    bottomLeft: { type: "number", minimum: 0 },
+  },
+  required: ["topLeft", "topRight", "bottomRight", "bottomLeft"],
+} as const
+
+const normalizedCornerRadiiInputSchema = {
+  ...cornerRadiiInputSchema,
+  properties: {
+    topLeft: { type: "number", minimum: 0, maximum: 0.5 },
+    topRight: { type: "number", minimum: 0, maximum: 0.5 },
+    bottomRight: { type: "number", minimum: 0, maximum: 0.5 },
+    bottomLeft: { type: "number", minimum: 0, maximum: 0.5 },
+  },
+} as const
+
 const imageFrameMaskInputSchema = {
   oneOf: [
     {
@@ -2311,10 +2426,77 @@ const imageFrameMaskInputSchema = {
       properties: {
         shape: { const: "rounded_rectangle" },
         radius: { type: "number", minimum: 0, maximum: 0.5 },
+        cornerRadii: normalizedCornerRadiiInputSchema,
+        cornerSmoothing: { type: "number", minimum: 0, maximum: 1 },
       },
       required: ["shape", "radius"],
     },
   ],
+} as const
+
+const layerEffectsInputSchema = {
+  type: "array",
+  maxItems: 8,
+  items: {
+    oneOf: [
+      {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string", minLength: 1 },
+          type: { const: "drop_shadow" },
+          color: {
+            type: "string",
+            pattern: "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$",
+          },
+          offsetX: { type: "number", minimum: -4096, maximum: 4096 },
+          offsetY: { type: "number", minimum: -4096, maximum: 4096 },
+          blur: { type: "number", minimum: 0, maximum: 64 },
+          visible: { type: "boolean" },
+        },
+        required: [
+          "id",
+          "type",
+          "color",
+          "offsetX",
+          "offsetY",
+          "blur",
+          "visible",
+        ],
+      },
+      {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string", minLength: 1 },
+          type: { const: "layer_blur" },
+          radius: { type: "number", minimum: 0, maximum: 64 },
+          visible: { type: "boolean" },
+        },
+        required: ["id", "type", "radius", "visible"],
+      },
+    ],
+  },
+} as const
+
+const layerExportSettingsInputSchema = {
+  type: "array",
+  maxItems: 4,
+  items: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      id: { type: "string", minLength: 1 },
+      format: { type: "string", enum: ["png", "pdf"] },
+      scale: { type: "number", minimum: 0.25, maximum: 4 },
+      suffix: {
+        type: "string",
+        maxLength: 40,
+        pattern: "^[A-Za-z0-9._-]*$",
+      },
+    },
+    required: ["id", "format", "scale", "suffix"],
+  },
 } as const
 
 const commonCanvasPatchInputProperties = {
@@ -2327,8 +2509,188 @@ const commonCanvasPatchInputProperties = {
   flipX: { type: "boolean" },
   flipY: { type: "boolean" },
   opacity: { type: "number", minimum: 0, maximum: 1 },
+  blendMode: {
+    type: "string",
+    enum: [
+      "normal",
+      "darken",
+      "multiply",
+      "color-burn",
+      "lighten",
+      "screen",
+      "color-dodge",
+      "overlay",
+      "soft-light",
+      "hard-light",
+      "difference",
+      "exclusion",
+      "hue",
+      "saturation",
+      "color",
+      "luminosity",
+    ],
+  },
+  effects: layerEffectsInputSchema,
+  exportSettings: layerExportSettingsInputSchema,
   visible: { type: "boolean" },
   locked: { type: "boolean" },
+  constraints: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      horizontal: {
+        type: "string",
+        enum: ["min", "center", "max", "stretch", "scale"],
+      },
+      vertical: {
+        type: "string",
+        enum: ["min", "center", "max", "stretch", "scale"],
+      },
+    },
+    required: ["horizontal", "vertical"],
+  },
+} as const
+
+const paintBlendModeInputSchema = {
+  type: "string",
+  enum: [
+    "normal",
+    "darken",
+    "multiply",
+    "color-burn",
+    "lighten",
+    "screen",
+    "color-dodge",
+    "overlay",
+    "soft-light",
+    "hard-light",
+    "difference",
+    "exclusion",
+    "hue",
+    "saturation",
+    "color",
+    "luminosity",
+  ],
+} as const
+
+const fillPaintsInputSchema = {
+  type: "array",
+  maxItems: 8,
+  items: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      id: { type: "string", minLength: 1 },
+      color: { type: "string", minLength: 1 },
+      opacity: { type: "number", minimum: 0, maximum: 1 },
+      visible: { type: "boolean" },
+      blendMode: paintBlendModeInputSchema,
+    },
+    required: ["id", "color", "opacity", "visible"],
+  },
+} as const
+
+const strokePaintsInputSchema = {
+  type: "array",
+  maxItems: 8,
+  items: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      id: { type: "string", minLength: 1 },
+      color: { type: "string", minLength: 1 },
+      width: { type: "number", minimum: 0 },
+      opacity: { type: "number", minimum: 0, maximum: 1 },
+      visible: { type: "boolean" },
+      blendMode: paintBlendModeInputSchema,
+      alignment: {
+        type: "string",
+        enum: ["inside", "center", "outside"],
+      },
+      sides: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          top: { type: "boolean" },
+          right: { type: "boolean" },
+          bottom: { type: "boolean" },
+          left: { type: "boolean" },
+        },
+        required: ["top", "right", "bottom", "left"],
+      },
+      dash: {
+        type: "array",
+        maxItems: 16,
+        items: { type: "number", minimum: 0 },
+      },
+      cap: { type: "string", enum: ["butt", "round", "square"] },
+      join: { type: "string", enum: ["miter", "round", "bevel"] },
+      miterLimit: { type: "number", minimum: 1, maximum: 100 },
+    },
+    required: ["id", "color", "width", "opacity", "visible"],
+  },
+} as const
+
+const frameChildLayoutInputSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    nodeId: { type: "string", minLength: 1 },
+    positioning: { type: "string", enum: ["auto", "absolute"] },
+    horizontalSizing: { type: "string", enum: ["fixed", "fill"] },
+    verticalSizing: { type: "string", enum: ["fixed", "fill"] },
+    offsetX: { type: "number" },
+    offsetY: { type: "number" },
+    grow: { type: "number", minimum: 0 },
+  },
+  required: [
+    "nodeId",
+    "positioning",
+    "horizontalSizing",
+    "verticalSizing",
+    "offsetX",
+    "offsetY",
+    "grow",
+  ],
+} as const
+
+const frameAutoLayoutInputSchema = {
+  type: ["object", "null"],
+  additionalProperties: false,
+  properties: {
+    direction: { type: "string", enum: ["horizontal", "vertical"] },
+    horizontalSizing: { type: "string", enum: ["fixed", "hug"] },
+    verticalSizing: { type: "string", enum: ["fixed", "hug"] },
+    gap: { type: "number", minimum: 0 },
+    padding: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        top: { type: "number", minimum: 0 },
+        right: { type: "number", minimum: 0 },
+        bottom: { type: "number", minimum: 0 },
+        left: { type: "number", minimum: 0 },
+      },
+      required: ["top", "right", "bottom", "left"],
+    },
+    primaryAlign: {
+      type: "string",
+      enum: ["start", "center", "end", "space_between"],
+    },
+    counterAlign: {
+      type: "string",
+      enum: ["start", "center", "end", "stretch"],
+    },
+  },
+  required: [
+    "direction",
+    "horizontalSizing",
+    "verticalSizing",
+    "gap",
+    "padding",
+    "primaryAlign",
+    "counterAlign",
+  ],
 } as const
 
 const typedCanvasEditInputSchema = {
@@ -2356,7 +2718,26 @@ const typedCanvasEditInputSchema = {
             },
             lineHeight: { type: "number", minimum: 0.5, maximum: 3 },
             letterSpacing: { type: "number", minimum: -20, maximum: 200 },
-            align: { type: "string", enum: ["left", "center", "right"] },
+            align: {
+              type: "string",
+              enum: ["left", "center", "right", "justify"],
+            },
+            direction: { type: "string", enum: ["auto", "ltr", "rtl"] },
+            verticalAlign: {
+              type: "string",
+              enum: ["top", "middle", "bottom"],
+            },
+            textCase: {
+              type: "string",
+              enum: ["original", "uppercase", "lowercase", "title"],
+            },
+            truncation: { type: "string", enum: ["clip", "ellipsis"] },
+            maxLines: {
+              oneOf: [
+                { type: "integer", minimum: 1, maximum: 100 },
+                { type: "null" },
+              ],
+            },
             sizingMode: {
               type: "string",
               enum: ["auto_width", "auto_height", "fixed"],
@@ -2372,17 +2753,46 @@ const typedCanvasEditInputSchema = {
         nodeType: "rect",
         patch: {
           fill: { type: "string" },
+          fills: fillPaintsInputSchema,
           radius: { type: "number", minimum: 0 },
+          independentCorners: { type: "boolean" },
+          cornerRadii: cornerRadiiInputSchema,
+          cornerSmoothing: { type: "number", minimum: 0, maximum: 1 },
           stroke: { type: "string" },
           strokeWidth: { type: "number", minimum: 0 },
+          strokes: strokePaintsInputSchema,
         },
       },
       {
         nodeType: "ellipse",
         patch: {
           fill: { type: "string" },
+          fills: fillPaintsInputSchema,
           stroke: { type: "string" },
           strokeWidth: { type: "number", minimum: 0 },
+          strokes: strokePaintsInputSchema,
+        },
+      },
+      {
+        nodeType: "frame",
+        patch: {
+          fill: { type: "string" },
+          fills: fillPaintsInputSchema,
+          radius: { type: "number", minimum: 0 },
+          independentCorners: { type: "boolean" },
+          cornerRadii: cornerRadiiInputSchema,
+          cornerSmoothing: { type: "number", minimum: 0, maximum: 1 },
+          stroke: { type: "string" },
+          strokeWidth: { type: "number", minimum: 0 },
+          strokes: strokePaintsInputSchema,
+          children: { type: "array", items: frameChildLayoutInputSchema },
+          autoLayout: frameAutoLayoutInputSchema,
+          clipsContent: { type: "boolean" },
+          layoutGrids: {
+            type: "array",
+            maxItems: 8,
+            items: frameLayoutGridInputSchema,
+          },
         },
       },
       {
@@ -2390,14 +2800,17 @@ const typedCanvasEditInputSchema = {
         patch: {
           stroke: { type: "string" },
           strokeWidth: { type: "number", exclusiveMinimum: 0 },
+          strokes: strokePaintsInputSchema,
         },
       },
       {
         nodeType: "icon",
         patch: {
           fill: { type: "string" },
+          fills: fillPaintsInputSchema,
           stroke: { type: "string" },
           strokeWidth: { type: "number", minimum: 0 },
+          strokes: strokePaintsInputSchema,
         },
       },
     ].map(({ nodeType, patch }) => ({
@@ -2770,15 +3183,36 @@ const componentOverridePatchInputSchema = {
     fontWeight: { type: "integer", minimum: 100, maximum: 900 },
     lineHeight: { type: "number", minimum: 0.5, maximum: 3 },
     letterSpacing: { type: "number", minimum: -20, maximum: 200 },
-    align: { type: "string", enum: ["left", "center", "right"] },
+    align: {
+      type: "string",
+      enum: ["left", "center", "right", "justify"],
+    },
+    direction: { type: "string", enum: ["auto", "ltr", "rtl"] },
+    verticalAlign: {
+      type: "string",
+      enum: ["top", "middle", "bottom"],
+    },
+    textCase: {
+      type: "string",
+      enum: ["original", "uppercase", "lowercase", "title"],
+    },
+    truncation: { type: "string", enum: ["clip", "ellipsis"] },
+    maxLines: {
+      oneOf: [{ type: "integer", minimum: 1, maximum: 100 }, { type: "null" }],
+    },
     sizingMode: {
       type: "string",
       enum: ["auto_width", "auto_height", "fixed"],
     },
     fill: { type: "string" },
+    fills: fillPaintsInputSchema,
     radius: { type: "number", minimum: 0 },
+    independentCorners: { type: "boolean" },
+    cornerRadii: cornerRadiiInputSchema,
+    cornerSmoothing: { type: "number", minimum: 0, maximum: 1 },
     stroke: { type: "string" },
     strokeWidth: { type: "number", minimum: 0 },
+    strokes: strokePaintsInputSchema,
     placement: imagePlacementInputSchema,
     frameMask: imageFrameMaskInputSchema,
     alt: { type: "string" },

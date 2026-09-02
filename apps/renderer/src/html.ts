@@ -1,8 +1,12 @@
 import {
   assertPageThumbnailSize,
+  cornerRadiiCss,
   pageThumbnailScale,
   projectNodeForRender,
+  projectFrameClipStack,
   projectPageForRender,
+  roundedRectanglePath,
+  roundedRectanglePaintPath,
   serializeImagePaintProjector,
   type Document,
   type ImagePaintProjectionInput,
@@ -50,6 +54,7 @@ type RenderImage = {
   complete: boolean
   dataset: {
     imageFrameHeight?: string
+    imageFrameClipPath?: string
     imageFrameMask?: string
     imageFrameWidth?: string
     imagePlacement?: string
@@ -200,8 +205,10 @@ export async function markRenderResourcesReady(input: {
         const frameStyle = image.parentElement?.style
         if (!frameStyle) throw new Error("Image frame is missing")
         const clip = projection.clip
-        const clipPath =
-          clip.shape === "ellipse"
+        const authoredClipPath = image.dataset.imageFrameClipPath
+        const clipPath = authoredClipPath
+          ? `path('${authoredClipPath}')`
+          : clip.shape === "ellipse"
             ? `ellipse(${clip.radiusX}px ${clip.radiusY}px at ${clip.centerX}px ${clip.centerY}px)`
             : clip.shape === "rounded_rectangle"
               ? `inset(0 round ${clip.radius}px)`
@@ -429,13 +436,32 @@ export function renderNodeToHtml(node: SceneNode): string {
     `width:${frame.width}px`,
     `height:${frame.height}px`,
     `opacity:${frame.opacity}`,
+    `mix-blend-mode:${frame.blendMode}`,
     `transform:rotate(${frame.rotation}deg)`,
     "transform-origin:top left",
     `display:${frame.visible ? "block" : "none"}`,
   ].join(";")
   const identity = `data-node-id="${escapeHtml(frame.id)}" data-node-locked="${frame.locked ? "true" : "false"}"`
 
-  if (projection.type === "rect") {
+  if (projection.type === "rect" || projection.type === "frame") {
+    if (
+      projection.content.corners.independent ||
+      projection.content.corners.smoothing > 0
+    ) {
+      const stroke = projection.content.stroke
+        ? ` stroke="${escapeHtml(projection.content.stroke)}" stroke-width="${projection.content.strokeWidth}"`
+        : ""
+      const path = roundedRectanglePaintPath({
+        width: frame.width,
+        height: frame.height,
+        cornerRadii: projection.content.corners.radii,
+        cornerSmoothing: projection.content.corners.smoothing,
+        strokeWidth: projection.content.stroke
+          ? projection.content.strokeWidth
+          : 0,
+      })
+      return `<svg ${identity} viewBox="0 0 ${frame.width} ${frame.height}" preserveAspectRatio="none" style="${common};overflow:visible"><path d="${escapeHtml(path)}" fill="${escapeHtml(projection.content.fill)}"${stroke} vector-effect="non-scaling-stroke" /></svg>`
+    }
     const border = projection.content.stroke
       ? `;border:${projection.content.strokeWidth}px solid ${escapeHtml(projection.content.stroke)}`
       : ""
@@ -471,6 +497,35 @@ export function renderNodeToHtml(node: SceneNode): string {
       `data-image-frame-height="${frame.height}"`,
       `data-image-placement="${escapeHtml(JSON.stringify(placement))}"`,
       `data-image-frame-mask="${escapeHtml(JSON.stringify(mask))}"`,
+      ...(mask.shape === "rounded_rectangle" &&
+      ((mask.cornerSmoothing ?? 0) > 0 || mask.cornerRadii)
+        ? [
+            `data-image-frame-clip-path="${escapeHtml(
+              roundedRectanglePath({
+                width: frame.width,
+                height: frame.height,
+                radius: mask.radius * Math.min(frame.width, frame.height),
+                cornerRadii: mask.cornerRadii
+                  ? {
+                      topLeft:
+                        mask.cornerRadii.topLeft *
+                        Math.min(frame.width, frame.height),
+                      topRight:
+                        mask.cornerRadii.topRight *
+                        Math.min(frame.width, frame.height),
+                      bottomRight:
+                        mask.cornerRadii.bottomRight *
+                        Math.min(frame.width, frame.height),
+                      bottomLeft:
+                        mask.cornerRadii.bottomLeft *
+                        Math.min(frame.width, frame.height),
+                    }
+                  : undefined,
+                cornerSmoothing: mask.cornerSmoothing,
+              })
+            )}"`,
+          ]
+        : []),
     ].join(" ")
     return `<div data-image-frame-id="${escapeHtml(frame.id)}" style="${common};overflow:hidden"><img ${identity} ${runtimeData}${decorativeAttribute} src="${escapeHtml(projection.content.src)}" alt="${escapeHtml(projection.content.decorative ? "" : projection.content.alt)}" style="position:absolute;left:0;top:0;max-width:none;max-height:none;transform-origin:0 0" /></div>`
   }
@@ -486,12 +541,16 @@ export function renderNodeToHtml(node: SceneNode): string {
     "text-rendering:geometricPrecision",
     "-webkit-font-smoothing:antialiased",
     `text-align:${projection.content.align}`,
+    `direction:${projection.content.direction}`,
+    `display:${projection.frame.visible ? "flex" : "none"}`,
+    "flex-direction:column",
+    `justify-content:${projection.content.verticalAlign === "middle" ? "center" : projection.content.verticalAlign === "bottom" ? "flex-end" : "flex-start"}`,
     `white-space:${projection.content.whiteSpace}`,
     `overflow-wrap:${projection.content.overflowWrap}`,
     `overflow:${projection.content.sizingMode === "fixed" ? "hidden" : "visible"}`,
   ].join(";")
   if (node.type !== "text") throw new Error(`Unknown text node: ${node.id}`)
-  const textIdentity = `${identity} data-text-sizing-mode="${projection.content.sizingMode}" data-text-measurement="${projection.content.layout.measurement}" data-text-line-count="${projection.content.layout.lineCount}" data-text-overflow="${projection.content.layout.overflow ? "true" : "false"}" data-text-overflow-x="${projection.content.layout.overflowX ? "true" : "false"}" data-text-overflow-y="${projection.content.layout.overflowY ? "true" : "false"}" data-mask-font-source-node="${escapeHtml(node.id)}" data-mask-font-families="${escapeHtml(JSON.stringify(renderTextFontFamilies(node)))}"`
+  const textIdentity = `${identity} data-text-sizing-mode="${projection.content.sizingMode}" data-text-measurement="${projection.content.layout.measurement}" data-text-line-count="${projection.content.layout.lineCount}" data-text-source-line-count="${projection.content.layout.sourceLineCount}" data-text-direction="${projection.content.direction}" data-text-vertical-align="${projection.content.verticalAlign}" data-text-case="${projection.content.textCase}" data-text-truncated="${projection.content.layout.truncated ? "true" : "false"}" data-text-overflow="${projection.content.layout.overflow ? "true" : "false"}" data-text-overflow-x="${projection.content.layout.overflowX ? "true" : "false"}" data-text-overflow-y="${projection.content.layout.overflowY ? "true" : "false"}" data-mask-font-source-node="${escapeHtml(node.id)}" data-mask-font-families="${escapeHtml(JSON.stringify(renderTextFontFamilies(node)))}"`
   return `<div ${textIdentity} style="${textStyle}">${renderTextMarkup(projection)}</div>`
 }
 
@@ -518,6 +577,21 @@ const renderVectorMaskSource = (
     const stroke = projection.content.stroke
       ? ` stroke="white" stroke-width="${projection.content.strokeWidth}" stroke-opacity="${frame.opacity}"`
       : ""
+    if (
+      projection.content.corners.independent ||
+      projection.content.corners.smoothing > 0
+    ) {
+      const path = roundedRectanglePaintPath({
+        width: frame.width,
+        height: frame.height,
+        cornerRadii: projection.content.corners.radii,
+        cornerSmoothing: projection.content.corners.smoothing,
+        strokeWidth: projection.content.stroke
+          ? projection.content.strokeWidth
+          : 0,
+      })
+      return `<path data-mask-source-id="${escapeHtml(frame.id)}" d="${escapeHtml(path)}" fill="white" fill-opacity="${frame.opacity}"${stroke} transform="translate(${x} ${y}) rotate(${frame.rotation} 0 0)" />`
+    }
     return `<rect data-mask-source-id="${escapeHtml(frame.id)}" x="${x}" y="${y}" width="${frame.width}" height="${frame.height}" rx="${projection.content.radius}" ry="${projection.content.radius}" fill="white" fill-opacity="${frame.opacity}"${stroke} transform="${transform}" />`
   }
   if (projection.type === "ellipse") {
@@ -562,10 +636,36 @@ const renderCoverageMaskSource = (
           const frameX = node.x - bounds.x
           const frameY = node.y - bounds.y
           const clipId = `${targetId}-clip`
+          const shorterEdge = Math.min(node.width, node.height)
           const clip =
             node.frameMask.shape === "ellipse"
               ? `<ellipse cx="${node.width / 2}" cy="${node.height / 2}" rx="${node.width / 2}" ry="${node.height / 2}" />`
-              : `<rect x="0" y="0" width="${node.width}" height="${node.height}"${node.frameMask.shape === "rounded_rectangle" ? ` rx="${(node.frameMask.radius ?? 0) * Math.min(node.width, node.height)}" ry="${(node.frameMask.radius ?? 0) * Math.min(node.width, node.height)}"` : ""} />`
+              : node.frameMask.shape === "rounded_rectangle" &&
+                  ((node.frameMask.cornerSmoothing ?? 0) > 0 ||
+                    node.frameMask.cornerRadii)
+                ? `<path d="${escapeHtml(
+                    roundedRectanglePath({
+                      width: node.width,
+                      height: node.height,
+                      radius: node.frameMask.radius * shorterEdge,
+                      cornerRadii: node.frameMask.cornerRadii
+                        ? {
+                            topLeft:
+                              node.frameMask.cornerRadii.topLeft * shorterEdge,
+                            topRight:
+                              node.frameMask.cornerRadii.topRight * shorterEdge,
+                            bottomRight:
+                              node.frameMask.cornerRadii.bottomRight *
+                              shorterEdge,
+                            bottomLeft:
+                              node.frameMask.cornerRadii.bottomLeft *
+                              shorterEdge,
+                          }
+                        : undefined,
+                      cornerSmoothing: node.frameMask.cornerSmoothing,
+                    })
+                  )}" />`
+                : `<rect x="0" y="0" width="${node.width}" height="${node.height}"${node.frameMask.shape === "rounded_rectangle" ? ` rx="${(node.frameMask.radius ?? 0) * Math.min(node.width, node.height)}" ry="${(node.frameMask.radius ?? 0) * Math.min(node.width, node.height)}"` : ""} />`
           return `<g data-mask-source-id="${escapeHtml(node.id)}" opacity="${node.opacity}" transform="translate(${frameX} ${frameY}) rotate(${node.rotation} 0 0)" clip-path="url(#${clipId})"><defs><clipPath id="${clipId}" clipPathUnits="userSpaceOnUse">${clip}</clipPath></defs><image id="${targetId}" x="0" y="0" preserveAspectRatio="none" /></g>`
         })()
       : `<image id="${targetId}" data-mask-source-id="${escapeHtml(node.id)}" x="0" y="0" width="${bounds.width}" height="${bounds.height}" preserveAspectRatio="none" />`
@@ -589,6 +689,21 @@ const renderLuminanceVectorMaskSource = (
     const stroke = projection.content.stroke
       ? ` stroke="${escapeHtml(projection.content.stroke)}" stroke-width="${projection.content.strokeWidth}" stroke-opacity="${frame.opacity}"`
       : ""
+    if (
+      projection.content.corners.independent ||
+      projection.content.corners.smoothing > 0
+    ) {
+      const path = roundedRectanglePaintPath({
+        width: frame.width,
+        height: frame.height,
+        cornerRadii: projection.content.corners.radii,
+        cornerSmoothing: projection.content.corners.smoothing,
+        strokeWidth: projection.content.stroke
+          ? projection.content.strokeWidth
+          : 0,
+      })
+      return `<path data-mask-source-id="${escapeHtml(frame.id)}" d="${escapeHtml(path)}" fill="${escapeHtml(projection.content.fill)}" fill-opacity="${frame.opacity}"${stroke} transform="translate(${x} ${y}) rotate(${frame.rotation} 0 0)" />`
+    }
     return `<rect data-mask-source-id="${escapeHtml(frame.id)}" x="${x}" y="${y}" width="${frame.width}" height="${frame.height}" rx="${projection.content.radius}" ry="${projection.content.radius}" fill="${escapeHtml(projection.content.fill)}" fill-opacity="${frame.opacity}"${stroke} transform="${transform}" />`
   }
   if (projection.type === "ellipse") {
@@ -613,16 +728,23 @@ const renderLuminanceVectorMaskSource = (
  */
 export function renderPagePaintPlanEntryToHtml(
   entry: PagePaintPlanEntry,
-  nodesById: ReadonlyMap<string, SceneNode>
+  nodesById: ReadonlyMap<string, SceneNode>,
+  document?: Document
 ): string {
   if (entry.kind === "node") {
     const node = nodesById.get(entry.nodeId)
     if (!node) throw new Error(`Unknown paint-plan node: ${entry.nodeId}`)
-    return renderNodeToHtml(node)
+    const markup = renderNodeToHtml(node)
+    const clips = document ? projectFrameClipStack(document, node.id) : []
+    return clips.reduce(
+      (content, clip, index) =>
+        `<div data-frame-clip-node-id="${escapeHtml(node.id)}" data-frame-clip-depth="${index}" style="position:absolute;left:${clip.x}px;top:${clip.y}px;width:${clip.width}px;height:${clip.height}px;overflow:hidden;border-radius:${clip.cornerRadii ? cornerRadiiCss(clip.cornerRadii) : `${clip.radius}px`}${(clip.cornerSmoothing ?? 0) > 0 && clip.path ? `;clip-path:path('${clip.path}')` : ""}"><div style="position:absolute;left:${-clip.x}px;top:${-clip.y}px">${content}</div></div>`,
+      markup
+    )
   }
 
   const content = entry.content
-    .map((child) => renderPagePaintPlanEntryToHtml(child, nodesById))
+    .map((child) => renderPagePaintPlanEntryToHtml(child, nodesById, document))
     .join("")
   const { bounds } = entry
   const groupId = escapeHtml(entry.groupId)
@@ -721,7 +843,9 @@ function pageNodesMarkup(document: Document, pageId: string): string {
   if (!page) throw new Error(`Unknown page: ${pageId}`)
   const nodesById = new Map(document.nodes.map((node) => [node.id, node]))
   return projectPagePaintPlan(document, page.id)
-    .entries.map((entry) => renderPagePaintPlanEntryToHtml(entry, nodesById))
+    .entries.map((entry) =>
+      renderPagePaintPlanEntryToHtml(entry, nodesById, document)
+    )
     .join("")
 }
 

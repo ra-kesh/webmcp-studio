@@ -48,6 +48,7 @@ function documentWithImage(): Document {
     opacity: 1,
     visible: true,
     locked: false,
+    constraints: { horizontal: "min", vertical: "min" },
   })
   page.nodeIds.push("transaction-image")
   return document

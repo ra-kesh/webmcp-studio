@@ -13,6 +13,7 @@ const node = {
   opacity: 1,
   visible: true,
   locked: false,
+  constraints: { horizontal: "min" as const, vertical: "min" as const },
   fill: "#ffffff",
   stroke: "#000000",
   strokeWidth: 1,

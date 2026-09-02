@@ -205,6 +205,7 @@ export function imageRenderParityNode(
     opacity: 0.82,
     visible: true,
     locked: false,
+    constraints: { horizontal: "min", vertical: "min" },
     assetId: `asset-${fixture.id}`,
     src: renderConformanceImageSource,
     placement: fixture.placement,
@@ -219,7 +220,7 @@ const imageParityNodes = imageRenderParityCases.map((fixture) =>
 )
 
 export const imageRenderParityDocument: Document = documentSchema.parse({
-  schemaVersion: 5,
+  schemaVersion: 6,
   id: "image-render-parity-v1",
   name: "Image renderer parity corpus",
   revision: 1,
@@ -276,6 +277,7 @@ const componentConformanceRect = (
   opacity: 1,
   visible: true,
   locked: false,
+  constraints: { horizontal: "min", vertical: "min" },
   fill,
   radius: 12,
   stroke: "#0f172a",
@@ -373,7 +375,7 @@ const componentConformanceMappedNodes = componentConformanceInstances.flatMap(
 )
 
 const componentConformanceDraft: Document = documentSchema.parse({
-  schemaVersion: 5,
+  schemaVersion: 6,
   id: "component-render-conformance-v1",
   name: "Component renderer conformance",
   revision: 1,
@@ -606,6 +608,7 @@ const nodes = [
     opacity: 0.72,
     visible: true,
     locked: false,
+    constraints: { horizontal: "min", vertical: "min" },
     text: "Spacing   stays\nA deliberately long line wraps against the same canonical width.",
     runs: [
       {
@@ -675,6 +678,7 @@ const nodes = [
     opacity: 0.86,
     visible: true,
     locked: true,
+    constraints: { horizontal: "min", vertical: "min" },
     fill: "#fef3c7",
     radius: 24,
     stroke: "#92400e",
@@ -692,6 +696,7 @@ const nodes = [
     opacity: 0.61,
     visible: true,
     locked: false,
+    constraints: { horizontal: "min", vertical: "min" },
     fill: "#dbeafe",
     stroke: "#1d4ed8",
     strokeWidth: 5,
@@ -708,6 +713,7 @@ const nodes = [
     opacity: 0.9,
     visible: true,
     locked: false,
+    constraints: { horizontal: "min", vertical: "min" },
     stroke: "#7c3aed",
     strokeWidth: 7,
   },
@@ -723,6 +729,7 @@ const nodes = [
     opacity: 0.78,
     visible: true,
     locked: false,
+    constraints: { horizontal: "min", vertical: "min" },
     path: "M12 21 3 12 12 3 21 12Z",
     viewBox: "0 0 24 24",
     fill: "#be123c",
@@ -741,6 +748,7 @@ const nodes = [
     opacity: 0.83,
     visible: true,
     locked: false,
+    constraints: { horizontal: "min", vertical: "min" },
     assetId: "asset-conformance-cover",
     src: renderConformanceImageSource,
     placement: {
@@ -768,6 +776,7 @@ const nodes = [
     opacity: 1,
     visible: true,
     locked: true,
+    constraints: { horizontal: "min", vertical: "min" },
     assetId: "asset-conformance-contain",
     src: renderConformanceImageSource,
     placement: {
@@ -795,6 +804,7 @@ const nodes = [
     opacity: 0.4,
     visible: false,
     locked: true,
+    constraints: { horizontal: "min", vertical: "min" },
     fill: "#111827",
     radius: 12,
     strokeWidth: 0,
@@ -802,7 +812,7 @@ const nodes = [
 ] satisfies SceneNode[]
 
 export const renderConformanceDocument: Document = documentSchema.parse({
-  schemaVersion: 5,
+  schemaVersion: 6,
   id: "render-conformance-golden-v3",
   name: "Render conformance golden corpus",
   revision: 2,
@@ -867,6 +877,7 @@ export const renderConformanceDocument: Document = documentSchema.parse({
       opacity: 1,
       visible: true,
       locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
       text: "A long paragraph must wrap deterministically without collapsing   intentional spaces.\nIts second line makes newline handling observable across thumbnail, editor, PNG, and PDF rendering.",
       runs: [],
       paragraphs: [],
@@ -892,6 +903,7 @@ export const renderConformanceDocument: Document = documentSchema.parse({
       opacity: 0.67,
       visible: true,
       locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
       fill: "#65a30d",
       radius: 40,
       stroke: "#365314",
@@ -909,6 +921,7 @@ export const renderConformanceDocument: Document = documentSchema.parse({
       opacity: 1,
       visible: true,
       locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
       text: "AUTO WIDTH",
       runs: [],
       paragraphs: [],
@@ -1131,7 +1144,7 @@ export const textDesignSystemConformanceDocument: Document = [
 )
 
 export const textDesignSystemConformanceSourceSnapshotId =
-  "sha256-6d6546b1546db382ed68e44235f471e40e6e01454e6f7b3322e6132d5736f178" as const
+  "sha256-26290f5dde7bec535ad18ae4dde491654e757df6b22a90ddc1413a4fb7d72c0f" as const
 
 /**
  * Builds a fresh immutable publication snapshot for every conformance

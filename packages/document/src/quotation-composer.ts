@@ -265,6 +265,7 @@ class QuotationCanvasWriter {
       opacity: 1,
       visible: true,
       locked: options.locked ?? true,
+      constraints: { horizontal: "min", vertical: "min" },
       fill: options.fill,
       radius: options.radius ?? 0,
       stroke: options.stroke,
@@ -292,6 +293,7 @@ class QuotationCanvasWriter {
       opacity: 1,
       visible: true,
       locked: options.locked ?? this.defaultTextLocked,
+      constraints: { horizontal: "min", vertical: "min" },
       text,
       runs: [],
       paragraphs: [],
@@ -326,6 +328,7 @@ class QuotationCanvasWriter {
       opacity: 1,
       visible: true,
       locked: true,
+      constraints: { horizontal: "min", vertical: "min" },
       stroke: this.template.palette.border,
       strokeWidth: 1,
     }
@@ -924,7 +927,7 @@ function composeTracedQuotationDocumentV3V4(
   const cover = buildQuotationV3V4(writer)
   const now = payload.quote.createdAt
   const document = assertValidDocument({
-    schemaVersion: 5,
+    schemaVersion: 6,
     id: `quotation-${payload.source.quotationId}`,
     name: payload.document.title,
     revision: payload.source.revision,

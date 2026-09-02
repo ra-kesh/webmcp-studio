@@ -6,7 +6,7 @@ const LAYOUT_PRECISION = 10
 const LAYOUT_EPSILON = 0.05
 
 export const TEXT_LAYOUT_MEASUREMENT_VERSION =
-  "managed_font_rich_text_v2" as const
+  "managed_font_rich_text_v3" as const
 
 const TEXT_LAYOUT_KEYS = new Set<keyof TextNodePatch>([
   "text",
@@ -19,6 +19,12 @@ const TEXT_LAYOUT_KEYS = new Set<keyof TextNodePatch>([
   "decoration",
   "lineHeight",
   "letterSpacing",
+  "align",
+  "direction",
+  "verticalAlign",
+  "textCase",
+  "truncation",
+  "maxLines",
   "sizingMode",
   "width",
   "height",
@@ -63,6 +69,8 @@ export type TextLayoutProjection = {
   lines: ProjectedTextLine[]
   displayText: string
   lineCount: number
+  sourceLineCount: number
+  truncated: boolean
   lineHeightPx: number
   intrinsicWidth: number
   requiredWidth: number
@@ -410,22 +418,41 @@ function styledParagraphs(node: TextNode): HardParagraph[] {
       while (node.links[linkIndex] && node.links[linkIndex]!.end <= offset) {
         linkIndex += 1
       }
-      const text = String.fromCodePoint(node.text.codePointAt(offset) ?? 0)
-      const end = offset + text.length
+      const authoredText = String.fromCodePoint(
+        node.text.codePointAt(offset) ?? 0
+      )
+      const end = offset + authoredText.length
+      const textCase = node.textCase ?? "original"
+      const isTitleStart =
+        offset === 0 ||
+        /[^\p{L}\p{N}]/u.test(node.text.slice(0, offset).at(-1) ?? "")
+      const text =
+        textCase === "uppercase"
+          ? authoredText.toLocaleUpperCase()
+          : textCase === "lowercase"
+            ? authoredText.toLocaleLowerCase()
+            : textCase === "title"
+              ? isTitleStart
+                ? authoredText.toLocaleUpperCase()
+                : authoredText.toLocaleLowerCase()
+              : authoredText
       const run = node.runs[runIndex]
       const link = node.links[linkIndex]
-      glyphs.push({
-        text,
-        sourceStart: offset,
-        sourceEnd: end,
-        synthetic: false,
-        styled: Boolean(run && run.start <= offset && run.end >= end),
-        style: resolveRunStyle(
-          baseStyle,
-          run && run.start <= offset && run.end >= end ? run.style : undefined
-        ),
-        ...(link && link.start <= offset && link.end >= end ? { link } : {}),
-      })
+      const projectedGlyphs = text === authoredText ? [text] : Array.from(text)
+      for (const projectedGlyph of projectedGlyphs) {
+        glyphs.push({
+          text: projectedGlyph,
+          sourceStart: offset,
+          sourceEnd: end,
+          synthetic: false,
+          styled: Boolean(run && run.start <= offset && run.end >= end),
+          style: resolveRunStyle(
+            baseStyle,
+            run && run.start <= offset && run.end >= end ? run.style : undefined
+          ),
+          ...(link && link.start <= offset && link.end >= end ? { link } : {}),
+        })
+      }
       offset = end
     }
     return {
@@ -434,6 +461,56 @@ function styledParagraphs(node: TextNode): HardParagraph[] {
       align: annotation?.style.align ?? node.align,
     }
   })
+}
+
+function truncateLineWithEllipsis(
+  line: ProjectedTextLine,
+  maxWidth: number,
+  fallbackStyle: ResolvedTextStyle
+): ProjectedTextLine {
+  const glyphs: StyledGlyph[] = line.segments.flatMap((segment) =>
+    Array.from(segment.text).map((text) => ({
+      text,
+      sourceStart: segment.sourceStart,
+      sourceEnd: segment.sourceEnd,
+      synthetic: segment.synthetic,
+      styled: segment.styled,
+      style: segment.style,
+      ...(segment.link ? { link: segment.link } : {}),
+    }))
+  )
+  while (glyphs.length && /\s/u.test(glyphs.at(-1)?.text ?? "")) glyphs.pop()
+  const sourceEnd = glyphs.at(-1)?.sourceEnd ?? line.sourceEnd
+  const ellipsis: StyledGlyph = {
+    text: "…",
+    sourceStart: sourceEnd,
+    sourceEnd,
+    synthetic: true,
+    styled: false,
+    style: glyphs.at(-1)?.style ?? fallbackStyle,
+  }
+  while (glyphs.length && measuredGlyphs([...glyphs, ellipsis]) > maxWidth) {
+    glyphs.pop()
+  }
+  const projected = projectedLine([...glyphs, ellipsis], line.align, {
+    start: line.sourceStart,
+    end: line.sourceEnd,
+    style: fallbackStyle,
+  })
+  return line.align === "justify"
+    ? { ...projected, align: "justify", justifySpacing: 0 }
+    : projected
+}
+
+export function resolveTextDirection(node: TextNode): "ltr" | "rtl" {
+  if (node.direction === "ltr" || node.direction === "rtl")
+    return node.direction
+  const firstStrong = Array.from(node.text).find((glyph) =>
+    /[\p{L}\p{N}]/u.test(glyph)
+  )
+  return firstStrong && /[\u0590-\u08ff\ufb1d-\ufefc]/u.test(firstStrong)
+    ? "rtl"
+    : "ltr"
 }
 
 export function projectTextLayout(node: TextNode): TextLayoutProjection {
@@ -450,7 +527,7 @@ export function projectTextLayout(node: TextNode): TextLayoutProjection {
     MIN_TEXT_DIMENSION,
     ...unwrappedLines.map((line) => line.width)
   )
-  const lines =
+  const sourceLines =
     node.sizingMode === "auto_width"
       ? unwrappedLines
       : paragraphs.flatMap((paragraph) =>
@@ -459,14 +536,39 @@ export function projectTextLayout(node: TextNode): TextLayoutProjection {
   const lineHeightPx = roundLayout(node.fontSize * node.lineHeight)
   const requiredWidth = Math.max(
     MIN_TEXT_DIMENSION,
-    ...lines.map((line) => line.width)
+    ...sourceLines.map((line) => line.width)
   )
   const requiredHeight = Math.max(
     MIN_TEXT_DIMENSION,
-    roundLayout(lines.reduce((sum, line) => sum + line.height, 0))
+    roundLayout(sourceLines.reduce((sum, line) => sum + line.height, 0))
   )
   const overflowX = requiredWidth - node.width > LAYOUT_EPSILON
   const overflowY = requiredHeight - node.height > LAYOUT_EPSILON
+  let heightLineLimit = sourceLines.length
+  if (node.sizingMode === "fixed") {
+    let measuredHeight = 0
+    heightLineLimit = 0
+    for (const line of sourceLines) {
+      if (measuredHeight + line.height > node.height + LAYOUT_EPSILON) break
+      measuredHeight += line.height
+      heightLineLimit += 1
+    }
+    heightLineLimit = Math.max(1, heightLineLimit)
+  }
+  const visibleLineLimit = Math.min(
+    sourceLines.length,
+    node.maxLines ?? sourceLines.length,
+    heightLineLimit
+  )
+  const truncated = visibleLineLimit < sourceLines.length
+  const lines = sourceLines.slice(0, visibleLineLimit)
+  if (truncated && (node.truncation ?? "clip") === "ellipsis" && lines.length) {
+    lines[lines.length - 1] = truncateLineWithEllipsis(
+      lines[lines.length - 1]!,
+      node.width,
+      baseStyle
+    )
+  }
 
   return {
     measurement: TEXT_LAYOUT_MEASUREMENT_VERSION,
@@ -474,6 +576,8 @@ export function projectTextLayout(node: TextNode): TextLayoutProjection {
     lines,
     displayText: lines.map((line) => line.text).join("\n"),
     lineCount: lines.length,
+    sourceLineCount: sourceLines.length,
+    truncated,
     lineHeightPx,
     intrinsicWidth: roundLayout(intrinsicWidth),
     requiredWidth: roundLayout(requiredWidth),

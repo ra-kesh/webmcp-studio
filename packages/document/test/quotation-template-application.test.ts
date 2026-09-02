@@ -59,6 +59,7 @@ const createEditedDocument = () => {
     opacity: 0.84,
     visible: true,
     locked: false,
+    constraints: { horizontal: "min", vertical: "min" },
     text: "Keep this accepted change",
     runs: [],
     paragraphs: [],

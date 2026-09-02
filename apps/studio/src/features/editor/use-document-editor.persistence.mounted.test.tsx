@@ -130,6 +130,7 @@ const cropImage: Extract<SceneNode, { type: "image" }> = {
   opacity: 1,
   visible: true,
   locked: false,
+  constraints: { horizontal: "min", vertical: "min" },
   assetId: "persistence-race-image",
   src: "https://example.com/persistence-race-image.jpg",
   placement: {

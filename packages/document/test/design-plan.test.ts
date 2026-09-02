@@ -192,7 +192,7 @@ describe("Studio Design Plan compiler", () => {
 
     expect(replay).toEqual(first)
     expect(first).toMatchObject({
-      schemaVersion: 5,
+      schemaVersion: 6,
       name: "Client proposal",
       revision: 0,
       outputs: [{ kind: "proposal", exportFormats: ["png", "pdf"] }],

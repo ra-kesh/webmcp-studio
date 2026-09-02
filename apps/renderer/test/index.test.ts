@@ -173,6 +173,7 @@ async function managedImageFixture() {
     opacity: 1,
     visible: true,
     locked: false,
+    constraints: { horizontal: "min", vertical: "min" },
     assetId: "asset-abcdefghij",
     src,
     placement: {
@@ -325,7 +326,7 @@ describe("renderer Worker", () => {
     ["PNG", "/render", { pageId: "mask-conformance-page" }],
     ["PDF", "/render/pdf", {}],
   ])(
-    "passes a canonical schema-v5 vector mask through the public %s endpoint",
+    "passes a canonical schema-v6 vector mask through the public %s endpoint",
     async (_format, path, requestFields) => {
       const { default: worker } = await import("../src/index")
       const browserPage = successfulBrowserPage([37, 80, 68, 70])
@@ -341,7 +342,7 @@ describe("renderer Worker", () => {
             "X-Render-Persistence": "ephemeral",
           },
           body: JSON.stringify({
-            renderId: `mask-schema-v5-${_format.toLowerCase()}`,
+            renderId: `mask-schema-v6-${_format.toLowerCase()}`,
             outputId: "mask-conformance-output",
             document: maskRenderConformanceDocument,
             expectedImageResources: [],
@@ -1024,6 +1025,7 @@ describe("renderer Worker", () => {
       opacity: 1,
       visible: true,
       locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
       assetId: "remote-image",
       src: "https://attacker.test/image.png",
       placement: {

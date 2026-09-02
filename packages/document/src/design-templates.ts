@@ -307,6 +307,14 @@ export function cloneTemplateDocument(
       nodes: source.nodes.map((node) => ({
         ...node,
         id: requiredId(ids.node, node.id, "node"),
+        ...(node.type === "frame"
+          ? {
+              children: node.children.map((child) => ({
+                ...child,
+                nodeId: requiredId(ids.node, child.nodeId, "frame child"),
+              })),
+            }
+          : {}),
       })),
       groups: source.groups.map((group) => {
         const remapped = {

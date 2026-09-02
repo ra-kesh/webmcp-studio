@@ -63,6 +63,7 @@ const boundManagedImageDocument = () => {
     opacity: 1,
     visible: true,
     locked: false,
+    constraints: { horizontal: "min", vertical: "min" },
     assetId,
     src: source,
     placement: {

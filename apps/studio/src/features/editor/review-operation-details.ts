@@ -42,6 +42,88 @@ function displayNodeProperty(
   value: unknown,
   source?: unknown
 ): string {
+  if (
+    key === "constraints" &&
+    value &&
+    typeof value === "object" &&
+    "horizontal" in value &&
+    "vertical" in value
+  ) {
+    const constraints = value as {
+      horizontal: unknown
+      vertical: unknown
+    }
+    return `Horizontal: ${displayChangeValue(constraints.horizontal)} · Vertical: ${displayChangeValue(constraints.vertical)}`
+  }
+  if (key === "autoLayout") {
+    if (value === null) return "Freeform"
+    if (value && typeof value === "object" && "direction" in value) {
+      const layout = value as { direction: unknown; gap?: unknown }
+      return `${displayChangeValue(layout.direction)} · Gap ${displayChangeValue(layout.gap ?? 0)}`
+    }
+  }
+  if (key === "children" && Array.isArray(value)) {
+    return `${value.length} layout child${value.length === 1 ? "" : "ren"}`
+  }
+  if (key === "clipsContent") return value ? "Clip content" : "Show overflow"
+  if (key === "blendMode") {
+    return String(value ?? "normal")
+      .split("-")
+      .map((part) => part[0]?.toUpperCase() + part.slice(1))
+      .join(" ")
+  }
+  if (key === "independentCorners") {
+    return value ? "Independent corners" : "Linked corners"
+  }
+  if (key === "cornerRadii" && value && typeof value === "object") {
+    const radii = value as Record<string, unknown>
+    return `TL ${radii.topLeft} · TR ${radii.topRight} · BR ${radii.bottomRight} · BL ${radii.bottomLeft}`
+  }
+  if (key === "cornerSmoothing" && typeof value === "number") {
+    return `${Math.round(value * 100)}% smoothing`
+  }
+  if (key === "layoutGrids" && Array.isArray(value)) {
+    return `${value.length} layout guide${value.length === 1 ? "" : "s"}`
+  }
+  if ((key === "fills" || key === "strokes") && Array.isArray(value)) {
+    const visible = value.filter(
+      (paint) =>
+        paint &&
+        typeof paint === "object" &&
+        "visible" in paint &&
+        paint.visible
+    ).length
+    const label = key === "fills" ? "fill" : "stroke"
+    return `${value.length} ${label}${value.length === 1 ? "" : "s"} · ${visible} visible`
+  }
+  if (key === "effects" && Array.isArray(value)) {
+    const visible = value.filter(
+      (effect) =>
+        effect &&
+        typeof effect === "object" &&
+        "visible" in effect &&
+        effect.visible
+    ).length
+    return `${value.length} effect${value.length === 1 ? "" : "s"} · ${visible} visible`
+  }
+  if (key === "exportSettings" && Array.isArray(value)) {
+    return `${value.length} layer export${value.length === 1 ? "" : "s"}`
+  }
+  if (key === "maxLines") {
+    return value === null
+      ? "Unlimited lines"
+      : `${displayChangeValue(value)} lines`
+  }
+  if (
+    key === "direction" ||
+    key === "verticalAlign" ||
+    key === "textCase" ||
+    key === "truncation"
+  ) {
+    return String(value)
+      .replaceAll("_", " ")
+      .replace(/^./u, (character) => character.toUpperCase())
+  }
   return key === "assetId"
     ? displayAssetId(value, source)
     : displayChangeValue(value)

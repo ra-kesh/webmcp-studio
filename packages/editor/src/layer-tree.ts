@@ -263,11 +263,35 @@ export function buildLayerTreeModel(
   }
 
   const zIndex = new Map(page.nodeIds.map((nodeId, index) => [nodeId, index]))
+  const frameOwnerByChildId = new Map<string, string>()
+  for (const node of nodeById.values()) {
+    if (node.type !== "frame") continue
+    for (const child of node.children) {
+      frameOwnerByChildId.set(child.nodeId, node.id)
+    }
+  }
   const byKey = new Map<string, LayerTreeItem>()
   const frontZByKey = new Map<string, number>()
 
-  const nodeItem = (node: SceneNode, parentGroupId: string | null) => {
+  const nodeItem = (
+    node: SceneNode,
+    parentGroupId: string | null,
+    frameAncestors = new Set<string>()
+  ) => {
     const maskGroup = maskGroupByDirectNodeId.get(node.id)
+    const nextFrameAncestors = new Set(frameAncestors).add(node.id)
+    const children =
+      node.type === "frame" && !frameAncestors.has(node.id)
+        ? node.children.flatMap(({ nodeId }) => {
+            const child = nodeById.get(nodeId)
+            const childGroupId = directMembership.get(nodeId) ?? null
+            return child &&
+              (childGroupId === null || childGroupId === parentGroupId)
+              ? [nodeItem(child, parentGroupId, nextFrameAncestors)]
+              : []
+          })
+        : []
+    sortFrontToBack(children)
     const item: LayerTreeItem = {
       key: layerKey("node", node.id),
       id: node.id,
@@ -293,10 +317,16 @@ export function buildLayerTreeModel(
             sourceNodeIds: [...maskGroup.mask.sourceNodeIds],
           }
         : null,
-      children: [],
+      children,
     }
     byKey.set(item.key, item)
-    frontZByKey.set(item.key, zIndex.get(node.id) ?? -1)
+    frontZByKey.set(
+      item.key,
+      Math.max(
+        zIndex.get(node.id) ?? -1,
+        ...children.map((child) => frontZByKey.get(child.key) ?? -1)
+      )
+    )
     return item
   }
 
@@ -315,7 +345,10 @@ export function buildLayerTreeModel(
     const children = [
       ...group.nodeIds.flatMap((nodeId) => {
         const node = nodeById.get(nodeId)
-        return node ? [nodeItem(node, group.id)] : []
+        const ownerId = frameOwnerByChildId.get(nodeId)
+        return node && (!ownerId || directMembership.get(ownerId) !== group.id)
+          ? [nodeItem(node, group.id)]
+          : []
       }),
       ...(childGroups.get(group.id) ?? []).flatMap((child) => {
         const item = buildGroup(child, nextAncestors)
@@ -369,6 +402,7 @@ export function buildLayerTreeModel(
   const items = [
     ...page.nodeIds.flatMap((nodeId) => {
       if (directMembership.has(nodeId)) return []
+      if (frameOwnerByChildId.has(nodeId)) return []
       const node = nodeById.get(nodeId)
       return node ? [nodeItem(node, null)] : []
     }),
@@ -553,6 +587,94 @@ export function layerDropCommands(
     target.nodeIds.every((id) => source.nodeIds.includes(id))
   ) {
     return []
+  }
+
+  const sourceFrame = document.nodes.find(
+    (node): node is Extract<SceneNode, { type: "frame" }> =>
+      node.type === "frame" &&
+      node.children.some((child) => child.nodeId === source.id)
+  )
+  const targetFrame = document.nodes.find(
+    (node): node is Extract<SceneNode, { type: "frame" }> =>
+      node.type === "frame" &&
+      node.children.some((child) => child.nodeId === target.id)
+  )
+  if (
+    intent !== "inside" &&
+    source.kind === "node" &&
+    target.kind === "node" &&
+    sourceFrame?.id === targetFrame?.id &&
+    sourceFrame
+  ) {
+    const childIds = sourceFrame.children.map((child) => child.nodeId)
+    const reordered = reorderedNodeIds(
+      childIds,
+      [source.id],
+      [target.id],
+      intent
+    )
+    if (
+      !reordered ||
+      reordered.nodeIds.every((id, index) => id === childIds[index])
+    ) {
+      return []
+    }
+    const childById = new Map(
+      sourceFrame.children.map((child) => [child.nodeId, child])
+    )
+    return [
+      {
+        type: "update_node",
+        nodeId: sourceFrame.id,
+        patch: {
+          children: reordered.nodeIds.map((nodeId) => childById.get(nodeId)!),
+        },
+      },
+    ]
+  }
+
+  const targetContainer =
+    target.kind === "node"
+      ? document.nodes.find(
+          (node): node is Extract<SceneNode, { type: "frame" }> =>
+            node.id === target.id && node.type === "frame"
+        )
+      : undefined
+  if (intent === "inside" && source.kind === "node" && targetContainer) {
+    if (sourceFrame?.id === targetContainer.id) return []
+    const sourceNode = document.nodes.find((node) => node.id === source.id)
+    if (!sourceNode) return []
+    const commands: CommandDraft[] = []
+    if (sourceFrame) {
+      commands.push({
+        type: "update_node",
+        nodeId: sourceFrame.id,
+        patch: {
+          children: sourceFrame.children.filter(
+            (child) => child.nodeId !== source.id
+          ),
+        },
+      })
+    }
+    commands.push({
+      type: "update_node",
+      nodeId: targetContainer.id,
+      patch: {
+        children: [
+          ...targetContainer.children,
+          {
+            nodeId: source.id,
+            positioning: "absolute",
+            horizontalSizing: "fixed",
+            verticalSizing: "fixed",
+            offsetX: sourceNode.x - targetContainer.x,
+            offsetY: sourceNode.y - targetContainer.y,
+            grow: 0,
+          },
+        ],
+      },
+    })
+    return commands
   }
 
   const targetParentGroupId =

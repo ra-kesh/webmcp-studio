@@ -9,6 +9,10 @@ import {
   type SceneNode,
   type TextNodePatch,
 } from "./schema"
+import { scaleFrameLayoutGrid } from "./frame-layout-grids"
+import { scaleCornerRadii } from "./corner-geometry"
+import { scaleStrokePaints } from "./paint-stack"
+import { scaleLayerEffects } from "./effect-stack"
 
 export type ComponentIntegrityIssue = {
   code:
@@ -299,6 +303,9 @@ function transformComponentNode(
     width,
     height,
     rotation: normalizedRotation(node.rotation + instance.transform.rotation),
+    ...(node.effects
+      ? { effects: scaleLayerEffects(node.effects, instance.transform.scale) }
+      : {}),
   }
   const scale = instance.transform.scale
   if (node.type === "text") {
@@ -320,17 +327,50 @@ function transformComponentNode(
       })),
     })
   }
-  if (node.type === "rect") {
+  if (node.type === "rect" || node.type === "frame") {
     return sceneNodeSchema.parse({
       ...transformed,
       radius: node.radius * scale,
+      ...(node.cornerRadii
+        ? { cornerRadii: scaleCornerRadii(node.cornerRadii, scale) }
+        : {}),
       strokeWidth: node.strokeWidth * scale,
+      ...(node.strokes
+        ? { strokes: scaleStrokePaints(node.strokes, scale) }
+        : {}),
+      ...(node.type === "frame"
+        ? {
+            children: node.children.map((child) => ({
+              ...child,
+              offsetX: child.offsetX * scale,
+              offsetY: child.offsetY * scale,
+            })),
+            autoLayout: node.autoLayout
+              ? {
+                  ...node.autoLayout,
+                  gap: node.autoLayout.gap * scale,
+                  padding: {
+                    top: node.autoLayout.padding.top * scale,
+                    right: node.autoLayout.padding.right * scale,
+                    bottom: node.autoLayout.padding.bottom * scale,
+                    left: node.autoLayout.padding.left * scale,
+                  },
+                }
+              : null,
+            layoutGrids: (node.layoutGrids ?? []).map((grid) =>
+              scaleFrameLayoutGrid(grid, scale)
+            ),
+          }
+        : {}),
     })
   }
   if (node.type === "ellipse" || node.type === "line" || node.type === "icon") {
     return sceneNodeSchema.parse({
       ...transformed,
       strokeWidth: node.strokeWidth * scale,
+      ...(node.strokes
+        ? { strokes: scaleStrokePaints(node.strokes, scale) }
+        : {}),
     })
   }
   return sceneNodeSchema.parse(transformed)
@@ -379,7 +419,18 @@ export function resolveComponentInstanceNodes(
       instance.overrides[sourceNode.id],
       instance.removedProperties?.[sourceNode.id]
     )
-    return [{ ...resolved, id: instanceNodeId }]
+    return [
+      resolved.type === "frame"
+        ? {
+            ...resolved,
+            id: instanceNodeId,
+            children: resolved.children.map((child) => ({
+              ...child,
+              nodeId: mapping.get(child.nodeId) ?? child.nodeId,
+            })),
+          }
+        : { ...resolved, id: instanceNodeId },
+    ]
   })
 }
 
@@ -447,6 +498,27 @@ export function rebaseComponentInstanceOverridesForTransform(
         if (typeof next[property] === "number") {
           next[property] *= scaleRatio
         }
+      }
+      if (Array.isArray(next.strokes)) {
+        next.strokes = next.strokes.map((paint) => {
+          if (!paint || typeof paint !== "object") return paint
+          const value = structuredClone(paint) as Record<string, unknown>
+          if (typeof value.width === "number") value.width *= scaleRatio
+          return value
+        })
+      }
+      if (
+        next.cornerRadii &&
+        typeof next.cornerRadii === "object" &&
+        !Array.isArray(next.cornerRadii)
+      ) {
+        const radii = next.cornerRadii as Record<string, unknown>
+        next.cornerRadii = Object.fromEntries(
+          Object.entries(radii).map(([key, value]) => [
+            key,
+            typeof value === "number" ? value * scaleRatio : value,
+          ])
+        )
       }
       if (Array.isArray(next.runs)) {
         next.runs = next.runs.map((run) => {

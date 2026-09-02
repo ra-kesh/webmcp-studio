@@ -232,6 +232,173 @@ function nestedMaskDocument(
 }
 
 describe("renderer HTML", () => {
+  it("serializes the canonical layer blend mode after opacity", () => {
+    const document = structuredClone(northstarSeed)
+    const node = document.nodes[0]!
+    node.opacity = 0.65
+    node.blendMode = "multiply"
+    const html = renderNodeToHtml(node)
+    expect(html).toContain("opacity:0.65;mix-blend-mode:multiply")
+  })
+
+  it("serializes canonical smooth paths for shapes and image clips", () => {
+    const document = structuredClone(northstarSeed)
+    const rect = document.nodes.find((node) => node.type === "rect")!
+    if (rect.type !== "rect") throw new Error("Expected rectangle")
+    rect.independentCorners = true
+    rect.cornerRadii = {
+      topLeft: 6,
+      topRight: 12,
+      bottomRight: 18,
+      bottomLeft: 24,
+    }
+    rect.cornerSmoothing = 0.7
+    const shapeHtml = renderNodeToHtml(rect)
+    expect(shapeHtml).toContain("<svg")
+    expect(shapeHtml).toContain("<path d=")
+    expect(shapeHtml).toContain('vector-effect="non-scaling-stroke"')
+
+    const image = structuredClone(
+      renderConformanceDocument.nodes.find((node) => node.type === "image")!
+    )
+    if (image.type !== "image") throw new Error("Expected image")
+    image.frameMask = {
+      shape: "rounded_rectangle",
+      radius: 0.1,
+      cornerRadii: {
+        topLeft: 0.05,
+        topRight: 0.1,
+        bottomRight: 0.15,
+        bottomLeft: 0.2,
+      },
+      cornerSmoothing: 0.55,
+    }
+    expect(renderNodeToHtml(image)).toContain("data-image-frame-clip-path=")
+  })
+
+  it("keeps frame layout-guide metadata out of export HTML", () => {
+    const document = structuredClone(northstarSeed)
+    const page = document.pages[0]!
+    page.nodeIds.unshift("export-grid-frame")
+    document.nodes.push({
+      id: "export-grid-frame",
+      type: "frame",
+      name: "Export grid frame",
+      x: 20,
+      y: 30,
+      width: 320,
+      height: 180,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
+      fill: "#ffffff",
+      radius: 0,
+      strokeWidth: 0,
+      children: [],
+      autoLayout: null,
+      clipsContent: false,
+      layoutGrids: [
+        {
+          id: "must-not-export",
+          pattern: "grid",
+          visible: true,
+          color: "#ff0000",
+          opacity: 1,
+          offset: 0,
+          size: 8,
+        },
+      ],
+    })
+
+    const html = renderDocumentToHtml(document, page.id)
+    expect(html).not.toContain("must-not-export")
+    expect(html).not.toContain("layoutGrids")
+  })
+
+  it("clips frame children through the canonical ancestor bounds", () => {
+    const document = structuredClone(northstarSeed)
+    const page = document.pages.find((candidate) => candidate.id === "cover")!
+    const childId = "cover-title"
+    page.nodeIds = [
+      "renderer-outer-frame",
+      "renderer-layout-frame",
+      childId,
+      ...page.nodeIds.filter((nodeId) => nodeId !== childId),
+    ]
+    document.nodes.push({
+      id: "renderer-outer-frame",
+      type: "frame",
+      name: "Renderer outer frame",
+      x: 80,
+      y: 60,
+      width: 360,
+      height: 200,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
+      fill: "transparent",
+      radius: 26,
+      strokeWidth: 0,
+      children: [
+        {
+          nodeId: "renderer-layout-frame",
+          positioning: "absolute",
+          horizontalSizing: "fixed",
+          verticalSizing: "fixed",
+          offsetX: 20,
+          offsetY: 20,
+          grow: 0,
+        },
+      ],
+      autoLayout: null,
+      clipsContent: true,
+    } satisfies SceneNode)
+    document.nodes.push({
+      id: "renderer-layout-frame",
+      type: "frame",
+      name: "Renderer layout frame",
+      x: 100,
+      y: 80,
+      width: 320,
+      height: 160,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
+      fill: "#ffffff",
+      radius: 18,
+      strokeWidth: 0,
+      children: [
+        {
+          nodeId: childId,
+          positioning: "absolute",
+          horizontalSizing: "fixed",
+          verticalSizing: "fixed",
+          offsetX: -40,
+          offsetY: -30,
+          grow: 0,
+        },
+      ],
+      autoLayout: null,
+      clipsContent: true,
+    } satisfies SceneNode)
+
+    const html = renderDocumentToHtml(document, page.id)
+
+    expect(html).toContain(`data-frame-clip-node-id="${childId}"`)
+    expect(html).toContain('data-frame-clip-depth="0"')
+    expect(html).toContain('data-frame-clip-depth="1"')
+    expect(html).toContain("left:100px;top:80px;width:320px;height:160px")
+    expect(html).toContain("overflow:hidden;border-radius:18px")
+    expect(html).toContain("left:80px;top:60px;width:360px;height:200px")
+    expect(html).toContain("overflow:hidden;border-radius:26px")
+  })
+
   it("uses the canonical paint plan in document, thumbnail, and output HTML", () => {
     const pageId = "mask-conformance-page"
     const outputs = [
@@ -1024,6 +1191,7 @@ describe("renderer HTML", () => {
         opacity: 1,
         visible: true,
         locked: false,
+        constraints: { horizontal: "min", vertical: "min" },
         fill: "#d9c9b2",
         stroke: "#1e2622",
         strokeWidth: 3,
@@ -1040,6 +1208,7 @@ describe("renderer HTML", () => {
         opacity: 1,
         visible: true,
         locked: false,
+        constraints: { horizontal: "min", vertical: "min" },
         stroke: "#1e2622",
         strokeWidth: 4,
       },
@@ -1055,6 +1224,7 @@ describe("renderer HTML", () => {
         opacity: 1,
         visible: true,
         locked: false,
+        constraints: { horizontal: "min", vertical: "min" },
         path: "M12 21 3 12 12 3 21 12Z",
         viewBox: "0 0 24 24",
         fill: "#8a5d38",
@@ -1117,6 +1287,7 @@ describe("renderer HTML", () => {
         opacity: 1,
         visible: true,
         locked: false,
+        constraints: { horizontal: "min", vertical: "min" },
       },
     })
 
@@ -1189,6 +1360,33 @@ describe("renderer HTML", () => {
     expect(html).toContain("data-render-ready")
   })
 
+  it("serializes advanced text layout for the shared PNG and PDF source", () => {
+    const source = renderConformanceDocument.nodes.find(
+      (node) => node.id === "text-typography"
+    )!
+    if (source.type !== "text") throw new Error("Expected text")
+    const html = renderNodeToHtml({
+      ...source,
+      text: "שלום עולם ארוך מאוד",
+      width: 80,
+      align: "justify",
+      direction: "auto",
+      verticalAlign: "middle",
+      textCase: "uppercase",
+      truncation: "ellipsis",
+      maxLines: 1,
+    })
+
+    expect(html).toContain("direction:rtl")
+    expect(html).toContain("display:flex")
+    expect(html).toContain("justify-content:center")
+    expect(html).toContain('data-text-direction="rtl"')
+    expect(html).toContain('data-text-vertical-align="middle"')
+    expect(html).toContain('data-text-case="uppercase"')
+    expect(html).toContain('data-text-truncated="true"')
+    expect(html).toContain("…")
+  })
+
   it("serializes every golden projection without dropping render properties", () => {
     for (const node of renderConformanceDocument.nodes) {
       const markup = renderNodeToHtml(node)
@@ -1212,7 +1410,7 @@ describe("renderer HTML", () => {
     )
     expect(html).toContain("white-space:pre")
     expect(html).toContain('data-text-sizing-mode="fixed"')
-    expect(html).toContain('data-text-measurement="managed_font_rich_text_v2"')
+    expect(html).toContain('data-text-measurement="managed_font_rich_text_v3"')
     expect(html).toMatch(/data-text-line-count="[1-9][0-9]*"/)
     expect(html).toMatch(/data-text-overflow="(?:true|false)"/)
     expect(html).toMatch(/data-text-overflow-x="(?:true|false)"/)

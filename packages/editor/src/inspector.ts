@@ -514,6 +514,7 @@ export type InspectorSelectionModel = {
     height: InspectorSharedValue<number>
     rotation: InspectorSharedValue<number>
     opacity: InspectorSharedValue<number>
+    blendMode: InspectorSharedValue<NonNullable<SceneNode["blendMode"]>>
     visible: InspectorSharedValue<boolean>
     locked: InspectorSharedValue<boolean>
   }
@@ -578,6 +579,7 @@ export const capabilitiesForNodes = (
       nodes.every(
         (node) =>
           node.type === "rect" ||
+          node.type === "frame" ||
           node.type === "ellipse" ||
           node.type === "icon"
       ),
@@ -586,11 +588,14 @@ export const capabilitiesForNodes = (
       nodes.every(
         (node) =>
           node.type === "rect" ||
+          node.type === "frame" ||
           node.type === "ellipse" ||
           node.type === "line" ||
           node.type === "icon"
       ),
-    cornerRadius: hasSelection && nodes.every((node) => node.type === "rect"),
+    cornerRadius:
+      hasSelection &&
+      nodes.every((node) => node.type === "rect" || node.type === "frame"),
     image: allImages,
     canEnterCrop:
       singleImage &&
@@ -636,6 +641,7 @@ export const createInspectorSelectionModel = (
       height: sharedValue(nodes, (node) => node.height),
       rotation: sharedValue(nodes, (node) => node.rotation),
       opacity: sharedValue(nodes, (node) => node.opacity),
+      blendMode: sharedValue(nodes, (node) => node.blendMode ?? "normal"),
       visible: sharedValue(nodes, (node) => node.visible),
       locked: sharedValue(nodes, (node) => node.locked),
     },

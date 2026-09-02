@@ -13,6 +13,7 @@ import {
   propagatePaintStyle,
   propagateTypographyStyle,
 } from "./design-styles"
+import { synchronizeLegacyPaintFields } from "./paint-stack"
 
 export type VariableUsage = Readonly<{
   variableId: string
@@ -171,9 +172,18 @@ const applyVariableToNode = (
   value: string | number
 ): SceneNode => {
   assertNodeSupportsProperty(node, target.property, false)
-  const detached = detachStyleForDirectNodePatch(node, {
+  const rawPatch = {
     [target.property]: value,
-  })
+  }
+  const patch =
+    node.type === "rect" ||
+    node.type === "frame" ||
+    node.type === "ellipse" ||
+    node.type === "line" ||
+    node.type === "icon"
+      ? synchronizeLegacyPaintFields(node, rawPatch)
+      : rawPatch
+  const detached = detachStyleForDirectNodePatch(node, patch)
   if (
     detached.type === "text" &&
     [
@@ -189,7 +199,7 @@ const applyVariableToNode = (
   ) {
     return applyTextLayoutPatch(detached, { [target.property]: value })
   }
-  return { ...detached, [target.property]: value } as SceneNode
+  return { ...detached, ...patch } as SceneNode
 }
 
 export function applyVariableToBinding(

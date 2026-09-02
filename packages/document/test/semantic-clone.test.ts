@@ -13,7 +13,7 @@ const at = "2026-08-28T01:00:00.000Z"
 
 function semanticFixture(): Document {
   return documentSchema.parse({
-    schemaVersion: 5,
+    schemaVersion: 6,
     id: "semantic-document",
     name: "Semantic clone fixture",
     revision: 1,
@@ -295,6 +295,68 @@ function nestedMaskSemanticFixture(): Document {
 }
 
 describe("semantic document cloning", () => {
+  it("requires and remaps a complete frame subtree", () => {
+    const source = semanticFixture()
+    source.pages[0]!.nodeIds.unshift("content-frame")
+    source.nodes.push({
+      id: "content-frame",
+      type: "frame",
+      name: "Content frame",
+      x: 20,
+      y: 20,
+      width: 960,
+      height: 480,
+      rotation: 0,
+      opacity: 1,
+      visible: true,
+      locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
+      fill: "transparent",
+      radius: 24,
+      strokeWidth: 0,
+      children: [
+        {
+          nodeId: "panel",
+          positioning: "auto",
+          horizontalSizing: "fill",
+          verticalSizing: "fixed",
+          offsetX: 0,
+          offsetY: 0,
+          grow: 0,
+        },
+        {
+          nodeId: "title",
+          positioning: "auto",
+          horizontalSizing: "fill",
+          verticalSizing: "fixed",
+          offsetX: 0,
+          offsetY: 0,
+          grow: 0,
+        },
+      ],
+      autoLayout: null,
+      clipsContent: true,
+    })
+
+    expect(() =>
+      captureSemanticFragment(source, "cover", ["content-frame", "panel"])
+    ).toThrow("requires its complete child subtree")
+
+    const fragment = captureSemanticFragment(source, "cover", [
+      "content-frame",
+      "panel",
+      "title",
+    ])
+    const clone = cloneSemanticFragment(fragment, {
+      targetPageId: "cover-copy",
+      createId: deterministicId,
+    })
+    expect(clone.nodes.find((node) => node.type === "frame")).toMatchObject({
+      id: "node-copy-content-frame",
+      children: [{ nodeId: "node-copy-panel" }, { nodeId: "node-copy-title" }],
+    })
+  })
+
   it("remaps mask sources for page duplication and omits a partial relation", () => {
     const source = maskSemanticFixture()
     const full = captureSemanticFragment(

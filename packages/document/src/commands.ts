@@ -59,6 +59,11 @@ import {
 } from "./page-paint-plan"
 import { sha256 } from "@noble/hashes/sha2.js"
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js"
+import {
+  applyFrameAutoLayout,
+  reconcileFrameChildPaintOrder,
+} from "./frame-layout"
+import { synchronizeLegacyPaintFields } from "./paint-stack"
 
 type FieldValue = string | number | boolean
 
@@ -1326,6 +1331,78 @@ const appendMaskCommandReceipt = (
   ].slice(-128),
 })
 
+type ConstraintAxis = SceneNode["constraints"]["horizontal"]
+
+function resizeConstrainedAxis(
+  position: number,
+  size: number,
+  previousParentSize: number,
+  nextParentSize: number,
+  constraint: ConstraintAxis,
+  nodeName: string,
+  axisName: "horizontal" | "vertical"
+) {
+  const delta = nextParentSize - previousParentSize
+  if (delta === 0 || constraint === "min") return { position, size }
+  if (constraint === "center") {
+    return { position: position + delta / 2, size }
+  }
+  if (constraint === "max") {
+    return { position: position + delta, size }
+  }
+  if (constraint === "scale") {
+    const ratio = nextParentSize / previousParentSize
+    return { position: position * ratio, size: size * ratio }
+  }
+  const stretchedSize = size + delta
+  if (stretchedSize <= 0) {
+    throw new Error(
+      `${nodeName}'s ${axisName} stretch constraint would collapse the layer`
+    )
+  }
+  return { position, size: stretchedSize }
+}
+
+function resizeNodeForPage(
+  node: SceneNode,
+  previousPage: { width: number; height: number },
+  nextPage: { width: number; height: number }
+): SceneNode {
+  const horizontal = resizeConstrainedAxis(
+    node.x,
+    node.width,
+    previousPage.width,
+    nextPage.width,
+    node.constraints.horizontal,
+    node.name,
+    "horizontal"
+  )
+  const vertical = resizeConstrainedAxis(
+    node.y,
+    node.height,
+    previousPage.height,
+    nextPage.height,
+    node.constraints.vertical,
+    node.name,
+    "vertical"
+  )
+  if (
+    horizontal.position === node.x &&
+    horizontal.size === node.width &&
+    vertical.position === node.y &&
+    vertical.size === node.height
+  ) {
+    return node
+  }
+  return {
+    ...node,
+    x: horizontal.position,
+    width: horizontal.size,
+    y: vertical.position,
+    height: vertical.size,
+  }
+}
+
 function applyParsedCommand(
   document: Document,
   command: DocumentCommand,
@@ -1568,6 +1645,15 @@ function applyParsedCommand(
       )
       if (index < 0) throw new Error(`Unknown node: ${command.nodeId}`)
       const current = document.nodes[index]
+      const synchronizedPatch =
+        current &&
+        (current.type === "rect" ||
+          current.type === "frame" ||
+          current.type === "ellipse" ||
+          current.type === "line" ||
+          current.type === "icon")
+          ? synchronizeLegacyPaintFields(current, command.patch)
+          : command.patch
       if (
         current?.type === "image" &&
         ("src" in command.patch || "assetId" in command.patch) &&
@@ -1581,7 +1667,7 @@ function applyParsedCommand(
         )
       }
       const directPatchBase = current
-        ? detachStyleForDirectNodePatch(current, command.patch)
+        ? detachStyleForDirectNodePatch(current, synchronizedPatch)
         : current
       const updated =
         current?.type === "text"
@@ -1589,17 +1675,20 @@ function applyParsedCommand(
               directPatchBase as Extract<SceneNode, { type: "text" }>,
               normalizeTextNodePatch(
                 current,
-                textNodePatchSchema.parse(command.patch)
+                textNodePatchSchema.parse(synchronizedPatch)
               )
             )
-          : current?.type === "image" && "alt" in command.patch
+          : current?.type === "image" && "alt" in synchronizedPatch
             ? {
                 ...current,
-                ...command.patch,
+                ...synchronizedPatch,
                 id: command.nodeId,
-                altProvenance: command.patch.altProvenance ?? "authored",
+                altProvenance:
+                  ("altProvenance" in synchronizedPatch
+                    ? synchronizedPatch.altProvenance
+                    : undefined) ?? "authored",
               }
-            : { ...directPatchBase, ...command.patch, id: command.nodeId }
+            : { ...directPatchBase, ...synchronizedPatch, id: command.nodeId }
       const nodes = [...document.nodes]
       nodes[index] = updated as SceneNode
       next = {
@@ -1608,7 +1697,7 @@ function applyParsedCommand(
         variableBindings: detachVariableBindingsForNodePatch(
           document,
           command.nodeId,
-          command.patch
+          synchronizedPatch
         ),
       }
       break
@@ -2775,7 +2864,19 @@ function applyParsedCommand(
       assertMaskNodeCanLeave(document, command.nodeId)
       next = {
         ...document,
-        nodes: document.nodes.filter((node) => node.id !== command.nodeId),
+        nodes: document.nodes
+          .filter((node) => node.id !== command.nodeId)
+          .map((node) =>
+            node.type === "frame" &&
+            node.children.some((child) => child.nodeId === command.nodeId)
+              ? {
+                  ...node,
+                  children: node.children.filter(
+                    (child) => child.nodeId !== command.nodeId
+                  ),
+                }
+              : node
+          ),
         pages: document.pages.map((page) => ({
           ...page,
           nodeIds: page.nodeIds.filter((nodeId) => nodeId !== command.nodeId),
@@ -3230,14 +3331,36 @@ function applyParsedCommand(
       break
     }
     case "update_page": {
-      if (!document.pages.some((page) => page.id === command.pageId)) {
+      const page = document.pages.find(
+        (candidate) => candidate.id === command.pageId
+      )
+      if (!page) {
         throw new Error(`Unknown page: ${command.pageId}`)
       }
+      const updatedPage = { ...page, ...command.patch }
+      const frameChildIds = new Set(
+        document.nodes.flatMap((node) =>
+          node.type === "frame"
+            ? node.children.map((child) => child.nodeId)
+            : []
+        )
+      )
+      const resizedNodeIds = new Set(
+        page.nodeIds.filter((nodeId) => !frameChildIds.has(nodeId))
+      )
       next = {
         ...document,
         pages: document.pages.map((page) =>
-          page.id === command.pageId ? { ...page, ...command.patch } : page
+          page.id === command.pageId ? updatedPage : page
         ),
+        nodes:
+          updatedPage.width === page.width && updatedPage.height === page.height
+            ? document.nodes
+            : document.nodes.map((node) =>
+                resizedNodeIds.has(node.id)
+                  ? resizeNodeForPage(node, page, updatedPage)
+                  : node
+              ),
       }
       break
     }
@@ -3416,10 +3539,12 @@ function applyParsedCommand(
 
   const projected = applyFieldValues(next)
   const reconciled = reconcileOrdinaryComponentMutations(document, projected)
+  const ordered = reconcileFrameChildPaintOrder(reconciled)
+  const laidOut = applyFrameAutoLayout(ordered)
   const receipted =
     maskCommand && maskFingerprint
-      ? appendMaskCommandReceipt(reconciled, maskCommand, maskFingerprint)
-      : reconciled
+      ? appendMaskCommandReceipt(laidOut, maskCommand, maskFingerprint)
+      : laidOut
   return validateResult(
     applyFieldValues({
       ...receipted,

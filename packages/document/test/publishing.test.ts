@@ -205,6 +205,7 @@ describe("template publishing", () => {
       opacity: 1,
       visible: true,
       locked: false,
+      constraints: { horizontal: "min", vertical: "min" },
       assetId: "asset-inline-image",
       src: "data:image/png;base64,AA==",
       placement: {
@@ -268,6 +269,7 @@ describe("template publishing", () => {
           opacity: 1,
           visible: true,
           locked: false,
+          constraints: { horizontal: "min" as const, vertical: "min" as const },
           assetId: "asset-local",
           src: "asset:local/asset-local",
           placement: {

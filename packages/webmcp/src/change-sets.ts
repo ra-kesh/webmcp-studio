@@ -260,8 +260,12 @@ const commonCanvasProperties = new Set([
   "flipX",
   "flipY",
   "opacity",
+  "blendMode",
+  "effects",
+  "exportSettings",
   "visible",
   "locked",
+  "constraints",
 ])
 
 const nodeCanvasProperties: Record<SceneNode["type"], Set<string>> = {
@@ -274,16 +278,74 @@ const nodeCanvasProperties: Record<SceneNode["type"], Set<string>> = {
     "lineHeight",
     "letterSpacing",
     "align",
+    "direction",
+    "verticalAlign",
+    "textCase",
+    "truncation",
+    "maxLines",
     "sizingMode",
   ]),
-  rect: new Set(["fill", "radius", "stroke", "strokeWidth"]),
-  ellipse: new Set(["fill", "stroke", "strokeWidth"]),
-  line: new Set(["stroke", "strokeWidth"]),
-  icon: new Set(["fill", "stroke", "strokeWidth"]),
+  rect: new Set([
+    "fill",
+    "fills",
+    "radius",
+    "independentCorners",
+    "cornerRadii",
+    "cornerSmoothing",
+    "stroke",
+    "strokeWidth",
+    "strokes",
+  ]),
+  frame: new Set([
+    "fill",
+    "fills",
+    "radius",
+    "independentCorners",
+    "cornerRadii",
+    "cornerSmoothing",
+    "stroke",
+    "strokeWidth",
+    "strokes",
+    "children",
+    "autoLayout",
+    "clipsContent",
+    "layoutGrids",
+  ]),
+  ellipse: new Set(["fill", "fills", "stroke", "strokeWidth", "strokes"]),
+  line: new Set(["stroke", "strokeWidth", "strokes"]),
+  icon: new Set(["fill", "fills", "stroke", "strokeWidth", "strokes"]),
   image: new Set(["placement", "frameMask", "alt", "decorative"]),
 }
 
 const rounded = (value: number) => Math.round(value * 100) / 100
+
+const scaledCornerRadii = (
+  radii: Extract<SceneNode, { type: "rect" | "frame" }>["cornerRadii"],
+  scale: number
+) =>
+  radii
+    ? {
+        topLeft: rounded(radii.topLeft * scale),
+        topRight: rounded(radii.topRight * scale),
+        bottomRight: rounded(radii.bottomRight * scale),
+        bottomLeft: rounded(radii.bottomLeft * scale),
+      }
+    : undefined
+
+const scaledStrokes = (
+  strokes: Extract<
+    SceneNode,
+    { type: "rect" | "frame" | "ellipse" | "line" | "icon" }
+  >["strokes"],
+  scale: number
+) =>
+  strokes?.map((paint) => ({
+    ...paint,
+    width: rounded(paint.width * scale),
+    ...(paint.dash
+      ? { dash: paint.dash.map((value) => rounded(value * scale)) }
+      : {}),
+  }))
 
 function scaleNode(
   node: SceneNode,
@@ -298,6 +360,20 @@ function scaleNode(
     y: rounded(node.y * scaleY),
     width: Math.max(1, rounded(node.width * scaleX)),
     height: Math.max(1, rounded(node.height * scaleY)),
+    ...(node.effects
+      ? {
+          effects: node.effects.map((effect) =>
+            effect.type === "drop_shadow"
+              ? {
+                  ...effect,
+                  offsetX: rounded(effect.offsetX * scale),
+                  offsetY: rounded(effect.offsetY * scale),
+                  blur: rounded(effect.blur * scale),
+                }
+              : { ...effect, radius: rounded(effect.radius * scale) }
+          ),
+        }
+      : {}),
   }
   switch (node.type) {
     case "text":
@@ -312,25 +388,91 @@ function scaleNode(
         ...node,
         ...geometry,
         radius: rounded(node.radius * scale),
+        ...(node.cornerRadii
+          ? { cornerRadii: scaledCornerRadii(node.cornerRadii, scale) }
+          : {}),
         strokeWidth: rounded(node.strokeWidth * scale),
+        ...(node.strokes
+          ? { strokes: scaledStrokes(node.strokes, scale) }
+          : {}),
+      }
+    case "frame":
+      return {
+        ...node,
+        ...geometry,
+        radius: rounded(node.radius * scale),
+        ...(node.cornerRadii
+          ? { cornerRadii: scaledCornerRadii(node.cornerRadii, scale) }
+          : {}),
+        strokeWidth: rounded(node.strokeWidth * scale),
+        ...(node.strokes
+          ? { strokes: scaledStrokes(node.strokes, scale) }
+          : {}),
+        children: node.children.map((child) => ({
+          ...child,
+          offsetX: rounded(child.offsetX * scaleX),
+          offsetY: rounded(child.offsetY * scaleY),
+        })),
+        autoLayout: node.autoLayout
+          ? {
+              ...node.autoLayout,
+              gap: rounded(node.autoLayout.gap * scale),
+              padding: {
+                top: rounded(node.autoLayout.padding.top * scaleY),
+                right: rounded(node.autoLayout.padding.right * scaleX),
+                bottom: rounded(node.autoLayout.padding.bottom * scaleY),
+                left: rounded(node.autoLayout.padding.left * scaleX),
+              },
+            }
+          : null,
+        layoutGrids: (node.layoutGrids ?? []).map((grid) =>
+          grid.pattern === "grid"
+            ? {
+                ...grid,
+                offset: rounded(grid.offset * scale),
+                size: rounded(grid.size * scale),
+              }
+            : {
+                ...grid,
+                offset: rounded(
+                  grid.offset * (grid.pattern === "columns" ? scaleX : scaleY)
+                ),
+                sectionSize: rounded(
+                  grid.sectionSize *
+                    (grid.pattern === "columns" ? scaleX : scaleY)
+                ),
+                gutter: rounded(
+                  grid.gutter * (grid.pattern === "columns" ? scaleX : scaleY)
+                ),
+              }
+        ),
       }
     case "ellipse":
       return {
         ...node,
         ...geometry,
         strokeWidth: rounded(node.strokeWidth * scale),
+        ...(node.strokes
+          ? { strokes: scaledStrokes(node.strokes, scale) }
+          : {}),
       }
     case "line":
       return {
         ...node,
         ...geometry,
         strokeWidth: Math.max(0.1, rounded(node.strokeWidth * scale)),
+        ...(node.strokes
+          ? { strokes: scaledStrokes(node.strokes, scale) }
+          : {}),
       }
     case "icon":
       return {
         ...node,
         ...geometry,
         strokeWidth: rounded(node.strokeWidth * scale),
+        ...(node.strokes
+          ? { strokes: scaledStrokes(node.strokes, scale) }
+          : {}),
       }
     case "image":
       return { ...node, ...geometry }
@@ -721,6 +863,7 @@ export function createAssetInsertionChangeSet(
     opacity: 1,
     visible: true,
     locked: false,
+    constraints: { horizontal: "min", vertical: "min" },
   }
   const at = identity.now()
   const fieldOperations = input.values

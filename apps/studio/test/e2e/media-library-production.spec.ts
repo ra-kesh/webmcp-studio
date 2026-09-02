@@ -231,6 +231,7 @@ function imageFixture({
     opacity: 0.72,
     visible: true,
     locked: false,
+    constraints: { horizontal: "min", vertical: "min" },
   }
   return documentSchema.parse({
     ...base,

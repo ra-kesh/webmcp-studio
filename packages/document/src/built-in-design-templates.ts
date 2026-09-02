@@ -8,7 +8,12 @@ import {
   composeQuotationDocumentV3,
   QUOTATION_COMPOSER_VERSION,
 } from "./quotation-composer"
-import { documentSchema, type Document, type SceneNode } from "./schema"
+import {
+  defaultNodeConstraints,
+  documentSchema,
+  type Document,
+  type SceneNode,
+} from "./schema"
 import { builtInDocumentStarterDefinitions } from "./built-ins/templates/starter-manifests"
 import {
   createStudioQuotationStyleManifest,
@@ -35,6 +40,7 @@ const baseNode = (
   opacity: 1,
   visible: true,
   locked: false,
+  constraints: defaultNodeConstraints(),
 })
 
 const textNode = (
@@ -166,7 +172,7 @@ function editorialOnePager(): Document {
     ),
   ]
   return documentSchema.parse({
-    schemaVersion: 5,
+    schemaVersion: 6,
     id: "editorial-one-pager-template-document",
     name: "Editorial one-pager",
     revision: 0,
@@ -296,7 +302,7 @@ function boldSquareAnnouncement(): Document {
     ),
   ]
   return documentSchema.parse({
-    schemaVersion: 5,
+    schemaVersion: 6,
     id: "bold-square-template-document",
     name: "Bold square announcement",
     revision: 0,
@@ -380,7 +386,7 @@ export const builtInDesignTemplateDefinitions: DesignTemplateDefinition[] = [
       job: "Create a concise printable proposal, brief or client introduction.",
       document: legacyEditorialOnePager,
       contentSha256:
-        "d3461fb1881baaf8057dadb5c5ec24b43584b4eb8a924fb5854840e5c0f6c939",
+        "5d5a188b6c9e60d4467fb0d35c26e619a61e74947150c8fb6a270643b9c7144f",
     }),
     document: legacyEditorialOnePager,
   },
@@ -406,7 +412,7 @@ export const builtInDesignTemplateDefinitions: DesignTemplateDefinition[] = [
       job: "Publish a legible launch or event announcement for social feeds.",
       document: legacyBoldSquareAnnouncement,
       contentSha256:
-        "0ee6121e616d9f3838d22515039ed4a2f85d98c42341555f42992afae01852a2",
+        "2111294407f8c086f7ac247dd9fdf6e49a9100ac40d9b92385049e08fc467cf3",
     }),
     document: legacyBoldSquareAnnouncement,
   },
@@ -462,11 +468,11 @@ export const builtInDesignTemplateDefinitions: DesignTemplateDefinition[] = [
         ),
         contentSha256: {
           "quotation-editorial-olive":
-            "1aa22f515c84ff248f12ec403d7df3b4596eaac3ca9615c7fefb852bb905e5a3",
+            "d938631e37da99fc30502a4f73ec407df03bafde78b68c91b6b9fdddd5452a26",
           "quotation-warm-paper":
-            "fee55cebf7258ae2bf4cb28d8f886f17c4d009c3a5689821070a98757d9be82a",
+            "4e50e438ea088bcd8b1c1606404f50af16f21e758e5eaf6896f44cd68ec09b63",
           "quotation-midnight-film":
-            "ace0fa920d47bc68ea1c8efc92a247c782f15f67741be170a5b1c23355197d2c",
+            "5a161ef47ab3f6d68c826dd90474ebfebbb6d9af8c1b9e2c12907fbe4832e6b8",
         }[template.id],
       }),
       ...template,

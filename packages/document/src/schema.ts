@@ -28,6 +28,288 @@ export const textSizingModeSchema = z.enum([
   "fixed",
 ])
 
+export const constraintAxisSchema = z.enum([
+  "min",
+  "center",
+  "max",
+  "stretch",
+  "scale",
+])
+
+export const blendModeSchema = z.enum([
+  "normal",
+  "darken",
+  "multiply",
+  "color-burn",
+  "lighten",
+  "screen",
+  "color-dodge",
+  "overlay",
+  "soft-light",
+  "hard-light",
+  "difference",
+  "exclusion",
+  "hue",
+  "saturation",
+  "color",
+  "luminosity",
+])
+
+export const cornerRadiiSchema = z
+  .object({
+    topLeft: z.number().nonnegative(),
+    topRight: z.number().nonnegative(),
+    bottomRight: z.number().nonnegative(),
+    bottomLeft: z.number().nonnegative(),
+  })
+  .strict()
+
+export const cornerSmoothingSchema = z.number().min(0).max(1)
+
+const paintBaseSchema = z
+  .object({
+    id,
+    color: z.string().min(1),
+    opacity: z.number().min(0).max(1).default(1),
+    visible: z.boolean().default(true),
+    blendMode: blendModeSchema.optional(),
+  })
+  .strict()
+
+export const fillPaintSchema = paintBaseSchema
+export const strokePaintSchema = paintBaseSchema.extend({
+  width: z.number().nonnegative(),
+  alignment: z.enum(["inside", "center", "outside"]).optional(),
+  sides: z
+    .object({
+      top: z.boolean(),
+      right: z.boolean(),
+      bottom: z.boolean(),
+      left: z.boolean(),
+    })
+    .strict()
+    .optional(),
+  dash: z
+    .array(z.number().nonnegative())
+    .max(16)
+    .refine(
+      (values) => values.length === 0 || values.some((value) => value > 0),
+      {
+        message: "A dash pattern must contain a positive segment",
+      }
+    )
+    .optional(),
+  cap: z.enum(["butt", "round", "square"]).optional(),
+  join: z.enum(["miter", "round", "bevel"]).optional(),
+  miterLimit: z.number().min(1).max(100).optional(),
+})
+
+const effectIdSchema = z.string().min(1)
+const effectColorSchema = z
+  .string()
+  .regex(
+    /^#[0-9a-f]{6}([0-9a-f]{2})?$/i,
+    "Effect colors must be hex RGB or RGBA"
+  )
+
+export const layerEffectSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      id: effectIdSchema,
+      type: z.literal("drop_shadow"),
+      color: effectColorSchema,
+      offsetX: z.number().min(-4096).max(4096),
+      offsetY: z.number().min(-4096).max(4096),
+      blur: z.number().min(0).max(64),
+      visible: z.boolean(),
+    })
+    .strict(),
+  z
+    .object({
+      id: effectIdSchema,
+      type: z.literal("layer_blur"),
+      radius: z.number().min(0).max(64),
+      visible: z.boolean(),
+    })
+    .strict(),
+])
+
+export const layerEffectsSchema = z
+  .array(layerEffectSchema)
+  .max(8)
+  .superRefine((effects, context) => {
+    const ids = new Set<string>()
+    let blurBudget = 0
+    effects.forEach((effect, index) => {
+      if (ids.has(effect.id)) {
+        context.addIssue({
+          code: "custom",
+          path: [index, "id"],
+          message: "Effect IDs must be unique within a stack",
+        })
+      }
+      ids.add(effect.id)
+      if (effect.visible) {
+        blurBudget +=
+          effect.type === "drop_shadow" ? effect.blur : effect.radius
+      }
+    })
+    if (blurBudget > 128) {
+      context.addIssue({
+        code: "custom",
+        message: "Visible effect blur budget cannot exceed 128 pixels",
+      })
+    }
+  })
+
+export const layerExportSettingSchema = z
+  .object({
+    id,
+    format: z.enum(["png", "pdf"]),
+    scale: z.number().min(0.25).max(4),
+    suffix: z
+      .string()
+      .max(40)
+      .regex(/^[A-Za-z0-9._-]*$/),
+  })
+  .strict()
+
+export const layerExportSettingsSchema = z
+  .array(layerExportSettingSchema)
+  .max(4)
+  .superRefine((settings, context) => {
+    const ids = new Set<string>()
+    settings.forEach((setting, index) => {
+      if (ids.has(setting.id)) {
+        context.addIssue({
+          code: "custom",
+          path: [index, "id"],
+          message: "Layer export setting IDs must be unique",
+        })
+      }
+      ids.add(setting.id)
+    })
+  })
+
+const uniquePaints = <T extends { id: string }>(
+  paints: readonly T[],
+  context: z.RefinementCtx
+) => {
+  const ids = new Set<string>()
+  paints.forEach((paint, index) => {
+    if (ids.has(paint.id)) {
+      context.addIssue({
+        code: "custom",
+        path: [index, "id"],
+        message: "Paint IDs must be unique within a stack",
+      })
+    }
+    ids.add(paint.id)
+  })
+}
+
+export const fillPaintsSchema = z
+  .array(fillPaintSchema)
+  .max(8)
+  .superRefine(uniquePaints)
+export const strokePaintsSchema = z
+  .array(strokePaintSchema)
+  .max(8)
+  .superRefine(uniquePaints)
+
+const normalizedCornerRadiiSchema = z
+  .object({
+    topLeft: z.number().min(0).max(0.5),
+    topRight: z.number().min(0).max(0.5),
+    bottomRight: z.number().min(0).max(0.5),
+    bottomLeft: z.number().min(0).max(0.5),
+  })
+  .strict()
+
+export const nodeConstraintsSchema = z
+  .object({
+    horizontal: constraintAxisSchema,
+    vertical: constraintAxisSchema,
+  })
+  .strict()
+
+export const defaultNodeConstraints = () =>
+  nodeConstraintsSchema.parse({ horizontal: "min", vertical: "min" })
+
+export const frameChildLayoutSchema = z
+  .object({
+    nodeId: id,
+    positioning: z.enum(["auto", "absolute"]),
+    horizontalSizing: z.enum(["fixed", "fill"]),
+    verticalSizing: z.enum(["fixed", "fill"]),
+    offsetX: z.number(),
+    offsetY: z.number(),
+    grow: z.number().nonnegative().default(0),
+  })
+  .strict()
+
+export const frameAutoLayoutSchema = z
+  .object({
+    direction: z.enum(["horizontal", "vertical"]),
+    horizontalSizing: z.enum(["fixed", "hug"]),
+    verticalSizing: z.enum(["fixed", "hug"]),
+    gap: z.number().nonnegative(),
+    padding: z
+      .object({
+        top: z.number().nonnegative(),
+        right: z.number().nonnegative(),
+        bottom: z.number().nonnegative(),
+        left: z.number().nonnegative(),
+      })
+      .strict(),
+    primaryAlign: z.enum(["start", "center", "end", "space_between"]),
+    counterAlign: z.enum(["start", "center", "end", "stretch"]),
+  })
+  .strict()
+
+const frameLayoutGridBaseSchema = z.object({
+  id,
+  visible: z.boolean().default(true),
+  color: z.string().min(1).default("#2563eb"),
+  opacity: z.number().min(0).max(1).default(0.12),
+  offset: z.number().nonnegative().default(0),
+})
+
+export const frameLayoutGridSchema = z.discriminatedUnion("pattern", [
+  frameLayoutGridBaseSchema
+    .extend({
+      pattern: z.enum(["columns", "rows"]),
+      alignment: z.enum(["min", "center", "max", "stretch"]),
+      count: z.number().int().min(1).max(64),
+      sectionSize: z.number().positive(),
+      gutter: z.number().nonnegative(),
+    })
+    .strict(),
+  frameLayoutGridBaseSchema
+    .extend({
+      pattern: z.literal("grid"),
+      size: z.number().positive(),
+    })
+    .strict(),
+])
+
+export const frameLayoutGridsSchema = z
+  .array(frameLayoutGridSchema)
+  .max(8)
+  .superRefine((grids, context) => {
+    const ids = new Set<string>()
+    grids.forEach((grid, index) => {
+      if (ids.has(grid.id)) {
+        context.addIssue({
+          code: "custom",
+          path: [index, "id"],
+          message: "Frame layout guide IDs must be unique",
+        })
+      }
+      ids.add(grid.id)
+    })
+  })
+
 /**
  * Image placement is deliberately expressed as product-level controls rather
  * than a serialized renderer matrix. The render projection owns the affine
@@ -55,6 +337,9 @@ export const imageFrameMaskSchema = z.discriminatedUnion("shape", [
       shape: z.literal("rounded_rectangle"),
       /** Radius normalized against the shorter frame edge. */
       radius: z.number().min(0).max(0.5),
+      /** Optional independent radii normalized against the shorter edge. */
+      cornerRadii: normalizedCornerRadiiSchema.optional(),
+      cornerSmoothing: cornerSmoothingSchema.optional(),
     })
     .strict(),
   z.object({ shape: z.literal("ellipse") }).strict(),
@@ -86,8 +371,12 @@ const baseNodeSchema = z
     flipX: z.boolean().optional(),
     flipY: z.boolean().optional(),
     opacity: z.number().min(0).max(1).default(1),
+    blendMode: blendModeSchema.optional(),
+    effects: layerEffectsSchema.optional(),
+    exportSettings: layerExportSettingsSchema.optional(),
     visible: z.boolean().default(true),
     locked: z.boolean().default(false),
+    constraints: nodeConstraintsSchema.default(defaultNodeConstraints),
   })
   .strict()
 
@@ -102,8 +391,12 @@ const baseNodePatchSchema = z
     flipX: z.boolean().optional(),
     flipY: z.boolean().optional(),
     opacity: z.number().min(0).max(1).optional(),
+    blendMode: blendModeSchema.optional(),
+    effects: layerEffectsSchema.optional(),
+    exportSettings: layerExportSettingsSchema.optional(),
     visible: z.boolean().optional(),
     locked: z.boolean().optional(),
+    constraints: nodeConstraintsSchema.optional(),
   })
   .strict()
 
@@ -122,7 +415,12 @@ export const textNodePatchSchema = baseNodePatchSchema.extend({
   decoration: textDecorationSchema.optional(),
   lineHeight: z.number().min(0.5).max(3).optional(),
   letterSpacing: z.number().min(-20).max(200).optional(),
-  align: z.enum(["left", "center", "right"]).optional(),
+  align: z.enum(["left", "center", "right", "justify"]).optional(),
+  direction: z.enum(["auto", "ltr", "rtl"]).optional(),
+  verticalAlign: z.enum(["top", "middle", "bottom"]).optional(),
+  textCase: z.enum(["original", "uppercase", "lowercase", "title"]).optional(),
+  truncation: z.enum(["clip", "ellipsis"]).optional(),
+  maxLines: z.number().int().min(1).max(100).nullable().optional(),
   sizingMode: textSizingModeSchema.optional(),
 })
 
@@ -132,28 +430,38 @@ export const sceneNodePatchSchema = z
     baseNodePatchSchema.extend({
       paintStyleId: id.optional(),
       fill: z.string().optional(),
+      fills: fillPaintsSchema.optional(),
       radius: z.number().min(0).optional(),
+      independentCorners: z.boolean().optional(),
+      cornerRadii: cornerRadiiSchema.optional(),
+      cornerSmoothing: cornerSmoothingSchema.optional(),
       stroke: z.string().optional(),
       strokeWidth: z.number().nonnegative().optional(),
+      strokes: strokePaintsSchema.optional(),
     }),
     baseNodePatchSchema.extend({
       paintStyleId: id.optional(),
       fill: z.string().optional(),
+      fills: fillPaintsSchema.optional(),
       stroke: z.string().optional(),
       strokeWidth: z.number().nonnegative().optional(),
+      strokes: strokePaintsSchema.optional(),
     }),
     baseNodePatchSchema.extend({
       paintStyleId: id.optional(),
       stroke: z.string().optional(),
       strokeWidth: z.number().positive().optional(),
+      strokes: strokePaintsSchema.optional(),
     }),
     baseNodePatchSchema.extend({
       paintStyleId: id.optional(),
       path: z.string().min(1).optional(),
       viewBox: z.string().min(1).optional(),
       fill: z.string().optional(),
+      fills: fillPaintsSchema.optional(),
       stroke: z.string().optional(),
       strokeWidth: z.number().nonnegative().optional(),
+      strokes: strokePaintsSchema.optional(),
     }),
     baseNodePatchSchema.extend({
       assetId: id.optional(),
@@ -163,6 +471,22 @@ export const sceneNodePatchSchema = z
       alt: z.string().optional(),
       altProvenance: z.enum(["generated", "authored"]).optional(),
       decorative: z.boolean().optional(),
+    }),
+    baseNodePatchSchema.extend({
+      paintStyleId: id.optional(),
+      fill: z.string().optional(),
+      fills: fillPaintsSchema.optional(),
+      radius: z.number().min(0).optional(),
+      independentCorners: z.boolean().optional(),
+      cornerRadii: cornerRadiiSchema.optional(),
+      cornerSmoothing: cornerSmoothingSchema.optional(),
+      stroke: z.string().optional(),
+      strokeWidth: z.number().nonnegative().optional(),
+      strokes: strokePaintsSchema.optional(),
+      children: z.array(frameChildLayoutSchema).optional(),
+      autoLayout: frameAutoLayoutSchema.nullable().optional(),
+      clipsContent: z.boolean().optional(),
+      layoutGrids: frameLayoutGridsSchema.optional(),
     }),
   ])
   .refine((patch) => Object.keys(patch).length > 0, {
@@ -187,29 +511,44 @@ export const sceneNodeSchema = z
       decoration: textDecorationSchema.default("none"),
       lineHeight: z.number().min(0.5).max(3).default(1.18),
       letterSpacing: z.number().min(-20).max(200).default(0),
-      align: z.enum(["left", "center", "right"]).default("left"),
+      align: z.enum(["left", "center", "right", "justify"]).default("left"),
+      direction: z.enum(["auto", "ltr", "rtl"]).optional(),
+      verticalAlign: z.enum(["top", "middle", "bottom"]).optional(),
+      textCase: z
+        .enum(["original", "uppercase", "lowercase", "title"])
+        .optional(),
+      truncation: z.enum(["clip", "ellipsis"]).optional(),
+      maxLines: z.number().int().min(1).max(100).nullable().optional(),
       sizingMode: textSizingModeSchema.default("fixed"),
     }),
     baseNodeSchema.extend({
       type: z.literal("rect"),
       paintStyleId: id.optional(),
       fill: z.string(),
+      fills: fillPaintsSchema.optional(),
       radius: z.number().min(0).default(0),
+      independentCorners: z.boolean().optional(),
+      cornerRadii: cornerRadiiSchema.optional(),
+      cornerSmoothing: cornerSmoothingSchema.optional(),
       stroke: z.string().optional(),
       strokeWidth: z.number().nonnegative().default(0),
+      strokes: strokePaintsSchema.optional(),
     }),
     baseNodeSchema.extend({
       type: z.literal("ellipse"),
       paintStyleId: id.optional(),
       fill: z.string(),
+      fills: fillPaintsSchema.optional(),
       stroke: z.string().optional(),
       strokeWidth: z.number().nonnegative().default(0),
+      strokes: strokePaintsSchema.optional(),
     }),
     baseNodeSchema.extend({
       type: z.literal("line"),
       paintStyleId: id.optional(),
       stroke: z.string(),
       strokeWidth: z.number().positive().default(2),
+      strokes: strokePaintsSchema.optional(),
     }),
     baseNodeSchema.extend({
       type: z.literal("icon"),
@@ -217,8 +556,10 @@ export const sceneNodeSchema = z
       path: z.string().min(1),
       viewBox: z.string().default("0 0 24 24"),
       fill: z.string(),
+      fills: fillPaintsSchema.optional(),
       stroke: z.string().optional(),
       strokeWidth: z.number().nonnegative().default(0),
+      strokes: strokePaintsSchema.optional(),
     }),
     baseNodeSchema.extend({
       type: z.literal("image"),
@@ -230,8 +571,64 @@ export const sceneNodeSchema = z
       altProvenance: z.enum(["generated", "authored"]).optional(),
       decorative: z.boolean().default(false),
     }),
+    baseNodeSchema.extend({
+      type: z.literal("frame"),
+      paintStyleId: id.optional(),
+      fill: z.string(),
+      fills: fillPaintsSchema.optional(),
+      radius: z.number().min(0).default(0),
+      independentCorners: z.boolean().optional(),
+      cornerRadii: cornerRadiiSchema.optional(),
+      cornerSmoothing: cornerSmoothingSchema.optional(),
+      stroke: z.string().optional(),
+      strokeWidth: z.number().nonnegative().default(0),
+      strokes: strokePaintsSchema.optional(),
+      children: z.array(frameChildLayoutSchema),
+      autoLayout: frameAutoLayoutSchema.nullable().default(null),
+      clipsContent: z.boolean().default(false),
+      layoutGrids: frameLayoutGridsSchema.optional(),
+    }),
   ])
   .superRefine((node, context) => {
+    if (
+      (node.type === "rect" || node.type === "frame") &&
+      node.independentCorners &&
+      !node.cornerRadii
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["cornerRadii"],
+        message: "Independent corners require all four corner radii",
+      })
+    }
+    if ("strokes" in node && node.strokes) {
+      node.strokes.forEach((stroke, index) => {
+        const sides = stroke.sides
+        if (
+          sides &&
+          node.type !== "rect" &&
+          node.type !== "frame" &&
+          !Object.values(sides).every(Boolean)
+        ) {
+          context.addIssue({
+            code: "custom",
+            path: ["strokes", index, "sides"],
+            message: "Independent stroke sides require rect or frame geometry",
+          })
+        }
+        if (
+          (node.type === "line" || node.type === "icon") &&
+          stroke.alignment &&
+          stroke.alignment !== "center"
+        ) {
+          context.addIssue({
+            code: "custom",
+            path: ["strokes", index, "alignment"],
+            message: "Open-path strokes require center alignment",
+          })
+        }
+      })
+    }
     if (node.type !== "image") return
     if (node.decorative && node.alt !== "") {
       context.addIssue({
@@ -815,8 +1212,12 @@ export const componentOverridePropertySchema = z.enum([
   "flipX",
   "flipY",
   "opacity",
+  "blendMode",
+  "effects",
+  "exportSettings",
   "visible",
   "locked",
+  "constraints",
   "text",
   "runs",
   "paragraphs",
@@ -833,10 +1234,20 @@ export const componentOverridePropertySchema = z.enum([
   "letterSpacing",
   "align",
   "sizingMode",
+  "direction",
+  "verticalAlign",
+  "textCase",
+  "truncation",
+  "maxLines",
   "fill",
+  "fills",
   "radius",
+  "independentCorners",
+  "cornerRadii",
+  "cornerSmoothing",
   "stroke",
   "strokeWidth",
+  "strokes",
   "path",
   "viewBox",
   "assetId",
@@ -846,6 +1257,9 @@ export const componentOverridePropertySchema = z.enum([
   "alt",
   "altProvenance",
   "decorative",
+  "children",
+  "autoLayout",
+  "clipsContent",
 ])
 
 export const typographyStyleSchema = z
@@ -1042,7 +1456,7 @@ export const variableBindingSchema = z
 
 export const documentSchema = z
   .object({
-    schemaVersion: z.literal(5),
+    schemaVersion: z.literal(6),
     id,
     name: z.string().min(1),
     revision: z.number().int().nonnegative(),
@@ -1063,7 +1477,7 @@ export const documentSchema = z
     bindings: z.array(fieldBindingSchema),
     /**
      * A bounded replay ledger for externally addressable structural commands.
-     * It is optional so existing schema-v5 documents retain byte-for-byte
+     * It is optional so existing schema-v6 documents retain byte-for-byte
      * meaning until the first replay-protected command is applied.
      */
     commandReceipts: z
@@ -1544,6 +1958,18 @@ export const templateManifestSchema = z
               })
               .strict()
           ),
+          layerExports: z.array(
+            z
+              .object({
+                nodeId: id,
+                pageId: id,
+                settingId: id,
+                format: z.enum(["png", "pdf"]),
+                scale: z.number().min(0.25).max(4),
+                filename: z.string().min(1),
+              })
+              .strict()
+          ),
         })
         .strict()
     ),
@@ -1582,6 +2008,16 @@ export type SceneNode = z.infer<typeof sceneNodeSchema>
 export type TextNode = Extract<SceneNode, { type: "text" }>
 export type TextNodePatch = z.infer<typeof textNodePatchSchema>
 export type TextSizingMode = z.infer<typeof textSizingModeSchema>
+export type ConstraintAxis = z.infer<typeof constraintAxisSchema>
+export type BlendMode = z.infer<typeof blendModeSchema>
+export type CornerRadii = z.infer<typeof cornerRadiiSchema>
+export type FillPaint = z.infer<typeof fillPaintSchema>
+export type StrokePaint = z.infer<typeof strokePaintSchema>
+export type LayerEffect = z.infer<typeof layerEffectSchema>
+export type LayerExportSetting = z.infer<typeof layerExportSettingSchema>
+export type NodeConstraints = z.infer<typeof nodeConstraintsSchema>
+export type FrameChildLayout = z.infer<typeof frameChildLayoutSchema>
+export type FrameAutoLayout = z.infer<typeof frameAutoLayoutSchema>
 export type ImagePlacement = z.infer<typeof imagePlacementSchema>
 export type ImageFrameMask = z.infer<typeof imageFrameMaskSchema>
 export type Page = z.infer<typeof pageSchema>

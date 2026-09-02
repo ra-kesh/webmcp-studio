@@ -1,5 +1,21 @@
-import type { ImageFrameMask, ImagePlacement, Page, SceneNode } from "./schema"
-import { projectTextLayout, type TextLayoutProjection } from "./text-layout"
+import type {
+  BlendMode,
+  CornerRadii,
+  FillPaint,
+  ImageFrameMask,
+  ImagePlacement,
+  LayerEffect,
+  Page,
+  SceneNode,
+  StrokePaint,
+} from "./schema"
+import { resolveCornerRadii, roundedRectanglePath } from "./corner-geometry"
+import {
+  projectTextLayout,
+  resolveTextDirection,
+  type TextLayoutProjection,
+} from "./text-layout"
+import { nodeFillPaints, nodeStrokePaints } from "./paint-stack"
 
 export type RenderFrameProjection = {
   id: string
@@ -12,8 +28,10 @@ export type RenderFrameProjection = {
   flipX: boolean
   flipY: boolean
   opacity: number
+  blendMode: BlendMode
   visible: boolean
   locked: boolean
+  effects: LayerEffect[]
 }
 
 type ProjectedNode<Type extends SceneNode["type"], Content> = {
@@ -21,6 +39,50 @@ type ProjectedNode<Type extends SceneNode["type"], Content> = {
   frame: RenderFrameProjection
   content: Content
 }
+
+export type RenderCornerGeometry = Readonly<{
+  radii: CornerRadii
+  smoothing: number
+  path: string
+  independent: boolean
+}>
+
+export type RenderFillPaint = Omit<FillPaint, "blendMode"> & {
+  blendMode: BlendMode
+}
+export type RenderStrokePaint = Omit<StrokePaint, "blendMode"> & {
+  blendMode: BlendMode
+  alignment: "inside" | "center" | "outside"
+  sides: { top: boolean; right: boolean; bottom: boolean; left: boolean }
+  dash: number[]
+  cap: "butt" | "round" | "square"
+  join: "miter" | "round" | "bevel"
+  miterLimit: number
+}
+
+const projectFillPaints = (
+  node: Parameters<typeof nodeFillPaints>[0]
+): RenderFillPaint[] =>
+  nodeFillPaints(node).map((paint) => ({
+    ...paint,
+    blendMode: paint.blendMode ?? "normal",
+  }))
+
+const projectStrokePaints = (
+  node: Parameters<typeof nodeStrokePaints>[0]
+): RenderStrokePaint[] =>
+  nodeStrokePaints(node).map((paint) => ({
+    ...paint,
+    blendMode: paint.blendMode ?? "normal",
+    alignment:
+      paint.alignment ??
+      (node.type === "line" || node.type === "icon" ? "center" : "inside"),
+    sides: paint.sides ?? { top: true, right: true, bottom: true, left: true },
+    dash: paint.dash ?? [],
+    cap: paint.cap ?? "butt",
+    join: paint.join ?? "miter",
+    miterLimit: paint.miterLimit ?? 4,
+  }))
 
 export type RenderNodeProjection =
   | ProjectedNode<
@@ -34,7 +96,12 @@ export type RenderNodeProjection =
         fontWeight: number
         lineHeight: number
         letterSpacing: number
-        align: "left" | "center" | "right"
+        align: "left" | "center" | "right" | "justify"
+        direction: "ltr" | "rtl"
+        verticalAlign: "top" | "middle" | "bottom"
+        textCase: "original" | "uppercase" | "lowercase" | "title"
+        truncation: "clip" | "ellipsis"
+        maxLines: number | null
         whiteSpace: "pre"
         overflowWrap: "normal"
         sizingMode: Extract<SceneNode, { type: "text" }>["sizingMode"]
@@ -45,24 +112,51 @@ export type RenderNodeProjection =
       "rect",
       {
         fill: string
+        fills: RenderFillPaint[]
         radius: number
+        corners: RenderCornerGeometry
         stroke?: string
         strokeWidth: number
+        strokes: RenderStrokePaint[]
+      }
+    >
+  | ProjectedNode<
+      "frame",
+      {
+        fill: string
+        fills: RenderFillPaint[]
+        radius: number
+        corners: RenderCornerGeometry
+        stroke?: string
+        strokeWidth: number
+        strokes: RenderStrokePaint[]
+        clipsContent: boolean
       }
     >
   | ProjectedNode<
       "ellipse",
-      { fill: string; stroke?: string; strokeWidth: number }
+      {
+        fill: string
+        fills: RenderFillPaint[]
+        stroke?: string
+        strokeWidth: number
+        strokes: RenderStrokePaint[]
+      }
     >
-  | ProjectedNode<"line", { stroke: string; strokeWidth: number }>
+  | ProjectedNode<
+      "line",
+      { stroke: string; strokeWidth: number; strokes: RenderStrokePaint[] }
+    >
   | ProjectedNode<
       "icon",
       {
         path: string
         viewBox: string
         fill: string
+        fills: RenderFillPaint[]
         stroke?: string
         strokeWidth: number
+        strokes: RenderStrokePaint[]
       }
     >
   | ProjectedNode<
@@ -98,9 +192,33 @@ const projectFrame = (node: SceneNode): RenderFrameProjection => ({
   flipX: node.flipX ?? false,
   flipY: node.flipY ?? false,
   opacity: node.opacity,
+  blendMode: node.blendMode ?? "normal",
   visible: node.visible,
   locked: node.locked,
+  effects: node.effects ?? [],
 })
+
+const projectCorners = (
+  node: Extract<SceneNode, { type: "rect" | "frame" }>
+): RenderCornerGeometry => {
+  const independent = (node.independentCorners ?? false) && !!node.cornerRadii
+  const radii = resolveCornerRadii(
+    node.radius,
+    independent ? node.cornerRadii : undefined
+  )
+  const smoothing = node.cornerSmoothing ?? 0
+  return {
+    radii,
+    smoothing,
+    path: roundedRectanglePath({
+      width: node.width,
+      height: node.height,
+      cornerRadii: radii,
+      cornerSmoothing: smoothing,
+    }),
+    independent,
+  }
+}
 
 export function projectNodeForRender(node: SceneNode): RenderNodeProjection {
   const frame = projectFrame(node)
@@ -120,6 +238,11 @@ export function projectNodeForRender(node: SceneNode): RenderNodeProjection {
           lineHeight: node.lineHeight,
           letterSpacing: node.letterSpacing,
           align: node.align,
+          direction: resolveTextDirection(node),
+          verticalAlign: node.verticalAlign ?? "top",
+          textCase: node.textCase ?? "original",
+          truncation: node.truncation ?? "clip",
+          maxLines: node.maxLines ?? null,
           whiteSpace: "pre",
           overflowWrap: "normal",
           sizingMode: node.sizingMode,
@@ -132,9 +255,27 @@ export function projectNodeForRender(node: SceneNode): RenderNodeProjection {
         frame,
         content: {
           fill: node.fill,
+          fills: projectFillPaints(node),
           radius: node.radius,
+          corners: projectCorners(node),
           stroke: node.stroke,
           strokeWidth: node.strokeWidth,
+          strokes: projectStrokePaints(node),
+        },
+      }
+    case "frame":
+      return {
+        type: node.type,
+        frame,
+        content: {
+          fill: node.fill,
+          fills: projectFillPaints(node),
+          radius: node.radius,
+          corners: projectCorners(node),
+          stroke: node.stroke,
+          strokeWidth: node.strokeWidth,
+          strokes: projectStrokePaints(node),
+          clipsContent: node.clipsContent,
         },
       }
     case "ellipse":
@@ -143,15 +284,21 @@ export function projectNodeForRender(node: SceneNode): RenderNodeProjection {
         frame,
         content: {
           fill: node.fill,
+          fills: projectFillPaints(node),
           stroke: node.stroke,
           strokeWidth: node.strokeWidth,
+          strokes: projectStrokePaints(node),
         },
       }
     case "line":
       return {
         type: node.type,
         frame,
-        content: { stroke: node.stroke, strokeWidth: node.strokeWidth },
+        content: {
+          stroke: node.stroke,
+          strokeWidth: node.strokeWidth,
+          strokes: projectStrokePaints(node),
+        },
       }
     case "icon":
       return {
@@ -161,8 +308,10 @@ export function projectNodeForRender(node: SceneNode): RenderNodeProjection {
           path: node.path,
           viewBox: node.viewBox,
           fill: node.fill,
+          fills: projectFillPaints(node),
           stroke: node.stroke,
           strokeWidth: node.strokeWidth,
+          strokes: projectStrokePaints(node),
         },
       }
     case "image":
@@ -320,6 +469,8 @@ export type RenderImageClip =
       width: number
       height: number
       radius: number
+      cornerRadii?: CornerRadii
+      cornerSmoothing?: number
     }
   | {
       shape: "ellipse"
@@ -386,13 +537,31 @@ function projectImageClip(
       0,
       0.5
     )
-    return {
+    const shorterEdge = Math.min(frame.width, frame.height)
+    const base: Extract<RenderImageClip, { shape: "rounded_rectangle" }> = {
       shape: mask.shape,
       x: 0,
       y: 0,
       width: frame.width,
       height: frame.height,
-      radius: normalizedRadius * Math.min(frame.width, frame.height),
+      radius: normalizedRadius * shorterEdge,
+    }
+    if (!mask.cornerRadii && (mask.cornerSmoothing ?? 0) === 0) return base
+    const normalizedCornerRadii = mask.cornerRadii ?? {
+      topLeft: normalizedRadius,
+      topRight: normalizedRadius,
+      bottomRight: normalizedRadius,
+      bottomLeft: normalizedRadius,
+    }
+    return {
+      ...base,
+      cornerRadii: {
+        topLeft: normalizedCornerRadii.topLeft * shorterEdge,
+        topRight: normalizedCornerRadii.topRight * shorterEdge,
+        bottomRight: normalizedCornerRadii.bottomRight * shorterEdge,
+        bottomLeft: normalizedCornerRadii.bottomLeft * shorterEdge,
+      },
+      cornerSmoothing: mask.cornerSmoothing ?? 0,
     }
   }
 

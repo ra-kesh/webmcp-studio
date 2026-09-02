@@ -419,6 +419,7 @@ describe("typed field values", () => {
         opacity: 1,
         visible: true,
         locked: false,
+        constraints: { horizontal: "min", vertical: "min" },
         assetId: "portrait-asset",
         src: "https://assets.example.test/portrait.png",
         placement: {

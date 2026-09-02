@@ -75,7 +75,14 @@ const textPlanNodeSchema = z
     decoration: z.enum(["none", "underline", "line_through"]).default("none"),
     lineHeight: finiteGeometrySchema.min(0.5).max(3).default(1.18),
     letterSpacing: finiteGeometrySchema.min(-20).max(200).default(0),
-    align: z.enum(["left", "center", "right"]).default("left"),
+    align: z.enum(["left", "center", "right", "justify"]).default("left"),
+    direction: z.enum(["auto", "ltr", "rtl"]).optional(),
+    verticalAlign: z.enum(["top", "middle", "bottom"]).optional(),
+    textCase: z
+      .enum(["original", "uppercase", "lowercase", "title"])
+      .optional(),
+    truncation: z.enum(["clip", "ellipsis"]).optional(),
+    maxLines: z.number().int().min(1).max(100).nullable().optional(),
     sizingMode: textSizingModeSchema.default("fixed"),
     ...optionalStyleReferences,
   })
@@ -808,6 +815,7 @@ export function compileStudioDesignPlan(
       opacity: node.opacity,
       visible: node.visible,
       locked: node.locked,
+      constraints: { horizontal: "min" as const, vertical: "min" as const },
     }
     if (node.type === "text") {
       return {
@@ -826,6 +834,11 @@ export function compileStudioDesignPlan(
         lineHeight: node.lineHeight,
         letterSpacing: node.letterSpacing,
         align: node.align,
+        ...(node.direction ? { direction: node.direction } : {}),
+        ...(node.verticalAlign ? { verticalAlign: node.verticalAlign } : {}),
+        ...(node.textCase ? { textCase: node.textCase } : {}),
+        ...(node.truncation ? { truncation: node.truncation } : {}),
+        ...(node.maxLines !== undefined ? { maxLines: node.maxLines } : {}),
         sizingMode: node.sizingMode,
         ...(node.typographyStyleLocalId
           ? {
@@ -919,7 +932,7 @@ export function compileStudioDesignPlan(
   })
 
   const document = assertValidDocument({
-    schemaVersion: 5,
+    schemaVersion: 6,
     id: createId("document", "root"),
     name: plan.documentName,
     revision: 0,
