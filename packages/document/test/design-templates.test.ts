@@ -197,6 +197,18 @@ describe("design template repository", () => {
         mask: { type: "alpha", sourceNodeIds: ["mask-conformance-source"] },
       },
     ]
+    source.commandReceipts = [
+      { id: "mask-template-source", fingerprint: "a".repeat(64) },
+    ]
+    source.sceneTransactionMetadata = {
+      schemaVersion: 1,
+      receipts: [
+        {
+          idempotencyKey: "template-source",
+          requestHash: "b".repeat(64),
+        },
+      ],
+    }
     const createId = (kind: string, sourceId: string) =>
       `${kind}-template-copy-${sourceId}`
     const next = cloneTemplateDocument(source, {
@@ -220,6 +232,10 @@ describe("design template repository", () => {
         },
       }),
     ])
+    expect(next.commandReceipts).toBeUndefined()
+    expect(next.sceneTransactionMetadata).toBeUndefined()
+    expect(source.commandReceipts).toHaveLength(1)
+    expect(source.sceneTransactionMetadata?.receipts).toHaveLength(1)
     expect(validateDocument(next)).toEqual([])
     expect(
       cloneTemplateDocument(source, {

@@ -11,6 +11,7 @@ import type { ChangeSet, SceneNode } from "@webmcp/document"
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { imageCropSessionHasChanges } from "@webmcp/editor/image-crop-session"
 import type * as EditorHistoryModule from "@webmcp/editor/history"
+import type * as EditorSceneTransactionModule from "@webmcp/editor/scene-transactions"
 
 import { ImageCropToolbar } from "./image-crop-toolbar"
 import { quotationStarter } from "./quotation-starter"
@@ -48,6 +49,29 @@ vi.mock("@webmcp/editor/history", async (importOriginal) => {
         beforeDocument: history.document,
         afterDocument: result.history.document,
         commandTypes: commands.map((command) => command.type),
+      })
+      return result
+    },
+  }
+})
+
+vi.mock("@webmcp/editor/scene-transactions", async (importOriginal) => {
+  const actual = await importOriginal<typeof EditorSceneTransactionModule>()
+  return {
+    ...actual,
+    commitSceneTransaction: (
+      ...args: Parameters<typeof actual.commitSceneTransaction>
+    ): ReturnType<typeof actual.commitSceneTransaction> => {
+      const [history, transaction] = args
+      const result = actual.commitSceneTransaction(...args)
+      if (!result.ok || !result.commit) return result
+      historyAudit.commits.push({
+        label: transaction.title,
+        beforeSnapshotId: history.snapshotId,
+        afterSnapshotId: result.history.snapshotId,
+        beforeDocument: history.document,
+        afterDocument: result.history.document,
+        commandTypes: transaction.commands.map((command) => command.type),
       })
       return result
     },

@@ -627,9 +627,9 @@ describe.sequential("useDocumentEditor repository persistence", () => {
 
     const replacement = "Make the useful choice feel inevitable."
     await act(async () => {
-      expect(captured.current!.updateNode(title.id, { text: replacement })).toBe(
-        true
-      )
+      expect(
+        captured.current!.updateNode(title.id, { text: replacement })
+      ).toBe(true)
       expect(await captured.current!.flushActiveDraft()).toBe(true)
     })
 
@@ -4328,6 +4328,18 @@ describe.sequential("useDocumentEditor repository persistence", () => {
       name: "Canonical in-place import",
       revision: envelope.document.revision + 1,
       updatedAt: "2026-08-28T21:03:00.000Z",
+      commandReceipts: [
+        { id: "same-id-import-command", fingerprint: "a".repeat(64) },
+      ],
+      sceneTransactionMetadata: {
+        schemaVersion: 1 as const,
+        receipts: [
+          {
+            idempotencyKey: "same-id-import-transaction",
+            requestHash: "b".repeat(64),
+          },
+        ],
+      },
     }
     const save = vi.spyOn(hookRepository, "save")
 

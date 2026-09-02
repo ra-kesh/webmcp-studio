@@ -57,7 +57,7 @@ export type HistoryCommitOptions = {
 const createSnapshotId = (seed?: string) =>
   `snapshot-${seed ?? crypto.randomUUID()}`
 
-const commandLabel = (commands: DocumentCommand[]) => {
+export const historyCommandLabel = (commands: DocumentCommand[]) => {
   const types = new Set(commands.map((command) => command.type))
   if (types.size > 1) return "Update document"
   switch (commands[0]?.type) {
@@ -245,23 +245,23 @@ export function createDocumentHistory(
   }
 }
 
-export function commitCommandsWithResult(
+const commitDocumentChangeWithResult = (
   history: DocumentHistory,
-  commands: DocumentCommand[],
-  options: HistoryCommitOptions = {}
-): DocumentHistoryCommitResult | null {
-  if (!commands.length) return null
-  const document = commands.reduce(
-    applyCanonicalHistoryCommand,
-    history.document
-  )
-  if (document === history.document) return null
+  document: Document,
+  metadata: Readonly<{
+    entryId: string
+    defaultLabel: string
+    snapshotSeed?: string
+    coalescible: boolean
+  }>,
+  options: HistoryCommitOptions
+): DocumentHistoryCommitResult => {
   const committedAt = options.committedAt ?? Date.now()
   const afterSnapshotId =
-    options.snapshotId ?? createSnapshotId(commands.at(-1)?.id)
+    options.snapshotId ?? createSnapshotId(metadata.snapshotSeed)
   const entry = withApproximateBytes({
-    id: `transaction-${commands.at(-1)?.id ?? crypto.randomUUID()}`,
-    label: options.label ?? commandLabel(commands),
+    id: metadata.entryId,
+    label: options.label ?? metadata.defaultLabel,
     committedAt,
     coalesceKey: options.coalesceKey,
     before: history.document,
@@ -271,6 +271,7 @@ export function commitCommandsWithResult(
   })
   const previous = history.past.at(-1)
   const shouldCoalesce =
+    metadata.coalescible &&
     Boolean(entry.coalesceKey) &&
     previous !== undefined &&
     previous.coalesceKey === entry.coalesceKey &&
@@ -314,6 +315,31 @@ export function commitCommandsWithResult(
   }
 }
 
+export function commitCommandsWithResult(
+  history: DocumentHistory,
+  commands: DocumentCommand[],
+  options: HistoryCommitOptions = {}
+): DocumentHistoryCommitResult | null {
+  if (!commands.length) return null
+  const document = commands.reduce(
+    applyCanonicalHistoryCommand,
+    history.document
+  )
+  if (document === history.document) return null
+  const commandIdentity = commands.at(-1)?.id ?? crypto.randomUUID()
+  return commitDocumentChangeWithResult(
+    history,
+    document,
+    {
+      entryId: `transaction-${commandIdentity}`,
+      defaultLabel: historyCommandLabel(commands),
+      snapshotSeed: commandIdentity,
+      coalescible: true,
+    },
+    options
+  )
+}
+
 export function commitCommands(
   history: DocumentHistory,
   commands: DocumentCommand[],
@@ -330,38 +356,38 @@ export function replaceDocumentWithResult(
   options: HistoryCommitOptions = {}
 ): DocumentHistoryCommitResult {
   const canonicalDocument = admitCanonicalHistoryDocument(document)
-  const committedAt = options.committedAt ?? Date.now()
-  const afterSnapshotId = options.snapshotId ?? createSnapshotId()
-  const entry = withApproximateBytes({
-    id: `transaction-${crypto.randomUUID()}`,
-    label: options.label ?? "Replace document",
-    committedAt,
-    coalesceKey: options.coalesceKey,
-    before: history.document,
-    after: canonicalDocument,
-    beforeSnapshotId: history.snapshotId,
-    afterSnapshotId,
-  })
-  const bounded = boundedPast([...history.past, entry], history.maxBytes)
-  const undoable = bounded.entries.at(-1)?.afterSnapshotId === afterSnapshotId
-  return {
-    history: {
-      document: canonicalDocument,
-      snapshotId: afterSnapshotId,
-      operationVersion: history.operationVersion + 1,
-      past: bounded.entries,
-      future: [],
-      pastBytes: bounded.bytes,
-      futureBytes: 0,
-      maxBytes: history.maxBytes,
+  return commitDocumentChangeWithResult(
+    history,
+    canonicalDocument,
+    {
+      entryId: `transaction-${crypto.randomUUID()}`,
+      defaultLabel: "Replace document",
+      coalescible: false,
     },
-    commit: {
-      id: entry.id,
-      committedAt: entry.committedAt,
-      label: entry.label,
-      undoable,
+    options
+  )
+}
+
+/** Records a canonical document already produced by the shared command engine. */
+export function commitPreparedDocumentWithResult(
+  history: DocumentHistory,
+  document: Document,
+  transactionId: string,
+  options: HistoryCommitOptions = {}
+): DocumentHistoryCommitResult | null {
+  const canonicalDocument = admitCanonicalHistoryDocument(document)
+  if (canonicalDocument === history.document) return null
+  return commitDocumentChangeWithResult(
+    history,
+    canonicalDocument,
+    {
+      entryId: transactionId,
+      defaultLabel: "Update document",
+      snapshotSeed: transactionId,
+      coalescible: true,
     },
-  }
+    options
+  )
 }
 
 export function replaceDocument(

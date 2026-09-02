@@ -289,6 +289,8 @@ export function cloneTemplateDocument(
       revision: 0,
       createdAt: now,
       updatedAt: now,
+      commandReceipts: undefined,
+      sceneTransactionMetadata: undefined,
       outputs: source.outputs.map((output) => ({
         ...output,
         id: requiredId(ids.output, output.id, "output"),

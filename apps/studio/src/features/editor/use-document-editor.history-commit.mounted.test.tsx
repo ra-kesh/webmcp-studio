@@ -214,4 +214,111 @@ describe("useDocumentEditor history commit observation", () => {
     expect(commits[0]).toMatchObject({ label: "Add layer", undoable: false })
     expect(captured.current!.documentUndoEntry).toBeNull()
   })
+
+  it("commits an automation-created node through the same canonical shape and one undo boundary", async () => {
+    host = document.createElement("div")
+    document.body.appendChild(host)
+    root = createRoot(host)
+    const captured: { current: Editor | null } = { current: null }
+    const commits: DocumentHistoryCommit[] = []
+
+    await act(async () => {
+      root.render(
+        <StudioPersistenceTestWrapper>
+          <MountedEditor
+            capture={(editor) => {
+              captured.current = editor
+            }}
+            onHistoryCommit={(entry) => commits.push(entry)}
+          />
+        </StudioPersistenceTestWrapper>
+      )
+    })
+
+    const originalNodeIds = new Set(
+      captured.current!.document.nodes.map((node) => node.id)
+    )
+    await act(async () => captured.current!.addRectangle())
+    const humanCreated = structuredClone(
+      captured.current!.document.nodes.find(
+        (node) => !originalNodeIds.has(node.id)
+      )!
+    )
+    await act(async () => captured.current!.undo())
+    commits.length = 0
+
+    const before = captured.current!
+    const transaction = {
+      version: 1 as const,
+      id: "transaction-mounted-automation",
+      idempotencyKey: "mounted-automation",
+      title: "Create the same rectangle through automation",
+      mode: "commit" as const,
+      expected: {
+        documentId: before.document.id,
+        revision: before.document.revision,
+        snapshotId: before.snapshotId,
+        operationVersion: before.operationVersion,
+      },
+      commands: [
+        {
+          id: "command-mounted-automation",
+          type: "add_node" as const,
+          actor: "agent" as const,
+          at: "2026-09-02T08:00:00.000Z",
+          pageId: before.document.pages[0].id,
+          node: humanCreated,
+        },
+      ],
+    }
+
+    const first: {
+      current: ReturnType<Editor["runSceneTransaction"]> | null
+    } = { current: null }
+    await act(async () => {
+      first.current = captured.current!.runSceneTransaction(transaction)
+    })
+
+    expect(first.current?.transaction).toMatchObject({
+      ok: true,
+      status: "committed",
+      replayed: false,
+    })
+    expect(
+      captured.current!.document.nodes.find(
+        (node) => node.id === humanCreated.id
+      )
+    ).toEqual(humanCreated)
+    expect(commits).toHaveLength(1)
+    expect(captured.current!.documentUndoEntry).toMatchObject({
+      id: transaction.id,
+      label: transaction.title,
+    })
+    expect(
+      captured.current!.document.sceneTransactionMetadata?.receipts
+    ).toContainEqual({
+      idempotencyKey: transaction.idempotencyKey,
+      requestHash:
+        first.current?.transaction.ok === true
+          ? first.current.transaction.requestHash
+          : "unreachable",
+    })
+
+    await act(async () => {
+      const replay = captured.current!.runSceneTransaction(transaction)
+      expect(replay.transaction).toMatchObject({
+        ok: true,
+        replayed: true,
+        changed: false,
+      })
+    })
+    expect(commits).toHaveLength(1)
+
+    await act(async () => captured.current!.undo())
+    expect(
+      captured.current!.document.nodes.some(
+        (node) => node.id === humanCreated.id
+      )
+    ).toBe(false)
+  })
 })

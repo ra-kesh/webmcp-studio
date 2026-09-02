@@ -4170,6 +4170,8 @@ export class DocumentDraftRepository {
           revision: 0,
           createdAt: now,
           updatedAt: now,
+          commandReceipts: undefined,
+          sceneTransactionMetadata: undefined,
         },
         sourceContext: structuredClone(current.envelope.sourceContext),
       },
@@ -4345,6 +4347,8 @@ export class DocumentDraftRepository {
           revision: 0,
           createdAt: now,
           updatedAt: now,
+          commandReceipts: undefined,
+          sceneTransactionMetadata: undefined,
         },
         sourceContext: structuredClone(
           copySourceAdmission.envelope.sourceContext

@@ -1497,6 +1497,38 @@ export const documentSchema = z
         "Command receipt ids must be unique"
       )
       .optional(),
+    /**
+     * Versioned, bounded transaction replay state. This operational metadata
+     * deliberately lives outside pages and nodes so paint projections never
+     * interpret it as scene content.
+     */
+    sceneTransactionMetadata: z
+      .object({
+        schemaVersion: z.literal(1),
+        receipts: z
+          .array(
+            z
+              .object({
+                idempotencyKey: z
+                  .string()
+                  .trim()
+                  .min(1)
+                  .max(128)
+                  .regex(/^[A-Za-z0-9._:-]+$/),
+                requestHash: z.string().regex(/^[a-f0-9]{64}$/),
+              })
+              .strict()
+          )
+          .max(128)
+          .refine(
+            (receipts) =>
+              new Set(receipts.map((receipt) => receipt.idempotencyKey))
+                .size === receipts.length,
+            "Scene transaction idempotency keys must be unique"
+          ),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
 

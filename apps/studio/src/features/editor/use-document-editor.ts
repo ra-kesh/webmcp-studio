@@ -16,6 +16,7 @@ import {
   assetReferenceKeysForSource,
   extractAssetReferences,
   documentSchema,
+  executeSceneTransaction,
   findSelectedGroupId,
   getChangeSetConflict,
   getGroupNodeIds,
@@ -33,6 +34,7 @@ import {
   quotationRenderPayloadV1Schema,
   quotationTemplates,
   managedAssetSource,
+  sceneTransactionSchema,
   templateVersionSchema,
 } from "@webmcp/document"
 import type {
@@ -54,6 +56,8 @@ import type {
   QuotationTextEditabilityAnalysis,
   QuotationTemplateId,
   SceneNode,
+  SceneTransaction,
+  SceneTransactionResult,
   SemanticFragment,
   TemplateVersion,
   TypographyStyle,
@@ -97,12 +101,16 @@ import type {
 import {
   breakDocumentHistoryCoalescing,
   clearDocumentRedoHistory,
-  commitCommandsWithResult,
   createDocumentHistory,
   redoDocument,
   replaceDocumentWithResult,
   undoDocument,
 } from "@webmcp/editor/history"
+import {
+  commitSceneTransaction,
+  sceneTransactionForHistory,
+  sceneTransactionToChangeSet,
+} from "@webmcp/editor/scene-transactions"
 import { createLibraryTemplateActions } from "../../content/library/library-template-actions"
 import type {
   ResolvedTemplateAction,
@@ -4166,6 +4174,8 @@ export function useDocumentEditor({
           revision: 0,
           createdAt: now,
           updatedAt: now,
+          commandReceipts: undefined,
+          sceneTransactionMetadata: undefined,
         },
         sourceContext: structuredClone(preimage.sourceContext),
         ...(preimage.reviewJournal
@@ -4207,12 +4217,18 @@ export function useDocumentEditor({
       if (!drafts.length) return false
       if (!allowMutation(allowActiveImageCrop)) return false
       try {
-        const result = commitCommandsWithResult(
+        const transaction = sceneTransactionForHistory(
           historyRef.current,
           drafts.map(commandFromDraft),
+          options?.label ? { title: options.label } : undefined
+        )
+        const result = commitSceneTransaction(
+          historyRef.current,
+          transaction,
           options
         )
-        if (!result) return false
+        if (!result.ok) throw new Error(result.transaction.error.message)
+        if (!result.commit) return false
         const next = result.history
         historyRef.current = next
         setHistory(next)
@@ -4811,6 +4827,57 @@ export function useDocumentEditor({
     ]
   )
 
+  const runSceneTransaction = useCallback(
+    (
+      transactionInput: SceneTransaction,
+      provenanceInput?: ReviewProposalProvenance
+    ): Readonly<{
+      transaction: SceneTransactionResult
+      changeSet?: ChangeSet
+    }> => {
+      const transaction = sceneTransactionSchema.parse(transactionInput)
+      if (transaction.mode === "commit") {
+        if (!allowMutation()) {
+          throw new Error("Canvas mutation is not available right now.")
+        }
+        const result = commitSceneTransaction(historyRef.current, transaction)
+        if (!result.ok || !result.commit) {
+          return { transaction: result.transaction }
+        }
+        historyRef.current = result.history
+        setHistory(result.history)
+        pruneTemplateSourceContexts(result.history)
+        notifyHistoryCommit(result.commit)
+        captureSettledDraft()
+        return { transaction: result.transaction }
+      }
+
+      const evaluated = executeSceneTransaction(
+        {
+          document: historyRef.current.document,
+          snapshotId: historyRef.current.snapshotId,
+          operationVersion: historyRef.current.operationVersion,
+        },
+        transaction
+      )
+      if (!evaluated.ok || transaction.mode !== "review") {
+        return { transaction: evaluated }
+      }
+      const changeSet = proposeChangeSet(
+        sceneTransactionToChangeSet(transaction, new Date().toISOString()),
+        provenanceInput
+      )
+      return { transaction: evaluated, changeSet }
+    },
+    [
+      allowMutation,
+      captureSettledDraft,
+      notifyHistoryCommit,
+      proposeChangeSet,
+      pruneTemplateSourceContexts,
+    ]
+  )
+
   const decideOperation = useCallback(
     (operationId: string, status: ChangeOperation["status"]) => {
       const nextJournal = updateReviewOperationDecision(
@@ -4907,10 +4974,17 @@ export function useDocumentEditor({
         setChangeSetError(latestConflict.message)
         return
       }
-      const result = commitCommandsWithResult(historyRef.current, commands, {
-        label: current.title,
-      })
-      if (!result) return
+      const transaction = sceneTransactionForHistory(
+        historyRef.current,
+        commands,
+        { title: current.title }
+      )
+      const result = commitSceneTransaction(historyRef.current, transaction)
+      if (!result.ok) {
+        setChangeSetError(result.transaction.error.message)
+        return
+      }
+      if (!result.commit) return
       const next = result.history
       historyRef.current = next
       setHistory(next)
@@ -6481,7 +6555,7 @@ export function useDocumentEditor({
                   return null
                 }
                 signal.throwIfAborted()
-                const result = commitCommandsWithResult(
+                const transaction = sceneTransactionForHistory(
                   currentHistory,
                   [
                     commandFromDraft({
@@ -6492,9 +6566,13 @@ export function useDocumentEditor({
                       expectedReferenceKeys: journal.expectedReferenceKeys,
                     }),
                   ],
-                  { label: "Make image available everywhere" }
+                  { title: "Make image available everywhere" }
                 )
-                if (!result) return null
+                const result = commitSceneTransaction(
+                  currentHistory,
+                  transaction
+                )
+                if (!result.ok || !result.commit) return null
                 historyRef.current = result.history
                 setHistory(result.history)
                 pruneTemplateSourceContexts(result.history)
@@ -7149,12 +7227,16 @@ export function useDocumentEditor({
                       expectedReferenceKeys,
                     },
               ]
-        const result = commitCommandsWithResult(
+        const transaction = sceneTransactionForHistory(
           historyRef.current,
           recoveryDrafts.map(commandFromDraft),
-          { label }
+          { title: label }
         )
-        if (!result) throw new Error("The image recovery made no change.")
+        const result = commitSceneTransaction(historyRef.current, transaction)
+        if (!result.ok) throw new Error(result.transaction.error.message)
+        if (!result.commit) {
+          throw new Error("The image recovery made no change.")
+        }
         if (durableOperation) {
           const preparedContentSnapshotId = await deriveDocumentSnapshotId(
             result.history.document
@@ -11354,6 +11436,7 @@ export function useDocumentEditor({
     bindField,
     unbindField,
     proposeChangeSet,
+    runSceneTransaction,
     proposeDocumentGeneration,
     discardGeneratedDocument,
     createGeneratedDocument,

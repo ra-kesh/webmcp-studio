@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest"
 import {
+  deriveDocumentSnapshotId,
+  documentSchema,
   executeSceneTransaction,
   northstarSeed,
+  SCENE_TRANSACTION_RECEIPT_LIMIT,
   SceneTransactionExecutor,
   type SceneTransaction,
 } from "../src"
+import { projectPagePaintPlan } from "../src/page-paint-plan"
 
 const transaction = (
   overrides: Partial<SceneTransaction> = {}
@@ -61,6 +65,11 @@ describe("scene transactions", () => {
     expect(
       result.document.nodes.find((node) => node.id === "cover-title")
     ).toMatchObject({ x: 120, name: "Automated cover title" })
+    expect(
+      result.document.sceneTransactionMetadata?.receipts.some(
+        (receipt) => receipt.idempotencyKey === "canvas-1"
+      )
+    ).not.toBe(true)
     expect(source.document).toEqual(before)
   })
 
@@ -129,6 +138,110 @@ describe("scene transactions", () => {
       error: { code: "idempotency_key_reused" },
     })
     expect(executor.size).toBe(1)
+  })
+
+  it("persists commit replay protection through canonical JSON reload", async () => {
+    const request = transaction({ mode: "commit" })
+    const first = executeSceneTransaction(context(), request)
+
+    expect(first).toMatchObject({ ok: true, replayed: false, changed: true })
+    if (!first.ok) return
+    expect(first.document.sceneTransactionMetadata).toMatchObject({
+      schemaVersion: 1,
+      receipts: [
+        { idempotencyKey: "canvas-1", requestHash: first.requestHash },
+      ],
+    })
+
+    const reloadedDocument = documentSchema.parse(
+      JSON.parse(JSON.stringify(first.document))
+    )
+    const withoutReceipt = {
+      ...reloadedDocument,
+      sceneTransactionMetadata: undefined,
+    }
+    expect(await deriveDocumentSnapshotId(reloadedDocument)).not.toBe(
+      await deriveDocumentSnapshotId(withoutReceipt)
+    )
+    expect(reloadedDocument.revision).toBe(withoutReceipt.revision)
+    expect(
+      projectPagePaintPlan(reloadedDocument, reloadedDocument.pages[0]!.id)
+    ).toEqual(projectPagePaintPlan(withoutReceipt, withoutReceipt.pages[0]!.id))
+
+    const reloaded = {
+      document: reloadedDocument,
+      snapshotId: "snapshot-after-reload",
+      operationVersion: 5,
+    }
+    const replay = executeSceneTransaction(reloaded, request)
+    expect(replay).toMatchObject({
+      ok: true,
+      status: "committed",
+      replayed: true,
+      changed: false,
+      document: reloaded.document,
+    })
+    expect(replay.document.revision).toBe(first.document.revision)
+
+    const conflict = executeSceneTransaction(
+      reloaded,
+      transaction({ mode: "commit", title: "Different payload" })
+    )
+    expect(conflict).toMatchObject({
+      ok: false,
+      error: { code: "idempotency_key_reused" },
+      document: reloaded.document,
+    })
+  })
+
+  it("prunes the shared operational receipt ledger to its schema bound", () => {
+    let current = context()
+
+    for (let index = 0; index < SCENE_TRANSACTION_RECEIPT_LIMIT + 2; index++) {
+      const identity = `bounded-${index}`
+      const result = executeSceneTransaction(
+        current,
+        transaction({
+          id: `transaction-${identity}`,
+          idempotencyKey: identity,
+          title: `Bounded transaction ${index}`,
+          mode: "commit",
+          expected: {
+            documentId: current.document.id,
+            revision: current.document.revision,
+            snapshotId: current.snapshotId,
+            operationVersion: current.operationVersion,
+          },
+          commands: [
+            {
+              id: `command-${identity}`,
+              type: "update_node",
+              actor: "agent",
+              at: "2026-09-02T08:00:00.000Z",
+              nodeId: "cover-title",
+              patch: { x: 200 + index },
+            },
+          ],
+        })
+      )
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+      current = {
+        document: result.document,
+        snapshotId: `snapshot-${identity}`,
+        operationVersion: result.result.operationVersion,
+      }
+    }
+
+    expect(current.document.sceneTransactionMetadata?.receipts).toHaveLength(
+      SCENE_TRANSACTION_RECEIPT_LIMIT
+    )
+    expect(
+      current.document.sceneTransactionMetadata?.receipts[0]?.idempotencyKey
+    ).toBe("bounded-2")
+    expect(
+      current.document.sceneTransactionMetadata?.receipts.at(-1)?.idempotencyKey
+    ).toBe(`bounded-${SCENE_TRANSACTION_RECEIPT_LIMIT + 1}`)
   })
 
   it("returns a structured failure for non-JSON input", () => {

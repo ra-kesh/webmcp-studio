@@ -1100,6 +1100,15 @@ describe("DocumentDraftRepository", () => {
       revision: 7,
       quotationTemplateId: "midnight-film",
     })
+    candidate.document.commandReceipts = [
+      { id: "conflict-mask-command", fingerprint: "a".repeat(64) },
+    ]
+    candidate.document.sceneTransactionMetadata = {
+      schemaVersion: 1,
+      receipts: [
+        { idempotencyKey: "conflict-transaction", requestHash: "b".repeat(64) },
+      ],
+    }
     const copyTime = "2026-08-28T12:03:00.000Z"
     const { databaseName, repository } = createRepository(
       [
@@ -1163,9 +1172,13 @@ describe("DocumentDraftRepository", () => {
         revision: 0,
         createdAt: copyTime,
         updatedAt: copyTime,
+        commandReceipts: undefined,
+        sceneTransactionMetadata: undefined,
       },
       sourceContext: structuredClone(candidate.sourceContext),
     })
+    expect(candidate.document.commandReceipts).toHaveLength(1)
+    expect(candidate.document.sceneTransactionMetadata.receipts).toHaveLength(1)
     expect(
       unwrapFound(await repository.get("document-recovered-copy"))
     ).toEqual(result.record)
@@ -1996,6 +2009,15 @@ describe("DocumentDraftRepository", () => {
 
   it("duplicates into a new record with explicit origin and independent identity", async () => {
     const initial = snapshot()
+    initial.document.commandReceipts = [
+      { id: "mask-source-command", fingerprint: "b".repeat(64) },
+    ]
+    initial.document.sceneTransactionMetadata = {
+      schemaVersion: 1,
+      receipts: [
+        { idempotencyKey: "source-transaction", requestHash: "c".repeat(64) },
+      ],
+    }
     const { repository } = createRepository([
       "2026-08-28T12:00:00.000Z",
       "2026-08-28T12:01:00.000Z",
@@ -2026,6 +2048,14 @@ describe("DocumentDraftRepository", () => {
     expect(duplicate.record.envelope.sourceContext).toEqual(
       created.record.envelope.sourceContext
     )
+    expect(duplicate.record.envelope.document.commandReceipts).toBeUndefined()
+    expect(
+      duplicate.record.envelope.document.sceneTransactionMetadata
+    ).toBeUndefined()
+    expect(created.record.envelope.document.commandReceipts).toHaveLength(1)
+    expect(
+      created.record.envelope.document.sceneTransactionMetadata?.receipts
+    ).toHaveLength(1)
   })
 
   it("touches last-open activity without changing the save version", async () => {

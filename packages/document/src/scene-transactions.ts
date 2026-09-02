@@ -41,6 +41,19 @@ export const sceneTransactionSchema = z
       .max(SCENE_TRANSACTION_MAX_COMMANDS),
   })
   .strict()
+  .superRefine((transaction, context) => {
+    const commandIds = new Set<string>()
+    transaction.commands.forEach((command, index) => {
+      if (commandIds.has(command.id)) {
+        context.addIssue({
+          code: "custom",
+          path: ["commands", index, "id"],
+          message: "Command IDs must be unique within a transaction",
+        })
+      }
+      commandIds.add(command.id)
+    })
+  })
 
 export type SceneTransaction = z.infer<typeof sceneTransactionSchema>
 
@@ -252,6 +265,67 @@ const statusForMode = (
   }
 }
 
+const replayedCommit = (
+  context: SceneTransactionContext,
+  transaction: SceneTransaction,
+  requestHash: string
+): SceneTransactionResult | null => {
+  if (
+    transaction.mode !== "commit" ||
+    transaction.expected.documentId !== context.document.id
+  ) {
+    return null
+  }
+  const receipt = context.document.sceneTransactionMetadata?.receipts.find(
+    (candidate) => candidate.idempotencyKey === transaction.idempotencyKey
+  )
+  if (!receipt) return null
+  if (receipt.requestHash !== requestHash) {
+    return invalidResult(
+      context,
+      transaction,
+      {
+        code: "idempotency_key_reused",
+        message:
+          "That idempotency key was already used for a different transaction.",
+      },
+      transaction
+    )
+  }
+  return {
+    ok: true,
+    status: "committed",
+    transactionId: transaction.id,
+    idempotencyKey: transaction.idempotencyKey,
+    requestHash,
+    mode: transaction.mode,
+    base: emptyIdentity(context),
+    result: emptyIdentity(context),
+    commandCount: transaction.commands.length,
+    changed: false,
+    warnings: [],
+    document: context.document,
+    replayed: true,
+  }
+}
+
+const appendTransactionReceipt = (
+  document: Document,
+  transaction: SceneTransaction,
+  requestHash: string
+): Document => ({
+  ...document,
+  sceneTransactionMetadata: {
+    schemaVersion: 1,
+    receipts: [
+      ...(document.sceneTransactionMetadata?.receipts ?? []).filter(
+        (receipt) => receipt.idempotencyKey !== transaction.idempotencyKey
+      ),
+      { idempotencyKey: transaction.idempotencyKey, requestHash },
+    ].slice(-SCENE_TRANSACTION_RECEIPT_LIMIT),
+  },
+})
+
 /**
  * Evaluates a bounded command batch against one exact editor snapshot.
  * Commands run on a private candidate. A rejected command returns the original
@@ -285,6 +359,8 @@ export function executeSceneTransaction(
   }
   const transaction = parsed.data
   const requestHash = digest(transaction)
+  const replayed = replayedCommit(context, transaction, requestHash)
+  if (replayed) return replayed
   const stale = conflict(context, transaction, requestHash)
   if (stale) return stale
 
@@ -304,6 +380,9 @@ export function executeSceneTransaction(
     }
   }
 
+  if (transaction.mode === "commit") {
+    candidate = appendTransactionReceipt(candidate, transaction, requestHash)
+  }
   const issues = validateDocument(candidate)
   const blocking = issues.filter((issue) => issue.severity === "error")
   if (blocking.length) {
@@ -341,14 +420,11 @@ export function executeSceneTransaction(
   }
 }
 
-type StoredSceneTransactionResult = Readonly<{
-  requestHash: string
-  result: SceneTransactionSuccess
-}>
+type StoredSceneTransactionResult = Readonly<{ requestHash: string }>
 
 /**
- * Bounded replay protection for an API or session boundary. Persistent owners
- * can replace this executor with a repository backed by the same receipt shape.
+ * Bounded replay protection for non-committing calls in one API session.
+ * Commit receipts live in the canonical document and survive save and reload.
  */
 export class SceneTransactionExecutor {
   readonly #receipts = new Map<string, StoredSceneTransactionResult>()
@@ -385,7 +461,10 @@ export class SceneTransactionExecutor {
           parsed.data
         )
       }
-      return { ...existing.result, replayed: true }
+      const replay = executeSceneTransaction(context, parsed.data)
+      return replay.ok && !replay.replayed
+        ? { ...replay, replayed: true }
+        : replay
     }
     const result = executeSceneTransaction(context, parsed.data)
     if (!result.ok) return result
@@ -393,7 +472,7 @@ export class SceneTransactionExecutor {
       const oldest = this.#receipts.keys().next().value
       if (typeof oldest === "string") this.#receipts.delete(oldest)
     }
-    this.#receipts.set(receiptKey, { requestHash, result })
+    this.#receipts.set(receiptKey, { requestHash })
     return result
   }
 

@@ -27,6 +27,15 @@ Review proposals check document revision and snapshot. Product commands also che
 7. Register six compact WebMCP tools with capability schemas returned on demand.
 8. Close every matrix row with focused tests and real-browser evidence.
 
+## Implementation ledger
+
+| Slice | Scope                                                                                       | State                                                   |
+| ----- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| 1     | Canonical bounded transaction envelope and editor history adapter                           | Committed as `6455e6d2a945a7f4f2d044e3c2a125e7e9c09133` |
+| 2     | Durable receipts, editor and Review routing, clone/import identity rules, persistence gates | Current reviewable commit                               |
+| 3     | Public schema projection and WebMCP registration cutover                                    | Isolated from Slice 2; not committed                    |
+| 4     | Scene-model and renderer expansion                                                          | Not started in this commit series                       |
+
 ## Parity matrix
 
 The status values are `yes`, `partial`, and `no`. A row reaches parity only when all six behavior columns are `yes` and browser evidence is recorded.
@@ -75,3 +84,27 @@ Verified on 2 September 2026 with the real Studio editor at the isolated local o
 4. Ran Redo once. Studio restored the same layer and revision 32.
 
 The page registered 31 WebMCP tools during this run. That visible count matches the descriptor audit and confirms why the compact-tool phase must consolidate registrations rather than add another public tool for each command family.
+
+## Slice 2 durable receipt contract
+
+Committed scene transactions store a schema-versioned receipt ledger in `Document.sceneTransactionMetadata`, outside `pages` and `nodes`. The carrier is document metadata because replay protection belongs to the saved document identity rather than to anything drawable. Renderers continue to consume page, node, and paint projections only.
+
+- The ledger schema version is `1` and the maximum is 128 receipts.
+- Receipts are ordered by successful commit. When the limit is exceeded, the oldest entries are pruned. A replay does not refresh its position.
+- Reusing an idempotency key with the same canonical request hash returns the already-committed document, even after reload and even if the request's expected revision, snapshot, or operation identity is now stale.
+- Reusing that key with a different canonical request hash fails with `idempotency_key_reused` and makes no change.
+- Only successful `commit` mode writes a durable receipt. `preflight`, `preview`, and `review` never do.
+- The receipt is persisted concurrency state, so it participates in the document snapshot hash. It does not add a document revision; only the transaction's canonical commands advance revision.
+- Canonical JSON save/import and reload preserve the ledger for the same document identity. New documents, template instances, duplicate drafts, and conflict copies clear both transaction and command receipt ledgers so keys cannot collide across cloned identities.
+
+Focused tests cover replay after JSON round-trip, key collision, bounded pruning, unchanged rendering, rollback on command failure, one history entry and one undo for a transaction, Review preserving the exact command list, and structural equality between an editor-created node and the same node committed through automation.
+
+## Slice 2 browser evidence
+
+Verified on 2 September 2026 in the real Studio editor at `http://localhost:3002`; port 3000 was not used.
+
+1. Opened the persisted six-page "Aditi & Kabir — Wedding Story" document at revision 32.
+2. Added a rectangle through the human `Insert shape` control. The document advanced to revision 33 and returned a transaction-derived snapshot identity.
+3. Renamed that exact node to `Browser transaction rectangle` in the human inspector. The document advanced once to revision 34.
+4. Ran Undo once and observed the exact node revert to `Rectangle` at revision 33. Ran Redo once and observed the same node ID return to the renamed state at revision 34.
+5. Reloaded the document route. Studio reported `All changes saved`, restored the six pages and 17 layers, rendered the scene, and returned the same node ID, geometry, fill, and renamed value at revision 34 with no pending Review.
