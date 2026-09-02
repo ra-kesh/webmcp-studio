@@ -3508,7 +3508,11 @@ function NodeInspector({
                 <SelectContent>
                   <SelectGroup>
                     {managedRendererFonts.map((fontFamily) => (
-                      <SelectItem key={fontFamily} value={fontFamily}>
+                      <SelectItem
+                        key={fontFamily}
+                        value={fontFamily}
+                        style={{ fontFamily }}
+                      >
                         {fontFamily}
                       </SelectItem>
                     ))}

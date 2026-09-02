@@ -1,4 +1,8 @@
-import { managedRendererFonts, renderPolicyLimits } from "./render-policy"
+import {
+  managedRendererFonts,
+  rendererFontFaces,
+  renderPolicyLimits,
+} from "./render-policy"
 
 export const STUDIO_DESIGN_PLAN_VERSION = 1 as const
 
@@ -144,6 +148,22 @@ export const studioGenerationCapabilities = Object.freeze({
   designPlanVersion: STUDIO_DESIGN_PLAN_VERSION,
   startModes: ["blank", "template"],
   availableFonts: [...managedRendererFonts],
+  availableFontFaces: rendererFontFaces.map((face) => ({
+    faceId: face.assetId,
+    family: face.family,
+    style: face.style,
+    weight: face.weight,
+    source: face.source,
+    unicodeRange: face.unicodeRange,
+    contentSha256: face.sha256,
+  })),
+  fontDiscovery: {
+    operation: "read_document_generation_capabilities",
+    sources: ["bundled", "google_fonts_cache"],
+    renderTimeRemoteFetch: false,
+    googleFontRule:
+      "A Google Fonts face becomes renderable only after Studio caches its exact bytes and content hash.",
+  },
   approvedAssetRule:
     "Image layers and asset fields accept only asset IDs returned by Studio. URLs are provenance only.",
   templateChanges: {

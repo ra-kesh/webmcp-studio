@@ -566,7 +566,13 @@ describe("React render-view conformance", () => {
           {
             nodeId: textSource.id,
             kind: "text",
-            fontFamilies: ["Geist Variable"],
+            fontFaces: [
+              {
+                family: "Geist Variable",
+                style: textSource.italic ? "italic" : "normal",
+                weight: textSource.fontWeight,
+              },
+            ],
           },
         ],
       },

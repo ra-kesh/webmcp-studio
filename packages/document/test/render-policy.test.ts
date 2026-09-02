@@ -6,7 +6,9 @@ import {
   isRenderSafeImageSource,
   managedRendererFonts,
   northstarSeed,
+  rendererFontFaces,
   renderPolicyLimits,
+  resolveRendererFontFace,
   validateRenderPolicy,
 } from "../src"
 
@@ -54,7 +56,28 @@ describe("renderer policy", () => {
   })
 
   it("exports one canonical managed-font policy for editors and renderers", () => {
-    expect(managedRendererFonts).toEqual(["Geist Variable"])
+    expect(managedRendererFonts).toEqual(["Geist Variable", "Inter Variable"])
+    expect(rendererFontFaces).toHaveLength(4)
+    expect(
+      resolveRendererFontFace({
+        family: "Geist Variable",
+        style: "italic",
+        weight: 700,
+      })
+    ).toMatchObject({
+      assetId: "geist-variable-latin-italic-5.3.0",
+      source: "bundled",
+    })
+    expect(
+      resolveRendererFontFace({
+        family: "Inter Variable",
+        style: "normal",
+        weight: 450,
+      })
+    ).toMatchObject({
+      assetId: "inter-variable-latin-normal-5.3.0",
+      source: "google_fonts_cache",
+    })
     expect(isManagedRendererFont("Geist Variable")).toBe(true)
     expect(isManagedRendererFont("Unmanaged Brand Font")).toBe(false)
 

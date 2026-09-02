@@ -28,9 +28,7 @@ import {
   isAdmittedVectorMaskSource,
   projectPagePaintPlan,
 } from "@webmcp/document/internal/page-paint-plan"
-import { GEIST_LATIN_WOFF2_BASE64 } from "./geist-font"
-
-const MANAGED_FONT_FAMILY = "Geist Variable"
+import { rendererFontFaceCss, rendererFontFaceManifest } from "./fonts"
 
 type RenderRoot = {
   removeAttribute(name: string): void
@@ -40,17 +38,32 @@ type RenderRoot = {
 type RenderFontFace = {
   family: string
   status: string
+  style: string
+  weight: string
 }
 
 type RenderFontSet = Iterable<RenderFontFace> & {
-  ready: Promise<unknown>
   check(query: string, text?: string): boolean
   load(query: string, text?: string): Promise<RenderFontFace[]>
 }
 
 type RenderFontRequirement = Readonly<{
+  family: string
   nodeId: string
-  fontFamilies: readonly string[]
+  scope: "ordinary_text" | "mask_text"
+  style: "normal" | "italic"
+  text: string
+  weight: number
+}>
+
+type RendererFontFaceDefinition = Readonly<{
+  assetId: string
+  family: string
+  sha256: string
+  source: "bundled" | "google_fonts_cache"
+  style: "normal" | "italic"
+  unicodeRange: string
+  weight: Readonly<{ min: number; max: number }>
 }>
 
 type RenderImage = {
@@ -98,75 +111,183 @@ export async function markRenderResourcesReady(input: {
   coverageSources?: readonly RenderCoverageSource[]
   root: RenderRoot
   fonts: RenderFontSet
-  fontRequirements?: readonly RenderFontRequirement[]
+  ordinaryFontRequirements?: readonly RenderFontRequirement[]
+  maskFontRequirements?: readonly RenderFontRequirement[]
+  fontFaces?: readonly RendererFontFaceDefinition[]
+  fontTimeoutMs?: number
   images: RenderImage[]
   managedFontFaceCss?: string
   projectImagePaint: ImagePaintProjector
   luminanceSourceNodeIds?: readonly string[]
   verifyLuminanceConversion?: () => Promise<boolean>
 }): Promise<void> {
-  const fail = (code: string, nodeId?: string) => {
+  input.root.setAttribute("data-render-progress", "start")
+  const fail = (
+    code: string,
+    details: {
+      nodeId?: string
+      fontFamily?: string
+      fontStyle?: string
+      fontWeight?: number
+      stage?: string
+    } = {}
+  ) => {
     input.root.removeAttribute("data-render-ready")
     input.root.setAttribute("data-render-error", code)
-    if (nodeId) input.root.setAttribute("data-render-error-node", nodeId)
+    if (details.nodeId)
+      input.root.setAttribute("data-render-error-node", details.nodeId)
+    if (details.fontFamily)
+      input.root.setAttribute("data-render-error-font", details.fontFamily)
+    if (details.fontStyle)
+      input.root.setAttribute("data-render-error-font-style", details.fontStyle)
+    if (details.fontWeight !== undefined)
+      input.root.setAttribute(
+        "data-render-error-font-weight",
+        String(details.fontWeight)
+      )
+    if (details.stage)
+      input.root.setAttribute("data-render-error-stage", details.stage)
   }
 
   try {
-    const fontRequirements = input.fontRequirements ?? []
-    const query = '16px "Geist Variable"'
-    const probeText = "WebMCP"
-    const managedFontSourceNodeId = fontRequirements.find((requirement) =>
-      requirement.fontFamilies.includes("Geist Variable")
-    )?.nodeId
-    let managedFontReady = false
-    try {
-      // CSS-connected faces are lazy: an all-shape document does not request
-      // the embedded font merely because its @font-face rule exists.
-      await input.fonts.load(query, probeText)
-      await input.fonts.ready
-      const managedFaceLoaded = Array.from(input.fonts).some(
-        (face) =>
-          face.family.replace(/["']/g, "") === "Geist Variable" &&
-          face.status === "loaded"
-      )
-      managedFontReady =
-        input.fonts.check(query, probeText) && managedFaceLoaded
-    } catch {
-      fail("managed_font_failed", managedFontSourceNodeId)
-      return
-    }
-    if (!managedFontReady) {
-      fail("managed_font_failed", managedFontSourceNodeId)
-      return
+    const requirements = [
+      ...(input.ordinaryFontRequirements ?? []),
+      ...(input.maskFontRequirements ?? []),
+    ]
+    const groupedRequirements = new Map<
+      string,
+      { requirement: RenderFontRequirement; characters: Set<string> }
+    >()
+    for (const requirement of requirements) {
+      const key = `${requirement.scope}\u0000${requirement.family}\u0000${requirement.style}\u0000${requirement.weight}`
+      const grouped = groupedRequirements.get(key) ?? {
+        requirement,
+        characters: new Set<string>(),
+      }
+      for (const character of requirement.text)
+        grouped.characters.add(character)
+      groupedRequirements.set(key, grouped)
     }
 
-    const checkedRequirements = new Set<string>()
-    for (const requirement of fontRequirements) {
-      for (const family of requirement.fontFamilies) {
-        if (family === "Geist Variable") continue
-        const requirementKey = `${requirement.nodeId}\u0000${family}`
-        if (checkedRequirements.has(requirementKey)) continue
-        checkedRequirements.add(requirementKey)
-        const requirementQuery = `16px "${family.replaceAll('"', '\\"')}"`
-        try {
-          await input.fonts.load(requirementQuery, probeText)
-          await input.fonts.ready
-          if (!input.fonts.check(requirementQuery, probeText)) {
-            fail("managed_font_failed", requirement.nodeId)
-            return
-          }
-        } catch {
-          fail("managed_font_failed", requirement.nodeId)
+    for (const { requirement, characters } of groupedRequirements.values()) {
+      input.root.setAttribute(
+        "data-render-progress",
+        `font:${requirement.scope}:${requirement.style}:${requirement.weight}`
+      )
+      const definition = (input.fontFaces ?? []).find(
+        (face) =>
+          face.family === requirement.family &&
+          face.style === requirement.style &&
+          requirement.weight >= face.weight.min &&
+          requirement.weight <= face.weight.max
+      )
+      const failureDetails = {
+        nodeId: requirement.nodeId,
+        fontFamily: requirement.family,
+        fontStyle: requirement.style,
+        fontWeight: requirement.weight,
+      }
+      if (!definition) {
+        fail("font_face_failed", {
+          ...failureDetails,
+          stage: `${requirement.scope}_font_resolve`,
+        })
+        return
+      }
+
+      const family = requirement.family.replaceAll('"', '\\"')
+      const query = `${requirement.style} ${requirement.weight} 16px "${family}"`
+      const coverageText = [...characters].sort().join("") || "WebMCP"
+      const unicodeRanges = definition.unicodeRange
+        .split(",")
+        .flatMap((part) => {
+          const match = /^U\+([0-9A-F]+)(?:-([0-9A-F]+))?$/i.exec(part.trim())
+          if (!match) return []
+          return [
+            {
+              min: Number.parseInt(match[1]!, 16),
+              max: Number.parseInt(match[2] ?? match[1]!, 16),
+            },
+          ]
+        })
+      const unsupportedCharacter = [...coverageText].find((character) => {
+        const codePoint = character.codePointAt(0)
+        return (
+          codePoint === undefined ||
+          !unicodeRanges.some(
+            (range) => codePoint >= range.min && codePoint <= range.max
+          )
+        )
+      })
+      if (unsupportedCharacter) {
+        fail("font_face_failed", {
+          ...failureDetails,
+          stage: `${requirement.scope}_font_coverage`,
+        })
+        return
+      }
+      let timeoutId: ReturnType<typeof setTimeout> | undefined
+      try {
+        const loadedFaces = await Promise.race([
+          input.fonts.load(query, coverageText),
+          new Promise<never>((_resolve, reject) => {
+            timeoutId = setTimeout(
+              () => reject(new Error("font_load_timeout")),
+              input.fontTimeoutMs ?? 5_000
+            )
+          }),
+        ])
+        if (timeoutId !== undefined) clearTimeout(timeoutId)
+        const exactFaceLoaded = loadedFaces.some((face) => {
+          const weights = face.weight
+            .split(/\s+/)
+            .map(Number)
+            .filter(Number.isFinite)
+          const weightMatches =
+            weights.length === 1
+              ? weights[0] === requirement.weight
+              : weights.length === 2 &&
+                requirement.weight >= weights[0]! &&
+                requirement.weight <= weights[1]!
+          return (
+            face.family.replace(/["']/g, "") === requirement.family &&
+            face.style === requirement.style &&
+            weightMatches &&
+            face.status === "loaded"
+          )
+        })
+        if (!exactFaceLoaded || !input.fonts.check(query, coverageText)) {
+          fail("font_face_failed", {
+            ...failureDetails,
+            stage: `${requirement.scope}_font_verify`,
+          })
           return
         }
+      } catch (error) {
+        if (timeoutId !== undefined) clearTimeout(timeoutId)
+        fail("font_face_failed", {
+          ...failureDetails,
+          stage: `${requirement.scope}_${
+            error instanceof Error && error.message === "font_load_timeout"
+              ? "font_load_timeout"
+              : "font_load"
+          }`,
+        })
+        return
       }
     }
 
+    input.root.setAttribute("data-render-progress", "fonts_ready")
+
     for (const image of input.images) {
+      input.root.setAttribute(
+        "data-render-progress",
+        `image:${image.dataset.nodeId ?? "unknown"}`
+      )
       try {
         await image.decode()
       } catch {
-        fail("image_decode_failed", image.dataset.nodeId)
+        fail("image_decode_failed", { nodeId: image.dataset.nodeId })
         return
       }
       if (
@@ -174,7 +295,7 @@ export async function markRenderResourcesReady(input: {
         image.naturalWidth <= 0 ||
         image.naturalHeight <= 0
       ) {
-        fail("image_decode_failed", image.dataset.nodeId)
+        fail("image_decode_failed", { nodeId: image.dataset.nodeId })
         return
       }
 
@@ -237,12 +358,16 @@ export async function markRenderResourcesReady(input: {
           )
         }
       } catch {
-        fail("image_projection_failed", image.dataset.nodeId)
+        fail("image_projection_failed", { nodeId: image.dataset.nodeId })
         return
       }
     }
 
     for (const source of input.coverageSources ?? []) {
+      input.root.setAttribute(
+        "data-render-progress",
+        `coverage:${source.nodeId}`
+      )
       try {
         const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${source.width}" height="${source.height}" viewBox="0 0 ${source.width} ${source.height}"><style>${input.managedFontFaceCss ?? ""}</style><foreignObject x="0" y="0" width="${source.width}" height="${source.height}">${source.template.innerHTML}</foreignObject></svg>`
         const sourceUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
@@ -267,7 +392,7 @@ export async function markRenderResourcesReady(input: {
         }
         source.target.setAttribute("href", sourceUrl)
       } catch {
-        fail("resource_readiness_failed", source.nodeId)
+        fail("resource_readiness_failed", { nodeId: source.nodeId })
         return
       }
     }
@@ -276,17 +401,26 @@ export async function markRenderResourcesReady(input: {
     if (luminanceSourceNodeIds.length) {
       try {
         if (!(await input.verifyLuminanceConversion?.())) {
-          fail("luminance_conversion_failed", luminanceSourceNodeIds[0])
+          fail("luminance_conversion_failed", {
+            nodeId: luminanceSourceNodeIds[0],
+          })
           return
         }
       } catch {
-        fail("luminance_conversion_failed", luminanceSourceNodeIds[0])
+        fail("luminance_conversion_failed", {
+          nodeId: luminanceSourceNodeIds[0],
+        })
         return
       }
     }
 
     input.root.removeAttribute("data-render-error")
     input.root.removeAttribute("data-render-error-node")
+    input.root.removeAttribute("data-render-error-font")
+    input.root.removeAttribute("data-render-error-font-style")
+    input.root.removeAttribute("data-render-error-font-weight")
+    input.root.removeAttribute("data-render-error-stage")
+    input.root.setAttribute("data-render-progress", "ready")
     input.root.setAttribute("data-render-ready", "true")
   } catch {
     fail("resource_readiness_failed")
@@ -367,9 +501,8 @@ export async function verifyBrowserLuminanceConversion(): Promise<boolean> {
   }
 }
 
-const geistFontDataUrl = `data:font/woff2;base64,${GEIST_LATIN_WOFF2_BASE64}`
-const geistFontFace = `@font-face{font-family:"${MANAGED_FONT_FAMILY}";font-style:normal;font-display:block;font-weight:100 900;src:url("${geistFontDataUrl}") format("woff2")}`
-const resourceReadyScript = `<script>(${markRenderResourcesReady.toString()})({root:document.documentElement,fonts:document.fonts,fontRequirements:Array.from(document.querySelectorAll("[data-mask-font-families]"),element=>({nodeId:element.getAttribute("data-mask-font-source-node")||"",fontFamilies:JSON.parse(element.getAttribute("data-mask-font-families")||"[]")})),images:Array.from(document.querySelectorAll("img[data-node-id]")),coverageImageTargets:Array.from(document.querySelectorAll("[data-mask-coverage-template][data-mask-coverage-kind=image]"),template=>({nodeId:template.getAttribute("data-mask-coverage-node-id")||"",target:document.getElementById(template.getAttribute("data-mask-coverage-target-id")||"")})).filter(source=>source.target),coverageSources:Array.from(document.querySelectorAll("[data-mask-coverage-template]:not([data-mask-coverage-kind=image])"),template=>({nodeId:template.getAttribute("data-mask-coverage-node-id")||"",width:Number(template.getAttribute("data-mask-coverage-width")),height:Number(template.getAttribute("data-mask-coverage-height")),template,target:document.getElementById(template.getAttribute("data-mask-coverage-target-id")||"")})).filter(source=>source.target),managedFontFaceCss:${JSON.stringify(geistFontFace)},projectImagePaint:${serializeImagePaintProjector()},luminanceSourceNodeIds:Array.from(document.querySelectorAll("[data-luminance-source-isolation]"),element=>element.getAttribute("data-luminance-source-isolation")||"").filter(Boolean),verifyLuminanceConversion:${verifyBrowserLuminanceConversion.toString()}})</script>`
+const fontRequirementFromElement = `(element,scope)=>({nodeId:element.getAttribute("data-render-font-node")||"",family:element.getAttribute("data-render-font-family")||"",style:element.getAttribute("data-render-font-style")==="italic"?"italic":"normal",weight:Number(element.getAttribute("data-render-font-weight")),text:element.textContent||"",scope})`
+const resourceReadyScript = `<script>{const __name=(target)=>target;(${markRenderResourcesReady.toString()})({root:document.documentElement,fonts:document.fonts,fontFaces:${JSON.stringify(rendererFontFaceManifest)},ordinaryFontRequirements:Array.from(document.querySelectorAll("[data-render-font-family]"),element=>element).filter(element=>!element.closest("[data-mask-coverage-template]")).map(element=>(${fontRequirementFromElement})(element,"ordinary_text")),maskFontRequirements:Array.from(document.querySelectorAll("[data-mask-coverage-template] [data-render-font-family]"),element=>(${fontRequirementFromElement})(element,"mask_text")),images:Array.from(document.querySelectorAll("img[data-node-id]")),coverageImageTargets:Array.from(document.querySelectorAll("[data-mask-coverage-template][data-mask-coverage-kind=image]"),template=>({nodeId:template.getAttribute("data-mask-coverage-node-id")||"",target:document.getElementById(template.getAttribute("data-mask-coverage-target-id")||"")})).filter(source=>source.target),coverageSources:Array.from(document.querySelectorAll("[data-mask-coverage-template]:not([data-mask-coverage-kind=image])"),template=>({nodeId:template.getAttribute("data-mask-coverage-node-id")||"",width:Number(template.getAttribute("data-mask-coverage-width")),height:Number(template.getAttribute("data-mask-coverage-height")),template,target:document.getElementById(template.getAttribute("data-mask-coverage-target-id")||"")})).filter(source=>source.target),managedFontFaceCss:document.getElementById("renderer-font-faces")?.textContent||"",projectImagePaint:${serializeImagePaintProjector()},luminanceSourceNodeIds:Array.from(document.querySelectorAll("[data-luminance-source-isolation]"),element=>element.getAttribute("data-luminance-source-isolation")||"").filter(Boolean),verifyLuminanceConversion:${verifyBrowserLuminanceConversion.toString()}})}</script>`
 
 const escapeHtml = (value: string): string =>
   value
@@ -612,7 +745,7 @@ function renderTextMarkup(
             `letter-spacing:${segment.style.letterSpacing}px`,
             `line-height:${line.height}px`,
           ].join(";")
-          const content = `<span data-text-source-start="${segment.sourceStart}" data-text-source-end="${segment.sourceEnd}"${segment.synthetic ? ' data-text-synthetic="true"' : ""} style="${segmentStyle}">${escapeHtml(segment.text)}</span>`
+          const content = `<span data-text-source-start="${segment.sourceStart}" data-text-source-end="${segment.sourceEnd}" data-render-font-node="${escapeHtml(projection.frame.id)}" data-render-font-family="${escapeHtml(segment.style.fontFamily)}" data-render-font-style="${segment.style.italic ? "italic" : "normal"}" data-render-font-weight="${segment.style.fontWeight}"${segment.synthetic ? ' data-text-synthetic="true"' : ""} style="${segmentStyle}">${escapeHtml(segment.text)}</span>`
           if (!segment.link) return content
           return `<a href="${escapeHtml(segment.link.target)}"${segment.link.newTab ? ' target="_blank" rel="noopener noreferrer"' : ""} style="color:inherit;text-decoration:inherit">${content}</a>`
         })
@@ -620,17 +753,6 @@ function renderTextMarkup(
       return `<span data-text-line="${lineIndex}" style="${lineStyle}">${segments}</span>`
     })
     .join("")
-}
-
-function renderTextFontFamilies(node: Extract<SceneNode, { type: "text" }>) {
-  return [
-    ...new Set([
-      node.fontFamily,
-      ...node.runs.flatMap((run) =>
-        run.style.fontFamily ? [run.style.fontFamily] : []
-      ),
-    ]),
-  ]
 }
 
 export function renderNodeToHtml(node: SceneNode): string {
@@ -773,7 +895,7 @@ export function renderNodeToHtml(node: SceneNode): string {
     `overflow:${projection.content.sizingMode === "fixed" ? "hidden" : "visible"}`,
   ].join(";")
   if (node.type !== "text") throw new Error(`Unknown text node: ${node.id}`)
-  const textIdentity = `${identity} data-text-sizing-mode="${projection.content.sizingMode}" data-text-measurement="${projection.content.layout.measurement}" data-text-line-count="${projection.content.layout.lineCount}" data-text-source-line-count="${projection.content.layout.sourceLineCount}" data-text-direction="${projection.content.direction}" data-text-vertical-align="${projection.content.verticalAlign}" data-text-case="${projection.content.textCase}" data-text-truncated="${projection.content.layout.truncated ? "true" : "false"}" data-text-overflow="${projection.content.layout.overflow ? "true" : "false"}" data-text-overflow-x="${projection.content.layout.overflowX ? "true" : "false"}" data-text-overflow-y="${projection.content.layout.overflowY ? "true" : "false"}" data-mask-font-source-node="${escapeHtml(node.id)}" data-mask-font-families="${escapeHtml(JSON.stringify(renderTextFontFamilies(node)))}"`
+  const textIdentity = `${identity} data-text-sizing-mode="${projection.content.sizingMode}" data-text-measurement="${projection.content.layout.measurement}" data-text-line-count="${projection.content.layout.lineCount}" data-text-source-line-count="${projection.content.layout.sourceLineCount}" data-text-direction="${projection.content.direction}" data-text-vertical-align="${projection.content.verticalAlign}" data-text-case="${projection.content.textCase}" data-text-truncated="${projection.content.layout.truncated ? "true" : "false"}" data-text-overflow="${projection.content.layout.overflow ? "true" : "false"}" data-text-overflow-x="${projection.content.layout.overflowX ? "true" : "false"}" data-text-overflow-y="${projection.content.layout.overflowY ? "true" : "false"}"`
   return `<div ${textIdentity} style="${textStyle}">${renderTextMarkup(projection)}</div>`
 }
 
@@ -849,7 +971,7 @@ const renderCoverageMaskSource = (
   }
   const fontReadiness =
     node.type === "text" && source?.kind === "text"
-      ? ` data-mask-font-source-node="${escapeHtml(node.id)}" data-mask-font-families="${escapeHtml(JSON.stringify(source.fontFamilies))}"`
+      ? ` data-mask-font-source-node="${escapeHtml(node.id)}"`
       : ""
   const targetId = `${maskId}-${maskIdentifier(node.id)}-coverage`
   const coverageKind = node.type === "image" ? "image" : "html"
@@ -1081,7 +1203,7 @@ export function renderDocumentToHtml(
   const projectedPage = projectPageForRender(page)
   const nodes = pageNodesMarkup(document, projectedPage.id)
 
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(projectedPage.name)}</title><style>${geistFontFace}*{box-sizing:border-box}html,body{margin:0;width:${projectedPage.width}px;height:${projectedPage.height}px;overflow:hidden}body{background:${escapeHtml(projectedPage.background)};-webkit-print-color-adjust:exact;print-color-adjust:exact}</style></head><body data-page-id="${escapeHtml(projectedPage.id)}">${nodes}${resourceReadyScript}</body></html>`
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(projectedPage.name)}</title><style id="renderer-font-faces">${rendererFontFaceCss}</style><style>*{box-sizing:border-box}html,body{margin:0;width:${projectedPage.width}px;height:${projectedPage.height}px;overflow:hidden}body{background:${escapeHtml(projectedPage.background)};-webkit-print-color-adjust:exact;print-color-adjust:exact}</style></head><body data-page-id="${escapeHtml(projectedPage.id)}">${nodes}${resourceReadyScript}</body></html>`
 }
 
 export function renderDocumentThumbnailToHtml(
@@ -1096,7 +1218,7 @@ export function renderDocumentThumbnailToHtml(
   const scale = pageThumbnailScale(projectedPage, size)
   const nodes = pageNodesMarkup(document, projectedPage.id)
 
-  return `<!doctype html><html data-thumbnail-width="${size.width}" data-thumbnail-height="${size.height}"><head><meta charset="utf-8"><title>${escapeHtml(projectedPage.name)}</title><style>${geistFontFace}*{box-sizing:border-box}html,body{margin:0;width:${size.width}px;height:${size.height}px;overflow:hidden}body{position:relative;background:${escapeHtml(projectedPage.background)};-webkit-print-color-adjust:exact;print-color-adjust:exact}.studio-thumbnail-page{position:absolute;left:0;top:0;width:${projectedPage.width}px;height:${projectedPage.height}px;overflow:hidden;transform:scale(${scale});transform-origin:0 0;background:${escapeHtml(projectedPage.background)}}</style></head><body><main class="studio-thumbnail-page" data-page-id="${escapeHtml(projectedPage.id)}" data-source-width="${projectedPage.width}" data-source-height="${projectedPage.height}">${nodes}</main>${resourceReadyScript}</body></html>`
+  return `<!doctype html><html data-thumbnail-width="${size.width}" data-thumbnail-height="${size.height}"><head><meta charset="utf-8"><title>${escapeHtml(projectedPage.name)}</title><style id="renderer-font-faces">${rendererFontFaceCss}</style><style>*{box-sizing:border-box}html,body{margin:0;width:${size.width}px;height:${size.height}px;overflow:hidden}body{position:relative;background:${escapeHtml(projectedPage.background)};-webkit-print-color-adjust:exact;print-color-adjust:exact}.studio-thumbnail-page{position:absolute;left:0;top:0;width:${projectedPage.width}px;height:${projectedPage.height}px;overflow:hidden;transform:scale(${scale});transform-origin:0 0;background:${escapeHtml(projectedPage.background)}}</style></head><body><main class="studio-thumbnail-page" data-page-id="${escapeHtml(projectedPage.id)}" data-source-width="${projectedPage.width}" data-source-height="${projectedPage.height}">${nodes}</main>${resourceReadyScript}</body></html>`
 }
 
 export function renderOutputToHtml(
@@ -1126,5 +1248,5 @@ export function renderOutputToHtml(
     )
     .join("")
 
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(document.name)} — ${escapeHtml(output.name)}</title><style>${geistFontFace}*{box-sizing:border-box}html,body{margin:0;padding:0}.studio-page{position:relative;overflow:hidden;break-after:page;page-break-after:always;-webkit-print-color-adjust:exact;print-color-adjust:exact}.studio-page:last-child{break-after:auto;page-break-after:auto}${pageRules}</style></head><body>${sheets}${resourceReadyScript}</body></html>`
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(document.name)} — ${escapeHtml(output.name)}</title><style id="renderer-font-faces">${rendererFontFaceCss}</style><style>*{box-sizing:border-box}html,body{margin:0;padding:0}.studio-page{position:relative;overflow:hidden;break-after:page;page-break-after:always;-webkit-print-color-adjust:exact;print-color-adjust:exact}.studio-page:last-child{break-after:auto;page-break-after:auto}${pageRules}</style></head><body>${sheets}${resourceReadyScript}</body></html>`
 }

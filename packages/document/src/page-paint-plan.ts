@@ -9,7 +9,11 @@ export type MaskPaintSource =
   | Readonly<{
       nodeId: string
       kind: "text"
-      fontFamilies: readonly string[]
+      fontFaces: readonly Readonly<{
+        family: string
+        style: "normal" | "italic"
+        weight: number
+      }>[]
     }>
 
 export type MaskPaintRelation = Readonly<{
@@ -230,14 +234,35 @@ const maskPaintSource = (node: SceneNode): MaskPaintSource => {
     return { nodeId: node.id, kind: "image", assetId: node.assetId }
   }
   if (node.type === "text") {
-    const fontFamilies = new Set([node.fontFamily])
+    const fontFaces = new Map<
+      string,
+      { family: string; style: "normal" | "italic"; weight: number }
+    >()
+    const addFace = (family: string, weight: number, italic: boolean) => {
+      const style = italic ? "italic" : "normal"
+      fontFaces.set(`${family}\u0000${style}\u0000${weight}`, {
+        family,
+        style,
+        weight,
+      })
+    }
+    addFace(node.fontFamily, node.fontWeight, node.italic)
     for (const run of node.runs) {
-      if (run.style.fontFamily) fontFamilies.add(run.style.fontFamily)
+      addFace(
+        run.style.fontFamily ?? node.fontFamily,
+        run.style.fontWeight ?? node.fontWeight,
+        run.style.italic ?? node.italic
+      )
     }
     return {
       nodeId: node.id,
       kind: "text",
-      fontFamilies: [...fontFamilies].sort(),
+      fontFaces: [...fontFaces.values()].sort(
+        (left, right) =>
+          left.family.localeCompare(right.family) ||
+          left.style.localeCompare(right.style) ||
+          left.weight - right.weight
+      ),
     }
   }
   return { nodeId: node.id, kind: "vector" }

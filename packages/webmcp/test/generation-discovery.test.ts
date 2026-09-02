@@ -35,7 +35,56 @@ describe("generation discovery", () => {
         maxNormalizedDesignGuideBytes: 65_536,
       },
     })
-    expect(capabilities.availableFonts).toEqual(["Geist Variable"])
+    expect(capabilities.availableFonts).toEqual([
+      "Geist Variable",
+      "Inter Variable",
+    ])
+    expect(capabilities.availableFontFaces).toEqual([
+      {
+        faceId: "geist-variable-latin-normal-5.3.0",
+        family: "Geist Variable",
+        style: "normal",
+        weight: { min: 100, max: 900 },
+        source: "bundled",
+        unicodeRange: expect.stringContaining("U+0000-00FF"),
+        contentSha256:
+          "19f9c92546aa300c312235e3125af1b81394d8db9a4bc4a425cd5b641d2d54e1",
+      },
+      {
+        faceId: "geist-variable-latin-italic-5.3.0",
+        family: "Geist Variable",
+        style: "italic",
+        weight: { min: 100, max: 900 },
+        source: "bundled",
+        unicodeRange: expect.stringContaining("U+0000-00FF"),
+        contentSha256:
+          "9b10496762af92659f3b05d2b084b0c8f962c3ecdf637aa764e3b7fd17f5acaf",
+      },
+      {
+        faceId: "inter-variable-latin-normal-5.3.0",
+        family: "Inter Variable",
+        style: "normal",
+        weight: { min: 100, max: 900 },
+        source: "google_fonts_cache",
+        unicodeRange: expect.stringContaining("U+0000-00FF"),
+        contentSha256:
+          "3100e775e8616cd2611beecfa23a4263d7037586789b43f035236a2e6fbd4c62",
+      },
+      {
+        faceId: "inter-variable-latin-italic-5.3.0",
+        family: "Inter Variable",
+        style: "italic",
+        weight: { min: 100, max: 900 },
+        source: "google_fonts_cache",
+        unicodeRange: expect.stringContaining("U+0000-00FF"),
+        contentSha256:
+          "7291b5970da2237441273c03b424a504b70b18f09791473fab99687dcc314720",
+      },
+    ])
+    expect(capabilities.fontDiscovery).toMatchObject({
+      sources: ["bundled", "google_fonts_cache"],
+      renderTimeRemoteFetch: false,
+    })
     expect(
       readBlankDocumentPresets().presets.map((preset) => preset.id)
     ).toEqual(["portrait", "square", "story"])

@@ -29,14 +29,28 @@ const deferred = <T>() => {
   return { promise, resolve, reject }
 }
 
+type RenderEvaluationState = {
+  ready: boolean
+  code: string | null
+  nodeId?: string
+  fontFamily?: string
+  fontStyle?: string
+  fontWeight?: number
+  stage?: string
+}
+
 function successfulBrowserPage(pdfBytes: number[]) {
   return {
     setContent: vi.fn(async (_html: string) => undefined),
     waitForFunction: vi.fn(async () => undefined),
-    evaluate: vi.fn(async () => ({
+    evaluate: vi.fn(async (): Promise<RenderEvaluationState> => ({
       ready: true,
       code: null as string | null,
       nodeId: undefined as string | undefined,
+      fontFamily: undefined as string | undefined,
+      fontStyle: undefined as string | undefined,
+      fontWeight: undefined as number | undefined,
+      stage: undefined as string | undefined,
     })),
     pdf: vi.fn(async () => Uint8Array.from(pdfBytes)),
     screenshot: vi.fn(async () => Uint8Array.from([1, 2, 3])),
@@ -463,8 +477,12 @@ describe("renderer Worker", () => {
       const browserPage = successfulBrowserPage([37, 80, 68, 70])
       browserPage.evaluate.mockResolvedValue({
         ready: false,
-        code: "managed_font_failed",
+        code: "font_face_failed",
         nodeId: "mask-conformance-source",
+        fontFamily: "Geist Variable",
+        fontStyle: "normal",
+        fontWeight: 760,
+        stage: "mask_text_font_verify",
       })
       const close = vi.fn(async () => undefined)
       vi.mocked(launch).mockResolvedValue({
@@ -491,10 +509,16 @@ describe("renderer Worker", () => {
       expect(response.status).toBe(422)
       expect(await response.json()).toEqual({
         error: "render_resource_failed",
-        code: "managed_font_failed",
+        code: "font_face_failed",
         message:
           "Required render resource failed for node mask-conformance-source",
         nodeId: "mask-conformance-source",
+        font: {
+          family: "Geist Variable",
+          style: "normal",
+          weight: 760,
+          stage: "mask_text_font_verify",
+        },
       })
       expect(browserPage.screenshot).not.toHaveBeenCalled()
       expect(browserPage.pdf).not.toHaveBeenCalled()
@@ -1401,9 +1425,8 @@ describe("renderer Worker", () => {
         "SHA-256",
         Uint8Array.from(bytes)
       )
-      const checksum = `sha256-${Array.from(
-        new Uint8Array(digest),
-        (byte) => byte.toString(16).padStart(2, "0")
+      const checksum = `sha256-${Array.from(new Uint8Array(digest), (byte) =>
+        byte.toString(16).padStart(2, "0")
       ).join("")}`
       expect(response.headers.get("X-Checksum")).toBe(checksum)
       expect(response.headers.get("X-Render-Key")).toBeNull()

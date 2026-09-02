@@ -257,7 +257,18 @@ describe("shared page paint plan mask oracle", () => {
           {
             nodeId: seedText.id,
             kind: "text",
-            fontFamilies: ["Geist Variable", "Inter"],
+            fontFaces: [
+              {
+                family: "Geist Variable",
+                style: seedText.italic ? "italic" : "normal",
+                weight: seedText.fontWeight,
+              },
+              {
+                family: "Inter",
+                style: seedText.italic ? "italic" : "normal",
+                weight: seedText.fontWeight,
+              },
+            ],
           },
         ],
       })

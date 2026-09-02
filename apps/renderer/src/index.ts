@@ -93,7 +93,7 @@ type RenderResourceErrorCode =
   | "image_resource_type_mismatch"
   | "image_resource_inline_invalid"
   | "image_resource_inline_dimensions_exceeded"
-  | "managed_font_failed"
+  | "font_face_failed"
   | "luminance_conversion_failed"
   | "resource_readiness_failed"
   | "resource_readiness_timeout"
@@ -102,7 +102,14 @@ export class RenderResourceError extends Error {
   constructor(
     readonly code: RenderResourceErrorCode,
     readonly nodeId?: string,
-    readonly assetId?: string
+    readonly assetId?: string,
+    readonly font?: Readonly<{
+      family: string
+      style?: string
+      weight?: number
+      stage?: string
+    }>,
+    readonly stage?: string
   ) {
     super(
       nodeId
@@ -139,7 +146,24 @@ export async function waitForRenderResources(
       { timeout }
     )
   } catch {
-    throw new RenderResourceError("resource_readiness_timeout")
+    const stage = await page
+      .evaluate(() =>
+        (
+          globalThis as unknown as {
+            document: {
+              documentElement: { getAttribute(name: string): string | null }
+            }
+          }
+        ).document.documentElement.getAttribute("data-render-progress")
+      )
+      .catch(() => null)
+    throw new RenderResourceError(
+      "resource_readiness_timeout",
+      undefined,
+      undefined,
+      undefined,
+      stage ?? undefined
+    )
   }
 
   const state = await page.evaluate((expectations) => {
@@ -192,6 +216,11 @@ export async function waitForRenderResources(
       ready,
       code: root.getAttribute("data-render-error"),
       nodeId: root.getAttribute("data-render-error-node") ?? undefined,
+      fontFamily: root.getAttribute("data-render-error-font") ?? undefined,
+      fontStyle: root.getAttribute("data-render-error-font-style") ?? undefined,
+      fontWeight:
+        Number(root.getAttribute("data-render-error-font-weight")) || undefined,
+      stage: root.getAttribute("data-render-error-stage") ?? undefined,
     }
   }, expectedImageResources)
   if (state.ready) return
@@ -199,15 +228,34 @@ export async function waitForRenderResources(
   const code =
     state.code === "image_decode_failed" ||
     state.code === "image_dimension_mismatch" ||
-    state.code === "managed_font_failed" ||
+    state.code === "font_face_failed" ||
     state.code === "luminance_conversion_failed" ||
     state.code === "resource_readiness_failed"
       ? state.code
       : "resource_readiness_failed"
-  throw new RenderResourceError(code, state.nodeId)
+  throw new RenderResourceError(
+    code,
+    state.nodeId,
+    undefined,
+    state.fontFamily
+      ? {
+          family: state.fontFamily,
+          style: state.fontStyle,
+          weight: state.fontWeight,
+          stage: state.stage,
+        }
+      : undefined
+  )
 }
 
 function renderResourceErrorResponse(error: RenderResourceError): Response {
+  console.warn("renderer_resource_failure", {
+    code: error.code,
+    ...(error.nodeId ? { nodeId: error.nodeId } : {}),
+    ...(error.assetId ? { assetId: error.assetId } : {}),
+    ...(error.font ? { font: error.font } : {}),
+    ...(error.stage ? { stage: error.stage } : {}),
+  })
   return Response.json(
     {
       error: "render_resource_failed",
@@ -215,6 +263,8 @@ function renderResourceErrorResponse(error: RenderResourceError): Response {
       message: error.message,
       ...(error.nodeId ? { nodeId: error.nodeId } : {}),
       ...(error.assetId ? { assetId: error.assetId } : {}),
+      ...(error.font ? { font: error.font } : {}),
+      ...(error.stage ? { stage: error.stage } : {}),
     },
     { status: 422 }
   )

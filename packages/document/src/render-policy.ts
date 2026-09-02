@@ -7,13 +7,75 @@ import {
 
 export { isRenderSafeImageSource } from "./image-source-policy"
 
-export const managedRendererFonts = ["Geist Variable"] as const
+export const rendererFontFaces = [
+  {
+    assetId: "geist-variable-latin-normal-5.3.0",
+    family: "Geist Variable",
+    source: "bundled",
+    style: "normal",
+    weight: { min: 100, max: 900 },
+    unicodeRange:
+      "U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD",
+    sha256: "19f9c92546aa300c312235e3125af1b81394d8db9a4bc4a425cd5b641d2d54e1",
+  },
+  {
+    assetId: "geist-variable-latin-italic-5.3.0",
+    family: "Geist Variable",
+    source: "bundled",
+    style: "italic",
+    weight: { min: 100, max: 900 },
+    unicodeRange:
+      "U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD",
+    sha256: "9b10496762af92659f3b05d2b084b0c8f962c3ecdf637aa764e3b7fd17f5acaf",
+  },
+  {
+    assetId: "inter-variable-latin-normal-5.3.0",
+    family: "Inter Variable",
+    source: "google_fonts_cache",
+    style: "normal",
+    weight: { min: 100, max: 900 },
+    unicodeRange:
+      "U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD",
+    sha256: "3100e775e8616cd2611beecfa23a4263d7037586789b43f035236a2e6fbd4c62",
+  },
+  {
+    assetId: "inter-variable-latin-italic-5.3.0",
+    family: "Inter Variable",
+    source: "google_fonts_cache",
+    style: "italic",
+    weight: { min: 100, max: 900 },
+    unicodeRange:
+      "U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD",
+    sha256: "7291b5970da2237441273c03b424a504b70b18f09791473fab99687dcc314720",
+  },
+] as const
+
+export type RendererFontFace = (typeof rendererFontFaces)[number]
+export type RendererFontStyle = RendererFontFace["style"]
+
+export const managedRendererFonts = [
+  ...new Set(rendererFontFaces.map((face) => face.family)),
+] as const
 export type ManagedRendererFont = (typeof managedRendererFonts)[number]
 
 export function isManagedRendererFont(
   fontFamily: string
 ): fontFamily is ManagedRendererFont {
   return managedRendererFonts.some((managed) => managed === fontFamily)
+}
+
+export function resolveRendererFontFace(input: {
+  family: string
+  style: RendererFontStyle
+  weight: number
+}): RendererFontFace | undefined {
+  return rendererFontFaces.find(
+    (face) =>
+      face.family === input.family &&
+      face.style === input.style &&
+      input.weight >= face.weight.min &&
+      input.weight <= face.weight.max
+  )
 }
 
 // Backward-compatible public name for existing publishing consumers.

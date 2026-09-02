@@ -45,14 +45,20 @@ import {
   renderPagePaintPlanEntryToHtml,
   verifyBrowserLuminanceConversion,
 } from "../src/html"
+import { rendererFontFaceManifest } from "../src/fonts"
 
 function renderResourceFixture(options?: {
   fontCheck?: boolean
   fontRequirements?: readonly Readonly<{
+    family: string
     nodeId: string
-    fontFamilies: readonly string[]
+    scope?: "ordinary_text" | "mask_text"
+    style: "normal" | "italic"
+    text: string
+    weight: number
   }>[]
   fontLoadRejects?: boolean
+  fontLoadNeverSettles?: boolean
   fontStatus?: string
   imageComplete?: boolean
   imageFrameHeight?: number
@@ -76,9 +82,10 @@ function renderResourceFixture(options?: {
   const managedFace = {
     family: "Geist Variable",
     status: "unloaded",
+    style: "normal",
+    weight: "100 900",
   }
   const faces = Object.assign([managedFace], {
-    ready: Promise.resolve(),
     check: (query: string, text?: string) => {
       fontChecks.push({ query, text })
       return options?.fontCheck ?? true
@@ -88,6 +95,10 @@ function renderResourceFixture(options?: {
       if (options?.fontLoadRejects) {
         return Promise.reject(new Error("managed font failed"))
       }
+      if (options?.fontLoadNeverSettles) {
+        return new Promise<(typeof managedFace)[]>(() => undefined)
+      }
+      managedFace.style = query.startsWith("italic") ? "italic" : "normal"
       managedFace.status = options?.fontStatus ?? "loaded"
       return Promise.resolve([managedFace])
     },
@@ -150,7 +161,41 @@ function renderResourceFixture(options?: {
     input: {
       root,
       fonts: faces,
-      fontRequirements: options?.fontRequirements,
+      ordinaryFontRequirements: options?.fontRequirements
+        ?.filter((requirement) => requirement.scope !== "mask_text")
+        .map((requirement) => ({
+          ...requirement,
+          scope: "ordinary_text" as const,
+        })),
+      maskFontRequirements: options?.fontRequirements
+        ?.filter((requirement) => requirement.scope === "mask_text")
+        .map((requirement) => ({
+          ...requirement,
+          scope: "mask_text" as const,
+        })),
+      fontFaces: [
+        {
+          assetId: "geist-variable-latin-normal-5.3.0",
+          family: "Geist Variable",
+          source: "bundled" as const,
+          style: "normal" as const,
+          unicodeRange: "U+0000-00FF",
+          weight: { min: 100, max: 900 },
+          sha256:
+            "19f9c92546aa300c312235e3125af1b81394d8db9a4bc4a425cd5b641d2d54e1",
+        },
+        {
+          assetId: "geist-variable-latin-italic-5.3.0",
+          family: "Geist Variable",
+          source: "bundled" as const,
+          style: "italic" as const,
+          unicodeRange: "U+0000-00FF",
+          weight: { min: 100, max: 900 },
+          sha256:
+            "9b10496762af92659f3b05d2b084b0c8f962c3ecdf637aa764e3b7fd17f5acaf",
+        },
+      ],
+      fontTimeoutMs: options?.fontLoadNeverSettles ? 1 : undefined,
       images,
       projectImagePaint: options?.projectionRejects
         ? () => {
@@ -533,12 +578,10 @@ describe("renderer HTML", () => {
 
     const html = renderDocumentToHtml(document, document.pages[0]!.id)
 
-    expect(html).toContain('data-mask-font-source-node="child-content"')
+    expect(html).not.toContain('data-mask-font-source-node="child-content"')
+    expect(html).toContain('data-render-font-family="Inter"')
     expect(html).toContain(
-      'data-mask-font-families="[&quot;Geist Variable&quot;,&quot;Inter&quot;]"'
-    )
-    expect(html).toContain(
-      'document.querySelectorAll("[data-mask-font-families]")'
+      'document.querySelectorAll("[data-render-font-family]")'
     )
   })
 
@@ -591,7 +634,8 @@ describe("renderer HTML", () => {
       }
       expect(html.match(/data-mask-source-id=/g)).toHaveLength(3)
       expect(html.match(/<img data-node-id=/g)).toHaveLength(2)
-      expect(html).toContain("data-mask-font-families=")
+      expect(html).toContain("data-mask-font-source-node=")
+      expect(html).toContain("data-render-font-family=")
     }
   })
 
@@ -671,7 +715,7 @@ describe("renderer HTML", () => {
     expect(html.match(/data-luminance-source-isolation=/g)).toHaveLength(3)
     expect(html.match(/<img data-node-id=/g)).toHaveLength(2)
     expect(html).toContain("data-mask-font-source-node=")
-    expect(html).toContain("data-mask-font-families=")
+    expect(html).toContain("data-render-font-family=")
   })
 
   it("keeps negative, rotated, frame-masked image content inside the production mask composite", () => {
@@ -834,7 +878,13 @@ describe("renderer HTML", () => {
           {
             nodeId: textSource.id,
             kind: "text",
-            fontFamilies: ["Geist Variable", "Inter"],
+            fontFaces: [
+              {
+                family: "Geist Variable",
+                style: textSource.italic ? "italic" : "normal",
+                weight: textSource.fontWeight,
+              },
+            ],
           },
         ],
       },
@@ -847,9 +897,7 @@ describe("renderer HTML", () => {
     expect(textHtml).toContain('data-mask-coverage-kind="html"')
     expect(textHtml).toContain(`data-node-id="${textSource.id}"`)
     expect(textHtml).toContain(`data-mask-font-source-node="${textSource.id}"`)
-    expect(textHtml).toContain(
-      'data-mask-font-families="[&quot;Geist Variable&quot;,&quot;Inter&quot;]"'
-    )
+    expect(textHtml).toContain('data-render-font-family="Geist Variable"')
     expect(textHtml).toContain("font-family:Geist Variable,sans-serif")
     expect(textHtml).toContain(`opacity:${textSource.opacity}`)
   })
@@ -945,16 +993,26 @@ describe("renderer HTML", () => {
   })
 
   it("marks ready only after the managed font and every image decode", async () => {
-    const fixture = renderResourceFixture()
+    const fixture = renderResourceFixture({
+      fontRequirements: [
+        {
+          family: "Geist Variable",
+          nodeId: "alpha-text-source",
+          style: "normal",
+          text: "WebMCP",
+          weight: 400,
+        },
+      ],
+    })
     await markRenderResourcesReady(fixture.input)
 
     expect(fixture.attributes.get("data-render-ready")).toBe("true")
     expect(fixture.attributes.has("data-render-error")).toBe(false)
     expect(fixture.fontLoads).toEqual([
-      { query: '16px "Geist Variable"', text: "WebMCP" },
+      { query: 'normal 400 16px "Geist Variable"', text: "CMPWbe" },
     ])
     expect(fixture.fontChecks).toEqual([
-      { query: '16px "Geist Variable"', text: "WebMCP" },
+      { query: 'normal 400 16px "Geist Variable"', text: "CMPWbe" },
     ])
     expect(fixture.imageDecodeCalls).toBe(1)
   })
@@ -964,20 +1022,46 @@ describe("renderer HTML", () => {
       fontStatus: "error",
       fontRequirements: [
         {
+          family: "Geist Variable",
           nodeId: "alpha-text-source",
-          fontFamilies: ["Geist Variable"],
+          style: "normal",
+          text: "WebMCP",
+          weight: 400,
         },
       ],
     })
     await markRenderResourcesReady(fixture.input)
 
-    expect(fixture.attributes.get("data-render-error")).toBe(
-      "managed_font_failed"
-    )
+    expect(fixture.attributes.get("data-render-error")).toBe("font_face_failed")
     expect(fixture.attributes.get("data-render-error-node")).toBe(
       "alpha-text-source"
     )
     expect(fixture.attributes.has("data-render-ready")).toBe(false)
+  })
+
+  it("rejects text outside the cached face coverage before fallback can render it", async () => {
+    const fixture = renderResourceFixture({
+      fontRequirements: [
+        {
+          family: "Geist Variable",
+          nodeId: "unsupported-script",
+          style: "normal",
+          text: "नमस्ते",
+          weight: 400,
+        },
+      ],
+    })
+    await markRenderResourcesReady(fixture.input)
+
+    expect(fixture.attributes.get("data-render-error")).toBe("font_face_failed")
+    expect(fixture.attributes.get("data-render-error-node")).toBe(
+      "unsupported-script"
+    )
+    expect(fixture.attributes.get("data-render-error-stage")).toBe(
+      "ordinary_text_font_coverage"
+    )
+    expect(fixture.fontLoads).toEqual([])
+    expect(fixture.imageDecodeCalls).toBe(0)
   })
 
   it("attributes a failed luminance conversion before declaring output ready", async () => {
@@ -1006,36 +1090,89 @@ describe("renderer HTML", () => {
     }
   }, 20_000)
 
-  it("loads every base and run font required by an alpha text source", async () => {
+  it("loads every exact normal and italic face required by text", async () => {
     const fixture = renderResourceFixture({
       fontRequirements: [
         {
+          family: "Geist Variable",
           nodeId: "alpha-text-source",
-          fontFamilies: ["Geist Variable", "Inter"],
+          scope: "mask_text",
+          style: "normal",
+          text: "Base",
+          weight: 400,
+        },
+        {
+          family: "Geist Variable",
+          nodeId: "alpha-text-source",
+          scope: "mask_text",
+          style: "italic",
+          text: "Run",
+          weight: 700,
         },
       ],
     })
     await markRenderResourcesReady(fixture.input)
 
     expect(fixture.fontLoads).toEqual([
-      { query: '16px "Geist Variable"', text: "WebMCP" },
-      { query: '16px "Inter"', text: "WebMCP" },
+      { query: 'normal 400 16px "Geist Variable"', text: "Baes" },
+      { query: 'italic 700 16px "Geist Variable"', text: "Rnu" },
     ])
     expect(fixture.fontChecks).toEqual([
-      { query: '16px "Geist Variable"', text: "WebMCP" },
-      { query: '16px "Inter"', text: "WebMCP" },
+      { query: 'normal 400 16px "Geist Variable"', text: "Baes" },
+      { query: 'italic 700 16px "Geist Variable"', text: "Rnu" },
     ])
     expect(fixture.attributes.get("data-render-ready")).toBe("true")
   })
 
   it("marks a managed-font load rejection before decoding images", async () => {
-    const fixture = renderResourceFixture({ fontLoadRejects: true })
+    const fixture = renderResourceFixture({
+      fontLoadRejects: true,
+      fontRequirements: [
+        {
+          family: "Geist Variable",
+          nodeId: "alpha-text-source",
+          style: "normal",
+          text: "WebMCP",
+          weight: 400,
+        },
+      ],
+    })
     await markRenderResourcesReady(fixture.input)
 
-    expect(fixture.attributes.get("data-render-error")).toBe(
-      "managed_font_failed"
-    )
+    expect(fixture.attributes.get("data-render-error")).toBe("font_face_failed")
     expect(fixture.attributes.has("data-render-ready")).toBe(false)
+    expect(fixture.imageDecodeCalls).toBe(0)
+  })
+
+  it("turns a stalled face load into an attributed bounded failure", async () => {
+    const fixture = renderResourceFixture({
+      fontLoadNeverSettles: true,
+      fontRequirements: [
+        {
+          family: "Geist Variable",
+          nodeId: "headline",
+          scope: "mask_text",
+          style: "italic",
+          text: "Bounded",
+          weight: 700,
+        },
+      ],
+    })
+
+    await markRenderResourcesReady(fixture.input)
+
+    expect(fixture.attributes.get("data-render-error")).toBe("font_face_failed")
+    expect(fixture.attributes.get("data-render-error-node")).toBe("headline")
+    expect(fixture.attributes.get("data-render-error-font")).toBe(
+      "Geist Variable"
+    )
+    expect(fixture.attributes.get("data-render-error-font-style")).toBe(
+      "italic"
+    )
+    expect(fixture.attributes.get("data-render-error-font-weight")).toBe("700")
+    expect(fixture.attributes.get("data-render-error-stage")).toBe(
+      "mask_text_font_load_timeout"
+    )
     expect(fixture.imageDecodeCalls).toBe(0)
   })
 
@@ -1377,7 +1514,7 @@ describe("renderer HTML", () => {
     expect(html).not.toContain('data-page-id="whatsapp-card"')
   })
 
-  it("keeps canonical typography and stroke values in export HTML", () => {
+  it("keeps canonical typography and exact font bytes in export HTML", async () => {
     const withTypography = applyCommand(northstarSeed, {
       id: "cmd-render-typography",
       type: "update_node",
@@ -1403,11 +1540,28 @@ describe("renderer HTML", () => {
     expect(html).toContain("font-weight:600")
     expect(html).toContain("border:3px solid #ffffff")
     expect(html).toContain('@font-face{font-family:"Geist Variable"')
-    const embeddedFont = html.match(/data:font\/woff2;base64,([A-Za-z0-9+/=]+)/)
-    expect(embeddedFont?.[1]).toHaveLength(39_200)
+    const embeddedFonts = [
+      ...html.matchAll(/data:font\/woff2;base64,([A-Za-z0-9+/=]+)/g),
+    ].map((match) => match[1]!)
+    expect(embeddedFonts.map((font) => font.length)).toEqual([
+      39_200, 41_344, 64_344, 69_112,
+    ])
+    const hashes = await Promise.all(
+      embeddedFonts.map(async (font) => {
+        const bytes = Uint8Array.from(atob(font), (character) =>
+          character.charCodeAt(0)
+        )
+        return Array.from(
+          new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
+          (byte) => byte.toString(16).padStart(2, "0")
+        ).join("")
+      })
+    )
+    expect(hashes).toEqual(rendererFontFaceManifest.map((face) => face.sha256))
     expect(html).not.toMatch(/(?:src|href)=["']https?:\/\//)
     expect(html).toContain("input.fonts.load(")
     expect(html).toContain("input.fonts.check(")
+    expect(html).toContain("const __name=(target)=>target")
     expect(html).toMatch(/face\.status\s*===\s*"loaded"/)
     expect(html).toMatch(/await\s+image\.decode\(\)/)
     expect(html).toContain("image.naturalWidth <= 0")
