@@ -8,6 +8,7 @@ import {
 } from "@webmcp/document"
 import type { FieldDefinition, FieldType, FieldValue } from "@webmcp/document"
 import { Button } from "@webmcp/ui/components/button"
+import { editorFieldControlClassName } from "@webmcp/ui/components/editor-chrome"
 import {
   Field,
   FieldDescription,
@@ -32,6 +33,7 @@ import {
   ToggleGroup,
   ToggleGroupItem,
 } from "@webmcp/ui/components/toggle-group"
+import { cn } from "@webmcp/ui/lib/utils"
 import { studioAssetIdForValue, studioAssets } from "./asset-catalog"
 import { assetValueDisplay } from "./field-review-display"
 
@@ -108,6 +110,7 @@ type TypedFieldValueControlCommonProps = {
   assetCanBeEmpty?: boolean
   assetValueMode?: "source" | "id"
   onChooseAsset?: (opener: HTMLButtonElement) => void
+  density?: "default" | "compact"
 }
 
 type TypedFieldValueControlProps = TypedFieldValueControlCommonProps &
@@ -127,7 +130,9 @@ export function TypedFieldValueControl(props: TypedFieldValueControlProps) {
     ariaLabel,
     onCommit,
     onDraftValidityChange,
+    density = "default",
   } = props
+  const compact = density === "compact"
   const field: FieldDefinition =
     "field" in props && props.field
       ? props.field
@@ -200,10 +205,17 @@ export function TypedFieldValueControl(props: TypedFieldValueControlProps) {
         spacing={1}
         onValueChange={(next) => next && onCommit(next === "true")}
       >
-        <ToggleGroupItem id={id} className="h-11 flex-1" value="true">
+        <ToggleGroupItem
+          id={id}
+          className={cn("flex-1", compact ? "h-6 text-[11px]" : "h-11")}
+          value="true"
+        >
           True
         </ToggleGroupItem>
-        <ToggleGroupItem className="h-11 flex-1" value="false">
+        <ToggleGroupItem
+          className={cn("flex-1", compact ? "h-6 text-[11px]" : "h-11")}
+          value="false"
+        >
           False
         </ToggleGroupItem>
       </ToggleGroup>
@@ -232,15 +244,26 @@ export function TypedFieldValueControl(props: TypedFieldValueControlProps) {
                   ? `${id}-clear-policy`
                   : undefined
             }
-            className="flex min-h-11 items-center gap-2 rounded-md border border-input bg-background px-3"
+            className={cn(
+              "flex items-center gap-2 border",
+              compact
+                ? "min-h-6 rounded-sm border-transparent bg-editor-field px-2 text-[11px]"
+                : "min-h-11 rounded-md border-input bg-background px-3"
+            )}
           >
-            <span className="min-w-0 flex-1 truncate text-xs">
+            <span
+              className={cn(
+                "min-w-0 flex-1 truncate",
+                compact ? "text-[11px]" : "text-xs"
+              )}
+            >
               {sourceDisplay.label}
             </span>
             <Button
               type="button"
               variant="outline"
-              className="h-11 shrink-0"
+              size={compact ? "xs" : "default"}
+              className={cn("shrink-0", compact ? "h-6" : "h-11")}
               aria-label={`Choose image for ${field.label}`}
               onClick={(event) => props.onChooseAsset?.(event.currentTarget)}
             >
@@ -250,7 +273,8 @@ export function TypedFieldValueControl(props: TypedFieldValueControlProps) {
               <Button
                 type="button"
                 variant="ghost"
-                className="h-11 shrink-0"
+                size={compact ? "xs" : "default"}
+                className={cn("shrink-0", compact ? "h-6" : "h-11")}
                 aria-label={`Clear image from ${field.label}`}
                 aria-describedby={
                   clearReason ? `${id}-clear-policy` : undefined
@@ -316,7 +340,11 @@ export function TypedFieldValueControl(props: TypedFieldValueControlProps) {
             aria-label={ariaLabel}
             aria-invalid={!canonicalValid || undefined}
             aria-describedby={!canonicalValid ? `${id}-error` : undefined}
-            className="h-11 w-full"
+            className={cn(
+              "w-full",
+              compact ? editorFieldControlClassName : "h-11"
+            )}
+            size={compact ? "sm" : "default"}
           >
             <SelectValue placeholder="Choose an approved asset" />
           </SelectTrigger>
@@ -372,7 +400,11 @@ export function TypedFieldValueControl(props: TypedFieldValueControlProps) {
             aria-label={ariaLabel}
             aria-invalid={!canonicalValid || undefined}
             aria-describedby={!canonicalValid ? `${id}-error` : undefined}
-            className="h-11 w-full"
+            className={cn(
+              "w-full",
+              compact ? editorFieldControlClassName : "h-11"
+            )}
+            size={compact ? "sm" : "default"}
           >
             <SelectValue placeholder="Choose an option" />
           </SelectTrigger>
@@ -416,7 +448,7 @@ export function TypedFieldValueControl(props: TypedFieldValueControlProps) {
     "aria-describedby": error ? `${id}-error` : undefined,
     value: draft,
     required: field.required,
-    className: "h-11",
+    className: compact ? editorFieldControlClassName : "h-11",
     inputMode:
       field.type === "number" || field.type === "currency"
         ? "decimal"
@@ -472,19 +504,37 @@ export function TypedFieldValueControl(props: TypedFieldValueControlProps) {
   return (
     <Field className="gap-1.5" data-invalid={Boolean(error) || undefined}>
       {field.type === "currency" ? (
-        <InputGroup className="h-11">
+        <InputGroup
+          className={cn(
+            compact
+              ? "h-6 rounded-sm border-transparent bg-editor-field text-[11px] focus-within:border-studio-accent focus-within:bg-background focus-within:ring-2 focus-within:ring-studio-accent/20 hover:bg-editor-field-hover"
+              : "h-11"
+          )}
+        >
           <InputGroupAddon>
             <InputGroupText aria-hidden="true">₹</InputGroupText>
           </InputGroupAddon>
-          <InputGroupInput {...inputProps} className="h-full" />
+          <InputGroupInput
+            {...inputProps}
+            className={cn("h-full", compact && "text-[11px]")}
+          />
         </InputGroup>
       ) : field.type === "color" ? (
-        <InputGroup className="h-11">
+        <InputGroup
+          className={cn(
+            compact
+              ? "h-6 rounded-sm border-transparent bg-editor-field text-[11px] focus-within:border-studio-accent focus-within:bg-background focus-within:ring-2 focus-within:ring-studio-accent/20 hover:bg-editor-field-hover"
+              : "h-11"
+          )}
+        >
           <InputGroupAddon className="h-full p-0">
             <input
               aria-label={`${ariaLabel} color picker`}
               type="color"
-              className="size-11 cursor-pointer rounded-md border border-input bg-transparent p-2"
+              className={cn(
+                "cursor-pointer border border-input bg-transparent",
+                compact ? "size-6 rounded-sm p-1" : "size-11 rounded-md p-2"
+              )}
               value={nativeColorValue(draft)}
               onChange={(event) => {
                 const nextDraft = event.target.value.toLowerCase()
@@ -495,7 +545,10 @@ export function TypedFieldValueControl(props: TypedFieldValueControlProps) {
           </InputGroupAddon>
           <InputGroupInput
             {...inputProps}
-            className="h-full font-mono uppercase"
+            className={cn(
+              "h-full font-mono uppercase",
+              compact && "text-[11px]"
+            )}
             placeholder="#1f2937"
           />
         </InputGroup>

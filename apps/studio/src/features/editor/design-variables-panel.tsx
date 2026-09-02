@@ -32,6 +32,7 @@ import { Button } from "@webmcp/ui/components/button"
 import {
   EditorPanelNotice,
   EditorPanelSectionHeader,
+  EditorSelectTrigger,
 } from "@webmcp/ui/components/editor-chrome"
 import {
   Dialog,
@@ -399,9 +400,9 @@ function StyleVariableBindingSection({
       </div>
       <div className="grid gap-2 px-3 pb-3">
         <Select value={variableId} onValueChange={setVariableId}>
-          <SelectTrigger aria-label="Style variable">
+          <EditorSelectTrigger aria-label="Style variable">
             <SelectValue placeholder="Choose variable" />
-          </SelectTrigger>
+          </EditorSelectTrigger>
           <SelectContent>
             {document.variables.map((candidate) => (
               <SelectItem key={candidate.id} value={candidate.id}>
@@ -415,9 +416,9 @@ function StyleVariableBindingSection({
           disabled={!options.length}
           onValueChange={setOptionKey}
         >
-          <SelectTrigger aria-label="Reusable style property">
+          <EditorSelectTrigger aria-label="Reusable style property">
             <SelectValue placeholder="Choose style property" />
-          </SelectTrigger>
+          </EditorSelectTrigger>
           <SelectContent>
             {options.map((candidate) => (
               <SelectItem key={candidate.key} value={candidate.key}>
@@ -427,6 +428,8 @@ function StyleVariableBindingSection({
           </SelectContent>
         </Select>
         <Button
+          className="h-7 text-[11px]"
+          size="sm"
           variant="outline"
           disabled={!variable || !option}
           onClick={() =>
@@ -628,9 +631,9 @@ export function DesignVariablesPanel({
                 setProperty(value as NodeVariableProperty)
               }
             >
-              <SelectTrigger aria-label="Variable property">
+              <EditorSelectTrigger aria-label="Variable property">
                 <SelectValue />
-              </SelectTrigger>
+              </EditorSelectTrigger>
               <SelectContent>
                 {properties.map((candidate) => (
                   <SelectItem key={candidate} value={candidate}>
@@ -646,11 +649,11 @@ export function DesignVariablesPanel({
               }
               onValueChange={setSelectedVariableId}
             >
-              <SelectTrigger aria-label="Variable">
+              <EditorSelectTrigger aria-label="Variable">
                 <SelectValue
                   placeholder={`Choose ${expectedType ? variableTypeLabels[expectedType] : "variable"}`}
                 />
-              </SelectTrigger>
+              </EditorSelectTrigger>
               <SelectContent>
                 {compatibleVariables.map((variable) => (
                   <SelectItem key={variable.id} value={variable.id}>
@@ -679,6 +682,8 @@ export function DesignVariablesPanel({
             ) : null}
             {existingBinding ? (
               <Button
+                className="h-7 text-[11px]"
+                size="sm"
                 variant="outline"
                 disabled={selectedNode.locked}
                 onClick={() => onUnbind(existingBinding.id)}
@@ -688,6 +693,8 @@ export function DesignVariablesPanel({
               </Button>
             ) : (
               <Button
+                className="h-7 text-[11px]"
+                size="sm"
                 disabled={
                   selectedNode.locked ||
                   !target ||

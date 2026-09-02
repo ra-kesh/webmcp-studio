@@ -1,7 +1,40 @@
 import * as React from "react"
 
+import { SelectTrigger } from "@webmcp/ui/components/select"
 import { TabsList } from "@webmcp/ui/components/tabs"
 import { cn } from "@webmcp/ui/lib/utils"
+
+const editorFieldControlClassName =
+  "!h-6 rounded-sm border-transparent bg-editor-field px-2 text-[11px] hover:bg-editor-field-hover focus-visible:border-studio-accent focus-visible:bg-background focus-visible:ring-2 focus-visible:ring-studio-accent/20 disabled:bg-editor-field disabled:opacity-50 md:text-[11px]"
+
+function EditorFieldLabel({
+  className,
+  ...props
+}: React.ComponentProps<"label">) {
+  return (
+    <label
+      data-slot="editor-field-label"
+      className={cn(
+        "text-[11px] leading-4 font-normal text-muted-foreground",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function EditorSelectTrigger({
+  className,
+  ...props
+}: React.ComponentProps<typeof SelectTrigger>) {
+  return (
+    <SelectTrigger
+      className={cn(editorFieldControlClassName, "w-full", className)}
+      size="sm"
+      {...props}
+    />
+  )
+}
 
 function EditorPanelHeader({
   className,
@@ -183,9 +216,12 @@ function EditorPanelState({
 }
 
 export {
+  editorFieldControlClassName,
+  EditorFieldLabel,
   EditorPanelHeader,
   EditorPanelNotice,
   EditorPanelSectionHeader,
   EditorPanelState,
   EditorPanelTabsList,
+  EditorSelectTrigger,
 }

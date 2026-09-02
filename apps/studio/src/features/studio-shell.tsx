@@ -6080,7 +6080,12 @@ export function StudioShell({
               "gap-0 overflow-hidden overscroll-contain border-border/80 bg-background min-[1280px]:hidden [&>[data-slot=sheet-close]]:top-1.5 [&>[data-slot=sheet-close]]:right-1.5 [&>[data-slot=sheet-close]]:size-11",
               compactPanelUsesBottomSheet
                 ? "!h-[min(78dvh,44rem)] w-full max-w-none rounded-t-2xl pb-[env(safe-area-inset-bottom)] shadow-[0_-12px_40px_rgba(0,0,0,0.18)]"
-                : "w-[min(24rem,calc(100vw-0.75rem))] rounded-r-xl shadow-[12px_0_40px_rgba(0,0,0,0.14)] data-[side=right]:rounded-l-xl data-[side=right]:rounded-r-none data-[side=right]:shadow-[-12px_0_40px_rgba(0,0,0,0.14)] sm:max-w-96"
+                : cn(
+                    "rounded-r-xl shadow-[12px_0_40px_rgba(0,0,0,0.14)] data-[side=right]:rounded-l-xl data-[side=right]:rounded-r-none data-[side=right]:shadow-[-12px_0_40px_rgba(0,0,0,0.14)]",
+                    compactPanel === "inspector"
+                      ? "w-[min(28rem,calc(100vw-0.75rem))] data-[side=right]:sm:max-w-[28rem]"
+                      : "w-[min(24rem,calc(100vw-0.75rem))] data-[side=left]:sm:max-w-96"
+                  )
             )}
             onOpenAutoFocus={(event) => {
               event.preventDefault()

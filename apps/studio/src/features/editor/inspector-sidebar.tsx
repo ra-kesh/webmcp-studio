@@ -140,10 +140,12 @@ import {
   DialogTrigger,
 } from "@webmcp/ui/components/dialog"
 import {
+  EditorFieldLabel,
   EditorPanelNotice,
   EditorPanelSectionHeader,
   EditorPanelState,
   EditorPanelTabsList,
+  EditorSelectTrigger,
 } from "@webmcp/ui/components/editor-chrome"
 import {
   Field,
@@ -4979,6 +4981,7 @@ function FieldValueEditor({
       ariaLabel={field.label}
       id={`${controlIdPrefix}-field-value-${field.id}`}
       field={field}
+      density="compact"
       value={value}
       assetCanBeEmpty={!field.required && !hasBindings}
       onCommit={onCommit}
@@ -5320,12 +5323,12 @@ function FieldsPanel({
                   return (
                     <div
                       key={binding.id}
-                      className="flex min-h-11 items-center gap-1 rounded-lg border p-1"
+                      className="flex min-h-8 items-center gap-1 border-y px-1"
                     >
                       <Link2 className="size-3.5 text-muted-foreground" />
                       <button
                         type="button"
-                        className="min-h-11 min-w-0 flex-1 rounded-md px-1 text-left hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                        className="min-h-7 min-w-0 flex-1 rounded-sm px-1 text-left hover:bg-editor-field-hover focus-visible:ring-2 focus-visible:ring-studio-accent/20 focus-visible:outline-none"
                         onClick={() => onFocusBinding(binding)}
                       >
                         <p className="truncate text-[11px] font-medium">
@@ -5337,8 +5340,7 @@ function FieldsPanel({
                       </button>
                       <Button
                         aria-label={`Unbind ${field?.label ?? "field"}`}
-                        size="icon"
-                        className="size-11"
+                        size="icon-sm"
                         variant="ghost"
                         onClick={() => onUnbindField(binding.id)}
                       >
@@ -5350,24 +5352,23 @@ function FieldsPanel({
               </div>
             ) : null}
 
-            <FieldGroup className="gap-3">
+            <FieldGroup className="gap-2">
               <Field>
-                <FormFieldLabel
+                <EditorFieldLabel
                   htmlFor={`${controlIdPrefix}-field-binding-property`}
                 >
                   Layer property
-                </FormFieldLabel>
+                </EditorFieldLabel>
                 <Select
                   value={property}
                   onValueChange={(next: BindableProperty) => setProperty(next)}
                 >
-                  <SelectTrigger
+                  <EditorSelectTrigger
                     id={`${controlIdPrefix}-field-binding-property`}
                     aria-label="Layer property"
-                    className="h-11 w-full"
                   >
                     <SelectValue />
-                  </SelectTrigger>
+                  </EditorSelectTrigger>
                   <SelectContent position="popper">
                     <SelectGroup>
                       {properties.map((candidate) => (
@@ -5384,23 +5385,22 @@ function FieldsPanel({
                 </Select>
               </Field>
               <Field data-disabled={!compatibleFields.length}>
-                <FormFieldLabel
+                <EditorFieldLabel
                   htmlFor={`${controlIdPrefix}-field-binding-shared-field`}
                 >
                   Shared field
-                </FormFieldLabel>
+                </EditorFieldLabel>
                 <Select
                   value={bindingFieldId}
                   onValueChange={setBindingFieldId}
                   disabled={!compatibleFields.length}
                 >
-                  <SelectTrigger
+                  <EditorSelectTrigger
                     id={`${controlIdPrefix}-field-binding-shared-field`}
                     aria-label="Shared field"
-                    className="h-11 w-full"
                   >
                     <SelectValue placeholder="Choose a compatible field" />
-                  </SelectTrigger>
+                  </EditorSelectTrigger>
                   <SelectContent position="popper">
                     <SelectGroup>
                       {compatibleFields.map((field) => (
@@ -5420,7 +5420,8 @@ function FieldsPanel({
               </Field>
             </FieldGroup>
             <Button
-              className="h-11"
+              className="h-7 text-[11px]"
+              size="sm"
               variant="outline"
               disabled={!bindingFieldId || boundProperties.has(property)}
               onClick={() => {
