@@ -252,7 +252,7 @@ export function createMediaAssetUploadReservationHandlers(
       const currentTime = now()
       if (reservation.consumed_at && reservation.asset_id) {
         const asset = await repository.lookup(
-          reservation.budget_key,
+          reservation.workspace_id,
           reservation.asset_id
         )
         return Response.json(
@@ -328,7 +328,7 @@ export function createMediaAssetUploadReservationHandlers(
       let lease: RenderAdmissionLease | null = null
       try {
         const storage = await repository.storageUsage(reservation.workspace_id)
-        lease = await dependencies.reserveUpload(reservation.workspace_id, {
+        lease = await dependencies.reserveUpload(reservation.budget_key, {
           reservationId: `media-upload-${reservation.id}`,
           estimatedStorageBytes: reservation.expected_bytes,
           currentStorageBytes: storage.bytes,
