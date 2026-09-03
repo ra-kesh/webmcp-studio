@@ -11,9 +11,6 @@ The same document can then be edited manually and exported as PNG or PDF.
 Try the public demo at [zeroedit.app](https://zeroedit.app). Demo workspaces are
 temporary and require no account.
 
-This repository contains only the generic editor and synthetic demo data. It
-does not contain customer data or private application code.
-
 ## Prompts that work well
 
 Open a document at [zeroedit.app](https://zeroedit.app), then give one of these
@@ -219,25 +216,16 @@ finished candidate in Review and do not create the document until I approve it.
 
 ## What runs today
 
-- TanStack Start studio on Cloudflare Workers
-- Bun workspace without Turborepo
-- shared shadcn/ui package using Radix Nova, Geist Sans, and Geist Mono
-- canonical TypeScript document schema, commands, bindings, validation, and tests
+- TanStack Start studio on Bun workspace deployed on cloudflare 
 - Fabric-powered editor with drag, resize, rotate, inline text editing, selection,
   layers, property controls, shared fields, zoom, PNG export, and review
-- canonical undo/redo, batched multi-object edits, keyboard controls, and resilient
-  local draft autosave
 - live WebMCP tools for document inspection, editable generation, rendered
   candidate inspection, review, asset upload, and explicit publishing
 - published-version API playground with strict parameter materialization,
   multi-output requests, downloadable artifacts, and render history
 - D1-backed immutable template versions, idempotent render jobs, failure state,
   and reload-safe history
-- isolated 24-hour demo workspaces with a fresh-session reset and short-lived
-  bearer access for copied API requests
-- public template, render, status, history, and artifact-download routes
-- private renderer Worker that turns the canonical document into deterministic
-  HTML, captures PNG/PDF with Cloudflare Browser Rendering, and writes it to R2
+
 
 Draft editing stays local for fast recovery; publishing is complete only after
 D1 accepts the immutable snapshot. Browser-local published snapshots are a
