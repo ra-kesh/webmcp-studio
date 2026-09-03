@@ -18,6 +18,20 @@ export type GeneratedCandidatePixelAnalysis = Readonly<{
     left: number
   }>
   dominantInkColors: readonly Readonly<{ color: string; ratio: number }>[]
+  renderedNodeEvidence: readonly Readonly<{
+    nodeId: string
+    inkPixels: number
+    totalPixels: number
+    inkRatio: number
+    passes: boolean
+  }>[]
+  renderedInkRoles: readonly Readonly<{
+    role: "background" | "primary" | "secondary" | "accent"
+    color: string
+    matchingPixels: number
+    pixelRatio: number
+    passes: boolean
+  }>[]
   releaseZones: readonly Readonly<{
     id: string
     name: string
@@ -72,7 +86,9 @@ export function analyzeGeneratedCandidatePage(
   const nodesById = new Map(document.nodes.map((node) => [node.id, node]))
   const nodes = page.nodeIds
     .map((nodeId) => nodesById.get(nodeId))
-    .filter((node): node is SceneNode => Boolean(node?.visible))
+    .filter((node): node is SceneNode =>
+      Boolean(node?.visible && node.opacity > 0.001)
+    )
   const palette = new Set<string>([page.background.toUpperCase()])
   const grid = Array.from({ length: 20 * 20 }, () => false)
   const regionCounts = new Map<string, number>()
@@ -197,36 +213,70 @@ export function analyzeGeneratedCandidatePage(
     .map((node) => node.text.replace(/\s+/g, " ").trim().toLowerCase())
     .join(" ")
   const visibleNodeIds = new Set(nodes.map((node) => node.id))
-  const paletteColors = new Set(
-    [...palette].map((color) => color.toUpperCase())
+  const renderedNodeEvidence = new Map(
+    (pixelAnalysis?.renderedNodeEvidence ?? []).map((evidence) => [
+      evidence.nodeId,
+      evidence,
+    ])
   )
   const intentChecks = intent
     ? [
-        ...intent.focalNodeIds.map((nodeId) => ({
-          kind: "focal_layer" as const,
-          target: nodeId,
-          passes: visibleNodeIds.has(nodeId),
-          observed: visibleNodeIds.has(nodeId)
-            ? "visible"
-            : "missing_or_hidden",
-        })),
+        ...intent.focalNodeIds.map((nodeId) => {
+          const isVisible = visibleNodeIds.has(nodeId)
+          const rendered = renderedNodeEvidence.get(nodeId)
+          const passes = isVisible && rendered?.passes === true
+          return {
+            kind: "focal_layer" as const,
+            target: nodeId,
+            passes,
+            observed: !isVisible
+              ? "missing_hidden_or_transparent"
+              : rendered
+                ? `rendered_ink_ratio:${rendered.inkRatio}`
+                : "pixel_measurement_missing",
+          }
+        }),
         ...intent.requiredText.map((text) => {
           const normalized = text.replace(/\s+/g, " ").trim().toLowerCase()
-          const passes = normalizedText.includes(normalized)
+          const matchingNodes = nodes.filter(
+            (node): node is Extract<SceneNode, { type: "text" }> =>
+              node.type === "text" &&
+              node.text
+                .replace(/\s+/g, " ")
+                .trim()
+                .toLowerCase()
+                .includes(normalized)
+          )
+          const rendered = matchingNodes.find(
+            (node) => renderedNodeEvidence.get(node.id)?.passes
+          )
+          const passes =
+            normalizedText.includes(normalized) && rendered !== undefined
           return {
             kind: "required_text" as const,
             target: text,
             passes,
-            observed: passes ? "present" : "missing",
+            observed: passes
+              ? `rendered_in:${rendered.id}`
+              : matchingNodes.length > 0
+                ? "pixel_evidence_missing"
+                : "missing_hidden_or_transparent",
           }
         }),
         ...intent.inkRoles.map((ink) => {
-          const passes = paletteColors.has(ink.color.toUpperCase())
+          const rendered = pixelAnalysis?.renderedInkRoles?.find(
+            (candidate) =>
+              candidate.role === ink.role &&
+              candidate.color.toUpperCase() === ink.color.toUpperCase()
+          )
+          const passes = rendered?.passes ?? false
           return {
             kind: "ink_role" as const,
             target: ink.role,
             passes,
-            observed: passes ? ink.color.toUpperCase() : "color_not_used",
+            observed: rendered
+              ? `pixel_ratio:${rendered.pixelRatio}`
+              : "pixel_measurement_missing",
           }
         }),
         ...(intent.targetTypographyRatio
@@ -309,7 +359,9 @@ export function analyzeGeneratedCandidatePage(
     designIntent: intent
       ? {
           declared: true,
-          passes: intentChecks.every((check) => check.passes),
+          passes:
+            intentChecks.length > 0 &&
+            intentChecks.every((check) => check.passes),
           checks: intentChecks,
         }
       : { declared: false, passes: false, checks: [] },

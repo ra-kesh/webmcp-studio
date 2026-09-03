@@ -281,66 +281,73 @@ const normalizedBoundsSchema = z
     message: "Release zone must fit within the page height",
   })
 
-const designIntentSchema = z
+const designIntentPageSchema = z
   .object({
-    pages: z
+    pageLocalId: localIdSchema,
+    focalNodeLocalIds: z.array(localIdSchema).max(8).default([]),
+    releaseZones: z
       .array(
         z
           .object({
-            pageLocalId: localIdSchema,
-            focalNodeLocalIds: z.array(localIdSchema).max(8).default([]),
-            releaseZones: z
-              .array(
-                z
-                  .object({
-                    localId: localIdSchema,
-                    name: nameSchema,
-                    bounds: normalizedBoundsSchema,
-                    maxInkRatio: finiteGeometrySchema
-                      .min(0)
-                      .max(1)
-                      .default(0.08),
-                  })
-                  .strict()
-              )
-              .max(8)
-              .default([]),
-            inkRoles: z
-              .array(
-                z
-                  .object({
-                    role: z.enum([
-                      "background",
-                      "primary",
-                      "secondary",
-                      "accent",
-                    ]),
-                    color: safeColorSchema,
-                  })
-                  .strict()
-              )
-              .max(8)
-              .default([]),
-            requiredText: z
-              .array(z.string().trim().min(1).max(500))
-              .max(24)
-              .default([]),
-            targetTypographyRatio: z
-              .object({
-                minimum: finiteGeometrySchema.min(1).max(100),
-                maximum: finiteGeometrySchema.min(1).max(100).optional(),
-              })
-              .strict()
-              .refine(
-                (target) =>
-                  target.maximum === undefined ||
-                  target.maximum >= target.minimum,
-                "Typography ratio maximum must be greater than or equal to its minimum"
-              )
-              .optional(),
+            localId: localIdSchema,
+            name: nameSchema,
+            bounds: normalizedBoundsSchema,
+            maxInkRatio: finiteGeometrySchema.min(0).max(1).default(0.08),
           })
           .strict()
       )
+      .max(8)
+      .default([]),
+    inkRoles: z
+      .array(
+        z
+          .object({
+            role: z.enum(["background", "primary", "secondary", "accent"]),
+            color: safeColorSchema,
+          })
+          .strict()
+      )
+      .max(8)
+      .default([]),
+    requiredText: z
+      .array(z.string().trim().min(1).max(500))
+      .max(24)
+      .default([]),
+    targetTypographyRatio: z
+      .object({
+        minimum: finiteGeometrySchema.min(1).max(100),
+        maximum: finiteGeometrySchema.min(1).max(100).optional(),
+      })
+      .strict()
+      .refine(
+        (target) =>
+          target.maximum === undefined || target.maximum >= target.minimum,
+        "Typography ratio maximum must be greater than or equal to its minimum"
+      )
+      .optional(),
+  })
+  .strict()
+  .superRefine((intent, context) => {
+    const checkCount =
+      intent.focalNodeLocalIds.length +
+      intent.releaseZones.length +
+      intent.inkRoles.length +
+      intent.requiredText.length +
+      (intent.targetTypographyRatio ? 1 : 0)
+    if (checkCount === 0) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Each design-intent page must declare at least one rendered acceptance check.",
+      })
+    }
+  })
+
+const designIntentSchema = z
+  .object({
+    pages: z
+      .array(designIntentPageSchema)
+      .min(1)
       .max(studioGenerationLimits.maxPages),
   })
   .strict()
@@ -655,7 +662,7 @@ export const studioDesignPlanSchema = z
       .array(fieldBindingPlanSchema)
       .max(studioGenerationLimits.maxBindings)
       .default([]),
-    designIntent: designIntentSchema.optional(),
+    designIntent: designIntentSchema,
   })
   .strict()
 
@@ -887,8 +894,7 @@ const canonicalIdFactory = (requestId: string, idempotencyKey: string) => {
 export const resolveStudioDesignIntent = (
   plan: StudioDesignPlan,
   identity: Readonly<{ requestId: string; idempotencyKey: string }>
-): StudioDesignIntent | undefined => {
-  if (!plan.designIntent) return undefined
+): StudioDesignIntent => {
   const createId = canonicalIdFactory(
     identity.requestId,
     identity.idempotencyKey
@@ -1053,38 +1059,48 @@ export function compileStudioDesignPlan(
   const paintPlans = new Map(
     plan.paintStyles.map((style) => [style.localId, style])
   )
-  if (plan.designIntent) {
-    assertUniqueReferences(
-      plan.designIntent.pages.map((page) => page.pageLocalId),
-      "designIntent.pages"
-    )
-    for (const intent of plan.designIntent.pages) {
-      const page = requireReference(
-        pagePlans,
-        intent.pageLocalId,
-        "designIntent.pages.pageLocalId"
+  assertUniqueReferences(
+    plan.designIntent.pages.map((page) => page.pageLocalId),
+    "designIntent.pages"
+  )
+  const intentPageIds = new Set(
+    plan.designIntent.pages.map((page) => page.pageLocalId)
+  )
+  for (const page of plan.pages) {
+    if (!intentPageIds.has(page.localId)) {
+      fail(
+        "invalid_relationship",
+        `Page ${page.localId} has no design-intent acceptance checks.`,
+        "designIntent.pages"
       )
-      assertUniqueReferences(
-        intent.focalNodeLocalIds,
+    }
+  }
+  for (const intent of plan.designIntent.pages) {
+    const page = requireReference(
+      pagePlans,
+      intent.pageLocalId,
+      "designIntent.pages.pageLocalId"
+    )
+    assertUniqueReferences(
+      intent.focalNodeLocalIds,
+      `designIntent.${intent.pageLocalId}.focalNodeLocalIds`
+    )
+    assertUniqueReferences(
+      intent.releaseZones.map((zone) => zone.localId),
+      `designIntent.${intent.pageLocalId}.releaseZones`
+    )
+    for (const nodeLocalId of intent.focalNodeLocalIds) {
+      const node = requireReference(
+        nodePlans,
+        nodeLocalId,
         `designIntent.${intent.pageLocalId}.focalNodeLocalIds`
       )
-      assertUniqueReferences(
-        intent.releaseZones.map((zone) => zone.localId),
-        `designIntent.${intent.pageLocalId}.releaseZones`
-      )
-      for (const nodeLocalId of intent.focalNodeLocalIds) {
-        const node = requireReference(
-          nodePlans,
-          nodeLocalId,
+      if (node.pageLocalId !== page.localId) {
+        fail(
+          "invalid_relationship",
+          `Focal node ${nodeLocalId} does not belong to page ${page.localId}.`,
           `designIntent.${intent.pageLocalId}.focalNodeLocalIds`
         )
-        if (node.pageLocalId !== page.localId) {
-          fail(
-            "invalid_relationship",
-            `Focal node ${nodeLocalId} does not belong to page ${page.localId}.`,
-            `designIntent.${intent.pageLocalId}.focalNodeLocalIds`
-          )
-        }
       }
     }
   }

@@ -600,6 +600,7 @@ const compileTemplateCandidate = (
   })
   return {
     candidate,
+    designIntent: deriveTemplateDesignIntent(candidate),
     start: {
       kind: "template" as const,
       template: {
@@ -614,6 +615,48 @@ const compileTemplateCandidate = (
       `${request.start.assetSubstitutions?.length ?? 0} approved asset substitutions`,
       `${request.start.commands?.length ?? 0} bounded layer changes`,
     ],
+  }
+}
+
+const deriveTemplateDesignIntent = (
+  candidate: Document
+): StudioDesignIntent => {
+  const nodesById = new Map(candidate.nodes.map((node) => [node.id, node]))
+  return {
+    pages: candidate.pages.map((page) => {
+      const visibleNodes = page.nodeIds
+        .map((nodeId) => nodesById.get(nodeId))
+        .filter((node): node is NonNullable<typeof node> =>
+          Boolean(node?.visible && node.opacity > 0.001)
+        )
+      const focalNode = [...visibleNodes].sort(
+        (left, right) => right.width * right.height - left.width * left.height
+      )[0]
+      const requiredText = visibleNodes
+        .filter(
+          (
+            node
+          ): node is Extract<
+            (typeof candidate.nodes)[number],
+            { type: "text" }
+          > => node.type === "text" && node.text.trim().length > 0
+        )
+        .sort((left, right) => right.fontSize - left.fontSize)[0]
+      return {
+        pageId: page.id,
+        focalNodeIds: focalNode ? [focalNode.id] : [],
+        releaseZones: [],
+        inkRoles: [
+          {
+            role: "background" as const,
+            color: page.background,
+          },
+        ],
+        requiredText: requiredText
+          ? [requiredText.text.replace(/\s+/g, " ").trim().slice(0, 500)]
+          : [],
+      }
+    }),
   }
 }
 

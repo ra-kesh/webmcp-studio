@@ -92,6 +92,20 @@ function componentTemplateDocument(): Document {
 }
 
 describe("design template repository", () => {
+  it("exports ordinary arrays and a real repository instance", () => {
+    expect(Array.isArray(builtInDesignTemplateDefinitions)).toBe(true)
+    expect(Object.keys(builtInDesignTemplateDefinitions)).toHaveLength(
+      builtInDesignTemplateDefinitions.length
+    )
+    expect(0 in builtInDesignTemplateDefinitions).toBe(true)
+    expect(
+      Object.getOwnPropertyDescriptor(builtInDesignTemplateDefinitions, "0")
+    ).toBeDefined()
+    expect(builtInDesignTemplateRepository).toBeInstanceOf(
+      DesignTemplateRepository
+    )
+  })
+
   it("lists immutable, renderer-backed catalog items in deterministic order", () => {
     const items = builtInDesignTemplateRepository.list()
     expect(items).toHaveLength(21)

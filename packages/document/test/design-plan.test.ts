@@ -167,6 +167,20 @@ const basePlan = (): StudioDesignPlan => ({
       property: "text",
     },
   ],
+  designIntent: {
+    pages: [
+      {
+        pageLocalId: "cover",
+        focalNodeLocalIds: ["photo"],
+        releaseZones: [],
+        inkRoles: [
+          { role: "background", color: "#f7f1e7" },
+          { role: "primary", color: "#203128" },
+        ],
+        requiredText: ["A considered celebration"],
+      },
+    ],
+  },
 })
 
 const options = () => ({
@@ -225,6 +239,30 @@ describe("Studio Design Plan compiler", () => {
     } catch (error) {
       expect(error).toMatchObject({ code: "invalid_plan" })
     }
+  })
+
+  it("requires meaningful design-intent checks for every page", () => {
+    const missing = basePlan() as unknown as Record<string, unknown>
+    delete missing.designIntent
+    expect(() => compileStudioDesignPlan(missing, options())).toThrow(
+      /expected object/
+    )
+
+    const empty = basePlan()
+    empty.designIntent.pages[0] = {
+      pageLocalId: "cover",
+      focalNodeLocalIds: [],
+      releaseZones: [],
+      inkRoles: [],
+      requiredText: [],
+    }
+    expect(() => compileStudioDesignPlan(empty, options())).toThrow(
+      /at least one rendered acceptance check/
+    )
+
+    const uncovered = basePlan()
+    uncovered.designIntent.pages = []
+    expect(() => compileStudioDesignPlan(uncovered, options())).toThrow()
   })
 
   it("rejects unresolved assets, duplicate IDs, and out-of-preset geometry", () => {

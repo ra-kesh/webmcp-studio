@@ -4548,6 +4548,12 @@ export function studioWebMcpTools(
           )
           continue
         }
+        if (page.designIntent.checks.length === 0) {
+          blockingReasons.push(
+            `${page.page.name}: the design-intent manifest contains zero acceptance checks.`
+          )
+          continue
+        }
         for (const check of page.designIntent.checks) {
           if (!check.passes) {
             blockingReasons.push(

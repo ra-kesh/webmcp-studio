@@ -354,12 +354,12 @@ describe("useDocumentEditor start session", () => {
     expect(captured.current?.editor.activeQuotationComposition).toMatchObject({
       status: "known",
       composerId: "quotation",
-      composerVersion: 3,
+      composerVersion: 4,
       sourceQuotationId: quotationStarter.source.source.quotationId,
       sourceRevision: quotationStarter.source.source.revision,
       template: {
         id: "quotation-editorial-olive",
-        version: 3,
+        version: 4,
       },
     })
 

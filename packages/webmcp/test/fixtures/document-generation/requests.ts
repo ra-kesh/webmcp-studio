@@ -232,6 +232,27 @@ export const blankExternalSkillRequest = {
           property: "text",
         },
       ],
+      designIntent: {
+        pages: pageIds.map((pageLocalId) => ({
+          pageLocalId,
+          focalNodeLocalIds: [`${pageLocalId}-title`],
+          releaseZones: [],
+          inkRoles: [
+            { role: "background", color: "#f5f0e6" },
+            { role: "primary", color: "#17211b" },
+          ],
+          requiredText: [
+            pageLocalId === "cover"
+              ? "Aster & Field Notes"
+              : {
+                  challenge: "The challenge",
+                  approach: "Working approach",
+                  schedule: "Two-day schedule",
+                  "next-steps": "Next steps",
+                }[pageLocalId]!,
+          ],
+        })),
+      },
     },
   },
   designGuides: [

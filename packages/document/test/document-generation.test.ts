@@ -78,6 +78,20 @@ const minimalBlankRequest = (): DocumentGenerationRequest => ({
       variableBindings: [],
       fields: [],
       bindings: [],
+      designIntent: {
+        pages: [
+          {
+            pageLocalId: "cover",
+            focalNodeLocalIds: ["title"],
+            releaseZones: [],
+            inkRoles: [
+              { role: "background", color: "#ffffff" },
+              { role: "primary", color: "#111111" },
+            ],
+            requiredText: ["Client proposal"],
+          },
+        ],
+      },
     },
   },
   designGuides: [

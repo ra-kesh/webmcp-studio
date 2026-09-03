@@ -203,7 +203,7 @@ export const studioDesignPlanVocabulary = Object.freeze({
       "targetTypographyRatio",
     ],
     inspectionRule:
-      "Studio resolves local layer IDs, measures rendered pixels in declared release zones, and reports pass/fail checks before creation can be approved.",
+      "Every blank-plan page must declare at least one acceptance check. Studio resolves local layer IDs and verifies focal layers, required text, ink roles, and release zones against rendered pixels before creation can be approved.",
   },
   resources: {
     groups: true,

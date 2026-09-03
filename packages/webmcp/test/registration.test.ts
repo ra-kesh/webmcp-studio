@@ -1387,6 +1387,17 @@ describe("WebMCP registration", () => {
             },
           ],
           nodes: [],
+          designIntent: {
+            pages: [
+              {
+                pageLocalId: "cover",
+                focalNodeLocalIds: [],
+                releaseZones: [],
+                inkRoles: [{ role: "background", color: "#ffffff" }],
+                requiredText: [],
+              },
+            ],
+          },
         },
       },
       references: [],
@@ -1423,6 +1434,129 @@ describe("WebMCP registration", () => {
     expect(conflict).toMatchObject({
       isError: true,
       structuredContent: { code: "idempotency_key_reused" },
+    })
+  })
+
+  it("inspects the exact generated candidate with rendered pixel evidence", async () => {
+    const state = setup()
+    state.services.inspectDocumentGenerationCandidate = async (identity) => {
+      const plan = state.proposedGeneration()
+      if (!plan) throw new Error("No generated candidate is pending.")
+      expect(identity).toMatchObject({
+        requestId: plan.requestId,
+        candidateId: plan.candidate.id,
+      })
+      return {
+        plan,
+        pages: plan.summary.pages.map((page) => {
+          const intent = plan.designIntent.pages.find(
+            (candidate) => candidate.pageId === page.id
+          )!
+          const requiredTextNodeIds = plan.candidate.nodes
+            .filter(
+              (node) =>
+                node.type === "text" &&
+                intent.requiredText.some((text) => node.text.includes(text))
+            )
+            .map((node) => node.id)
+          const renderedNodeIds = [
+            ...new Set([...intent.focalNodeIds, ...requiredTextNodeIds]),
+          ]
+          return {
+            pageId: page.id,
+            full: {
+              width: page.width,
+              height: page.height,
+              bytes: 1,
+              pngBase64: "AA==",
+            },
+            thumbnail: {
+              width: Math.min(512, page.width),
+              height: Math.round(
+                (page.height / page.width) * Math.min(512, page.width)
+              ),
+              bytes: 1,
+              pngBase64: "AA==",
+            },
+            pixelAnalysis: {
+              source: "canonical-thumbnail-pixels" as const,
+              width: Math.min(512, page.width),
+              height: Math.round(
+                (page.height / page.width) * Math.min(512, page.width)
+              ),
+              backgroundEstimate: page.background,
+              foregroundPixelRatio: 0.25,
+              highKeyPixelRatio: 0.75,
+              darkPixelRatio: 0.05,
+              meanLuminance: 0.8,
+              luminanceDeviation: 0.1,
+              foregroundCentroid: { x: 0.5, y: 0.5 },
+              edgeInkRatios: { top: 0, right: 0, bottom: 0, left: 0 },
+              dominantInkColors: [],
+              renderedNodeEvidence: renderedNodeIds.map((nodeId) => ({
+                nodeId,
+                inkPixels: 20,
+                totalPixels: 100,
+                inkRatio: 0.2,
+                passes: true,
+              })),
+              renderedInkRoles: intent.inkRoles.map((ink) => ({
+                role: ink.role,
+                color: ink.color,
+                matchingPixels: 20,
+                pixelRatio: 0.01,
+                passes: true,
+              })),
+              releaseZones: intent.releaseZones.map((zone) => ({
+                id: zone.id,
+                name: zone.name,
+                inkRatio: 0,
+                maxInkRatio: zone.maxInkRatio,
+                passes: true,
+              })),
+            },
+          }
+        }),
+      }
+    }
+    await registerStudioWebMcpTools(
+      {
+        registerTool: async (tool) => {
+          state.registered.set(tool.name, tool)
+          return undefined
+        },
+      },
+      state.services,
+      state.controller.signal
+    )
+    const request = {
+      ...blankExternalSkillRequest,
+      requestId: "rendered-inspection-request-1",
+      idempotencyKey: "rendered-inspection-key-1",
+    }
+    const proposal = await state.registered
+      .get("propose_document_generation")!
+      .execute(request)
+    const proposalContent = proposal.structuredContent as {
+      requestId: string
+      candidate: { id: string; snapshotId: string }
+    }
+    const inspection = await state.registered
+      .get("inspect_document_generation_candidate")!
+      .execute({
+        requestId: proposalContent.requestId,
+        candidateId: proposalContent.candidate.id,
+        candidateSnapshotId: proposalContent.candidate.snapshotId,
+      })
+
+    expect(inspection.isError).not.toBe(true)
+    expect(inspection.structuredContent).toMatchObject({
+      requestId: "rendered-inspection-request-1",
+      acceptance: {
+        status: "passed",
+        createAllowed: true,
+        blockingReasons: [],
+      },
     })
   })
 

@@ -2907,10 +2907,47 @@ export function StudioShell({
           const pageIntent = plan.designIntent?.pages.find(
             (intent) => intent.pageId === page.id
           )
+          const pageNodes = page.nodeIds
+            .map((nodeId) =>
+              plan.candidate.nodes.find((node) => node.id === nodeId)
+            )
+            .filter((node) => node !== undefined)
+          const normalizedRequiredText = (pageIntent?.requiredText ?? []).map(
+            (text) => text.replace(/\s+/g, " ").trim().toLowerCase()
+          )
+          const evidenceNodeIds = new Set([
+            ...(pageIntent?.focalNodeIds ?? []),
+            ...pageNodes.flatMap((node) =>
+              node.type === "text" &&
+              normalizedRequiredText.some((text) =>
+                node.text
+                  .replace(/\s+/g, " ")
+                  .trim()
+                  .toLowerCase()
+                  .includes(text)
+              )
+                ? [node.id]
+                : []
+            ),
+          ])
           const pixelAnalysis = await analyzeGenerationRasterPixels(
             renderedThumbnail.blob,
             { ...thumbnailSize, backgroundColor: page.background },
             pageIntent?.releaseZones,
+            {
+              nodes: pageNodes
+                .filter((node) => evidenceNodeIds.has(node.id))
+                .map((node) => ({
+                  nodeId: node.id,
+                  bounds: {
+                    x: node.x / page.width,
+                    y: node.y / page.height,
+                    width: node.width / page.width,
+                    height: node.height / page.height,
+                  },
+                })),
+              inkRoles: pageIntent?.inkRoles,
+            },
             signal
           )
           const { blob: _thumbnailBlob, ...thumbnail } = renderedThumbnail
@@ -2948,6 +2985,12 @@ export function StudioShell({
           if (!report.designIntent.declared) {
             blockingReasons.push(
               `${pageSummary?.name ?? renderedPage.pageId}: no design-intent checks were declared.`
+            )
+            continue
+          }
+          if (report.designIntent.checks.length === 0) {
+            blockingReasons.push(
+              `${pageSummary?.name ?? renderedPage.pageId}: the design-intent manifest contains zero acceptance checks.`
             )
             continue
           }

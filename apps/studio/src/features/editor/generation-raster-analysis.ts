@@ -22,6 +22,14 @@ type ReleaseZone = NonNullable<
   StudioDesignIntent["pages"][number]
 >["releaseZones"][number]
 
+type RenderedEvidenceRequest = Readonly<{
+  nodes?: readonly Readonly<{
+    nodeId: string
+    bounds: Readonly<{ x: number; y: number; width: number; height: number }>
+  }>[]
+  inkRoles?: StudioDesignIntent["pages"][number]["inkRoles"]
+}>
+
 export async function analyzeGenerationRasterPixels(
   blob: Blob,
   expected: Readonly<{
@@ -30,6 +38,7 @@ export async function analyzeGenerationRasterPixels(
     backgroundColor?: string
   }>,
   releaseZones: readonly ReleaseZone[] = [],
+  evidence: RenderedEvidenceRequest = {},
   signal?: AbortSignal
 ): Promise<GeneratedCandidatePixelAnalysis> {
   signal?.throwIfAborted()
@@ -98,6 +107,30 @@ export async function analyzeGenerationRasterPixels(
       left: { ink: 0, total: 0 },
     }
     const zones = releaseZones.map((zone) => ({ zone, ink: 0, total: 0 }))
+    const renderedNodes = (evidence.nodes ?? []).map((node) => ({
+      node,
+      ink: 0,
+      total: 0,
+    }))
+    const renderedInkRoles = (evidence.inkRoles ?? []).map((ink) => {
+      const sampleCanvas = document.createElement("canvas")
+      sampleCanvas.width = 1
+      sampleCanvas.height = 1
+      const sampleContext = sampleCanvas.getContext("2d")
+      if (!sampleContext) {
+        throw new Error("Pixel inspection color sampler is unavailable.")
+      }
+      sampleContext.fillStyle = ink.color
+      sampleContext.fillRect(0, 0, 1, 1)
+      const sample = sampleContext.getImageData(0, 0, 1, 1).data
+      return {
+        ink,
+        red: sample[0]!,
+        green: sample[1]!,
+        blue: sample[2]!,
+        matchingPixels: 0,
+      }
+    })
     const colorCounts = new Map<string, number>()
     let foregroundPixels = 0
     let highKeyPixels = 0
@@ -136,6 +169,14 @@ export async function analyzeGenerationRasterPixels(
           )
           colorCounts.set(quantized, (colorCounts.get(quantized) ?? 0) + 1)
         }
+        for (const renderedInk of renderedInkRoles) {
+          const distance = Math.sqrt(
+            (red - renderedInk.red) ** 2 +
+              (green - renderedInk.green) ** 2 +
+              (blue - renderedInk.blue) ** 2
+          )
+          if (distance <= 32) renderedInk.matchingPixels += 1
+        }
         const updateEdge = (edge: keyof typeof edges) => {
           edges[edge].total += 1
           if (ink) edges[edge].ink += 1
@@ -148,6 +189,18 @@ export async function analyzeGenerationRasterPixels(
         const normalizedY = (y + 0.5) / bitmap.height
         for (const item of zones) {
           const { bounds } = item.zone
+          if (
+            normalizedX >= bounds.x &&
+            normalizedX <= bounds.x + bounds.width &&
+            normalizedY >= bounds.y &&
+            normalizedY <= bounds.y + bounds.height
+          ) {
+            item.total += 1
+            if (ink) item.ink += 1
+          }
+        }
+        for (const item of renderedNodes) {
+          const { bounds } = item.node
           if (
             normalizedX >= bounds.x &&
             normalizedX <= bounds.x + bounds.width &&
@@ -199,6 +252,20 @@ export async function analyzeGenerationRasterPixels(
           color,
           ratio: round(count / Math.max(1, foregroundPixels)),
         })),
+      renderedNodeEvidence: renderedNodes.map(({ node, ink, total }) => ({
+        nodeId: node.nodeId,
+        inkPixels: ink,
+        totalPixels: total,
+        inkRatio: round(total > 0 ? ink / total : 0),
+        passes: ink >= 2,
+      })),
+      renderedInkRoles: renderedInkRoles.map(({ ink, matchingPixels }) => ({
+        role: ink.role,
+        color: ink.color.toUpperCase(),
+        matchingPixels,
+        pixelRatio: round(matchingPixels / totalPixels),
+        passes: matchingPixels >= 2,
+      })),
       releaseZones: zones.map(({ zone, ink, total }) => {
         const inkRatio = total > 0 ? ink / total : 0
         return {
