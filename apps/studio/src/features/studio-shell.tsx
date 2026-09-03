@@ -52,6 +52,7 @@ import type {
   TextSelection,
   TextSelectionLinkState,
 } from "@webmcp/document"
+import { analyzeGeneratedCandidatePage } from "@webmcp/webmcp"
 import type { CanvasTextEditingState, NodeGeometryPatch } from "@webmcp/editor"
 import {
   applyEditorImageFrameCommand,
@@ -179,8 +180,10 @@ import { StudioMark } from "./editor/studio-mark"
 import { useRecentDocumentsVisibility } from "./editor/recent-documents-provider"
 import {
   produceStudioPageThumbnailRaster,
+  produceStudioPageInspectionRaster,
   studioPageThumbnailRendererRevision,
 } from "./editor/page-thumbnail-raster-producer"
+import { analyzeGenerationRasterPixels } from "./editor/generation-raster-analysis"
 import type {
   CanvasDocumentSyncIdentity,
   CanvasRuntimeOwnerRelease,
@@ -2859,38 +2862,112 @@ export function StudioShell({
               "The generated candidate changed while Studio was rendering it. Inspect the latest candidate identity."
             )
           }
-          const size = fitPageThumbnailSize(page, {
-            maxWidth: 512,
-            maxHeight: 512,
+          const thumbnailSize = fitPageThumbnailSize(page, {
+            maxWidth: 320,
+            maxHeight: 320,
           })
-          const blob = await produceStudioPageThumbnailRaster({
-            key: {
-              documentId: plan.candidate.id,
-              documentRevision: plan.candidate.revision,
-              documentSnapshotId: snapshotId,
-              pageId: page.id,
-              pageRevision: createPageThumbnailRevision(
-                plan.candidate,
-                page.id
-              ),
-              rendererRevision: studioPageThumbnailRendererRevision,
-              pixelWidth: size.width,
-              pixelHeight: size.height,
-            },
+          const render = async (size: { width: number; height: number }) => {
+            const blob = await produceStudioPageThumbnailRaster({
+              key: {
+                documentId: plan.candidate.id,
+                documentRevision: plan.candidate.revision,
+                documentSnapshotId: snapshotId,
+                pageId: page.id,
+                pageRevision: createPageThumbnailRevision(
+                  plan.candidate,
+                  page.id
+                ),
+                rendererRevision: studioPageThumbnailRendererRevision,
+                pixelWidth: size.width,
+                pixelHeight: size.height,
+              },
+              snapshot: { document: plan.candidate, snapshotId },
+              signal: signal ?? new AbortController().signal,
+            })
+            return {
+              blob,
+              width: size.width,
+              height: size.height,
+              bytes: blob.size,
+              pngBase64: await blobToBase64(blob),
+            }
+          }
+          const fullBlob = await produceStudioPageInspectionRaster({
+            pageId: page.id,
             snapshot: { document: plan.candidate, snapshotId },
             signal: signal ?? new AbortController().signal,
           })
+          const full = {
+            width: page.width,
+            height: page.height,
+            bytes: fullBlob.size,
+            pngBase64: await blobToBase64(fullBlob),
+          }
+          const renderedThumbnail = await render(thumbnailSize)
+          const pageIntent = plan.designIntent?.pages.find(
+            (intent) => intent.pageId === page.id
+          )
+          const pixelAnalysis = await analyzeGenerationRasterPixels(
+            renderedThumbnail.blob,
+            { ...thumbnailSize, backgroundColor: page.background },
+            pageIntent?.releaseZones,
+            signal
+          )
+          const { blob: _thumbnailBlob, ...thumbnail } = renderedThumbnail
           rendered.push({
             pageId: page.id,
-            width: size.width,
-            height: size.height,
-            bytes: blob.size,
-            pngBase64: await blobToBase64(blob),
+            full,
+            thumbnail,
+            pixelAnalysis,
           })
         }
         if (editor.pendingGeneratedDocument?.requestHash !== plan.requestHash) {
           throw new Error(
             "The generated candidate changed while Studio was rendering it. Inspect the latest candidate identity."
+          )
+        }
+        const inspectedPageIds = new Set(rendered.map((page) => page.pageId))
+        const blockingReasons: string[] = []
+        if (inspectedPageIds.size !== plan.summary.pages.length) {
+          blockingReasons.push(
+            `Inspected ${inspectedPageIds.size} of ${plan.summary.pages.length} candidate pages.`
+          )
+        }
+        for (const renderedPage of rendered) {
+          const pageSummary = plan.summary.pages.find(
+            (page) => page.id === renderedPage.pageId
+          )
+          const report = analyzeGeneratedCandidatePage(
+            plan.candidate,
+            renderedPage.pageId,
+            plan.designIntent?.pages.find(
+              (intent) => intent.pageId === renderedPage.pageId
+            ),
+            renderedPage.pixelAnalysis
+          )
+          if (!report.designIntent.declared) {
+            blockingReasons.push(
+              `${pageSummary?.name ?? renderedPage.pageId}: no design-intent checks were declared.`
+            )
+            continue
+          }
+          for (const check of report.designIntent.checks) {
+            if (!check.passes) {
+              blockingReasons.push(
+                `${pageSummary?.name ?? renderedPage.pageId}: ${check.kind} ${check.target} (${check.observed}).`
+              )
+            }
+          }
+        }
+        if (
+          !editor.recordGeneratedDocumentInspection({
+            requestHash: plan.requestHash,
+            passes: blockingReasons.length === 0,
+            blockingReasons,
+          })
+        ) {
+          throw new Error(
+            "The generated candidate changed before inspection completed. Inspect the latest candidate identity."
           )
         }
         return { plan, pages: rendered }
@@ -6140,6 +6217,9 @@ export function StudioShell({
                   focusFieldId={mediaReviewFieldId}
                   pendingChangeSet={editor.pendingChangeSet}
                   pendingGeneratedDocument={editor.pendingGeneratedDocument}
+                  generatedDocumentInspection={
+                    editor.generatedDocumentInspection
+                  }
                   generatedDocumentError={editor.generatedDocumentError}
                   isCreatingGeneratedDocument={
                     editor.isCreatingGeneratedDocument
@@ -6508,6 +6588,7 @@ export function StudioShell({
                 focusFieldId={mediaReviewFieldId}
                 pendingChangeSet={editor.pendingChangeSet}
                 pendingGeneratedDocument={editor.pendingGeneratedDocument}
+                generatedDocumentInspection={editor.generatedDocumentInspection}
                 generatedDocumentError={editor.generatedDocumentError}
                 isCreatingGeneratedDocument={editor.isCreatingGeneratedDocument}
                 lastResolvedChangeSet={editor.lastResolvedChangeSet}

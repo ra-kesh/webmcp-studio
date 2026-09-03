@@ -101,7 +101,10 @@ import {
   readGenerationTemplate,
   searchGenerationTemplates,
 } from "./generation-discovery"
-import { analyzeGeneratedCandidatePage } from "./generation-inspection"
+import {
+  analyzeGeneratedCandidatePage,
+  type GeneratedCandidatePixelAnalysis,
+} from "./generation-inspection"
 
 const MAX_GENERATION_ATTEMPTS =
   studioGenerationLimits.maxCandidateReplacements + 1
@@ -500,10 +503,19 @@ export type StudioWebMcpServices = {
       plan: GeneratedDocumentPlan
       pages: readonly Readonly<{
         pageId: string
-        width: number
-        height: number
-        bytes: number
-        pngBase64: string
+        full: Readonly<{
+          width: number
+          height: number
+          bytes: number
+          pngBase64: string
+        }>
+        thumbnail: Readonly<{
+          width: number
+          height: number
+          bytes: number
+          pngBase64: string
+        }>
+        pixelAnalysis: GeneratedCandidatePixelAnalysis
       }>[]
     }>
   >
@@ -4425,6 +4437,7 @@ export function studioWebMcpTools(
       name: plan.candidate.name,
       snapshotId: await generatedDocumentSnapshotId(plan),
     },
+    designIntent: plan.designIntent,
     summary: plan.summary,
     provenance: plan.provenance,
     validation: plan.validation,
@@ -4485,32 +4498,85 @@ export function studioWebMcpTools(
       )
       const snapshotId = await generatedDocumentSnapshotId(inspected.plan)
       signal?.throwIfAborted()
-      const pages = inspected.pages.map((page, index) => ({
-        requestId: inspected.plan.requestId,
-        candidateId: inspected.plan.candidate.id,
-        candidateSnapshotId: snapshotId,
-        pageId: page.pageId,
-        render: {
-          contentIndex: index + 1,
-          mediaType: "image/png" as const,
-          width: page.width,
-          height: page.height,
-          bytes: page.bytes,
-          source: "canonical-page-thumbnail-renderer" as const,
-        },
-        ...analyzeGeneratedCandidatePage(inspected.plan.candidate, page.pageId),
-      }))
+      const pages = inspected.pages.map((page, index) => {
+        const fullContentIndex = index * 2 + 1
+        const thumbnailContentIndex = fullContentIndex + 1
+        return {
+          requestId: inspected.plan.requestId,
+          candidateId: inspected.plan.candidate.id,
+          candidateSnapshotId: snapshotId,
+          pageId: page.pageId,
+          renders: {
+            full: {
+              contentIndex: fullContentIndex,
+              mediaType: "image/png" as const,
+              width: page.full.width,
+              height: page.full.height,
+              bytes: page.full.bytes,
+              source: "canonical-page-renderer" as const,
+            },
+            thumbnail: {
+              contentIndex: thumbnailContentIndex,
+              mediaType: "image/png" as const,
+              width: page.thumbnail.width,
+              height: page.thumbnail.height,
+              bytes: page.thumbnail.bytes,
+              source: "canonical-page-thumbnail-renderer" as const,
+            },
+          },
+          pixelAnalysis: page.pixelAnalysis,
+          ...analyzeGeneratedCandidatePage(
+            inspected.plan.candidate,
+            page.pageId,
+            inspected.plan.designIntent?.pages.find(
+              (intent) => intent.pageId === page.pageId
+            ),
+            page.pixelAnalysis
+          ),
+        }
+      })
+      const blockingReasons: string[] = []
+      if (pages.length !== inspected.plan.summary.pages.length) {
+        blockingReasons.push(
+          `Inspected ${pages.length} of ${inspected.plan.summary.pages.length} candidate pages.`
+        )
+      }
+      for (const page of pages) {
+        if (!page.designIntent.declared) {
+          blockingReasons.push(
+            `${page.page.name}: no design-intent checks were declared.`
+          )
+          continue
+        }
+        for (const check of page.designIntent.checks) {
+          if (!check.passes) {
+            blockingReasons.push(
+              `${page.page.name}: ${check.kind} ${check.target} (${check.observed}).`
+            )
+          }
+        }
+      }
+      const inspectionPassed = blockingReasons.length === 0
       return {
         content: [
           {
             type: "text",
-            text: `Inspected ${pages.length} canonical candidate page render${pages.length === 1 ? "" : "s"}. Critique the attached PNGs with the supplied skill, then either stop in Review or submit a replacement linked to request ${inspected.plan.requestId}.`,
+            text: inspectionPassed
+              ? `Inspected ${pages.length} canonical candidate page${pages.length === 1 ? "" : "s"} at full and thumbnail sizes. Every declared design-intent check passed. The candidate can now be created from Review.`
+              : `Inspected ${pages.length} canonical candidate page${pages.length === 1 ? "" : "s"} at full and thumbnail sizes. The candidate failed ${blockingReasons.length} acceptance check${blockingReasons.length === 1 ? "" : "s"}; submit a targeted replacement linked to request ${inspected.plan.requestId}.`,
           },
-          ...inspected.pages.map((page) => ({
-            type: "image" as const,
-            data: page.pngBase64,
-            mimeType: "image/png" as const,
-          })),
+          ...inspected.pages.flatMap((page) => [
+            {
+              type: "image" as const,
+              data: page.full.pngBase64,
+              mimeType: "image/png" as const,
+            },
+            {
+              type: "image" as const,
+              data: page.thumbnail.pngBase64,
+              mimeType: "image/png" as const,
+            },
+          ]),
         ],
         structuredContent: {
           requestId: inspected.plan.requestId,
@@ -4520,6 +4586,11 @@ export function studioWebMcpTools(
           candidateId: inspected.plan.candidate.id,
           candidateSnapshotId: snapshotId,
           pages,
+          acceptance: {
+            status: inspectionPassed ? "passed" : "repair_required",
+            createAllowed: inspectionPassed,
+            blockingReasons,
+          },
           replacement:
             inspected.plan.attempt < MAX_GENERATION_ATTEMPTS
               ? {
@@ -4533,8 +4604,7 @@ export function studioWebMcpTools(
               : {
                   allowed: false,
                   attemptsRemaining: 0,
-                  reason:
-                    "The three-attempt generation limit has been reached.",
+                  reason: "The two-attempt generation limit has been reached.",
                 },
           expiry:
             "The candidate exists only in this mounted Studio session. Reload or discard removes it.",
@@ -5243,7 +5313,7 @@ export function studioWebMcpTools(
       name: "inspect_document_generation_candidate",
       title: "Inspect generated document candidate",
       description:
-        "Render and inspect the exact pending document-generation candidate through Studio's canonical page-thumbnail renderer. Requires the exact identity returned by propose_document_generation and returns PNG image content plus composition metrics. This never mutates the current document or candidate.",
+        "Render and inspect the exact pending document-generation candidate through Studio's canonical full-size and thumbnail renderers. Requires the exact identity returned by propose_document_generation and returns both PNG renders plus composition metrics. This never mutates the current document or candidate.",
       inputSchema: {
         type: "object",
         additionalProperties: false,

@@ -602,35 +602,26 @@ describe("useDocumentEditor start session", () => {
         rootRequestId: plan.requestId,
         attempt: 2,
       })
-      const secondReplacement = {
-        ...replacement,
-        requestId: "generated-review-second-replacement",
-        idempotencyKey: "generated-review-second-replacement-key",
-        requestHash: "generated-review-second-replacement-hash",
-        replacementForRequestId: replacement.requestId,
-      }
-      expect(
-        captured.current?.editor.proposeDocumentGeneration(secondReplacement)
-      ).toMatchObject({
-        requestId: secondReplacement.requestId,
-        rootRequestId: plan.requestId,
-        attempt: 3,
-      })
       expect(() =>
         captured.current?.editor.proposeDocumentGeneration({
-          ...secondReplacement,
-          requestId: "generated-review-third-replacement",
-          idempotencyKey: "generated-review-third-replacement-key",
-          requestHash: "generated-review-third-replacement-hash",
-          replacementForRequestId: secondReplacement.requestId,
+          ...replacement,
+          requestId: "generated-review-second-replacement",
+          idempotencyKey: "generated-review-second-replacement-key",
+          requestHash: "generated-review-second-replacement-hash",
+          replacementForRequestId: replacement.requestId,
         })
-      ).toThrow(/three-attempt limit/)
+      ).toThrow(/two-attempt limit/)
       expect(captured.current?.editor.discardGeneratedDocument()).toBe(true)
     })
     expect(create).not.toHaveBeenCalled()
 
     await act(async () => {
       captured.current?.editor.proposeDocumentGeneration(plan)
+      captured.current?.editor.recordGeneratedDocumentInspection({
+        requestHash: plan.requestHash,
+        passes: true,
+        blockingReasons: [],
+      })
       const first = captured.current?.editor.createGeneratedDocument()
       const replay = captured.current?.editor.createGeneratedDocument()
       expect(await replay).toBe(false)

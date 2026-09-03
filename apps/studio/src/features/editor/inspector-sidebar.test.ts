@@ -879,6 +879,10 @@ describe("Generated document Review", () => {
           validation: [],
           warnings: [],
         },
+        generatedDocumentInspection: {
+          passes: true,
+          blockingReasons: [],
+        },
         pendingChangeSet: null,
         lastResolvedChangeSet: null,
         changeSetConflict: null,

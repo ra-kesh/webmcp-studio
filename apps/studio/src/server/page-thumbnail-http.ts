@@ -4,6 +4,7 @@ import {
   assertRenderableDocument,
   createPageThumbnailDocument,
   createPageThumbnailRenderResourcePlan,
+  createRenderResourcePlan,
   decodeDocument,
   DocumentMigrationError,
   DocumentValidationError,
@@ -32,6 +33,7 @@ import {
   RenderAdmissionError,
   renderAdmissionErrorResponse,
   reserveThumbnailCapacity,
+  reserveRenderCapacity,
 } from "./render-admission-service"
 import type { RenderAdmissionLease } from "./render-admission-service"
 import {
@@ -41,6 +43,7 @@ import {
 } from "./studio-principal"
 import type { StudioPrincipal } from "./studio-principal"
 import { apiIssuesFrom } from "./api-boundary"
+import { createEphemeralArtifactRendererRequest } from "./artifact-renderer-request"
 
 const thumbnailSizeSchema = z
   .object({
@@ -67,6 +70,16 @@ export const pageThumbnailRequestSchema = z
   })
   .strict()
 
+const pageInspectionRequestSchema = z
+  .object({
+    purpose: z.literal("inspection"),
+    pageId: z.string().min(1),
+    document: z
+      .unknown()
+      .refine((document) => document !== undefined, "Document is required"),
+  })
+  .strict()
+
 type PreparedThumbnailDocument = {
   document: Document
   expectedImageResources: ManagedImageResourceExpectation[]
@@ -82,6 +95,7 @@ export type PageThumbnailHandlerDependencies = {
     curatedMediaRequestUrl: string
   ) => Promise<PreparedThumbnailDocument>
   reserveCapacity: typeof reserveThumbnailCapacity
+  reserveInspectionCapacity?: typeof reserveRenderCapacity
   invokeRenderer: (env: Env, request: Request) => Promise<Response>
   createRenderId: () => string
 }
@@ -130,6 +144,7 @@ const productionDependencies: PageThumbnailHandlerDependencies = {
     }
   },
   reserveCapacity: reserveThumbnailCapacity,
+  reserveInspectionCapacity: reserveRenderCapacity,
   invokeRenderer: (env, request) => env.RENDERER.fetch(request),
   createRenderId: () => crypto.randomUUID(),
 }
@@ -207,6 +222,33 @@ const rendererThumbnailHeadersAreValid = (
   )
 }
 
+const rendererInspectionHeadersAreValid = (
+  response: Response,
+  expected: {
+    outputId: string
+    pageId: string
+    renderId: string
+    width: number
+    height: number
+  }
+) => {
+  const bytes = Number(response.headers.get("X-Bytes"))
+  return (
+    response.headers.get("Content-Type") === "image/png" &&
+    response.headers.get("Cache-Control") === "no-store" &&
+    response.headers.get("X-Render-Mode") === "ephemeral-export" &&
+    response.headers.get("X-Render-Key") === null &&
+    response.headers.get("X-Render-Id") === expected.renderId &&
+    response.headers.get("X-Output-Id") === expected.outputId &&
+    response.headers.get("X-Page-Id") === expected.pageId &&
+    response.headers.get("X-Width") === String(expected.width) &&
+    response.headers.get("X-Height") === String(expected.height) &&
+    Number.isSafeInteger(bytes) &&
+    bytes > 0 &&
+    response.headers.get("Content-Length") === String(bytes)
+  )
+}
+
 export function createPageThumbnailRequestHandler(
   dependencies: PageThumbnailHandlerDependencies = productionDependencies
 ) {
@@ -230,22 +272,32 @@ export function createPageThumbnailRequestHandler(
       }
       throw error
     }
-    const parsed = pageThumbnailRequestSchema.safeParse(input)
-    if (!parsed.success) {
+    const inspectionParsed = pageInspectionRequestSchema.safeParse(input)
+    const thumbnailParsed = pageThumbnailRequestSchema.safeParse(input)
+    if (!inspectionParsed.success && !thumbnailParsed.success) {
       return respond(
         Response.json(
           {
             error: "invalid_thumbnail_request",
-            issues: apiIssuesFrom(parsed.error.issues),
+            issues: apiIssuesFrom(
+              (input as { purpose?: unknown })?.purpose === "inspection"
+                ? inspectionParsed.error.issues
+                : thumbnailParsed.error.issues
+            ),
           },
           { status: 400 }
         )
       )
     }
+    const inspection = inspectionParsed.success
+    const data = inspection ? inspectionParsed.data : thumbnailParsed.data!
+    const thumbnailSize = thumbnailParsed.success
+      ? thumbnailParsed.data.size
+      : null
 
     let document: Document
     try {
-      document = decodeDocument(parsed.data.document).document
+      document = decodeDocument(data.document).document
     } catch (error) {
       if (error instanceof z.ZodError) {
         return respond(
@@ -286,7 +338,7 @@ export function createPageThumbnailRequestHandler(
     }
 
     const requestedPage = document.pages.find(
-      (candidate) => candidate.id === parsed.data.pageId
+      (candidate) => candidate.id === data.pageId
     )
     if (!requestedPage) {
       return respond(
@@ -304,7 +356,7 @@ export function createPageThumbnailRequestHandler(
       )
     }
     try {
-      assertPageThumbnailSize(requestedPage, parsed.data.size)
+      if (thumbnailSize) assertPageThumbnailSize(requestedPage, thumbnailSize)
     } catch (error) {
       if (error instanceof PageThumbnailSizeError) {
         return respond(thumbnailSizeFailureResponse(error))
@@ -334,7 +386,7 @@ export function createPageThumbnailRequestHandler(
     request.signal.throwIfAborted()
 
     const page = prepared.document.pages.find(
-      (candidate) => candidate.id === parsed.data.pageId
+      (candidate) => candidate.id === data.pageId
     )
     if (!page) {
       return respond(
@@ -351,17 +403,29 @@ export function createPageThumbnailRequestHandler(
       )
     }
 
-    assertPageThumbnailSize(page, parsed.data.size)
-    const plan = createPageThumbnailRenderResourcePlan(prepared.document, {
-      outputId: output.id,
-      pageId: page.id,
-      size: parsed.data.size,
-    })
+    if (thumbnailSize) assertPageThumbnailSize(page, thumbnailSize)
+    const plan = inspection
+      ? createRenderResourcePlan(prepared.document, {
+          outputId: output.id,
+          format: "png",
+          pageId: page.id,
+        })
+      : createPageThumbnailRenderResourcePlan(prepared.document, {
+          outputId: output.id,
+          pageId: page.id,
+          size: thumbnailSize!,
+        })
 
     let lease: RenderAdmissionLease
     try {
       request.signal.throwIfAborted()
-      lease = await dependencies.reserveCapacity(env, principal, plan)
+      lease = await (inspection
+        ? (dependencies.reserveInspectionCapacity ?? reserveRenderCapacity)(
+            env,
+            principal,
+            plan
+          )
+        : dependencies.reserveCapacity(env, principal, plan))
     } catch (error) {
       if (error instanceof RenderAdmissionError) {
         return respond(renderAdmissionErrorResponse(error, false))
@@ -375,22 +439,31 @@ export function createPageThumbnailRequestHandler(
 
     const renderId = dependencies.createRenderId()
     try {
-      const rendererRequest = new Request(
-        "https://renderer.internal/render/thumbnail",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            renderId,
-            outputId: output.id,
-            pageId: page.id,
-            size: parsed.data.size,
-            document: prepared.document,
-            expectedImageResources: prepared.expectedImageResources,
-          }),
-          signal: request.signal,
-        }
-      )
+      const rendererRequest = inspection
+        ? createEphemeralArtifactRendererRequest({
+            path: "/render",
+            body: {
+              renderId,
+              outputId: output.id,
+              pageId: page.id,
+              document: prepared.document,
+              expectedImageResources: prepared.expectedImageResources,
+            },
+            signal: request.signal,
+          })
+        : new Request("https://renderer.internal/render/thumbnail", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              renderId,
+              outputId: output.id,
+              pageId: page.id,
+              size: thumbnailSize!,
+              document: prepared.document,
+              expectedImageResources: prepared.expectedImageResources,
+            }),
+            signal: request.signal,
+          })
       const rendererResponse = await dependencies.invokeRenderer(
         env,
         rendererRequest
@@ -402,12 +475,20 @@ export function createPageThumbnailRequestHandler(
       if (!rendererResponse.ok) {
         await failRenderLeaseWithRetry(lease)
       } else if (
-        !rendererThumbnailHeadersAreValid(rendererResponse, {
-          outputId: output.id,
-          pageId: page.id,
-          renderId,
-          ...parsed.data.size,
-        })
+        !(inspection
+          ? rendererInspectionHeadersAreValid(rendererResponse, {
+              outputId: output.id,
+              pageId: page.id,
+              renderId,
+              width: page.width,
+              height: page.height,
+            })
+          : rendererThumbnailHeadersAreValid(rendererResponse, {
+              outputId: output.id,
+              pageId: page.id,
+              renderId,
+              ...thumbnailSize!,
+            }))
       ) {
         await rendererResponse.body?.cancel()
         await failRenderLeaseWithRetry(lease)

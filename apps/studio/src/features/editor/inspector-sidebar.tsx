@@ -6010,6 +6010,7 @@ function ReviewPanel({
   document,
   navigationDocument,
   pendingGeneratedDocument,
+  generatedDocumentInspection,
   generatedDocumentError,
   isCreatingGeneratedDocument,
   pendingChangeSet,
@@ -6032,6 +6033,10 @@ function ReviewPanel({
   document: Document
   navigationDocument: Document
   pendingGeneratedDocument: GeneratedDocumentPlan | null
+  generatedDocumentInspection: Readonly<{
+    passes: boolean
+    blockingReasons: readonly string[]
+  }> | null
   generatedDocumentError: string | null
   isCreatingGeneratedDocument: boolean
   pendingChangeSet: ChangeSet | null
@@ -6257,6 +6262,20 @@ function ReviewPanel({
               </div>
             ) : null}
 
+            {generatedDocumentInspection &&
+            !generatedDocumentInspection.passes ? (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-2.5 text-[11px] leading-relaxed">
+                <p className="font-medium">Repair required</p>
+                <ul className="mt-1 list-disc space-y-1 pl-4 text-muted-foreground">
+                  {generatedDocumentInspection.blockingReasons
+                    .slice(0, 4)
+                    .map((reason) => (
+                      <li key={reason}>{reason}</li>
+                    ))}
+                </ul>
+              </div>
+            ) : null}
+
             <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-1.5">
               <Button
                 disabled={isCreatingGeneratedDocument}
@@ -6268,7 +6287,10 @@ function ReviewPanel({
               </Button>
               <Button
                 className="flex-1"
-                disabled={isCreatingGeneratedDocument}
+                disabled={
+                  isCreatingGeneratedDocument ||
+                  generatedDocumentInspection?.passes !== true
+                }
                 size="sm"
                 onClick={() => void onCreateGeneratedDocument()}
               >
@@ -6277,8 +6299,12 @@ function ReviewPanel({
                     <LoaderCircleIcon className="animate-spin" />
                     Creating…
                   </>
-                ) : (
+                ) : generatedDocumentInspection?.passes ? (
                   "Create editable document"
+                ) : generatedDocumentInspection ? (
+                  "Repair required"
+                ) : (
+                  "Inspection required"
                 )}
               </Button>
             </div>
@@ -6649,6 +6675,7 @@ export function InspectorSidebar({
   textEditingState = null,
   imageCropPreviewStore = null,
   pendingGeneratedDocument = null,
+  generatedDocumentInspection = null,
   generatedDocumentError = null,
   isCreatingGeneratedDocument = false,
   pendingChangeSet,
@@ -6734,6 +6761,10 @@ export function InspectorSidebar({
   textEditingState?: CanvasTextEditingState | null
   imageCropPreviewStore?: ImageCropPreviewStore | null
   pendingGeneratedDocument?: GeneratedDocumentPlan | null
+  generatedDocumentInspection?: Readonly<{
+    passes: boolean
+    blockingReasons: readonly string[]
+  }> | null
   generatedDocumentError?: string | null
   isCreatingGeneratedDocument?: boolean
   pendingChangeSet: ChangeSet | null
@@ -7140,6 +7171,7 @@ export function InspectorSidebar({
               document={document}
               navigationDocument={reviewNavigationDocument}
               pendingGeneratedDocument={pendingGeneratedDocument}
+              generatedDocumentInspection={generatedDocumentInspection}
               generatedDocumentError={generatedDocumentError}
               isCreatingGeneratedDocument={isCreatingGeneratedDocument}
               pendingChangeSet={pendingChangeSet}

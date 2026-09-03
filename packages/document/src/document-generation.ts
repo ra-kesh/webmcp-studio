@@ -4,8 +4,10 @@ import { z } from "zod"
 import { applyCommand } from "./commands"
 import {
   compileStudioDesignPlan,
+  resolveStudioDesignIntent,
   studioDesignPlanSchema,
   type ApprovedGenerationAsset,
+  type StudioDesignIntent,
 } from "./design-plan"
 import { builtInDesignTemplateRepository } from "./built-in-design-templates"
 import { studioGenerationLimits } from "./generation-contract"
@@ -132,10 +134,18 @@ const templateCommandSchema = z.discriminatedUnion("type", [
         .min(1)
         .max(studioGenerationLimits.maxNameCharacters),
       assetId: z.string().trim().min(1).max(200),
-      x: z.number().finite().nonnegative(),
-      y: z.number().finite().nonnegative(),
-      width: z.number().finite().positive(),
-      height: z.number().finite().positive(),
+      x: z.number().finite(),
+      y: z.number().finite(),
+      width: z
+        .number()
+        .finite()
+        .positive()
+        .max(studioGenerationLimits.maxNodeDimension),
+      height: z
+        .number()
+        .finite()
+        .positive()
+        .max(studioGenerationLimits.maxNodeDimension),
       rotation: z.number().finite().min(-360).max(360).default(0),
       opacity: z.number().finite().min(0).max(1).default(1),
       visible: z.boolean().default(true),
@@ -269,6 +279,7 @@ export type GeneratedDocumentPlan = Readonly<{
         designPlanVersion: 1
       }>
   candidate: Document
+  designIntent?: StudioDesignIntent
   summary: Readonly<{
     pages: readonly Readonly<{
       id: string
@@ -494,12 +505,14 @@ const compileTemplateCandidate = (
           "start.commands"
         )
       if (
-        change.x + change.width > page.width ||
-        change.y + change.height > page.height
+        change.x >= page.width ||
+        change.y >= page.height ||
+        change.x + change.width <= 0 ||
+        change.y + change.height <= 0
       ) {
         fail(
           "invalid_candidate",
-          `Inserted image ${change.localId} exceeds page ${change.pageId}.`,
+          `Inserted image ${change.localId} does not intersect page ${change.pageId}.`,
           "start.commands"
         )
       }
@@ -655,25 +668,32 @@ export function compileDocumentGenerationRequest(
   const requestHash = digest(request)
   const compiled =
     request.start.kind === "blank"
-      ? {
-          candidate: compileStudioDesignPlan(request.start.plan, {
+      ? (() => {
+          const candidate = compileStudioDesignPlan(request.start.plan, {
             presetId: request.start.presetId,
             requestId: request.requestId,
             idempotencyKey: request.idempotencyKey,
             now: options.now,
             approvedAssets: options.approvedAssets,
-          }),
-          start: {
-            kind: "blank" as const,
-            presetId: request.start.presetId,
-            designPlanVersion: 1 as const,
-          },
-          structuralChanges: [
-            `Created ${request.start.plan.pages.length} pages from ${request.start.presetId}`,
-            `Created ${request.start.plan.nodes.length} editable layers`,
-            `Created ${request.start.plan.groups.length} groups`,
-          ],
-        }
+          })
+          return {
+            candidate,
+            designIntent: resolveStudioDesignIntent(request.start.plan, {
+              requestId: request.requestId,
+              idempotencyKey: request.idempotencyKey,
+            }),
+            start: {
+              kind: "blank" as const,
+              presetId: request.start.presetId,
+              designPlanVersion: 1 as const,
+            },
+            structuralChanges: [
+              `Created ${request.start.plan.pages.length} pages from ${request.start.presetId}`,
+              `Created ${candidate.nodes.length} editable layers`,
+              `Created ${request.start.plan.groups.length} groups`,
+            ],
+          }
+        })()
       : compileTemplateCandidate(
           request as DocumentGenerationRequest & {
             start: Extract<
@@ -721,6 +741,9 @@ export function compileDocumentGenerationRequest(
     createdAt: options.now,
     start: compiled.start,
     candidate,
+    ...("designIntent" in compiled && compiled.designIntent
+      ? { designIntent: compiled.designIntent }
+      : {}),
     summary: summarizeCandidate(candidate, compiled.structuralChanges),
     provenance: {
       skill: request.skill,

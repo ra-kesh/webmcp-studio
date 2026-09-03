@@ -95,6 +95,12 @@ import {
   createImagePlacementCommandDrafts,
   editorCommandHistoryLabel,
 } from "@webmcp/editor/commands"
+
+export type GeneratedDocumentInspectionOutcome = Readonly<{
+  requestHash: string
+  passes: boolean
+  blockingReasons: readonly string[]
+}>
 import type {
   EditorImageFrameCommandId,
   EditorImagePlacementCommandId,
@@ -1133,6 +1139,10 @@ export function useDocumentEditor({
   const [pendingGeneratedDocument, setPendingGeneratedDocument] =
     useState<GeneratedDocumentPlan | null>(null)
   const pendingGeneratedDocumentRef = useRef<GeneratedDocumentPlan | null>(null)
+  const [generatedDocumentInspection, setGeneratedDocumentInspection] =
+    useState<GeneratedDocumentInspectionOutcome | null>(null)
+  const generatedDocumentInspectionRef =
+    useRef<GeneratedDocumentInspectionOutcome | null>(null)
   const generationApprovalInFlightRef = useRef(false)
   const [generatedDocumentError, setGeneratedDocumentError] = useState<
     string | null
@@ -10782,7 +10792,7 @@ export function useDocumentEditor({
           studioGenerationLimits.maxCandidateReplacements + 1
         ) {
           throw new Error(
-            "This generated document has reached the three-attempt limit. Review or discard the current candidate."
+            "This generated document has reached the two-attempt limit. Review or discard the current candidate."
           )
         }
       }
@@ -10794,7 +10804,9 @@ export function useDocumentEditor({
           }
         : plan
       pendingGeneratedDocumentRef.current = admittedPlan
+      generatedDocumentInspectionRef.current = null
       setPendingGeneratedDocument(admittedPlan)
+      setGeneratedDocumentInspection(null)
       setGeneratedDocumentError(null)
       return admittedPlan
     },
@@ -10804,14 +10816,48 @@ export function useDocumentEditor({
   const discardGeneratedDocument = useCallback(() => {
     if (generationApprovalInFlightRef.current) return false
     pendingGeneratedDocumentRef.current = null
+    generatedDocumentInspectionRef.current = null
     setPendingGeneratedDocument(null)
+    setGeneratedDocumentInspection(null)
     setGeneratedDocumentError(null)
     return true
   }, [])
 
+  const recordGeneratedDocumentInspection = useCallback(
+    (outcome: GeneratedDocumentInspectionOutcome) => {
+      if (
+        pendingGeneratedDocumentRef.current?.requestHash !== outcome.requestHash
+      ) {
+        return false
+      }
+      generatedDocumentInspectionRef.current = outcome
+      setGeneratedDocumentInspection(outcome)
+      setGeneratedDocumentError(
+        outcome.passes
+          ? null
+          : "The rendered candidate failed inspection. Submit one targeted replacement before creating the editable document."
+      )
+      return true
+    },
+    []
+  )
+
   const createGeneratedDocument = useCallback(async () => {
     const plan = pendingGeneratedDocumentRef.current
     if (!plan || generationApprovalInFlightRef.current) return false
+    const inspection = generatedDocumentInspectionRef.current
+    if (inspection?.requestHash !== plan.requestHash) {
+      setGeneratedDocumentError(
+        "Inspect the exact candidate at full and thumbnail sizes before creating the editable document."
+      )
+      return false
+    }
+    if (!inspection.passes) {
+      setGeneratedDocumentError(
+        "The rendered candidate failed inspection. Submit one targeted replacement before creating the editable document."
+      )
+      return false
+    }
     if (!repositoryReadyRef.current || persistenceBlockedRef.current) {
       setGeneratedDocumentError(
         "Durable browser storage is unavailable. Studio kept the generated candidate in Review and did not create a session-only document."
@@ -10859,7 +10905,9 @@ export function useDocumentEditor({
         pendingGeneratedDocumentRef.current?.requestHash === plan.requestHash
       ) {
         pendingGeneratedDocumentRef.current = null
+        generatedDocumentInspectionRef.current = null
         setPendingGeneratedDocument(null)
+        setGeneratedDocumentInspection(null)
       }
       return true
     } finally {
@@ -11381,6 +11429,12 @@ export function useDocumentEditor({
     draftRecoveryNotice,
     pendingChangeSet,
     pendingGeneratedDocument,
+    generatedDocumentInspection:
+      pendingGeneratedDocument !== null &&
+      generatedDocumentInspection?.requestHash ===
+        pendingGeneratedDocument.requestHash
+        ? generatedDocumentInspection
+        : null,
     generatedDocumentError,
     isCreatingGeneratedDocument,
     lastResolvedChangeSet,
@@ -11443,6 +11497,7 @@ export function useDocumentEditor({
     proposeChangeSet,
     runSceneTransaction,
     proposeDocumentGeneration,
+    recordGeneratedDocumentInspection,
     discardGeneratedDocument,
     createGeneratedDocument,
     decideOperation,

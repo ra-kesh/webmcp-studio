@@ -38,6 +38,14 @@ export type ProduceStudioPageThumbnailRasterOptions = Readonly<{
   endpoint?: string
 }>
 
+export type ProduceStudioPageInspectionRasterOptions = Readonly<{
+  pageId: string
+  snapshot: PageThumbnailDocumentSnapshot
+  signal: AbortSignal
+  fetcher?: typeof fetch
+  endpoint?: string
+}>
+
 export class StudioPageThumbnailRasterError extends Error {
   constructor(
     readonly code:
@@ -231,6 +239,96 @@ export async function produceStudioPageThumbnailRaster({
     throw new StudioPageThumbnailRasterError(
       "invalid_response",
       "The thumbnail renderer returned invalid PNG bytes."
+    )
+  }
+  return blob
+}
+
+export async function produceStudioPageInspectionRaster({
+  pageId,
+  snapshot,
+  signal,
+  fetcher = fetch,
+  endpoint = studioPageThumbnailEndpoint,
+}: ProduceStudioPageInspectionRasterOptions): Promise<Blob> {
+  const page = snapshot.document.pages.find(
+    (candidate) => candidate.id === pageId
+  )
+  if (!page) {
+    throw new StudioPageThumbnailRasterError(
+      "stale_document",
+      "The requested inspection page no longer exists in this document."
+    )
+  }
+  const output = snapshot.document.outputs.find(
+    (candidate) =>
+      candidate.id === page.outputId && candidate.pageIds.includes(page.id)
+  )
+  if (!output) {
+    throw new StudioPageThumbnailRasterError(
+      "stale_document",
+      "The requested inspection output no longer exists in this document."
+    )
+  }
+  const inspectionDocument = createPageThumbnailDocument(
+    snapshot.document,
+    page.id
+  )
+  if (
+    inspectionDocument.nodes.some((node) =>
+      sceneNodeImageReferences(node).some((reference) =>
+        reference.src.startsWith("asset:local/")
+      )
+    )
+  ) {
+    throw new StudioPageThumbnailRasterError(
+      "local_asset_requires_live_preview",
+      "Local images must be promoted before full candidate inspection."
+    )
+  }
+  const response = await fetcher(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      purpose: "inspection",
+      pageId: page.id,
+      document: inspectionDocument,
+    }),
+    signal,
+  })
+  if (!response.ok) {
+    const retryAfterMs = responseRetryAfterMs(response)
+    await discardResponseBody(response)
+    throw new StudioPageThumbnailRasterError(
+      "request_failed",
+      `Page inspection rendering failed with status ${response.status}.`,
+      retryAfterMs
+    )
+  }
+  const width = exactPositiveIntegerHeader(response, "X-Width")
+  const height = exactPositiveIntegerHeader(response, "X-Height")
+  const byteLength = exactPositiveIntegerHeader(response, "X-Bytes")
+  if (
+    response.headers.get("Content-Type")?.split(";", 1)[0] !== "image/png" ||
+    response.headers.get("X-Render-Mode") !== "ephemeral-export" ||
+    response.headers.get("X-Page-Id") !== page.id ||
+    response.headers.get("X-Output-Id") !== output.id ||
+    response.headers.has("X-Render-Key") ||
+    width !== page.width ||
+    height !== page.height ||
+    byteLength === null
+  ) {
+    await discardResponseBody(response)
+    throw new StudioPageThumbnailRasterError(
+      "invalid_response",
+      "The inspection renderer returned an invalid resource identity."
+    )
+  }
+  const blob = await response.blob()
+  if (blob.type !== "image/png" || blob.size !== byteLength) {
+    throw new StudioPageThumbnailRasterError(
+      "invalid_response",
+      "The inspection renderer returned invalid PNG bytes."
     )
   }
   return blob

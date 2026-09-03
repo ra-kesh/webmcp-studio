@@ -42,15 +42,51 @@ const safeColorSchema = z
     "Use a supported color"
   )
 const finiteGeometrySchema = z.number().finite()
+const svgViewBoxPlanSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(200)
+  .refine((value) => {
+    const parts = value.split(/[\s,]+/).map(Number)
+    return (
+      parts.length === 4 &&
+      parts.every(Number.isFinite) &&
+      parts[2]! > 0 &&
+      parts[3]! > 0
+    )
+  }, "SVG viewBox must contain four finite numbers with positive width and height")
+
+const strokePlanShape = {
+  stroke: safeColorSchema.optional(),
+  strokeWidth: finiteGeometrySchema.nonnegative().max(1_000).default(0),
+  strokeOpacity: finiteGeometrySchema.min(0).max(1).optional(),
+  strokeAlignment: z.enum(["inside", "center", "outside"]).optional(),
+  strokeDash: z
+    .array(finiteGeometrySchema.nonnegative())
+    .max(16)
+    .refine(
+      (values) => values.length === 0 || values.some((value) => value > 0),
+      "A dash pattern must contain a positive segment"
+    )
+    .optional(),
+  strokeCap: z.enum(["butt", "round", "square"]).optional(),
+  strokeJoin: z.enum(["miter", "round", "bevel"]).optional(),
+  strokeMiterLimit: finiteGeometrySchema.min(1).max(100).optional(),
+}
 
 const baseNodeShape = {
   localId: localIdSchema,
   pageLocalId: localIdSchema,
   name: nameSchema,
-  x: finiteGeometrySchema.nonnegative(),
-  y: finiteGeometrySchema.nonnegative(),
-  width: finiteGeometrySchema.positive(),
-  height: finiteGeometrySchema.positive(),
+  x: finiteGeometrySchema,
+  y: finiteGeometrySchema,
+  width: finiteGeometrySchema
+    .positive()
+    .max(studioGenerationLimits.maxNodeDimension),
+  height: finiteGeometrySchema
+    .positive()
+    .max(studioGenerationLimits.maxNodeDimension),
   rotation: finiteGeometrySchema.min(-360).max(360).default(0),
   opacity: finiteGeometrySchema.min(0).max(1).default(1),
   visible: z.boolean().default(true),
@@ -94,8 +130,7 @@ const rectPlanNodeSchema = z
     type: z.literal("rect"),
     fill: safeColorSchema,
     radius: finiteGeometrySchema.nonnegative().default(0),
-    stroke: safeColorSchema.optional(),
-    strokeWidth: finiteGeometrySchema.nonnegative().default(0),
+    ...strokePlanShape,
     paintStyleLocalId: localIdSchema.optional(),
   })
   .strict()
@@ -105,8 +140,7 @@ const ellipsePlanNodeSchema = z
     ...baseNodeShape,
     type: z.literal("ellipse"),
     fill: safeColorSchema,
-    stroke: safeColorSchema.optional(),
-    strokeWidth: finiteGeometrySchema.nonnegative().default(0),
+    ...strokePlanShape,
     paintStyleLocalId: localIdSchema.optional(),
   })
   .strict()
@@ -115,23 +149,85 @@ const linePlanNodeSchema = z
   .object({
     ...baseNodeShape,
     type: z.literal("line"),
+    ...strokePlanShape,
     stroke: safeColorSchema,
     strokeWidth: finiteGeometrySchema.positive().max(1_000).default(2),
     paintStyleLocalId: localIdSchema.optional(),
   })
   .strict()
 
-const iconPlanNodeSchema = z
+const iconPlanNodeSchema = z.object({
+  ...baseNodeShape,
+  type: z.literal("icon"),
+  path: z.string().min(1).max(studioGenerationLimits.maxIconPathCharacters),
+  viewBox: z.string().trim().min(1).max(200).default("0 0 24 24"),
+  fill: safeColorSchema,
+  ...strokePlanShape,
+  paintStyleLocalId: localIdSchema.optional(),
+})
+
+const vectorPlanNodeSchema = z
   .object({
     ...baseNodeShape,
-    type: z.literal("icon"),
+    type: z.literal("vector"),
     path: z.string().min(1).max(studioGenerationLimits.maxIconPathCharacters),
-    viewBox: z.string().trim().min(1).max(200).default("0 0 24 24"),
+    viewBox: svgViewBoxPlanSchema.default("0 0 100 100"),
+    fillRule: z.enum(["nonzero", "evenodd"]).default("nonzero"),
     fill: safeColorSchema,
-    stroke: safeColorSchema.optional(),
-    strokeWidth: finiteGeometrySchema.nonnegative().default(0),
+    ...strokePlanShape,
     paintStyleLocalId: localIdSchema.optional(),
   })
+  .strict()
+
+const polygonPlanNodeSchema = z
+  .object({
+    ...baseNodeShape,
+    type: z.literal("polygon"),
+    fill: safeColorSchema,
+    pointCount: z.number().int().min(3).max(64).default(3),
+    ...strokePlanShape,
+    paintStyleLocalId: localIdSchema.optional(),
+  })
+  .strict()
+
+const starPlanNodeSchema = z
+  .object({
+    ...baseNodeShape,
+    type: z.literal("star"),
+    fill: safeColorSchema,
+    pointCount: z.number().int().min(3).max(64).default(5),
+    innerRadius: finiteGeometrySchema.min(0.01).max(0.99).default(0.45),
+    ...strokePlanShape,
+    paintStyleLocalId: localIdSchema.optional(),
+  })
+  .strict()
+
+const frameChildPlanSchema = z
+  .object({
+    nodeLocalId: localIdSchema,
+    positioning: z.enum(["auto", "absolute"]).default("absolute"),
+    horizontalSizing: z.enum(["fixed", "fill"]).default("fixed"),
+    verticalSizing: z.enum(["fixed", "fill"]).default("fixed"),
+    offsetX: finiteGeometrySchema.default(0),
+    offsetY: finiteGeometrySchema.default(0),
+    grow: finiteGeometrySchema.nonnegative().default(0),
+  })
+  .strict()
+
+const framePlanNodeSchema = z
+  .object({
+    ...baseNodeShape,
+    type: z.literal("frame"),
+    fill: safeColorSchema,
+    radius: finiteGeometrySchema.nonnegative().default(0),
+    ...strokePlanShape,
+    clipsContent: z.boolean().default(true),
+    children: z
+      .array(frameChildPlanSchema)
+      .max(studioGenerationLimits.maxNodes),
+    paintStyleLocalId: localIdSchema.optional(),
+  })
+  .strict()
   .strict()
 
 const imagePlanNodeSchema = z
@@ -161,8 +257,142 @@ export const studioDesignPlanNodeSchema = z.discriminatedUnion("type", [
   ellipsePlanNodeSchema,
   linePlanNodeSchema,
   iconPlanNodeSchema,
+  vectorPlanNodeSchema,
+  polygonPlanNodeSchema,
+  starPlanNodeSchema,
+  framePlanNodeSchema,
   imagePlanNodeSchema,
 ])
+
+const normalizedBoundsSchema = z
+  .object({
+    x: finiteGeometrySchema.min(0).max(1),
+    y: finiteGeometrySchema.min(0).max(1),
+    width: finiteGeometrySchema.positive().max(1),
+    height: finiteGeometrySchema.positive().max(1),
+  })
+  .strict()
+  .refine((bounds) => bounds.x + bounds.width <= 1, {
+    path: ["width"],
+    message: "Release zone must fit within the page width",
+  })
+  .refine((bounds) => bounds.y + bounds.height <= 1, {
+    path: ["height"],
+    message: "Release zone must fit within the page height",
+  })
+
+const designIntentSchema = z
+  .object({
+    pages: z
+      .array(
+        z
+          .object({
+            pageLocalId: localIdSchema,
+            focalNodeLocalIds: z.array(localIdSchema).max(8).default([]),
+            releaseZones: z
+              .array(
+                z
+                  .object({
+                    localId: localIdSchema,
+                    name: nameSchema,
+                    bounds: normalizedBoundsSchema,
+                    maxInkRatio: finiteGeometrySchema
+                      .min(0)
+                      .max(1)
+                      .default(0.08),
+                  })
+                  .strict()
+              )
+              .max(8)
+              .default([]),
+            inkRoles: z
+              .array(
+                z
+                  .object({
+                    role: z.enum([
+                      "background",
+                      "primary",
+                      "secondary",
+                      "accent",
+                    ]),
+                    color: safeColorSchema,
+                  })
+                  .strict()
+              )
+              .max(8)
+              .default([]),
+            requiredText: z
+              .array(z.string().trim().min(1).max(500))
+              .max(24)
+              .default([]),
+            targetTypographyRatio: z
+              .object({
+                minimum: finiteGeometrySchema.min(1).max(100),
+                maximum: finiteGeometrySchema.min(1).max(100).optional(),
+              })
+              .strict()
+              .refine(
+                (target) =>
+                  target.maximum === undefined ||
+                  target.maximum >= target.minimum,
+                "Typography ratio maximum must be greater than or equal to its minimum"
+              )
+              .optional(),
+          })
+          .strict()
+      )
+      .max(studioGenerationLimits.maxPages),
+  })
+  .strict()
+
+const repeatSharedShape = {
+  localId: localIdSchema,
+  sourceNodeLocalId: localIdSchema,
+}
+
+const repeatPlanSchema = z
+  .discriminatedUnion("kind", [
+    z
+      .object({
+        ...repeatSharedShape,
+        kind: z.literal("linear"),
+        count: z.number().int().min(2).max(studioGenerationLimits.maxNodes),
+        stepX: finiteGeometrySchema,
+        stepY: finiteGeometrySchema,
+        rotationStep: finiteGeometrySchema.min(-360).max(360).default(0),
+      })
+      .strict(),
+    z
+      .object({
+        ...repeatSharedShape,
+        kind: z.literal("grid"),
+        columns: z.number().int().min(1).max(studioGenerationLimits.maxNodes),
+        rows: z.number().int().min(1).max(studioGenerationLimits.maxNodes),
+        stepX: finiteGeometrySchema,
+        stepY: finiteGeometrySchema,
+      })
+      .strict(),
+    z
+      .object({
+        ...repeatSharedShape,
+        kind: z.literal("radial"),
+        count: z.number().int().min(2).max(studioGenerationLimits.maxNodes),
+        centerX: finiteGeometrySchema,
+        centerY: finiteGeometrySchema,
+        angleStep: finiteGeometrySchema.min(-360).max(360),
+        rotateWithPath: z.boolean().default(true),
+      })
+      .strict(),
+  ])
+  .superRefine((repeat, context) => {
+    if (repeat.kind === "grid" && repeat.columns * repeat.rows < 2) {
+      context.addIssue({
+        code: "custom",
+        path: ["rows"],
+        message: "A grid repeat must create at least two instances",
+      })
+    }
+  })
 
 const designPlanOutputSchema = z
   .object({
@@ -388,6 +618,10 @@ export const studioDesignPlanSchema = z
     nodes: z
       .array(studioDesignPlanNodeSchema)
       .max(studioGenerationLimits.maxNodes),
+    repeats: z
+      .array(repeatPlanSchema)
+      .max(studioGenerationLimits.maxRepeats)
+      .default([]),
     groups: z
       .array(
         z.discriminatedUnion("role", [
@@ -421,10 +655,180 @@ export const studioDesignPlanSchema = z
       .array(fieldBindingPlanSchema)
       .max(studioGenerationLimits.maxBindings)
       .default([]),
+    designIntent: designIntentSchema.optional(),
   })
   .strict()
 
 export type StudioDesignPlan = z.infer<typeof studioDesignPlanSchema>
+type StudioDesignPlanNode = z.infer<typeof studioDesignPlanNodeSchema>
+export type StudioDesignIntent = Readonly<{
+  pages: readonly Readonly<{
+    pageId: string
+    focalNodeIds: readonly string[]
+    releaseZones: readonly Readonly<{
+      id: string
+      name: string
+      bounds: Readonly<{ x: number; y: number; width: number; height: number }>
+      maxInkRatio: number
+    }>[]
+    inkRoles: readonly Readonly<{
+      role: "background" | "primary" | "secondary" | "accent"
+      color: string
+    }>[]
+    requiredText: readonly string[]
+    targetTypographyRatio?: Readonly<{ minimum: number; maximum?: number }>
+  }>[]
+}>
+
+const repeatInstanceLocalId = (repeatLocalId: string, instance: number) =>
+  `${repeatLocalId.slice(0, 50)}_copy_${instance}`
+
+const rotatePoint = (
+  x: number,
+  y: number,
+  centerX: number,
+  centerY: number,
+  angle: number
+) => {
+  const radians = (angle * Math.PI) / 180
+  const cosine = Math.cos(radians)
+  const sine = Math.sin(radians)
+  const offsetX = x - centerX
+  const offsetY = y - centerY
+  return {
+    x: centerX + offsetX * cosine - offsetY * sine,
+    y: centerY + offsetX * sine + offsetY * cosine,
+  }
+}
+
+const expandStudioDesignPlanRepeats = (
+  plan: StudioDesignPlan
+): StudioDesignPlan => {
+  if (!plan.repeats.length) return plan
+  const sourceNodes = new Map(plan.nodes.map((node) => [node.localId, node]))
+  const usedLocalIds = new Set([
+    ...plan.outputs.map((item) => item.localId),
+    ...plan.pages.map((item) => item.localId),
+    ...plan.nodes.map((item) => item.localId),
+    ...plan.groups.map((item) => item.localId),
+    ...plan.repeats.map((item) => item.localId),
+    ...plan.typographyStyles.map((item) => item.localId),
+    ...plan.paintStyles.map((item) => item.localId),
+    ...plan.variables.map((item) => item.localId),
+    ...plan.variableBindings.map((item) => item.localId),
+    ...plan.fields.map((item) => item.localId),
+    ...plan.bindings.map((item) => item.localId),
+  ])
+  const clonesBySource = new Map<string, StudioDesignPlanNode[]>()
+
+  for (const repeat of plan.repeats) {
+    const source = requireReference(
+      sourceNodes,
+      repeat.sourceNodeLocalId,
+      `repeats.${repeat.localId}.sourceNodeLocalId`
+    )
+    if (source.type === "frame") {
+      fail(
+        "invalid_relationship",
+        `Repeat ${repeat.localId} cannot clone a frame with owned children. Repeat its child geometry instead.`,
+        `repeats.${repeat.localId}.sourceNodeLocalId`
+      )
+    }
+    const instanceCount =
+      repeat.kind === "grid" ? repeat.columns * repeat.rows : repeat.count
+    if (
+      plan.nodes.length + instanceCount - 1 >
+      studioGenerationLimits.maxNodes
+    ) {
+      fail(
+        "budget_exceeded",
+        `Repeat ${repeat.localId} would exceed the ${studioGenerationLimits.maxNodes}-layer generation limit.`,
+        `repeats.${repeat.localId}`
+      )
+    }
+    const sourceCenterX = source.x + source.width / 2
+    const sourceCenterY = source.y + source.height / 2
+    const clones = clonesBySource.get(source.localId) ?? []
+    for (let instance = 1; instance < instanceCount; instance += 1) {
+      const localId = repeatInstanceLocalId(repeat.localId, instance)
+      if (usedLocalIds.has(localId)) {
+        fail(
+          "duplicate_local_id",
+          `Repeat ${repeat.localId} produces duplicate local ID ${localId}.`,
+          `repeats.${repeat.localId}`
+        )
+      }
+      usedLocalIds.add(localId)
+      let x = source.x
+      let y = source.y
+      let rotation = source.rotation
+      if (repeat.kind === "linear") {
+        x += repeat.stepX * instance
+        y += repeat.stepY * instance
+        rotation += repeat.rotationStep * instance
+      } else if (repeat.kind === "grid") {
+        const column = instance % repeat.columns
+        const row = Math.floor(instance / repeat.columns)
+        x += repeat.stepX * column
+        y += repeat.stepY * row
+      } else {
+        const angle = repeat.angleStep * instance
+        const center = rotatePoint(
+          sourceCenterX,
+          sourceCenterY,
+          repeat.centerX,
+          repeat.centerY,
+          angle
+        )
+        x = center.x - source.width / 2
+        y = center.y - source.height / 2
+        if (repeat.rotateWithPath) rotation += angle
+      }
+      clones.push({
+        ...source,
+        localId,
+        name: `${source.name} ${instance + 1}`.slice(
+          0,
+          studioGenerationLimits.maxNameCharacters
+        ),
+        x,
+        y,
+        rotation: (rotation + 360) % 360 || 0,
+      })
+    }
+    clonesBySource.set(source.localId, clones)
+  }
+
+  const expandReferences = (localIds: readonly string[]) =>
+    localIds.flatMap((localId) => [
+      localId,
+      ...(clonesBySource.get(localId)?.map((node) => node.localId) ?? []),
+    ])
+  const nodes = plan.nodes.flatMap((node) => [
+    node,
+    ...(clonesBySource.get(node.localId) ?? []),
+  ])
+  if (nodes.length > studioGenerationLimits.maxNodes) {
+    fail(
+      "budget_exceeded",
+      `Expanded repeats use ${nodes.length} layers; the limit is ${studioGenerationLimits.maxNodes}.`,
+      "repeats"
+    )
+  }
+  return {
+    ...plan,
+    nodes,
+    repeats: [],
+    pages: plan.pages.map((page) => ({
+      ...page,
+      nodeLocalIds: expandReferences(page.nodeLocalIds),
+    })),
+    groups: plan.groups.map((group) => ({
+      ...group,
+      nodeLocalIds: expandReferences(group.nodeLocalIds),
+    })),
+  }
+}
 
 export type ApprovedGenerationAsset = Readonly<{
   id: string
@@ -480,11 +884,42 @@ const canonicalIdFactory = (requestId: string, idempotencyKey: string) => {
   }
 }
 
+export const resolveStudioDesignIntent = (
+  plan: StudioDesignPlan,
+  identity: Readonly<{ requestId: string; idempotencyKey: string }>
+): StudioDesignIntent | undefined => {
+  if (!plan.designIntent) return undefined
+  const createId = canonicalIdFactory(
+    identity.requestId,
+    identity.idempotencyKey
+  )
+  return {
+    pages: plan.designIntent.pages.map((page) => ({
+      pageId: createId("page", page.pageLocalId),
+      focalNodeIds: page.focalNodeLocalIds.map((localId) =>
+        createId("node", localId)
+      ),
+      releaseZones: page.releaseZones.map((zone) => ({
+        id: createId("intent-zone", `${page.pageLocalId}:${zone.localId}`),
+        name: zone.name,
+        bounds: zone.bounds,
+        maxInkRatio: zone.maxInkRatio,
+      })),
+      inkRoles: page.inkRoles,
+      requiredText: page.requiredText,
+      ...(page.targetTypographyRatio
+        ? { targetTypographyRatio: page.targetTypographyRatio }
+        : {}),
+    })),
+  }
+}
+
 const uniqueLocalIds = (plan: StudioDesignPlan) => {
   const entries = [
     ...plan.outputs.map((item) => [item.localId, "outputs"] as const),
     ...plan.pages.map((item) => [item.localId, "pages"] as const),
     ...plan.nodes.map((item) => [item.localId, "nodes"] as const),
+    ...plan.repeats.map((item) => [item.localId, "repeats"] as const),
     ...plan.groups.map((item) => [item.localId, "groups"] as const),
     ...plan.typographyStyles.map(
       (item) => [item.localId, "typographyStyles"] as const
@@ -593,7 +1028,8 @@ export function compileStudioDesignPlan(
       issue?.path.join(".")
     )
   }
-  const plan = parsed.data!
+  uniqueLocalIds(parsed.data!)
+  const plan = expandStudioDesignPlanRepeats(parsed.data!)
   const preset = studioBlankDocumentPresets.find(
     (candidate) => candidate.id === options.presetId
   )!
@@ -617,6 +1053,41 @@ export function compileStudioDesignPlan(
   const paintPlans = new Map(
     plan.paintStyles.map((style) => [style.localId, style])
   )
+  if (plan.designIntent) {
+    assertUniqueReferences(
+      plan.designIntent.pages.map((page) => page.pageLocalId),
+      "designIntent.pages"
+    )
+    for (const intent of plan.designIntent.pages) {
+      const page = requireReference(
+        pagePlans,
+        intent.pageLocalId,
+        "designIntent.pages.pageLocalId"
+      )
+      assertUniqueReferences(
+        intent.focalNodeLocalIds,
+        `designIntent.${intent.pageLocalId}.focalNodeLocalIds`
+      )
+      assertUniqueReferences(
+        intent.releaseZones.map((zone) => zone.localId),
+        `designIntent.${intent.pageLocalId}.releaseZones`
+      )
+      for (const nodeLocalId of intent.focalNodeLocalIds) {
+        const node = requireReference(
+          nodePlans,
+          nodeLocalId,
+          `designIntent.${intent.pageLocalId}.focalNodeLocalIds`
+        )
+        if (node.pageLocalId !== page.localId) {
+          fail(
+            "invalid_relationship",
+            `Focal node ${nodeLocalId} does not belong to page ${page.localId}.`,
+            `designIntent.${intent.pageLocalId}.focalNodeLocalIds`
+          )
+        }
+      }
+    }
+  }
   for (const page of plan.pages) {
     requireReference(outputPlans, page.outputLocalId, "pages.outputLocalId")
     assertUniqueReferences(
@@ -666,12 +1137,14 @@ export function compileStudioDesignPlan(
       )
     }
     if (
-      node.x + node.width > page.width ||
-      node.y + node.height > page.height
+      node.x >= page.width ||
+      node.y >= page.height ||
+      node.x + node.width <= 0 ||
+      node.y + node.height <= 0
     ) {
       fail(
         "invalid_geometry",
-        `Node ${node.localId} extends outside page ${page.localId}.`,
+        `Node ${node.localId} does not intersect page ${page.localId}.`,
         `nodes.${node.localId}`
       )
     }
@@ -709,6 +1182,39 @@ export function compileStudioDesignPlan(
           "unapproved_asset",
           `Asset ${node.assetId} is not approved for generation.`,
           `nodes.${node.localId}.assetId`
+        )
+      }
+    }
+    if (node.type === "frame") {
+      assertUniqueReferences(
+        node.children.map((child) => child.nodeLocalId),
+        `nodes.${node.localId}.children`
+      )
+      const frameIndex = page.nodeLocalIds.indexOf(node.localId)
+      for (const child of node.children) {
+        const childNode = requireReference(
+          nodePlans,
+          child.nodeLocalId,
+          `nodes.${node.localId}.children`
+        )
+        const childIndex = page.nodeLocalIds.indexOf(child.nodeLocalId)
+        if (
+          childNode.pageLocalId !== page.localId ||
+          child.nodeLocalId === node.localId ||
+          childIndex <= frameIndex
+        ) {
+          fail(
+            "invalid_relationship",
+            `Frame ${node.localId} child ${child.nodeLocalId} must be a later layer on the same page.`,
+            `nodes.${node.localId}.children`
+          )
+        }
+      }
+      if (node.children.length > 0 && node.rotation !== 0) {
+        fail(
+          "invalid_geometry",
+          `Frame ${node.localId} must use zero rotation while it owns child layers.`,
+          `nodes.${node.localId}.rotation`
         )
       }
     }
@@ -803,9 +1309,30 @@ export function compileStudioDesignPlan(
     path: string
   ) => requireReference(map, localId, path)
 
+  const strokeStack = (node: StudioDesignPlanNode, nodeId: string) => {
+    if (!("stroke" in node) || !node.stroke || node.strokeWidth <= 0) {
+      return undefined
+    }
+    return [
+      {
+        id: `${nodeId}-stroke-1`,
+        color: node.stroke,
+        width: node.strokeWidth,
+        opacity: node.strokeOpacity ?? 1,
+        visible: true,
+        alignment: node.strokeAlignment ?? "center",
+        dash: node.strokeDash ?? [],
+        cap: node.strokeCap ?? "butt",
+        join: node.strokeJoin ?? "miter",
+        miterLimit: node.strokeMiterLimit ?? 4,
+      },
+    ]
+  }
+
   const nodes: SceneNode[] = plan.nodes.map((node) => {
+    const nodeId = id(ids.node, node.localId, "nodes")
     const common = {
-      id: id(ids.node, node.localId, "nodes"),
+      id: nodeId,
       name: node.name,
       x: node.x,
       y: node.y,
@@ -874,6 +1401,39 @@ export function compileStudioDesignPlan(
         decorative: node.decorative,
       }
     }
+    if (node.type === "frame") {
+      return {
+        ...common,
+        type: "frame",
+        fill: node.fill,
+        radius: node.radius,
+        stroke: node.stroke,
+        strokeWidth: node.strokeWidth,
+        ...(strokeStack(node, nodeId)
+          ? { strokes: strokeStack(node, nodeId) }
+          : {}),
+        children: node.children.map((child) => ({
+          nodeId: id(ids.node, child.nodeLocalId, "nodes.frame.children"),
+          positioning: child.positioning,
+          horizontalSizing: child.horizontalSizing,
+          verticalSizing: child.verticalSizing,
+          offsetX: child.offsetX,
+          offsetY: child.offsetY,
+          grow: child.grow,
+        })),
+        autoLayout: null,
+        clipsContent: node.clipsContent,
+        ...(node.paintStyleLocalId
+          ? {
+              paintStyleId: id(
+                ids.paint,
+                node.paintStyleLocalId,
+                "nodes.paintStyleLocalId"
+              ),
+            }
+          : {}),
+      }
+    }
     return {
       ...common,
       ...Object.fromEntries(
@@ -892,9 +1452,18 @@ export function compileStudioDesignPlan(
               "visible",
               "locked",
               "paintStyleLocalId",
+              "strokeOpacity",
+              "strokeAlignment",
+              "strokeDash",
+              "strokeCap",
+              "strokeJoin",
+              "strokeMiterLimit",
             ].includes(key)
         )
       ),
+      ...(strokeStack(node, nodeId)
+        ? { strokes: strokeStack(node, nodeId) }
+        : {}),
       ...(node.paintStyleLocalId
         ? {
             paintStyleId: id(

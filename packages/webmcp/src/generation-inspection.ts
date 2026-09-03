@@ -1,4 +1,31 @@
-import type { Document, SceneNode } from "@webmcp/document"
+import type { Document, SceneNode, StudioDesignIntent } from "@webmcp/document"
+
+export type GeneratedCandidatePixelAnalysis = Readonly<{
+  source: "canonical-thumbnail-pixels"
+  width: number
+  height: number
+  backgroundEstimate: string
+  foregroundPixelRatio: number
+  highKeyPixelRatio: number
+  darkPixelRatio: number
+  meanLuminance: number
+  luminanceDeviation: number
+  foregroundCentroid: Readonly<{ x: number; y: number }> | null
+  edgeInkRatios: Readonly<{
+    top: number
+    right: number
+    bottom: number
+    left: number
+  }>
+  dominantInkColors: readonly Readonly<{ color: string; ratio: number }>[]
+  releaseZones: readonly Readonly<{
+    id: string
+    name: string
+    inkRatio: number
+    maxInkRatio: number
+    passes: boolean
+  }>[]
+}>
 
 const round = (value: number, places = 3) => {
   const factor = 10 ** places
@@ -36,7 +63,9 @@ const regionFor = (x: number, y: number) => {
 
 export function analyzeGeneratedCandidatePage(
   document: Document,
-  pageId: string
+  pageId: string,
+  intent?: StudioDesignIntent["pages"][number],
+  pixelAnalysis?: GeneratedCandidatePixelAnalysis
 ) {
   const page = document.pages.find((candidate) => candidate.id === pageId)
   if (!page) throw new Error(`Unknown generated candidate page ${pageId}.`)
@@ -156,6 +185,99 @@ export function analyzeGeneratedCandidatePage(
   )
     warnings.push("Typography scale jump is below 3x.")
 
+  const typographyRatio =
+    textSizes.length > 0
+      ? Math.max(...textSizes) / Math.min(...textSizes)
+      : null
+  const normalizedText = nodes
+    .filter(
+      (node): node is Extract<SceneNode, { type: "text" }> =>
+        node.type === "text"
+    )
+    .map((node) => node.text.replace(/\s+/g, " ").trim().toLowerCase())
+    .join(" ")
+  const visibleNodeIds = new Set(nodes.map((node) => node.id))
+  const paletteColors = new Set(
+    [...palette].map((color) => color.toUpperCase())
+  )
+  const intentChecks = intent
+    ? [
+        ...intent.focalNodeIds.map((nodeId) => ({
+          kind: "focal_layer" as const,
+          target: nodeId,
+          passes: visibleNodeIds.has(nodeId),
+          observed: visibleNodeIds.has(nodeId)
+            ? "visible"
+            : "missing_or_hidden",
+        })),
+        ...intent.requiredText.map((text) => {
+          const normalized = text.replace(/\s+/g, " ").trim().toLowerCase()
+          const passes = normalizedText.includes(normalized)
+          return {
+            kind: "required_text" as const,
+            target: text,
+            passes,
+            observed: passes ? "present" : "missing",
+          }
+        }),
+        ...intent.inkRoles.map((ink) => {
+          const passes = paletteColors.has(ink.color.toUpperCase())
+          return {
+            kind: "ink_role" as const,
+            target: ink.role,
+            passes,
+            observed: passes ? ink.color.toUpperCase() : "color_not_used",
+          }
+        }),
+        ...(intent.targetTypographyRatio
+          ? [
+              {
+                kind: "typography_ratio" as const,
+                target: `${intent.targetTypographyRatio.minimum}${
+                  intent.targetTypographyRatio.maximum === undefined
+                    ? "+"
+                    : `–${intent.targetTypographyRatio.maximum}`
+                }`,
+                passes:
+                  typographyRatio !== null &&
+                  typographyRatio >= intent.targetTypographyRatio.minimum &&
+                  (intent.targetTypographyRatio.maximum === undefined ||
+                    typographyRatio <= intent.targetTypographyRatio.maximum),
+                observed:
+                  typographyRatio === null
+                    ? "no_text"
+                    : String(round(typographyRatio)),
+              },
+            ]
+          : []),
+        ...intent.releaseZones.map((zone) => {
+          const observed = pixelAnalysis?.releaseZones.find(
+            (candidate) => candidate.id === zone.id
+          )
+          return {
+            kind: "release_zone" as const,
+            target: zone.name,
+            passes: observed?.passes ?? false,
+            observed: observed
+              ? `ink_ratio:${observed.inkRatio}`
+              : "pixel_measurement_missing",
+          }
+        }),
+      ]
+    : []
+  if (!intent) {
+    warnings.push(
+      "No design-intent manifest was supplied; visual inspection has no declared focal, release-zone, ink-role, or required-text targets."
+    )
+  } else {
+    const failures = intentChecks.filter((check) => !check.passes)
+    if (failures.length) {
+      warnings.push(
+        `${failures.length} declared design-intent check(s) did not pass the rendered candidate.`
+      )
+    }
+  }
+
   return {
     page: {
       id: page.id,
@@ -182,7 +304,14 @@ export function analyzeGeneratedCandidatePage(
       overlaps: overlaps.slice(0, 24),
       warnings,
       interpretation:
-        "Frames and density are renderer-independent composition aids. The attached PNG is the canonical visual authority for clipping, text layout, effects, and intentional overlap.",
+        "Frames and density are renderer-independent composition aids. pixelAnalysis is measured from the canonical thumbnail pixels. The attached full-size PNG remains the visual authority for clipping, text layout, effects, and intentional overlap.",
     },
+    designIntent: intent
+      ? {
+          declared: true,
+          passes: intentChecks.every((check) => check.passes),
+          checks: intentChecks,
+        }
+      : { declared: false, passes: false, checks: [] },
   }
 }

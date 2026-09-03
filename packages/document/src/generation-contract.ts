@@ -12,6 +12,7 @@ export const studioGenerationLimits = Object.freeze({
   maxPages: 20,
   maxOutputs: 20,
   maxNodes: 1_000,
+  maxRepeats: 100,
   maxGroups: 250,
   maxGroupDepth: 16,
   maxTypographyStyles: 100,
@@ -31,10 +32,10 @@ export const studioGenerationLimits = Object.freeze({
   maxPrinciplesPerGuide: 24,
   maxPrincipleCharacters: 500,
   maxIdempotencyKeyCharacters: 128,
-  // Three complete candidates are enough for propose, inspect, and two focused
-  // repair passes without allowing an unbounded renderer or Review loop.
-  maxCandidateReplacements: 2,
+  // One initial candidate and one focused replacement keep generation bounded.
+  maxCandidateReplacements: 1,
   maxPageDimension: renderPolicyLimits.maxPageDimension,
+  maxNodeDimension: renderPolicyLimits.maxNodeDimension,
   maxPagePixelArea: renderPolicyLimits.maxPagePixelArea,
 })
 
@@ -89,6 +90,12 @@ export const studioDesignPlanVocabulary = Object.freeze({
     ],
   },
   node: {
+    geometry: {
+      partialPageOverflow: true,
+      fullyOutsidePage: false,
+      behavior:
+        "Layers may cross a page edge for intentional clipping, but must intersect the page.",
+    },
     sharedProperties: [
       "localId",
       "pageLocalId",
@@ -130,7 +137,73 @@ export const studioDesignPlanVocabulary = Object.freeze({
         "paintStyleLocalId",
       ],
       image: ["assetId", "placement", "frameMask", "alt", "decorative"],
+      vector: [
+        "path",
+        "viewBox",
+        "fillRule",
+        "fill",
+        "stroke",
+        "strokeWidth",
+        "strokeOpacity",
+        "strokeAlignment",
+        "strokeDash",
+        "strokeCap",
+        "strokeJoin",
+        "strokeMiterLimit",
+        "paintStyleLocalId",
+      ],
+      polygon: [
+        "fill",
+        "pointCount",
+        "stroke",
+        "strokeWidth",
+        "paintStyleLocalId",
+      ],
+      star: [
+        "fill",
+        "pointCount",
+        "innerRadius",
+        "stroke",
+        "strokeWidth",
+        "paintStyleLocalId",
+      ],
+      frame: [
+        "fill",
+        "radius",
+        "stroke",
+        "strokeWidth",
+        "clipsContent",
+        "children",
+        "paintStyleLocalId",
+      ],
     },
+    advancedStrokeProperties: [
+      "strokeOpacity",
+      "strokeAlignment",
+      "strokeDash",
+      "strokeCap",
+      "strokeJoin",
+      "strokeMiterLimit",
+    ],
+  },
+  repeat: {
+    requestOnly: true,
+    expandsToEditableLayers: true,
+    kinds: ["linear", "grid", "radial"],
+    sourceRule:
+      "sourceNodeLocalId identifies the first instance; generated instances follow it in page and group order.",
+  },
+  designIntent: {
+    requestOnly: true,
+    pageProperties: [
+      "focalNodeLocalIds",
+      "releaseZones",
+      "inkRoles",
+      "requiredText",
+      "targetTypographyRatio",
+    ],
+    inspectionRule:
+      "Studio resolves local layer IDs, measures rendered pixels in declared release zones, and reports pass/fail checks before creation can be approved.",
   },
   resources: {
     groups: true,
@@ -166,6 +239,13 @@ export const studioGenerationCapabilities = Object.freeze({
   },
   approvedAssetRule:
     "Image layers and asset fields accept only asset IDs returned by Studio. URLs are provenance only.",
+  geometry: {
+    partialPageOverflow: true,
+    fullyOutsidePage: false,
+    maxNodeDimension: studioGenerationLimits.maxNodeDimension,
+    guidance:
+      "Place a layer partly outside the page for intentional bleed or edge cropping. Every generated layer must still intersect its page.",
+  },
   templateChanges: {
     targetDiscovery: "read_template.editableNodes",
     fieldValues: "Use field keys returned by read_template.fields.",

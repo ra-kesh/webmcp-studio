@@ -101,6 +101,7 @@ const basePlan = (): StudioDesignPlan => ({
       locked: false,
     },
   ],
+  repeats: [],
   groups: [
     {
       localId: "hero",

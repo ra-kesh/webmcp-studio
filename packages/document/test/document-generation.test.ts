@@ -70,6 +70,7 @@ const minimalBlankRequest = (): DocumentGenerationRequest => ({
           locked: false,
         },
       ],
+      repeats: [],
       groups: [],
       typographyStyles: [],
       paintStyles: [],
