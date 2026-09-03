@@ -19,6 +19,7 @@ import {
   AlignVerticalJustifyStart,
   AlignVerticalSpaceBetween,
   AlertTriangle,
+  CircleDot,
   BringToFront,
   Check,
   ChevronDown,
@@ -105,6 +106,10 @@ import type {
 import type { ImageCropPreviewStore } from "@webmcp/editor/image-crop-preview-store"
 import { BackgroundRemovalControl } from "./background-removal-control"
 import type { BackgroundRemovalModel } from "./use-background-removal"
+import {
+  emptyStudioWebMcpActivityStore,
+  type StudioWebMcpActivityStore,
+} from "./studio-webmcp-activity"
 import {
   createInspectorSelectionModel,
   deriveInspectorMaskCapabilities,
@@ -6015,6 +6020,7 @@ function ReviewPanel({
   isApplying,
   webMcpStatus,
   webMcpError,
+  webMcpActivity,
   onDecideOperation,
   onDecideAll,
   onApply,
@@ -6036,6 +6042,7 @@ function ReviewPanel({
   isApplying: boolean
   webMcpStatus: "unavailable" | "registering" | "ready" | "error"
   webMcpError: string | null
+  webMcpActivity: ReturnType<StudioWebMcpActivityStore["getSnapshot"]>
   onDecideOperation: (
     operationId: string,
     status: ChangeOperation["status"]
@@ -6047,7 +6054,6 @@ function ReviewPanel({
   onDiscardGeneratedDocument: () => void
   onFocusTarget: (target: ReviewAffectedTarget) => void
 }) {
-  const registeredToolNames = new Set(toolCatalog.map((tool) => tool.name))
   const [briefCopied, setBriefCopied] = useState(false)
   const acceptedCount =
     pendingChangeSet?.operations.filter(
@@ -6058,12 +6064,81 @@ function ReviewPanel({
       (operation) => operation.status !== "pending"
     ).length ?? 0
   const pendingReview = reviewJournal.pending
+  const hasActivity =
+    webMcpActivity.active.length > 0 || webMcpActivity.recent.length > 0
 
   const targetExists = (target: ReviewAffectedTarget) =>
     reviewTargetExists(navigationDocument, target)
 
   return (
     <div className="flex w-full min-w-0 flex-col overflow-hidden">
+      {hasActivity ? (
+        <>
+          <section
+            className="flex min-w-0 flex-col gap-2.5 overflow-hidden p-4"
+            aria-live="polite"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <h2 className="text-xs font-medium">ChatGPT activity</h2>
+                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                  Live WebMCP calls in this browser tab.
+                </p>
+              </div>
+              {webMcpActivity.active.length ? (
+                <Badge variant="secondary" className="gap-1.5">
+                  <span className="size-1.5 rounded-full bg-foreground motion-safe:animate-pulse" />
+                  Working
+                </Badge>
+              ) : (
+                <Badge variant="outline">Result sent</Badge>
+              )}
+            </div>
+            <div className="grid min-w-0 gap-1.5">
+              {webMcpActivity.active.map((activity) => (
+                <div
+                  key={activity.executionId}
+                  className="flex min-w-0 items-start gap-2 rounded-md bg-muted px-2.5 py-2"
+                >
+                  <CircleDot className="mt-0.5 size-3.5 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="truncate text-[11px] font-medium">
+                      {activity.title}
+                    </p>
+                    <p className="truncate font-mono text-[10px] text-muted-foreground">
+                      {activity.toolName}
+                    </p>
+                  </div>
+                </div>
+              ))}
+              {webMcpActivity.recent.map((activity) => (
+                <div
+                  key={activity.executionId}
+                  className="flex min-w-0 items-start gap-2 px-2.5 py-1"
+                >
+                  {activity.status === "succeeded" ? (
+                    <Check className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+                  ) : (
+                    <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-destructive" />
+                  )}
+                  <div className="min-w-0">
+                    <p className="truncate text-[11px]">{activity.title}</p>
+                    <p className="truncate font-mono text-[10px] text-muted-foreground">
+                      {activity.toolName}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {!webMcpActivity.active.length ? (
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                Studio is waiting for the next WebMCP call or a review proposal.
+              </p>
+            ) : null}
+          </section>
+          <Separator />
+        </>
+      ) : null}
       <section className="flex min-w-0 flex-col gap-3 overflow-hidden p-4">
         <div className="flex items-start gap-2.5">
           <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-secondary">
@@ -6419,7 +6494,7 @@ function ReviewPanel({
               </Button>
             </div>
           </>
-        ) : (
+        ) : webMcpActivity.active.length ? null : (
           <EditorPanelState
             icon={<ListChecks />}
             title="No changes waiting"
@@ -6518,41 +6593,28 @@ function ReviewPanel({
         ) : null}
       </section>
       <Separator />
-      <section className="flex min-w-0 flex-col gap-2.5 overflow-hidden p-4">
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <h2 className="text-xs font-medium">WebMCP tools on this route</h2>
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              The tools call the same product services as this editor.
-            </p>
-          </div>
+      <section className="flex min-w-0 items-center justify-between gap-3 overflow-hidden p-4">
+        <div className="min-w-0">
+          <h2 className="text-xs font-medium">WebMCP connection</h2>
+          <p className="mt-1 truncate text-[11px] text-muted-foreground">
+            {webMcpStatus === "ready"
+              ? `${toolCatalog.length} editor tools available`
+              : "Tool activity will appear above"}
+          </p>
+          {webMcpError ? (
+            <p className="mt-1 text-[11px] text-destructive">{webMcpError}</p>
+          ) : null}
+        </div>
+        <div className="shrink-0">
           <Badge variant={webMcpStatus === "ready" ? "secondary" : "outline"}>
             {webMcpStatus === "ready"
-              ? `${registeredToolNames.size} live`
+              ? "Ready"
               : webMcpStatus === "registering"
                 ? "Starting"
                 : webMcpStatus === "error"
                   ? "Error"
                   : "Unavailable"}
           </Badge>
-        </div>
-        {webMcpError ? (
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            {webMcpError}
-          </p>
-        ) : null}
-        <div className="flex flex-wrap gap-1.5">
-          {toolCatalog
-            .filter((tool) => registeredToolNames.has(tool.name))
-            .map((tool) => (
-              <Badge
-                key={tool.name}
-                variant="outline"
-                className="max-w-full font-mono text-[11px] break-all"
-              >
-                {tool.name}
-              </Badge>
-            ))}
         </div>
       </section>
     </div>
@@ -6597,6 +6659,7 @@ export function InspectorSidebar({
   isApplyingChangeSet,
   webMcpStatus,
   webMcpError,
+  webMcpActivityStore = emptyStudioWebMcpActivityStore,
   onUpdateNode,
   onPreviewNodePatch = ignoreNodePatch,
   onCancelNodePreview = ignoreNodePreviewCancel,
@@ -6681,6 +6744,7 @@ export function InspectorSidebar({
   isApplyingChangeSet: boolean
   webMcpStatus: "unavailable" | "registering" | "ready" | "error"
   webMcpError: string | null
+  webMcpActivityStore?: StudioWebMcpActivityStore
   onUpdateNode: (nodeId: string, patch: Partial<SceneNode>) => void
   onPreviewNodePatch?: (nodeId: string, patch: Partial<SceneNode>) => void
   onCancelNodePreview?: (nodeId: string) => void
@@ -6830,10 +6894,23 @@ export function InspectorSidebar({
   const inspectorRootRef = useRef<HTMLElement>(null)
   const previousSelectedNodeIdRef = useRef(selectedNode?.id)
   const reviewPending = Boolean(pendingChangeSet || pendingGeneratedDocument)
+  const webMcpActivity = useSyncExternalStore(
+    webMcpActivityStore.subscribe,
+    webMcpActivityStore.getSnapshot,
+    webMcpActivityStore.getSnapshot
+  )
+  const hasActiveWebMcpActivity = webMcpActivity.active.length > 0
+  const hasActiveWebMcpMutation = webMcpActivity.active.some(
+    (activity) => !activity.readOnly
+  )
 
   useEffect(() => {
     if (pendingChangeSet || pendingGeneratedDocument) setActiveTab("review")
   }, [pendingChangeSet, pendingGeneratedDocument])
+
+  useEffect(() => {
+    if (hasActiveWebMcpMutation) setActiveTab("review")
+  }, [hasActiveWebMcpMutation])
 
   useEffect(() => {
     if (!focusFieldId || pendingChangeSet || pendingGeneratedDocument) return
@@ -6912,7 +6989,15 @@ export function InspectorSidebar({
           <TabsTrigger value="data" disabled={reviewPending}>
             Data
           </TabsTrigger>
-          <TabsTrigger value="review">Review</TabsTrigger>
+          <TabsTrigger value="review" className="gap-1.5">
+            Review
+            {hasActiveWebMcpActivity ? (
+              <span
+                className="size-1.5 rounded-full bg-foreground motion-safe:animate-pulse"
+                aria-label="WebMCP tool running"
+              />
+            ) : null}
+          </TabsTrigger>
         </EditorPanelTabsList>
         <TabsContent value="design" className="min-h-0">
           <ScrollArea className="h-full" viewportClassName="pr-2.5 pb-3">
@@ -7065,6 +7150,7 @@ export function InspectorSidebar({
               isApplying={isApplyingChangeSet}
               webMcpStatus={webMcpStatus}
               webMcpError={webMcpError}
+              webMcpActivity={webMcpActivity}
               onDecideOperation={onDecideChangeOperation}
               onDecideAll={onDecideAllChangeOperations}
               onApply={onApplyChangeSet}

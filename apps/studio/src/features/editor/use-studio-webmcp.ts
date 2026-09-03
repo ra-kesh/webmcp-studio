@@ -22,6 +22,7 @@ import type {
 import type { StudioAsset } from "./asset-catalog"
 import { createManagedWebMcpCatalog } from "./managed-webmcp-catalog"
 import type { ManagedWebMcpCatalog } from "./managed-webmcp-catalog"
+import { createStudioWebMcpActivityStore } from "./studio-webmcp-activity"
 import {
   prepareManagedMediaUpload,
   uploadManagedMedia,
@@ -192,6 +193,13 @@ export function useStudioWebMcp(
 ) {
   const servicesRef = useRef(services)
   servicesRef.current = services
+  const activityStoreRef = useRef(
+    null as ReturnType<typeof createStudioWebMcpActivityStore> | null
+  )
+  if (!activityStoreRef.current) {
+    activityStoreRef.current = createStudioWebMcpActivityStore()
+  }
+  const activityStore = activityStoreRef.current
   const [status, setStatus] = useState<WebMcpStatus>("unavailable")
   const [error, setError] = useState<string | null>(null)
   const [registeredToolCount, setRegisteredToolCount] = useState(0)
@@ -282,6 +290,7 @@ export function useStudioWebMcp(
           registerStudioWebMcpTools(
             modelContext,
             {
+              onToolActivity: (activity) => activityStore.publish(activity),
               getSnapshot: () =>
                 projectStudioWebMcpSnapshot(servicesRef.current),
               searchAssets: (input, signal) =>
@@ -427,7 +436,7 @@ export function useStudioWebMcp(
       window.clearInterval(interval)
       retireRegistration()
     }
-  }, [enabled])
+  }, [activityStore, enabled])
 
-  return { status, error, registeredToolCount }
+  return { status, error, registeredToolCount, activityStore }
 }

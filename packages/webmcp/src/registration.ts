@@ -440,6 +440,7 @@ export type StudioWebMcpMediaDerivationMutation =
     }>
 
 export type StudioWebMcpServices = {
+  onToolActivity?(activity: StudioWebMcpToolActivity): void
   getSnapshot(): StudioWebMcpSnapshot
   searchAssets(
     input: StudioWebMcpAssetSearchInput,
@@ -526,6 +527,16 @@ export type StudioWebMcpServices = {
   id(): string
   now(): string
 }
+
+export type StudioWebMcpToolActivity = Readonly<{
+  executionId: string
+  toolName: string
+  title: string
+  readOnly: boolean
+  status: "running" | "succeeded" | "failed"
+  startedAt: string
+  finishedAt?: string
+}>
 
 export type StudioWebMcpProposalProvenance = Readonly<{
   source: "webmcp"
@@ -626,9 +637,17 @@ const waitForWebMcpExecution = <T>(
 
 const ownWebMcpToolExecution = (
   tool: WebMcpTool,
-  registrationSignal?: AbortSignal
+  registrationSignal: AbortSignal | undefined,
+  services: Pick<StudioWebMcpServices, "id" | "now" | "onToolActivity">
 ): WebMcpTool => {
   const execute = tool.execute
+  const emitActivity = (activity: StudioWebMcpToolActivity) => {
+    try {
+      services.onToolActivity?.(activity)
+    } catch {
+      // Activity reporting must never interfere with the tool call itself.
+    }
+  }
   return {
     ...tool,
     execute: async (input) => {
@@ -640,6 +659,16 @@ const ownWebMcpToolExecution = (
           )
         )
       }
+      const executionId = services.id()
+      const startedAt = services.now()
+      const activity = {
+        executionId,
+        toolName: tool.name,
+        title: tool.title ?? tool.name,
+        readOnly: tool.annotations?.readOnlyHint === true,
+        startedAt,
+      }
+      emitActivity({ ...activity, status: "running" })
       const controller = new AbortController()
       const abortFromRegistration = () =>
         controller.abort(
@@ -657,16 +686,22 @@ const ownWebMcpToolExecution = (
         WEBMCP_TOOL_EXECUTION_TIMEOUT_MS
       )
       try {
-        return await waitForWebMcpExecution(
+        const result = await waitForWebMcpExecution(
           Promise.resolve(execute(input, { signal: controller.signal })),
           controller.signal
         )
+        emitActivity({
+          ...activity,
+          status: result.isError ? "failed" : "succeeded",
+          finishedAt: services.now(),
+        })
+        return result
       } catch {
         const statusUnknown =
           tool.name === "publish_template" ||
           tool.name === "render_template" ||
           tool.name === "manage_background_removal"
-        return errorResult(
+        const result = errorResult(
           new DesignQueryError(
             statusUnknown ? "execution_status_unknown" : "execution_cancelled",
             tool.name === "manage_background_removal"
@@ -676,6 +711,12 @@ const ownWebMcpToolExecution = (
                 : "This WebMCP operation stopped before it could be confirmed. Inspect the current Studio session and retry."
           )
         )
+        emitActivity({
+          ...activity,
+          status: "failed",
+          finishedAt: services.now(),
+        })
+        return result
       } finally {
         clearTimeout(timer)
         registrationSignal?.removeEventListener("abort", abortFromRegistration)
@@ -7072,7 +7113,7 @@ export function studioWebMcpTools(
       )
     : uploadTools
   return publicTools.map((tool) =>
-    ownWebMcpToolExecution(tool, registrationSignal)
+    ownWebMcpToolExecution(tool, registrationSignal, services)
   )
 }
 

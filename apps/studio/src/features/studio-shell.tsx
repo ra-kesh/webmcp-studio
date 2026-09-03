@@ -6151,6 +6151,7 @@ export function StudioShell({
                   isApplyingChangeSet={editor.isApplyingChangeSet}
                   webMcpStatus={webMcp.status}
                   webMcpError={webMcp.error}
+                  webMcpActivityStore={webMcp.activityStore}
                   onUpdateNode={guardSelectionCanvasMutation(updateNode)}
                   onPreviewNodePatch={(nodeId, patch) =>
                     artboardRef.current?.previewNodePatch(nodeId, patch)
@@ -6516,6 +6517,7 @@ export function StudioShell({
                 isApplyingChangeSet={editor.isApplyingChangeSet}
                 webMcpStatus={webMcp.status}
                 webMcpError={webMcp.error}
+                webMcpActivityStore={webMcp.activityStore}
                 onUpdateNode={guardSelectionCanvasMutation(updateNode)}
                 onPreviewNodePatch={(nodeId, patch) =>
                   artboardRef.current?.previewNodePatch(nodeId, patch)
