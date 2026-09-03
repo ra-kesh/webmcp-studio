@@ -1273,6 +1273,36 @@ const nextPaintId = (prefix: "fill" | "stroke", ids: readonly string[]) => {
   return `${prefix}-${index}`
 }
 
+const straightLinePatch = (
+  node: Extract<InspectorPaintNode, { type: "line" }>,
+  direction: "horizontal" | "vertical"
+) => {
+  const radians = (node.rotation * Math.PI) / 180
+  const deltaX =
+    node.width * Math.cos(radians) - node.height * Math.sin(radians)
+  const deltaY =
+    node.width * Math.sin(radians) + node.height * Math.cos(radians)
+  const centerX = node.x + deltaX / 2
+  const centerY = node.y + deltaY / 2
+  const length = Math.hypot(node.width, node.height)
+
+  return direction === "horizontal"
+    ? {
+        x: centerX - length / 2,
+        y: centerY,
+        width: length,
+        height: 0,
+        rotation: 0,
+      }
+    : {
+        x: centerX,
+        y: centerY - length / 2,
+        width: 0,
+        height: length,
+        rotation: 0,
+      }
+}
+
 function StrokeAdvancedControls({
   node,
   paint,
@@ -1295,6 +1325,56 @@ function StrokeAdvancedControls({
     bottom: true,
     left: true,
   }
+  const updateDash = (value: string) => {
+    const dash = value
+      .trim()
+      .split(/[\s,]+/)
+      .filter(Boolean)
+      .map(Number)
+      .filter((segment) => Number.isFinite(segment) && segment >= 0)
+      .slice(0, 16)
+    if (dash.length === 0 || dash.some((segment) => segment > 0)) {
+      onChange({ ...paint, dash })
+    }
+  }
+
+  if (node.type === "line") {
+    return (
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <div className="min-w-0 space-y-1">
+          <FieldLabel>Line ends</FieldLabel>
+          <Select
+            value={paint.cap ?? "butt"}
+            onValueChange={(cap) => {
+              if (cap === "butt" || cap === "round" || cap === "square") {
+                onChange({ ...paint, cap })
+              }
+            }}
+          >
+            <SelectTrigger aria-label="Line end shape" disabled={node.locked}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="butt">Flat</SelectItem>
+              <SelectItem value="round">Round</SelectItem>
+              <SelectItem value="square">Square</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="min-w-0 space-y-1">
+          <FieldLabel>Dash pattern</FieldLabel>
+          <CommitInput
+            aria-label="Stroke dash pattern"
+            disabled={node.locked}
+            placeholder="Solid"
+            value={(paint.dash ?? []).join(" ")}
+            onCommit={updateDash}
+          />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="mt-2 space-y-2">
       <div className="grid grid-cols-3 gap-2">
@@ -1353,18 +1433,7 @@ function StrokeAdvancedControls({
           disabled={node.locked}
           placeholder="Solid"
           value={(paint.dash ?? []).join(" ")}
-          onCommit={(value) => {
-            const dash = value
-              .trim()
-              .split(/[\s,]+/)
-              .filter(Boolean)
-              .map(Number)
-              .filter((segment) => Number.isFinite(segment) && segment >= 0)
-              .slice(0, 16)
-            if (dash.length === 0 || dash.some((segment) => segment > 0)) {
-              onChange({ ...paint, dash })
-            }
-          }}
+          onCommit={updateDash}
         />
         <InspectorNumberField
           label="Miter"
@@ -1781,32 +1850,42 @@ function PaintStackControls({
                 {paint.type.replaceAll("_", " ")}
               </span>
             )}
-            <Button
-              aria-label={`Move ${kind} ${index + 1} up`}
-              disabled={node.locked || index === 0}
-              size="icon-xs"
-              variant="ghost"
-              onClick={() => {
-                const next = [...paints]
-                ;[next[index - 1], next[index]] = [next[index], next[index - 1]]
-                updateList(kind, next)
-              }}
-            >
-              <ChevronUp />
-            </Button>
-            <Button
-              aria-label={`Move ${kind} ${index + 1} down`}
-              disabled={node.locked || index === paints.length - 1}
-              size="icon-xs"
-              variant="ghost"
-              onClick={() => {
-                const next = [...paints]
-                ;[next[index], next[index + 1]] = [next[index + 1], next[index]]
-                updateList(kind, next)
-              }}
-            >
-              <ChevronDown />
-            </Button>
+            {paints.length > 1 ? (
+              <>
+                <Button
+                  aria-label={`Move ${kind} ${index + 1} up`}
+                  disabled={node.locked || index === 0}
+                  size="icon-xs"
+                  variant="ghost"
+                  onClick={() => {
+                    const next = [...paints]
+                    ;[next[index - 1], next[index]] = [
+                      next[index],
+                      next[index - 1],
+                    ]
+                    updateList(kind, next)
+                  }}
+                >
+                  <ChevronUp />
+                </Button>
+                <Button
+                  aria-label={`Move ${kind} ${index + 1} down`}
+                  disabled={node.locked || index === paints.length - 1}
+                  size="icon-xs"
+                  variant="ghost"
+                  onClick={() => {
+                    const next = [...paints]
+                    ;[next[index], next[index + 1]] = [
+                      next[index + 1],
+                      next[index],
+                    ]
+                    updateList(kind, next)
+                  }}
+                >
+                  <ChevronDown />
+                </Button>
+              </>
+            ) : null}
             <Button
               aria-label={`Remove ${kind} ${index + 1}`}
               disabled={node.locked}
@@ -1888,31 +1967,34 @@ function PaintStackControls({
               }
             />
           ) : null}
-          <Select
-            value={paint.blendMode ?? "normal"}
-            disabled={node.locked}
-            onValueChange={(blendMode: BlendMode) =>
-              updateList(
-                kind,
-                paints.map((candidate, candidateIndex) =>
-                  candidateIndex === index
-                    ? { ...candidate, blendMode }
-                    : candidate
+          <div className="mt-2 min-w-0 space-y-1">
+            <FieldLabel>Blend mode</FieldLabel>
+            <Select
+              value={paint.blendMode ?? "normal"}
+              disabled={node.locked}
+              onValueChange={(blendMode: BlendMode) =>
+                updateList(
+                  kind,
+                  paints.map((candidate, candidateIndex) =>
+                    candidateIndex === index
+                      ? { ...candidate, blendMode }
+                      : candidate
+                  )
                 )
-              )
-            }
-          >
-            <SelectTrigger aria-label={`${kind} ${index + 1} blend mode`}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {BLEND_MODE_OPTIONS.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+              }
+            >
+              <SelectTrigger aria-label={`${kind} ${index + 1} blend mode`}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {BLEND_MODE_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       ))}
     </div>
@@ -2744,7 +2826,7 @@ function NodeInspector({
             label="Width"
             compactLabel="W"
             value={inspector.values.width}
-            min={1}
+            min={node.type === "line" ? 0 : 1}
             disabled={node.locked || textWidthIsManaged}
             onPreview={(width) => onPreview({ width })}
             onPreviewCancel={onCancelPreview}
@@ -2754,7 +2836,7 @@ function NodeInspector({
             label="Height"
             compactLabel="H"
             value={inspector.values.height}
-            min={1}
+            min={node.type === "line" ? 0 : 1}
             disabled={node.locked || textHeightIsManaged}
             onPreview={(height) => onPreview({ height })}
             onPreviewCancel={onCancelPreview}
@@ -2780,6 +2862,35 @@ function NodeInspector({
             }
           />
         </div>
+        {node.type === "line" ? (
+          <div className="grid gap-1.5">
+            <FieldLabel>Straighten</FieldLabel>
+            <div
+              className="grid grid-cols-2 gap-1"
+              role="toolbar"
+              aria-label="Straighten line"
+            >
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={nodeMutationDisabled}
+                onClick={() => onUpdate(straightLinePatch(node, "horizontal"))}
+              >
+                Horizontal
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={nodeMutationDisabled}
+                onClick={() => onUpdate(straightLinePatch(node, "vertical"))}
+              >
+                Vertical
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </InspectorSection>
 
       <InspectorSection

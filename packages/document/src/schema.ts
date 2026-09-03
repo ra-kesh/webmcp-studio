@@ -564,6 +564,8 @@ export const sceneNodePatchSchema = z
       strokes: strokePaintsSchema.optional(),
     }),
     baseNodePatchSchema.extend({
+      width: z.number().nonnegative().optional(),
+      height: z.number().nonnegative().optional(),
       paintStyleId: id.optional(),
       stroke: z.string().optional(),
       strokeWidth: z.number().positive().optional(),
@@ -787,6 +789,8 @@ export const sceneNodeSchema = z
     }),
     baseNodeSchema.extend({
       type: z.literal("line"),
+      width: z.number().nonnegative(),
+      height: z.number().nonnegative(),
       paintStyleId: id.optional(),
       stroke: z.string(),
       strokeWidth: z.number().positive().default(2),
@@ -837,6 +841,13 @@ export const sceneNodeSchema = z
     booleanResultNodeSchema,
   ])
   .superRefine((node, context) => {
+    if (node.type === "line" && node.width === 0 && node.height === 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["width"],
+        message: "A line must have length on at least one axis",
+      })
+    }
     if (
       (node.type === "rect" || node.type === "frame") &&
       node.independentCorners &&

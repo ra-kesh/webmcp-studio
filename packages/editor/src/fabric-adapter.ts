@@ -984,6 +984,7 @@ function textResizeBaselineAnchor(
 export function fabricObjectToNodePatch(
   object: FabricObject
 ): Pick<SceneNode, "x" | "y" | "width" | "height" | "rotation"> {
+  const line = object instanceof Line
   const objectPosition = object.group
     ? object.getXY()
     : { x: object.left ?? 0, y: object.top ?? 0 }
@@ -1039,19 +1040,19 @@ export function fabricObjectToNodePatch(
     x: round(position.x),
     y: round(position.y),
     width: Math.max(
-      1,
+      line ? 0 : 1,
       round(
         borderedShape
           ? (object.getScaledWidth() / ownScaleX) * worldScaleX
-          : (fixedTextFrame?.width || object.width || 1) * worldScaleX
+          : (fixedTextFrame?.width ?? object.width ?? 1) * worldScaleX
       )
     ),
     height: Math.max(
-      1,
+      line ? 0 : 1,
       round(
         borderedShape
           ? (object.getScaledHeight() / ownScaleY) * worldScaleY
-          : (fixedTextFrame?.height || object.height || 1) * worldScaleY
+          : (fixedTextFrame?.height ?? object.height ?? 1) * worldScaleY
       )
     ),
     rotation: round(normalizeDegrees(object.getTotalAngle())),
