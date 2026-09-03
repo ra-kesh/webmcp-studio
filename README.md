@@ -1,10 +1,18 @@
-# WebMCP visual document studio
+# ZeroEdit
 
-An open-source, programmable visual document editor for service businesses.
+An open-source visual document editor designed for agents and humans to work on
+the same editable canvas.
 
-The product turns a client brief into a coordinated visual pack, lets an agent propose changes against the live document, gives the human operation-level review, then publishes the approved design as an immutable API template.
+ZeroEdit exposes its editing workflow through WebMCP. An agent can inspect a
+document, assemble editable layers, render and inspect a candidate, and present
+the proposed change for human review before it becomes the working document.
+The same document can then be edited manually and exported as PNG or PDF.
 
-The challenge demo uses synthetic data for a fictional wedding photography studio. No private studio code, customer data, or assets belong in this repository.
+Try the public demo at [zeroedit.app](https://zeroedit.app). Demo workspaces are
+temporary and require no account.
+
+This repository contains only the generic editor and synthetic demo data. It
+does not contain customer data or private application code.
 
 ## What runs today
 
@@ -12,14 +20,12 @@ The challenge demo uses synthetic data for a fictional wedding photography studi
 - Bun workspace without Turborepo
 - shared shadcn/ui package using Radix Nova, Geist Sans, and Geist Mono
 - canonical TypeScript document schema, commands, bindings, validation, and tests
-- seven-artboard synthetic proposal pack shared by UI and renderer
 - Fabric-powered editor with drag, resize, rotate, inline text editing, selection,
   layers, property controls, shared fields, zoom, PNG export, and review
 - canonical undo/redo, batched multi-object edits, keyboard controls, and resilient
   local draft autosave
-- live, abortable WebMCP registration for inspection, validation, and
-  reviewable shared-field, canvas, and output-variant proposals, plus explicit
-  immutable publishing
+- live WebMCP tools for document inspection, editable generation, rendered
+  candidate inspection, review, asset upload, and explicit publishing
 - published-version API playground with strict parameter materialization,
   multi-output requests, downloadable artifacts, and render history
 - D1-backed immutable template versions, idempotent render jobs, failure state,
