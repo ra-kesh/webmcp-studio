@@ -12,11 +12,11 @@
 
 ## Endpoints
 
-### Compose a Stuwiz quotation
+### Compose an external quotation
 
 `POST /v1/studio/quotation-compositions`
 
-This is the source-to-canvas boundary. Stuwiz sends the complete canonical
+This is the source-to-canvas boundary. An external system sends the canonical
 quotation snapshot, quote metadata, and organization branding. Studio validates
 that payload, chooses a visual template, derives the required page count, and
 returns an editable materialized document.
@@ -28,7 +28,7 @@ returns an editable materialized document.
   "payload": {
     "contractVersion": 1,
     "source": {
-      "type": "stuwiz.quotation",
+      "type": "external.quotation",
       "quotationId": "quote_01J...",
       "revision": 3
     },
@@ -72,7 +72,7 @@ returns an editable materialized document.
 
 The shortened arrays above show placement only; the schema requires at least one
 participant, event, and package, and exactly three payment milestones. See
-[`stuwiz-quotation-composition.md`](./stuwiz-quotation-composition.md) for the
+the quotation composition contract for the
 ownership and pagination rules.
 
 `GET /v1/studio/quotation-compositions` returns the available visual templates.
@@ -191,7 +191,7 @@ Each parameter includes:
 
 The initial public types are `text`, `number`, `currency`, `date`, `asset`,
 `color`, `choice`, and `boolean`. Currency amounts are canonical decimal
-strings in INR for the Stuwiz quotation contract; the display layer applies
+strings in INR for the quotation contract; the display layer applies
 Indian grouping and the rupee symbol. Dates use ISO `YYYY-MM-DD`. Asset values
 use approved catalog IDs at the API/WebMCP boundary, while Studio privately
 resolves renderer sources. Choice values must match the published option list,

@@ -1042,7 +1042,7 @@ const optionalAssetReferenceSchema = z
 const DECIMAL_CURRENCY = /^-?(?:0|[1-9]\d*)(?:\.\d{1,2})?$/
 const WESTERN_GROUPED_CURRENCY = /^\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?$/
 const INDIAN_GROUPED_CURRENCY = /^\d{1,3}(?:,\d{2})*,\d{3}(?:\.\d{1,2})?$/
-// FIELD-01 deliberately models Stuwiz quotation money as INR. Accepting an
+// FIELD-01 deliberately models quotation money as INR. Accepting an
 // arbitrary currency affix without storing that identity would let a later
 // normalization silently turn USD/EUR into INR.
 const CURRENCY_AFFIX = /^(?:INR|₹)$/

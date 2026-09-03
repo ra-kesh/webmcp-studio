@@ -4407,7 +4407,7 @@ describe.sequential("useDocumentEditor repository persistence", () => {
       envelope.sourceContext?.quotationSource
     )
     expect(captured.current?.documentError).toContain(
-      "belongs to another Stuwiz quotation"
+      "belongs to another source quotation"
     )
     expect(save).not.toHaveBeenCalled()
     const durable = await readRecord(hookRepository, activeDocumentId)
@@ -4463,7 +4463,7 @@ describe.sequential("useDocumentEditor repository persistence", () => {
     const incoming = structuredClone(quotationStarter.source)
     incoming.source.revision += 1
     incoming.quote.quoteVersion += 1
-    incoming.document.events[0].location = "Stuwiz-updated venue"
+    incoming.document.events[0].location = "Source-updated venue"
 
     let imported = false
     await act(async () => {

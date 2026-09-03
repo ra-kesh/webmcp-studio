@@ -603,7 +603,7 @@ const actionDefinitions: Record<
     label: "Import quotation source…",
     category: "file",
     subgroup: "import",
-    keywords: ["stuwiz", "proposal"],
+    keywords: ["quotation", "proposal"],
     scope: "document",
     mutating: true,
     icon: "document",

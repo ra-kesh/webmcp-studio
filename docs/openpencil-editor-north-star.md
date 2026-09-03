@@ -96,7 +96,7 @@ Reference files:
 - Quotation data remains source-controlled. Changing templates changes the
   visual system, not commercial content.
 - The document schema must support deterministic multi-page composition and the
-  Stuwiz quotation contract.
+  external quotation contract.
 - API rendering, field binding, revisions, review, and agent change sets are
   first-class product capabilities, not add-ons to a generic canvas.
 - We use React, TanStack Start, Fabric, and Cloudflare Workers; OpenPencil's Vue,

@@ -4344,7 +4344,7 @@ export class DocumentDraftRepository {
           failure: {
             kind: "validation_failed",
             message:
-              "Reject the pending Stuwiz refresh before saving this conflicted document as a copy. The pending source and decisions were preserved.",
+              "Reject the pending source refresh before saving this conflicted document as a copy. The pending source and decisions were preserved.",
           },
         }
       }

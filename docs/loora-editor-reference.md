@@ -10,7 +10,7 @@ Reference checkout: `/Users/rakesh/Documents/Codex/2026-08-26/https-openai-com-w
 - **Loora:** transaction architecture, agent/API control, gestures, command and context menus, history, synchronization, and renderer verification.
 - **Canva:** templates, accessibility, and ease of use.
 - **Orshot:** external generation API and render-job workflow.
-- **Studio:** quotation and Stuwiz contracts, deterministic multi-page documents, document/image templates, PDF and image exports, and batch generation.
+- **Studio:** external quotation contracts, deterministic multi-page documents, document/image templates, PDF and image exports, and batch generation.
 
 ## Code areas to revisit by phase
 

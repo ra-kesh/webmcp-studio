@@ -148,7 +148,8 @@ async function measureWarmWorker50ItemMedian(page: Page) {
   const templateSeed = warmupBody.page.items.find(
     (item) => item.itemKind === "template"
   )
-  if (!templateSeed) throw new Error("The Worker catalog has no template fixture")
+  if (!templateSeed)
+    throw new Error("The Worker catalog has no template fixture")
 
   const durations: number[] = []
   for (let iteration = 0; iteration < 7; iteration += 1) {
@@ -289,7 +290,7 @@ test("catalog renders real previews and separates confirmed apply from fresh cre
   await expect(confirmation).toContainText("Pages")
   await expect(confirmation).toContainText("6 → 1")
   await expect(confirmation).toContainText(
-    "The current Stuwiz quotation will be disconnected"
+    "The current source quotation will be disconnected"
   )
   await confirmation.getByRole("button", { name: "Apply template" }).click()
 

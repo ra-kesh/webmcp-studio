@@ -76,6 +76,10 @@
     {
       "name": "0019_media_derivation_mutation_receipts.sql",
       "sha256": "cd3d5cdcdcdb7a65c2eee690b6d1bf765ff31dcf84531926561726a23098c1ad"
+    },
+    {
+      "name": "0020_studio_composition_handoffs.sql",
+      "sha256": "d8860b10b8c13378ab2b31cf23a0b996e37b0cbd210ee2c83ba55beb786e53a4"
     }
   ]
 }

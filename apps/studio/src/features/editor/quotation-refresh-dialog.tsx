@@ -98,7 +98,7 @@ export function QuotationRefreshDialog({
               <DatabaseZap aria-hidden="true" />
             </AlertDialogMedia>
             <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <AlertDialogTitle>Review Stuwiz changes</AlertDialogTitle>
+              <AlertDialogTitle>Review source changes</AlertDialogTitle>
               <Badge
                 aria-label={`Revision ${pending.base.sourceRevision} to ${pending.incoming.sourceRevision}`}
                 variant="secondary"
@@ -109,9 +109,9 @@ export function QuotationRefreshDialog({
               </Badge>
             </div>
             <AlertDialogDescription className="max-w-[62ch] text-left">
-              Studio compared the saved Stuwiz source, your current design, and
-              the incoming source. Upstream-only changes are ready. Your canvas
-              edits stay in place unless you choose the Stuwiz value below.
+              Studio compared the saved source, your current design, and the
+              incoming source. Upstream-only changes are ready. Your canvas
+              edits stay in place unless you choose the source value below.
             </AlertDialogDescription>
           </AlertDialogHeader>
         </div>
@@ -202,7 +202,7 @@ export function QuotationRefreshDialog({
                     Decisions
                   </h3>
                   <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    These layers changed in Studio and Stuwiz. Choose which
+                    These layers changed in Studio and the source. Choose which
                     value should win for each layer.
                   </p>
                 </div>
@@ -229,7 +229,7 @@ export function QuotationRefreshDialog({
                           </p>
                           <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
                             {conflict.kind === "edited_then_removed"
-                              ? "Removed in Stuwiz after you edited it in Studio"
+                              ? "Removed at the source after you edited it in Studio"
                               : `Both changed ${conflict.properties
                                   .map(propertyLabel)
                                   .join(", ")}`}
@@ -241,7 +241,7 @@ export function QuotationRefreshDialog({
                           onValueChange={(value) => {
                             if (
                               value === "preserve_studio" ||
-                              value === "use_stuwiz"
+                              value === "use_source"
                             ) {
                               void choose(conflict.semanticKey, value)
                             }
@@ -255,8 +255,8 @@ export function QuotationRefreshDialog({
                           <ToggleGroupItem value="preserve_studio">
                             Keep Studio
                           </ToggleGroupItem>
-                          <ToggleGroupItem value="use_stuwiz">
-                            Use Stuwiz
+                          <ToggleGroupItem value="use_source">
+                            Use source
                           </ToggleGroupItem>
                         </ToggleGroup>
                       </div>

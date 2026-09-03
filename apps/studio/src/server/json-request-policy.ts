@@ -4,12 +4,20 @@ import type { ReadJsonBodyOptions } from "@webmcp/worker-boundary"
 export const LIBRARY_COLLECTION_REORDER_MAX_BYTES = 132_000
 
 export const studioJsonRequestPolicies = {
+  "/v1/integrations/composition-handoffs": {
+    maxBytes: 2_000_000,
+    requireContentLength: true,
+  },
   "/v1/studio/export-png": {
     maxBytes: 8_000_000,
     requireContentLength: true,
   },
   "/v1/studio/export-pdf": {
     maxBytes: 8_000_000,
+    requireContentLength: true,
+  },
+  "/v1/studio/figma-handoffs": {
+    maxBytes: 16_000_000,
     requireContentLength: true,
   },
   "/v1/studio/page-thumbnail": {

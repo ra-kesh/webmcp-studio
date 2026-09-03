@@ -229,7 +229,7 @@ function validateQuotationRefreshOwnership(
     pending.incoming.sourceRevision <= pending.base.sourceRevision
   ) {
     return schemaFailure(
-      "The pending quotation refresh must advance the same Stuwiz quotation."
+      "The pending quotation refresh must advance the same source quotation."
     )
   }
   const source = sourceContext?.quotationSource

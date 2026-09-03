@@ -44,7 +44,7 @@ export type QuotationRefreshImpact = Readonly<{
   conflicts: readonly QuotationRefreshConflict[]
 }>
 
-export type QuotationRefreshConflictPolicy = "preserve_studio" | "use_stuwiz"
+export type QuotationRefreshConflictPolicy = "preserve_studio" | "use_source"
 
 export type PreparedQuotationRefresh = Readonly<{
   document: Document
@@ -229,7 +229,7 @@ function mergeGeneratedNode(
 ) {
   if (oldNode.type !== currentNode.type || oldNode.type !== nextNode.type) {
     return {
-      node: policy === "use_stuwiz" ? nextNode : currentNode,
+      node: policy === "use_source" ? nextNode : currentNode,
       sourceChanged: true,
       manualChanged: true,
       conflict: {
@@ -264,7 +264,7 @@ function mergeGeneratedNode(
         conflicts.push(property)
       }
       result[property] =
-        policy === "use_stuwiz" ? nextRecord[property] : currentRecord[property]
+        policy === "use_source" ? nextRecord[property] : currentRecord[property]
     } else if (studioDidChange) {
       result[property] = currentRecord[property]
     }
@@ -382,12 +382,12 @@ export function prepareQuotationRefresh(
   )
   if (currentSource.source.quotationId !== incomingSource.source.quotationId) {
     throw new Error(
-      "A quotation refresh must keep the same Stuwiz quotation ID."
+      "A quotation refresh must keep the same source quotation ID."
     )
   }
   if (incomingSource.source.revision <= currentSource.source.revision) {
     throw new Error(
-      "A quotation refresh requires a newer Stuwiz document revision."
+      "A quotation refresh requires a newer source document revision."
     )
   }
   const policy = options.conflictPolicy ?? "preserve_studio"
@@ -504,7 +504,7 @@ export function prepareQuotationRefresh(
         properties,
       })
       if (
-        (options.collisionChoices?.[semanticKey] ?? policy) === "use_stuwiz"
+        (options.collisionChoices?.[semanticKey] ?? policy) === "use_source"
       ) {
         const id = uniqueNodeId(nextNode.id, semanticKey, occupiedNodeIds)
         resultNodeById.set(id, { ...nextNode, id })
@@ -542,7 +542,7 @@ export function prepareQuotationRefresh(
     const properties = changedProperties(oldNode, currentNode)
     if (
       !properties.length ||
-      (options.collisionChoices?.[semanticKey] ?? policy) === "use_stuwiz"
+      (options.collisionChoices?.[semanticKey] ?? policy) === "use_source"
     ) {
       removedSourceLayers += 1
       continue
@@ -707,9 +707,13 @@ export function prepareQuotationRefresh(
         const effectiveCurrentNodeIds = [...currentGroup.nodeIds]
         for (const incomingNodeId of nextGroup.nodeIds) {
           const restoredKey = nextNodeKeyById.get(incomingNodeId)
-          if (!restoredKey || !restoredDeletedNodeKeys.has(restoredKey)) continue
+          if (!restoredKey || !restoredDeletedNodeKeys.has(restoredKey))
+            continue
           const restoredNodeId = resultNodeIdBySemanticKey.get(restoredKey)
-          if (!restoredNodeId || effectiveCurrentNodeIds.includes(restoredNodeId)) {
+          if (
+            !restoredNodeId ||
+            effectiveCurrentNodeIds.includes(restoredNodeId)
+          ) {
             continue
           }
           const incomingIndex = nextGroup.nodeIds.indexOf(incomingNodeId)
@@ -717,14 +721,18 @@ export function prepareQuotationRefresh(
             .slice(0, incomingIndex)
             .reverse()
             .map((nodeId) => nextNodeKeyById.get(nodeId))
-            .map((key) => (key ? resultNodeIdBySemanticKey.get(key) : undefined))
+            .map((key) =>
+              key ? resultNodeIdBySemanticKey.get(key) : undefined
+            )
             .find((nodeId) =>
               nodeId ? effectiveCurrentNodeIds.includes(nodeId) : false
             )
           const nextResultId = nextGroup.nodeIds
             .slice(incomingIndex + 1)
             .map((nodeId) => nextNodeKeyById.get(nodeId))
-            .map((key) => (key ? resultNodeIdBySemanticKey.get(key) : undefined))
+            .map((key) =>
+              key ? resultNodeIdBySemanticKey.get(key) : undefined
+            )
             .find((nodeId) =>
               nodeId ? effectiveCurrentNodeIds.includes(nodeId) : false
             )

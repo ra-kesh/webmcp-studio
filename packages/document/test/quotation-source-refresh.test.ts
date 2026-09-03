@@ -64,7 +64,7 @@ describe("quotation source refresh", () => {
         incomingSource: different,
         templateId: "editorial-olive",
       })
-    ).toThrow("same Stuwiz quotation ID")
+    ).toThrow("same source quotation ID")
     expect(() =>
       prepareQuotationRefresh({
         currentDocument,
@@ -72,7 +72,7 @@ describe("quotation source refresh", () => {
         incomingSource: northstarQuotationPayload,
         templateId: "editorial-olive",
       })
-    ).toThrow("newer Stuwiz document revision")
+    ).toThrow("newer source document revision")
   })
 
   it("applies upstream-only changes and keeps a valid document", () => {
@@ -109,7 +109,7 @@ describe("quotation source refresh", () => {
     currentTitle.text = "A hand-edited Studio title"
     currentTitle.fontSize = 82
     const incoming = incomingSource()
-    incoming.document.title = "An updated Stuwiz title"
+    incoming.document.title = "An updated source title"
     const preserved = prepareQuotationRefresh({
       currentDocument,
       currentSource: northstarQuotationPayload,
@@ -122,7 +122,7 @@ describe("quotation source refresh", () => {
       currentSource: northstarQuotationPayload,
       incomingSource: incoming,
       templateId: "editorial-olive",
-      conflictPolicy: "use_stuwiz",
+      conflictPolicy: "use_source",
     })
 
     const preservedTitle = preserved.document.nodes.find(
@@ -136,7 +136,7 @@ describe("quotation source refresh", () => {
       fontSize: 82,
     })
     expect(sourceTitle).toMatchObject({
-      text: "An updated Stuwiz\ntitle",
+      text: "An updated source\ntitle",
       fontSize: 82,
     })
     expect(preserved.impact.conflicts).toEqual(
@@ -352,7 +352,7 @@ describe("quotation source refresh", () => {
     expect(validateDocument(result.document)).toEqual([])
   })
 
-  it("requires a choice when Studio deleted a generated node that Stuwiz changed", () => {
+  it("requires a choice when Studio deleted a generated node that its source changed", () => {
     const currentDocument = composeQuotationDocument(northstarQuotationPayload)
     const deletedNode = currentDocument.nodes.find(
       (node) => node.name === "Welcome dinner detail 1"
@@ -377,7 +377,7 @@ describe("quotation source refresh", () => {
       incomingSource: incoming,
       templateId: "editorial-olive",
       collisionChoices: {
-        "event.welcome.schedule": "use_stuwiz",
+        "event.welcome.schedule": "use_source",
       },
     })
 

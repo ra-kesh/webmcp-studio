@@ -66,7 +66,7 @@ const impactSchema = z
   })
   .strict()
 
-const collisionChoiceSchema = z.enum(["preserve_studio", "use_stuwiz"])
+const collisionChoiceSchema = z.enum(["preserve_studio", "use_source"])
 const quotationTemplateIdSchema = z.enum([
   "editorial-olive",
   "warm-paper",

@@ -31,14 +31,14 @@ function tracedPageId(
 }
 
 describe("quotation composition", () => {
-  it("accepts the versioned Stuwiz quotation payload", () => {
+  it("accepts the versioned external quotation payload", () => {
     expect(
       quotationRenderPayloadV1Schema.parse(northstarQuotationPayload).source
         .type
-    ).toBe("stuwiz.quotation")
+    ).toBe("external.quotation")
   })
 
-  it("rejects unknown Stuwiz contract keys instead of stripping them", () => {
+  it("rejects unknown external contract keys instead of stripping them", () => {
     expect(
       quotationRenderPayloadV1Schema.safeParse({
         ...northstarQuotationPayload,

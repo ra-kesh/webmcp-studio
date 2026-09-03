@@ -8855,7 +8855,7 @@ export function useDocumentEditor({
           const activeComposition = templateSourceContextRef.current.composition
           if (activeComposition?.status !== "known") {
             throw new Error(
-              "This quotation predates reliable composition tracking. Upgrade or replace it before refreshing from Stuwiz."
+              "This quotation predates reliable composition tracking. Upgrade or replace it before refreshing from its source."
             )
           }
           if (
@@ -8877,7 +8877,7 @@ export function useDocumentEditor({
           }
           if (!activePersistenceSessionRef.current) {
             throw new Error(
-              "Stuwiz refresh requires durable browser document storage. Save or reopen this document in a durable workspace first."
+              "Source refresh requires durable browser document storage. Save or reopen this document in a durable workspace first."
             )
           }
           const compositionTemplateId = quotationTemplateForDesignTemplate(
@@ -8889,7 +8889,7 @@ export function useDocumentEditor({
           ])
           if (incomingIdentity.sourceRevision < baseIdentity.sourceRevision) {
             throw new Error(
-              `Stuwiz revision ${incomingIdentity.sourceRevision} is older than the linked revision ${baseIdentity.sourceRevision}.`
+              `Source revision ${incomingIdentity.sourceRevision} is older than the linked revision ${baseIdentity.sourceRevision}.`
             )
           }
           if (incomingIdentity.sourceRevision === baseIdentity.sourceRevision) {
@@ -8898,12 +8898,12 @@ export function useDocumentEditor({
               baseIdentity.sourceSnapshotId
             ) {
               setDocumentError(
-                "This quotation is already linked to that exact Stuwiz revision."
+                "This quotation is already linked to that exact source revision."
               )
               return true
             }
             throw new Error(
-              "Stuwiz returned different quotation data without advancing its source revision. The current document was preserved."
+              "The source returned different quotation data without advancing its revision. The current document was preserved."
             )
           }
           const preparedAt = new Date().toISOString()
@@ -8978,7 +8978,7 @@ export function useDocumentEditor({
         }
         if (currentSource) {
           throw new Error(
-            "This file belongs to another Stuwiz quotation. Open it as a separate document instead of replacing this linked quotation."
+            "This file belongs to another source quotation. Open it as a separate document instead of replacing this linked quotation."
           )
         }
         const composedDocument = composeQuotationDocument(
@@ -9217,7 +9217,7 @@ export function useDocumentEditor({
       historyRef.current.snapshotId !== pending.baseHistorySnapshotId
     ) {
       setDocumentError(
-        "The document changed after this quotation refresh was prepared. Reject it and import the latest Stuwiz revision again."
+        "The document changed after this quotation refresh was prepared. Reject it and import the latest source revision again."
       )
       return false
     }
@@ -9296,7 +9296,7 @@ export function useDocumentEditor({
         historyRef.current,
         pending.candidateDocument,
         {
-          label: `Refresh quotation from Stuwiz revision ${pending.incoming.sourceRevision}`,
+          label: `Refresh quotation from source revision ${pending.incoming.sourceRevision}`,
         }
       )
       const sourceContext: TemplateSourceContext = {

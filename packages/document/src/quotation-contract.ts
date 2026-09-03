@@ -280,7 +280,7 @@ export const quotationRenderPayloadV1Schema = z
     contractVersion: z.literal(1),
     source: z
       .object({
-        type: z.literal("stuwiz.quotation"),
+        type: z.literal("external.quotation"),
         quotationId: z.string().min(1),
         revision: z.number().int().nonnegative(),
       })

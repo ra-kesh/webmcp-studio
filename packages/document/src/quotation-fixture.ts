@@ -22,7 +22,7 @@ const event = (
 export const northstarQuotationPayload: QuotationRenderPayloadV1 = {
   contractVersion: 1,
   source: {
-    type: "stuwiz.quotation",
+    type: "external.quotation",
     quotationId: "quote-demo-2026-0142",
     revision: 3,
   },

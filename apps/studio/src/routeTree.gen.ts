@@ -14,7 +14,9 @@ import { Route as DemoRouteImport } from './routes/demo'
 import { Route as RenderConformanceRouteImport } from './routes/render-conformance'
 import { Route as StudioIndexRouteImport } from './routes/_studio/index'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
+import { Route as StudioCompositionHandoffsTokenRouteImport } from './routes/_studio/composition-handoffs/$token'
 import { Route as StudioDocumentsDocumentIdRouteImport } from './routes/_studio/documents/$documentId'
+import { Route as V1IntegrationsCompositionHandoffsRouteImport } from './routes/v1/integrations/composition-handoffs'
 import { Route as V1RendersRenderIdRouteImport } from './routes/v1/renders/$renderId'
 import { Route as V1StudioExportPdfRouteImport } from './routes/v1/studio/export-pdf'
 import { Route as V1StudioExportPngRouteImport } from './routes/v1/studio/export-png'
@@ -23,6 +25,9 @@ import { Route as V1StudioQuotationCompositionsRouteImport } from './routes/v1/s
 import { Route as V1StudioRenderRouteImport } from './routes/v1/studio/render'
 import { Route as V1StudioAssetsIndexRouteImport } from './routes/v1/studio/assets/index'
 import { Route as V1StudioAssetsAssetIdRouteImport } from './routes/v1/studio/assets/$assetId'
+import { Route as V1StudioCompositionHandoffsTokenRouteImport } from './routes/v1/studio/composition-handoffs/$token'
+import { Route as V1StudioFigmaHandoffsIndexRouteImport } from './routes/v1/studio/figma-handoffs/index'
+import { Route as V1StudioFigmaHandoffsTokenRouteImport } from './routes/v1/studio/figma-handoffs/$token'
 import { Route as V1StudioLibraryPreferencesRouteImport } from './routes/v1/studio/library/preferences'
 import { Route as V1StudioMediaDerivationsJobIdRouteImport } from './routes/v1/studio/media-derivations/$jobId'
 import { Route as V1StudioMediaDerivationsPolicyRouteImport } from './routes/v1/studio/media-derivations/policy'
@@ -78,11 +83,23 @@ const ApiHealthRoute = ApiHealthRouteImport.update({
   path: '/api/health',
   getParentRoute: () => rootRouteImport,
 } as any)
+const StudioCompositionHandoffsTokenRoute =
+  StudioCompositionHandoffsTokenRouteImport.update({
+    id: '/composition-handoffs/$token',
+    path: '/composition-handoffs/$token',
+    getParentRoute: () => StudioRouteRoute,
+  } as any)
 const StudioDocumentsDocumentIdRoute =
   StudioDocumentsDocumentIdRouteImport.update({
     id: '/documents/$documentId',
     path: '/documents/$documentId',
     getParentRoute: () => StudioRouteRoute,
+  } as any)
+const V1IntegrationsCompositionHandoffsRoute =
+  V1IntegrationsCompositionHandoffsRouteImport.update({
+    id: '/v1/integrations/composition-handoffs',
+    path: '/v1/integrations/composition-handoffs',
+    getParentRoute: () => rootRouteImport,
   } as any)
 const V1RendersRenderIdRoute = V1RendersRenderIdRouteImport.update({
   id: '/v1/renders/$renderId',
@@ -125,6 +142,24 @@ const V1StudioAssetsAssetIdRoute = V1StudioAssetsAssetIdRouteImport.update({
   path: '/v1/studio/assets/$assetId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const V1StudioCompositionHandoffsTokenRoute =
+  V1StudioCompositionHandoffsTokenRouteImport.update({
+    id: '/v1/studio/composition-handoffs/$token',
+    path: '/v1/studio/composition-handoffs/$token',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const V1StudioFigmaHandoffsIndexRoute =
+  V1StudioFigmaHandoffsIndexRouteImport.update({
+    id: '/v1/studio/figma-handoffs/',
+    path: '/v1/studio/figma-handoffs/',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const V1StudioFigmaHandoffsTokenRoute =
+  V1StudioFigmaHandoffsTokenRouteImport.update({
+    id: '/v1/studio/figma-handoffs/$token',
+    path: '/v1/studio/figma-handoffs/$token',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const V1StudioLibraryPreferencesRoute =
   V1StudioLibraryPreferencesRouteImport.update({
     id: '/v1/studio/library/preferences',
@@ -310,7 +345,9 @@ export interface FileRoutesByFullPath {
   '/demo': typeof DemoRoute
   '/render-conformance': typeof RenderConformanceRoute
   '/api/health': typeof ApiHealthRoute
+  '/composition-handoffs/$token': typeof StudioCompositionHandoffsTokenRoute
   '/documents/$documentId': typeof StudioDocumentsDocumentIdRoute
+  '/v1/integrations/composition-handoffs': typeof V1IntegrationsCompositionHandoffsRoute
   '/v1/renders/$renderId': typeof V1RendersRenderIdRouteWithChildren
   '/v1/studio/export-pdf': typeof V1StudioExportPdfRoute
   '/v1/studio/export-png': typeof V1StudioExportPngRoute
@@ -318,6 +355,8 @@ export interface FileRoutesByFullPath {
   '/v1/studio/quotation-compositions': typeof V1StudioQuotationCompositionsRoute
   '/v1/studio/render': typeof V1StudioRenderRoute
   '/v1/studio/assets/$assetId': typeof V1StudioAssetsAssetIdRouteWithChildren
+  '/v1/studio/composition-handoffs/$token': typeof V1StudioCompositionHandoffsTokenRoute
+  '/v1/studio/figma-handoffs/$token': typeof V1StudioFigmaHandoffsTokenRoute
   '/v1/studio/library/preferences': typeof V1StudioLibraryPreferencesRoute
   '/v1/studio/media-derivations/$jobId': typeof V1StudioMediaDerivationsJobIdRouteWithChildren
   '/v1/studio/media-derivations/policy': typeof V1StudioMediaDerivationsPolicyRoute
@@ -326,6 +365,7 @@ export interface FileRoutesByFullPath {
   '/v1/studio/session/token': typeof V1StudioSessionTokenRoute
   '/v1/studio/templates/$templateId': typeof V1StudioTemplatesTemplateIdRoute
   '/v1/studio/assets/': typeof V1StudioAssetsIndexRoute
+  '/v1/studio/figma-handoffs/': typeof V1StudioFigmaHandoffsIndexRoute
   '/v1/studio/renders/': typeof V1StudioRendersIndexRoute
   '/v1/studio/templates/': typeof V1StudioTemplatesIndexRoute
   '/v1/renders/$renderId/outputs/$outputId': typeof V1RendersRenderIdOutputsOutputIdRoute
@@ -355,7 +395,9 @@ export interface FileRoutesByTo {
   '/render-conformance': typeof RenderConformanceRoute
   '/api/health': typeof ApiHealthRoute
   '/': typeof StudioIndexRoute
+  '/composition-handoffs/$token': typeof StudioCompositionHandoffsTokenRoute
   '/documents/$documentId': typeof StudioDocumentsDocumentIdRoute
+  '/v1/integrations/composition-handoffs': typeof V1IntegrationsCompositionHandoffsRoute
   '/v1/renders/$renderId': typeof V1RendersRenderIdRouteWithChildren
   '/v1/studio/export-pdf': typeof V1StudioExportPdfRoute
   '/v1/studio/export-png': typeof V1StudioExportPngRoute
@@ -363,6 +405,8 @@ export interface FileRoutesByTo {
   '/v1/studio/quotation-compositions': typeof V1StudioQuotationCompositionsRoute
   '/v1/studio/render': typeof V1StudioRenderRoute
   '/v1/studio/assets/$assetId': typeof V1StudioAssetsAssetIdRouteWithChildren
+  '/v1/studio/composition-handoffs/$token': typeof V1StudioCompositionHandoffsTokenRoute
+  '/v1/studio/figma-handoffs/$token': typeof V1StudioFigmaHandoffsTokenRoute
   '/v1/studio/library/preferences': typeof V1StudioLibraryPreferencesRoute
   '/v1/studio/media-derivations/$jobId': typeof V1StudioMediaDerivationsJobIdRouteWithChildren
   '/v1/studio/media-derivations/policy': typeof V1StudioMediaDerivationsPolicyRoute
@@ -371,6 +415,7 @@ export interface FileRoutesByTo {
   '/v1/studio/session/token': typeof V1StudioSessionTokenRoute
   '/v1/studio/templates/$templateId': typeof V1StudioTemplatesTemplateIdRoute
   '/v1/studio/assets': typeof V1StudioAssetsIndexRoute
+  '/v1/studio/figma-handoffs': typeof V1StudioFigmaHandoffsIndexRoute
   '/v1/studio/renders': typeof V1StudioRendersIndexRoute
   '/v1/studio/templates': typeof V1StudioTemplatesIndexRoute
   '/v1/renders/$renderId/outputs/$outputId': typeof V1RendersRenderIdOutputsOutputIdRoute
@@ -402,7 +447,9 @@ export interface FileRoutesById {
   '/render-conformance': typeof RenderConformanceRoute
   '/api/health': typeof ApiHealthRoute
   '/_studio/': typeof StudioIndexRoute
+  '/_studio/composition-handoffs/$token': typeof StudioCompositionHandoffsTokenRoute
   '/_studio/documents/$documentId': typeof StudioDocumentsDocumentIdRoute
+  '/v1/integrations/composition-handoffs': typeof V1IntegrationsCompositionHandoffsRoute
   '/v1/renders/$renderId': typeof V1RendersRenderIdRouteWithChildren
   '/v1/studio/export-pdf': typeof V1StudioExportPdfRoute
   '/v1/studio/export-png': typeof V1StudioExportPngRoute
@@ -410,6 +457,8 @@ export interface FileRoutesById {
   '/v1/studio/quotation-compositions': typeof V1StudioQuotationCompositionsRoute
   '/v1/studio/render': typeof V1StudioRenderRoute
   '/v1/studio/assets/$assetId': typeof V1StudioAssetsAssetIdRouteWithChildren
+  '/v1/studio/composition-handoffs/$token': typeof V1StudioCompositionHandoffsTokenRoute
+  '/v1/studio/figma-handoffs/$token': typeof V1StudioFigmaHandoffsTokenRoute
   '/v1/studio/library/preferences': typeof V1StudioLibraryPreferencesRoute
   '/v1/studio/media-derivations/$jobId': typeof V1StudioMediaDerivationsJobIdRouteWithChildren
   '/v1/studio/media-derivations/policy': typeof V1StudioMediaDerivationsPolicyRoute
@@ -418,6 +467,7 @@ export interface FileRoutesById {
   '/v1/studio/session/token': typeof V1StudioSessionTokenRoute
   '/v1/studio/templates/$templateId': typeof V1StudioTemplatesTemplateIdRoute
   '/v1/studio/assets/': typeof V1StudioAssetsIndexRoute
+  '/v1/studio/figma-handoffs/': typeof V1StudioFigmaHandoffsIndexRoute
   '/v1/studio/renders/': typeof V1StudioRendersIndexRoute
   '/v1/studio/templates/': typeof V1StudioTemplatesIndexRoute
   '/v1/renders/$renderId/outputs/$outputId': typeof V1RendersRenderIdOutputsOutputIdRoute
@@ -449,7 +499,9 @@ export interface FileRouteTypes {
     | '/demo'
     | '/render-conformance'
     | '/api/health'
+    | '/composition-handoffs/$token'
     | '/documents/$documentId'
+    | '/v1/integrations/composition-handoffs'
     | '/v1/renders/$renderId'
     | '/v1/studio/export-pdf'
     | '/v1/studio/export-png'
@@ -457,6 +509,8 @@ export interface FileRouteTypes {
     | '/v1/studio/quotation-compositions'
     | '/v1/studio/render'
     | '/v1/studio/assets/$assetId'
+    | '/v1/studio/composition-handoffs/$token'
+    | '/v1/studio/figma-handoffs/$token'
     | '/v1/studio/library/preferences'
     | '/v1/studio/media-derivations/$jobId'
     | '/v1/studio/media-derivations/policy'
@@ -465,6 +519,7 @@ export interface FileRouteTypes {
     | '/v1/studio/session/token'
     | '/v1/studio/templates/$templateId'
     | '/v1/studio/assets/'
+    | '/v1/studio/figma-handoffs/'
     | '/v1/studio/renders/'
     | '/v1/studio/templates/'
     | '/v1/renders/$renderId/outputs/$outputId'
@@ -494,7 +549,9 @@ export interface FileRouteTypes {
     | '/render-conformance'
     | '/api/health'
     | '/'
+    | '/composition-handoffs/$token'
     | '/documents/$documentId'
+    | '/v1/integrations/composition-handoffs'
     | '/v1/renders/$renderId'
     | '/v1/studio/export-pdf'
     | '/v1/studio/export-png'
@@ -502,6 +559,8 @@ export interface FileRouteTypes {
     | '/v1/studio/quotation-compositions'
     | '/v1/studio/render'
     | '/v1/studio/assets/$assetId'
+    | '/v1/studio/composition-handoffs/$token'
+    | '/v1/studio/figma-handoffs/$token'
     | '/v1/studio/library/preferences'
     | '/v1/studio/media-derivations/$jobId'
     | '/v1/studio/media-derivations/policy'
@@ -510,6 +569,7 @@ export interface FileRouteTypes {
     | '/v1/studio/session/token'
     | '/v1/studio/templates/$templateId'
     | '/v1/studio/assets'
+    | '/v1/studio/figma-handoffs'
     | '/v1/studio/renders'
     | '/v1/studio/templates'
     | '/v1/renders/$renderId/outputs/$outputId'
@@ -540,7 +600,9 @@ export interface FileRouteTypes {
     | '/render-conformance'
     | '/api/health'
     | '/_studio/'
+    | '/_studio/composition-handoffs/$token'
     | '/_studio/documents/$documentId'
+    | '/v1/integrations/composition-handoffs'
     | '/v1/renders/$renderId'
     | '/v1/studio/export-pdf'
     | '/v1/studio/export-png'
@@ -548,6 +610,8 @@ export interface FileRouteTypes {
     | '/v1/studio/quotation-compositions'
     | '/v1/studio/render'
     | '/v1/studio/assets/$assetId'
+    | '/v1/studio/composition-handoffs/$token'
+    | '/v1/studio/figma-handoffs/$token'
     | '/v1/studio/library/preferences'
     | '/v1/studio/media-derivations/$jobId'
     | '/v1/studio/media-derivations/policy'
@@ -556,6 +620,7 @@ export interface FileRouteTypes {
     | '/v1/studio/session/token'
     | '/v1/studio/templates/$templateId'
     | '/v1/studio/assets/'
+    | '/v1/studio/figma-handoffs/'
     | '/v1/studio/renders/'
     | '/v1/studio/templates/'
     | '/v1/renders/$renderId/outputs/$outputId'
@@ -586,6 +651,7 @@ export interface RootRouteChildren {
   DemoRoute: typeof DemoRoute
   RenderConformanceRoute: typeof RenderConformanceRoute
   ApiHealthRoute: typeof ApiHealthRoute
+  V1IntegrationsCompositionHandoffsRoute: typeof V1IntegrationsCompositionHandoffsRoute
   V1RendersRenderIdRoute: typeof V1RendersRenderIdRouteWithChildren
   V1StudioExportPdfRoute: typeof V1StudioExportPdfRoute
   V1StudioExportPngRoute: typeof V1StudioExportPngRoute
@@ -593,6 +659,8 @@ export interface RootRouteChildren {
   V1StudioQuotationCompositionsRoute: typeof V1StudioQuotationCompositionsRoute
   V1StudioRenderRoute: typeof V1StudioRenderRoute
   V1StudioAssetsAssetIdRoute: typeof V1StudioAssetsAssetIdRouteWithChildren
+  V1StudioCompositionHandoffsTokenRoute: typeof V1StudioCompositionHandoffsTokenRoute
+  V1StudioFigmaHandoffsTokenRoute: typeof V1StudioFigmaHandoffsTokenRoute
   V1StudioLibraryPreferencesRoute: typeof V1StudioLibraryPreferencesRoute
   V1StudioMediaDerivationsJobIdRoute: typeof V1StudioMediaDerivationsJobIdRouteWithChildren
   V1StudioMediaDerivationsPolicyRoute: typeof V1StudioMediaDerivationsPolicyRoute
@@ -601,6 +669,7 @@ export interface RootRouteChildren {
   V1StudioSessionTokenRoute: typeof V1StudioSessionTokenRoute
   V1StudioTemplatesTemplateIdRoute: typeof V1StudioTemplatesTemplateIdRoute
   V1StudioAssetsIndexRoute: typeof V1StudioAssetsIndexRoute
+  V1StudioFigmaHandoffsIndexRoute: typeof V1StudioFigmaHandoffsIndexRoute
   V1StudioRendersIndexRoute: typeof V1StudioRendersIndexRoute
   V1StudioTemplatesIndexRoute: typeof V1StudioTemplatesIndexRoute
   V1StudioAssetsLocalPromotionsLocalAssetIdRoute: typeof V1StudioAssetsLocalPromotionsLocalAssetIdRoute
@@ -651,12 +720,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiHealthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_studio/composition-handoffs/$token': {
+      id: '/_studio/composition-handoffs/$token'
+      path: '/composition-handoffs/$token'
+      fullPath: '/composition-handoffs/$token'
+      preLoaderRoute: typeof StudioCompositionHandoffsTokenRouteImport
+      parentRoute: typeof StudioRouteRoute
+    }
     '/_studio/documents/$documentId': {
       id: '/_studio/documents/$documentId'
       path: '/documents/$documentId'
       fullPath: '/documents/$documentId'
       preLoaderRoute: typeof StudioDocumentsDocumentIdRouteImport
       parentRoute: typeof StudioRouteRoute
+    }
+    '/v1/integrations/composition-handoffs': {
+      id: '/v1/integrations/composition-handoffs'
+      path: '/v1/integrations/composition-handoffs'
+      fullPath: '/v1/integrations/composition-handoffs'
+      preLoaderRoute: typeof V1IntegrationsCompositionHandoffsRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/v1/renders/$renderId': {
       id: '/v1/renders/$renderId'
@@ -712,6 +795,27 @@ declare module '@tanstack/react-router' {
       path: '/v1/studio/assets/$assetId'
       fullPath: '/v1/studio/assets/$assetId'
       preLoaderRoute: typeof V1StudioAssetsAssetIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/v1/studio/composition-handoffs/$token': {
+      id: '/v1/studio/composition-handoffs/$token'
+      path: '/v1/studio/composition-handoffs/$token'
+      fullPath: '/v1/studio/composition-handoffs/$token'
+      preLoaderRoute: typeof V1StudioCompositionHandoffsTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/v1/studio/figma-handoffs/': {
+      id: '/v1/studio/figma-handoffs/'
+      path: '/v1/studio/figma-handoffs'
+      fullPath: '/v1/studio/figma-handoffs/'
+      preLoaderRoute: typeof V1StudioFigmaHandoffsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/v1/studio/figma-handoffs/$token': {
+      id: '/v1/studio/figma-handoffs/$token'
+      path: '/v1/studio/figma-handoffs/$token'
+      fullPath: '/v1/studio/figma-handoffs/$token'
+      preLoaderRoute: typeof V1StudioFigmaHandoffsTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/v1/studio/library/preferences': {
@@ -929,11 +1033,13 @@ declare module '@tanstack/react-router' {
 
 interface StudioRouteRouteChildren {
   StudioIndexRoute: typeof StudioIndexRoute
+  StudioCompositionHandoffsTokenRoute: typeof StudioCompositionHandoffsTokenRoute
   StudioDocumentsDocumentIdRoute: typeof StudioDocumentsDocumentIdRoute
 }
 
 const StudioRouteRouteChildren: StudioRouteRouteChildren = {
   StudioIndexRoute: StudioIndexRoute,
+  StudioCompositionHandoffsTokenRoute: StudioCompositionHandoffsTokenRoute,
   StudioDocumentsDocumentIdRoute: StudioDocumentsDocumentIdRoute,
 }
 
@@ -1034,6 +1140,8 @@ const rootRouteChildren: RootRouteChildren = {
   DemoRoute: DemoRoute,
   RenderConformanceRoute: RenderConformanceRoute,
   ApiHealthRoute: ApiHealthRoute,
+  V1IntegrationsCompositionHandoffsRoute:
+    V1IntegrationsCompositionHandoffsRoute,
   V1RendersRenderIdRoute: V1RendersRenderIdRouteWithChildren,
   V1StudioExportPdfRoute: V1StudioExportPdfRoute,
   V1StudioExportPngRoute: V1StudioExportPngRoute,
@@ -1041,6 +1149,8 @@ const rootRouteChildren: RootRouteChildren = {
   V1StudioQuotationCompositionsRoute: V1StudioQuotationCompositionsRoute,
   V1StudioRenderRoute: V1StudioRenderRoute,
   V1StudioAssetsAssetIdRoute: V1StudioAssetsAssetIdRouteWithChildren,
+  V1StudioCompositionHandoffsTokenRoute: V1StudioCompositionHandoffsTokenRoute,
+  V1StudioFigmaHandoffsTokenRoute: V1StudioFigmaHandoffsTokenRoute,
   V1StudioLibraryPreferencesRoute: V1StudioLibraryPreferencesRoute,
   V1StudioMediaDerivationsJobIdRoute:
     V1StudioMediaDerivationsJobIdRouteWithChildren,
@@ -1050,6 +1160,7 @@ const rootRouteChildren: RootRouteChildren = {
   V1StudioSessionTokenRoute: V1StudioSessionTokenRoute,
   V1StudioTemplatesTemplateIdRoute: V1StudioTemplatesTemplateIdRoute,
   V1StudioAssetsIndexRoute: V1StudioAssetsIndexRoute,
+  V1StudioFigmaHandoffsIndexRoute: V1StudioFigmaHandoffsIndexRoute,
   V1StudioRendersIndexRoute: V1StudioRendersIndexRoute,
   V1StudioTemplatesIndexRoute: V1StudioTemplatesIndexRoute,
   V1StudioAssetsLocalPromotionsLocalAssetIdRoute:

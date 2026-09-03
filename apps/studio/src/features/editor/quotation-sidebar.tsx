@@ -439,7 +439,7 @@ export function QuotationSidebar({
           {applyConfirmation?.impact.disconnectsQuotationSource ? (
             <p className="flex items-start gap-2 text-xs leading-5 text-muted-foreground">
               <Link2 className="mt-0.5 size-4 shrink-0" />
-              The current Stuwiz quotation will be disconnected from this
+              The current source quotation will be disconnected from this
               design.
             </p>
           ) : null}

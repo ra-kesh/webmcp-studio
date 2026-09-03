@@ -4010,7 +4010,7 @@ export function StudioShell({
   const quotationRefreshLocked = Boolean(pendingQuotationRefresh)
   const documentDecisionLocked = reviewLocked || quotationRefreshLocked
   const documentDecisionReason = quotationRefreshLocked
-    ? "Accept or reject the pending Stuwiz refresh first."
+    ? "Accept or reject the pending source refresh first."
     : editor.pendingGeneratedDocument
       ? "Create or discard the generated document first."
       : "Resolve or discard the review preview first."
@@ -5274,7 +5274,7 @@ export function StudioShell({
               >
                 <DatabaseZap data-icon="inline-start" />
                 <span className="hidden min-[1040px]:inline">
-                  Review Stuwiz update
+                  Review source update
                 </span>
                 <Badge variant="secondary">
                   {pendingQuotationRefresh.base.sourceRevision}
