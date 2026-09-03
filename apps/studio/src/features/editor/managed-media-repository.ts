@@ -10,6 +10,8 @@ import {
   mediaAssetLookupResponseSchema,
   mediaAssetUseResponseSchema,
   mediaAssetUploadResponseSchema,
+  mediaAssetUploadReservationRequestSchema,
+  mediaAssetUploadReservationResponseSchema,
   mediaIdempotencyKeySchema,
   mediaRequestIdSchema,
 } from "@webmcp/document"
@@ -17,6 +19,7 @@ import type {
   MediaAssetDeletionImpact,
   MediaAssetUseReceipt,
   PublicMediaAsset,
+  MediaAssetUploadReservation,
 } from "@webmcp/document"
 
 export type ManagedMediaAsset = PublicMediaAsset
@@ -256,6 +259,27 @@ export async function getManagedMediaRenderSource(
 }
 
 export const MANAGED_MEDIA_UPLOAD_TIMEOUT_MS = 60_000
+
+export async function prepareManagedMediaUpload(
+  input: {
+    name: string
+    mediaType: "image/png" | "image/jpeg" | "image/webp"
+    bytes: number
+    idempotencyKey: string
+  },
+  signal?: AbortSignal
+): Promise<MediaAssetUploadReservation> {
+  const body = mediaAssetUploadReservationRequestSchema.parse(input)
+  const response = await fetch("/v1/studio/assets/upload-reservations", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  })
+  if (!response.ok) throw await readError(response)
+  return mediaAssetUploadReservationResponseSchema.parse(await response.json())
+    .reservation
+}
 
 export function uploadManagedMedia(
   file: File,

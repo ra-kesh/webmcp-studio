@@ -40,6 +40,7 @@ import {
   type SceneNode,
   type SceneTransaction,
   type SceneTransactionResult,
+  type MediaAssetUploadReservation,
 } from "@webmcp/document"
 import {
   productCommandArgumentContract,
@@ -325,6 +326,13 @@ export type StudioWebMcpAssetUploadInput = {
   idempotencyKey: string
 }
 
+export type StudioWebMcpAssetUploadReservationInput = {
+  name: string
+  mediaType: "image/png" | "image/jpeg" | "image/webp"
+  bytes: number
+  idempotencyKey: string
+}
+
 export type StudioWebMcpRenderSelection = {
   outputId: string
   format: "png" | "pdf"
@@ -445,6 +453,10 @@ export type StudioWebMcpServices = {
     input: StudioWebMcpAssetUploadInput,
     signal?: AbortSignal
   ): Promise<StudioWebMcpAsset>
+  prepareAssetUpload?(
+    input: StudioWebMcpAssetUploadReservationInput,
+    signal?: AbortSignal
+  ): Promise<MediaAssetUploadReservation>
   mediaDerivations?: Readonly<{
     inspect: (
       input:
@@ -3595,6 +3607,44 @@ function parseAssetUploadInput(input: unknown): StudioWebMcpAssetUploadInput {
   return { name, mediaType, contentBase64, idempotencyKey }
 }
 
+function parseAssetUploadReservationInput(
+  input: unknown
+): StudioWebMcpAssetUploadReservationInput {
+  const value = queryObject(input)
+  assertQueryKeys(value, ["name", "mediaType", "bytes", "idempotencyKey"])
+  const name = typeof value.name === "string" ? value.name.trim() : ""
+  if (!name || name.length > 255) {
+    throw new Error("name must contain 1 to 255 characters.")
+  }
+  const mediaType = value.mediaType
+  if (
+    mediaType !== "image/png" &&
+    mediaType !== "image/jpeg" &&
+    mediaType !== "image/webp"
+  ) {
+    throw new Error("mediaType must be image/png, image/jpeg, or image/webp.")
+  }
+  const bytes = value.bytes
+  if (
+    typeof bytes !== "number" ||
+    !Number.isInteger(bytes) ||
+    bytes < 1 ||
+    bytes > 25_000_000
+  ) {
+    throw new Error("bytes must be an integer from 1 to 25000000.")
+  }
+  const idempotencyKey = value.idempotencyKey
+  if (
+    typeof idempotencyKey !== "string" ||
+    idempotencyKey.length < 1 ||
+    idempotencyKey.length > 128 ||
+    !/^[A-Za-z0-9._:-]+$/.test(idempotencyKey)
+  ) {
+    throw new Error("A valid idempotencyKey is required.")
+  }
+  return { name, mediaType, bytes, idempotencyKey }
+}
+
 const publicAssetSearchResult = (asset: StudioWebMcpAsset) => ({
   id: asset.id,
   name: asset.name,
@@ -5871,10 +5921,62 @@ export function studioWebMcpTools(
       },
     },
     {
+      name: "prepare_workspace_asset_upload",
+      title: "Prepare workspace image upload",
+      description:
+        "Create a short-lived, one-time HTTP PUT reservation for a generated or local PNG, JPEG, or WebP file. Prefer this over Base64 when the image already exists as a file or artifact: upload the exact file bytes to the returned URL using the returned headers, then use the asset ID from the PUT response in document generation. Do not use the browser file picker.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          name: { type: "string", minLength: 1, maxLength: 255 },
+          mediaType: {
+            type: "string",
+            enum: ["image/png", "image/jpeg", "image/webp"],
+          },
+          bytes: { type: "integer", minimum: 1, maximum: 25_000_000 },
+          idempotencyKey: {
+            type: "string",
+            minLength: 1,
+            maxLength: 128,
+            pattern: "^[A-Za-z0-9._:-]+$",
+          },
+        },
+        required: ["name", "mediaType", "bytes", "idempotencyKey"],
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+        untrustedContentHint: true,
+      },
+      execute: async (input, execution) => {
+        try {
+          const prepareAssetUpload = services.prepareAssetUpload
+          if (!prepareAssetUpload) {
+            throw new Error(
+              "Workspace asset upload reservations are unavailable."
+            )
+          }
+          const reservation = await prepareAssetUpload(
+            parseAssetUploadReservationInput(input),
+            execution?.signal
+          )
+          return textResult(
+            `Upload the exact file bytes with ${reservation.method} before ${reservation.expiresAt}. The upload response returns the approved workspace asset ID.`,
+            { reservation }
+          )
+        } catch (error) {
+          return errorResult(error)
+        }
+      },
+    },
+    {
       name: "upload_workspace_asset",
       title: "Upload workspace image",
       description:
-        "Upload one PNG, JPEG, or WebP into the current Studio workspace and return its approved asset ID. Use this for user-provided or generated raster source material before document generation. The upload is idempotent and does not insert the asset into a page.",
+        "Upload one small inline PNG, JPEG, or WebP Base64 payload into the current Studio workspace and return its approved asset ID. For generated or local files, prefer prepare_workspace_asset_upload so the bytes travel directly instead of through a large WebMCP argument. The upload is idempotent and does not insert the asset into a page.",
       inputSchema: {
         type: "object",
         additionalProperties: false,
@@ -6959,11 +7061,16 @@ export function studioWebMcpTools(
   const availableTools = services.uploadAsset
     ? enabledTools
     : enabledTools.filter((tool) => tool.name !== "upload_workspace_asset")
+  const uploadTools = services.prepareAssetUpload
+    ? availableTools
+    : availableTools.filter(
+        (tool) => tool.name !== "prepare_workspace_asset_upload"
+      )
   const publicTools = services.runSceneTransaction
-    ? availableTools.filter(
+    ? uploadTools.filter(
         (tool) => !suppressedCanvasMutationTools.includes(tool.name)
       )
-    : availableTools
+    : uploadTools
   return publicTools.map((tool) =>
     ownWebMcpToolExecution(tool, registrationSignal)
   )

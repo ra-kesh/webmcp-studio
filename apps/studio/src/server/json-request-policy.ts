@@ -40,6 +40,10 @@ export const studioJsonRequestPolicies = {
     maxBytes: 32_000,
     requireContentLength: true,
   },
+  "/v1/studio/assets/upload-reservations": {
+    maxBytes: 4_096,
+    requireContentLength: true,
+  },
   "/v1/studio/media-derivations": {
     maxBytes: 2_048,
     requireContentLength: true,

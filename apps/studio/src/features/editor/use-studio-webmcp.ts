@@ -22,7 +22,10 @@ import type {
 import type { StudioAsset } from "./asset-catalog"
 import { createManagedWebMcpCatalog } from "./managed-webmcp-catalog"
 import type { ManagedWebMcpCatalog } from "./managed-webmcp-catalog"
-import { uploadManagedMedia } from "./managed-media-repository"
+import {
+  prepareManagedMediaUpload,
+  uploadManagedMedia,
+} from "./managed-media-repository"
 
 declare global {
   interface Document {
@@ -299,6 +302,11 @@ export function useStudioWebMcp(
                   )
                 }
                 return asset
+              },
+              prepareAssetUpload: async (input, signal) => {
+                controller.signal.throwIfAborted()
+                assertMutationEnabled(servicesRef.current)
+                return prepareManagedMediaUpload(input, signal)
               },
               mediaDerivations: servicesRef.current.mediaDerivations,
               proposeChangeSet: (changeSet, provenance) => {

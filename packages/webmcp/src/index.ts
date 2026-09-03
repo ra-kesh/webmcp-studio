@@ -25,6 +25,7 @@ export const toolNames = [
   "read_design_variables",
   "read_design_components",
   "search_design_nodes",
+  "prepare_workspace_asset_upload",
   "upload_workspace_asset",
   "search_assets",
   "inspect_background_removal",
@@ -196,6 +197,14 @@ export const toolCatalog: readonly ToolDescriptor[] = [
     mutates: false,
     requiresHumanReview: false,
     routes: ["editor", "review"],
+  },
+  {
+    name: "prepare_workspace_asset_upload",
+    description:
+      "Prepare a one-time direct upload for generated or local raster source material.",
+    mutates: true,
+    requiresHumanReview: false,
+    routes: ["library", "editor"],
   },
   {
     name: "upload_workspace_asset",

@@ -80,6 +80,10 @@
     {
       "name": "0020_studio_composition_handoffs.sql",
       "sha256": "d8860b10b8c13378ab2b31cf23a0b996e37b0cbd210ee2c83ba55beb786e53a4"
+    },
+    {
+      "name": "0021_media_asset_upload_reservations.sql",
+      "sha256": "86dfb15520dc44e6ba1cccbf234d0d2e2e486dee3dbf759cb5067ecef103b960"
     }
   ]
 }

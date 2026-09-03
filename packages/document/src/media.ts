@@ -377,6 +377,35 @@ export const mediaAssetUploadResponseSchema = z
   .object({ asset: publicMediaAssetSchema })
   .strict()
 
+export const mediaAssetUploadReservationRequestSchema = z
+  .object({
+    name: z.string().trim().min(1).max(255),
+    mediaType: z.enum(MEDIA_ASSET_TYPES),
+    bytes: z.number().int().positive().max(MEDIA_ASSET_MAX_BYTES),
+    idempotencyKey: mediaIdempotencyKeySchema,
+  })
+  .strict()
+
+export const mediaAssetUploadReservationSchema = z
+  .object({
+    id: z.string().regex(/^upload-[A-Za-z0-9_-]{13,89}$/),
+    uploadUrl: z.string().url(),
+    method: z.literal("PUT"),
+    headers: z
+      .object({
+        authorization: z.string().regex(/^Bearer [A-Za-z0-9_-]{43}$/),
+        contentType: z.enum(MEDIA_ASSET_TYPES),
+        contentLength: z.number().int().positive().max(MEDIA_ASSET_MAX_BYTES),
+      })
+      .strict(),
+    expiresAt: z.string().datetime(),
+  })
+  .strict()
+
+export const mediaAssetUploadReservationResponseSchema = z
+  .object({ reservation: mediaAssetUploadReservationSchema })
+  .strict()
+
 export const mediaAssetUseReceiptSchema = z
   .object({
     assetId: mediaAssetIdSchema,
@@ -527,6 +556,9 @@ export const mediaAssetArchiveResponseSchema = z
 
 export type PublicMediaAsset = z.infer<typeof publicMediaAssetSchema>
 export type MediaAssetUseReceipt = z.infer<typeof mediaAssetUseReceiptSchema>
+export type MediaAssetUploadReservation = z.infer<
+  typeof mediaAssetUploadReservationSchema
+>
 export type MediaAssetLookup = z.infer<typeof mediaAssetLookupSchema>
 export type MediaAssetPromotionAsset = z.infer<
   typeof mediaAssetPromotionAssetSchema

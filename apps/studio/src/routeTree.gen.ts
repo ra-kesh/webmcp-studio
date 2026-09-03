@@ -46,6 +46,8 @@ import { Route as V1StudioAssetsAssetIdUsedRouteImport } from './routes/v1/studi
 import { Route as V1StudioAssetsLocalPromotionsIndexRouteImport } from './routes/v1/studio/assets/local-promotions/index'
 import { Route as V1StudioAssetsLocalPromotionsLocalAssetIdRouteImport } from './routes/v1/studio/assets/local-promotions/$localAssetId'
 import { Route as V1StudioAssetsLocalPromotionsResolveRouteImport } from './routes/v1/studio/assets/local-promotions/resolve'
+import { Route as V1StudioAssetsUploadReservationsIndexRouteImport } from './routes/v1/studio/assets/upload-reservations/index'
+import { Route as V1StudioAssetsUploadReservationsReservationIdRouteImport } from './routes/v1/studio/assets/upload-reservations/$reservationId'
 import { Route as V1StudioLibraryCollectionsIndexRouteImport } from './routes/v1/studio/library/collections/index'
 import { Route as V1StudioLibraryCollectionsCollectionIdRouteImport } from './routes/v1/studio/library/collections/$collectionId'
 import { Route as V1StudioLibraryItemsIndexRouteImport } from './routes/v1/studio/library/items/index'
@@ -263,6 +265,18 @@ const V1StudioAssetsLocalPromotionsResolveRoute =
     path: '/v1/studio/assets/local-promotions/resolve',
     getParentRoute: () => rootRouteImport,
   } as any)
+const V1StudioAssetsUploadReservationsIndexRoute =
+  V1StudioAssetsUploadReservationsIndexRouteImport.update({
+    id: '/v1/studio/assets/upload-reservations/',
+    path: '/v1/studio/assets/upload-reservations/',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const V1StudioAssetsUploadReservationsReservationIdRoute =
+  V1StudioAssetsUploadReservationsReservationIdRouteImport.update({
+    id: '/v1/studio/assets/upload-reservations/$reservationId',
+    path: '/v1/studio/assets/upload-reservations/$reservationId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const V1StudioLibraryCollectionsIndexRoute =
   V1StudioLibraryCollectionsIndexRouteImport.update({
     id: '/v1/studio/library/collections/',
@@ -376,10 +390,12 @@ export interface FileRoutesByFullPath {
   '/v1/studio/assets/$assetId/used': typeof V1StudioAssetsAssetIdUsedRoute
   '/v1/studio/assets/local-promotions/$localAssetId': typeof V1StudioAssetsLocalPromotionsLocalAssetIdRoute
   '/v1/studio/assets/local-promotions/resolve': typeof V1StudioAssetsLocalPromotionsResolveRoute
+  '/v1/studio/assets/upload-reservations/$reservationId': typeof V1StudioAssetsUploadReservationsReservationIdRoute
   '/v1/studio/library/collections/$collectionId': typeof V1StudioLibraryCollectionsCollectionIdRouteWithChildren
   '/v1/studio/media-derivations/$jobId/cancel': typeof V1StudioMediaDerivationsJobIdCancelRoute
   '/v1/studio/media-derivations/$jobId/retry': typeof V1StudioMediaDerivationsJobIdRetryRoute
   '/v1/studio/assets/local-promotions/': typeof V1StudioAssetsLocalPromotionsIndexRoute
+  '/v1/studio/assets/upload-reservations/': typeof V1StudioAssetsUploadReservationsIndexRoute
   '/v1/studio/library/collections/': typeof V1StudioLibraryCollectionsIndexRoute
   '/v1/studio/library/items/': typeof V1StudioLibraryItemsIndexRoute
   '/v1/studio/documents/$documentId/revisions/$snapshotId': typeof V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute
@@ -426,10 +442,12 @@ export interface FileRoutesByTo {
   '/v1/studio/assets/$assetId/used': typeof V1StudioAssetsAssetIdUsedRoute
   '/v1/studio/assets/local-promotions/$localAssetId': typeof V1StudioAssetsLocalPromotionsLocalAssetIdRoute
   '/v1/studio/assets/local-promotions/resolve': typeof V1StudioAssetsLocalPromotionsResolveRoute
+  '/v1/studio/assets/upload-reservations/$reservationId': typeof V1StudioAssetsUploadReservationsReservationIdRoute
   '/v1/studio/library/collections/$collectionId': typeof V1StudioLibraryCollectionsCollectionIdRouteWithChildren
   '/v1/studio/media-derivations/$jobId/cancel': typeof V1StudioMediaDerivationsJobIdCancelRoute
   '/v1/studio/media-derivations/$jobId/retry': typeof V1StudioMediaDerivationsJobIdRetryRoute
   '/v1/studio/assets/local-promotions': typeof V1StudioAssetsLocalPromotionsIndexRoute
+  '/v1/studio/assets/upload-reservations': typeof V1StudioAssetsUploadReservationsIndexRoute
   '/v1/studio/library/collections': typeof V1StudioLibraryCollectionsIndexRoute
   '/v1/studio/library/items': typeof V1StudioLibraryItemsIndexRoute
   '/v1/studio/documents/$documentId/revisions/$snapshotId': typeof V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute
@@ -478,10 +496,12 @@ export interface FileRoutesById {
   '/v1/studio/assets/$assetId/used': typeof V1StudioAssetsAssetIdUsedRoute
   '/v1/studio/assets/local-promotions/$localAssetId': typeof V1StudioAssetsLocalPromotionsLocalAssetIdRoute
   '/v1/studio/assets/local-promotions/resolve': typeof V1StudioAssetsLocalPromotionsResolveRoute
+  '/v1/studio/assets/upload-reservations/$reservationId': typeof V1StudioAssetsUploadReservationsReservationIdRoute
   '/v1/studio/library/collections/$collectionId': typeof V1StudioLibraryCollectionsCollectionIdRouteWithChildren
   '/v1/studio/media-derivations/$jobId/cancel': typeof V1StudioMediaDerivationsJobIdCancelRoute
   '/v1/studio/media-derivations/$jobId/retry': typeof V1StudioMediaDerivationsJobIdRetryRoute
   '/v1/studio/assets/local-promotions/': typeof V1StudioAssetsLocalPromotionsIndexRoute
+  '/v1/studio/assets/upload-reservations/': typeof V1StudioAssetsUploadReservationsIndexRoute
   '/v1/studio/library/collections/': typeof V1StudioLibraryCollectionsIndexRoute
   '/v1/studio/library/items/': typeof V1StudioLibraryItemsIndexRoute
   '/v1/studio/documents/$documentId/revisions/$snapshotId': typeof V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute
@@ -530,10 +550,12 @@ export interface FileRouteTypes {
     | '/v1/studio/assets/$assetId/used'
     | '/v1/studio/assets/local-promotions/$localAssetId'
     | '/v1/studio/assets/local-promotions/resolve'
+    | '/v1/studio/assets/upload-reservations/$reservationId'
     | '/v1/studio/library/collections/$collectionId'
     | '/v1/studio/media-derivations/$jobId/cancel'
     | '/v1/studio/media-derivations/$jobId/retry'
     | '/v1/studio/assets/local-promotions/'
+    | '/v1/studio/assets/upload-reservations/'
     | '/v1/studio/library/collections/'
     | '/v1/studio/library/items/'
     | '/v1/studio/documents/$documentId/revisions/$snapshotId'
@@ -580,10 +602,12 @@ export interface FileRouteTypes {
     | '/v1/studio/assets/$assetId/used'
     | '/v1/studio/assets/local-promotions/$localAssetId'
     | '/v1/studio/assets/local-promotions/resolve'
+    | '/v1/studio/assets/upload-reservations/$reservationId'
     | '/v1/studio/library/collections/$collectionId'
     | '/v1/studio/media-derivations/$jobId/cancel'
     | '/v1/studio/media-derivations/$jobId/retry'
     | '/v1/studio/assets/local-promotions'
+    | '/v1/studio/assets/upload-reservations'
     | '/v1/studio/library/collections'
     | '/v1/studio/library/items'
     | '/v1/studio/documents/$documentId/revisions/$snapshotId'
@@ -631,10 +655,12 @@ export interface FileRouteTypes {
     | '/v1/studio/assets/$assetId/used'
     | '/v1/studio/assets/local-promotions/$localAssetId'
     | '/v1/studio/assets/local-promotions/resolve'
+    | '/v1/studio/assets/upload-reservations/$reservationId'
     | '/v1/studio/library/collections/$collectionId'
     | '/v1/studio/media-derivations/$jobId/cancel'
     | '/v1/studio/media-derivations/$jobId/retry'
     | '/v1/studio/assets/local-promotions/'
+    | '/v1/studio/assets/upload-reservations/'
     | '/v1/studio/library/collections/'
     | '/v1/studio/library/items/'
     | '/v1/studio/documents/$documentId/revisions/$snapshotId'
@@ -674,8 +700,10 @@ export interface RootRouteChildren {
   V1StudioTemplatesIndexRoute: typeof V1StudioTemplatesIndexRoute
   V1StudioAssetsLocalPromotionsLocalAssetIdRoute: typeof V1StudioAssetsLocalPromotionsLocalAssetIdRoute
   V1StudioAssetsLocalPromotionsResolveRoute: typeof V1StudioAssetsLocalPromotionsResolveRoute
+  V1StudioAssetsUploadReservationsReservationIdRoute: typeof V1StudioAssetsUploadReservationsReservationIdRoute
   V1StudioLibraryCollectionsCollectionIdRoute: typeof V1StudioLibraryCollectionsCollectionIdRouteWithChildren
   V1StudioAssetsLocalPromotionsIndexRoute: typeof V1StudioAssetsLocalPromotionsIndexRoute
+  V1StudioAssetsUploadReservationsIndexRoute: typeof V1StudioAssetsUploadReservationsIndexRoute
   V1StudioLibraryCollectionsIndexRoute: typeof V1StudioLibraryCollectionsIndexRoute
   V1StudioLibraryItemsIndexRoute: typeof V1StudioLibraryItemsIndexRoute
   V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute: typeof V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute
@@ -944,6 +972,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof V1StudioAssetsLocalPromotionsResolveRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/v1/studio/assets/upload-reservations/': {
+      id: '/v1/studio/assets/upload-reservations/'
+      path: '/v1/studio/assets/upload-reservations'
+      fullPath: '/v1/studio/assets/upload-reservations/'
+      preLoaderRoute: typeof V1StudioAssetsUploadReservationsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/v1/studio/assets/upload-reservations/$reservationId': {
+      id: '/v1/studio/assets/upload-reservations/$reservationId'
+      path: '/v1/studio/assets/upload-reservations/$reservationId'
+      fullPath: '/v1/studio/assets/upload-reservations/$reservationId'
+      preLoaderRoute: typeof V1StudioAssetsUploadReservationsReservationIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/v1/studio/library/collections/': {
       id: '/v1/studio/library/collections/'
       path: '/v1/studio/library/collections'
@@ -1167,10 +1209,14 @@ const rootRouteChildren: RootRouteChildren = {
     V1StudioAssetsLocalPromotionsLocalAssetIdRoute,
   V1StudioAssetsLocalPromotionsResolveRoute:
     V1StudioAssetsLocalPromotionsResolveRoute,
+  V1StudioAssetsUploadReservationsReservationIdRoute:
+    V1StudioAssetsUploadReservationsReservationIdRoute,
   V1StudioLibraryCollectionsCollectionIdRoute:
     V1StudioLibraryCollectionsCollectionIdRouteWithChildren,
   V1StudioAssetsLocalPromotionsIndexRoute:
     V1StudioAssetsLocalPromotionsIndexRoute,
+  V1StudioAssetsUploadReservationsIndexRoute:
+    V1StudioAssetsUploadReservationsIndexRoute,
   V1StudioLibraryCollectionsIndexRoute: V1StudioLibraryCollectionsIndexRoute,
   V1StudioLibraryItemsIndexRoute: V1StudioLibraryItemsIndexRoute,
   V1StudioDocumentsDocumentIdRevisionsSnapshotIdRoute:
