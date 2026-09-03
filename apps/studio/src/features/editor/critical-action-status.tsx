@@ -7,15 +7,20 @@ export type StudioCriticalAction =
   | "import-json"
   | "import-quotation"
   | "export-json"
+  | "export-figma"
+  | "export-interchange"
   | "export-png"
   | "export-pdf"
 
 type VisibleAction = Extract<
   StudioCriticalAction,
-  `export-${"png" | "pdf"}` | `import-${"json" | "quotation"}`
+  | `export-${"figma" | "interchange" | "png" | "pdf"}`
+  | `import-${"json" | "quotation"}`
 >
 
 const actionLabel: Record<VisibleAction, string> = {
+  "export-figma": "Figma handoff",
+  "export-interchange": "Studio package download",
   "export-png": "PNG export",
   "export-pdf": "PDF export",
   "import-json": "Document import",
@@ -26,6 +31,8 @@ const isVisibleAction = (
   action: StudioCriticalAction
 ): action is VisibleAction =>
   action === "export-png" ||
+  action === "export-figma" ||
+  action === "export-interchange" ||
   action === "export-pdf" ||
   action === "import-json" ||
   action === "import-quotation"

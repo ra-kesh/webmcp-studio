@@ -37,6 +37,7 @@ import {
 } from "lucide-react"
 import {
   applyTextLinkToRange,
+  createStudioInterchangePackage,
   createPageThumbnailRevision,
   fitPageThumbnailSize,
   generatedDocumentSnapshotId,
@@ -425,6 +426,11 @@ const HEART_ICON_PATH =
   "M12 21.35 10.55 20.03C5.4 15.36 2 12.27 2 8.5 2 5.41 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.08C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.41 22 8.5c0 3.77-3.4 6.86-8.55 11.54Z"
 
 type MediaPickerCollection = "recent" | "uploads" | "library"
+
+type FigmaHandoff = Readonly<{
+  handoffUrl: string
+  expiresAt: string
+}>
 
 const mediaScopeFromCollection = (
   collection: MediaPickerCollection
@@ -1185,6 +1191,8 @@ export function StudioShell({
     "heading" | "document-library"
   >("heading")
   const [publishDialogOpen, setPublishDialogOpen] = useState(false)
+  const [figmaHandoff, setFigmaHandoff] = useState<FigmaHandoff | null>(null)
+  const [figmaHandoffCopied, setFigmaHandoffCopied] = useState(false)
   const [quotationRefreshOpen, setQuotationRefreshOpen] = useState(false)
   const lastOpenedQuotationRefreshIdRef = useRef<string | null>(null)
   const pendingQuotationRefresh = editor.quotationRefreshJournal.pending
@@ -3650,6 +3658,100 @@ export function StudioShell({
     }
   }
 
+  const exportEditablePackage = async (signal: AbortSignal) => {
+    if (!commitActiveTextEditing()) return false
+    if (!(await editor.flushActiveDraft(signal))) {
+      throw new Error(
+        "Editable export stopped because the current document is not durably saved."
+      )
+    }
+    signal.throwIfAborted()
+    const documentSnapshot = editor.getCurrentDocumentSnapshot()
+    const nodes = await materializeLocalExportNodes(documentSnapshot, signal)
+    signal.throwIfAborted()
+    const interchange = createStudioInterchangePackage({
+      ...documentSnapshot,
+      nodes,
+    })
+    const objectUrl = URL.createObjectURL(
+      new Blob([JSON.stringify(interchange, null, 2)], {
+        type: "application/json",
+      })
+    )
+    const link = document.createElement("a")
+    const slug =
+      documentSnapshot.name
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "") || "studio-document"
+    link.download = `${slug}.studio-interchange.json`
+    link.href = objectUrl
+    link.hidden = true
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+    return true
+  }
+
+  const exportToFigma = async (signal: AbortSignal) => {
+    if (!commitActiveTextEditing()) return false
+    if (!(await editor.flushActiveDraft(signal))) {
+      throw new Error(
+        "Figma export stopped because the current document is not durably saved."
+      )
+    }
+    signal.throwIfAborted()
+    const documentSnapshot = editor.getCurrentDocumentSnapshot()
+    const nodes = await materializeLocalExportNodes(documentSnapshot, signal)
+    signal.throwIfAborted()
+    const response = await fetch("/v1/studio/figma-handoffs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        createStudioInterchangePackage({
+          ...documentSnapshot,
+          nodes,
+        })
+      ),
+      signal,
+    })
+    const result: unknown = await response.json()
+    if (!response.ok) {
+      const message =
+        typeof result === "object" &&
+        result !== null &&
+        "error" in result &&
+        typeof result.error === "object" &&
+        result.error !== null &&
+        "message" in result.error &&
+        typeof result.error.message === "string"
+          ? result.error.message
+          : "Studio could not prepare the Figma handoff."
+      throw new Error(message)
+    }
+    if (
+      typeof result !== "object" ||
+      result === null ||
+      !("data" in result) ||
+      typeof result.data !== "object" ||
+      result.data === null ||
+      !("handoffUrl" in result.data) ||
+      typeof result.data.handoffUrl !== "string" ||
+      !("expiresAt" in result.data) ||
+      typeof result.data.expiresAt !== "string"
+    ) {
+      throw new Error("Studio received an invalid Figma handoff response.")
+    }
+    setFigmaHandoff({
+      handoffUrl: result.data.handoffUrl,
+      expiresAt: result.data.expiresAt,
+    })
+    setFigmaHandoffCopied(false)
+    return true
+  }
+
   const selectExactMedia = useCallback(
     (intent: LibraryMediaIntent) => {
       void mediaPickerSession.executeExactSelection(intent.detail)
@@ -3835,29 +3937,34 @@ export function StudioShell({
       ? "Saving before Home…"
       : criticalAction === "export-json"
         ? "Preparing JSON…"
-        : criticalAction === "import-json"
-          ? "Importing document…"
-          : criticalAction === "import-quotation"
-            ? "Importing quotation…"
-            : criticalAction === "export-png"
-              ? "Preparing PNG…"
-              : criticalAction === "export-pdf"
-                ? "Preparing PDF…"
-                : editor.localSaveState.status === "opening"
-                  ? "Opening document storage…"
-                  : editor.localSaveState.status === "saving"
-                    ? "Saving locally…"
-                    : editor.localSaveState.status === "failed"
-                      ? "Local save failed"
-                      : editor.localSaveState.status === "conflict"
-                        ? "Save conflict"
-                        : editor.localSaveState.status === "external_change"
-                          ? editor.localSaveState.reason === "deleted_elsewhere"
-                            ? "Deleted in another session"
-                            : "Changed in another session"
-                          : editor.localSaveState.status === "session_only"
-                            ? "Session only"
-                            : "All changes saved"
+        : criticalAction === "export-figma"
+          ? "Preparing Figma handoff…"
+          : criticalAction === "export-interchange"
+            ? "Preparing Studio package…"
+            : criticalAction === "import-json"
+              ? "Importing document…"
+              : criticalAction === "import-quotation"
+                ? "Importing quotation…"
+                : criticalAction === "export-png"
+                  ? "Preparing PNG…"
+                  : criticalAction === "export-pdf"
+                    ? "Preparing PDF…"
+                    : editor.localSaveState.status === "opening"
+                      ? "Opening document storage…"
+                      : editor.localSaveState.status === "saving"
+                        ? "Saving locally…"
+                        : editor.localSaveState.status === "failed"
+                          ? "Local save failed"
+                          : editor.localSaveState.status === "conflict"
+                            ? "Save conflict"
+                            : editor.localSaveState.status === "external_change"
+                              ? editor.localSaveState.reason ===
+                                "deleted_elsewhere"
+                                ? "Deleted in another session"
+                                : "Changed in another session"
+                              : editor.localSaveState.status === "session_only"
+                                ? "Session only"
+                                : "All changes saved"
   const publishLabel =
     editor.publishSyncStatus === "syncing"
       ? "Publishing…"
@@ -4032,6 +4139,22 @@ export function StudioShell({
               : null,
       },
       "document.export-json": {
+        enabled: !cropLocked && criticalAction === null,
+        disabledReason: criticalAction
+          ? "Wait for the current Studio operation to finish."
+          : cropLocked
+            ? "Finish or cancel the active image crop before exporting."
+            : null,
+      },
+      "document.export-interchange": {
+        enabled: !cropLocked && criticalAction === null,
+        disabledReason: criticalAction
+          ? "Wait for the current Studio operation to finish."
+          : cropLocked
+            ? "Finish or cancel the active image crop before exporting."
+            : null,
+      },
+      "document.export-figma": {
         enabled: !cropLocked && criticalAction === null,
         disabledReason: criticalAction
           ? "Wait for the current Studio operation to finish."
@@ -4240,6 +4363,28 @@ export function StudioShell({
         return true
       case "document.export-json":
         return dispatchCriticalAction("export-json", exportDocumentJson)
+      case "document.export-figma":
+        return dispatchCriticalAction(
+          "export-figma",
+          ({ signal }) => exportToFigma(signal),
+          {
+            cancelable: true,
+            timeoutMs: FOREGROUND_EXPORT_TIMEOUT_MS,
+            timeoutMessage:
+              "Figma handoff preparation took too long. No handoff link was created.",
+          }
+        )
+      case "document.export-interchange":
+        return dispatchCriticalAction(
+          "export-interchange",
+          ({ signal }) => exportEditablePackage(signal),
+          {
+            cancelable: true,
+            timeoutMs: FOREGROUND_EXPORT_TIMEOUT_MS,
+            timeoutMessage:
+              "Studio package preparation took too long. Nothing was downloaded.",
+          }
+        )
       case "document.publish":
         setPublishDialogOpen(true)
         return true
@@ -4487,7 +4632,9 @@ export function StudioShell({
         items: group.items.filter(
           (item) =>
             item.type !== "command" ||
-            item.command.invocation.commandId.startsWith("output.export-")
+            item.command.invocation.commandId.startsWith("output.export-") ||
+            item.command.invocation.commandId === "document.export-figma" ||
+            item.command.invocation.commandId === "document.export-interchange"
         ),
       })) ?? []
   const productMenuRuntime = useMemo<ProductCommandMenuRuntime>(
@@ -5191,9 +5338,7 @@ export function StudioShell({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-64">
-                <DropdownMenuLabel>
-                  {activeOutput?.name ?? "Current output"}
-                </DropdownMenuLabel>
+                <DropdownMenuLabel>Export</DropdownMenuLabel>
                 <ProductCommandDropdownItems
                   groups={productExportMenuGroups}
                   runtime={productMenuRuntime}
@@ -6678,6 +6823,49 @@ export function StudioShell({
             />
           </Suspense>
         ) : null}
+        <AlertDialog
+          open={figmaHandoff !== null}
+          onOpenChange={(open) => {
+            if (!open) {
+              setFigmaHandoff(null)
+              setFigmaHandoffCopied(false)
+            }
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Figma handoff ready</AlertDialogTitle>
+              <AlertDialogDescription>
+                Open the Studio Interchange Importer plugin in Figma, choose
+                URL, and paste this temporary link. The link expires at{" "}
+                {figmaHandoff
+                  ? new Date(figmaHandoff.expiresAt).toLocaleTimeString([], {
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })
+                  : ""}
+                .
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="rounded-md border bg-muted/40 px-3 py-2 font-mono text-xs break-all text-muted-foreground">
+              {figmaHandoff?.handoffUrl}
+            </div>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Close</AlertDialogCancel>
+              <Button
+                type="button"
+                onClick={() => {
+                  if (!figmaHandoff) return
+                  void navigator.clipboard
+                    .writeText(figmaHandoff.handoffUrl)
+                    .then(() => setFigmaHandoffCopied(true))
+                }}
+              >
+                {figmaHandoffCopied ? "Copied" : "Copy handoff link"}
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
         <AlertDialog
           open={editor.pendingDocumentImportMediaReview !== null}
           onOpenChange={(open) => {

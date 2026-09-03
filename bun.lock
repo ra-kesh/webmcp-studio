@@ -73,6 +73,17 @@
         "wrangler": "latest",
       },
     },
+    "packages/canva-importer": {
+      "name": "@webmcp/canva-importer",
+      "version": "0.1.0",
+      "dependencies": {
+        "@webmcp/document": "workspace:*",
+      },
+      "devDependencies": {
+        "typescript": "^6",
+        "vitest": "latest",
+      },
+    },
     "packages/document": {
       "name": "@webmcp/document",
       "version": "0.1.0",
@@ -95,6 +106,17 @@
       "devDependencies": {
         "typescript": "^6",
         "vitest": "latest",
+      },
+    },
+    "packages/figma-importer": {
+      "name": "@webmcp/figma-importer",
+      "version": "0.1.0",
+      "dependencies": {
+        "@webmcp/document": "workspace:*",
+      },
+      "devDependencies": {
+        "@figma/plugin-typings": "^1.137.0",
+        "typescript": "^6",
       },
     },
     "packages/render-view": {
@@ -337,6 +359,8 @@
     "@eslint/object-schema": ["@eslint/object-schema@2.1.7", "", {}, "sha512-VtAOaymWVfZcmZbp6E2mympDIHvyjXs/12LqWYjVw6qjrfF+VK+fyG33kChz3nnK+SU5/NeHOqrTEHS8sXO3OA=="],
 
     "@eslint/plugin-kit": ["@eslint/plugin-kit@0.4.1", "", { "dependencies": { "@eslint/core": "^0.17.0", "levn": "^0.4.1" } }, "sha512-43/qtrDUokr7LJqoF2c3+RInu/t4zfrpYdoSDfYyhg52rwLV6TnOvdG4fXm7IkSB3wErkcmJS9iEhjVtOSEjjA=="],
+
+    "@figma/plugin-typings": ["@figma/plugin-typings@1.137.0", "", {}, "sha512-sab4AZPa5oWXjbO27UHeHWGGbl6oX+25LSXwUQIN+hoKeoeFuYeoZ7h6rCE1LZkHlvbsZjucs8wqcnOqmKiVnQ=="],
 
     "@floating-ui/core": ["@floating-ui/core@1.8.0", "", { "dependencies": { "@floating-ui/utils": "^0.2.12" } }, "sha512-0CIZ5itps/8x7BG8dEIhs53BvCUH2PCoogtakwRTut+Arm58sJooJ0AuZhLw2HJYIR5cMLNPBSS728sPho2khQ=="],
 
@@ -896,9 +920,13 @@
 
     "@vitest/utils": ["@vitest/utils@4.1.11", "", { "dependencies": { "@vitest/pretty-format": "4.1.11", "convert-source-map": "^2.0.0", "tinyrainbow": "^3.1.0" } }, "sha512-zTCVGpyFsGWBhllOyKlTw/vnr6D9qxsfSDyfbyZmTyjHw5N/VuvzHpHoQjm2ZJzn4RJgx5w4r7V0er69CmLgPQ=="],
 
+    "@webmcp/canva-importer": ["@webmcp/canva-importer@workspace:packages/canva-importer"],
+
     "@webmcp/document": ["@webmcp/document@workspace:packages/document"],
 
     "@webmcp/editor": ["@webmcp/editor@workspace:packages/editor"],
+
+    "@webmcp/figma-importer": ["@webmcp/figma-importer@workspace:packages/figma-importer"],
 
     "@webmcp/render-view": ["@webmcp/render-view@workspace:packages/render-view"],
 

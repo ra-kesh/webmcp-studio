@@ -1,0 +1,21 @@
+{
+  "name": "@webmcp/canva-importer",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@webmcp/document": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^6",
+    "vitest": "latest"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

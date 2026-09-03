@@ -1,0 +1,13 @@
+{
+  "name": "Studio Interchange Importer",
+  "id": "webmcp-studio-interchange-importer",
+  "api": "1.0.0",
+  "main": "dist/code.js",
+  "ui": "src/ui.html",
+  "editorType": ["figma"],
+  "documentAccess": "dynamic-page",
+  "networkAccess": {
+    "allowedDomains": ["*"],
+    "reasoning": "The importer fetches the handoff JSON and image assets selected by the user."
+  }
+}

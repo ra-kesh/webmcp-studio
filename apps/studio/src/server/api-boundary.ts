@@ -169,6 +169,10 @@ const normalizedApiPath = (request: Request) => {
       "/v1/studio/documents/:documentId/revisions/:snapshotId"
     )
     .replace(
+      /^\/v1\/studio\/figma-handoffs\/[^/]+$/,
+      "/v1/studio/figma-handoffs/:token"
+    )
+    .replace(
       /^\/v1\/studio\/assets\/(?!local-promotions(?:\/|$))[^/]+(?:\/(content|deletion-impact|derivation-provenance|used))?$/,
       (_match, suffix: string | undefined) =>
         `/v1/studio/assets/:assetId${suffix ? `/${suffix}` : ""}`

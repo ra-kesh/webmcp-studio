@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Import from Studio</title>
+    <style>
+      :root {
+        color: #171717;
+        font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+        font-size: 12px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: #fff;
+      }
+
+      main {
+        display: grid;
+        gap: 16px;
+        padding: 20px;
+      }
+
+      h1,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 20px;
+      }
+
+      p {
+        color: #666;
+        line-height: 18px;
+      }
+
+      .tabs {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 4px;
+        padding: 4px;
+        border-radius: 8px;
+        background: #f2f2f2;
+      }
+
+      .tab {
+        height: 32px;
+        border: 0;
+        border-radius: 6px;
+        color: #666;
+        background: transparent;
+        cursor: pointer;
+        font: inherit;
+      }
+
+      .tab[aria-selected="true"] {
+        color: #171717;
+        background: #fff;
+        box-shadow: 0 1px 2px rgb(0 0 0 / 8%);
+      }
+
+      .panel {
+        display: none;
+        gap: 10px;
+      }
+
+      .panel[data-active="true"] {
+        display: grid;
+      }
+
+      label {
+        font-weight: 500;
+      }
+
+      input,
+      textarea {
+        width: 100%;
+        border: 1px solid #d9d9d9;
+        border-radius: 7px;
+        background: #fff;
+        color: #171717;
+        font: inherit;
+        outline: none;
+      }
+
+      input:focus,
+      textarea:focus {
+        border-color: #171717;
+      }
+
+      input[type="url"] {
+        height: 36px;
+        padding: 0 10px;
+      }
+
+      input[type="file"] {
+        padding: 9px;
+      }
+
+      textarea {
+        min-height: 132px;
+        resize: vertical;
+        padding: 10px;
+        line-height: 18px;
+      }
+
+      .actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+
+      button {
+        min-height: 32px;
+        border: 1px solid #d9d9d9;
+        border-radius: 7px;
+        padding: 0 12px;
+        background: #fff;
+        color: #171717;
+        cursor: pointer;
+        font: inherit;
+        font-weight: 500;
+      }
+
+      button.primary {
+        border-color: #171717;
+        background: #171717;
+        color: #fff;
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.45;
+      }
+
+      #status {
+        min-height: 38px;
+        padding: 10px;
+        border: 1px solid #e6e6e6;
+        border-radius: 7px;
+        background: #fafafa;
+        color: #555;
+        line-height: 17px;
+        white-space: pre-wrap;
+      }
+
+      #status[data-kind="error"] {
+        border-color: #f0c7c7;
+        background: #fff7f7;
+        color: #9d1717;
+      }
+
+      #status[data-kind="success"] {
+        border-color: #bfe0c7;
+        background: #f5fbf6;
+        color: #176329;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div>
+        <h1>Import from Studio</h1>
+        <p>Choose a Studio interchange JSON package.</p>
+      </div>
+
+      <div class="tabs" role="tablist" aria-label="Import source">
+        <button class="tab" type="button" data-tab="file" aria-selected="true">
+          File
+        </button>
+        <button class="tab" type="button" data-tab="url" aria-selected="false">
+          URL
+        </button>
+        <button
+          class="tab"
+          type="button"
+          data-tab="paste"
+          aria-selected="false"
+        >
+          Paste
+        </button>
+      </div>
+
+      <section class="panel" data-panel="file" data-active="true">
+        <label for="package-file">Interchange JSON</label>
+        <input
+          id="package-file"
+          type="file"
+          accept="application/json,.json,.studio.json"
+        />
+      </section>
+
+      <section class="panel" data-panel="url" data-active="false">
+        <label for="handoff-url">Handoff URL</label>
+        <input
+          id="handoff-url"
+          type="url"
+          placeholder="https://studio.example/export/..."
+        />
+      </section>
+
+      <section class="panel" data-panel="paste" data-active="false">
+        <label for="package-json">Interchange JSON</label>
+        <textarea
+          id="package-json"
+          spellcheck="false"
+          placeholder="Paste the exported JSON package"
+        ></textarea>
+      </section>
+
+      <div id="status" role="status" aria-live="polite">Ready to import.</div>
+
+      <div class="actions">
+        <button id="cancel" type="button">Cancel</button>
+        <button id="import" class="primary" type="button">Import</button>
+      </div>
+    </main>
+
+    <script>
+      const tabs = Array.from(document.querySelectorAll("[data-tab]"))
+      const panels = Array.from(document.querySelectorAll("[data-panel]"))
+      const importButton = document.getElementById("import")
+      const status = document.getElementById("status")
+      let activeTab = "file"
+
+      function setStatus(message, kind = "idle") {
+        status.textContent = message
+        status.dataset.kind = kind
+      }
+
+      function setBusy(busy) {
+        importButton.disabled = busy
+        importButton.textContent = busy ? "Importing..." : "Import"
+      }
+
+      tabs.forEach((tab) => {
+        tab.addEventListener("click", () => {
+          activeTab = tab.dataset.tab
+          tabs.forEach((candidate) => {
+            candidate.setAttribute(
+              "aria-selected",
+              String(candidate.dataset.tab === activeTab)
+            )
+          })
+          panels.forEach((panel) => {
+            panel.dataset.active = String(panel.dataset.panel === activeTab)
+          })
+          setStatus("Ready to import.")
+        })
+      })
+
+      document.getElementById("cancel").addEventListener("click", () => {
+        parent.postMessage({ pluginMessage: { type: "close" } }, "*")
+      })
+
+      importButton.addEventListener("click", async () => {
+        try {
+          setBusy(true)
+          if (activeTab === "url") {
+            const url = document.getElementById("handoff-url").value.trim()
+            if (!url) throw new Error("Enter a handoff URL.")
+            setStatus("Fetching the Studio package...")
+            parent.postMessage(
+              { pluginMessage: { type: "import-url", url } },
+              "*"
+            )
+            return
+          }
+
+          let raw
+          if (activeTab === "file") {
+            const file = document.getElementById("package-file").files[0]
+            if (!file) throw new Error("Choose a JSON file.")
+            raw = await file.text()
+          } else {
+            raw = document.getElementById("package-json").value.trim()
+            if (!raw) throw new Error("Paste a Studio interchange package.")
+          }
+
+          const payload = JSON.parse(raw)
+          setStatus("Rebuilding editable layers...")
+          parent.postMessage(
+            { pluginMessage: { type: "import-package", payload } },
+            "*"
+          )
+        } catch (error) {
+          setBusy(false)
+          setStatus(
+            error instanceof Error ? error.message : String(error),
+            "error"
+          )
+        }
+      })
+
+      window.onmessage = (event) => {
+        const message = event.data.pluginMessage
+        if (!message) return
+        if (message.type === "progress") {
+          setStatus(message.message)
+          return
+        }
+        if (message.type === "error") {
+          setBusy(false)
+          setStatus(message.message, "error")
+          return
+        }
+        if (message.type === "complete") {
+          setBusy(false)
+          const warningText = message.warnings.length
+            ? `\n${message.warnings.length} compatibility warning${message.warnings.length === 1 ? "" : "s"}. ${message.warnings.slice(0, 3).join(" ")}`
+            : ""
+          setStatus(
+            `Imported ${message.layers} editable layer${message.layers === 1 ? "" : "s"} across ${message.pages} page${message.pages === 1 ? "" : "s"}.${warningText}`,
+            "success"
+          )
+        }
+      }
+    </script>
+  </body>
+</html>
