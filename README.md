@@ -14,6 +14,42 @@ temporary and require no account.
 This repository contains only the generic editor and synthetic demo data. It
 does not contain customer data or private application code.
 
+## Continue editing in Figma
+
+ZeroEdit includes a Figma importer for taking a document beyond the built-in
+editor. The transfer keeps supported content as editable Figma layers. It is a
+one-time handoff, not a live sync.
+
+### Install the development plugin
+
+```bash
+bun install
+bun run --filter @webmcp/figma-importer build
+```
+
+In the Figma desktop app, open **Plugins > Development > Import plugin from
+manifest** and select `packages/figma-importer/manifest.json`.
+
+### Send a document to Figma
+
+1. Open the document in ZeroEdit and choose **Export to Figma** from the export
+   menu.
+2. Copy the handoff link. It expires after ten minutes.
+3. Run **Studio Interchange Importer** in Figma.
+4. Choose **URL**, paste the handoff link, and select **Import**.
+
+The importer creates a Figma page and page-sized frame for each ZeroEdit page.
+Text, shapes, SVG paths, images, compatible groups, solid paints, basic
+gradients, strokes, blend modes, and supported effects remain editable. The
+plugin reports any unsupported or lossy mappings after import. Field bindings,
+design variables, component semantics, multiple mask sources, independent
+stroke widths, and renderer-specific text shaping do not yet have exact Figma
+equivalents.
+
+The importer also accepts a downloaded Studio package or pasted interchange
+JSON. See the [Figma importer documentation](packages/figma-importer/README.md)
+for the current mapping.
+
 ## Prompts that work well
 
 Open a document at [zeroedit.app](https://zeroedit.app), then give one of these
@@ -229,6 +265,8 @@ finished candidate in Review and do not create the document until I approve it.
   local draft autosave
 - live WebMCP tools for document inspection, editable generation, rendered
   candidate inspection, review, asset upload, and explicit publishing
+- short-lived Figma handoffs that the bundled plugin rebuilds as editable pages
+  and layers
 - published-version API playground with strict parameter materialization,
   multi-output requests, downloadable artifacts, and render history
 - D1-backed immutable template versions, idempotent render jobs, failure state,
@@ -288,6 +326,7 @@ packages/
   render-view/   deterministic React view of the canonical document
   ui/            shadcn source components and design tokens
   webmcp/        route-aware tool catalog and service boundary
+  figma-importer/ development Figma plugin for editable Studio handoffs
 docs/            product, architecture, API, WebMCP, demo, and ADRs
 migrations/      D1 schema
 ```
